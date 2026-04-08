@@ -18,5 +18,6 @@ from .utils import (
 from .regression import smooth_matrix_prediction, smooth_regression
 from .simlr import simlr, predict_simlr, estimate_rank
 from .nnh import nnh_embed
+from .paths import simlr_path, permutation_test
 
 __version__ = "0.1.0"

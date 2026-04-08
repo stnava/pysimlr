@@ -25,7 +25,9 @@ from pysimlr import (
     predict_simlr,
     estimate_rank,
     rvcoef,
-    adjusted_rvcoef
+    adjusted_rvcoef,
+    simlr_path,
+    permutation_test
 )
 
 def test_utils_comprehensive():
@@ -43,8 +45,6 @@ def test_utils_comprehensive():
     assert len(nms) == 2
     nms_ex = get_names_from_dataframe(["_1"], df, exclusions=["right"])
     assert nms_ex == ["left_1"]
-    
-    # rvcoef coverage
     x = torch.randn(10, 5)
     y = torch.randn(10, 5)
     rv = rvcoef(x, y)
@@ -161,17 +161,26 @@ def test_nnh_embed_comprehensive():
 def test_predict_rank_comprehensive():
     x1 = torch.randn(30, 10)
     x2 = torch.randn(30, 8)
-    
-    # estimate_rank elbow
     k_elbow = estimate_rank([x1, x2], n_permutations=0)
     assert isinstance(k_elbow, int)
-    
-    # estimate_rank permutation
     k_perm = estimate_rank([x1, x2], n_permutations=2)
     assert isinstance(k_perm, int)
-    
-    # predict_simlr
     res = simlr([x1, x2], k=3, iterations=2)
     pred = predict_simlr([x1, x2], res)
     assert 'u' in pred
     assert len(pred['errors']) == 2
+
+def test_paths_comprehensive():
+    x1 = torch.randn(30, 10)
+    x2 = torch.randn(30, 10)
+    x3 = torch.randn(30, 10)
+    # Define a path model: 0 connected to 1, 1 connected to 2
+    pm = [[1], [0, 2], [1]]
+    res = simlr_path([x1, x2, x3], k=2, path_model=pm, iterations=5, verbose=True)
+    assert len(res['u']) == 3
+    assert res['u'][0].shape == (30, 2)
+    
+    # Test permutation test
+    pt_res = permutation_test([x1, x2], k=2, n_permutations=5, iterations=2)
+    assert 'p_value' in pt_res
+    assert isinstance(pt_res['p_value'], float)
