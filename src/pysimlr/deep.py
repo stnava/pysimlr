@@ -14,9 +14,6 @@ except ImportError:
     nsa = None
 
 class ModalityEncoder(nn.Module):
-    """
-    A flexible MLP encoder for a single modality.
-    """
     def __init__(self, input_dim: int, latent_dim: int, hidden_dims: List[int] = [128, 64], dropout: float = 0.1):
         super().__init__()
         layers = []
@@ -35,9 +32,6 @@ class ModalityEncoder(nn.Module):
         return self.network(x)
 
 class LinearModalityEncoder(nn.Module):
-    """
-    A strict linear encoder (V matrix) for LEND SiMR.
-    """
     def __init__(self, input_dim: int, latent_dim: int):
         super().__init__()
         self.v = nn.Parameter(torch.randn(input_dim, latent_dim) * 0.01)
@@ -46,9 +40,6 @@ class LinearModalityEncoder(nn.Module):
         return x @ self.v
 
 class ModalityDecoder(nn.Module):
-    """
-    A flexible MLP decoder for a single modality.
-    """
     def __init__(self, latent_dim: int, output_dim: int, hidden_dims: List[int] = [64, 128], dropout: float = 0.1):
         super().__init__()
         layers = []
@@ -67,9 +58,6 @@ class ModalityDecoder(nn.Module):
         return self.network(z)
 
 class DeepSiMRModel(nn.Module):
-    """
-    Multi-view Autoencoder for Deep SiMR.
-    """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], dropout: float = 0.1):
         super().__init__()
         self.encoders = nn.ModuleList([
@@ -85,9 +73,6 @@ class DeepSiMRModel(nn.Module):
         return latents, reconstructions
 
 class LENDSiMRModel(nn.Module):
-    """
-    Linear Encode, Non-linear Decoder for SiMR.
-    """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [64, 128], dropout: float = 0.1):
         super().__init__()
         self.encoders = nn.ModuleList([
@@ -112,9 +97,6 @@ class LENDSiMRModel(nn.Module):
         return latents, reconstructions
 
 def calculate_sim_loss(latents: List[torch.Tensor], u_shared: torch.Tensor, energy_type: str = "regression") -> torch.Tensor:
-    """
-    Calculates the similarity loss between modality latents (Z) and shared latent (U).
-    """
     sim_loss = torch.tensor(0.0, device=u_shared.device)
     n = u_shared.shape[0]
     
@@ -128,7 +110,10 @@ def calculate_sim_loss(latents: List[torch.Tensor], u_shared: torch.Tensor, ener
             sim_loss -= torch.sum(torch.abs(cov))
         elif energy_type == "logcosh":
             s = u_shared.t() @ z
-            sim_loss -= torch.sum(torch.log(torch.cosh(s))) / n
+            # Numerically stable logcosh to avoid NaNs: |s| - log(2) + log(1 + exp(-2|s|))
+            abs_s = torch.abs(s)
+            stable_logcosh = abs_s - np.log(2.0) + torch.log1p(torch.exp(-2.0 * abs_s))
+            sim_loss -= torch.sum(stable_logcosh) / n
         elif energy_type == "exp":
             s = u_shared.t() @ z
             sim_loss -= torch.sum(-torch.exp(-s**2 / 2.0)) / n
@@ -137,7 +122,9 @@ def calculate_sim_loss(latents: List[torch.Tensor], u_shared: torch.Tensor, ener
             sim_loss -= torch.sum(-0.5 * torch.exp(-s**2)) / n
         elif energy_type == "kurtosis":
             s = u_shared.t() @ z
-            sim_loss -= torch.sum((s**4.0) / 4.0) / n
+            # Clamp s to prevent overflow in s**4
+            s_clamped = torch.clamp(s, min=-20.0, max=20.0)
+            sim_loss -= torch.sum((s_clamped**4.0) / 4.0) / n
             
     return sim_loss
 
@@ -153,9 +140,6 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               energy_type: str = "regression",
               device: Optional[str] = None,
               verbose: bool = False) -> Dict[str, Any]:
-    """
-    Deep SiMR: Non-linear Multi-modal Integration using PyTorch Autoencoders.
-    """
     if device is None:
         device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device)
@@ -193,8 +177,11 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             sim_loss = calculate_sim_loss(latents, u_shared, energy_type)
             
             total_loss = recon_loss + sim_weight * sim_loss
-            total_loss.backward()
             
+            if torch.isnan(total_loss):
+                continue
+                
+            total_loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             
@@ -202,9 +189,9 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             epoch_recon += recon_loss.item()
             epoch_sim += sim_loss.item()
             
-        epoch_loss /= len(dataloader)
-        epoch_recon /= len(dataloader)
-        epoch_sim /= len(dataloader)
+        epoch_loss /= max(1, len(dataloader))
+        epoch_recon /= max(1, len(dataloader))
+        epoch_sim /= max(1, len(dataloader))
         
         loss_history.append(epoch_loss)
         recon_history.append(epoch_recon)
@@ -224,8 +211,8 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     return {
         "model": model.cpu(),
         "model_type": "deep_simr",
-        "u": u_final.cpu(),
-        "latents": [l.cpu() for l in final_latents],
+        "u": torch.nan_to_num(u_final.cpu()),
+        "latents": [torch.nan_to_num(l.cpu()) for l in final_latents],
         "loss_history": loss_history,
         "recon_history": recon_history,
         "sim_history": sim_history
@@ -246,9 +233,6 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               energy_type: str = "regression",
               device: Optional[str] = None,
               verbose: bool = False) -> Dict[str, Any]:
-    """
-    LEND SiMR: Linear Encode, Non-linear Decoder. Yields interpretable V matrices.
-    """
     if device is None:
         device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device)
@@ -260,10 +244,13 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     model.initialize_v(torch_mats, k)
     model = model.to(device)
     
-    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
-    mse_loss = nn.MSELoss()
+    decoder_optimizer = optim.AdamW(model.decoders.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    encoder_optimizer = optim.SGD(model.encoders.parameters(), lr=learning_rate * 10.0) 
     
+    scheduler_dec = CosineAnnealingLR(decoder_optimizer, T_max=epochs)
+    scheduler_enc = CosineAnnealingLR(encoder_optimizer, T_max=epochs)
+    
+    mse_loss = nn.MSELoss()
     dataset = TensorDataset(*torch_mats)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
@@ -279,7 +266,9 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         
         for batch in dataloader:
             batch_mats = [b.to(device) for b in batch]
-            optimizer.zero_grad()
+            
+            decoder_optimizer.zero_grad()
+            encoder_optimizer.zero_grad()
             
             latents, reconstructions = model(batch_mats)
             
@@ -287,44 +276,55 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             u_shared = torch.mean(torch.stack(latents), dim=0)
             
             sim_loss = calculate_sim_loss(latents, u_shared, energy_type)
-            
             l1_loss = sum(torch.sum(torch.abs(enc.v)) for enc in model.encoders)
             
             total_loss = recon_loss + sim_weight * sim_loss + 1e-4 * l1_loss
-            total_loss.backward()
             
+            if torch.isnan(total_loss):
+                continue
+                
+            total_loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
+            
+            decoder_optimizer.step()
+            encoder_optimizer.step()
+            
+            with torch.no_grad():
+                for enc in model.encoders:
+                    v = enc.v.detach().cpu()
+                    v_retracted = None
+                    if nsa is not None:
+                        try:
+                            v_retracted = nsa.nsa_flow_retract_auto(v, w_retract=nsa_omega, retraction_type="soft_polar")
+                            if torch.isnan(v_retracted).any():
+                                v_retracted = None # Fallback to SVD if NSA fails
+                        except:
+                            v_retracted = None
+                            
+                    if v_retracted is None:
+                        u_svd, _, v_svd = torch.linalg.svd(v, full_matrices=False)
+                        v_retracted = u_svd @ v_svd
+                        
+                    v_sparse = orthogonalize_and_q_sparsify(v_retracted, sparseness_quantile, positivity)
+                    # Protect against total sparsity causing NaNs down the line
+                    if torch.isnan(v_sparse).any():
+                        v_sparse = torch.nan_to_num(v_sparse)
+                    enc.v.copy_(v_sparse.to(device))
             
             epoch_loss += total_loss.item()
             epoch_recon += recon_loss.item()
             epoch_sim += sim_loss.item()
             
-        with torch.no_grad():
-            for enc in model.encoders:
-                v = enc.v.detach().cpu()
-                if nsa is not None:
-                    try:
-                        v_retracted = nsa.nsa_flow_retract_auto(v, w_retract=nsa_omega, retraction_type="soft_polar")
-                    except:
-                        u_svd, _, v_svd = torch.linalg.svd(v, full_matrices=False)
-                        v_retracted = u_svd @ v_svd
-                else:
-                    u_svd, _, v_svd = torch.linalg.svd(v, full_matrices=False)
-                    v_retracted = u_svd @ v_svd
-                    
-                v_sparse = orthogonalize_and_q_sparsify(v_retracted, sparseness_quantile, positivity)
-                enc.v.copy_(v_sparse.to(device))
-        
-        epoch_loss /= len(dataloader)
-        epoch_recon /= len(dataloader)
-        epoch_sim /= len(dataloader)
+        epoch_loss /= max(1, len(dataloader))
+        epoch_recon /= max(1, len(dataloader))
+        epoch_sim /= max(1, len(dataloader))
         
         loss_history.append(epoch_loss)
         recon_history.append(epoch_recon)
         sim_history.append(epoch_sim)
         
-        scheduler.step()
+        scheduler_dec.step()
+        scheduler_enc.step()
         
         if verbose and epoch % max(1, epochs // 10) == 0:
             print(f"Epoch {epoch}: Total={epoch_loss:.4f} (Recon={epoch_recon:.4f}, Sim={epoch_sim:.4f})")
@@ -334,14 +334,14 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         all_torch_mats = [m.to(device) for m in torch_mats]
         final_latents, _ = model(all_torch_mats)
         u_final = torch.mean(torch.stack(final_latents), dim=0)
-        v_mats = [enc.v.detach().cpu() for enc in model.encoders]
+        v_mats = [torch.nan_to_num(enc.v.detach().cpu()) for enc in model.encoders]
         
     return {
         "model": model.cpu(),
         "model_type": "lend_simr",
-        "u": u_final.cpu(),
+        "u": torch.nan_to_num(u_final.cpu()),
         "v": v_mats,
-        "latents": [l.cpu() for l in final_latents],
+        "latents": [torch.nan_to_num(l.cpu()) for l in final_latents],
         "loss_history": loss_history,
         "recon_history": recon_history,
         "sim_history": sim_history

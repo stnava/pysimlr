@@ -205,9 +205,9 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             errors.append(err.item())
             
         return {
-            "u": u_new.cpu(),
-            "latents": [l.cpu() for l in latents],
-            "reconstructions": [r.cpu() for r in reconstructions],
+            "u": torch.nan_to_num(u_new.cpu()),
+            "latents": [torch.nan_to_num(l.cpu()) for l in latents],
+            "reconstructions": [torch.nan_to_num(r.cpu()) for r in reconstructions],
             "errors": errors
         }
     
@@ -220,7 +220,7 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     for x, x_pred in zip(torch_mats, reconstructions):
         err = torch.norm(x - x_pred, p='fro') / torch.norm(x, p='fro')
         errors.append(err.item())
-    return {"u": u_new, "reconstructions": reconstructions, "errors": errors}
+    return {"u": torch.nan_to_num(u_new), "reconstructions": reconstructions, "errors": errors}
 
 def estimate_rank(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                   n_permutations: int = 20,

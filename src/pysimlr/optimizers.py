@@ -120,12 +120,26 @@ class NSAFlowOptimizer(SimlrOptimizer):
 
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
-        # NSA-Flow uses retraction to maintain orthogonality
-        # Y_next = retract(Y + step * grad)
         # In SIMLR, descent_gradient is -grad(E_fidelity)
         v_cand = v_current + self.lr * descent_gradient
-        # nsa_flow_retract_auto(Y_cand, w_retract, retraction_type)
-        v_next = nsa.nsa_flow_retract_auto(v_cand, w_retract=self.w, retraction_type="soft_polar")
+        try:
+            res_nsa = nsa.nsa_flow_orth(
+                v_cand,
+                w=self.w,
+                retraction="soft_polar",
+                optimizer="asgd",
+                max_iter=500,
+                tol=1e-5,
+                verbose=False
+            )
+            v_next = res_nsa['Y']
+            if torch.isnan(v_next).any():
+                u_svd, _, v_svd = torch.linalg.svd(v_cand, full_matrices=False)
+                v_next = u_svd @ v_svd
+        except:
+            u_svd, _, v_svd = torch.linalg.svd(v_cand, full_matrices=False)
+            v_next = u_svd @ v_svd
+            
         return v_next
 
 class TorchNativeOptimizer(SimlrOptimizer):
