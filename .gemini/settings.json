@@ -1,0 +1,51 @@
+{
+  "model": {
+    "name": "gemini-3-flash-preview",
+    "enableCaching": true,
+    "cacheTTL": "1h",
+    "minCachingTokens": 4096,
+    "includeThoughts": true
+  },
+  "tools": {
+    "sandbox": "true",
+    "core": [
+      "run_shell_command(python)",
+      "run_shell_command(python3)",
+      "run_shell_command(pytest)",
+      "run_shell_command(git)",
+      "run_shell_command(ls)",
+      "run_shell_command(rm)",
+      "read_file",
+      "write_file"
+    ]
+  },
+  "shell": {
+      "allow_all": true,
+      "authorized_commands": ["python3", "pytest", "git", "ls",  "rm", "python", "grep", "find", "mkdir", "touch", "cat", "mv", "cp", "pip", "npm" ]
+    },
+  "ux": {
+    "auto_accept_shell": true,
+    "plan_model_routing": false,
+    "interactive_planning": false, 
+    "system_instructions": "BIAS TO ACTION: You have terminal access. You must never modify a large set of application code without subsequently finding and running the associated tests using 'pytest'. If you do not know the test file name, use 'find' or 'grep' to locate it. Automatically attempt to fix any failing tests up to 5 times before pausing for human input."  },
+  "ui": {
+    "inlineThinkingMode": "full",
+    "showStatusInTitle": true,
+    "showToolCalls": true
+  },
+  "project": {
+    "indexing": {
+      "enabled": true,
+      "watch": true,
+      "exclude_gitignore": true,
+      "max_file_size_kb": 2048
+    }
+  },
+  "excludeDirectories": [
+    "./bigdata"
+  ],
+  "fileFiltering": {
+    "maxFileSize": "5MB",
+    "respectGitIgnore": true
+  }
+}

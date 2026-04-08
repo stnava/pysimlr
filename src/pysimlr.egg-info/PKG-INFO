@@ -1,3 +1,19 @@
+Metadata-Version: 2.4
+Name: pysimlr
+Version: 0.1.0
+Summary: A professional PyTorch implementation of SIMLR
+License: Apache-2.0
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: torch>=2.0.0
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: pandas
+Requires-Dist: scikit-learn
+Provides-Extra: test
+Requires-Dist: pytest; extra == "test"
+Requires-Dist: pytest-cov; extra == "test"
+
 # pysimlr
 
 A professional, high-performance PyTorch implementation of SIMLR (Structured Identification of Multimodal Low-rank Relationships), based on the reference R implementation.
