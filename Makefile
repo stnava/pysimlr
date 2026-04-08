@@ -34,7 +34,9 @@ docs:
 	@echo "Rendering Quarto docs using python: $(shell which $(PYTHON))"
 	export QUARTO_PYTHON=$(shell which $(PYTHON)); \
 	export PYTHONPATH=$(SRC_PATH):$$PYTHONPATH; \
-	quarto render $(DOCS_DIR)
+	quarto render $(DOCS_DIR)/deep_simr_tutorial.qmd
+	quarto render $(DOCS_DIR)/lend_simr_tutorial.qmd
+	quarto render $(DOCS_DIR)/tutorial_domain_knowledge.qmd
 
 .PHONY: clean
 clean:

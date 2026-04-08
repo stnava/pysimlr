@@ -22,7 +22,7 @@ In this tutorial, we will:
 2. Train a LEND SiMR model to extract the shared latent space and the $V$ matrices.
 3. Show inference and validation performance on held-out data.
 4. Demonstrate the ability to seamlessly switch out loss functions.
-5. Explore the impact of the `nsa-flow` retraction parameter ($\omega$).
+5. Explore the impact of the `nsa-flow` retraction parameter ($w$).
 6. Provide diagnostics of the optimization process (reconstruction vs. similarity loss).
 
 ## 1. Simulation Setup
@@ -33,8 +33,10 @@ We simulate two modalities influenced by an independent "radicality" gradient. T
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 from sklearn.model_selection import train_test_split
 from pysimlr import lend_simr, predict_simlr
+import pysimlr.utils
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 
@@ -102,7 +104,7 @@ plt.show()
 
 We train `lend_simr`. Under the hood:
 *   The **Decoder** is optimized using standard `AdamW` with a cosine annealing learning rate scheduler.
-*   The **Encoder** (the $V_i$ matrices) is updated by `AdamW`. After every epoch, it is mathematically retracted to the Stiefel manifold to maintain orthogonality (using `nsa_flow`) and sparsified according to `sparseness_quantile`.
+*   The **Encoder** (the $V_i$ matrices) is updated by `AdamW`. After every epoch, it is mathematically retracted to the Stiefel manifold to maintain orthogonality (using `nsa-flow`) and sparsified according to `sparseness_quantile`.
 *   We'll use `energy_type="regression"` (MSE) for similarity matching.
 
 ```{python}
@@ -115,9 +117,9 @@ lend_results = lend_simr(
     learning_rate=1e-3,
     weight_decay=1e-4,
     sim_weight=1.0,
-    sparseness_quantile=0.0, # nah
-    positivity="soft",
-    nsa_omega=0.5,
+    sparseness_quantile=0.5, 
+    positivity="hard",
+    nsa_w=0.5,
     hidden_dims=[64, 32], 
     dropout=0.1,
     energy_type="regression", 
@@ -208,21 +210,27 @@ plt.grid(True, alpha=0.3)
 plt.show()
 ```
 
-## 4. Parameter Sweep: NSA-Flow Omega & Energy Types
+## 4. Parameter Sweep: NSA-Flow $w$ & Energy Types
 
-LEND SiMR allows users to swap energy functions easily. Here, we demonstrate the use of the **Absolute Canonical Covariance (ACC)** energy type. Furthermore, we can adjust the `nsa_omega` parameter. A lower $\omega$ (closer to 0) makes the retraction to the Stiefel manifold "softer," allowing the gradients more freedom before enforcing strict orthogonality, while a higher $\omega$ (closer to 1) forces strict adherence to the manifold at every step.
+LEND SiMR allows users to swap energy functions easily. Furthermore, we can adjust the `nsa_w` parameter. This parameter controls the **nsa-flow retraction weight**. A lower $w$ (closer to 0) makes the retraction to the Stiefel manifold "softer," allowing the gradients more freedom before enforcing strict orthogonality, while a higher $w$ (closer to 1) forces strict adherence to the manifold at every step.
 
-We will run a small sweep over different omega values and energy types and compare their held-out validation $R^2$.
+We will run a small sweep over different $w$ values and energy types and compare their performance using several new diagnostic metrics.
+
+### New Diagnostics for Model Quality
+
+To rigorously evaluate our model, we track:
+- **V Sparseness**: The percentage of zeros in the $V$ matrices, indicating how interpretable the encoder is.
+- **Similarity Score (RV)**: The RV coefficient between modality-specific latents and the shared latent $u$. This measures how well each modality aligns with the joint space.
+- **Orthogonality**: Measured as $||V^T V - I|| / k$. Values closer to zero indicate better adherence to the Stiefel manifold.
+- **RV Coef**: The RV coefficient between the latents of the different modalities.
 
 ```{python}
-import pandas as pd
-
 results_sweep = []
-omegas = [0.1, 0.5, 0.9]
+ws = [0.1, 0.5, 0.9]
 energies = ["regression", "acc", "logcosh"]
 
 for e_type in energies:
-    for om in omegas:
+    for w_val in ws:
         res = lend_simr(
             data_matrices=train_mats,
             k=k,
@@ -231,7 +239,8 @@ for e_type in energies:
             learning_rate=1e-3,
             sim_weight=1.0,
             sparseness_quantile=0.5, 
-            nsa_omega=om,
+            positivity="hard",
+            nsa_w=w_val,
             energy_type=e_type, 
             verbose=False
         )
@@ -239,23 +248,37 @@ for e_type in energies:
         # Inference on test set
         pred = predict_simlr(test_mats, res)
         
-        # Regression
+        # Performance: Regression
         rm = LinearRegression()
         rm.fit(pred['u'].numpy(), rad_test.numpy())
         rp = rm.predict(pred['u'].numpy())
         r2 = r2_score(rad_test.numpy(), rp)
         
+        # Diagnostics
+        v_mats = res['v']
+        latents = res['latents']
+        u_shared = res['u']
+        
+        avg_sparseness = np.mean([(v == 0).float().mean().item() for v in v_mats])
+        avg_ortho = np.mean([ (torch.norm(v.t() @ v - torch.eye(k)) / k).item() for v in v_mats])
+        avg_sim_score = np.mean([pysimlr.utils.rvcoef(l, u_shared) for l in latents])
+        rv_modalities = pysimlr.utils.rvcoef(latents[0], latents[1])
+        
         results_sweep.append({
             "Energy Type": e_type,
-            "NSA Omega": om,
-            "Held-out R2": r2
+            "NSA w": w_val,
+            "Held-out R2": r2,
+            "V Sparseness": avg_sparseness,
+            "Similarity Score": avg_sim_score,
+            "Orthogonality": avg_ortho,
+            "RV Coef": rv_modalities
         })
 
 df_results = pd.DataFrame(results_sweep)
-df_results.pivot(index="Energy Type", columns="NSA Omega", values="Held-out R2").round(3)
+display(df_results.round(3))
 ```
 
-By examining the grid, we can observe how different energy types (e.g., the covariance-maximizing ACC or the ICA-like logcosh) and varying strengths of manifold retraction ($\omega$) impact the model's ability to discover and generalize the underlying biological structure on out-of-sample data.
+By examining the table, we can observe how different energy types and varying strengths of manifold retraction ($w$) impact the model's diagnostics and generalization.
 
 ## Conclusion
 

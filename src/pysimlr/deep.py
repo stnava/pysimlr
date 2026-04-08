@@ -36,7 +36,7 @@ class LENDNSAEncoder(nn.Module):
     A linear encoder optimized for LEND SiMR that delegates orthogonality 
     and positivity constraints to the NSAFlowLayer.
     """
-    def __init__(self, input_dim: int, latent_dim: int, nsa_omega: float = 0.5, 
+    def __init__(self, input_dim: int, latent_dim: int, nsa_w: float = 0.5, 
                  positivity: str = "either", sparseness_quantile: float = 0.0):
         super().__init__()
         self.v_raw = nn.Parameter(torch.randn(input_dim, latent_dim) * 0.01)
@@ -44,13 +44,15 @@ class LENDNSAEncoder(nn.Module):
         self.sparseness_quantile = sparseness_quantile
         
         apply_nonneg = 'none'
-        if positivity == 'positive':
+        if positivity in ['positive', 'hard']:
             apply_nonneg = 'hard'
             
         if nsa is not None:
+            # Note: NSAFlowLayer uses w_retract for the retraction weight, 
+            # while nsa_flow_orth function uses w. We map nsa_w to w_retract here.
             self.nsa_layer = nsa.NSAFlowLayer(
                 k=latent_dim, 
-                w_retract=nsa_omega, 
+                w_retract=nsa_w, 
                 retraction_type="soft_polar", 
                 apply_nonneg=apply_nonneg,
                 residual=False, # We want strict linear V, no extra MLP transform
@@ -71,7 +73,7 @@ class LENDNSAEncoder(nn.Module):
             # SVD fallback
             u_svd, _, v_svd = torch.linalg.svd(self.v_raw, full_matrices=False)
             v_out = u_svd @ v_svd
-            if self.positivity == 'positive':
+            if self.positivity in ['positive', 'hard']:
                 v_out = torch.clamp(v_out, min=0.0)
                 
         # Apply quantile sparsification (differentiably using mask, or just zero out)
@@ -85,7 +87,7 @@ class LENDNSAEncoder(nn.Module):
                     mask = abs_vals < q_val
                 else:
                     q_val = torch.quantile(col_vals, self.sparseness_quantile)
-                    if self.positivity == "positive":
+                    if self.positivity in ["positive", "hard"]:
                         mask = col_vals <= q_val
                     elif self.positivity == "negative":
                         mask = col_vals >= q_val
@@ -135,10 +137,10 @@ class DeepSiMRModel(nn.Module):
 
 class LENDSiMRModel(nn.Module):
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [64, 128], 
-                 dropout: float = 0.1, nsa_omega: float = 0.5, positivity: str = "either", sparseness_quantile: float = 0.0):
+                 dropout: float = 0.1, nsa_w: float = 0.5, positivity: str = "either", sparseness_quantile: float = 0.0):
         super().__init__()
         self.encoders = nn.ModuleList([
-            LENDNSAEncoder(dim, latent_dim, nsa_omega, positivity, sparseness_quantile) for dim in input_dims
+            LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sparseness_quantile) for dim in input_dims
         ])
         self.decoders = nn.ModuleList([
             ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims
@@ -287,12 +289,17 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               sim_weight: float = 0.1,
               sparseness_quantile: float = 0.0,
               positivity: str = "either",
-              nsa_omega: float = 0.5,
+              nsa_w: float = 0.5,
               hidden_dims: List[int] = [64, 128],
               dropout: float = 0.1,
               energy_type: str = "regression",
               device: Optional[str] = None,
-              verbose: bool = False) -> Dict[str, Any]:
+              verbose: bool = False,
+              **kwargs) -> Dict[str, Any]:
+    # Allow nsa_omega as an alias for nsa_w for backward compatibility
+    if 'nsa_omega' in kwargs:
+        nsa_w = kwargs.pop('nsa_omega')
+
     if device is None:
         device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device)
@@ -301,7 +308,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     input_dims = [m.shape[1] for m in torch_mats]
     
     model = LENDSiMRModel(input_dims, k, hidden_dims, dropout=dropout, 
-                          nsa_omega=nsa_omega, positivity=positivity, sparseness_quantile=sparseness_quantile)
+                          nsa_w=nsa_w, positivity=positivity, sparseness_quantile=sparseness_quantile)
     model.initialize_v(torch_mats, k)
     model = model.to(device)
     
@@ -379,5 +386,8 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "latents": [torch.nan_to_num(l.cpu()) for l in final_latents],
         "loss_history": loss_history,
         "recon_history": recon_history,
-        "sim_history": sim_history
+        "sim_history": sim_history,
+        "nsa_w": nsa_w,
+        "sparseness_quantile": sparseness_quantile,
+        "positivity": positivity
     }
