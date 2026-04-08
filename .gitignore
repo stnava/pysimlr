@@ -1,2 +1,13 @@
 
+.agentantsx_workflow 
 INSTRUCTIONS.md
+src/pysimlr/__pycache__/__init__.cpython-312.pyc
+src/pysimlr/__pycache__/optimizers.cpython-312.pyc
+src/pysimlr/__pycache__/regression.cpython-312.pyc
+src/pysimlr/__pycache__/simlr.cpython-312.pyc
+src/pysimlr/__pycache__/sparse.cpython-312.pyc
+src/pysimlr/__pycache__/sparsification.cpython-312.pyc
+src/pysimlr/__pycache__/svd.cpython-312.pyc
+src/pysimlr/__pycache__/utils.cpython-312.pyc
+tests/__pycache__/test_pysimlr.cpython-312-pytest-9.0.2.pyc
+tests/__pycache__/test_pysimlr.cpython-312-pytest-9.0.3.pyc
