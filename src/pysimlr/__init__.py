@@ -16,7 +16,7 @@ from .utils import (
     adjusted_rvcoef
 )
 from .regression import smooth_matrix_prediction, smooth_regression
-from .simlr import simlr, predict_simlr, estimate_rank
+from .simlr import simlr, predict_simlr, estimate_rank, decompose_energy
 from .nnh import nnh_embed
 from .paths import simlr_path, permutation_test
 

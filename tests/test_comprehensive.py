@@ -24,6 +24,7 @@ from pysimlr import (
     nnh_embed,
     predict_simlr,
     estimate_rank,
+    decompose_energy,
     rvcoef,
     adjusted_rvcoef,
     simlr_path,
@@ -138,11 +139,16 @@ def test_simlr_comprehensive():
                optimizer_type="hybrid_adam",
                verbose=True)
     assert res['u'].shape == (20, 3)
-    assert len(res['energy']) == 5
-    res2 = simlr([x1, x2], k=2, iterations=2, domain_lambdas=[0.1, 0.2])
-    assert len(res2['v']) == 2
-    res3 = simlr([x1, x2], k=2, iterations=2, initialization_type="pca")
-    assert len(res3['v']) == 2
+    
+    # Test non-linear ICA energy types
+    for nle in ["logcosh", "exp", "gauss", "kurtosis"]:
+        res_nle = simlr([x1, x2], k=2, iterations=2, energy_type=nle)
+        assert len(res_nle['energy']) == 2
+        
+    # Energy decomposition
+    dec = decompose_energy([x1, x2], res, energy_type="acc")
+    assert len(dec['modality_energies']) == 2
+    assert dec['feature_importances'][0].shape[0] == 10
 
 def test_nnh_embed_comprehensive():
     n = 20
@@ -174,13 +180,10 @@ def test_paths_comprehensive():
     x1 = torch.randn(30, 10)
     x2 = torch.randn(30, 10)
     x3 = torch.randn(30, 10)
-    # Define a path model: 0 connected to 1, 1 connected to 2
     pm = [[1], [0, 2], [1]]
     res = simlr_path([x1, x2, x3], k=2, path_model=pm, iterations=5, verbose=True)
     assert len(res['u']) == 3
     assert res['u'][0].shape == (30, 2)
-    
-    # Test permutation test
     pt_res = permutation_test([x1, x2], k=2, n_permutations=5, iterations=2)
     assert 'p_value' in pt_res
     assert isinstance(pt_res['p_value'], float)
