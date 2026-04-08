@@ -11,9 +11,12 @@ from .utils import (
     multigrep,
     get_names_from_dataframe,
     map_asym_var,
-    map_lr_average_var
+    map_lr_average_var,
+    rvcoef,
+    adjusted_rvcoef
 )
 from .regression import smooth_matrix_prediction, smooth_regression
-from .simlr import simlr
+from .simlr import simlr, predict_simlr, estimate_rank
+from .nnh import nnh_embed
 
 __version__ = "0.1.0"

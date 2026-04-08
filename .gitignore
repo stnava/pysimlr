@@ -1,7 +1,10 @@
-
+.coverage
+src/pysimlr/__pycache__/
 .agentantsx_workflow 
 INSTRUCTIONS.md
 reference_r
+src/pysimlr.egg-info
+src/pysimlr.egg-info/*
 tests/__pycache__/
 src/pysimlr/__pycache__/__init__.cpython-312.pyc
 src/pysimlr/__pycache__/optimizers.cpython-312.pyc
