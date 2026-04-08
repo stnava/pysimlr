@@ -5,6 +5,7 @@ PYTHON ?= python
 PIP ?= pip
 SRC_DIR := src
 TEST_DIR := tests
+DOCS_DIR := docs
 
 # Get the absolute path of the current directory, properly quoted for shell
 SRC_PATH := "$(shell pwd)/$(SRC_DIR)"
@@ -17,6 +18,7 @@ all: help
 help:
 	@echo "Available targets:"
 	@echo "  test       : Run all tests with code coverage (default)"
+	@echo "  docs       : Render Quarto tutorials using the active virtual environment"
 	@echo "  clean      : Remove build artifacts and temporary files"
 	@echo "  install    : Install the package in editable mode"
 	@echo "  lint       : Check code style (requires ruff or flake8)"
@@ -26,6 +28,13 @@ help:
 test:
 	export PYTHONPATH=$(SRC_PATH):$$PYTHONPATH; \
 	$(PYTHON) -m pytest --cov=pysimlr $(TEST_DIR)/ --cov-report=term-missing --cov-report=html
+
+.PHONY: docs
+docs:
+	@echo "Rendering Quarto docs using python: $(shell which $(PYTHON))"
+	export QUARTO_PYTHON=$(shell which $(PYTHON)); \
+	export PYTHONPATH=$(SRC_PATH):$$PYTHONPATH; \
+	quarto render $(DOCS_DIR)/*.qmd
 
 .PHONY: clean
 clean:
@@ -40,7 +49,7 @@ clean:
 
 .PHONY: install
 install:
-	$(PIP) install -e .
+	$(PIP) install -e .[dev]
 
 .PHONY: venv
 venv:

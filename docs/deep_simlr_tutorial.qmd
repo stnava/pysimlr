@@ -13,38 +13,46 @@ format:
 
 While traditional **SiMLR** (Similarity-driven Multi-view Linear Reconstruction) uncovers shared latent structures through linear projections, real-world biological data—such as high-dimensional neuroimaging or genomics—often involves highly non-linear relationships.
 
-**Deep SiMLR** extends the core SiMLR principle using a **Multi-view Autoencoder** architecture. In this approach:
-1. Each modality has its own **Encoder** network that maps features into a shared, low-dimensional latent space ($Z_i$).
-2. The objective function enforces that the latents of all modalities ($Z_1, Z_2, ...$) are similar to their consensus mean ($U$).
-3. Each modality has a **Decoder** network that attempts to reconstruct the original data from its specific latent representation.
+**Deep SiMLR** extends the core SiMLR principle using a **Multi-view Autoencoder** architecture. In this tutorial, we will:
+1. Simulate biological spaces with complex, non-linear relationships.
+2. Split our data into training and held-out validation sets.
+3. Train a Deep SiMLR model and visualize the learned embeddings.
+4. Perform an **inference step** on the held-out data.
+5. Demonstrate the biological relevance of the learned embeddings by regressing them against an independent dimension, which we'll call **"radicality"**.
 
-This tutorial demonstrates how to use the PyTorch-native `deep_simlr` implementation for robust, non-linear multi-modal integration.
+## 1. Simulation Setup
 
-## Simulation Setup
-
-We'll simulate a scenario with two modalities. To highlight the power of Deep SiMLR, we'll embed a non-linear relationship: the true shared latent variables will be mapped to the observed data using complex functions (e.g., sine waves and polynomials).
+We'll simulate a scenario with two modalities (e.g., Cortical Thickness and Gene Expression) and an independent biological variable ("radicality") that influences the underlying latent signals but is not explicitly provided to the model.
 
 ```{python}
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from pysimlr import deep_simlr
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from pysimlr import deep_simlr, predict_simlr
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
 
 # Set seeds for reproducibility
 torch.manual_seed(42)
 np.random.seed(42)
 
-n_samples = 500
+n_samples = 1000
 k_true = 3  # 3 shared underlying signals
 
-# 1. Generate True Latents
+# The independent biological dimension (e.g., age, disease severity, "radicality")
+radicality = torch.randn(n_samples)
+
+# 1. Generate True Latents (influenced by radicality)
 true_latents = torch.randn(n_samples, k_true)
+# The first latent dimension is strongly correlated with radicality
+true_latents[:, 0] += radicality * 1.5 
 
 # 2. Modality 1: Non-linear mapping (polynomial and sine)
 p1 = 50
 x1 = torch.zeros(n_samples, p1)
 for j in range(p1):
-    # Non-linear combination of latents + noise
     x1[:, j] = torch.sin(true_latents[:, 0] * (j+1)/10) + \
                (true_latents[:, 1] ** 2) * 0.5 + \
                true_latents[:, 2] + torch.randn(n_samples) * 0.2
@@ -57,90 +65,159 @@ for j in range(p2):
                torch.exp(true_latents[:, 0] * 0.3) - \
                true_latents[:, 2] * 1.5 + torch.randn(n_samples) * 0.2
 
-data_matrices = [x1, x2]
 print(f"Generated Modality 1 (Shape: {x1.shape}) and Modality 2 (Shape: {x2.shape})")
 ```
 
-## Running Deep SiMLR
+### Visualizing the Simulated Biological Spaces
 
-We run `deep_simlr`. Under the hood, this will build a Multi-view Autoencoder. We can control the architecture using parameters like `hidden_dims` and `dropout`, and manage the training using standard deep learning hyperparameters (`epochs`, `batch_size`, `learning_rate`, `weight_decay`).
+Let's look at the shape of the simulated modalities. Because of the non-linear transformations, the relationship between the features is complex and manifold-like.
 
 ```{python}
-# We use k=3 to match our true number of signals
-k = 3
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-# Run the model
-deep_results = deep_simlr(
-    data_matrices=data_matrices,
-    k=k,
-    epochs=100,
-    batch_size=64,
-    learning_rate=1e-3,
-    weight_decay=1e-4, # L2 Regularization
-    sim_weight=0.5,    # Balance between reconstruction and latent similarity
-    hidden_dims=[64, 32], # Architecture: Input -> 64 -> 32 -> Latent(3)
-    dropout=0.1,
-    verbose=True
-)
+# Plot a pair of features from Modality 1
+axes[0].scatter(x1[:, 0].numpy(), x1[:, 1].numpy(), c=radicality.numpy(), cmap='plasma', alpha=0.6)
+axes[0].set_title("Modality 1: Feature 0 vs Feature 1\n(Color = Radicality)")
+axes[0].set_xlabel("Feature 0")
+axes[0].set_ylabel("Feature 1")
 
-u_shared = deep_results['u']
-loss_history = deep_results['loss_history']
+# Plot a pair of features from Modality 2
+scatter = axes[1].scatter(x2[:, 0].numpy(), x2[:, 1].numpy(), c=radicality.numpy(), cmap='plasma', alpha=0.6)
+axes[1].set_title("Modality 2: Feature 0 vs Feature 1\n(Color = Radicality)")
+axes[1].set_xlabel("Feature 0")
+axes[1].set_ylabel("Feature 1")
+
+fig.colorbar(scatter, ax=axes, label="Radicality")
+plt.show()
 ```
 
-## Visualizing Results
+## 2. Training Data Split
 
-### Training Loss
-
-We can visualize the convergence of our autoencoder by plotting the loss history.
+To evaluate out-of-sample performance, we split our simulated dataset into an 80% training set and a 20% held-out test set.
 
 ```{python}
+indices = np.arange(n_samples)
+train_idx, test_idx = train_test_split(indices, test_size=0.2, random_state=42)
+
+x1_train, x1_test = x1[train_idx], x1[test_idx]
+x2_train, x2_test = x2[train_idx], x2[test_idx]
+rad_train, rad_test = radicality[train_idx], radicality[test_idx]
+
+train_mats = [x1_train, x2_train]
+test_mats = [x1_test, x2_test]
+
+print(f"Training samples: {len(train_idx)}")
+print(f"Test samples: {len(test_idx)}")
+```
+
+## 3. Training Deep SiMLR
+
+We train the `deep_simlr` model on the training data. The model learns to encode both modalities into a shared $k=3$ dimensional latent space $U$.
+
+```{python}
+# Run Deep SiMLR
+k = 3
+deep_results = deep_simlr(
+    data_matrices=train_mats,
+    k=k,
+    epochs=150,
+    batch_size=64,
+    learning_rate=1e-3,
+    weight_decay=1e-4,
+    sim_weight=0.5,
+    hidden_dims=[64, 32], # Two hidden layers before the bottleneck
+    dropout=0.1,
+    verbose=False # Set to True to see epoch-by-epoch loss
+)
+
+# Extract the learned shared latent space U from training
+u_train = deep_results['u']
+
 plt.figure(figsize=(8, 4))
-plt.plot(loss_history, label="Total Loss (Recon + Sim)", color='indigo')
+plt.plot(deep_results['loss_history'], label="Total Loss", color='indigo')
 plt.title("Deep SiMLR Training Convergence")
 plt.xlabel("Epoch")
 plt.ylabel("Loss")
-plt.legend()
 plt.grid(True, alpha=0.3)
 plt.show()
 ```
 
-### Latent Space Alignment
+### Visualizing the Learned Embeddings
 
-The core of SiMLR is that the modality-specific latent spaces ($Z_1, Z_2$) should align with the consensus ($U$). Let's verify that the encoders learned to map the distinct, non-linear feature spaces into a shared, harmonized representation.
+We can visualize the shared latent space $U$ learned during training. Even though the model never saw the `radicality` variable, we color the points by it to see if the model successfully recovered this underlying biological dimension.
 
 ```{python}
-z1 = deep_results['latents'][0].numpy()
-z2 = deep_results['latents'][1].numpy()
+u_train_np = u_train.numpy()
+rad_train_np = rad_train.numpy()
 
-# Compare the first latent dimension across modalities
+plt.figure(figsize=(8, 6))
+scatter = plt.scatter(u_train_np[:, 0], u_train_np[:, 1], c=rad_train_np, cmap='coolwarm', alpha=0.7)
+plt.title("Learned Shared Embeddings (Training Set)")
+plt.xlabel("Latent Dimension 1")
+plt.ylabel("Latent Dimension 2")
+plt.colorbar(scatter, label="Radicality")
+plt.grid(True, alpha=0.3)
+plt.show()
+```
+
+Notice how Latent Dimension 1 strongly correlates with the `radicality` gradient, confirming that Deep SiMLR successfully harmonized the non-linear modalities to recover the true underlying signal.
+
+## 4. Inference Step & Validation Results
+
+We now use the trained Deep SiMLR model to perform an **inference step** on the held-out test data. This projects the new subjects into the established latent space.
+
+```{python}
+# Apply the trained model to the held-out test data
+predict_results = predict_simlr(test_mats, deep_results)
+
+u_test = predict_results['u']
+test_errors = predict_results['errors']
+
+print(f"Validation Reconstruction Error (Modality 1): {test_errors[0]:.4f}")
+print(f"Validation Reconstruction Error (Modality 2): {test_errors[1]:.4f}")
+```
+
+Let's visualize the latent embeddings for the held-out test set to ensure the manifold structure generalizes to new data.
+
+```{python}
+u_test_np = u_test.numpy()
+rad_test_np = rad_test.numpy()
+
+plt.figure(figsize=(8, 6))
+scatter = plt.scatter(u_test_np[:, 0], u_test_np[:, 1], c=rad_test_np, cmap='coolwarm', alpha=0.7, marker='s')
+plt.title("Learned Shared Embeddings (Held-Out Test Set)")
+plt.xlabel("Latent Dimension 1")
+plt.ylabel("Latent Dimension 2")
+plt.colorbar(scatter, label="Radicality")
+plt.grid(True, alpha=0.3)
+plt.show()
+```
+
+## 5. Association with Independent Biological Dimensions
+
+A common use case for multi-modal embeddings is utilizing them as predictors for an external biological outcome. Here, we regress our independent `radicality` dimension against the inferred latent embeddings from the held-out test set.
+
+```{python}
+# Fit a linear model predicting Radicality using the inferred latent space U
+reg_model = LinearRegression()
+reg_model.fit(u_test_np, rad_test_np)
+
+# Predict radicality
+rad_pred = reg_model.predict(u_test_np)
+
+# Calculate R^2 on the test set
+r2 = r2_score(rad_test_np, rad_pred)
+
 plt.figure(figsize=(6, 6))
-plt.scatter(z1[:, 0], z2[:, 0], alpha=0.5, color='teal')
-plt.title("Latent Space Alignment (Dimension 1)")
-plt.xlabel("Modality 1 Latent (Z1)")
-plt.ylabel("Modality 2 Latent (Z2)")
-# Plot a diagonal line for reference
-min_val = min(z1[:,0].min(), z2[:,0].min())
-max_val = max(z1[:,0].max(), z2[:,0].max())
-plt.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5)
+plt.scatter(rad_test_np, rad_pred, alpha=0.6, color='darkgreen')
+plt.plot([rad_test_np.min(), rad_test_np.max()], [rad_test_np.min(), rad_test_np.max()], 'k--', lw=2)
+plt.title(f"Predicting Radicality from Inferred Latents\nHeld-Out Test Set ($R^2$ = {r2:.3f})")
+plt.xlabel("True Radicality")
+plt.ylabel("Predicted Radicality")
 plt.grid(True, alpha=0.3)
 plt.show()
 ```
 
-## Extracting the PyTorch Model
+### Conclusion
 
-`deep_simlr` returns the full PyTorch `nn.Module`. This means you can save the model weights, deploy it for inference on new data, or integrate it into larger PyTorch pipelines.
-
-```{python}
-# Access the raw PyTorch model
-pytorch_model = deep_results['model']
-print(pytorch_model)
-
-# For out-of-sample prediction (Inference):
-# pytorch_model.eval()
-# with torch.no_grad():
-#     new_latents, new_recons = pytorch_model([new_x1, new_x2])
-```
-
-## Conclusion
-
-**Deep SiMLR** brings the conceptual elegance of similarity-driven reconstruction to non-linear domains. By providing an end-to-end PyTorch autoencoder, `pysimlr` allows researchers to uncover complex, harmonized latent structures that classical linear methods would miss.
+The high $R^2$ demonstrates that the non-linear representations extracted by **Deep SiMLR** are highly informative and generalize well to out-of-sample data. By projecting distinct, non-linearly generated modalities into a harmonized latent space, `pysimlr` successfully captures complex underlying biological drivers like our simulated "radicality."

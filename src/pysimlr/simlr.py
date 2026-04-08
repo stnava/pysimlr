@@ -30,7 +30,6 @@ def calculate_ica_energy(x: torch.Tensor,
     Computes ICA energy based on nonlinearity.
     S = U^T X V
     """
-    # S is k x k (if U is n x k, X is n x p, V is p x k)
     s = (u.t() @ x) @ v
     n = x.shape[0]
     
@@ -56,7 +55,6 @@ def calculate_ica_gradient(x: torch.Tensor,
     nk = s.shape[0] # k
     
     if nonlinearity == "logcosh":
-        # (1/k) * X^T U tanh(S)
         return (1.0 / nk) * (x.t() @ u @ torch.tanh(s))
     elif nonlinearity == "exp":
         return (1.0 / nk) * (x.t() @ u @ (s * torch.exp(-s**2 / 2.0)))
@@ -187,9 +185,32 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
                    simlr_result: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Apply a trained SIMLR model to new data.
+    Apply a trained SIMLR model (linear or deep) to new data.
     """
     torch_mats = [m if isinstance(m, torch.Tensor) else torch.from_numpy(m).float() for m in data_matrices]
+    
+    if 'model' in simlr_result:
+        model = simlr_result['model']
+        model.eval()
+        device = next(model.parameters()).device
+        torch_mats_device = [m.to(device) for m in torch_mats]
+        
+        with torch.no_grad():
+            latents, reconstructions = model(torch_mats_device)
+            u_new = torch.mean(torch.stack(latents), dim=0)
+            
+        errors = []
+        for x, x_pred in zip(torch_mats_device, reconstructions):
+            err = torch.norm(x - x_pred, p='fro') / torch.norm(x, p='fro')
+            errors.append(err.item())
+            
+        return {
+            "u": u_new.cpu(),
+            "latents": [l.cpu() for l in latents],
+            "reconstructions": [r.cpu() for r in reconstructions],
+            "errors": errors
+        }
+    
     v_mats = simlr_result['v']
     projections = [x @ v for x, v in zip(torch_mats, v_mats)]
     u_new = torch.mean(torch.stack(projections), dim=0)
