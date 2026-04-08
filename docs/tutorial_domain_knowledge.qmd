@@ -1,0 +1,159 @@
+---
+title: "Guided SiMLR: Integrating Multimodal Neuroimaging with Domain Knowledge"
+author: "pysimlr Team"
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    code-fold: true
+    theme: cosmo
+---
+
+## Introduction
+
+Similarity-driven Multi-view Linear Reconstruction (**SiMLR**) is a framework for integrative dimensionality reduction across multiple data modalities. In this tutorial, we demonstrate how to use `pysimlr` to uncover shared latent structures in high-dimensional neuroimaging data, while incorporating prior **domain knowledge** to guide the decomposition.
+
+This tutorial is based on the reference R implementation and ported to a professional PyTorch backend.
+
+## Simulation Setup
+
+We simulate three modalities:
+1. **Cortex**: Structural features (e.g., cortical thickness).
+2. **White Matter**: Diffusion metrics.
+3. **Functional Connectivity**: Connectivity strengths.
+
+We define 6 latent cognitive domains (e.g., memory, language) that are shared across these modalities.
+
+```{python}
+import torch
+import numpy as np
+import pandas as pd
+from pysimlr import simlr, safe_pca, nnh_embed
+import matplotlib.pyplot as plt
+
+# Set seeds for reproducibility
+torch.manual_seed(123)
+np.random.seed(123)
+
+n = 200
+domains = ["memory", "language", "motor", "visuospatial", "speed", "executive"]
+d = len(domains)
+p_list = [100, 80, 60] # Features per modality
+
+# 1. Generate Domain Latents (shared across subjects)
+true_latents = torch.randn(n, d)
+
+# 2. Create Domain Knowledge Matrices (Prior Mappings)
+# These matrices map features to cognitive domains
+d_matrices = []
+for p in p_list:
+    dm = torch.zeros(d, p)
+    features_per_domain = p // d
+    for j in range(d):
+        start = j * features_per_domain
+        end = (j + 1) * features_per_domain
+        dm[j, start:end] = torch.rand(end - start) * 0.5 + 0.5
+    d_matrices.append(dm)
+
+# 3. Generate Multimodal Data
+data_matrices = []
+for i, p in enumerate(p_list):
+    # Modality-specific projection
+    projection = torch.randn(d, p)
+    signal = true_latents @ projection
+    noise = torch.randn(n, p) * 0.5
+    data_matrices.append(signal + noise)
+
+print(f"Generated {len(data_matrices)} modalities for {n} subjects.")
+```
+
+## Running Guided SiMLR
+
+We run SiMLR with **Absolute Canonical Covariance (ACC)** energy and provide the domain knowledge matrices as priors. We also leverage the **NSA-Flow** optimizer for efficient manifold optimization.
+
+```{python}
+# Run SiMLR with domain guidance
+k = d # latent dimension
+results = simlr(
+    data_matrices=data_matrices,
+    k=k,
+    iterations=50,
+    energy_type="acc",
+    domain_matrices=d_matrices,
+    domain_lambdas=0.1,
+    optimizer_type="nsa_flow",
+    verbose=True
+)
+
+# Extract shared latent space U and modality loadings V
+u_shared = results['u']
+v_loadings = results['v']
+
+print(f"Optimization complete. Energy history: {results['energy'][:5]} ... {results['energy'][-1]}")
+```
+
+## Specialized Wrapper: `nnh_embed`
+
+For users working with **ANTsPyMM** or standard neuroimaging IDPs (Image-Derived Phenotypes), `pysimlr` provides a specialized wrapper called `nnh_embed`. This function automates:
+- **Feature Selection**: Filtering by naming conventions (`rsfMRI`, `T1Hier`, `DTI`).
+- **Quality Control**: Filtering subjects by `resnetGrade`.
+- **Covariate Adjustment**: Residualizing modalities against age, sex, etc.
+
+```{python}
+# Create a dummy ANTsPyMM-style dataframe
+df_neuro = pd.DataFrame({
+    'T1Hier_vol1': np.random.randn(n),
+    'DTI_fa1': np.random.randn(n),
+    'rsfMRI_conn1': np.random.randn(n),
+    'T1Hier_resnetGrade': np.linspace(1.0, 1.1, n),
+    'age': np.random.randn(n)
+})
+
+# Run specialized neuroimaging embedding
+nnh_results = nnh_embed(
+    df_neuro, 
+    nsimlr=2, 
+    iterations=10, 
+    covariates=['age'],
+    verbose=True
+)
+
+print(f"nnh_embed completed for modalities: {nnh_results['modality_names']}")
+```
+
+## Visualizing Results
+
+### Energy Convergence
+
+```{python}
+plt.figure(figsize=(8, 4))
+plt.plot(results['energy'])
+plt.title("SIMLR Energy Convergence (Guided)")
+plt.xlabel("Iteration")
+plt.ylabel("Energy")
+plt.grid(True)
+plt.show()
+```
+
+### Domain Alignment
+
+We check how well the learned components align with our original cognitive domains by projecting the loadings back onto the domain matrices.
+
+```{python}
+# Alignment for the first modality (Cortex)
+alignment = d_matrices[0] @ v_loadings[0]
+plt.figure(figsize=(10, 6))
+plt.imshow(torch.abs(alignment).numpy(), cmap='viridis')
+plt.colorbar(label='Alignment Strength')
+plt.title("Alignment of Learned Components with Cognitive Domains (Cortex)")
+plt.xlabel("Learned Components")
+plt.ylabel("Prior Domains")
+plt.yticks(range(d), domains)
+plt.show()
+```
+
+## Conclusion
+
+In this tutorial, we demonstrated the professional PyTorch implementation of **Guided SiMLR**. By integrating prior domain knowledge and using specialized wrappers like `nnh_embed`, we ensured that the resulting latent components are not only statistically optimal but also biologically interpretable.
+
+The use of `nsa-flow` provides a robust mechanism for maintaining orthogonality during optimization, leading to cleaner factorizations.
