@@ -1,0 +1,232 @@
+---
+title: "LEND SiMR: Interpretable Non-Linear Integration"
+author: "pysimlr Team"
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    code-fold: true
+    theme: cosmo
+---
+
+## Introduction
+
+A primary output from traditional **linear SiMLR** is the $V$ matrix—the sparse feature vectors that drive the embedding. This provides crucial biological interpretability by answering: *Which specific features (e.g., brain regions, genes) are contributing to this latent structure?*
+
+While standard Deep Learning is powerful, its "black box" nature destroys this interpretability. The mapping from the input space to the latent space is entangled across multiple non-linear layers.
+
+**LEND SiMR** (Linear Encode, Non-linear Decoder Similarity-driven Multi-view Reconstruction) solves this problem. It uses a **strictly linear encoder** to yield an interpretable, sparse, and orthogonal $V$ matrix that perfectly mirrors linear SiMLR, while utilizing a **deep, non-linear decoder** to model the complex generative process of the biological data.
+
+In this tutorial, we will:
+1. Simulate biological spaces with non-linear relationships.
+2. Train a LEND SiMR model to extract the shared latent space and the $V$ matrices.
+3. Show inference and validation performance on held-out data.
+4. Demonstrate the ability to seamlessly switch out loss functions.
+5. Explore the impact of the `nsa-flow` retraction parameter ($\omega$).
+
+## 1. Simulation Setup
+
+We simulate two modalities influenced by an independent "radicality" gradient. To test the linear encoder, we'll embed the signal linearly in the inputs, but make the noise and other components complex. 
+
+```{python}
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from pysimlr import lend_simr, predict_simlr
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+
+torch.manual_seed(42)
+np.random.seed(42)
+
+n_samples = 1000
+k_true = 3  
+
+radicality = torch.randn(n_samples)
+true_latents = torch.randn(n_samples, k_true)
+true_latents[:, 0] += radicality * 2.0 
+
+p1 = 50
+x1 = torch.zeros(n_samples, p1)
+# Linear association for the first 10 features
+for j in range(10):
+    x1[:, j] = true_latents[:, 0] * (1.0 - j*0.05) + torch.randn(n_samples) * 0.5
+# Non-linear noise for the rest
+for j in range(10, p1):
+    x1[:, j] = torch.sin(true_latents[:, 1] * j) + torch.randn(n_samples)
+
+p2 = 40
+x2 = torch.zeros(n_samples, p2)
+# Linear association for the last 10 features
+for j in range(30, p2):
+    x2[:, j] = true_latents[:, 0] * (1.0 - (p2-j)*0.05) + torch.randn(n_samples) * 0.5
+# Non-linear noise for the rest
+for j in range(30):
+    x2[:, j] = torch.cos(true_latents[:, 2] * j) + torch.randn(n_samples)
+
+# Data Splitting
+indices = np.arange(n_samples)
+train_idx, test_idx = train_test_split(indices, test_size=0.2, random_state=42)
+
+train_mats = [x1[train_idx], x2[train_idx]]
+test_mats = [x1[test_idx], x2[test_idx]]
+rad_train, rad_test = radicality[train_idx], radicality[test_idx]
+
+print(f"Training samples: {len(train_idx)}, Test samples: {len(test_idx)}")
+```
+
+### Visualizing the Input Data
+
+Let's visualize the raw input space. Because of the heavy non-linear noise, the signal is partially obscured.
+
+```{python}
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+axes[0].scatter(x1[:, 0].numpy(), x1[:, 10].numpy(), c=radicality.numpy(), cmap='plasma', alpha=0.6)
+axes[0].set_title("Modality 1: Signal Feature (0) vs Noise Feature (10)")
+axes[0].set_xlabel("Feature 0 (Signal)")
+axes[0].set_ylabel("Feature 10 (Noise)")
+
+scatter = axes[1].scatter(x2[:, 39].numpy(), x2[:, 0].numpy(), c=radicality.numpy(), cmap='plasma', alpha=0.6)
+axes[1].set_title("Modality 2: Signal Feature (39) vs Noise Feature (0)")
+axes[1].set_xlabel("Feature 39 (Signal)")
+axes[1].set_ylabel("Feature 0 (Noise)")
+
+fig.colorbar(scatter, ax=axes, label="Radicality")
+plt.show()
+```
+
+## 2. Training LEND SiMR
+
+We train `lend_simr`. Under the hood:
+*   The **Decoder** is optimized using standard `AdamW`.
+*   The **Encoder** (the $V_i$ matrices) is updated by `AdamW`, but after every epoch, it is mathematically retracted to the Stiefel manifold to maintain orthogonality (using `nsa_flow`) and sparsified according to `sparseness_quantile`.
+*   We'll use `energy_type="regression"` (MSE) for similarity matching.
+
+```{python}
+k = 3
+lend_results = lend_simr(
+    data_matrices=train_mats,
+    k=k,
+    epochs=150,
+    batch_size=64,
+    learning_rate=1e-3,
+    weight_decay=1e-4,
+    sim_weight=1.0,
+    sparseness_quantile=0.5, # Force 50% sparsity on V matrices!
+    positivity="either",
+    nsa_omega=0.5,
+    hidden_dims=[64, 32], 
+    dropout=0.1,
+    energy_type="regression", 
+    verbose=False
+)
+
+u_train = lend_results['u']
+v_mats = lend_results['v']
+
+plt.figure(figsize=(8, 4))
+plt.plot(lend_results['loss_history'], label="Total Loss", color='indigo')
+plt.title("LEND SiMR Training Convergence")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.grid(True, alpha=0.3)
+plt.show()
+```
+
+### Visualizing the Interpretable $V$ Matrices
+
+Unlike standard Deep SiMR, **LEND SiMR explicitly outputs the sparse $V$ matrices**. We can directly visualize the feature weights to understand biological significance. Notice the explicit sparsity (white gaps) enforced during training! The model correctly identifies the first 10 features of Modality 1 as the primary drivers of the latent space.
+
+```{python}
+v1 = v_mats[0].numpy()
+
+plt.figure(figsize=(10, 6))
+plt.imshow(v1, aspect='auto', cmap='coolwarm')
+plt.colorbar(label='Weight')
+plt.title("Learned V Matrix for Modality 1 (50% Sparsity)")
+plt.xlabel("Latent Component (k)")
+plt.ylabel("Feature Index (p)")
+plt.show()
+```
+
+### Visualizing the Learned Embeddings
+
+Let's verify that the linear encoder still successfully captured the non-linear "radicality" gradient in the training set.
+
+```{python}
+u_train_np = u_train.numpy()
+
+plt.figure(figsize=(8, 6))
+scatter = plt.scatter(u_train_np[:, 0], u_train_np[:, 1], c=rad_train.numpy(), cmap='coolwarm', alpha=0.7)
+plt.title("Learned Shared Embeddings (Training Set)")
+plt.xlabel("Latent Dimension 1")
+plt.ylabel("Latent Dimension 2")
+plt.colorbar(scatter, label="Radicality")
+plt.grid(True, alpha=0.3)
+plt.show()
+```
+
+## 3. Inference & Validation
+
+We use `predict_simlr` to project our held-out test data. Because `lend_simr` uses an Autoencoder structure, `predict_simlr` will pass the test data through the linear encoder and the deep decoder.
+
+```{python}
+predict_results = predict_simlr(test_mats, lend_results)
+
+u_test = predict_results['u']
+test_errors = predict_results['errors']
+
+print(f"Validation Reconstruction Error (Modality 1): {test_errors[0]:.4f}")
+print(f"Validation Reconstruction Error (Modality 2): {test_errors[1]:.4f}")
+
+# Regression to assess biological relevance on held-out data
+reg_model = LinearRegression()
+reg_model.fit(u_test.numpy(), rad_test.numpy())
+rad_pred = reg_model.predict(u_test.numpy())
+r2 = r2_score(rad_test.numpy(), rad_pred)
+
+plt.figure(figsize=(6, 6))
+plt.scatter(rad_test.numpy(), rad_pred, alpha=0.6, color='darkgreen')
+plt.plot([rad_test.numpy().min(), rad_test.numpy().max()], [rad_test.numpy().min(), rad_test.numpy().max()], 'k--', lw=2)
+plt.title(f"Predicting Radicality from Inferred Latents\nHeld-Out Test Set ($R^2$ = {r2:.3f})")
+plt.xlabel("True Radicality")
+plt.ylabel("Predicted Radicality")
+plt.grid(True, alpha=0.3)
+plt.show()
+```
+
+## 4. Advanced Features: NSA-Flow Retraction and Energy Types
+
+LEND SiMR allows users to swap energy functions easily. Here, we demonstrate the use of the **Absolute Canonical Covariance (ACC)** energy type. Furthermore, we can adjust the `nsa_omega` parameter. A lower $\omega$ (closer to 0) makes the retraction to the Stiefel manifold "softer," allowing the gradients more freedom before enforcing strict orthogonality, while a higher $\omega$ forces strict adherence to the manifold at every step.
+
+```{python}
+# Run LEND SiMR with ACC energy and a soft retraction (nsa_omega = 0.1)
+lend_acc_results = lend_simr(
+    data_matrices=train_mats,
+    k=k,
+    epochs=100,
+    batch_size=64,
+    learning_rate=1e-3,
+    sim_weight=1.0,
+    sparseness_quantile=0.5, 
+    nsa_omega=0.1, # Soft retraction
+    energy_type="acc", # Covariance maximization
+    verbose=False
+)
+
+v1_acc = lend_acc_results['v'][0].numpy()
+
+plt.figure(figsize=(10, 6))
+plt.imshow(v1_acc, aspect='auto', cmap='viridis')
+plt.colorbar(label='Weight')
+plt.title("Learned V Matrix (ACC Energy, Soft Retraction $\omega=0.1$)")
+plt.xlabel("Latent Component (k)")
+plt.ylabel("Feature Index (p)")
+plt.show()
+```
+
+## Conclusion
+
+**LEND SiMR** bridges the gap between deep non-linear generative modeling and strict biological interpretability. By pairing a strictly linear, orthogonal, and sparse encoder ($V$) with a deep decoder, users can model complex manifolds while retaining the ability to ask: *"Which exact genes or brain regions are driving this dimension?"*

@@ -35,11 +35,10 @@ class ModalityEncoder(nn.Module):
 
 class LinearModalityEncoder(nn.Module):
     """
-    A strict linear encoder (V matrix) for LEND SiMLR.
+    A strict linear encoder (V matrix) for LEND SiMR.
     """
     def __init__(self, input_dim: int, latent_dim: int):
         super().__init__()
-        # Initialize with small random weights; we'll let ba_svd guide it later if needed
         self.v = nn.Parameter(torch.randn(input_dim, latent_dim) * 0.01)
 
     def forward(self, x):
@@ -223,6 +222,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               sim_weight: float = 0.1,
               sparseness_quantile: float = 0.5,
               positivity: str = "either",
+              nsa_omega: float = 0.5,
               hidden_dims: List[int] = [64, 128],
               dropout: float = 0.1,
               energy_type: str = "regression",
@@ -242,8 +242,6 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     model.initialize_v(torch_mats, k)
     model = model.to(device)
     
-    # We use AdamW for the decoder.
-    # We use AdamW for the encoder (V) but manually retract/sparsify it.
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     mse_loss = nn.MSELoss()
     
@@ -267,32 +265,36 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             
             sim_loss = calculate_sim_loss(latents, u_shared, energy_type)
             
-            total_loss = recon_loss + sim_weight * sim_loss
+            # Add a soft L1 penalty during training to encourage sparsity without hard masking per-batch
+            l1_loss = sum(torch.sum(torch.abs(enc.v)) for enc in model.encoders)
+            
+            total_loss = recon_loss + sim_weight * sim_loss + 1e-4 * l1_loss
             total_loss.backward()
             optimizer.step()
             
-            # Post-step Retraction and Sparsification of V matrices
-            with torch.no_grad():
-                for enc in model.encoders:
-                    v = enc.v.detach().cpu()
-                    # 1. Retract to Stiefel manifold
-                    if nsa is not None:
-                        # Soft polar retraction
-                        try:
-                            u_svd, _, v_svd = torch.linalg.svd(v, full_matrices=False)
-                            v_retracted = u_svd @ v_svd
-                        except:
-                            # Fallback if SVD fails
-                            v_retracted = orthogonalize_and_q_sparsify(v, sparseness_quantile=0.0)
-                    else:
-                        v_retracted = orthogonalize_and_q_sparsify(v, sparseness_quantile=0.0)
-                        
-                    # 2. Sparsify
-                    v_sparse = orthogonalize_and_q_sparsify(v_retracted, sparseness_quantile, positivity)
-                    enc.v.copy_(v_sparse.to(device))
-            
             epoch_loss += total_loss.item()
             
+        # Post-epoch Retraction and Sparsification of V matrices
+        # Doing this per epoch allows weights to update smoothly during batching
+        # before enforcing the hard structural constraints.
+        with torch.no_grad():
+            for enc in model.encoders:
+                v = enc.v.detach().cpu()
+                # 1. Retract to Stiefel manifold
+                if nsa is not None:
+                    try:
+                        v_retracted = nsa.nsa_flow_retract_auto(v, w_retract=nsa_omega, retraction_type="soft_polar")
+                    except:
+                        u_svd, _, v_svd = torch.linalg.svd(v, full_matrices=False)
+                        v_retracted = u_svd @ v_svd
+                else:
+                    u_svd, _, v_svd = torch.linalg.svd(v, full_matrices=False)
+                    v_retracted = u_svd @ v_svd
+                    
+                # 2. Sparsify
+                v_sparse = orthogonalize_and_q_sparsify(v_retracted, sparseness_quantile, positivity)
+                enc.v.copy_(v_sparse.to(device))
+        
         epoch_loss /= len(dataloader)
         loss_history.append(epoch_loss)
         
