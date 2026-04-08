@@ -12,7 +12,7 @@ def simlr_path(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                iterations: int = 20,
                optimizer_type: str = "hybrid_adam",
                energy_type: str = "regression",
-               sparseness_quantile: float = 0.5,
+               sparseness_quantile: float = 0.0,
                positivity: str = "either",
                verbose: bool = False,
                **opt_params) -> Dict[str, Any]:

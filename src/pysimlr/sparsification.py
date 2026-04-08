@@ -111,7 +111,7 @@ def rank_based_matrix_segmentation(v: torch.Tensor,
     return outmat
 
 def orthogonalize_and_q_sparsify(v: torch.Tensor,
-                                 sparseness_quantile: float = 0.5,
+                                 sparseness_quantile: float = 0.0,
                                  positivity: str = "either",
                                  orthogonalize: bool = True,
                                  unit_norm: bool = False,
