@@ -1,12 +1,13 @@
 # Makefile for pysimlr
 
-# Configuration
-PYTHON := python3
-PIP := pip
-PYTEST := pytest
+# Configuration - Default to 'python' to pick up active venv
+PYTHON ?= python
+PIP ?= pip
 SRC_DIR := src
 TEST_DIR := tests
-VENV_DIR := venv
+
+# Get the absolute path of the current directory, properly quoted for shell
+SRC_PATH := "$(shell pwd)/$(SRC_DIR)"
 
 # Default target
 .PHONY: all
@@ -15,22 +16,16 @@ all: help
 .PHONY: help
 help:
 	@echo "Available targets:"
-	@echo "  test       : Run all tests"
-	@echo "  test-cov   : Run tests with coverage report"
+	@echo "  test       : Run all tests with code coverage (default)"
 	@echo "  clean      : Remove build artifacts and temporary files"
 	@echo "  install    : Install the package in editable mode"
 	@echo "  lint       : Check code style (requires ruff or flake8)"
-	@echo "  venv       : Create a local virtual environment (Python 3.12)"
+	@echo "  venv       : Create a local virtual environment"
 
 .PHONY: test
 test:
-	export PYTHONPATH=$(shell pwd)/$(SRC_DIR):$$PYTHONPATH; \
-	$(PYTHON) -m pytest $(TEST_DIR)/test_pysimlr.py
-
-.PHONY: test-cov
-test-cov:
-	export PYTHONPATH=$(shell pwd)/$(SRC_DIR):$$PYTHONPATH; \
-	$(PYTHON) -m pytest --cov=$(SRC_DIR)/pysimlr $(TEST_DIR)/test_pysimlr.py --cov-report=term-missing
+	export PYTHONPATH=$(SRC_PATH):$$PYTHONPATH; \
+	$(PYTHON) -m pytest --cov=pysimlr $(TEST_DIR)/ --cov-report=term-missing --cov-report=html
 
 .PHONY: clean
 clean:
@@ -42,8 +37,6 @@ clean:
 	rm -rf htmlcov/
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
-	find . -type f -name "*.pyo" -delete
-	find . -type f -name "*.pyd" -delete
 
 .PHONY: install
 install:
@@ -51,8 +44,8 @@ install:
 
 .PHONY: venv
 venv:
-	$(PYTHON) -m venv $(VENV_DIR)
-	@echo "Virtual environment created in $(VENV_DIR). Run 'source $(VENV_DIR)/bin/activate' to use it."
+	$(PYTHON) -m venv venv
+	@echo "Virtual environment created. Run 'source venv/bin/activate' to use it."
 
 .PHONY: lint
 lint:

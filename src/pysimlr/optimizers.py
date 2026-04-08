@@ -1,5 +1,5 @@
 import torch
-from typing import List, Dict, Any, Optional, Callable, Tuple
+from typing import List, Dict, Any, Optional, Callable, Tuple, Type
 
 class SimlrOptimizer:
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
@@ -32,11 +32,9 @@ def backtracking_linesearch(v_current: torch.Tensor,
     step_size = initial_step_size
     initial_energy = energy_function(v_current)
     
-    # slope_term = sum(ascent_gradient * descent_direction)
     slope_term = torch.sum(ascent_gradient * descent_direction)
     
     if slope_term >= 0:
-        # Not a descent direction
         return 0.0
         
     for _ in range(max_iter):
@@ -123,12 +121,61 @@ class SGD(SimlrOptimizer):
         effective_lr = lr * torch.exp(torch.tensor(-decay * state['iter']))
         return v_current + effective_lr * descent_gradient
 
+class TorchNativeOptimizer(SimlrOptimizer):
+    """
+    Bridge to standard torch.optim optimizers.
+    """
+    def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
+        super().__init__(optimizer_type, v_mats, **params)
+        self.optimizers = []
+        self.v_params = []
+        
+        opt_map = {
+            "torch_adamw": torch.optim.AdamW,
+            "torch_adagrad": torch.optim.Adagrad,
+            "torch_nadam": torch.optim.NAdam,
+            "torch_lbfgs": torch.optim.LBFGS
+        }
+        
+        opt_class = opt_map.get(optimizer_type, torch.optim.AdamW)
+        lr = params.get('learning_rate', 0.01)
+        
+        for v in v_mats:
+            # Create a leaf tensor that requires grad
+            v_param = v.detach().clone().requires_grad_(True)
+            self.v_params.append(v_param)
+            self.optimizers.append(opt_class([v_param], lr=lr))
+
+    def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
+             full_energy_function: Optional[Callable] = None) -> torch.Tensor:
+        v_param = self.v_params[i]
+        optimizer = self.optimizers[i]
+        
+        # Simlr provides descent_gradient = -grad(E)
+        # torch.optim expects .grad = grad(E)
+        v_param.grad = -descent_gradient
+        
+        if self.optimizer_type == "torch_lbfgs" and full_energy_function is not None:
+            def closure():
+                optimizer.zero_grad()
+                v_param.grad = -descent_gradient # Simple fallback for LBFGS in this manual setup
+                return full_energy_function(v_param)
+            optimizer.step(closure)
+        else:
+            optimizer.step()
+            
+        return v_param.detach().clone()
+
 def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) -> SimlrOptimizer:
     mapping = {
         "hybrid_adam": HybridAdam,
         "adam": Adam,
         "rmsprop": RMSProp,
         "gd": SGD,
+        "torch_adamw": TorchNativeOptimizer,
+        "torch_adagrad": TorchNativeOptimizer,
+        "torch_nadam": TorchNativeOptimizer,
+        "torch_lbfgs": TorchNativeOptimizer
     }
     opt_class = mapping.get(optimizer_type, HybridAdam)
     return opt_class(optimizer_type, v_mats, **params)

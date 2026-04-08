@@ -1,6 +1,8 @@
 
 .agentantsx_workflow 
 INSTRUCTIONS.md
+reference_r
+tests/__pycache__/
 src/pysimlr/__pycache__/__init__.cpython-312.pyc
 src/pysimlr/__pycache__/optimizers.cpython-312.pyc
 src/pysimlr/__pycache__/regression.cpython-312.pyc

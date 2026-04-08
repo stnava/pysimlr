@@ -1,4 +1,4 @@
-from .svd import ba_svd, whiten_matrix, multiscale_svd
+from .svd import ba_svd, safe_pca, whiten_matrix, multiscale_svd
 from .sparse import sparse_distance_matrix, sparse_distance_matrix_xy
 from .sparsification import (
     optimize_indicator_matrix,
@@ -16,4 +16,4 @@ from .utils import (
 from .regression import smooth_matrix_prediction, smooth_regression
 from .simlr import simlr
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"

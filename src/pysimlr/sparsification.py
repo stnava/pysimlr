@@ -26,9 +26,6 @@ def optimize_indicator_matrix(m: torch.Tensor,
         
         # Greedy column-wise assignment
         for j in range(m_opt.shape[1]):
-            # Filter m_opt for unused rows
-            # We want to find i that maximizes m_opt[i, j] subject to row_used[i] == False
-            # This is still a bit sequential, but we can try to optimize
             available_vals = m_opt[:, j].clone()
             available_vals[row_used] = float('-inf')
             max_val, selected_row = torch.max(available_vals, dim=0)
@@ -148,17 +145,24 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
                         v_out[:, vv] = v_out[:, vv] - prev_v * ip
             
             local_v = v_out[:, vv]
-            do_flip = False
+            
+            # BUG fix: Move flip logic to the beginning or handle properly with positivity constraint
+            # R code logic: if more negatives, flip to make them positive. 
+            # But then we MUST re-enforce the positivity choice.
             if torch.sum(local_v > 0) < torch.sum(local_v < 0):
                 local_v = -local_v
-                do_flip = True
                 
-            # Sparsify
+            # Sparsify and enforce positivity constraint
             if positivity == "either":
                 abs_v = torch.abs(local_v)
                 q_val = torch.quantile(abs_v, sparseness_quantile)
                 local_v[abs_v < q_val] = 0
             else:
+                if positivity == "positive":
+                    local_v[local_v < 0] = 0 
+                elif positivity == "negative":
+                    local_v[local_v > 0] = 0
+                
                 q_val = torch.quantile(local_v, sparseness_quantile)
                 if positivity == "positive":
                     if q_val > 0:
@@ -167,9 +171,6 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
                         local_v[local_v >= q_val] = 0
                 elif positivity == "negative":
                     local_v[local_v > q_val] = 0
-            
-            if do_flip:
-                local_v = -local_v
             
             if unit_norm:
                 norm = torch.norm(local_v)
