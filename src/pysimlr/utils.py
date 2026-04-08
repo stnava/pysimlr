@@ -2,6 +2,7 @@ import torch
 import pandas as pd
 import re
 import time
+import numpy as np
 from typing import List, Optional, Union, Dict
 
 def set_seed_based_on_time() -> int:
@@ -169,8 +170,37 @@ def adjusted_rvcoef(x: torch.Tensor, y: torch.Tensor) -> float:
     
     # Simple adjustment for now matching R
     exp_rv_num = tr_s_xx * tr_s_yy / (n - 1)
-    # The R implementation of adjusted_rvcoef was truncated in my previous read.
-    # But usually it's (rv_obs - expected) / (max - expected)
-    # Actually, R code usually uses a more complex formula from Elhaik et al or similar.
-    # For now, return unadjusted or a placeholder if I can't find the full formula.
     return rv_obs
+
+def l1_normalize_features(features: torch.Tensor) -> torch.Tensor:
+    """
+    L1 normalization of features (columns).
+    """
+    col_l1_norms = torch.sum(torch.abs(features), dim=0)
+    col_l1_norms[col_l1_norms == 0] = 1.0
+    return features / col_l1_norms
+
+def invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
+    """
+    Compute invariant orthogonality defect.
+    """
+    norm_a_f = torch.sqrt(torch.sum(a**2))
+    if norm_a_f < 1e-10: return torch.tensor(0.0, device=a.device)
+    ap = a / norm_a_f
+    ata = ap.t() @ ap
+    d = torch.diag(torch.diag(ata))
+    defect = torch.sum((ata - d)**2)
+    return defect
+
+def gradient_invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
+    """
+    Compute gradient of invariant orthogonality defect.
+    """
+    norm_a_f = torch.norm(a, p='fro')
+    if norm_a_f < 1e-10: return torch.zeros_like(a)
+    ap = a / norm_a_f
+    ata = ap.t() @ ap
+    d = torch.diag(torch.diag(ata))
+    orthogonality_diff = ata - d
+    gradient = 4 * (ap @ orthogonality_diff)
+    return gradient

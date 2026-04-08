@@ -1,5 +1,6 @@
 import torch
-from typing import Optional, Union
+from typing import Optional, Union, Tuple
+from .utils import l1_normalize_features
 
 def optimize_indicator_matrix(m: torch.Tensor, 
                               max_iter: int = 1000, 
@@ -110,73 +111,150 @@ def rank_based_matrix_segmentation(v: torch.Tensor,
         return outmat.t()
     return outmat
 
-def orthogonalize_and_q_sparsify(v: torch.Tensor,
-                                 sparseness_quantile: float = 0.0,
+def orthogonalize_and_q_sparsify(v: torch.Tensor, 
+                                 sparseness_quantile: float = 0.0, 
                                  positivity: str = "either",
                                  orthogonalize: bool = True,
-                                 unit_norm: bool = False,
+                                 unit_norm: bool = True,
+                                 soft_thresholding: bool = False,
                                  sparseness_alg: Optional[str] = None) -> torch.Tensor:
     """
-    Sparsify a matrix using torch.
+    Orthogonalize and/or sparsify a matrix.
     """
-    if not isinstance(v, torch.Tensor):
-        v = torch.from_numpy(v).float()
-        
     if sparseness_alg == "orthorank":
         return rank_based_matrix_segmentation(v, sparseness_quantile, basic=False, positivity=positivity, transpose=True)
     elif sparseness_alg == "basic":
         return rank_based_matrix_segmentation(v, sparseness_quantile, basic=True, positivity=positivity, transpose=True)
 
-    if sparseness_quantile == 0:
-        return v
-        
+    if torch.all(v == 0):
+        return v.clone()
+
     v_out = v.clone()
-    p = v.shape[1]
+    n, k = v_out.shape
     
-    for vv in range(p):
-        if torch.var(v_out[:, vv]) > 0:
-            if vv > 0 and orthogonalize:
-                # Gram-Schmidt
-                for vk in range(vv):
-                    prev_v = v_out[:, vk]
-                    denom = torch.sum(prev_v * prev_v)
-                    if denom > 0:
-                        ip = torch.sum(prev_v * v_out[:, vv]) / denom
-                        v_out[:, vv] = v_out[:, vv] - prev_v * ip
-            
+    if orthogonalize and k > 1:
+        u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+        v_out = u @ v_h
+        
+    if sparseness_quantile > 0:
+        for vv in range(k):
             local_v = v_out[:, vv]
-            
-            # BUG fix: Move flip logic to the beginning or handle properly with positivity constraint
-            # R code logic: if more negatives, flip to make them positive. 
-            # But then we MUST re-enforce the positivity choice.
-            if torch.sum(local_v > 0) < torch.sum(local_v < 0):
-                local_v = -local_v
+            if positivity == "positive":
+                local_v = torch.clamp(local_v, min=0.0)
+            elif positivity == "negative":
+                local_v = torch.clamp(local_v, max=0.0)
                 
-            # Sparsify and enforce positivity constraint
-            if positivity == "either":
-                abs_v = torch.abs(local_v)
-                q_val = torch.quantile(abs_v, sparseness_quantile)
-                local_v[abs_v < q_val] = 0
+            if soft_thresholding:
+                thresh = torch.quantile(torch.abs(local_v), sparseness_quantile)
+                local_v = torch.sign(local_v) * torch.clamp(torch.abs(local_v) - thresh, min=0.0)
             else:
-                if positivity == "positive":
-                    local_v[local_v < 0] = 0 
-                elif positivity == "negative":
-                    local_v[local_v > 0] = 0
+                thresh = torch.quantile(torch.abs(local_v), sparseness_quantile)
+                local_v[torch.abs(local_v) < thresh] = 0.0
                 
-                q_val = torch.quantile(local_v, sparseness_quantile)
-                if positivity == "positive":
-                    if q_val > 0:
-                        local_v[local_v <= q_val] = 0
-                    else:
-                        local_v[local_v >= q_val] = 0
-                elif positivity == "negative":
-                    local_v[local_v > q_val] = 0
-            
             if unit_norm:
                 norm = torch.norm(local_v)
                 if norm > 0:
                     local_v = local_v / norm
-                    
             v_out[:, vv] = local_v
             
+    return v_out
+
+def project_to_orthonormal_nonnegative(x: torch.Tensor, 
+                                       max_iter: int = 100, 
+                                       tol: float = 1e-4, 
+                                       constraint: str = 'positive') -> torch.Tensor:
+    """
+    Project a matrix to be orthonormal and nonnegative.
+    """
+    v = x.clone()
+    for _ in range(max_iter):
+        v_old = v.clone()
+        # Positivity
+        if constraint == 'positive':
+            v = torch.clamp(v, min=0.0)
+        elif constraint == 'negative':
+            v = torch.clamp(v, max=0.0)
+        
+        # Orthogonality via SVD retraction
+        u, s, v_h = torch.linalg.svd(v, full_matrices=False)
+        v = u @ v_h
+        
+        if torch.norm(v - v_old) < tol:
+            break
+    return v
+
+def project_to_partially_orthonormal_nonnegative(x: torch.Tensor, 
+                                                 max_iter: int = 1, 
+                                                 constraint: str = 'positive',
+                                                 ortho_strength: float = 0.1) -> torch.Tensor:
+    """
+    Partially project to orthonormal and nonnegative.
+    """
+    v = x.clone()
+    for _ in range(max_iter):
+        if constraint == 'positive':
+            v = torch.clamp(v, min=0.0)
+        elif constraint == 'negative':
+            v = torch.clamp(v, max=0.0)
+            
+        u, s, v_h = torch.linalg.svd(v, full_matrices=False)
+        v_ortho = u @ v_h
+        v = (1 - ortho_strength) * v + ortho_strength * v_ortho
+    return v
+
+def simlr_sparseness(v: torch.Tensor, 
+                     constraint_type: str = "none",
+                     smoothing_matrix: Optional[torch.Tensor] = None,
+                     positivity: str = 'either',
+                     sparseness_quantile: float = 0.0,
+                     constraint_weight: float = 0.0,
+                     constraint_iterations: int = 1,
+                     sparseness_alg: str = 'soft',
+                     energy_type: Optional[str] = None) -> torch.Tensor:
+    """
+    Main sparsification and constraint enforcement function for SIMLR.
+    """
+    v_out = v.clone()
+    
+    if positivity == 'positive':
+        v_out = torch.abs(v_out)
+    elif positivity == 'negative':
+        v_out = -torch.abs(v_out)
+        
+    if smoothing_matrix is not None:
+        v_out = smoothing_matrix @ v_out
+        
+    if constraint_type in ["Stiefel", "Grassmann", "none"]:
+        if sparseness_alg == 'nnorth':
+            v_out = project_to_orthonormal_nonnegative(v_out, constraint=positivity)
+        elif sparseness_quantile != 0 and sparseness_alg == 'soft':
+            v_out = orthogonalize_and_q_sparsify(
+                v_out,
+                sparseness_quantile=sparseness_quantile,
+                positivity=positivity,
+                orthogonalize=False,
+                unit_norm=False,
+                soft_thresholding=True
+            )
+    elif constraint_type == "ortho":
+        v_out = project_to_partially_orthonormal_nonnegative(
+            v_out, 
+            max_iter=constraint_iterations, 
+            constraint=positivity, 
+            ortho_strength=constraint_weight
+        )
+        if sparseness_quantile != 0 and sparseness_alg == 'soft':
+            v_out = orthogonalize_and_q_sparsify(
+                v_out,
+                sparseness_quantile=sparseness_quantile,
+                positivity=positivity,
+                orthogonalize=False,
+                unit_norm=False,
+                soft_thresholding=True
+            )
+            
+    normalize_energy_types = ["acc", "cca", "nc", "normalized_correlation", "lowRankRegression", "lrr"]
+    if energy_type is not None and energy_type in normalize_energy_types:
+        v_out = l1_normalize_features(v_out)
+        
     return v_out

@@ -27,6 +27,7 @@ def nnh_update_residuals(mat: torch.Tensor,
     Residualize matrix against a covariate.
     """
     # Simple implementation of linear regression residualization
+    mat = torch.as_tensor(mat).float()
     if covariate_col == "mean":
         mymean = torch.mean(mat, dim=1, keepdim=True)
         # In R: residuals(lm(mat ~ mymean))
@@ -44,7 +45,7 @@ def nnh_update_residuals(mat: torch.Tensor,
         reg = LinearRegression().fit(cov_vals, y)
         residuals[:, i] = y - reg.predict(cov_vals)
         
-    return torch.from_numpy(residuals).float()
+    return torch.as_tensor(residuals).float()
 
 def nnh_embed(blaster: pd.DataFrame,
               select_training_boolean: Optional[np.ndarray] = None,
@@ -115,7 +116,7 @@ def nnh_embed(blaster: pd.DataFrame,
         data = blaster_sub[cols].values
         # Impute missing values
         data_imputed = imputer.fit_transform(data)
-        mats[name] = torch.from_numpy(data_imputed).float()
+        mats[name] = torch.as_tensor(data_imputed).float()
         
     # Step 4: Covariate Adjustment
     for cov in covariates:

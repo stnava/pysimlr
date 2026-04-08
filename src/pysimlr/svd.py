@@ -9,8 +9,8 @@ def ba_svd(x: torch.Tensor,
     """
     Robust SVD with Automatic Fallback.
     """
-    if not isinstance(x, torch.Tensor):
-        x = torch.from_numpy(x).float()
+    x = torch.as_tensor(x).float()
+    orig_dtype = x.dtype
 
     if na_to_noise:
         bad_mask = ~torch.isfinite(x)
@@ -25,7 +25,6 @@ def ba_svd(x: torch.Tensor,
             x = x / mx
 
     m, n = x.shape
-    # BUG fix: Ensure nu/nv don't exceed matrix dimensions
     if nu is None:
         nu = min(m, n)
     else:
@@ -38,9 +37,9 @@ def ba_svd(x: torch.Tensor,
 
     try:
         u, s, vh = torch.linalg.svd(x, full_matrices=False)
-        u = u[:, :nu]
-        v = vh[:nv, :].t()
-        s = s[:min(nu, nv)]
+        u = u[:, :nu].to(orig_dtype)
+        v = vh[:nv, :].t().to(orig_dtype)
+        s = s[:min(nu, nv)].to(orig_dtype)
         return u, s, v
     except RuntimeError:
         k = max(nu, nv)
@@ -48,7 +47,7 @@ def ba_svd(x: torch.Tensor,
         q = 2 
         
         m, n = x.shape
-        omega = torch.randn(n, k + p, device=x.device, dtype=x.dtype)
+        omega = torch.randn(n, k + p, device=x.device, dtype=orig_dtype)
         y = x @ omega
         for _ in range(q):
             y = x @ (x.t() @ y)
@@ -58,9 +57,9 @@ def ba_svd(x: torch.Tensor,
         u_hat, s, vh = torch.linalg.svd(b, full_matrices=False)
         u = q_mat @ u_hat
         
-        u = u[:, :nu]
-        v = vh[:nv, :].t()
-        s = s[:min(nu, nv)]
+        u = u[:, :nu].to(orig_dtype)
+        v = vh[:nv, :].t().to(orig_dtype)
+        s = s[:min(nu, nv)].to(orig_dtype)
         return u, s, v
 
 def safe_pca(x: torch.Tensor, 
@@ -70,8 +69,8 @@ def safe_pca(x: torch.Tensor,
     """
     Safe PCA implementation using torch.
     """
-    if not isinstance(x, torch.Tensor):
-        x = torch.from_numpy(x).float()
+    x = torch.as_tensor(x).float()
+    orig_dtype = x.dtype
         
     if nc is None:
         nc = min(x.shape)
@@ -93,22 +92,22 @@ def safe_pca(x: torch.Tensor,
         "u": u,
         "s": s,
         "v": v,
-        "x": x_centered @ v # Scores
+        "x": (x_centered @ v).to(orig_dtype) # Scores
     }
 
 def whiten_matrix(x: torch.Tensor) -> Dict[str, torch.Tensor]:
     """
     Matrix whitening using SVD in torch.
     """
-    if not isinstance(x, torch.Tensor):
-        x = torch.from_numpy(x).float()
+    x = torch.as_tensor(x).float()
+    orig_dtype = x.dtype
         
     x_mean = torch.mean(x, dim=0)
     x_centered = x - x_mean
     u, s, v = ba_svd(x_centered)
     s_inv_sqrt = torch.diag(1.0 / (torch.sqrt(s) + 1e-10))
-    whitening_matrix = v @ s_inv_sqrt @ v.t()
-    x_whitened = x_centered @ whitening_matrix
+    whitening_matrix = (v @ s_inv_sqrt @ v.t()).to(orig_dtype)
+    x_whitened = (x_centered @ whitening_matrix).to(orig_dtype)
     return {
         "whitened_matrix": x_whitened,
         "whitening_matrix": whitening_matrix
@@ -123,17 +122,16 @@ def multiscale_svd(x: torch.Tensor,
     """
     Multi-scale SVD algorithm using torch.
     """
-    if not isinstance(x, torch.Tensor):
-        x = torch.from_numpy(x).float()
-    if not isinstance(r, torch.Tensor):
-        r = torch.from_numpy(r).float()
+    x = torch.as_tensor(x).float()
+    r = torch.as_tensor(r).float()
+    orig_dtype = x.dtype
 
     n = x.shape[0]
-    m_response = torch.full((len(r), nev), float('nan'))
+    m_response = torch.full((len(r), nev), float('nan'), dtype=orig_dtype)
     
     for scl_idx, my_r in enumerate(r):
         loc_sam = torch.randperm(n)[:locn]
-        my_evs = torch.full((locn, nev), float('nan'))
+        my_evs = torch.full((locn, nev), float('nan'), dtype=orig_dtype)
         for i in range(locn):
             diff = x - x[loc_sam[i]]
             row_dist = torch.sqrt(torch.sum(diff**2, dim=1))
@@ -150,7 +148,7 @@ def multiscale_svd(x: torch.Tensor,
                 l_cov = (l_mat_centered.t() @ l_mat_centered) / (n_sel - 1)
                 _, temp_s, _ = ba_svd(l_cov, nu=nev, nv=0)
                 num_evs = min(nev, len(temp_s))
-                my_evs[i, :num_evs] = temp_s[:num_evs]
+                my_evs[i, :num_evs] = temp_s[:num_evs].to(orig_dtype)
         m_response[scl_idx, :] = torch.nanmean(my_evs, dim=0)
         if verbose:
             print(f"Scale {my_r}: {m_response[scl_idx, :]}")

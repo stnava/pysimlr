@@ -14,8 +14,7 @@ def sparse_distance_matrix(x: torch.Tensor,
     For simplicity in porting, we'll use dense tensors if memory allows, 
     but for 'professional' use we should consider torch.sparse.
     """
-    if not isinstance(x, torch.Tensor):
-        x = torch.from_numpy(x).float()
+    x = torch.as_tensor(x).float()
         
     n, p = x.shape
     if k >= p:
@@ -91,10 +90,8 @@ def sparse_distance_matrix_xy(x: torch.Tensor,
     """
     Create sparse distance, covariance or correlation matrix between x and y.
     """
-    if not isinstance(x, torch.Tensor):
-        x = torch.from_numpy(x).float()
-    if not isinstance(y, torch.Tensor):
-        y = torch.from_numpy(y).float()
+    x = torch.as_tensor(x).float()
+    y = torch.as_tensor(y).float()
         
     n, p = x.shape
     nq, q = y.shape

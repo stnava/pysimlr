@@ -15,8 +15,7 @@ def smooth_matrix_prediction(x: Union[torch.Tensor, Any],
     """
     Reconstruct a n by p matrix given basis predictors using torch.
     """
-    if not isinstance(x, torch.Tensor):
-        x = torch.from_numpy(x).float()
+    x = torch.as_tensor(x).float()
         
     n, p = x.shape
     if n != basis_df.shape[0]:
@@ -24,7 +23,7 @@ def smooth_matrix_prediction(x: Union[torch.Tensor, Any],
         
     # Extract basis from dataframe
     u_np = basis_df.select_dtypes(include=['number']).values
-    u = torch.from_numpy(u_np).float()
+    u = torch.as_tensor(u_np).float()
     # Standardize u
     u = (u - torch.mean(u, dim=0)) / (torch.std(u, dim=0) + 1e-8)
     k = u.shape[1]
@@ -34,8 +33,8 @@ def smooth_matrix_prediction(x: Union[torch.Tensor, Any],
     
     if smoothing_matrix is None:
         smoothing_matrix = torch.eye(p)
-    elif not isinstance(smoothing_matrix, torch.Tensor):
-        smoothing_matrix = torch.from_numpy(smoothing_matrix).float()
+    else:
+        smoothing_matrix = torch.as_tensor(smoothing_matrix).float()
         
     errs = []
     for i in range(iterations):
@@ -79,10 +78,8 @@ def smooth_regression(x: Union[torch.Tensor, Any],
     """
     Reconstruct a n by 1 vector given n by p matrix of predictors using torch.
     """
-    if not isinstance(x, torch.Tensor):
-        x = torch.from_numpy(x).float()
-    if not isinstance(y, torch.Tensor):
-        y = torch.from_numpy(y).float()
+    x = torch.as_tensor(x).float()
+    y = torch.as_tensor(y).float()
         
     n, p = x.shape
     x_centered = x - torch.mean(x, dim=0)
@@ -92,8 +89,8 @@ def smooth_regression(x: Union[torch.Tensor, Any],
     
     if smoothing_matrix is None:
         smoothing_matrix = torch.eye(p)
-    elif not isinstance(smoothing_matrix, torch.Tensor):
-        smoothing_matrix = torch.from_numpy(smoothing_matrix).float()
+    else:
+        smoothing_matrix = torch.as_tensor(smoothing_matrix).float()
         
     # Initialize v
     # xgy <- scaledY %*% x
