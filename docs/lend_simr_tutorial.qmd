@@ -9,6 +9,21 @@ format:
     theme: cosmo
 ---
 
+## Theoretical Background
+
+Modern biological data often hides complex, non-linear relationships within high-dimensional spaces. Standard approaches to multi-view integration usually fall into two camps:
+
+1. **Linear Methods (like SiMLR or CCA):** These are highly interpretable. They produce a sparse matrix, $V$, that tells you exactly which features (genes, voxels, proteins) define a latent dimension. However, they struggle when the relationship between the latent space and the raw data is non-linear.
+2. **Deep Learning (Autoencoders):** These can model any complex relationship, but they are "black-boxes." You can extract a latent space, but you usually cannot tell which specific input features were responsible for it because the information is scrambled across multiple non-linear layers.
+
+**LEND SiMR** (Linear Encode, Non-linear Decoder) is a hybrid architecture designed to provide the best of both worlds. It enforces a **strict architectural asymmetry**:
+
+*   **The Encoder is strictly linear:** This ensures that the mapping from the input features to the latent space is a simple weighted sum. This weights matrix, $V$, is what we use for interpretation. By applying sparsity constraints, we ensure that only the most relevant features "vote" for each latent dimension.
+*   **The Manifold Constraint (NSA-Flow):** To ensure the latent dimensions are distinct and stable, the encoder's weights are mathematically forced to stay on the **Stiefel Manifold** (maintaining orthogonality). The `nsa_w` parameter controls how strictly this manifold is enforced during training.
+*   **The Decoder is non-linear and deep:** While the encoder is simple for the sake of interpretability, the decoder is allowed to be a deep neural network. This allows the model to "explain away" complex, non-linear noise and generative processes that a linear model would otherwise fail to capture.
+
+By pairing a "transparent" encoder with a "powerful" decoder, LEND SiMR allows researchers to discover complex latent structures while retaining the ability to perform precise feature-level discovery.
+
 ## Introduction
 
 A primary output from traditional **linear SiMLR** is the $V$ matrix—the sparse feature vectors that drive the embedding. This provides crucial biological interpretability by answering: *Which specific features (e.g., brain regions, genes) are contributing to this latent structure?*
