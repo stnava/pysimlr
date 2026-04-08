@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
+from torch.optim.lr_scheduler import CosineAnnealingLR
 import numpy as np
 from typing import List, Optional, Union, Dict, Any, Tuple
 from .sparsification import orthogonalize_and_q_sparsify
@@ -121,7 +122,6 @@ def calculate_sim_loss(latents: List[torch.Tensor], u_shared: torch.Tensor, ener
         if energy_type == "regression":
             sim_loss += torch.sum((z - u_shared)**2) / n
         elif energy_type == "acc":
-            # Maximize covariance (minimize negative covariance)
             z_centered = z - torch.mean(z, dim=0)
             u_centered = u_shared - torch.mean(u_shared, dim=0)
             cov = (u_centered.t() @ z_centered) / (n - 1)
@@ -165,16 +165,21 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     
     model = DeepSiMRModel(input_dims, k, hidden_dims, dropout=dropout).to(device)
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
     mse_loss = nn.MSELoss()
     
     dataset = TensorDataset(*torch_mats)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
     loss_history = []
+    recon_history = []
+    sim_history = []
     
     for epoch in range(epochs):
         model.train()
         epoch_loss = 0.0
+        epoch_recon = 0.0
+        epoch_sim = 0.0
         
         for batch in dataloader:
             batch_mats = [b.to(device) for b in batch]
@@ -189,15 +194,26 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             
             total_loss = recon_loss + sim_weight * sim_loss
             total_loss.backward()
+            
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             
             epoch_loss += total_loss.item()
+            epoch_recon += recon_loss.item()
+            epoch_sim += sim_loss.item()
             
         epoch_loss /= len(dataloader)
+        epoch_recon /= len(dataloader)
+        epoch_sim /= len(dataloader)
+        
         loss_history.append(epoch_loss)
+        recon_history.append(epoch_recon)
+        sim_history.append(epoch_sim)
+        
+        scheduler.step()
         
         if verbose and epoch % max(1, epochs // 10) == 0:
-            print(f"Epoch {epoch}: Average Loss {epoch_loss:.4f}")
+            print(f"Epoch {epoch}: Total={epoch_loss:.4f} (Recon={epoch_recon:.4f}, Sim={epoch_sim:.4f})")
             
     model.eval()
     with torch.no_grad():
@@ -210,7 +226,9 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "model_type": "deep_simr",
         "u": u_final.cpu(),
         "latents": [l.cpu() for l in final_latents],
-        "loss_history": loss_history
+        "loss_history": loss_history,
+        "recon_history": recon_history,
+        "sim_history": sim_history
     }
 
 def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
@@ -243,16 +261,21 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     model = model.to(device)
     
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
     mse_loss = nn.MSELoss()
     
     dataset = TensorDataset(*torch_mats)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
     loss_history = []
+    recon_history = []
+    sim_history = []
     
     for epoch in range(epochs):
         model.train()
         epoch_loss = 0.0
+        epoch_recon = 0.0
+        epoch_sim = 0.0
         
         for batch in dataloader:
             batch_mats = [b.to(device) for b in batch]
@@ -265,22 +288,21 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             
             sim_loss = calculate_sim_loss(latents, u_shared, energy_type)
             
-            # Add a soft L1 penalty during training to encourage sparsity without hard masking per-batch
             l1_loss = sum(torch.sum(torch.abs(enc.v)) for enc in model.encoders)
             
             total_loss = recon_loss + sim_weight * sim_loss + 1e-4 * l1_loss
             total_loss.backward()
+            
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             
             epoch_loss += total_loss.item()
+            epoch_recon += recon_loss.item()
+            epoch_sim += sim_loss.item()
             
-        # Post-epoch Retraction and Sparsification of V matrices
-        # Doing this per epoch allows weights to update smoothly during batching
-        # before enforcing the hard structural constraints.
         with torch.no_grad():
             for enc in model.encoders:
                 v = enc.v.detach().cpu()
-                # 1. Retract to Stiefel manifold
                 if nsa is not None:
                     try:
                         v_retracted = nsa.nsa_flow_retract_auto(v, w_retract=nsa_omega, retraction_type="soft_polar")
@@ -291,15 +313,21 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                     u_svd, _, v_svd = torch.linalg.svd(v, full_matrices=False)
                     v_retracted = u_svd @ v_svd
                     
-                # 2. Sparsify
                 v_sparse = orthogonalize_and_q_sparsify(v_retracted, sparseness_quantile, positivity)
                 enc.v.copy_(v_sparse.to(device))
         
         epoch_loss /= len(dataloader)
+        epoch_recon /= len(dataloader)
+        epoch_sim /= len(dataloader)
+        
         loss_history.append(epoch_loss)
+        recon_history.append(epoch_recon)
+        sim_history.append(epoch_sim)
+        
+        scheduler.step()
         
         if verbose and epoch % max(1, epochs // 10) == 0:
-            print(f"Epoch {epoch}: Average Loss {epoch_loss:.4f}")
+            print(f"Epoch {epoch}: Total={epoch_loss:.4f} (Recon={epoch_recon:.4f}, Sim={epoch_sim:.4f})")
             
     model.eval()
     with torch.no_grad():
@@ -314,5 +342,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "u": u_final.cpu(),
         "v": v_mats,
         "latents": [l.cpu() for l in final_latents],
-        "loss_history": loss_history
+        "loss_history": loss_history,
+        "recon_history": recon_history,
+        "sim_history": sim_history
     }

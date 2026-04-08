@@ -23,6 +23,7 @@ In this tutorial, we will:
 3. Show inference and validation performance on held-out data.
 4. Demonstrate the ability to seamlessly switch out loss functions.
 5. Explore the impact of the `nsa-flow` retraction parameter ($\omega$).
+6. Provide diagnostics of the optimization process (reconstruction vs. similarity loss).
 
 ## 1. Simulation Setup
 
@@ -78,7 +79,7 @@ print(f"Training samples: {len(train_idx)}, Test samples: {len(test_idx)}")
 
 ### Visualizing the Input Data
 
-Let's visualize the raw input space. Because of the heavy non-linear noise, the signal is partially obscured.
+Let's visualize the raw input space. Because of the heavy non-linear noise, the signal is partially obscured. We compare a known "signal" feature to a known "noise" feature.
 
 ```{python}
 fig, axes = plt.subplots(1, 2, figsize=(12, 5))
@@ -100,8 +101,8 @@ plt.show()
 ## 2. Training LEND SiMR
 
 We train `lend_simr`. Under the hood:
-*   The **Decoder** is optimized using standard `AdamW`.
-*   The **Encoder** (the $V_i$ matrices) is updated by `AdamW`, but after every epoch, it is mathematically retracted to the Stiefel manifold to maintain orthogonality (using `nsa_flow`) and sparsified according to `sparseness_quantile`.
+*   The **Decoder** is optimized using standard `AdamW` with a cosine annealing learning rate scheduler.
+*   The **Encoder** (the $V_i$ matrices) is updated by `AdamW`. After every epoch, it is mathematically retracted to the Stiefel manifold to maintain orthogonality (using `nsa_flow`) and sparsified according to `sparseness_quantile`.
 *   We'll use `energy_type="regression"` (MSE) for similarity matching.
 
 ```{python}
@@ -125,13 +126,23 @@ lend_results = lend_simr(
 
 u_train = lend_results['u']
 v_mats = lend_results['v']
+```
 
-plt.figure(figsize=(8, 4))
-plt.plot(lend_results['loss_history'], label="Total Loss", color='indigo')
-plt.title("LEND SiMR Training Convergence")
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
-plt.grid(True, alpha=0.3)
+### Optimization Diagnostics
+
+We can plot the reconstruction loss and similarity loss separately to diagnose training behavior. The cosine annealing scheduler and gradient clipping help stabilize the descent.
+
+```{python}
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+axes[0].plot(lend_results['recon_history'], label="Recon Loss", color='teal')
+axes[0].set_title("Reconstruction Loss")
+axes[0].set_xlabel("Epoch")
+axes[0].grid(True, alpha=0.3)
+
+axes[1].plot(lend_results['sim_history'], label="Sim Loss", color='coral')
+axes[1].set_title("Similarity Loss")
+axes[1].set_xlabel("Epoch")
+axes[1].grid(True, alpha=0.3)
 plt.show()
 ```
 
@@ -197,35 +208,54 @@ plt.grid(True, alpha=0.3)
 plt.show()
 ```
 
-## 4. Advanced Features: NSA-Flow Retraction and Energy Types
+## 4. Parameter Sweep: NSA-Flow Omega & Energy Types
 
-LEND SiMR allows users to swap energy functions easily. Here, we demonstrate the use of the **Absolute Canonical Covariance (ACC)** energy type. Furthermore, we can adjust the `nsa_omega` parameter. A lower $\omega$ (closer to 0) makes the retraction to the Stiefel manifold "softer," allowing the gradients more freedom before enforcing strict orthogonality, while a higher $\omega$ forces strict adherence to the manifold at every step.
+LEND SiMR allows users to swap energy functions easily. Here, we demonstrate the use of the **Absolute Canonical Covariance (ACC)** energy type. Furthermore, we can adjust the `nsa_omega` parameter. A lower $\omega$ (closer to 0) makes the retraction to the Stiefel manifold "softer," allowing the gradients more freedom before enforcing strict orthogonality, while a higher $\omega$ (closer to 1) forces strict adherence to the manifold at every step.
+
+We will run a small sweep over different omega values and energy types and compare their held-out validation $R^2$.
 
 ```{python}
-# Run LEND SiMR with ACC energy and a soft retraction (nsa_omega = 0.1)
-lend_acc_results = lend_simr(
-    data_matrices=train_mats,
-    k=k,
-    epochs=100,
-    batch_size=64,
-    learning_rate=1e-3,
-    sim_weight=1.0,
-    sparseness_quantile=0.5, 
-    nsa_omega=0.1, # Soft retraction
-    energy_type="acc", # Covariance maximization
-    verbose=False
-)
+import pandas as pd
 
-v1_acc = lend_acc_results['v'][0].numpy()
+results_sweep = []
+omegas = [0.1, 0.5, 0.9]
+energies = ["regression", "acc", "logcosh"]
 
-plt.figure(figsize=(10, 6))
-plt.imshow(v1_acc, aspect='auto', cmap='viridis')
-plt.colorbar(label='Weight')
-plt.title("Learned V Matrix (ACC Energy, Soft Retraction $\omega=0.1$)")
-plt.xlabel("Latent Component (k)")
-plt.ylabel("Feature Index (p)")
-plt.show()
+for e_type in energies:
+    for om in omegas:
+        res = lend_simr(
+            data_matrices=train_mats,
+            k=k,
+            epochs=100,
+            batch_size=64,
+            learning_rate=1e-3,
+            sim_weight=1.0,
+            sparseness_quantile=0.5, 
+            nsa_omega=om,
+            energy_type=e_type, 
+            verbose=False
+        )
+        
+        # Inference on test set
+        pred = predict_simlr(test_mats, res)
+        
+        # Regression
+        rm = LinearRegression()
+        rm.fit(pred['u'].numpy(), rad_test.numpy())
+        rp = rm.predict(pred['u'].numpy())
+        r2 = r2_score(rad_test.numpy(), rp)
+        
+        results_sweep.append({
+            "Energy Type": e_type,
+            "NSA Omega": om,
+            "Held-out R2": r2
+        })
+
+df_results = pd.DataFrame(results_sweep)
+df_results.pivot(index="Energy Type", columns="NSA Omega", values="Held-out R2").round(3)
 ```
+
+By examining the grid, we can observe how different energy types (e.g., the covariance-maximizing ACC or the ICA-like logcosh) and varying strengths of manifold retraction ($\omega$) impact the model's ability to discover and generalize the underlying biological structure on out-of-sample data.
 
 ## Conclusion
 
