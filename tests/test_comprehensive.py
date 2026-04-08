@@ -29,7 +29,8 @@ from pysimlr import (
     adjusted_rvcoef,
     simlr_path,
     permutation_test,
-    deep_simlr
+    deep_simr,
+    lend_simr
 )
 
 def test_utils_comprehensive():
@@ -185,18 +186,46 @@ def test_paths_comprehensive():
     assert 'p_value' in pt_res
     assert isinstance(pt_res['p_value'], float)
 
-def test_deep_simlr_comprehensive():
+def test_deep_simr_comprehensive():
     x1 = torch.randn(50, 20)
     x2 = torch.randn(50, 15)
     
     # Test with standard configuration
-    res = deep_simlr([x1, x2], k=5, epochs=5, batch_size=10, verbose=True)
+    res = deep_simr([x1, x2], k=5, epochs=5, batch_size=10, verbose=True)
     assert 'u' in res
     assert res['u'].shape == (50, 5)
     assert len(res['loss_history']) == 5
     
-    # Test with CPU device and dropout = 0
-    res_cpu = deep_simlr([x1, x2], k=3, epochs=2, batch_size=20, dropout=0.0, device="cpu", verbose=False)
+    # Test with CPU device, dropout = 0, and non-linear energy loss
+    res_cpu = deep_simr([x1, x2], k=3, epochs=2, batch_size=20, dropout=0.0, energy_type="acc", device="cpu", verbose=False)
     assert 'u' in res_cpu
     assert res_cpu['u'].shape == (50, 3)
     assert len(res_cpu['loss_history']) == 2
+    
+    # Inference tests
+    pred = predict_simlr([x1, x2], res)
+    assert 'u' in pred
+    assert len(pred['errors']) == 2
+
+def test_lend_simr_comprehensive():
+    x1 = torch.randn(50, 20)
+    x2 = torch.randn(50, 15)
+    
+    # Test LEND SiMR with sparseness constraints
+    res = lend_simr([x1, x2], k=5, epochs=3, batch_size=10, sparseness_quantile=0.5, positivity="positive", verbose=True)
+    assert 'u' in res
+    assert 'v' in res
+    assert res['u'].shape == (50, 5)
+    assert len(res['v']) == 2
+    
+    # Verify that V matrices are correctly formed
+    v1 = res['v'][0]
+    assert v1.shape == (20, 5)
+    # The sparseness quantile and positivity should be enforced 
+    # (subject to some numerical bounds but generally non-negative)
+    assert torch.all(v1 >= -1e-6) # Allowing tiny numerical noise
+    
+    # Test prediction capability
+    pred = predict_simlr([x1, x2], res)
+    assert 'u' in pred
+    assert len(pred['errors']) == 2

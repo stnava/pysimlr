@@ -24,7 +24,9 @@ test = [
 ]
 docs = [
     "jupyter",
-    "matplotlib"
+    "matplotlib",
+    "seaborn",
+    "pyyaml"
 ]
 dev = [
     "pysimlr[test,docs]"

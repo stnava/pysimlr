@@ -1,6 +1,6 @@
 .coverage
 src/pysimlr/__pycache__/
-.agentantsx_workflow 
+.agentantsx_workflow
 INSTRUCTIONS.md
 reference_r
 src/pysimlr.egg-info
@@ -18,3 +18,6 @@ tests/__pycache__/test_pysimlr.cpython-312-pytest-9.0.2.pyc
 tests/__pycache__/test_pysimlr.cpython-312-pytest-9.0.3.pyc
 .coverage
 
+
+/.quarto/
+**/*.quarto_ipynb

@@ -34,7 +34,7 @@ docs:
 	@echo "Rendering Quarto docs using python: $(shell which $(PYTHON))"
 	export QUARTO_PYTHON=$(shell which $(PYTHON)); \
 	export PYTHONPATH=$(SRC_PATH):$$PYTHONPATH; \
-	quarto render $(DOCS_DIR)/*.qmd
+	quarto render $(DOCS_DIR)
 
 .PHONY: clean
 clean:
@@ -44,6 +44,7 @@ clean:
 	rm -rf .pytest_cache
 	rm -rf .coverage
 	rm -rf htmlcov/
+	rm -rf $(DOCS_DIR)/*_files
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 

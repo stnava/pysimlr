@@ -19,6 +19,6 @@ from .regression import smooth_matrix_prediction, smooth_regression
 from .simlr import simlr, predict_simlr, estimate_rank, decompose_energy
 from .nnh import nnh_embed
 from .paths import simlr_path, permutation_test
-from .deep import deep_simlr
+from .deep import deep_simr, lend_simr
 
 __version__ = "0.1.0"
