@@ -13,22 +13,15 @@ format:
 
 Similarity-driven Multi-view Linear Reconstruction (**SiMLR**) is a framework for integrative dimensionality reduction across multiple data modalities. In this tutorial, we demonstrate how to use `pysimlr` to uncover shared latent structures in high-dimensional neuroimaging data, while incorporating prior **domain knowledge** to guide the decomposition.
 
-This tutorial is based on the reference R implementation and ported to a professional PyTorch backend.
-
 ## Simulation Setup
 
-We simulate three modalities:
-1. **Cortex**: Structural features (e.g., cortical thickness).
-2. **White Matter**: Diffusion metrics.
-3. **Functional Connectivity**: Connectivity strengths.
-
-We define 6 latent cognitive domains (e.g., memory, language) that are shared across these modalities.
+We simulate three modalities (Cortex, White Matter, Functional Connectivity) and 6 shared cognitive domains.
 
 ```{python}
 import torch
 import numpy as np
 import pandas as pd
-from pysimlr import simlr, safe_pca, nnh_embed
+from pysimlr import simlr, safe_pca, nnh_embed, decompose_energy
 import matplotlib.pyplot as plt
 
 # Set seeds for reproducibility
@@ -40,11 +33,10 @@ domains = ["memory", "language", "motor", "visuospatial", "speed", "executive"]
 d = len(domains)
 p_list = [100, 80, 60] # Features per modality
 
-# 1. Generate Domain Latents (shared across subjects)
+# 1. Generate Domain Latents
 true_latents = torch.randn(n, d)
 
-# 2. Create Domain Knowledge Matrices (Prior Mappings)
-# These matrices map features to cognitive domains
+# 2. Create Domain Knowledge Matrices
 d_matrices = []
 for p in p_list:
     dm = torch.zeros(d, p)
@@ -58,7 +50,6 @@ for p in p_list:
 # 3. Generate Multimodal Data
 data_matrices = []
 for i, p in enumerate(p_list):
-    # Modality-specific projection
     projection = torch.randn(d, p)
     signal = true_latents @ projection
     noise = torch.randn(n, p) * 0.5
@@ -69,11 +60,10 @@ print(f"Generated {len(data_matrices)} modalities for {n} subjects.")
 
 ## Running Guided SiMLR
 
-We run SiMLR with **Absolute Canonical Covariance (ACC)** energy and provide the domain knowledge matrices as priors. We also leverage the **NSA-Flow** optimizer for efficient manifold optimization.
+We leverage the **NSA-Flow** optimizer and **Absolute Canonical Covariance (ACC)** energy.
 
 ```{python}
-# Run SiMLR with domain guidance
-k = d # latent dimension
+k = d 
 results = simlr(
     data_matrices=data_matrices,
     k=k,
@@ -84,23 +74,56 @@ results = simlr(
     optimizer_type="nsa_flow",
     verbose=True
 )
+print(f"Optimization complete. Final energy: {results['energy'][-1]:.4f}")
+```
 
-# Extract shared latent space U and modality loadings V
-u_shared = results['u']
-v_loadings = results['v']
+## Advanced Energy: ICA-like Non-Linearity
 
-print(f"Optimization complete. Energy history: {results['energy'][:5]} ... {results['energy'][-1]}")
+SiMLR supports non-linear energy functions like **logcosh** to identify components that are statistically independent (ICA-style).
+
+```{python}
+# Run with logcosh energy
+ica_results = simlr(
+    data_matrices=data_matrices,
+    k=k,
+    iterations=20,
+    energy_type="logcosh",
+    optimizer_type="hybrid_adam"
+)
+print("ICA-style SiMLR complete.")
+```
+
+## Interpretability: Energy Decomposition
+
+To understand which modalities and features are driving the shared signal, we can decompose the model's energy.
+
+```{python}
+# Decompose energy for the ACC model
+decomp = decompose_energy(data_matrices, results, energy_type="acc")
+
+# Visualize Modality Energies
+plt.figure(figsize=(6, 4))
+mod_names = ["Cortex", "WhiteMatter", "FuncConn"]
+plt.bar(mod_names, [abs(e) for e in decomp['modality_energies']])
+plt.title("Energy Contribution by Modality (Absolute)")
+plt.ylabel("Energy")
+plt.show()
+
+# Visualize Feature Importance for Cortex
+feat_imp = decomp['feature_importances'][0]
+plt.figure(figsize=(10, 4))
+plt.plot(feat_imp.numpy())
+plt.title("Feature Importance Map (Cortex)")
+plt.xlabel("Feature Index")
+plt.ylabel("Importance (Energy Contrib)")
+plt.show()
 ```
 
 ## Specialized Wrapper: `nnh_embed`
 
-For users working with **ANTsPyMM** or standard neuroimaging IDPs (Image-Derived Phenotypes), `pysimlr` provides a specialized wrapper called `nnh_embed`. This function automates:
-- **Feature Selection**: Filtering by naming conventions (`rsfMRI`, `T1Hier`, `DTI`).
-- **Quality Control**: Filtering subjects by `resnetGrade`.
-- **Covariate Adjustment**: Residualizing modalities against age, sex, etc.
+For **ANTsPyMM** workflows, `nnh_embed` automates feature selection and quality control.
 
 ```{python}
-# Create a dummy ANTsPyMM-style dataframe
 df_neuro = pd.DataFrame({
     'T1Hier_vol1': np.random.randn(n),
     'DTI_fa1': np.random.randn(n),
@@ -109,51 +132,16 @@ df_neuro = pd.DataFrame({
     'age': np.random.randn(n)
 })
 
-# Run specialized neuroimaging embedding
 nnh_results = nnh_embed(
     df_neuro, 
     nsimlr=2, 
     iterations=10, 
     covariates=['age'],
-    verbose=True
+    verbose=False
 )
-
-print(f"nnh_embed completed for modalities: {nnh_results['modality_names']}")
-```
-
-## Visualizing Results
-
-### Energy Convergence
-
-```{python}
-plt.figure(figsize=(8, 4))
-plt.plot(results['energy'])
-plt.title("SIMLR Energy Convergence (Guided)")
-plt.xlabel("Iteration")
-plt.ylabel("Energy")
-plt.grid(True)
-plt.show()
-```
-
-### Domain Alignment
-
-We check how well the learned components align with our original cognitive domains by projecting the loadings back onto the domain matrices.
-
-```{python}
-# Alignment for the first modality (Cortex)
-alignment = d_matrices[0] @ v_loadings[0]
-plt.figure(figsize=(10, 6))
-plt.imshow(torch.abs(alignment).numpy(), cmap='viridis')
-plt.colorbar(label='Alignment Strength')
-plt.title("Alignment of Learned Components with Cognitive Domains (Cortex)")
-plt.xlabel("Learned Components")
-plt.ylabel("Prior Domains")
-plt.yticks(range(d), domains)
-plt.show()
+print(f"nnh_embed modalities: {nnh_results['modality_names']}")
 ```
 
 ## Conclusion
 
-In this tutorial, we demonstrated the professional PyTorch implementation of **Guided SiMLR**. By integrating prior domain knowledge and using specialized wrappers like `nnh_embed`, we ensured that the resulting latent components are not only statistically optimal but also biologically interpretable.
-
-The use of `nsa-flow` provides a robust mechanism for maintaining orthogonality during optimization, leading to cleaner factorizations.
+In this tutorial, we demonstrated the professional PyTorch implementation of **Guided SiMLR** with advanced energy functions and interpretability tools.

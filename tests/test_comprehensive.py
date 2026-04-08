@@ -28,7 +28,8 @@ from pysimlr import (
     rvcoef,
     adjusted_rvcoef,
     simlr_path,
-    permutation_test
+    permutation_test,
+    deep_simlr
 )
 
 def test_utils_comprehensive():
@@ -139,13 +140,9 @@ def test_simlr_comprehensive():
                optimizer_type="hybrid_adam",
                verbose=True)
     assert res['u'].shape == (20, 3)
-    
-    # Test non-linear ICA energy types
     for nle in ["logcosh", "exp", "gauss", "kurtosis"]:
         res_nle = simlr([x1, x2], k=2, iterations=2, energy_type=nle)
         assert len(res_nle['energy']) == 2
-        
-    # Energy decomposition
     dec = decompose_energy([x1, x2], res, energy_type="acc")
     assert len(dec['modality_energies']) == 2
     assert dec['feature_importances'][0].shape[0] == 10
@@ -187,3 +184,19 @@ def test_paths_comprehensive():
     pt_res = permutation_test([x1, x2], k=2, n_permutations=5, iterations=2)
     assert 'p_value' in pt_res
     assert isinstance(pt_res['p_value'], float)
+
+def test_deep_simlr_comprehensive():
+    x1 = torch.randn(50, 20)
+    x2 = torch.randn(50, 15)
+    
+    # Test with standard configuration
+    res = deep_simlr([x1, x2], k=5, epochs=5, batch_size=10, verbose=True)
+    assert 'u' in res
+    assert res['u'].shape == (50, 5)
+    assert len(res['loss_history']) == 5
+    
+    # Test with CPU device and dropout = 0
+    res_cpu = deep_simlr([x1, x2], k=3, epochs=2, batch_size=20, dropout=0.0, device="cpu", verbose=False)
+    assert 'u' in res_cpu
+    assert res_cpu['u'].shape == (50, 3)
+    assert len(res_cpu['loss_history']) == 2

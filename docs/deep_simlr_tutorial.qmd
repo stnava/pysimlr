@@ -1,0 +1,146 @@
+---
+title: "Deep SiMLR: Non-Linear Multi-Modal Integration"
+author: "pysimlr Team"
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    code-fold: true
+    theme: cosmo
+---
+
+## Introduction
+
+While traditional **SiMLR** (Similarity-driven Multi-view Linear Reconstruction) uncovers shared latent structures through linear projections, real-world biological data—such as high-dimensional neuroimaging or genomics—often involves highly non-linear relationships.
+
+**Deep SiMLR** extends the core SiMLR principle using a **Multi-view Autoencoder** architecture. In this approach:
+1. Each modality has its own **Encoder** network that maps features into a shared, low-dimensional latent space ($Z_i$).
+2. The objective function enforces that the latents of all modalities ($Z_1, Z_2, ...$) are similar to their consensus mean ($U$).
+3. Each modality has a **Decoder** network that attempts to reconstruct the original data from its specific latent representation.
+
+This tutorial demonstrates how to use the PyTorch-native `deep_simlr` implementation for robust, non-linear multi-modal integration.
+
+## Simulation Setup
+
+We'll simulate a scenario with two modalities. To highlight the power of Deep SiMLR, we'll embed a non-linear relationship: the true shared latent variables will be mapped to the observed data using complex functions (e.g., sine waves and polynomials).
+
+```{python}
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+from pysimlr import deep_simlr
+
+# Set seeds for reproducibility
+torch.manual_seed(42)
+np.random.seed(42)
+
+n_samples = 500
+k_true = 3  # 3 shared underlying signals
+
+# 1. Generate True Latents
+true_latents = torch.randn(n_samples, k_true)
+
+# 2. Modality 1: Non-linear mapping (polynomial and sine)
+p1 = 50
+x1 = torch.zeros(n_samples, p1)
+for j in range(p1):
+    # Non-linear combination of latents + noise
+    x1[:, j] = torch.sin(true_latents[:, 0] * (j+1)/10) + \
+               (true_latents[:, 1] ** 2) * 0.5 + \
+               true_latents[:, 2] + torch.randn(n_samples) * 0.2
+
+# 3. Modality 2: Different non-linear mapping (exponential and cosine)
+p2 = 40
+x2 = torch.zeros(n_samples, p2)
+for j in range(p2):
+    x2[:, j] = torch.cos(true_latents[:, 1] * (j+1)/5) + \
+               torch.exp(true_latents[:, 0] * 0.3) - \
+               true_latents[:, 2] * 1.5 + torch.randn(n_samples) * 0.2
+
+data_matrices = [x1, x2]
+print(f"Generated Modality 1 (Shape: {x1.shape}) and Modality 2 (Shape: {x2.shape})")
+```
+
+## Running Deep SiMLR
+
+We run `deep_simlr`. Under the hood, this will build a Multi-view Autoencoder. We can control the architecture using parameters like `hidden_dims` and `dropout`, and manage the training using standard deep learning hyperparameters (`epochs`, `batch_size`, `learning_rate`, `weight_decay`).
+
+```{python}
+# We use k=3 to match our true number of signals
+k = 3
+
+# Run the model
+deep_results = deep_simlr(
+    data_matrices=data_matrices,
+    k=k,
+    epochs=100,
+    batch_size=64,
+    learning_rate=1e-3,
+    weight_decay=1e-4, # L2 Regularization
+    sim_weight=0.5,    # Balance between reconstruction and latent similarity
+    hidden_dims=[64, 32], # Architecture: Input -> 64 -> 32 -> Latent(3)
+    dropout=0.1,
+    verbose=True
+)
+
+u_shared = deep_results['u']
+loss_history = deep_results['loss_history']
+```
+
+## Visualizing Results
+
+### Training Loss
+
+We can visualize the convergence of our autoencoder by plotting the loss history.
+
+```{python}
+plt.figure(figsize=(8, 4))
+plt.plot(loss_history, label="Total Loss (Recon + Sim)", color='indigo')
+plt.title("Deep SiMLR Training Convergence")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.show()
+```
+
+### Latent Space Alignment
+
+The core of SiMLR is that the modality-specific latent spaces ($Z_1, Z_2$) should align with the consensus ($U$). Let's verify that the encoders learned to map the distinct, non-linear feature spaces into a shared, harmonized representation.
+
+```{python}
+z1 = deep_results['latents'][0].numpy()
+z2 = deep_results['latents'][1].numpy()
+
+# Compare the first latent dimension across modalities
+plt.figure(figsize=(6, 6))
+plt.scatter(z1[:, 0], z2[:, 0], alpha=0.5, color='teal')
+plt.title("Latent Space Alignment (Dimension 1)")
+plt.xlabel("Modality 1 Latent (Z1)")
+plt.ylabel("Modality 2 Latent (Z2)")
+# Plot a diagonal line for reference
+min_val = min(z1[:,0].min(), z2[:,0].min())
+max_val = max(z1[:,0].max(), z2[:,0].max())
+plt.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5)
+plt.grid(True, alpha=0.3)
+plt.show()
+```
+
+## Extracting the PyTorch Model
+
+`deep_simlr` returns the full PyTorch `nn.Module`. This means you can save the model weights, deploy it for inference on new data, or integrate it into larger PyTorch pipelines.
+
+```{python}
+# Access the raw PyTorch model
+pytorch_model = deep_results['model']
+print(pytorch_model)
+
+# For out-of-sample prediction (Inference):
+# pytorch_model.eval()
+# with torch.no_grad():
+#     new_latents, new_recons = pytorch_model([new_x1, new_x2])
+```
+
+## Conclusion
+
+**Deep SiMLR** brings the conceptual elegance of similarity-driven reconstruction to non-linear domains. By providing an end-to-end PyTorch autoencoder, `pysimlr` allows researchers to uncover complex, harmonized latent structures that classical linear methods would miss.
