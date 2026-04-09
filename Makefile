@@ -37,6 +37,7 @@ docs:
 	quarto render $(DOCS_DIR)/tutorial_domain_knowledge.qmd
 	quarto render $(DOCS_DIR)/lend_simr_tutorial.qmd
 	quarto render $(DOCS_DIR)/deep_simr_tutorial.qmd
+	quarto render $(DOCS_DIR)/comparison_simlr_lend.qmd
 
 .PHONY: clean
 clean:
