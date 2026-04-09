@@ -103,6 +103,32 @@ def get_best_per_model(df: pd.DataFrame, metric: str = "test_r2") -> pd.DataFram
     best_idx = df.groupby("model")[metric].idxmax()
     return df.loc[best_idx].sort_values(metric, ascending=False)
 
+def sweep_benchmark(model_types: List[str],
+                    case_kind: str = "nonlinear_shared",
+                    n_samples: int = 1000,
+                    sparsities: List[float] = [0.0, 0.5, 0.8],
+                    n_seeds: int = 3,
+                    save_prefix: Optional[str] = None,
+                    **common_params) -> Dict[str, pd.DataFrame]:
+    """Run full sweep across models and sparsities with multi-seed aggregation."""
+    all_raw = []
+    for m_type in model_types:
+        for spar in sparsities:
+            print(f"Benchmarking {m_type} at sparsity {spar} (Seeds: {n_seeds})...")
+            df_seeds = run_seeded_benchmark(m_type, case_kind, n_samples, n_seeds, sparsity=spar, **common_params)
+            all_raw.append(df_seeds)
+            
+    df_raw = pd.concat(all_raw, ignore_index=True)
+    df_summary = aggregate_results(df_raw)
+    df_best = get_best_per_model(df_summary)
+    
+    if save_prefix:
+        df_raw.to_csv(f"{save_prefix}_raw.csv", index=False)
+        df_summary.to_csv(f"{save_prefix}_summary.csv", index=False)
+        df_best.to_csv(f"{save_prefix}_best.csv", index=False)
+        
+    return {"raw": df_raw, "summary": df_summary, "best": df_best}
+
 def main():
     parser = argparse.ArgumentParser(description="SiMLR Benchmark Runner")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config file")
@@ -121,20 +147,16 @@ def main():
     reserved = ["model_types", "sparsities", "n_seeds", "n_samples", "case_kind", "save_prefix"]
     model_params = {k: v for k, v in config.items() if k not in reserved}
     
-    all_raw = []
-    for m_type in model_types:
-        for spar in sparsities:
-            print(f"Running: {m_type} @ {spar} (Samples: {n_samples}, Seeds: {n_seeds})")
-            df_seeds = run_seeded_benchmark(m_type, case_kind, n_samples, n_seeds, sparsity=spar, **model_params)
-            all_raw.append(df_seeds)
-            
-    df_raw = pd.concat(all_raw, ignore_index=True)
-    df_summary = aggregate_results(df_raw)
-    df_best = get_best_per_model(df_summary)
+    results = sweep_benchmark(
+        model_types=model_types,
+        case_kind=case_kind,
+        n_samples=n_samples,
+        sparsities=sparsities,
+        n_seeds=n_seeds,
+        save_prefix=save_prefix,
+        **model_params
+    )
     
-    df_raw.to_csv(f"{save_prefix}_raw.csv", index=False)
-    df_summary.to_csv(f"{save_prefix}_summary.csv", index=False)
-    df_best.to_csv(f"{save_prefix}_best.csv", index=False)
     print(f"Results saved with prefix: {save_prefix}")
 
 if __name__ == "__main__":

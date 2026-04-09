@@ -36,8 +36,9 @@ import sys
 import os
 
 # Ensure package and benchmarks are discoverable
-sys.path.append(os.path.abspath("../src"))
-sys.path.append(os.path.abspath(".."))
+# We insert at index 0 to override any other benchmarks packages in the environment
+sys.path.insert(0, os.path.abspath(".."))
+sys.path.insert(0, os.path.abspath("../src"))
 
 from benchmarks.synthetic_cases import build_case
 from benchmarks.runner import run_single_experiment, sweep_benchmark, get_best_per_model

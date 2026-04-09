@@ -1,4 +1,5 @@
 .coverage
+benchmarks/__pycache__/
 src/pysimlr/__pycache__/
 .agentantsx_workflow
 INSTRUCTIONS.md
