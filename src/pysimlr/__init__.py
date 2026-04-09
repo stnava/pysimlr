@@ -40,7 +40,8 @@ from .paths import (
 from .deep import (
     deep_simr,
     lend_simr,
-    ned_simr
+    ned_simr,
+    ned_simr_shared_private
 )
 from .utils import (
     set_seed_based_on_time,
@@ -84,6 +85,7 @@ __all__ = [
     'deep_simr',
     'lend_simr',
     'ned_simr',
+    'ned_simr_shared_private',
     'set_seed_based_on_time',
     'multigrep',
     'get_names_from_dataframe',

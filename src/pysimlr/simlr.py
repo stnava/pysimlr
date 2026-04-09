@@ -50,11 +50,7 @@ def calculate_u(projections: List[torch.Tensor],
     if mixing_algorithm == "avg":
         u = torch.mean(torch.stack(norm_projs), dim=0)
     elif mixing_algorithm == "newton":
-        # Fast algebraic projection towards the Stiefel manifold
-        # U = 1.5*U - 0.5*U*(U^T @ U)
-        # This is differentiable and highly stable for backprop
         u_raw = torch.mean(torch.stack(norm_projs), dim=0)
-        # Scale to ensure singular values are near 1 for Newton convergence
         u_scaled = u_raw / (torch.norm(u_raw, p=2) + 1e-8)
         u = 1.5 * u_scaled - 0.5 * u_scaled @ (u_scaled.t() @ u_scaled)
     elif mixing_algorithm == "stochastic":
@@ -248,7 +244,11 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr_re
         torch_mats_device = [m.to(device) for m in torch_mats]
         with torch.no_grad():
             output = model(torch_mats_device)
-            latents, reconstructions, u_new = output[0], output[1], output[2]
+            # Differentiable consensus logic now returns 3 or 4 values.
+            # We use indexing from the end to be robust.
+            latents = output[0]
+            reconstructions = output[-2]
+            u_new = output[-1]
         errors = [torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10) for x, x_pred in zip(torch_mats_device, reconstructions)]
         return {"u": torch.nan_to_num(u_new.cpu()), "latents": [torch.nan_to_num(l.cpu()) for l in latents], "reconstructions": [torch.nan_to_num(r.cpu()) for r in reconstructions], "errors": errors}
     v_mats = simlr_result['v']; projections = [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)]
