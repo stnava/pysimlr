@@ -32,7 +32,7 @@ def calculate_u(projections: List[torch.Tensor],
                 orthogonalize: bool = False) -> torch.Tensor:
     """
     Combine projections from different modalities into a shared latent basis U.
-    Matches R's simlrU logic.
+    Matches R's simlrU logic with an added 'newton' fast-orthogonality option.
     """
     n_modalities = len(projections)
     if k is None:
@@ -40,16 +40,23 @@ def calculate_u(projections: List[torch.Tensor],
         
     norm_projs = []
     for p in projections:
-        # Crucial for stability in deep models
-        p_safe = torch.nan_to_num(p, 0.0)
+        p_safe = torch.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
         p_norm = torch.norm(p_safe, p='fro')
-        if p_norm > 1e-10:
-            norm_projs.append(p_safe / p_norm)
+        if p_norm > 1e-6:
+            norm_projs.append(p_safe / (p_norm + 1e-8))
         else:
-            norm_projs.append(p_safe)
+            norm_projs.append(torch.randn_like(p_safe) * 1e-4)
             
     if mixing_algorithm == "avg":
         u = torch.mean(torch.stack(norm_projs), dim=0)
+    elif mixing_algorithm == "newton":
+        # Fast algebraic projection towards the Stiefel manifold
+        # U = 1.5*U - 0.5*U*(U^T @ U)
+        # This is differentiable and highly stable for backprop
+        u_raw = torch.mean(torch.stack(norm_projs), dim=0)
+        # Scale to ensure singular values are near 1 for Newton convergence
+        u_scaled = u_raw / (torch.norm(u_raw, p=2) + 1e-8)
+        u = 1.5 * u_scaled - 0.5 * u_scaled @ (u_scaled.t() @ u_scaled)
     elif mixing_algorithm == "stochastic":
         avg_p = torch.cat(norm_projs, dim=1)
         g = torch.randn(avg_p.shape[1], k, device=avg_p.device, dtype=avg_p.dtype)
@@ -58,13 +65,11 @@ def calculate_u(projections: List[torch.Tensor],
         if FastICA is None:
             raise ImportError("scikit-learn is required for mixing_algorithm='ica'")
         avg_p = torch.cat(norm_projs, dim=1).detach().cpu().numpy()
-        # Double check for final finiteness before sklearn
         avg_p = np.nan_to_num(avg_p, nan=0.0, posinf=0.0, neginf=0.0)
         ica = FastICA(n_components=k, random_state=42, max_iter=1000)
         try:
             u_np = ica.fit_transform(avg_p)
         except:
-            # Fallback to PCA if ICA fails to converge or has issues
             u_np = avg_p[:, :k]
         u = torch.from_numpy(u_np).to(projections[0].device).to(projections[0].dtype)
     else:
@@ -74,7 +79,7 @@ def calculate_u(projections: List[torch.Tensor],
         else: # Default to svd
             u, _, _ = ba_svd(big_p, nu=k, nv=0)
             
-    if orthogonalize:
+    if orthogonalize and mixing_algorithm != "newton":
         u, _, _ = torch.linalg.svd(u, full_matrices=False)
         u = u[:, :k]
         
@@ -129,7 +134,7 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
     elif energy_type == "dat" and prior_matrix is not None:
         alignment = prior_matrix.to(x.dtype) @ v
         return -lambda_val * torch.sum(alignment**2)
-    return torch.tensor(0.0, dtype=x.dtype, device=x.device)
+    return torch.tensor(0.0, dtype=u.dtype, device=u.device)
 
 def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, energy_type: str = "regression", lambda_val: float = 0.0, prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
     ica_types = ["logcosh", "exp", "gauss", "kurtosis"]
