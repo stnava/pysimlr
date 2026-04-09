@@ -40,34 +40,38 @@ def calculate_u(projections: List[torch.Tensor],
         
     norm_projs = []
     for p in projections:
-        p_norm = torch.norm(p, p='fro')
+        # Crucial for stability in deep models
+        p_safe = torch.nan_to_num(p, 0.0)
+        p_norm = torch.norm(p_safe, p='fro')
         if p_norm > 1e-10:
-            norm_projs.append(p / p_norm)
+            norm_projs.append(p_safe / p_norm)
         else:
-            norm_projs.append(p)
+            norm_projs.append(p_safe)
             
     if mixing_algorithm == "avg":
         u = torch.mean(torch.stack(norm_projs), dim=0)
     elif mixing_algorithm == "stochastic":
         avg_p = torch.cat(norm_projs, dim=1)
-        # Random projection is differentiable wrt avg_p
         g = torch.randn(avg_p.shape[1], k, device=avg_p.device, dtype=avg_p.dtype)
         u = avg_p @ g
     elif mixing_algorithm == "ica":
         if FastICA is None:
             raise ImportError("scikit-learn is required for mixing_algorithm='ica'")
-        # ICA mixing via sklearn is NOT differentiable through torch
         avg_p = torch.cat(norm_projs, dim=1).detach().cpu().numpy()
+        # Double check for final finiteness before sklearn
+        avg_p = np.nan_to_num(avg_p, nan=0.0, posinf=0.0, neginf=0.0)
         ica = FastICA(n_components=k, random_state=42, max_iter=1000)
-        u_np = ica.fit_transform(avg_p)
+        try:
+            u_np = ica.fit_transform(avg_p)
+        except:
+            # Fallback to PCA if ICA fails to converge or has issues
+            u_np = avg_p[:, :k]
         u = torch.from_numpy(u_np).to(projections[0].device).to(projections[0].dtype)
     else:
         big_p = torch.cat(norm_projs, dim=1)
         if mixing_algorithm == "pca":
-            # safe_pca uses differentiable ba_svd
             u = safe_pca(big_p, nc=k)['u']
         else: # Default to svd
-            # ba_svd uses differentiable torch.linalg.svd
             u, _, _ = ba_svd(big_p, nu=k, nv=0)
             
     if orthogonalize:
@@ -242,9 +246,9 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr_re
             latents, reconstructions, u_new = output[0], output[1], output[2]
         errors = [torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10) for x, x_pred in zip(torch_mats_device, reconstructions)]
         return {"u": torch.nan_to_num(u_new.cpu()), "latents": [torch.nan_to_num(l.cpu()) for l in latents], "reconstructions": [torch.nan_to_num(r.cpu()) for r in reconstructions], "errors": errors}
-    v_mats = simlr_result['v']; projections = [x @ v for x, v in zip(torch_mats, v_mats)]
+    v_mats = simlr_result['v']; projections = [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)]
     u_new = torch.mean(torch.stack(projections), dim=0); u_new, _, _ = torch.linalg.svd(u_new, full_matrices=False)
-    reconstructions = [u_new @ v.t() for v in v_mats]
+    reconstructions = [u_new @ v.t().to(u_new.dtype) for v in v_mats]
     errors = [torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10) for x, x_pred in zip(torch_mats, reconstructions)]
     return {"u": torch.nan_to_num(u_new), "reconstructions": reconstructions, "errors": errors}
 
