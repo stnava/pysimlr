@@ -115,7 +115,8 @@ class ModalityDecoder(nn.Module):
 class LENDSiMRModel(nn.Module):
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [64, 128], 
                  dropout: float = 0.1, nsa_w: float = 0.5, positivity: str = "either", 
-                 sparseness_quantile: float = 0.0, mixing_algorithm: str = "avg"):
+                 sparseness_quantile: float = 0.0, mixing_algorithm: str = "avg",
+                 backprop_through_mixing: bool = False):
         super().__init__()
         self.encoders = nn.ModuleList([
             LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sparseness_quantile) for dim in input_dims
@@ -125,19 +126,26 @@ class LENDSiMRModel(nn.Module):
         ])
         self.mixing_algorithm = mixing_algorithm
         self.latent_dim = latent_dim
+        self.backprop_through_mixing = backprop_through_mixing
         
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
         with torch.no_grad():
             for i, x in enumerate(data_matrices):
                 u, s, v = ba_svd(x, nu=0, nv=k)
                 if v.shape[1] < k:
-                    padding = torch.randn(v.shape[0], k - v.shape[1]) * 1e-4
+                    padding = torch.randn(v.shape[0], k - v.shape[1], device=v.device, dtype=v.dtype) * 1e-4
                     v = torch.cat([v, padding], dim=1)
-                self.encoders[i].v_raw.copy_(v)
+                self.encoders[i].v_raw.copy_(v.to(x.dtype))
 
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         latents = [enc(x) for enc, x in zip(self.encoders, x_list)]
-        u_shared = calculate_u(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim)
+        
+        if self.backprop_through_mixing:
+            u_shared = calculate_u(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim)
+        else:
+            with torch.no_grad():
+                u_shared = calculate_u(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim)
+        
         reconstructions = [dec(u_shared) for dec in self.decoders]
         return latents, reconstructions, u_shared
 
@@ -182,8 +190,12 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               dropout: float = 0.1,
               energy_type: str = "regression",
               mixing_algorithm: str = "avg",
+              backprop_through_mixing: bool = False,
               device: Optional[str] = None,
               verbose: bool = False) -> Dict[str, Any]:
+    if backprop_through_mixing and mixing_algorithm == "ica":
+        raise ValueError("backprop_through_mixing=True is not supported with mixing_algorithm='ica' because ICA mixing is non-differentiable.")
+
     if device is None:
         device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device)
@@ -192,19 +204,24 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     input_dims = [m.shape[1] for m in torch_mats]
     
     class InnerDeepSiMRModel(nn.Module):
-        def __init__(self, input_dims, latent_dim, hidden_dims, dropout, mixing_algorithm):
+        def __init__(self, input_dims, latent_dim, hidden_dims, dropout, mixing_algorithm, backprop_through_mixing):
             super().__init__()
             self.encoders = nn.ModuleList([ModalityEncoder(dim, latent_dim, hidden_dims, dropout) for dim in input_dims])
             self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims[::-1], dropout) for dim in input_dims])
             self.mixing_algorithm = mixing_algorithm
             self.latent_dim = latent_dim
+            self.backprop_through_mixing = backprop_through_mixing
         def forward(self, x_list):
             latents = [enc(x) for enc, x in zip(self.encoders, x_list)]
-            u_shared = calculate_u(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim)
+            if self.backprop_through_mixing:
+                u_shared = calculate_u(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim)
+            else:
+                with torch.no_grad():
+                    u_shared = calculate_u(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim)
             reconstructions = [dec(u_shared) for dec in self.decoders]
             return latents, reconstructions, u_shared
 
-    model = InnerDeepSiMRModel(input_dims, k, hidden_dims, dropout, mixing_algorithm).to(device)
+    model = InnerDeepSiMRModel(input_dims, k, hidden_dims, dropout, mixing_algorithm, backprop_through_mixing).to(device)
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
     mse_loss = nn.MSELoss()
@@ -265,9 +282,13 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               dropout: float = 0.1,
               energy_type: str = "regression",
               mixing_algorithm: str = "avg",
+              backprop_through_mixing: bool = False,
               device: Optional[str] = None,
               verbose: bool = False,
               **kwargs) -> Dict[str, Any]:
+    if backprop_through_mixing and mixing_algorithm == "ica":
+        raise ValueError("backprop_through_mixing=True is not supported with mixing_algorithm='ica' because ICA mixing is non-differentiable.")
+
     if 'nsa_omega' in kwargs: nsa_w = kwargs.pop('nsa_omega')
     if device is None:
         device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
@@ -278,7 +299,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     
     model = LENDSiMRModel(input_dims, k, hidden_dims, dropout=dropout, 
                           nsa_w=nsa_w, positivity=positivity, sparseness_quantile=sparseness_quantile,
-                          mixing_algorithm=mixing_algorithm)
+                          mixing_algorithm=mixing_algorithm, backprop_through_mixing=backprop_through_mixing)
     model.initialize_v(torch_mats, k)
     model = model.to(device)
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)

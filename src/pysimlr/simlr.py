@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from typing import List, Optional, Union, Dict, Any, Callable
+from typing import List, Optional, Union, Dict, Any, Tuple
 from .svd import ba_svd, safe_pca
 from .optimizers import create_optimizer
 from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness
@@ -50,11 +50,13 @@ def calculate_u(projections: List[torch.Tensor],
         u = torch.mean(torch.stack(norm_projs), dim=0)
     elif mixing_algorithm == "stochastic":
         avg_p = torch.cat(norm_projs, dim=1)
+        # Random projection is differentiable wrt avg_p
         g = torch.randn(avg_p.shape[1], k, device=avg_p.device, dtype=avg_p.dtype)
         u = avg_p @ g
     elif mixing_algorithm == "ica":
         if FastICA is None:
             raise ImportError("scikit-learn is required for mixing_algorithm='ica'")
+        # ICA mixing via sklearn is NOT differentiable through torch
         avg_p = torch.cat(norm_projs, dim=1).detach().cpu().numpy()
         ica = FastICA(n_components=k, random_state=42, max_iter=1000)
         u_np = ica.fit_transform(avg_p)
@@ -62,8 +64,10 @@ def calculate_u(projections: List[torch.Tensor],
     else:
         big_p = torch.cat(norm_projs, dim=1)
         if mixing_algorithm == "pca":
+            # safe_pca uses differentiable ba_svd
             u = safe_pca(big_p, nc=k)['u']
         else: # Default to svd
+            # ba_svd uses differentiable torch.linalg.svd
             u, _, _ = ba_svd(big_p, nu=k, nv=0)
             
     if orthogonalize:

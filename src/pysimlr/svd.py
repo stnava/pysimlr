@@ -15,8 +15,8 @@ def ba_svd(x: torch.Tensor,
     if na_to_noise:
         bad_mask = ~torch.isfinite(x)
         if torch.any(bad_mask):
-            noise = torch.randn(bad_mask.sum()) * 1e-6
             x = x.clone()
+            noise = torch.randn(bad_mask.sum(), device=x.device, dtype=x.dtype) * 1e-6
             x[bad_mask] = noise
 
     if divide_by_max:
@@ -36,11 +36,12 @@ def ba_svd(x: torch.Tensor,
         nv = min(nv, m, n)
 
     try:
+        # torch.linalg.svd is generally differentiable
         u, s, vh = torch.linalg.svd(x, full_matrices=False)
-        u = u[:, :nu].to(orig_dtype)
-        v = vh[:nv, :].t().to(orig_dtype)
-        s = s[:min(nu, nv)].to(orig_dtype)
-        return u, s, v
+        u_out = u[:, :nu].to(orig_dtype)
+        v_out = vh[:nv, :].t().to(orig_dtype)
+        s_out = s[:min(nu, nv)].to(orig_dtype)
+        return u_out, s_out, v_out
     except RuntimeError:
         k = max(nu, nv)
         p = 5 
@@ -57,10 +58,10 @@ def ba_svd(x: torch.Tensor,
         u_hat, s, vh = torch.linalg.svd(b, full_matrices=False)
         u = q_mat @ u_hat
         
-        u = u[:, :nu].to(orig_dtype)
-        v = vh[:nv, :].t().to(orig_dtype)
-        s = s[:min(nu, nv)].to(orig_dtype)
-        return u, s, v
+        u_out = u[:, :nu].to(orig_dtype)
+        v_out = vh[:nv, :].t().to(orig_dtype)
+        s_out = s[:min(nu, nv)].to(orig_dtype)
+        return u_out, s_out, v_out
 
 def safe_pca(x: torch.Tensor, 
              nc: Optional[int] = None, 
@@ -77,22 +78,23 @@ def safe_pca(x: torch.Tensor,
     else:
         nc = min(nc, x.shape[0], x.shape[1])
         
-    x_centered = x
+    x_proc = x
     if center:
-        x_centered = x - torch.mean(x, dim=0)
+        x_proc = x_proc - torch.mean(x_proc, dim=0)
     
     if scale:
-        std = torch.std(x, dim=0)
-        std[std == 0] = 1.0
-        x_centered = x_centered / std
+        std = torch.std(x_proc, dim=0)
+        # Avoid in-place modification for backprop
+        std_safe = torch.where(std == 0, torch.ones_like(std), std)
+        x_proc = x_proc / std_safe
         
-    u, s, v = ba_svd(x_centered, nu=nc, nv=nc)
+    u, s, v = ba_svd(x_proc, nu=nc, nv=nc)
     
     return {
         "u": u,
         "s": s,
         "v": v,
-        "x": (x_centered @ v).to(orig_dtype) # Scores
+        "x": (x_proc @ v).to(orig_dtype) # Scores
     }
 
 def whiten_matrix(x: torch.Tensor) -> Dict[str, torch.Tensor]:
@@ -127,11 +129,11 @@ def multiscale_svd(x: torch.Tensor,
     orig_dtype = x.dtype
 
     n = x.shape[0]
-    m_response = torch.full((len(r), nev), float('nan'), dtype=orig_dtype)
+    m_response = torch.full((len(r), nev), float('nan'), dtype=orig_dtype, device=x.device)
     
     for scl_idx, my_r in enumerate(r):
         loc_sam = torch.randperm(n)[:locn]
-        my_evs = torch.full((locn, nev), float('nan'), dtype=orig_dtype)
+        my_evs = torch.full((locn, nev), float('nan'), dtype=orig_dtype, device=x.device)
         for i in range(locn):
             diff = x - x[loc_sam[i]]
             row_dist = torch.sqrt(torch.sum(diff**2, dim=1))
@@ -140,7 +142,7 @@ def multiscale_svd(x: torch.Tensor,
                 if knn > 0 and torch.sum(sel) > knn:
                     sel_inds = torch.where(sel)[0]
                     subset_inds = sel_inds[torch.randperm(len(sel_inds))[:knn]]
-                    sel = torch.zeros(n, dtype=torch.bool)
+                    sel = torch.zeros(n, dtype=torch.bool, device=x.device)
                     sel[subset_inds] = True
                 l_mat = x[sel, :]
                 l_mat_centered = l_mat - torch.mean(l_mat, dim=0)
