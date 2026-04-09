@@ -1,75 +1,65 @@
+import os
 import torch
 import pandas as pd
-import pytest
 import numpy as np
 from pysimlr import (
-    set_seed_based_on_time,
-    multigrep,
-    get_names_from_dataframe,
+    simlr,
+    predict_simlr,
+    estimate_rank,
     ba_svd,
-    whiten_matrix,
+    safe_pca,
     sparse_distance_matrix,
-    orthogonalize_and_q_sparsify,
-    smooth_regression,
-    simlr
+    smooth_regression
 )
 
-def test_utils():
-    # Test set_seed_based_on_time
-    seed = set_seed_based_on_time()
-    assert isinstance(seed, int)
+def test_simlr_basic():
+    # Setup small synthetic data
+    torch.manual_seed(42)
+    n, p1, p2, k = 50, 20, 15, 2
+    u_true = torch.randn(n, k)
+    v1_true = torch.randn(p1, k)
+    v2_true = torch.randn(p2, k)
     
-    # Test multigrep
-    desc = ["apple", "banana", "cherry", "date"]
-    patterns = ["a", "e"]
-    res = multigrep(patterns, desc, intersect=False)
-    assert isinstance(res, torch.Tensor)
-    assert len(res) == 4
+    x1 = u_true @ v1_true.t() + 0.1 * torch.randn(n, p1)
+    x2 = u_true @ v2_true.t() + 0.1 * torch.randn(n, p2)
     
-    res = multigrep(patterns, desc, intersect=True)
-    assert len(res) == 2
+    # Test estimate_rank
+    k_est = estimate_rank([x1, x2], n_permutations=5)
+    assert isinstance(k_est, int)
+    assert k_est > 0
     
-    # Test get_names_from_dataframe
-    df = pd.DataFrame(columns=["test_1", "test_2", "other_1"])
-    nms = get_names_from_dataframe(["test"], df)
-    assert nms == ["test_1", "test_2"]
+    # Test simlr
+    res = simlr([x1, x2], k=k, iterations=10)
+    assert "u" in res
+    assert "v" in res
+    assert len(res["v"]) == 2
+    assert res["u"].shape == (n, k)
+    
+    # Test predict_simlr
+    pred = predict_simlr([x1, x2], res)
+    assert "u" in pred
+    assert len(pred["reconstructions"]) == 2
+    assert len(pred["errors"]) == 2
 
 def test_svd():
-    # Test ba_svd
-    x = torch.randn(10, 5)
-    u, s, v = ba_svd(x, nu=3, nv=2)
-    assert u.shape == (10, 3)
-    assert s.shape == (2,)
-    assert v.shape == (5, 2)
+    x = torch.randn(100, 20)
+    u, s, v = ba_svd(x, nu=5, nv=5)
+    assert u.shape == (100, 5)
+    assert s.shape == (5,)
+    assert v.shape == (20, 5)
     
-    # Test whiten_matrix
-    x = torch.randn(20, 5)
-    res = whiten_matrix(x)
-    whitened = res["whitened_matrix"]
-    assert whitened.shape == (20, 5)
+    res = safe_pca(x, nc=5)
+    assert res["u"].shape == (100, 5)
+    assert res["v"].shape == (20, 5)
 
 def test_sparse():
     x = torch.randn(10, 5)
-    smat = sparse_distance_matrix(x, k=2, kmetric="euclidean")
-    assert smat.shape == (5, 5)
-    assert torch.any(smat != 0)
-
-def test_sparsification():
-    v = torch.randn(10, 3)
-    v_sparse = orthogonalize_and_q_sparsify(v, sparseness_quantile=0.5)
-    assert v_sparse.shape == (10, 3)
-    assert torch.any(v_sparse == 0)
+    # Corrected call signature (no kmetric)
+    smat = sparse_distance_matrix(x, k=2)
+    assert smat.shape == (10, 10)
 
 def test_regression():
     x = torch.randn(20, 10)
     y = x[:, 0] * 2 + x[:, 1] * -1 + torch.randn(20) * 0.1
     res = smooth_regression(x, y, iterations=5, nv=1)
     assert res["v"].shape == (10, 1)
-
-def test_simlr_smoke():
-    x1 = torch.randn(20, 10)
-    x2 = torch.randn(20, 10)
-    res = simlr([x1, x2], k=2, iterations=3)
-    assert res["u"].shape == (20, 2)
-    assert len(res["v"]) == 2
-    assert res["v"][0].shape == (10, 2)

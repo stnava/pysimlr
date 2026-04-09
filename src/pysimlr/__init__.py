@@ -7,6 +7,10 @@ from .simlr import (
     initialize_simlr,
     calculate_u
 )
+from .optimizers import (
+    create_optimizer,
+    SimlrOptimizer
+)
 from .sparsification import (
     optimize_indicator_matrix,
     indicator_opt_both_ways,
@@ -64,6 +68,8 @@ __all__ = [
     'simlr_perm',
     'initialize_simlr',
     'calculate_u',
+    'create_optimizer',
+    'SimlrOptimizer',
     'optimize_indicator_matrix',
     'indicator_opt_both_ways',
     'rank_based_matrix_segmentation',

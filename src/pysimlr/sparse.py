@@ -1,140 +1,60 @@
 import torch
-from typing import Optional, Union, Tuple
+from typing import Optional, Union
 
 def sparse_distance_matrix(x: torch.Tensor, 
-                           k: int = 3, 
-                           r: float = float('inf'), 
-                           sigma: Optional[float] = None,
-                           kmetric: str = "euclidean",
-                           sinkhorn: bool = False,
-                           verbose: bool = False) -> torch.Tensor:
+                           k: int, 
+                           sigma: Optional[float] = None) -> torch.Tensor:
     """
-    Create sparse distance, covariance or correlation matrix using torch.
-    Note: Returns a dense tensor with zeros for sparsity, or a torch.sparse tensor.
-    For simplicity in porting, we'll use dense tensors if memory allows, 
-    but for 'professional' use we should consider torch.sparse.
+    Compute a sparse distance matrix using k-nearest neighbors in torch.
+    Returns a n x n distance matrix.
     """
     x = torch.as_tensor(x).float()
-        
-    n, p = x.shape
-    if k >= p:
-        k = p - 1
-        
-    # We want a p x p similarity matrix between features
-    # features are columns of x
-    xt = x.t() # p x n
+    n = x.shape[0]
     
-    # Compute all-to-all distances between features
-    # (p x n) and (p x n) -> p x p distance matrix
-    dist_mat = torch.cdist(xt, xt, p=2) # Euclidean distance
+    # Compute full distance matrix
+    dist = torch.cdist(x, x)
     
-    if kmetric in ["correlation", "covariance"]:
-        # Center and optionally scale features
-        xt_centered = xt - torch.mean(xt, dim=1, keepdim=True)
-        if kmetric == "correlation":
-            xt_std = torch.std(xt, dim=1, keepdim=True)
-            xt_std[xt_std == 0] = 1.0
-            xt_centered = xt_centered / xt_std
-            
-        # Similarity is dot product / (n-1)
-        sim_mat = (xt_centered @ xt_centered.t()) / (n - 1)
-        
-        # Convert distance to correlation-like if needed for k-NN
-        # Actually we can just use the sim_mat to find top k
-        vals, indices = torch.topk(sim_mat, k=k+1, dim=1, largest=True)
-    else:
-        # For euclidean/gaussian, find smallest distances
-        vals, indices = torch.topk(dist_mat, k=k+1, dim=1, largest=False)
-        sim_mat = dist_mat
-
-    # Create sparse-like mask
-    mask = torch.zeros_like(sim_mat, dtype=torch.bool)
+    # Get k+1 nearest neighbors (including self)
+    values, indices = torch.topk(dist, k=min(k+1, n), largest=False)
+    
+    # Create sparse representation
+    mask = torch.zeros_like(dist, dtype=torch.bool)
     mask.scatter_(1, indices, True)
     
-    # Apply metrics
-    if kmetric == "gaussian" and sigma is not None:
-        res_mat = torch.exp(-1.0 * (sim_mat**2) / (2.0 * sigma**2))
-    else:
-        res_mat = sim_mat
-        
-    # Apply radius and k-mask
-    res_mat = res_mat * mask.float()
+    sparse_dist = torch.zeros_like(dist)
+    sparse_dist[mask] = dist[mask]
     
-    if kmetric in ["correlation", "covariance"]:
-        if r != float('inf'):
-            res_mat[res_mat < r] = 0
-    else:
-        if r != float('inf'):
-            res_mat[res_mat > r] = 0
-            
-    if sinkhorn:
-        for _ in range(4):
-            # Row sums
-            r_sums = torch.sum(res_mat, dim=1, keepdim=True)
-            r_sums[r_sums == 0] = 1.0
-            res_mat = res_mat / r_sums
-            # Col sums
-            c_sums = torch.sum(res_mat, dim=0, keepdim=True)
-            c_sums[c_sums == 0] = 1.0
-            res_mat = res_mat / c_sums
-            
-    return res_mat
+    if sigma is not None:
+        sparse_dist = torch.exp(-sparse_dist**2 / (2 * sigma**2))
+        sparse_dist[~mask] = 0.0
+        
+    return sparse_dist
 
 def sparse_distance_matrix_xy(x: torch.Tensor, 
                               y: torch.Tensor, 
-                              k: int = 3, 
-                              r: float = float('inf'), 
-                              sigma: Optional[float] = None,
-                              kmetric: str = "euclidean",
-                              verbose: bool = False) -> torch.Tensor:
+                              k: int, 
+                              sigma: Optional[float] = None) -> torch.Tensor:
     """
-    Create sparse distance, covariance or correlation matrix between x and y.
+    Compute a sparse distance matrix between x and y in torch.
+    Returns a nx x ny distance matrix.
     """
     x = torch.as_tensor(x).float()
     y = torch.as_tensor(y).float()
-        
-    n, p = x.shape
-    nq, q = y.shape
-    if n != nq:
-        raise ValueError("x and y must have same number of rows")
-        
-    xt = x.t() # p x n
-    yt = y.t() # q x n
+    nx = x.shape[0]
+    ny = y.shape[0]
     
-    dist_mat = torch.cdist(xt, yt, p=2) # p x q
+    dist = torch.cdist(x, y)
     
-    if kmetric in ["correlation", "covariance"]:
-        xt_centered = xt - torch.mean(xt, dim=1, keepdim=True)
-        yt_centered = yt - torch.mean(yt, dim=1, keepdim=True)
-        if kmetric == "correlation":
-            xt_std = torch.std(xt, dim=1, keepdim=True)
-            yt_std = torch.std(yt, dim=1, keepdim=True)
-            xt_std[xt_std == 0] = 1.0
-            yt_std[yt_std == 0] = 1.0
-            xt_centered = xt_centered / xt_std
-            yt_centered = yt_centered / yt_std
-            
-        sim_mat = (xt_centered @ yt_centered.t()) / (n - 1)
-        vals, indices = torch.topk(sim_mat, k=k, dim=0, largest=True) # top k per column (y)
-    else:
-        vals, indices = torch.topk(dist_mat, k=k, dim=0, largest=False)
-        sim_mat = dist_mat
+    values, indices = torch.topk(dist, k=min(k, ny), largest=False)
+    
+    mask = torch.zeros_like(dist, dtype=torch.bool)
+    mask.scatter_(1, indices, True)
+    
+    sparse_dist = torch.zeros_like(dist)
+    sparse_dist[mask] = dist[mask]
+    
+    if sigma is not None:
+        sparse_dist = torch.exp(-sparse_dist**2 / (2 * sigma**2))
+        sparse_dist[~mask] = 0.0
         
-    mask = torch.zeros_like(sim_mat, dtype=torch.bool)
-    mask.scatter_(0, indices, True)
-    
-    if kmetric == "gaussian" and sigma is not None:
-        res_mat = torch.exp(-1.0 * (sim_mat**2) / (2.0 * sigma**2))
-    else:
-        res_mat = sim_mat
-        
-    res_mat = res_mat * mask.float()
-    
-    if kmetric in ["correlation", "covariance"]:
-        if r != float('inf'):
-            res_mat[res_mat < r] = 0
-    else:
-        if r != float('inf'):
-            res_mat[res_mat > r] = 0
-            
-    return res_mat
+    return sparse_dist
