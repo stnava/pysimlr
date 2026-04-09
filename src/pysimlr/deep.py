@@ -7,6 +7,7 @@ import numpy as np
 from typing import List, Optional, Union, Dict, Any, Tuple
 from .sparsification import orthogonalize_and_q_sparsify
 from .svd import ba_svd
+from .simlr import calculate_u
 
 try:
     import nsa_flow as nsa
@@ -48,14 +49,12 @@ class LENDNSAEncoder(nn.Module):
             apply_nonneg = 'hard'
             
         if nsa is not None:
-            # Note: NSAFlowLayer uses w_retract for the retraction weight, 
-            # while nsa_flow_orth function uses w. We map nsa_w to w_retract here.
             self.nsa_layer = nsa.NSAFlowLayer(
                 k=latent_dim, 
                 w_retract=nsa_w, 
                 retraction_type="soft_polar", 
                 apply_nonneg=apply_nonneg,
-                residual=False, # We want strict linear V, no extra MLP transform
+                residual=False, 
                 use_transform=False
             )
         else:
@@ -63,20 +62,14 @@ class LENDNSAEncoder(nn.Module):
 
     @property
     def v(self):
-        """
-        Returns the orthogonal, positive, and sparsified projection matrix V.
-        This allows backprop through the manifold geometry natively.
-        """
         if self.nsa_layer is not None:
             v_out = self.nsa_layer(self.v_raw)
         else:
-            # SVD fallback
             u_svd, _, v_svd = torch.linalg.svd(self.v_raw, full_matrices=False)
             v_out = u_svd @ v_svd
             if self.positivity in ['positive', 'hard']:
                 v_out = torch.clamp(v_out, min=0.0)
                 
-        # Apply quantile sparsification (differentiably using mask, or just zero out)
         if self.sparseness_quantile > 0:
             v_sparse = v_out.clone()
             for col in range(v_sparse.shape[1]):
@@ -93,7 +86,6 @@ class LENDNSAEncoder(nn.Module):
                         mask = col_vals >= q_val
                     else:
                         mask = col_vals < q_val
-                # Zero out elements below quantile without losing gradient flow for the non-zeroed elements
                 v_sparse[:, col] = torch.where(mask, torch.zeros_like(col_vals), col_vals)
             return v_sparse
             
@@ -120,24 +112,10 @@ class ModalityDecoder(nn.Module):
     def forward(self, z):
         return self.network(z)
 
-class DeepSiMRModel(nn.Module):
-    def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], dropout: float = 0.1):
-        super().__init__()
-        self.encoders = nn.ModuleList([
-            ModalityEncoder(dim, latent_dim, hidden_dims, dropout) for dim in input_dims
-        ])
-        self.decoders = nn.ModuleList([
-            ModalityDecoder(latent_dim, dim, hidden_dims[::-1], dropout) for dim in input_dims
-        ])
-
-    def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
-        latents = [enc(x) for enc, x in zip(self.encoders, x_list)]
-        reconstructions = [dec(z) for dec, z in zip(self.decoders, latents)]
-        return latents, reconstructions
-
 class LENDSiMRModel(nn.Module):
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [64, 128], 
-                 dropout: float = 0.1, nsa_w: float = 0.5, positivity: str = "either", sparseness_quantile: float = 0.0):
+                 dropout: float = 0.1, nsa_w: float = 0.5, positivity: str = "either", 
+                 sparseness_quantile: float = 0.0, mixing_algorithm: str = "avg"):
         super().__init__()
         self.encoders = nn.ModuleList([
             LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sparseness_quantile) for dim in input_dims
@@ -145,6 +123,8 @@ class LENDSiMRModel(nn.Module):
         self.decoders = nn.ModuleList([
             ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims
         ])
+        self.mixing_algorithm = mixing_algorithm
+        self.latent_dim = latent_dim
         
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
         with torch.no_grad():
@@ -155,10 +135,11 @@ class LENDSiMRModel(nn.Module):
                     v = torch.cat([v, padding], dim=1)
                 self.encoders[i].v_raw.copy_(v)
 
-    def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+    def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         latents = [enc(x) for enc, x in zip(self.encoders, x_list)]
-        reconstructions = [dec(z) for dec, z in zip(self.decoders, latents)]
-        return latents, reconstructions
+        u_shared = calculate_u(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim)
+        reconstructions = [dec(u_shared) for dec in self.decoders]
+        return latents, reconstructions, u_shared
 
 def calculate_sim_loss(latents: List[torch.Tensor], u_shared: torch.Tensor, energy_type: str = "regression") -> torch.Tensor:
     sim_loss = torch.tensor(0.0, device=u_shared.device)
@@ -200,6 +181,7 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               hidden_dims: List[int] = [128, 64],
               dropout: float = 0.1,
               energy_type: str = "regression",
+              mixing_algorithm: str = "avg",
               device: Optional[str] = None,
               verbose: bool = False) -> Dict[str, Any]:
     if device is None:
@@ -209,7 +191,20 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     torch_mats = [m if isinstance(m, torch.Tensor) else torch.from_numpy(m).float() for m in data_matrices]
     input_dims = [m.shape[1] for m in torch_mats]
     
-    model = DeepSiMRModel(input_dims, k, hidden_dims, dropout=dropout).to(device)
+    class InnerDeepSiMRModel(nn.Module):
+        def __init__(self, input_dims, latent_dim, hidden_dims, dropout, mixing_algorithm):
+            super().__init__()
+            self.encoders = nn.ModuleList([ModalityEncoder(dim, latent_dim, hidden_dims, dropout) for dim in input_dims])
+            self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims[::-1], dropout) for dim in input_dims])
+            self.mixing_algorithm = mixing_algorithm
+            self.latent_dim = latent_dim
+        def forward(self, x_list):
+            latents = [enc(x) for enc, x in zip(self.encoders, x_list)]
+            u_shared = calculate_u(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim)
+            reconstructions = [dec(u_shared) for dec in self.decoders]
+            return latents, reconstructions, u_shared
+
+    model = InnerDeepSiMRModel(input_dims, k, hidden_dims, dropout, mixing_algorithm).to(device)
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
     mse_loss = nn.MSELoss()
@@ -217,58 +212,34 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     dataset = TensorDataset(*torch_mats)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
-    loss_history = []
-    recon_history = []
-    sim_history = []
+    loss_history, recon_history, sim_history = [], [], []
     
     for epoch in range(epochs):
         model.train()
-        epoch_loss = 0.0
-        epoch_recon = 0.0
-        epoch_sim = 0.0
-        
+        epoch_loss, epoch_recon, epoch_sim = 0.0, 0.0, 0.0
         for batch in dataloader:
             batch_mats = [b.to(device) for b in batch]
             optimizer.zero_grad()
-            
-            latents, reconstructions = model(batch_mats)
-            
+            latents, reconstructions, u_shared = model(batch_mats)
             recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
-            u_shared = torch.mean(torch.stack(latents), dim=0)
-            
             sim_loss = calculate_sim_loss(latents, u_shared, energy_type)
-            
             total_loss = recon_loss + sim_weight * sim_loss
-            
-            if torch.isnan(total_loss):
-                continue
-                
+            if torch.isnan(total_loss): continue
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            epoch_loss += total_loss.item(); epoch_recon += recon_loss.item(); epoch_sim += sim_loss.item()
             
-            epoch_loss += total_loss.item()
-            epoch_recon += recon_loss.item()
-            epoch_sim += sim_loss.item()
-            
-        epoch_loss /= max(1, len(dataloader))
-        epoch_recon /= max(1, len(dataloader))
-        epoch_sim /= max(1, len(dataloader))
-        
-        loss_history.append(epoch_loss)
-        recon_history.append(epoch_recon)
-        sim_history.append(epoch_sim)
-        
+        epoch_loss /= max(1, len(dataloader)); epoch_recon /= max(1, len(dataloader)); epoch_sim /= max(1, len(dataloader))
+        loss_history.append(epoch_loss); recon_history.append(epoch_recon); sim_history.append(epoch_sim)
         scheduler.step()
-        
         if verbose and epoch % max(1, epochs // 10) == 0:
             print(f"Epoch {epoch}: Total={epoch_loss:.4f} (Recon={epoch_recon:.4f}, Sim={epoch_sim:.4f})")
             
     model.eval()
     with torch.no_grad():
         all_torch_mats = [m.to(device) for m in torch_mats]
-        final_latents, _ = model(all_torch_mats)
-        u_final = torch.mean(torch.stack(final_latents), dim=0)
+        final_latents, _, u_final = model(all_torch_mats)
         
     return {
         "model": model.cpu(),
@@ -293,13 +264,11 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               hidden_dims: List[int] = [64, 128],
               dropout: float = 0.1,
               energy_type: str = "regression",
+              mixing_algorithm: str = "avg",
               device: Optional[str] = None,
               verbose: bool = False,
               **kwargs) -> Dict[str, Any]:
-    # Allow nsa_omega as an alias for nsa_w for backward compatibility
-    if 'nsa_omega' in kwargs:
-        nsa_w = kwargs.pop('nsa_omega')
-
+    if 'nsa_omega' in kwargs: nsa_w = kwargs.pop('nsa_omega')
     if device is None:
         device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device)
@@ -308,74 +277,45 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     input_dims = [m.shape[1] for m in torch_mats]
     
     model = LENDSiMRModel(input_dims, k, hidden_dims, dropout=dropout, 
-                          nsa_w=nsa_w, positivity=positivity, sparseness_quantile=sparseness_quantile)
+                          nsa_w=nsa_w, positivity=positivity, sparseness_quantile=sparseness_quantile,
+                          mixing_algorithm=mixing_algorithm)
     model.initialize_v(torch_mats, k)
     model = model.to(device)
-    
-    # We can now use AdamW for the entire model because NSAFlowLayer handles geometry natively in the forward pass!
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
-    
     mse_loss = nn.MSELoss()
     dataset = TensorDataset(*torch_mats)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
-    loss_history = []
-    recon_history = []
-    sim_history = []
+    loss_history, recon_history, sim_history = [], [], []
     
     for epoch in range(epochs):
         model.train()
-        epoch_loss = 0.0
-        epoch_recon = 0.0
-        epoch_sim = 0.0
-        
+        epoch_loss, epoch_recon, epoch_sim = 0.0, 0.0, 0.0
         for batch in dataloader:
             batch_mats = [b.to(device) for b in batch]
             optimizer.zero_grad()
-            
-            # Forward pass inherently respects the Stiefel manifold and positivity constraints
-            latents, reconstructions = model(batch_mats)
-            
+            latents, reconstructions, u_shared = model(batch_mats)
             recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
-            u_shared = torch.mean(torch.stack(latents), dim=0)
             sim_loss = calculate_sim_loss(latents, u_shared, energy_type)
-            
-            # Optional: L1 on the raw weights to encourage sparsity alongside the hard quantile threshold
             l1_loss = sum(torch.sum(torch.abs(enc.v_raw)) for enc in model.encoders)
-            
             total_loss = recon_loss + sim_weight * sim_loss + 1e-4 * l1_loss
-            
-            if torch.isnan(total_loss):
-                continue
-                
+            if torch.isnan(total_loss): continue
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            epoch_loss += total_loss.item(); epoch_recon += recon_loss.item(); epoch_sim += sim_loss.item()
             
-            epoch_loss += total_loss.item()
-            epoch_recon += recon_loss.item()
-            epoch_sim += sim_loss.item()
-            
-        epoch_loss /= max(1, len(dataloader))
-        epoch_recon /= max(1, len(dataloader))
-        epoch_sim /= max(1, len(dataloader))
-        
-        loss_history.append(epoch_loss)
-        recon_history.append(epoch_recon)
-        sim_history.append(epoch_sim)
-        
+        epoch_loss /= max(1, len(dataloader)); epoch_recon /= max(1, len(dataloader)); epoch_sim /= max(1, len(dataloader))
+        loss_history.append(epoch_loss); recon_history.append(epoch_recon); sim_history.append(epoch_sim)
         scheduler.step()
-        
         if verbose and epoch % max(1, epochs // 10) == 0:
             print(f"Epoch {epoch}: Total={epoch_loss:.4f} (Recon={epoch_recon:.4f}, Sim={epoch_sim:.4f})")
             
     model.eval()
     with torch.no_grad():
         all_torch_mats = [m.to(device) for m in torch_mats]
-        final_latents, _ = model(all_torch_mats)
-        u_final = torch.mean(torch.stack(final_latents), dim=0)
-        # Extract the processed V matrices (not just the raw weights)
+        final_latents, _, u_final = model(all_torch_mats)
         v_mats = [torch.nan_to_num(enc.v.detach().cpu()) for enc in model.encoders]
         
     return {

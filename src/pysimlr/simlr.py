@@ -8,6 +8,11 @@ from .utils import (set_seed_based_on_time, adjusted_rvcoef,
                     invariant_orthogonality_defect, l1_normalize_features)
 from scipy.stats import ttest_1samp
 
+try:
+    from sklearn.decomposition import FastICA
+except ImportError:
+    FastICA = None
+
 def parse_constraint(constraint_str: str) -> Dict[str, Any]:
     parts = constraint_str.split('x')
     constraint_type = parts[0]
@@ -21,6 +26,52 @@ def parse_constraint(constraint_str: str) -> Dict[str, Any]:
         except ValueError: pass
     return {"type": constraint_type, "weight": weight, "iterations": iterations}
 
+def calculate_u(projections: List[torch.Tensor], 
+                mixing_algorithm: str = "svd", 
+                k: Optional[int] = None,
+                orthogonalize: bool = False) -> torch.Tensor:
+    """
+    Combine projections from different modalities into a shared latent basis U.
+    Matches R's simlrU logic.
+    """
+    n_modalities = len(projections)
+    if k is None:
+        k = projections[0].shape[1]
+        
+    norm_projs = []
+    for p in projections:
+        p_norm = torch.norm(p, p='fro')
+        if p_norm > 1e-10:
+            norm_projs.append(p / p_norm)
+        else:
+            norm_projs.append(p)
+            
+    if mixing_algorithm == "avg":
+        u = torch.mean(torch.stack(norm_projs), dim=0)
+    elif mixing_algorithm == "stochastic":
+        avg_p = torch.cat(norm_projs, dim=1)
+        g = torch.randn(avg_p.shape[1], k, device=avg_p.device, dtype=avg_p.dtype)
+        u = avg_p @ g
+    elif mixing_algorithm == "ica":
+        if FastICA is None:
+            raise ImportError("scikit-learn is required for mixing_algorithm='ica'")
+        avg_p = torch.cat(norm_projs, dim=1).detach().cpu().numpy()
+        ica = FastICA(n_components=k, random_state=42, max_iter=1000)
+        u_np = ica.fit_transform(avg_p)
+        u = torch.from_numpy(u_np).to(projections[0].device).to(projections[0].dtype)
+    else:
+        big_p = torch.cat(norm_projs, dim=1)
+        if mixing_algorithm == "pca":
+            u = safe_pca(big_p, nc=k)['u']
+        else: # Default to svd
+            u, _, _ = ba_svd(big_p, nu=k, nv=0)
+            
+    if orthogonalize:
+        u, _, _ = torch.linalg.svd(u, full_matrices=False)
+        u = u[:, :k]
+        
+    return u
+
 def initialize_simlr(data_matrices: List[torch.Tensor], 
                      k: int, 
                      initialization_type: str = "pca",
@@ -30,8 +81,8 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
         u, s, v = ba_svd(x, nu=0, nv=k)
         if v.shape[1] < k:
             padding = torch.randn(v.shape[0], k - v.shape[1], dtype=v.dtype, device=v.device) * 1e-4
-            v = torch.cat([v, padding], dim=1).to(x.dtype)
-        v_mats.append(v)
+            v = torch.cat([v, padding], dim=1)
+        v_mats.append(v.to(x.dtype))
     return v_mats
 
 def calculate_ica_energy(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, nonlinearity: str = "logcosh", a: float = 1.0) -> torch.Tensor:
@@ -54,6 +105,7 @@ def calculate_ica_gradient(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, no
 
 def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, energy_type: str = "regression", lambda_val: float = 0.0, prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
     ica_types = ["logcosh", "exp", "gauss", "kurtosis"]
+    u = u.to(x.dtype); v = v.to(x.dtype)
     if energy_type == "regression":
         pred = u @ v.t()
         return torch.sum((x - pred)**2)
@@ -67,18 +119,21 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
         corr = torch.sum(u * proj) / (torch.norm(u) * torch.norm(proj) + 1e-10)
         return -corr
     elif energy_type == "dat" and prior_matrix is not None:
-        alignment = prior_matrix @ v
+        alignment = prior_matrix.to(x.dtype) @ v
         return -lambda_val * torch.sum(alignment**2)
-    return torch.tensor(0.0, dtype=u.dtype, device=u.device)
+    return torch.tensor(0.0, dtype=x.dtype, device=x.device)
 
 def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, energy_type: str = "regression", lambda_val: float = 0.0, prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
     ica_types = ["logcosh", "exp", "gauss", "kurtosis"]
+    u = u.to(x.dtype); v = v.to(x.dtype)
     if energy_type == "regression": return 2 * (x.t() @ u - v)
     elif energy_type == "acc":
         cov = (u.t() @ x @ v) / (x.shape[0] - 1)
         return (x.t() @ u @ torch.sign(cov)) / (x.shape[0] - 1)
     elif energy_type in ica_types: return calculate_ica_gradient(x, u, v, nonlinearity=energy_type)
-    elif energy_type == "dat" and prior_matrix is not None: return 2 * lambda_val * (prior_matrix.t() @ prior_matrix @ v)
+    elif energy_type == "dat" and prior_matrix is not None: 
+        prior_matrix = prior_matrix.to(x.dtype)
+        return 2 * lambda_val * (prior_matrix.t() @ prior_matrix @ v)
     return torch.zeros_like(v)
 
 def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
@@ -87,6 +142,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           optimizer_type: str = "bidirectional_lookahead",
           energy_type: str = "acc",
           constraint: str = "none",
+          mixing_algorithm: str = "svd",
           sparseness_quantile: float = 0.0,
           positivity: str = "either",
           smoothing_matrices: Optional[List[torch.Tensor]] = None,
@@ -96,9 +152,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           verbose: bool = False,
           **opt_params) -> Dict[str, Any]:
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
-    n_modalities = len(torch_mats)
-    orig_dtype = torch_mats[0].dtype
-
+    n_modalities = len(torch_mats); orig_dtype = torch_mats[0].dtype
     c_info = parse_constraint(constraint)
     constraint_type, constraint_weight, constraint_iterations = c_info['type'], c_info['weight'], c_info['iterations']
     if domain_matrices is not None:
@@ -113,24 +167,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     domain_weights = torch.ones(n_modalities, dtype=orig_dtype)
     energy_history = []
     for it in range(iterations):
-        # Update U
-        projections = []
-        for v, x in zip(v_mats, torch_mats):
-            proj = x @ v
-            # Scale projections to prevent explosion, matching R's simlrU
-            p_norm = torch.norm(proj, p='fro')
-            if p_norm > 1e-10:
-                proj = proj / p_norm
-            projections.append(proj)
-            
-        u = torch.mean(torch.stack(projections), dim=0)
-        # Match R parity: safe_pca/ba_svd orthonormalize by default if chosen
-        if orthogonalize_u:
-            u, _, _ = torch.linalg.svd(u, full_matrices=False)
-            u = u[:, :k].to(orig_dtype)
-        
+        projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
+        u = calculate_u(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u)
         for i in range(n_modalities):
             def full_energy_fn(v_cand):
+                v_cand = v_cand.to(orig_dtype)
                 sim_e = calculate_simlr_energy(v_cand, torch_mats[i], u, energy_type) * normalizing_weights[i]
                 dom_e = 0.0
                 if torch_domains is not None and torch_domains[i] is not None:
@@ -161,12 +202,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     return {"u": u, "v": v_mats, "energy": energy_history, "normalizing_weights": normalizing_weights, "orth_weights": orth_weights, "domain_weights": domain_weights}
 
 def pairwise_matrix_similarity(mat_list: List[torch.Tensor], v_list: List[torch.Tensor]) -> Dict[str, float]:
-    n_modalities = len(mat_list)
-    similarities = {}
+    n_modalities = len(mat_list); similarities = {}
     for i in range(n_modalities):
         for j in range(i + 1, n_modalities):
-            l_i = mat_list[i] @ v_list[i]
-            l_j = mat_list[j] @ v_list[j]
+            l_i = mat_list[i] @ v_list[i]; l_j = mat_list[j] @ v_list[j]
             similarities[f"sim_{i}_{j}"] = adjusted_rvcoef(l_i, l_j)
     return similarities
 
@@ -181,12 +220,10 @@ def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_p
         res_p = simlr(mats_perm, k=k, verbose=False, **simlr_params)
         v_p_norm = [l1_normalize_features(v) for v in res_p['v']]
         sims_p = pairwise_matrix_similarity(mats_perm, v_p_norm)
-        for k_sim, v_sim in sims_p.items():
-            perm_results[k_sim].append(v_sim)
+        for k_sim, v_sim in sims_p.items(): perm_results[k_sim].append(v_sim)
     stats = {}
     for k_sim, vals in perm_results.items():
-        obs = vals[0]
-        null_dist = np.array(vals[1:])
+        obs = vals[0]; null_dist = np.array(vals[1:])
         t_stat, p_val = ttest_1samp(null_dist, obs, alternative='less')
         stats[k_sim] = {"observed": obs, "p_value": p_val, "t_stat": t_stat}
     return {"simlr_result": res, "stats": stats}
@@ -194,32 +231,25 @@ def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_p
 def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr_result: Dict[str, Any]) -> Dict[str, Any]:
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     if 'model' in simlr_result:
-        model = simlr_result['model']
-        model.eval()
-        device = next(model.parameters()).device
+        model = simlr_result['model']; model.eval(); device = next(model.parameters()).device
         torch_mats_device = [m.to(device) for m in torch_mats]
         with torch.no_grad():
-            latents, reconstructions = model(torch_mats_device)
-            u_new = torch.mean(torch.stack(latents), dim=0)
+            output = model(torch_mats_device)
+            latents, reconstructions, u_new = output[0], output[1], output[2]
         errors = [torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10) for x, x_pred in zip(torch_mats_device, reconstructions)]
         return {"u": torch.nan_to_num(u_new.cpu()), "latents": [torch.nan_to_num(l.cpu()) for l in latents], "reconstructions": [torch.nan_to_num(r.cpu()) for r in reconstructions], "errors": errors}
-    v_mats = simlr_result['v']
-    projections = [x @ v for x, v in zip(torch_mats, v_mats)]
-    u_new = torch.mean(torch.stack(projections), dim=0)
-    u_new, _, _ = torch.linalg.svd(u_new, full_matrices=False)
+    v_mats = simlr_result['v']; projections = [x @ v for x, v in zip(torch_mats, v_mats)]
+    u_new = torch.mean(torch.stack(projections), dim=0); u_new, _, _ = torch.linalg.svd(u_new, full_matrices=False)
     reconstructions = [u_new @ v.t() for v in v_mats]
     errors = [torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10) for x, x_pred in zip(torch_mats, reconstructions)]
     return {"u": torch.nan_to_num(u_new), "reconstructions": reconstructions, "errors": errors}
 
 def estimate_rank(data_matrices: List[Union[torch.Tensor, np.ndarray]], n_permutations: int = 20, var_threshold: float = 0.99) -> int:
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
-    n_modalities = len(torch_mats)
-    k_max_list = []
+    n_modalities = len(torch_mats); k_max_list = []
     for x in torch_mats:
-        x_centered = x - torch.mean(x, dim=0)
-        _, s, _ = torch.linalg.svd(x_centered, full_matrices=False)
-        eigenvalues = s**2
-        prop_var = torch.cumsum(eigenvalues, dim=0) / (torch.sum(eigenvalues) + 1e-10)
+        x_centered = x - torch.mean(x, dim=0); _, s, _ = torch.linalg.svd(x_centered, full_matrices=False)
+        eigenvalues = s**2; prop_var = torch.cumsum(eigenvalues, dim=0) / (torch.sum(eigenvalues) + 1e-10)
         k_max_list.append(torch.where(prop_var >= var_threshold)[0][0].item() + 1)
     k_max = min(k_max_list) if k_max_list else 1
     if k_max < 1: k_max = 1
@@ -229,12 +259,10 @@ def estimate_rank(data_matrices: List[Union[torch.Tensor, np.ndarray]], n_permut
         for curr_k in range(1, km + 1):
             mod_scores = []
             for i in range(n_modalities):
-                y_target = u_list[i][:, :curr_k]
-                other_inds = [j for j in range(n_modalities) if j != i]
+                y_target = u_list[i][:, :curr_k]; other_inds = [j for j in range(n_modalities) if j != i]
                 u_other = torch.cat([u_list[j][:, :curr_k] for j in other_inds], dim=1)
                 consensus, _, _ = torch.linalg.svd(u_other, full_matrices=False)
-                consensus = consensus[:, :curr_k]
-                mod_scores.append(adjusted_rvcoef(y_target, consensus))
+                consensus = consensus[:, :curr_k]; mod_scores.append(adjusted_rvcoef(y_target, consensus))
             scores.append(np.mean(mod_scores))
         return scores
     proc_mats = [(m - torch.mean(m, dim=0)) / (torch.norm(m - torch.mean(m, dim=0), p='fro') + 1e-10) for m in torch_mats]
@@ -244,28 +272,21 @@ def estimate_rank(data_matrices: List[Union[torch.Tensor, np.ndarray]], n_permut
         for _ in range(n_permutations):
             perm_mats = [proc_mats[0]] + [m[torch.randperm(m.shape[0])] for m in proc_mats[1:]]
             null_curves.append(calculate_rv_curve(perm_mats, k_max))
-        null_curve_mean = np.mean(null_curves, axis=0)
-        signal = np.array(real_curve) - null_curve_mean
-        optimal_k = np.argmax(signal) + 1
+        null_curve_mean = np.mean(null_curves, axis=0); signal = np.array(real_curve) - null_curve_mean; optimal_k = np.argmax(signal) + 1
     else:
         if len(real_curve) < 3: optimal_k = 1
         else:
-            y = np.array(real_curve)
-            x_vals = np.linspace(0, 1, len(y))
-            y_norm = (y - np.min(y)) / (np.max(y) - np.min(y) + 1e-10)
+            y = np.array(real_curve); x_vals = np.linspace(0, 1, len(y)); y_norm = (y - np.min(y)) / (np.max(y) - np.min(y) + 1e-10)
             optimal_k = np.argmax(y_norm - x_vals) + 1
     return int(optimal_k)
 
 def decompose_energy(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr_result: Dict[str, Any], energy_type: str = "acc") -> Dict[str, Any]:
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
-    u = simlr_result['u']
-    v_mats = simlr_result['v']
-    modality_energies = []
-    feature_importances = []
+    u = simlr_result['u']; v_mats = simlr_result['v']
+    modality_energies = []; feature_importances = []
     for i, (x, v) in enumerate(zip(torch_mats, v_mats)):
         mod_energy = calculate_simlr_energy(v, x, u, energy_type).item()
         grad = calculate_simlr_gradient(v, x, u, energy_type)
         feat_imp = torch.sum(torch.abs(grad), dim=1).numpy()
-        modality_energies.append(mod_energy)
-        feature_importances.append(feat_imp)
+        modality_energies.append(mod_energy); feature_importances.append(feat_imp)
     return {"modality_energies": modality_energies, "feature_importances": feature_importances}

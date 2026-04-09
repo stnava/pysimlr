@@ -1,7 +1,7 @@
 ---
 title: "Guided SiMLR: Integrating Multimodal Neuroimaging with Domain Knowledge"
 author: "pysimlr Team"
-date: "`r Sys.Date()`"
+date: "2026-04-08"
 format:
   html:
     toc: true
@@ -13,16 +13,25 @@ format:
 
 Similarity-driven Multi-view Linear Reconstruction (**SiMLR**) is a framework for integrative dimensionality reduction across multiple data modalities. In this tutorial, we demonstrate how to use `pysimlr` to uncover shared latent structures in high-dimensional neuroimaging data, while incorporating prior **domain knowledge** to guide the decomposition.
 
-## Simulation Setup
+We will cover:
+1. **Rank Estimation**: Choosing the optimal number of components ($k$).
+2. **Guided SiMLR**: Using prior matrices to bias the decomposition toward known biology.
+3. **Mixing Algorithms**: Comparing PCA vs. ICA bottlenecks.
+4. **Energy Decomposition**: Identifying which features drive the integrative signal.
+5. **Statistical Significance**: Using permutation tests to verify modality alignment.
 
-We simulate three modalities (Cortex, White Matter, Functional Connectivity) and 6 shared cognitive domains.
+## 1. Simulation Setup
+
+We simulate three modalities (e.g., Cortex, White Matter, Functional Connectivity) and 6 shared cognitive domains.
 
 ```{python}
 import torch
 import numpy as np
 import pandas as pd
-from pysimlr import simlr, safe_pca, nnh_embed, decompose_energy
+from pysimlr import (simlr, safe_pca, nnh_embed, decompose_energy, 
+                     estimate_rank, simlr_perm)
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Set seeds for reproducibility
 torch.manual_seed(123)
@@ -33,7 +42,7 @@ domains = ["memory", "language", "motor", "visuospatial", "speed", "executive"]
 d = len(domains)
 p_list = [100, 80, 60] # Features per modality
 
-# 1. Generate Domain Latents
+# 1. Generate Domain Latents (the ground truth shared signals)
 true_latents = torch.randn(n, d)
 
 # 2. Create Domain Knowledge Matrices
@@ -52,18 +61,23 @@ data_matrices = []
 for i, p in enumerate(p_list):
     projection = torch.randn(d, p)
     signal = true_latents @ projection
-    noise = torch.randn(n, p) * 0.5
+    noise = torch.randn(n, p) * 0.8
     data_matrices.append(signal + noise)
 
 print(f"Generated {len(data_matrices)} modalities for {n} subjects.")
 ```
 
-## Running Guided SiMLR
-
-We leverage the **NSA-Flow** optimizer and **Absolute Canonical Covariance (ACC)** energy.
+## 2. Choosing the Rank ($k$)
 
 ```{python}
+k_est = estimate_rank(data_matrices, n_permutations=10)
+print(f"Estimated optimal components (k): {k_est}")
 k = d 
+```
+
+## 3. Running Guided SiMLR
+
+```{python}
 results = simlr(
     data_matrices=data_matrices,
     k=k,
@@ -72,76 +86,85 @@ results = simlr(
     domain_matrices=d_matrices,
     domain_lambdas=0.1,
     optimizer_type="nsa_flow",
-    verbose=True
+    verbose=False
 )
-print(f"Optimization complete. Final energy: {results['energy'][-1]:.4f}")
+print(f"Guided SiMLR complete.")
 ```
 
-## Advanced Energy: ICA-like Non-Linearity
+## 4. Exploring Mixing Algorithms: PCA vs. ICA
 
-SiMLR supports non-linear energy functions like **logcosh** to identify components that are statistically independent (ICA-style).
+The **Mixing Algorithm** (`mixing_algorithm`) determines how projections from different modalities are combined to form the shared latent space $U$. 
+*   **PCA Mixing**: Uses the principal components of the concatenated projections. This maximizes the variance captured in the joint space.
+*   **ICA Mixing**: Uses Independent Component Analysis. This attempts to find components that are statistically independent, often yielding more "pure" biological signals.
 
 ```{python}
-# Run with logcosh energy
-ica_results = simlr(
-    data_matrices=data_matrices,
-    k=k,
-    iterations=20,
-    energy_type="logcosh",
-    optimizer_type="hybrid_adam"
-)
-print("ICA-style SiMLR complete.")
+# Run with PCA mixing (default is svd, which is similar)
+res_pca = simlr(data_matrices, k=k, iterations=20, mixing_algorithm="pca")
+
+# Run with ICA mixing
+res_ica = simlr(data_matrices, k=k, iterations=20, mixing_algorithm="ica")
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+# Correlation matrix for PCA
+sns.heatmap(np.corrcoef(res_pca['u'].numpy().T), cmap='vlag', center=0, ax=axes[0], annot=True)
+axes[0].set_title("U Correlation (PCA Mixing)")
+
+# Correlation matrix for ICA
+sns.heatmap(np.corrcoef(res_ica['u'].numpy().T), cmap='vlag', center=0, ax=axes[1], annot=True)
+axes[1].set_title("U Correlation (ICA Mixing)")
+
+plt.show()
 ```
 
-## Interpretability: Energy Decomposition
+Notice that **ICA mixing** often results in a more diagonal correlation matrix in $U$, indicating that the shared components have been successfully unmixed into independent sources.
 
-To understand which modalities and features are driving the shared signal, we can decompose the model's energy.
+## 5. Energy Decomposition & Interpretability
 
 ```{python}
-# Decompose energy for the ACC model
 decomp = decompose_energy(data_matrices, results, energy_type="acc")
 
-# Visualize Modality Energies
 plt.figure(figsize=(6, 4))
 mod_names = ["Cortex", "WhiteMatter", "FuncConn"]
-plt.bar(mod_names, [abs(e) for e in decomp['modality_energies']])
-plt.title("Energy Contribution by Modality (Absolute)")
-plt.ylabel("Energy")
+energies = [abs(e) for e in decomp['modality_energies']]
+plt.bar(mod_names, energies, color=['#3498db', '#e74c3c', '#2ecc71'])
+plt.title("Global Contribution by Modality")
 plt.show()
 
-# Visualize Feature Importance for Cortex
 feat_imp = decomp['feature_importances'][0]
 plt.figure(figsize=(10, 4))
-plt.plot(feat_imp.numpy())
+plt.plot(feat_imp, color='darkblue', lw=1.5)
+plt.fill_between(range(len(feat_imp)), feat_imp, color='blue', alpha=0.2)
 plt.title("Feature Importance Map (Cortex)")
-plt.xlabel("Feature Index")
-plt.ylabel("Importance (Energy Contrib)")
 plt.show()
 ```
 
-## Specialized Wrapper: `nnh_embed`
+## 6. Statistical Significance via Permutation
 
-For **ANTsPyMM** workflows, `nnh_embed` automates feature selection and quality control.
+```{python}
+print("Running Statistical Permutation Test...")
+perm_res = simlr_perm(data_matrices, k=k, n_perms=10, iterations=5, energy_type="acc")
+
+for pair, stats in perm_res['stats'].items():
+    print(f"Pair {pair}: Observed Similarity={stats['observed']:.3f}, p-value={stats['p_value']:.4f}")
+```
+
+## 7. Specialized Workflow: `nnh_embed`
 
 ```{python}
 df_neuro = pd.DataFrame({
     'T1Hier_vol1': np.random.randn(n),
+    'T1Hier_vol2': np.random.randn(n),
     'DTI_fa1': np.random.randn(n),
     'rsfMRI_conn1': np.random.randn(n),
     'T1Hier_resnetGrade': np.linspace(1.0, 1.1, n),
     'age': np.random.randn(n)
 })
 
-nnh_results = nnh_embed(
-    df_neuro, 
-    nsimlr=2, 
-    iterations=10, 
-    covariates=['age'],
-    verbose=False
-)
-print(f"nnh_embed modalities: {nnh_results['modality_names']}")
+nnh_results = nnh_embed(df_neuro, nsimlr=2, iterations=10, covariates=['age'], verbose=False)
+print(f"nnh_embed identified modalities: {nnh_results['modality_names']}")
 ```
 
 ## Conclusion
 
-In this tutorial, we demonstrated the professional PyTorch implementation of **Guided SiMLR** with advanced energy functions and interpretability tools.
+By combining **Domain Knowledge** with robust optimization and statistical validation, `pysimlr` provides a principled way to integrate complex multimodal neuroimaging data.

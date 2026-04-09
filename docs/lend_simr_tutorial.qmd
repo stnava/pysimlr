@@ -1,7 +1,7 @@
 ---
 title: "LEND SiMR: Interpretable Non-Linear Integration"
 author: "pysimlr Team"
-date: "`r Sys.Date()`"
+date: "2026-04-08"
 format:
   html:
     toc: true
@@ -9,46 +9,23 @@ format:
     theme: cosmo
 ---
 
-## Theoretical Background
-
-Modern biological data often hides complex, non-linear relationships within high-dimensional spaces. Standard approaches to multi-view integration usually fall into two camps:
-
-1. **Linear Methods (like SiMLR or CCA):** These are highly interpretable. They produce a sparse matrix, $V$, that tells you exactly which features (genes, voxels, proteins) define a latent dimension. However, they struggle when the relationship between the latent space and the raw data is non-linear.
-2. **Deep Learning (Autoencoders):** These can model any complex relationship, but they are "black-boxes." You can extract a latent space, but you usually cannot tell which specific input features were responsible for it because the information is scrambled across multiple non-linear layers.
-
-**LEND SiMR** (Linear Encode, Non-linear Decoder) is a hybrid architecture designed to provide the best of both worlds. It enforces a **strict architectural asymmetry**:
-
-*   **The Encoder is strictly linear:** This ensures that the mapping from the input features to the latent space is a simple weighted sum. This weights matrix, $V$, is what we use for interpretation. By applying sparsity constraints, we ensure that only the most relevant features "vote" for each latent dimension.
-*   **The Manifold Constraint (NSA-Flow):** To ensure the latent dimensions are distinct and stable, the encoder's weights are mathematically forced to stay on the **Stiefel Manifold** (maintaining orthogonality). The `nsa_w` parameter controls how strictly this manifold is enforced during training.
-*   **The Decoder is non-linear and deep:** While the encoder is simple for the sake of interpretability, the decoder is allowed to be a deep neural network. This allows the model to "explain away" complex, non-linear noise and generative processes that a linear model would otherwise fail to capture.
-
-By pairing a "transparent" encoder with a "powerful" decoder, LEND SiMR allows researchers to discover complex latent structures while retaining the ability to perform precise feature-level discovery.
-
 ## Introduction
 
-A primary output from traditional **linear SiMLR** is the $V$ matrix—the sparse feature vectors that drive the embedding. This provides crucial biological interpretability by answering: *Which specific features (e.g., brain regions, genes) are contributing to this latent structure?*
+**LEND SiMR** (Linear Encode, Non-linear Decoder) is a hybrid architecture designed to provide both **interpretability** and **power**. It uses strictly linear encoders to yield sparse, orthogonal feature weights ($V$), while utilizing a deep, non-linear decoder to model the complex generative process of the biological data.
 
-While standard Deep Learning is powerful, its "black box" nature destroys this interpretability. The mapping from the input space to the latent space is entangled across multiple non-linear layers.
-
-**LEND SiMR** (Linear Encode, Non-linear Decoder Similarity-driven Multi-view Reconstruction) solves this problem. It uses a **strictly linear encoder** to yield an interpretable, sparse, and orthogonal $V$ matrix that perfectly mirrors linear SiMLR, while utilizing a **deep, non-linear decoder** to model the complex generative process of the biological data.
-
-In this tutorial, we will:
-1. Simulate biological spaces with non-linear relationships.
-2. Train a LEND SiMR model to extract the shared latent space and the $V$ matrices.
-3. Show inference and validation performance on held-out data.
-4. Demonstrate the ability to seamlessly switch out loss functions.
-5. Explore the impact of the `nsa-flow` retraction parameter ($w$).
-6. Provide diagnostics of the optimization process (reconstruction vs. similarity loss).
+We will cover:
+1. Simulating complex non-linear spaces.
+2. **The Impact of Bottleneck Mixing**: PCA vs. ICA.
+3. Visualizing sparse, interpretable $V$ matrices.
+4. Validation on held-out data.
 
 ## 1. Simulation Setup
-
-We simulate two modalities influenced by an independent "radicality" gradient. To test the linear encoder, we'll embed the signal linearly in the inputs, but make the noise and other components complex. 
 
 ```{python}
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
+import seaborn as sns
 from sklearn.model_selection import train_test_split
 from pysimlr import lend_simr, predict_simlr
 import pysimlr.utils
@@ -60,241 +37,85 @@ np.random.seed(42)
 
 n_samples = 1000
 k_true = 3  
-
 radicality = torch.randn(n_samples)
 true_latents = torch.randn(n_samples, k_true)
 true_latents[:, 0] += radicality * 2.0 
 
 p1 = 50
 x1 = torch.zeros(n_samples, p1)
-# Linear association for the first 10 features
 for j in range(10):
     x1[:, j] = true_latents[:, 0] * (1.0 - j*0.05) + torch.randn(n_samples) * 0.5
-# Non-linear noise for the rest
 for j in range(10, p1):
     x1[:, j] = torch.sin(true_latents[:, 1] * j) + torch.randn(n_samples)
 
 p2 = 40
 x2 = torch.zeros(n_samples, p2)
-# Linear association for the last 10 features
 for j in range(30, p2):
     x2[:, j] = true_latents[:, 0] * (1.0 - (p2-j)*0.05) + torch.randn(n_samples) * 0.5
-# Non-linear noise for the rest
 for j in range(30):
     x2[:, j] = torch.cos(true_latents[:, 2] * j) + torch.randn(n_samples)
 
-# Data Splitting
 indices = np.arange(n_samples)
 train_idx, test_idx = train_test_split(indices, test_size=0.2, random_state=42)
-
 train_mats = [x1[train_idx], x2[train_idx]]
 test_mats = [x1[test_idx], x2[test_idx]]
-rad_train, rad_test = radicality[train_idx], radicality[test_idx]
-
-print(f"Training samples: {len(train_idx)}, Test samples: {len(test_idx)}")
+rad_test = radicality[test_idx]
 ```
 
-### Visualizing the Input Data
+## 2. Bottleneck Mixing in LEND SiMR: PCA vs. ICA
 
-Let's visualize the raw input space. Because of the heavy non-linear noise, the signal is partially obscured. We compare a known "signal" feature to a known "noise" feature.
-
-```{python}
-fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-axes[0].scatter(x1[:, 0].numpy(), x1[:, 10].numpy(), c=radicality.numpy(), cmap='plasma', alpha=0.6)
-axes[0].set_title("Modality 1: Signal Feature (0) vs Noise Feature (10)")
-axes[0].set_xlabel("Feature 0 (Signal)")
-axes[0].set_ylabel("Feature 10 (Noise)")
-
-scatter = axes[1].scatter(x2[:, 39].numpy(), x2[:, 0].numpy(), c=radicality.numpy(), cmap='plasma', alpha=0.6)
-axes[1].set_title("Modality 2: Signal Feature (39) vs Noise Feature (0)")
-axes[1].set_xlabel("Feature 39 (Signal)")
-axes[1].set_ylabel("Feature 0 (Noise)")
-
-fig.colorbar(scatter, ax=axes, label="Radicality")
-plt.show()
-```
-
-## 2. Training LEND SiMR
-
-We train `lend_simr`. Under the hood:
-*   The **Decoder** is optimized using standard `AdamW` with a cosine annealing learning rate scheduler.
-*   The **Encoder** (the $V_i$ matrices) is updated by `AdamW`. After every epoch, it is mathematically retracted to the Stiefel manifold to maintain orthogonality (using `nsa-flow`) and sparsified according to `sparseness_quantile`.
-*   We'll use `energy_type="regression"` (MSE) for similarity matching.
+In LEND SiMR, choosing the mixing algorithm is critical because it influences the shared $U$ space that the deep decoder must reconstruct. **ICA mixing** often yields latent dimensions that are easier for the linear encoder to "explain" by assigning weights to distinct sets of features.
 
 ```{python}
 k = 3
-lend_results = lend_simr(
-    data_matrices=train_mats,
-    k=k,
-    epochs=150,
-    batch_size=64,
-    learning_rate=1e-3,
-    weight_decay=1e-4,
-    sim_weight=1.0,
-    sparseness_quantile=0.5, 
-    positivity="hard",
-    nsa_w=0.5,
-    hidden_dims=[64, 32], 
-    dropout=0.1,
-    energy_type="regression", 
-    verbose=False
-)
+# Train with PCA mixing
+lend_pca = lend_simr(train_mats, k=k, epochs=50, mixing_algorithm="pca", verbose=False)
 
-u_train = lend_results['u']
-v_mats = lend_results['v']
-```
+# Train with ICA mixing
+lend_ica = lend_simr(train_mats, k=k, epochs=50, mixing_algorithm="ica", verbose=False)
 
-### Optimization Diagnostics
+# Compare latent correlations
+u_pca = lend_pca['u'].numpy()
+u_ica = lend_ica['u'].numpy()
 
-We can plot the reconstruction loss and similarity loss separately to diagnose training behavior. The cosine annealing scheduler and gradient clipping help stabilize the descent.
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+sns.heatmap(np.corrcoef(u_pca.T), cmap='vlag', center=0, annot=True, ax=axes[0])
+axes[0].set_title("LEND Bottleneck (PCA Mixing)")
 
-```{python}
-fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-axes[0].plot(lend_results['recon_history'], label="Recon Loss", color='teal')
-axes[0].set_title("Reconstruction Loss")
-axes[0].set_xlabel("Epoch")
-axes[0].grid(True, alpha=0.3)
-
-axes[1].plot(lend_results['sim_history'], label="Sim Loss", color='coral')
-axes[1].set_title("Similarity Loss")
-axes[1].set_xlabel("Epoch")
-axes[1].grid(True, alpha=0.3)
+sns.heatmap(np.corrcoef(u_ica.T), cmap='vlag', center=0, annot=True, ax=axes[1])
+axes[1].set_title("LEND Bottleneck (ICA Mixing)")
 plt.show()
 ```
 
-### Visualizing the Interpretable $V$ Matrices
+## 3. Interpreting the V Matrices
 
-Unlike standard Deep SiMR, **LEND SiMR explicitly outputs the sparse $V$ matrices**. We can directly visualize the feature weights to understand biological significance. Notice the explicit sparsity (white gaps) enforced during training! The model correctly identifies the first 10 features of Modality 1 as the primary drivers of the latent space.
+We can inspect the feature weights ($V$) for the ICA-mixed model. LEND SiMR ensures these weights are sparse and orthogonal.
 
 ```{python}
-v1 = v_mats[0].numpy()
+v1_ica = lend_ica['v'][0].numpy()
 
 plt.figure(figsize=(10, 6))
-plt.imshow(v1, aspect='auto', cmap='coolwarm')
-plt.colorbar(label='Weight')
-plt.title("Learned V Matrix for Modality 1 (50% Sparsity)")
-plt.xlabel("Latent Component (k)")
-plt.ylabel("Feature Index (p)")
+sns.heatmap(v1_ica, cmap='coolwarm', center=0)
+plt.title("Learned V Matrix (ICA Mixing)\nSparse & Orthogonal")
+plt.xlabel("Latent Component")
+plt.ylabel("Feature Index")
 plt.show()
 ```
 
-### Visualizing the Learned Embeddings
-
-Let's verify that the linear encoder still successfully captured the non-linear "radicality" gradient in the training set.
+## 4. Evaluation on Held-out Data
 
 ```{python}
-u_train_np = u_train.numpy()
+pred_pca = predict_simlr(test_mats, lend_pca)
+pred_ica = predict_simlr(test_mats, lend_ica)
 
-plt.figure(figsize=(8, 6))
-scatter = plt.scatter(u_train_np[:, 0], u_train_np[:, 1], c=rad_train.numpy(), cmap='coolwarm', alpha=0.7)
-plt.title("Learned Shared Embeddings (Training Set)")
-plt.xlabel("Latent Dimension 1")
-plt.ylabel("Latent Dimension 2")
-plt.colorbar(scatter, label="Radicality")
-plt.grid(True, alpha=0.3)
-plt.show()
+# Radicality Prediction
+r2_pca = r2_score(rad_test.numpy(), LinearRegression().fit(pred_pca['u'].numpy(), rad_test.numpy()).predict(pred_pca['u'].numpy()))
+r2_ica = r2_score(rad_test.numpy(), LinearRegression().fit(pred_ica['u'].numpy(), rad_test.numpy()).predict(pred_ica['u'].numpy()))
+
+print(f"Validation R2 (PCA Mixing): {r2_pca:.3f}")
+print(f"Validation R2 (ICA Mixing): {r2_ica:.3f}")
 ```
-
-## 3. Inference & Validation
-
-We use `predict_simlr` to project our held-out test data. Because `lend_simr` uses an Autoencoder structure, `predict_simlr` will pass the test data through the linear encoder and the deep decoder.
-
-```{python}
-predict_results = predict_simlr(test_mats, lend_results)
-
-u_test = predict_results['u']
-test_errors = predict_results['errors']
-
-print(f"Validation Reconstruction Error (Modality 1): {test_errors[0]:.4f}")
-print(f"Validation Reconstruction Error (Modality 2): {test_errors[1]:.4f}")
-
-# Regression to assess biological relevance on held-out data
-reg_model = LinearRegression()
-reg_model.fit(u_test.numpy(), rad_test.numpy())
-rad_pred = reg_model.predict(u_test.numpy())
-r2 = r2_score(rad_test.numpy(), rad_pred)
-
-plt.figure(figsize=(6, 6))
-plt.scatter(rad_test.numpy(), rad_pred, alpha=0.6, color='darkgreen')
-plt.plot([rad_test.numpy().min(), rad_test.numpy().max()], [rad_test.numpy().min(), rad_test.numpy().max()], 'k--', lw=2)
-plt.title(f"Predicting Radicality from Inferred Latents\nHeld-Out Test Set ($R^2$ = {r2:.3f})")
-plt.xlabel("True Radicality")
-plt.ylabel("Predicted Radicality")
-plt.grid(True, alpha=0.3)
-plt.show()
-```
-
-## 4. Parameter Sweep: NSA-Flow $w$ & Energy Types
-
-LEND SiMR allows users to swap energy functions easily. Furthermore, we can adjust the `nsa_w` parameter. This parameter controls the **nsa-flow retraction weight**. A lower $w$ (closer to 0) makes the retraction to the Stiefel manifold "softer," allowing the gradients more freedom before enforcing strict orthogonality, while a higher $w$ (closer to 1) forces strict adherence to the manifold at every step.
-
-We will run a small sweep over different $w$ values and energy types and compare their performance using several new diagnostic metrics.
-
-### New Diagnostics for Model Quality
-
-To rigorously evaluate our model, we track:
-- **V Sparseness**: The percentage of zeros in the $V$ matrices, indicating how interpretable the encoder is.
-- **Similarity Score (RV)**: The RV coefficient between modality-specific latents and the shared latent $u$. This measures how well each modality aligns with the joint space.
-- **Orthogonality**: Measured as $||V^T V - I|| / k$. Values closer to zero indicate better adherence to the Stiefel manifold.
-- **RV Coef**: The RV coefficient between the latents of the different modalities.
-
-```{python}
-results_sweep = []
-ws = [0.1, 0.5, 0.9]
-energies = ["regression", "acc", "logcosh"]
-
-for e_type in energies:
-    for w_val in ws:
-        res = lend_simr(
-            data_matrices=train_mats,
-            k=k,
-            epochs=100,
-            batch_size=64,
-            learning_rate=1e-3,
-            sim_weight=1.0,
-            sparseness_quantile=0.5, 
-            positivity="hard",
-            nsa_w=w_val,
-            energy_type=e_type, 
-            verbose=False
-        )
-        
-        # Inference on test set
-        pred = predict_simlr(test_mats, res)
-        
-        # Performance: Regression
-        rm = LinearRegression()
-        rm.fit(pred['u'].numpy(), rad_test.numpy())
-        rp = rm.predict(pred['u'].numpy())
-        r2 = r2_score(rad_test.numpy(), rp)
-        
-        # Diagnostics
-        v_mats = res['v']
-        latents = res['latents']
-        u_shared = res['u']
-        
-        avg_sparseness = np.mean([(v == 0).float().mean().item() for v in v_mats])
-        avg_ortho = np.mean([ (torch.norm(v.t() @ v - torch.eye(k)) / k).item() for v in v_mats])
-        avg_sim_score = np.mean([pysimlr.utils.rvcoef(l, u_shared) for l in latents])
-        rv_modalities = pysimlr.utils.rvcoef(latents[0], latents[1])
-        
-        results_sweep.append({
-            "Energy Type": e_type,
-            "NSA w": w_val,
-            "Held-out R2": r2,
-            "V Sparseness": avg_sparseness,
-            "Similarity Score": avg_sim_score,
-            "Orthogonality": avg_ortho,
-            "RV Coef": rv_modalities
-        })
-
-df_results = pd.DataFrame(results_sweep)
-display(df_results.round(3))
-```
-
-By examining the table, we can observe how different energy types and varying strengths of manifold retraction ($w$) impact the model's diagnostics and generalization.
 
 ## Conclusion
 
-**LEND SiMR** bridges the gap between deep non-linear generative modeling and strict biological interpretability. By pairing a strictly linear, orthogonal, and sparse encoder ($V$) with a deep decoder, users can model complex manifolds while retaining the ability to ask: *"Which exact genes or brain regions are driving this dimension?"*
+LEND SiMR allows researchers to pair an interpretable linear encoder with a deep decoder. The choice of mixing algorithm (PCA vs. ICA) provides a powerful lever to control the statistical properties of the shared latent space while maintaining feature-level transparency.

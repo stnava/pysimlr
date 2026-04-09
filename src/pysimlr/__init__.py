@@ -4,7 +4,8 @@ from .simlr import (
     estimate_rank,
     decompose_energy,
     simlr_perm,
-    initialize_simlr
+    initialize_simlr,
+    calculate_u
 )
 from .sparsification import (
     optimize_indicator_matrix,
@@ -60,6 +61,7 @@ __all__ = [
     'decompose_energy',
     'simlr_perm',
     'initialize_simlr',
+    'calculate_u',
     'optimize_indicator_matrix',
     'indicator_opt_both_ways',
     'rank_based_matrix_segmentation',
