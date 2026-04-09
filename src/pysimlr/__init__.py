@@ -59,6 +59,13 @@ from .utils import (
     invariant_orthogonality_defect,
     gradient_invariant_orthogonality_defect
 )
+from .visualization import (
+    plot_lend_simr_architecture,
+    plot_ned_simr_architecture,
+    plot_ned_shared_private_architecture,
+    plot_nsa_flow_architecture,
+    generate_all_architecture_graphs
+)
 
 __all__ = [
     'simlr',
@@ -101,5 +108,10 @@ __all__ = [
     'adjusted_rvcoef',
     'l1_normalize_features',
     'invariant_orthogonality_defect',
-    'gradient_invariant_orthogonality_defect'
+    'gradient_invariant_orthogonality_defect',
+    'plot_lend_simr_architecture',
+    'plot_ned_simr_architecture',
+    'plot_ned_shared_private_architecture',
+    'plot_nsa_flow_architecture',
+    'generate_all_architecture_graphs'
 ]
