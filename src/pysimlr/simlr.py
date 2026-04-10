@@ -300,8 +300,8 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr_re
         with torch.no_grad():
             output = model(torch_mats_device)
             latents = output[0]
-            reconstructions = output[-2]
-            u_new = output[-1]
+            reconstructions = output[1]
+            u_new = output[2]
         errors = [torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10) for x, x_pred in zip(torch_mats_device, reconstructions)]
         return {"u": torch.nan_to_num(u_new.cpu()), "latents": [torch.nan_to_num(l.cpu()) for l in latents], "reconstructions": [torch.nan_to_num(r.cpu()) for r in reconstructions], "errors": errors}
     

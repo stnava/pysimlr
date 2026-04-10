@@ -14,10 +14,13 @@ except ImportError:
     nsa = None
 
 def _newton_step_ortho(u: torch.Tensor) -> torch.Tensor:
+    """Project towards the Stiefel manifold using SVD."""
+    try:
+        u_svd, _, vh_svd = torch.linalg.svd(u, full_matrices=False)
+        return u_svd @ vh_svd
+    except:
+        return torch.nn.functional.normalize(u, p=2, dim=0)
     """Algebraic Newton-style projection towards the Stiefel manifold."""
-    norm = torch.norm(u, p=2) + 1e-8
-    u_scaled = u / norm
-    return 1.5 * u_scaled - 0.5 * u_scaled @ (u_scaled.t() @ u_scaled)
 
 def _normalize_rows(x: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     """Normalize each row to have unit L2 norm."""
