@@ -1,4 +1,8 @@
 .coverage
+*pdf
+output_figures
+docs/*sv
+docs/*html
 benchmarks/__pycache__/
 src/pysimlr/__pycache__/
 .agentantsx_workflow
@@ -18,7 +22,10 @@ src/pysimlr/__pycache__/utils.cpython-312.pyc
 tests/__pycache__/test_pysimlr.cpython-312-pytest-9.0.2.pyc
 tests/__pycache__/test_pysimlr.cpython-312-pytest-9.0.3.pyc
 .coverage
-
+*.csv
+.pytest_cache/
+detailed_figures/
+docs/comparison_simlr_lend.quarto_ipynb_1
 
 /.quarto/
 **/*.quarto_ipynb
