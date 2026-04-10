@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import pandas as pd
-import time
+from typing import List, Dict, Any, Optional, Union
 from pysimlr.simlr import simlr
 from pysimlr.deep import ned_simr
 from pysimlr.benchmarks.protocol import BenchmarkProtocol, run_repeated_benchmark
@@ -39,19 +39,13 @@ def fit_ned(train_data, **kwargs):
 def run_ned_vs_simlr_benchmark(n_samples=1200, n_seeds=3, noise_level=0.1):
     protocol = BenchmarkProtocol(n_samples=n_samples)
     
+    common_args = {"n_seeds": n_seeds, "generator_name": "strongly_nonlinear", "noise_level": noise_level, "k": 5}
+    
     print("Benchmarking SIMLR (Linear)...")
-    df_simlr = run_repeated_benchmark(
-        protocol, generate_nonlinear_data, fit_simlr, "linear",
-        n_seeds=n_seeds, generator_name="strongly_nonlinear", noise_level=noise_level,
-        k=5
-    )
+    df_simlr = run_repeated_benchmark(protocol, generate_nonlinear_data, fit_simlr, "linear", **common_args)
     
     print("Benchmarking NED (Nonlinear)...")
-    df_ned = run_repeated_benchmark(
-        protocol, generate_nonlinear_data, fit_ned, "ned",
-        n_seeds=n_seeds, generator_name="strongly_nonlinear", noise_level=noise_level,
-        k=5
-    )
+    df_ned = run_repeated_benchmark(protocol, generate_nonlinear_data, fit_ned, "ned", **common_args)
     
     df_all = pd.concat([df_simlr, df_ned], ignore_index=True)
     

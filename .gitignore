@@ -1,4 +1,5 @@
 .coverage
+scripts/__pycache__/
 .quarto_cache/
 docs/comparison_simlr_lend_basic_files/
 docs/deep_simr_tutorial_files/

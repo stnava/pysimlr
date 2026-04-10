@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import pandas as pd
+from typing import List, Dict, Any, Optional, Union
 from pysimlr.simlr import simlr
 from pysimlr.deep import lend_simr
 from pysimlr.benchmarks.protocol import BenchmarkProtocol, run_repeated_benchmark
