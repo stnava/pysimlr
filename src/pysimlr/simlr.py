@@ -32,7 +32,6 @@ def calculate_u(projections: List[torch.Tensor],
                 orthogonalize: bool = False) -> torch.Tensor:
     """
     Combine projections from different modalities into a shared latent basis U.
-    Matches R's simlrU logic with an added 'newton' fast-orthogonality option.
     """
     n_modalities = len(projections)
     if k is None:
@@ -158,6 +157,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           domain_matrices: Optional[List[Union[torch.Tensor, np.ndarray]]] = None,
           domain_lambdas: Optional[Union[float, List[float]]] = None,
           orthogonalize_u: bool = False,
+          tol: float = 1e-6,
           verbose: bool = False,
           **opt_params) -> Dict[str, Any]:
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
@@ -175,6 +175,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     orth_weights = torch.zeros(n_modalities, dtype=orig_dtype)
     domain_weights = torch.ones(n_modalities, dtype=orig_dtype)
     energy_history = []
+    
+    prev_total_energy = float('inf')
+    converged_iter = iterations
+
     for it in range(iterations):
         projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
         u = calculate_u(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u)
@@ -207,8 +211,17 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                     else: domain_weights[i] = 1.0
         total_energy = sum(calculate_simlr_energy(v_mats[i], torch_mats[i], u, energy_type).item() * normalizing_weights[i] for i in range(n_modalities))
         energy_history.append(total_energy)
+        
+        # Check for convergence
+        if abs(prev_total_energy - total_energy) < tol * (abs(prev_total_energy) + 1e-10):
+            if verbose: print(f"Converged at iteration {it}: Total Energy {total_energy}")
+            converged_iter = it + 1
+            break
+        prev_total_energy = total_energy
+        
         if verbose and it % 10 == 0: print(f"Iteration {it}: Total Energy {total_energy}")
-    return {"u": u, "v": v_mats, "energy": energy_history, "normalizing_weights": normalizing_weights, "orth_weights": orth_weights, "domain_weights": domain_weights}
+        
+    return {"u": u, "v": v_mats, "energy": energy_history, "normalizing_weights": normalizing_weights, "orth_weights": orth_weights, "domain_weights": domain_weights, "converged_iter": converged_iter}
 
 def pairwise_matrix_similarity(mat_list: List[torch.Tensor], v_list: List[torch.Tensor]) -> Dict[str, float]:
     n_modalities = len(mat_list); similarities = {}

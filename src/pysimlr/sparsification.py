@@ -2,6 +2,11 @@ import torch
 from typing import Optional, Union, Tuple
 from .utils import l1_normalize_features
 
+try:
+    from nsa_flow import nsa_flow_orth
+except ImportError:
+    nsa_flow_orth = None
+
 def optimize_indicator_matrix(m: torch.Tensor, 
                               max_iter: int = 1000, 
                               tol: float = 1e-6, 
@@ -127,12 +132,23 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
         return v.clone()
 
     v_out = v.clone()
+    orig_dtype = v_out.dtype
     n, k = v_out.shape
     
     if orthogonalize and k > 1:
         try:
-            u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
-            v_out = u @ v_h
+            if nsa_flow_orth is not None:
+                # Use NSA-Flow for robust retraction if available
+                precision = "float32" if orig_dtype == torch.float32 else "float64"
+                res = nsa_flow_orth(v_out, w=0.5, retraction="soft_polar", precision=precision, max_iter=10)
+                if res['Y'] is not None:
+                    v_out = res['Y'].to(orig_dtype)
+                else:
+                    u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+                    v_out = u @ v_h
+            else:
+                u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+                v_out = u @ v_h
         except: pass
         
     if sparseness_quantile > 0:
@@ -156,7 +172,7 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
                     local_v = local_v / norm
             v_out[:, vv] = local_v
             
-    return v_out
+    return v_out.to(orig_dtype)
 
 def project_to_orthonormal_nonnegative(x: torch.Tensor, 
                                        max_iter: int = 100, 
@@ -166,6 +182,7 @@ def project_to_orthonormal_nonnegative(x: torch.Tensor,
     Project a matrix to be orthonormal and nonnegative using Dykstra-like alternations.
     """
     v = x.clone()
+    orig_dtype = v.dtype
     for i in range(max_iter):
         v_old = v.clone()
         if constraint == 'positive': v = torch.clamp(v, min=0.0)
@@ -177,7 +194,7 @@ def project_to_orthonormal_nonnegative(x: torch.Tensor,
         if torch.norm(v - v_old) < tol: break
     if constraint == 'positive': v = torch.clamp(v, min=0.0)
     elif constraint == 'negative': v = torch.clamp(v, max=0.0)
-    return v
+    return v.to(orig_dtype)
 
 def project_to_partially_orthonormal_nonnegative(x: torch.Tensor, 
                                                  max_iter: int = 1, 
@@ -187,6 +204,7 @@ def project_to_partially_orthonormal_nonnegative(x: torch.Tensor,
     Partially project to orthonormal and nonnegative.
     """
     v = x.clone()
+    orig_dtype = v.dtype
     for _ in range(max_iter):
         if constraint == 'positive': v = torch.clamp(v, min=0.0)
         elif constraint == 'negative': v = torch.clamp(v, max=0.0)
@@ -197,7 +215,7 @@ def project_to_partially_orthonormal_nonnegative(x: torch.Tensor,
         except: pass
     if constraint == 'positive': v = torch.clamp(v, min=0.0)
     elif constraint == 'negative': v = torch.clamp(v, max=0.0)
-    return v
+    return v.to(orig_dtype)
 
 def simlr_sparseness(v: torch.Tensor, 
                      constraint_type: str = "none",
@@ -212,17 +230,44 @@ def simlr_sparseness(v: torch.Tensor,
     Main sparsification and constraint enforcement function for SIMLR.
     """
     v_out = v.clone()
+    orig_dtype = v_out.dtype
+    
     if positivity == 'positive': v_out = torch.abs(v_out)
     elif positivity == 'negative': v_out = -torch.abs(v_out)
     if smoothing_matrix is not None: v_out = smoothing_matrix @ v_out
+    
     if constraint_type in ["Stiefel", "Grassmann", "none"]:
         if sparseness_alg == 'nnorth': v_out = project_to_orthonormal_nonnegative(v_out, constraint=positivity)
         elif sparseness_quantile != 0 and sparseness_alg == 'soft':
             v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sparseness_quantile, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
+        elif nsa_flow_orth is not None and constraint_weight > 0:
+            precision = "float32" if orig_dtype == torch.float32 else "float64"
+            try:
+                res = nsa_flow_orth(v_out, w=constraint_weight, retraction="soft_polar", max_iter=max(5, constraint_iterations), precision=precision)
+                if res['Y'] is not None:
+                    v_out = res['Y'].to(orig_dtype)
+            except:
+                # Fallback to SVD if nsa_flow_orth fails
+                u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+                v_out = u @ v_h
+                
     elif constraint_type == "ortho":
-        v_out = project_to_partially_orthonormal_nonnegative(v_out, max_iter=constraint_iterations, constraint=positivity, ortho_strength=constraint_weight)
+        if nsa_flow_orth is not None:
+            precision = "float32" if orig_dtype == torch.float32 else "float64"
+            try:
+                res = nsa_flow_orth(v_out, w=constraint_weight, retraction="soft_polar", max_iter=max(5, constraint_iterations), precision=precision)
+                if res['Y'] is not None:
+                    v_out = res['Y'].to(orig_dtype)
+            except:
+                u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+                v_ortho = u @ v_h
+                v_out = (1 - constraint_weight) * v_out + constraint_weight * v_ortho
+        else:
+            v_out = project_to_partially_orthonormal_nonnegative(v_out, max_iter=constraint_iterations, constraint=positivity, ortho_strength=constraint_weight)
+            
         if sparseness_quantile != 0 and sparseness_alg == 'soft':
             v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sparseness_quantile, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
+            
     normalize_energy_types = ["acc", "cca", "nc", "normalized_correlation", "lowRankRegression", "lrr"]
     if energy_type is not None and energy_type in normalize_energy_types: v_out = l1_normalize_features(v_out)
-    return v_out
+    return v_out.to(orig_dtype)

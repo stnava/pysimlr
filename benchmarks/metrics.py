@@ -4,6 +4,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 from typing import Dict, Any, List, Optional, Union
 from pysimlr import adjusted_rvcoef
+from pysimlr.utils import invariant_orthogonality_defect
 
 def latent_recovery_score(u_pred: torch.Tensor, u_true: torch.Tensor) -> float:
     """Calculate Adjusted RV coefficient between predicted and true latents."""
@@ -58,13 +59,21 @@ def shared_private_diagnostics(shared_latents: List[torch.Tensor],
         
     return diagnostics
 
+def calculate_v_orthogonality(v_mats: List[torch.Tensor]) -> float:
+    """Calculate mean invariant orthogonality defect across all modality V matrices."""
+    defects = []
+    for v in v_mats:
+        defects.append(invariant_orthogonality_defect(v).item())
+    return float(np.mean(defects))
+
 def calculate_all_metrics(u_pred: torch.Tensor, 
                           u_true: torch.Tensor, 
                           y_true: np.ndarray,
                           data: List[torch.Tensor],
                           recons: List[torch.Tensor],
                           shared_latents: Optional[List[torch.Tensor]] = None,
-                          private_latents: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
+                          private_latents: Optional[List[torch.Tensor]] = None,
+                          v_mats: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
     """Utility to calculate a standard suite of metrics."""
     res = {
         "recovery": latent_recovery_score(u_pred, u_true),
@@ -75,5 +84,8 @@ def calculate_all_metrics(u_pred: torch.Tensor,
     
     if shared_latents is not None and private_latents is not None:
         res.update(shared_private_diagnostics(shared_latents, private_latents))
+        
+    if v_mats is not None:
+        res["orthogonality_defect"] = calculate_v_orthogonality(v_mats)
         
     return res

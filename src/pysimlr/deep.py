@@ -246,8 +246,12 @@ def calculate_sim_loss(latents: List[torch.Tensor], u_shared: torch.Tensor, ener
     
     return sim_loss + 0.1 * var_penalty + 0.1 * collapse_loss
 
-def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device):
+def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=1e-6, patience=10):
     loss_history, recon_history, sim_history = [], [], []
+    best_loss = float('inf')
+    patience_counter = 0
+    converged_epoch = epochs
+
     for epoch in range(epochs):
         model.train(); epoch_loss, epoch_recon, epoch_sim = 0.0, 0.0, 0.0
         current_sim_weight = 0.0 if epoch < warmup_epochs else sim_weight
@@ -268,11 +272,26 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
             if torch.isnan(total_loss): continue
             total_loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0); optimizer.step()
             epoch_loss += total_loss.item(); epoch_recon += recon_loss.item(); epoch_sim += sim_loss.item()
+        
         epoch_loss /= len(dataloader); epoch_recon /= len(dataloader); epoch_sim /= len(dataloader)
         loss_history.append(epoch_loss); recon_history.append(epoch_recon); sim_history.append(epoch_sim)
         scheduler.step()
+        
+        # Check for convergence
+        if epoch_loss < best_loss - tol:
+            best_loss = epoch_loss
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            
+        if patience_counter >= patience and epoch > warmup_epochs:
+            if verbose: print(f"Converged at epoch {epoch}: Total Loss {epoch_loss:.4f}")
+            converged_epoch = epoch + 1
+            break
+
         if verbose and epoch % 10 == 0: print(f"Epoch {epoch}: Total={epoch_loss:.4f} (Recon={epoch_recon:.4f}, Sim={epoch_sim:.4f})")
-    return loss_history, recon_history, sim_history
+        
+    return loss_history, recon_history, sim_history, converged_epoch
 
 def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.5, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
     if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
@@ -281,12 +300,12 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     model.initialize_v(torch_mats, k)
     optimizer = optim.Adam([{'params': model.encoders.parameters(), 'lr': learning_rate * 0.1}, {'params': model.decoders.parameters()}, {'params': model.bottleneck_norm.parameters()}], lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    loss_h, recon_h, sim_h = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device)
+    loss_h, recon_h, sim_h, conv_ep = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device)
     model.eval(); 
     with torch.no_grad():
         final_latents, _, u_final = model([m.to(device) for m in torch_mats])
         v_mats = [torch.nan_to_num(enc.v.detach().cpu()) for enc in model.encoders]
-    return {"model": model.cpu(), "model_type": "lend_simr", "u": torch.nan_to_num(u_final.cpu()), "v": v_mats, "latents": [torch.nan_to_num(l.cpu()) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h}
+    return {"model": model.cpu(), "model_type": "lend_simr", "u": torch.nan_to_num(u_final.cpu()), "v": v_mats, "latents": [torch.nan_to_num(l.cpu()) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep}
 
 def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.5, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
     if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
@@ -295,12 +314,12 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     model.initialize_v(torch_mats, k)
     optimizer = optim.Adam([{'params': model.linear_encoders.parameters(), 'lr': learning_rate * 0.1}, {'params': model.nonlinear_heads.parameters()}, {'params': model.decoders.parameters()}, {'params': model.bottleneck_norm.parameters()}], lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    loss_h, recon_h, sim_h = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device)
+    loss_h, recon_h, sim_h, conv_ep = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device)
     model.eval(); 
     with torch.no_grad():
         final_latents, _, u_final = model([m.to(device) for m in torch_mats])
         v_mats = [torch.nan_to_num(enc.v.detach().cpu()) for enc in model.linear_encoders]
-    return {"model": model.cpu(), "model_type": "ned_simr", "u": torch.nan_to_num(u_final.cpu()), "v": v_mats, "latents": [torch.nan_to_num(l.cpu()) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h}
+    return {"model": model.cpu(), "model_type": "ned_simr", "u": torch.nan_to_num(u_final.cpu()), "v": v_mats, "latents": [torch.nan_to_num(l.cpu()) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep}
 
 def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.5, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
     if private_k is None: private_k = max(1, k // 2)
@@ -311,6 +330,9 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     loss_history, recon_history, sim_history, priv_history, orth_history = [], [], [], [], []
+    best_loss = float('inf')
+    patience_counter = 0
+    converged_epoch = epochs
     for epoch in range(epochs):
         model.train(); epoch_loss, epoch_recon, epoch_sim, epoch_priv, epoch_orth = 0.0, 0.0, 0.0, 0.0, 0.0
         current_sim_weight = 0.0 if epoch < warmup_epochs else sim_weight
@@ -329,13 +351,19 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         epoch_loss /= len(dataloader); epoch_recon /= len(dataloader); epoch_sim /= len(dataloader); epoch_priv /= len(dataloader); epoch_orth /= len(dataloader)
         loss_history.append(epoch_loss); recon_history.append(epoch_recon); sim_history.append(epoch_sim); priv_history.append(epoch_priv); orth_history.append(epoch_orth)
         scheduler.step()
+        if epoch_loss < best_loss - 1e-6:
+            best_loss = epoch_loss; patience_counter = 0
+        else: patience_counter += 1
+        if patience_counter >= 15 and epoch > warmup_epochs:
+            if verbose: print(f"Converged at epoch {epoch}: Total Loss {epoch_loss:.4f}"); 
+            converged_epoch = epoch + 1; break
         if verbose and epoch % 10 == 0: print(f"Epoch {epoch}: Total={epoch_loss:.4f} (Recon={epoch_recon:.4f}, Sim={epoch_sim:.4f}, CrossCov={epoch_orth:.4f})")
     model.eval(); 
     with torch.no_grad():
         all_torch_mats = [m.to(device) for m in torch_mats]
         sh_l, pr_l, _, u_final = model(all_torch_mats)
         v_mats = [torch.nan_to_num(enc.v.detach().cpu()) for enc in model.linear_encoders]
-    return {"model": model.cpu(), "model_type": "ned_simr_shared_private", "u": torch.nan_to_num(u_final.cpu()), "v": v_mats, "shared_latents": [torch.nan_to_num(l.cpu()) for l in sh_l], "private_latents": [torch.nan_to_num(l.cpu()) for l in pr_l], "latents": [torch.nan_to_num(l.cpu()) for l in sh_l], "loss_history": loss_history, "recon_history": recon_history, "sim_history": sim_history, "private_variance_history": priv_history, "private_orthogonality_history": orth_history}
+    return {"model": model.cpu(), "model_type": "ned_simr_shared_private", "u": torch.nan_to_num(u_final.cpu()), "v": v_mats, "shared_latents": [torch.nan_to_num(l.cpu()) for l in sh_l], "private_latents": [torch.nan_to_num(l.cpu()) for l in pr_l], "latents": [torch.nan_to_num(l.cpu()) for l in sh_l], "loss_history": loss_history, "recon_history": recon_history, "sim_history": sim_history, "private_variance_history": priv_history, "private_orthogonality_history": orth_history, "converged_iter": converged_epoch}
 
 def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 100, batch_size: int = 32, learning_rate: float = 1e-3, weight_decay: float = 1e-5, sim_weight: float = 1.0, warmup_epochs: int = 10, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "avg", device: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
     if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
@@ -343,8 +371,8 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     model = DeepSiMRModel(input_dims, k, hidden_dims, dropout, mixing_algorithm).to(device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    loss_h, recon_h, sim_h = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device)
+    loss_h, recon_h, sim_h, conv_ep = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device)
     model.eval(); 
     with torch.no_grad():
         final_latents, _, u_final = model([m.to(device) for m in torch_mats])
-    return {"model": model.cpu(), "model_type": "deep_simr", "u": torch.nan_to_num(u_final.cpu()), "latents": [torch.nan_to_num(l.cpu()) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h}
+    return {"model": model.cpu(), "model_type": "deep_simr", "u": torch.nan_to_num(u_final.cpu()), "latents": [torch.nan_to_num(l.cpu()) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep}

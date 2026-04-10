@@ -63,6 +63,25 @@ def plot_stability_diagnostics(df: pd.DataFrame):
     plt.tight_layout()
     return fig
 
+def plot_sparsity_vs_orthogonality(df: pd.DataFrame, title: str = "Orthogonality Defect vs. Sparsity"):
+    """Line plot showing how orthogonality degrades as sparsity increases."""
+    if "orthogonality_defect" not in df.columns:
+        return None
+    plt.figure(figsize=(8, 6))
+    sns.lineplot(
+        data=df,
+        x="sparsity",
+        y="orthogonality_defect",
+        hue="model",
+        marker='o'
+    )
+    plt.title(title)
+    plt.ylabel("Invariant Orthogonality Defect (lower is better)")
+    plt.xlabel("Sparsity Quantile")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    return plt.gcf()
+
 def plot_reconstruction_tradeoff(df: pd.DataFrame):
     """Plot Latent Recovery vs Reconstruction Error."""
     plt.figure(figsize=(10, 7))

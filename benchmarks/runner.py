@@ -57,10 +57,13 @@ def run_single_experiment(model_type: str,
     if model_type == "shared_private" and shared_l is None and "latents" in pred:
          shared_l = pred["latents"]
 
+    v_mats = res.get("v")
+
     metrics = calculate_all_metrics(
         pred['u'], u_true_test, y_test, test_mats, pred['reconstructions'],
         shared_latents=shared_l,
-        private_latents=private_l
+        private_latents=private_l,
+        v_mats=v_mats
     )
     
     metrics.update({
