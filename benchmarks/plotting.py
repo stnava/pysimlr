@@ -3,7 +3,7 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 import torch
-from typing import Optional, List, Union, Dict
+from typing import Optional, List, Union, Dict, Any
 
 def plot_pareto_recovery_vs_r2(df: pd.DataFrame, title: str = "Performance Tradeoff: Recovery vs. Predictive Power"):
     """Scatter plot of Recovery (Adjusted RV) vs Test R2."""
@@ -83,6 +83,9 @@ def plot_reconstruction_tradeoff(df: pd.DataFrame):
 def plot_v_heatmaps(results_dict: Dict[str, Any], modality_idx: int = 0):
     """Plot V matrix heatmaps for multiple models side-by-side."""
     models = list(results_dict.keys())
+    if not models:
+        return None
+        
     fig, axes = plt.subplots(1, len(models), figsize=(5 * len(models), 6))
     if len(models) == 1:
         axes = [axes]
@@ -104,7 +107,6 @@ def plot_latent_correlation(u_pred: torch.Tensor, u_true: torch.Tensor, title: s
     u_pred_np = u_pred.detach().cpu().numpy()
     u_true_np = u_true.detach().cpu().numpy()
     
-    # Calculate cross-correlation
     corr = np.zeros((u_pred_np.shape[1], u_true_np.shape[1]))
     for i in range(u_pred_np.shape[1]):
         for j in range(u_true_np.shape[1]):
