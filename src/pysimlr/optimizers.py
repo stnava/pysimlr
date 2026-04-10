@@ -64,7 +64,7 @@ def backtracking_linesearch(v_current: torch.Tensor,
     try:
         initial_energy = energy_function(v_current)
     except:
-        initial_energy = float('inf')
+        return 0.0
         
     step_size = initial_step_size
     slope_term = torch.sum(ascent_gradient * descent_direction)
@@ -295,7 +295,7 @@ class TorchNativeOptimizer(SimlrOptimizer):
         elif optimizer_type == "torch_adagrad":
             self.optimizers = [optim.Adagrad([p], lr=lr) for p in self.v_params]
         elif optimizer_type == "torch_nadam":
-            self.optimizers = [optim.Nadam([p], lr=lr) for p in self.v_params]
+            self.optimizers = [optim.NAdam([p], lr=lr) for p in self.v_params]
         elif optimizer_type == "torch_lbfgs":
             self.optimizers = [optim.LBFGS([p], lr=lr) for p in self.v_params]
         else:

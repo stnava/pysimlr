@@ -291,7 +291,7 @@ lend_backprop = lend_simr(
     k=k, 
     epochs=50, 
     mixing_algorithm="svd", 
-    backprop_through_mixing=True,
+    
     verbose=False
 )
 

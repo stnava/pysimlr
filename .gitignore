@@ -1,4 +1,11 @@
 .coverage
+.quarto_cache/
+docs/comparison_simlr_lend_basic_files/
+docs/deep_simr_tutorial_files/
+docs/lend_simr_tutorial_files/
+docs/tutorial_domain_knowledge_files/
+src/pysimlr/benchmarks/__pycache__/
+src/pysimlr/benchmarks/__pycache__/runner.cpython-312.pyc
 *pdf
 output_figures
 docs/*sv

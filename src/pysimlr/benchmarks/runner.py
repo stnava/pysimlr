@@ -4,11 +4,17 @@ import pandas as pd
 import argparse
 import yaml
 import os
+import inspect
 from typing import List, Dict, Any, Optional, Union
 from .synthetic_cases import build_case
 from .metrics import calculate_all_metrics
 from pysimlr.simlr import simlr, predict_simlr
 from pysimlr.deep import lend_simr, ned_simr, ned_simr_shared_private
+
+def filter_kwargs(func, kwargs):
+    """Filter kwargs to only include those accepted by the function."""
+    sig = inspect.signature(func)
+    return {k: v for k, v in kwargs.items() if k in sig.parameters}
 
 def run_single_experiment(model_type: str, 
                           case: Dict[str, Any], 
@@ -34,13 +40,17 @@ def run_single_experiment(model_type: str,
     np.random.seed(seed)
     
     if model_type == "linear":
-        res = simlr(train_mats, k=k, sparseness_quantile=sparsity, **params)
+        f_params = filter_kwargs(simlr, params)
+        res = simlr(train_mats, k=k, sparseness_quantile=sparsity, **f_params)
     elif model_type == "lend":
-        res = lend_simr(train_mats, k=k, sparseness_quantile=sparsity, **params)
+        f_params = filter_kwargs(lend_simr, params)
+        res = lend_simr(train_mats, k=k, sparseness_quantile=sparsity, **f_params)
     elif model_type == "ned":
-        res = ned_simr(train_mats, k=k, sparseness_quantile=sparsity, **params)
+        f_params = filter_kwargs(ned_simr, params)
+        res = ned_simr(train_mats, k=k, sparseness_quantile=sparsity, **f_params)
     elif model_type == "shared_private":
-        res = ned_simr_shared_private(train_mats, k=k, sparseness_quantile=sparsity, **params)
+        f_params = filter_kwargs(ned_simr_shared_private, params)
+        res = ned_simr_shared_private(train_mats, k=k, sparseness_quantile=sparsity, **f_params)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
         

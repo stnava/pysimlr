@@ -115,3 +115,36 @@ def test_utils_extra():
     v = torch.randn(10, 2)
     v_norm = l1_normalize_features(v)
     assert torch.allclose(torch.sum(torch.abs(v_norm), dim=0), torch.ones(2))
+
+def test_utils_extra_coverage_more():
+    from pysimlr.utils import (multigrep, get_names_from_dataframe, 
+                               rvcoef_components, orthogonality_summary,
+                               gradient_invariant_orthogonality_defect,
+                               mean_orthogonality_defect,
+                               gradient_mean_orthogonality_defect,
+                               preprocess_data)
+    # multigrep
+    assert multigrep(["a"], ["a", "b"]).tolist() == [0]
+    # get_names_from_dataframe
+    df = pd.DataFrame(columns=["test_1", "test_2", "other"])
+    assert get_names_from_dataframe(["test"], df) == ["test_1", "test_2"]
+    # rvcoef_components
+    res = rvcoef_components(torch.randn(10, 5), torch.randn(10, 5))
+    assert "rv" in res
+    # orthogonality_summary
+    sum_res = orthogonality_summary(torch.randn(10, 5))
+    assert "mean_defect" in sum_res
+    # gradients
+    v = torch.randn(10, 5)
+    g1 = gradient_invariant_orthogonality_defect(v)
+    assert g1.shape == v.shape
+    g2 = gradient_mean_orthogonality_defect(v)
+    assert g2.shape == v.shape
+    
+    # preprocess_data variants
+    x = torch.randn(10, 5)
+    for m in ["norm", "np", "sqrtnp", "center", "centerAndScale", "eigen"]:
+        x_m, prov = preprocess_data(x, [m])
+        assert x_m.shape == x.shape
+        x_m2 = preprocess_data(x, [m], provenance=prov)
+        assert torch.allclose(x_m, x_m2)

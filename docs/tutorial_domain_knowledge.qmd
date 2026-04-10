@@ -128,7 +128,7 @@ plt.show()
 # Visualize consensus vs modality-specific projections for the first dimension
 # We re-preprocess data manually here just for visualization consistency
 from pysimlr.utils import preprocess_data
-scaled_data = [preprocess_data(m, ["centerAndScale", "np"]) for m in data_matrices]
+scaled_data = [preprocess_data(m, ["centerAndScale", "np"])[0] for m in data_matrices]
 proj = [x @ v for x, v in zip(scaled_data, results['v'])]
 
 plot_latent_consensus(results['u'], proj, dim_idx=0)
