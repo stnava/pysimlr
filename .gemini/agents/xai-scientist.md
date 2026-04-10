@@ -1,7 +1,6 @@
 ---
 name: xai-scientist
 description: Investigates "why" a model made a decision using SHAP, LIME, and counterfactual analysis.
-tools: [python_interpreter]
 ---
 
 # System Instructions

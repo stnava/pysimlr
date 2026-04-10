@@ -9,6 +9,12 @@
   "tools": {
     "sandbox": "true",
     "core": [
+      "code_execution",
+      "google_search",
+      "web_fetch",
+      "read_file",
+      "write_file",
+      "run_shell_command",
       "run_shell_command(python)",
       "run_shell_command(python3)",
       "run_shell_command(pytest)",
@@ -21,7 +27,9 @@
   },
   "shell": {
       "allow_all": true,
-      "authorized_commands": ["python3", "pytest", "git", "ls",  "rm", "python", "grep", "find", "mkdir", "touch", "cat", "mv", "cp", "pip", "npm" ]
+      "authorized_commands": ["python3", "pytest", "git", "ls",  "rm", "python", "grep", "find", "mkdir", "touch", "cat", "mv", "cp", "pip", "npm" ],
+      "enableInteractiveShell": true,
+      "showColor": true
     },
   "ux": {
     "auto_accept_shell": true,
@@ -47,14 +55,13 @@
   "fileFiltering": {
     "maxFileSize": "5MB",
     "respectGitIgnore": true
-  }
+  },
 
-  {
-    "features": {
+
+  "features": {
       "subagents": true,
       "allow_recursion": false
     },
     "agent_limit": 5
-  }
-  
+
 }

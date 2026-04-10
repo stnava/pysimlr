@@ -1,0 +1,129 @@
+---
+title: "LENDNSAEncoder Tutorial"
+subtitle: "Linear Encoder, Nonlinear Decoder model foundation"
+format: html
+---
+
+## Introduction
+
+This tutorial demonstrates the `LENDNSAEncoder`, the core linear projection component for the LEND (Linear Encoder, Nonlinear Decoder) model family in `pysimlr`.
+
+The `LENDNSAEncoder` provides a robust, orthonormalized linear projection that maintains stable gradients during training while enforcing strict manifold constraints during evaluation.
+
+```{python}
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+from pysimlr.deep import LENDNSAEncoder, ModalityDecoder
+from pysimlr.consensus import compute_shared_consensus
+from pysimlr.utils import invariant_orthogonality_defect
+
+# Set seed for reproducibility
+torch.manual_seed(42)
+np.random.seed(42)
+```
+
+## Case 1: Mostly Linear + Noise
+
+We simulate a 1D latent variable $u$ and two modalities that are linear mappings of $u$ with additive noise.
+
+```{python}
+def generate_linear_case(n_samples=300, k=1, d=10):
+    u = torch.randn(n_samples, k)
+    v_true = torch.randn(d, k)
+    x = u @ v_true.t() + 0.2 * torch.randn(n_samples, d)
+    # Normalize
+    x = (x - x.mean(0)) / (x.std(0) + 1e-6)
+    return x, u
+
+x1, u_true = generate_linear_case()
+x2, _ = generate_linear_case()
+
+# Train/Test split
+n_train = 200
+x1_train, x1_test = x1[:n_train], x1[n_train:]
+x2_train, x2_test = x2[:n_train], x2[n_train:]
+u_train, u_test = u_true[:n_train], u_true[n_train:]
+```
+
+### Fitting the Encoders
+
+We fit the encoders using a multi-seed protocol to ensure stability.
+
+```{python}
+def fit_encoders(x1, x2, k=1, epochs=100):
+    d1, d2 = x1.shape[1], x2.shape[1]
+    enc1 = LENDNSAEncoder(d1, latent_dim=k)
+    enc2 = LENDNSAEncoder(d2, latent_dim=k)
+    
+    optimizer = torch.optim.Adam(list(enc1.parameters()) + list(enc2.parameters()), lr=0.01)
+    
+    for i in range(epochs):
+        optimizer.zero_grad()
+        z1 = enc1(x1)
+        z2 = enc2(x2)
+        u_shared = (z1 + z2) / 2.0
+        
+        sim_loss = torch.mean((z1 - u_shared.detach())**2) + torch.mean((z2 - u_shared.detach())**2)
+        ortho_loss = invariant_orthogonality_defect(enc1.v_raw) + invariant_orthogonality_defect(enc2.v_raw)
+        
+        loss = sim_loss + 0.1 * ortho_loss
+        loss.backward()
+        optimizer.step()
+    
+    return enc1, enc2
+
+enc1, enc2 = fit_encoders(x1_train, x2_train)
+```
+
+### Evaluation: Held-out Latent Recovery
+
+```{python}
+with torch.no_grad():
+    enc1.eval()
+    z1_test = enc1(x1_test)
+    
+correlation = np.abs(np.corrcoef(z1_test.numpy().flatten(), u_test.numpy().flatten())[0, 1])
+print(f"Linear Case - Held-out Latent Correlation: {correlation:.4f}")
+print(f"Orthogonality defect (eval): {invariant_orthogonality_defect(enc1.v).item():.6e}")
+```
+
+## Case 2: Strong Nonlinear Inverse Problem
+
+In this case, the forward map is nonlinear, but we test if a linear encoder can still recover the latent signal when the global structure is preserved.
+
+```{python}
+u_nl = torch.linspace(-2, 2, 400).reshape(-1, 1)
+# Highly nonlinear forward maps
+x1_nl = torch.sin(u_nl * 2.0) + 0.1 * torch.randn(400, 10)
+x2_nl = torch.tanh(u_nl) + 0.1 * torch.randn(400, 10)
+
+# Normalize
+x1_nl = (x1_nl - x1_nl.mean(0)) / x1_nl.std(0)
+x2_nl = (x2_nl - x2_nl.mean(0)) / x2_nl.std(0)
+
+enc1_nl, enc2_nl = fit_encoders(x1_nl, x2_nl, epochs=150)
+
+with torch.no_grad():
+    enc1_nl.eval()
+    z1_nl = enc1_nl(x1_nl)
+    
+corr_nl = np.abs(np.corrcoef(z1_nl.numpy().flatten(), u_nl.numpy().flatten())[0, 1])
+print(f"Nonlinear Case - Latent Correlation: {corr_nl:.4f}")
+```
+
+## Sparsity Support
+
+`LENDNSAEncoder` allows for sparsification of the projection matrix via quantiles.
+
+```{python}
+enc_sparse = LENDNSAEncoder(input_dim=20, latent_dim=5, sparseness_quantile=0.7)
+enc_sparse.eval()
+v = enc_sparse.v
+sparsity = (v == 0).float().mean().item()
+print(f"Matrix Sparsity: {100*sparsity:.1f}%")
+```
+
+## Conclusion
+
+`LENDNSAEncoder` balances the need for stable gradient-based optimization with the requirement for orthonormal projections, making it a reliable foundation for deep multimodal integration.

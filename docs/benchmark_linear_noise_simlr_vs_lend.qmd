@@ -1,0 +1,91 @@
+---
+title: "Benchmark: SIMLR vs LEND"
+subtitle: "Performance on Linear Data with Noise"
+format: html
+---
+
+## Objective
+
+This benchmark evaluates the performance of linear SIMLR against the LEND (Linear Encoder, Nonlinear Decoder) model on data where the true relationship is linear. We expect parity or a slight advantage for SIMLR due to its simpler parameterization matching the ground truth.
+
+## Data Generation
+
+We simulate two modalities:
+$$X_1 = U W_1 + \epsilon_1$$
+$$X_2 = U W_2 + \epsilon_2$$
+Where $U$ is the shared latent signal, $W_i$ are linear projection matrices, and $\epsilon_i$ is Gaussian noise.
+
+```{python}
+import torch
+import numpy as np
+import pandas as pd
+from pysimlr.simlr import simlr, predict_simlr
+from pysimlr.deep import lend_simr, predict_deep
+from pysimlr.benchmarks.metrics import calculate_all_metrics
+
+# Parameters
+n_samples = 800
+n_train = 500
+k = 5
+noise = 0.1
+
+torch.manual_seed(42)
+u = torch.randn(n_samples, k)
+w1 = torch.randn(k, 50)
+w2 = torch.randn(k, 40)
+
+x1 = u @ w1 + noise * torch.randn(n_samples, 50)
+x2 = u @ w2 + noise * torch.randn(n_samples, 40)
+y = u @ torch.randn(k, 1) + 0.05 * torch.randn(n_samples, 1)
+
+# Normalize
+def norm(x): return (x - x.mean(0)) / (x.std(0) + 1e-6)
+x1, x2 = norm(x1), norm(x2)
+y_np = y.numpy()
+
+# Split
+train_mats = [x1[:n_train], x2[:n_train]]
+test_mats = [x1[n_train:], x2[n_train:]]
+y_train, y_test = y_np[:n_train], y_np[n_train:]
+u_true_test = u[n_train:]
+```
+
+## Results
+
+### SIMLR (Linear)
+
+```{python}
+res_simlr = simlr(train_mats, k=k, iterations=100, energy_type="acc")
+pred_simlr = predict_simlr(test_mats, res_simlr)
+metrics_simlr = calculate_all_metrics(
+    pred_simlr['u'], u_true_test, y_test, test_mats, pred_simlr['reconstructions'],
+    u_train=res_simlr['u'], y_train=y_train
+)
+print(f"SIMLR Recovery: {metrics_simlr['recovery']:.4f}")
+print(f"SIMLR Test R2:  {metrics_simlr['test_r2']:.4f}")
+```
+
+### LEND (Deep)
+
+```{python}
+res_lend = lend_simr(train_mats, k=k, epochs=100, warmup_epochs=20, verbose=False, dropout=0.0)
+pred_lend = predict_deep(test_mats, res_lend)
+metrics_lend = calculate_all_metrics(
+    pred_lend['u'], u_true_test, y_test, test_mats, pred_lend['reconstructions'],
+    u_train=res_lend['u'], y_train=y_train
+)
+print(f"LEND Recovery: {metrics_lend['recovery']:.4f}")
+print(f"LEND Test R2:  {metrics_lend['test_r2']:.4f}")
+```
+
+## Comparison Summary
+
+| Metric | SIMLR | LEND |
+|--------|-------|------|
+| Latent Recovery | `{python} f"{metrics_simlr['recovery']:.4f}"` | `{python} f"{metrics_lend['recovery']:.4f}"` |
+| Outcome R² | `{python} f"{metrics_simlr['test_r2']:.4f}"` | `{python} f"{metrics_lend['test_r2']:.4f}"` |
+| Recon Error | `{python} f"{metrics_simlr['recon_error']:.4f}"` | `{python} f"{metrics_lend['recon_error']:.4f}"` |
+
+## Conclusion
+
+As expected, both models perform similarly in this linear regime. SIMLR's advantage lies in its speed and simplicity, while LEND demonstrates that its nonlinear decoder does not significantly penalize performance even when the ground truth is linear.

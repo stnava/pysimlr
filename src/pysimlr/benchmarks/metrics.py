@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, mean_squared_error
 from typing import Dict, Any, List, Optional, Union
 from pysimlr import adjusted_rvcoef
 from pysimlr.utils import invariant_orthogonality_defect
@@ -10,13 +10,56 @@ def latent_recovery_score(u_pred: torch.Tensor, u_true: torch.Tensor) -> float:
     """Calculate Adjusted RV coefficient between predicted and true latents."""
     return adjusted_rvcoef(u_pred, u_true)
 
-def outcome_r2_score(u_pred: torch.Tensor, y_true: np.ndarray) -> float:
-    """Calculate R2 score for outcome prediction using predicted latents."""
+def in_sample_latent_linear_fit_r2(u_pred: torch.Tensor, y_true: np.ndarray) -> float:
+    """
+    Deprecated: Use heldout_outcome_r2_score for true benchmarks.
+    Calculate R2 score for outcome prediction using predicted latents, fitting on the same data.
+    """
     u_np = u_pred.detach().cpu().numpy()
     if len(y_true.shape) == 1:
         y_true = y_true.reshape(-1, 1)
     reg = LinearRegression().fit(u_np, y_true)
     return r2_score(y_true, reg.predict(u_np))
+
+def outcome_r2_score(u_pred: torch.Tensor, y_true: np.ndarray) -> float:
+    """Alias for backward compatibility."""
+    return in_sample_latent_linear_fit_r2(u_pred, y_true)
+
+def heldout_outcome_r2_score(u_train: torch.Tensor, y_train: np.ndarray, 
+                             u_test: torch.Tensor, y_test: np.ndarray) -> float:
+    """
+    Calculate R2 score for outcome prediction on held-out data.
+    Fits a downstream model on train latents and scores on test latents.
+    """
+    u_train_np = u_train.detach().cpu().numpy()
+    u_test_np = u_test.detach().cpu().numpy()
+    
+    if len(y_train.shape) == 1:
+        y_train = y_train.reshape(-1, 1)
+    if len(y_test.shape) == 1:
+        y_test = y_test.reshape(-1, 1)
+        
+    reg = LinearRegression().fit(u_train_np, y_train)
+    y_pred = reg.predict(u_test_np)
+    return r2_score(y_test, y_pred)
+
+def heldout_outcome_mse(u_train: torch.Tensor, y_train: np.ndarray, 
+                        u_test: torch.Tensor, y_test: np.ndarray) -> float:
+    """
+    Calculate MSE for outcome prediction on held-out data.
+    Fits a downstream model on train latents and scores on test latents.
+    """
+    u_train_np = u_train.detach().cpu().numpy()
+    u_test_np = u_test.detach().cpu().numpy()
+    
+    if len(y_train.shape) == 1:
+        y_train = y_train.reshape(-1, 1)
+    if len(y_test.shape) == 1:
+        y_test = y_test.reshape(-1, 1)
+        
+    reg = LinearRegression().fit(u_train_np, y_train)
+    y_pred = reg.predict(u_test_np)
+    return mean_squared_error(y_test, y_pred)
 
 def reconstruction_mse(data: List[torch.Tensor], recons: List[torch.Tensor]) -> float:
     """Calculate average normalized reconstruction error across modalities."""
@@ -73,13 +116,26 @@ def calculate_all_metrics(u_pred: torch.Tensor,
                           recons: List[torch.Tensor],
                           shared_latents: Optional[List[torch.Tensor]] = None,
                           private_latents: Optional[List[torch.Tensor]] = None,
-                          v_mats: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
-    """Utility to calculate a standard suite of metrics."""
+                          v_mats: Optional[List[torch.Tensor]] = None,
+                          u_train: Optional[torch.Tensor] = None,
+                          y_train: Optional[np.ndarray] = None) -> Dict[str, Any]:
+    """
+    Utility to calculate a standard suite of metrics.
+    If u_train and y_train are provided, true held-out metrics are calculated.
+    """
     res = {
         "recovery": latent_recovery_score(u_pred, u_true),
-        "test_r2": outcome_r2_score(u_pred, y_true),
         "recon_error": reconstruction_mse(data, recons)
     }
+    
+    if u_train is not None and y_train is not None:
+        res["test_r2"] = heldout_outcome_r2_score(u_train, y_train, u_pred, y_true)
+        res["test_mse"] = heldout_outcome_mse(u_train, y_train, u_pred, y_true)
+    else:
+        res["in_sample_r2"] = in_sample_latent_linear_fit_r2(u_pred, y_true)
+        # Keep test_r2 for backward compatibility but use in-sample value
+        res["test_r2"] = res["in_sample_r2"]
+        
     res.update(latent_variance_diagnostics(u_pred))
     
     if shared_latents is not None and private_latents is not None:

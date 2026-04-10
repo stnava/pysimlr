@@ -1,6 +1,8 @@
 from .simlr import (
     simlr,
     predict_simlr,
+    predict_shared_latent,
+    reconstruct_from_learned_maps,
     estimate_rank,
     decompose_energy,
     simlr_perm,
@@ -45,7 +47,17 @@ from .deep import (
     deep_simr,
     lend_simr,
     ned_simr,
-    ned_simr_shared_private
+    ned_simr_shared_private,
+    LENDNSAEncoder,
+    ModalityDecoder,
+    LENDSiMRModel,
+    NEDSiMRModel,
+    NEDSharedPrivateSiMRModel,
+    ModalityEncoder,
+    predict_deep
+)
+from .consensus import (
+    compute_shared_consensus
 )
 from .utils import (
     set_seed_based_on_time,
@@ -73,6 +85,8 @@ from . import benchmarks
 __all__ = [
     'simlr',
     'predict_simlr',
+    'predict_shared_latent',
+    'reconstruct_from_learned_maps',
     'estimate_rank',
     'decompose_energy',
     'simlr_perm',
@@ -102,6 +116,14 @@ __all__ = [
     'lend_simr',
     'ned_simr',
     'ned_simr_shared_private',
+    'LENDNSAEncoder',
+    'ModalityDecoder',
+    'LENDSiMRModel',
+    'NEDSiMRModel',
+    'NEDSharedPrivateSiMRModel',
+    'ModalityEncoder',
+    'predict_deep',
+    'compute_shared_consensus',
     'set_seed_based_on_time',
     'multigrep',
     'get_names_from_dataframe',

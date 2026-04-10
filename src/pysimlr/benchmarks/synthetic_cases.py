@@ -6,8 +6,10 @@ def build_linear_footprint_case(n_samples: int = 1000,
                                 shared_k: int = 3, 
                                 p_list: List[int] = [100, 80, 60],
                                 noise_scale: float = 0.5,
-                                seed: int = 42) -> Dict[str, Any]:
+                                seed: int = 42,
+                                **kwargs) -> Dict[str, Any]:
     """Purely linear regime: Simple shared signal with linear mappings."""
+    if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     torch.manual_seed(seed)
     np.random.seed(seed)
     
@@ -38,8 +40,10 @@ def build_nonlinear_shared_case(n_samples: int = 1000,
                                 shared_k: int = 3, 
                                 p_list: List[int] = [100, 80, 60],
                                 noise_scale: float = 0.5,
-                                seed: int = 42) -> Dict[str, Any]:
+                                seed: int = 42,
+                                **kwargs) -> Dict[str, Any]:
     """Heterogeneous regime: Modality 1 linear, Modality 2 Polynomial, Modality 3 Exponential."""
+    if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     torch.manual_seed(seed)
     np.random.seed(seed)
     
@@ -79,8 +83,10 @@ def build_shared_plus_private_case(n_samples: int = 1000,
                                    private_k: int = 2,
                                    p_list: List[int] = [100, 100],
                                    noise_scale: float = 0.5,
-                                   seed: int = 42) -> Dict[str, Any]:
+                                   seed: int = 42,
+                                   **kwargs) -> Dict[str, Any]:
     """Regime where each modality has its own private signal in addition to shared signal."""
+    if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     torch.manual_seed(seed)
     np.random.seed(seed)
     

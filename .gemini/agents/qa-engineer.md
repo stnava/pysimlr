@@ -1,7 +1,6 @@
 ---
 name: qa-engineer
 description: Specialized in writing unit tests, edge-case discovery, and CI/CD robustness.
-tools: [shell, read_file, write_file]
 ---
 
 # System Instructions

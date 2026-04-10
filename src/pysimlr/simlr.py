@@ -6,6 +6,7 @@ from .optimizers import create_optimizer
 from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness
 from .utils import (set_seed_based_on_time, adjusted_rvcoef, 
                     invariant_orthogonality_defect, l1_normalize_features, orthogonality_summary, preprocess_data)
+from .consensus import compute_shared_consensus
 from scipy.stats import ttest_1samp
 
 try:
@@ -31,54 +32,9 @@ def calculate_u(projections: List[torch.Tensor],
                 k: Optional[int] = None,
                 orthogonalize: bool = False) -> torch.Tensor:
     """
-    Combine projections from different modalities into a shared latent basis U.
+    Deprecated: Use compute_shared_consensus from .consensus instead.
     """
-    n_modalities = len(projections)
-    if k is None:
-        k = projections[0].shape[1]
-        
-    norm_projs = []
-    for p in projections:
-        p_safe = torch.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
-        p_norm = torch.norm(p_safe, p='fro')
-        if p_norm > 1e-6:
-            norm_projs.append(p_safe / (p_norm + 1e-8))
-        else:
-            norm_projs.append(torch.randn_like(p_safe) * 1e-4)
-            
-    if mixing_algorithm == "avg":
-        u = torch.mean(torch.stack(norm_projs), dim=0)
-    elif mixing_algorithm == "newton":
-        u_raw = torch.mean(torch.stack(norm_projs), dim=0)
-        u_scaled = u_raw / (torch.norm(u_raw, p=2) + 1e-8)
-        u = 1.5 * u_scaled - 0.5 * u_scaled @ (u_scaled.t() @ u_scaled)
-    elif mixing_algorithm == "stochastic":
-        avg_p = torch.cat(norm_projs, dim=1)
-        g = torch.randn(avg_p.shape[1], k, device=avg_p.device, dtype=avg_p.dtype)
-        u = avg_p @ g
-    elif mixing_algorithm == "ica":
-        if FastICA is None:
-            raise ImportError("scikit-learn is required for mixing_algorithm='ica'")
-        avg_p = torch.cat(norm_projs, dim=1).detach().cpu().numpy()
-        avg_p = np.nan_to_num(avg_p, nan=0.0, posinf=0.0, neginf=0.0)
-        ica = FastICA(n_components=k, random_state=42, max_iter=1000)
-        try:
-            u_np = ica.fit_transform(avg_p)
-        except:
-            u_np = avg_p[:, :k]
-        u = torch.from_numpy(u_np).to(projections[0].device).to(projections[0].dtype)
-    else:
-        big_p = torch.cat(norm_projs, dim=1)
-        if mixing_algorithm == "pca":
-            u = safe_pca(big_p, nc=k)['u']
-        else: # Default to svd
-            u, _, _ = ba_svd(big_p, nu=k, nv=0)
-            
-    if orthogonalize and mixing_algorithm != "newton":
-        u, _, _ = torch.linalg.svd(u, full_matrices=False)
-        u = u[:, :k]
-        
-    return u
+    return compute_shared_consensus(projections, mixing_algorithm, k, orthogonalize)
 
 def initialize_simlr(data_matrices: List[torch.Tensor], 
                      k: int, 
@@ -195,7 +151,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
     for it in range(iterations):
         projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
-        u = calculate_u(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u)
+        u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u)
         for i in range(n_modalities):
             def full_energy_fn(v_cand):
                 v_cand = v_cand.to(orig_dtype)
@@ -238,8 +194,20 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     
     v_summaries = [orthogonality_summary(v) for v in v_mats]
     
+    # Compute reconstruction weights W_i such that X_i approx U @ W_i
+    # W_i = pinv(U) @ X_i
+    w_mats = []
+    try:
+        u_pinv = torch.linalg.pinv(u)
+        for x in torch_mats:
+            w_mats.append(u_pinv @ x)
+    except:
+        # Fallback if pinv fails
+        for x in torch_mats:
+            w_mats.append(torch.zeros(k, x.shape[1], dtype=u.dtype, device=u.device))
+
     return {
-        "u": u, "v": v_mats, "energy": energy_history, 
+        "u": u, "v": v_mats, "w": w_mats, "energy": energy_history, 
         "normalizing_weights": normalizing_weights, 
         "orth_weights": orth_weights, "domain_weights": domain_weights, 
         "converged_iter": converged_iter, "v_orthogonality": v_summaries,
@@ -278,8 +246,59 @@ def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_p
         stats[k_sim] = {"observed": obs, "p_value": p_val, "t_stat": t_stat}
     return {"simlr_result": res, "stats": stats}
 
+def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
+                          simlr_result: Dict[str, Any]) -> torch.Tensor:
+    """
+    Compute the shared latent basis U for new data using the trained SIMLR model.
+    """
+    # 1. Preprocess data matrices
+    torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
+    scale_list = simlr_result.get('scale_list', [])
+    provenance_list = simlr_result.get('provenance_list', [])
+    if scale_list and scale_list[0] != "none":
+        scaled_mats = []
+        for i, m in enumerate(torch_mats):
+            prov = provenance_list[i] if i < len(provenance_list) else None
+            m_scaled = preprocess_data(m, scale_list, provenance=prov)
+            scaled_mats.append(m_scaled)
+        torch_mats = scaled_mats
 
-def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr_result: Dict[str, Any]) -> Dict[str, Any]:
+    v_mats = simlr_result['v']
+    mixing_alg = simlr_result.get('mixing_algorithm', 'svd')
+    orthogonalize_u = simlr_result.get('orthogonalize_u', False)
+    k = v_mats[0].shape[1]
+    
+    # 2. Project to shared space
+    projections = [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)]
+    
+    # 3. Compute consensus U using the original mixing settings
+    u_new = compute_shared_consensus(projections, mixing_algorithm=mixing_alg, k=k, orthogonalize=orthogonalize_u)
+    return u_new
+
+def reconstruct_from_learned_maps(u: torch.Tensor, 
+                                  simlr_result: Dict[str, Any]) -> List[torch.Tensor]:
+    """
+    Reconstruct each modality from the shared latent basis U using learned weights.
+    """
+    if 'w' not in simlr_result:
+        # For backward compatibility, but this should be avoided
+        return []
+    
+    w_mats = simlr_result['w']
+    reconstructions = []
+    for w in w_mats:
+        x_pred = u @ w.to(u.dtype)
+        reconstructions.append(x_pred)
+    return reconstructions
+
+def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
+                  simlr_result: Dict[str, Any],
+                  allow_legacy_refit: bool = False) -> Dict[str, Any]:
+    """
+    Predict using trained SIMLR model.
+    By default, requires learned reconstruction weights 'w' to be present.
+    If 'w' is missing, it will raise ValueError unless allow_legacy_refit=True.
+    """
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     
     scale_list = simlr_result.get('scale_list', [])
@@ -292,8 +311,6 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr_re
             scaled_mats.append(m_scaled)
         torch_mats = scaled_mats
 
-
-    
     if 'model' in simlr_result:
         model = simlr_result['model']; model.eval(); device = next(model.parameters()).device
         torch_mats_device = [m.to(device) for m in torch_mats]
@@ -305,37 +322,34 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr_re
         errors = [torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10) for x, x_pred in zip(torch_mats_device, reconstructions)]
         return {"u": torch.nan_to_num(u_new.cpu()), "latents": [torch.nan_to_num(l.cpu()) for l in latents], "reconstructions": [torch.nan_to_num(r.cpu()) for r in reconstructions], "errors": errors}
     
-    v_mats = simlr_result['v']
-    mixing_alg = simlr_result.get('mixing_algorithm', 'svd')
-    orthogonalize_u = simlr_result.get('orthogonalize_u', False)
-    k = v_mats[0].shape[1]
+    # For standard SIMLR:
+    u_new = predict_shared_latent(data_matrices, simlr_result)
     
-    # 1. Project to shared space
-    projections = [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)]
-    
-    # 2. Compute consensus U using the original mixing settings
-    u_new = calculate_u(projections, mixing_algorithm=mixing_alg, k=k, orthogonalize=orthogonalize_u)
-    
-    # 3. Robust reconstruction
-    reconstructions = []
+    if 'w' in simlr_result:
+        reconstructions = reconstruct_from_learned_maps(u_new, simlr_result)
+    elif allow_legacy_refit:
+        # Fallback to old suspicious least-squares behavior for backward compatibility
+        reconstructions = []
+        v_mats = simlr_result['v']
+        mixing_alg = simlr_result.get('mixing_algorithm', 'svd')
+        orthogonalize_u = simlr_result.get('orthogonalize_u', False)
+        for i, x in enumerate(torch_mats):
+            u_ortho = orthogonalize_u or (mixing_alg in ["svd", "pca"])
+            if u_ortho:
+                weights = u_new.t() @ x
+                x_pred = u_new @ weights
+            else:
+                u_pinv = torch.linalg.pinv(u_new)
+                weights = u_pinv @ x
+                x_pred = u_new @ weights
+            reconstructions.append(x_pred)
+    else:
+        raise ValueError("Learned reconstruction weights 'w' missing from simlr_result. "
+                         "Legacy refit is disabled by default. Set allow_legacy_refit=True to enable.")
+
     errors = []
     for i, x in enumerate(torch_mats):
-        # We find the best linear reconstruction of X from U
-        # X_approx = U @ W where W = pinv(U) @ X
-        # If U is orthonormal, W = U.T @ X
-        u_ortho = orthogonalize_u or (mixing_alg in ["svd", "pca"])
-        if u_ortho:
-            # U is orthonormal, weights for reconstruction are simply U.T @ X
-            weights = u_new.t() @ x
-            x_pred = u_new @ weights
-        else:
-            # U is not necessarily orthonormal, use least squares to find weights
-            # U * W = X  => W = pinv(U) * X
-            u_pinv = torch.linalg.pinv(u_new)
-            weights = u_pinv @ x
-            x_pred = u_new @ weights
-            
-        reconstructions.append(x_pred)
+        x_pred = reconstructions[i]
         err = torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10)
         errors.append(err)
         

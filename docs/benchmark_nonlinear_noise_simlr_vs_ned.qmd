@@ -1,0 +1,86 @@
+---
+title: "Benchmark: SIMLR vs NED"
+subtitle: "Performance on Nonlinear Data with Noise"
+format: html
+---
+
+## Objective
+
+This benchmark evaluates the advantage of the NED (Nonlinear Encoder, Nonlinear Decoder) model over linear SIMLR when the forward mapping from latent space to modalities is strongly nonlinear. We expect NED to recover the latent signal more accurately.
+
+## Data Generation
+
+We simulate nonlinear forward maps using a mixture of periodic (sine) and polynomial (cubic) transformations:
+$$X_i = f_i(U) + \epsilon_i$$
+The outcome $y$ also depends nonlinearly on the first two dimensions of $U$:
+$$y = \sum \sin(u_{:2}) + \epsilon_y$$
+
+```{python}
+import torch
+import numpy as np
+import pandas as pd
+from pysimlr.simlr import simlr, predict_simlr
+from pysimlr.deep import ned_simr, predict_deep
+from pysimlr.benchmarks.metrics import calculate_all_metrics
+
+# Parameters
+n_samples = 1200
+n_train = 800
+k = 5
+noise = 0.1
+
+torch.manual_seed(42)
+u = torch.randn(n_samples, k)
+
+def nonlin_map(z, out_dim):
+    w1 = torch.randn(z.shape[1], out_dim)
+    w2 = torch.randn(z.shape[1], out_dim)
+    return torch.sin(z @ w1) + 0.2 * (z @ w2)**3
+
+x1 = nonlin_map(u, 50) + noise * torch.randn(n_samples, 50)
+x2 = nonlin_map(u, 40) + noise * torch.randn(n_samples, 40)
+y = torch.sum(torch.sin(u[:, :2]), dim=1, keepdim=True) + 0.05 * torch.randn(n_samples, 1)
+
+# Normalize
+def norm(x): return (x - x.mean(0)) / (x.std(0) + 1e-6)
+x1, x2 = norm(x1), norm(x2)
+y_np = y.numpy()
+
+# Split
+train_mats = [x1[:n_train], x2[:n_train]]
+test_mats = [x1[n_train:], x2[n_train:]]
+y_train, y_test = y_np[:n_train], y_np[n_train:]
+u_true_test = u[n_train:]
+```
+
+## Results
+
+### SIMLR (Linear)
+
+```{python}
+res_simlr = simlr(train_mats, k=k, iterations=100, energy_type="acc")
+pred_simlr = predict_simlr(test_mats, res_simlr)
+metrics_simlr = calculate_all_metrics(
+    pred_simlr['u'], u_true_test, y_test, test_mats, pred_simlr['reconstructions'],
+    u_train=res_simlr['u'], y_train=y_train
+)
+print(f"SIMLR Recovery: {metrics_simlr['recovery']:.4f}")
+print(f"SIMLR Test R2:  {metrics_simlr['test_r2']:.4f}")
+```
+
+### NED (Deep Nonlinear)
+
+```{python}
+res_ned = ned_simr(train_mats, k=k, epochs=150, warmup_epochs=20, verbose=False, device="cpu")
+pred_ned = predict_deep(test_mats, res_ned, device="cpu")
+metrics_ned = calculate_all_metrics(
+    pred_ned['u'], u_true_test, y_test, test_mats, pred_ned['reconstructions'],
+    u_train=res_ned['u'], y_train=y_train
+)
+print(f"NED Recovery: {metrics_ned['recovery']:.4f}")
+print(f"NED Test R2:  {metrics_ned['test_r2']:.4f}")
+```
+
+## Conclusion
+
+In this nonlinear regime, NED is expected to outperform SIMLR by capturing the complex inverse mapping that a purely linear model cannot represent.

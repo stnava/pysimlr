@@ -1,0 +1,103 @@
+---
+title: "Benchmark: Shared/Private Architecture"
+subtitle: "Performance on Nonlinear Data with Private Nuisance"
+format: html
+---
+
+## Objective
+
+This benchmark evaluates the performance of the `NEDSharedPrivateSiMRModel` (NEDPP) in a regime where modalities share a common signal but also contain strong modality-specific nonlinear nuisance latents. We expect NEDPP to isolate the shared signal better than plain NED or linear SIMLR.
+
+## Data Generation
+
+We simulate:
+- $U_{shared} \in \mathbb{R}^3$ (Shared signal)
+- $P_1 \in \mathbb{R}^3, P_2 \in \mathbb{R}^3$ (Private nuisance latents)
+- Forward maps: $X_i = \text{tanh}((U_{shared}, P_i) W_i) + \epsilon_i$
+- Downstream target $y$ depends only on $U_{shared}$.
+
+```{python}
+import torch
+import numpy as np
+import pandas as pd
+from pysimlr.simlr import simlr, predict_simlr
+from pysimlr.deep import ned_simr, ned_simr_shared_private, predict_deep
+from pysimlr.benchmarks.metrics import calculate_all_metrics
+
+# Parameters
+n_samples = 1200
+n_train = 800
+k_shared = 3
+k_private = 3
+noise = 0.1
+
+torch.manual_seed(42)
+u_shared = torch.randn(n_samples, k_shared)
+p1 = torch.randn(n_samples, k_private)
+p2 = torch.randn(n_samples, k_private)
+
+# Target depends on shared
+y = torch.sum(u_shared**2, dim=1, keepdim=True) + 0.05 * torch.randn(n_samples, 1)
+
+def nonlin_map(z_shared, z_private, out_dim):
+    z = torch.cat([z_shared, z_private], dim=1)
+    w = torch.randn(z.shape[1], out_dim)
+    return torch.tanh(z @ w)
+
+x1 = nonlin_map(u_shared, p1, 50) + noise * torch.randn(n_samples, 50)
+x2 = nonlin_map(u_shared, p2, 40) + noise * torch.randn(n_samples, 40)
+
+# Normalize
+def norm(x): return (x - x.mean(0)) / (x.std(0) + 1e-6)
+x1, x2 = norm(x1), norm(x2)
+y_np = y.numpy()
+
+# Split
+train_mats = [x1[:n_train], x2[:n_train]]
+test_mats = [x1[n_train:], x2[n_train:]]
+y_train, y_test = y_np[:n_train], y_np[n_train:]
+u_true_test = u_shared[n_train:]
+```
+
+## Results
+
+### SIMLR
+
+```{python}
+res_simlr = simlr(train_mats, k=k_shared, iterations=100, energy_type="acc")
+pred_simlr = predict_simlr(test_mats, res_simlr)
+metrics_simlr = calculate_all_metrics(
+    pred_simlr['u'], u_true_test, y_test, test_mats, pred_simlr['reconstructions'],
+    u_train=res_simlr['u'], y_train=y_train
+)
+print(f"SIMLR Test R2: {metrics_simlr['test_r2']:.4f}")
+```
+
+### NED (Plain Nonlinear)
+
+```{python}
+res_ned = ned_simr(train_mats, k=k_shared, epochs=100, device="cpu")
+pred_ned = predict_deep(test_mats, res_ned, device="cpu")
+metrics_ned = calculate_all_metrics(
+    pred_ned['u'], u_true_test, y_test, test_mats, pred_ned['reconstructions'],
+    u_train=res_ned['u'], y_train=y_train
+)
+print(f"NED Test R2: {metrics_ned['test_r2']:.4f}")
+```
+
+### NEDPP (Shared/Private)
+
+```{python}
+res_nedpp = ned_simr_shared_private(train_mats, k=k_shared, private_k=k_private, epochs=150, device="cpu")
+pred_nedpp = predict_deep(test_mats, res_nedpp, device="cpu")
+metrics_nedpp = calculate_all_metrics(
+    pred_nedpp['u'], u_true_test, y_test, test_mats, pred_nedpp['reconstructions'],
+    u_train=res_nedpp['u'], y_train=y_train,
+    shared_latents=pred_nedpp['latents'], private_latents=pred_nedpp['private_latents']
+)
+print(f"NEDPP Test R2: {metrics_nedpp['test_r2']:.4f}")
+```
+
+## Conclusion
+
+The Shared/Private architecture (NEDPP) is designed to filter out modality-specific noise. By explicitly modeling private variation, it should provide a cleaner shared latent representation for downstream tasks.

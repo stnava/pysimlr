@@ -1,7 +1,6 @@
 ---
 name: dl-optimizer
 description: Specialized in neural network architecture, hyperparameter tuning, convergence issues, and CUDA/hardware acceleration.
-tools: [python_interpreter, storage_read]
 model: gemini-3.1-pro
 ---
 
