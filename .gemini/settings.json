@@ -48,4 +48,13 @@
     "maxFileSize": "5MB",
     "respectGitIgnore": true
   }
+
+  {
+    "features": {
+      "subagents": true,
+      "allow_recursion": false
+    },
+    "agent_limit": 5
+  }
+  
 }
