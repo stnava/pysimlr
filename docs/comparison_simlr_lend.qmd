@@ -36,7 +36,6 @@ import sys
 import os
 
 # Ensure package and benchmarks are discoverable
-# We insert at index 0 to override any other benchmarks packages in the environment
 sys.path.insert(0, os.path.abspath(".."))
 sys.path.insert(0, os.path.abspath("../src"))
 
@@ -47,6 +46,15 @@ from benchmarks.plotting import (plot_pareto_recovery_vs_r2, plot_sparsity_sensi
 
 warnings.filterwarnings("ignore")
 SEED = 42
+
+# Check if full benchmark results exist to provide high-fidelity data
+results_file = "../full_benchmark_results_summary.csv"
+use_external_results = os.path.exists(results_file)
+if use_external_results:
+    print("Found pre-computed full benchmark results. Using high-fidelity data.")
+    df_full = pd.read_csv(results_file)
+else:
+    print("Pre-computed results not found. Running local report-speed benchmark.")
 ```
 
 ## 3. Matched-Settings Results (Nonlinear Regime)
@@ -57,21 +65,24 @@ In this section, we compare all four architectures (**Linear, LEND, NED, Shared/
 #| label: benchmark-run
 #| output: false
 
-# Generate data for the nonlinear regime
-case = build_case(kind="nonlinear_shared", n_samples=1000, seed=SEED)
-
-# Run a reproducible multi-seed benchmark
-sweep_results = sweep_benchmark(
-    model_types=["linear", "lend", "ned", "shared_private"],
-    case_kind="nonlinear_shared",
-    sparsities=[0.0, 0.5, 0.8],
-    n_seeds=1, # Single seed for report rendering speed, use more for publication
-    iterations=50,
-    epochs=100,
-    warmup_epochs=20
-)
-
-df_summary = sweep_results["summary"]
+if use_external_results:
+    df_summary = df_full
+    # We still need one result set for interpretability viz
+    case = build_case(kind="nonlinear_shared", n_samples=1000, seed=SEED)
+    best_df = pd.read_csv("../full_benchmark_results_best.csv")
+else:
+    case = build_case(kind="nonlinear_shared", n_samples=1000, seed=SEED)
+    sweep_results = sweep_benchmark(
+        model_types=["linear", "lend", "ned", "shared_private"],
+        case_kind="nonlinear_shared",
+        sparsities=[0.0, 0.5, 0.8],
+        n_seeds=1,
+        iterations=50,
+        epochs=100,
+        warmup_epochs=20
+    )
+    df_summary = sweep_results["summary"]
+    best_df = sweep_results["best"]
 ```
 
 ### 3.1 Performance Tradeoffs
@@ -88,7 +99,6 @@ We select the optimal sparsity level for each model based on its outcome predict
 
 ```{python}
 #| label: table-best
-best_df = sweep_results["best"]
 best_df[["model", "sparsity", "recovery", "test_r2", "recon_error"]].sort_values("test_r2", ascending=False)
 ```
 
@@ -110,29 +120,31 @@ One of the foundational requirements of `pysimlr` is that even deep models must 
 #| label: viz-interpretability
 #| fig-cap: "Feature Weights (V Matrix) for Modality 1 (Linear)"
 
-# Capture results for heatmap plotting
 best_results = {}
 for m_type in ["linear", "lend", "ned"]:
-    best_config = best_df[best_df["model"] == m_type].iloc[0]
-    res = run_single_experiment(m_type, case, sparsity=best_config["sparsity"], epochs=100, iterations=50)
-    best_results[m_type] = res["result"]
+    model_rows = best_df[best_df["model"] == m_type]
+    if not model_rows.empty:
+        best_config = model_rows.iloc[0]
+        res = run_single_experiment(m_type, case, sparsity=best_config["sparsity"], epochs=100, iterations=50)
+        best_results[m_type] = res["result"]
 
-plot_v_heatmaps(best_results, modality_idx=0)
-plt.show()
+if best_results:
+    plot_v_heatmaps(best_results, modality_idx=0)
+    plt.show()
 ```
 
 ## 6. Discussion
 
-### 6.1 Does LEND win in linear regimes?
-Our supplementary tests show that LEND provides a slight advantage over purely linear SiMLR when noise is high, as the non-linear decoder can better approximate the manifold. However, in low-noise linear regimes, SiMLR's SVD-based solution remains the gold standard for speed and accuracy.
+### 6.1 The Robustness of Linear Baselines
+The benchmark results highlight the extreme robustness of **Linear SiMLR**. Even in the presence of non-linear simulated modalities, the linear footprint of the biological signal is often strong enough for SVD-based methods to recover the primary latent dimensions with high fidelity ($R^2 \approx 0.90$).
 
-### 6.2 Does NED win in nonlinear regimes?
-**Yes.** NED SiMR consistently outperforms all other variants in the `nonlinear_shared` regime. By allowing non-linear transformations *within* each modality's encoder (after the linear gate), it successfully unmixes signals that are otherwise lost to linear projection.
+### 6.2 Challenges in Deep Unmixing
+While **NED** and **Shared/Private** models offer superior data reconstruction ($MSE \approx 0.91$ vs $1.0$ for linear), they are currently susceptible to **Dimensional Collapse** on smaller or noisier datasets. In the current benchmark, many deep configurations successfully learn 1 of the 3 latent dimensions but collapse the remaining two.
 
-### 6.3 Does Shared/Private win when private structure is present?
-Shared/Private is currently competitive with NED in latent recovery. Its primary value is in **unmixing modality-specific biological noise**. While its $R^2$ is currently slightly lower than NED, it provides a cleaner shared latent space that is less contaminated by modality-specific features.
+### 6.3 Future Work
+*   **Anti-Collapse Regularization**: We have recently integrated VICReg-style variance penalties to force the models to maintain active latent dimensions.
+*   **Automated Weighting**: Future iterations will implement automated loss balancing to reduce the sensitivity of the Shared/Private model to its private reconstruction weights.
 
-## 7. Limitations & Future Work
-*   **Hyperparameter Sensitivity**: The deep models, particularly Shared/Private, are sensitive to weighting coefficients.
-*   **Aggressive Sparsity**: Sparsity levels above 0.5 often lead to instability in non-linear encoders.
-*   **Future Focus**: Implementing automated weight balancing (e.g., via GradNorm) to reduce the need for manual tuning.
+## 7. Limitations
+*   **Sample Size**: Non-linear models require significantly more samples ($N > 1000$) to outperform linear baselines.
+*   **Compute Time**: Deep variants require epochs of gradient descent, whereas Linear SiMLR converges in seconds using specialized optimizers.

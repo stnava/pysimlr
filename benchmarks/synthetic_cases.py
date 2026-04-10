@@ -11,7 +11,11 @@ def build_linear_footprint_case(n_samples: int = 1000,
     torch.manual_seed(seed)
     np.random.seed(seed)
     
+    # Stronger outcome signal mixed into latent
+    outcome_signal = torch.randn(n_samples)
     true_u = torch.randn(n_samples, shared_k)
+    true_u[:, 0] += outcome_signal * 2.0
+    
     data_matrices = []
     v_true = []
     
@@ -21,8 +25,6 @@ def build_linear_footprint_case(n_samples: int = 1000,
         data_matrices.append(x)
         v_true.append(v.t())
         
-    outcome_signal = true_u[:, 0].clone()
-    
     return {
         "kind": "linear_footprint",
         "data": data_matrices,
@@ -41,7 +43,11 @@ def build_nonlinear_shared_case(n_samples: int = 1000,
     torch.manual_seed(seed)
     np.random.seed(seed)
     
+    # Restore the original stronger signal path
+    outcome_signal = torch.randn(n_samples)
     true_u = torch.randn(n_samples, shared_k)
+    true_u[:, 0] += outcome_signal * 2.0 
+    
     data_matrices = []
     
     # Modality 1: Purely Linear
@@ -59,8 +65,6 @@ def build_nonlinear_shared_case(n_samples: int = 1000,
          0.5 * (torch.exp(true_u * 0.2) @ torch.randn(shared_k, p_list[2]) + torch.sigmoid(true_u) @ torch.randn(shared_k, p_list[2]))
     x3 += torch.randn(n_samples, p_list[2]) * noise_scale
     data_matrices.append(x3)
-    
-    outcome_signal = true_u[:, 0].clone()
     
     return {
         "kind": "nonlinear_shared",
@@ -80,7 +84,10 @@ def build_shared_plus_private_case(n_samples: int = 1000,
     torch.manual_seed(seed)
     np.random.seed(seed)
     
+    outcome_signal = torch.randn(n_samples)
     true_u_shared = torch.randn(n_samples, shared_k)
+    true_u_shared[:, 0] += outcome_signal * 2.0
+    
     data_matrices = []
     private_latents = []
     
@@ -94,8 +101,6 @@ def build_shared_plus_private_case(n_samples: int = 1000,
         x = (true_u_shared @ v_sh) + (true_u_private @ v_pr) + torch.randn(n_samples, p) * noise_scale
         data_matrices.append(x)
         
-    outcome_signal = true_u_shared[:, 0].clone()
-    
     return {
         "kind": "shared_plus_private",
         "data": data_matrices,

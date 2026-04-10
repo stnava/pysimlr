@@ -224,6 +224,10 @@ class DeepSiMRModel(nn.Module):
 def calculate_sim_loss(latents: List[torch.Tensor], u_shared: torch.Tensor, energy_type: str = "regression") -> torch.Tensor:
     sim_loss = torch.tensor(0.0, device=u_shared.device)
     n, u_target = u_shared.shape[0], u_shared.detach()
+    
+    # VICReg variance penalty to prevent dimensional collapse
+    var_penalty = sum(_variance_penalty(z) for z in latents)
+    
     for z in latents:
         if energy_type == "regression":
             z_std, u_std = torch.std(z, dim=0, keepdim=True) + 1e-6, torch.std(u_target, dim=0, keepdim=True) + 1e-6
@@ -234,10 +238,13 @@ def calculate_sim_loss(latents: List[torch.Tensor], u_shared: torch.Tensor, ener
         elif energy_type == "logcosh":
             s = u_target.t() @ z; abs_s = torch.abs(s)
             sim_loss -= torch.sum(abs_s - np.log(2.0) + torch.log1p(torch.exp(-2.0 * abs_s))) / n
+            
     u_c = u_shared - torch.mean(u_shared, dim=0)
     cov_u = (u_c.t() @ u_c) / (n - 1)
+    # Penalize redundancy (off-diagonals)
     collapse_loss = torch.sum((cov_u - torch.diag(torch.diag(cov_u)))**2) / u_shared.shape[1]
-    return sim_loss + 0.1 * collapse_loss
+    
+    return sim_loss + 0.1 * var_penalty + 0.1 * collapse_loss
 
 def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device):
     loss_history, recon_history, sim_history = [], [], []
@@ -267,7 +274,7 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
         if verbose and epoch % 10 == 0: print(f"Epoch {epoch}: Total={epoch_loss:.4f} (Recon={epoch_recon:.4f}, Sim={epoch_sim:.4f})")
     return loss_history, recon_history, sim_history
 
-def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 0.5, warmup_epochs: int = 20, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.5, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
+def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.5, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
     if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device); torch_mats = _standardize_modalities(data_matrices); input_dims = [m.shape[1] for m in torch_mats]
     model = LENDSiMRModel(input_dims, k, [64, 128], 0.1, nsa_w, positivity, sparseness_quantile, mixing_algorithm).to(device)
@@ -281,7 +288,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
         v_mats = [torch.nan_to_num(enc.v.detach().cpu()) for enc in model.encoders]
     return {"model": model.cpu(), "model_type": "lend_simr", "u": torch.nan_to_num(u_final.cpu()), "v": v_mats, "latents": [torch.nan_to_num(l.cpu()) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h}
 
-def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 0.5, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.5, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
+def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.5, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
     if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device); torch_mats = _standardize_modalities(data_matrices); input_dims = [m.shape[1] for m in torch_mats]
     model = NEDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm).to(device)
@@ -295,7 +302,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
         v_mats = [torch.nan_to_num(enc.v.detach().cpu()) for enc in model.linear_encoders]
     return {"model": model.cpu(), "model_type": "ned_simr", "u": torch.nan_to_num(u_final.cpu()), "v": v_mats, "latents": [torch.nan_to_num(l.cpu()) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h}
 
-def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 0.5, warmup_epochs: int = 20, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.5, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
+def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.5, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
     if private_k is None: private_k = max(1, k // 2)
     if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device); torch_mats = _standardize_modalities(data_matrices); input_dims = [m.shape[1] for m in torch_mats]
@@ -330,7 +337,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         v_mats = [torch.nan_to_num(enc.v.detach().cpu()) for enc in model.linear_encoders]
     return {"model": model.cpu(), "model_type": "ned_simr_shared_private", "u": torch.nan_to_num(u_final.cpu()), "v": v_mats, "shared_latents": [torch.nan_to_num(l.cpu()) for l in sh_l], "private_latents": [torch.nan_to_num(l.cpu()) for l in pr_l], "latents": [torch.nan_to_num(l.cpu()) for l in sh_l], "loss_history": loss_history, "recon_history": recon_history, "sim_history": sim_history, "private_variance_history": priv_history, "private_orthogonality_history": orth_history}
 
-def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 100, batch_size: int = 32, learning_rate: float = 1e-3, weight_decay: float = 1e-5, sim_weight: float = 0.5, warmup_epochs: int = 10, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "avg", device: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
+def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 100, batch_size: int = 32, learning_rate: float = 1e-3, weight_decay: float = 1e-5, sim_weight: float = 1.0, warmup_epochs: int = 10, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "avg", device: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
     if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device); torch_mats = _standardize_modalities(data_matrices); input_dims = [m.shape[1] for m in torch_mats]
     model = DeepSiMRModel(input_dims, k, hidden_dims, dropout, mixing_algorithm).to(device)
