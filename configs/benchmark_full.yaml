@@ -1,0 +1,13 @@
+# Full benchmark configuration
+n_samples: 1000
+n_seeds: 3
+model_types: ["linear", "lend", "ned", "shared_private"]
+sparsities: [0.0, 0.5, 0.8]
+iterations: 50
+epochs: 150
+warmup_epochs: 20
+case_kind: "nonlinear_shared"
+save_prefix: "full_benchmark_results"
+learning_rate: 0.0005
+weight_decay: 0.0001
+dropout: 0.1

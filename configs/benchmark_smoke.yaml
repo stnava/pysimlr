@@ -1,0 +1,10 @@
+# Smoke test configuration: Runs quickly for verification
+n_samples: 200
+n_seeds: 1
+model_types: ["linear", "ned"]
+sparsities: [0.0, 0.5]
+iterations: 5
+epochs: 10
+warmup_epochs: 2
+case_kind: "nonlinear_shared"
+save_prefix: "smoke_results"
