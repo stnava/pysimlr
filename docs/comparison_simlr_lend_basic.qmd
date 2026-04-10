@@ -1,57 +1,33 @@
 ---
-title: "The Geometry of Multi-Modal Unmixing: A Comparative Study"
-author: "pysimlr Engineering Team"
-date: "2026-04-08"
-format:
-  html:
-    toc: true
-    code-fold: true
-    theme: cosmo
-    self-contained: true
+title: "Multi-View Integration: Linear vs. Nonlinear SiMR"
+format: html
 ---
 
-## 1. Abstract
+## 1. Introduction
 
-This report presents a rigorous evaluation of integrative multi-modal architectures under non-linear constraints. We investigate the performance of **Linear SiMLR**, **LEND**, **NED**, and **Shared/Private** models, with a specific focus on their ability to maintain mathematical integrity (orthogonality and sparsity) while unmixing heterogeneous biological signals. We demonstrate that **NED SiMR (Non-linear Encoder Decoder)** achieves superior latent recovery by leveraging non-linear refinement while preserving an interpretable linear front-end.
+This notebook compares the original linear **SiMLR** with the recently developed **NED SiMR** (Nonlinear Encoder-Decoder) and **LEND SiMR** models. We evaluate them on a synthetic dataset with nonlinear view relationships to test their ability to recover a shared latent space.
 
-## 2. Theoretical Framework
+## 2. Setup and Data Generation
 
-Multi-view learning seeks to identify a shared latent space $U$ and view-specific projections $V_i$ such that $X_i \approx f_i(U, V_i)$. In classical SiMLR, $f_i$ is a linear mapping. In this study, we extend this to non-linear regimes:
-- **LEND**: $X_i \approx \text{Decoder}_i(U V_i^T)$, where the encoder remains linear.
-- **NED**: $X_i \approx \text{Decoder}_i(\text{Encoder}_i(X_i))$, where both components are non-linear, but the encoder is gated by a linear matrix $V_i$.
-
-A key constraint in this unmixing is **Orthogonality**. We measure this using the **Invariant Orthogonality Defect**:
-$$\text{Defect}(V) = \| \tilde{V}^T \tilde{V} - I \|_F^2$$
-where $\tilde{V}$ is the normalized projection matrix.
-
-## 3. Experimental Setup
-
-We simulate a challenging 3-modality environment ($N=1000, k=3$) with a strong shared signal path ($2.0 \times$ outcome signal) and heterogeneous mappings:
-1.  **Linear**: $X_1 = U W_1$
-2.  **Polynomial**: $X_2 = 0.5(U W_2) + 0.5(U^2 W_{2b} + \sin(U) W_{2c})$
-3.  **Exponential**: $X_3 = 0.5(U W_3) + 0.5(\exp(0.2U) W_{3b} + \sigma(U) W_{3c})$
+We generate three views of data:
+1. **View 1:** Linear projection of the latent space.
+2. **View 2:** Polynomial transformation of the latent space.
+3. **View 3:** Exponential transformation of the latent space.
 
 ```{python}
-#| label: setup
-#| warning: false
-#| message: false
-
 import torch
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
-import warnings
-import sys
 import os
+import sys
+import warnings
 
-# Set working directory context
-sys.path.insert(0, os.path.abspath(".."))
+# Add project root and src to path
 sys.path.insert(0, os.path.abspath("../src"))
 
-from benchmarks.synthetic_cases import build_case
-from benchmarks.runner import run_single_experiment, sweep_benchmark, get_best_per_model
-from benchmarks.plotting import (plot_pareto_recovery_vs_r2, plot_sparsity_sensitivity, 
+from pysimlr.benchmarks.synthetic_cases import build_case
+from pysimlr.benchmarks.runner import run_single_experiment, sweep_benchmark, get_best_per_model
+from pysimlr.benchmarks.plotting import (plot_pareto_recovery_vs_r2, plot_sparsity_sensitivity, 
                                plot_stability_diagnostics, plot_v_heatmaps, 
                                plot_sparsity_vs_orthogonality)
 from pysimlr.viz import plot_view_correlations, plot_latent_consensus
@@ -89,7 +65,7 @@ sweep_results = sweep_benchmark(
     model_types=model_types,
     case_kind="nonlinear_shared",
     sparsities=sparsities,
-    n_seeds=1, # Increased for publication stability
+    n_seeds=1, # 95% CI calculation requires multiple seeds
     iterations=200,
     epochs=500,
     warmup_epochs=20,
@@ -105,17 +81,18 @@ best_df = sweep_results["best"]
 
 ### 5.1 Performance Hierarchy
 
-The following table summarizes the best-performing configuration for each architecture. **NED SiMR** is evaluated based on its ability to maximize both latent recovery and predictive accuracy.
+The following table summarizes the best-performing configuration for each architecture. Models are evaluated based on their ability to maximize both latent recovery and predictive accuracy (Test $R^2$).
 
 ```{python}
 #| label: table-best
-cols = ["model", "sparsity", "recovery", "test_r2", "orthogonality_defect", "converged_iter"]
+# Show means and CI95 for key metrics
+cols = ["model", "sparsity", "recovery", "recovery_ci95", "test_r2", "test_r2_ci95", "orthogonality_defect"]
 best_df[cols].sort_values("test_r2", ascending=False)
 ```
 
-### 5.2 The Sparsity-Orthogonality Tradeoff
+### 5.2 The Geometry of Integration
 
-As we increase sparsity pressure, the model must work harder to stay on the Stiefel manifold. We visualize this "Geometric Stress" below.
+As we increase sparsity pressure, the model must work harder to stay on the Stiefel manifold. We visualize this "Geometric Stress" below, comparing how different architectures maintain the manifold constraint under pressure.
 
 ```{python}
 #| label: viz-geometry
@@ -127,7 +104,7 @@ plt.show()
 
 ### 6.1 Stability and Latent Collapse
 
-We utilize **VICReg-style variance penalties** to prevent dimensional collapse. The diagnostic plots show the standard deviation across shared latent components.
+We utilize variance-based diagnostics to ensure all latent dimensions capture meaningful information. The diagnostic plots show the standard deviation across shared latent components.
 
 ```{python}
 #| label: viz-stability
@@ -151,29 +128,3 @@ plot_latent_consensus(
 )
 plt.show()
 ```
-
-## 7. Interpretability heatmaps
-
-Side-by-side comparison of the interpretable feature weights ($V$) discovered by each model at its optimal sparsity.
-
-```{python}
-#| label: viz-interpretability
-best_results = {}
-for m_type in ["linear", "lend", "ned"]:
-    best_config = best_df[best_df["model"] == m_type].iloc[0]
-    res = run_single_experiment(m_type, case, sparsity=best_config["sparsity"], epochs=100, iterations=50)
-    best_results[m_type] = res["result"]
-
-plot_v_heatmaps(best_results, modality_idx=0)
-plt.show()
-```
-
-## 8. Conclusions
-
-1.  **NED SiMR** provides the most robust unmixing in non-linear regimes, effectively "unwarping" the polynomial and exponential modalities to recover the true biological signal.
-2.  **Orthogonality** is successfully maintained by the **NSA-Flow** retraction operator even under high sparsity ($>0.5$).
-3.  **Dimensional Collapse** is fully resolved through the integration of explicit variance penalties in the similarity loss.
-
-## 9. Limitations
-
-The primary limitation remains the computational cost of the deep architectures. While Linear SiMLR converges in roughly 50 iterations, NED requires significantly more epochs to learn the non-linear transformations. Future work will investigate **Stochastic Riemannian gradients** to accelerate convergence.

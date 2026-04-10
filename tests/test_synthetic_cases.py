@@ -1,6 +1,6 @@
 import torch
 import pytest
-from benchmarks.synthetic_cases import build_case
+from pysimlr.benchmarks.synthetic_cases import build_case
 
 def test_linear_footprint_shapes():
     n_samples = 200

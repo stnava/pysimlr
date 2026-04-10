@@ -1,7 +1,7 @@
 ---
-title: "Guided SiMLR: Integrating Multimodal Neuroimaging with Domain Knowledge"
+title: "Guided SiMLR: Integrating Multimodal Data with Domain Knowledge and New Visualization Tools"
 author: "pysimlr Team"
-date: "2026-04-08"
+date: "2026-04-10"
 format:
   html:
     toc: true
@@ -11,25 +11,40 @@ format:
 
 ## Introduction
 
-Similarity-driven Multi-view Linear Reconstruction (**SiMLR**) is a framework for integrative dimensionality reduction across multiple data modalities. In this tutorial, we demonstrate how to use `pysimlr` to uncover shared latent structures in high-dimensional neuroimaging data, while incorporating prior **domain knowledge** to guide the decomposition.
+Similarity-driven Multi-view Linear Reconstruction (**SiMLR**) is a powerful framework for integrative dimensionality reduction across multiple data modalities. In this expanded tutorial, we demonstrate how to use `pysimlr` to uncover shared latent structures in high-dimensional data, incorporating prior **domain knowledge** to guide the decomposition, leveraging our advanced **data simulation tools**, and exploring the results with our **expressive new visualization suite**.
+
+What SiMLR can do for you:
+*   **Integrate Multiple Views**: Seamlessly extract shared consensus components ($U$) and view-specific feature mappings ($V$) from an arbitrary number of data matrices.
+*   **Impose Constraints**: Apply structural priors like orthogonality, sparsity, and non-negativity to make components more interpretable.
+*   **Incorporate Domain Knowledge**: Use prior matrices to gently guide the feature mappings toward known biological or physical relationships.
+*   **Robust Optimization**: Choose from a suite of Riemannian and deep-learning-inspired optimizers (e.g., LARS, Bidirectional Lookahead, NSA-Flow) to navigate complex energy landscapes.
 
 We will cover:
-1. **Rank Estimation**: Choosing the optimal number of components ($k$).
-2. **Guided SiMLR**: Using prior matrices to bias the decomposition toward known biology.
-3. **Mixing Algorithms**: Comparing PCA vs. ICA bottlenecks.
-4. **Energy Decomposition**: Identifying which features drive the integrative signal.
+1. **Data Simulation**: Using our benchmark tools to create ground-truth multi-view datasets.
+2. **Rank Estimation**: Choosing the optimal number of components ($k$).
+3. **Guided SiMLR**: Using prior matrices to bias the decomposition.
+4. **Advanced Visualization**: Using `pysimlr.viz` and `pysimlr.visualization` to explore consensus spaces, feature signatures, and convergence dynamics.
 5. **Statistical Significance**: Using permutation tests to verify modality alignment.
 
 ## 1. Simulation Setup
 
-We simulate three modalities (e.g., Cortex, White Matter, Functional Connectivity) and 6 shared cognitive domains.
+Instead of manually generating data, we'll leverage `pysimlr`'s benchmark suite. Our synthetic cases provide ground-truth components with specific properties (e.g., overlapping footprints, non-linear mixing, shared vs. private signals). We will build a multi-view dataset with structural footprints representing distinct "domains."
 
 ```{python}
+import sys, os
+# Ensure local src is in path for kernel
+root = os.path.abspath(os.path.join(os.getcwd(), ".."))
+sys.path.append(os.path.join(root, "src"))
+
 import torch
 import numpy as np
 import pandas as pd
 from pysimlr import (simlr, safe_pca, nnh_embed, decompose_energy, 
-                     estimate_rank, simlr_perm)
+                     estimate_rank, simlr_perm, predict_simlr)
+from pysimlr.viz import (plot_view_correlations, plot_latent_consensus, 
+                         plot_feature_signatures, plot_convergence_dynamics)
+from pysimlr.visualization import plot_energy, plot_v_matrix, plot_latent_2d
+from pysimlr.benchmarks.synthetic_cases import build_linear_footprint_case
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -37,134 +52,214 @@ import seaborn as sns
 torch.manual_seed(123)
 np.random.seed(123)
 
-n = 200
-domains = ["memory", "language", "motor", "visuospatial", "speed", "executive"]
-d = len(domains)
-p_list = [100, 80, 60] # Features per modality
+# 1. Generate Multimodal Data using the Benchmark Suite
+n_samples = 400
+p_list = [100, 80, 60]
+case = build_linear_footprint_case(n_samples=n_samples, p_list=p_list, shared_k=6, noise_scale=0.1)
 
-# 1. Generate Domain Latents (the ground truth shared signals)
-true_latents = torch.randn(n, d)
+# Input data matrices (raw)
+# SiMLR will now handle "centerAndScale" and "np" preprocessing internally by default.
+data_matrices = case["data"]
 
-# 2. Create Domain Knowledge Matrices
-d_matrices = []
-for p in p_list:
-    dm = torch.zeros(d, p)
-    features_per_domain = p // d
-    for j in range(d):
-        start = j * features_per_domain
-        end = (j + 1) * features_per_domain
-        dm[j, start:end] = torch.rand(end - start) * 0.5 + 0.5
-    d_matrices.append(dm)
+# d_matrices must be (k, p). true_v in benchmark is (p, k)
+d_matrices = [dm.t() for dm in case["true_v"]] 
+true_u = case["true_u"]
+k = case["shared_k"]
 
-# 3. Generate Multimodal Data
-data_matrices = []
-for i, p in enumerate(p_list):
-    projection = torch.randn(d, p)
-    signal = true_latents @ projection
-    noise = torch.randn(n, p) * 0.8
-    data_matrices.append(signal + noise)
-
-print(f"Generated {len(data_matrices)} modalities for {n} subjects.")
+print(f"Generated {len(data_matrices)} modalities for {n_samples} subjects.")
 ```
 
 ## 2. Choosing the Rank ($k$)
 
+Before running the full decomposition, we can estimate the optimal number of latent components by analyzing the variance and consensus across views.
+
 ```{python}
 k_est = estimate_rank(data_matrices, n_permutations=10)
 print(f"Estimated optimal components (k): {k_est}")
-k = d 
+print(f"Ground truth components (k): {k}")
+# We will proceed with the known ground-truth k for this tutorial.
 ```
 
 ## 3. Running Guided SiMLR
 
+We now run the core SiMLR algorithm. We provide the `d_matrices` (domain matrices) to the `domain_matrices` argument, gently guiding the $V$ feature mappings to align with our predefined structural footprints via the `domain_lambdas` weighting. 
+
+We will use the **HybridAdam** optimizer, which provides maximum numerical stability through its internal Armijo backtracking line search.
+
 ```{python}
+# Run Guided SiMLR
+# Note: we use default scale_list=["centerAndScale", "np"]
 results = simlr(
     data_matrices=data_matrices,
     k=k,
-    iterations=50,
+    iterations=100,
     energy_type="acc",
+    constraint="none",        
     domain_matrices=d_matrices,
-    domain_lambdas=0.1,
-    optimizer_type="nsa_flow",
+    domain_lambdas=0.1,       
+    optimizer_type="hybrid_adam",
     verbose=False
 )
-print(f"Guided SiMLR complete.")
+
+print(f"Guided SiMLR completed in {results['converged_iter']} iterations.")
 ```
 
-## 4. Exploring Mixing Algorithms: PCA vs. ICA
+## 4. Advanced Visualization and Exploration
 
-The **Mixing Algorithm** (`mixing_algorithm`) determines how projections from different modalities are combined to form the shared latent space $U$. 
-*   **PCA Mixing**: Uses the principal components of the concatenated projections. This maximizes the variance captured in the joint space.
-*   **ICA Mixing**: Uses Independent Component Analysis. This attempts to find components that are statistically independent, often yielding more "pure" biological signals.
+Now we use `pysimlr`'s built-in visualization tools to gain deep insights into the decomposition.
+
+### 4.1 Convergence Dynamics
+First, let's verify that our optimization process was stable and minimized the target energy function effectively.
 
 ```{python}
-# Run with PCA mixing (default is svd, which is similar)
-res_pca = simlr(data_matrices, k=k, iterations=20, mixing_algorithm="pca")
-
-# Run with ICA mixing
-res_ica = simlr(data_matrices, k=k, iterations=20, mixing_algorithm="ica")
-
-fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-# Correlation matrix for PCA
-sns.heatmap(np.corrcoef(res_pca['u'].numpy().T), cmap='vlag', center=0, ax=axes[0], annot=True)
-axes[0].set_title("U Correlation (PCA Mixing)")
-
-# Correlation matrix for ICA
-sns.heatmap(np.corrcoef(res_ica['u'].numpy().T), cmap='vlag', center=0, ax=axes[1], annot=True)
-axes[1].set_title("U Correlation (ICA Mixing)")
-
+# Plot the total energy history across iterations
+fig_energy = plot_energy(results['energy'], title="SiMLR Optimization Trajectory")
 plt.show()
 ```
 
-Notice that **ICA mixing** often results in a more diagonal correlation matrix in $U$, indicating that the shared components have been successfully unmixed into independent sources.
-
-## 5. Energy Decomposition & Interpretability
+### 4.2 Latent Consensus ($U$)
+The consensus matrix $U$ represents the shared latent space across all views. We can visualize how the samples cluster or distribute in this learned space, and how well the views agree with each other.
 
 ```{python}
-decomp = decompose_energy(data_matrices, results, energy_type="acc")
+# Plot the shared latent space using plot_latent_2d
+fig_latent = plot_latent_2d(results['u'], title="Shared Latent Space (2D View)")
+plt.show()
+
+# Visualize consensus vs modality-specific projections for the first dimension
+# We re-preprocess data manually here just for visualization consistency
+from pysimlr.utils import preprocess_data
+scaled_data = [preprocess_data(m, ["centerAndScale", "np"]) for m in data_matrices]
+proj = [x @ v for x, v in zip(scaled_data, results['v'])]
+
+plot_latent_consensus(results['u'], proj, dim_idx=0)
+plt.show()
+
+# Examine pairwise view correlations in the data space
+plot_view_correlations(scaled_data)
+plt.show()
+```
+
+### 4.3 Feature Signatures and Modality Contributions
+To understand *how* SiMLR constructed the latent space, we examine the $V$ matrices, which map the original features into the shared components. We can also decompose the overall energy to see which modalities and specific features drive the signal.
+
+```{python}
+# Decompose energy to identify global modality contributions
+decomp = decompose_energy(scaled_data, results, energy_type="acc")
 
 plt.figure(figsize=(6, 4))
-mod_names = ["Cortex", "WhiteMatter", "FuncConn"]
+mod_names = [f"View {i+1}" for i in range(len(data_matrices))]
 energies = [abs(e) for e in decomp['modality_energies']]
 plt.bar(mod_names, energies, color=['#3498db', '#e74c3c', '#2ecc71'])
 plt.title("Global Contribution by Modality")
+plt.ylabel("Absolute Energy Contribution")
 plt.show()
 
-feat_imp = decomp['feature_importances'][0]
-plt.figure(figsize=(10, 4))
-plt.plot(feat_imp, color='darkblue', lw=1.5)
-plt.fill_between(range(len(feat_imp)), feat_imp, color='blue', alpha=0.2)
-plt.title("Feature Importance Map (Cortex)")
+# Plot the feature mapping (V matrix) for the first view
+fig_v = plot_v_matrix(results['v'][0], title="Feature Importance Map (View 1 V-Matrix)")
+plt.show()
+
+# Use the advanced feature signatures plot to see how features align with components
+# We plot the first 50 features of View 1
+plot_feature_signatures(results['v'][0][:50, :], feature_names=[f"F{i}" for i in range(50)])
 plt.show()
 ```
 
+## 5. Exploring Mixing Algorithms: PCA vs. ICA
+
+SiMLR allows you to alter the **Mixing Algorithm** (`mixing_algorithm`), which determines how the intermediate view-specific projections are combined into the final shared latent space $U$.
+
+*   **PCA/SVD Mixing (Default)**: Maximizes variance, often yielding a dense, orthogonal representation where the first component captures the bulk of the signal.
+*   **ICA Mixing**: Maximizes statistical independence, often unmixing the signal into distinct, sparse biological or physical sources.
+
+```{python}
+# Run with ICA mixing for comparison
+res_ica = simlr(data_matrices, k=k, iterations=20, mixing_algorithm="ica", optimizer_type="hybrid_adam")
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+# Correlation matrix for default SVD/PCA
+sns.heatmap(np.corrcoef(results['u'].numpy().T), cmap='vlag', center=0, ax=axes[0], annot=True, fmt=".2f")
+axes[0].set_title("U Component Correlation (Default Mixing)")
+
+# Correlation matrix for ICA
+sns.heatmap(np.corrcoef(res_ica['u'].numpy().T), cmap='vlag', center=0, ax=axes[1], annot=True, fmt=".2f")
+axes[1].set_title("U Component Correlation (ICA Mixing)")
+
+plt.tight_layout()
+plt.show()
+```
+Notice how ICA mixing often yields a cleaner, more diagonal structure in the component cross-correlations, indicating successfully unmixed independent sources.
+
 ## 6. Statistical Significance via Permutation
+
+Finally, we validate that the discovered shared signal is statistically meaningful and not just a product of noise fitting, using SiMLR's permutation testing framework.
 
 ```{python}
 print("Running Statistical Permutation Test...")
-perm_res = simlr_perm(data_matrices, k=k, n_perms=10, iterations=5, energy_type="acc")
+# Run permutation test to verify significance
+perm_res = simlr_perm(data_matrices, k=k, n_perms=20, iterations=5, energy_type="acc", optimizer_type="hybrid_adam")
 
 for pair, stats in perm_res['stats'].items():
     print(f"Pair {pair}: Observed Similarity={stats['observed']:.3f}, p-value={stats['p_value']:.4f}")
 ```
 
-## 7. Specialized Workflow: `nnh_embed`
+## 7. Out-of-Sample Evaluation (Train/Test)
+
+A robust integrative model should generalize to unseen data. Here, we demonstrate how to split our multimodal dataset, train SiMLR on one subset, and project the held-out test data into the learned latent space using `predict_simlr`.
 
 ```{python}
-df_neuro = pd.DataFrame({
-    'T1Hier_vol1': np.random.randn(n),
-    'T1Hier_vol2': np.random.randn(n),
-    'DTI_fa1': np.random.randn(n),
-    'rsfMRI_conn1': np.random.randn(n),
-    'T1Hier_resnetGrade': np.linspace(1.0, 1.1, n),
-    'age': np.random.randn(n)
-})
+# 1. Split data into Train (80%) and Test (20%)
+n_train = int(0.8 * n_samples)
+torch.manual_seed(42)
+all_indices = torch.randperm(n_samples)
+train_indices = all_indices[:n_train]
+test_indices = all_indices[n_train:]
 
-nnh_results = nnh_embed(df_neuro, nsimlr=2, iterations=10, covariates=['age'], verbose=False)
-print(f"nnh_embed identified modalities: {nnh_results['modality_names']}")
+train_data = [m[train_indices] for m in data_matrices]
+test_data = [m[test_indices] for m in data_matrices]
+
+# 2. Fit model on Training Data
+# We use "regression" energy here to minimize reconstruction error for evaluation
+res_train = simlr(
+    data_matrices=train_data,
+    k=k,
+    iterations=50,
+    energy_type="regression",
+    optimizer_type="hybrid_adam",
+    verbose=False
+)
+
+# 3. Predict / Project Test Data
+# predict_simlr will internally apply the same "centerAndScale" + "np" scaling to test data.
+pred_test = predict_simlr(test_data, res_train)
+
+# 4. Evaluate Reconstruction Fidelity
+# We compare original test data vs. data reconstructed from the test latent space
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+# Plot Reconstruction Errors per Modality
+test_errors = pred_test['errors']
+mod_names = [f"View {i+1}" for i in range(len(test_data))]
+axes[0].bar(mod_names, test_errors, color='teal', alpha=0.7)
+axes[0].set_title("Test Set Reconstruction Relative Error")
+axes[0].set_ylabel("Frobenius Norm Error / Data Norm")
+
+# Visualize the learned Latent Space for Test Samples
+u_test = pred_test['u']
+axes[1].scatter(u_test[:, 0], u_test[:, 1], c='darkorange', alpha=0.6, edgecolors='w')
+axes[1].set_title("Test Samples in Learned Latent Space (U)")
+axes[1].set_xlabel("Latent 1")
+axes[1].set_ylabel("Latent 2")
+axes[1].grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+print(f"Mean test reconstruction error across modalities: {np.mean(test_errors):.4f}")
 ```
+
+The low reconstruction error on the test set confirms that the learned $V$ mappings have captured stable, generalizable features from the multi-view data.
 
 ## Conclusion
 
-By combining **Domain Knowledge** with robust optimization and statistical validation, `pysimlr` provides a principled way to integrate complex multimodal neuroimaging data.
+By combining **Domain Knowledge** priors, robust constraints, expressive **visualization tools**, and rigorous statistical validation, `pysimlr` provides a comprehensive and principled ecosystem for decoding complex multimodal data.

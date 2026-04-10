@@ -5,7 +5,7 @@ from .svd import ba_svd, safe_pca
 from .optimizers import create_optimizer
 from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness
 from .utils import (set_seed_based_on_time, adjusted_rvcoef, 
-                    invariant_orthogonality_defect, l1_normalize_features)
+                    invariant_orthogonality_defect, l1_normalize_features, orthogonality_summary, preprocess_data)
 from scipy.stats import ttest_1samp
 
 try:
@@ -147,7 +147,7 @@ def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, 
 def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           k: int,
           iterations: int = 100,
-          optimizer_type: str = "bidirectional_lookahead",
+          optimizer_type: str = "lars",
           energy_type: str = "acc",
           constraint: str = "none",
           mixing_algorithm: str = "svd",
@@ -157,11 +157,25 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           domain_matrices: Optional[List[Union[torch.Tensor, np.ndarray]]] = None,
           domain_lambdas: Optional[Union[float, List[float]]] = None,
           orthogonalize_u: bool = False,
+          scale_list: List[str] = ["centerAndScale", "np"],
           tol: float = 1e-6,
           verbose: bool = False,
           **opt_params) -> Dict[str, Any]:
+    
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
+    
+    provenance_list = []
+    if scale_list is not None and len(scale_list) > 0 and scale_list[0] != "none":
+        scaled_mats = []
+        for m in torch_mats:
+            m_scaled, prov = preprocess_data(m, scale_list)
+            scaled_mats.append(m_scaled)
+            provenance_list.append(prov)
+        torch_mats = scaled_mats
+
+    
     n_modalities = len(torch_mats); orig_dtype = torch_mats[0].dtype
+
     c_info = parse_constraint(constraint)
     constraint_type, constraint_weight, constraint_iterations = c_info['type'], c_info['weight'], c_info['iterations']
     if domain_matrices is not None:
@@ -221,7 +235,21 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         
         if verbose and it % 10 == 0: print(f"Iteration {it}: Total Energy {total_energy}")
         
-    return {"u": u, "v": v_mats, "energy": energy_history, "normalizing_weights": normalizing_weights, "orth_weights": orth_weights, "domain_weights": domain_weights, "converged_iter": converged_iter}
+    
+    v_summaries = [orthogonality_summary(v) for v in v_mats]
+    
+    return {
+        "u": u, "v": v_mats, "energy": energy_history, 
+        "normalizing_weights": normalizing_weights, 
+        "orth_weights": orth_weights, "domain_weights": domain_weights, 
+        "converged_iter": converged_iter, "v_orthogonality": v_summaries,
+        "mixing_algorithm": mixing_algorithm,
+        "orthogonalize_u": orthogonalize_u,
+        "energy_type": energy_type,
+        "scale_list": scale_list,
+        "provenance_list": provenance_list
+    }
+
 
 def pairwise_matrix_similarity(mat_list: List[torch.Tensor], v_list: List[torch.Tensor]) -> Dict[str, float]:
     n_modalities = len(mat_list); similarities = {}
@@ -250,25 +278,69 @@ def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_p
         stats[k_sim] = {"observed": obs, "p_value": p_val, "t_stat": t_stat}
     return {"simlr_result": res, "stats": stats}
 
+
 def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr_result: Dict[str, Any]) -> Dict[str, Any]:
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
+    
+    scale_list = simlr_result.get('scale_list', [])
+    provenance_list = simlr_result.get('provenance_list', [])
+    if scale_list and scale_list[0] != "none":
+        scaled_mats = []
+        for i, m in enumerate(torch_mats):
+            prov = provenance_list[i] if i < len(provenance_list) else None
+            m_scaled = preprocess_data(m, scale_list, provenance=prov)
+            scaled_mats.append(m_scaled)
+        torch_mats = scaled_mats
+
+
+    
     if 'model' in simlr_result:
         model = simlr_result['model']; model.eval(); device = next(model.parameters()).device
         torch_mats_device = [m.to(device) for m in torch_mats]
         with torch.no_grad():
             output = model(torch_mats_device)
-            # Differentiable consensus logic now returns 3 or 4 values.
-            # We use indexing from the end to be robust.
             latents = output[0]
             reconstructions = output[-2]
             u_new = output[-1]
         errors = [torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10) for x, x_pred in zip(torch_mats_device, reconstructions)]
         return {"u": torch.nan_to_num(u_new.cpu()), "latents": [torch.nan_to_num(l.cpu()) for l in latents], "reconstructions": [torch.nan_to_num(r.cpu()) for r in reconstructions], "errors": errors}
-    v_mats = simlr_result['v']; projections = [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)]
-    u_new = torch.mean(torch.stack(projections), dim=0); u_new, _, _ = torch.linalg.svd(u_new, full_matrices=False)
-    reconstructions = [u_new @ v.t().to(u_new.dtype) for v in v_mats]
-    errors = [torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10) for x, x_pred in zip(torch_mats, reconstructions)]
+    
+    v_mats = simlr_result['v']
+    mixing_alg = simlr_result.get('mixing_algorithm', 'svd')
+    orthogonalize_u = simlr_result.get('orthogonalize_u', False)
+    k = v_mats[0].shape[1]
+    
+    # 1. Project to shared space
+    projections = [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)]
+    
+    # 2. Compute consensus U using the original mixing settings
+    u_new = calculate_u(projections, mixing_algorithm=mixing_alg, k=k, orthogonalize=orthogonalize_u)
+    
+    # 3. Robust reconstruction
+    reconstructions = []
+    errors = []
+    for i, x in enumerate(torch_mats):
+        # We find the best linear reconstruction of X from U
+        # X_approx = U @ W where W = pinv(U) @ X
+        # If U is orthonormal, W = U.T @ X
+        u_ortho = orthogonalize_u or (mixing_alg in ["svd", "pca"])
+        if u_ortho:
+            # U is orthonormal, weights for reconstruction are simply U.T @ X
+            weights = u_new.t() @ x
+            x_pred = u_new @ weights
+        else:
+            # U is not necessarily orthonormal, use least squares to find weights
+            # U * W = X  => W = pinv(U) * X
+            u_pinv = torch.linalg.pinv(u_new)
+            weights = u_pinv @ x
+            x_pred = u_new @ weights
+            
+        reconstructions.append(x_pred)
+        err = torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10)
+        errors.append(err)
+        
     return {"u": torch.nan_to_num(u_new), "reconstructions": reconstructions, "errors": errors}
+
 
 def estimate_rank(data_matrices: List[Union[torch.Tensor, np.ndarray]], n_permutations: int = 20, var_threshold: float = 0.99) -> int:
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]

@@ -67,6 +67,9 @@ from .visualization import (
     generate_all_architecture_graphs
 )
 
+# Optional: Expose benchmarks sub-package
+from . import benchmarks
+
 __all__ = [
     'simlr',
     'predict_simlr',
@@ -113,5 +116,6 @@ __all__ = [
     'plot_ned_simr_architecture',
     'plot_ned_shared_private_architecture',
     'plot_nsa_flow_architecture',
-    'generate_all_architecture_graphs'
+    'generate_all_architecture_graphs',
+    'benchmarks'
 ]

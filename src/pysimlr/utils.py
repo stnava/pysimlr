@@ -3,7 +3,7 @@ import pandas as pd
 import re
 import time
 import numpy as np
-from typing import List, Optional, Union, Dict
+from typing import List, Optional, Union, Dict, Any, Tuple
 
 def set_seed_based_on_time() -> int:
     """
@@ -204,3 +204,147 @@ def gradient_invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     orthogonality_diff = ata - d
     gradient = 4 * (ap @ orthogonality_diff)
     return gradient
+
+def mean_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
+    """
+    Compute mean orthogonality defect (average off-diagonal squared correlation).
+    """
+    n, k = a.shape
+    if k <= 1:
+        return torch.tensor(0.0, device=a.device)
+    
+    # Normalize columns to unit length
+    col_norms = torch.norm(a, dim=0, keepdim=True)
+    a_norm = a / (col_norms + 1e-10)
+    
+    correlation_matrix = a_norm.t() @ a_norm
+    # Remove diagonal (self-correlations)
+    mask = ~torch.eye(k, device=a.device).bool()
+    off_diag = correlation_matrix[mask]
+    
+    return torch.mean(off_diag**2)
+
+def gradient_mean_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
+    """
+    Compute gradient of the mean orthogonality defect.
+    """
+    n, k = a.shape
+    if k <= 1:
+        return torch.zeros_like(a)
+    
+    col_norms = torch.norm(a, dim=0, keepdim=True)
+    a_norm = a / (col_norms + 1e-10)
+    
+    r = a_norm.t() @ a_norm
+    # Mask out diagonal
+    r_off = r.clone()
+    r_off.fill_diagonal_(0.0)
+    
+    # Gradient component from numerator
+    # d/dA (tr(A_norm.T @ A_norm - I)^2) / (k*(k-1))
+    # This follows standard matrix calculus for normalized columns
+    grad = (4.0 / (k * (k - 1) + 1e-10)) * a_norm @ r_off
+    
+    # Project out components along the columns (due to normalization)
+    grad = (grad - a_norm * torch.sum(a_norm * grad, dim=0, keepdim=True)) / (col_norms + 1e-10)
+    
+    return grad
+
+def orthogonality_summary(a: torch.Tensor) -> Dict[str, float]:
+    """
+    Provide a detailed summary of matrix orthogonality metrics.
+    """
+    defect = invariant_orthogonality_defect(a).item()
+    mean_defect = mean_orthogonality_defect(a).item()
+    
+    # Condition number (ratio of max to min singular value)
+    try:
+        _, s, _ = torch.linalg.svd(a, full_matrices=False)
+        cond = (s[0] / (s[-1] + 1e-10)).item()
+        ortho_score = torch.sum(s**2).item() / (s[0]**2).item() # Effective rank proxy
+    except:
+        cond = float('nan')
+        ortho_score = float('nan')
+        
+    return {
+        "invariant_defect": defect,
+        "mean_defect": mean_defect,
+        "condition_number": cond,
+        "effective_rank_proxy": ortho_score
+    }
+
+
+def preprocess_data(x: torch.Tensor, scale_list: List[str], provenance: Optional[Dict[str, Any]] = None) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[str, Any]]]:
+    """
+    Preprocess data matrix according to a list of scaling/normalization methods.
+    Supports provenance for reproducible application to test data.
+    """
+    x_out = x.clone().float()
+    new_provenance = {} if provenance is None else None
+    
+    # Handle NaNs using provenance or current data
+    if provenance and "nan_fill" in provenance:
+        nan_fill = provenance["nan_fill"]
+    else:
+        nan_fill = torch.nanmean(x_out).item() if not torch.isnan(x_out).all() else 0.0
+        if new_provenance is not None: new_provenance["nan_fill"] = nan_fill
+        
+    x_out = torch.nan_to_num(x_out, nan=nan_fill)
+    
+    for method in scale_list:
+        if method == "none":
+            continue
+        elif method == "norm":
+            if provenance and "norm_factor" in provenance:
+                factor = provenance["norm_factor"]
+            else:
+                factor = torch.norm(x_out, p='fro').item() + 1e-10
+                if new_provenance is not None: new_provenance["norm_factor"] = factor
+            x_out = x_out / factor
+        elif method == "np":
+            # np is dimension-dependent, but we store the factor for safety
+            if provenance and "np_factor" in provenance:
+                factor = provenance["np_factor"]
+            else:
+                factor = float(x_out.shape[0] * x_out.shape[1])
+                if new_provenance is not None: new_provenance["np_factor"] = factor
+            x_out = x_out / factor
+        elif method == "sqrtnp":
+            if provenance and "sqrtnp_factor" in provenance:
+                factor = provenance["sqrtnp_factor"]
+            else:
+                factor = np.sqrt(x_out.shape[0] * x_out.shape[1])
+                if new_provenance is not None: new_provenance["sqrtnp_factor"] = factor
+            x_out = x_out / factor
+        elif method == "center":
+            if provenance and "center_mean" in provenance:
+                mean = provenance["center_mean"]
+            else:
+                mean = torch.mean(x_out, dim=0)
+                if new_provenance is not None: new_provenance["center_mean"] = mean
+            x_out = x_out - mean
+        elif method == "centerAndScale":
+            if provenance and "cas_mean" in provenance:
+                mean = provenance["cas_mean"]
+                std = provenance["cas_std"]
+            else:
+                mean = torch.mean(x_out, dim=0)
+                std = torch.std(x_out, dim=0)
+                std[std < 1e-10] = 1.0
+                if new_provenance is not None:
+                    new_provenance["cas_mean"] = mean
+                    new_provenance["cas_std"] = std
+            x_out = (x_out - mean) / std
+        elif method == "eigenvalue":
+            if provenance and "eigen_factor" in provenance:
+                factor = provenance["eigen_factor"]
+            else:
+                _, s, _ = torch.linalg.svd(x_out, full_matrices=False)
+                factor = torch.sum(s).item() + 1e-10
+                if new_provenance is not None: new_provenance["eigen_factor"] = factor
+            x_out = x_out / factor
+            
+    if provenance is not None:
+        return x_out
+    return x_out, new_provenance
+

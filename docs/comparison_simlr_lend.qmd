@@ -39,9 +39,9 @@ import os
 sys.path.insert(0, os.path.abspath(".."))
 sys.path.insert(0, os.path.abspath("../src"))
 
-from benchmarks.synthetic_cases import build_case
-from benchmarks.runner import run_single_experiment, sweep_benchmark, get_best_per_model
-from benchmarks.plotting import (plot_pareto_recovery_vs_r2, plot_sparsity_sensitivity, 
+from pysimlr.benchmarks.synthetic_cases import build_case
+from pysimlr.benchmarks.runner import run_single_experiment, sweep_benchmark, get_best_per_model
+from pysimlr.benchmarks.plotting import (plot_pareto_recovery_vs_r2, plot_sparsity_sensitivity, 
                                plot_stability_diagnostics, plot_v_heatmaps, plot_latent_correlation)
 
 warnings.filterwarnings("ignore")

@@ -4,49 +4,42 @@ import pandas as pd
 import argparse
 import yaml
 import os
-import inspect
 from typing import List, Dict, Any, Optional, Union
-from sklearn.model_selection import train_test_split
-from pysimlr import simlr, lend_simr, ned_simr, ned_simr_shared_private, predict_simlr
 from .synthetic_cases import build_case
 from .metrics import calculate_all_metrics
-
-def filter_params(func, params):
-    """Filter params dict to only include keys accepted by func."""
-    sig = inspect.signature(func)
-    return {k: v for k, v in params.items() if k in sig.parameters}
+from pysimlr.simlr import simlr, predict_simlr
+from pysimlr.deep import lend_simr, ned_simr, ned_simr_shared_private
 
 def run_single_experiment(model_type: str, 
                           case: Dict[str, Any], 
-                          test_size: float = 0.2,
-                          sparsity: float = 0.0,
+                          sparsity: float = 0.0, 
                           seed: int = 42,
-                          **model_params) -> Dict[str, Any]:
-    """Train and evaluate a single model variant."""
-    data = case["data"]
-    n_samples = data[0].shape[0]
-    indices = np.arange(n_samples)
-    
-    train_idx, test_idx = train_test_split(indices, test_size=test_size, random_state=seed)
-    
-    train_mats = [m[train_idx] for m in data]
-    test_mats = [m[test_idx] for m in data]
-    y_test = case["outcome"][test_idx].numpy()
-    u_true_test = case["true_u"][test_idx]
-    
+                          **params) -> Dict[str, Any]:
+    """Run a single experiment for a given model and sparsity."""
+    data_all = case["data"]
+    u_all = case["true_u"]
+    y_all = case["outcome"]
     k = case["shared_k"]
     
+    # 70/30 Train/Test split
+    n_samples = data_all[0].shape[0]
+    train_size = int(n_samples * 0.7)
+    
+    train_mats = [m[:train_size] for m in data_all]
+    test_mats = [m[train_size:] for m in data_all]
+    u_true_test = u_all[train_size:]
+    y_test = y_all[train_size:]
+    
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    
     if model_type == "linear":
-        params = filter_params(simlr, model_params)
         res = simlr(train_mats, k=k, sparseness_quantile=sparsity, **params)
     elif model_type == "lend":
-        params = filter_params(lend_simr, model_params)
         res = lend_simr(train_mats, k=k, sparseness_quantile=sparsity, **params)
     elif model_type == "ned":
-        params = filter_params(ned_simr, model_params)
         res = ned_simr(train_mats, k=k, sparseness_quantile=sparsity, **params)
     elif model_type == "shared_private":
-        params = filter_params(ned_simr_shared_private, model_params)
         res = ned_simr_shared_private(train_mats, k=k, sparseness_quantile=sparsity, **params)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
@@ -90,15 +83,28 @@ def run_seeded_benchmark(model_type: str,
     return pd.DataFrame(all_metrics)
 
 def aggregate_results(df: pd.DataFrame) -> pd.DataFrame:
-    """Aggregate raw results by model and sparsity."""
+    """Aggregate raw results by model and sparsity with 95% CI."""
     group_cols = ["model", "sparsity"]
     metric_cols = [c for c in df.columns if c not in group_cols + ["seed"]]
     
+    # Calculate counts for SEM calculation
+    counts = df.groupby(group_cols)[metric_cols[0]].count().reset_index()
+    counts = counts.rename(columns={metric_cols[0]: "n"})
+    
     means = df.groupby(group_cols)[metric_cols].mean().reset_index()
     stds = df.groupby(group_cols)[metric_cols].std().reset_index()
-    stds = stds.rename(columns={c: f"{c}_sd" for c in metric_cols})
     
-    return pd.merge(means, stds, on=group_cols)
+    res = pd.merge(means, stds, on=group_cols, suffixes=('', '_sd'))
+    res = pd.merge(res, counts, on=group_cols)
+    
+    # Calculate 95% CI: 1.96 * (std / sqrt(n))
+    for col in metric_cols:
+        res[f"{col}_ci95"] = 1.96 * (res[f"{col}_sd"] / np.sqrt(res["n"]))
+        
+    # Handle single-seed case (n=1) where std and CI95 are NaN
+    res = res.fillna(0.0)
+        
+    return res
 
 def get_best_per_model(df: pd.DataFrame, metric: str = "test_r2") -> pd.DataFrame:
     """Choose the best configuration for each model."""
@@ -147,20 +153,15 @@ def main():
     case_kind = config.get("case_kind", "nonlinear_shared")
     save_prefix = config.get("save_prefix", "benchmark_results")
     
-    reserved = ["model_types", "sparsities", "n_seeds", "n_samples", "case_kind", "save_prefix"]
-    model_params = {k: v for k, v in config.items() if k not in reserved}
-    
-    results = sweep_benchmark(
+    # Run the sweep
+    sweep_benchmark(
         model_types=model_types,
         case_kind=case_kind,
         n_samples=n_samples,
         sparsities=sparsities,
         n_seeds=n_seeds,
-        save_prefix=save_prefix,
-        **model_params
+        save_prefix=save_prefix
     )
-    
-    print(f"Results saved with prefix: {save_prefix}")
 
 if __name__ == "__main__":
     main()
