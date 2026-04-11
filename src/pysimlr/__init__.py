@@ -59,6 +59,15 @@ from .deep import (
 from .consensus import (
     compute_shared_consensus
 )
+from .interpretability import (
+    summarize_basis_matrix,
+    build_first_layer_contract,
+    extract_first_layer_factors,
+    analyze_first_layer_alignment,
+    attribute_shared_to_first_layer,
+    attribute_prediction_to_features,
+    build_interpretability_report,
+)
 from .utils import (
     set_seed_based_on_time,
     multigrep,
@@ -124,6 +133,13 @@ __all__ = [
     'ModalityEncoder',
     'predict_deep',
     'compute_shared_consensus',
+    'summarize_basis_matrix',
+    'build_first_layer_contract',
+    'extract_first_layer_factors',
+    'analyze_first_layer_alignment',
+    'attribute_shared_to_first_layer',
+    'attribute_prediction_to_features',
+    'build_interpretability_report',
     'set_seed_based_on_time',
     'multigrep',
     'get_names_from_dataframe',
