@@ -25,7 +25,20 @@ def generate_linear_data(n_samples=1000, noise=0.1):
     return norm(x1), norm(x2), u, y.numpy()
 
 def fit_simlr(train_data, **kwargs):
-    return simlr(train_data, iterations=100, energy_type="acc", **kwargs)
+    # Use a train/test-stable consensus path for benchmarking.
+    # Default SIMLR uses SVD consensus plus an extra `np` scaling step, which
+    # can yield train/test latent rotations and reconstruction mismatch even when
+    # latent recovery is high. That specifically breaks held-out downstream R2 in
+    # this protocol. The deep LEND path uses centerAndScale only and a Stiefel-
+    # projected consensus; we match that here for a fair linear-vs-deep test.
+    return simlr(
+        train_data,
+        iterations=100,
+        energy_type="acc",
+        mixing_algorithm="newton",
+        scale_list=["centerAndScale"],
+        **kwargs,
+    )
 
 def fit_lend(train_data, **kwargs):
     return lend_simr(train_data, epochs=100, warmup_epochs=20, device="cpu", verbose=False, **kwargs)

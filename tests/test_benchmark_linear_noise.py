@@ -29,3 +29,11 @@ def test_linear_parity_contract():
 
 if __name__ == "__main__":
     test_linear_parity_contract()
+
+
+def test_linear_model_heldout_regression_not_broken():
+    df = run_linear_benchmark(n_samples=1000, n_seeds=3, noise_level=0.1)
+    simlr = df[df["model"] == "linear"]
+
+    assert simlr["heldout_outcome_r2"].median() > 0.5
+    assert simlr["reconstruction_mse"].median() < 0.5
