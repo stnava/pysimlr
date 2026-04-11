@@ -1,7 +1,7 @@
 ---
-title: "Deep SiMR: Non-Linear Multi-Modal Integration"
+title: "Deep SiMR: Interpretable First-Layer Analysis"
 author: "pysimlr Team"
-date: "2026-04-08"
+date: "2026-04-11"
 format:
   html:
     toc: true
@@ -9,102 +9,189 @@ format:
     theme: cosmo
 ---
 
-## Introduction
+## Why this tutorial exists
 
-While traditional **SiMLR** uncovers shared latent structures through linear projections, real-world biological data often involves highly non-linear relationships. **Deep SiMR** extends the core SiMLR principle using a **Multi-view Autoencoder** architecture.
+Classical SiMLR yields an interpretable sparse basis matrix `V`. That basis is often the scientific endpoint because it tells us where shared predictive structure lives in the original features.
 
-We will cover:
-1. Simulating complex, non-linear relationships.
-2. Training a Deep SiMR model.
-3. **Bottleneck Mixing**: Comparing PCA vs. ICA strategies.
-4. Performing inference on held-out data.
-5. Assessing biological relevance by regressing against "radicality".
+The deep models in `pysimlr` now preserve this idea explicitly:
 
-## 1. Simulation Setup
+- `result["first_layer"]["v"]`: the first NSA Flow basis, modality by modality
+- `result["first_layer"]["scores"]`: the first-layer component scores `X @ V`
+- `result["deep_layer"]`: post-nonlinear latent embeddings
+- `result["interpretability"]`: alignment and attribution summaries that quantify how much downstream signal still flows through the first layer
+
+This tutorial demonstrates how to train a deep model, inspect the first layer, and connect predictive power back to original features.
+
+## 1. Simulate two modalities with sparse signal
 
 ```{python}
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 from sklearn.model_selection import train_test_split
-from pysimlr import deep_simr, predict_simlr
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score
+
+from pysimlr import (
+    lend_simr,
+    predict_deep,
+    analyze_first_layer_alignment,
+    attribute_shared_to_first_layer,
+    attribute_prediction_to_features,
+)
 
 torch.manual_seed(42)
 np.random.seed(42)
 
-n_samples = 1000
-k_true = 3 
-radicality = torch.randn(n_samples)
-true_latents = torch.randn(n_samples, k_true)
-true_latents[:, 0] += radicality * 1.5 
+n = 180
+k = 3
 
-p1 = 50
-x1 = torch.zeros(n_samples, p1)
-for j in range(p1):
-    x1[:, j] = torch.sin(true_latents[:, 0] * (j+1)/10) + (true_latents[:, 1] ** 2) * 0.5 + true_latents[:, 2] + torch.randn(n_samples) * 0.2
+z = torch.randn(n, k)
+x1 = torch.randn(n, 20) * 0.1
+x2 = torch.randn(n, 16) * 0.1
 
-p2 = 40
-x2 = torch.zeros(n_samples, p2)
-for j in range(p2):
-    x2[:, j] = torch.cos(true_latents[:, 1] * (j+1)/5) + torch.exp(true_latents[:, 0] * 0.3) - true_latents[:, 2] * 1.5 + torch.randn(n_samples) * 0.2
+# Put most shared signal in a few features.
+x1[:, 0] += 2.5 * z[:, 0]
+x1[:, 1] += 1.5 * z[:, 1]
+x1[:, 2] += 1.0 * z[:, 2]
+x2[:, 0] += 1.0 * z[:, 0]
+x2[:, 5] += 1.0 * z[:, 1]
 
-indices = np.arange(n_samples)
-train_idx, test_idx = train_test_split(indices, test_size=0.2, random_state=42)
+# A downstream target driven mainly by modality 1.
+y = 2.0 * x1[:, 0] - 1.5 * x1[:, 1] + 0.15 * torch.randn(n)
+
+idx = np.arange(n)
+train_idx, test_idx = train_test_split(idx, test_size=0.25, random_state=42)
+
 train_mats = [x1[train_idx], x2[train_idx]]
 test_mats = [x1[test_idx], x2[test_idx]]
-rad_test = radicality[test_idx]
+y_test = y[test_idx]
 ```
 
-## 2. Deep Bottleneck Strategies: PCA vs. ICA Mixing
-
-In Deep SiMR, the **mixing algorithm** occurs at the bottleneck. The projections from each modality's deep encoder are mixed to form the shared latent space $U$, which is then used by the deep decoders for reconstruction.
+## 2. Train a deep model with the first-layer contract
 
 ```{python}
-k = 3
-# Train with PCA mixing
-deep_pca = deep_simr(train_mats, k=k, epochs=50, mixing_algorithm="pca", verbose=False)
+result = lend_simr(
+    train_mats,
+    k=k,
+    epochs=12,
+    batch_size=32,
+    warmup_epochs=0,
+    sim_weight=0.0,
+    first_layer_mode="scheduled",
+    stabilization_start_epoch=4,
+    stabilization_ramp_epochs=4,
+)
+list(result.keys())
+```
 
-# Train with ICA mixing
-deep_ica = deep_simr(train_mats, k=k, epochs=50, mixing_algorithm="ica", verbose=False)
+The important scientific objects are:
 
-# Compare latent correlations
-u_pca = deep_pca['u'].numpy()
-u_ica = deep_ica['u'].numpy()
+```{python}
+list(result["first_layer"].keys())
+```
 
-fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-sns.heatmap(np.corrcoef(u_pca.T), cmap='vlag', center=0, annot=True, ax=axes[0])
-axes[0].set_title("Bottleneck Correlation (PCA Mixing)")
+## 3. Inspect the first NSA Flow basis
 
-sns.heatmap(np.corrcoef(u_ica.T), cmap='vlag', center=0, annot=True, ax=axes[1])
-axes[1].set_title("Bottleneck Correlation (ICA Mixing)")
+```{python}
+v0 = result["first_layer"]["v"][0]
+scores0 = result["first_layer"]["scores"][0]
+summary0 = result["first_layer"]["sparsity_summary"][0]
+
+print("Modality 0 basis shape:", tuple(v0.shape))
+print("Modality 0 score shape:", tuple(scores0.shape))
+print("Orthogonality defect:", summary0["orthogonality_defect"])
+print("Top features for component 0:")
+summary0["top_features"][0][:5]
+```
+
+A quick heatmap of the first modality basis:
+
+```{python}
+plt.figure(figsize=(7, 5))
+plt.imshow(v0.detach().cpu().numpy(), aspect="auto", cmap="coolwarm")
+plt.colorbar(label="Loading")
+plt.xlabel("Component")
+plt.ylabel("Feature")
+plt.title("First-Layer Basis V0 for Modality 0")
+plt.tight_layout()
 plt.show()
 ```
 
-By using **ICA mixing**, we force the deep autoencoder to learn non-linear transformations that result in a set of statistically independent latent factors. This is particularly useful for identifying distinct biological processes.
-
-## 3. Inference & Biological Evaluation
-
-We evaluate if the learned non-linear embeddings capture the "radicality" dimension on held-out data.
+## 4. Compare first-layer scores to deeper latent structure
 
 ```{python}
-pred_pca = predict_simlr(test_mats, deep_pca)
-pred_ica = predict_simlr(test_mats, deep_ica)
-
-# Assess R2 for PCA-mixed model
-reg_pca = LinearRegression().fit(pred_pca['u'].numpy(), rad_test.numpy())
-r2_pca = r2_score(rad_test.numpy(), reg_pca.predict(pred_pca['u'].numpy()))
-
-# Assess R2 for ICA-mixed model
-reg_ica = LinearRegression().fit(pred_ica['u'].numpy(), rad_test.numpy())
-r2_ica = r2_score(rad_test.numpy(), reg_ica.predict(pred_ica['u'].numpy()))
-
-print(f"Radicality R2 (PCA Mixing): {r2_pca:.3f}")
-print(f"Radicality R2 (ICA Mixing): {r2_ica:.3f}")
+alignment = analyze_first_layer_alignment(result)
+alignment["modalities"][0]["global_r2"]
 ```
 
-## Conclusion
+This `global_r2` summarizes how much of the deeper modality representation can still be linearly explained by the first-layer scores. Higher values mean the nonlinear stack is preserving more of the interpretable first-layer structure.
 
-Deep SiMR provides a flexible framework for non-linear integration. By choosing different mixing strategies at the bottleneck, researchers can optimize for either maximum variance (PCA) or statistical independence (ICA).
+```{python}
+corr = alignment["modalities"][0]["component_correlation"].detach().cpu().numpy()
+plt.figure(figsize=(5, 4))
+plt.imshow(corr, aspect="auto", cmap="vlag")
+plt.colorbar(label="Correlation")
+plt.xlabel("Deep component")
+plt.ylabel("First-layer component")
+plt.title("Deep vs First-Layer Alignment: Modality 0")
+plt.tight_layout()
+plt.show()
+```
+
+## 5. Attribute shared latent structure back to the first layer
+
+```{python}
+shared_attr = attribute_shared_to_first_layer(result)
+shared_attr["per_modality"][0]["global_r2"]
+```
+
+Feature importance is returned in the original feature space, so we can ask which features are carrying the shared latent signal.
+
+```{python}
+feat_imp_mod0 = shared_attr["combined"]["feature_importance"][0].detach().cpu()
+top_vals, top_idx = torch.topk(torch.abs(feat_imp_mod0), k=8)
+
+plt.figure(figsize=(7, 4))
+plt.barh([f"f{i}" for i in top_idx.tolist()], top_vals.tolist())
+plt.xlabel("Absolute importance")
+plt.ylabel("Feature")
+plt.title("Shared-to-First-Layer Attribution: Modality 0")
+plt.tight_layout()
+plt.show()
+```
+
+## 6. Attribute prediction back to first-layer features
+
+```{python}
+pred = predict_deep(test_mats, result, device="cpu")
+pred_attr = attribute_prediction_to_features(pred, y_test)
+
+print("Shared latent baseline R2:", pred_attr["shared_latent_baseline"]["global_r2"])
+print("Per-modality first-layer R2 values:",
+      [round(mod["global_r2"], 3) for mod in pred_attr["per_modality"]])
+```
+
+Now we can directly inspect which original features explain prediction through the first-layer path.
+
+```{python}
+pred_feat_mod0 = pred_attr["combined"]["feature_importance"][0].detach().cpu()
+top_vals, top_idx = torch.topk(torch.abs(pred_feat_mod0), k=8)
+
+plt.figure(figsize=(7, 4))
+plt.barh([f"f{i}" for i in top_idx.tolist()], top_vals.tolist())
+plt.xlabel("Absolute importance")
+plt.ylabel("Feature")
+plt.title("Prediction Attribution Through First Layer: Modality 0")
+plt.tight_layout()
+plt.show()
+```
+
+## 7. Practical interpretation
+
+When reading deep SiMR results, use the following sequence:
+
+1. Inspect `first_layer["v"]` to identify sparse feature support.
+2. Inspect `first_layer["scores"]` to understand the sample-level expression of those components.
+3. Inspect `interpretability["deep_layer_alignment"]` to check whether the nonlinear pathway is preserving the first-layer structure.
+4. Inspect `interpretability["shared_to_first_layer"]` and `attribute_prediction_to_features(...)` to determine why the shared latent and predictive output are working.
+
+This preserves the central SiMLR promise: the first NSA Flow basis remains a concrete explanation of where predictive power comes from, even when the overall model is deep.

@@ -10,7 +10,10 @@ from pysimlr.benchmarks.plotting import (
     plot_sparsity_vs_orthogonality,
     plot_reconstruction_tradeoff,
     plot_v_heatmaps,
-    plot_latent_correlation
+    plot_latent_correlation,
+    plot_first_layer_alignment_heatmap,
+    plot_first_layer_feature_importance,
+    plot_interpretability_tradeoff,
 )
 
 @pytest.fixture
@@ -76,3 +79,36 @@ def test_plot_latent_correlation():
     fig = plot_latent_correlation(u_pred, u_true)
     assert isinstance(fig, plt.Figure)
     plt.close(fig)
+
+
+def test_plot_pr4_interpretability_figures(sample_df):
+    result = {
+        "first_layer": {"v": [torch.randn(10, 2)]},
+        "interpretability": {
+            "deep_layer_alignment": {
+                "modalities": [
+                    {"component_correlation": torch.randn(2, 2)}
+                ]
+            },
+            "shared_to_first_layer": {
+                "combined": {
+                    "feature_importance": [torch.randn(10)]
+                }
+            },
+        },
+    }
+    fig1 = plot_first_layer_alignment_heatmap(result, modality_idx=0)
+    assert isinstance(fig1, plt.Figure)
+    plt.close(fig1)
+
+    fig2 = plot_first_layer_feature_importance(result, modality_idx=0, top_k=5)
+    assert isinstance(fig2, plt.Figure)
+    plt.close(fig2)
+
+    fig3 = plot_interpretability_tradeoff(
+        sample_df.assign(first_layer_prediction_preservation=[0.6, 0.5, 0.8, 0.75])
+    )
+    assert isinstance(fig3, plt.Figure)
+    plt.close(fig3)
+
+    assert plot_interpretability_tradeoff(sample_df) is None

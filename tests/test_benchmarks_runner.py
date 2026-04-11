@@ -95,3 +95,13 @@ def test_run_single_experiment_error():
     case = build_case(kind="nonlinear_shared", n_samples=50)
     with pytest.raises(ValueError, match="Unknown model type"):
         run_single_experiment("unknown", case)
+
+
+def test_run_single_experiment_pr4_metrics_present():
+    case = build_case(kind="nonlinear_shared", n_samples=60, seed=42)
+    res = run_single_experiment("lend", case, sparsity=0.0, seed=42, epochs=1)
+    metrics = res["metrics"]
+    assert "first_layer_density_mean" in metrics
+    assert "first_layer_alignment_r2_mean" in metrics
+    assert "shared_to_first_layer_r2_mean" in metrics
+    assert "first_layer_prediction_preservation" in metrics

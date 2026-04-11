@@ -69,12 +69,18 @@ def run_single_experiment(model_type: str,
     private_l = pred_test.get("private_latents")
     
     metrics = calculate_all_metrics(
-        pred_test['u'], u_true_test, y_test, test_mats, pred_test['reconstructions'],
+        pred_test['u'],
+        u_true_test,
+        y_test,
+        test_mats,
+        pred_test['reconstructions'],
         shared_latents=shared_l,
         private_latents=private_l,
         v_mats=res.get("v"),
         u_train=pred_train['u'],
-        y_train=y_train
+        y_train=y_train,
+        first_layer=pred_test.get("first_layer") or res.get("first_layer"),
+        interpretability=pred_test.get("interpretability") or res.get("interpretability"),
     )
     
     metrics.update({

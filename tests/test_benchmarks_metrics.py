@@ -8,7 +8,11 @@ from pysimlr.benchmarks.metrics import (
     latent_variance_diagnostics,
     shared_private_diagnostics,
     calculate_v_orthogonality,
-    calculate_all_metrics
+    calculate_all_metrics,
+    first_layer_sparsity_metrics,
+    alignment_metrics_from_report,
+    prediction_preservation_metrics_from_report,
+    shared_attribution_metrics_from_report,
 )
 
 def test_latent_recovery_score():
@@ -78,3 +82,48 @@ def test_calculate_all_metrics():
     )
     assert "mod0_shared_var" in metrics_full
     assert "orthogonality_defect" in metrics_full
+
+
+def test_pr4_first_layer_metric_extractors():
+    first_layer = {
+        "orthogonality_defect": [0.1, 0.2],
+        "sparsity_summary": [
+            {"component_density": [0.2, 0.4], "component_l0": [2, 4]},
+            {"component_density": [0.1, 0.3], "component_l0": [1, 3]},
+        ],
+    }
+    metrics = first_layer_sparsity_metrics(first_layer)
+    assert metrics["first_layer_density_mean"] > 0.0
+    assert metrics["first_layer_l0_mean"] > 0.0
+    assert metrics["first_layer_orthogonality_mean"] == pytest.approx(0.15)
+
+
+def test_pr4_alignment_and_attribution_metric_extractors():
+    alignment = {
+        "modalities": [
+            {
+                "global_r2": 0.8,
+                "component_correlation": torch.tensor([[1.0, 0.2], [0.1, 0.7]]),
+                "feature_importance": torch.tensor([0.4, 0.2, 0.1]),
+            }
+        ]
+    }
+    shared = {
+        "per_modality": [{"global_r2": 0.75}],
+        "combined": {"component_importance": torch.tensor([0.8, 0.2])},
+    }
+    pred = {
+        "per_modality": [{"global_r2": 0.5}, {"global_r2": 0.25}],
+        "shared_latent_baseline": {"global_r2": 0.8},
+    }
+
+    align_metrics = alignment_metrics_from_report(alignment)
+    shared_metrics = shared_attribution_metrics_from_report(shared)
+    pred_metrics = prediction_preservation_metrics_from_report(pred)
+
+    assert align_metrics["first_layer_alignment_r2_mean"] == pytest.approx(0.8)
+    assert align_metrics["first_layer_alignment_corr_mean"] > 0.0
+    assert shared_metrics["shared_to_first_layer_r2_mean"] == pytest.approx(0.75)
+    assert shared_metrics["shared_component_concentration"] > 0.0
+    assert pred_metrics["first_layer_prediction_r2_mean"] == pytest.approx(0.375)
+    assert pred_metrics["first_layer_prediction_preservation"] > 0.0
