@@ -47,7 +47,6 @@ def heldout_outcome_mse(u_train: torch.Tensor, y_train: np.ndarray,
                         u_test: torch.Tensor, y_test: np.ndarray) -> float:
     """
     Calculate MSE for outcome prediction on held-out data.
-    Fits a downstream model on train latents and scores on test latents.
     """
     u_train_np = u_train.detach().cpu().numpy()
     u_test_np = u_test.detach().cpu().numpy()
@@ -61,24 +60,32 @@ def heldout_outcome_mse(u_train: torch.Tensor, y_train: np.ndarray,
     y_pred = reg.predict(u_test_np)
     return mean_squared_error(y_test, y_pred)
 
-def reconstruction_mse(data: List[torch.Tensor], recons: List[torch.Tensor]) -> float:
-    """Calculate average normalized reconstruction error across modalities."""
+def reconstruction_mse(data: List[torch.Tensor], recons: List[torch.Tensor]) -> Dict[str, float]:
+    """Calculate normalized reconstruction error across modalities."""
     errors = []
     for x, r in zip(data, recons):
         err = torch.norm(x - r, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10)
         errors.append(err)
-    return float(np.mean(errors))
+    return {
+        "recon_error": float(np.mean(errors)),
+        "recon_error_std": float(np.std(errors))
+    }
 
 def latent_variance_diagnostics(u: torch.Tensor) -> Dict[str, float]:
     """Check for latent collapse and scaling issues."""
     u_std = torch.std(u, dim=0)
-    u_norm = torch.norm(u, dim=1)
+    
+    # Covariance diagnostics: check for redundancy between dimensions
+    n = u.shape[0]
+    u_c = u - u.mean(dim=0, keepdim=True)
+    cov = (u_c.T @ u_c) / (n - 1)
+    mask = ~torch.eye(u.shape[1], device=u.device).bool()
+    off_diag_norm = torch.norm(cov[mask]).item()
     
     return {
         "u_std_mean": float(torch.mean(u_std).item()),
         "u_std_min": float(torch.min(u_std).item()),
-        "u_norm_mean": float(torch.mean(u_norm).item()),
-        "u_norm_sd": float(torch.std(u_norm).item()),
+        "u_off_diag_cov": float(off_diag_norm),
         "collapsed_dims": int(torch.sum(u_std < 1e-3).item())
     }
 
@@ -121,11 +128,12 @@ def calculate_all_metrics(u_pred: torch.Tensor,
                           y_train: Optional[np.ndarray] = None) -> Dict[str, Any]:
     """
     Utility to calculate a standard suite of metrics.
-    If u_train and y_train are provided, true held-out metrics are calculated.
     """
+    recon_res = reconstruction_mse(data, recons)
     res = {
         "recovery": latent_recovery_score(u_pred, u_true),
-        "recon_error": reconstruction_mse(data, recons)
+        "recon_error": recon_res["recon_error"],
+        "recon_error_std": recon_res["recon_error_std"]
     }
     
     if u_train is not None and y_train is not None:
@@ -133,7 +141,6 @@ def calculate_all_metrics(u_pred: torch.Tensor,
         res["test_mse"] = heldout_outcome_mse(u_train, y_train, u_pred, y_true)
     else:
         res["in_sample_r2"] = in_sample_latent_linear_fit_r2(u_pred, y_true)
-        # Keep test_r2 for backward compatibility but use in-sample value
         res["test_r2"] = res["in_sample_r2"]
         
     res.update(latent_variance_diagnostics(u_pred))

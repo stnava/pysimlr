@@ -54,28 +54,27 @@ class BenchmarkProtocol:
             y_train=train_data["y"]
         )
         
-        # Standardized schema
+        # Standardized schema - Includes all diagnostic fields from metrics
         result = {
             "seed": seed,
             "model": model_type,
+            "generator_name": generator_name,
+            "noise_level": noise_level,
             "train_n": self.train_n,
             "val_n": self.val_n,
             "test_n": self.test_n,
             "latent_recovery_corr": metrics['recovery'],
-            "reconstruction_mse": metrics['recon_error'],
             "heldout_outcome_r2": metrics['test_r2'],
             "heldout_outcome_mse": metrics.get('test_mse', 0.0),
-            "generator_name": generator_name,
-            "noise_level": noise_level,
-            # Diagnostics
-            "u_std_mean": metrics.get("u_std_mean", 0.0),
-            "u_off_diag_cov": metrics.get("u_off_diag_cov", 0.0)
+            "reconstruction_mse": metrics['recon_error'],
+            "reconstruction_mse_std": metrics.get('recon_error_std', 0.0)
         }
         
-        # Add shared/private diagnostics if available
-        for key in metrics:
-            if "shared_var" in key or "private_var" in key or "cross_cov" in key:
-                result[key] = metrics[key]
+        # Capture all other diagnostic keys (variance, orthogonality, shared/private separation)
+        diagnostic_prefixes = ["u_", "collapsed_", "mod", "orthogonality_"]
+        for key, value in metrics.items():
+            if any(key.startswith(p) for p in diagnostic_prefixes):
+                result[key] = value
                 
         return result
 
