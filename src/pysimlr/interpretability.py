@@ -38,9 +38,25 @@ def _fit_linear_map(
     yc = y - y_mean
 
     n_features = xc.shape[1]
-    xtx = xc.T @ xc
-    reg = l2 * torch.eye(n_features, dtype=xc.dtype)
-    beta = torch.linalg.solve(xtx + reg, xc.T @ yc)
+    
+    # Use lstsq for better numerical stability with potentially singular matrices
+    # xtx + reg can still be unstable if l2 is too small or data scale is huge.
+    # lstsq handles the pseudo-inverse internally.
+    try:
+        # We use the regularized normal equations approach but with safety
+        xtx = xc.T @ xc
+        reg = l2 * torch.eye(n_features, dtype=xc.dtype)
+        # Add a tiny bit more to the diagonal if it's really bad, or use lstsq
+        # But for Ridge, solving (X'X + L*I)B = X'Y is standard.
+        # If solve fails, we fallback to lstsq on the augmented problem or just lstsq.
+        beta = torch.linalg.solve(xtx + reg, xc.T @ yc)
+    except Exception:
+        # Fallback to least squares solver which is more robust to singularity
+        # We solve the original problem with a tiny bit of regularization implicit in lstsq
+        # or we can explicitly augment for Ridge.
+        # For simplicity and robustness:
+        beta = torch.linalg.lstsq(xc, yc, rcond=1e-6).solution
+        
     intercept = y_mean - x_mean @ beta
 
     y_hat = x @ beta + intercept
@@ -193,7 +209,7 @@ def analyze_first_layer_alignment(
     *,
     l2: float = 1e-6,
 ) -> Dict[str, Any]:
-    """Quantify how post-first-layer deep latents relate to the first NSA basis scores."""
+    """Quantify how post-first-layer deep latents relate to the first basis scores."""
     first_layer = extract_first_layer_factors(model_res)
     z0_list = first_layer["scores"]
     z1_list = model_res.get("latents")
@@ -360,7 +376,7 @@ def build_interpretability_report(
     *,
     l2: float = 1e-6,
 ) -> Dict[str, Any]:
-    """Build the default PR3 interpretability payload."""
+    """Build the default interpretability payload."""
     return {
         "shared_to_first_layer": attribute_shared_to_first_layer(model_res, l2=l2),
         "deep_layer_alignment": analyze_first_layer_alignment(model_res, l2=l2),

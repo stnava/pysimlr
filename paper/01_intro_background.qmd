@@ -48,7 +48,7 @@ from pysimlr.visualization import (plot_lend_simr_architecture,
 
 #### 1. LEND (Linear Encoder, Nonlinear Decoder)
 
-The LEND architecture is designed for scenarios where feature-level interpretability is paramount, but the data is corrupted by complex, nonlinear noise. It utilizes a strictly linear, Stiefel-constrained encoder.
+The LEND architecture is designed for scenarios where feature-level interpretability is paramount, but the data is corrupted by complex, nonlinear noise. It utilizes strictly linear encoders constrained by the **Non-negative Stiefel approximating flow**.
 
 ```{python}
 #| label: fig-lend-arch
@@ -79,13 +79,13 @@ plot_ned_shared_private_architecture()
 plt.show()
 ```
 
-### Manifold Optimization and the NSA Flow
+### Manifold Optimization and the Non-negative Stiefel approximating flow
 
-A critical technical challenge in deep multi-view learning is maintaining the orthogonality of latent components. We utilize the **NSA (Norm-preserving Spherical Addition) Flow** to enforce Stiefel manifold constraints directly within the backpropagation cycle.
+A critical technical challenge in deep multi-view learning is maintaining the orthogonality of latent components. We utilize the **Non-negative Stiefel approximating flow** to enforce Stiefel manifold constraints directly within the backpropagation cycle.
 
 ```{python}
 #| label: fig-nsa-arch
-#| fig-cap: "The NSA Flow Mechanism: Dynamic retraction onto the Stiefel manifold during training."
+#| fig-cap: "The Non-negative Stiefel approximating flow Mechanism: Dynamic retraction onto the Stiefel manifold during training."
 plot_nsa_flow_architecture()
 plt.show()
 ```

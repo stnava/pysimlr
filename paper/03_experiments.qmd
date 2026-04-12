@@ -2,7 +2,7 @@
 
 In this section, we comprehensively evaluate the SiMLR framework, transitioning from controlled synthetic environments to real-world biological data. We specifically focus on the **interpretability-performance trade-off** and the **predictive stability** of the learned linear projectors.
 
-All experiments utilize the **NSA-Flow** with a default weight of **$w=0.1$**, providing a soft-orthogonalization that balances gradient flexibility with component decorrelation.
+All experiments utilize the **Non-negative Stiefel approximating flow** with a default weight of **$w=0.1$**, providing a soft-orthogonalization that balances gradient flexibility with component decorrelation.
 
 ## 1. Experimental Setup and Metrics
 
@@ -54,7 +54,7 @@ We first verify that $w=0.1$ provides sufficient constraint to recover a linear 
 
 ```{python}
 #| label: tbl-linear-results-final
-#| tbl-cap: "Linear recovery and predictive power with NSA-Flow (w=0.1)."
+#| tbl-cap: "Linear recovery and predictive power with Non-negative Stiefel approximating flow (w=0.1)."
 n_samples = 800
 k_true = 3
 u_true = torch.randn(n_samples, k_true)
@@ -64,7 +64,7 @@ y = u_true[:, 0] * 2.0 + 0.5 * torch.randn(n_samples)
 
 x_norm = StandardScaler().fit_transform(x.numpy())
 
-# Run SiMLR with NSA-Flow w=0.1
+# Run SiMLR with Non-negative Stiefel approximating flow w=0.1
 res = simlr([x_norm, x_norm], k=k_true, constraint="Stiefelx0.1x5", iterations=50, verbose=False)
 v_est = res['v'][0]
 

@@ -1,30 +1,30 @@
 # Methods
 
-In this section, we present the mathematical foundations and algorithmic details of our multi-modal integration framework. We detail the classical linear formulation of Similarity-driven Multi-view Linear Reconstruction (SiMLR), proceed to the deep extensions (LEND and NED), and formally define the **Non-Negative Stiefel Approximating Flow (NSA-Flow)**, which serves as the core mechanism for interpretable latent discovery.
+In this section, we present the mathematical foundations and algorithmic details of our multi-modal integration framework. We detail the classical linear formulation of Similarity-driven Multi-view Linear Reconstruction (SiMLR), proceed to the deep extensions (LEND and NED), and formally define the **Non-negative Stiefel approximating flow**, which serves as the core mechanism for interpretable latent discovery.
 
 ## 1. Mathematical Notation and Problem Formulation
 
 Let $X_1, X_2, \ldots, X_M$ denote $M$ distinct data modalities collected from the same $n$ samples. For the $m$-th modality, $X_m \in \mathbb{R}^{n \times d_m}$. Our goal is to discover a low-dimensional consensus space $U \in \mathbb{R}^{n \times k}$ ($k \ll \min_m d_m$) that captures the shared variance across all modalities. We seek view-specific encoding functions $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k$ such that the latent representations $Z_m = f_m(X_m)$ are aligned with $U$.
 
-## 2. NSA-Flow: The Engine of Interpretable Alignment
+## 2. Non-negative Stiefel approximating flow: The Engine of Interpretable Alignment
 
-The **Non-Negative Stiefel Approximating Flow (NSA-Flow)** [@nsaflow2025] is the mathematical backbone of our framework. Unlike traditional Riemannian optimization that strictly projects weights onto the Stiefel manifold at every step, NSA-Flow treats orthogonality as a continuous flow that guides the optimization.
+The **Non-negative Stiefel approximating flow** [@nsaflow2025] is the mathematical backbone of our framework. Unlike traditional Riemannian optimization that strictly projects weights onto the Stiefel manifold at every step, the Non-negative Stiefel approximating flow treats orthogonality as a continuous flow that guides the optimization.
 
 ### 2.1 Mathematical Definition
 
-For a projection matrix $V \in \mathbb{R}^{d \times k}$, NSA-Flow minimizes an objective that balances reconstruction (or similarity) with a specialized penalty term:
+For a projection matrix $V \in \mathbb{R}^{d \times k}$, the flow minimizes an objective that balances data fidelity with a specialized orthogonality penalty:
 
-$$L(V) = L_{data}(V) + w \cdot L_{NSA}(V)$$
+$$L(V) = L_{data}(V) + w \cdot L_{orth}(V)$$
 
-The **Norm-preserving Spherical Addition (NSA)** term is defined as the sum of squared cosine similarities between all pairs of latent components:
+The orthogonality penalty $L_{orth}(V)$ is defined using the Frobenius norm of the deviation from the Stiefel manifold:
 
-$$L_{NSA}(V) = \sum_{i \neq j} \frac{\langle v_i, v_j \rangle^2}{\|v_i\|^2 \|v_j\|^2}$$
+$$L_{orth}(V) = \| V^\top V - I \|_F^2$$
 
-This term penalizes redundancy between latent features, pushing them toward statistical independence. The flow maintains each column $v_i$ on the unit sphere ($S^{d-1}$) via a spherical retraction: $v_i \leftarrow \frac{v_i}{\|v_i\|}$.
+When the columns of $V$ are unit-norm, this penalty is mathematically equivalent to the sum of **squared cosine similarities** between all pairs of latent components. This pushes the discovered features toward statistical independence while maintaining representational energy via spherical retraction ($v_i \leftarrow \frac{v_i}{\|v_i\|}$).
 
 ### 2.2 Non-Negativity and Interpretability
 
-NSA-Flow naturally incorporates a non-negativity constraint ($V \geq 0$) via proximal updates. This is critical for scientific interpretability; in genomics or neuroimaging, latent factors are often more meaningful when they represent purely additive "parts" rather than bipolar gradients. The interaction between the spherical constraint and non-negativity induces **structured sparsity**, forcing components to compete for "real estate" on the sphere while remaining decorrelated.
+The Non-negative Stiefel approximating flow naturally incorporates a non-negativity constraint ($V \geq 0$) via proximal updates during the flow. This is critical for scientific interpretability; in genomics or neuroimaging, latent factors are often more meaningful when they represent purely additive "parts." The interaction between the orthogonality pressure and non-negativity induces **structured sparsity**, as components are forced to compete for unique "real estate" in the feature space while remaining decorrelated.
 
 ### 2.3 The "Orthogonalish" Sweet Spot ($w=0.1$)
 
@@ -50,7 +50,7 @@ from pysimlr.visualization import (plot_lend_simr_architecture,
                                    plot_ned_shared_private_architecture)
 ```
 
-1.  **LEND (Linear Encoder, Nonlinear Decoder):** Retains strictly linear, NSA-constrained encoders to guarantee feature-level interpretability. It uses deep decoders to "explain away" non-linear noise.
+1.  **LEND (Linear Encoder, Nonlinear Decoder):** Retains strictly linear encoders, constrained by the Non-negative Stiefel approximating flow, to guarantee feature-level interpretability. It uses deep decoders to "explain away" non-linear noise.
 2.  **NED (Nonlinear Encoder Decoder):** Employs deep networks for both pathways, maximizing representational power at the cost of direct weight interpretability.
 3.  **Shared/Private (NEDPP):** Explicitly shunts modality-specific structured noise into private latent spaces, keeping the shared consensus pure.
 
