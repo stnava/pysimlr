@@ -348,3 +348,31 @@ def preprocess_data(x: torch.Tensor, scale_list: List[str], provenance: Optional
         return x_out
     return x_out, new_provenance
 
+
+def set_all_seeds(seed: int = 42):
+    """Set seeds for reproducibility across torch, numpy, and random."""
+    import random
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+def safe_svd(x: torch.Tensor, full_matrices: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Hardware-aware SVD that gracefully handles MPS (macOS) limitations
+    by falling back to CPU when necessary.
+    """
+    if x.device.type == 'mps':
+        # Current MPS backend lacks stable linalg_svd support for all shapes/precisions
+        x_cpu = x.cpu()
+        u, s, vh = torch.linalg.svd(x_cpu, full_matrices=full_matrices)
+        return u.to(x.device), s.to(x.device), vh.to(x.device)
+    try:
+        return torch.linalg.svd(x, full_matrices=full_matrices)
+    except RuntimeError:
+        # Fallback for unexpected backend failures
+        x_cpu = x.cpu()
+        u, s, vh = torch.linalg.svd(x_cpu, full_matrices=full_matrices)
+        return u.to(x.device), s.to(x.device), vh.to(x.device)

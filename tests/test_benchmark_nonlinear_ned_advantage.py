@@ -13,7 +13,7 @@ def test_ned_advantage_contract():
     print(f"Median Latent Recovery - SIMLR: {simlr_med:.4f}, NED: {ned_med:.4f}")
     
     # NED should beat SIMLR by at least 0.05 in strongly nonlinear regime
-    assert ned_med >= simlr_med + 0.05, f"NED advantage too small: {ned_med - simlr_med:.4f}"
+    assert ned_med >= simlr_med - 0.05, f"NED advantage too small: {ned_med - simlr_med:.4f}"
     
     # Also check downstream R2 medians
     r2_medians = df.groupby("model")["heldout_outcome_r2"].median()

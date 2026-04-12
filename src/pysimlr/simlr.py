@@ -1,10 +1,10 @@
 import torch
 import numpy as np
-from typing import List, Optional, Union, Dict, Any, Tuple
+from typing import List, Optional, Union, Dict, Any, Tuple, Callable
 from .svd import ba_svd, safe_pca
 from .optimizers import create_optimizer
 from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness
-from .utils import (set_seed_based_on_time, adjusted_rvcoef, 
+from .utils import (set_seed_based_on_time, adjusted_rvcoef, safe_svd,
                     invariant_orthogonality_defect, l1_normalize_features, orthogonality_summary, preprocess_data)
 from .consensus import compute_shared_consensus
 from scipy.stats import ttest_1samp
@@ -26,6 +26,21 @@ def parse_constraint(constraint_str: str) -> Dict[str, Any]:
         try: iterations = int(parts[2])
         except ValueError: pass
     return {"type": constraint_type, "weight": weight, "iterations": iterations}
+
+def project_gradient(v_grad: torch.Tensor, v_current: torch.Tensor, constraint_type: str) -> torch.Tensor:
+    """
+    Project gradient onto the tangent space of the manifold.
+    Following Edelman et al. (1998).
+    """
+    if constraint_type == "Grassmann":
+        # Project onto Grassmann tangent space: G = G - V(V^T G)
+        return v_grad - v_current @ (v_current.t() @ v_grad)
+    elif constraint_type == "Stiefel":
+        # Project onto Stiefel tangent space: G = G - V sym(V^T G)
+        vtg = v_current.t() @ v_grad
+        sym_vtg = 0.5 * (vtg + vtg.t())
+        return v_grad - v_current @ sym_vtg
+    return v_grad
 
 def calculate_u(projections: List[torch.Tensor], 
                 mixing_algorithm: str = "svd", 
@@ -105,7 +120,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           iterations: int = 100,
           optimizer_type: str = "lars",
           energy_type: str = "acc",
-          constraint: str = "none",
+          constraint: str = "Stiefel",
           mixing_algorithm: str = "svd",
           sparseness_quantile: float = 0.5,
           positivity: str = "either",
@@ -118,6 +133,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           verbose: bool = False,
           **opt_params) -> Dict[str, Any]:
     
+    # Handle 'sparsity' alias
+    if 'sparsity' in opt_params:
+        sparseness_quantile = opt_params.pop('sparsity')
+
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     
     provenance_list = []
@@ -128,46 +147,79 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             scaled_mats.append(m_scaled)
             provenance_list.append(prov)
         torch_mats = scaled_mats
-
-    
-    n_modalities = len(torch_mats); orig_dtype = torch_mats[0].dtype
-
-    c_info = parse_constraint(constraint)
-    constraint_type, constraint_weight, constraint_iterations = c_info['type'], c_info['weight'], c_info['iterations']
-    if domain_matrices is not None:
-        torch_domains = [torch.as_tensor(dm).to(orig_dtype) if dm is not None else None for dm in domain_matrices]
-    else: torch_domains = None
-    if domain_lambdas is None: domain_lambdas = [0.0] * n_modalities
-    elif isinstance(domain_lambdas, (float, int)): domain_lambdas = [float(domain_lambdas)] * n_modalities
+        
+    n_modalities = len(torch_mats)
+    orig_dtype = torch_mats[0].dtype
     v_mats = initialize_simlr(torch_mats, k)
     optimizer = create_optimizer(optimizer_type, v_mats, **opt_params)
-    normalizing_weights = torch.ones(n_modalities, dtype=orig_dtype)
-    orth_weights = torch.zeros(n_modalities, dtype=orig_dtype)
-    domain_weights = torch.ones(n_modalities, dtype=orig_dtype)
-    energy_history = []
     
+    constraint_info = parse_constraint(constraint)
+    constraint_type = constraint_info["type"]
+    constraint_weight = constraint_info["weight"]
+    constraint_iterations = constraint_info["iterations"]
+    
+    torch_domains = [torch.as_tensor(dm).float() if dm is not None else None for dm in domain_matrices] if domain_matrices else None
+    if isinstance(domain_lambdas, float): domain_lambdas = [domain_lambdas] * n_modalities
+    
+    energy_history = []
     prev_total_energy = float('inf')
     converged_iter = iterations
-
+    
+    normalizing_weights = [1.0] * n_modalities
+    orth_weights = [1.0] * n_modalities
+    domain_weights = [1.0] * n_modalities
+    
     for it in range(iterations):
         projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
         u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u)
         for i in range(n_modalities):
-            def full_energy_fn(v_cand):
+            # Local energy function that incorporates sparsification/retraction
+            def smooth_energy_fn(v_cand):
                 v_cand = v_cand.to(orig_dtype)
-                sim_e = calculate_simlr_energy(v_cand, torch_mats[i], u, energy_type) * normalizing_weights[i]
+                if positivity == 'positive': v_cand = torch.abs(v_cand)
+                elif positivity == 'negative': v_cand = -torch.abs(v_cand)
+                
+                v_sp = simlr_sparseness(v_cand, constraint_type=constraint_type, 
+                                        smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, 
+                                        positivity=positivity, sparseness_quantile=sparseness_quantile, 
+                                        constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, 
+                                        energy_type=energy_type)
+                
+                sim_e = calculate_simlr_energy(v_sp, torch_mats[i], u, energy_type) * normalizing_weights[i]
                 dom_e = 0.0
                 if torch_domains is not None and torch_domains[i] is not None:
-                    dom_e = calculate_simlr_energy(v_cand, torch_mats[i], u, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
+                    dom_e = calculate_simlr_energy(v_sp, torch_mats[i], u, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
                 orth_e = 0.0
-                if constraint_type == "ortho": orth_e = invariant_orthogonality_defect(v_cand) * constraint_weight * orth_weights[i]
+                if constraint_type == "ortho": orth_e = invariant_orthogonality_defect(v_sp) * constraint_weight * orth_weights[i]
                 return (sim_e + dom_e + orth_e).item()
-            sim_grad = calculate_simlr_gradient(v_mats[i], torch_mats[i], u, energy_type) * normalizing_weights[i]
-            dom_grad = 0.0
-            if torch_domains is not None and torch_domains[i] is not None:
-                dom_grad = calculate_simlr_gradient(v_mats[i], torch_mats[i], u, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
-            v_updated = optimizer.step(i, v_mats[i], sim_grad + dom_grad, full_energy_fn)
+
+            # Local gradient function that also incorporates manifold projection
+            def smooth_gradient_fn(v_curr):
+                if positivity == 'positive': v_curr = torch.abs(v_curr)
+                
+                sim_grad = calculate_simlr_gradient(v_curr, torch_mats[i], u, energy_type) * normalizing_weights[i]
+                dom_grad = 0.0
+                if torch_domains is not None and torch_domains[i] is not None:
+                    dom_grad = calculate_simlr_gradient(v_curr, torch_mats[i], u, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
+                
+                total_grad = sim_grad + dom_grad
+                # Project gradient onto tangent space
+                total_grad = project_gradient(total_grad, v_curr, constraint_type)
+                
+                # Further sparsify/constrain the gradient direction
+                total_grad = simlr_sparseness(total_grad, constraint_type=constraint_type, 
+                                              smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, 
+                                              positivity=positivity, sparseness_quantile=sparseness_quantile, 
+                                              constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, 
+                                              energy_type=energy_type)
+                return total_grad
+
+            total_grad = smooth_gradient_fn(v_mats[i])
+            v_updated = optimizer.step(i, v_mats[i], total_grad, smooth_energy_fn)
+            
+            # Apply final projection
             v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness_quantile=sparseness_quantile, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type)
+            
         if it == 0:
             for i in range(n_modalities):
                 sim_e = calculate_simlr_energy(v_mats[i], torch_mats[i], u, energy_type).item()
@@ -191,6 +243,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         
         if verbose and it % 10 == 0: print(f"Iteration {it}: Total Energy {total_energy}")
         
+    # Re-calculate final shared consensus after the last V update
+    projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
+    u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u)
     
     v_summaries = [orthogonality_summary(v) for v in v_mats]
     
@@ -346,7 +401,7 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     else:
         raise ValueError("Learned reconstruction weights 'w' missing from simlr_result. "
                          "Legacy refit is disabled by default. Set allow_legacy_refit=True to enable.")
-
+    
     errors = []
     for i, x in enumerate(torch_mats):
         x_pred = reconstructions[i]
@@ -360,20 +415,20 @@ def estimate_rank(data_matrices: List[Union[torch.Tensor, np.ndarray]], n_permut
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     n_modalities = len(torch_mats); k_max_list = []
     for x in torch_mats:
-        x_centered = x - torch.mean(x, dim=0); _, s, _ = torch.linalg.svd(x_centered, full_matrices=False)
+        x_centered = x - torch.mean(x, dim=0); _, s, _ = safe_svd(x_centered, full_matrices=False)
         eigenvalues = s**2; prop_var = torch.cumsum(eigenvalues, dim=0) / (torch.sum(eigenvalues) + 1e-10)
         k_max_list.append(torch.where(prop_var >= var_threshold)[0][0].item() + 1)
     k_max = min(k_max_list) if k_max_list else 1
     if k_max < 1: k_max = 1
     def calculate_rv_curve(mats, km):
-        u_list = [torch.linalg.svd(m, full_matrices=False)[0][:, :km] for m in mats]
+        u_list = [safe_svd(m, full_matrices=False)[0][:, :km] for m in mats]
         scores = []
         for curr_k in range(1, km + 1):
             mod_scores = []
             for i in range(n_modalities):
                 y_target = u_list[i][:, :curr_k]; other_inds = [j for j in range(n_modalities) if j != i]
                 u_other = torch.cat([u_list[j][:, :curr_k] for j in other_inds], dim=1)
-                consensus, _, _ = torch.linalg.svd(u_other, full_matrices=False)
+                consensus, _, _ = safe_svd(u_other, full_matrices=False)
                 consensus = consensus[:, :curr_k]; mod_scores.append(adjusted_rvcoef(y_target, consensus))
             scores.append(np.mean(mod_scores))
         return scores

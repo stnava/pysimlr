@@ -56,7 +56,7 @@ def test_lend_first_layer_contract():
 
 def test_ned_first_layer_contract_and_extraction():
     mats = [torch.randn(20, 11), torch.randn(20, 7)]
-    res = ned_simr(mats, k=4, epochs=2, batch_size=10, warmup_epochs=0, sim_weight=0.0)
+    res = ned_simr(mats, k=4, epochs=4, batch_size=10, warmup_epochs=0, sim_weight=0.0)
     _assert_first_layer_contract(res, mats)
     extracted = extract_first_layer_factors(
         res,
@@ -146,12 +146,12 @@ def test_pr3_alignment_and_shared_attribution_payloads():
 
 def test_pr3_prediction_attribution_prefers_signal_modality():
     torch.manual_seed(0)
-    n = 40
+    n = 100
     x1 = torch.randn(n, 6)
     x2 = 0.05 * torch.randn(n, 6)
     y = 2.0 * x1[:, 0] - 1.5 * x1[:, 1] + 0.1 * torch.randn(n)
 
-    res = lend_simr([x1, x2], k=2, epochs=2, batch_size=10, warmup_epochs=0, sim_weight=0.0)
+    res = lend_simr([x1, x2], k=2, epochs=4, batch_size=10, warmup_epochs=0, sim_weight=0.0)
     attr = attribute_prediction_to_features(res, y)
 
     m1 = attr["per_modality"][0]["global_r2"]

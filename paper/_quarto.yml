@@ -1,0 +1,28 @@
+project:
+  type: book
+  output-dir: _book
+
+book:
+  title: "Bridging the Gap: From Interpretable Linear Models to Deep Multimodal Integration with SiMLR"
+  author: "pysimlr Development Team"
+  date: today
+  chapters:
+    - index.qmd
+    - 01_intro_background.qmd
+    - 02_methods.qmd
+    - 03_experiments.qmd
+    - 04_discussion.qmd
+
+bibliography: references.bib
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    number-sections: true
+  pdf:
+    documentclass: report
+    toc: true
+    number-sections: true
+    geometry: "margin=1in"
+    keep-tex: true

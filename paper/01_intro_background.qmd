@@ -1,0 +1,91 @@
+# Introduction and Background
+
+## Introduction
+
+In the era of high-throughput data collection, scientific disciplines increasingly rely on multi-modal datasets to capture comprehensive snapshots of complex systems. For instance, modern biomedical research frequently pairs transcriptomics, proteomics, and epigenomics to understand cellular states, while neuroscience integrates functional magnetic resonance imaging (fMRI) with electroencephalography (EEG) and behavioral metrics. These disparate data types, termed *views* or *modalities*, offer complementary perspectives on an underlying shared reality. However, integrating these modalities remains a formidable challenge due to their heterogeneous noise profiles, varying dimensionalities, and fundamentally different generative processes.
+
+The primary objective of multi-view learning is to extract a shared, low-dimensional representation—a consensus latent space—that captures the overlapping information across modalities while simultaneously filtering out modality-specific noise. Uncovering this consensus is not merely a data compression exercise; it serves as a critical step in hypothesis generation, biomarker discovery, and predictive modeling. When the shared representation correlates with external variables (e.g., disease status, clinical outcomes, or behavioral phenotypes), it provides actionable insights into the underlying mechanisms driving those variables.
+
+Historically, the foundation of multi-view integration was laid by Canonical Correlation Analysis (CCA) [@hotelling1936relations], which seeks linear projections of two modalities that maximize their cross-correlation. While elegant and analytically tractable, classical CCA struggles with high-dimensional datasets where the number of features exceeds the number of samples, leading to overfitting and unstable representations. Subsequent extensions, such as Sparse CCA, introduced $L_1$ penalties to enforce feature selection, yielding more interpretable, sparse projection matrices.
+
+Despite these advancements, linear models inherently assume that the underlying latent factors are linearly related to the observed data. In reality, biological and physical systems frequently exhibit complex, nonlinear behaviors. Deep Canonical Correlation Analysis (DCCA) [@andrew2013deep; @wang2015deep] and deep multi-view autoencoders emerged to address this limitation by replacing linear projections with deep neural networks. These architectures leverage universal function approximators to model highly nonlinear generative processes, often achieving superior predictive performance and latent space alignment. However, this increased flexibility comes at a severe cost: the loss of interpretability. In deep models, the mapping from the original features to the latent space is entangled across multiple hidden layers, obscuring which specific variables (e.g., which genes or brain regions) are driving the shared representation.
+
+This tension between interpretability and expressivity is the central problem addressed in this work. We present **SiMLR** (Similarity-driven Multi-view Linear Reconstruction) and its deep extensions: **LEND** (Linear Encoder, Nonlinear Decoder) and **NED** (Nonlinear Encoder Decoder). Our framework bridges the gap between classical linear methods and modern deep learning by introducing a modular, manifold-constrained architecture that strictly enforces interpretability where it matters—at the feature-to-latent projection—while allowing flexible, nonlinear modeling of the generative process.
+
+## Background
+
+### Multi-View Representation Learning
+
+Multi-view learning encompasses a broad class of algorithms designed to exploit the consensus among multiple representations of the same underlying entities. Formally, given $M$ data matrices $X_1 \in \mathbb{R}^{n \times d_1}, \ldots, X_M \in \mathbb{R}^{n \times d_M}$, where $n$ is the number of samples and $d_m$ is the feature dimension of the $m$-th view, the goal is to find a set of transformations $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k$ such that the latent representations $Z_m = f_m(X_m)$ are maximally aligned according to some similarity metric, typically subject to constraints that prevent trivial solutions.
+
+#### Linear Frameworks: CCA and Beyond
+
+Classical CCA finds linear transformations $f_m(x) = W_m^\top x$ by maximizing the correlation between $Z_1$ and $Z_2$. This can be generalized to $M > 2$ views using generalized CCA (gCCA). These linear methods are deeply connected to factor analysis models, such as Joint and Individual Variation Explained (JIVE) [@lock2013joint] and Multi-Omics Factor Analysis (MOFA) [@argelaguet2018multi]. 
+
+#### The Nonlinear Frontier: Deep Multi-View Learning
+
+To model nonlinear relationships, researchers extended CCA using deep neural networks (DCCA). In DCCA, $f_m$ is parametrized by a multilayer perceptron (MLP). The network parameters are optimized to maximize the canonical correlation of the top-layer representations. Similarly, Deep CCA Autoencoders (DCCAE) combine the CCA objective with a reconstruction loss to ensure that the latent representations not only align across views but also preserve the information necessary to reconstruct the original inputs.
+
+### Architecture Visualizations
+
+The `pysimlr` framework provides a unified interface for several distinct architectural paradigms. Below, we utilize the framework's internal visualization tools to illustrate the structural differences between these models.
+
+```{python}
+#| label: setup-viz
+#| warning: false
+#| message: false
+#| echo: false
+import matplotlib.pyplot as plt
+import os
+import sys
+# Ensure we can import from src
+sys.path.insert(0, os.path.abspath('../src'))
+from pysimlr.visualization import (plot_lend_simr_architecture, 
+                                   plot_ned_simr_architecture, 
+                                   plot_ned_shared_private_architecture,
+                                   plot_nsa_flow_architecture)
+```
+
+#### 1. LEND (Linear Encoder, Nonlinear Decoder)
+
+The LEND architecture is designed for scenarios where feature-level interpretability is paramount, but the data is corrupted by complex, nonlinear noise. It utilizes a strictly linear, Stiefel-constrained encoder.
+
+```{python}
+#| label: fig-lend-arch
+#| fig-cap: "The LEND Architecture: Linear projections are combined into a shared consensus, which is then used by deep decoders to reconstruct the original views."
+plot_lend_simr_architecture()
+plt.show()
+```
+
+#### 2. NED (Nonlinear Encoder Decoder)
+
+NED fully relaxes the linear constraints on the encoder, employing deep neural networks for both encoding and decoding to maximize alignment in highly non-linear regimes.
+
+```{python}
+#| label: fig-ned-arch
+#| fig-cap: "The NED Architecture: Fully deep encoding and decoding pathways for maximum representational capacity."
+plot_ned_simr_architecture()
+plt.show()
+```
+
+#### 3. Shared/Private Architecture (NEDPP)
+
+This architecture explicitly partitions the latent space into a shared consensus component and modality-specific private components to prevent cross-view "pollution" from structured noise.
+
+```{python}
+#| label: fig-nedpp-arch
+#| fig-cap: "The Shared/Private Architecture: Isolating modality-specific variance from the shared consensus signal."
+plot_ned_shared_private_architecture()
+plt.show()
+```
+
+### Manifold Optimization and the NSA Flow
+
+A critical technical challenge in deep multi-view learning is maintaining the orthogonality of latent components. We utilize the **NSA (Norm-preserving Spherical Addition) Flow** to enforce Stiefel manifold constraints directly within the backpropagation cycle.
+
+```{python}
+#| label: fig-nsa-arch
+#| fig-cap: "The NSA Flow Mechanism: Dynamic retraction onto the Stiefel manifold during training."
+plot_nsa_flow_architecture()
+plt.show()
+```

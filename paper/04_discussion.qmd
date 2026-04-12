@@ -1,0 +1,29 @@
+# Discussion
+
+The integration of disparate, high-dimensional datasets stands as a central challenge in modern computational science. As experimental modalities grow more heterogeneous, the analytical tools we use must balance representational capacity with rigorous interpretability. In this work, we presented a comprehensive, unified framework rooted in Similarity-driven Multi-view Linear Reconstruction (SiMLR) and expanded it via the **Non-Negative Stiefel Approximating Flow (NSA-Flow)**. 
+
+Through extensive evaluation across purely linear, mildly nonlinear, and structured-noise regimes, we demonstrated how this spectrum of architectures provides researchers with a targeted toolkit for specific data properties.
+
+## 1. The Power of "Orthogonalish" Representations ($w=0.1$)
+
+A primary finding of this work is the validation of the NSA-Flow's "soft orthogonalization" mechanism. Traditional multi-view learning often forces a binary choice: either strict Stiefel manifold constraints (which can lead to rigid, suboptimal convergence) or unconstrained Euclidean optimization (which leads to redundant, collapsed components). By utilizing $w=0.1$, as recommended in @nsaflow2025, our experiments show that we can achieve the "best of both worlds." The $V$ matrices remain sufficiently decorrelated to provide distinct feature footprints, yet the optimization retains enough flexibility to discover sparse patterns that a more rigid constraint would obscure.
+
+## 2. Linear Projectors as Mechanistic Hypotheses
+
+A core objective of this study was to prove that the learned weights $V$ are not merely artifacts of the training process but represent stable, mechanistic relationships. Our **Fixed Projector Prediction** benchmarks demonstrated that the $V$ learned by LEND can be extracted and used as a simple linear mapping ($X \cdot V$) to achieve high prediction accuracy on clinical targets like tumor malignancy. 
+
+This is a significant result for translational research. It means that a scientist can use a deep LEND model to "unmix" complex multi-modal noise, extract the resulting linear projector, and then deploy that projector in a low-resource setting (e.g., a simple linear classifier) without needing the full deep network at inference time. This "fixed-basis" generalizability is the ultimate test of mechanistic interpretability.
+
+## 3. Disentangling Shared vs. Private Variance
+
+Our experiments with the Shared/Private (NEDPP) architecture highlight the critical need for explicit partitioning in multi-omics. By providing a dedicated pathway for modality-specific structured noise, NEDPP prevents "consensus pollution." While more sensitive to hyperparameters, this architecture is essential when one modality contains massive variance (e.g., batch effects or cell-cycle signals) that is uncorrelated with the other views.
+
+## 4. Hardware and Software Implementation
+
+Through the iterative development of this computable document, the `pysimlr` package was significantly hardened.
+- **Hardware Parity:** The implementation of `safe_svd` ensures that biological researchers on Apple Silicon (MPS) can enjoy stable, high-performance training without the autograd limitations of the current PyTorch backend.
+- **Constraint Priority:** We refactored the optimization core to prioritize manifold flow over sparsity, ensuring that feature discovery always starts from a geometrically valid foundation.
+
+## 5. Conclusion
+
+The SiMLR ecosystem provides a unified continuum for multimodal integration. By intelligently constraining deep neural networks with the Non-Negative Stiefel Approximating Flow, we have demonstrated that researchers no longer have to choose between the expressivity of deep learning and the feature-level interpretability of classical factor analysis. The resulting linear projectors serve as robust, predictive, and biologically meaningful mappings that bridge the gap between high-dimensional "black box" models and actionable scientific insights.

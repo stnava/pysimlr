@@ -140,7 +140,8 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
             if nsa_flow_orth is not None:
                 # Use NSA-Flow for robust retraction if available
                 precision = "float32" if orig_dtype == torch.float32 else "float64"
-                res = nsa_flow_orth(v_out, w=0.5, retraction="soft_polar", precision=precision, max_iter=10)
+                apply_nonneg = 'hard' if positivity in ['positive', 'hard'] else 'none'
+                res = nsa_flow_orth(v_out, w=0.5, retraction="soft_polar", precision=precision, max_iter=10, apply_nonneg=apply_nonneg)
                 if res['Y'] is not None:
                     v_out = res['Y'].to(orig_dtype)
                 else:
@@ -236,26 +237,39 @@ def simlr_sparseness(v: torch.Tensor,
     elif positivity == 'negative': v_out = -torch.abs(v_out)
     if smoothing_matrix is not None: v_out = smoothing_matrix @ v_out
     
-    if constraint_type in ["Stiefel", "Grassmann", "none"]:
-        if sparseness_alg == 'nnorth': v_out = project_to_orthonormal_nonnegative(v_out, constraint=positivity)
-        elif sparseness_quantile != 0 and sparseness_alg == 'soft':
-            v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sparseness_quantile, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
-        elif nsa_flow_orth is not None and constraint_weight > 0:
+    apply_nonneg = 'hard' if positivity in ['positive', 'hard'] else 'none'
+
+    # --- New Prioritized Flow ---
+    # 1. Handle Hard Constraints (Stiefel/Grassmann) or prioritized nsa_flow_orth
+    if constraint_type in ["Stiefel", "Grassmann"] or (constraint_type == "none" and nsa_flow_orth is not None and constraint_weight > 0):
+        if sparseness_alg == 'nnorth':
+            v_out = project_to_orthonormal_nonnegative(v_out, constraint=positivity)
+        elif nsa_flow_orth is not None and (constraint_type in ["Stiefel", "Grassmann"] or constraint_weight > 0):
             precision = "float32" if orig_dtype == torch.float32 else "float64"
+            # If Stiefel but weight is 0, use 1.0 as default for projection
+            w = constraint_weight if constraint_weight > 0 else 1.0
             try:
-                res = nsa_flow_orth(v_out, w=constraint_weight, retraction="soft_polar", max_iter=max(5, constraint_iterations), precision=precision)
+                res = nsa_flow_orth(v_out, w=w, retraction="soft_polar", max_iter=max(5, constraint_iterations), precision=precision, apply_nonneg=apply_nonneg)
                 if res['Y'] is not None:
                     v_out = res['Y'].to(orig_dtype)
             except:
-                # Fallback to SVD if nsa_flow_orth fails
-                u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
-                v_out = u @ v_h
-                
+                if constraint_type in ["Stiefel", "Grassmann"]:
+                    u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+                    v_out = u @ v_h
+        elif constraint_type in ["Stiefel", "Grassmann"]:
+            # Fallback to SVD if nsa_flow not available
+            u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+            v_out = u @ v_h
+
+        # 2. Apply Sparsity on top of constrained matrix
+        if sparseness_quantile != 0 and sparseness_alg == 'soft':
+            v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sparseness_quantile, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
+
     elif constraint_type == "ortho":
         if nsa_flow_orth is not None:
             precision = "float32" if orig_dtype == torch.float32 else "float64"
             try:
-                res = nsa_flow_orth(v_out, w=constraint_weight, retraction="soft_polar", max_iter=max(5, constraint_iterations), precision=precision)
+                res = nsa_flow_orth(v_out, w=constraint_weight, retraction="soft_polar", max_iter=max(5, constraint_iterations), precision=precision, apply_nonneg=apply_nonneg)
                 if res['Y'] is not None:
                     v_out = res['Y'].to(orig_dtype)
             except:
@@ -268,6 +282,10 @@ def simlr_sparseness(v: torch.Tensor,
         if sparseness_quantile != 0 and sparseness_alg == 'soft':
             v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sparseness_quantile, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
             
+    elif constraint_type == "none" and sparseness_quantile != 0 and sparseness_alg == 'soft':
+        # Legacy behavior for purely unconstrained soft-sparsity
+        v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sparseness_quantile, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
+
     normalize_energy_types = ["acc", "cca", "nc", "normalized_correlation", "lowRankRegression", "lrr"]
     if energy_type is not None and energy_type in normalize_energy_types: v_out = l1_normalize_features(v_out)
     return v_out.to(orig_dtype)
