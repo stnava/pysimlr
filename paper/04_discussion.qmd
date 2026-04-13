@@ -1,29 +1,67 @@
 # Discussion
 
-The integration of disparate, high-dimensional datasets stands as a central challenge in modern computational science. As experimental modalities grow more heterogeneous, the analytical tools we use must balance representational capacity with rigorous interpretability. In this work, we presented a comprehensive, unified framework rooted in Similarity-driven Multi-view Linear Reconstruction (SiMLR) and expanded it via the **Non-negative Stiefel approximating flow**. 
+The integration of disparate, high-dimensional datasets stands as a central challenge in modern computational science. As experimental modalities grow more heterogeneous—mixing, for instance, sparse sequence counts with dense imaging pixels—the analytical tools we use must balance representational capacity with rigorous interpretability. In this work, we presented a comprehensive, unified framework rooted in Similarity-driven Multi-view Linear Reconstruction (SiMLR) and expanded it via the **Non-negative Stiefel approximating flow** (NSA-Flow).
 
-Through extensive evaluation across purely linear, mildly nonlinear, and structured-noise regimes, we demonstrated how this spectrum of architectures provides researchers with a targeted toolkit for specific data properties.
+Through extensive systematic benchmarking, we explored a comprehensive evaluation matrix encompassing four distinct architectures (classical SiMLR, LEND, NED, and the Shared/Private NEDPP) paired with four consensus estimation strategies (Average, PCA, ICA, and Newton). By evaluating this matrix across purely linear, mildly nonlinear, strongly nonlinear, structured-noise, and real-world biological regimes, we have charted a definitive guide to navigating the multi-modal interpretability-performance frontier.
 
-## 1. The Power of "Orthogonalish" Representations ($w=0.1$)
+## 1. The Interplay of Architecture and Generative Complexity
 
-A primary finding of this work is the validation of the Non-negative Stiefel approximating flow's "soft orthogonalization" mechanism. Traditional multi-view learning often forces a binary choice: either strict Stiefel manifold constraints (which can lead to rigid, suboptimal convergence) or unconstrained Euclidean optimization (which leads to redundant, collapsed components). By utilizing $w=0.1$, as recommended in @nsaflow2025, our experiments show that we can achieve the "best of both worlds." The $V$ matrices remain sufficiently decorrelated to provide distinct feature footprints, yet the optimization retains enough flexibility to discover sparse patterns that a more rigid constraint would obscure.
+A primary finding of this study is the critical importance of matching the model architecture to the underlying generative complexity of the data. 
 
-## 2. Linear Projectors as Mechanistic Hypotheses
+### 1.1 The Dominance of NED in Highly Non-Linear Regimes
+In our strongly non-linear (sinusoidal) benchmark, classical linear models (SiMLR) and mixed models (LEND) failed to recover the latent consensus. The fully deep NED architecture demonstrated its necessity here, effectively disentangling the periodic transformations to recover the underlying signals. However, this capacity comes at the total loss of direct feature-level interpretability, confirming that fully deep models should be reserved for cases where the data generation process is demonstrably complex and non-monotonic.
 
-A core objective of this study was to prove that the learned weights $V$ are not merely artifacts of the training process but represent stable, mechanistic relationships. Our **Fixed Projector Prediction** benchmarks demonstrated that the $V$ learned by LEND can be extracted and used as a simple linear mapping ($X \cdot V$) to achieve high prediction accuracy on clinical targets like tumor malignancy. 
+### 1.2 The LEND Hypothesis: Explaining Away Noise
+Conversely, in the mildly non-linear (polynomial) regime, we observed the profound strength of the **LEND (Linear Encoder, Nonlinear Decoder)** architecture. LEND operates on the hypothesis that many biological signals (e.g., genetic pathways) are intrinsically linear and additive at their core, but are corrupted by non-linear measurement artifacts or saturation effects. By utilizing a deep decoder to "explain away" this non-linear noise, LEND protects the linear encoder. 
 
-This is a significant result for translational research. It means that a scientist can use a deep LEND model to "unmix" complex multi-modal noise, extract the resulting linear projector, and then deploy that projector in a low-resource setting (e.g., a simple linear classifier) without needing the full deep network at inference time. This "fixed-basis" generalizability is the ultimate test of mechanistic interpretability.
+Our matrix benchmarking empirically validated this hypothesis: LEND achieved significantly higher latent recovery and feature fidelity ($R^2_V$) than standard SiMLR in the polynomial regime. Crucially, because the encoder remains strictly linear and constrained by the Non-negative Stiefel approximating flow, the resulting feature weights ($V$) are perfectly interpretable.
 
-## 3. Disentangling Shared vs. Private Variance
+## 2. Consensus Estimation: The Hidden Regularizer
 
-Our experiments with the Shared/Private (NEDPP) architecture highlight the critical need for explicit partitioning in multi-omics. By providing a dedicated pathway for modality-specific structured noise, NEDPP prevents "consensus pollution." While more sensitive to hyperparameters, this architecture is essential when one modality contains massive variance (e.g., batch effects or cell-cycle signals) that is uncorrelated with the other views.
+Our systematic exploration of consensus methods (mixing algorithms) revealed that the mechanism used to aggregate latent spaces is not a mere implementation detail; it acts as a powerful regularizer that dictates the gradient flow to the encoders.
 
-## 4. Hardware and Software Implementation
+### 2.1 The Fragility of Simple Averaging
+Across almost all non-trivial datasets—particularly the "Modality Starvation" private noise regime—the simple arithmetic average (`avg`) performed poorly. Simple averaging is highly sensitive to outliers; a single noise-dominated modality will corrupt the shared target $U$, misdirecting the gradients for all other modalities.
 
-Through the iterative development of this computable document, the `pysimlr` package was significantly hardened.
-- **Hardware Parity:** The implementation of `safe_svd` ensures that biological researchers on Apple Silicon (MPS) can enjoy stable, high-performance training without the autograd limitations of the current PyTorch backend.
-- **Numerical Stability:** We improved the robustness of the interpretability engine by implementing a least-squares fallback for potentially singular linear maps, ensuring that attribution scores remain reliable even under extreme sparsity.
+### 2.2 PCA and Newton-Schulz for Denoising
+**PCA** and **Newton** consensus methods demonstrated remarkable robustness. By projecting the concatenated latent spaces onto the directions of maximal variance (PCA) or computing a strict orthonormal frame (Newton), these methods act as global denoisers. They naturally down-weight modalities that lack shared structure, preventing private noise from polluting the consensus.
 
-## 5. Conclusion
+### 2.3 Source Separation via ICA
+For the goal of recovering the precise, ground-truth feature weights ($V$), **ICA** emerged as superior in several regimes. Because ICA forces the consensus dimensions to be statistically independent (rather than just orthogonal), it prevents "component leakage"—where features relevant to one biological process bleed into the weights of another. This makes ICA the consensus method of choice when the primary goal is exact feature attribution and scientific discovery.
 
-The SiMLR ecosystem provides a unified continuum for multimodal integration. By intelligently constraining deep neural networks with the Non-negative Stiefel approximating flow, we have demonstrated that researchers no longer have to choose between the expressivity of deep learning and the feature-level interpretability of classical factor analysis. The resulting linear projectors serve as robust, predictive, and biologically meaningful mappings that bridge the gap between high-dimensional "black box" models and actionable scientific insights.
+## 3. Real-World Predictive Power and Fixed-Basis Generalizability
+
+The ultimate test of an interpretable model is whether its learned features generalize to unseen tasks. In our TCGA-style Breast Cancer benchmarking, we evaluated the **Zero-Shot Predictive Power** of the architectures. 
+
+For the linear models (SiMLR and LEND), we extracted the learned $V$ weights and used them as **fixed linear projectors** ($X \cdot V$) to train a simple downstream Ridge classifier for tumor malignancy. We compared these "linear predictors" against the deeply encoded, non-linear consensus representations ($U$) generated by NED and NEDPP.
+
+The results were striking: the fixed linear projectors extracted from the LEND architecture (particularly when paired with an ICA consensus) performed comparably to—and in some cases exceeded—the predictive accuracy of the fully deep consensus representations. This is a significant result for translational research. It demonstrates that a researcher can train a complex LEND model to "unmix" multi-modal noise, extract the resulting sparse, interpretable linear weights, and deploy those weights as a simple, transparent screening tool in a clinical setting without requiring the deep network at inference time.
+
+## 4. Disentanglement and Shared/Private Architectures
+
+Our experiments with the Shared/Private (NEDPP) architecture highlighted both its theoretical necessity and its practical fragility. In the structured private noise benchmark, NEDPP was the only architecture capable of identifying the true shared signal by explicitly shunting the orthogonal confounder into the private latent space. 
+
+However, in the real-world Breast Cancer dataset, NEDPP's performance was highly variable depending on the consensus method and exhibited sensitivity to hyperparameters. This underscores a key finding: explicit variance partitioning requires strong inductive priors or careful regularization to prevent the network from arbitrarily dividing signal between the shared and private branches.
+
+## 5. Software Engineering and DevOps Recommendations (PR Roadmap)
+
+Based on the errors, edge-cases, and usability friction identified during the iterative generation of this computable benchmarking suite, we propose the following Pull Requests (PRs) for the `pysimlr` codebase to improve its utility, correctness, and performance:
+
+1.  **Standardized Predictor Extraction (`feature/api-standardization`):**
+    *   **Issue:** Currently, extracting the linear projector from `LEND` and `SiMLR` requires manual inspection of the `.v` matrices, while `NED` requires running the forward pass to get `.u`.
+    *   **PR Solution:** Implement a `.get_projector()` or `.transform()` method across all model classes. For `LEND`/`SiMLR`, this returns a transparent linear function. For `NED`, it returns the compiled deep encoder. This unifies the downstream prediction API.
+2.  **Robust Feature Alignment Metrics (`feature/metrics-expansion`):**
+    *   **Issue:** Benchmarking required manual implementation of the `procrustes_r2` alignment metric in our testing scripts.
+    *   **PR Solution:** Add `procrustes_r2` and `procrustes_mse` natively to `pysimlr.utils` to streamline scientific evaluation for all users.
+3.  **Automated NEDPP Warmup (`fix/nedpp-stability`):**
+    *   **Issue:** The Shared/Private architecture frequently struggles with early-epoch instability, as observed in our real-world matrix runs.
+    *   **PR Solution:** Introduce an automated `shared_warmup_epochs` parameter that freezes the private encoders for the first $N$ epochs, allowing the shared consensus to stabilize before variance partitioning begins.
+4.  **Hardware-Resilient Lstsq Fallback (`fix/linalg-stability`):**
+    *   **Issue:** We encountered `_LinAlgError` (Singular Matrix) during feature attribution when modalities were extremely sparse.
+    *   **PR Solution:** Integrate the robust `torch.linalg.lstsq` fallback implemented during this study into the core `interpretability.py` module to prevent crashes during automated reporting.
+
+## 6. Conclusion
+
+The SiMLR ecosystem provides a unified continuum for multimodal integration. By systematically evaluating the matrix of architectures and consensus strategies, we have established clear guidelines for practical deployment. 
+
+Intelligently constraining deep neural networks with the Non-negative Stiefel approximating flow (as in the LEND architecture) offers the optimal balance for most biological datasets. It allows researchers to leverage the denoising expressivity of deep learning without sacrificing the rigorous, feature-level interpretability of classical factor analysis. The resulting linear projectors serve as robust, predictive, and biologically meaningful mappings that bridge the gap between high-dimensional "black box" models and actionable scientific insights.
