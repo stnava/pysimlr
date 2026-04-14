@@ -10,7 +10,32 @@ def build_linear_footprint_case(n_samples: int = 1000,
                                 noise_scale: float = 0.5,
                                 seed: int = 42,
                                 **kwargs) -> Dict[str, Any]:
-    """Purely linear regime: Simple shared signal with linear mappings."""
+    """
+    Generate a purely linear synthetic dataset for benchmarking SiMLR.
+
+    Creates data where modalities are linear projections of a common latent 
+    space (U), with an embedded predictive signal.
+
+    Parameters
+    ----------
+    n_samples : int, default=1000
+        Number of samples to generate.
+    shared_k : int, default=3
+        The rank of the shared latent space.
+    p_list : List[int], default=[100, 80, 60]
+        The dimensionality of each generated modality.
+    noise_scale : float, default=0.5
+        Standard deviation of Gaussian noise added to each modality.
+    seed : int, default=42
+        Random seed for reproducibility.
+    **kwargs : Dict[str, Any]
+        Supports `noise_level` as an alias for `noise_scale`.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Standardized case dictionary containing data matrices and ground truth.
+    """
     if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -46,8 +71,36 @@ def build_nonlinear_shared_case(n_samples: int = 1000,
                                 regime: str = "mixed",
                                 **kwargs) -> Dict[str, Any]:
     """
-    Standardized Nonlinear Benchmarking Case.
-    regime: "mixed" (default), "polynomial", or "sinusoidal"
+    Generate a nonlinear synthetic dataset for benchmarking deep SiMR.
+
+    Creates data where modalities are nonlinear transformations of a common 
+    latent space (U). This is used to test the capacity of LEND and NED to 
+    recover latents that linear SiMLR cannot.
+
+    Parameters
+    ----------
+    n_samples : int, default=1000
+        Number of samples.
+    shared_k : int, default=3
+        Rank of the shared latent space.
+    p_list : List[int], default=[100, 80, 60]
+        Dimensionality of each modality.
+    noise_scale : float, default=0.5
+        Standard deviation of Gaussian noise.
+    seed : int, default=42
+        Random seed.
+    regime : str, default="mixed"
+        The type of nonlinearity to apply. Options:
+        - 'mixed': Different nonlinearity for each modality (Linear, Poly, Sin/Exp).
+        - 'polynomial': Square and interaction terms.
+        - 'sinusoidal': Periodic transformations.
+    **kwargs : Dict[str, Any]
+        Supports `noise_level` as an alias for `noise_scale`.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Standardized case dictionary.
     """
     if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     torch.manual_seed(seed)
@@ -101,7 +154,36 @@ def build_shared_plus_private_case(n_samples: int = 1000,
                                    noise_scale: float = 0.5,
                                    seed: int = 42,
                                    **kwargs) -> Dict[str, Any]:
-    """Regime where each modality has its own private signal in addition to shared signal."""
+    """
+    Generate synthetic data with both shared and private latent components.
+
+    Specifically designed for NED++ (Shared/Private SiMR), where each modality 
+    contains a signal that is shared with other modalities, plus a signal 
+    that is unique to itself.
+
+    Parameters
+    ----------
+    n_samples : int, default=1000
+        Number of samples.
+    shared_k : int, default=2
+        Rank of the common (shared) latent space.
+    private_k : int, default=2
+        Rank of the unique (private) latent space for each modality.
+    p_list : List[int], default=[100, 100]
+        Dimensionality of each modality.
+    noise_scale : float, default=0.5
+        Standard deviation of Gaussian noise.
+    seed : int, default=42
+        Random seed.
+    **kwargs : Dict[str, Any]
+        Supports `noise_level` as an alias for `noise_scale`.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Standardized case dictionary containing both shared and private 
+        ground truths.
+    """
     if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -137,7 +219,37 @@ def build_shared_plus_private_case(n_samples: int = 1000,
     }
 
 def build_case(kind: str = "nonlinear_shared", **kwargs) -> Dict[str, Any]:
-    """Factory for synthetic benchmark cases."""
+    """
+    Factory function to generate synthetic benchmark cases for SiMLR.
+
+    Provides a unified interface for creating different data scenarios, 
+    including linear, nonlinear, and shared\/private structures.
+
+    Parameters
+    ----------
+    kind : str, default="nonlinear_shared"
+        The type of case to build. Options:
+        - 'linear' or 'linear_footprint': See `build_linear_footprint_case`.
+        - 'nonlinear' or 'nonlinear_shared': See `build_nonlinear_shared_case`.
+        - 'shared_plus_private': See `build_shared_plus_private_case`.
+    **kwargs : Dict[str, Any]
+        Keyword arguments passed to the specific builder function.
+
+    Returns
+    -------
+    Dict[str, Any]
+        A standardized case dictionary containing:
+        - `data`: List[torch.Tensor] of modalities.
+        - `true_u`: Ground truth shared latent space.
+        - `outcome`: Ground truth outcome variable.
+        - `shared_k`: Number of shared components.
+        - `gen_func`: (Optional) The generator function used.
+
+    Raises
+    ------
+    ValueError
+        If an unknown `kind` is provided.
+    """
     builders = {
         "linear": build_linear_footprint_case,
         "nonlinear": build_nonlinear_shared_case,
@@ -151,10 +263,25 @@ def build_case(kind: str = "nonlinear_shared", **kwargs) -> Dict[str, Any]:
         raise ValueError(f"Unknown case kind: {kind}")
     return builders[kind](**kwargs)
 
-def plot_case_generative_shape(case_res: Dict[str, Any], feature_idx: int = 0):
+def plot_case_generative_shape(case_res: Dict[str, Any], feature_idx: int = 0) -> plt.Figure:
     """
-    Visualize the 'shape' of simulated data: Latent signal vs Observed Features.
-    Enhanced for Publication Quality.
+    Visualize the generative 'shape' of a synthetic case.
+
+    Plots the ground truth latent space (U) and its relationship with the 
+    observed features (X) across modalities. This helps confirm the 
+    linearity or nonlinearity of the simulated data.
+
+    Parameters
+    ----------
+    case_res : Dict[str, Any]
+        Standardized case dictionary from `build_case`.
+    feature_idx : int, default=0
+        The index of the feature to plot against the latent signal.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A figure showing the latent space and modality-specific feature shapes.
     """
     u = case_res["true_u"].numpy()
     data = case_res["data"]

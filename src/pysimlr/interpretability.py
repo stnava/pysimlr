@@ -98,7 +98,30 @@ def summarize_basis_matrix(
     feature_names: Optional[Sequence[str]] = None,
     top_k: int = 10,
 ) -> Dict[str, Any]:
-    """Summarize an interpretable first-layer basis matrix."""
+    """
+    Summarize an interpretable first-layer basis matrix (V).
+
+    Provides statistics on sparsity, density, and orthogonality, and identifies the 
+    top contributing features for each latent component.
+
+    Parameters
+    ----------
+    v : torch.Tensor
+        The basis matrix (V) of shape (n_features, n_components).
+    feature_names : Sequence[str], optional
+        Optional list of feature names.
+    top_k : int, optional
+        The number of top features to report for each component (default is 10).
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary containing:
+        - "n_features", "n_components": Matrix dimensions.
+        - "orthogonality_defect": Deviation from the Stiefel manifold.
+        - "component_l0", "component_density": Sparsity metrics per component.
+        - "top_features": List of top features and their loadings per component.
+    """
     v_cpu = _sanitize_tensor(v)
     n_features, n_components = v_cpu.shape
     abs_v = torch.abs(v_cpu)
@@ -147,7 +170,31 @@ def build_first_layer_contract(
     feature_names: Optional[Sequence[Optional[Sequence[str]]]] = None,
     top_k: int = 10,
 ) -> Dict[str, Any]:
-    """Create a serializable first-layer interpretability contract."""
+    """
+    Create a serializable first-layer interpretability "contract".
+
+    Collects the basis matrices (V) and projection scores from all modalities 
+    into a structured dictionary, including top features and sparsity 
+    summaries. This contract is used as a foundation for broader 
+    interpretability reports.
+
+    Parameters
+    ----------
+    v_list : Sequence[torch.Tensor]
+        List of basis matrices for each modality.
+    score_list : Sequence[torch.Tensor]
+        List of projection scores for each modality.
+    feature_names : Optional[Sequence[Optional[Sequence[str]]]], default=None
+        Nested list of feature names for each modality.
+    top_k : int, default=10
+        Number of top features to include in per-modality summaries.
+
+    Returns
+    -------
+    Dict[str, Any]
+        A serializable dictionary containing per-modality summaries 
+        (basis, scores, sparsity, top features).
+    """
     if len(v_list) != len(score_list):
         raise ValueError("v_list and score_list must have the same length")
 
@@ -247,7 +294,30 @@ def attribute_shared_to_first_layer(
     *,
     l2: float = 1e-6,
 ) -> Dict[str, Any]:
-    """Attribute shared latent variation back to first-layer components and features."""
+    """
+    Attribute shared latent variation back to first-layer components and features.
+
+    Quantifies how much of the final shared latent consensus (U) is captured 
+    by the initial interpretable projection for each modality. This provides 
+    a "pathway" from original features -> first-layer components -> shared 
+    latents.
+
+    Parameters
+    ----------
+    model_res : Dict[str, Any]
+        Results from a SiMLR or deep SiMR model. Must contain 'u' and 
+        first-layer information.
+    l2 : float, default=1e-6
+        Regularization parameter for the linear attribution mapping.
+
+    Returns
+    -------
+    Dict[str, Any]
+        An attribution report containing:
+        - `modality_attributions`: Per-modality metrics (R2, RV, component 
+          importance).
+        - `combined`: Aggregated metrics and global feature importance.
+    """
     first_layer = extract_first_layer_factors(model_res)
     z0_list = first_layer["scores"]
     v_list = first_layer["v"]
@@ -311,7 +381,30 @@ def attribute_prediction_to_features(
     *,
     l2: float = 1e-6,
 ) -> Dict[str, Any]:
-    """Attribute an external prediction target back to first-layer components and features."""
+    """
+    Attribute an external prediction target back to first-layer components and features.
+
+    This function decomposes the relationship between an external outcome (target) 
+    and the learned SiMLR model by mapping the target back to the interpretable 
+    first-layer scores (Z0) and original features.
+
+    Parameters
+    ----------
+    model_res : Dict[str, Any]
+        The result dictionary from a SiMLR or Deep SiMLR model fit.
+    target : torch.Tensor
+        The external target variable(s) to attribute.
+    l2 : float, optional
+        Ridge regularization parameter for the linear mapping (default is 1e-6).
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary containing:
+        - "per_modality": Attribution metrics for each modality independently.
+        - "combined": Attribution metrics using all modalities simultaneously.
+        - "shared_latent_baseline": Regression performance using the shared latent U.
+    """
     first_layer = extract_first_layer_factors(model_res)
     z0_list = first_layer["scores"]
     v_list = first_layer["v"]

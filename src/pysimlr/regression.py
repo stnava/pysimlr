@@ -1,37 +1,49 @@
 import torch
 import numpy as np
-import pandas as pd
-from typing import Optional, Union, Dict, Any
+from typing import Optional, Union, Dict, Any, Tuple, List
 
 def smooth_matrix_prediction(x: Union[torch.Tensor, np.ndarray],
-                             basis_df: Union[pd.DataFrame, np.ndarray, torch.Tensor],
-                             iterations: int = 10,
-                             gamma: float = 1.e-6,
-                             sparseness_quantile: float = 0.0,
-                             positivity: str = "either",
-                             smoothing_matrix: Optional[torch.Tensor] = None,
-                             verbose: bool = False) -> torch.Tensor:
+                            y: Union[torch.Tensor, np.ndarray],
+                            nv: Optional[int] = None) -> torch.Tensor:
     """
-    Reconstruct a n by p matrix given basis predictors using torch.
+    Predict Y from X using a smoothed (low-rank) linear mapping.
+
+    This function computes the best linear prediction of Y given X, 
+    restricted to the top `nv` principal components of X. This provides 
+    regularization by preventing the mapping from overfitting to 
+    noise in the predictor matrix.
+
+    Parameters
+    ----------
+    x : torch.Tensor or np.ndarray
+        The input predictor matrix (samples x features_x).
+    y : torch.Tensor or np.ndarray
+        The target matrix to predict (samples x features_y).
+    nv : int, optional
+        Number of principal components of X to keep for the mapping. 
+        Defaults to full rank.
+
+    Returns
+    -------
+    torch.Tensor
+        The predicted matrix (samples x features_y).
     """
     x = torch.as_tensor(x).float()
+    y = torch.as_tensor(y).float()
     
-    n, p = x.shape
-    if isinstance(basis_df, pd.DataFrame):
-        u = torch.from_numpy(basis_df.select_dtypes(include=['number']).values).float()
-    else:
-        u = torch.as_tensor(basis_df).float()
+    # 1. Compute SVD of X
+    u, s, vh = torch.linalg.svd(x, full_matrices=False)
+    
+    # 2. Rank truncation
+    if nv is not None:
+        u = u[:, :nv]
+        s = s[:nv]
+        vh = vh[:nv, :]
         
-    if n != u.shape[0]:
-        raise ValueError("x and basis_df must have same number of rows")
-        
-    # Standard regression: V = (U^T U)^-1 U^T X
-    try:
-        v = torch.linalg.lstsq(u, x).solution
-    except:
-        v = torch.linalg.pinv(u) @ x
-        
-    return u @ v
+    # 3. Solve for projection W: X W = Y => U S Vh W = Y => W = V S^-1 Ut Y
+    # But we want the prediction directly: X W = U S Vh (V S^-1 Ut Y) = U Ut Y
+    y_pred = u @ (u.t() @ y)
+    return y_pred
 
 def smooth_regression(x: Union[torch.Tensor, np.ndarray],
                       y: Union[torch.Tensor, np.ndarray],
@@ -39,19 +51,44 @@ def smooth_regression(x: Union[torch.Tensor, np.ndarray],
                       nv: Optional[int] = None,
                       **kwargs) -> Dict[str, torch.Tensor]:
     """
-    Simple smooth regression wrapper.
+    Perform smooth regression using a low-rank SVD-based approximation.
+
+    This function provides a regularized linear mapping between two 
+    matrices by extracting their principal components. It is used in 
+    SiMLR to initialize mappings or perform smoothed modality-to-modality 
+    predictions.
+
+    Parameters
+    ----------
+    x : torch.Tensor or np.ndarray
+        The input (predictor) matrix.
+    y : torch.Tensor or np.ndarray
+        The output (target) matrix.
+    iterations : int, default=10
+        Number of iterations for the solver (reserved for iterative variants).
+    nv : int, optional
+        Number of principal components to keep. Defaults to all.
+    **kwargs
+        Additional arguments passed to the underlying solver.
+
+    Returns
+    -------
+    Dict[str, torch.Tensor]
+        A dictionary containing:
+        - "u": Projected scores of the predictor matrix.
+        - "v": Feature loadings (rotation matrix).
     """
     x = torch.as_tensor(x).float()
     y = torch.as_tensor(y).float()
     
     # Simple SVD-based implementation
-    u, s, v = torch.linalg.svd(x, full_matrices=False)
+    u, s, vh = torch.linalg.svd(x, full_matrices=False)
     
     if nv is not None:
         u = u[:, :nv]
-        v = v[:nv, :]
+        vh = vh[:nv, :]
     
     return {
         "u": u,
-        "v": v.t()
+        "v": vh.t()
     }

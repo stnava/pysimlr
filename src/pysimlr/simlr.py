@@ -15,8 +15,27 @@ except ImportError:
     FastICA = None
 
 def parse_constraint(constraint_str: str) -> Dict[str, Any]:
+    """
+    Parse a constraint string into type, weight, and iterations.
+
+    The constraint string follows the format "Type[xWeight[xIterations]]",
+    e.g., "Stiefel", "Stiefel x 0.5", or "Stiefel x 0.5 x 5".
+
+    Parameters
+    ----------
+    constraint_str : str
+        The constraint string to parse.
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary with keys:
+        - "type": The name of the constraint (e.g., "Stiefel", "Grassmann").
+        - "weight": The constraint weight (float).
+        - "iterations": The number of projection iterations (int).
+    """
     parts = constraint_str.split('x')
-    constraint_type = parts[0]
+    constraint_type = parts[0].strip()
     weight = 1.0
     iterations = 1
     if len(parts) > 1:
@@ -29,8 +48,25 @@ def parse_constraint(constraint_str: str) -> Dict[str, Any]:
 
 def project_gradient(v_grad: torch.Tensor, v_current: torch.Tensor, constraint_type: str) -> torch.Tensor:
     """
-    Project gradient onto the tangent space of the manifold.
-    Following Edelman et al. (1998).
+    Project the gradient onto the tangent space of a specific manifold.
+
+    This ensures that optimization updates remain valid with respect to 
+    manifold constraints (e.g., Stiefel or Grassmann manifolds), following 
+    the theory in Edelman et al. (1998).
+
+    Parameters
+    ----------
+    v_grad : torch.Tensor
+        The raw gradient of the energy function.
+    v_current : torch.Tensor
+        The current value of the basis matrix (point on the manifold).
+    constraint_type : str
+        The type of manifold/constraint ("Stiefel", "Grassmann", etc.).
+
+    Returns
+    -------
+    torch.Tensor
+        The projected gradient.
     """
     if constraint_type == "Grassmann":
         # Project onto Grassmann tangent space: G = G - V(V^T G)
@@ -48,13 +84,51 @@ def calculate_u(projections: List[torch.Tensor],
                 orthogonalize: bool = False) -> torch.Tensor:
     """
     Deprecated: Use compute_shared_consensus from .consensus instead.
+
+    Parameters
+    ----------
+    projections : List[torch.Tensor]
+        List of projected data matrices (N x K).
+    mixing_algorithm : str, default="svd"
+        The algorithm to use for consensus computation.
+    k : int, optional
+        Target rank for the shared latent space.
+    orthogonalize : bool, default=False
+        Whether to orthogonalize the resulting consensus matrix.
+
+    Returns
+    -------
+    torch.Tensor
+        The shared consensus latent matrix (N x K).
     """
     return compute_shared_consensus(projections, mixing_algorithm, k, orthogonalize)
 
 def initialize_simlr(data_matrices: List[torch.Tensor], 
                      k: int, 
-                     initialization_type: str = "pca",
+                     initialization_type: str = "pca", 
                      joint_reduction: bool = True) -> List[torch.Tensor]:
+    """
+    Initialize the basis matrices (V) for SiMLR.
+
+    Provides various initialization strategies, primarily based on SVD/PCA,
+    to ensure the optimization starts from a reasonable point.
+
+    Parameters
+    ----------
+    data_matrices : List[torch.Tensor]
+        List of input data matrices (N x P_i).
+    k : int
+        Target rank for the latent space.
+    initialization_type : str, default="pca"
+        Strategy for initialization (currently only "pca" is supported).
+    joint_reduction : bool, default=True
+        Whether to use joint dimensionality reduction (future expansion).
+
+    Returns
+    -------
+    List[torch.Tensor]
+        Initial basis matrices (P_i x K) for each view.
+    """
     v_mats = []
     for x in data_matrices:
         u, s, v = ba_svd(x, nu=0, nv=k)
@@ -65,6 +139,30 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
     return v_mats
 
 def calculate_ica_energy(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, nonlinearity: str = "logcosh", a: float = 1.0) -> torch.Tensor:
+    """
+    Compute the ICA-based energy (negentropy) for a given projection.
+
+    Measures how non-Gaussian the projected data is, which is a common 
+    objective in Independent Component Analysis.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        Input data matrix (N x P).
+    u : torch.Tensor
+        Shared latent space (N x K).
+    v : torch.Tensor
+        Basis matrix (P x K).
+    nonlinearity : str, default="logcosh"
+        The contrast function to use. Options: 'logcosh', 'exp', 'gauss', 'kurtosis'.
+    a : float, default=1.0
+        Hyperparameter for the contrast function (used by 'gauss').
+
+    Returns
+    -------
+    torch.Tensor
+        The computed energy value (scalar).
+    """
     s = (u.t() @ x) @ v
     n = x.shape[0]
     if nonlinearity == "logcosh": return -torch.sum(torch.log(torch.cosh(s))) / n
@@ -74,6 +172,30 @@ def calculate_ica_energy(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, nonl
     return torch.tensor(0.0, dtype=x.dtype, device=x.device)
 
 def calculate_ica_gradient(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, nonlinearity: str = "logcosh", a: float = 1.0) -> torch.Tensor:
+    """
+    Compute the gradient of the ICA-based energy with respect to the basis matrix V.
+
+    Used by gradient-based optimizers to update the projection weights towards 
+    maximum non-Gaussianity.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        Input data matrix (N x P).
+    u : torch.Tensor
+        Shared latent space (N x K).
+    v : torch.Tensor
+        Basis matrix (P x K).
+    nonlinearity : str, default="logcosh"
+        The contrast function used.
+    a : float, default=1.0
+        Hyperparameter for the contrast function.
+
+    Returns
+    -------
+    torch.Tensor
+        The gradient matrix (P x K).
+    """
     s = (u.t() @ x) @ v
     nk = s.shape[0] # k
     if nonlinearity == "logcosh": return (1.0 / nk) * (x.t() @ u @ torch.tanh(s))
@@ -83,6 +205,38 @@ def calculate_ica_gradient(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, no
     return torch.zeros_like(v)
 
 def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, energy_type: str = "regression", lambda_val: float = 0.0, prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
+    """
+    Compute the energy (loss) for a single modality in SiMLR.
+
+    Supports various objective functions including reconstruction error, 
+    canonical correlation (ACC), ICA-based negentropy, and domain-knowledge 
+    alignment.
+
+    Parameters
+    ----------
+    v : torch.Tensor
+        Basis matrix (P x K) for the current modality.
+    x : torch.Tensor
+        Input data matrix (N x P) for the current modality.
+    u : torch.Tensor
+        Shared latent space (N x K).
+    energy_type : str, default="regression"
+        The objective function to use. Options:
+        - 'regression': Reconstruction MSE (||X - UV^T||^2).
+        - 'acc': Maximum absolute covariance (canonical correlation).
+        - 'logcosh', 'exp', 'gauss', 'kurtosis': ICA-based negentropy.
+        - 'nc' or 'normalized_correlation': Cosine similarity.
+        - 'dat': Alignment with domain knowledge `prior_matrix`.
+    lambda_val : float, default=0.0
+        Scaling factor for 'dat' energy.
+    prior_matrix : Optional[torch.Tensor], default=None
+        Domain knowledge matrix (K x P) for 'dat' energy.
+
+    Returns
+    -------
+    torch.Tensor
+        The computed energy value (scalar).
+    """
     ica_types = ["logcosh", "exp", "gauss", "kurtosis"]
     u = u.to(x.dtype); v = v.to(x.dtype)
     if energy_type == "regression":
@@ -102,7 +256,33 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
         return -lambda_val * torch.sum(alignment**2)
     return torch.tensor(0.0, dtype=u.dtype, device=u.device)
 
-def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, energy_type: str = "regression", lambda_val: float = 0.0, prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
+def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, 
+                             energy_type: str = "regression", lambda_val: float = 0.0, 
+                             prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
+    """
+    Calculate the gradient of the SiMLR energy function for a single view.
+
+    Parameters
+    ----------
+    v : torch.Tensor
+        The view-specific basis matrix (p_i x k).
+    x : torch.Tensor
+        The view-specific data matrix (n x p_i).
+    u : torch.Tensor
+        The shared consensus latent matrix (n x k).
+    energy_type : str, default="regression"
+        The type of energy function used for gradient calculation.
+        Options: "regression", "acc", "logcosh", "exp", "gauss", "kurtosis", "dat".
+    lambda_val : float, default=0.0
+        Regularization parameter for "dat" (Directed Alignment Transfer) energy.
+    prior_matrix : torch.Tensor, optional
+        Prior alignment matrix for "dat" energy.
+
+    Returns
+    -------
+    torch.Tensor
+        The computed gradient (p_i x k).
+    """
     ica_types = ["logcosh", "exp", "gauss", "kurtosis"]
     u = u.to(x.dtype); v = v.to(x.dtype)
     if energy_type == "regression": return 2 * (x.t() @ u - v)
@@ -275,6 +455,21 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
 
 def pairwise_matrix_similarity(mat_list: List[torch.Tensor], v_list: List[torch.Tensor]) -> Dict[str, float]:
+    """
+    Compute pairwise similarity (Adjusted RV Coefficient) between all pairs of modalities.
+
+    Parameters
+    ----------
+    mat_list : List[torch.Tensor]
+        List of data matrices (N x P_i).
+    v_list : List[torch.Tensor]
+        List of basis matrices (P_i x K).
+
+    Returns
+    -------
+    Dict[str, float]
+        Dictionary where keys are "sim_i_j" and values are the similarity scores.
+    """
     n_modalities = len(mat_list); similarities = {}
     for i in range(n_modalities):
         for j in range(i + 1, n_modalities):
@@ -283,6 +478,39 @@ def pairwise_matrix_similarity(mat_list: List[torch.Tensor], v_list: List[torch.
     return similarities
 
 def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_perms: int = 50, verbose: bool = False, **simlr_params) -> Dict[str, Any]:
+    """
+    Perform permutation testing for SiMLR to assess the significance of shared latent structures.
+
+    This function runs the SiMLR algorithm on the original data and then repeatedly on 
+    permuted versions of the data (where rows of each modality are independently shuffled)
+    to build a null distribution of the cross-modality similarity (ACC).
+
+    Parameters
+    ----------
+    data_matrices : List[Union[torch.Tensor, np.ndarray]]
+        A list of data matrices (one for each modality).
+    k : int
+        The number of shared latent components to extract.
+    n_perms : int, optional
+        The number of permutations to perform (default is 50).
+    verbose : bool, optional
+        Whether to print progress during the SiMLR optimization (default is False).
+    **simlr_params : dict
+        Additional parameters passed to the `simlr` function (e.g., energy_type, constraint, optimizer_type).
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary containing:
+        - "simlr_result": The result of SiMLR on the original data.
+        - "stats": A dictionary of permutation statistics for each pair of modalities, 
+          including observed similarity, p-value, and t-statistic.
+
+    Notes
+    -----
+    The similarity is measured using the Adjusted RV Coefficient (ACC) on the 
+    normalized latent projections.
+    """
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     res = simlr(torch_mats, k=k, verbose=verbose, **simlr_params)
     v_norm = [l1_normalize_features(v) for v in res['v']]
@@ -305,6 +533,18 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                           simlr_result: Dict[str, Any]) -> torch.Tensor:
     """
     Compute the shared latent basis U for new data using the trained SIMLR model.
+
+    Parameters
+    ----------
+    data_matrices : List[Union[torch.Tensor, np.ndarray]]
+        List of new data matrices (one for each modality).
+    simlr_result : Dict[str, Any]
+        The result dictionary from a previous `simlr` call.
+
+    Returns
+    -------
+    torch.Tensor
+        The shared consensus latent matrix (N x K) for the new data.
     """
     # 1. Preprocess data matrices
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
@@ -333,7 +573,20 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 def reconstruct_from_learned_maps(u: torch.Tensor, 
                                   simlr_result: Dict[str, Any]) -> List[torch.Tensor]:
     """
-    Reconstruct each modality from the shared latent basis U using learned weights.
+    Reconstruct all data matrices (modalities) from the shared latent basis U.
+
+    Parameters
+    ----------
+    u : torch.Tensor
+        The shared latent matrix (N x K).
+    simlr_result : Dict[str, Any]
+        The result dictionary from a previous `simlr` call, which must 
+        contain the learned reconstruction weights "w".
+
+    Returns
+    -------
+    List[torch.Tensor]
+        List of reconstructed data matrices (one for each modality).
     """
     if 'w' not in simlr_result:
         # For backward compatibility, but this should be avoided

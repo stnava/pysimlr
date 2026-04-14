@@ -8,7 +8,30 @@ from .synthetic_cases import build_case
 def tune_shared_private(case_kind: str = "shared_plus_private",
                          n_samples: int = 1000,
                          n_seeds: int = 1,
-                         seed: int = 42):
+                         seed: int = 42) -> pd.DataFrame:
+    """
+    Perform hyperparameter tuning for the NED Shared/Private (NED++) model.
+
+    Sweeps across weights for orthogonality (shared/private separation) 
+    and variance (energy preservation) to find the optimal configuration 
+    for capturing shared and private latent components.
+
+    Parameters
+    ----------
+    case_kind : str, default="shared_plus_private"
+        The synthetic case to use for tuning.
+    n_samples : int, default=1000
+        Number of samples in the generated dataset.
+    n_seeds : int, default=1
+        Number of seeds to run per configuration (currently only supports 1).
+    seed : int, default=42
+        Base random seed.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the metrics for each point in the tuning grid.
+    """
     """Specific tuning grid for NED Shared/Private model."""
     
     # Define grid

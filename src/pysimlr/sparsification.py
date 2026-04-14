@@ -13,7 +13,29 @@ def optimize_indicator_matrix(m: torch.Tensor,
                               preprocess: bool = True, 
                               verbose: bool = False) -> torch.Tensor:
     """
-    Optimize Binary Indicator Matrix with Row Uniformity using torch.
+    Optimize a binary indicator matrix with row uniformity.
+
+    Finds an optimal binary matrix `I` such that the sum of elements in `m * I` 
+    is maximized, subject to the constraint that each column of `I` has exactly 
+    one non-zero element and each row has at most one non-zero element.
+
+    Parameters
+    ----------
+    m : torch.Tensor
+        The input weight or affinity matrix.
+    max_iter : int, default=1000
+        Maximum number of optimization iterations.
+    tol : float, default=1e-6
+        Convergence tolerance.
+    preprocess : bool, default=True
+        Whether to flip the sign of rows where negative elements dominate.
+    verbose : bool, default=False
+        Whether to print convergence information.
+
+    Returns
+    -------
+    torch.Tensor
+        The sparsified matrix (m * I).
     """
     if not isinstance(m, torch.Tensor):
         m = torch.as_tensor(m).float()
@@ -50,7 +72,23 @@ def optimize_indicator_matrix(m: torch.Tensor,
 
 def indicator_opt_both_ways(m: torch.Tensor, verbose: bool = False) -> torch.Tensor:
     """
-    Helper to Optimize Indicator Matrix with Best Sum.
+    Optimize an indicator matrix for both positive and negative orientations.
+
+    This is a helper function that finds the optimal binary indicator matrix (I) 
+    such that the sum of elements in (m * I) is maximized, considering both 
+    m and -m to handle sign ambiguity in latent components.
+
+    Parameters
+    ----------
+    m : torch.Tensor
+        The input matrix to sparsify or find indicators for.
+    verbose : bool, optional
+        Whether to print convergence information (default is False).
+
+    Returns
+    -------
+    torch.Tensor
+        The optimized sparse matrix (m * I) with the best objective value.
     """
     if not isinstance(m, torch.Tensor):
         m = torch.as_tensor(m).float()
@@ -72,7 +110,29 @@ def rank_based_matrix_segmentation(v: torch.Tensor,
                                    positivity: str = "positive", 
                                    transpose: bool = False) -> torch.Tensor:
     """
-    Rank-based segmentation of a matrix using torch.
+    Apply rank-based segmentation to a matrix to enforce sparsity.
+
+    Retains only the top percentile of values (based on absolute magnitude) 
+    for each row or column, setting others to zero.
+
+    Parameters
+    ----------
+    v : torch.Tensor
+        The matrix to segment.
+    sparseness_quantile : float
+        The quantile of elements to set to zero (0.0 to 1.0).
+    basic : bool, default=False
+        If False, uses indicator matrix optimization (`indicator_opt_both_ways`).
+        If True, uses simple quantile-based thresholding.
+    positivity : str, default="positive"
+        Constraint on sign: "positive", "negative", or "either".
+    transpose : bool, default=False
+        Whether to apply segmentation to columns (False) or rows (True).
+
+    Returns
+    -------
+    torch.Tensor
+        The sparsified matrix.
     """
     if not isinstance(v, torch.Tensor):
         v = torch.as_tensor(v).float()
@@ -121,7 +181,33 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
                                  soft_thresholding: bool = False,
                                  sparseness_alg: Optional[str] = None) -> torch.Tensor:
     """
-    Orthogonalize and/or sparsify a matrix.
+    Orthogonalize and/or sparsify a projection matrix.
+
+    A comprehensive utility for enforcing constraints on basis matrices, 
+    including Stiefel manifold projection (SVD-based) and quantile-based 
+    sparsification.
+
+    Parameters
+    ----------
+    v : torch.Tensor
+        The input matrix (features x components).
+    sparseness_quantile : float, default=0.0
+        Proportion of elements to zero out.
+    positivity : str, default="either"
+        Sign constraints: "positive", "negative", or "either".
+    orthogonalize : bool, default=True
+        Whether to project the matrix onto the Stiefel manifold (V^T V = I).
+    unit_norm : bool, default=True
+        Whether to normalize each component to unit L2 norm.
+    soft_thresholding : bool, default=False
+        If True, uses soft-thresholding (shrinkage) instead of hard zeroing.
+    sparseness_alg : str, optional
+        Override algorithm: "orthorank" or "basic" for rank-based segmentation.
+
+    Returns
+    -------
+    torch.Tensor
+        The constrained and sparsified matrix.
     """
     if sparseness_alg == "orthorank":
         return rank_based_matrix_segmentation(v, sparseness_quantile, basic=False, positivity=positivity, transpose=True)
@@ -181,6 +267,25 @@ def project_to_orthonormal_nonnegative(x: torch.Tensor,
                                        constraint: str = 'positive') -> torch.Tensor:
     """
     Project a matrix to be orthonormal and nonnegative using Dykstra-like alternations.
+
+    Iteratively alternates between projecting onto the Stiefel manifold 
+    (orthogonality) and the non-negative orthant (positivity) until convergence.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        The input matrix.
+    max_iter : int, default=100
+        Maximum number of projection cycles.
+    tol : float, default=1e-4
+        Convergence tolerance for the difference between iterations.
+    constraint : str, default='positive'
+        "positive" or "negative".
+
+    Returns
+    -------
+    torch.Tensor
+        The projected orthonormal and signed matrix.
     """
     v = x.clone()
     orig_dtype = v.dtype
@@ -202,7 +307,26 @@ def project_to_partially_orthonormal_nonnegative(x: torch.Tensor,
                                                  constraint: str = 'positive',
                                                  ortho_strength: float = 0.1) -> torch.Tensor:
     """
-    Partially project to orthonormal and nonnegative.
+    Softly project a matrix towards the orthonormal and signed orthant.
+
+    Instead of a hard projection, this function performs a weighted average 
+    between the original matrix and its orthonormal projection.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        The input matrix.
+    max_iter : int, default=1
+        Number of projection steps.
+    constraint : str, default='positive'
+        "positive" or "negative".
+    ortho_strength : float, default=0.1
+        The weight (0.0 to 1.0) given to the orthonormal component.
+
+    Returns
+    -------
+    torch.Tensor
+        The partially projected matrix.
     """
     v = x.clone()
     orig_dtype = v.dtype
@@ -228,7 +352,38 @@ def simlr_sparseness(v: torch.Tensor,
                      sparseness_alg: str = 'soft',
                      energy_type: Optional[str] = None) -> torch.Tensor:
     """
-    Main sparsification and constraint enforcement function for SIMLR.
+    Main sparsification and constraint enforcement function for SiMLR.
+
+    This is the high-level entry point for all matrix constraints used during 
+    the SiMLR optimization loop. It dispatches to specific methods based on 
+    the requested `constraint_type` and `sparseness_alg`.
+
+    Parameters
+    ----------
+    v : torch.Tensor
+        The matrix to constrain (typically basis V or gradient).
+    constraint_type : str, default="none"
+        Type of manifold or orthogonality constraint ("Stiefel", "Grassmann", 
+        "ortho", "none").
+    smoothing_matrix : torch.Tensor, optional
+        A prior matrix used for spatially-aware smoothing (V = S @ V).
+    positivity : str, default='either'
+        Sign constraint ("positive", "negative", or "either").
+    sparseness_quantile : float, default=0.0
+        Threshold for element-wise sparsity.
+    constraint_weight : float, default=0.0
+        Strength of the manifold projection or retraction.
+    constraint_iterations : int, default=1
+        Number of inner iterations for the constraint solver.
+    sparseness_alg : str, default='soft'
+        The algorithm for sparsity ("soft", "hard", "nnorth", "orthorank").
+    energy_type : str, optional
+        The SiMLR objective function (affects normalization).
+
+    Returns
+    -------
+    torch.Tensor
+        The constrained and sparsified matrix.
     """
     v_out = v.clone()
     orig_dtype = v_out.dtype

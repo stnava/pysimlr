@@ -8,7 +8,33 @@ def ba_svd(x: torch.Tensor,
            max_iter: int = 100, 
            tol: float = 1e-6) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Basic block-based SVD approximation or full SVD using torch.linalg.
+    Compute a Basic block-based SVD approximation or full SVD.
+
+    This function provides a robust wrapper around torch.linalg.svd, 
+    handling potential convergence issues with a fallback to randomized 
+    initialization if the standard solver fails.
+
+    Parameters
+    ----------
+    x : torch.Tensor or array-like
+        The input matrix to decompose.
+    nu : int, optional
+        Number of left singular vectors to return. Defaults to min(n, p).
+    nv : int, optional
+        Number of right singular vectors to return. Defaults to min(n, p).
+    max_iter : int, default=100
+        Maximum iterations (reserved for iterative variants).
+    tol : float, default=1e-6
+        Convergence tolerance (reserved for iterative variants).
+
+    Returns
+    -------
+    u : torch.Tensor
+        Left singular vectors (U matrix).
+    s : torch.Tensor
+        Singular values.
+    v : torch.Tensor
+        Right singular vectors (V matrix, not transposed).
     """
     x = torch.as_tensor(x).float()
     x = torch.nan_to_num(x, nan=0.0)
@@ -31,7 +57,26 @@ def ba_svd(x: torch.Tensor,
 
 def safe_pca(x: torch.Tensor, nc: int = 2) -> Dict[str, torch.Tensor]:
     """
-    PCA that handles constant columns and NaNs.
+    Perform Principal Component Analysis (PCA) robust to NaNs and constant columns.
+
+    This function centers the data and handles constant features by masking them 
+    out before performing SVD. It ensures that the output dimensions remain 
+    consistent with the input feature space.
+
+    Parameters
+    ----------
+    x : torch.Tensor or array-like
+        The input data matrix (samples x features).
+    nc : int, default=2
+        The number of principal components to extract.
+
+    Returns
+    -------
+    Dict[str, torch.Tensor]
+        A dictionary containing:
+        - "u": Projected sample coordinates (scores).
+        - "v": Feature loadings (rotation matrix), zeroed for constant features.
+        - "s": Singular values (related to explained variance).
     """
     x = torch.as_tensor(x).float()
     x = torch.nan_to_num(x, nan=0.0)
@@ -56,7 +101,25 @@ def safe_pca(x: torch.Tensor, nc: int = 2) -> Dict[str, torch.Tensor]:
 
 def whiten_matrix(x: torch.Tensor, nc: Optional[int] = None) -> Dict[str, Any]:
     """
-    Whiten a matrix using PCA.
+    Whiten a data matrix using Principal Component Analysis.
+
+    Whitening (or sphering) transforms the data such that the covariance 
+    matrix is the identity matrix. This is often used as a preprocessing 
+    step for algorithms like ICA.
+
+    Parameters
+    ----------
+    x : torch.Tensor or array-like
+        The input data matrix to whiten.
+    nc : int, optional
+        Number of components to keep. Defaults to min(samples, features).
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary containing:
+        - "whitened_matrix": The transformed data.
+        - "pca_res": The underlying PCA result (from `safe_pca`).
     """
     res = safe_pca(x, nc=nc if nc else min(x.shape))
     u, s = res['u'], res['s']
@@ -70,7 +133,34 @@ def multiscale_svd(x: torch.Tensor,
                    knn: int = 0,
                    verbose: bool = False) -> Dict[str, Any]:
     """
-    Multi-scale SVD algorithm using torch.
+    Perform multi-scale SVD to analyze local intrinsic dimensionality.
+
+    This function computes the singular values of the data at different 
+    spatial scales (radii) or neighborhood sizes. It is useful for 
+    estimating the local dimension of a manifold.
+
+    Parameters
+    ----------
+    x : torch.Tensor or array-like
+        The input data matrix.
+    r : torch.Tensor or array-like
+        A vector of scales (radii or denominators) to evaluate.
+    locn : int, List[int], or torch.Tensor
+        Indices of locations to sample, or an integer specifying 
+        the number of random locations to choose.
+    nev : int
+        Number of eigenvalues/singular values to track at each scale.
+    knn : int, default=0
+        If > 0, use K-nearest neighbors instead of a fixed radius.
+    verbose : bool, default=False
+        Whether to print progress.
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary containing:
+        - "evals_vs_scale": A tensor of shape (len(r), nev) containing 
+          singular values for each scale.
     """
     x = torch.as_tensor(x).float()
     r = torch.as_tensor(r).float()

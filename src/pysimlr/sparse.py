@@ -5,8 +5,25 @@ def sparse_distance_matrix(x: torch.Tensor,
                            k: int, 
                            sigma: Optional[float] = None) -> torch.Tensor:
     """
-    Compute a sparse distance matrix using k-nearest neighbors in torch.
-    Returns a n x n distance matrix.
+    Compute a k-nearest neighbor sparse distance matrix.
+
+    Calculates the Euclidean distance between all pairs of rows in `x`, 
+    keeping only the `k` closest neighbors for each row.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        Input data matrix (N x P).
+    k : int
+        Number of nearest neighbors to retain.
+    sigma : float, optional
+        If provided, converts distances to an affinity matrix using a 
+        Gaussian kernel with this standard deviation.
+
+    Returns
+    -------
+    torch.Tensor
+        The sparse distance or affinity matrix (N x N).
     """
     x = torch.as_tensor(x).float()
     n = x.shape[0]
@@ -35,8 +52,27 @@ def sparse_distance_matrix_xy(x: torch.Tensor,
                               k: int, 
                               sigma: Optional[float] = None) -> torch.Tensor:
     """
-    Compute a sparse distance matrix between x and y in torch.
-    Returns a nx x ny distance matrix.
+    Compute a k-nearest neighbor sparse distance matrix between two sets of points.
+
+    Calculates the Euclidean distance between rows of `x` and rows of `y`, 
+    keeping only the `k` closest neighbors in `y` for each row in `x`.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        First data matrix (NX x P).
+    y : torch.Tensor
+        Second data matrix (NY x P).
+    k : int
+        Number of nearest neighbors to retain.
+    sigma : float, optional
+        If provided, converts distances to an affinity matrix using a 
+        Gaussian kernel with this standard deviation.
+
+    Returns
+    -------
+    torch.Tensor
+        The sparse distance or affinity matrix (NX x NY).
     """
     x = torch.as_tensor(x).float()
     y = torch.as_tensor(y).float()

@@ -6,6 +6,22 @@ from typing import List, Dict, Any, Optional, Union, Callable, Tuple
 from abc import ABC, abstractmethod
 
 class SimlrOptimizer(ABC):
+    """
+    Abstract base class for all SiMLR-specific optimizers.
+
+    Provides a common interface for updating modality-specific basis 
+    matrices (V) during SiMLR optimization. Handles parameter filtering 
+    and maintains optimizer state (e.g., momentum, second moments).
+
+    Parameters
+    ----------
+    optimizer_type : str
+        The name/type of the optimizer.
+    v_mats : List[torch.Tensor]
+        The initial basis matrices for each modality.
+    **params : Dict[str, Any]
+        Hyperparameters for the optimizer (e.g., learning_rate, beta1).
+    """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         self.optimizer_type = optimizer_type
         self.params = self.filter_params(optimizer_type, params)
@@ -33,7 +49,7 @@ class SimlrOptimizer(ABC):
             'weight_decay': 0.0,
             'amsgrad': False,
             'momentum': 0.9,
-            'nsa_w': 0.5
+            'nsa_w': 0.1
         }
         
         # Merge defaults with provided params
@@ -61,6 +77,38 @@ def backtracking_linesearch(v_current: torch.Tensor,
                             beta: float = 0.5, 
                             max_iter: int = 10,
                             min_step: float = 1e-12) -> float:
+    """
+    Find an optimal step size using the Armijo backtracking line search rule.
+
+    Ensures that the step taken along the search direction results in a 
+    sufficient decrease of the energy function relative to the gradient slope.
+
+    Parameters
+    ----------
+    v_current : torch.Tensor
+        Current value of the parameters (basis matrix).
+    descent_direction : torch.Tensor
+        The direction along which to search (e.g., negative gradient).
+    ascent_gradient : torch.Tensor
+        The gradient at the current position (used for slope calculation).
+    energy_function : Callable
+        Function that computes the energy\/loss for a given parameter set.
+    initial_step_size : float, default=1.0
+        The first step size to try.
+    alpha : float, default=1e-4
+        Sufficient decrease constant (Armijo parameter).
+    beta : float, default=0.5
+        Reduction factor for the step size in each iteration.
+    max_iter : int, default=10
+        Maximum number of backtracking steps.
+    min_step : float, default=1e-12
+        Minimum allowable step size.
+
+    Returns
+    -------
+    float
+        The optimal step size found.
+    """
     try:
         initial_energy = energy_function(v_current)
     except:
@@ -91,6 +139,40 @@ def bidirectional_linesearch(v_current: torch.Tensor,
                              beta: float = 0.5, 
                              max_iter: int = 10,
                              min_step: float = 1e-12) -> Tuple[float, torch.Tensor]:
+    """
+    Perform a backtracking line search in both the positive and negative directions.
+
+    Useful for complex energy landscapes where the initial descent direction 
+    (from the gradient) might be misleading or when the search direction 
+    is not strictly a descent direction.
+
+    Parameters
+    ----------
+    v_current : torch.Tensor
+        Current value of the parameters.
+    descent_direction : torch.Tensor
+        Primary search direction.
+    ascent_gradient : torch.Tensor
+        Gradient at current position.
+    energy_function : Callable
+        Function to minimize.
+    initial_step_size : float, default=1.0
+        Initial step to try in both directions.
+    alpha : float, default=1e-4
+        Armijo constant.
+    beta : float, default=0.5
+        Step reduction factor.
+    max_iter : int, default=10
+        Max steps per direction.
+    min_step : float, default=1e-12
+        Minimum step size.
+
+    Returns
+    -------
+    Tuple[float, torch.Tensor]
+        A tuple of (optimal_step_size, direction), where direction is 
+        either `descent_direction` or `-descent_direction`.
+    """
     # Try positive direction
     pos_step = backtracking_linesearch(
         v_current, descent_direction, ascent_gradient, energy_function,
@@ -111,6 +193,24 @@ def bidirectional_linesearch(v_current: torch.Tensor,
         return 0.0, descent_direction
 
 class HybridAdam(SimlrOptimizer):
+    """
+    Hybrid optimizer combining Adam-style momentum with line search.
+
+    Computes an Adam-like search direction (using max variance for stability) 
+    and then performs a backtracking line search along that direction to 
+    ensure a sufficient decrease in the energy function.
+
+    Parameters
+    ----------
+    learning_rate : float, default=0.01
+        Initial step size.
+    beta1 : float, default=0.9
+        Momentum decay.
+    beta2 : float, default=0.999
+        Variance decay.
+    epsilon : float, default=1e-8
+        Numerical stability constant.
+    """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         state = self.state[i]
@@ -135,6 +235,23 @@ class HybridAdam(SimlrOptimizer):
         return v_current + optimal_step_size * search_direction
 
 class Adam(SimlrOptimizer):
+    """
+    Adam (Adaptive Moment Estimation) optimizer for SiMLR.
+
+    Updates basis matrices using estimates of the first and second 
+    moments of the gradients.
+
+    Parameters
+    ----------
+    learning_rate : float, default=0.01
+        Step size for updates.
+    beta1 : float, default=0.9
+        Exponential decay rate for the first moment estimates.
+    beta2 : float, default=0.999
+        Exponential decay rate for the second moment estimates.
+    epsilon : float, default=1e-8
+        Numerical stability constant.
+    """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         state = self.state[i]
@@ -150,6 +267,23 @@ class Adam(SimlrOptimizer):
         return v_current + lr * (m_hat / (torch.sqrt(v_hat) + epsilon))
 
 class Nadam(SimlrOptimizer):
+    """
+    Nadam (Nesterov-accelerated Adaptive Moment Estimation) optimizer for SiMLR.
+
+    Combines Adam with Nesterov accelerated gradient (NAG) for potentially 
+    faster convergence.
+
+    Parameters
+    ----------
+    learning_rate : float, default=0.01
+        Step size.
+    beta1 : float, default=0.9
+        Momentum decay.
+    beta2 : float, default=0.999
+        Variance decay.
+    epsilon : float, default=1e-8
+        Numerical stability constant.
+    """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         state = self.state[i]
@@ -166,6 +300,20 @@ class Nadam(SimlrOptimizer):
         return v_current + lr * (nesterov_m_hat / (torch.sqrt(v_hat) + epsilon))
 
 class ArmijoGradient(SimlrOptimizer):
+    """
+    Gradient descent optimizer with Armijo-style backtracking line search.
+
+    Uses a line search to find an optimal step size that satisfies the 
+    sufficient decrease condition (Armijo rule). Falls back to a constant 
+    learning rate if no energy function is provided.
+
+    Parameters
+    ----------
+    learning_rate : float, default=0.1
+        Initial step size for the line search.
+    epsilon : float, default=1e-8
+        Numerical stability constant.
+    """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         state = self.state[i]
@@ -184,6 +332,21 @@ class ArmijoGradient(SimlrOptimizer):
         return v_current - optimal_step_size * descent_gradient + 0.1 * state['momentum']
 
 class BidirectionalArmijoGradient(SimlrOptimizer):
+    """
+    Gradient descent optimizer with bidirectional Armijo line search.
+
+    Similar to `ArmijoGradient`, but the line search explores both the 
+    descent and ascent directions to find the optimal step. This is 
+    useful for complex energy surfaces where the sign of the gradient 
+    might not immediately point towards the minimum.
+
+    Parameters
+    ----------
+    learning_rate : float, default=0.1
+        Initial step size for the line search.
+    epsilon : float, default=1e-8
+        Numerical stability constant.
+    """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         state = self.state[i]
@@ -202,6 +365,22 @@ class BidirectionalArmijoGradient(SimlrOptimizer):
             return v_current - self.params['learning_rate'] * descent_gradient + 0.1 * state['momentum']
 
 class Lookahead(SimlrOptimizer):
+    """
+    Lookahead optimizer using `HybridAdam` as the inner solver.
+
+    Implements the "fast weights" and "slow weights" strategy to improve 
+    convergence stability. Slow weights are updated every `k` steps 
+    towards the fast weights.
+
+    Parameters
+    ----------
+    k : int, default=5
+        Frequency of slow weight updates.
+    alpha : float, default=0.5
+        Step size (interpolation factor) for slow weight updates.
+    **params : Dict[str, Any]
+        Additional parameters passed to the inner `HybridAdam` optimizer.
+    """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
         self.k = self.params.get('k', 5)
@@ -220,6 +399,22 @@ class Lookahead(SimlrOptimizer):
         return v_next
 
 class BidirectionalLookahead(SimlrOptimizer):
+    """
+    Lookahead optimizer using `BidirectionalArmijoGradient` as the inner solver.
+
+    Maintains a set of "slow weights" that are updated every `k` steps towards 
+    the "fast weights" generated by the inner bidirectional Armijo optimizer. 
+    This improves stability and convergence in complex SiMLR landscapes.
+
+    Parameters
+    ----------
+    k : int, default=5
+        Frequency of slow weight updates.
+    alpha : float, default=0.5
+        Step size (interpolation factor) for slow weight updates.
+    **params : Dict[str, Any]
+        Additional parameters passed to the inner optimizer.
+    """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
         self.k = self.params.get('k', 5)
@@ -238,6 +433,21 @@ class BidirectionalLookahead(SimlrOptimizer):
         return v_next
 
 class RMSProp(SimlrOptimizer):
+    """
+    RMSProp (Root Mean Square Propagation) optimizer for SiMLR.
+
+    Updates basis matrices using a moving average of squared gradients 
+    to normalize the gradient magnitude.
+
+    Parameters
+    ----------
+    learning_rate : float, default=0.01
+        The step size for updates.
+    beta : float, default=0.9
+        Discounting factor for the history/coming gradient.
+    epsilon : float, default=1e-8
+        Numerical stability constant.
+    """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         state = self.state[i]
@@ -248,12 +458,36 @@ class RMSProp(SimlrOptimizer):
         return v_current + lr * (descent_gradient / (torch.sqrt(state['v']) + epsilon))
 
 class SGD(SimlrOptimizer):
+    """
+    Stochastic Gradient Descent (SGD) optimizer for SiMLR.
+
+    Updates basis matrices using a constant learning rate.
+
+    Parameters
+    ----------
+    learning_rate : float, default=0.01
+        The step size for updates.
+    """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         lr = self.params['learning_rate']
         return v_current + lr * descent_gradient
 
 class LARS(SimlrOptimizer):
+    """
+    Layer-wise Adaptive Rate Scaling (LARS) optimizer for SiMLR.
+
+    Scales the learning rate based on the ratio of the weight norm to the 
+    gradient norm, which is helpful for training with large gradients or 
+    varying parameter scales.
+
+    Parameters
+    ----------
+    learning_rate : float, default=0.01
+        Global learning rate.
+    decay_rate : float, default=1e-3
+        Weight decay (L2 regularization) factor.
+    """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         lr = self.params['learning_rate']
@@ -264,6 +498,20 @@ class LARS(SimlrOptimizer):
         return v_current + lr * trust_ratio * (descent_gradient - decay * v_current)
 
 class NSAFlowOptimizer(SimlrOptimizer):
+    """
+    Optimizer using Non-Standard Analysis (NSA) Flow for Stiefel manifold updates.
+
+    Performs a gradient step and then uses NSA Flow to retract the result 
+    back onto the manifold of orthogonal matrices. Falls back to standard 
+    SVD-based projection if the `nsa_flow` package is unavailable.
+
+    Parameters
+    ----------
+    learning_rate : float, default=0.01
+        The step size for gradient updates.
+    nsa_w : float, default=0.1
+        The retraction weight/step for NSA Flow.
+    """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
         self.lr = self.params['learning_rate']
@@ -286,6 +534,22 @@ class NSAFlowOptimizer(SimlrOptimizer):
         return u @ v_h
 
 class TorchNativeOptimizer(SimlrOptimizer):
+    """
+    Wrapper for using standard PyTorch optimizers within the SiMLR framework.
+
+    Allows the use of `torch.optim` algorithms (e.g., AdamW, Adagrad, LBFGS) 
+    to update the basis matrices.
+
+    Parameters
+    ----------
+    optimizer_type : str
+        The type of PyTorch optimizer to use (e.g., 'torch_adamw', 
+        'torch_lbfgs').
+    v_mats : List[torch.Tensor]
+        The initial basis matrices.
+    **params : Dict[str, Any]
+        Hyperparameters passed to the PyTorch optimizer.
+    """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
         self.v_params = [nn.Parameter(v.clone()) for v in v_mats]
@@ -319,6 +583,35 @@ class TorchNativeOptimizer(SimlrOptimizer):
         return v_param.detach().clone()
 
 def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) -> SimlrOptimizer:
+    """
+    Factory function to instantiate a SiMLR optimizer by name.
+
+    Parameters
+    ----------
+    optimizer_type : str
+        The name of the optimizer to create. Supported values include:
+        - 'hybrid_adam': `HybridAdam` (default)
+        - 'adam': `Adam`
+        - 'nadam': `Nadam`
+        - 'rmsprop': `RMSProp`
+        - 'gd': `SGD`
+        - 'armijo_gradient': `ArmijoGradient`
+        - 'bidirectional_armijo_gradient': `BidirectionalArmijoGradient`
+        - 'lookahead': `Lookahead`
+        - 'bidirectional_lookahead': `BidirectionalLookahead`
+        - 'nsa_flow': `NSAFlowOptimizer`
+        - 'torch_adamw', 'torch_adagrad', 'torch_nadam', 'torch_lbfgs': `TorchNativeOptimizer`
+        - 'lars': `LARS`
+    v_mats : List[torch.Tensor]
+        Initial basis matrices for each modality.
+    **params : Dict[str, Any]
+        Hyperparameters passed to the optimizer constructor.
+
+    Returns
+    -------
+    SimlrOptimizer
+        An instance of the requested optimizer class.
+    """
     mapping = {
         "hybrid_adam": HybridAdam,
         "adam": Adam,

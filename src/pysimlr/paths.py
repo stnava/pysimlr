@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from typing import List, Optional, Union, Dict, Any, Tuple, Callable
+from typing import List, Union, Dict, Any, Optional, Tuple
 from .simlr import initialize_simlr
 from .optimizers import create_optimizer
 from .sparsification import orthogonalize_and_q_sparsify
@@ -12,109 +12,134 @@ def simlr_path(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                iterations: int = 20,
                optimizer_type: str = "hybrid_adam",
                energy_type: str = "regression",
-               sparseness_quantile: float = 0.0,
-               positivity: str = "either",
                verbose: bool = False,
-               **opt_params) -> Dict[str, Any]:
+               **kwargs) -> Dict[str, Any]:
     """
-    SiMLR with Path Modeling: Define structured relationships between modalities.
-    """
-    torch_mats = [m if isinstance(m, torch.Tensor) else torch.from_numpy(m).float() for m in data_matrices]
-    n_modalities = len(torch_mats)
-    
-    v_mats = initialize_simlr(torch_mats, k)
-    u_mats = [x @ v for x, v in zip(torch_mats, v_mats)]
-    for i in range(n_modalities):
-        u_mats[i], _, _ = torch.linalg.svd(u_mats[i], full_matrices=False)
-        u_mats[i] = u_mats[i][:, :k]
+    Fit a sequential path of SiMLR models by adding modalities incrementally.
 
-    optimizer = create_optimizer(optimizer_type, v_mats, **opt_params)
-    energy_history = []
+    This function explores how the shared latent consensus (U) evolves as 
+    new data views are incorporated. It is useful for understanding the 
+    contribution of each modality to the shared signal and for identifying 
+    robust latent structures across different combinations of data.
+
+    Parameters
+    ----------
+    data_matrices : List[Union[torch.Tensor, np.ndarray]]
+        A list of all available data matrices.
+    k : int
+        The dimensionality of the shared latent space.
+    path_model : List[List[int]]
+        A list of lists, where each sub-list contains the indices of 
+        modalities to include at that step of the path.
+    iterations : int, default=20
+        Number of optimization iterations per path step.
+    optimizer_type : str, default="hybrid_adam"
+        The optimizer to use (e.g., "hybrid_adam", "nsa_flow").
+    energy_type : str, default="regression"
+        The similarity/reconstruction energy objective.
+    verbose : bool, default=False
+        Whether to print progress.
+    **kwargs
+        Additional parameters passed to the SiMLR optimizer.
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary containing:
+        - "path_results": A list of SiMLR results for each step in the path.
+        - "consensus_correlations": Similarity between the final consensus 
+          and the consensus at each path step.
+    """
+    torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
+    path_results = []
     
-    for it in range(iterations):
-        new_u_mats = []
-        for i in range(n_modalities):
-            self_proj = torch_mats[i] @ v_mats[i]
-            connected_indices = path_model[i]
-            if connected_indices:
-                others = [u_mats[j] for j in connected_indices if j < n_modalities]
-                if others:
-                    target = self_proj + torch.sum(torch.stack(others), dim=0)
-                else:
-                    target = self_proj
-            else:
-                target = self_proj
-            u_i_new, _, _ = torch.linalg.svd(target, full_matrices=False)
-            new_u_mats.append(u_i_new[:, :k])
-        u_mats = new_u_mats
+    for i, modality_indices in enumerate(path_model):
+        if verbose: print(f"Path step {i+1}: modalities {modality_indices}")
+        sub_mats = [torch_mats[idx] for idx in modality_indices]
         
-        total_energy = 0.0
-        for i in range(n_modalities):
-            u_i = u_mats[i]
-            def energy_fn(v_cand):
-                pred = u_i @ v_cand.t()
-                return torch.sum((torch_mats[i] - pred)**2).item()
-            descent_grad = 2 * (torch_mats[i].t() @ u_i - v_mats[i])
-            v_mats[i] = optimizer.step(i, v_mats[i], descent_grad, energy_fn)
-            v_mats[i] = orthogonalize_and_q_sparsify(v_mats[i], sparseness_quantile, positivity)
-            total_energy += energy_fn(v_mats[i])
-            
-        energy_history.append(total_energy)
-        if verbose and it % 5 == 0:
-            print(f"Iteration {it}: Path Energy {total_energy}")
-            
+        # Warm start from previous step if possible
+        init_v = None
+        if i > 0:
+             # Logic for warm starting could be added here
+             pass
+             
+        from .simlr import simlr
+        res = simlr(sub_mats, k=k, iterations=iterations, 
+                    optimizer_type=optimizer_type, 
+                    energy_type=energy_type, verbose=verbose, **kwargs)
+        path_results.append(res)
+        
+    # Calculate stability of U across the path
+    final_u = path_results[-1]['u']
+    correlations = []
+    for res in path_results:
+        u_i = res['u']
+        # Compute similarity between consensus at this step and final consensus
+        correlations.append(adjusted_rvcoef(u_i, final_u))
+        
     return {
-        "u": u_mats,
-        "v": v_mats,
-        "energy": energy_history
+        "path_results": path_results,
+        "consensus_correlations": correlations
     }
 
 def permutation_test(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                      k: int,
-                     n_permutations: int = 50,
-                     simlr_fn: Optional[Callable] = None,
-                     **simlr_kwargs) -> Dict[str, Any]:
+                     n_permutations: int = 100,
+                     verbose: bool = False,
+                     **kwargs) -> Dict[str, Any]:
     """
-    Statistically robust permutation testing for multi-modal relationships.
-    """
-    if simlr_fn is None:
-        from .simlr import simlr as simlr_fn
-        
-    torch_mats = [m if isinstance(m, torch.Tensor) else torch.from_numpy(m).float() for m in data_matrices]
-    n_modalities = len(torch_mats)
-    
-    obs_res = simlr_fn(torch_mats, k=k, **simlr_kwargs)
-    
-    def get_mean_rv(u_list):
-        if not isinstance(u_list, list):
-            v_mats = obs_res['v']
-            u_projs = [x @ v for x, v in zip(torch_mats, v_mats)]
-            u_list = u_projs
-        rvs = []
-        for i in range(len(u_list)):
-            for j in range(i+1, len(u_list)):
-                rvs.append(adjusted_rvcoef(u_list[i], u_list[j]))
-        return np.mean(rvs) if rvs else 0.0
+    Assess the statistical significance of the SiMLR consensus via permutation.
 
-    obs_metric = get_mean_rv(obs_res['u'])
+    This function builds a null distribution of the cross-modality similarity 
+    (ACC) by repeatedly shuffling the rows of each data modality independently 
+    and re-fitting the SiMLR model. The observed similarity is then compared 
+    against this distribution to calculate a p-value.
+
+    Parameters
+    ----------
+    data_matrices : List[Union[torch.Tensor, np.ndarray]]
+        The list of data matrices to analyze.
+    k : int
+        The dimensionality of the shared latent space.
+    n_permutations : int, default=100
+        Number of permutations to perform for the null distribution.
+    verbose : bool, default=False
+        Whether to print progress.
+    **kwargs
+        Additional parameters passed to the SiMLR algorithm.
+
+    Returns
+    -------
+    Dict[str, Any]
+        A dictionary containing:
+        - "observed_similarity": The cross-modality similarity of the original data.
+        - "null_similarities": A list of similarities from the permuted data.
+        - "p_value": The probability of observing a similarity as extreme as 
+          the one measured, under the null hypothesis of no shared structure.
+    """
+    from .simlr import simlr
+    torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     
-    null_metrics = []
-    for p in range(n_permutations):
-        perm_mats = [torch_mats[0]]
-        for j in range(1, n_modalities):
-            perm_mats.append(torch_mats[j][torch.randperm(torch_mats[j].shape[0])])
-        perm_res = simlr_fn(perm_mats, k=k, **simlr_kwargs)
-        v_perm = perm_res['v']
-        u_perm_projs = [x @ v for x, v in zip(perm_mats, v_perm)]
-        null_metrics.append(get_mean_rv(u_perm_projs))
+    # 1. Observed similarity
+    obs_res = simlr(torch_mats, k=k, verbose=verbose, **kwargs)
+    obs_u = obs_res['u']
+    
+    # 2. Null distribution
+    null_sims = []
+    for i in range(n_permutations):
+        if verbose and i % 10 == 0: print(f"Permutation {i}/{n_permutations}")
+        # Shuffle rows of each matrix independently
+        perm_mats = [m[torch.randperm(m.shape[0])] for m in torch_mats]
+        perm_res = simlr(perm_mats, k=k, verbose=False, **kwargs)
+        # Compute average similarity between views and consensus
+        sims = [adjusted_rvcoef(m @ v, perm_res['u']) for m, v in zip(perm_mats, perm_res['v'])]
+        null_sims.append(np.mean(sims))
         
-    null_metrics = np.array(null_metrics)
-    p_value = (np.sum(null_metrics >= obs_metric) + 1) / (n_permutations + 1)
-    z_score = (obs_metric - np.mean(null_metrics)) / (np.std(null_metrics) + 1e-10)
+    obs_sim = np.mean([adjusted_rvcoef(m @ v, obs_u) for m, v in zip(torch_mats, obs_res['v'])])
+    p_value = np.mean(np.array(null_sims) >= obs_sim)
     
     return {
-        "p_value": p_value,
-        "z_score": z_score,
-        "observed_metric": obs_metric,
-        "null_metrics": null_metrics
+        "observed_similarity": obs_sim,
+        "null_similarities": null_sims,
+        "p_value": p_value
     }

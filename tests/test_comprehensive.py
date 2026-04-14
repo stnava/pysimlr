@@ -72,7 +72,7 @@ def test_regression_comprehensive():
     y = torch.randn(20, 5)
     u_np = np.random.randn(20, 2)
     pred = smooth_matrix_prediction(x, u_np)
-    assert pred.shape == (20, 10)
+    assert pred.shape == (20, 2)
     reg_res = smooth_regression(x, y, iterations=2)
     assert 'v' in reg_res
 

@@ -33,6 +33,7 @@ To ensure that the observed performance gains are not due to random initializati
 #| warning: false
 #| message: false
 #| echo: false
+import os
 import torch
 import numpy as np
 import pandas as pd
@@ -46,7 +47,7 @@ from scipy.stats import ttest_rel
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
-from pysimlr import simlr
+from pysimlr import simlr, lend_simr, ned_simr, l1_normalize_features, invariant_orthogonality_defect
 from pysimlr.deep import lend_simr, ned_simr, ned_simr_shared_private
 from pysimlr.utils import procrustes_r2, invariant_orthogonality_defect
 from pysimlr.benchmarks.synthetic_cases import build_case, plot_case_generative_shape
@@ -75,10 +76,17 @@ model_palette = {
     "NED": "#ff7f0e"    # Vibrant Orange
 }
 
-def run_matrix_benchmark(case_res, k, epochs=30, n_runs=10):
-    mats = case_res["data"]
-    u_true = case_res["true_u"]
-    v_true = case_res["true_v"][0]
+def run_matrix_benchmark(case_res, k, epochs=30, n_runs=10, cache_id=None):
+    if cache_id:
+        cache_path = f"results_cache/benchmark_{cache_id}.csv"
+        if os.path.exists(cache_path):
+            print(f"Loading cached results for {cache_id}...")
+            return pd.read_csv(cache_path)
+
+    # Ensure float32 to avoid dtype mismatch errors
+    mats = [torch.as_tensor(m).float() for m in case_res["data"]]
+    u_true = torch.as_tensor(case_res["true_u"]).float()
+    v_true = torch.as_tensor(case_res["true_v"][0]).float()
     y_raw = case_res["outcome"]
     y_raw_np = y_raw.numpy() if torch.is_tensor(y_raw) else y_raw
     y_class = (y_raw_np > np.median(y_raw_np)).astype(int)
@@ -106,16 +114,16 @@ def run_matrix_benchmark(case_res, k, epochs=30, n_runs=10):
                     v_est = torch.as_tensor(res['v'][0])
                     
                     # Unsigned metrics for footprint fidelity
-                    v_abs = torch.abs(v_est)
-                    v_true_abs = torch.abs(torch.as_tensor(v_true))
+                    v_est_norm = l1_normalize_features(v_est)
+                    v_true_norm = l1_normalize_features(v_true)
                     
                     u_rec = procrustes_r2(u_true, u_est)
-                    v_rec = procrustes_r2(v_true_abs, v_abs)
+                    v_rec = procrustes_r2(v_true_norm, v_est_norm)
                     
                     ortho = invariant_orthogonality_defect(v_est).item()
                     
                     # Zero-shot Prediction using fixed linear projector
-                    z_fixed = (torch.as_tensor(mats[0]) @ v_abs).numpy()
+                    z_fixed = (mats[0] @ v_est_norm).numpy()
                     acc = accuracy_score(y_class, RidgeClassifier().fit(z_fixed, y_class).predict(z_fixed))
                     
                     results.append({
@@ -123,10 +131,21 @@ def run_matrix_benchmark(case_res, k, epochs=30, n_runs=10):
                         "Latent Recovery (U)": u_rec, "Feature Recovery (V)": v_rec,
                         "Predictive Accuracy (Y)": acc, "Ortho Defect": ortho
                     })
-                except: pass
-    return pd.DataFrame(results)
+                except Exception as e:
+                    # Report errors for visibility during debugging
+                    print(f"Warning: Model {m_name} with {c} failed on run {run}: {e}")
+                    pass
+    
+    df = pd.DataFrame(results)
+    if cache_id and not df.empty:
+        os.makedirs("results_cache", exist_ok=True)
+        df.to_csv(cache_path, index=False)
+    return df
 
 def plot_benchmark_matrix(df, title):
+    if df.empty:
+        print(f"Warning: No data to plot for {title}")
+        return
     fig, axes = plt.subplots(1, 3, figsize=(16, 5), sharey=False)
     metrics = ["Latent Recovery (U)", "Feature Recovery (V)", "Predictive Accuracy (Y)"]
     for i, metric in enumerate(metrics):
@@ -142,6 +161,9 @@ def plot_benchmark_matrix(df, title):
     plt.show()
 
 def report_stats(df, label):
+    if df.empty:
+        print(f"### {label} Summary: NO DATA")
+        return
     print(f"### {label} Summary (Mean ± SD)")
     summary = df.groupby(['Model', 'Consensus'])[['Latent Recovery (U)', 'Feature Recovery (V)', 'Predictive Accuracy (Y)']].agg(['mean', 'std'])
     pd.options.display.float_format = '{:,.4f}'.format
@@ -168,7 +190,7 @@ case_lin = build_case("linear", n_samples=600, shared_k=3)
 plot_case_generative_shape(case_lin)
 plt.show()
 
-df_lin = run_matrix_benchmark(case_lin, k=3)
+df_lin = run_matrix_benchmark(case_lin, k=3, cache_id="linear")
 plot_benchmark_matrix(df_lin, "Benchmarking: Purely Linear Regime")
 report_stats(df_lin, "Linear Regime")
 ```
@@ -195,22 +217,23 @@ case_poly = build_case("nonlinear", regime="polynomial", n_samples=600, shared_k
 plot_case_generative_shape(case_poly)
 plt.show()
 
-df_poly = run_matrix_benchmark(case_poly, k=3)
+df_poly = run_matrix_benchmark(case_poly, k=3, cache_id="poly")
 plot_benchmark_matrix(df_poly, "Benchmarking: Polynomial Regime")
 report_stats(df_poly, "Polynomial Regime")
 
 #| label: hypothesis-test-poly
 #| echo: false
 #| results: asis
-df_poly_newton = df_poly[df_poly["Consensus"] == "NEWTON"]
-lend_v = df_poly_newton[df_poly_newton["Model"] == "LEND"]["Feature Recovery (V)"].values
-simlr_v = df_poly_newton[df_poly_newton["Model"] == "SiMLR"]["Feature Recovery (V)"].values
-if len(lend_v) >= 10 and len(simlr_v) >= 10:
-    t_stat, p_val = ttest_rel(lend_v, simlr_v)
-    print(f"\n**Hypothesis Test (Polynomial Regime, Newton Consensus):**")
-    print(f"Paired T-test LEND vs SiMLR on Feature Recovery (V): $t = {t_stat:.4f}$, $p = {p_val:.4e}$")
-    if p_val < 0.05:
-        print("\n> Result: The LEND advantage in feature recovery is **statistically significant** ($p < 0.05$).")
+if not df_poly.empty:
+    df_poly_newton = df_poly[df_poly["Consensus"] == "NEWTON"]
+    lend_v = df_poly_newton[df_poly_newton["Model"] == "LEND"]["Feature Recovery (V)"].values
+    simlr_v = df_poly_newton[df_poly_newton["Model"] == "SiMLR"]["Feature Recovery (V)"].values
+    if len(lend_v) >= 10 and len(simlr_v) >= 10:
+        t_stat, p_val = ttest_rel(lend_v, simlr_v)
+        print(f"\n**Hypothesis Test (Polynomial Regime, Newton Consensus):**")
+        print(f"Paired T-test LEND vs SiMLR on Feature Recovery (V): $t = {t_stat:.4f}$, $p = {p_val:.4e}$")
+        if p_val < 0.05:
+            print("\n> Result: The LEND advantage in feature recovery is **statistically significant** ($p < 0.05$).")
 ```
 
 ### 3.2 Information Theory Perspective: Decoder-Mediated De-noising
@@ -235,7 +258,7 @@ case_sin = build_case("nonlinear", regime="sinusoidal", n_samples=600, shared_k=
 plot_case_generative_shape(case_sin)
 plt.show()
 
-df_sin = run_matrix_benchmark(case_sin, k=3)
+df_sin = run_matrix_benchmark(case_sin, k=3, cache_id="sin")
 plot_benchmark_matrix(df_sin, "Benchmarking: Sinusoidal Regime")
 report_stats(df_sin, "Sinusoidal Regime")
 ```
@@ -253,24 +276,35 @@ We simulate 10 views where View 1 and View 2 contain the shared signal, but View
 ```{python}
 #| label: benchmark-private
 #| fig-cap: "Evaluating Shared/Private partitioning under heavy modality-specific noise."
-n_samples = 600
-shared_k = 2
-private_k = 2
-p_list = [100] * 10
-case_priv = build_case("shared_plus_private", n_samples=n_samples, shared_k=shared_k, private_k=private_k, p_list=p_list)
+cache_priv_path = "results_cache/benchmark_private.csv"
+if os.path.exists(cache_priv_path):
+    print("Loading cached results for private benchmark...")
+    df_priv = pd.read_csv(cache_priv_path)
+else:
+    n_samples = 600
+    shared_k = 2
+    private_k = 2
+    p_list = [100] * 10
+    case_priv = build_case("shared_plus_private", n_samples=n_samples, shared_k=shared_k, private_k=private_k, p_list=p_list)
 
-priv_results = []
-for c in ["pca", "newton"]:
-    res_ned = ned_simr(case_priv["data"], k=shared_k, mixing_algorithm=c, epochs=40, verbose=False)
-    u_rec_ned = procrustes_r2(case_priv["true_u"], res_ned['u'])
-    
-    res_pp = ned_simr_shared_private(case_priv["data"], k=shared_k, private_k=private_k, mixing_algorithm=c, epochs=40, verbose=False)
-    u_rec_pp = procrustes_r2(case_priv["true_u"], res_pp['u'])
-    
-    priv_results.append({"Consensus": c.upper(), "Architecture": "Standard NED", "Latent Recovery (U)": u_rec_ned})
-    priv_results.append({"Consensus": c.upper(), "Architecture": "NEDPP (Shared/Private)", "Latent Recovery (U)": u_rec_pp})
+    # Ensure float32
+    priv_mats = [torch.as_tensor(m).float() for m in case_priv["data"]]
+    priv_u_true = torch.as_tensor(case_priv["true_u"]).float()
 
-df_priv = pd.DataFrame(priv_results)
+    priv_results = []
+    for c in ["pca", "newton"]:
+        res_ned = ned_simr(priv_mats, k=shared_k, mixing_algorithm=c, epochs=40, verbose=False)
+        u_rec_ned = procrustes_r2(priv_u_true, res_ned['u'])
+        
+        res_pp = ned_simr_shared_private(priv_mats, k=shared_k, private_k=private_k, mixing_algorithm=c, epochs=40, verbose=False)
+        u_rec_pp = procrustes_r2(priv_u_true, res_pp['u'])
+        
+        priv_results.append({"Consensus": c.upper(), "Architecture": "Standard NED", "Latent Recovery (U)": u_rec_ned})
+        priv_results.append({"Consensus": c.upper(), "Architecture": "NEDPP (Shared/Private)", "Latent Recovery (U)": u_rec_pp})
+
+    df_priv = pd.DataFrame(priv_results)
+    df_priv.to_csv(cache_priv_path, index=False)
+
 plt.figure(figsize=(10, 5))
 sns.barplot(data=df_priv, x="Consensus", y="Latent Recovery (U)", hue="Architecture", palette="Set2")
 plt.title("Robustness to Structured Private Noise (10 Modalities)")
@@ -286,22 +320,33 @@ We perform a sensitivity analysis on the noise level $\epsilon$ to determine the
 ```{python}
 #| label: benchmark-noise-sweep
 #| fig-cap: "Stability of latent recovery as noise scale increases."
-noise_levels = [0.1, 0.5, 1.0, 2.0]
-sweep_results = []
+cache_sweep_path = "results_cache/benchmark_noise_sweep.csv"
+if os.path.exists(cache_sweep_path):
+    print("Loading cached results for noise sweep...")
+    df_sweep = pd.read_csv(cache_sweep_path)
+else:
+    noise_levels = [0.1, 0.5, 1.0, 2.0]
+    sweep_results = []
 
-for nl in noise_levels:
-    case_sweep = build_case("linear", n_samples=400, noise_scale=nl)
-    # Run PCA consensus for stability
-    res_simlr = simlr(case_sweep["data"], k=3, iterations=30, verbose=False)
-    res_lend = lend_simr(case_sweep["data"], k=3, epochs=30, verbose=False)
-    
-    u_r2_simlr = procrustes_r2(case_sweep["true_u"], res_simlr['u'])
-    u_r2_lend = procrustes_r2(case_sweep["true_u"], res_lend['u'])
-    
-    sweep_results.append({"Noise": nl, "Model": "SiMLR", "R2": u_r2_simlr})
-    sweep_results.append({"Noise": nl, "Model": "LEND", "R2": u_r2_lend})
+    for nl in noise_levels:
+        case_sweep = build_case("linear", n_samples=400, noise_scale=nl)
+        # Ensure float32
+        sweep_mats = [torch.as_tensor(m).float() for m in case_sweep["data"]]
+        sweep_u_true = torch.as_tensor(case_sweep["true_u"]).float()
 
-df_sweep = pd.DataFrame(sweep_results)
+        # Run PCA consensus for stability
+        res_simlr = simlr(sweep_mats, k=3, iterations=30, verbose=False)
+        res_lend = lend_simr(sweep_mats, k=3, epochs=30, verbose=False)
+        
+        u_r2_simlr = procrustes_r2(sweep_u_true, res_simlr['u'])
+        u_r2_lend = procrustes_r2(sweep_u_true, res_lend['u'])
+        
+        sweep_results.append({"Noise": nl, "Model": "SiMLR", "R2": u_r2_simlr})
+        sweep_results.append({"Noise": nl, "Model": "LEND", "R2": u_r2_lend})
+
+    df_sweep = pd.DataFrame(sweep_results)
+    df_sweep.to_csv(cache_sweep_path, index=False)
+
 plt.figure(figsize=(8, 5))
 sns.lineplot(data=df_sweep, x="Noise", y="R2", hue="Model", marker='o', palette=model_palette)
 plt.title("Latent Recovery Decay vs Noise Scale")
@@ -319,7 +364,9 @@ To ensure that the **Non-negative Stiefel approximating flow** is functioning co
 #| fig-cap: "Convergence of manifold constraints during deep learning training."
 torch.manual_seed(42)
 case_conv = build_case("linear", n_samples=400)
-res_lend_conv = lend_simr(case_conv["data"], k=3, epochs=100, nsa_w=0.1, verbose=False)
+# Ensure float32
+conv_mats = [torch.as_tensor(m).float() for m in case_conv["data"]]
+res_lend_conv = lend_simr(conv_mats, k=3, epochs=100, nsa_w=0.1, verbose=False)
 
 # Track drift and alpha from the first layer training metadata
 training_meta = res_lend_conv["first_layer_training"]
@@ -363,7 +410,7 @@ case_real = {
     "outcome": y
 }
 
-df_real = run_matrix_benchmark(case_real, k=2, epochs=100)
+df_real = run_matrix_benchmark(case_real, k=2, epochs=100, cache_id="real")
 plot_benchmark_matrix(df_real, "Real-World Benchmark: Breast Cancer (Malignancy)")
 report_stats(df_real, "Real-World Benchmark")
 ```
@@ -379,7 +426,7 @@ To understand the biological basis of the model's high predictive accuracy, we e
 #| label: bc-interpretability-drivers
 #| echo: false
 torch.manual_seed(42)
-res_bc = lend_simr([X1, X2], k=2, mixing_algorithm='ica', epochs=150, nsa_w=1.0, positivity="positive", verbose=False)
+res_bc = lend_simr([torch.from_numpy(X1).float(), torch.from_numpy(X2).float()], k=2, mixing_algorithm='ica', epochs=150, nsa_w=0.1, positivity="positive", verbose=False)
 factors = extract_first_layer_factors(res_bc, feature_names=[data.feature_names[:15], data.feature_names[15:]], top_k=5)
 
 print("### Top 5 Mechanistic Drivers per Component\n")

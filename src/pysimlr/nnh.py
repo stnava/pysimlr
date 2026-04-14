@@ -10,7 +10,21 @@ from sklearn.impute import SimpleImputer
 
 def antspymm_predictors(df: pd.DataFrame) -> List[str]:
     """
-    Find columns that look like neuroimaging predictors.
+    Identify columns that match common neuroimaging feature prefixes from ANTsPyMM.
+
+    Useful for automatically filtering neuroimaging modalities from a large 
+    DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The input DataFrame containing various feature columns.
+
+    Returns
+    -------
+    List[str]
+        A list of column names that match neuroimaging prefixes (e.g., 
+        'rsfMRI', 'T1Hier', 'DTI').
     """
     prefixes = ["rsfMRI", "T1Hier", "DTI", "perf_cbf", "mean_fa", "mean_md"]
     cols = df.columns.tolist()
@@ -24,7 +38,25 @@ def nnh_update_residuals(mat: torch.Tensor,
                          covariate_data: pd.DataFrame, 
                          covariate_col: str) -> torch.Tensor:
     """
-    Residualize matrix against a covariate.
+    Residualize a data matrix against a specific covariate.
+
+    Removes the linear influence of a covariate (e.g., age, sex, or mean signal) 
+    from the modality features using linear regression.
+
+    Parameters
+    ----------
+    mat : torch.Tensor
+        The input data matrix to be residualized.
+    covariate_data : pd.DataFrame
+        DataFrame containing the covariate values.
+    covariate_col : str
+        The name of the column in `covariate_data` to use as a regressor. 
+        If 'mean', residualizes against the row-wise mean of `mat`.
+
+    Returns
+    -------
+    torch.Tensor
+        The residualized data matrix.
     """
     # Simple implementation of linear regression residualization
     mat = torch.as_tensor(mat).float()
@@ -60,7 +92,42 @@ def nnh_embed(blaster: pd.DataFrame,
               **simlr_kwargs) -> Dict[str, Any]:
     """
     NNHEmbed: Perform SiMLR Analysis on Multimodal Neuroimaging Data.
-    Ported from reference R implementation.
+
+    This function automates the preprocessing, modality grouping, and 
+    SiMLR embedding for complex neuroimaging datasets (e.g., ANTsPyMM 
+    outputs). It handles asymmetry, covariate correction, and 
+    automated feature selection.
+
+    Parameters
+    ----------
+    blaster : pd.DataFrame
+        The input DataFrame containing subjects and multimodal features.
+    select_training_boolean : Optional[np.ndarray], default=None
+        Boolean mask to select training samples.
+    connect_cog : Optional[List[str]], default=None
+        List of cognitive/outcome variables to include in the embedding.
+    energy : str, default="acc"
+        Energy function type for SiMLR.
+    nsimlr : int, default=5
+        The rank (K) of the latent embedding.
+    constraint : str, default="ortho"
+        Orthogonality constraint for SiMLR.
+    covariates : List[str], default=[]
+        Columns to use as covariates for residualization (e.g., 'age', 'sex').
+    do_asym : int, default=1
+        Whether to compute asymmetry features (left - right).
+    resnet_grade_thresh : float, default=1.02
+        Quality control threshold for neuroimaging features.
+    verbose : bool, default=False
+        Whether to print progress messages.
+    **simlr_kwargs : Dict[str, Any]
+        Additional arguments passed to the `simlr` function.
+
+    Returns
+    -------
+    Dict[str, Any]
+        The result dictionary from the `simlr` run, including shared latents 
+        and projection matrices.
     """
     if verbose:
         print("Step 1: Selecting and filtering features...")

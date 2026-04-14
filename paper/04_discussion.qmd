@@ -58,22 +58,22 @@ Our experiments with the Shared/Private (NEDPP) architecture highlighted both it
 
 However, in the real-world Breast Cancer dataset, NEDPP's performance was highly variable depending on the consensus method and exhibited sensitivity to hyperparameters. This underscores a key finding: explicit variance partitioning requires strong inductive priors or careful regularization to prevent the network from arbitrarily dividing signal between the shared and private branches.
 
-## 6. Software Engineering and DevOps Recommendations (PR Roadmap)
+## 6. Future Directions (PR Roadmap)
 
-Based on the errors, edge-cases, and usability friction identified during the iterative generation of this computable benchmarking suite, we propose the following Pull Requests (PRs) for the `pysimlr` codebase to improve its utility, correctness, and performance:
+With the core algorithmic stability and API standardization achieved, the next phase of development focuses on scaling the `pysimlr` ecosystem and broadening its applicability to diverse scientific domains:
 
-1.  **Standardized Predictor Extraction (`feature/api-standardization`):**
-    *   **Issue:** Currently, extracting the linear projector from `LEND` and `SiMLR` requires manual inspection of the `.v` matrices, while `NED` requires running the forward pass to get `.u`.
-    *   **PR Solution:** Implement a `.get_projector()` or `.transform()` method across all model classes. For `LEND`/`SiMLR`, this returns a transparent linear function. For `NED`, it returns the compiled deep encoder. This unifies the downstream prediction API.
-2.  **Robust Feature Alignment Metrics (`feature/metrics-expansion`):**
-    *   **Issue:** Benchmarking required manual implementation of the `procrustes_r2` alignment metric in our testing scripts.
-    *   **PR Solution:** Add `procrustes_r2` and `procrustes_mse` natively to `pysimlr.utils` to streamline scientific evaluation for all users.
-3.  **Automated NEDPP Warmup (`fix/nedpp-stability`):**
-    *   **Issue:** The Shared/Private architecture frequently struggles with early-epoch instability, as observed in our real-world matrix runs.
-    *   **PR Solution:** Introduce an automated `shared_warmup_epochs` parameter that freezes the private encoders for the first $N$ epochs, allowing the shared consensus to stabilize before variance partitioning begins.
-4.  **Hardware-Resilient Lstsq Fallback (`fix/linalg-stability`):**
-    *   **Issue:** We encountered `_LinAlgError` (Singular Matrix) during feature attribution when modalities were extremely sparse.
-    *   **PR Solution:** Integrate the robust `torch.linalg.lstsq` fallback implemented during this study into the core `interpretability.py` module to prevent crashes during automated reporting.
+1.  **Multi-Ecosystem Interoperability (`feature/ecosystem-interop`):**
+    *   **Goal:** Implement a flexible adapter layer to support common scientific data containers (e.g., `AnnData`, `MuData`, `Xarray`, or `Pandas`).
+    *   **Rationale:** To ensure `pysimlr` is accessible across diverse scientific domains, the API should natively handle high-level data structures that preserve feature metadata, ensuring that latent representations and feature weights remain linked to their original semantic labels.
+2.  **Automated CI/CD and PyPI Publishing (`devops/pypi-release`):**
+    *   **Goal:** Establish GitHub Actions for continuous integration (testing across multiple Python versions and OS environments) and automated deployment to the Python Package Index (PyPI).
+    *   **Rationale:** The transition from a research codebase to a widely adopted scientific tool requires robust, frictionless `pip install pysimlr` functionality and automated regression testing.
+3.  **Scalable Out-of-Core Processing (`feature/scalable-dataloaders`):**
+    *   **Goal:** Implement custom PyTorch DataLoaders capable of streaming batched modalities directly from disk (e.g., using Zarr or HDF5) without loading the entire dataset into memory.
+    *   **Rationale:** Modern multi-omics and imaging datasets frequently exceed local RAM limits. The existing stochastic optimization in the deep models (LEND/NED) should be extended to support massive-scale, out-of-core training seamlessly.
+4.  **Advanced Encoder Topologies (`feature/complex-modalities`):**
+    *   **Goal:** Extend the `ned_simr` and `lend_simr` architectures to accept custom, user-provided encoder blocks, such as 2D-CNNs for spatial transcriptomics/imaging or Graph Neural Networks (GNNs) for interaction networks.
+    *   **Rationale:** While current multi-modal benchmarks primarily represent dense tabular data, multi-modal biological research is increasingly spatial and relational. Allowing topological priors will expand the framework’s reach.
 
 ## 7. Conclusion
 

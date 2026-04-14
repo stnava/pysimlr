@@ -8,6 +8,21 @@ from ..simlr import predict_simlr
 from ..deep import predict_deep
 
 class BenchmarkProtocol:
+    """
+    Standardized protocol for SiMLR benchmarking.
+
+    Handles data splitting (train/val/test) and systematic evaluation of 
+    models across multiple metrics.
+
+    Parameters
+    ----------
+    n_samples : int
+        Total number of samples in the dataset.
+    train_prop : float, default=0.6
+        Proportion of data to use for training.
+    val_prop : float, default=0.2
+        Proportion of data to use for validation.
+    """
     def __init__(self, n_samples: int, train_prop: float = 0.6, val_prop: float = 0.2):
         self.n_samples = n_samples
         self.train_prop = train_prop
@@ -18,7 +33,24 @@ class BenchmarkProtocol:
         self.test_n = n_samples - self.train_n - self.val_n
 
     def split_data(self, data: List[torch.Tensor], u: torch.Tensor, y: np.ndarray) -> Dict[str, Any]:
-        """Split data into train, validation, and test sets."""
+        """
+        Split dataset into training, validation, and testing sets.
+
+        Parameters
+        ----------
+        data : List[torch.Tensor]
+            Input data modalities.
+        u : torch.Tensor
+            Ground truth shared latent space (if available).
+        y : np.ndarray
+            Ground truth outcomes (if available).
+
+        Returns
+        -------
+        Dict[str, Any]
+            A nested dictionary containing `train`, `val`, and `test` splits, 
+            each with its own `data`, `u`, and `y` subsets.
+        """
         res = {
             "train": {"data": [m[:self.train_n] for m in data], "u": u[:self.train_n], "y": y[:self.train_n]},
             "val": {"data": [m[self.train_n:self.train_n+self.val_n] for m in data], "u": u[self.train_n:self.train_n+self.val_n], "y": y[self.train_n:self.train_n+self.val_n]},
@@ -27,7 +59,32 @@ class BenchmarkProtocol:
         return res
 
     def evaluate_model(self, model_res: Dict[str, Any], split_data: Dict[str, Any], model_type: str, seed: int, generator_name: str, noise_level: float) -> Dict[str, Any]:
-        """Evaluate a trained model on the test split and return a standardized result."""
+        """
+        Evaluate a trained model on the test split and return a standardized result.
+
+        Computes performance metrics (recovery, R2, MSE) and collects model 
+        diagnostics into a single result dictionary.
+
+        Parameters
+        ----------
+        model_res : Dict[str, Any]
+            Results from a model training run.
+        split_data : Dict[str, Any]
+            The split data dictionary from `split_data`.
+        model_type : str
+            Name/type of the model (e.g., `LEND`, `NED`).
+        seed : int
+            Random seed used for the experiment.
+        generator_name : str
+            Name of the data generator used.
+        noise_level : float
+            Noise level applied to the data.
+
+        Returns
+        -------
+        Dict[str, Any]
+            A comprehensive results dictionary for one experimental run.
+        """
         test_data = split_data["test"]
         train_data = split_data["train"]
         
@@ -86,7 +143,39 @@ def run_repeated_benchmark(protocol: BenchmarkProtocol,
                            generator_name: str = "unknown",
                            noise_level: float = 0.1,
                            **hparams) -> pd.DataFrame:
-    """Run a benchmark across multiple seeds using the shared protocol."""
+    """
+    Run a benchmark across multiple random seeds using a standardized protocol.
+
+    Automates data generation, splitting, model fitting, and evaluation over 
+    multiple iterations to ensure stable performance estimates.
+
+    Parameters
+    ----------
+    protocol : BenchmarkProtocol
+        An instance of `BenchmarkProtocol` defining the split strategy.
+    data_generator : Callable
+        A function that generates synthetic data. Expected signature:
+        `data_generator(n_samples, noise) -> x1, x2, u, y`.
+    model_fitter : Callable
+        A function that fits a SiMLR or deep model. Expected signature:
+        `model_fitter(train_data, **hparams) -> model_res`.
+    model_type : str
+        The name of the model being tested.
+    n_seeds : int, default=3
+        Number of independent runs with different seeds.
+    generator_name : str, default="unknown"
+        Label for the data generator (for reporting).
+    noise_level : float, default=0.1
+        The amount of noise to apply during data generation.
+    **hparams : Dict[str, Any]
+        Hyperparameters passed to the `model_fitter`.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame where each row corresponds to one experimental run, 
+        containing all computed metrics and experimental conditions.
+    """
     results = []
     for i in range(n_seeds):
         seed = 42 + i

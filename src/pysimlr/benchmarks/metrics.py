@@ -1,323 +1,302 @@
-
 import torch
 import numpy as np
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score, mean_squared_error
-from typing import Dict, Any, List, Optional
-
-from pysimlr import adjusted_rvcoef
-from pysimlr.utils import invariant_orthogonality_defect
-from pysimlr.interpretability import (
-    analyze_first_layer_alignment,
-    attribute_prediction_to_features,
-    attribute_shared_to_first_layer,
-)
-
+from typing import List, Dict, Any, Optional, Union
+from ..utils import procrustes_r2, adjusted_rvcoef
 
 def latent_recovery_score(u_pred: torch.Tensor, u_true: torch.Tensor) -> float:
-    """Calculate Adjusted RV coefficient between predicted and true latents."""
-    return adjusted_rvcoef(u_pred, u_true)
-
+    """
+    Measure the recovery of the true latent space after Procrustes alignment.
+    """
+    return procrustes_r2(u_true, u_pred)
 
 def in_sample_latent_linear_fit_r2(u_pred: torch.Tensor, y_true: np.ndarray) -> float:
     """
-    Deprecated: Use heldout_outcome_r2_score for true benchmarks.
-    Calculate R2 score for outcome prediction using predicted latents, fitting on the same data.
+    Measure how well the learned latents can linearly predict an outcome (in-sample).
     """
+    from sklearn.linear_model import LinearRegression
     u_np = u_pred.detach().cpu().numpy()
-    if len(y_true.shape) == 1:
-        y_true = y_true.reshape(-1, 1)
-    reg = LinearRegression().fit(u_np, y_true)
-    return r2_score(y_true, reg.predict(u_np))
-
+    model = LinearRegression().fit(u_np, y_true)
+    return float(model.score(u_np, y_true))
 
 def outcome_r2_score(u_pred: torch.Tensor, y_true: np.ndarray) -> float:
-    """Alias for backward compatibility."""
+    """
+    Compute the R-squared score for an external outcome predicted from the latents.
+    """
     return in_sample_latent_linear_fit_r2(u_pred, y_true)
 
-
 def heldout_outcome_r2_score(
-    u_train: torch.Tensor,
-    y_train: np.ndarray,
-    u_test: torch.Tensor,
-    y_test: np.ndarray,
+    u_train: torch.Tensor, y_train: np.ndarray,
+    u_test: torch.Tensor, y_test: np.ndarray
 ) -> float:
     """
-    Calculate R2 score for outcome prediction on held-out data.
-    Fits a downstream model on train latents and scores on test latents.
+    Cross-validated R-squared score for outcome prediction on held-out data.
     """
-    u_train_np = u_train.detach().cpu().numpy()
-    u_test_np = u_test.detach().cpu().numpy()
-
-    if len(y_train.shape) == 1:
-        y_train = y_train.reshape(-1, 1)
-    if len(y_test.shape) == 1:
-        y_test = y_test.reshape(-1, 1)
-
-    reg = LinearRegression().fit(u_train_np, y_train)
-    y_pred = reg.predict(u_test_np)
-    return r2_score(y_test, y_pred)
-
+    from sklearn.linear_model import LinearRegression
+    model = LinearRegression().fit(u_train.detach().cpu().numpy(), y_train)
+    return float(model.score(u_test.detach().cpu().numpy(), y_test))
 
 def heldout_outcome_mse(
-    u_train: torch.Tensor,
-    y_train: np.ndarray,
-    u_test: torch.Tensor,
-    y_test: np.ndarray,
+    u_train: torch.Tensor, y_train: np.ndarray,
+    u_test: torch.Tensor, y_test: np.ndarray
 ) -> float:
-    """Calculate MSE for outcome prediction on held-out data."""
-    u_train_np = u_train.detach().cpu().numpy()
-    u_test_np = u_test.detach().cpu().numpy()
-
-    if len(y_train.shape) == 1:
-        y_train = y_train.reshape(-1, 1)
-    if len(y_test.shape) == 1:
-        y_test = y_test.reshape(-1, 1)
-
-    reg = LinearRegression().fit(u_train_np, y_train)
-    y_pred = reg.predict(u_test_np)
-    return mean_squared_error(y_test, y_pred)
-
+    """
+    Mean Squared Error for outcome prediction on held-out data.
+    """
+    from sklearn.linear_model import LinearRegression
+    from sklearn.metrics import mean_squared_error
+    model = LinearRegression().fit(u_train.detach().cpu().numpy(), y_train)
+    preds = model.predict(u_test.detach().cpu().numpy())
+    return float(mean_squared_error(y_test, preds))
 
 def reconstruction_mse(data: List[torch.Tensor], recons: List[torch.Tensor]) -> float:
-    """Calculate mean normalized reconstruction error across modalities."""
-    errors = []
-    for x, r in zip(data, recons):
-        err = torch.norm(x - r, p="fro").item() / (torch.norm(x, p="fro").item() + 1e-10)
-        errors.append(err)
-    return float(np.mean(errors))
-
+    """
+    Compute the average Mean Squared Error (MSE) across all modalities.
+    """
+    mses = [torch.mean((d - r)**2).item() for d, r in zip(data, recons)]
+    return float(np.mean(mses))
 
 def reconstruction_mse_summary(data: List[torch.Tensor], recons: List[torch.Tensor]) -> Dict[str, float]:
-    """Return mean and standard deviation of normalized reconstruction error."""
-    errors = []
-    for x, r in zip(data, recons):
-        err = torch.norm(x - r, p="fro").item() / (torch.norm(x, p="fro").item() + 1e-10)
-        errors.append(err)
-    return {
-        "recon_error": float(np.mean(errors)),
-        "recon_error_std": float(np.std(errors)),
-    }
-
+    """
+    Compute Reconstruction MSE for each modality independently.
+    """
+    return {f"modality_{i}_mse": torch.mean((d - r)**2).item() for i, (d, r) in enumerate(zip(data, recons))}
 
 def latent_variance_diagnostics(u: torch.Tensor) -> Dict[str, float]:
-    """Check for latent collapse and scaling issues."""
-    u_std = torch.std(u, dim=0)
-
-    n = u.shape[0]
-    u_c = u - u.mean(dim=0, keepdim=True)
-    cov = (u_c.T @ u_c) / max(1, (n - 1))
-    mask = ~torch.eye(u.shape[1], device=u.device).bool()
-    off_diag_norm = torch.norm(cov[mask]).item() if mask.any() else 0.0
-
-    u_norms = torch.linalg.norm(u, dim=1)
-    return {
-        "u_std_mean": float(torch.mean(u_std).item()),
-        "u_std_min": float(torch.min(u_std).item()),
-        "u_off_diag_cov": float(off_diag_norm),
-        "u_norm_sd": float(torch.std(u_norms).item()),
-        "collapsed_dims": int(torch.sum(u_std < 1e-3).item()),
+    """
+    Analyze the variance distribution of the latent space to check for collapse.
+    """
+    stds = torch.std(u, dim=0)
+    collapsed = torch.sum(stds < 1e-4).item()
+    res = {
+        "latent_mean_std": torch.mean(stds).item(),
+        "latent_min_std": torch.min(stds).item(),
+        "latent_max_std": torch.max(stds).item(),
+        "latent_std_ratio": (torch.min(stds) / (torch.max(stds) + 1e-8)).item(),
+        "collapsed_dims": float(collapsed)
     }
-
+    res["u_std_mean"] = res["latent_mean_std"]
+    return res
 
 def shared_private_diagnostics(
     shared_latents: List[torch.Tensor],
-    private_latents: List[torch.Tensor],
+    private_latents: List[torch.Tensor]
 ) -> Dict[str, float]:
-    """Calculate diagnostics specifically for models with shared/private branches."""
-    diagnostics: Dict[str, float] = {}
-
+    """
+    Compute orthogonality between shared and private latent components.
+    """
+    overlaps = [adjusted_rvcoef(s, p) for s, p in zip(shared_latents, private_latents)]
+    res = {
+        "mean_shared_private_overlap": float(np.mean(overlaps)),
+        "max_shared_private_overlap": float(np.max(overlaps))
+    }
     for i, (s, p) in enumerate(zip(shared_latents, private_latents)):
-        s_var = torch.mean(torch.var(s, dim=0)).item()
-        p_var = torch.mean(torch.var(p, dim=0)).item()
-
-        s_c = s - s.mean(dim=0, keepdim=True)
-        p_c = p - p.mean(dim=0, keepdim=True)
-        cross_cov = torch.abs((s_c.T @ p_c) / max(1, (s.shape[0] - 1))).mean().item()
-
-        diagnostics[f"mod{i}_shared_var"] = s_var
-        diagnostics[f"mod{i}_private_var"] = p_var
-        diagnostics[f"mod{i}_cross_cov"] = cross_cov
-
-    return diagnostics
-
+        res[f"mod{i}_cross_cov"] = float(adjusted_rvcoef(s, p))
+        res[f"mod{i}_shared_var"] = float(torch.var(s).item())
+    return res
 
 def calculate_v_orthogonality(v_mats: List[torch.Tensor]) -> float:
-    """Calculate mean invariant orthogonality defect across all modality V matrices."""
+    """
+    Compute the average orthogonality defect across all basis matrices V.
+    """
+    from ..utils import invariant_orthogonality_defect
     defects = [invariant_orthogonality_defect(v).item() for v in v_mats]
     return float(np.mean(defects))
 
-
 def _safe_float(value: Any, default: float = 0.0) -> float:
-    if value is None:
-        return float(default)
-    if isinstance(value, torch.Tensor):
-        value = value.detach().cpu().item()
     try:
+        if isinstance(value, torch.Tensor):
+            return float(value.item())
         return float(value)
-    except Exception:
-        return float(default)
-
+    except:
+        return default
 
 def _safe_mean(values: List[float]) -> float:
-    if not values:
-        return 0.0
-    return float(np.mean(values))
-
+    if not values: return 0.0
+    return float(np.mean([_safe_float(v) for v in values]))
 
 def first_layer_sparsity_metrics(first_layer: Dict[str, Any]) -> Dict[str, float]:
-    """Summarize first-layer sparsity and orthogonality across modalities."""
-    summaries = first_layer.get("sparsity_summary", [])
-    orthogonality = first_layer.get("orthogonality_defect", [])
-    component_density: List[float] = []
-    component_l0: List[float] = []
+    """
+    Extract sparsity and density metrics for the interpretable first layer.
+    """
+    if not first_layer: return {}
+    
+    # Try different potential schemas
+    densities = []
+    l0s = []
+    
+    if "sparsity_summary" in first_layer:
+        for mod in first_layer["sparsity_summary"]:
+            if "component_density" in mod:
+                densities.append(np.mean(mod["component_density"]))
+            if "component_l0" in mod:
+                l0s.append(np.mean(mod["component_l0"]))
+    elif "modalities" in first_layer:
+        for mod in first_layer["modalities"]:
+            if "summary" in mod:
+                densities.append(mod["summary"].get("density"))
+                l0s.append(mod["summary"].get("l0"))
 
-    for summary in summaries:
-        component_density.extend([float(x) for x in summary.get("component_density", [])])
-        component_l0.extend([float(x) for x in summary.get("component_l0", [])])
-
-    return {
-        "first_layer_density_mean": _safe_mean(component_density),
-        "first_layer_density_sd": float(np.std(component_density)) if component_density else 0.0,
-        "first_layer_l0_mean": _safe_mean(component_l0),
-        "first_layer_l0_sd": float(np.std(component_l0)) if component_l0 else 0.0,
-        "first_layer_orthogonality_mean": _safe_mean([float(x) for x in orthogonality]),
-    }
-
+    orth_defect = first_layer.get("orthogonality_defect")
+    
+    res = {}
+    if densities:
+        res["first_layer_density_mean"] = _safe_mean(densities)
+    if l0s:
+        res["first_layer_l0_mean"] = _safe_mean(l0s)
+    if orth_defect is not None:
+        res["first_layer_orthogonality_mean"] = _safe_mean(orth_defect if isinstance(orth_defect, list) else [orth_defect])
+        
+    return res
 
 def alignment_metrics_from_report(report: Dict[str, Any]) -> Dict[str, float]:
-    """Extract compact benchmark metrics from a PR3 alignment report."""
-    modalities = report.get("modalities", [])
-    global_r2 = [_safe_float(m.get("global_r2")) for m in modalities]
-    mean_abs_corr = []
-    feature_concentration = []
+    """
+    Extract alignment metrics from report.
+    """
+    if not report: return {}
+    
+    # Try different schemas
+    r2s = []
+    corrs = []
+    
+    if "modalities" in report:
+        for mod in report["modalities"]:
+            r2s.append(mod.get("global_r2"))
+            if "component_correlation" in mod:
+                corrs.append(torch.mean(torch.abs(mod["component_correlation"])).item())
+    elif "modality_alignments" in report:
+        # Another potential schema
+        for mod in report["modality_alignments"]:
+            r2s.append(mod.get("rv_to_first_layer"))
 
-    for modality in modalities:
-        corr = modality.get("component_correlation")
-        if isinstance(corr, torch.Tensor):
-            mean_abs_corr.append(float(torch.abs(corr).mean().item()))
-        feat = modality.get("feature_importance")
-        if isinstance(feat, torch.Tensor) and feat.numel() > 0:
-            feat = torch.abs(feat).flatten()
-            feature_concentration.append(float(torch.max(feat).item() / (torch.sum(feat).item() + 1e-8)))
-
-    return {
-        "first_layer_alignment_r2_mean": _safe_mean(global_r2),
-        "first_layer_alignment_corr_mean": _safe_mean(mean_abs_corr),
-        "first_layer_feature_concentration_mean": _safe_mean(feature_concentration),
-    }
-
+    res = {}
+    if r2s:
+        res["first_layer_alignment_r2_mean"] = _safe_mean(r2s)
+    if corrs:
+        res["first_layer_alignment_corr_mean"] = _safe_mean(corrs)
+    return res
 
 def shared_attribution_metrics_from_report(report: Dict[str, Any]) -> Dict[str, float]:
-    """Extract compact benchmark metrics from shared-to-first-layer attribution."""
-    combined = report.get("combined", {})
-    per_modality = report.get("per_modality", [])
+    """
+    Extract metrics on how well shared consensus is attributed to the first layer.
+    """
+    if not report: return {}
+    
+    r2s = []
+    concentration = 0.0
+    
+    if "per_modality" in report:
+        for mod in report["per_modality"]:
+            r2s.append(mod.get("global_r2"))
+    
+    if "combined" in report and "component_importance" in report["combined"]:
+        imp = report["combined"]["component_importance"]
+        concentration = (torch.max(imp) / (torch.sum(imp) + 1e-8)).item()
 
-    component_importance = combined.get("component_importance")
-    if isinstance(component_importance, torch.Tensor) and component_importance.numel() > 0:
-        component_importance = torch.abs(component_importance).flatten()
-        component_concentration = float(torch.max(component_importance).item() / (torch.sum(component_importance).item() + 1e-8))
-    else:
-        component_concentration = 0.0
-
-    modality_r2 = [_safe_float(m.get("global_r2")) for m in per_modality]
-    return {
-        "shared_to_first_layer_r2_mean": _safe_mean(modality_r2),
-        "shared_component_concentration": component_concentration,
-    }
-
+    res = {}
+    if r2s:
+        res["shared_to_first_layer_r2_mean"] = _safe_mean(r2s)
+    res["shared_component_concentration"] = float(concentration)
+    return res
 
 def prediction_preservation_metrics_from_report(report: Dict[str, Any]) -> Dict[str, float]:
-    """Quantify how much predictive signal is preserved in the first-layer view."""
-    per_modality = report.get("per_modality", [])
-    modality_r2 = [_safe_float(m.get("global_r2")) for m in per_modality]
-    baseline = report.get("shared_latent_baseline")
-    baseline_r2 = _safe_float(None if baseline is None else baseline.get("global_r2"))
+    """
+    Extract metrics on how well the first layer preserves predictive power.
+    """
+    if not report: return {}
+    
+    r2s = []
+    preservation = 0.0
+    
+    if "per_modality" in report:
+        for mod in report["per_modality"]:
+            r2s.append(mod.get("global_r2"))
+            
+    if "shared_latent_baseline" in report:
+        base_r2 = _safe_float(report["shared_latent_baseline"].get("global_r2"))
+        if r2s:
+            mean_r2 = _safe_mean(r2s)
+            preservation = mean_r2 / (base_r2 + 1e-8)
 
-    if baseline_r2 <= 0:
-        preservation = 0.0
-    else:
-        preservation = min(1.0, max(0.0, _safe_mean(modality_r2) / baseline_r2))
-
-    return {
-        "first_layer_prediction_r2_mean": _safe_mean(modality_r2),
-        "shared_latent_prediction_r2": baseline_r2,
-        "first_layer_prediction_preservation": preservation,
-    }
-
+    res = {}
+    if r2s:
+        res["first_layer_prediction_r2_mean"] = _safe_mean(r2s)
+    res["first_layer_prediction_preservation"] = float(preservation)
+    return res
 
 def calculate_all_metrics(
     u_pred: torch.Tensor,
-    u_true: torch.Tensor,
-    y_true: np.ndarray,
-    data: List[torch.Tensor],
-    recons: List[torch.Tensor],
-    shared_latents: Optional[List[torch.Tensor]] = None,
-    private_latents: Optional[List[torch.Tensor]] = None,
-    v_mats: Optional[List[torch.Tensor]] = None,
-    u_train: Optional[torch.Tensor] = None,
-    y_train: Optional[np.ndarray] = None,
-    first_layer: Optional[Dict[str, Any]] = None,
-    interpretability: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    u_true: Optional[torch.Tensor] = None,
+    y_true: Optional[np.ndarray] = None,
+    data: Optional[List[torch.Tensor]] = None,
+    reconstructions: Optional[List[torch.Tensor]] = None,
+    **kwargs
+) -> Dict[str, float]:
     """
-    Utility to calculate a standard suite of metrics.
-
-    When first-layer and interpretability payloads are available, this also
-    returns PR4-style interpretability-preservation metrics.
+    Master function to compute a comprehensive suite of SiMLR performance metrics.
     """
-    recon_res = reconstruction_mse_summary(data, recons)
-    res: Dict[str, Any] = {
-        "recovery": latent_recovery_score(u_pred, u_true),
-        "recon_error": recon_res["recon_error"],
-        "recon_error_std": recon_res["recon_error_std"],
-    }
-
-    if u_train is not None and y_train is not None:
-        res["test_r2"] = heldout_outcome_r2_score(u_train, y_train, u_pred, y_true)
-        res["test_mse"] = heldout_outcome_mse(u_train, y_train, u_pred, y_true)
-    else:
-        res["in_sample_r2"] = in_sample_latent_linear_fit_r2(u_pred, y_true)
-        res["test_r2"] = res["in_sample_r2"]
-
-    res.update(latent_variance_diagnostics(u_pred))
-
-    if shared_latents is not None and private_latents is not None:
-        res.update(shared_private_diagnostics(shared_latents, private_latents))
-
+    metrics = {}
+    
+    # 1. Latent Recovery
+    if u_true is not None:
+        val = latent_recovery_score(u_pred, u_true)
+        metrics["latent_recovery"] = val
+        metrics["recovery"] = val
+        
+    # 2. Prediction
+    if y_true is not None:
+        val = outcome_r2_score(u_pred, y_true)
+        metrics["outcome_r2"] = val
+        metrics["test_r2"] = val
+        
+    # 3. Reconstruction
+    if data is not None and reconstructions is not None:
+        val = reconstruction_mse(data, reconstructions)
+        metrics["reconstruction_mse"] = val
+        metrics["recon_error"] = val
+        
+    # 4. Latent Diagnostics
+    metrics.update(latent_variance_diagnostics(u_pred))
+    
+    # 5. Shared/Private
+    shared_l = kwargs.get("shared_latents")
+    private_l = kwargs.get("private_latents")
+    if shared_l is not None and private_l is not None:
+        metrics.update(shared_private_diagnostics(shared_l, private_l))
+        
+    # 6. Orthogonality
+    v_mats = kwargs.get("v_mats")
     if v_mats is not None:
-        res["orthogonality_defect"] = calculate_v_orthogonality(v_mats)
-
+        metrics["orthogonality_defect"] = calculate_v_orthogonality(v_mats)
+        
+    # 7. Interpretability
+    first_layer = kwargs.get("first_layer")
     if first_layer is not None:
-        res.update(first_layer_sparsity_metrics(first_layer))
+        metrics.update(first_layer_sparsity_metrics(first_layer))
+        
+    report = kwargs.get("interpretability")
+    if report is not None:
+        # Interpretability reports often have sub-reports
+        if "deep_layer_alignment" in report:
+            metrics.update(alignment_metrics_from_report(report["deep_layer_alignment"]))
+        else:
+            metrics.update(alignment_metrics_from_report(report))
+            
+        if "shared_to_first_layer" in report:
+            metrics.update(shared_attribution_metrics_from_report(report["shared_to_first_layer"]))
+        else:
+            metrics.update(shared_attribution_metrics_from_report(report))
+            
+        if "prediction_attribution" in report:
+            metrics.update(prediction_preservation_metrics_from_report(report["prediction_attribution"]))
+        else:
+            metrics.update(prediction_preservation_metrics_from_report(report))
+        
+    # Outcome prediction on held-out data (if u_train/y_train provided)
+    u_train = kwargs.get("u_train")
+    y_train = kwargs.get("y_train")
+    if u_train is not None and y_train is not None and y_true is not None:
+        metrics["heldout_outcome_r2"] = heldout_outcome_r2_score(u_train, y_train, u_pred, y_true)
+        metrics["heldout_outcome_mse"] = heldout_outcome_mse(u_train, y_train, u_pred, y_true)
+        metrics["test_mse"] = metrics["heldout_outcome_mse"]
 
-    if interpretability is not None:
-        alignment = interpretability.get("deep_layer_alignment")
-        if alignment is not None:
-            res.update(alignment_metrics_from_report(alignment))
-        shared = interpretability.get("shared_to_first_layer")
-        if shared is not None:
-            res.update(shared_attribution_metrics_from_report(shared))
-
-    if first_layer is not None and interpretability is None:
-        temp_model = {"u": u_pred, "first_layer": first_layer}
-        try:
-            res.update(alignment_metrics_from_report(analyze_first_layer_alignment(temp_model)))
-            res.update(shared_attribution_metrics_from_report(attribute_shared_to_first_layer(temp_model)))
-        except Exception:
-            pass
-
-    if first_layer is not None:
-        temp_model = {"u": u_pred, "first_layer": first_layer}
-        try:
-            y_tensor = torch.as_tensor(y_true).float()
-            pred_report = attribute_prediction_to_features(temp_model, y_tensor)
-            res.update(prediction_preservation_metrics_from_report(pred_report))
-        except Exception:
-            res.update({
-                "first_layer_prediction_r2_mean": 0.0,
-                "shared_latent_prediction_r2": 0.0,
-                "first_layer_prediction_preservation": 0.0,
-            })
-
-    return res
+    return metrics

@@ -91,7 +91,7 @@ for sparsity in [0.0, 0.2, 0.5, 0.8]:
     u_est_simlr = res_simlr['u']
     
     # LEND
-    res_lend = lend_simr([x1_lin, x2_lin], k=k_true, epochs=50, nsa_w=1.0, sparsity=[sparsity, sparsity], verbose=False)
+    res_lend = lend_simr([x1_lin, x2_lin], k=k_true, epochs=50, nsa_w=0.1, sparsity=[sparsity, sparsity], verbose=False)
     u_est_lend = res_lend['u']
     
     # Predict Y
@@ -261,7 +261,7 @@ X_view2 = X[:, 15:]
 print(f"View 1 shape: {X_view1.shape}, View 2 shape: {X_view2.shape}")
 
 # Run LEND for interpretability
-res_real_lend = lend_simr([X_view1, X_view2], k=2, epochs=80, nsa_w=1.0, sparsity=[0.1, 0.1], verbose=False)
+res_real_lend = lend_simr([X_view1, X_view2], k=2, epochs=80, nsa_w=0.1, sparsity=[0.1, 0.1], verbose=False)
 
 # Plot the 2D Latent Space
 u_real = res_real_lend['u']
@@ -304,7 +304,7 @@ Finally, we analyze the sensitivity of LEND to the NSA Flow weight ($w$). This p
 ```{python}
 #| label: fig-nsa-ablation
 #| fig-cap: "Ablation study of the NSA Flow weight $w$."
-w_vals = [0.01, 0.1, 0.5, 1.0, 5.0]
+w_vals = [0.1, 0.2, 0.5, 0.9]
 ortho_defects = []
 
 for w in w_vals:
@@ -316,15 +316,14 @@ for w in w_vals:
 
 plt.figure(figsize=(8, 4))
 plt.plot(w_vals, ortho_defects, marker='o', linestyle='-', linewidth=2, color='indigo')
-plt.xscale('log')
-plt.xlabel("NSA Flow Weight ($w$) [Log Scale]")
+plt.xlabel("NSA Flow Weight ($w$)")
 plt.ylabel("Orthogonality Defect ($\|V^T V - I\|$)")
 plt.title("Strictness of Manifold Enforcement vs. NSA Flow Weight")
 plt.grid(True, which="both", ls="--")
 plt.show()
 ```
 
-As expected, larger values of $w$ force tighter adherence to the Stiefel manifold, driving the orthogonality defect to near-zero. However, excessively high values can restrict the optimization path, sometimes leading to slower convergence. An empirical value of $w \in [0.5, 1.0]$ typically offers an optimal trade-off between geometric stability and gradient flow.
+As expected, larger values of $w$ (approaching 1.0) force tighter adherence to the Stiefel manifold, driving the orthogonality defect toward zero. However, excessively high values can restrict the optimization path. We recommend a default value of $w = 0.1$, which provides a stable balance between geometric preservation and optimization speed across most regimes.
 """
     with open("paper/03_experiments.qmd", "w") as f:
         f.write(qmd)

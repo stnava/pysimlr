@@ -13,8 +13,39 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                             training: bool = False,
                             batch_context: Optional[Dict[str, Any]] = None) -> torch.Tensor:
     """
-    Combine projections from different modalities into a shared latent basis U.
-    Shared by linear SIMLR and deep models.
+    Combine modality-specific projections into a shared latent consensus (U).
+
+    This function aggregates the projected latent representations from multiple 
+    data views into a single shared basis. It supports various mixing strategies 
+    and ensures the final consensus is standardized.
+
+    Parameters
+    ----------
+    projections : List[torch.Tensor]
+        A list of projected latent matrices (Z_m = X_m V_m) from each modality.
+    mixing_algorithm : str, default="svd"
+        The algorithm used to estimate the shared consensus:
+        - "avg": Simple mean of all view-specific latents.
+        - "newton": Newton-Schulz iteration for strict Stiefel manifold alignment.
+        - "pca": First K principal components of the stacked latents.
+        - "svd": SVD-based consensus (equivalent to PCA on uncentered latents).
+        - "ica": Independent Component Analysis (requires scikit-learn).
+        - "stochastic": Random projection mixing.
+    k : int, optional
+        The dimensionality of the shared latent space. Defaults to the number 
+        of columns in the first projection.
+    orthogonalize : bool, default=False
+        If True, enforces orthogonality on the final consensus U.
+    training : bool, default=False
+        Whether the consensus is being computed during training (reserved 
+        for future stabilization logic).
+    batch_context : Dict[str, Any], optional
+        Contextual information about the current training batch.
+
+    Returns
+    -------
+    torch.Tensor
+        The shared latent consensus U, standardized to unit variance per dimension.
     """
     if not projections:
         return torch.empty(0)
