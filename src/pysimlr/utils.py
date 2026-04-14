@@ -4,6 +4,8 @@ import re
 import time
 import numpy as np
 from typing import List, Optional, Union, Dict, Any, Tuple
+from scipy.linalg import orthogonal_procrustes
+from sklearn.metrics import r2_score
 
 def set_seed_based_on_time() -> int:
     """
@@ -183,7 +185,9 @@ def l1_normalize_features(features: torch.Tensor) -> torch.Tensor:
 def invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     """
     Compute invariant orthogonality defect.
+    Measures deviation from orthogonality after normalizing for global Frobenius norm.
     """
+    if not isinstance(a, torch.Tensor): a = torch.as_tensor(a).float()
     norm_a_f = torch.sqrt(torch.sum(a**2))
     if norm_a_f < 1e-10: return torch.tensor(0.0, device=a.device)
     ap = a / norm_a_f
@@ -191,6 +195,15 @@ def invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     d = torch.diag(torch.diag(ata))
     defect = torch.sum((ata - d)**2)
     return defect
+
+def stiefel_defect(a: torch.Tensor) -> torch.Tensor:
+    """
+    Measure violation of the Stiefel manifold constraint: V.t() @ V = I.
+    """
+    if not isinstance(a, torch.Tensor): a = torch.as_tensor(a).float()
+    k = a.shape[1]
+    identity = torch.eye(k, device=a.device, dtype=a.dtype)
+    return torch.norm(a.t() @ a - identity, p='fro')
 
 def gradient_invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     """
@@ -209,6 +222,7 @@ def mean_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     """
     Compute mean orthogonality defect (average off-diagonal squared correlation).
     """
+    if not isinstance(a, torch.Tensor): a = torch.as_tensor(a).float()
     n, k = a.shape
     if k <= 1:
         return torch.tensor(0.0, device=a.device)
@@ -242,7 +256,6 @@ def gradient_mean_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     
     # Gradient component from numerator
     # d/dA (tr(A_norm.T @ A_norm - I)^2) / (k*(k-1))
-    # This follows standard matrix calculus for normalized columns
     grad = (4.0 / (k * (k - 1) + 1e-10)) * a_norm @ r_off
     
     # Project out components along the columns (due to normalization)
@@ -254,7 +267,9 @@ def orthogonality_summary(a: torch.Tensor) -> Dict[str, float]:
     """
     Provide a detailed summary of matrix orthogonality metrics.
     """
+    if not isinstance(a, torch.Tensor): a = torch.as_tensor(a).float()
     defect = invariant_orthogonality_defect(a).item()
+    stiefel = stiefel_defect(a).item()
     mean_defect = mean_orthogonality_defect(a).item()
     
     # Condition number (ratio of max to min singular value)
@@ -268,6 +283,7 @@ def orthogonality_summary(a: torch.Tensor) -> Dict[str, float]:
         
     return {
         "invariant_defect": defect,
+        "stiefel_defect": stiefel,
         "mean_defect": mean_defect,
         "condition_number": cond,
         "effective_rank_proxy": ortho_score
@@ -376,3 +392,38 @@ def safe_svd(x: torch.Tensor, full_matrices: bool = False) -> Tuple[torch.Tensor
         x_cpu = x.cpu()
         u, s, vh = torch.linalg.svd(x_cpu, full_matrices=full_matrices)
         return u.to(x.device), s.to(x.device), vh.to(x.device)
+
+def procrustes_r2(u_true: torch.Tensor, u_est: torch.Tensor) -> float:
+    """
+    Compute Procrustes-aligned R2 between true and estimated latent spaces.
+    """
+    u_true_np = u_true.detach().cpu().numpy() if torch.is_tensor(u_true) else u_true
+    u_est_np = u_est.detach().cpu().numpy() if torch.is_tensor(u_est) else u_est
+    
+    # Standardize/Center
+    u_true_np = u_true_np - u_true_np.mean(0)
+    u_est_np = u_est_np - u_est_np.mean(0)
+    
+    try:
+        R, _ = orthogonal_procrustes(u_est_np, u_true_np)
+        u_rotated = u_est_np @ R
+        return float(r2_score(u_true_np, u_rotated))
+    except Exception:
+        return 0.0
+
+def procrustes_mse(u_true: torch.Tensor, u_est: torch.Tensor) -> float:
+    """
+    Compute Procrustes-aligned MSE between true and estimated latent spaces.
+    """
+    u_true_np = u_true.detach().cpu().numpy() if torch.is_tensor(u_true) else u_true
+    u_est_np = u_est.detach().cpu().numpy() if torch.is_tensor(u_est) else u_est
+    
+    u_true_np = u_true_np - u_true_np.mean(0)
+    u_est_np = u_est_np - u_est_np.mean(0)
+    
+    try:
+        R, _ = orthogonal_procrustes(u_est_np, u_true_np)
+        u_rotated = u_est_np @ R
+        return float(np.mean((u_true_np - u_rotated)**2))
+    except Exception:
+        return float('nan')

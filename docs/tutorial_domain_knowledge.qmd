@@ -98,6 +98,7 @@ results = simlr(
     domain_matrices=d_matrices,
     domain_lambdas=0.1,       
     optimizer_type="hybrid_adam",
+    positivities=['positive','positive','positive'],
     verbose=False
 )
 

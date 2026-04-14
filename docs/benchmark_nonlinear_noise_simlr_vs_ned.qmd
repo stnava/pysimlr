@@ -19,23 +19,117 @@ import pandas as pd
 from pysimlr.simlr import simlr
 from pysimlr.deep import ned_simr, predict_deep
 from pysimlr.benchmarks.protocol import BenchmarkProtocol, run_repeated_benchmark
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 # Parameters
 n_samples = 1200
 k = 5
 noise = 0.1
 
-def data_gen(n_samples, noise):
-    u = torch.randn(n_samples, k)
-    def nonlin_map(z, out_dim):
-        w1 = torch.randn(z.shape[1], out_dim)
-        w2 = torch.randn(z.shape[1], out_dim)
-        return torch.sin(z @ w1) + 0.5 * (z @ w2)**3
-    x1 = nonlin_map(u, 50) + noise * torch.randn(n_samples, 50)
-    x2 = nonlin_map(u, 40) + noise * torch.randn(n_samples, 40)
+def data_gen(n_samples, noise, n_modalities=2, latent_dim=5, output_dims=None, transformation=None, plot=True):
+    """
+    Generate nonlinear data with noise for a given number of modalities.
+    
+    Parameters:
+    - n_samples: Number of samples.
+    - noise: Noise level.
+    - n_modalities: Number of modalities to generate.
+    - latent_dim: Dimension of the latent space.
+    - output_dims: List of output dimensions for each modality. If None, generates default output dimensions.
+    - transformation: Transformation function to apply to the latent space. If None, uses a default nonlinear transformation.
+    - plot: Boolean flag to indicate whether to plot the generated modalities. Default is False.
+    
+    Returns:
+    - x: List of generated modalities.
+    - u: Latent space data.
+    - y: Outcome data.
+    """
+    if output_dims is None:
+        output_dims = [50, 40]  # Default output dimensions
+    if len(output_dims) != n_modalities:
+        raise ValueError("The length of output_dims must match the number of modalities.")
+    
+    if transformation is None:
+        def nonlin_map(z, out_dim):
+            w1 = torch.randn(z.shape[1], out_dim)
+            w2 = torch.randn(z.shape[1], out_dim)
+            return torch.sin(z @ w1) + 0.5 * (z @ w2)**3
+        transformation = nonlin_map
+    
+    u = torch.randn(n_samples, latent_dim)
+    x = []
+    for i in range(n_modalities):
+        x_i = transformation(u, output_dims[i]) + noise * torch.randn(n_samples, output_dims[i])
+        x.append(x_i)
+    
     y = u[:, 0:1] * 2.0 + u[:, 1:2] * 1.5 + 0.01 * torch.randn(n_samples, 1)
     def norm(x): return (x - x.mean(0)) / (x.std(0) + 1e-6)
-    return norm(x1), norm(x2), u, y.numpy()
+    x = [norm(x_i) for x_i in x]
+    
+    if plot:
+        plt.figure(figsize=(15, 5 * n_modalities))
+        
+        for i in range(n_modalities):
+            plt.subplot(n_modalities, 3, i * 3 + 1)
+            sns.heatmap(x[i][:10, :10].numpy(), annot=True, fmt=".2f", cmap="coolwarm")
+            plt.title(f"Shape of x{i+1}")
+            
+            plt.subplot(n_modalities, 3, i * 3 + 2)
+            sns.histplot(x[i].flatten().numpy(), kde=True)
+            plt.title(f"Distribution of x{i+1}")
+            
+            plt.subplot(n_modalities, 3, i * 3 + 3)
+            plt.scatter(u[:, 0].numpy(), u[:, 1].numpy(), c=x[i].numpy(), cmap="viridis")
+            plt.title(f"First Two Dimensions of u vs x{i+1}")
+        
+        plt.tight_layout()
+        plt.show()
+    
+    return x, u, y.numpy()
+
+
+x1, u, y = data_gen(n_samples, noise)
+
+x1=x[0]
+x2=x[1]
+
+# Plot shapes of the data
+plt.figure(figsize=(10, 4))
+
+plt.subplot(1, 3, 1)
+sns.heatmap(x1[:10, :10].numpy(), annot=True, fmt=".2f", cmap="coolwarm")
+plt.title("Shape of x1")
+
+plt.subplot(1, 3, 2)
+sns.heatmap(x2[:10, :10].numpy(), annot=True, fmt=".2f", cmap="coolwarm")
+plt.title("Shape of x2")
+
+plt.subplot(1, 3, 3)
+sns.heatmap(u[:10, :10].numpy(), annot=True, fmt=".2f", cmap="coolwarm")
+plt.title("Shape of u")
+
+plt.tight_layout()
+plt.show()
+
+# Plot distributions of the data
+plt.figure(figsize=(10, 4))
+
+plt.subplot(1, 3, 1)
+sns.histplot(x1.flatten().numpy(), kde=True)
+plt.title("Distribution of x1")
+
+plt.subplot(1, 3, 2)
+sns.histplot(x2.flatten().numpy(), kde=True)
+plt.title("Distribution of x2")
+
+plt.subplot(1, 3, 3)
+sns.histplot(u.flatten().numpy(), kde=True)
+plt.title("Distribution of u")
+
+plt.tight_layout()
+plt.show()
+
 
 protocol = BenchmarkProtocol(n_samples=n_samples)
 ```

@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import numpy as np
-from typing import List, Dict, Any, Optional, Union, Tuple
+from typing import List, Dict, Any, Optional, Union, Tuple, Callable
 import math
 from .simlr import ba_svd
 from .consensus import compute_shared_consensus
@@ -176,6 +176,11 @@ class LENDNSAEncoder(nn.Module):
     def forward(self, x):
         return self.encode_first_layer(x)
 
+    def get_projector(self) -> Callable[[torch.Tensor], torch.Tensor]:
+        """Unify downstream prediction API: Returns a linear projection function."""
+        v_current = self.v.detach().clone()
+        return lambda x: x @ v_current
+
 class ModalityDecoder(nn.Module):
     def __init__(self, latent_dim: int, output_dim: int, hidden_dims: List[int] = [64, 128], dropout: float = 0.1):
         super().__init__()
@@ -226,6 +231,9 @@ class LENDSiMRModel(nn.Module):
         u_shared = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training)
         return latents, [dec(u_shared) for dec in self.decoders], u_shared
 
+    def get_projectors(self) -> List[Callable[[torch.Tensor], torch.Tensor]]:
+        return [enc.get_projector() for enc in self.encoders]
+
 class NEDSiMRModel(nn.Module):
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
                  dropout: float = 0.1, nsa_w: float = 0.5, positivity: str = "either", 
@@ -262,6 +270,13 @@ class NEDSiMRModel(nn.Module):
         latents = [head(z0) for head, z0 in zip(self.nonlinear_heads, first_layer_scores)]
         u_shared = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training)
         return latents, [dec(u_shared) for dec in self.decoders], u_shared
+
+    def transform(self, x_list: List[torch.Tensor]) -> torch.Tensor:
+        """Unify deep encoding API: Returns the consensus representation U."""
+        self.eval()
+        with torch.no_grad():
+            _, _, u = self.forward(x_list)
+            return u
 
 class NEDSharedPrivateSiMRModel(nn.Module):
     def __init__(self, input_dims: List[int], shared_latent_dim: int, private_latent_dim: int,
@@ -302,6 +317,12 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         u_shared = compute_shared_consensus(shared_l, mixing_algorithm=self.mixing_algorithm, k=self.shared_dim, training=self.training)
         recons = [dec(torch.cat([u_shared, p], dim=1)) for dec, p in zip(self.decoders, private_l)]
         return shared_l, recons, u_shared, private_l
+
+    def transform(self, x_list: List[torch.Tensor]) -> torch.Tensor:
+        self.eval()
+        with torch.no_grad():
+            _, _, u, _ = self.forward(x_list)
+            return u
 
 class ModalityEncoder(nn.Module):
     def __init__(self, input_dim: int, k: int, hidden_dims: List[int] = [128, 64], dropout: float = 0.1):
@@ -396,7 +417,7 @@ def _update_first_layer_schedule(model, epoch: int, epochs: int, stabilization_s
     return {"basis_drift": 0.0, "projection_alpha": 1.0}
 
 
-def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=1e-6, patience=10, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None):
+def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=1e-6, patience=10, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, freeze_private_epochs: int = 0):
     loss_history, recon_history, sim_history = [], [], []
     projection_alpha_history, basis_drift_history = [], []
     best_loss = float('inf'); patience_counter = 0; converged_epoch = epochs
@@ -409,13 +430,22 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     
     penalty_weights = {
         "sim": sim_weight,
-        "var": 1.0, # Increased from 0.1 to force variance floor
+        "var": 1.0,
         "collapse": 1.0,
-        "u_var": 1.0 # Increased from 0.1
+        "u_var": 1.0
     }
     
     for epoch in range(epochs):
         model.train(); epoch_loss, epoch_recon, epoch_sim = 0.0, 0.0, 0.0
+        
+        # PR3: Private encoder warmup strategy
+        if freeze_private_epochs > 0 and hasattr(model, "private_encoders"):
+            private_params = model.private_encoders.parameters()
+            if epoch < freeze_private_epochs:
+                for p in private_params: p.requires_grad = False
+            else:
+                for p in private_params: p.requires_grad = True
+
         schedule_diag = _update_first_layer_schedule(model, epoch, epochs, stabilization_start_epoch, stabilization_ramp_epochs)
         projection_alpha_history.append(float(schedule_diag.get("projection_alpha", 1.0)))
         basis_drift_history.append(float(schedule_diag.get("basis_drift", 0.0)))
@@ -430,22 +460,25 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
             recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
             sim_loss_total, diagnostics = calculate_sim_loss(shared_latents, u_shared, energy_type, weights=penalty_weights)
             
+            total_loss = recon_loss + sim_loss_total
+            
+            if model.__class__.__name__ == "NEDSharedPrivateSiMRModel":
+                private_l = res[3]
+                cross_cov_loss = sum(_cross_covariance_penalty(u_shared, p) for p in private_l)
+                p_var_loss = sum(_variance_penalty(p) for p in private_l)
+                # These attributes are typically set during the ned_simr_shared_private call
+                # We default to 0 if not provided by opt loop structure
+                total_loss += getattr(model, 'private_ortho_w', 0.05) * cross_cov_loss
+                total_loss += getattr(model, 'private_var_w', 0.10) * p_var_loss
+
             # Add orthogonality penalty for encoder weights during training
-            ortho_penalty = 0.0
             if hasattr(model, 'encoders'):
-                ortho_penalty = sum(invariant_orthogonality_defect(enc.v_raw) for enc in model.encoders)
+                total_loss += 0.1 * sum(invariant_orthogonality_defect(enc.v_raw) for enc in model.encoders)
             elif hasattr(model, 'linear_encoders'):
-                ortho_penalty = sum(invariant_orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
+                total_loss += 0.1 * sum(invariant_orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
             
-            total_loss = recon_loss + sim_loss_total + 0.1 * ortho_penalty
-            
-            if torch.isnan(total_loss):
-                continue
-                
-            total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
-            
+            if torch.isnan(total_loss): continue
+            total_loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0); optimizer.step()
             epoch_loss += total_loss.item(); epoch_recon += recon_loss.item(); epoch_sim += diagnostics["sim_loss"]
             
         epoch_loss /= len(dataloader); epoch_recon /= len(dataloader); epoch_sim /= len(dataloader)
@@ -506,69 +539,28 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
     return result
 
-def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.5, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = False, first_layer_mode: str = "scheduled", stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None) -> Dict[str, Any]:
+def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.5, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = False, first_layer_mode: str = "scheduled", stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20) -> Dict[str, Any]:
     if private_k is None: private_k = max(1, k // 2)
     if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
     model = NEDSharedPrivateSiMRModel(input_dims, k, private_k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, use_nsa=use_nsa, first_layer_mode=first_layer_mode).to(device)
     model.initialize_v(torch_mats, k)
+    
+    # Store weights on model for train loop access
+    model.private_ortho_w = private_orthogonality_weight
+    model.private_var_w = private_variance_weight
+    
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    loss_history, recon_history, sim_history = [], [], []
-    projection_alpha_history, basis_drift_history = [], []
-    best_loss = float('inf'); patience_counter = 0; converged_epoch = epochs
-    stabilization_start_epoch, stabilization_ramp_epochs = _resolve_stabilization_schedule(
-        epochs,
-        warmup_epochs,
-        stabilization_start_epoch,
-        stabilization_ramp_epochs,
+    
+    loss_h, recon_h, sim_h, conv_ep, first_layer_training = _train_loop(
+        model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, 
+        warmup_epochs, verbose, device, tol=tol, patience=patience, 
+        stabilization_start_epoch=stabilization_start_epoch, 
+        stabilization_ramp_epochs=stabilization_ramp_epochs,
+        freeze_private_epochs=shared_warmup_epochs
     )
     
-    penalty_weights = {
-        "sim": sim_weight,
-        "var": 1.0,
-        "collapse": 1.0,
-        "u_var": 1.0
-    }
-    
-    for epoch in range(epochs):
-        model.train(); epoch_loss, epoch_recon, epoch_sim = 0.0, 0.0, 0.0
-        schedule_diag = _update_first_layer_schedule(model, epoch, epochs, stabilization_start_epoch, stabilization_ramp_epochs)
-        projection_alpha_history.append(float(schedule_diag.get("projection_alpha", 1.0)))
-        basis_drift_history.append(float(schedule_diag.get("basis_drift", 0.0)))
-        current_sim_weight = 0.0 if epoch < warmup_epochs else sim_weight
-        penalty_weights["sim"] = current_sim_weight
-        
-        for batch in dataloader:
-            batch_mats = [b.to(device) for b in batch]; optimizer.zero_grad()
-            shared_l, recons, u_shared, private_l = model(batch_mats)
-            recon_loss = sum(mse_loss(r, x) for r, x in zip(recons, batch_mats))
-            sim_loss_total, diagnostics = calculate_sim_loss(shared_l, u_shared, energy_type, weights=penalty_weights)
-            
-            cross_cov_loss = sum(_cross_covariance_penalty(u_shared, p) for p in private_l)
-            p_var_loss = sum(_variance_penalty(p) for p in private_l)
-            
-            ortho_penalty = sum(invariant_orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
-            
-            total_loss = (recon_loss + sim_loss_total + 
-                          private_orthogonality_weight * cross_cov_loss + 
-                          private_variance_weight * p_var_loss + 
-                          0.1 * ortho_penalty)
-            
-            if torch.isnan(total_loss): continue
-            total_loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0); optimizer.step()
-            epoch_loss += total_loss.item(); epoch_recon += recon_loss.item(); epoch_sim += diagnostics["sim_loss"]
-            
-        epoch_loss /= len(dataloader); epoch_recon /= len(dataloader); epoch_sim /= len(dataloader)
-        loss_history.append(epoch_loss); recon_history.append(epoch_recon); sim_history.append(epoch_sim)
-        scheduler.step()
-        if epoch_loss < best_loss - tol: 
-            best_loss = epoch_loss; patience_counter = 0
-        elif epoch_loss != 0.0:
-            patience_counter += 1
-        if patience_counter >= patience and epoch > warmup_epochs: 
-            converged_epoch = epoch + 1; break
-            
     model.eval(); 
     with torch.no_grad():
         eval_mats = [m.to(device) for m in torch_mats]
@@ -576,8 +568,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.linear_encoders]
         first_layer_scores = [torch.nan_to_num(z.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for z in model.encode_first_layer(eval_mats, use_projected=True)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    first_layer_training = {"mode": first_layer_mode, "stabilization_start_epoch": stabilization_start_epoch, "stabilization_ramp_epochs": stabilization_ramp_epochs, "projection_alpha_history": projection_alpha_history, "basis_drift_history": basis_drift_history}
-    result = {"model": model.cpu(), "model_type": "ned_shared_private", "u": torch.nan_to_num(u_final.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_shared], "private_latents": [torch.nan_to_num(p.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for p in final_private], "loss_history": loss_history, "recon_history": recon_history, "sim_history": sim_history, "converged_iter": converged_epoch, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
+    result = {"model": model.cpu(), "model_type": "ned_shared_private", "u": torch.nan_to_num(u_final.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_shared], "private_latents": [torch.nan_to_num(p.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for p in final_private], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
     return result
