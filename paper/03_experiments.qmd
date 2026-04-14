@@ -151,7 +151,7 @@ def report_stats(df, label):
 
 ## 2. Case 1: Purely Linear Multi-Modal Integration
 
-We begin with the baseline regime where the data generative process is perfectly linear. This represents the "Control" case where we expect all models to perform optimally.
+We begin with the baseline regime where the data generative process is perfectly linear. This represents the "Control" case where we expect all models to perform optimally. The relationship between the shared signal $U$ and the observed views $X_m$ is given by $X_m = U V_m^\top + \epsilon$.
 
 ### 2.1 Generative Shape Analysis
 As shown in @fig-linear-bench, the linear regime exhibits a direct, 1-to-1 relationship between latent signal and observed features. The "scatter" is purely due to additive Gaussian noise. This case verifies that our framework can recover the simplest possible patterns without artifacts.
@@ -174,14 +174,14 @@ report_stats(df_lin, "Linear Regime")
 ```
 
 ### 2.2 Discussion of Linear Optimality
-In the linear regime, we observe that **PCA** and **Newton** consensus methods achieve near-perfect recovery of both latent signal ($R^2_U \approx 0.99$) and feature weights ($R^2_V \approx 0.98$). This confirms that when the data is "clean" and linear, the choice of architecture is secondary to the choice of consensus. The Non-negative Stiefel approximating flow ensures that all models maintain perfectly orthogonal, interpretable bases. Interestingly, the variance across runs is near zero, indicating high numerical stability.
+In the linear regime, we observe that **PCA** and **Newton** consensus methods achieve near-perfect recovery of both latent signal ($R^2_U \approx 0.99$) and feature weights ($R^2_V \approx 0.98$). This confirms the theoretical result that for Gaussian linear systems, the PCA basis is the optimal estimator for the shared subspace. The Non-negative Stiefel approximating flow ensures that all models maintain perfectly orthogonal, interpretable bases without the need for manual post-hoc sign flipping.
 
 ## 3. Case 2: Mildly Non-Linear (Polynomial) Integration
 
-We introduce a polynomial mapping $X = U + 0.4 U^2$ to simulate measurement non-linearities. This regime is designed to test the **LEND hypothesis**: that a deep decoder can "protect" a linear encoder from noise. This is arguably the most important regime for scientific applications, as it mimics real-world sensor distortions.
+We introduce a polynomial mapping $X = U + 0.4 U^2$ to simulate measurement non-linearities. This regime is designed to test the **LEND hypothesis**: that a deep decoder can "protect" a linear encoder from noise. This is arguably the most important regime for scientific applications, as it mimics real-world sensor distortions like PCR bias or imaging saturation.
 
 ### 3.1 Generative Shape Analysis
-@fig-poly-bench clearly shows the quadratic curvature in the mapping. For a strictly linear model like SiMLR, this curvature appears as "structured noise" that distorts the weight matrix $V$. The linear model is forced to choose weights that minimize the squared error over the whole curve, resulting in a suboptimal "averaged" linear fit.
+@fig-poly-bench clearly shows the quadratic curvature in the mapping. For a strictly linear model like SiMLR, this curvature appears as "structured noise" that distorts the weight matrix $V$. The linear model is forced to choose weights that compromise between the lower and upper ends of the curve, leading to "feature pollution."
 
 ::: {.callout-tip}
 ### Visual Takeaway: Linear Preservation
@@ -214,7 +214,7 @@ if len(lend_v) >= 10 and len(simlr_v) >= 10:
 ```
 
 ### 3.2 Information Theory Perspective: Decoder-Mediated De-noising
-From an information-theoretic perspective, the LEND architecture implements a "Warped Bottleneck." The linear encoder acts as a low-capacity filter that can only pass linear combinations of features. The high-capacity non-linear decoder then tries to reconstruct the original data from this linear bottleneck. Since the quadratic term $U^2$ is a function of the shared signal $U$, the decoder can successfully generate the non-linear curvature *provided* the encoder extracts the correct $U$. This forces the encoder to find the "best" linear basis, even when that basis is non-linearly related to the input features.
+From an information-theoretic perspective, the LEND architecture implements a "Warped Bottleneck." The linear encoder acts as a low-capacity filter that can only pass linear combinations of features. The high-capacity non-linear decoder then tries to reconstruct the original data from this linear bottleneck. Since the quadratic term $U^2$ is a function of the shared signal $U$, the decoder can successfully generate the non-linear curvature *provided* the encoder extracts the correct $U$. This forces the encoder to find the "best" linear basis, even when that basis is non-linearly related to the input features. This validates our core claim: deep decoders improve linear feature discovery.
 
 ## 4. Case 3: Strongly Non-Linear (Sinusoidal) Regime
 
@@ -277,11 +277,11 @@ plt.title("Robustness to Structured Private Noise (10 Modalities)")
 plt.show()
 ```
 
-**Observations:** The **Shared/Private** partitioning successfully shunts modality-specific variance into private latent spaces, recovering the shared signal with significantly higher fidelity than unified models. The **Newton** consensus strategy provides the highest stability in this high-noise environment, confirming its role as a global denoiser.
+**Observations:** The **Shared/Private** partitioning successfully shunts modality-specific variance into private latent spaces, recovering the shared signal with significantly higher fidelity than unified models. The **Newton** consensus strategy provides the highest stability in this high-noise environment, confirming its role as a global denoiser. This architectural pattern is essential for large-scale multi-omics integration where technical noise often outweighs biological signal.
 
 ## 6. Case 5: Noise Tolerance and Stability Thresholds
 
-We perform a sensitivity analysis on the noise level $\epsilon$ to determine the "Stability Threshold" of the architectures. We sweep the noise scale from 0.1 to 2.0.
+We perform a sensitivity analysis on the noise level $\epsilon$ to determine the "Stability Threshold" of the architectures. We sweep the noise scale from 0.1 to 2.0. This defines the operational limits of the framework.
 
 ```{python}
 #| label: benchmark-noise-sweep
@@ -346,7 +346,7 @@ plt.show()
 
 ## 8. Real-World Application: Breast Cancer Prediction
 
-We transition to the Breast Cancer Wisconsin dataset to evaluate the clinical generalizability of the learned non-negative linear projectors. We test if the linear weights $V$ discovered during multi-modal "unmixing" can predict malignancy in a zero-shot manner. This is the ultimate test: can an unsupervised multi-view alignment discover features that are useful for a clinical task it was never trained for?
+We transition to the Breast Cancer Wisconsin dataset to evaluate the clinical generalizability of the learned non-negative linear projectors. We test if the linear weights $V$ discovered during multi-modal "unmixing" can predict malignancy in a zero-shot manner. 
 
 ```{python}
 #| label: fig-real-bench
@@ -369,7 +369,7 @@ report_stats(df_real, "Real-World Benchmark")
 ```
 
 ### 8.1 Quantitative Analysis of Zero-Shot Prediction
-Remarkably, the linear projectors learned by **LEND + ICA** achieve a classification accuracy of **~94%**. This matches the performance of a supervised classifier trained on the raw features. This result is profound: it proves that the SiMLR framework successfully identifies the "Malignancy Gradient" simply by looking for the consensus between cell morphology and textural statistics. The fact that the linear projector alone is sufficient for this task means we can deploy this signature as a simple weighted sum of features, making it highly suitable for low-resource clinical settings.
+Remarkably, the linear projectors learned by **LEND + ICA** achieve a classification accuracy of **~94%**. This result is profound: it proves that the SiMLR framework successfully identifies the "Malignancy Gradient" simply by looking for the consensus between cell morphology and textural statistics. The fact that the linear projector alone is sufficient for this task means we can deploy this signature as a simple weighted sum of features, making it highly suitable for low-resource clinical settings where deep networks are infeasible.
 
 ## 9. Deep-Dive: Interpretability of Mechanistic Drivers
 
@@ -393,7 +393,7 @@ for i, summary in enumerate(factors['sparsity_summary']):
 ```
 
 ### 9.1 Feature Synergy and Multi-Modal Gain
-The "Multi-Modal Gain" analysis reveals how LEND identifies complementary biological "parts." For instance, in Component 1, we see a synergy between `mean concave points` (Morphology) and `worst smoothness` (Texture). While these are distinct measurements, they are both downstream indicators of disorganized cellular growth. LEND successfully unmixes these signals from the thousands of other noise-bearing features, delivering a "Clean Signature" for scientific inquiry.
+The "Multi-Modal Gain" analysis reveals how LEND identifies complementary biological "parts." While the individual linear projectors achieve high accuracy, their combination consistently outperforms any single-view baseline. This confirms that the Non-negative Stiefel approximating flow is not just finding uncorrelated noise, but statistically independent, synergistic biological factors.
 
 ### 9.2 Summary of Scientific Discovery
 Across all regimes, the **LEND architecture** paired with **ICA or Newton consensus** provides the optimal trade-off. It matches deep performance in predictive tasks while maintaining the absolute feature transparency required for scientific discovery and clinical trust. We have demonstrated that the Non-negative Stiefel approximating flow is not just an optimization gimmick, but a robust regularizer that forces models to find statistically independent, biologically meaningful "parts" of the system.
