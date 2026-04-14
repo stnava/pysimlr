@@ -6,95 +6,80 @@ try:
 except ImportError:
     FastICA = None
 
-from .utils import safe_svd
-
 def compute_shared_consensus(projections: List[torch.Tensor], 
-                             mixing_algorithm: str = "svd", 
-                             k: Optional[int] = None,
-                             orthogonalize: bool = False,
-                             training: bool = False) -> torch.Tensor:
+                            mixing_algorithm: str = "svd", 
+                            k: Optional[int] = None,
+                            orthogonalize: bool = False,
+                            training: bool = False,
+                            batch_context: Optional[Dict[str, Any]] = None) -> torch.Tensor:
     """
-    Aggregate view-specific latent representations into a shared consensus space U.
-
-    This function implements the 'Mixing' phase of the SiMLR framework. It identifies
-     the central manifold that best represents the agreement between all modalities.
-
-    Parameters
-    ----------
-    projections : list of torch.Tensor
-        The view-specific latent matrices Z_m = f_m(X_m).
-    mixing_algorithm : str, default="svd"
-        The aggregation strategy:
-        - "avg": Arithmetic mean. Fast but sensitive to modality-specific noise.
-        - "pca" or "svd": Global variance maximization. Robust denoiser.
-        - "ica": Statistical independence. Prevents signal leakage between dimensions.
-        - "newton": Newton-Schulz iterative orthogonalization. Maximum stability.
-    k : int, optional
-        Target latent dimension. Defaults to the dimension of the projections.
-    orthogonalize : bool, default=False
-        If True, ensures the returned U is a strict orthonormal frame (U.T @ U = I).
-    training : bool, default=False
-        Whether the call is occurring during a training loop (affects gradient flow).
-
-    Returns
-    -------
-    torch.Tensor
-        The shared consensus matrix U.
+    Combine projections from different modalities into a shared latent basis U.
+    Shared by linear SIMLR and deep models.
     """
-    n_views = len(projections)
-    if n_views == 0:
-        raise ValueError("projections list is empty")
+    if not projections:
+        return torch.empty(0)
         
-    device = projections[0].device
-    dtype = projections[0].dtype
-    n_samples = projections[0].shape[0]
-    latent_dim = projections[0].shape[1] if k is None else k
-    
-    # Pre-normalize projections to ensure equal voting power
-    norm_projections = []
-    for z in projections:
-        z_c = z - z.mean(0, keepdim=True)
-        z_std = torch.std(z_c, dim=0, keepdim=True) + 1e-6
-        norm_projections.append(z_c / z_std)
+    n_modalities = len(projections)
+    if k is None:
+        k = projections[0].shape[1]
         
+    norm_projs = []
+    for p in projections:
+        p_safe = torch.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
+        # Use RMS normalization (Frobenius norm / sqrt(N)) to ensure the scale
+        # is independent of the number of samples in the batch.
+        p_rms = torch.norm(p_safe, p='fro') / np.sqrt(p_safe.shape[0])
+        if p_rms > 1e-6:
+            norm_projs.append(p_safe / (p_rms + 1e-8))
+        else:
+            norm_projs.append(torch.randn_like(p_safe) * 1e-4)
+            
     if mixing_algorithm == "avg":
-        u = torch.stack(norm_projections).mean(dim=0)
-        
-    elif mixing_algorithm in ["svd", "pca"]:
-        # Standard approach: extract top components of the concatenated space
-        z_stack = torch.cat(norm_projections, dim=1)
-        # Use hardware-aware safe_svd
-        u_svd, s_svd, _ = safe_svd(z_stack, full_matrices=False)
-        u = u_svd[:, :latent_dim]
-        
+        u = torch.mean(torch.stack(norm_projs), dim=0)
+    elif mixing_algorithm == "newton":
+        u = torch.mean(torch.stack(norm_projs), dim=0)
+        # Always project to Stiefel for alignment between train/eval.
+        try:
+            u_u, _, u_vh = torch.linalg.svd(u, full_matrices=False)
+            u = u_u @ u_vh
+        except:
+            u = torch.nn.functional.normalize(u, p=2, dim=0)
+    elif mixing_algorithm == "stochastic":
+        big_p = torch.cat(norm_projs, dim=1)
+        g = torch.randn(big_p.shape[1], k, device=big_p.device, dtype=big_p.dtype)
+        u = big_p @ g
     elif mixing_algorithm == "ica":
         if FastICA is None:
-            # Fallback to PCA if sklearn not available
-            z_stack = torch.cat(norm_projections, dim=1)
-            u_svd, _, _ = safe_svd(z_stack, full_matrices=False)
-            u = u_svd[:, :latent_dim]
-        else:
-            z_stack = torch.cat(norm_projections, dim=1).detach().cpu().numpy()
-            ica = FastICA(n_components=latent_dim, random_state=42, max_iter=1000)
-            u_np = ica.fit_transform(z_stack)
-            u = torch.from_numpy(u_np).to(device=device, dtype=dtype)
-            
-    elif mixing_algorithm == "newton":
-        # Iterative Orthogonal Procrustes update
-        z_sum = torch.stack(norm_projections).sum(dim=0)
-        u_svd, _, vh_svd = safe_svd(z_sum, full_matrices=False)
-        u = u_svd @ vh_svd
-        u = u[:, :latent_dim]
-        
+            raise ImportError("scikit-learn is required for mixing_algorithm='ica'")
+        avg_p = torch.cat(norm_projs, dim=1).detach().cpu().numpy()
+        avg_p = np.nan_to_num(avg_p, nan=0.0, posinf=0.0, neginf=0.0)
+        ica = FastICA(n_components=k, random_state=42, max_iter=1000)
+        try:
+            u_np = ica.fit_transform(avg_p)
+        except:
+            u_np = avg_p[:, :k]
+        u = torch.from_numpy(u_np).to(projections[0].device).to(projections[0].dtype)
     else:
-        # Default fallback
-        u = torch.stack(norm_projections).mean(dim=0)
-        
-    if orthogonalize:
-        u_svd, _, vh_svd = safe_svd(u, full_matrices=False)
-        u = u_svd @ vh_svd
-        
-    # Scale to ensure downstream models see consistent variance
+        big_p = torch.cat(norm_projs, dim=1)
+        if mixing_algorithm == "pca":
+            big_p_centered = big_p - torch.mean(big_p, dim=0)
+            u, _, _ = torch.linalg.svd(big_p_centered, full_matrices=False)
+            u = u[:, :k]
+        else: # Default to svd
+            u, _, _ = torch.linalg.svd(big_p, full_matrices=False)
+            u = u[:, :k]
+            
+    if orthogonalize and mixing_algorithm != "newton":
+        try:
+            u_u, _, u_vh = torch.linalg.svd(u, full_matrices=False)
+            u = u_u @ u_vh
+            u = u[:, :k]
+        except:
+            pass
+            
+    # Standardize final U to unit variance per dimension.
+    # This ensures that downstream models (like LinearRegression) see a consistent
+    # scale regardless of the consensus algorithm or sample size.
     u = u - u.mean(0, keepdim=True)
     u_std = torch.std(u, dim=0, keepdim=True) + 1e-6
     u = u / u_std
