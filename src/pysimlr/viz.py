@@ -6,6 +6,7 @@ from typing import List, Optional, Union, Dict, Any
 from .utils import adjusted_rvcoef
 
 def plot_view_correlations(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
+                           names: Optional[List[str]] = None,
                            title: str = "Inter-view Correlation (RV Coefficient)") -> plt.Figure:
     """
     Compute and visualize the pairwise correlations between different data modalities.
@@ -18,6 +19,8 @@ def plot_view_correlations(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     ----------
     data_matrices : List[Union[torch.Tensor, np.ndarray]]
         A list of data matrices to compare.
+    names : Optional[List[str]], default=None
+        A list of names for each modality.
     title : str, default="Inter-view Correlation (RV Coefficient)"
         The title for the heatmap.
 
@@ -36,6 +39,9 @@ def plot_view_correlations(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     This function has been audited for Numpy docstring validity and functional correctness.
     """
     n = len(data_matrices)
+    if names is None:
+        names = [f"Mod {i+1}" for i in range(n)]
+    
     rv_mat = np.zeros((n, n))
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     
@@ -45,8 +51,8 @@ def plot_view_correlations(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             
     fig, ax = plt.subplots(figsize=(8, 6))
     sns.heatmap(rv_mat, annot=True, fmt=".2f", cmap="Blues", ax=ax,
-                xticklabels=[f"Mod {i+1}" for i in range(n)],
-                yticklabels=[f"Mod {i+1}" for i in range(n)])
+                xticklabels=names,
+                yticklabels=names)
     ax.set_title(title)
     return fig
 
