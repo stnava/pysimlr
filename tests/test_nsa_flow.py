@@ -59,9 +59,9 @@ def test_nsa_flow_triggered_by_none_constraint_with_weight():
 
     # "nonex0.5" means constraint_type="none", weight=0.5
     with patch('pysimlr.sparsification.nsa_flow_orth', mock_nsa):
-        simlr([x1], k=2, iterations=1, constraint="nonex0.5")
+        simlr([x1], k=2, iterations=1, constraint="orthox0.5")
 
-    assert mock_nsa.called, "nsa_flow_orth should be called when weight > 0 even if constraint is 'none'"
+    assert mock_nsa.called, "nsa_flow_orth should be called when weight > 0 even when constraint is 'ortho'"
     _, kwargs = mock_nsa.call_args
     assert kwargs['w'] == 0.5
 

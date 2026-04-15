@@ -56,3 +56,12 @@ This implementation aims for functional parity with the reference R code. Any id
 ## License
 
 Apache-2.0
+
+## What Could Go Wrong? (Audit Findings)
+During our code-level interpretability audit, we identified several edge cases and failure modes that users should be aware of:
+
+1. **Mixing Alpha Starvation**: If the `mixing_alpha` (scheduled projection) is not properly annealed to 1.0, the model may achieve high performance but lose its "Mechanical Interpretability" as the latent scores will diverge from the interpretable Stiefel manifold. Always verify the `invariant_orthogonality_defect` in your results.
+2. **Latent Collapse**: In deep models (NED/NEDPP), insufficient VICReg regularization (variance/covariance penalty) can lead to latent collapse where multiple latents become highly correlated. This renders the "First-Layer Contract" moot as the deep consensus will be redundant.
+3. **Sparsity vs. Signal**: Over-aggressive quantile sparsification in `simlr_sparseness` can zero out critical predictive features before they reach the deep layers. We recommend monitoring the `Feature Importance Map` to ensure key biological/clinical signals are preserved.
+4. **Shared-Private Starvation**: In NEDPP models, if the shared latent optimization schedule is too short, the private latents may "swallow" the shared variation to minimize loss quickly, leading to poor consensus recovery.
+5. **Orthogonality Defect Thresholds**: While the NSA Flow maintains defects below $10^{-4}$, extreme learning rates can cause retraction instability. If your defect exceeds $10^{-2}$, reduce the step size or increase the NSA Flow iterations.

@@ -2,6 +2,9 @@ project:
   type: book
   output-dir: _book
 
+execute:
+  freeze: auto
+
 book:
   title: "Bridging the Gap: From Interpretable Linear Models to Deep Multimodal Integration with SiMLR"
   author: "pysimlr Development Team"

@@ -1,77 +1,96 @@
+
 # Methods: The SiMLR Framework
 
-In this section, we describe the rigorous mathematical foundation of SiMLR, detailing the generalized energy landscape, the Non-negative Stiefel Approximating Flow (NSA-Flow) for manifold optimization, and the extension of these principles into deep learning architectures.
+In this section, we present a unified mathematical formalism for the SiMLR (Similarity-driven Multi-view Linear Reconstruction) framework. We derive our deep architectural extensions—LEND, NED, and NEDPP—as specific cases of a constrained energy minimization objective that balances cross-modal alignment, generative reconstruction, and latent space stabilization.
 
-## 1. The Generalized SiMLR Energy Objective
+## 1. The Unified SiMLR Master Objective
 
-The core objective of SiMLR (Similarity-constrained Multi-view Latent Representations) is to find a set of low-rank projection matrices $V_m \in \mathbb{R}^{P_m \times K}$ that map high-dimensional data views $X_m \in \mathbb{R}^{N \times P_m}$ into a shared, consensus latent space $U \in \mathbb{R}^{N \times K}$, while strictly adhering to structural constraints on the Stiefel manifold.
+Let $\{X_m\}_{m=1}^M$ denote $M$ distinct data modalities (views) for $N$ samples, where $X_m \in \mathbb{R}^{N \times P_m}$. The goal of the framework is to find a set of view-specific encoding functions $f_m: \mathbb{R}^{P_m} \to \mathbb{R}^K$ and a shared consensus latent space $U \in \mathbb{R}^{N \times K}$ that minimize the following "Master Objective" $\mathcal{J}$:
 
-The generalized energy objective for a single view $m$ is parameterized by an energy type $\mathcal{E}$ and defined as:
-$$ \mathcal{J}(V_m, U) = \mathcal{E}(X_m, V_m, U) + \lambda \mathcal{D}(V_m, \Phi) $$
-where $\mathcal{E}$ is the similarity or reconstruction energy, and $\mathcal{D}$ is an optional Domain Alignment Transfer (DAT) penalty against a structural prior $\Phi$. We minimize $\mathcal{J}$ with respect to $V_m$ under the constraint $V_m^\top V_m = I_K$ and $V_m \ge 0$.
+$$ \mathcal{J}(\{f_m, g_m\}, U) = \underbrace{\sum_m \alpha_m \mathcal{L}_{\text{recon}}(g_m(f_m(X_m)), X_m)}_{\text{Reconstruction}} + \underbrace{\sum_m \beta_m \mathcal{L}_{\text{sim}}(f_m(X_m), U)}_{\text{Alignment}} + \underbrace{\mathcal{R}_{\text{stab}}(\{f_m\}, U)}_{\text{Stabilization}} $$
 
-### 1.1 Similarity and Reconstruction Energies
+where:
+- $g_m$ is an optional decoding function mapping the latent space back to the modality space.
+- $\mathcal{L}_{\text{recon}}$ is the reconstruction loss (typically Mean Squared Error).
+- $\mathcal{L}_{\text{sim}}$ is the cross-modal alignment loss, which can take several functional forms (Regression, ACC, or LogCosh).
+- $\mathcal{R}_{\text{stab}}$ is a collection of VICReg-style regularization terms that prevent latent collapse and maintain statistical independence.
 
-The framework supports multiple operational definitions for $\mathcal{E}$, implemented directly in our solver:
+### 1.1 Similarity and Alignment Energies ($\mathcal{L}_{\text{sim}}$)
 
-**1. Regression (Mean Squared Error):**
-Optimizes for optimal linear reconstruction of the shared consensus.
-$$ \mathcal{E}_{reg}(X, V, U) = \|X - U V^\top\|_F^2 $$
-With gradient: $\nabla_V \mathcal{E}_{reg} = 2(X^\top U - V)$.
+The alignment energy $\mathcal{L}_{\text{sim}}(Z, U)$ measures the fidelity of the view-specific latent $Z$ to the global consensus $U$. Our framework supports three primary operational definitions:
 
-**2. Absolute Canonical Covariance (ACC):**
-Maximizes the absolute covariance between the projected view $Z = XV$ and the consensus $U$. This is the default metric for non-negative discovery.
-$$ \mathcal{E}_{acc}(X, V, U) = - \sum_{k=1}^K \left| \frac{1}{N-1} u_{\cdot, k}^\top X v_{\cdot, k} \right| $$
-With gradient: $\nabla_V \mathcal{E}_{acc} = -\frac{1}{N-1} X^\top U \cdot \text{sign}(U^\top X V)$.
+1.  **Regression (MSE):** Optimizes for optimal linear reconstruction of the shared consensus:
+    $$ \mathcal{L}_{\text{sim\_reg}}(Z, U) = \| \text{Norm}(Z) - \text{Norm}(U) \|_F^2 $$
+2.  **Absolute Canonical Covariance (ACC):** Maximizes the absolute covariance between views, providing robustness to sign-flipping and outlier samples:
+    $$ \mathcal{L}_{\text{sim\_acc}}(Z, U) = - \sum_{k=1}^K \left| \text{Cov}(z_{\cdot, k}, u_{\cdot, k}) \right| $$
+3.  **LogCosh (Robust ICA):** A robust, negentropy-inspired metric for uncovering statistically independent sources:
+    $$ \mathcal{L}_{\text{sim\_logcosh}}(Z, U) = \sum_{i=1}^N \sum_{k=1}^K \log(\cosh(u_{ik} z_{ik})) $$
 
-**3. ICA / Negentropy (logcosh, exp, gauss, kurtosis):**
-Maximizes the non-Gaussianity of the projected latents, essential for isolating statistically independent biological sources. For the default robust `logcosh` contrast function:
-$$ \mathcal{E}_{ica}(X, V, U) = - \frac{1}{N} \sum_{i=1}^N \sum_{k=1}^K \log(\cosh(S_{ik})) $$
-where $S = U^\top X V$. The gradient is given by:
-$$ \nabla_V \mathcal{E}_{ica} = - \frac{1}{NK} X^\top U \tanh(U^\top X V) $$
+### 1.2 Latent Stabilization and VICReg ($\mathcal{R}_{\text{stab}}$)
 
-**4. Normalized Correlation:**
-Maximizes the cosine similarity between the projected view and consensus.
-$$ \mathcal{E}_{nc}(X, V, U) = - \frac{\text{tr}(U^\top X V)}{\|U\|_F \|XV\|_F} $$
+To prevent the neural network from converging to trivial solutions (latent collapse), we incorporate stabilization terms based on the VICReg (Variance-Invariance-Covariance Regularization) principles:
 
-### 1.2 Directed Alignment Transfer (DAT)
+- **Variance Preservation:** Forces each latent dimension to maintain a target standard deviation $\gamma$:
+  $$ \mathcal{L}_{\text{var}}(Z) = \frac{1}{K} \sum_{j=1}^K \max(0, \gamma - \sqrt{\text{Var}(z_{\cdot, j}) + \epsilon}) $$
+- **Covariance Regularization (Anti-Collapse):** Penalizes redundancy by decorrelating latent components:
+  $$ \mathcal{L}_{\text{cov}}(Z) = \frac{1}{K} \sum_{i \ne j} [C(Z)]_{i, j}^2 $$
 
-To incorporate prior biological knowledge, we introduce the DAT energy term. Given a prior structural matrix $\Phi \in \mathbb{R}^{K \times P}$, the model penalizes deviations from known functional networks:
-$$ \mathcal{D}(V, \Phi) = - \lambda \|\Phi V\|_F^2 $$
-With gradient: $\nabla_V \mathcal{D} = -2\lambda \Phi^\top \Phi V$.
+## 2. The Interpretability Contract: Functional Variants
 
-## 2. Manifold Optimization: NSA-Flow
+The "Interpretability Contract" is a structural constraint on the encoder $f_m$. In all SiMLR models, $f_m$ is decomposed as $f_m = h_m \circ \text{Proj}_{V_m}$, where $\text{Proj}_{V_m}(X_m) = X_m V_m$ is a linear projection onto the Stiefel manifold ($V_m^\top V_m = I_K$).
 
-To ensure the projection matrices $V_m$ yield uncorrelated, interpretable features, we restrict the optimization to the Non-negative Stiefel manifold. We utilize the **Non-negative Stiefel Approximating Flow (NSA-Flow)** algorithm, which employs a gradient-projection-retraction cycle.
+1.  **Classical SiMLR (Linear):** $h_m = \text{Id}$ (Identity). The encoder is purely linear, and $g_m$ is also linear ($g_m(Z) = Z V_m^\top$).
+2.  **LEND (Linear Encoder, Nonlinear Decoder):** $h_m = \text{Id}$, but $g_m$ is a deep neural network. This preserves the linear interpretability of $V_m$ while allowing the model to "filter out" nonlinear measurement noise.
+3.  **NED (Nonlinear Encoder Decoder):** $h_m$ is a nonlinear "head" (MLP). This provides maximum representational power while still allowing for a first-layer audit via $V_m$.
 
-### 2.1 Tangent Space Projection
-Following Edelman et al. (1998), the raw unconstrained Euclidean gradient $G = \nabla_V \mathcal{J}$ is projected onto the tangent space of the Stiefel manifold at the current point $V$:
-$$ \text{proj}_{St}(G, V) = G - V \text{sym}(V^\top G) = G - \frac{1}{2} V (V^\top G + G^\top V) $$
-This guarantees that the gradient step preserves the local geometry of the manifold.
+### 2.1 Formalizing the Audit Trail
 
-### 2.2 Retraction and Positivity
-After taking a step in the tangent space, the updated matrix $\tilde{V}$ must be pulled back onto the exact manifold while enforcing non-negativity and sparsity constraints. The NSA-Flow retraction is defined by:
-1.  **Non-negative Thresholding:** $\tilde{V} \leftarrow \max(0, \tilde{V})$.
-2.  **Sparsification:** Elements below the $q$-th sparsity quantile are zeroed out (hard thresholding) or shrunk (soft thresholding).
-3.  **Orthogonal Retraction:** The matrix is orthogonalized using Singular Value Decomposition (SVD), where $\tilde{V} = U_s \Sigma V_s^\top$, and the retracted matrix is $V_{new} = U_s V_s^\top$. Alternatively, a stable Newton-Schulz iteration can be employed for deeply nested architectures.
+The contract is quantified by the triplet $(\mathcal{V}, \mathcal{B}_{align}, \mathcal{B}_{shared})$:
+- **$\mathcal{V} = \{V_m\}$**: The primary linear weights.
+- **$\mathcal{B}_{align}$**: The alignment $R^2$ between the linear scores ($X_m V_m$) and the deep latents ($f_m(X_m)$).
+- **$\mathcal{B}_{shared}$**: The attribution of the global consensus $U$ back to the modality-specific linear components.
 
-## 3. Deep Architectural Extensions
+## 3. Manifold Optimization: The NSA-Flow
 
-To handle severe non-linear measurement noise while retaining interpretability, we integrate the SiMLR objectives into deep neural architectures.
+Maintaining the Stiefel manifold constraint ($V_m^\top V_m = I_K$) during stochastic gradient descent is non-trivial. We utilize the **Non-negative Stiefel Approximating Flow (NSA-Flow)**, which implements a gradient-projection-retraction cycle.
 
-### 3.1 LEND (Linear Encoder, Nonlinear Decoder)
-The LEND model utilizes an interpretable linear encoder to map data to the latent space $Z_m = X_m V_m$, but employs a deep non-linear decoder $\hat{X}_m = g_{\theta_m}(U)$ to reconstruct the data. The objective is:
-$$ \mathcal{L}_{LEND} = \mathcal{L}_{sim}(Z, U) + \lambda_{recon} \|X_m - g_{\theta_m}(U)\|_2^2 + \gamma_{nsa} \mathcal{L}_{ortho}(V_m) $$
-The deep decoder protects the linear encoder from corrupting its weights to account for manifold curvature, forcing $V_m$ to discover pure mechanistic drivers.
+### 3.1 Scheduled Projection Alpha
 
-### 3.2 NED (Nonlinear Encoder Decoder)
-For fully complex topologies where linear encoders fail (e.g., periodic or highly curved spaces), NED replaces $V_m$ with a deep encoder $f_{\phi_m}(X_m)$. While sacrificing direct weight interpretability, it maximizes representation power:
-$$ \mathcal{L}_{NED} = \mathcal{L}_{sim}(f_{\phi_m}(X_m), U) + \lambda_{recon} \|X_m - g_{\theta_m}(U)\|_2^2 $$
+To ensure training stability, we employ a **Scheduled Projection Alpha** ($\alpha_t$) that implements a straight-through estimator (STE) homotopy. During training at epoch $t$, the active basis $V_{active}$ is:
 
-### 3.3 NEDPP: Shared and Private Partitioning
-To prevent structured, modality-specific noise from contaminating the consensus $U$, the NEDPP architecture splits the latent space $Z_m$ into a shared component $Z_m^{(S)}$ and a private component $Z_m^{(P)}$. 
-$$ \mathcal{L}_{sim} = \mathcal{E}(Z_m^{(S)}, U) \quad \text{and} \quad \mathcal{L}_{ortho} \propto \text{RV}(Z_m^{(S)}, Z_m^{(P)}) $$
-The reconstruction loss forces both components to explain the data $\hat{X}_m = g(Z_m^{(S)} \oplus Z_m^{(P)})$, while the RV-coefficient penalty forces the shared and private spaces to remain statistically independent.
+$$ V_{active} = V_{raw} + \alpha_t \cdot (V_{projected} - V_{raw}).\text{detach}() $$
 
-### 3.4 Training Dynamics: Warmup-to-Manifold
-Deep SiMLR models utilize a scheduled "Warmup-to-Manifold" approach. During initial epochs, the manifold projection parameter $\alpha$ is set to 0, allowing the network to explore the unconstrained Euclidean space to find broad consensus clusters. As training progresses, $\alpha$ is smoothly ramped to 1.0, engaging the NSA-Flow orthogonal retractions. This scheduling prevents the model from collapsing into poor local Stiefel minima early in training.
+where $V_{projected} = \text{Retract}(V_{raw})$ is the SVD-based orthogonalization. As $\alpha_t$ ramps from 0 to 1, the model smoothly transitions from unconstrained Euclidean exploration to strict manifold adherence.
+
+### 3.2 NSA-Flow Mechanism
+
+The following diagram illustrates the internal logic of the NSA-Flow as implemented in `pysimlr`.
+
+```{mermaid}
+graph LR
+    subgraph NSA_Mechanism [NSA Flow Logic]
+        direction LR
+        V_raw[Raw Weights V_raw] --> Flow[NSA Flow: nsa_flow_orth / NSAFlowLayer]
+        Flow -->|Retraction & Orthogonality| Pos[Positivity Constraint]
+        Pos -->|Non-negativity| Sparse[Quantile Sparsification]
+        Sparse -->|Sparsity| V_proj[Projected Basis V]
+        
+        V_raw -.-> Mix{Scheduled Mixing}
+        V_proj -.-> Mix
+        Mix -->|Training Basis| V_active[V_active]
+    end
+    X[Input Data X] -->|X @ V_active| Z[Latent Scores Z]
+```
+
+## 4. Shared/Private Partitioning (NEDPP)
+
+The NEDPP architecture decomposes the latent space into a shared consensus component $Z^{(S)}$ and a modality-specific private component $Z^{(P)}$.
+
+### 4.1 Cross-Covariance Decorrelation
+
+To ensure the private components do not capture shared information, we enforce statistical independence via a cross-covariance penalty:
+$$ \mathcal{L}_{\text{cross}} = \| C(Z^{(S)}, Z^{(P)}) \|_F^2 $$
+
+### 4.2 Shared-First Optimization Schedule
+
+To prevent "modality starvation" (where one modality dominates the consensus), we employ a hierarchical training schedule. For the first $N_{\text{shared}}$ epochs, the private encoders are frozen ($Z^{(P)} \equiv 0$). This forces the shared encoders to capture the maximum cross-modal variance before the private encoders are allowed to "soak up" idiosyncratic noise.

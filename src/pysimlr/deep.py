@@ -283,7 +283,7 @@ class LENDSiMRModel(nn.Module):
         NSA Flow weight for first-layer orthogonality.
     positivity : str, default="either"
         Positivity constraint on first-layer weights.
-    sparseness_quantile : float, default=0.0
+    sparseness_quantile : Union[float, List[float]], default=0.0
         Sparsity quantile for first-layer weights.
     mixing_algorithm : str, default="newton"
         Algorithm for computing the shared consensus (U).
@@ -303,10 +303,12 @@ class LENDSiMRModel(nn.Module):
     """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
                  dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "either", 
-                 sparseness_quantile: float = 0.0, mixing_algorithm: str = "newton",
+                 sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
                  use_nsa: bool = False, first_layer_mode: str = "scheduled"):
         super().__init__()
-        self.encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sparseness_quantile, use_nsa=use_nsa, first_layer_mode=first_layer_mode) for dim in input_dims])
+        if isinstance(sparseness_quantile, (float, int)):
+            sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
+        self.encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.mixing_algorithm, self.latent_dim = mixing_algorithm, latent_dim
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
@@ -361,7 +363,7 @@ class NEDSiMRModel(nn.Module):
         NSA Flow weight for first-layer orthogonality.
     positivity : str, default="either"
         Positivity constraint on first-layer weights.
-    sparseness_quantile : float, default=0.0
+    sparseness_quantile : Union[float, List[float]], default=0.0
         Sparsity quantile for first-layer weights.
     mixing_algorithm : str, default="newton"
         Algorithm for computing the shared consensus (U).
@@ -381,10 +383,12 @@ class NEDSiMRModel(nn.Module):
     """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
                  dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "either", 
-                 sparseness_quantile: float = 0.0, mixing_algorithm: str = "newton",
+                 sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
                  use_nsa: bool = False, first_layer_mode: str = "scheduled"):
         super().__init__()
-        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sparseness_quantile, use_nsa=use_nsa, first_layer_mode=first_layer_mode) for dim in input_dims])
+        if isinstance(sparseness_quantile, (float, int)):
+            sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
+        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.nonlinear_heads = nn.ModuleList([ModalityDecoder(latent_dim, latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.mixing_algorithm, self.latent_dim = mixing_algorithm, latent_dim
@@ -416,7 +420,7 @@ class NEDSiMRModel(nn.Module):
         return latents, [dec(u_shared) for dec in self.decoders], u_shared
 
     def transform(self, x_list: List[torch.Tensor]) -> torch.Tensor:
-        """Unify deep encoding API: Returns the consensus representation U."""
+        """Unify downstream prediction API: Returns the consensus representation U."""
         self.eval()
         with torch.no_grad():
             _, _, u = self.forward(x_list)
@@ -447,7 +451,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         NSA Flow weight for shared first-layer orthogonality.
     positivity : str, default="either"
         Positivity constraint on shared first-layer weights.
-    sparseness_quantile : float, default=0.0
+    sparseness_quantile : Union[float, List[float]], default=0.0
         Sparsity quantile for shared first-layer weights.
     mixing_algorithm : str, default="newton"
         Algorithm for computing the shared consensus (U).
@@ -467,10 +471,12 @@ class NEDSharedPrivateSiMRModel(nn.Module):
     """
     def __init__(self, input_dims: List[int], shared_latent_dim: int, private_latent_dim: int,
                  hidden_dims: List[int] = [128, 64], dropout: float = 0.1, nsa_w: float = 0.1,
-                 positivity: str = "either", sparseness_quantile: float = 0.0, mixing_algorithm: str = "newton",
+                 positivity: str = "either", sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
                  use_nsa: bool = False, first_layer_mode: str = "scheduled"):
         super().__init__()
-        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, shared_latent_dim, nsa_w, positivity, sparseness_quantile, use_nsa=use_nsa, first_layer_mode=first_layer_mode) for dim in input_dims])
+        if isinstance(sparseness_quantile, (float, int)):
+            sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
+        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, shared_latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.shared_heads = nn.ModuleList([ModalityDecoder(shared_latent_dim, shared_latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.private_encoders = nn.ModuleList([ModalityEncoder(dim, private_latent_dim, hidden_dims, dropout) for dim in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(shared_latent_dim + private_latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
@@ -749,7 +755,7 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     first_layer_training = {"mode": getattr(getattr(model, "encoders", getattr(model, "linear_encoders", [None]))[0], "first_layer_mode", None) if (hasattr(model, "encoders") or hasattr(model, "linear_encoders")) else None, "stabilization_start_epoch": stabilization_start_epoch, "stabilization_ramp_epochs": stabilization_ramp_epochs, "projection_alpha_history": projection_alpha_history, "basis_drift_history": basis_drift_history}
     return loss_history, recon_history, sim_history, converged_epoch, first_layer_training
 
-def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = False, first_layer_mode: str = "scheduled", stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, **kwargs) -> Dict[str, Any]:
+def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "either", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = False, first_layer_mode: str = "scheduled", stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, **kwargs) -> Dict[str, Any]:
     """
     Fit a Linear Encoded Nonlinear Decoding (LEND) model.
 
@@ -775,7 +781,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
         Decoder hidden dimensions.
     dropout : float, default=0.1
         Dropout probability.
-    sparseness_quantile : float, default=0.0
+    sparseness_quantile : Union[float, List[float]], default=0.0
         Sparseness quantile.
     positivity : str, default="either"
         Positivity constraint.
@@ -815,6 +821,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     This function has been audited for Numpy docstring validity and functional correctness.
     """
     if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
+    if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
     model = LENDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, use_nsa=use_nsa, first_layer_mode=first_layer_mode).to(device)
@@ -834,7 +841,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
     return result
 
-def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = False, first_layer_mode: str = "scheduled", stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, **kwargs) -> Dict[str, Any]:
+def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "either", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = False, first_layer_mode: str = "scheduled", stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, **kwargs) -> Dict[str, Any]:
     """
     Fit a Nonlinear Encoded Decoding (NED) model.
 
@@ -860,7 +867,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
         Decoder hidden dimensions.
     dropout : float, default=0.1
         Dropout probability.
-    sparseness_quantile : float, default=0.0
+    sparseness_quantile : Union[float, List[float]], default=0.0
         Sparseness quantile.
     positivity : str, default="either"
         Positivity constraint.
@@ -900,6 +907,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     This function has been audited for Numpy docstring validity and functional correctness.
     """
     if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
+    if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
     model = NEDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, use_nsa=use_nsa, first_layer_mode=first_layer_mode).to(device)
@@ -919,7 +927,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
     return result
 
-def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: float = 0.0, positivity: str = "either", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = False, first_layer_mode: str = "scheduled", stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, **kwargs) -> Dict[str, Any]:
+def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "either", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = False, first_layer_mode: str = "scheduled", stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, **kwargs) -> Dict[str, Any]:
     """
     Fit a Nonlinear Encoded Decoding model with Shared and Private Latents (NED++).
 
@@ -943,7 +951,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         Weight for similarity loss.
     warmup_epochs : int, default=20
         Warmup epochs before sim loss.
-    sparseness_quantile : float, default=0.0
+    sparseness_quantile : Union[float, List[float]], default=0.0
         Sparseness quantile.
     positivity : str, default="either"
         Positivity constraint.
@@ -999,6 +1007,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     This function has been audited for Numpy docstring validity and functional correctness.
     """
     if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
+    if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if private_k is None: private_k = max(1, k // 2)
     if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]

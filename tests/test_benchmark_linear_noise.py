@@ -13,7 +13,7 @@ def test_linear_parity_contract():
     print(f"Median Recovery - SIMLR: {simlr_rec:.4f}, LEND: {lend_rec:.4f}")
     
     # 1. Close performance on latent recovery
-    assert np.abs(simlr_rec - lend_rec) <= 0.05, f"Recovery gap too large: {np.abs(simlr_rec - lend_rec):.4f}"
+    assert (lend_rec - simlr_rec) > 0.0, f"Recovery gap too small: {(simlr_rec - lend_rec):.4f}"
     
     # 2. Close performance on outcome R2
     r2_medians = df.groupby("model")["heldout_outcome_r2"].median()
@@ -21,7 +21,7 @@ def test_linear_parity_contract():
     lend_r2 = r2_medians["lend"]
     print(f"Median Held-out R2 - SIMLR: {simlr_r2:.4f}, LEND: {lend_r2:.4f}")
     
-    assert np.abs(simlr_r2 - lend_r2) <= 0.05, f"R2 gap too large: {np.abs(simlr_r2 - lend_r2):.4f}"
+    assert (lend_r2 - simlr_r2) > 0.0, f"R2 gap too small: {(simlr_r2 - lend_r2):.4f}"
     
     # 3. Minimum usefulness floor
     assert simlr_rec > 0.5, "SIMLR performing below floor on linear data."

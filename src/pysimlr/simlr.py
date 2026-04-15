@@ -45,7 +45,12 @@ def parse_constraint(constraint_str: str) -> Dict[str, Any]:
     """
     parts = constraint_str.split('x')
     constraint_type = parts[0].strip()
-    weight = 1.0
+    # Default weight depends on type
+    if constraint_type in ["Stiefel", "Grassmann"]:
+        weight = 1.0
+    else:
+        weight = 0.0 # Default to 0 for "none" or "ortho" unless specified
+        
     iterations = 1
     if len(parts) > 1:
         try: weight = float(parts[1])
@@ -374,10 +379,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           iterations: int = 100,
           optimizer_type: str = "lars",
           energy_type: str = "acc",
-          constraint: str = "Stiefel",
+          constraint: str = "orthox0.1x1",
           mixing_algorithm: str = "svd",
           sparseness_quantile: float = 0.5,
-          positivity: str = "either",
+          positivity: str = "positive",
           smoothing_matrices: Optional[List[torch.Tensor]] = None,
           domain_matrices: Optional[List[Union[torch.Tensor, np.ndarray]]] = None,
           domain_lambdas: Optional[Union[float, List[float]]] = None,
@@ -450,6 +455,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     """
     if 'sparsity' in opt_params:
         sparseness_quantile = opt_params.pop('sparsity')
+    if 'sparseness' in opt_params:
+        sparseness_quantile = opt_params.pop('sparseness')
 
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     
@@ -497,7 +504,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                                         smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, 
                                         positivity=positivity, sparseness_quantile=sparseness_quantile, 
                                         constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, 
-                                        energy_type=energy_type)
+                                        energy_type=energy_type, modality_index=i)
                 
                 sim_e = calculate_simlr_energy(v_sp, torch_mats[i], u, energy_type) * normalizing_weights[i]
                 dom_e = 0.0
@@ -525,14 +532,14 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                                               smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, 
                                               positivity=positivity, sparseness_quantile=sparseness_quantile, 
                                               constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, 
-                                              energy_type=energy_type)
+                                              energy_type=energy_type, modality_index=i)
                 return total_grad
 
             total_grad = smooth_gradient_fn(v_mats[i])
             v_updated = optimizer.step(i, v_mats[i], total_grad, smooth_energy_fn)
             
             # Apply final projection
-            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness_quantile=sparseness_quantile, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type)
+            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness_quantile=sparseness_quantile, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type, modality_index=i)
             
         if it == 0:
             for i in range(n_modalities):

@@ -1,41 +1,42 @@
 import torch
-from typing import Optional, Union, Tuple
-from .utils import l1_normalize_features
+import numpy as np
+from typing import Optional, List, Union, Dict, Any
 
 try:
-    from nsa_flow import nsa_flow_orth
+    import nsa
+    nsa_flow_orth = nsa.nsa_flow
 except ImportError:
     nsa_flow_orth = None
 
 def optimize_indicator_matrix(m: torch.Tensor, 
-                              max_iter: int = 1000, 
-                              tol: float = 1e-6, 
                               preprocess: bool = True, 
+                              max_iter: int = 20, 
+                              tol: float = 1e-4, 
                               verbose: bool = False) -> torch.Tensor:
     """
-    Optimize a binary indicator matrix with row uniformity.
+    Find an optimal binary indicator matrix (I) for a given matrix (m).
 
-    Finds an optimal binary matrix `I` such that the sum of elements in `m * I` 
-    is maximized, subject to the constraint that each column of `I` has exactly 
-    one non-zero element and each row has at most one non-zero element.
+    Solves the problem: maximize sum(m * I) subject to sum(I[:, j]) = 1 
+    and sum(I[i, :]) <= 1. This is a linear assignment problem variant 
+    solved via a greedy iterative approach.
 
     Parameters
     ----------
     m : torch.Tensor
-        The input weight or affinity matrix.
-    max_iter : int, default=1000
-        Maximum number of optimization iterations.
-    tol : float, default=1e-6
-        Convergence tolerance.
+        The input matrix (usually a cross-covariance or projection).
     preprocess : bool, default=True
-        Whether to flip the sign of rows where negative elements dominate.
+        Whether to flip row signs to maximize positive alignment.
+    max_iter : int, default=20
+        Maximum number of optimization iterations.
+    tol : float, default=1e-4
+        Convergence tolerance.
     verbose : bool, default=False
         Whether to print convergence information.
 
     Returns
     -------
     torch.Tensor
-        The sparsified matrix (m * I).
+        The optimized binary indicator matrix (same shape as m).
 
     Raises
     ------
@@ -150,7 +151,7 @@ def rank_based_matrix_segmentation(v: torch.Tensor,
     Returns
     -------
     torch.Tensor
-        The sparsified matrix.
+        The segmented sparse matrix.
 
     Raises
     ------
@@ -274,19 +275,27 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
                 v_out = u @ v_h
         except: pass
         
-    if sparseness_quantile > 0:
+    if (isinstance(sparseness_quantile, (list, torch.Tensor, np.ndarray)) or sparseness_quantile > 0):
         for vv in range(k):
             local_v = v_out[:, vv]
             if positivity == "positive":
                 local_v = torch.clamp(local_v, min=0.0)
             elif positivity == "negative":
                 local_v = torch.clamp(local_v, max=0.0)
+            
+            sq = sparseness_quantile[vv] if isinstance(sparseness_quantile, (list, torch.Tensor, np.ndarray)) else sparseness_quantile
+            if sq <= 0:
+                if unit_norm:
+                    norm = torch.norm(local_v)
+                    if norm > 0: local_v = local_v / norm
+                v_out[:, vv] = local_v
+                continue
                 
             if soft_thresholding:
-                thresh = torch.quantile(torch.abs(local_v), sparseness_quantile)
+                thresh = torch.quantile(torch.abs(local_v), sq)
                 local_v = torch.sign(local_v) * torch.clamp(torch.abs(local_v) - thresh, min=0.0)
             else:
-                thresh = torch.quantile(torch.abs(local_v), sparseness_quantile)
+                thresh = torch.quantile(torch.abs(local_v), sq)
                 local_v[torch.abs(local_v) < thresh] = 0.0
                 
             if unit_norm:
@@ -321,7 +330,7 @@ def project_to_orthonormal_nonnegative(x: torch.Tensor,
     Returns
     -------
     torch.Tensor
-        The projected orthonormal and signed matrix.
+        The projected orthonormal and nonnegative matrix.
 
     Raises
     ------
@@ -332,41 +341,44 @@ def project_to_orthonormal_nonnegative(x: torch.Tensor,
     -----------
     This function has been audited for Numpy docstring validity and functional correctness.
     """
-    v = x.clone()
-    orig_dtype = v.dtype
-    for i in range(max_iter):
-        v_old = v.clone()
-        if constraint == 'positive': v = torch.clamp(v, min=0.0)
-        elif constraint == 'negative': v = torch.clamp(v, max=0.0)
-        try:
-            u, s, v_h = torch.linalg.svd(v, full_matrices=False)
-            v = u @ v_h
-        except: pass
-        if torch.norm(v - v_old) < tol: break
-    if constraint == 'positive': v = torch.clamp(v, min=0.0)
-    elif constraint == 'negative': v = torch.clamp(v, max=0.0)
-    return v.to(orig_dtype)
+    if not isinstance(x, torch.Tensor):
+        x = torch.as_tensor(x).float()
+        
+    v_out = x.clone()
+    for _ in range(max_iter):
+        v_prev = v_out.clone()
+        # Orthogonality projection
+        u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+        v_out = u @ v_h
+        # Positivity projection
+        if constraint == 'positive':
+            v_out = torch.clamp(v_out, min=0.0)
+        elif constraint == 'negative':
+            v_out = torch.clamp(v_out, max=0.0)
+            
+        if torch.norm(v_out - v_prev) < tol:
+            break
+    return v_out
 
 def project_to_partially_orthonormal_nonnegative(x: torch.Tensor, 
-                                                 max_iter: int = 1, 
-                                                 constraint: str = 'positive',
-                                                 ortho_strength: float = 0.1) -> torch.Tensor:
+                                               max_iter: int = 10, 
+                                               constraint: str = 'positive', 
+                                               ortho_strength: float = 1.0) -> torch.Tensor:
     """
-    Softly project a matrix towards the orthonormal and signed orthant.
+    Project a matrix towards the Stiefel manifold with a controlled strength.
 
-    Instead of a hard projection, this function performs a weighted average 
-    between the original matrix and its orthonormal projection.
+    Blends the original matrix with its projection onto the Stiefel manifold.
 
     Parameters
     ----------
     x : torch.Tensor
         The input matrix.
-    max_iter : int, default=1
-        Number of projection steps.
+    max_iter : int, default=10
+        Maximum number of projection cycles.
     constraint : str, default='positive'
-        "positive" or "negative".
-    ortho_strength : float, default=0.1
-        The weight (0.0 to 1.0) given to the orthonormal component.
+        "positive", "negative", or "either".
+    ortho_strength : float, default=1.0
+        The blend factor (0.0 to 1.0).
 
     Returns
     -------
@@ -382,19 +394,20 @@ def project_to_partially_orthonormal_nonnegative(x: torch.Tensor,
     -----------
     This function has been audited for Numpy docstring validity and functional correctness.
     """
-    v = x.clone()
-    orig_dtype = v.dtype
+    if not isinstance(x, torch.Tensor):
+        x = torch.as_tensor(x).float()
+        
+    v_out = x.clone()
     for _ in range(max_iter):
-        if constraint == 'positive': v = torch.clamp(v, min=0.0)
-        elif constraint == 'negative': v = torch.clamp(v, max=0.0)
-        try:
-            u, s, v_h = torch.linalg.svd(v, full_matrices=False)
-            v_ortho = u @ v_h
-            v = (1 - ortho_strength) * v + ortho_strength * v_ortho
-        except: pass
-    if constraint == 'positive': v = torch.clamp(v, min=0.0)
-    elif constraint == 'negative': v = torch.clamp(v, max=0.0)
-    return v.to(orig_dtype)
+        u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+        v_ortho = u @ v_h
+        v_out = (1 - ortho_strength) * v_out + ortho_strength * v_ortho
+        
+        if constraint == 'positive':
+            v_out = torch.clamp(v_out, min=0.0)
+        elif constraint == 'negative':
+            v_out = torch.clamp(v_out, max=0.0)
+    return v_out
 
 def simlr_sparseness(v: torch.Tensor, 
                      constraint_type: str = "none",
@@ -404,7 +417,8 @@ def simlr_sparseness(v: torch.Tensor,
                      constraint_weight: float = 0.0,
                      constraint_iterations: int = 1,
                      sparseness_alg: str = 'soft',
-                     energy_type: Optional[str] = None) -> torch.Tensor:
+                     energy_type: Optional[str] = None,
+                     modality_index: Optional[int] = None) -> torch.Tensor:
     """
     Main sparsification and constraint enforcement function for SiMLR.
 
@@ -433,6 +447,8 @@ def simlr_sparseness(v: torch.Tensor,
         The algorithm for sparsity ("soft", "hard", "nnorth", "orthorank").
     energy_type : str, optional
         The SiMLR objective function (affects normalization).
+    modality_index : int, optional
+        Index of the current modality if sparseness_quantile is a list.
 
     Returns
     -------
@@ -451,59 +467,67 @@ def simlr_sparseness(v: torch.Tensor,
     v_out = v.clone()
     orig_dtype = v_out.dtype
     
+    # Robust NaN handling
+    if torch.isnan(v_out).any():
+        v_out = torch.nan_to_num(v_out, nan=0.0)
+    
     if positivity == 'positive': v_out = torch.abs(v_out)
     elif positivity == 'negative': v_out = -torch.abs(v_out)
     if smoothing_matrix is not None: v_out = smoothing_matrix @ v_out
     
+    # if it's a list then index it with the correct index, otherwise pass as a scalar.
+    sq = sparseness_quantile
+    if isinstance(sq, (list, torch.Tensor, np.ndarray)) and modality_index is not None:
+        sq = sq[modality_index]
+
     apply_nonneg = 'hard' if positivity in ['positive', 'hard'] else 'none'
 
     # --- New Prioritized Flow ---
     # 1. Handle Hard Constraints (Stiefel/Grassmann) or prioritized nsa_flow_orth
-    if constraint_type in ["Stiefel", "Grassmann"] or (constraint_type == "none" and nsa_flow_orth is not None and constraint_weight > 0):
+    # Corrected condition to avoid unintentional trigger for "none" or "ortho"
+    if constraint_type in ["Stiefel", "Grassmann"]:
         if sparseness_alg == 'nnorth':
             v_out = project_to_orthonormal_nonnegative(v_out, constraint=positivity)
-        elif nsa_flow_orth is not None and (constraint_type in ["Stiefel", "Grassmann"] or constraint_weight > 0):
+        elif nsa_flow_orth is not None:
             precision = "float32" if orig_dtype == torch.float32 else "float64"
-            # If Stiefel but weight is 0, use 1.0 as default for projection
             w = constraint_weight if constraint_weight > 0 else 1.0
             try:
                 res = nsa_flow_orth(v_out, w=w, retraction="soft_polar", max_iter=max(5, constraint_iterations), precision=precision, apply_nonneg=apply_nonneg)
                 if res['Y'] is not None:
                     v_out = res['Y'].to(orig_dtype)
             except:
-                if constraint_type in ["Stiefel", "Grassmann"]:
+                if not torch.isnan(v_out).any():
                     u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
                     v_out = u @ v_h
-        elif constraint_type in ["Stiefel", "Grassmann"]:
+        else:
             # Fallback to SVD if nsa_flow not available
-            u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
-            v_out = u @ v_h
+            if not torch.isnan(v_out).any():
+                u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+                v_out = u @ v_h
 
         # 2. Apply Sparsity on top of constrained matrix
-        if sparseness_quantile != 0 and sparseness_alg == 'soft':
-            v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sparseness_quantile, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
+        if sq != 0 and sparseness_alg == 'soft':
+            v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sq, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
 
     elif constraint_type == "ortho":
-        if nsa_flow_orth is not None:
+        if nsa_flow_orth is not None and constraint_weight > 0:
             precision = "float32" if orig_dtype == torch.float32 else "float64"
             try:
                 res = nsa_flow_orth(v_out, w=constraint_weight, retraction="soft_polar", max_iter=max(5, constraint_iterations), precision=precision, apply_nonneg=apply_nonneg)
                 if res['Y'] is not None:
                     v_out = res['Y'].to(orig_dtype)
             except:
-                u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
-                v_ortho = u @ v_h
-                v_out = (1 - constraint_weight) * v_out + constraint_weight * v_ortho
-        else:
+                if not torch.isnan(v_out).any():
+                    u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+                    v_ortho = u @ v_h
+                    v_out = (1 - constraint_weight) * v_out + constraint_weight * v_ortho
+        elif constraint_weight > 0:
             v_out = project_to_partially_orthonormal_nonnegative(v_out, max_iter=constraint_iterations, constraint=positivity, ortho_strength=constraint_weight)
             
-        if sparseness_quantile != 0 and sparseness_alg == 'soft':
-            v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sparseness_quantile, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
-            
-    elif constraint_type == "none" and sparseness_quantile != 0 and sparseness_alg == 'soft':
-        # Legacy behavior for purely unconstrained soft-sparsity
-        v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sparseness_quantile, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
+        if sq != 0 and sparseness_alg == 'soft':
+            v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sq, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
 
-    normalize_energy_types = ["acc", "cca", "nc", "normalized_correlation", "lowRankRegression", "lrr"]
-    if energy_type is not None and energy_type in normalize_energy_types: v_out = l1_normalize_features(v_out)
+    elif constraint_type == "none" and sq != 0 and sparseness_alg == 'soft':
+        v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sq, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
+    
     return v_out.to(orig_dtype)

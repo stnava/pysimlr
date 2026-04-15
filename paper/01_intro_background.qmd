@@ -1,3 +1,4 @@
+
 # Introduction and Background
 
 ## Introduction
@@ -12,147 +13,146 @@ Despite these advancements, linear models inherently assume that the underlying 
 
 This tension between interpretability and expressivity is the central problem addressed in this work. We present **SiMLR** (Similarity-driven Multi-view Linear Reconstruction) and its deep extensions: **LEND** (Linear Encoder, Nonlinear Decoder) and **NED** (Nonlinear Encoder Decoder). Our framework bridges the gap between classical linear methods and modern deep learning by introducing a modular, manifold-constrained architecture that strictly enforces interpretability where it matters—at the feature-to-latent projection—while allowing flexible, nonlinear modeling of the generative process.
 
-## Historical Review: From Hotelling to Contrastive Learning
+## Background
 
-The trajectory of multi-view learning reflects the broader evolution of statistical machine learning, shifting from rigid linear assumptions to flexible, data-driven representations. 
+### Multi-View Representation Learning
 
-### The Linear Foundation: Canonical Correlation Analysis (CCA)
-The field arguably began with Harold Hotelling's seminal 1936 paper, "Relations Between Two Sets of Variates." Hotelling proposed CCA as a method to find the maximum correlation between linear combinations of two sets of variables. This was a radical departure from univariate or bivariate correlation, as it allowed researchers to identify shared "concepts" between high-dimensional blocks of data. For decades, CCA served as the gold standard for multi-modal alignment in psychometrics and econometrics. However, as datasets grew in complexity, the "curse of dimensionality" became apparent. When the number of features $p$ is much larger than the number of samples $n$, the sample covariance matrices become singular, and CCA overfits to spurious noise, finding correlations that do not generalize.
+Multi-view learning encompasses a broad class of algorithms designed to exploit the consensus among multiple representations of the same underlying entities. Formally, given $M$ data matrices $X_1 \in \mathbb{R}^{n 	imes d_1}, \ldots, X_M \in \mathbb{R}^{n 	imes d_M}$, where $n$ is the number of samples and $d_m$ is the feature dimension of the $m$-th view, the goal is to find a set of transformations $f_m: \mathbb{R}^{d_m} 	o \mathbb{R}^k$ such that the latent representations $Z_m = f_m(X_m)$ are maximally aligned according to some similarity metric, typically subject to constraints that prevent trivial solutions (e.g., all $Z_m = 0$).
 
-### The Sparse and Kernel Revolutions
-To combat high-dimensionality, researchers introduced Sparse CCA (SCCA) [@witten2009penalized]. By incorporating $L_1$ (Lasso) or Elastic Net penalties, SCCA enforces that only a small subset of features in each view contributes to the canonical variables. This not only stabilized the optimization but also provided a breakthrough in interpretability: researchers could now identify specific genes or SNPs that were "driving" the cross-modal correlation. Simultaneously, the "Kernel Trick" was applied to CCA (KCCA) [@akaho2006kernel]. By mapping the data into high-dimensional Reproducing Kernel Hilbert Spaces (RKHS), KCCA could capture non-linear relationships without explicitly defining the transformation. While powerful, KCCA suffered from poor scalability, as the kernel matrix grows quadratically with the number of samples ($n^2$).
+#### Linear Frameworks: CCA and Beyond
 
-### Deep Multi-View Architectures
-The emergence of Deep Learning in the early 2010s led to Deep CCA (DCCA) [@andrew2013deep]. Instead of kernels, DCCA used deep neural networks (MLPs) as encoders to learn the non-linear mappings. This allowed for end-to-end training and much greater flexibility. Subsequent variations like Deep CCA Autoencoders (DCCAE) added a reconstruction loss, ensuring that the latent space not only aligned the views but also preserved the information necessary to reconstruct them. While these models achieved state-of-the-art results on benchmark tasks like audio-visual speech recognition, they became "black boxes," making it impossible to trace the latent factors back to original features in a biologically meaningful way.
+Classical CCA finds linear transformations $f_m(x) = W_m^	op x$ by maximizing the correlation between $Z_1$ and $Z_2$. This can be generalized to $M > 2$ views using generalized CCA (gCCA). These linear methods are deeply connected to factor analysis models, such as Joint and Individual Variation Explained (JIVE) [@lock2013joint] and Multi-Omics Factor Analysis (MOFA) [@argelaguet2018multi]. These models explicitly decompose the data into shared factors (affecting all views) and private factors (specific to individual views).
 
-### Modern Contrastive Learning and Foundation Models
-The most recent chapter in this history involves Contrastive Learning, popularized by architectures like SimCLR [@chen2020simple] and CLIP [@radford2021learning]. These methods align multiple views (often image and text) by pushing "positive" pairs (from the same sample) together in a latent space while pushing "negative" pairs (from different samples) apart. CLIP, in particular, demonstrated that aligning views at scale allows for "zero-shot" transfer to a vast array of downstream tasks. However, these models are typically massive, require millions of samples, and are designed for perception tasks (vision/language) rather than the low-sample, high-noise "tabular" data common in scientific discovery. Our work, SiMLR, seeks to bring the alignment power of these modern concepts back to the interpretable, sample-efficient regime required for scientific research.
+The interpretability of these linear models stems from the projection matrices $W_m$. The magnitude of the weights in $W_m$ directly quantifies the contribution of each original feature to the latent dimensions. By imposing sparsity constraints (e.g., via Elastic Net penalties), these matrices act as feature selectors, highlighting the most informative variables.
 
-## The Theoretical Tension: Expressivity vs. Interpretability
+#### The Nonlinear Frontier: Deep Multi-View Learning
 
-At the heart of modern multi-modal integration lies a fundamental trade-off: the more expressive a model is (its ability to fit complex, non-linear patterns), the less interpretable it becomes. 
+To model nonlinear relationships, researchers extended CCA using deep neural networks (DCCA). In DCCA, $f_m$ is parametrized by a multilayer perceptron (MLP). The network parameters are optimized to maximize the canonical correlation of the top-layer representations. Similarly, Deep CCA Autoencoders (DCCAE) combine the CCA objective with a reconstruction loss to ensure that the latent representations not only align across views but also preserve the information necessary to reconstruct the original inputs.
 
-### The Curse of Dimensionality and the Manifold Hypothesis
-In biomedical data, such as single-cell RNA sequencing or multi-modal brain imaging, we frequently face the $p \gg n$ problem. A typical dataset might have 20,000 genes measured across only a few hundred patients. In this regime, the data resides in a very high-dimensional space, but the underlying biological processes are often driven by a much smaller number of "latent factors" or "gene programs." This is the **Manifold Hypothesis**: the idea that high-dimensional data actually lies on a low-dimensional, potentially non-linear manifold embedded within the high-dimensional space. 
+While highly effective at capturing complex structures, these deep models suffer from the "black box" problem. The nonlinear composition of layers makes it nearly impossible to attribute latent variations back to specific input features in a meaningful, quantitative manner. For scientific applications where the ultimate goal is feature discovery (e.g., identifying a gene regulatory network), this lack of transparency is often a flaw.
 
-Standard deep models attempt to "unroll" this manifold using many layers of non-linear transformations. However, with limited samples, these models can easily "memorize" the noise (overfitting) rather than learning the true manifold structure. SiMLR addresses this by using **linear encoders** as an inductive bias. By restricting the mapping from features to the manifold to be linear, we provide a strong regularizer that prevents the model from over-interpreting noise in the high-dimensional feature space.
+### The First-Layer Contract: A Mechanical Bridge
 
-### The Philosophical Need for Sparsity (Occam's Razor)
-Scientific discovery relies on the principle of parsimony, or Occam's Razor: the simplest explanation that fits the data is usually the best. In genomics, we do not expect every one of the 20,000 genes to contribute to a disease state; rather, we expect a specific pathway or a "sparse" set of drivers to be responsible. A fully deep encoder (like in NED) entangles all features in its first layer, making it impossible to say "Gene X is part of this driver." By using the **Non-negative Stiefel approximating flow**, SiMLR enforces both orthogonality (the drivers are unique) and sparsity (via non-negativity and competition). This allows the model to act as a "feature selector" that discovers biological parts—a property we call **Mechanical Interpretability**.
+To resolve the conflict between the depth required for complex pattern recognition and the transparency required for scientific discovery, we propose the **First-Layer Contract**. This "contract" is a structural constraint imposed on the architecture:
 
-## Evolution of Factor Analysis: From JIVE to Deep Models
+1.  **Linear Entry:** The very first operation performed on the input features must be a linear projection $Z = X V$.
+2.  **Manifold Constraint:** The projection matrix $V$ must reside on the Stiefel manifold ($V^	op V = I$), ensuring that the discovered components are orthonormal and non-redundant.
+3.  **Sparsity:** To facilitate feature selection, $V$ should be sparse, focusing the model on informative variables.
 
-Factor analysis has long been the workhorse of multivariate statistics, designed to describe variability among observed, correlated variables in terms of a lower number of unobserved factors. 
+By enforcing this contract, we create a **mechanical bridge** between linear and deep learning. No matter how deep or nonlinear the subsequent "heads" or decoders become, the path from the original measurement space to the first internal representation is governed by a strictly interpretable linear map.
 
-### Joint and Individual Variation Explained (JIVE)
-One of the most significant steps toward modern multi-view learning was the development of JIVE [@lock2013joint]. Before JIVE, researchers often just concatenated data from different views and ran PCA. JIVE formally partitioned the variance in each view into three components: **Joint** (shared across all views), **Individual** (specific to one view), and **Residual** (noise). This decomposition was a conceptual breakthrough, as it allowed researchers to separate "consensus biology" from "modality-specific artifacts" (like batch effects).
+### Mechanical vs. Post-hoc Interpretability
 
-### Multi-Omics Factor Analysis (MOFA)
-MOFA [@argelaguet2018multi] extended these ideas into a Bayesian framework, allowing for missing data and non-Gaussian likelihoods (e.g., Poisson for count data). MOFA used group-sparse priors to automatically determine which factors were shared across which modalities. While extremely powerful and widely used in the bioinformatics community, MOFA remains a linear model at its core. If the relationship between the latent factor and the gene expression is non-linear (e.g., due to saturation effects or complex feedback loops), MOFA's linear assumption will "wash out" the signal or require many redundant factors to approximate the non-linearity.
+Modern machine learning often relies on **Post-hoc Interpretability** methods like SHAP or LIME. While powerful, these methods operate by treating the model as a black box and observing how perturbations to the input affect the output. In contrast, SiMLR's **Mechanical Interpretability** ensures that interpretability is a structural property of the model, not an afterthought.
 
-### The Transition to Deep Generative Models (VAEs)
-With the rise of Variational Autoencoders (VAEs), researchers began developing "Deep MOFA" equivalents, such as multi-modal VAEs. These models use deep neural networks to learn the joint distribution of multiple modalities. While they can capture incredible amounts of complexity, they suffer from **latent collapse** and **entanglement**. In an entangled latent space, a single latent dimension might capture a mix of "cell type" and "sequencing depth," making the dimensions uninterpretable. Furthermore, the mapping from the latent space back to the genes (the "decoder") is non-linear, meaning there is no longer a simple "weight" we can look at to understand the gene's contribution.
+#### Visualizing the Interpretability Gap
 
-SiMLR's **LEND** (Linear Encoder, Nonlinear Decoder) architecture represents the next step in this evolution. It keeps the **Linear Encoder** of MOFA to preserve the "gene-to-factor" link, but uses the **Deep Decoder** of the VAE to handle the non-linear "factor-to-gene" generative process. This hybrid approach provides the best of both worlds: the interpretability of classical factor analysis with the expressivity of modern deep learning.
+The following figure illustrates the fundamental difference in how these two paradigms derive meaning from a model.
 
-## Visual Methodology: A Spectrum of Interpretability
+```{mermaid}
+graph LR
+    subgraph PostHoc [Post-hoc: Guessing Importance]
+        direction TB
+        InputP[Input X] --> BlackBox[Black Box Model] --> OutputP[Output Y]
+        BlackBox -.->|Perturbations| Explainer[SHAP/LIME Explainer]
+        Explainer -->|Local Surrogate| Guess[Feature Importance Estimate]
+    end
 
-The `pysimlr` framework provides a unified interface for several distinct architectural paradigms, ranging from strictly linear to fully non-linear. The following visualizations detail the flow of information through these models, highlighting where interpretability is preserved and where expressivity is enhanced.
-
-::: {.callout-note}
-### Intuition: The Interpretability Trade-off
-As we move from SiMLR to LEND and finally to NED, we increase the model's ability to capture complex patterns (expressivity) but often at the cost of being able to explain exactly which input features led to a specific result (interpretability). Our framework uses "Linear Encoders" in LEND to maintain that link even when the data generation is non-linear. This "architectural transparency" is what allows for meaningful scientific validation of machine learning predictions.
-:::
-
-```{python}
-#| label: setup-viz
-#| warning: false
-#| message: false
-#| echo: false
-import matplotlib.pyplot as plt
-import os
-import sys
-import seaborn as sns
-
-# Ensure we can import from src
-sys.path.insert(0, os.path.abspath('../src'))
-from pysimlr.visualization import (plot_lend_simr_architecture, 
-                                   plot_ned_simr_architecture, 
-                                   plot_ned_shared_private_architecture,
-                                   plot_nsa_flow_architecture)
-
-# Standardize plot appearance for publication
-plt.rcParams.update({
-    'font.size': 10,
-    'axes.labelsize': 12,
-    'axes.titlesize': 14,
-    'xtick.labelsize': 10,
-    'ytick.labelsize': 10,
-    'legend.fontsize': 10,
-    'figure.titlesize': 16
-})
+    subgraph Mechanical [Mechanical: Enforcing Importance]
+        direction TB
+        InputM[Input X] -->|Linear Entry| SparseWeights["Sparse Weights V"]
+        SparseWeights --> Latent[Latent Z] --> DeepHeads[Nonlinear Heads/Decoders]
+        Latent -.->|Direct Readout| Meaning["Importance = Weights"]
+    end
 ```
 
-### 1. LEND (Linear Encoder, Nonlinear Decoder)
+### Architecture Visualizations
 
-The LEND architecture is designed for scenarios where feature-level interpretability is paramount, but the data is corrupted by complex, nonlinear noise. It utilizes strictly linear encoders constrained by the **Non-negative Stiefel approximating flow**. By decoupling the encoding and decoding functions, LEND ensures that the "inference" step remains a simple linear projection, which is inherently robust to the adversarial noise that often plagues fully deep encoders.
+To understand the spectrum of models explored in this work, we present high-level architectural diagrams representing the core paradigms.
 
-::: {.callout-tip}
-### Visual Takeaway: The "Linear Bottleneck"
-Notice in @fig-lend-arch that the path from Input ($X$) to Latent ($u$) is a single step (the linear projection $V$). This ensures that every latent component is just a weighted sum of input features, making it directly readable by domain experts. The "Deep Decoder" then handles the messy non-linear reconstruction part, which we don't need to interpret. This design effectively "shields" the interpretable part of the model from the generative complexity.
-:::
+#### 1. Classical SiMLR (Linear)
 
-```{python}
-#| label: fig-lend-arch
-#| fig-cap: "The LEND Architecture: Linear projections ($V$) are combined into a shared consensus ($S$), which is then used by deep decoders to reconstruct the original views. This 'Linear Encoder' design preserves feature-to-latent mapping transparency."
-plot_lend_simr_architecture()
-plt.show()
+The classical SiMLR architecture is purely linear. The objective is to maximize the similarity between the latent projections $Z_m = X_m V_m$.
+
+```{mermaid}
+graph TD
+    subgraph View1 [Modality 1]
+        X1[Input X1] -->|"X1 * V1"| Z1[Latent Z1]
+    end
+    subgraph View2 [Modality 2]
+        X2[Input X2] -->|"X2 * V2"| Z2[Latent Z2]
+    end
+    Z1 <-->|Maximize Similarity| Z2
+    Z1 --> U[Consensus U]
+    Z2 --> U
 ```
 
-### 2. NED (Nonlinear Encoder Decoder)
+#### 2. LEND (Linear Encoder, Nonlinear Decoder)
 
-NED fully relaxes the linear constraints on the encoder, employing deep neural networks for both encoding and decoding to maximize alignment in highly non-linear regimes. This is particularly useful in "raw" data domains like pixels or audio waveforms where linear projections are meaningless. In the context of biological discovery, NED serves as an "upper bound" on performance, helping us understand how much signal is being lost by the linear constraints of SiMLR or LEND.
+LEND retains the strictly linear encoder of classical SiMLR but replaces the linear reconstruction with a deep, nonlinear decoder.
 
-::: {.callout-tip}
-### Visual Takeaway: Maximum Capacity
-In @fig-ned-arch, both the encoder and decoder are multi-layer neural networks. This allows the model to find consensus even when the relationship between features and the latent space is extremely warped or complex, though we lose the direct "feature importance" weights of the linear version. NED is the tool of choice when the primary goal is prediction or alignment accuracy rather than mechanical understanding.
-:::
-
-```{python}
-#| label: fig-ned-arch
-#| fig-cap: "The NED Architecture: Fully deep encoding and decoding pathways for maximum representational capacity. Used when the underlying biology or physics is known to be highly non-linear and traditional linear maps fail."
-plot_ned_simr_architecture()
-plt.show()
+```{mermaid}
+graph TD
+    X1[Modality 1: X1] -->|Linear Encoder| Z1[Latent Z1]
+    X2[Modality 2: X2] -->|Linear Encoder| Z2[Latent Z2]
+    
+    Z1 --> U[Consensus U]
+    Z2 --> U
+    
+    U -->|Nonlinear Decoder f1| X1_hat[Reconstruction X1']
+    U -->|Nonlinear Decoder f2| X2_hat[Reconstruction X2']
 ```
 
-### 3. Shared/Private Architecture (NEDPP)
+#### 3. NED (Nonlinear Encoder Decoder)
 
-This architecture explicitly partitions the latent space into a shared consensus component and modality-specific private components to prevent cross-view "pollution" from structured noise. This is critical for robust multi-omics integration, where "technical noise" (like batch effects in RNA-seq) can often be more dominant than the "biological signal" (the shared consensus).
+NED adds nonlinear "heads" after the interpretable linear encoder, maximizing representational power.
 
-::: {.callout-tip}
-### Visual Takeaway: Cleaning the Signal
-@fig-nedpp-arch shows how the signal is split. The 'Shared' part represents what is common across all views (e.g., a disease state), while the 'Private' part captures view-specific artifacts (e.g., batch effects or sensor noise). This prevents the shared consensus from being biased by noise that only exists in one modality. By shunting the noise into private channels, the model produces a "purer" consensus signal.
-:::
-
-```{python}
-#| label: fig-nedpp-arch
-#| fig-cap: "The Shared/Private Architecture: Isolating modality-specific variance ($P_i$) from the shared consensus signal ($S$). This 'Projection Plus' (PP) approach ensures the consensus is truly representative of the cross-modal agreement."
-plot_ned_shared_private_architecture()
-plt.show()
+```{mermaid}
+graph TD
+    X1[Modality 1: X1] -->|Linear Entry| H1[Nonlinear Head h1]
+    H1 --> Z1[Latent Z1]
+    
+    X2[Modality 2: X2] -->|Linear Entry| H2[Nonlinear Head h2]
+    H2 --> Z2[Latent Z2]
+    
+    Z1 <-->|Similarity Loss| Z2
+    Z1 --> U[Consensus U]
+    Z2 --> U
+    
+    U -->|Nonlinear Decoder f1| X1_hat[Reconstruction X1']
+    U -->|Nonlinear Decoder f2| X2_hat[Reconstruction X2']
 ```
 
-### Manifold Optimization and the Non-negative Stiefel approximating flow
+#### 4. Shared/Private Partitioning (NEDPP)
 
-A critical technical challenge in deep multi-view learning is maintaining the orthogonality of latent components. Without such constraints, deep models often suffer from "dimensional collapse," where all latent dimensions become highly correlated, effectively wasting the model's capacity. We utilize the **Non-negative Stiefel approximating flow** to enforce Stiefel manifold constraints directly within the backpropagation cycle.
+The Shared/Private architecture (NEDPP) explicitly partitions the latent space into a shared consensus component $U$ and modality-specific private components $P_m$.
 
-::: {.callout-note}
-### Intuition: Staying on the Manifold
-Imagine trying to keep a compass needle pointing north while walking on a sphere. The **Non-negative Stiefel approximating flow** is the mathematical "force" that keeps our weight matrices perfectly structured (orthogonal and normalized) during training, preventing the model from collapsing into redundant or useless solutions. This ensures that every learned component represents a unique and statistically independent biological process.
-:::
-
-```{python}
-#| label: fig-nsa-arch
-#| fig-cap: "The Non-negative Stiefel approximating flow Mechanism: Dynamic retraction onto the Stiefel manifold during training. This ensures that the learned features are non-redundant and have unit scale, which is essential for stable interpretation."
-plot_nsa_flow_architecture()
-plt.show()
+```{mermaid}
+graph TD
+    subgraph View1 [Modality 1]
+        X1[Input X1] -->|Linear Entry| SH1[Shared Head]
+        SH1 --> Z_shared1[Z_shared 1]
+        X1 -->|Private Encoder| Z_priv1[Z_private 1]
+    end
+    
+    subgraph View2 [Modality 2]
+        X2[Input X2] -->|Linear Entry| SH2[Shared Head]
+        SH2 --> Z_shared2[Z_shared 2]
+        X2 -->|Private Encoder| Z_priv2[Z_private 2]
+    end
+    
+    Z_shared1 <-->|Maximize Similarity| Z_shared2
+    Z_shared1 <-->|Independence Penalty| Z_priv1
+    Z_shared2 <-->|Independence Penalty| Z_priv2
+    
+    Z_shared1 --> U[Shared Consensus U]
+    Z_shared2 --> U
+    
+    U --> Comb1((Concat))
+    Z_priv1 --> Comb1
+    Comb1 -->|Nonlinear Decoder 1| X1_hat[Reconstruction X1']
+    
+    U --> Comb2((Concat))
+    Z_priv2 --> Comb2
+    Comb2 -->|Nonlinear Decoder 2| X2_hat[Reconstruction X2']
 ```
