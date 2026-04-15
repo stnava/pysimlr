@@ -1,54 +1,77 @@
 # Methods: The SiMLR Framework
 
-In this section, we describe the mathematical foundation of SiMLR, focusing on the Non-negative Stiefel approximating flow (NSA-Flow), deep architectures, and consensus estimation.
+In this section, we describe the rigorous mathematical foundation of SiMLR, detailing the generalized energy landscape, the Non-negative Stiefel Approximating Flow (NSA-Flow) for manifold optimization, and the extension of these principles into deep learning architectures.
 
-## 1. The Core SiMLR Objective
+## 1. The Generalized SiMLR Energy Objective
 
-The SiMLR model (Similarity-constrained Multi-view Latent Representations) seeks to find a set of low-rank, interpretable projections $V_m$ that map high-dimensional data $X_m$ into a shared latent space $U$ while respecting the geometry of the Stiefel manifold. The objective function is:
+The core objective of SiMLR (Similarity-constrained Multi-view Latent Representations) is to find a set of low-rank projection matrices $V_m \in \mathbb{R}^{P_m \times K}$ that map high-dimensional data views $X_m \in \mathbb{R}^{N \times P_m}$ into a shared, consensus latent space $U \in \mathbb{R}^{N \times K}$, while strictly adhering to structural constraints on the Stiefel manifold.
 
-$$ \mathcal{J}(V_m, U) = \sum_{m=1}^M \alpha_m \mathcal{S}(X_m V_m, U) + \sum_{m=1}^M \beta_m \mathcal{R}(X_m, V_m, U) $$
+The generalized energy objective for a single view $m$ is parameterized by an energy type $\mathcal{E}$ and defined as:
+$$ \mathcal{J}(V_m, U) = \mathcal{E}(X_m, V_m, U) + \lambda \mathcal{D}(V_m, \Phi) $$
+where $\mathcal{E}$ is the similarity or reconstruction energy, and $\mathcal{D}$ is an optional Domain Alignment Transfer (DAT) penalty against a structural prior $\Phi$. We minimize $\mathcal{J}$ with respect to $V_m$ under the constraint $V_m^\top V_m = I_K$ and $V_m \ge 0$.
 
-where:
-*   $\mathcal{S}$ is a **Similarity Loss** (e.g., Absolute Canonical Covariance or ACC) that pulls modality-specific latents $Z_m = X_m V_m$ towards the shared consensus $U$.
-*   $\mathcal{R}$ is a **Reconstruction Loss** that ensures the learned features $V_m$ can explain the variance in the original data $X_m$.
-*   $V_m \in \text{St}(d_m, k)$ are the feature weight matrices, constrained to the Stiefel manifold ($V_m^\top V_m = I$).
-*   $\alpha_m, \beta_m$ are hyper-parameters that balance the similarity and reconstruction requirements.
+### 1.1 Similarity and Reconstruction Energies
 
-### 1.1 Absolute Canonical Covariance (ACC)
-For linear SiMLR, the default similarity metric is the **Absolute Canonical Covariance (ACC)**. Unlike standard CCA which maximizes correlation, ACC focuses on the absolute covariance between projected views and the consensus. This ensures that the model captures shared signal regardless of the sign of the feature weights, which is critical when combined with non-negativity constraints. Formally, we define the ACC between two latents as $\text{ACC}(Z_i, Z_j) = \sum_{k=1}^K |\text{cov}(z_{ik}, z_{jk})|$. For more details, see [Nava et al. (2025)](https://www.medrxiv.org/content/10.1101/2025.09.27.25336706v2).
+The framework supports multiple operational definitions for $\mathcal{E}$, implemented directly in our solver:
 
-## 2. NSA-Flow: Non-negative Stiefel Approximating Flow
+**1. Regression (Mean Squared Error):**
+Optimizes for optimal linear reconstruction of the shared consensus.
+$$ \mathcal{E}_{reg}(X, V, U) = \|X - U V^\top\|_F^2 $$
+With gradient: $\nabla_V \mathcal{E}_{reg} = 2(X^\top U - V)$.
 
-To solve the SiMLR objective, we introduce **NSA-Flow**, a gradient-based optimization method that enforces both non-negativity and orthogonality on the feature weights $V_m$. NSA-Flow operates by projecting the gradients of the objective function onto the tangent space of the Stiefel manifold and then performing a retraction (typically via SVD or Newton-Schulz) to pull the weights back onto the manifold.
+**2. Absolute Canonical Covariance (ACC):**
+Maximizes the absolute covariance between the projected view $Z = XV$ and the consensus $U$. This is the default metric for non-negative discovery.
+$$ \mathcal{E}_{acc}(X, V, U) = - \sum_{k=1}^K \left| \frac{1}{N-1} u_{\cdot, k}^\top X v_{\cdot, k} \right| $$
+With gradient: $\nabla_V \mathcal{E}_{acc} = -\frac{1}{N-1} X^\top U \cdot \text{sign}(U^\top X V)$.
 
-### 2.1 Positivity and Sparsity
-Interpretability is enforced through proximal operators that promote sparsity and positivity. In biological applications, we often set $V_{mij} \ge 0$, representing a "parts-based" decomposition where features are either present or absent, but never subtractive. Sparsity is controlled through a quantile-based thresholding parameter $\lambda$.
+**3. ICA / Negentropy (logcosh, exp, gauss, kurtosis):**
+Maximizes the non-Gaussianity of the projected latents, essential for isolating statistically independent biological sources. For the default robust `logcosh` contrast function:
+$$ \mathcal{E}_{ica}(X, V, U) = - \frac{1}{N} \sum_{i=1}^N \sum_{k=1}^K \log(\cosh(S_{ik})) $$
+where $S = U^\top X V$. The gradient is given by:
+$$ \nabla_V \mathcal{E}_{ica} = - \frac{1}{NK} X^\top U \tanh(U^\top X V) $$
 
-## 3. Optimization Safeguards and Schedules
+**4. Normalized Correlation:**
+Maximizes the cosine similarity between the projected view and consensus.
+$$ \mathcal{E}_{nc}(X, V, U) = - \frac{\text{tr}(U^\top X V)}{\|U\|_F \|XV\|_F} $$
 
-Training deep SiMLR models requires careful handling of manifold drift and latent collapse.
+### 1.2 Directed Alignment Transfer (DAT)
 
-### 3.1 Hybrid Manifold Enforcement
-While NSA-Flow uses projections during the forward pass to satisfy constraints, the training loop also includes a secondary **orthogonality penalty** of $0.1 \times \text{invariant\_orthogonality\_defect}(V_{raw})$. This hybrid approach acts as a "soft guardrail," preventing the raw parameters $V_{raw}$ from drifting too far from the manifold, which improves numerical stability and prevents collapse into a single dimension.
+To incorporate prior biological knowledge, we introduce the DAT energy term. Given a prior structural matrix $\Phi \in \mathbb{R}^{K \times P}$, the model penalizes deviations from known functional networks:
+$$ \mathcal{D}(V, \Phi) = - \lambda \|\Phi V\|_F^2 $$
+With gradient: $\nabla_V \mathcal{D} = -2\lambda \Phi^\top \Phi V$.
 
-### 3.2 Stabilization Schedule
-The first layer of deep models (the linear encoder) follows a **scheduled warmup**. During the initial epochs, the manifold constraints are relaxed, allowing the weights to orient themselves towards the signal. The stabilization factor $\gamma$ is then ramped from 0 to 1, gradually phasing in strict Stiefel projections. This prevents the model from getting stuck in poor local minima during the early phase of training.
+## 2. Manifold Optimization: NSA-Flow
 
-## 4. Deep SiMLR Architectures
+To ensure the projection matrices $V_m$ yield uncorrelated, interpretable features, we restrict the optimization to the Non-negative Stiefel manifold. We utilize the **Non-negative Stiefel Approximating Flow (NSA-Flow)** algorithm, which employs a gradient-projection-retraction cycle.
 
-### 4.1 LEND (Linear Encoder, Nonlinear Decoder)
-LEND uses linear encoders ($Z = XV$) for interpretability and deep, non-linear decoders ($X \approx g(U)$) to model measurement noise. By providing a non-linear "escape hatch" in the decoder, we protect the linear encoder from modeling artifacts, leading to higher-fidelity feature discovery.
+### 2.1 Tangent Space Projection
+Following Edelman et al. (1998), the raw unconstrained Euclidean gradient $G = \nabla_V \mathcal{J}$ is projected onto the tangent space of the Stiefel manifold at the current point $V$:
+$$ \text{proj}_{St}(G, V) = G - V \text{sym}(V^\top G) = G - \frac{1}{2} V (V^\top G + G^\top V) $$
+This guarantees that the gradient step preserves the local geometry of the manifold.
 
-### 4.2 NED (Nonlinear Encoder Decoder)
-NED uses deep neural networks for both encoding and decoding, maximizing representational power at the cost of direct feature interpretability.
+### 2.2 Retraction and Positivity
+After taking a step in the tangent space, the updated matrix $\tilde{V}$ must be pulled back onto the exact manifold while enforcing non-negativity and sparsity constraints. The NSA-Flow retraction is defined by:
+1.  **Non-negative Thresholding:** $\tilde{V} \leftarrow \max(0, \tilde{V})$.
+2.  **Sparsification:** Elements below the $q$-th sparsity quantile are zeroed out (hard thresholding) or shrunk (soft thresholding).
+3.  **Orthogonal Retraction:** The matrix is orthogonalized using Singular Value Decomposition (SVD), where $\tilde{V} = U_s \Sigma V_s^\top$, and the retracted matrix is $V_{new} = U_s V_s^\top$. Alternatively, a stable Newton-Schulz iteration can be employed for deeply nested architectures.
 
-### 4.3 Shared/Private Partitioning (NEDPP)
-NEDPP partitions the latent space into components shared across all views and components private to each view. This prevent modality-specific noise from contaminating the shared consensus.
+## 3. Deep Architectural Extensions
 
-## 5. Consensus Estimation
+To handle severe non-linear measurement noise while retaining interpretability, we integrate the SiMLR objectives into deep neural architectures.
 
-Aggregation of view-specific latents $Z_m$ into $U$ is performed using several strategies:
-*   **Average:** Simple mean of all $Z_m$.
-*   **PCA:** Extracts the principal components of the stacked latents.
-*   **ICA:** Maximizes the statistical independence of the consensus dimensions, improving feature attribution.
-*   **Newton:** Enforces a strict orthonormal frame on $U$, providing maximum stability in deep regimes.
+### 3.1 LEND (Linear Encoder, Nonlinear Decoder)
+The LEND model utilizes an interpretable linear encoder to map data to the latent space $Z_m = X_m V_m$, but employs a deep non-linear decoder $\hat{X}_m = g_{\theta_m}(U)$ to reconstruct the data. The objective is:
+$$ \mathcal{L}_{LEND} = \mathcal{L}_{sim}(Z, U) + \lambda_{recon} \|X_m - g_{\theta_m}(U)\|_2^2 + \gamma_{nsa} \mathcal{L}_{ortho}(V_m) $$
+The deep decoder protects the linear encoder from corrupting its weights to account for manifold curvature, forcing $V_m$ to discover pure mechanistic drivers.
+
+### 3.2 NED (Nonlinear Encoder Decoder)
+For fully complex topologies where linear encoders fail (e.g., periodic or highly curved spaces), NED replaces $V_m$ with a deep encoder $f_{\phi_m}(X_m)$. While sacrificing direct weight interpretability, it maximizes representation power:
+$$ \mathcal{L}_{NED} = \mathcal{L}_{sim}(f_{\phi_m}(X_m), U) + \lambda_{recon} \|X_m - g_{\theta_m}(U)\|_2^2 $$
+
+### 3.3 NEDPP: Shared and Private Partitioning
+To prevent structured, modality-specific noise from contaminating the consensus $U$, the NEDPP architecture splits the latent space $Z_m$ into a shared component $Z_m^{(S)}$ and a private component $Z_m^{(P)}$. 
+$$ \mathcal{L}_{sim} = \mathcal{E}(Z_m^{(S)}, U) \quad \text{and} \quad \mathcal{L}_{ortho} \propto \text{RV}(Z_m^{(S)}, Z_m^{(P)}) $$
+The reconstruction loss forces both components to explain the data $\hat{X}_m = g(Z_m^{(S)} \oplus Z_m^{(P)})$, while the RV-coefficient penalty forces the shared and private spaces to remain statistically independent.
+
+### 3.4 Training Dynamics: Warmup-to-Manifold
+Deep SiMLR models utilize a scheduled "Warmup-to-Manifold" approach. During initial epochs, the manifold projection parameter $\alpha$ is set to 0, allowing the network to explore the unconstrained Euclidean space to find broad consensus clusters. As training progresses, $\alpha$ is smoothly ramped to 1.0, engaging the NSA-Flow orthogonal retractions. This scheduling prevents the model from collapsing into poor local Stiefel minima early in training.

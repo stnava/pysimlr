@@ -1,166 +1,155 @@
-# Documentation Audit: pysimlr
+# Documentation Audit
 
-Tracking progress of docstring updates to NumPy standards and paper consistency.
+| Module | Symbol | Type | Implementation | NumpyValidity | Correctness |
+| --- | --- | --- | --- | --- | --- |
+| sparsification.py | optimize_indicator_matrix | function | Yes | Yes | TBD |
+| sparsification.py | indicator_opt_both_ways | function | Yes | Yes | TBD |
+| sparsification.py | rank_based_matrix_segmentation | function | Yes | Yes | TBD |
+| sparsification.py | orthogonalize_and_q_sparsify | function | Yes | Yes | TBD |
+| sparsification.py | project_to_orthonormal_nonnegative | function | Yes | Yes | TBD |
+| sparsification.py | project_to_partially_orthonormal_nonnegative | function | Yes | Yes | TBD |
+| sparsification.py | simlr_sparseness | function | Yes | Yes | TBD |
+| regression.py | smooth_matrix_prediction | function | Yes | Yes | TBD |
+| regression.py | smooth_regression | function | Yes | Yes | TBD |
+| paths.py | simlr_path | function | Yes | Yes | TBD |
+| paths.py | permutation_test | function | Yes | Yes | TBD |
+| interpretability.py | summarize_basis_matrix | function | Yes | Yes | TBD |
+| interpretability.py | build_first_layer_contract | function | Yes | Yes | TBD |
+| interpretability.py | extract_first_layer_factors | function | Yes | Yes | TBD |
+| interpretability.py | analyze_first_layer_alignment | function | Yes | No | TBD |
+| interpretability.py | attribute_shared_to_first_layer | function | Yes | Yes | TBD |
+| interpretability.py | attribute_prediction_to_features | function | Yes | Yes | TBD |
+| interpretability.py | build_interpretability_report | function | Yes | No | TBD |
+| simlr.py | parse_constraint | function | Yes | Yes | TBD |
+| simlr.py | project_gradient | function | Yes | Yes | TBD |
+| simlr.py | calculate_u | function | Yes | Yes | TBD |
+| simlr.py | initialize_simlr | function | Yes | Yes | TBD |
+| simlr.py | calculate_ica_energy | function | Yes | Yes | TBD |
+| simlr.py | calculate_ica_gradient | function | Yes | Yes | TBD |
+| simlr.py | calculate_simlr_energy | function | Yes | Yes | TBD |
+| simlr.py | calculate_simlr_gradient | function | Yes | Yes | TBD |
+| simlr.py | simlr | function | Yes | No | TBD |
+| simlr.py | pairwise_matrix_similarity | function | Yes | Yes | TBD |
+| simlr.py | simlr_perm | function | Yes | Yes | TBD |
+| simlr.py | predict_shared_latent | function | Yes | Yes | TBD |
+| simlr.py | reconstruct_from_learned_maps | function | Yes | Yes | TBD |
+| simlr.py | predict_simlr | function | Yes | No | TBD |
+| simlr.py | estimate_rank | function | No | No | TBD |
+| simlr.py | decompose_energy | function | No | No | TBD |
+| visualization.py | plot_lend_simr_architecture | function | Yes | Yes | TBD |
+| visualization.py | plot_ned_simr_architecture | function | Yes | Yes | TBD |
+| visualization.py | plot_ned_shared_private_architecture | function | Yes | Yes | TBD |
+| visualization.py | plot_nsa_flow_architecture | function | Yes | Yes | TBD |
+| visualization.py | plot_energy | function | Yes | Yes | TBD |
+| visualization.py | plot_latent_2d | function | Yes | Yes | TBD |
+| visualization.py | plot_v_matrix | function | Yes | Yes | TBD |
+| visualization.py | generate_all_architecture_graphs | function | Yes | Yes | TBD |
+| svd.py | ba_svd | function | Yes | Yes | TBD |
+| svd.py | safe_pca | function | Yes | Yes | TBD |
+| svd.py | whiten_matrix | function | Yes | Yes | TBD |
+| svd.py | multiscale_svd | function | Yes | Yes | TBD |
+| optimizers.py | SimlrOptimizer | class | Yes | Yes | TBD |
+| optimizers.py | backtracking_linesearch | function | Yes | Yes | TBD |
+| optimizers.py | bidirectional_linesearch | function | Yes | Yes | TBD |
+| optimizers.py | HybridAdam | class | Yes | Yes | TBD |
+| optimizers.py | Adam | class | Yes | Yes | TBD |
+| optimizers.py | Nadam | class | Yes | Yes | TBD |
+| optimizers.py | ArmijoGradient | class | Yes | Yes | TBD |
+| optimizers.py | BidirectionalArmijoGradient | class | Yes | Yes | TBD |
+| optimizers.py | Lookahead | class | Yes | Yes | TBD |
+| optimizers.py | BidirectionalLookahead | class | Yes | Yes | TBD |
+| optimizers.py | RMSProp | class | Yes | Yes | TBD |
+| optimizers.py | SGD | class | Yes | Yes | TBD |
+| optimizers.py | LARS | class | Yes | Yes | TBD |
+| optimizers.py | NSAFlowOptimizer | class | Yes | Yes | TBD |
+| optimizers.py | TorchNativeOptimizer | class | Yes | Yes | TBD |
+| optimizers.py | create_optimizer | function | Yes | Yes | TBD |
+| nnh.py | antspymm_predictors | function | Yes | Yes | TBD |
+| nnh.py | nnh_update_residuals | function | Yes | Yes | TBD |
+| nnh.py | nnh_embed | function | Yes | Yes | TBD |
+| utils.py | set_seed_based_on_time | function | Yes | Yes | TBD |
+| utils.py | multigrep | function | Yes | Yes | TBD |
+| utils.py | get_names_from_dataframe | function | Yes | Yes | TBD |
+| utils.py | map_asym_var | function | Yes | Yes | TBD |
+| utils.py | map_lr_average_var | function | Yes | Yes | TBD |
+| utils.py | rvcoef | function | Yes | Yes | TBD |
+| utils.py | rvcoef_components | function | Yes | Yes | TBD |
+| utils.py | rvcoef_trace_impl | function | Yes | No | TBD |
+| utils.py | rvcoef_gram_impl | function | Yes | No | TBD |
+| utils.py | adjusted_rvcoef | function | Yes | No | TBD |
+| utils.py | l1_normalize_features | function | Yes | No | TBD |
+| utils.py | invariant_orthogonality_defect | function | Yes | No | TBD |
+| utils.py | stiefel_defect | function | Yes | No | TBD |
+| utils.py | gradient_invariant_orthogonality_defect | function | Yes | No | TBD |
+| utils.py | mean_orthogonality_defect | function | Yes | No | TBD |
+| utils.py | gradient_mean_orthogonality_defect | function | Yes | No | TBD |
+| utils.py | orthogonality_summary | function | Yes | No | TBD |
+| utils.py | preprocess_data | function | Yes | No | TBD |
+| utils.py | set_all_seeds | function | Yes | No | TBD |
+| utils.py | safe_svd | function | Yes | No | TBD |
+| utils.py | procrustes_r2 | function | Yes | No | TBD |
+| utils.py | procrustes_mse | function | Yes | No | TBD |
+| consensus.py | compute_shared_consensus | function | Yes | Yes | TBD |
+| sparse.py | sparse_distance_matrix | function | Yes | Yes | TBD |
+| sparse.py | sparse_distance_matrix_xy | function | Yes | Yes | TBD |
+| viz.py | plot_view_correlations | function | Yes | Yes | TBD |
+| viz.py | plot_latent_consensus | function | Yes | Yes | TBD |
+| viz.py | plot_feature_signatures | function | Yes | Yes | TBD |
+| viz.py | plot_convergence_dynamics | function | Yes | Yes | TBD |
+| deep.py | LENDNSAEncoder | class | Yes | Yes | TBD |
+| deep.py | ModalityDecoder | class | Yes | Yes | TBD |
+| deep.py | LENDSiMRModel | class | Yes | Yes | TBD |
+| deep.py | NEDSiMRModel | class | Yes | Yes | TBD |
+| deep.py | NEDSharedPrivateSiMRModel | class | Yes | Yes | TBD |
+| deep.py | ModalityEncoder | class | Yes | Yes | TBD |
+| deep.py | calculate_sim_loss | function | Yes | Yes | TBD |
+| deep.py | lend_simr | function | No | No | TBD |
+| deep.py | ned_simr | function | No | No | TBD |
+| deep.py | ned_simr_shared_private | function | No | No | TBD |
+| deep.py | deep_simr | function | Yes | Yes | TBD |
+| deep.py | predict_deep | function | No | No | TBD |
+| benchmarks/metrics.py | latent_recovery_score | function | Yes | No | TBD |
+| benchmarks/metrics.py | in_sample_latent_linear_fit_r2 | function | Yes | No | TBD |
+| benchmarks/metrics.py | outcome_r2_score | function | Yes | No | TBD |
+| benchmarks/metrics.py | heldout_outcome_r2_score | function | Yes | No | TBD |
+| benchmarks/metrics.py | heldout_outcome_mse | function | Yes | No | TBD |
+| benchmarks/metrics.py | reconstruction_mse | function | Yes | No | TBD |
+| benchmarks/metrics.py | reconstruction_mse_summary | function | Yes | No | TBD |
+| benchmarks/metrics.py | latent_variance_diagnostics | function | Yes | No | TBD |
+| benchmarks/metrics.py | shared_private_diagnostics | function | Yes | No | TBD |
+| benchmarks/metrics.py | calculate_v_orthogonality | function | Yes | No | TBD |
+| benchmarks/metrics.py | first_layer_sparsity_metrics | function | Yes | No | TBD |
+| benchmarks/metrics.py | alignment_metrics_from_report | function | Yes | No | TBD |
+| benchmarks/metrics.py | shared_attribution_metrics_from_report | function | Yes | No | TBD |
+| benchmarks/metrics.py | prediction_preservation_metrics_from_report | function | Yes | No | TBD |
+| benchmarks/metrics.py | calculate_all_metrics | function | Yes | No | TBD |
+| benchmarks/runner.py | filter_kwargs | function | Yes | Yes | TBD |
+| benchmarks/runner.py | run_single_experiment | function | Yes | Yes | TBD |
+| benchmarks/runner.py | run_seeded_benchmark | function | Yes | Yes | TBD |
+| benchmarks/runner.py | aggregate_results | function | Yes | Yes | TBD |
+| benchmarks/runner.py | get_best_per_model | function | Yes | Yes | TBD |
+| benchmarks/runner.py | sweep_benchmark | function | Yes | Yes | TBD |
+| benchmarks/runner.py | main | function | No | No | TBD |
+| benchmarks/protocol.py | BenchmarkProtocol | class | Yes | Yes | TBD |
+| benchmarks/protocol.py | run_repeated_benchmark | function | Yes | Yes | TBD |
+| benchmarks/plotting.py | plot_pareto_recovery_vs_r2 | function | Yes | Yes | TBD |
+| benchmarks/plotting.py | plot_sparsity_sensitivity | function | Yes | Yes | TBD |
+| benchmarks/plotting.py | plot_stability_diagnostics | function | Yes | Yes | TBD |
+| benchmarks/plotting.py | plot_sparsity_vs_orthogonality | function | Yes | Yes | TBD |
+| benchmarks/plotting.py | plot_reconstruction_tradeoff | function | Yes | Yes | TBD |
+| benchmarks/plotting.py | plot_v_heatmaps | function | Yes | Yes | TBD |
+| benchmarks/plotting.py | plot_latent_correlation | function | Yes | Yes | TBD |
+| benchmarks/plotting.py | plot_first_layer_alignment_heatmap | function | Yes | Yes | TBD |
+| benchmarks/plotting.py | plot_first_layer_feature_importance | function | Yes | Yes | TBD |
+| benchmarks/plotting.py | plot_interpretability_tradeoff | function | Yes | Yes | TBD |
+| benchmarks/shared_private_sweep.py | tune_shared_private | function | Yes | Yes | TBD |
+| benchmarks/synthetic_cases.py | build_linear_footprint_case | function | Yes | Yes | TBD |
+| benchmarks/synthetic_cases.py | build_nonlinear_shared_case | function | Yes | Yes | TBD |
+| benchmarks/synthetic_cases.py | build_shared_plus_private_case | function | Yes | Yes | TBD |
+| benchmarks/synthetic_cases.py | build_case | function | Yes | Yes | TBD |
+| benchmarks/synthetic_cases.py | plot_case_generative_shape | function | Yes | Yes | TBD |
 
-## Target APIs
 
-| Module | Symbol | Implementation | Numpy Validity | Correctness | Status |
-| :--- | :--- | :---: | :---: | :---: | :--- |
-| **benchmarks.metrics** | `alignment_metrics_from_report` | ✅ | ✅ | ✅ | Complete |
-| **** | `calculate_all_metrics` | ✅ | ✅ | ✅ | Complete |
-| **** | `calculate_v_orthogonality` | ✅ | ✅ | ✅ | Complete |
-| **** | `first_layer_sparsity_metrics` | ✅ | ✅ | ✅ | Complete |
-| **** | `heldout_outcome_mse` | ✅ | ✅ | ✅ | Complete |
-| **** | `heldout_outcome_r2_score` | ✅ | ✅ | ✅ | Complete |
-| **** | `in_sample_latent_linear_fit_r2` | ✅ | ✅ | ✅ | Complete |
-| **** | `latent_recovery_score` | ✅ | ✅ | ✅ | Complete |
-| **** | `latent_variance_diagnostics` | ✅ | ✅ | ✅ | Complete |
-| **** | `outcome_r2_score` | ✅ | ✅ | ✅ | Complete |
-| **** | `prediction_preservation_metrics_from_report` | ✅ | ✅ | ✅ | Complete |
-| **** | `reconstruction_mse` | ✅ | ✅ | ✅ | Complete |
-| **** | `reconstruction_mse_summary` | ✅ | ✅ | ✅ | Complete |
-| **** | `shared_attribution_metrics_from_report` | ✅ | ✅ | ✅ | Complete |
-| **** | `shared_private_diagnostics` | ✅ | ✅ | ✅ | Complete |
-| **benchmarks.plotting** | `plot_first_layer_alignment_heatmap` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_first_layer_feature_importance` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_interpretability_tradeoff` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_latent_correlation` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_pareto_recovery_vs_r2` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_reconstruction_tradeoff` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_sparsity_sensitivity` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_sparsity_vs_orthogonality` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_stability_diagnostics` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_v_heatmaps` | ✅ | ✅ | ✅ | Complete |
-| **benchmarks.protocol** | `BenchmarkProtocol` | ✅ | ✅ | ✅ | Complete |
-| **** | `run_repeated_benchmark` | ✅ | ✅ | ✅ | Complete |
-| **benchmarks.runner** | `aggregate_results` | ✅ | ✅ | ✅ | Complete |
-| **** | `filter_kwargs` | ✅ | ✅ | ✅ | Complete |
-| **** | `get_best_per_model` | ✅ | ✅ | ✅ | Complete |
-| **** | `main` | ✅ | ✅ | ✅ | Complete |
-| **** | `run_seeded_benchmark` | ✅ | ✅ | ✅ | Complete |
-| **** | `run_single_experiment` | ✅ | ✅ | ✅ | Complete |
-| **** | `sweep_benchmark` | ✅ | ✅ | ✅ | Complete |
-| **benchmarks.shared_private_sweep** | `tune_shared_private` | ✅ | ✅ | ✅ | Complete |
-| **benchmarks.synthetic_cases** | `build_case` | ✅ | ✅ | ✅ | Complete |
-| **** | `build_linear_footprint_case` | ✅ | ✅ | ✅ | Complete |
-| **** | `build_nonlinear_shared_case` | ✅ | ✅ | ✅ | Complete |
-| **** | `build_shared_plus_private_case` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_case_generative_shape` | ✅ | ✅ | ✅ | Complete |
-| **consensus** | `compute_shared_consensus` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **deep** | `LENDNSAEncoder` | ✅ | ✅ | ✅ | Complete |
-| **** | `LENDSiMRModel` | ✅ | ✅ | ✅ | Complete |
-| **** | `ModalityDecoder` | ✅ | ✅ | ✅ | Complete |
-| **** | `ModalityEncoder` | ✅ | ✅ | ✅ | Complete |
-| **** | `NEDSharedPrivateSiMRModel` | ✅ | ✅ | ✅ | Complete |
-| **** | `NEDSiMRModel` | ✅ | ✅ | ✅ | Complete |
-| **** | `calculate_sim_loss` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `deep_simr` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `lend_simr` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `ned_simr` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `ned_simr_shared_private` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `predict_deep` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **interpretability** | `analyze_first_layer_alignment` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `attribute_prediction_to_features` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `attribute_shared_to_first_layer` | ✅ | ✅ | ✅ | Complete |
-| **** | `build_first_layer_contract` | ✅ | ✅ | ✅ | Complete |
-| **** | `build_interpretability_report` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `extract_first_layer_factors` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `summarize_basis_matrix` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **nnh** | `antspymm_predictors` | ✅ | ✅ | ✅ | Complete |
-| **** | `nnh_embed` | ✅ | ✅ | ✅ | Complete |
-| **** | `nnh_update_residuals` | ✅ | ✅ | ✅ | Complete |
-| **optimizers** | `Adam` | ✅ | ✅ | ✅ | Complete |
-| **** | `ArmijoGradient` | ✅ | ✅ | ✅ | Complete |
-| **** | `BidirectionalArmijoGradient` | ✅ | ✅ | ✅ | Complete |
-| **** | `BidirectionalLookahead` | ✅ | ✅ | ✅ | Complete |
-| **** | `HybridAdam` | ✅ | ✅ | ✅ | Complete |
-| **** | `LARS` | ✅ | ✅ | ✅ | Complete |
-| **** | `Lookahead` | ✅ | ✅ | ✅ | Complete |
-| **** | `NSAFlowOptimizer` | ✅ | ✅ | ✅ | Complete |
-| **** | `Nadam` | ✅ | ✅ | ✅ | Complete |
-| **** | `RMSProp` | ✅ | ✅ | ✅ | Complete |
-| **** | `SGD` | ✅ | ✅ | ✅ | Complete |
-| **** | `SimlrOptimizer` | ✅ | ✅ | ✅ | Complete |
-| **** | `TorchNativeOptimizer` | ✅ | ✅ | ✅ | Complete |
-| **** | `backtracking_linesearch` | ✅ | ✅ | ✅ | Complete |
-| **** | `bidirectional_linesearch` | ✅ | ✅ | ✅ | Complete |
-| **** | `create_optimizer` | ✅ | ✅ | ✅ | Complete |
-| **paths** | `permutation_test` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `simlr_path` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **regression** | `smooth_matrix_prediction` | ✅ | ✅ | ✅ | Complete |
-| **** | `smooth_regression` | ✅ | ✅ | ✅ | Complete |
-| **simlr** | `calculate_ica_energy` | ✅ | ✅ | ✅ | Complete |
-| **** | `calculate_ica_gradient` | ✅ | ✅ | ✅ | Complete |
-| **** | `calculate_simlr_energy` | ✅ | ✅ | ✅ | Complete |
-| **** | `calculate_simlr_gradient` | ✅ | ✅ | ✅ | Complete |
-| **** | `calculate_u` | ✅ | ✅ | ✅ | Complete |
-| **** | `decompose_energy` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `estimate_rank` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `initialize_simlr` | ✅ | ✅ | ✅ | Complete |
-| **** | `pairwise_matrix_similarity` | ✅ | ✅ | ✅ | Complete |
-| **** | `parse_constraint` | ✅ | ✅ | ✅ | Complete |
-| **** | `predict_shared_latent` | ✅ | ✅ | ✅ | Complete |
-| **** | `predict_simlr` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `project_gradient` | ✅ | ✅ | ✅ | Complete |
-| **** | `reconstruct_from_learned_maps` | ✅ | ✅ | ✅ | Complete |
-| **** | `simlr` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `simlr_perm` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **sparse** | `sparse_distance_matrix` | ✅ | ✅ | ✅ | Complete |
-| **** | `sparse_distance_matrix_xy` | ✅ | ✅ | ✅ | Complete |
-| **sparsification** | `indicator_opt_both_ways` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `optimize_indicator_matrix` | ✅ | ✅ | ✅ | Complete |
-| **** | `orthogonalize_and_q_sparsify` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `project_to_orthonormal_nonnegative` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `project_to_partially_orthonormal_nonnegative` | ✅ | ✅ | ✅ | Complete |
-| **** | `rank_based_matrix_segmentation` | ✅ | ✅ | ✅ | Complete |
-| **** | `simlr_sparseness` | ✅ | ✅ | ✅ | Complete |
-| **svd** | `ba_svd` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `multiscale_svd` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `safe_pca` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `whiten_matrix` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **utils** | `adjusted_rvcoef` | ✅ | ✅ | ✅ | Complete |
-| **** | `get_names_from_dataframe` | ✅ | ✅ | ✅ | Complete |
-| **** | `gradient_invariant_orthogonality_defect` | ✅ | ✅ | ✅ | Complete |
-| **** | `gradient_mean_orthogonality_defect` | ✅ | ✅ | ✅ | Complete |
-| **** | `invariant_orthogonality_defect` | ✅ | ✅ | ✅ | Complete |
-| **** | `l1_normalize_features` | ✅ | ✅ | ✅ | Complete |
-| **** | `map_asym_var` | ✅ | ✅ | ✅ | Complete |
-| **** | `map_lr_average_var` | ✅ | ✅ | ✅ | Complete |
-| **** | `mean_orthogonality_defect` | ✅ | ✅ | ✅ | Complete |
-| **** | `multigrep` | ✅ | ✅ | ✅ | Complete |
-| **** | `orthogonality_summary` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `preprocess_data` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `procrustes_mse` | ✅ | ✅ | ✅ | Complete |
-| **** | `procrustes_r2` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `rvcoef` | ✅ | ✅ | ✅ | Complete (Sandbox) |
-| **** | `rvcoef_components` | ✅ | ✅ | ✅ | Complete |
-| **** | `rvcoef_gram_impl` | ✅ | ✅ | ✅ | Complete |
-| **** | `rvcoef_trace_impl` | ✅ | ✅ | ✅ | Complete |
-| **** | `safe_svd` | ✅ | ✅ | ✅ | Complete |
-| **** | `set_all_seeds` | ✅ | ✅ | ✅ | Complete |
-| **** | `set_seed_based_on_time` | ✅ | ✅ | ✅ | Complete |
-| **** | `stiefel_defect` | ✅ | ✅ | ✅ | Complete |
-| **visualization** | `generate_all_architecture_graphs` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_energy` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_latent_2d` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_lend_simr_architecture` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_ned_shared_private_architecture` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_ned_simr_architecture` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_nsa_flow_architecture` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_v_matrix` | ✅ | ✅ | ✅ | Complete |
-| **viz** | `plot_convergence_dynamics` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_feature_signatures` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_latent_consensus` | ✅ | ✅ | ✅ | Complete |
-| **** | `plot_view_correlations` | ✅ | ✅ | ✅ | Complete |
-
-## Bugs Found
-
-(Log any logic discrepancies here)
-
-- `simlr.calculate_simlr_gradient` had a double `return torch.zeros_like(v)`. Fixed.
-- `regression.smooth_matrix_prediction` had an `UnboundLocalError` and was returning the wrong shape. Fixed.
-- `benchmarks.metrics` had several naming mismatches with `protocol.py` and tests. Fixed by adding aliases and supporting flexible report schemas.
-- `visualization.py` architecture plotting functions were returning `None`, causing test failures. Fixed to return the `fig` object.
-- `viz.plot_feature_signatures` was missing the `top_n` argument. Fixed.
-- `viz.plot_convergence_dynamics` failed when history was empty. Fixed.
-- `tests/test_comprehensive.py` had an incorrect assertion for `smooth_matrix_prediction` output shape. Fixed.
+**Total Symbols**: 146
+**Implementation Completion**: 139/146 (95.21%)
+**Numpy Validity Completion**: 104/146 (71.23%)
