@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from typing import List, Optional, Union, Dict, Any, Tuple
+from .utils import newton_schulz_orthogonalize
 try:
     from sklearn.decomposition import FastICA
 except ImportError:
@@ -80,12 +81,8 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         u = torch.mean(torch.stack(norm_projs), dim=0)
     elif mixing_algorithm == "newton":
         u = torch.mean(torch.stack(norm_projs), dim=0)
-        # Always project to Stiefel for alignment between train/eval.
-        try:
-            u_u, _, u_vh = torch.linalg.svd(u, full_matrices=False)
-            u = u_u @ u_vh
-        except:
-            u = torch.nn.functional.normalize(u, p=2, dim=0)
+        # Use Newton-Schulz iteration for strict Stiefel manifold alignment.
+        u = newton_schulz_orthogonalize(u, iterations=10)
     elif mixing_algorithm == "stochastic":
         big_p = torch.cat(norm_projs, dim=1)
         g = torch.randn(big_p.shape[1], k, device=big_p.device, dtype=big_p.dtype)
@@ -112,12 +109,8 @@ def compute_shared_consensus(projections: List[torch.Tensor],
             u = u[:, :k]
             
     if orthogonalize and mixing_algorithm != "newton":
-        try:
-            u_u, _, u_vh = torch.linalg.svd(u, full_matrices=False)
-            u = u_u @ u_vh
-            u = u[:, :k]
-        except:
-            pass
+        u = newton_schulz_orthogonalize(u, iterations=10)
+        u = u[:, :k]
             
     # Standardize final U to unit variance per dimension.
     # This ensures that downstream models (like LinearRegression) see a consistent

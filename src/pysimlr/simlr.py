@@ -113,6 +113,7 @@ def calculate_u(projections: List[torch.Tensor],
     projections : List[torch.Tensor]
         List of projected data matrices (N x K).
     mixing_algorithm : str, default="svd"
+        The algorithm used to mix projections ("svd", "pca", "ica", "avg", "newton").
         The algorithm to use for consensus computation.
     k : int, optional
         Target rank for the shared latent space.
@@ -410,9 +411,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     energy_type : str, default="acc"
         The similarity/reconstruction objective to minimize.
     constraint : str, default="Stiefel"
-        The manifold constraint on basis matrices.
+        The manifold constraint on basis matrices ("Stiefel", "Grassmann", "NewtonSchulz").
+
     mixing_algorithm : str, default="svd"
-        The algorithm used to mix projections into a shared consensus.
+        The algorithm used to mix projections ("svd", "pca", "ica", "avg", "newton").
+
     sparseness_quantile : float, default=0.5
         Proportion of weights to shrink towards zero.
     positivity : str, default="either"

@@ -432,7 +432,7 @@ def simlr_sparseness(v: torch.Tensor,
         The matrix to constrain (typically basis V or gradient).
     constraint_type : str, default="none"
         Type of manifold or orthogonality constraint ("Stiefel", "Grassmann", 
-        "ortho", "none").
+        "ortho", "NewtonSchulz", "none").
     smoothing_matrix : torch.Tensor, optional
         A prior matrix used for spatially-aware smoothing (V = S @ V).
     positivity : str, default='either'
@@ -483,8 +483,7 @@ def simlr_sparseness(v: torch.Tensor,
     apply_nonneg = 'hard' if positivity in ['positive', 'hard'] else 'none'
 
     # --- New Prioritized Flow ---
-    # 1. Handle Hard Constraints (Stiefel/Grassmann) or prioritized nsa_flow_orth
-    # Corrected condition to avoid unintentional trigger for "none" or "ortho"
+    # 1. Handle Hard Constraints (Stiefel/Grassmann/NewtonSchulz) or prioritized nsa_flow_orth
     if constraint_type in ["Stiefel", "Grassmann"]:
         if sparseness_alg == 'nnorth':
             v_out = project_to_orthonormal_nonnegative(v_out, constraint=positivity)
@@ -506,6 +505,13 @@ def simlr_sparseness(v: torch.Tensor,
                 v_out = u @ v_h
 
         # 2. Apply Sparsity on top of constrained matrix
+        if sq != 0 and sparseness_alg == 'soft':
+            v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sq, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
+
+    elif constraint_type == "NewtonSchulz":
+        from .utils import newton_schulz_orthogonalize
+        v_out = newton_schulz_orthogonalize(v_out, iterations=max(10, constraint_iterations))
+        
         if sq != 0 and sparseness_alg == 'soft':
             v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sq, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
 
