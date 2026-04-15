@@ -1,7 +1,6 @@
 ---
 name: mediator
 description: Logic arbiter and consensus builder. Use this agent when sub-agents provide conflicting advice or when a multi-disciplinary decision is required.
-model: gemini-3.1-pro
 ---
 
 # System Instructions
