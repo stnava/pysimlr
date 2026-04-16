@@ -1,10 +1,12 @@
-# Discussion
+---
+title: "Discussion"
+---
 
 The integration of disparate, high-dimensional datasets remains a primary challenge in computational science. As experimental modalities grow more heterogeneous—mixing sparse sequence counts with dense imaging pixels—analytical tools must balance representational capacity with rigorous, mathematically guaranteed interpretability. In this work, we presented the definitive evolution of the **SiMLR** framework, expanding its simultaneous multi-view reconstruction philosophy into the deep learning regime via the **Non-negative Stiefel approximating flow** (NSA-Flow).
 
 Through extensive systematic benchmarking and clinical application, we have mapped the "Experimental Space" of deep multi-view alignment, identifying the robust configurations required for mechanistic discovery.
 
-## 1. The "Gold Standard" for Scientific Discovery
+## The "Gold Standard" for Scientific Discovery
 
 Our systematic evaluation identifies the [**LEND-Newton-ACC**]{style="color: #2ca02c; font-weight: bold;"} combination as the "Gold Standard" for scientific multi-modal integration. This configuration achieves a unique Pareto optimality:
 
@@ -12,24 +14,23 @@ Our systematic evaluation identifies the [**LEND-Newton-ACC**]{style="color: #2c
 *   **Generative Complexity (Decoder):** By utilizing deep nonlinear decoders, the model can "explain away" complex measurement artifacts (e.g., PCR saturation or sensor bias), shielding the interpretable encoder from noise.
 *   **Stability (Newton-Schulz):** The introduction of Newton-Schulz consensus provides a stable, SVD-free orthogonalizer that acts as a powerful global denoiser, ensuring consistent results even in high-noise clinical environments.
 
-## 2. Mechanical Interpretability: Beyond Post-hoc Approximations
+## Mechanical Interpretability: Beyond Post-hoc Approximations
 
-A central theme of this work is the rejection of post-hoc heuristics in favor of **Auditability by Design**. Traditional XAI methods like SHAP or LIME are fundamentally limited because they provide approximations of a model's behavior after the information has already been irreversibly entangled through nonlinear layers.
+A central theme of this work is the rejection of post-hoc heuristics in favor of **Auditability by Design**. Traditional XAI methods like SHAP or LIME are fundamentally limited because they provide approximations of a model's behavior after the information has already been irreversibly entangled through nonlinear layers. 
 
-In contrast, our **First-Layer Contract** ensures that interpretability is a structural property of the model. We do not ask a second model to *explain* our results; the results are interpretable by construction. Our evidence from Section 8 of the Experiments proves that this contract generalizes to unseen test data, providing a stable, mathematically faithful coordinate system for clinical decision support.
+In contrast, our **First-Layer Contract** ensures that interpretability is a structural property of the model. We provide a mathematical bridge between global and local interpretability, where the global feature importance and local patient audits are derived from the same exact linear operator. This eliminates the "explanation gap" often found in deep clinical models and provides an exact **Counterfactual Guide** for personalized intervention.
 
-## 3. The Interpretability-Performance Frontier
+## The Integrity of Discovery and Modality Starvation
 
-Our results clearly visualize the trade-offs inherent in multi-view learning:
-*   **NED (Fully Nonlinear):** Represents the "Performance Upper Bound" for latent recovery ($U$) in topologically complex regimes but functions as a black box.
-*   **LEND (Mixed):** Provides the optimal balance, matching NED's predictive power while preserving the mechanistic transparency of classical SiMLR.
-*   **SiMLR (Linear):** Remains the essential baseline for spectral purity and computational efficiency in Gaussian data regimes.
+We have introduced the concept of **Biomarker Discovery Integrity**, enabled by the Stiefel constraint. By forcing latent factors to be orthogonal, we ensure that each identified biomarker signature is unique and non-redundant. Furthermore, our **NEDPP** architecture extends this integrity to the multi-view case by explicitly partitioning shared and private variance. This prevents **Modality Starvation**, ensuring that high-SNR modalities do not silence critical signals in lower-SNR views. 
 
-## 4. Consensus as a Regularizer
+This stands in stark contrast to VAE-based multi-modal models, which often suffer from posterior collapse or "view-dominance" due to the amortized nature of the ELBO objective. SiMLR's hard structural constraints and the "Chorus of Observers" philosophy ensure that all views contribute democratically to the shared representation.
 
-We have demonstrated that the mechanism used to aggregate latent spaces is not merely an implementation detail; it acts as a powerful regularizer. The **Newton-Schulz** method proved to be remarkably stable across all noise regimes, substantially outperforming PCA-based consensus. This suggests that strict Stiefel adherence during the "Consensus Flow" is critical for preventing "Modality Starvation" and ensuring that all views contribute meaningfully to the shared representation.
+## Statistical Validation and Robustness
 
-## 5. Conclusion: A New Standard for Clinical AI
+The empirical superiority of the deep SiMLR architectures has been validated through rigorous statistical testing. Our N=10 benchmark suite provides the power necessary to establish significance ($p < 0.05$ after FDR control) across diverse data regimes. We caution, however, that the linear weights extracted during clinical audits represent highly significant **predictive associations** and should not be interpreted as direct causal mechanisms without further longitudinal validation.
+
+## Conclusion: A New Standard for Clinical AI
 
 The deep SiMLR framework provides a unified continuum for multimodal integration. By intelligently constraining deep neural networks with the First-Layer Contract and NSA-Flow, we have bridged the gap between the expressive power of deep learning and the rigorous interpretability of spectral factor analysis. 
 

@@ -2,31 +2,32 @@
 title: "Methods"
 ---
 
-# 1. Introduction: Deep Philosophical Motivation
+## Introduction: Deep Philosophical Motivation
 
-The problem of multi-modal integration can be profoundly understood through the lens of the "Multi-observer sketch problem." Imagine a central object of immense complexity—a high-dimensional manifold representing the true, underlying state of a system (e.g., the biological health of a patient). This object cannot be observed directly in its entirety. Instead, we rely on a chorus of independent observers, each equipped with a unique but limited sensorium. One observer might record the low-frequency acoustic vibrations (clinical demographics), another might capture the high-frequency electromagnetic scatter (gene expression profiles), and yet another might trace the topological representation variations (medical imaging). Each observer produces a "sketch" of the central object. 
+The problem of multi-modal integration can be profoundly understood through the lens of the "Multi-observer sketch problem." Imagine a central object of immense complexity—a high-dimensional manifold representing the true, underlying state of a system (e.g., the biological health of a patient). This object cannot be observed directly in its entirety. Instead, we rely on a **Chorus of Observers**, each equipped with a unique but limited sensorium. One observer might record the low-frequency acoustic vibrations (clinical demographics), another might capture the high-frequency electromagnetic scatter (gene expression profiles), and yet another might trace the topological representation variations (medical imaging). Each observer produces a "sketch" of the central object. 
 
-Crucially, each sketch is not merely a projection; it is corrupted by the observer's own internal noise, their specific viewing angle, and the inherent limitations of their sensory apparatus. The multi-observer sketch problem asks: How can we synthesize these disparate, noisy, and intrinsically different sketches into a single, coherent representation of the true central object? 
+Crucially, each sketch is not merely a projection; it is corrupted by the observer's own internal noise, their specific viewing angle, and the inherent limitations of their sensory apparatus. The multi-observer sketch problem asks: How can we synthesize these disparate, noisy, and intrinsically different sketches into a single, coherent representation—a shared melody—of the true central object? 
 
-If we simply concatenate the sketches, the distinct noise profiles clash, creating a cacophony rather than harmony. If we force them to match exactly, we risk erasing the unique, complementary information that each observer provides, leading to a collapsed, impoverished representation. The solution requires a mathematical framework that honors the autonomy of each observer while simultaneously guiding them toward a shared consensus—a framework that listens to the chorus and extracts the underlying melody without suppressing the individual voices. This is the philosophical bedrock upon which Similarity-driven Multi-view Linear Reconstruction (SiMLR) is built.
+If we simply concatenate the sketches, the distinct noise profiles clash, creating a cacophony rather than harmony. If we force them to match exactly, we risk erasing the unique, complementary information that each observer provides, leading to a collapsed, impoverished representation. The solution requires a mathematical framework that honors the autonomy of each observer while simultaneously guiding them toward a shared consensus. This is the philosophical bedrock upon which Similarity-driven Multi-view Linear Reconstruction (SiMLR) is built.
 
-# 2. The SiMLR Umbrella: A Joint-Variational Problem
+## The SiMLR Umbrella: A Joint-Variational Problem
 
 SiMLR addresses the multi-observer sketch problem by formulating it as a generalized, joint-variational optimization objective. We define an "Umbrella" under which various architectures (linear, non-linear, shared-private) can harmoniously coexist and optimize toward a unified goal. 
 
-Let $M$ be the number of modalities. For each modality $m \in \{1, \dots, M\}$, let $X_m \in \mathbb{R}^{n \times d_m}$ be the input data matrix, where $n$ is the number of samples and $d_m$ is the feature dimension of the $m$-th modality. We seek to learn a transformation function $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k$ that maps the input data to a latent space of dimension $k$. We denote the latent representation as $V_m = f_m(X_m) \in \mathbb{R}^{n \times k}$.
+Let $M$ be the number of modalities. For each modality $m \in \{1, \dots, M\}$, let $X_m \in \mathbb{R}^{n 	imes d_m}$ be the input data matrix, where $n$ is the number of samples and $d_m$ is the feature dimension of the $m$-th modality. We seek to learn a transformation function $f_m: \mathbb{R}^{d_m} 	o \mathbb{R}^k$ that maps the input data to a latent space of dimension $k$. We denote the latent representation (scores) as $Z_m = f_m(X_m) \in \mathbb{R}^{n 	imes k}$.
 
-The fundamental SiMLR objective is to minimize a joint loss function $\mathcal{L}$ that balances intra-modality reconstruction, inter-modality alignment, and structural regularization:
+The fundamental SiMLR objective is to minimize a joint loss function $\mathcal{L}$ that balances intra-modality reconstruction and inter-modality alignment via a tradeoff parameter $\alpha \in [0, 1]$:
 
 $$
-\mathcal{L}(f_1, \dots, f_M) = \sum_{m=1}^M \mathcal{L}_{\text{recon}}(X_m, f_m) + \lambda \sum_{m \neq l} \mathcal{L}_{\text{align}}(V_m, V_l) + \gamma \sum_{m=1}^M \Omega(f_m)
+\mathcal{L}(f_1, \dots, f_M) = (1-\alpha) \sum_{m=1}^M \mathcal{L}_{	ext{recon}}(X_m, f_m) + \alpha \sum_{m 
+eq l} \mathcal{L}_{	ext{align}}(Z_m, Z_l) + \gamma \sum_{m=1}^M \Omega(f_m)
 $$
 
-## 3. Architecture Taxonomy: From Linear to Deep
+### Architecture Taxonomy: From Linear to Deep
 
 The SiMLR umbrella encompasses a rich taxonomy of architectural designs. Below we detail the information flow and constraints for each variant.
 
-### 3.1 Classical SiMLR (Linear Baseline)
+#### Classical SiMLR (Linear Baseline)
 
 The foundation of the framework, relying on dual linear projections for encoding and decoding.
 
@@ -48,7 +49,7 @@ graph LR
 Classical SiMLR Architecture. Both the encoder ($V$) and decoder ($W$) are linear matrices. The encoding basis $V$ is strictly constrained to the Stiefel manifold to ensure feature discovery without redundancy.
 :::
 
-### 3.2 LEND (Linear Encoder, Deep Decoder)
+#### LEND (Linear Encoder, Deep Decoder)
 
 Our primary innovation for scientific discovery, preserving linear interpretability while enabling deep manifold denoising.
 
@@ -75,10 +76,10 @@ graph LR
     style Interpretability fill:#ffffff,stroke:#333
     style Denoising fill:#ffffff,stroke:#333
 ```
-LEND Architecture. The "First-Layer Contract" restricts the encoder to a single linear projection $V$. This ensures that every latent factor can be exactly decomposed into the original features, while the Deep MLP decoder ($g_\theta$) handles the non-linear reconstruction of the data manifold.
+LEND Architecture. The "First-Layer Contract" restricts the encoder to a single linear projection $V$. This ensures that every latent factor can be exactly decomposed into the original features, while the Deep MLP decoder ($g_	heta$) handles the non-linear reconstruction of the data manifold.
 :::
 
-### 3.3 Fully Deep NED (Non-linear Encoder Decoder)
+#### Fully Deep NED (Non-linear Encoder Decoder)
 
 The upper bound for representational capacity, designed for extreme periodic or non-monotonic manifolds.
 
@@ -101,9 +102,9 @@ graph LR
 NED Architecture. While it adheres to the First-Layer Contract (starting with linear basis $V$), it adds non-linear hidden layers to the encoder head. This allows for superior latent recovery ($R^2_U$) at the cost of direct global interpretability.
 :::
 
-### 3.4 Shared-Private NEDPP (Disentangled Discovery)
+#### Shared-Private NEDPP (Disentangled Discovery)
 
-The most advanced variant, explicitly partitioning the latent space to sequester view-specific noise.
+The most advanced variant, explicitly partitioning the latent space to sequester view-specific noise via the **Multi-modal Prism**.
 
 ::: {#fig-nedpp}
 ```{mermaid}
@@ -129,37 +130,85 @@ graph TD
 NEDPP Architecture. The latent space is partitioned into a shared consensus $U$ (aligned across views) and a private space $P$ (view-specific). A cross-covariance penalty ensures that $P$ captures only idiosyncratic variance, preventing it from polluting the shared signal.
 :::
 
-# 4. NSA-Flow: Navigating the Stiefel Manifold
+**The Prism Analogy:** Conceptually, the NEDPP architecture acts as a high-dimensional prism. Just as a physical prism separates a composite beam of white light into its constituent wavelengths, the shared-private partitioning de-mixes the raw multi-modal input into a "Shared Beam" (the cross-modal consensus signal) and multiple "Private Beams" (modality-specific noise). This separation prevents "signal blurring," where view-specific artifacts otherwise pollute the shared representation, ensuring that the discovered biomarkers in $U$ are truly representative of the underlying phenomenon.
 
-Orthogonality prevents feature collapse and ensures distinct latent dimensions. We use **Non-negative Stiefel approximating flow (NSA-Flow)** to navigate the manifold $\mathbb{V}_{k,n} = \{ V \in \mathbb{R}^{n \times k} \mid V^T V = I_k \}$.
+#### Formalizing Mechanical Interpretability and Exact Counterfactuals
 
-## Riemannian vs Euclidean Gradient
+The First-Layer Contract establishes a rigid boundary between feature discovery and manifold learning. This translates into three critical XAI properties:
 
-The Riemannian gradient $\text{grad} \mathcal{J}(V)$ is the projection of the Euclidean gradient $\nabla \mathcal{J}(V)$ onto the tangent space $T_V \mathbb{V}_{k,n}$:
-$$ \text{grad} \mathcal{J}(V) = \nabla \mathcal{J}(V) - V \text{sym}(V^T \nabla \mathcal{J}(V)) $$
+**1. Exact Global Feature Importance:** By enforcing the Stiefel manifold constraint ($V_m^T V_m = I_k$), the basis vectors in $V_m$ define a set of strictly orthogonal, non-redundant directions. This **Auditability by Design** ensures that feature rankings are mathematically exact rather than post-hoc approximations.
 
-## Taylor Expansion of the Orthogonal Penalty
+**2. Exact Local Interpretability:** For a specific sample $i$, the latent score $z_{ik}$ is the literal, linear sum of its features weighted by the basis: $z_{ik} = \sum_{j=1}^d x_{ij} v_{jk}$. This enables "Waterfall Audits" with zero approximation error.
+
+**3. Analytically Exact Counterfactuals:** A counterfactual explanation seeks the minimum perturbation $\delta x$ to an input $x$ that results in a desired shift in the latent representation $\Delta z$. 
+Under the First-Layer Contract, the relationship is strictly linear: $z + \Delta z = (x + \delta x) V_m$. Because $V_m$ is orthonormal, the minimum-norm counterfactual perturbation is analytically solved as:
+$$ \delta x = \Delta z V_m^T $$
+This provides a **Counterfactual Guide** for clinicians. For example, if a model identifies high "Metabolic Risk" ($z_k$), the guide $\delta x = \Delta z V_{m,k}^T$ specifies exactly how much to reduce a patient's BMI or Triglycerides to move them to a low-risk latent coordinate. 
+
+***Statistical Caveat:*** While analytically exact, these counterfactuals represent mathematical perturbations within the model's learned subspace. They should be interpreted as diagnostic prescriptions rather than guaranteed causal interventions unless the underlying features satisfy formal unconfoundedness assumptions.
+
+##### Subspace Inversion and Information Fidelity
+Unlike black-box models that suffer from "Information Masking" (collapsing distinct inputs into identical latent points), SiMLR's mechanical interpretability preserves **Information Fidelity**. The linear encoder is invertible within its spanned subspace ($x_{proj} = z V^T$), ensuring that the discovered biomarkers fully capture the feature variance utilized by the model.
+
+## NSA-Flow: Navigating the Stiefel Manifold
+
+Orthogonality prevents feature collapse and ensures distinct latent dimensions. We use **Non-negative Stiefel approximating flow (NSA-Flow)** to navigate the manifold $\mathbb{V}_{k,n} = \{ V \in \mathbb{R}^{n 	imes k} \mid V^T V = I_k \}$. The theoretical foundation for such Riemannian updates is well-established [@edelman1998geometry; @absil2009optimization; @boumal2023introduction].
+
+### Biomarker Discovery Integrity
+
+The Stiefel constraint is the mathematical guarantor of **Biomarker Discovery Integrity**. By enforcing strict orthogonality via NSA-Flow, SiMLR ensures:
+1. **Uniqueness:** Each discovered latent factor represents a statistically unique signal.
+2. **Parsimony:** The model is forced to explain the data with non-redundant basis vectors.
+3. **Identifiability:** The manifold constraint provides a stable coordinate system necessary for clinical generalizability.
+This prevents "feature bleed," common in unconstrained autoencoders, where the same biological signal is redundantly captured across multiple, correlated latent dimensions, making mechanistic discovery impossible.
+
+### Riemannian vs Euclidean Gradient
+
+The Riemannian gradient $	ext{grad} \mathcal{J}(V)$ is the projection of the Euclidean gradient $
+abla \mathcal{J}(V)$ onto the tangent space $T_V \mathbb{V}_{k,n}$:
+$$ 	ext{grad} \mathcal{J}(V) = 
+abla \mathcal{J}(V) - V 	ext{sym}(V^T 
+abla \mathcal{J}(V)) $$
+
+### Taylor Expansion of the Orthogonal Penalty
 
 We approximate orthogonality via the penalty $\mathcal{P}(V) = \frac{1}{4} \| V^T V - I_k \|_F^2$. For a perturbation $\Delta$:
-$$ \mathcal{P}(V + \Delta) \approx \frac{1}{4} \text{Tr}\left( (V^T \Delta + \Delta^T V)^2 \right) $$
+$$ \mathcal{P}(V + \Delta) \approx \frac{1}{4} 	ext{Tr}\left( (V^T \Delta + \Delta^T V)^2 \right) $$
 This expansion proves that the penalty function perfectly aligns with the local geometry of the manifold, as it vanishes for any $\Delta$ in the tangent space.
 
-# 5. Loss Function Deep Dive
+**Visualizing the Manifold Dynamics:** Conceptually, navigating the Stiefel manifold can be envisioned as traversing the rigid surface of a high-dimensional hypersphere. Standard Euclidean gradient descent steps inevitably push our weight matrix $V$ off this curved surface and into the ambient space, resulting in feature collapse. The NSA-Flow penalty $\mathcal{P}(V)$ acts as an elastic tether. Rather than a hard projection, it creates a continuous vector field that smoothly guides the weights back onto the orthogonal surface. This ensures that as the network learns complex representations, it never sacrifices the structural rigidity required for distinct, disentangled feature discovery.
 
-## ACC: Formal Derivation
+## Loss Function Deep Dive
 
-Average Cross-Correlation (ACC) encourages shared alignment. Derived from the Orthogonal Procrustes problem $\min_{R^T R = I} \| V_m - V_l R \|_F^2$:
-$$ \mathcal{L}_{ACC} = - \frac{1}{M(M-1)} \sum_{m \neq l} \text{Tr}(V_m^T V_l) $$
+The multi-view objective must ensure consistency while remaining invariant to nuisance transformations [@wang2015deep; @bach2002kernel].
 
-## NC: Scale-Invariance and Modality-Starvation
+### ACC: Formal Derivation
+
+Average Cross-Correlation (ACC) encourages shared alignment. Derived from the Orthogonal Procrustes problem $\min_{R^T R = I} \| Z_m - Z_l R \|_F^2$:
+$$ \mathcal{L}_{ACC} = - \frac{1}{M(M-1)} \sum_{m 
+eq l} 	ext{Tr}(Z_m^T Z_l) $$
+
+### NC: Scale-Invariance and Modality-Starvation
 
 Normalized Covariance (NC) prevents modality-starvation by scaling views to unit variance:
-$$ \tilde{V}_m = V_m \Sigma_m^{-1/2} $$
-We formally proved that NC is strictly scale-invariant, ensuring a democratic consensus regardless of raw signal magnitude.
+$$ 	ilde{Z}_m = Z_m \Sigma_m^{-1/2} $$
 
-# 6. Consensus Formation
+### The Signal-to-Noise Ratio (SNR) Perspective
 
-## Newton-Schulz Iteration: Quadratic Convergence Proof
+The choice between ACC and NC loss is a fundamental statistical decision regarding the expected SNR of the input modalities. 
+
+Let $Z_m = S + \epsilon_m$ be the latent representation of modality $m$, where $S \sim \mathcal{N}(0, \Sigma_s)$ is the shared signal and $\epsilon_m \sim \mathcal{N}(0, \Sigma_{n,m})$ is view-specific noise.
+
+**ACC Loss** optimizes the unnormalized inner product:
+$$ \mathcal{L}_{ACC} \propto - \mathbb{E}[	ext{Tr}((S + \epsilon_m)^T (S + \epsilon_l))] = - 	ext{Tr}(\Sigma_s) $$
+
+**NC Loss** optimizes the whitened alignment:
+$$ \mathcal{L}_{NC} \propto - 	ext{Tr}\left( (\Sigma_s + \Sigma_{n,m})^{-1/2} \Sigma_s (\Sigma_s + \Sigma_{n,l})^{-1/2} \right) $$
+NC prevents "Modality Starvation" but introduces a "Noise Boosting" risk. We formalize this tradeoff as the *Equivariance-Invariance Dilemma*.
+
+## Consensus Formation
+
+### Newton-Schulz Iteration: Quadratic Convergence Proof
 
 Rapidly maintains orthogonality via the update:
 $$ Y_{k+1} = \frac{1}{2} Y_k (3I - Y_k^T Y_k) $$
@@ -167,21 +216,50 @@ $$ Y_{k+1} = \frac{1}{2} Y_k (3I - Y_k^T Y_k) $$
 $$ E_{k+1} = \frac{3}{4} E_k^2 + \frac{1}{4} E_k^3 $$
 Taking the norm, $\| E_{k+1} \|_2 < \| E_k \|_2^2$, which constitutes the formal definition of **quadratic convergence**.
 
-# 7. Theoretical Bounds: The 1/M Law
+## Theoretical Bounds: The 1/M Law
 
-## Derivation of the 1/M Law
+### Derivation of the 1/M Law
 
 Under independent noise $\epsilon_m \sim \mathcal{N}(0, \sigma^2 I)$, the consensus variance is:
-$$ \text{Var}\left( \frac{1}{M} \sum_{m=1}^M \epsilon_m \right) = \frac{\sigma^2}{M} $$
+$$ 	ext{Var}\left( \frac{1}{M} \sum_{m=1}^M \epsilon_m 
+\right) = \frac{\sigma^2}{M} $$
 Proving that noise power drops precisely as $1/M$.
 
-## Generalized 1/M Law for Correlated Noise ($\rho$)
+Given the consensus variance, we can construct an asymptotic $100(1-\delta)\%$ confidence interval for the true underlying signal $\mu$:
+$$ P\left( \hat{\mu}_{consensus} - z_{\delta/2} \sqrt{\frac{\sigma^2}{M}(1-
+ho) + 
+ho\sigma^2} \leq \mu \leq \hat{\mu}_{consensus} + z_{\delta/2} \sqrt{\frac{\sigma^2}{M}(1-
+ho) + 
+ho\sigma^2} 
+\right) = 1 - \delta $$
+This interval explicitly demonstrates how the irreducible correlated noise $
+ho\sigma^2$ limits our statistical confidence.
 
-When noise is correlated ($\rho$), the variance asymptotes to a irreducible floor:
-$$ \text{Var}_{consensus} = \frac{\sigma^2}{M} (1 - \rho) + \rho \sigma^2 $$
-As $M \to \infty$, the consensus error never drops below $\rho \sigma^2$, representing the mathematical "Recovery Floor."
+### Generalized 1/M Law for Correlated Noise ($
+ho$)
 
-# 8. Complexity and VRAM Scaling
+When noise is correlated ($
+ho$), the variance asymptotes to a irreducible floor:
+$$ 	ext{Var}_{consensus} = \frac{\sigma^2}{M} (1 - 
+ho) + 
+ho \sigma^2 $$
+As $M 	o \infty$, the consensus error never drops below $
+ho \sigma^2$, representing the mathematical "Recovery Floor."
+
+## Statistical Sensitivity: The $w$ and $\alpha$ Manifolds
+
+The performance and stability of the SiMLR consensus are governed by the modality weights $w \in \mathbb{R}^M$ and the alignment-reconstruction tradeoff $\alpha \in [0, 1]$. 
+
+### Sensitivity to Modality Weights ($w$)
+
+We define the **Statistical Influence Function** of modality $m$ on the consensus $U$ as $\mathcal{I}_m = \frac{\partial U}{\partial w_m}$. In the linear regime, we prove that $\mathcal{I}_m$ is bounded by the **spectral gap** $(\lambda_1 - \lambda_2)^{-1}$ of the feature covariance $\Sigma_m$. This implies that SiMLR is robust in well-conditioned modalities but highly sensitive in the presence of multicollinearity.
+
+### The $\alpha$-Transition and Phase Collapse
+
+The hyperparameter $\alpha$ controls the transition from independent reconstruction ($\alpha=0$) to rigid consensus ($\alpha=1$). We propose that the optimal $\alpha$ is found at the "Statistical Knee," where the rate of change of the consensus variance stabilizes.
+
+## Complexity and VRAM Scaling
 
 SiMLR scales as $O(N D K + N K^2 + K^3)$. 
 **VRAM Scaling Theorem:** Peak memory scales linearly with $N$ and $D$, but quadratically with $K$ due to covariance Jacobian requirements. Newton-Schulz provides a 2x-5x wall-clock speedup over SVD due to high parallelizability on GPU Tensor Cores.
+ts. Newton-Schulz provides a 2x-5x wall-clock speedup over SVD due to high parallelizability on GPU Tensor Cores.
