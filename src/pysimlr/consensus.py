@@ -1,11 +1,14 @@
 import torch
 import numpy as np
+import warnings
 from typing import List, Optional, Union, Dict, Any, Tuple
-from .utils import newton_schulz_orthogonalize
+from .utils import newton_schulz_orthogonalize, safe_svd
 try:
     from sklearn.decomposition import FastICA
+    from sklearn.exceptions import ConvergenceWarning
 except ImportError:
     FastICA = None
+    ConvergenceWarning = None
 
 def compute_shared_consensus(projections: List[torch.Tensor], 
                             mixing_algorithm: str = "svd", 
@@ -92,9 +95,13 @@ def compute_shared_consensus(projections: List[torch.Tensor],
             raise ImportError("scikit-learn is required for mixing_algorithm='ica'")
         avg_p = torch.cat(norm_projs, dim=1).detach().cpu().numpy()
         avg_p = np.nan_to_num(avg_p, nan=0.0, posinf=0.0, neginf=0.0)
-        ica = FastICA(n_components=k, random_state=42, max_iter=1000)
+        # Increase max_iter and tolerance to address convergence warnings
+        ica = FastICA(n_components=k, random_state=42, max_iter=2000, tol=1e-2)
         try:
-            u_np = ica.fit_transform(avg_p)
+            with warnings.catch_warnings():
+                if ConvergenceWarning is not None:
+                    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                u_np = ica.fit_transform(avg_p)
         except:
             u_np = avg_p[:, :k]
         u = torch.from_numpy(u_np).to(projections[0].device).to(projections[0].dtype)
@@ -102,10 +109,10 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         big_p = torch.cat(norm_projs, dim=1)
         if mixing_algorithm == "pca":
             big_p_centered = big_p - torch.mean(big_p, dim=0)
-            u, _, _ = torch.linalg.svd(big_p_centered, full_matrices=False)
+            u, _, _ = safe_svd(big_p_centered, full_matrices=False)
             u = u[:, :k]
         else: # Default to svd
-            u, _, _ = torch.linalg.svd(big_p, full_matrices=False)
+            u, _, _ = safe_svd(big_p, full_matrices=False)
             u = u[:, :k]
             
     if orthogonalize and mixing_algorithm != "newton":

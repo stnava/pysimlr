@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional, Union, Tuple, Callable
 import math
 from .simlr import ba_svd
 from .consensus import compute_shared_consensus
-from .utils import preprocess_data, invariant_orthogonality_defect
+from .utils import preprocess_data, invariant_orthogonality_defect, safe_svd
 from .interpretability import build_first_layer_contract, build_interpretability_report
 
 try:
@@ -19,7 +19,7 @@ except ImportError:
 def _svd_project_columns(u: torch.Tensor) -> torch.Tensor:
     """Project towards the Stiefel manifold using SVD."""
     try:
-        u_svd, _, vh_svd = torch.linalg.svd(u, full_matrices=False)
+        u_svd, _, vh_svd = safe_svd(u, full_matrices=False)
         return u_svd @ vh_svd
     except:
         # Fallback to column normalization
@@ -38,7 +38,7 @@ def _variance_penalty(z: torch.Tensor, gamma: float = 1.0, eps: float = 1e-4) ->
     """VICReg style variance penalty. gamma is the target standard deviation."""
     if z.shape[0] < 2: return torch.tensor(0.0, device=z.device)
     std = torch.sqrt(z.var(dim=0, unbiased=False) + eps)
-    return torch.mean(torch.nn.functional.relu(gamma - std))
+    return torch.nn.functional.relu(gamma - std).mean()
 
 def _covariance_penalty(z: torch.Tensor) -> torch.Tensor:
     """VICReg style covariance penalty to prevent dimensional collapse."""
@@ -781,7 +781,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
         Decoder hidden dimensions.
     dropout : float, default=0.1
         Dropout probability.
-    sparseness_quantile : Union[float, List[float]], default=0.0
+    sparseness_quantile : Union[float, List[float]] = 0.0
         Sparseness quantile.
     positivity : str, default="either"
         Positivity constraint.
@@ -867,7 +867,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
         Decoder hidden dimensions.
     dropout : float, default=0.1
         Dropout probability.
-    sparseness_quantile : Union[float, List[float]], default=0.0
+    sparseness_quantile : Union[float, List[float]] = 0.0
         Sparseness quantile.
     positivity : str, default="either"
         Positivity constraint.
@@ -951,7 +951,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         Weight for similarity loss.
     warmup_epochs : int, default=20
         Warmup epochs before sim loss.
-    sparseness_quantile : Union[float, List[float]], default=0.0
+    sparseness_quantile : Union[float, List[float]] = 0.0
         Sparseness quantile.
     positivity : str, default="either"
         Positivity constraint.

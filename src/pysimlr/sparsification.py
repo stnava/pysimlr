@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from typing import Optional, List, Union, Dict, Any
+from .utils import safe_svd
 
 try:
     import nsa
@@ -268,10 +269,10 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
                 if res['Y'] is not None:
                     v_out = res['Y'].to(orig_dtype)
                 else:
-                    u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+                    u, s, v_h = safe_svd(v_out, full_matrices=False)
                     v_out = u @ v_h
             else:
-                u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+                u, s, v_h = safe_svd(v_out, full_matrices=False)
                 v_out = u @ v_h
         except: pass
         
@@ -348,7 +349,7 @@ def project_to_orthonormal_nonnegative(x: torch.Tensor,
     for _ in range(max_iter):
         v_prev = v_out.clone()
         # Orthogonality projection
-        u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+        u, s, v_h = safe_svd(v_out, full_matrices=False)
         v_out = u @ v_h
         # Positivity projection
         if constraint == 'positive':
@@ -399,7 +400,7 @@ def project_to_partially_orthonormal_nonnegative(x: torch.Tensor,
         
     v_out = x.clone()
     for _ in range(max_iter):
-        u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+        u, s, v_h = safe_svd(v_out, full_matrices=False)
         v_ortho = u @ v_h
         v_out = (1 - ortho_strength) * v_out + ortho_strength * v_ortho
         
@@ -496,12 +497,12 @@ def simlr_sparseness(v: torch.Tensor,
                     v_out = res['Y'].to(orig_dtype)
             except:
                 if not torch.isnan(v_out).any():
-                    u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+                    u, s, v_h = safe_svd(v_out, full_matrices=False)
                     v_out = u @ v_h
         else:
             # Fallback to SVD if nsa_flow not available
             if not torch.isnan(v_out).any():
-                u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+                u, s, v_h = safe_svd(v_out, full_matrices=False)
                 v_out = u @ v_h
 
         # 2. Apply Sparsity on top of constrained matrix
@@ -524,7 +525,7 @@ def simlr_sparseness(v: torch.Tensor,
                     v_out = res['Y'].to(orig_dtype)
             except:
                 if not torch.isnan(v_out).any():
-                    u, s, v_h = torch.linalg.svd(v_out, full_matrices=False)
+                    u, s, v_h = safe_svd(v_out, full_matrices=False)
                     v_ortho = u @ v_h
                     v_out = (1 - constraint_weight) * v_out + constraint_weight * v_ortho
         elif constraint_weight > 0:

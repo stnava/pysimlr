@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from typing import Optional, Union, Dict, Any, Tuple, List
+from .utils import safe_svd
 
 def ba_svd(x: torch.Tensor, 
            nu: Optional[int] = None, 
@@ -53,7 +54,7 @@ def ba_svd(x: torch.Tensor,
     if nv is None: nv = min(n, p)
     
     try:
-        u, s, vh = torch.linalg.svd(x, full_matrices=False)
+        u, s, vh = safe_svd(x, full_matrices=False)
         u = u[:, :nu] if nu > 0 else u[:, :0]
         s = s[:min(nu, nv)] if min(nu, nv) > 0 else s[:0]
         v = vh.t()[:, :nv] if nv > 0 else vh.t()[:, :0]
@@ -215,12 +216,12 @@ def multiscale_svd(x: torch.Tensor,
             dist = torch.cdist(x[locn_indices], x)
             _, indices = torch.topk(dist, k=min(knn, n), largest=False)
             subset = x[indices.view(-1)].view(len(locn_indices), min(knn, n), -1)
-            _, s, _ = torch.linalg.svd(subset[0], full_matrices=False)
+            _, s, _ = safe_svd(subset[0], full_matrices=False)
             m_response[scl_idx, :] = s[:nev]
         else:
             subset = x[locn_indices]
             subset_c = (subset - torch.mean(subset, dim=0)) / my_r
-            _, s, _ = torch.linalg.svd(subset_c, full_matrices=False)
+            _, s, _ = safe_svd(subset_c, full_matrices=False)
             actual_nev = min(nev, len(s))
             m_response[scl_idx, :actual_nev] = s[:actual_nev]
             

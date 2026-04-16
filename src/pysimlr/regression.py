@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from typing import Optional, Union, Dict, Any, Tuple, List
+from .utils import safe_svd
 
 def smooth_matrix_prediction(x: Union[torch.Tensor, np.ndarray],
                             y: Union[torch.Tensor, np.ndarray],
@@ -41,7 +42,7 @@ def smooth_matrix_prediction(x: Union[torch.Tensor, np.ndarray],
     y = torch.as_tensor(y).float()
     
     # 1. Compute SVD of X
-    u, s, vh = torch.linalg.svd(x, full_matrices=False)
+    u, s, vh = safe_svd(x, full_matrices=False)
     
     # 2. Rank truncation
     if nv is not None:
@@ -100,7 +101,7 @@ def smooth_regression(x: Union[torch.Tensor, np.ndarray],
     y = torch.as_tensor(y).float()
     
     # Simple SVD-based implementation
-    u, s, vh = torch.linalg.svd(x, full_matrices=False)
+    u, s, vh = safe_svd(x, full_matrices=False)
     
     if nv is not None:
         u = u[:, :nv]
