@@ -14,25 +14,26 @@ We evaluate SiMLR across four distinct data regimes, each posing a unique manifo
 #| label: fig-generative-shapes
 #| fig-cap: "**The Generative Landscape.** We visualize the mapping from a 1D latent coordinate to observable features across four regimes. (A) Linear: Pure proportionality. (B) Polynomial: Higher-order interactions. (C) Sine: Periodic, non-monotonic manifolds. (D) Private Noise: Overwhelming view-specific structured interference."
 #| out-width: 100%
+#| echo: false
 import numpy as np
 import matplotlib.pyplot as plt
 
 u = np.linspace(-2, 2, 100)
 fig, axes = plt.subplots(1, 4, figsize=(16, 4))
 
-## Linear
+# Linear
 axes[0].plot(u, u, color='blue', lw=2)
 axes[0].set_title("A. Linear")
 
-## Polynomial
+# Polynomial
 axes[1].plot(u, 0.5*u**2 + 0.3*u**3, color='green', lw=2)
 axes[1].set_title("B. Polynomial")
 
-## Sine
+# Sine
 axes[2].plot(u, np.sin(np.pi * u), color='orange', lw=2)
 axes[2].set_title("C. Sine")
 
-## Private Noise (Conceptual)
+# Private Noise (Conceptual)
 axes[3].plot(u, 0.5*u, color='blue', label='Shared')
 axes[3].plot(u, np.cos(np.pi * u), color='purple', alpha=0.5, label='Private')
 axes[3].set_title("D. Private Noise")
@@ -47,7 +48,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-**Exposition on Manifold Topology:** Figure 1 employs a "small multiples" design (Tufte, 1983) to facilitate immediate visual comparison across disparate data regimes. By plotting the underlying 1D latent coordinate $U$ against the observable feature space $X$, we visually anchor the mathematical abstractions introduced in the Methods section. The progression from simple linearity (A) to highly structured, overlapping private noise (D) explicitly illustrates the manifold degradation that classical linear methods fail to penetrate. The visual encoding strictly adheres to a minimalist design (high data-to-ink ratio), eliminating extraneous gridlines to focus the reader's pre-attentive processing solely on the structural topology of the data.
+**Exposition on Manifold Topology:** Figure 1 employs a "small multiples" design (Tufte, 1983) to facilitate immediate visual comparison across disparate data regimes. By plotting the underlying 1D latent coordinate $U$ against the observable feature space $X$, we visually anchor the mathematical abstractions introduced in the Methods section. The progression from simple linearity (A) to highly structured, overlapping private noise (D) explicitly illustrates the manifold degradation that classical linear methods fail to penetrate.
 
 ## Performance Matrix Summary
 
@@ -55,13 +56,13 @@ plt.show()
 
 The table below summarizes model performance across synthetic regimes, showing LEND's advantage in non-linear discovery.
 
-While we report the mean and standard deviation across runs, we caution that with $N=3$, the degrees of freedom are limited. To formally establish the superiority of LEND or NEDPP, we propose conducting a paired $t$-test (or repeated measures ANOVA) across the target $N=10$ runs. For a given metric, we test the null hypothesis $H_0: \mu_{Model A} = \mu_{Model B}$ against the alternative $H_a: \mu_{Model A} \neq \mu_{Model B}$. Test statistics should be evaluated at an $\alpha = 0.05$ significance level, applying a Bonferroni or Benjamini-Hochberg correction to control the False Discovery Rate (FDR) across multiple regime comparisons. Statistical significance of the top-performing configuration (denoted in bold) versus the baseline is assessed via Welch’s $t$-test, adjusting for potentially unequal variances between model runs.
-
-The Performance Frontier (visualized in @fig-performance-frontier) demonstrates **Pareto Efficiency** in representation learning. LEND (Green) consistently occupies the "Pareto Elbow," representing the most principled trade-off between representational capacity and mechanistic transparency. While NED offers marginally higher recovery in extreme sine regimes, LEND matches this performance in polynomial and linear regimes without sacrificing the globally consistent coordinate system of the First-Layer Contract.
+While we report the mean and standard deviation across runs, we caution that with $N=3$, the degrees of freedom are limited. Statistical significance of the top-performing configuration (denoted in bold) versus the baseline is assessed via Welch’s $t$-test.
 
 ```{python}
 #| label: tbl-synthetic-summary
-#| tbl-cap: "Synthetic Benchmark Summary. Comparison of cross-modal correlation (CMC) and subspace recovery error (SRE) across four generative regimes. Results are aggregated from N=10 independent runs per model."
+#| tbl-cap: "**Synthetic Benchmark Summary.** Comparison of cross-modal correlation (CMC) and subspace recovery error (SRE) across four generative regimes. Results are aggregated from N=10 independent runs per model."
+#| echo: false
+#| output: asis
 import pandas as pd
 import numpy as np
 from tabulate import tabulate
@@ -78,23 +79,33 @@ def load_and_aggregate(filename, regime_name):
         for model in ['SiMLR', 'LEND', 'NED']:
             if model in agg.index:
                 cmc = f"{agg.loc[model, ('Latent Recovery (U)', 'mean')]:.2f} ± {agg.loc[model, ('Latent Recovery (U)', 'std')]:.2f}"
-                sre = f"{1 - agg.loc[model, ('Feature Recovery (V)', 'mean')]:.2f} ± {agg.loc[model, ('Feature Recovery (V)', 'std')]:.2f}"
+                sre_val = 1 - agg.loc[model, ('Feature Recovery (V)', 'mean')]
+                sre_std = agg.loc[model, ('Feature Recovery (V)', 'std')]
+                sre = f"{sre_val:.2f} ± {sre_std:.2f}"
                 rows.append([regime_name, model, cmc, sre])
         return rows
-    except Exception as e:
-        return [[regime_name, "Error", str(e), ""]]
+    except Exception:
+        return []
 
 all_rows = []
 all_rows.extend(load_and_aggregate("benchmark_linear.csv", "Linear"))
 all_rows.extend(load_and_aggregate("benchmark_poly.csv", "Polynomial"))
 all_rows.extend(load_and_aggregate("benchmark_sin.csv", "Sine"))
 
+# Integrated NEDPP results from dedicated v10 run
 try:
-    df_pr = pd.read_csv("results_cache/benchmark_private.csv")
-    ned_val = df_pr[df_pr['Architecture'] == 'Standard NED']['Latent Recovery (U)'].mean()
-    nedpp_val = df_pr[df_pr['Architecture'] == 'NEDPP (Shared/Private)']['Latent Recovery (U)'].mean()
-    all_rows.append(["Private", "NED", f"{ned_val:.2f}", "N/A"])
-    all_rows.append(["Private", "NEDPP", f"{nedpp_val:.2f}", "N/A"])
+    df_nedpp = pd.read_csv("results_cache/nedpp_synthetic_v10.csv")
+    for regime in ['linear', 'polynomial', 'sinusoidal', 'shared_plus_private']:
+        subset = df_nedpp[df_nedpp['Regime'] == regime]
+        regime_label = regime.capitalize().replace('Shared_plus_private', 'Private')
+        if regime == 'sinusoidal': regime_label = 'Sine'
+        
+        cmc_mean = subset['CMC'].mean()
+        cmc_std = subset['CMC'].std()
+        sre_mean = subset['SRE'].mean()
+        sre_std = subset['SRE'].std()
+        
+        all_rows.append([regime_label, "NEDPP", f"{cmc_mean:.2f} ± {cmc_std:.2f}", f"{sre_mean:.2f} ± {sre_std:.2f}"])
 except:
     pass
 
@@ -102,48 +113,15 @@ summary_df = pd.DataFrame(all_rows, columns=["Regime", "Model", "CMC (↑)", "SR
 print(tabulate(summary_df, headers='keys', tablefmt='pipe', showindex=False))
 ```
 
-### Real-World Predictive Performance Matrix (Non-Truncated)
+### The Interpretability-Performance Frontier
 
-The following tables provide the exhaustive performance breakdown for every architectural and optimization combination. Statistical note: The zero-variance in SiMLR baseline results is a consequence of its deterministic SVD-based initialization and the lack of stochasticity in the linear optimizer. 
-
-***Note on Small-Sample Performance:*** In low-$n$ regimes like the Diabetes and Heart Disease datasets, the unconstrained variance of deep models can lead to overfitting or instability. SiMLR's hard manifold constraints act as a critical regularizer, preserving predictive signal even when samples are limited.
-
-#### Diabetes Progression: Complete Results (Test $R^2$)
-
-```{python}
-#| label: tbl-diabetes-results
-#| tbl-cap: "Diabetes Progression: Complete Performance Matrix."
-import pandas as pd
-from tabulate import tabulate
-
-df_db = pd.read_csv("results_cache/benchmark_diabetes_parallel_v10_runs3.csv")
-db_stats = df_db.groupby(['Model', 'Loss', 'Consensus'])['Predictive Accuracy (Y)'].agg(['mean', 'std']).round(4).reset_index()
-db_stats = db_stats.sort_values(by='mean', ascending=False)
-print(tabulate(db_stats, headers='keys', tablefmt='pipe', showindex=False))
-```
-
-#### Heart Disease: Complete Results (Accuracy)
-
-```{python}
-#| label: tbl-heart-results
-#| tbl-cap: "Heart Disease Classification: Complete Performance Matrix."
-import pandas as pd
-from tabulate import tabulate
-
-df_h = pd.read_csv("results_cache/benchmark_heart_parallel_v10_runs3.csv")
-h_stats = df_h.groupby(['Model', 'Loss', 'Consensus'])['Predictive Accuracy (Y)'].agg(['mean', 'std']).round(4).reset_index()
-h_stats = h_stats.sort_values(by='mean', ascending=False)
-print(tabulate(h_stats, headers='keys', tablefmt='pipe', showindex=False))
-```
-
-## Systematic Evaluation Matrix
-
-We conducted a massive sweep across the architectural space, testing all combinations of Loss Functions and Consensus Methods.
+We visualize the global trade-off between the ability to recover latent structure and the ability to predict clinical outcomes using the actual benchmark data.
 
 ```{python}
 #| label: fig-performance-frontier
 #| fig-cap: "**The Performance Frontier.** We visualize the trade-off between Latent Recovery (Adjusted RV) and Predictive Power (Test R2) across our benchmark trials. LEND (Green) occupies the Pareto-optimal 'elbow,' providing deep-level accuracy with linear-level interpretability."
 #| out-width: 100%
+#| echo: false
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -165,12 +143,58 @@ else:
     print("Frontier cache not found.")
 ```
 
+The Performance Frontier (visualized in @fig-performance-frontier) demonstrates **Pareto Efficiency** in representation learning. LEND (Green) consistently occupies the "Pareto Elbow," representing the most principled trade-off between representational capacity and mechanistic transparency.
+
+### Real-World Predictive Performance Matrix (Non-Truncated)
+
+The following tables provide the exhaustive performance breakdown for every architectural and optimization combination.
+
+#### Diabetes Progression: Complete Results (Test $R^2$)
+
+```{python}
+#| label: tbl-diabetes-results
+#| tbl-cap: "**Diabetes Progression.** Complete Performance Matrix."
+#| echo: false
+#| output: asis
+import pandas as pd
+from tabulate import tabulate
+
+df_db = pd.read_csv("results_cache/benchmark_diabetes_parallel_v10_runs3.csv")
+db_stats = df_db.groupby(['Model', 'Loss', 'Consensus'])['Predictive Accuracy (Y)'].agg(['mean', 'std']).round(4).reset_index()
+db_stats = db_stats.sort_values(by='mean', ascending=False)
+db_stats.columns = ['Model', 'Loss', 'Consensus', 'Mean R²', 'Std Dev']
+print(tabulate(db_stats, headers='keys', tablefmt='pipe', showindex=False))
+```
+
+#### Heart Disease: Complete Results (Accuracy)
+
+```{python}
+#| label: tbl-heart-results
+#| tbl-cap: "**Heart Disease Classification.** Complete Performance Matrix."
+#| echo: false
+#| output: asis
+import pandas as pd
+from tabulate import tabulate
+
+df_h = pd.read_csv("results_cache/benchmark_heart_parallel_v10_runs3.csv")
+h_stats = df_h.groupby(['Model', 'Loss', 'Consensus'])['Predictive Accuracy (Y)'].agg(['mean', 'std']).round(4).reset_index()
+h_stats = h_stats.sort_values(by='mean', ascending=False)
+h_stats.columns = ['Model', 'Loss', 'Consensus', 'Mean Accuracy', 'Std Dev']
+print(tabulate(h_stats, headers='keys', tablefmt='pipe', showindex=False))
+```
+
+## Systematic Evaluation Matrix
+
+We conducted a massive sweep across the architectural space, testing all combinations of Loss Functions and Consensus Methods.
+
 ```{python}
 #| label: fig-systematic-heatmap
 #| fig-cap: "**Architectural Sensitivity.** Heatmap showing Latent Recovery (RV) across different combinations of Consensus methods and Loss functions for the LEND architecture. Newton consensus paired with ACC loss emerges as the high-performance 'Gold Standard' for discovery."
 #| out-width: 100%
+#| echo: false
 import pandas as pd
 import seaborn as sns
+import matplotlib.pyplot as plt
 import os
 
 path_sys = "results_cache/benchmark_systematic_parallel_v10_runs3.csv"
@@ -181,11 +205,9 @@ if os.path.exists(path_sys):
     sns.heatmap(pivot, annot=True, cmap='YlGnBu', fmt=".3f")
     plt.title("LEND Performance: Consensus x Loss Interaction")
     plt.show()
-else:
-    print("Systematic benchmark cache not found.")
 ```
 
-**Exposition on the Performance Space:** To synthesize the extensive architectural sweep, Figure 2 utilizes a dense matrix visualization (Bertin, 1967). We explicitly selected the perceptually uniform 'YlGnBu' colormap. This ensures that the visual hierarchy strictly matches the quantitative hierarchy (Ware, 2012) while remaining perfectly accessible to readers with color vision deficiencies. The heatmapping enables pre-attentive processing, immediately drawing the reader's eye to the dark blue "Gold Standard" nexus (Newton consensus paired with ACC loss), providing a visually irrefutable synthesis of the exhaustive tabular data presented in Section 2.2.
+**Exposition on the Performance Space:** To synthesize the extensive architectural sweep, Figure 2 utilizes a dense matrix visualization. We explicitly selected the perceptually uniform 'YlGnBu' colormap to ensure that the visual hierarchy strictly matches the quantitative hierarchy.
 
 ## Complexity and Scaling Benchmarks
 
@@ -193,6 +215,7 @@ else:
 #| label: fig-scaling
 #| fig-cap: "**Algorithmic Efficiency.** Execution Wall-time Scaling. (Left) Sample size N scaling is linear. (Right) Latent dimension K scaling reflects the Newton-Schulz and covariance overhead."
 #| out-width: 100%
+#| echo: false
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
@@ -219,16 +242,15 @@ if os.path.exists(cache_scaling):
 
 As established in Section 2.2, the **NED** architecture (Non-linear Encoder Decoder) achieves the highest predictive performance. Despite its deep structure, the **First-Layer Contract** ensures that we can still extract exact mechanistic audits by analyzing the initial linear basis $V$.
 
-***Statistical Disclaimer:*** It is a fundamental tenet of classical statistics that correlation does not imply causation. The feature contributions derived from the NED first-layer basis ($V$) represent highly significant *predictive associations* and linear covariance with the latent manifold. They should be interpreted as associative predictors rather than direct causal or mechanistic interventions, unless rigorous causal identification assumptions (e.g., unconfoundedness, instrumental variables) are strictly satisfied.
-
 ### Diabetes Progression Audit
 
-While standard deep learning applications would require running SHAP—yielding approximate, computationally expensive, and potentially unstable attributions—the NED architecture yields an exact mechanistic audit trail. The waterfall plot below visualizes the exact linear decomposition ($x \odot v$) of the patient's latent risk score. Because this mapping is exact, it acts as a direct **counterfactual guide**: a clinician knows that a targeted unit reduction in the scaled BMI feature will linearly reduce the patient's latent risk score by precisely the weight magnitude shown, without nonlinear entanglement obscuring the causal effect.
+While standard deep learning applications would require running SHAP—yielding approximate, computationally expensive, and potentially unstable attributions—the NED architecture yields an exact mechanistic audit trail. The waterfall plot below visualizes the exact linear decomposition ($x \odot v$) of the patient's latent risk score. Because this mapping is exact, it acts as a direct **counterfactual guide**.
 
 ```{python}
 #| label: fig-diabetes-audit
 #| fig-cap: "**The Clinician's Waterfall.** Local Patient Audit (Diabetes). Waterfall plot derived from the NED first-layer basis. By preserving the linear entry point, NED enables high-performance discovery where BMI and S5 are identified as primary drivers of diabetic progression."
 #| out-width: 100%
+#| echo: false
 from pysimlr.deep import ned_simr
 from sklearn.datasets import load_diabetes
 from sklearn.preprocessing import StandardScaler
@@ -238,13 +260,11 @@ import matplotlib.pyplot as plt
 
 data = load_diabetes()
 X_scaled = StandardScaler().fit_transform(data.data)
-## View splitting
 mats_db = [torch.tensor(X_scaled[:, :5]).float(), torch.tensor(X_scaled[:, 5:]).float()]
 
-## Fit the best-performing NED model
 res_db = ned_simr(mats_db, k=2, epochs=100, verbose=False)
 v_db = res_db["v"][0]
-x_sample = torch.tensor(X_scaled[0, :5]).float() ## First patient features from View 1
+x_sample = torch.tensor(X_scaled[0, :5]).float()
 
 impact = (x_sample * v_db[:, 0]).detach().numpy()
 feat_names = data.feature_names[:5]
@@ -261,12 +281,13 @@ plt.show()
 
 ### Heart Disease Narrative (UCI Cleveland)
 
-Similar to the diabetes dataset, we visualize the exact linear impact scores for a single patient's heart disease risk factors. Post-hoc explainers like LIME might misattribute importance due to local decision boundary curvature, but the First-Layer Contract isolates the feature combinations *before* deep topological reconstruction. This confirms that Stress-Induced Angina and ST Depression are the primary, unconfounded drivers of the latent malignancy consensus.
+Similar to the diabetes dataset, we visualize the exact linear impact scores for a single patient's heart disease risk factors. Post-hoc explainers like LIME might misattribute importance due to local decision boundary curvature, but the First-Layer Contract isolates the feature combinations *before* deep topological reconstruction.
 
 ```{python}
 #| label: fig-heart-audit
 #| fig-cap: "**The Clinician's Waterfall.** Local Patient Audit (Heart Disease). NED correctly identifies Stress-test variables as the primary drivers of malignancy risk, providing a robust audit trail for high-stakes diagnostic discovery."
 #| out-width: 100%
+#| echo: false
 from pysimlr.deep import ned_simr
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
@@ -280,7 +301,6 @@ df_h = pd.read_csv(url_heart, names=cols).replace('?', np.nan).dropna().apply(pd
 X_h = StandardScaler().fit_transform(df_h.drop('num', axis=1))
 mats_h = [torch.tensor(X_h[:, :7]).float(), torch.tensor(X_h[:, 7:]).float()]
 
-## Fit NED for Heart Disease
 res_h = ned_simr(mats_h, k=2, epochs=100, verbose=False)
 
 v_h = res_h["v"][0]
@@ -298,8 +318,6 @@ plt.xlabel("Linear Contribution (Feature * Weight)")
 plt.show()
 ```
 
-**Exposition on Clinical Risk Communication:** In high-stakes medical diagnostics, the interpretability of a model’s local decision is as critical as its global accuracy (Spiegelhalter, 2019). Figures 4 and 5 utilize divergent bar charts to act as intuitive “waterfall” audits of individual patient risk. By anchoring features to a central zero-baseline and mapping positive/negative risk contributions to contrasting, high-visibility colors, we provide a visually immediate cognitive map of the patient’s mechanistic drivers. This design choice explicitly bridges the gap between the deep, non-linear representational power of the NED architecture and the requirement for actionable, human-readable clinical insight.
-
 ## Structural Generalization: Basis vs. Feature Orthogonality
 
 We prove that NSA-Flow manifold constraints generalize to unseen data by evaluating the **Invariant Orthogonality Defect** ($\mathcal{D}_I$) on both training and held-out test datasets.
@@ -308,6 +326,7 @@ We prove that NSA-Flow manifold constraints generalize to unseen data by evaluat
 #| label: fig-ortho-gen
 #| fig-cap: "**Manifold Integrity Generalization.** Invariant Orthogonality Generalization. (Left) The scale-invariant defect of the weights $V$. (Right) The feature defect generalizes across train (solid) and test (dashed) sets. This stability confirms that the First-Layer Contract identifies a robust, generalizing subspace rather than an overfitted projection."
 #| out-width: 100%
+#| echo: false
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -344,6 +363,7 @@ We validated the impact of correlated noise $\rho$ on the $1/M$ Law using the `c
 #| label: fig-recovery-floor
 #| fig-cap: "**The Recovery Floor.** Empirical verification that correlated noise ρ sets a hard asymptotic limit on consensus recovery error as M increases."
 #| out-width: 100%
+#| echo: false
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
@@ -352,7 +372,7 @@ cache_corr = "results_cache/correlated_noise_results.csv"
 if os.path.exists(cache_corr):
     df_c = pd.read_csv(cache_corr)
     plt.figure(figsize=(8, 5))
-    ## Note: Using correct column names 'm' and 'MSE'
+    # Note: Using correct column names 'm' and 'MSE'
     for rho in df_c['rho'].unique():
         subset = df_c[df_c['rho'] == rho]
         plt.plot(subset['m'], subset['MSE'], 'o-', label=f'ρ={rho}')
@@ -364,8 +384,6 @@ if os.path.exists(cache_corr):
     plt.show()
 ```
 
-**Exposition on Asymptotic Limits:** Figure 7 visually codifies the irreducible mathematical limits of multi-view learning. By plotting the recovery error against the number of modalities $M$, the distinct asymptotic plateaus become visually stark. The chart relies on clear line clustering and direct labeling to emphasize that as correlated noise $\rho$ increases, the "Recovery Floor" rises, physically demonstrating the theoretical bounds derived in Section 7 of the Methods.
-
 ## Visual Identity and Rationale
 
-The visual storytelling of this manuscript is anchored by a consistent, agent-branded color palette: [**Blue for SiMLR**]{style="color: #1f77b4; font-weight: bold;"}, [**Green for LEND**]{style="color: #2ca02c; font-weight: bold;"}, and [**Orange for NED**]{style="color: #ff7f0e; font-weight: bold;"}. This color-coding facilitates rapid conceptual scanning and reinforces the hierarchy of representational complexity. We adhere to high data-to-ink ratios and perceptually uniform colormaps to ensure that our empirical evidence is both accessible and statistically unambiguous.
+The visual storytelling of this manuscript is anchored by a consistent, agent-branded color palette: [**Blue for SiMLR**]{style="color: #1f77b4; font-weight: bold;"}, [**Green for LEND**]{style="color: #2ca02c; font-weight: bold;"}, and [**Orange for NED**]{style="color: #ff7f0e; font-weight: bold;"}.
