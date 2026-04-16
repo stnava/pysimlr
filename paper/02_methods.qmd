@@ -1,68 +1,67 @@
-# Methods: The SiMLR Framework
+# Methods
 
-In this section, we formalize the deep evolution of the SiMLR framework. We derive our architectural extensions as specific cases of a **Joint Multi-objective Energy Functional** that simultaneously optimizes for cross-modal alignment, generative reconstruction, and manifold stability.
+In this section, we present the mathematical foundations and algorithmic details of our multi-modal integration framework. We detail the classical linear formulation of Similarity-driven Multi-view Linear Reconstruction (SiMLR), proceed to the deep extensions (LEND and NED), and formally define the **Non-negative Stiefel approximating flow**, which serves as the core mechanism for interpretable latent discovery.
 
-## 1. Mathematical Notation and Variable Ontology
+## 1. Mathematical Notation and Problem Formulation
 
-We consider $M$ diverse data modalities $\{X_m\}_{m=1}^M$ measured across $N$ matched samples. Our goal is to identify a unified, shared latent consensus $U$ and view-specific interpretable basis matrices $V_m$.
+Let $X_1, X_2, \ldots, X_M$ denote $M$ distinct data modalities collected from the same $n$ samples. For the $m$-th modality, $X_m \in \mathbb{R}^{n \times d_m}$. Our goal is to discover a low-dimensional consensus space $U \in \mathbb{R}^{n \times k}$ ($k \ll \min_m d_m$) that captures the shared variance across all modalities. We seek view-specific encoding functions $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k$ such that the latent representations $Z_m = f_m(X_m)$ are aligned with $U$.
 
-| Symbol | Definition | Physical Interpretation |
-| :--- | :--- | :--- |
-| $X_m$ | Input matrix for modality $m$ | Observed high-dimensional features. |
-| $K$ | Latent Rank | Number of hypothesized biological "parts." |
-| $V_m$ | Interpretable Basis Matrix | The **Mechanical Contract**: exact feature-to-latent mapping. |
-| $Z_m$ | Modality Latent Scores | The embedded samples from view $m$ ($Z_m = f_m(X_m)$). |
-| $U$ | Shared Consensus | The noise-reduced multi-modal latent signal. |
-| $\alpha_t$ | Projection Alpha | Mixing coefficient for the manifold retraction flow. |
-| $\Pi_{St}(\cdot)$ | Stiefel Retraction | The geometric projection ensuring orthonormal discovery. |
+## 2. Non-negative Stiefel approximating flow: The Engine of Interpretable Alignment
 
-## 2. The SiMLR Energy Functional
+The **Non-negative Stiefel approximating flow** [@nsaflow2025] is the mathematical backbone of our framework. Unlike traditional Riemannian optimization that strictly projects weights onto the Stiefel manifold at every step, the Non-negative Stiefel approximating flow treats orthogonality as a continuous flow that guides the optimization.
 
-The framework identifies the optimal encoders $\{f_m\}$, decoders $\{g_m\}$, and shared consensus $U$ by minimizing a unified energy functional $\mathcal{J}$ through a joint optimization flow:
+### 2.1 Mathematical Definition
 
-$$ \mathcal{J}(\Theta, U) = \underbrace{\sum_{m=1}^M \lambda_m \mathcal{L}_{\text{sim}}(f_m(X_m), U)}_{\text{Joint Alignment}} + \underbrace{\sum_{m=1}^M \beta_m \mathcal{L}_{\text{rec}}(g_m(U), X_m)}_{\text{Simultaneous Reconstruction}} + \underbrace{\mathcal{R}_{\text{stab}}(U)}_{\text{Manifold Stability}} $$
+For a projection matrix $V \in \mathbb{R}^{d \times k}$, the flow minimizes an objective that balances data fidelity with a specialized orthogonality penalty:
 
-### 2.1 Similarity Objectives: From ACC to Robust ICA
-SiMLR supports multiple similarity kernels $\mathcal{L}_{\text{sim}}$ to capture different statistical properties of the shared signal:
-1.  **Absolute Canonical Covariance (ACC):** Maximizes linear alignment, ideal for standard factor discovery.
-2.  **Normalized Correlation (NC):** Cosine-similarity based gradient, highly effective for deep multi-view convergence.
-3.  **LogCosh:** A robust ICA-inspired objective that encourages non-Gaussian source separation while remaining resilient to modality-specific outliers.
+$$L(V) = L_{data}(V) + w \cdot L_{orth}(V)$$
 
-### 2.2 Manifold Stabilization
-To prevent dimensional collapse in deep regimes, we utilize VICReg-inspired stabilization $\mathcal{R}_{\text{stab}}$, enforcing unit variance per latent dimension and penalizing component redundancy.
+The orthogonality penalty $L_{orth}(V)$ is defined using the Frobenius norm of the deviation from the Stiefel manifold:
 
-## 3. Mechanical Interpretability: The Attribution Calculus
+$$L_{orth}(V) = \| V^\top V - I \|_F^2$$
 
-A cornerstone of our framework is the **Mechanical Contract**. By enforcing a linear entry point ($f_m(X_m) = h_m(X_m V_m)$), we ensure that every discovered latent factor is a mathematically exact composition of original features.
+When the columns of $V$ are unit-norm, this penalty is mathematically equivalent to the sum of **squared cosine similarities** between all pairs of latent components. This pushes the discovered features toward statistical independence while maintaining representational energy via spherical retraction ($v_i \leftarrow \frac{v_i}{\|v_i\|}$).
 
-To bridge the gap between model weights and clinical discovery, we define the **Attribution Calculus**. The contribution $C_{m,j,k}$ of feature $j$ in modality $m$ to latent factor $k$ is calculated as the product of the basis weight and the alignment score:
-$$ C_{m,j,k} = v_{m,j,k} \cdot \rho(z_{m,\cdot,k}, u_{\cdot,k}) $$
-This ensures that a feature only receives "discovery credit" if it has both a high weight in $V_m$ and its view-specific latent effectively contributes to the global consensus $U$.
+### 2.2 Non-Negativity and Interpretability
 
-## 4. Manifold Optimization and the NSA-Flow
+The Non-negative Stiefel approximating flow naturally incorporates a non-negativity constraint ($V \geq 0$) via proximal updates during the flow. This is critical for scientific interpretability; in genomics or neuroimaging, latent factors are often more meaningful when they represent purely additive "parts." The interaction between the orthogonality pressure and non-negativity induces **structured sparsity**, as components are forced to compete for unique "real estate" in the feature space while remaining decorrelated.
 
-Maintaining the Stiefel constraint ($V_m^\top V_m = I$) during stochastic gradient descent is a central challenge. We implement the **Non-negative Stiefel Approximating Flow (NSA-Flow)**, which replaces Euclidean updates with a projection-retraction cycle.
+### 2.3 The "Orthogonalish" Sweet Spot ($w=0.1$)
 
-### 4.1 Newton-Schulz: The Stable Orthogonalizer
-In high-performance GPU environments, explicit SVD-based retraction can become a bottleneck. We introduce the **Newton-Schulz** method as a stable, iterative alternative for both manifold projection and consensus estimation. By utilizing the update $Y_{k+1} = 0.5 Y_k (3I - Y_k^\top Y_k)$, we achieve strict Stiefel adherence with $O(d \cdot K^2)$ complexity, ensuring the framework is "Big Data Ready" while maintaining the geometric rigor of your original SVD-based SiMLR.
+Following the recommendations in @nsaflow2025, we utilize a default flow weight of **$w = 0.1$**. This value provides a "soft orthogonalization" that is large enough to prevent dimensional collapse but small enough to allow the Euclidean gradient to discover sparse, data-driven features that a rigid Stiefel constraint might obscure.
 
-```{mermaid}
-#| label: fig-nsa-flow
-#| fig-cap: "The NSA-Flow Pipeline. Interpolates between unconstrained gradients and the Stiefel manifold to ensure interpretable, non-redundant feature discovery."
-#| out-width: 100%
-graph LR
-    V_raw[Gradients V_raw] --> Ortho[Newton-Schulz Retraction]
-    Ortho -->|Orthogonal| Pos[Positivity Constraint]
-    Pos -->|Non-negative| Sparse[Quantile Sparsification]
-    Sparse -->|Interpretable Basis| V_proj[V_proj]
-    V_raw -.-> Mix{α_t Mixing}
-    V_proj -.-> Mix
-    Mix -->|Forward Pass| V_active[V_active]
-    
-    style Ortho fill:#bbdefb,stroke:#1976d2
-    style Pos fill:#c8e6c9,stroke:#2e7d32
-    style Mix fill:#f8bbd0,stroke:#c2185b
+## 3. Deep SiMLR Architectures
+
+While the linear framework is robust, it fails when the relationship between the true consensus $U$ and the observed modalities $X_m$ is non-linear. We extend SiMLR by relaxing the encoding/decoding assumptions in structured ways.
+
+### 3.1 Architecture Overview
+
+```{python}
+#| label: setup-viz-methods
+#| warning: false
+#| message: false
+#| echo: false
+import matplotlib.pyplot as plt
+import os
+import sys
+sys.path.insert(0, os.path.abspath('../src'))
+from pysimlr.visualization import (plot_lend_simr_architecture, 
+                                   plot_ned_simr_architecture, 
+                                   plot_ned_shared_private_architecture)
 ```
 
-### 4.2 Shared-First Optimization (NEDPP)
-To stabilize architectures with shared and private partitions, we employ a **Shared-First Schedule**. By blocking gradients for private encoders during the initial warmup phase, we force the model to capture the maximum cross-modal variance through the shared consensus $U$ before allocating residuals to private branches.
+1.  **LEND (Linear Encoder, Nonlinear Decoder):** Retains strictly linear encoders, constrained by the Non-negative Stiefel approximating flow, to guarantee feature-level interpretability. It uses deep decoders to "explain away" non-linear noise.
+2.  **NED (Nonlinear Encoder Decoder):** Employs deep networks for both pathways, maximizing representational power at the cost of direct weight interpretability.
+3.  **Shared/Private (NEDPP):** Explicitly shunts modality-specific structured noise into private latent spaces, keeping the shared consensus pure.
+
+## 4. Consensus Estimation Strategies
+
+A critical component is the estimation of the consensus matrix $U$. The framework supports:
+- **Average (`avg`):** Minimal overhead, sensitive to outliers.
+- **PCA (`pca`):** Robust denoising via global variance maximization.
+- **ICA (`ica`):** Superior for recovering "pure" $V$ features by statistical unmixing.
+- **Newton (`newton`):** Strict manifold-aware optimization for maximum stability.
+
+## 5. Optimization and Line Search
+
+Our implementation synchronizes the Python core with the reference R package by incorporating the manifold constraints directly into the energy evaluation and line search. This ensures that the optimizer searches for valid, "orthogonalish" steps, preventing the "manifold-jumping" artifacts common in standard deep learning applications of linear models.

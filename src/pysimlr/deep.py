@@ -822,7 +822,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     """
     if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
-    if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
     model = LENDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, use_nsa=use_nsa, first_layer_mode=first_layer_mode).to(device)
     model.initialize_v(torch_mats, k)
@@ -908,7 +908,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     """
     if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
-    if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
     model = NEDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, use_nsa=use_nsa, first_layer_mode=first_layer_mode).to(device)
     model.initialize_v(torch_mats, k)
@@ -1009,7 +1009,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if private_k is None: private_k = max(1, k // 2)
-    if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
     model = NEDSharedPrivateSiMRModel(input_dims, k, private_k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, use_nsa=use_nsa, first_layer_mode=first_layer_mode).to(device)
     model.initialize_v(torch_mats, k)
@@ -1127,7 +1127,7 @@ def predict_deep(data_matrices: List[Union[torch.Tensor, np.ndarray]], model_res
     This function has been audited for Numpy docstring validity and functional correctness.
     """
     model = model_res["model"]; model_type = model_res["model_type"]
-    if device is None: device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); model.to(device).eval()
     torch_mats = [preprocess_data(torch.as_tensor(m).float(), model_res["scale_list"], prov) for m, prov in zip(data_matrices, model_res["provenance_list"])]
     with torch.no_grad():
