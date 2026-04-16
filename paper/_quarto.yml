@@ -19,11 +19,13 @@ book:
 bibliography: references.bib
 
 format:
+
   html:
     theme: cosmo
     toc: true
     number-sections: true
   pdf:
+
     documentclass: report
     toc: true
     number-sections: true

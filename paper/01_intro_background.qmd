@@ -33,10 +33,9 @@ To restore transparency to deep multi-view learning, we propose the **First-Laye
 
 This architecture ensures that interpretability is not an afterthought or a post-hoc approximation; it is a **mechanical property of the system**. Unlike methods like SHAP or LIME, which attempt to reverse-engineer attribution from a black box, our framework provides **Auditability by Design**. The weights in $V_m$ are not estimates of importance—they *are* the importance.
 
+::: {#fig-interpretability-gap}
 ```{mermaid}
-#| label: fig-interpretability-gap
-#| fig-cap: "The Interpretability Paradigm Shift. Post-hoc methods guess importance by perturbing a black box. SiMLR's Mechanical Interpretability enforces importance by design through the First-Layer Contract."
-#| out-width: 100%
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333' }}}%%
 graph LR
     subgraph PostHoc [Post-hoc: Attribution via Approximation]
         direction TB
@@ -54,11 +53,13 @@ graph LR
         Latent -.->|Exact Alignment| Exact["Importance = Weights"]
     end
     
-    style PostHoc fill:#f9f9f9,stroke:#333,stroke-width:2px
-    style Mechanical fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    style SparseWeights fill:#bbdefb,stroke:#1976d2
-    style BlackBox fill:#ffebee,stroke:#c62828
+    style PostHoc fill:#ffffff,stroke:#333,stroke-width:2px
+    style Mechanical fill:#f0f7ff,stroke:#01579b,stroke-width:2px
+    style SparseWeights fill:#e3f2fd,stroke:#1976d2,color:#000
+    style BlackBox fill:#fff5f5,stroke:#c62828,color:#000
 ```
+The Interpretability Paradigm Shift. Post-hoc methods guess importance by perturbing a black box. SiMLR's Mechanical Interpretability enforces importance by design through the First-Layer Contract.
+:::
 
 ### Architectural Taxonomy
 

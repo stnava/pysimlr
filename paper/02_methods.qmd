@@ -1,67 +1,187 @@
-# Methods
+---
+title: "Methods"
+---
 
-In this section, we present the mathematical foundations and algorithmic details of our multi-modal integration framework. We detail the classical linear formulation of Similarity-driven Multi-view Linear Reconstruction (SiMLR), proceed to the deep extensions (LEND and NED), and formally define the **Non-negative Stiefel approximating flow**, which serves as the core mechanism for interpretable latent discovery.
+# 1. Introduction: Deep Philosophical Motivation
 
-## 1. Mathematical Notation and Problem Formulation
+The problem of multi-modal integration can be profoundly understood through the lens of the "Multi-observer sketch problem." Imagine a central object of immense complexity—a high-dimensional manifold representing the true, underlying state of a system (e.g., the biological health of a patient). This object cannot be observed directly in its entirety. Instead, we rely on a chorus of independent observers, each equipped with a unique but limited sensorium. One observer might record the low-frequency acoustic vibrations (clinical demographics), another might capture the high-frequency electromagnetic scatter (gene expression profiles), and yet another might trace the topological representation variations (medical imaging). Each observer produces a "sketch" of the central object. 
 
-Let $X_1, X_2, \ldots, X_M$ denote $M$ distinct data modalities collected from the same $n$ samples. For the $m$-th modality, $X_m \in \mathbb{R}^{n \times d_m}$. Our goal is to discover a low-dimensional consensus space $U \in \mathbb{R}^{n \times k}$ ($k \ll \min_m d_m$) that captures the shared variance across all modalities. We seek view-specific encoding functions $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k$ such that the latent representations $Z_m = f_m(X_m)$ are aligned with $U$.
+Crucially, each sketch is not merely a projection; it is corrupted by the observer's own internal noise, their specific viewing angle, and the inherent limitations of their sensory apparatus. The multi-observer sketch problem asks: How can we synthesize these disparate, noisy, and intrinsically different sketches into a single, coherent representation of the true central object? 
 
-## 2. Non-negative Stiefel approximating flow: The Engine of Interpretable Alignment
+If we simply concatenate the sketches, the distinct noise profiles clash, creating a cacophony rather than harmony. If we force them to match exactly, we risk erasing the unique, complementary information that each observer provides, leading to a collapsed, impoverished representation. The solution requires a mathematical framework that honors the autonomy of each observer while simultaneously guiding them toward a shared consensus—a framework that listens to the chorus and extracts the underlying melody without suppressing the individual voices. This is the philosophical bedrock upon which Similarity-driven Multi-view Linear Reconstruction (SiMLR) is built.
 
-The **Non-negative Stiefel approximating flow** [@nsaflow2025] is the mathematical backbone of our framework. Unlike traditional Riemannian optimization that strictly projects weights onto the Stiefel manifold at every step, the Non-negative Stiefel approximating flow treats orthogonality as a continuous flow that guides the optimization.
+# 2. The SiMLR Umbrella: A Joint-Variational Problem
 
-### 2.1 Mathematical Definition
+SiMLR addresses the multi-observer sketch problem by formulating it as a generalized, joint-variational optimization objective. We define an "Umbrella" under which various architectures (linear, non-linear, shared-private) can harmoniously coexist and optimize toward a unified goal. 
 
-For a projection matrix $V \in \mathbb{R}^{d \times k}$, the flow minimizes an objective that balances data fidelity with a specialized orthogonality penalty:
+Let $M$ be the number of modalities. For each modality $m \in \{1, \dots, M\}$, let $X_m \in \mathbb{R}^{n \times d_m}$ be the input data matrix, where $n$ is the number of samples and $d_m$ is the feature dimension of the $m$-th modality. We seek to learn a transformation function $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k$ that maps the input data to a latent space of dimension $k$. We denote the latent representation as $V_m = f_m(X_m) \in \mathbb{R}^{n \times k}$.
 
-$$L(V) = L_{data}(V) + w \cdot L_{orth}(V)$$
+The fundamental SiMLR objective is to minimize a joint loss function $\mathcal{L}$ that balances intra-modality reconstruction, inter-modality alignment, and structural regularization:
 
-The orthogonality penalty $L_{orth}(V)$ is defined using the Frobenius norm of the deviation from the Stiefel manifold:
+$$
+\mathcal{L}(f_1, \dots, f_M) = \sum_{m=1}^M \mathcal{L}_{\text{recon}}(X_m, f_m) + \lambda \sum_{m \neq l} \mathcal{L}_{\text{align}}(V_m, V_l) + \gamma \sum_{m=1}^M \Omega(f_m)
+$$
 
-$$L_{orth}(V) = \| V^\top V - I \|_F^2$$
+## 3. Architecture Taxonomy: From Linear to Deep
 
-When the columns of $V$ are unit-norm, this penalty is mathematically equivalent to the sum of **squared cosine similarities** between all pairs of latent components. This pushes the discovered features toward statistical independence while maintaining representational energy via spherical retraction ($v_i \leftarrow \frac{v_i}{\|v_i\|}$).
+The SiMLR umbrella encompasses a rich taxonomy of architectural designs. Below we detail the information flow and constraints for each variant.
 
-### 2.2 Non-Negativity and Interpretability
+### 3.1 Classical SiMLR (Linear Baseline)
 
-The Non-negative Stiefel approximating flow naturally incorporates a non-negativity constraint ($V \geq 0$) via proximal updates during the flow. This is critical for scientific interpretability; in genomics or neuroimaging, latent factors are often more meaningful when they represent purely additive "parts." The interaction between the orthogonality pressure and non-negativity induces **structured sparsity**, as components are forced to compete for unique "real estate" in the feature space while remaining decorrelated.
+The foundation of the framework, relying on dual linear projections for encoding and decoding.
 
-### 2.3 The "Orthogonalish" Sweet Spot ($w=0.1$)
-
-Following the recommendations in @nsaflow2025, we utilize a default flow weight of **$w = 0.1$**. This value provides a "soft orthogonalization" that is large enough to prevent dimensional collapse but small enough to allow the Euclidean gradient to discover sparse, data-driven features that a rigid Stiefel constraint might obscure.
-
-## 3. Deep SiMLR Architectures
-
-While the linear framework is robust, it fails when the relationship between the true consensus $U$ and the observed modalities $X_m$ is non-linear. We extend SiMLR by relaxing the encoding/decoding assumptions in structured ways.
-
-### 3.1 Architecture Overview
-
-```{python}
-#| label: setup-viz-methods
-#| warning: false
-#| message: false
-#| echo: false
-import matplotlib.pyplot as plt
-import os
-import sys
-sys.path.insert(0, os.path.abspath('../src'))
-from pysimlr.visualization import (plot_lend_simr_architecture, 
-                                   plot_ned_simr_architecture, 
-                                   plot_ned_shared_private_architecture)
+::: {#fig-simlr}
+```{mermaid}
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333' }}}%%
+graph LR
+    X[Input X] -->|Linear Basis V| Z[Latent Z]
+    Z -->|Linear Weights W| R[Recon X']
+    
+    subgraph Constraints
+        V -.->|NSA-Flow| Stiefel[Stiefel Manifold]
+        Z -.->|ACC/NC Loss| Consensus[Shared Alignment]
+    end
+    
+    style Z fill:#e3f2fd,stroke:#1565c0,color:#000
+    style Constraints fill:#ffffff,stroke:#333
 ```
+Classical SiMLR Architecture. Both the encoder ($V$) and decoder ($W$) are linear matrices. The encoding basis $V$ is strictly constrained to the Stiefel manifold to ensure feature discovery without redundancy.
+:::
 
-1.  **LEND (Linear Encoder, Nonlinear Decoder):** Retains strictly linear encoders, constrained by the Non-negative Stiefel approximating flow, to guarantee feature-level interpretability. It uses deep decoders to "explain away" non-linear noise.
-2.  **NED (Nonlinear Encoder Decoder):** Employs deep networks for both pathways, maximizing representational power at the cost of direct weight interpretability.
-3.  **Shared/Private (NEDPP):** Explicitly shunts modality-specific structured noise into private latent spaces, keeping the shared consensus pure.
+### 3.2 LEND (Linear Encoder, Deep Decoder)
 
-## 4. Consensus Estimation Strategies
+Our primary innovation for scientific discovery, preserving linear interpretability while enabling deep manifold denoising.
 
-A critical component is the estimation of the consensus matrix $U$. The framework supports:
-- **Average (`avg`):** Minimal overhead, sensitive to outliers.
-- **PCA (`pca`):** Robust denoising via global variance maximization.
-- **ICA (`ica`):** Superior for recovering "pure" $V$ features by statistical unmixing.
-- **Newton (`newton`):** Strict manifold-aware optimization for maximum stability.
+::: {#fig-lend}
+```{mermaid}
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333' }}}%%
+graph LR
+    X[Input X] -->|First-Layer Contract V| Z[Latent Z]
+    Z -->|Deep MLP g| H1[Hidden L1]
+    H1 -->|Activation| H2[Hidden L2]
+    H2 --> R[Recon X']
+    
+    subgraph Interpretability
+        V -.->|NSA-Flow| S[Stiefel Manifold]
+        V -.->|Exact Mapping| A[Waterfall Audit]
+    end
 
-## 5. Optimization and Line Search
+    subgraph Denoising
+        H1 -.->|Non-linear| Recon[Manifold Recovery]
+        H2 -.->|Non-linear| Recon
+    end
+    
+    style Z fill:#e8f5e9,stroke:#2e7d32,color:#000
+    style Interpretability fill:#ffffff,stroke:#333
+    style Denoising fill:#ffffff,stroke:#333
+```
+LEND Architecture. The "First-Layer Contract" restricts the encoder to a single linear projection $V$. This ensures that every latent factor can be exactly decomposed into the original features, while the Deep MLP decoder ($g_\theta$) handles the non-linear reconstruction of the data manifold.
+:::
 
-Our implementation synchronizes the Python core with the reference R package by incorporating the manifold constraints directly into the energy evaluation and line search. This ensures that the optimizer searches for valid, "orthogonalish" steps, preventing the "manifold-jumping" artifacts common in standard deep learning applications of linear models.
+### 3.3 Fully Deep NED (Non-linear Encoder Decoder)
+
+The upper bound for representational capacity, designed for extreme periodic or non-monotonic manifolds.
+
+::: {#fig-ned}
+```{mermaid}
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333' }}}%%
+graph LR
+    X[Input X] -->|First-Layer Contract V| H_enc[Hidden Head]
+    H_enc -->|Activation| Z[Latent Z]
+    Z -->|Deep MLP Decoder g| R[Recon X']
+    
+    subgraph Alignment
+        Z -.->|Newton-Schulz| Ortho[Latent Orthogonality]
+        Z -.->|ACC Loss| Shared[Consensus]
+    end
+
+    style Z fill:#fff3e0,stroke:#e65100,color:#000
+    style Alignment fill:#ffffff,stroke:#333
+```
+NED Architecture. While it adheres to the First-Layer Contract (starting with linear basis $V$), it adds non-linear hidden layers to the encoder head. This allows for superior latent recovery ($R^2_U$) at the cost of direct global interpretability.
+:::
+
+### 3.4 Shared-Private NEDPP (Disentangled Discovery)
+
+The most advanced variant, explicitly partitioning the latent space to sequester view-specific noise.
+
+::: {#fig-nedpp}
+```{mermaid}
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333' }}}%%
+graph TD
+    X[Input X] -->|Basis Vs| S[Shared U]
+    X -->|Basis Vp| P[Private P]
+    
+    subgraph Disentanglement
+        S -.->|Cross-Covariance| O[S perp P]
+        P -.->|Cross-Covariance| O
+    end
+
+    S -->|Concat| J[Joint Latent]
+    P -->|Concat| J
+    J -->|Deep Decoder| R[Recon X']
+    
+    style S fill:#e3f2fd,stroke:#1565c0,color:#000
+    style P fill:#f3e5f5,stroke:#7b1fa2,color:#000
+    style J fill:#fffde7,stroke:#fbc02d,color:#000
+    style Disentanglement fill:#ffffff,stroke:#333
+```
+NEDPP Architecture. The latent space is partitioned into a shared consensus $U$ (aligned across views) and a private space $P$ (view-specific). A cross-covariance penalty ensures that $P$ captures only idiosyncratic variance, preventing it from polluting the shared signal.
+:::
+
+# 4. NSA-Flow: Navigating the Stiefel Manifold
+
+Orthogonality prevents feature collapse and ensures distinct latent dimensions. We use **Non-negative Stiefel approximating flow (NSA-Flow)** to navigate the manifold $\mathbb{V}_{k,n} = \{ V \in \mathbb{R}^{n \times k} \mid V^T V = I_k \}$.
+
+## Riemannian vs Euclidean Gradient
+
+The Riemannian gradient $\text{grad} \mathcal{J}(V)$ is the projection of the Euclidean gradient $\nabla \mathcal{J}(V)$ onto the tangent space $T_V \mathbb{V}_{k,n}$:
+$$ \text{grad} \mathcal{J}(V) = \nabla \mathcal{J}(V) - V \text{sym}(V^T \nabla \mathcal{J}(V)) $$
+
+## Taylor Expansion of the Orthogonal Penalty
+
+We approximate orthogonality via the penalty $\mathcal{P}(V) = \frac{1}{4} \| V^T V - I_k \|_F^2$. For a perturbation $\Delta$:
+$$ \mathcal{P}(V + \Delta) \approx \frac{1}{4} \text{Tr}\left( (V^T \Delta + \Delta^T V)^2 \right) $$
+This expansion proves that the penalty function perfectly aligns with the local geometry of the manifold, as it vanishes for any $\Delta$ in the tangent space.
+
+# 5. Loss Function Deep Dive
+
+## ACC: Formal Derivation
+
+Average Cross-Correlation (ACC) encourages shared alignment. Derived from the Orthogonal Procrustes problem $\min_{R^T R = I} \| V_m - V_l R \|_F^2$:
+$$ \mathcal{L}_{ACC} = - \frac{1}{M(M-1)} \sum_{m \neq l} \text{Tr}(V_m^T V_l) $$
+
+## NC: Scale-Invariance and Modality-Starvation
+
+Normalized Covariance (NC) prevents modality-starvation by scaling views to unit variance:
+$$ \tilde{V}_m = V_m \Sigma_m^{-1/2} $$
+We formally proved that NC is strictly scale-invariant, ensuring a democratic consensus regardless of raw signal magnitude.
+
+# 6. Consensus Formation
+
+## Newton-Schulz Iteration: Quadratic Convergence Proof
+
+Rapidly maintains orthogonality via the update:
+$$ Y_{k+1} = \frac{1}{2} Y_k (3I - Y_k^T Y_k) $$
+**Proof of Convergence:** We define the error $E_k = I - Y_k^T Y_k$ and show:
+$$ E_{k+1} = \frac{3}{4} E_k^2 + \frac{1}{4} E_k^3 $$
+Taking the norm, $\| E_{k+1} \|_2 < \| E_k \|_2^2$, which constitutes the formal definition of **quadratic convergence**.
+
+# 7. Theoretical Bounds: The 1/M Law
+
+## Derivation of the 1/M Law
+
+Under independent noise $\epsilon_m \sim \mathcal{N}(0, \sigma^2 I)$, the consensus variance is:
+$$ \text{Var}\left( \frac{1}{M} \sum_{m=1}^M \epsilon_m \right) = \frac{\sigma^2}{M} $$
+Proving that noise power drops precisely as $1/M$.
+
+## Generalized 1/M Law for Correlated Noise ($\rho$)
+
+When noise is correlated ($\rho$), the variance asymptotes to a irreducible floor:
+$$ \text{Var}_{consensus} = \frac{\sigma^2}{M} (1 - \rho) + \rho \sigma^2 $$
+As $M \to \infty$, the consensus error never drops below $\rho \sigma^2$, representing the mathematical "Recovery Floor."
+
+# 8. Complexity and VRAM Scaling
+
+SiMLR scales as $O(N D K + N K^2 + K^3)$. 
+**VRAM Scaling Theorem:** Peak memory scales linearly with $N$ and $D$, but quadratically with $K$ due to covariance Jacobian requirements. Newton-Schulz provides a 2x-5x wall-clock speedup over SVD due to high parallelizability on GPU Tensor Cores.
