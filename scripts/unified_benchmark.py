@@ -28,7 +28,7 @@ def calculate_v_recovery(res, true_v):
 def run_experiment_task(task_args):
     regime_name, case_params, model_type, model_label, seed, energy_type, mixing_algorithm = task_args
     case = build_case(seed=seed, **case_params)
-    params = {"iterations": 50, "epochs": 100, "energy_type": energy_type, "mixing_algorithm": mixing_algorithm, "use_nsa": True, "positivity": "positive"}
+    params = {"iterations": 50, "epochs": 100, "energy_type": energy_type, "mixing_algorithm": mixing_algorithm, "use_nsa": True, "positivity": "positive", "nsa_w": 0.5, "sparseness_quantile": 0.5}
     if model_type == "shared_private" and "private_k" in case: params["private_k"] = case["private_k"]
     
     try:
@@ -71,9 +71,9 @@ def run_unified_benchmark(n_seeds=10, workers=None):
                     for seed in range(42, 42 + n_seeds):
                         tasks.append((regime_name, case_params, model_type, model_label, seed, energy_type, mixing_algorithm))
     
-    print(f"Starting benchmark (v19) with {len(tasks)} tasks...")
+    print(f"Starting benchmark (v20) with {len(tasks)} tasks...")
     os.makedirs("paper/results_cache", exist_ok=True)
-    out_file = "paper/results_cache/unified_synthetic_v19.csv"
+    out_file = "paper/results_cache/unified_synthetic_v20.csv"
     header = ["Regime", "Model", "Seed", "Loss", "Consensus", "CMC", "SRE", "Predictive Accuracy (Y)", "Train Accuracy (Y)", "Gen Gap (Y)", "Strictly Linear Accuracy", "Strictly Linear Train", "Strictly Linear Gap", "Latent Recovery (U)", "Feature Recovery (V)"]
     with open(out_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=header); writer.writeheader()
@@ -91,7 +91,7 @@ def run_unified_benchmark(n_seeds=10, workers=None):
     print(f"Benchmark complete: {out_file}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run v19 parallel benchmark")
+    parser = argparse.ArgumentParser(description="Run v20 parallel benchmark")
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--n-seeds", type=int, default=10)
     parser.add_argument("--workers", type=int, default=None)
