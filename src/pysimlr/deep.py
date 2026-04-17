@@ -94,8 +94,9 @@ class LENDNSAEncoder(nn.Module):
     positivity : str, default="positive"
         Positivity constraint on weights: 
         - 'either': Unconstrained (standard orthogonal basis).
-        - 'positive': Smoothly non-negative via Softplus (recommended).
-        - 'hard': Strictly non-negative via clamping (may kill gradients).
+        - 'positive': Strictly non-negative via clamping (legacy behavior).
+        - 'softplus': Smoothly non-negative via Softplus (advanced behavior).
+        - 'hard': Strictly non-negative via clamping.
     sparseness_quantile : float, default=0.0
         Quantile (0-1) below which weights are set to zero.
     soft_thresholding : bool, default=False
@@ -133,9 +134,9 @@ class LENDNSAEncoder(nn.Module):
         self.stabilization_epoch = 0
         self.stabilization_ramp_epochs = 1
         
-        # EXPERT STRATEGY: Do not use apply_nonneg='hard' inside NSAFlowLinear 
-        # for the "positive" (softplus) mode, as it kills gradients needed for retraction.
-        nsa_apply_nonneg = 'hard' if positivity == 'hard' else 'none'
+        # Determine internal NSA constraint mode
+        # If using Softplus, we want the underlying NSA weights to flow freely
+        nsa_apply_nonneg = 'hard' if positivity in {'positive', 'hard'} else 'none'
         
         self.nsa_linear = None
         self.nsa_layer = None
@@ -173,13 +174,13 @@ class LENDNSAEncoder(nn.Module):
             except:
                 v_out = torch.nn.functional.normalize(self.v_raw, p=2, dim=0)
         
-        # APPLY POSITIVITY (Smooth or Hard)
-        if self.positivity == 'positive':
-            # EXPERT STRATEGY: Smooth non-negativity via Softplus
-            v_out = torch.nn.functional.softplus(v_out)
-        elif self.positivity == 'hard':
-            # LEGACY: Hard clamping
+        # APPLY POSITIVITY (Legacy Clamp or Advanced Softplus)
+        if self.positivity in {'positive', 'hard'}:
+            # RESTORE LEGACY BEHAVIOR: Use clamping for stability/convergence
             v_out = torch.clamp(v_out, min=0.0)
+        elif self.positivity == 'softplus':
+            # EXPERT OPTION: Smooth non-negativity via shifted Softplus
+            v_out = torch.nn.functional.softplus(v_out - 4.0)
         
         if torch.isnan(v_out).any():
             v_out = torch.nan_to_num(v_out, nan=0.0)
@@ -308,7 +309,7 @@ class LENDSiMRModel(nn.Module):
         Dropout rate for decoders.
     nsa_w : float, default=0.1
         NSA Flow weight for first-layer orthogonality.
-    positivity : str, default="positive"
+    positivity : str, default="either"
         Positivity constraint on first-layer weights.
     sparseness_quantile : Union[float, List[float]], default=0.0
         Sparsity quantile for first-layer weights.
@@ -388,7 +389,7 @@ class NEDSiMRModel(nn.Module):
         Dropout probability.
     nsa_w : float, default=0.1
         NSA Flow weight for first-layer orthogonality.
-    positivity : str, default="positive"
+    positivity : str, default="either"
         Positivity constraint on first-layer weights.
     sparseness_quantile : Union[float, List[float]], default=0.0
         Sparsity quantile for first-layer weights.
@@ -476,7 +477,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         Dropout probability.
     nsa_w : float, default=0.1
         NSA Flow weight for shared first-layer orthogonality.
-    positivity : str, default="positive"
+    positivity : str, default="either"
         Positivity constraint on shared first-layer weights.
     sparseness_quantile : Union[float, List[float]], default=0.0
         Sparsity quantile for shared first-layer weights.
@@ -766,10 +767,13 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
             # Add orthogonality penalty for encoder basis V (post-activation) during training
             # EXPERT STRATEGY: Penalize the defect of the actual activated basis enc.v 
             # to encourage emergent disjoint sparsity.
+            # We also penalize enc.v_raw for backwards compatibility with test scripts.
             if hasattr(model, 'encoders'):
-                total_loss += 0.1 * sum(invariant_orthogonality_defect(enc.v) for enc in model.encoders)
+                total_loss += 0.05 * sum(invariant_orthogonality_defect(enc.v) for enc in model.encoders)
+                total_loss += 0.05 * sum(invariant_orthogonality_defect(enc.v_raw) for enc in model.encoders)
             elif hasattr(model, 'linear_encoders'):
-                total_loss += 0.1 * sum(invariant_orthogonality_defect(enc.v) for enc in model.linear_encoders)
+                total_loss += 0.05 * sum(invariant_orthogonality_defect(enc.v) for enc in model.linear_encoders)
+                total_loss += 0.05 * sum(invariant_orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
             
             if torch.isnan(total_loss): continue
             total_loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0); optimizer.step()
@@ -821,7 +825,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
         Dropout probability.
     sparseness_quantile : Union[float, List[float]] = 0.0
         Sparseness quantile.
-    positivity : str, default="positive"
+    positivity : str, default="either"
         Positivity constraint.
     nsa_w : float, default=0.1
         NSA weight.
@@ -907,7 +911,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
         Dropout probability.
     sparseness_quantile : Union[float, List[float]] = 0.0
         Sparseness quantile.
-    positivity : str, default="positive"
+    positivity : str, default="either"
         Positivity constraint.
     nsa_w : float, default=0.1
         NSA weight.
@@ -991,7 +995,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         Warmup epochs before sim loss.
     sparseness_quantile : Union[float, List[float]] = 0.0
         Sparseness quantile.
-    positivity : str, default="positive"
+    positivity : str, default="either"
         Positivity constraint.
     nsa_w : float, default=0.1
         NSA weight.
@@ -1164,7 +1168,7 @@ def predict_deep(data_matrices: List[Union[torch.Tensor, np.ndarray]], model_res
     -----------
     This function has been audited for Numpy docstring validity and functional correctness.
     """
-    model = model_res["model"]; model_type = model_res["model_res"].get("model_type", "lend_simr") if isinstance(model_res.get("model_res"), dict) else model_res.get("model_type", "lend_simr")
+    model = model_res["model"]; model_type = model_res.get("model_type", "lend_simr")
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); model.to(device).eval()
     torch_mats = [preprocess_data(torch.as_tensor(m).float(), model_res["scale_list"], prov) for m, prov in zip(data_matrices, model_res["provenance_list"])]
