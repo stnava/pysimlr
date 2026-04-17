@@ -4,242 +4,40 @@ from typing import List, Dict, Any, Optional, Union
 from ..utils import procrustes_r2, adjusted_rvcoef
 
 def latent_recovery_score(u_pred: torch.Tensor, u_true: torch.Tensor) -> float:
-    """
-    Measure the recovery of the true latent space after Procrustes alignment.
-
-    Parameters
-    ----------
-    u_pred : torch.Tensor
-        The predicted shared latent consensus (N x K).
-    u_true : torch.Tensor
-        The ground truth shared latent consensus (N x K).
-
-    Returns
-    -------
-    float
-        The alignment score (R-squared) after Procrustes transformation.
-
-    Raises
-    ------
-    TypeError
-        If inputs are not tensors.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
     return procrustes_r2(u_true, u_pred)
 
-def in_sample_latent_linear_fit_r2(u_pred: torch.Tensor, y_true: np.ndarray) -> float:
-    """
-    Measure how well the learned latents can linearly predict an outcome (in-sample).
-
-    Parameters
-    ----------
-    u_pred : torch.Tensor
-        The predicted shared latent consensus.
-    y_true : np.ndarray
-        The ground truth external outcome.
-
-    Returns
-    -------
-    float
-        The in-sample R-squared score of the linear regression.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
+def outcome_r2_score(u_pred: torch.Tensor, y_true: np.ndarray) -> float:
     from sklearn.linear_model import LinearRegression
     u_np = u_pred.detach().cpu().numpy()
     model = LinearRegression().fit(u_np, y_true)
     return float(model.score(u_np, y_true))
 
-def outcome_r2_score(u_pred: torch.Tensor, y_true: np.ndarray) -> float:
-    """
-    Compute the R-squared score for an external outcome predicted from the latents.
-
-    Parameters
-    ----------
-    u_pred : torch.Tensor
-        The predicted shared latent consensus.
-    y_true : np.ndarray
-        The ground truth external outcome.
-
-    Returns
-    -------
-    float
-        The R-squared score.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
-    return in_sample_latent_linear_fit_r2(u_pred, y_true)
-
-def heldout_outcome_r2_score(
+def cross_val_metrics(
     u_train: torch.Tensor, y_train: np.ndarray,
-    u_test: torch.Tensor, y_test: np.ndarray
-) -> float:
-    """
-    Cross-validated R-squared score for outcome prediction on held-out data.
-
-    Parameters
-    ----------
-    u_train : torch.Tensor
-        Latents from the training set.
-    y_train : np.ndarray
-        Outcomes from the training set.
-    u_test : torch.Tensor
-        Latents from the test set.
-    y_test : np.ndarray
-        Outcomes from the test set.
-
-    Returns
-    -------
-    float
-        The R-squared score on the held-out test set.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
-    from sklearn.linear_model import LinearRegression
-    model = LinearRegression().fit(u_train.detach().cpu().numpy(), y_train)
-    return float(model.score(u_test.detach().cpu().numpy(), y_test))
-
-def heldout_outcome_mse(
-    u_train: torch.Tensor, y_train: np.ndarray,
-    u_test: torch.Tensor, y_test: np.ndarray
-) -> float:
-    """
-    Mean Squared Error for outcome prediction on held-out data.
-
-    Parameters
-    ----------
-    u_train : torch.Tensor
-        Latents from the training set.
-    y_train : np.ndarray
-        Outcomes from the training set.
-    u_test : torch.Tensor
-        Latents from the test set.
-    y_test : np.ndarray
-        Outcomes from the test set.
-
-    Returns
-    -------
-    float
-        The Mean Squared Error on the held-out test set.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
-    from sklearn.linear_model import LinearRegression
-    from sklearn.metrics import mean_squared_error
-    model = LinearRegression().fit(u_train.detach().cpu().numpy(), y_train)
-    preds = model.predict(u_test.detach().cpu().numpy())
-    return float(mean_squared_error(y_test, preds))
+    u_test: torch.Tensor, y_test: np.ndarray,
+    is_classification: bool = False
+) -> Dict[str, float]:
+    u_train_np = u_train.detach().cpu().numpy()
+    u_test_np = u_test.detach().cpu().numpy()
+    if is_classification:
+        from sklearn.linear_model import LogisticRegression
+        y_train_int = y_train.astype(int).ravel()
+        y_test_int = y_test.astype(int).ravel()
+        model = LogisticRegression(max_iter=1000).fit(u_train_np, y_train_int)
+        train_perf = float(model.score(u_train_np, y_train_int))
+        test_perf = float(model.score(u_test_np, y_test_int))
+    else:
+        from sklearn.linear_model import LinearRegression
+        model = LinearRegression().fit(u_train_np, y_train)
+        train_perf = float(model.score(u_train_np, y_train))
+        test_perf = float(model.score(u_test_np, y_test))
+    return {"train": train_perf, "test": test_perf, "gap": train_perf - test_perf}
 
 def reconstruction_mse(data: List[torch.Tensor], recons: List[torch.Tensor]) -> float:
-    """
-    Compute the average Mean Squared Error (MSE) across all modalities.
-
-    Parameters
-    ----------
-    data : List[torch.Tensor]
-        List of original data matrices.
-    recons : List[torch.Tensor]
-        List of reconstructed data matrices.
-
-    Returns
-    -------
-    float
-        The mean MSE across all modalities.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
     mses = [torch.mean((d - r)**2).item() for d, r in zip(data, recons)]
     return float(np.mean(mses))
 
-def reconstruction_mse_summary(data: List[torch.Tensor], recons: List[torch.Tensor]) -> Dict[str, float]:
-    """
-    Compute Reconstruction MSE for each modality independently.
-
-    Parameters
-    ----------
-    data : List[torch.Tensor]
-        List of original data matrices.
-    recons : List[torch.Tensor]
-        List of reconstructed data matrices.
-
-    Returns
-    -------
-    Dict[str, float]
-        Dictionary mapping modality indices to their respective MSE.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
-    return {f"modality_{i}_mse": torch.mean((d - r)**2).item() for i, (d, r) in enumerate(zip(data, recons))}
-
 def latent_variance_diagnostics(u: torch.Tensor) -> Dict[str, float]:
-    """
-    Analyze the variance distribution of the latent space to check for collapse.
-
-    Parameters
-    ----------
-    u : torch.Tensor
-        The latent consensus matrix.
-
-    Returns
-    -------
-    Dict[str, float]
-        A dictionary containing mean, min, max standard deviations and 
-        count of collapsed dimensions.
-
-    Raises
-    ------
-    TypeError
-        If input is not a tensor.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
     stds = torch.std(u, dim=0)
     collapsed = torch.sum(stds < 1e-4).item()
     res = {
@@ -256,262 +54,57 @@ def shared_private_diagnostics(
     shared_latents: List[torch.Tensor],
     private_latents: List[torch.Tensor]
 ) -> Dict[str, float]:
-    """
-    Compute orthogonality between shared and private latent components.
-
-    Parameters
-    ----------
-    shared_latents : List[torch.Tensor]
-        List of shared latent matrices for each modality.
-    private_latents : List[torch.Tensor]
-        List of private latent matrices for each modality.
-
-    Returns
-    -------
-    Dict[str, float]
-        A dictionary of overlap (RV coefficient) and variance metrics.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
     overlaps = [adjusted_rvcoef(s, p) for s, p in zip(shared_latents, private_latents)]
-    res = {
-        "mean_shared_private_overlap": float(np.mean(overlaps)),
-        "max_shared_private_overlap": float(np.max(overlaps))
-    }
+    res = {"mean_shared_private_overlap": float(np.mean(overlaps)), "max_shared_private_overlap": float(np.max(overlaps))}
     for i, (s, p) in enumerate(zip(shared_latents, private_latents)):
         res[f"mod{i}_cross_cov"] = float(adjusted_rvcoef(s, p))
         res[f"mod{i}_shared_var"] = float(torch.var(s).item())
     return res
 
 def calculate_v_orthogonality(v_mats: List[torch.Tensor]) -> float:
-    """
-    Compute the average orthogonality defect across all basis matrices V.
-
-    Parameters
-    ----------
-    v_mats : List[torch.Tensor]
-        List of basis matrices for each modality.
-
-    Returns
-    -------
-    float
-        The average orthogonality defect.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
     from ..utils import invariant_orthogonality_defect
-    defects = [invariant_orthogonality_defect(v).item() for v in v_mats]
-    return float(np.mean(defects))
-
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        if isinstance(value, torch.Tensor):
-            return float(value.item())
-        return float(value)
-    except:
-        return default
-
-def _safe_mean(values: List[float]) -> float:
-    if not values: return 0.0
-    return float(np.mean([_safe_float(v) for v in values]))
+    return float(np.mean([invariant_orthogonality_defect(v).item() for v in v_mats]))
 
 def first_layer_sparsity_metrics(first_layer: Dict[str, Any]) -> Dict[str, float]:
-    """
-    Extract sparsity and density metrics for the interpretable first layer.
-
-    Parameters
-    ----------
-    first_layer : Dict[str, Any]
-        The first-layer contract or summary dictionary.
-
-    Returns
-    -------
-    Dict[str, float]
-        Dictionary of mean density, L0 norm, and orthogonality defect.
-
-    Raises
-    ------
-    TypeError
-        If input is not a dictionary.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
     if not first_layer: return {}
-    
-    # Try different potential schemas
-    densities = []
-    l0s = []
-    
-    if "sparsity_summary" in first_layer:
-        for mod in first_layer["sparsity_summary"]:
-            if "component_density" in mod:
-                densities.append(np.mean(mod["component_density"]))
-            if "component_l0" in mod:
-                l0s.append(np.mean(mod["component_l0"]))
-    elif "modalities" in first_layer:
+    densities, l0s = [], []
+    if "modalities" in first_layer:
         for mod in first_layer["modalities"]:
             if "summary" in mod:
                 densities.append(mod["summary"].get("density"))
                 l0s.append(mod["summary"].get("l0"))
-
-    orth_defect = first_layer.get("orthogonality_defect")
-    
     res = {}
-    if densities:
-        res["first_layer_density_mean"] = _safe_mean(densities)
-    if l0s:
-        res["first_layer_l0_mean"] = _safe_mean(l0s)
-    if orth_defect is not None:
-        res["first_layer_orthogonality_mean"] = _safe_mean(orth_defect if isinstance(orth_defect, list) else [orth_defect])
-        
+    if densities: res["first_layer_density_mean"] = float(np.mean([d for d in densities if d is not None]))
+    if l0s: res["first_layer_l0_mean"] = float(np.mean([l for l in l0s if l is not None]))
     return res
 
 def alignment_metrics_from_report(report: Dict[str, Any]) -> Dict[str, float]:
-    """
-    Extract alignment metrics from an interpretability report.
-
-    Parameters
-    ----------
-    report : Dict[str, Any]
-        The alignment sub-report dictionary.
-
-    Returns
-    -------
-    Dict[str, float]
-        Dictionary of mean R2 and correlation metrics.
-
-    Raises
-    ------
-    TypeError
-        If input is not a dictionary.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
     if not report: return {}
-    
-    # Try different schemas
     r2s = []
-    corrs = []
-    
     if "modalities" in report:
-        for mod in report["modalities"]:
-            r2s.append(mod.get("global_r2"))
-            if "component_correlation" in mod:
-                corrs.append(torch.mean(torch.abs(mod["component_correlation"])).item())
+        for mod in report["modalities"]: r2s.append(mod.get("global_r2"))
     elif "modality_alignments" in report:
-        # Another potential schema
-        for mod in report["modality_alignments"]:
-            r2s.append(mod.get("rv_to_first_layer"))
-
+        for mod in report["modality_alignments"]: r2s.append(mod.get("rv_to_first_layer"))
     res = {}
-    if r2s:
-        res["first_layer_alignment_r2_mean"] = _safe_mean(r2s)
-    if corrs:
-        res["first_layer_alignment_corr_mean"] = _safe_mean(corrs)
+    if r2s: res["first_layer_alignment_r2_mean"] = float(np.mean([r for r in r2s if r is not None]))
     return res
 
 def shared_attribution_metrics_from_report(report: Dict[str, Any]) -> Dict[str, float]:
-    """
-    Extract metrics on how well shared consensus is attributed to the first layer.
-
-    Parameters
-    ----------
-    report : Dict[str, Any]
-        The attribution sub-report dictionary.
-
-    Returns
-    -------
-    Dict[str, float]
-        Dictionary of attribution R2 mean and component concentration.
-
-    Raises
-    ------
-    TypeError
-        If input is not a dictionary.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
     if not report: return {}
-    
     r2s = []
-    concentration = 0.0
-    
     if "per_modality" in report:
-        for mod in report["per_modality"]:
-            r2s.append(mod.get("global_r2"))
-    
-    if "combined" in report and "component_importance" in report["combined"]:
-        imp = report["combined"]["component_importance"]
-        concentration = (torch.max(imp) / (torch.sum(imp) + 1e-8)).item()
-
+        for mod in report["per_modality"]: r2s.append(mod.get("global_r2"))
     res = {}
-    if r2s:
-        res["shared_to_first_layer_r2_mean"] = _safe_mean(r2s)
-    res["shared_component_concentration"] = float(concentration)
+    if r2s: res["shared_to_first_layer_r2_mean"] = float(np.mean([r for r in r2s if r is not None]))
     return res
 
 def prediction_preservation_metrics_from_report(report: Dict[str, Any]) -> Dict[str, float]:
-    """
-    Extract metrics on how well the first layer preserves predictive power.
-
-    Parameters
-    ----------
-    report : Dict[str, Any]
-        The prediction attribution sub-report dictionary.
-
-    Returns
-    -------
-    Dict[str, float]
-        Dictionary of mean R2 and preservation ratio.
-
-    Raises
-    ------
-    TypeError
-        If input is not a dictionary.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
     if not report: return {}
-    
     r2s = []
-    preservation = 0.0
-    
     if "per_modality" in report:
-        for mod in report["per_modality"]:
-            r2s.append(mod.get("global_r2"))
-            
-    if "shared_latent_baseline" in report:
-        base_r2 = _safe_float(report["shared_latent_baseline"].get("global_r2"))
-        if r2s:
-            mean_r2 = _safe_mean(r2s)
-            preservation = mean_r2 / (base_r2 + 1e-8)
-
+        for mod in report["per_modality"]: r2s.append(mod.get("global_r2"))
     res = {}
-    if r2s:
-        res["first_layer_prediction_r2_mean"] = _safe_mean(r2s)
-    res["first_layer_prediction_preservation"] = float(preservation)
+    if r2s: res["first_layer_prediction_r2_mean"] = float(np.mean([r for r in r2s if r is not None]))
     return res
 
 def calculate_all_metrics(
@@ -522,103 +115,34 @@ def calculate_all_metrics(
     reconstructions: Optional[List[torch.Tensor]] = None,
     **kwargs
 ) -> Dict[str, float]:
-    """
-    Master function to compute a comprehensive suite of SiMLR performance metrics.
-
-    Parameters
-    ----------
-    u_pred : torch.Tensor
-        Predicted shared latent consensus.
-    u_true : torch.Tensor, optional
-        Ground truth shared latent consensus.
-    y_true : np.ndarray, optional
-        Ground truth external outcome.
-    data : List[torch.Tensor], optional
-        Original data matrices.
-    reconstructions : List[torch.Tensor], optional
-        Reconstructed data matrices.
-    **kwargs : Dict[str, Any]
-        Additional context such as `shared_latents`, `private_latents`, 
-        `v_mats`, `first_layer` contract, and `interpretability` report.
-
-    Returns
-    -------
-    Dict[str, float]
-        A comprehensive dictionary of recovery, prediction, reconstruction, 
-        and interpretability metrics.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
-    """
     metrics = {}
-    
-    # 1. Latent Recovery
-    if u_true is not None:
-        val = latent_recovery_score(u_pred, u_true)
-        metrics["latent_recovery"] = val
-        metrics["recovery"] = val
-        
-    # 2. Prediction
-    if y_true is not None:
-        val = outcome_r2_score(u_pred, y_true)
-        metrics["outcome_r2"] = val
-        metrics["test_r2"] = val
-        
-    # 3. Reconstruction
-    if data is not None and reconstructions is not None:
-        val = reconstruction_mse(data, reconstructions)
-        metrics["reconstruction_mse"] = val
-        metrics["recon_error"] = val
-        
-    # 4. Latent Diagnostics
+    if u_true is not None: metrics["recovery"] = latent_recovery_score(u_pred, u_true)
     metrics.update(latent_variance_diagnostics(u_pred))
-    
-    # 5. Shared/Private
-    shared_l = kwargs.get("shared_latents")
-    private_l = kwargs.get("private_latents")
-    if shared_l is not None and private_l is not None:
-        metrics.update(shared_private_diagnostics(shared_l, private_l))
-        
-    # 6. Orthogonality
     v_mats = kwargs.get("v_mats")
-    if v_mats is not None:
-        metrics["orthogonality_defect"] = calculate_v_orthogonality(v_mats)
-        
-    # 7. Interpretability
+    if v_mats is not None: metrics["orthogonality_defect"] = calculate_v_orthogonality(v_mats)
+    shared_l, private_l = kwargs.get("shared_latents"), kwargs.get("private_latents")
+    if shared_l is not None and private_l is not None: metrics.update(shared_private_diagnostics(shared_l, private_l))
     first_layer = kwargs.get("first_layer")
-    if first_layer is not None:
-        metrics.update(first_layer_sparsity_metrics(first_layer))
-        
+    if first_layer: metrics.update(first_layer_sparsity_metrics(first_layer))
     report = kwargs.get("interpretability")
-    if report is not None:
-        # Interpretability reports often have sub-reports
-        if "deep_layer_alignment" in report:
-            metrics.update(alignment_metrics_from_report(report["deep_layer_alignment"]))
-        else:
-            metrics.update(alignment_metrics_from_report(report))
-            
-        if "shared_to_first_layer" in report:
-            metrics.update(shared_attribution_metrics_from_report(report["shared_to_first_layer"]))
-        else:
-            metrics.update(shared_attribution_metrics_from_report(report))
-            
-        if "prediction_attribution" in report:
-            metrics.update(prediction_preservation_metrics_from_report(report["prediction_attribution"]))
-        else:
-            metrics.update(prediction_preservation_metrics_from_report(report))
-        
-    # Outcome prediction on held-out data (if u_train/y_train provided)
-    u_train = kwargs.get("u_train")
-    y_train = kwargs.get("y_train")
+    if report:
+        metrics.update(alignment_metrics_from_report(report.get("deep_layer_alignment") or report))
+        metrics.update(shared_attribution_metrics_from_report(report.get("shared_to_first_layer") or report))
+        metrics.update(prediction_preservation_metrics_from_report(report.get("prediction_attribution") or report))
+    u_train, y_train = kwargs.get("u_train"), kwargs.get("y_train")
     if u_train is not None and y_train is not None and y_true is not None:
-        metrics["heldout_outcome_r2"] = heldout_outcome_r2_score(u_train, y_train, u_pred, y_true)
-        metrics["heldout_outcome_mse"] = heldout_outcome_mse(u_train, y_train, u_pred, y_true)
-        metrics["test_mse"] = metrics["heldout_outcome_mse"]
-
+        y_train_np = y_train.detach().cpu().numpy() if isinstance(y_train, torch.Tensor) else y_train
+        y_true_np = y_true.detach().cpu().numpy() if isinstance(y_true, torch.Tensor) else y_true
+        unique_y = np.unique(y_train_np); is_classification = len(unique_y) < 10 and np.all(y_train_np % 1 == 0)
+        deep_res = cross_val_metrics(u_train, y_train_np, u_pred, y_true_np, is_classification)
+        metrics["test_r2"], metrics["train_r2"], metrics["gen_gap"] = deep_res["test"], deep_res["train"], deep_res["gap"]
+        if is_classification: metrics["test_accuracy"], metrics["train_accuracy"] = deep_res["test"], deep_res["train"]
+        fl_scores_train, fl_scores_test = kwargs.get("first_layer_scores_train"), kwargs.get("first_layer_scores_test")
+        if fl_scores_train is not None and fl_scores_test is not None:
+            u_lin_train, u_lin_test = torch.cat(fl_scores_train, dim=1), torch.cat(fl_scores_test, dim=1)
+            u_lin_train = (u_lin_train - u_lin_train.mean(0)) / (u_lin_train.std(0) + 1e-6)
+            u_lin_test = (u_lin_test - u_lin_test.mean(0)) / (u_lin_test.std(0) + 1e-6)
+            lin_res = cross_val_metrics(u_lin_train, y_train_np, u_lin_test, y_true_np, is_classification)
+            metrics["first_layer_test_r2"], metrics["first_layer_train_r2"], metrics["first_layer_gen_gap"] = lin_res["test"], lin_res["train"], lin_res["gap"]
+            if is_classification: metrics["first_layer_test_accuracy"], metrics["first_layer_train_accuracy"] = lin_res["test"], lin_res["train"]
     return metrics
