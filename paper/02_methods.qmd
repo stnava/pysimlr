@@ -22,27 +22,29 @@ $$
 \mathcal{L}(f_1, \dots, f_M) = (1-\alpha) \sum_{m=1}^M \mathcal{L}_{\text{recon}}(X_m, f_m) + \alpha \sum_{m \neq l} \mathcal{L}_{\text{align}}(Z_m, Z_l) + \gamma \sum_{m=1}^M \Omega(f_m)
 $$
 
-### Exhaustive Nomenclature
+### Technical Glossary of Performance Metrics
 
-To ensure technical rigor, we formalize the following metrics and architectural guarantees used throughout the paper:
+To ensure mathematical rigor across the linear and deep regimes, we standardize the following definitions for evaluating multimodal integration and feature discovery.
 
-**1. Cross-Modal Correlation (CMC, $R^2_U$):**
-CMC measures the quality of cross-modal alignment. It is defined as the variance explained ($R^2$) between the predicted shared latent consensus $\hat{U}$ and the ground truth latent space $U^*$ after Orthogonal Procrustes alignment:
-$$ R^2_U = 1 - \frac{\min_{\Omega} \|\hat{U}\Omega - U^*\|_F^2}{\|U^*\|_F^2} $$
-where $\Omega$ is an orthogonal rotation matrix. This metric captures how well the model synthesizes the "shared melody" across disparate observers.
+| Metric | Symbol | Definition | Interpretation |
+| :--- | :---: | :--- | :--- |
+| **Canonical Model Correlation** | $R^2_U$ (CMC) | $\max_{\Omega, s} \left( 1 - \frac{\|\hat{U}\Omega s - U^*\|_F^2}{\|U^*\|_F^2} \right)$ | Fidelity of the shared latent consensus recovery. |
+| **Subspace Recovery Error** | $SRE$ | $1 - \frac{1}{M} \sum_{m=1}^M R^2_P(\hat{V}_m, V^*_m)$ | Failure to recover the true generative feature basis. |
+| **First-Layer Contract** | - | $Z = \sigma(X V W + b)$ | Mandatory initial linear projection for auditability. |
+| **Procrustes $R^2$** | $R^2_P$ | $1 - \frac{\min_{\Omega} \|\hat{A}\Omega - A^*\|_F^2}{\|A^*\|_F^2}$ | Alignment-invariant variance explained. |
+| **Auditability by Design** | - | - | Structural guarantee that latent factors are traceable to features. |
 
-**2. Subspace Recovery Error (SRE, $R^2_V$):**
-SRE quantifies the fidelity of the discovered feature basis $V$. It is calculated as the complement of the alignment fidelity between the estimated basis $\hat{V}$ and the true generative basis $V^*$:
-$$ SRE = 1 - \text{Fidelity}(\hat{V}, V^*) $$
-High SRE indicates that the model has failed to identify the true underlying physical or biological drivers, even if the latent consensus $U$ appears aligned.
+**1. Canonical Model Correlation (CMC, $R^2_U$):**
+CMC measures the quality of cross-modal alignment. It is defined as the variance explained ($R^2$) between the predicted shared latent consensus $\hat{U}$ and the ground truth latent space $U^*$ after Orthogonal Procrustes alignment. Statistically, for centered and standardized latent spaces, CMC represents the squared mean of the canonical correlations between the estimated and true subspaces.
+
+**2. Subspace Recovery Error (SRE):**
+SRE quantifies the failure to recover the true generative feature basis $V$. Calculated as $1 - \bar{R}^2_P$, where $\bar{R}^2_P$ is the average Procrustes $R^2$ between estimated and true weight matrices across all modalities. High SRE indicates that the model has failed to identify the true underlying physical or biological drivers, even if the latent consensus $U$ appears aligned.
 
 **3. NSA-Flow Weights:**
-The interpretability-constrained linear basis $V$ is optimized using Non-negative Stiefel approximating flow. The weights are constrained to the Stiefel manifold $\mathbb{V}_{k,d}$, ensuring that:
-$$ V^T V = I_k, \quad v_{ij} \geq 0 \text{ (if positivity is enforced)} $$
-This ensures that each discovered biomarker is statistically unique and non-redundant.
+The interpretability-constrained linear basis $V$ is optimized using Non-negative Stiefel approximating flow. The weights are constrained to the Stiefel manifold $\mathbb{V}_{k,d}$, ensuring that $V^T V = I_k$. This ensures that each discovered biomarker is statistically unique and non-redundant.
 
 **4. First-Layer Contract:**
-The architectural guarantee of **Auditability by Design**. It mandates that the first transformation from the raw feature space $X$ to any internal representation must be a strictly linear projection $V$. This ensures that every deep representation remains anchored to the original features, enabling exact counterfactuals and local audits.
+The architectural guarantee of **Auditability by Design**. It mandates that the first transformation from the raw feature space $X$ to any internal representation must start with a strictly linear projection $V$. This ensures that every deep representation remains anchored to the original features, enabling exact counterfactuals and local audits.
 
 ### Architecture Taxonomy: From Linear to Deep
 
@@ -180,7 +182,7 @@ LEND occupies the Pareto-optimal position in this tradeoff space: it enforces th
 
 ## NSA-Flow: Navigating the Stiefel Manifold
 
-Orthogonality prevents feature collapse and ensures distinct latent dimensions. We use **Non-negative Stiefel approximating flow (NSA-Flow)** to navigate the manifold $\mathbb{V}_{k,n} = \{ V \in \mathbb{R}^{n \times k} \mid V^T V = I_k \}$. The theoretical foundation for such Riemannian updates is well-established [@edelman1998geometry; @absil2009optimization; @boumal2023introduction].
+Orthogonality prevents feature collapse and ensures distinct latent dimensions. We use **Non-negative Stiefel approximating flow (NSA-Flow)** to navigate the manifold $\mathbb{V}_{k,n} = \{ V \in \mathbb{R}^{n \times k} \mid V^T V = I_k \}$. 
 
 ### Biomarker Discovery Integrity
 
@@ -188,20 +190,10 @@ The Stiefel constraint is the mathematical guarantor of **Biomarker Discovery In
 1. **Uniqueness:** Each discovered latent factor represents a statistically unique signal.
 2. **Parsimony:** The model is forced to explain the data with non-redundant basis vectors.
 3. **Identifiability:** The manifold constraint provides a stable coordinate system necessary for clinical generalizability.
-This prevents "feature bleed," common in unconstrained autoencoders, where the same biological signal is redundantly captured across multiple, correlated latent dimensions, making mechanistic discovery impossible.
-
-### Riemannian vs Euclidean Gradient
-
-The Riemannian gradient $\text{grad} \mathcal{J}(V)$ is the projection of the Euclidean gradient $\nabla \mathcal{J}(V)$ onto the tangent space $T_V \mathbb{V}_{k,n}$:
-$$ \text{grad} \mathcal{J}(V) = \nabla \mathcal{J}(V) - V \text{sym}(V^T \nabla \mathcal{J}(V)) $$
-
-### Taylor Expansion of the Orthogonal Penalty
-
-We approximate orthogonality via the penalty $\mathcal{P}(V) = \frac{1}{4} \| V^T V - I_k \|_F^2$. For a perturbation $\Delta$:
-$$ \mathcal{P}(V + \Delta) \approx \frac{1}{4} \text{Tr}\left( (V^T \Delta + \Delta^T V)^2 \right) $$
-This expansion proves that the penalty function perfectly aligns with the local geometry of the manifold, as it vanishes for any $\Delta$ in the tangent space.
 
 **Visualizing the Manifold Dynamics:** Conceptually, navigating the Stiefel manifold can be envisioned as traversing the rigid surface of a high-dimensional hypersphere. Standard Euclidean gradient descent steps inevitably push our weight matrix $V$ off this curved surface and into the ambient space, resulting in feature collapse. The NSA-Flow penalty $\mathcal{P}(V)$ acts as an elastic tether. Rather than a hard projection, it creates a continuous vector field that smoothly guides the weights back onto the orthogonal surface. This ensures that as the network learns complex representations, it never sacrifices the structural rigidity required for distinct, disentangled feature discovery.
+
+Detailed mathematical proofs regarding the Riemannian geometry and orthogonal penalty expansions are provided in **Appendix A.2.1**.
 
 ## Loss Function Deep Dive
 
@@ -232,46 +224,22 @@ NC prevents "Modality Starvation" but introduces a "Noise Boosting" risk. We for
 
 ## Consensus Formation
 
-### Newton-Schulz Iteration: Quadratic Convergence Proof
+### Newton-Schulz Iteration
 
-Rapidly maintains orthogonality via the update:
-$$ Y_{k+1} = \frac{1}{2} Y_k (3I - Y_k^T Y_k) $$
-**Proof of Convergence:** We define the error $E_k = I - Y_k^T Y_k$ and show:
-$$ E_{k+1} = \frac{3}{4} E_k^2 + \frac{1}{4} E_k^3 $$
-Taking the norm, $\| E_{k+1} \|_2 < \| E_k \|_2^2$, which constitutes the formal definition of **quadratic convergence**.
+Newton-Schulz provides a high-performance alternative to SVD for maintaining latent orthogonality. It exhibits **quadratic convergence**, ensuring that the consensus representation $U$ remains numerically stable across thousands of training epochs. 
+
+A formal proof of the quadratic convergence is detailed in **Appendix A.2.2**.
 
 ## Theoretical Bounds: The 1/M Law
 
-### Derivation of the 1/M Law
-
-Under independent noise $\epsilon_m \sim \mathcal{N}(0, \sigma^2 I)$, the consensus variance is:
-$$ \text{Var}\left( \frac{1}{M} \sum_{m=1}^M \epsilon_m \right) = \frac{\sigma^2}{M} $$
-Proving that noise power drops precisely as $1/M$.
-
-Given the consensus variance, we can construct an asymptotic $100(1-\delta)\%$ confidence interval for the true underlying signal $\mu$:
-$$ P\left( \hat{\mu}_{consensus} - z_{\delta/2} \sqrt{\frac{\sigma^2}{M}(1-\rho) + \rho\sigma^2} \leq \mu \leq \hat{\mu}_{consensus} + z_{\delta/2} \sqrt{\frac{\sigma^2}{M}(1-\rho) + \rho\sigma^2} \right) = 1 - \delta $$
-This interval explicitly demonstrates how the irreducible correlated noise $\rho\sigma^2$ limits our statistical confidence.
-
-### Generalized 1/M Law for Correlated Noise ($\rho$)
-
-When noise is correlated ($\rho$), the variance asymptotes to a irreducible floor:
+SiMLR's ability to recover shared signal is governed by the **1/M Law**. Under independent noise, the noise power in the shared consensus drops precisely as $1/M$. However, in real-world scenarios where noise is correlated across modalities ($\rho$), the recovery error asymptotes to a irreducible floor:
 $$ \text{Var}_{consensus} = \frac{\sigma^2}{M} (1 - \rho) + \rho \sigma^2 $$
-As $M \to \infty$, the consensus error never drops below $\rho \sigma^2$, representing the mathematical "Recovery Floor."
+As $M \to \infty$, the consensus error never drops below $\rho \sigma^2$, representing the mathematical "Recovery Floor." 
 
-## Statistical Sensitivity: The $w$ and $\alpha$ Manifolds
+The complete derivation of the 1/M Law and its implications for statistical confidence intervals are provided in **Appendix A.2.3** and **Appendix A.7**.
 
-The performance and stability of the SiMLR consensus are governed by the modality weights $w \in \mathbb{R}^M$ and the alignment-reconstruction tradeoff $\alpha \in [0, 1]$. 
+## Computational Efficiency
 
-### Sensitivity to Modality Weights ($w$)
+The SiMLR framework is designed for "Big Data" scalability. Peak memory and execution time scale linearly with the number of samples $N$ and features $D$, enabling the processing of massive biobank datasets. The use of Newton-Schulz iteration provides a 2x-5x wall-clock speedup on GPU hardware compared to traditional decomposition methods.
 
-We define the **Statistical Influence Function** of modality $m$ on the consensus $U$ as $\mathcal{I}_m = \frac{\partial U}{\partial w_m}$. In the linear regime, we prove that $\mathcal{I}_m$ is bounded by the **spectral gap** $(\lambda_1 - \lambda_2)^{-1}$ of the feature covariance $\Sigma_m$. This implies that SiMLR is robust in well-conditioned modalities but highly sensitive in the presence of multicollinearity.
-
-### The $\alpha$-Transition and Phase Collapse
-
-The hyperparameter $\alpha$ controls the transition from independent reconstruction ($\alpha=0$) to rigid consensus ($\alpha=1$). We propose that the optimal $\alpha$ is found at the "Statistical Knee," where the rate of change of the consensus variance stabilizes.
-
-## Complexity and VRAM Scaling
-
-SiMLR scales as $O(N D K + N K^2 + K^3)$. 
-
-**VRAM Scaling Theorem:** Peak memory scales linearly with $N$ and $D$, but quadratically with $K$ due to covariance Jacobian requirements. Newton-Schulz provides a 2x-5x wall-clock speedup over SVD due to high parallelizability on GPU Tensor Cores.
+Comprehensive complexity analysis and VRAM scaling theorems are provided in **Appendix A.5**.
