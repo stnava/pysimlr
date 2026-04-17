@@ -32,7 +32,7 @@ def run_experiment_task(task_args):
     dataset_name, model_type, model_label, seed, energy_type, mixing_algorithm = task_args
     try:
         case = get_diabetes_case(seed=seed) if dataset_name == "Diabetes" else get_heart_case(seed=seed)
-        params = {"iterations": 50, "epochs": 100, "energy_type": energy_type, "mixing_algorithm": mixing_algorithm, "use_nsa": True}
+        params = {"iterations": 50, "epochs": 100, "energy_type": energy_type, "mixing_algorithm": mixing_algorithm, "use_nsa": True, "positivity": "positive"}
         exp_res = run_single_experiment(model_type, case, seed=seed, **params)
         metrics = exp_res["metrics"]
         
@@ -70,9 +70,9 @@ def run_real_benchmark(n_seeds=3, workers=None):
                 for mixing_algorithm in mixing_methods:
                     for seed in range(42, 42 + n_seeds): tasks.append((dataset_name, model_type, model_label, seed, energy_type, mixing_algorithm))
     
-    print(f"Starting REAL benchmark (v18) with {len(tasks)} tasks...")
+    print(f"Starting REAL benchmark (v19) with {len(tasks)} tasks...")
     os.makedirs("paper/results_cache", exist_ok=True)
-    out_file = "paper/results_cache/unified_real_v18.csv"
+    out_file = "paper/results_cache/unified_real_v19.csv"
     header = ["Dataset", "Model", "Seed", "Loss", "Consensus", "Predictive Accuracy (Y)", "Train Accuracy (Y)", "Gen Gap (Y)", "Strictly Linear Accuracy", "Strictly Linear Train", "Strictly Linear Gap", "CMC", "SRE"]
     with open(out_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=header); writer.writeheader()
@@ -90,7 +90,7 @@ def run_real_benchmark(n_seeds=3, workers=None):
     print(f"Real benchmark complete: {out_file}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run v18 REAL benchmark")
+    parser = argparse.ArgumentParser(description="Run v19 REAL benchmark")
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--n-seeds", type=int, default=3)
     parser.add_argument("--workers", type=int, default=None)
