@@ -1,0 +1,51 @@
+# Appendix: Operational Implementation and Complexity
+
+This appendix provides the technical details for practitioners implementing the SiMLR framework, including hyperparameter guidance, computational complexity, and the core optimization protocol.
+
+## 1. Operational Protocol: The SiMLR Training Loop
+
+The training process for SiMLR and its deep extensions (LEND, NED) involves the interleaving of neural network backpropagation with manifold projection.
+
+### 1.1 Training Algorithm (Pseudo-code)
+
+```python
+Initialize {V_m, theta_m, phi_m}
+For epoch t in 1..T:
+    1. Calculate Alpha_t (Stiefel mixing coefficient)
+    2. Forward Pass:
+       # Option A: SVD Retraction
+       # Option B: Newton-Schulz Iteration (Stable O(d*K^2) alternative)
+       V_active = (1 - Alpha_t) * V_raw + Alpha_t * Orthogonalize(V_raw)
+       Z_m = Encoder(X_m, V_active, theta_m)
+    3. Consensus Estimation:
+       - U = MixingAlgorithm(Z_1, ..., Z_M) # Newton-Schulz, PCA, or SVD
+    4. Calculate Total Energy J:
+       - J = E_align + E_recon + E_stab
+    5. Backpropagate gradients to {V_raw, theta_m, phi_m}
+    6. Update weights via Optimizer (e.g., AdamW)
+```
+
+## 2. Hyperparameter Guidance (Inductive Priors)
+
+The following table provides the recommended default values and ranges for the energy functional weights used in this work.
+
+| Parameter | Recommended Default | Range | Rationale |
+| :--- | :--- | :--- | :--- |
+| **$\lambda_{\text{sim}}$** | 1.0 | $[0.1, 10.0]$ | Relative importance of cross-modal alignment. |
+| **$\lambda_{\text{rec}}$** | 0.5 | $[0.0, 5.0]$ | Generative reconstruction priority. |
+| **$\lambda_{\text{var}}$** | 1.0 | $[0.5, 2.0]$ | Strictness of variance preservation (anti-collapse). |
+| **$\lambda_{\text{cov}}$** | 1.0 | $[0.5, 2.0]$ | De-correlation of latent components. |
+| **$\alpha_{\text{ramp}}$** | 0.5 * Total Epochs | $[0.2, 0.8]$ | Duration of the transition to the Stiefel manifold. |
+| **$N_{\text{warmup}}$** | 10 epochs | $[5, 50]$ | Shared-First schedule duration for NEDPP. |
+
+## 3. Computational Complexity Analysis
+
+The scalability of the SiMLR framework is driven by the efficiency of the **NSA-Flow** and **Newton-Schulz** mechanisms.
+
+*   **Manifold Projection**: Both SVD and Newton-Schulz are $O(d \cdot K^2)$, where $d$ is the feature dimension and $K$ is the latent rank. Newton-Schulz is often preferred in GPU environments as it avoids the sequential bottlenecks sometimes present in SVD implementations.
+*   **Consensus Estimation**: Newton-Schulz iteration for multi-view mixing is $O(M \cdot K^3)$, which is independent of the number of samples $N$ and features $d$.
+*   **Total Iteration Complexity**: $O(N \cdot d \cdot K)$, making the framework "Big Data Ready" for massive multi-omics and high-resolution imaging datasets.
+
+## 4. Input Normalization Protocol
+
+To ensure that the alignment energy $E_{\text{align}}$ is not dominated by the arbitrary scale of a specific modality, all input matrices $\{X_m\}$ must be **mean-centered and unit-scaled** ($z$-score normalization) as a pre-processing step. This ensures that the variance in the shared consensus $U$ is a true reflection of biological signal rather than measurement scale.
