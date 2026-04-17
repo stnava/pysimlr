@@ -15,17 +15,17 @@ book:
     - 02_methods.qmd
     - 03_experiments.qmd
     - 04_discussion.qmd
+  appendices:
+    - appendix_operational.qmd
 
 bibliography: references.bib
 
 format:
-
   html:
     theme: cosmo
     toc: true
     number-sections: true
   pdf:
-
     documentclass: report
     toc: true
     number-sections: true
