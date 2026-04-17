@@ -91,8 +91,11 @@ class LENDNSAEncoder(nn.Module):
         Dimensionality of the projection (shared latent rank K).
     nsa_w : float, default=0.1
         Weight/step size for the Non-Standard Analysis (NSA) Flow retraction.
-    positivity : str, default="either"
-        Positivity constraint on weights: 'either', 'positive', or 'hard'.
+    positivity : str, default="positive"
+        Positivity constraint on weights: 
+        - 'either': Unconstrained (standard orthogonal basis).
+        - 'positive': Smoothly non-negative via Softplus (recommended).
+        - 'hard': Strictly non-negative via clamping (may kill gradients).
     sparseness_quantile : float, default=0.0
         Quantile (0-1) below which weights are set to zero.
     soft_thresholding : bool, default=False
@@ -119,7 +122,6 @@ class LENDNSAEncoder(nn.Module):
                  soft_thresholding: bool = False, use_nsa: bool = True,
                  first_layer_mode: str = "scheduled"):
         super().__init__()
-        self.v_raw = nn.Parameter(torch.randn(input_dim, latent_dim) * 0.01)
         self.positivity = positivity
         self.sparseness_quantile = sparseness_quantile
         self.soft_thresholding = soft_thresholding
@@ -131,28 +133,53 @@ class LENDNSAEncoder(nn.Module):
         self.stabilization_epoch = 0
         self.stabilization_ramp_epochs = 1
         
-        apply_nonneg = 'hard' if positivity in ['positive', 'hard'] else 'none'
+        # EXPERT STRATEGY: Do not use apply_nonneg='hard' inside NSAFlowLinear 
+        # for the "positive" (softplus) mode, as it kills gradients needed for retraction.
+        nsa_apply_nonneg = 'hard' if positivity == 'hard' else 'none'
+        
+        self.nsa_linear = None
+        self.nsa_layer = None
+        
         if nsa is not None and use_nsa:
-            self.nsa_layer = nsa.NSAFlowLayer(
-                k=latent_dim, w_retract=nsa_w, retraction_type="soft_polar", 
-                apply_nonneg=apply_nonneg, residual=False, use_transform=False
-            )
+            # Prefer the new NSAFlowLinear for parameter-squeeze
+            if hasattr(nsa, 'NSAFlowLinear'):
+                self.nsa_linear = nsa.NSAFlowLinear(
+                    in_features=input_dim, out_features=latent_dim, bias=False,
+                    w_retract=nsa_w, retraction_type="soft_polar", 
+                    apply_nonneg=nsa_apply_nonneg
+                )
+                self.v_raw = self.nsa_linear.weight_raw
+            else:
+                # Fallback to NSAFlowLayer (activation-squeeze) applied to weights
+                self.v_raw = nn.Parameter(torch.randn(input_dim, latent_dim) * 0.01)
+                self.nsa_layer = nsa.NSAFlowLayer(
+                    k=latent_dim, w_retract=nsa_w, retraction_type="soft_polar", 
+                    apply_nonneg=nsa_apply_nonneg, residual=False, use_transform=False
+                )
         else:
-            self.nsa_layer = None
+            self.v_raw = nn.Parameter(torch.randn(input_dim, latent_dim) * 0.01)
 
     @property
     def v(self):
         # When evaluating, we always project to Stiefel
-        if self.nsa_layer is not None:
+        if self.nsa_linear is not None:
+            # NSAFlowLinear handles the orthogonal SVD-squeeze
+            v_out = self.nsa_linear.get_manifold_weight()
+        elif self.nsa_layer is not None:
             v_out = self.nsa_layer(self.v_raw)
         else:
             try:
                 v_out = _svd_project_columns(self.v_raw)
             except:
                 v_out = torch.nn.functional.normalize(self.v_raw, p=2, dim=0)
-            
-            if self.positivity in ['positive', 'hard']:
-                v_out = torch.clamp(v_out, min=0.0)
+        
+        # APPLY POSITIVITY (Smooth or Hard)
+        if self.positivity == 'positive':
+            # EXPERT STRATEGY: Smooth non-negativity via Softplus
+            v_out = torch.nn.functional.softplus(v_out)
+        elif self.positivity == 'hard':
+            # LEGACY: Hard clamping
+            v_out = torch.clamp(v_out, min=0.0)
         
         if torch.isnan(v_out).any():
             v_out = torch.nan_to_num(v_out, nan=0.0)
@@ -281,7 +308,7 @@ class LENDSiMRModel(nn.Module):
         Dropout rate for decoders.
     nsa_w : float, default=0.1
         NSA Flow weight for first-layer orthogonality.
-    positivity : str, default="either"
+    positivity : str, default="positive"
         Positivity constraint on first-layer weights.
     sparseness_quantile : Union[float, List[float]], default=0.0
         Sparsity quantile for first-layer weights.
@@ -361,7 +388,7 @@ class NEDSiMRModel(nn.Module):
         Dropout probability.
     nsa_w : float, default=0.1
         NSA Flow weight for first-layer orthogonality.
-    positivity : str, default="either"
+    positivity : str, default="positive"
         Positivity constraint on first-layer weights.
     sparseness_quantile : Union[float, List[float]], default=0.0
         Sparsity quantile for first-layer weights.
@@ -449,7 +476,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         Dropout probability.
     nsa_w : float, default=0.1
         NSA Flow weight for shared first-layer orthogonality.
-    positivity : str, default="either"
+    positivity : str, default="positive"
         Positivity constraint on shared first-layer weights.
     sparseness_quantile : Union[float, List[float]], default=0.0
         Sparsity quantile for shared first-layer weights.
@@ -736,11 +763,13 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
                 total_loss += getattr(model, 'private_ortho_w', 0.05) * cross_cov_loss
                 total_loss += getattr(model, 'private_var_w', 0.10) * p_var_loss
 
-            # Add orthogonality penalty for encoder weights during training
+            # Add orthogonality penalty for encoder basis V (post-activation) during training
+            # EXPERT STRATEGY: Penalize the defect of the actual activated basis enc.v 
+            # to encourage emergent disjoint sparsity.
             if hasattr(model, 'encoders'):
-                total_loss += 0.1 * sum(invariant_orthogonality_defect(enc.v_raw) for enc in model.encoders)
+                total_loss += 0.1 * sum(invariant_orthogonality_defect(enc.v) for enc in model.encoders)
             elif hasattr(model, 'linear_encoders'):
-                total_loss += 0.1 * sum(invariant_orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
+                total_loss += 0.1 * sum(invariant_orthogonality_defect(enc.v) for enc in model.linear_encoders)
             
             if torch.isnan(total_loss): continue
             total_loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0); optimizer.step()
@@ -792,7 +821,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
         Dropout probability.
     sparseness_quantile : Union[float, List[float]] = 0.0
         Sparseness quantile.
-    positivity : str, default="either"
+    positivity : str, default="positive"
         Positivity constraint.
     nsa_w : float, default=0.1
         NSA weight.
@@ -878,7 +907,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
         Dropout probability.
     sparseness_quantile : Union[float, List[float]] = 0.0
         Sparseness quantile.
-    positivity : str, default="either"
+    positivity : str, default="positive"
         Positivity constraint.
     nsa_w : float, default=0.1
         NSA weight.
@@ -962,7 +991,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         Warmup epochs before sim loss.
     sparseness_quantile : Union[float, List[float]] = 0.0
         Sparseness quantile.
-    positivity : str, default="either"
+    positivity : str, default="positive"
         Positivity constraint.
     nsa_w : float, default=0.1
         NSA weight.
@@ -1135,7 +1164,7 @@ def predict_deep(data_matrices: List[Union[torch.Tensor, np.ndarray]], model_res
     -----------
     This function has been audited for Numpy docstring validity and functional correctness.
     """
-    model = model_res["model"]; model_type = model_res["model_type"]
+    model = model_res["model"]; model_type = model_res["model_res"].get("model_type", "lend_simr") if isinstance(model_res.get("model_res"), dict) else model_res.get("model_type", "lend_simr")
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); model.to(device).eval()
     torch_mats = [preprocess_data(torch.as_tensor(m).float(), model_res["scale_list"], prov) for m, prov in zip(data_matrices, model_res["provenance_list"])]
