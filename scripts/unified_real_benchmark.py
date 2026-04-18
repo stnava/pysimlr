@@ -1,14 +1,22 @@
+import os
+import multiprocessing
+
+# SET ENVIRONMENT VARIABLES BEFORE ANY IMPORTS TO PREVENT OMP HANGS
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import torch
 import numpy as np
 import pandas as pd
 from sklearn.datasets import load_diabetes
 from sklearn.preprocessing import StandardScaler
 from pysimlr.benchmarks.runner import run_single_experiment
-import os
 import sys
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import multiprocessing
 import csv
 import traceback
 
@@ -30,60 +38,64 @@ def get_heart_case(seed=42):
     return {"data": [torch.tensor(m).float() for m in mats], "outcome": torch.tensor(y).float(), "true_u": torch.zeros(X_h.shape[0], k), "true_v": [np.zeros((m.shape[1], k)) for m in mats], "shared_k": k}
 
 def run_experiment_task(task_args):
-    dataset_name, model_type, model_label, seed, energy_type, mixing_algorithm = task_args
-    try:
-        case = get_diabetes_case(seed=seed) if dataset_name == "Diabetes" else get_heart_case(seed=seed)
-        params = {
-            "iterations": 50, 
-            "epochs": 10, # Shorten for debug
-            "energy_type": energy_type, 
-            "mixing_algorithm": mixing_algorithm, 
-            "use_nsa": True,
-            "positivity": "positive",
-            "nsa_w": 0.5,
-            "sparseness_quantile": 0.5
-        }
-        exp_res = run_single_experiment(model_type, case, seed=seed, **params)
-        metrics = exp_res["metrics"]
-        
-        is_h = (dataset_name == "Heart")
-        test_acc = metrics.get("test_accuracy", 0.0) if is_h else metrics.get("test_r2", 0.0)
-        train_acc = metrics.get("train_accuracy", 0.0) if is_h else metrics.get("train_r2", 0.0)
-        lin_test = metrics.get("first_layer_test_accuracy", 0.0) if is_h else metrics.get("first_layer_test_r2", 0.0)
-        lin_train = metrics.get("first_layer_train_accuracy", 0.0) if is_h else metrics.get("first_layer_train_r2", 0.0)
-        
-        return {
-            "Dataset": dataset_name,
-            "Model": model_label,
-            "Seed": seed,
-            "Loss": energy_type,
-            "Consensus": mixing_algorithm,
-            "Predictive Accuracy (Y)": float(test_acc),
-            "Train Accuracy (Y)": float(train_acc),
-            "Gen Gap (Y)": float(train_acc - test_acc),
-            "Strictly Linear Accuracy": float(lin_test),
-            "Strictly Linear Train": float(lin_train),
-            "Strictly Linear Gap": float(lin_train - lin_test),
-            "CMC": float(metrics.get("recovery", 0.0)),
-            "SRE": 0.0
-        }
-    except Exception as e:
-        raise e # FORCE CRASH TO SEE TRACEBACK
+    # Ensure each worker runs strictly single-threaded
+    torch.set_num_threads(1)
+    
+    dataset_name, model_type, model_label, seed, energy_type, mixing_algorithm, iterations, epochs, use_nsa = task_args
+    case = get_diabetes_case(seed=seed) if dataset_name == "Diabetes" else get_heart_case(seed=seed)
+    params = {
+        "iterations": iterations, 
+        "epochs": epochs, 
+        "energy_type": energy_type, 
+        "mixing_algorithm": mixing_algorithm, 
+        "use_nsa": use_nsa,
+        "positivity": "positive",
+        "nsa_w": 0.5,
+        "sparseness_quantile": 0.5
+    }
+    # NO EXCEPTION HANDLING - CRASH ON ERROR
+    exp_res = run_single_experiment(model_type, case, seed=seed, **params)
+    metrics = exp_res["metrics"]
+    
+    is_h = (dataset_name == "Heart")
+    test_acc = metrics.get("test_accuracy", 0.0) if is_h else metrics.get("test_r2", 0.0)
+    train_acc = metrics.get("train_accuracy", 0.0) if is_h else metrics.get("train_r2", 0.0)
+    lin_test = metrics.get("first_layer_test_accuracy", 0.0) if is_h else metrics.get("first_layer_test_r2", 0.0)
+    lin_train = metrics.get("first_layer_train_accuracy", 0.0) if is_h else metrics.get("first_layer_train_r2", 0.0)
+    
+    return {
+        "Dataset": dataset_name,
+        "Model": model_label,
+        "Seed": seed,
+        "Loss": energy_type,
+        "Consensus": mixing_algorithm,
+        "Predictive Accuracy (Y)": float(test_acc),
+        "Train Accuracy (Y)": float(train_acc),
+        "Gen Gap (Y)": float(train_acc - test_acc),
+        "Strictly Linear Accuracy": float(lin_test),
+        "Strictly Linear Train": float(lin_train),
+        "Strictly Linear Gap": float(lin_train - lin_test),
+        "CMC": float(metrics.get("recovery", 0.0)),
+        "SRE": 0.0
+    }
 
-def run_real_benchmark(n_seeds=3, workers=None):
+def run_real_benchmark(n_seeds=5, iterations=50, epochs=150, use_nsa=True, workers=None):
     datasets = ["Heart", "Diabetes"]
     model_configs = [("linear", "SiMLR"), ("lend", "LEND"), ("ned", "NED"), ("shared_private", "NEDPP")]
-    losses, mixing_methods = ["regression", "acc", "logcosh", "nc"], ["newton", "svd", "pca", "ica"]
+    losses = ["regression", "acc", "logcosh", "nc"]
+    mixing_methods = ["newton", "svd", "pca", "ica"]
+    
     tasks = []
     for dataset_name in datasets:
         for model_type, model_label in model_configs:
             for energy_type in losses:
                 for mixing_algorithm in mixing_methods:
-                    for seed in range(42, 42 + n_seeds): tasks.append((dataset_name, model_type, model_label, seed, energy_type, mixing_algorithm))
+                    for seed in range(42, 42 + n_seeds): 
+                        tasks.append((dataset_name, model_type, model_label, seed, energy_type, mixing_algorithm, iterations, epochs, use_nsa))
     
-    print(f"Starting REAL benchmark (v20) with {len(tasks)} tasks...")
+    print(f"Starting FULL REAL benchmark (v21) with {len(tasks)} tasks...")
     os.makedirs("paper/results_cache", exist_ok=True)
-    out_file = "paper/results_cache/unified_real_v20.csv"
+    out_file = "paper/results_cache/unified_real_v21.csv"
     header = ["Dataset", "Model", "Seed", "Loss", "Consensus", "Predictive Accuracy (Y)", "Train Accuracy (Y)", "Gen Gap (Y)", "Strictly Linear Accuracy", "Strictly Linear Train", "Strictly Linear Gap", "CMC", "SRE"]
     with open(out_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=header); writer.writeheader()
@@ -92,19 +104,24 @@ def run_real_benchmark(n_seeds=3, workers=None):
     with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(run_experiment_task, t): t for t in tasks}
         for future in as_completed(futures):
-            res = future.result()
+            res = future.result() # Raises exception if task failed
             if res:
                 with open(out_file, 'a', newline='') as f:
                     writer = csv.DictWriter(f, fieldnames=header); writer.writerow(res); f.flush()
             completed += 1
-            if completed % 10 == 0: print(f"  Progress: {completed}/{len(tasks)} completed"); sys.stdout.flush()
+            if completed % 10 == 0: 
+                print(f"  Progress: {completed}/{len(tasks)} completed")
+                sys.stdout.flush()
     print(f"Real benchmark complete: {out_file}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run v20 REAL benchmark")
-    parser.add_argument("--smoke-test", action="store_true")
-    parser.add_argument("--n-seeds", type=int, default=3)
+    multiprocessing.set_start_method('spawn', force=True)
+    parser = argparse.ArgumentParser(description="Run v21 REAL benchmark")
+    parser.add_argument("--n-seeds", type=int, default=5)
+    parser.add_argument("--iterations", type=int, default=50)
+    parser.add_argument("--epochs", type=int, default=150)
+    parser.add_argument("--no-nsa", action="store_false", dest="use_nsa")
+    parser.set_defaults(use_nsa=True)
     parser.add_argument("--workers", type=int, default=None)
     args = parser.parse_args(); 
-    if args.smoke_test: run_real_benchmark(n_seeds=1, workers=1)
-    else: run_real_benchmark(n_seeds=args.n_seeds, workers=args.workers)
+    run_real_benchmark(n_seeds=args.n_seeds, iterations=args.iterations, epochs=args.epochs, use_nsa=args.use_nsa, workers=args.workers)
