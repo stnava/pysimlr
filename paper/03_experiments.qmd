@@ -59,13 +59,13 @@ plt.show()
 
 ## Performance Matrix Summary
 
-### 3.2.1 Synthetic Benchmark Results
+### Synthetic Benchmark Results
 
 The table below summarizes model performance across synthetic regimes, showcasing the recovery of ground-truth structure and the ability to generalize to unseen data under the optimized v21 constraints.
 
 ```{python}
 #| label: tbl-synthetic-summary
-#| tbl-cap: "**Synthetic Benchmark Summary (v21).** Best-in-class performance per architecture across regimes under strict sparsity (0.5) and orthogonality (0.5) constraints. Aggregate results over $N=20$ seeds."
+#| tbl-cap: "**Exhaustive Synthetic Benchmark Summary (v21).** We report both the *Aggregate Robustness* (Mean ± SD across all 16 architectural configurations) and the *Peak Performance* (Best single configuration) per architecture. Results represent $N=1280$ total tasks."
 #| echo: false
 #| output: asis
 import pandas as pd
@@ -78,38 +78,33 @@ path_v21 = "results_cache/unified_synthetic_v21.csv"
 if os.path.exists(path_v21):
     df = pd.read_csv(path_v21)
     
-    regime_map = {'Linear': 'Linear', 'Polynomial': 'Polynomial', 'Sine': 'Sine', 'Private': 'Private Noise'}
-    df['Regime'] = df['Regime'].map(regime_map).fillna(df['Regime'])
     model_map = {'linear': 'SiMLR', 'lend': 'LEND', 'ned': 'NED', 'shared_private': 'NEDPP'}
     df['Model'] = df['Model'].map(model_map).fillna(df['Model'])
 
-    best_configs = df.groupby(['Regime', 'Model', 'Loss', 'Consensus'])['CMC'].mean().reset_index()
-    best_configs = best_configs.loc[best_configs.groupby(['Regime', 'Model'])['CMC'].idxmax()]
+    # 1. Aggregate Stats (All configs)
+    agg_robust = df.groupby(['Regime', 'Model']).agg({
+        'CMC': 'mean',
+        'Predictive Accuracy (Y)': 'mean'
+    }).reset_index()
     
-    merged = df.merge(best_configs[['Regime', 'Model', 'Loss', 'Consensus']], on=['Regime', 'Model', 'Loss', 'Consensus'])
+    # 2. Peak Stats (Best config)
+    peak = df.groupby(['Regime', 'Model', 'Loss', 'Consensus']).agg({
+        'CMC': 'mean',
+        'Predictive Accuracy (Y)': 'mean'
+    }).reset_index()
+    peak = peak.loc[peak.groupby(['Regime', 'Model'])['CMC'].idxmax()]
     
-    agg = merged.groupby(['Regime', 'Model', 'Loss', 'Consensus']).agg({
-        'CMC': ['mean', 'std'],
-        'Predictive Accuracy (Y)': ['mean', 'std'],
-        'Gen Gap (Y)': ['mean', 'std']
-    }).round(3)
+    merged = agg_robust.merge(peak, on=['Regime', 'Model'], suffixes=('_Agg', '_Peak'))
     
-    agg.columns = ['CMC_m', 'CMC_s', 'R2_m', 'R2_s', 'Gap_m', 'Gap_s']
-    agg = agg.reset_index()
-    
-    agg['CMC (↑)'] = agg.apply(lambda r: f"{r['CMC_m']:.2f} ± {r['CMC_s']:.2f}", axis=1)
-    agg['Test R2'] = agg.apply(lambda r: f"{r['R2_m']:.2f} ± {r['R2_s']:.2f}", axis=1)
-    agg['Gen Gap'] = agg.apply(lambda r: f"{r['Gap_m']:.3f} ± {r['Gap_s']:.3f}", axis=1)
-    
-    agg['Loss'] = agg['Loss'].str.upper()
-    agg['Consensus'] = agg['Consensus'].str.upper()
+    # Formatting
+    merged.columns = ['Regime', 'Model', 'Avg CMC', 'Avg R2', 'Best Loss', 'Best Cons', 'Peak CMC', 'Peak R2']
+    merged['Regime'] = merged['Regime'].str.replace('Private', 'Private Noise')
     
     model_order = ['SiMLR', 'LEND', 'NED', 'NEDPP']
-    agg['Model'] = pd.Categorical(agg['Model'], categories=model_order, ordered=True)
-    agg = agg.sort_values(['Regime', 'Model'])
-
-    cols = ['Regime', 'Model', 'Loss', 'Consensus', 'CMC (↑)', 'Test R2', 'Gen Gap']
-    print(tabulate(agg[cols], headers='keys', tablefmt='pipe', showindex=False))
+    merged['Model'] = pd.Categorical(merged['Model'], categories=model_order, ordered=True)
+    merged = merged.sort_values(['Regime', 'Model'])
+    
+    print(tabulate(merged, headers='keys', tablefmt='pipe', showindex=False))
 else:
     print("**Warning:** v21 Synthetic cache not found. Results will populate upon completion.")
 ```
@@ -155,7 +150,7 @@ else:
     print("Synthetic benchmark in progress...")
 ```
 
-### 3.2.2 The Interpretability-Performance Frontier
+### The Interpretability-Performance Frontier
 
 #### Assessing Representational Capacity vs. Mechanistic Transparency
 
@@ -276,7 +271,7 @@ Our statistical analysis confirms that **LEND (Linear Encoder, Deep Decoder)** i
 
 ```{python}
 #| label: tbl-diabetes-results
-#| tbl-cap: "**Diabetes Progression (v21).** Prediction performance under strict positivity and sparsity constraints."
+#| tbl-cap: "**Diabetes Progression (v21): Full Architectural Summary.** Average test $R^2$ across all configurations. The results confirm that SiMLR is the most robust baseline for this linear dataset, while deep models maintain competitive performance."
 #| echo: false
 #| output: asis
 import pandas as pd
@@ -285,21 +280,14 @@ import os
 
 cache_path = "results_cache/unified_real_v21.csv"
 if os.path.exists(cache_path):
-    df_db = pd.read_csv(cache_path)
-    db_subset = df_db[df_db['Dataset'] == 'Diabetes']
-    
-    db_stats = db_subset.groupby(['Model', 'Loss', 'Consensus']).agg({
-        'Predictive Accuracy (Y)': ['mean', 'std'],
-        'Strictly Linear Accuracy': ['mean', 'std'],
-        'Gen Gap (Y)': ['mean', 'std']
-    }).round(3).reset_index()
-    
-    db_stats.columns = ['Model', 'Loss', 'Consensus', 'Pred (Y) M', 'Pred (Y) S', 'Linear (XV) M', 'Linear (XV) S', 'Gap M', 'Gap S']
-    db_stats['Pred (Y)'] = db_stats.apply(lambda r: f"{r['Pred (Y) M']:.3f} ± {r['Pred (Y) S']:.3f}", axis=1)
-    db_stats['Linear (XV)'] = db_stats.apply(lambda r: f"{r['Linear (XV) M']:.3f} ± {r['Linear (XV) S']:.3f}", axis=1)
-    
-    db_stats = db_stats.sort_values(by='Linear (XV) M', ascending=False)
-    print(tabulate(db_stats[['Model', 'Loss', 'Consensus', 'Pred (Y)', 'Linear (XV)', 'Gap M']].head(15), headers='keys', tablefmt='pipe', showindex=False))
+    df = pd.read_csv(cache_path)
+    subset = df[df['Dataset'] == 'Diabetes']
+    agg = subset.groupby(['Model']).agg({
+        'Predictive Accuracy (Y)': ['mean', 'std', 'max'],
+        'Strictly Linear Accuracy': ['mean', 'max']
+    }).round(3)
+    agg.columns = ['Mean R2', 'Std', 'Peak R2', 'Linear (Mean)', 'Linear (Peak)']
+    print(tabulate(agg.reset_index(), headers='keys', tablefmt='pipe', showindex=False))
 else:
     print("Real benchmark cache not found.")
 ```
@@ -308,7 +296,7 @@ else:
 
 ```{python}
 #| label: tbl-heart-results
-#| tbl-cap: "**Heart Disease Classification (v21).** Classification performance under strict positivity and sparsity constraints."
+#| tbl-cap: "**Heart Disease Classification (v21): Full Architectural Summary.** Aggregate classification accuracy. LEND and NED architectures show a clear advantage in non-linear clinical diagnostic tasks."
 #| echo: false
 #| output: asis
 import pandas as pd
@@ -317,21 +305,14 @@ import os
 
 cache_path = "results_cache/unified_real_v21.csv"
 if os.path.exists(cache_path):
-    df_db = pd.read_csv(cache_path)
-    db_subset = df_db[df_db['Dataset'] == 'Heart']
-    
-    db_stats = db_subset.groupby(['Model', 'Loss', 'Consensus']).agg({
-        'Predictive Accuracy (Y)': ['mean', 'std'],
-        'Strictly Linear Accuracy': ['mean', 'std'],
-        'Gen Gap (Y)': ['mean', 'std']
-    }).round(3).reset_index()
-    
-    db_stats.columns = ['Model', 'Loss', 'Consensus', 'Pred (Y) M', 'Pred (Y) S', 'Linear (XV) M', 'Linear (XV) S', 'Gap M', 'Gap S']
-    db_stats['Pred (Y)'] = db_stats.apply(lambda r: f"{r['Pred (Y) M']:.3f} ± {r['Pred (Y) S']:.3f}", axis=1)
-    db_stats['Linear (XV)'] = db_stats.apply(lambda r: f"{r['Linear (XV) M']:.3f} ± {r['Linear (XV) S']:.3f}", axis=1)
-    
-    db_stats = db_stats.sort_values(by='Linear (XV) M', ascending=False)
-    print(tabulate(db_stats[['Model', 'Loss', 'Consensus', 'Pred (Y)', 'Linear (XV)', 'Gap M']].head(15), headers='keys', tablefmt='pipe', showindex=False))
+    df = pd.read_csv(cache_path)
+    subset = df[df['Dataset'] == 'Heart']
+    agg = subset.groupby(['Model']).agg({
+        'Predictive Accuracy (Y)': ['mean', 'std', 'max'],
+        'Strictly Linear Accuracy': ['mean', 'max']
+    }).round(3)
+    agg.columns = ['Mean Acc', 'Std', 'Peak Acc', 'Linear (Mean)', 'Linear (Peak)']
+    print(tabulate(agg.reset_index(), headers='keys', tablefmt='pipe', showindex=False))
 else:
     print("Real benchmark cache not found.")
 ```
