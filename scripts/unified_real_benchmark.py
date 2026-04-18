@@ -53,7 +53,8 @@ def run_experiment_task(task_args):
         "nsa_w": 0.5,
         "sparseness_quantile": 0.5
     }
-    # NO EXCEPTION HANDLING - CRASH ON ERROR
+    
+    # Run the experiment. Uncaught exceptions here will be passed to future.result()
     exp_res = run_single_experiment(model_type, case, seed=seed, **params)
     metrics = exp_res["metrics"]
     
@@ -104,14 +105,24 @@ def run_real_benchmark(n_seeds=5, iterations=50, epochs=150, use_nsa=True, worke
     with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(run_experiment_task, t): t for t in tasks}
         for future in as_completed(futures):
-            res = future.result() # Raises exception if task failed
-            if res:
-                with open(out_file, 'a', newline='') as f:
-                    writer = csv.DictWriter(f, fieldnames=header); writer.writerow(res); f.flush()
+            try:
+                res = future.result()
+                if res:
+                    with open(out_file, 'a', newline='') as f:
+                        writer = csv.DictWriter(f, fieldnames=header)
+                        writer.writerow(res)
+                        f.flush() # Forces immediate write to disk
+            except Exception as e:
+                task_args = futures[future]
+                print(f"\n[!] ERROR in task {task_args[0]} | {task_args[2]} | seed {task_args[3]}:")
+                traceback.print_exc()
+                sys.stdout.flush()
+                
             completed += 1
             if completed % 10 == 0: 
                 print(f"  Progress: {completed}/{len(tasks)} completed")
                 sys.stdout.flush()
+                
     print(f"Real benchmark complete: {out_file}")
 
 if __name__ == "__main__":

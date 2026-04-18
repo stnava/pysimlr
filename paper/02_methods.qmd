@@ -14,12 +14,12 @@ If we simply concatenate the sketches, the distinct noise profiles clash, creati
 
 SiMLR addresses the multi-observer sketch problem by formulating it as a generalized, joint-variational optimization objective. We define an "Umbrella" under which various architectures (linear, non-linear, shared-private) can harmoniously coexist and optimize toward a unified goal. 
 
-Let $M$ be the number of modalities. For each modality $m \in \{1, \dots, M\}$, let $X_m \in \mathbb{R}^{n \times d_m}$ be the input data matrix, where $n$ is the number of samples and $d_m$ is the feature dimension of the $m$-th modality. We seek to learn a transformation function $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k$ that maps the input data to a latent space of dimension $k$. We denote the latent representation (scores) as $Z_m = f_m(X_m) \in \mathbb{R}^{n \times k}$.
+Let $M$ be the number of modalities. For each modality $m \in \{1, \dots, M\}$, let $X_m \in \mathbb{R}^{n \times d_m}$ be the input data matrix, where $n$ is the number of samples and $d_m$ is the feature dimension of the $m$-th modality. We seek to learn an encoder $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k$ and a decoder $g_m: \mathbb{R}^k \to \mathbb{R}^{d_m}$. We denote the latent representation (scores) as $Z_m = f_m(X_m) \in \mathbb{R}^{n \times k}$ and the reconstruction as $\hat{X}_m = g_m(Z_m)$.
 
-The fundamental SiMLR objective is to minimize a joint loss function $\mathcal{L}$ that balances intra-modality reconstruction and inter-modality alignment via a tradeoff parameter $\alpha \in [0, 1]$:
+The fundamental SiMLR objective is to minimize a joint loss function $\mathcal{L}$ that balances intra-modality reconstruction, inter-modality alignment, and representation stability via discrete penalty weights (e.g., $\lambda_{\text{sim}}, \lambda_{\text{var}}, \lambda_{\text{cov}}$):
 
 $$
-\mathcal{L}(f_1, \dots, f_M) = (1-\alpha) \sum_{m=1}^M \mathcal{L}_{\text{recon}}(X_m, f_m) + \alpha \sum_{m \neq l} \mathcal{L}_{\text{align}}(Z_m, Z_l) + \gamma \sum_{m=1}^M \Omega(f_m)
+\mathcal{L}(\{f_m, g_m\}) = \sum_{m=1}^M \mathcal{L}_{\text{recon}}(X_m, \hat{X}_m) + \lambda_{\text{sim}} \sum_{m \neq l} \mathcal{L}_{\text{align}}(Z_m, Z_l) + \lambda_{\text{var}} \mathcal{L}_{\text{var}} + \lambda_{\text{cov}} \mathcal{L}_{\text{cov}} + \gamma \sum_{m=1}^M \Omega(f_m)
 $$
 
 ### Technical Glossary of Performance Metrics
@@ -198,6 +198,13 @@ Detailed mathematical proofs regarding the Riemannian geometry and orthogonal pe
 ## Loss Function Deep Dive
 
 The multi-view objective must ensure consistency while remaining invariant to nuisance transformations [@wang2015deep; @bach2002kernel].
+
+### Similarity Energies: Regression, ACC, NC, and Log-Cosh
+The framework supports multiple similarity energies:
+1. **Regression:** Mean squared error between normalized latents and consensus.
+2. **ACC:** Negative sum of absolute covariances.
+3. **NC:** Normalized correlation / Procrustes correlation.
+4. **Log-Cosh:** A robust, ICA-inspired similarity measure.
 
 ### ACC: Formal Derivation
 

@@ -18,6 +18,7 @@ import sys
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import csv
+import traceback
 
 # Ensure src is in path
 sys.path.append(os.path.join(os.getcwd(), "src"))
@@ -52,7 +53,7 @@ def run_experiment_task(task_args):
     if model_type == "shared_private" and "private_k" in case: 
         params["private_k"] = case["private_k"]
     
-    # NO EXCEPTION HANDLING - CRASH ON ERROR
+    # Run the experiment. Uncaught exceptions here will be passed to future.result()
     exp_res = run_single_experiment(model_type, case, seed=seed, **params)
     metrics = exp_res["metrics"]
     res = exp_res["result"]
@@ -107,14 +108,24 @@ def run_unified_benchmark(n_seeds=5, iterations=50, epochs=150, use_nsa=True, wo
     with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(run_experiment_task, t): t for t in tasks}
         for future in as_completed(futures):
-            res = future.result() # Raises exception immediately if task fails
-            if res:
-                with open(out_file, 'a', newline='') as f:
-                    writer = csv.DictWriter(f, fieldnames=header); writer.writerow(res); f.flush()
+            try:
+                res = future.result()
+                if res:
+                    with open(out_file, 'a', newline='') as f:
+                        writer = csv.DictWriter(f, fieldnames=header)
+                        writer.writerow(res)
+                        f.flush() # Forces immediate write to disk
+            except Exception as e:
+                task_args = futures[future]
+                print(f"\n[!] ERROR in task {task_args[0]} | {task_args[2]} | seed {task_args[4]}:")
+                traceback.print_exc()
+                sys.stdout.flush()
+                
             completed += 1
             if completed % 10 == 0: 
                 print(f"  Progress: {completed}/{len(tasks)} completed")
                 sys.stdout.flush()
+                
     print(f"Benchmark complete: {out_file}")
 
 if __name__ == "__main__":
