@@ -121,7 +121,7 @@ class LENDNSAEncoder(nn.Module):
     def __init__(self, input_dim: int, latent_dim: int, nsa_w: float = 0.1, 
                  positivity: str = "positive", sparseness_quantile: float = 0.0,
                  soft_thresholding: bool = False, use_nsa: bool = True,
-                 first_layer_mode: str = "scheduled"):
+                 first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
         super().__init__()
         self.positivity = positivity
         self.sparseness_quantile = sparseness_quantile
@@ -130,6 +130,7 @@ class LENDNSAEncoder(nn.Module):
         if first_layer_mode not in {"raw", "projected", "scheduled"}:
             raise ValueError(f"Unsupported first_layer_mode: {first_layer_mode}")
         self.first_layer_mode = first_layer_mode
+        self.nsa_iterations = nsa_iterations
         self.projection_alpha = 0.0
         self.stabilization_epoch = 0
         self.stabilization_ramp_epochs = 1
@@ -164,10 +165,21 @@ class LENDNSAEncoder(nn.Module):
     def v(self):
         # When evaluating, we always project to Stiefel
         if self.nsa_linear is not None:
-            # NSAFlowLinear handles the orthogonal SVD-squeeze
             v_out = self.nsa_linear.get_manifold_weight()
+            # If multiple iterations requested, apply hard SVD projection
+            # to ensure "orthogonal enough" basis for diagnostics.
+            if self.nsa_iterations > 1:
+                try:
+                    v_out = _svd_project_columns(v_out)
+                except:
+                    pass
         elif self.nsa_layer is not None:
             v_out = self.nsa_layer(self.v_raw)
+            if self.nsa_iterations > 1:
+                try:
+                    v_out = _svd_project_columns(v_out)
+                except:
+                    pass
         else:
             try:
                 v_out = _svd_project_columns(self.v_raw)
@@ -176,10 +188,8 @@ class LENDNSAEncoder(nn.Module):
         
         # APPLY POSITIVITY (Legacy Clamp or Advanced Softplus)
         if self.positivity in {'positive', 'hard'}:
-            # RESTORE LEGACY BEHAVIOR: Use clamping for stability/convergence
             v_out = torch.clamp(v_out, min=0.0)
         elif self.positivity == 'softplus':
-            # EXPERT OPTION: Smooth non-negativity via shifted Softplus
             v_out = torch.nn.functional.softplus(v_out - 4.0)
         
         if torch.isnan(v_out).any():
@@ -332,11 +342,11 @@ class LENDSiMRModel(nn.Module):
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
                  dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "positive", 
                  sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
-                 use_nsa: bool = True, first_layer_mode: str = "scheduled"):
+                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
         super().__init__()
         if isinstance(sparseness_quantile, (float, int)):
             sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
-        self.encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode) for dim, sq in zip(input_dims, sparseness_quantile)])
+        self.encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.mixing_algorithm, self.latent_dim = mixing_algorithm, latent_dim
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
@@ -344,6 +354,10 @@ class LENDSiMRModel(nn.Module):
             for i, x in enumerate(data_matrices):
                 u, s, v = ba_svd(x, nu=0, nv=k)
                 if v.shape[1] < k: v = torch.cat([v, torch.randn(v.shape[0], k-v.shape[1], device=v.device)*1e-4], dim=1)
+                # Positivity-aware sign flipping to prevent zero-vector collapse
+                if self.encoders[i].positivity in {"positive", "hard", "softplus"}:
+                    for j in range(v.shape[1]):
+                        if v[:, j].sum() < 0: v[:, j] *= -1
                 self.encoders[i].v_raw.copy_(v.to(x.dtype))
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.encoders, x_list)]
@@ -412,11 +426,11 @@ class NEDSiMRModel(nn.Module):
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
                  dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "positive", 
                  sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
-                 use_nsa: bool = True, first_layer_mode: str = "scheduled"):
+                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
         super().__init__()
         if isinstance(sparseness_quantile, (float, int)):
             sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
-        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode) for dim, sq in zip(input_dims, sparseness_quantile)])
+        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.nonlinear_heads = nn.ModuleList([ModalityDecoder(latent_dim, latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.mixing_algorithm, self.latent_dim = mixing_algorithm, latent_dim
@@ -425,6 +439,10 @@ class NEDSiMRModel(nn.Module):
             for i, x in enumerate(data_matrices):
                 u, s, v = ba_svd(x, nu=0, nv=k)
                 if v.shape[1] < k: v = torch.cat([v, torch.randn(v.shape[0], k-v.shape[1], device=v.device)*1e-4], dim=1)
+                # Positivity-aware sign flipping to prevent zero-vector collapse
+                if self.linear_encoders[i].positivity in {"positive", "hard", "softplus"}:
+                    for j in range(v.shape[1]):
+                        if v[:, j].sum() < 0: v[:, j] *= -1
                 self.linear_encoders[i].v_raw.copy_(v.to(x.dtype))
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
@@ -500,11 +518,11 @@ class NEDSharedPrivateSiMRModel(nn.Module):
     def __init__(self, input_dims: List[int], shared_latent_dim: int, private_latent_dim: int,
                  hidden_dims: List[int] = [128, 64], dropout: float = 0.1, nsa_w: float = 0.1,
                  positivity: str = "positive", sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
-                 use_nsa: bool = True, first_layer_mode: str = "scheduled"):
+                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
         super().__init__()
         if isinstance(sparseness_quantile, (float, int)):
             sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
-        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, shared_latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode) for dim, sq in zip(input_dims, sparseness_quantile)])
+        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, shared_latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.shared_heads = nn.ModuleList([ModalityDecoder(shared_latent_dim, shared_latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.private_encoders = nn.ModuleList([ModalityEncoder(dim, private_latent_dim, hidden_dims, dropout) for dim in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(shared_latent_dim + private_latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
@@ -514,6 +532,10 @@ class NEDSharedPrivateSiMRModel(nn.Module):
             for i, x in enumerate(data_matrices):
                 u, s, v = ba_svd(x, nu=0, nv=k)
                 if v.shape[1] < k: v = torch.cat([v, torch.randn(v.shape[0], k-v.shape[1], device=v.device)*1e-4], dim=1)
+                # Positivity-aware sign flipping to prevent zero-vector collapse
+                if self.linear_encoders[i].positivity in {"positive", "hard", "softplus"}:
+                    for j in range(v.shape[1]):
+                        if v[:, j].sum() < 0: v[:, j] *= -1
                 self.linear_encoders[i].v_raw.copy_(v.to(x.dtype))
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
@@ -797,7 +819,7 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     first_layer_training = {"mode": getattr(getattr(model, "encoders", getattr(model, "linear_encoders", [None]))[0], "first_layer_mode", None) if (hasattr(model, "encoders") or hasattr(model, "linear_encoders")) else None, "stabilization_start_epoch": stabilization_start_epoch, "stabilization_ramp_epochs": stabilization_ramp_epochs, "projection_alpha_history": projection_alpha_history, "basis_drift_history": basis_drift_history}
     return loss_history, recon_history, sim_history, converged_epoch, first_layer_training
 
-def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, **kwargs) -> Dict[str, Any]:
+def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, **kwargs) -> Dict[str, Any]:
     """
     Fit a Linear Encoded Nonlinear Decoding (LEND) model.
 
@@ -866,7 +888,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
-    model = LENDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, use_nsa=use_nsa, first_layer_mode=first_layer_mode).to(device)
+    model = LENDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations).to(device)
     model.initialize_v(torch_mats, k)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -883,7 +905,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
     return result
 
-def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, **kwargs) -> Dict[str, Any]:
+def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, **kwargs) -> Dict[str, Any]:
     """
     Fit a Nonlinear Encoded Decoding (NED) model.
 
@@ -952,7 +974,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
-    model = NEDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, use_nsa=use_nsa, first_layer_mode=first_layer_mode).to(device)
+    model = NEDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations).to(device)
     model.initialize_v(torch_mats, k)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -969,7 +991,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
     return result
 
-def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = True, first_layer_mode: str = "scheduled", stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, **kwargs) -> Dict[str, Any]:
+def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, **kwargs) -> Dict[str, Any]:
     """
     Fit a Nonlinear Encoded Decoding model with Shared and Private Latents (NED++).
 
@@ -1053,7 +1075,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     if private_k is None: private_k = max(1, k // 2)
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
-    model = NEDSharedPrivateSiMRModel(input_dims, k, private_k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, use_nsa=use_nsa, first_layer_mode=first_layer_mode).to(device)
+    model = NEDSharedPrivateSiMRModel(input_dims, k, private_k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations).to(device)
     model.initialize_v(torch_mats, k)
     
     # Store weights on model for train loop access

@@ -424,6 +424,8 @@ from sklearn.preprocessing import StandardScaler
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+torch.manual_seed(42)
+np.random.seed(42)
 
 data = load_diabetes()
 X_scaled = StandardScaler().fit_transform(data.data)
@@ -431,14 +433,19 @@ mats_db = [torch.tensor(X_scaled[:, :5]).float(), torch.tensor(X_scaled[:, 5:]).
 
 # Top config for NED on Diabetes (v21 robust gold-standard)
 res_db = ned_simr(mats_db, k=2, epochs=100, energy_type='logcosh', mixing_algorithm='newton', 
-                  positivity='positive', sparseness_quantile=0.5, verbose=False)
+                  positivity='positive', sparseness_quantile=0.5, nsa_iterations=3, verbose=False)
 v_db = res_db["v"][0]
 x_sample = torch.tensor(X_scaled[0, :5]).float()
 
-impact = (x_sample * v_db[:, 0]).detach().numpy()
+# Find which latent has more signal for this view to avoid empty plots
+latent_idx = torch.argmax(v_db.abs().sum(dim=0)).item()
+impact = (x_sample * v_db[:, latent_idx]).detach().numpy()
 feat_names = data.feature_names[:5]
 
+# Filter out zero-impact features for a cleaner waterfall
 idx = np.argsort(np.abs(impact))[::-1]
+non_zero = np.abs(impact[idx]) > 1e-5
+idx = idx[non_zero]
 plt.figure(figsize=(10, 6))
 colors = ['#d62728' if impact[i] > 0 else '#1f77b4' for i in idx]
 plt.barh([feat_names[i] for i in idx], impact[idx], color=colors)

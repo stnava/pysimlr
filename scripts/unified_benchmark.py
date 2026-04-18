@@ -48,7 +48,8 @@ def run_experiment_task(task_args):
         "use_nsa": use_nsa, 
         "positivity": "positive", 
         "nsa_w": 0.5, 
-        "sparseness_quantile": 0.5
+        "sparseness_quantile": 0.5,
+        "nsa_iterations": 3
     }
     if model_type == "shared_private" and "private_k" in case: 
         params["private_k"] = case["private_k"]
@@ -132,7 +133,7 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn', force=True)
     parser = argparse.ArgumentParser(description="Run v21 FULL synthetic benchmark")
     parser.add_argument("--n-seeds", type=int, default=5)
-    parser.add_argument("--iterations", type=int, default=50)
+    parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--epochs", type=int, default=150)
     parser.add_argument("--no-nsa", action="store_false", dest="use_nsa")
     parser.set_defaults(use_nsa=True)
