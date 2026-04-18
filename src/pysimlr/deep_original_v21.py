@@ -349,7 +349,6 @@ class LENDSiMRModel(nn.Module):
         self.encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.mixing_algorithm, self.latent_dim = mixing_algorithm, latent_dim
-        self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
         with torch.no_grad():
             for i, x in enumerate(data_matrices):
@@ -377,13 +376,7 @@ class LENDSiMRModel(nn.Module):
 
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         latents = self.encode_first_layer(x_list)
-        res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor)
-        if self.training:
-            u_shared, new_anchor = res_u
-            # Update anchor using EMA for stability
-            if new_anchor is not None: self.consensus_anchor.copy_(0.9 * self.consensus_anchor + 0.1 * new_anchor)
-        else:
-            u_shared = res_u
+        u_shared = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training)
         return latents, [dec(u_shared) for dec in self.decoders], u_shared
 
     def get_projectors(self) -> List[Callable[[torch.Tensor], torch.Tensor]]:
@@ -441,7 +434,6 @@ class NEDSiMRModel(nn.Module):
         self.nonlinear_heads = nn.ModuleList([ModalityDecoder(latent_dim, latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.mixing_algorithm, self.latent_dim = mixing_algorithm, latent_dim
-        self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
         with torch.no_grad():
             for i, x in enumerate(data_matrices):
@@ -470,13 +462,7 @@ class NEDSiMRModel(nn.Module):
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         first_layer_scores = self.encode_first_layer(x_list)
         latents = [head(z0) for head, z0 in zip(self.nonlinear_heads, first_layer_scores)]
-        res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor)
-        if self.training:
-            u_shared, new_anchor = res_u
-            # Update anchor using EMA for stability
-            if new_anchor is not None: self.consensus_anchor.copy_(0.9 * self.consensus_anchor + 0.1 * new_anchor)
-        else:
-            u_shared = res_u
+        u_shared = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training)
         return latents, [dec(u_shared) for dec in self.decoders], u_shared
 
     def transform(self, x_list: List[torch.Tensor]) -> torch.Tensor:
@@ -538,7 +524,6 @@ class NEDSharedPrivateSiMRModel(nn.Module):
             sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
         self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, shared_latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.shared_heads = nn.ModuleList([ModalityDecoder(shared_latent_dim, shared_latent_dim, hidden_dims, dropout) for _ in input_dims])
-        self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * shared_latent_dim, shared_latent_dim))
         self.private_encoders = nn.ModuleList([ModalityEncoder(dim, private_latent_dim, hidden_dims, dropout) for dim in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(shared_latent_dim + private_latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.mixing_algorithm, self.shared_dim = mixing_algorithm, shared_latent_dim
@@ -571,12 +556,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         first_layer_scores = self.encode_first_layer(x_list)
         shared_l = [head(z0) for head, z0 in zip(self.shared_heads, first_layer_scores)]
         private_l = [p_enc(x) for p_enc, x in zip(self.private_encoders, x_list)]
-        res_u = compute_shared_consensus(shared_l, mixing_algorithm=self.mixing_algorithm, k=self.shared_dim, training=self.training, anchor=self.consensus_anchor)
-        if self.training:
-            u_shared, new_anchor = res_u
-            if new_anchor is not None: self.consensus_anchor.copy_(0.9 * self.consensus_anchor + 0.1 * new_anchor)
-        else:
-            u_shared = res_u
+        u_shared = compute_shared_consensus(shared_l, mixing_algorithm=self.mixing_algorithm, k=self.shared_dim, training=self.training)
         recons = [dec(torch.cat([u_shared, p], dim=1)) for dec, p in zip(self.decoders, private_l)]
         return shared_l, recons, u_shared, private_l
 
