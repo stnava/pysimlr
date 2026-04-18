@@ -16,6 +16,7 @@ book:
     - 03_experiments.qmd
     - 04_discussion.qmd
   appendices:
+    - appendix_brca_clinical_validation.qmd
     - appendix_operational.qmd
 
 bibliography: references.bib

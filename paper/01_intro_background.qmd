@@ -4,37 +4,33 @@
 
 In the era of high-throughput data collection, scientific disciplines increasingly rely on multi-modal datasets to capture comprehensive snapshots of complex systems. Modern biomedical research frequently pairs transcriptomics, proteomics, and epigenomics to understand cellular states, while neuroscience integrates functional magnetic resonance imaging (fMRI) with electroencephalography (EEG) and behavioral metrics. These disparate data types, termed *views* or *modalities*, offer complementary perspectives on an underlying shared reality. 
 
-### The Chorus of Observers
+### Multimodal Consensus as Latent Signal Recovery
 
-We propose the **Chorus of Observers** metaphor to describe this problem: imagine a central biological process (the "melody") being recorded by a collective of independent sensors, each with its own technical bias and noise profile (the "harmonics"). Integrating these modalities requires a mathematical framework that honors the autonomy of each observer while simultaneously guiding them toward a shared consensus—a framework that listens to the chorus and extracts the underlying signal without erasing individual nuance.
+We formalize the multi-view integration problem as the recovery of a latent signal $S \in \mathbb{R}^k$ from a collection of $M$ high-dimensional observations $\{X_m\}_{m=1}^M$. Each view is modeled as $X_m = g_m(S) + \epsilon_m$, where $g_m$ represents a view-specific (potentially nonlinear) generative process and $\epsilon_m$ denotes modality-specific noise. Integrating these modalities requires a mathematical framework that accounts for the unique covariance structure of each observer while converging on a shared consensus representation $U$ that captures the underlying signal $S$. 
 
 Integrating these modalities remains a formidable challenge due to their heterogeneous noise profiles, varying dimensionalities, and fundamentally different generative processes. Uncovering this consensus is not merely a data compression exercise; it serves as a critical step in hypothesis generation, biomarker discovery, and predictive modeling. 
 
-Historically, the foundation of multi-view integration was laid by Canonical Correlation Analysis (CCA) [@hotelling1936relations]. While SiMLR provides a robust and interpretable foundation, the rapid ascent of deep learning has highlighted a new frontier: the ability to model highly nonlinear generative processes. Deep CCA (DCCA) [@andrew2013deep] and multi-view autoencoders leverage universal function approximators to achieve superior predictive performance, but they do so at a severe cost: the loss of interpretability. 
+Historically, the foundation of multi-view integration was laid by Canonical Correlation Analysis (CCA) [@hotelling1936relations]. SiMLR provides a generalization of CCA that incorporates sparsity and positivity constraints via Non-negative Matrix Factorization (NMF) [@Zhao_2011;@Lee_1999] alongside modern optimization techniques [@avants2021;@avants2025].  While SiMLR provides a robust and interpretable foundation, the rapid ascent of deep learning has highlighted a new frontier: the ability to model highly nonlinear generative processes. Deep CCA (DCCA) [@andrew2013deep] and multi-view autoencoders leverage universal function approximators to achieve superior predictive performance, but they do so at a severe cost: the loss of interpretability. 
 
-In this work, we resolve the tension between deep learning's expressivity and the transparency required for scientific discovery. We present the deep evolution of the SiMLR framework, featuring two primary architectural extensions: **LEND** (Linear Encoder, Nonlinear Decoder) and **NED** (Nonlinear Encoder Decoder). Our framework bridges the gap between classical linear methods and modern deep learning by introducing a modular, manifold-constrained architecture that strictly enforces interpretability where it matters—at the feature-to-latent projection—while allowing flexible, nonlinear modeling of the underlying data topology.
+In this work, we resolve the tension between deep learning's expressivity and the transparency required for scientific discovery. We present the deep evolution of the SiMLR framework, featuring three architectural extensions: **LEND** (Linear Encoder, Nonlinear Decoder), **NED** (Nonlinear Encoder Decoder) and **NEDPP** (Nonlinear Encoder Decoder with Private Partitions) all powered by an interpretable first layer that learns a linear basis with soft orthogonality and (optional) positivity constraints inspired by Non-negative Matrix Factorization (NMF) to ensure parts-based, interpretable feature representations [@Zhao_2011;@Lee_1999].  The key first layer in this framework helps bridge the gap between classical linear methods and modern deep learning by introducing modular, manifold-constrained architectures that enforce structural interpretability at the feature-to-latent projection ($Z = XV$), while allowing flexible, nonlinear modeling of the underlying data topology. This approach enables the **Deep-to-Linear Benefit**, which we define as the **nonlinear regularization of linear projections**; here, high-capacity decoders or nonlinear auxiliary objectives guide the discovery of optimal linear bases using the same collection of loss functions as in prior work [@avants2025].
 
 ## Background
 
 ### Multi-View Representation Learning
 
-Multi-view representation learning aims to find a unified latent space $U$ that captures the consensus across $M$ distinct data matrices $\{X_m\}_{m=1}^M$. This process typically involves finding view-specific transformations $f_m(X_m)$ that converge toward $U$ according to a shared similarity metric.
+One form of multi-view representation learning aims to find a unified latent space $U$ that captures the consensus across $M$ distinct data matrices $\{X_m\}_{m=1}^M$. This process typically involves finding view-specific transformations $f_m(X_m)$ that converge toward $U$ according to a shared similarity metric.  Linear methods like gCCA and SiMLR rely on projection matrices $V_m$ where the weights directly quantify feature contributions. In contrast, deep multi-view models parametrize $f_m$ as multilayer perceptrons [@Sapkota_2025;@Zhao_2024]. While these "Fully Deep" models excel at capturing complex structures, they suffer from a fundamental lack of **Structural Interpretability**, as the relationship between $X$ and the latent space is obscured by nested nonlinearities. 
 
-#### From Linear Projections to Deep Entanglement
+### The Linear Projection Constraint: Structural Interpretability
 
-Linear methods like gCCA and SiMLR rely on projection matrices $V_m$ where the weights directly quantify feature contributions. In contrast, deep multi-view models parametrize $f_m$ as multilayer perceptrons. While these "Fully Deep" models excel at capturing complex structures, they suffer from a fundamental lack of **Mechanical Faithfulness**. 
+To restore transparency to deep multi-view learning, we enforce a **Linear Projection Constraint** as the foundational architectural requirement. This constraint governs the model's entry point:
 
-### The First-Layer Contract: A Mechanical Bridge
+1.  **Linear Projection ($Z = XV$):** The model's first operation is a linear transformation $Z_m = X_m V_m$.
+2.  **Orthonormal Basis:** The basis $V_m$ is restricted to be near the Stiefel manifold ($V_m^\top V_m = I$), ensuring non-redundant, orthonormal feature discovery.
+3.  **Direct Feature Attribution:** By restricting the initial encoding step, we ensure that every downstream latent factor $Z$ is a direct linear combination of the input features $X$, making $V$ a globally interpretable weight matrix.
 
-To restore transparency to deep multi-view learning, we propose the **First-Layer Contract**. This contract is a structural constraint that governs the model's entry point:
+This architecture ensures that interpretability is not an afterthought or a post-hoc approximation; it is a **structural property of the system**. As argued by Rudin (2019) [@Rudin_2019], high-stakes decision-making in medicine and science demands inherently interpretable models rather than "black boxes" explained post-hoc. Widespread post-hoc explanation methods, such as LIME (Ribeiro et al., 2016) [@Ribeiro_2016] and SHAP (Lundberg & Lee, 2017) [@Lundberg_2017], attempt to reverse-engineer feature attribution by fitting local surrogate models or sampling perturbations around a specific input. However, these methods are fundamentally approximations; they suffer from instability, sensitivity to background datasets, and often fail to accurately reflect the true underlying mechanics of deep, entangled networks.
 
-1.  **Linear Entry:** The model's first operation is a linear projection $Z_m = X_m V_m$.
-2.  **Spectral Integrity:** The basis $V_m$ is constrained to the Stiefel manifold ($V_m^	op V_m = I$), ensuring non-redundant, orthonormal feature discovery.
-3.  **Mechanical Interpretability:** By restricting the encoder's first layer, we ensure that every downstream latent factor is a direct, linear combination of the input features.
-
-This architecture ensures that interpretability is not an afterthought or a post-hoc approximation; it is a **mechanical property of the system**. As argued by Rudin (2019), high-stakes decision-making in medicine and science demands inherently interpretable models rather than "black boxes" explained post-hoc. Widespread post-hoc explanation methods, such as LIME (Ribeiro et al., 2016) and SHAP (Lundberg & Lee, 2017), attempt to reverse-engineer feature attribution by fitting local surrogate models or sampling perturbations around a specific input. However, these methods are fundamentally approximations; they suffer from instability, sensitivity to background datasets, and often fail to accurately reflect the true underlying mechanics of deep, entangled networks.
-
-In contrast, our framework provides **Auditability by Design**. The weights in the basis $V_m$ are not estimates of importance—they *are* the exact global importance. Furthermore, this structural guarantee enables precise **counterfactual reasoning** (Wachter et al., 2017). In scientific discovery, we often ask: *"What is the smallest change in the input features required to alter the model's consensus prediction?"* Because the features are projected linearly before any nonlinear mixing occurs, the answer is analytically defined rather than empirically guessed, allowing for exact, verifiable counterfactuals.
+In contrast, our framework provides auditability by design. The weights in the basis $V_m$ are not estimates of importance—they *are* the exact global importance. Furthermore, this structural guarantee enables precise **counterfactual reasoning** [@Wachter_2017]. In scientific discovery, we often ask: *"What is the smallest change in the input features required to alter the model's consensus prediction?"* Because the features are projected linearly before any nonlinear mixing occurs, the answer is analytically defined rather than empirically guessed, allowing for exact, verifiable counterfactuals.
 
 ::: {#fig-interpretability-gap}
 ```{mermaid}
@@ -48,20 +44,20 @@ graph LR
         Explainer -->|Local Surrogate| Guess[Importance Estimate]
     end
 
-    subgraph Mechanical [Mechanical: Auditability by Design]
+    subgraph Structural [Structural: Auditability by Design]
         direction TB
         InputM[Input X] -->|Linear Entry| SparseWeights["Basis Matrix V"]
-        SparseWeights -->|First-Layer Contract| Latent[Latent Z]
+        SparseWeights -->|Z = XV| Latent[Latent Z]
         Latent -->|Deep Heads/Decoders| Meaning["Deep Topology"]
         Latent -.->|Exact Alignment| Exact["Importance = Weights"]
     end
     
     style PostHoc fill:#ffffff,stroke:#333,stroke-width:2px
-    style Mechanical fill:#f0f7ff,stroke:#01579b,stroke-width:2px
+    style Structural fill:#f0f7ff,stroke:#01579b,stroke-width:2px
     style SparseWeights fill:#e3f2fd,stroke:#1976d2,color:#000
     style BlackBox fill:#fff5f5,stroke:#c62828,color:#000
 ```
-The Interpretability Paradigm Shift. Post-hoc methods guess importance by perturbing a black box. SiMLR's Mechanical Interpretability enforces importance by design through the First-Layer Contract.
+The Interpretability Paradigm Shift. Post-hoc methods guess importance by perturbing a black box. SiMLR's Structural Interpretability enforces importance by design through the Linear Projection Constraint.
 :::
 
 ### Architectural Taxonomy and Visual Roadmap
@@ -70,5 +66,8 @@ We evaluate our framework across four distinct algorithmic rationales, each anch
 
 *   [**SiMLR (Purely Linear - Blue):**]{style="color: #1f77b4; font-weight: bold;"} The baseline for spectral integrity and Gaussian data.
 *   [**LEND (Mixed Architecture - Green):**]{style="color: #2ca02c; font-weight: bold;"} Our primary innovation, combining a linear encoder for discovery with a deep decoder for nonlinear denoising.
-*   [**NED (Fully Nonlinear - Orange):**]{style="color: #ff7f0e; font-weight: bold;"} The upper bound for representational capacity, still adhering to the First-Layer Contract.
-*   [**NEDPP (Shared/Private - Purple):**]{style="color: #9467bd; font-weight: bold;"} Disentangling cross-modal consensus from view-specific idiosyncratic noise via the **Multi-modal Prism**.
+*   [**NED (Fully Nonlinear - Orange):**]{style="color: #ff7f0e; font-weight: bold;"} The upper bound for representational capacity, still adhering to the linear projection constraint.
+*   [**NEDPP (Shared/Private - Purple):**]{style="color: #9467bd; font-weight: bold;"} Disentangling cross-modal consensus from view-specific idiosyncratic noise via a **shared-private decomposition of the latent space**.
+
+
+The remainder of this paper is structured as follows. In Section 2, we formalize the SiMLR objective and loss functions, detailing our architectural taxonomy from purely linear to shared-private disentanglement models. In Section 3, we conduct rigorous synthetic experiments to systematically evaluate the consistency-interpretability tradeoff and the "deep-to-linear" benefit. We then apply these models to a clinical breast cancer (BRCA) biomarker validation study. Finally, Section 4 discusses the implications of our findings for the future of explainable multi-omics integration and clinical translation.
