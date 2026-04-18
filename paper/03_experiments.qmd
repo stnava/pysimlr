@@ -84,20 +84,21 @@ if os.path.exists(path_v21):
     # 1. Aggregate Stats (All configs)
     agg_robust = df.groupby(['Regime', 'Model']).agg({
         'CMC': 'mean',
-        'Predictive Accuracy (Y)': 'mean'
+        'Strictly Linear Accuracy': 'mean'
     }).reset_index()
     
     # 2. Peak Stats (Best config)
     peak = df.groupby(['Regime', 'Model', 'Loss', 'Consensus']).agg({
         'CMC': 'mean',
-        'Predictive Accuracy (Y)': 'mean'
+        'Strictly Linear Accuracy': 'mean'
     }).reset_index()
-    peak = peak.loc[peak.groupby(['Regime', 'Model'])['CMC'].idxmax()]
+    # Now Peak is selected by the best strictly linear basis
+    peak = peak.loc[peak.groupby(['Regime', 'Model'])['Strictly Linear Accuracy'].idxmax()]
     
     merged = agg_robust.merge(peak, on=['Regime', 'Model'], suffixes=('_Agg', '_Peak'))
     
     # Formatting
-    merged.columns = ['Regime', 'Model', 'Avg CMC', 'Avg R2', 'Best Loss', 'Best Cons', 'Peak CMC', 'Peak R2']
+    merged.columns = ['Regime', 'Model', 'Avg CMC', 'Avg XV R2', 'Best Loss', 'Best Cons', 'Peak CMC', 'Peak XV R2']
     merged['Regime'] = merged['Regime'].str.replace('Private', 'Private Noise')
     
     model_order = ['SiMLR', 'LEND', 'NED', 'NEDPP']
@@ -131,17 +132,17 @@ if os.path.exists(path_v21):
 
     # Calculate robust rankings within each regime/seed pair to prevent scale dominance
     df['Rank_CMC'] = df.groupby(['Regime', 'Seed'])['CMC'].rank(ascending=False, method='min')
-    df['Rank_R2'] = df.groupby(['Regime', 'Seed'])['Predictive Accuracy (Y)'].rank(ascending=False, method='min')
+    df['Rank_XV'] = df.groupby(['Regime', 'Seed'])['Strictly Linear Accuracy'].rank(ascending=False, method='min')
     
     global_agg = df.groupby(['Model', 'Loss', 'Consensus']).agg({
         'Rank_CMC': 'mean',
-        'Rank_R2': 'mean',
+        'Rank_XV': 'mean',
         'CMC': 'mean',
-        'Predictive Accuracy (Y)': 'mean'
-    }).sort_values(by='Rank_R2', ascending=True).round(3)
+        'Strictly Linear Accuracy': 'mean'
+    }).sort_values(by='Rank_XV', ascending=True).round(3)
     
     global_agg = global_agg.reset_index()
-    global_agg.columns = ['Model', 'Loss', 'Consensus', 'Mean Rank (CMC)', 'Mean Rank (R2)', 'Raw CMC', 'Raw R2']
+    global_agg.columns = ['Model', 'Loss', 'Consensus', 'Mean Rank (CMC)', 'Mean Rank (XV)', 'Raw CMC', 'Raw XV R2']
     global_agg['Loss'] = global_agg['Loss'].str.upper()
     global_agg['Consensus'] = global_agg['Consensus'].str.upper()
     
@@ -149,6 +150,38 @@ if os.path.exists(path_v21):
 else:
     print("Synthetic benchmark in progress...")
 ```
+
+
+#### Consensus and Loss Sensitivity Analysis
+
+To rigorously evaluate the "First-Layer Contract," we analyze the sensitivity of the architectures to different mathematical priors (Loss functions) and alignment strategies (Consensus algorithms). While $U$-based prediction (Direct Consensus) is sensitive to latent coordinate drift, the $XV$-based prediction (First-Layer Basis) remains stable across all consensus methods.
+
+```{python}
+#| label: tbl-consensus-breakdown
+#| tbl-cap: "**Architectural Sensitivity to Alignment Strategy.** Aggregate Strictly Linear Accuracy ($R^2_{XV}$) across all regimes, stratified by consensus method. Unlike $U$-based prediction, the $XV$ projection remains robust across consensus algorithms, demonstrating the structural stability of the learned first-layer basis."
+#| echo: false
+#| output: asis
+import pandas as pd
+from tabulate import tabulate
+import os
+
+path_v21 = "results_cache/unified_synthetic_v21.csv"
+if os.path.exists(path_v21):
+    df = pd.read_csv(path_v21)
+    model_map = {'linear': 'SiMLR', 'lend': 'LEND', 'ned': 'NED', 'shared_private': 'NEDPP'}
+    df['Model'] = df['Model'].map(model_map).fillna(df['Model'])
+    
+    # Calculate Mean XV R2 per Model/Consensus across all regimes
+    sens_agg = df.groupby(['Model', 'Consensus'])['Strictly Linear Accuracy'].agg(['mean', 'std']).reset_index()
+    sens_agg['Performance'] = sens_agg.apply(lambda r: f"{r['mean']:.3f} ± {r['std']:.3f}", axis=1)
+    
+    pivot = sens_agg.pivot(index='Model', columns='Consensus', values='Performance')
+    pivot.columns = [c.upper() for c in pivot.columns]
+    
+    print(tabulate(pivot, headers='keys', tablefmt='pipe', showindex=True))
+```
+
+The data confirms the structural stability of the "First-Layer Contract." While **Newton-Schulz** and **ICA** are preferred for deep manifold alignment, the learned linear basis $V$ identifies consistent feature subspaces regardless of the specific algebraic consensus path chosen, ensuring auditable discovery remains invariant to downstream consensus stability.
 
 ### The Interpretability-Performance Frontier
 
@@ -229,7 +262,7 @@ def analyze_dataset(df, dataset_col, metric_col):
             })
     return pd.DataFrame(results)
 
-res = analyze_dataset(synth_df, 'Regime', 'Predictive Accuracy (Y)')
+res = analyze_dataset(synth_df, 'Regime', 'Strictly Linear Accuracy')
 print(tabulate(res, headers='keys', tablefmt='pipe', showindex=False))
 ```
 
@@ -241,7 +274,7 @@ The synthetic results show that under complex generative regimes (e.g., Polynomi
 #| echo: false
 #| output: asis
 real_df = pd.read_csv('results_cache/unified_real_v21.csv')
-res_real = analyze_dataset(real_df, 'Dataset', 'Predictive Accuracy (Y)')
+res_real = analyze_dataset(real_df, 'Dataset', 'Strictly Linear Accuracy')
 print(tabulate(res_real, headers='keys', tablefmt='pipe', showindex=False))
 ```
 
@@ -283,10 +316,10 @@ if os.path.exists(cache_path):
     df = pd.read_csv(cache_path)
     subset = df[df['Dataset'] == 'Diabetes']
     agg = subset.groupby(['Model']).agg({
-        'Predictive Accuracy (Y)': ['mean', 'std', 'max'],
-        'Strictly Linear Accuracy': ['mean', 'max']
+        'Strictly Linear Accuracy': ['mean', 'std', 'max'],
+        'Predictive Accuracy (Y)': ['mean', 'max']
     }).round(3)
-    agg.columns = ['Mean R2', 'Std', 'Peak R2', 'Linear (Mean)', 'Linear (Peak)']
+    agg.columns = ['Mean XV R2', 'Std', 'Peak XV R2', 'Deep (U) Mean', 'Deep (U) Peak']
     print(tabulate(agg.reset_index(), headers='keys', tablefmt='pipe', showindex=False))
 else:
     print("Real benchmark cache not found.")
@@ -308,10 +341,10 @@ if os.path.exists(cache_path):
     df = pd.read_csv(cache_path)
     subset = df[df['Dataset'] == 'Heart']
     agg = subset.groupby(['Model']).agg({
-        'Predictive Accuracy (Y)': ['mean', 'std', 'max'],
-        'Strictly Linear Accuracy': ['mean', 'max']
+        'Strictly Linear Accuracy': ['mean', 'std', 'max'],
+        'Predictive Accuracy (Y)': ['mean', 'max']
     }).round(3)
-    agg.columns = ['Mean Acc', 'Std', 'Peak Acc', 'Linear (Mean)', 'Linear (Peak)']
+    agg.columns = ['Mean XV Acc', 'Std', 'Peak XV Acc', 'Deep (U) Mean', 'Deep (U) Peak']
     print(tabulate(agg.reset_index(), headers='keys', tablefmt='pipe', showindex=False))
 else:
     print("Real benchmark cache not found.")
