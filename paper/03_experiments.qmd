@@ -214,7 +214,7 @@ To evaluate the utility of deep architectures, we partition predictive capacity 
 
 #### Linear-to-Deep Performance Parity
 
-Evaluation reveals that under optimized sparsity and orthogonality constraints, the **Strictly Linear Accuracy (XV)** maintains high performance, approaching parity with the deep consensus ($U$).
+Evaluation reveals that under optimized sparsity and orthogonality constraints, the **Strictly Linear Accuracy (XV)** maintains high performance, approaching parity with the deep consensus ($U$). This Linear-to-Deep Performance Parity across the taxonomy proves that the shared linear bottleneck does the heavy lifting of feature discovery. The deep layers in NED and NEDPP act as modular extensions to handle extreme manifold complexities or sequester view-specific noise, rather than acting as replacements for the auditable foundation.
 
 ![**Linear-to-Deep Performance Parity (Real-World).** Relationship between deep consensus accuracy ($Y|U$) and strictly linear accuracy ($Y|XV$). Points clustering along the parity line (dashed) indicate that the linear basis captures the majority of the predictive signal. This parity allows for high-performance discovery where the linear entry point serves as an exact audit trail.](figures/fig_v21_blessing_interpretability.png){#fig-v21-blessing-interpretability width="100%"}
 

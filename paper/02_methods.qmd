@@ -190,12 +190,12 @@ graph LR
     style Z fill:#fff3e0,stroke:#e65100,color:#000
     style Alignment fill:#ffffff,stroke:#333
 ```
-NED Architecture. While it adheres to the First-Layer Contract (starting with linear basis $V$), it adds non-linear hidden layers to the encoder head. This allows for superior latent recovery ($R^2_U$) at the cost of direct global interpretability.
+NED Architecture. While it strictly adheres to the First-Layer Contract (starting with linear basis $V$), it adds non-linear hidden layers to the encoder head. These deep layers are modular extensions designed to handle extreme manifold complexities, not replacements for the auditable foundation. This allows for superior latent recovery ($R^2_U$) at the cost of direct global interpretability.
 :::
 
 ### Shared-Private NEDPP (Disentangled Discovery)
 
-The most advanced variant, explicitly partitioning the latent space to sequester view-specific noise via the **Shared-Private Disentanglement Mechanism** [@bousmalis2016domain; @salzmann2010factorized].
+The most advanced variant, explicitly partitioning the latent space to sequester view-specific noise via the **Shared-Private Disentanglement Mechanism** [@bousmalis2016domain; @salzmann2010factorized]. NEDPP continues to honor the First-Layer Contract, ensuring that even as we sequester view-specific noise using deep modular extensions, the foundational feature discovery remains transparent and auditable.
 
 *   **Encoder:** $f_m(X_m) = [\text{MLP}_{\phi_{m,shared}}(X_m V_{m,shared}) \parallel \text{MLP}_{\phi_{m,private}}(X_m V_{m,private})] = [S_m \parallel P_m]$
 *   **Decoder:** $g_m(S_m \parallel P_m) = \text{MLP}_{\theta_m}(S_m \parallel P_m)$

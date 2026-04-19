@@ -2,7 +2,7 @@
 title: "Discussion"
 ---
 
-Integrating disparate, high-dimensional datasets remains a primary challenge in computational science. As modalities grow more heterogeneous—from genomic sequencing to complex longitudinal neuroimaging [@stone2020longitudinal]—analytical tools must balance representational capacity with guaranteed interpretability. In this work, we presented the deep learning expansion of the **SiMLR** framework via **Non-negative Stiefel approximating flow** (NSA-Flow).
+Integrating disparate, high-dimensional datasets remains a primary challenge in computational science. As modalities grow more heterogeneous—from genomic sequencing to complex longitudinal neuroimaging [@stone2020longitudinal]—analytical tools must balance representational capacity with guaranteed interpretability. In this work, we presented the deep learning expansion of the **SiMLR** framework into a rigorously disciplined family of architectures (LEND, NED, NEDPP) that transforms deep multi-modal integration into an auditable scientific instrument, stabilized via **Non-negative Stiefel approximating flow** (NSA-Flow).
 
 Through systematic benchmarking and clinical application, we quantified the operational parameters of deep multi-view alignment and identified robust configurations for mechanistic discovery.
 

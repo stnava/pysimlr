@@ -6,8 +6,8 @@ execute:
   freeze: auto
 
 book:
-  title: "Bridging the Gap: From Interpretable Linear Models to Deep Multimodal Integration with SiMLR"
-  author: "pysimlr Development Team"
+  title: "Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery"
+  author: "Brian B. Avants, Nicholas J. Tustison, James R. Stone (Department of Radiology and Medical Imaging, University of Virginia, Charlottesville, VA)"
   date: today
   chapters:
     - index.qmd
