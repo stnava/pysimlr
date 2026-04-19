@@ -117,8 +117,11 @@ The foundation of the framework, relying on dual linear projections for encoding
 *   **Decoder:** $g_m(Z_m) = Z_m W_m$
 
 ::: {#fig-simlr}
+
+::: {.content-visible when-format="html"}
 ```{mermaid}
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333' }}}%%
+#| fig-width: 6
+#| fig-align: center
 graph LR
     X[Input X] -->|Linear Basis V| Z[Latent Z]
     Z -->|Linear Weights W| R[Recon X']
@@ -131,6 +134,12 @@ graph LR
     style Z fill:#e3f2fd,stroke:#1565c0,color:#000
     style Constraints fill:#ffffff,stroke:#333
 ```
+:::
+
+::: {.content-visible when-format="pdf"}
+![](figures/fig-simlr.png)
+:::
+
 Classical SiMLR Architecture. Both the encoder ($V$) and decoder ($W$) are linear matrices. The encoding basis $V$ is strictly constrained to the Stiefel manifold to ensure feature discovery without redundancy.
 :::
 
@@ -142,10 +151,13 @@ Our primary innovation for scientific discovery, preserving linear interpretabil
 *   **Decoder:** $g_m(Z_m) = \text{MLP}_{\theta_m}(Z_m)$
 
 ::: {#fig-lend}
+
+::: {.content-visible when-format="html"}
 ```{mermaid}
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333' }}}%%
+#| fig-width: 6
+#| fig-align: center
 graph LR
-    X[Input X] -->|First-Layer Contract V| Z[Latent Z]
+    X[Input X] -->|OLEE V| Z[Latent Z]
     Z -->|Deep MLP g| H1[Hidden L1]
     H1 -->|Activation| H2[Hidden L2]
     H2 --> R[Recon X']
@@ -164,7 +176,13 @@ graph LR
     style Interpretability fill:#ffffff,stroke:#333
     style Denoising fill:#ffffff,stroke:#333
 ```
-LEND Architecture. The "First-Layer Contract" restricts the encoder to a single linear projection $V$. This ensures that every latent factor can be exactly decomposed into the original features, while the Deep MLP decoder ($g_\theta$) [@goodfellow2016deep] handles the non-linear reconstruction of the data manifold.
+:::
+
+::: {.content-visible when-format="pdf"}
+![](figures/fig-lend.png)
+:::
+
+LEND Architecture. The Orthogonal Linear Embedding Entry (OLEE) restricts the encoder to a single linear projection $V$. This ensures that every latent factor can be exactly decomposed into the original features, while the Deep MLP decoder ($g_\theta$) [@goodfellow2016deep] handles the non-linear reconstruction of the data manifold.
 :::
 
 ### Fully Deep NED (Non-linear Encoder Decoder)
@@ -175,10 +193,13 @@ The upper bound for representational capacity, designed for extreme periodic or 
 *   **Decoder:** $g_m(Z_m) = \text{MLP}_{\theta_m}(Z_m)$
 
 ::: {#fig-ned}
+
+::: {.content-visible when-format="html"}
 ```{mermaid}
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333' }}}%%
+#| fig-width: 6
+#| fig-align: center
 graph LR
-    X[Input X] -->|First-Layer Contract V| H_enc[Hidden Head]
+    X[Input X] -->|OLEE V| H_enc[Hidden Head]
     H_enc -->|Activation| Z[Latent Z]
     Z -->|Deep MLP Decoder g| R[Recon X']
     
@@ -190,19 +211,28 @@ graph LR
     style Z fill:#fff3e0,stroke:#e65100,color:#000
     style Alignment fill:#ffffff,stroke:#333
 ```
-NED Architecture. While it strictly adheres to the First-Layer Contract (starting with linear basis $V$), it adds non-linear hidden layers to the encoder head. These deep layers are modular extensions designed to handle extreme manifold complexities, not replacements for the auditable foundation. This allows for superior latent recovery ($R^2_U$) at the cost of direct global interpretability.
+:::
+
+::: {.content-visible when-format="pdf"}
+![](figures/fig-ned.png)
+:::
+
+NED Architecture. While it strictly adheres to the OLEE (starting with linear basis $V$), it adds non-linear hidden layers to the encoder head. These deep layers are modular extensions designed to handle extreme manifold complexities, not replacements for the auditable foundation. This allows for superior latent recovery ($R^2_U$) at the cost of direct global interpretability.
 :::
 
 ### Shared-Private NEDPP (Disentangled Discovery)
 
-The most advanced variant, explicitly partitioning the latent space to sequester view-specific noise via the **Shared-Private Disentanglement Mechanism** [@bousmalis2016domain; @salzmann2010factorized]. NEDPP continues to honor the First-Layer Contract, ensuring that even as we sequester view-specific noise using deep modular extensions, the foundational feature discovery remains transparent and auditable.
+The most advanced variant, explicitly partitioning the latent space to sequester view-specific noise via the **Shared-Private Disentanglement Mechanism** [@bousmalis2016domain; @salzmann2010factorized]. NEDPP continues to honor the OLEE, ensuring that even as we sequester view-specific noise using deep modular extensions, the foundational feature discovery remains transparent and auditable.
 
 *   **Encoder:** $f_m(X_m) = [\text{MLP}_{\phi_{m,shared}}(X_m V_{m,shared}) \parallel \text{MLP}_{\phi_{m,private}}(X_m V_{m,private})] = [S_m \parallel P_m]$
 *   **Decoder:** $g_m(S_m \parallel P_m) = \text{MLP}_{\theta_m}(S_m \parallel P_m)$
 
 ::: {#fig-nedpp}
+
+::: {.content-visible when-format="html"}
 ```{mermaid}
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333' }}}%%
+#| fig-width: 6
+#| fig-align: center
 graph TD
     X[Input X] -->|Basis Vs| S[Shared U]
     X -->|Basis Vp| P[Private P]
@@ -221,6 +251,12 @@ graph TD
     style J fill:#fffde7,stroke:#fbc02d,color:#000
     style Disentanglement fill:#ffffff,stroke:#333
 ```
+:::
+
+::: {.content-visible when-format="pdf"}
+![](figures/fig-nedpp.png)
+:::
+
 NEDPP Architecture. The latent space is partitioned into a shared consensus $U$ (aligned across views) and a private space $P$ (view-specific). A cross-covariance penalty ensures that $P$ captures only idiosyncratic variance, preventing it from polluting the shared signal.
 :::
 
@@ -232,7 +268,7 @@ Conceptually, the NEDPP architecture acts as a latent manifold projection. Just 
 
 ### Formalizing Mechanical Interpretability and Exact Counterfactuals
 
-The First-Layer Contract establishes a rigid boundary between feature discovery and manifold learning. This translates into three critical XAI properties:
+The OLEE establishes a rigid boundary between feature discovery and manifold learning. This translates into three critical XAI properties:
 
 **1. Exact Global Feature Importance:** By enforcing the Stiefel manifold constraint ($V_m^T V_m = I_k$), the basis vectors in $V_m$ define a set of strictly orthogonal, non-redundant directions. This **Auditability by Design** [@Rudin_2019; @alvarez2018towards] ensures that feature rankings are mathematically exact rather than post-hoc approximations.
 
@@ -240,7 +276,7 @@ The First-Layer Contract establishes a rigid boundary between feature discovery 
 
 **3. Analytically Exact Counterfactuals:** A counterfactual explanation seeks the minimum perturbation $\delta x$ to an input $x$ that results in a desired shift in the latent representation $\Delta z$ [@Wachter_2017]. 
 
-Under the First-Layer Contract, the relationship is strictly linear: $z + \Delta z = (x + \delta x) V_m$. Because $V_m$ is orthonormal, the minimum-norm counterfactual perturbation is analytically solved as:
+Under the OLEE, the relationship is strictly linear: $z + \Delta z = (x + \delta x) V_m$. Because $V_m$ is orthonormal, the minimum-norm counterfactual perturbation is analytically solved as:
 $$ \delta x = \Delta z V_m^T $$
 This provides a **Counterfactual Guide** for clinicians. For example, if a model identifies high "Metabolic Risk" ($z_k$), the guide $\delta x = \Delta z V_{m,k}^T$ specifies exactly how much to reduce a patient's BMI or Triglycerides to move them to a low-risk latent coordinate. 
 
@@ -253,7 +289,7 @@ Unlike black-box models that suffer from "Information Masking" (collapsing disti
 
 A fundamental tension exists between the complexity of the encoder and the auditability of the model. We formalize this as the **Consistency-Interpretability Tradeoff** [@gilpin2018explaining; @Lipton_2018]. While Fully Deep models (NED) can achieve superior latent recovery ($R^2_U \to 1$) by modeling arbitrary non-linearities in the encoding process, they sacrifice the direct, additive interpretability of the features [@Doshi_Velez_2018]. 
 
-LEND occupies the Pareto-optimal position in this tradeoff space: it enforces the First-Layer Contract (Linear Encoder) to maintain absolute auditability, while delegating the non-linear "heavy lifting" to the Deep Decoder. This ensures that the discovered consensus is both highly accurate and mathematically transparent.
+LEND occupies the Pareto-optimal position in this tradeoff space: it enforces the OLEE (Linear Encoder) to maintain absolute auditability, while delegating the non-linear "heavy lifting" to the Deep Decoder. This ensures that the discovered consensus is both highly accurate and mathematically transparent.
 
 ### Theoretical Bounds: The 1/M Law
 
@@ -280,7 +316,7 @@ To ensure mathematical rigor across the linear and deep regimes, we standardize 
 | **Strictly Linear Accuracy** | $R^2_{XV}$ | $R^2_P(X V, U^*)$ | Fidelity of the linear feature projection. |
 | **Deep Consensus Accuracy** | $R^2_U$ (CMC) | $\max_{\Omega, s} \left( 1 - \frac{\|\hat{U}\Omega s - U^*\|_F^2}{\|U^*\|_F^2} \right)$ | Fidelity of the shared latent consensus recovery. |
 | **Subspace Recovery Error** | $SRE$ | $1 - \frac{1}{M} \sum_{m=1}^M R^2_P(\hat{V}_m, V^*_m)$ | Failure to recover the true generative feature basis. |
-| **First-Layer Contract** | - | $Z = \sigma(X V W + b)$ | Mandatory initial linear projection for auditability. |
+| **OLEE** | - | $Z = \sigma(X V W + b)$ | Mandatory initial linear projection for auditability. |
 | **Procrustes $R^2$** | $R^2_P$ | $1 - \frac{\min_{\Omega} \|\hat{A}\Omega - A^*\|_F^2}{\|A^*\|_F^2}$ | Alignment-invariant variance explained. |
 | **Auditability by Design** | - | - | Structural guarantee that latent factors are traceable to features. |
 
@@ -296,7 +332,7 @@ SRE quantifies the failure to recover the true generative feature basis $V$. Cal
 **4. NSA-Flow Weights:**
 The interpretability-constrained linear basis $V$ is optimized using Non-negative Stiefel approximating flow. The weights are constrained to the Stiefel manifold $\mathbb{V}_{k,d}$, ensuring that $V^T V = I_k$. This ensures that each discovered biomarker is statistically unique and non-redundant.
 
-**5. First-Layer Contract:**
+**5. OLEE:**
 The architectural guarantee of **Auditability by Design**. It mandates that the first transformation from the raw feature space $X$ to any internal representation must start with a strictly linear projection $V$. This ensures that every deep representation remains anchored to the original features, enabling exact counterfactuals and local audits.
 
 ### Statistical Determination of the Intrinsic Dimensionality (K)

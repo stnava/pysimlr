@@ -24,7 +24,7 @@ Multi-view representation learning aims to find a unified latent space $U$ captu
 
 To restore transparency to deep multi-view learning, we enforce a **Linear Projection Constraint** as the foundational architectural requirement. This constraint governs the model's entry point:
 
-1.  **Linear Projection ($Z = XV$):** The model's first operation is a linear transformation $Z_m = X_m V_m$. This First-Layer Contract applies universally across our entire architectural taxonomy (LEND, NED, NEDPP).
+1.  **Linear Projection ($Z = XV$):** The model's first operation is a linear transformation $Z_m = X_m V_m$. This Orthogonal Linear Embedding Entry (OLEE) applies universally across our entire architectural taxonomy (LEND, NED, NEDPP).
 2.  **Orthonormal Basis:** The basis $V_m$ is restricted to be near the Stiefel manifold ($V_m^\top V_m = I$), ensuring non-redundant, orthonormal feature discovery.
 3.  **Direct Feature Attribution:** By restricting the initial encoding step, we ensure that every downstream latent factor $Z$ is a direct linear combination of the input features $X$, making $V$ a globally interpretable weight matrix.
 
@@ -33,8 +33,11 @@ This architecture ensures that interpretability is not an afterthought or a post
 In contrast, our framework provides auditability by design. The weights in the basis $V_m$ are not estimates of importance—they *are* the exact global importance [@Smith2023posthoc]. Furthermore, this structural guarantee enables precise **counterfactual reasoning** [@Wachter_2017]. In scientific discovery, we often ask: *"What is the smallest change in the input features required to alter the model's consensus prediction?"* Because the features are projected linearly before any nonlinear mixing occurs, the answer is analytically defined rather than empirically guessed, allowing for exact, verifiable counterfactuals.
 
 ::: {#fig-interpretability-gap}
+
+::: {.content-visible when-format="html"}
 ```{mermaid}
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#333333', 'lineColor': '#333333' }}}%%
+#| fig-width: 6
+#| fig-align: center
 graph LR
     subgraph PostHoc [Post-hoc: Attribution via Approximation]
         direction TB
@@ -57,6 +60,12 @@ graph LR
     style SparseWeights fill:#e3f2fd,stroke:#1976d2,color:#000
     style BlackBox fill:#fff5f5,stroke:#c62828,color:#000
 ```
+:::
+
+::: {.content-visible when-format="pdf"}
+![](figures/fig-interpretability-gap.png)
+:::
+
 The Interpretability Paradigm Shift. Post-hoc methods guess importance by perturbing a black box. SiMLR's Structural Interpretability enforces importance by design through the Linear Projection Constraint.
 :::
 
@@ -64,7 +73,7 @@ The Interpretability Paradigm Shift. Post-hoc methods guess importance by pertur
 
 To rigorously evaluate the framework, we rank our scientific and methodological contributions as follows:
 
-1.  **Operationalizing "Auditability by Design" via the First-Layer Contract:** Our primary contribution is demonstrating that deep representational capacity and mathematical transparency are not mutually exclusive. Across our entire architectural taxonomy (LEND, NED, NEDPP), enforcing a strict, orthogonal initial linear projection provides analytically exact feature importance and enables structural interpretability. This shared linear bottleneck performs the heavy lifting of feature discovery, while deep extensions handle manifold complexities without replacing this auditable foundation. This solves the instability and "Information Masking" problems inherent to post-hoc explanation methods, proving that complex, deep multi-view consensus can be driven by a transparent bottleneck.
+1.  **Operationalizing "Auditability by Design" via the OLEE:** Our primary contribution is demonstrating that deep representational capacity and mathematical transparency are not mutually exclusive. Across our entire architectural taxonomy (LEND, NED, NEDPP), enforcing a strict, orthogonal initial linear projection provides analytically exact feature importance and enables structural interpretability. This shared linear bottleneck performs the heavy lifting of feature discovery, while deep extensions handle manifold complexities without replacing this auditable foundation. This solves the instability and "Information Masking" problems inherent to post-hoc explanation methods, proving that complex, deep multi-view consensus can be driven by a transparent bottleneck.
 2.  **Manifold Regularization via NSA-Flow:** We provide a stable, continuous vector field penalty that enforces strict orthogonality on the linear encoding layer during stochastic gradient descent. This solves the feature collapse problem and guarantees "Biomarker Discovery Integrity," preventing the discovery of redundant latent factors.
 3.  **Methodological Correctives for Model Selection:** We synthesize deep multi-view learning with classical statistical guardrails (e.g., Tracy-Widom distributions for Parallel Analysis, BIC, and the One-Standard-Error rule). This forces the deep learning community to rigorously prove that their discovered multi-modal consensus is statistically distinguishable from pure noise.
 4.  **Shared-Private Disentanglement:** We successfully engineer a shared-private partitioning mechanism into the SiMLR objective using cross-covariance penalties. This explicitly sequesters modality-specific idiosyncratic noise from the true cross-modal consensus signal.

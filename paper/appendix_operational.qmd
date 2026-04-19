@@ -14,7 +14,7 @@ For epoch t in 1..T:
     1. Calculate Alpha_t (Stiefel mixing coefficient)
        - Alpha_t = min(1.0, t / (Total_Epochs * ramp_ratio))
     2. Forward Pass:
-       # Apply First-Layer Contract
+       # Apply OLEE
        V_active = (1 - Alpha_t) * V_raw + Alpha_t * NewtonSchulz(V_raw)
        Z_m = Encoder(X_m, V_active, theta_m)
        

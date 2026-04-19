@@ -4,7 +4,7 @@ title: "Multi-omics Clinical Validation (TCGA-BRCA)"
 
 ## Multi-Omic Integration Strategy
 
-To evaluate the clinical utility of the "First-Layer Contract" in a high-dimensional setting, we conducted a study on the **TCGA-BRCA** dataset ($N=549$ samples). This dataset provides a representative multi-omics challenge with three distinct modalities:
+To evaluate the clinical utility of the OLEE in a high-dimensional setting, we conducted a study on the **TCGA-BRCA** dataset ($N=549$ samples). This dataset provides a representative multi-omics challenge with three distinct modalities:
 *   **RNA-Seq:** 604 gene features.
 *   **Copy Number Variation (CNV):** 860 regional features.
 *   **Proteomics (RPPA):** 223 protein markers.
@@ -26,7 +26,7 @@ The results confirm the **Deep-to-Linear Benefit** in real-world clinical data. 
 
 ## Tri-Modal Clinical Discovery
 
-The primary advantage of the First-Layer Contract is the ability to extract direct, auditable biological drivers from a high-performance deep model. Figure @fig-brca-trimodal-waterfall visualizes the top 15 weights discovered by the LEND architecture across the three modalities.
+The primary advantage of the OLEE is the ability to extract direct, auditable biological drivers from a high-performance deep model. Figure @fig-brca-trimodal-waterfall visualizes the top 15 weights discovered by the LEND architecture across the three modalities.
 
 ![**Tri-Modal Clinical Discovery: Top Biological Drivers of ER-Status.** LEND identifies canonical breast cancer markers with high confidence. (Left) RNA-Seq highlights transcription factors and structural genes. (Center) CNV captures regional chromosomal instability. (Right) Proteomics provides the most direct functional drivers, with protein-level markers like ER-alpha and GATA3 receiving dominant weights. This hierarchy demonstrates that deep alignment successfully prioritizes functionally relevant markers across modalities.](figures/fig_brca_trimodal_waterfall.png){#fig-brca-trimodal-waterfall width="100%"}
 
