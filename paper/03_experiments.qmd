@@ -6,7 +6,7 @@ title: "Experiments"
 
 ### Data Regimes and Objectives
 
-To rigorously evaluate the architectures, we utilize four distinct data regimes, each serving a specific benchmarking purpose:
+To rigorously evaluate the architectures, we utilize four distinct data regimes, each serving a specific benchmarking purpose. These evaluations span synthetic manifolds, traditional tabular clinical datasets, and high-dimensional omics data, reflecting the diverse application areas of neuroimaging, blast-exposure studies, and multi-omics integration [@stone2024blast; @avants2021]:
 
 1. **Synthetic Data**
    - **Purpose:** Controlled validation of architecture-specific latent discovery under defined manifold topologies (Linear, Polynomial, Sine, Private Noise).
@@ -28,9 +28,9 @@ To rigorously evaluate the architectures, we utilize four distinct data regimes,
    - **Prediction Target:** Estrogen Receptor (ER) Status.
    - **Why Interpretability Matters:** Mechanistic transparency is essential to trace abstract multi-omics consensus back to actionable genetic or proteomic targets for potential therapeutic development.
 
-To ensure the reproducibility of all results, experiments were conducted in a fixed environment with a predefined seed (42). We utilize the **v21 Optimized Benchmark Suite**, which evaluates 4 Architectures (SiMLR, LEND, NED, NEDPP), 4 Loss Functions (Regression, ACC, Log-Cosh, NC), and 4 Consensus Methods (Newton, SVD, PCA, ICA). 
+For reproducibility, all experiments used a fixed seed (42) within the **v21 Optimized Benchmark Suite**. This suite evaluates 4 architectures (SiMLR, LEND, NED, NEDPP), 4 loss functions (Regression, ACC, Log-Cosh, NC), and 4 consensus methods (Newton, SVD, PCA, ICA). 
 
-For all real-world clinical tasks (Heart, Diabetes, and BRCA), the latent basis size $K$ was determined empirically using 5-fold Cross-Validation (CV). This ensures that the representational bottleneck is appropriately sized for the inherent dimensionality of each specific dataset, preventing over-parameterization while maximizing predictive capacity.
+For clinical tasks (Heart, Diabetes, BRCA), the latent basis size $K$ was determined empirically via 5-fold Cross-Validation (CV). This appropriately sizes the representational bottleneck, preventing over-parameterization while maximizing predictive capacity.
 
 The v21 suite enforces the following constraints:
 - **Strict Orthogonality:** NSA-Flow enabled with a stiffness parameter $w=0.5$.
@@ -226,7 +226,7 @@ Evaluation reveals that under optimized sparsity and orthogonality constraints, 
 
 #### Rigorous Statistical Review: Deep-to-Linear Benefit
 
-Deep learning architectures must be evaluated against linear baselines using rigorous hypothesis testing. We performed a statistical audit comparing Deep models (LEND, NED, NEDPP) against the Linear baseline (SiMLR). For the **Heart dataset**, Deep architectures achieved a significant improvement in strictly linear accuracy ($p = 8 \times 10^{-11}$). Similarly, for the **Diabetes dataset**, we observe a statistically significant 'Deep-to-Linear Benefit' ($p = 3 \times 10^{-4}$). These results indicate that non-linear architectural components facilitate the discovery of more robust linear bases than those found by purely linear optimization.
+We rigorously evaluated deep architectures against linear baselines. Comparing Deep models (LEND, NED, NEDPP) against SiMLR, we observed significant improvements in strictly linear accuracy for the **Heart dataset** ($p = 8 	imes 10^{-11}$) and the **Diabetes dataset** ($p = 3 	imes 10^{-4}$). These findings confirm a statistically significant 'Deep-to-Linear Benefit', indicating that non-linear components discover more robust linear bases than purely linear optimization.
 
 ```{python}
 #| label: tbl-stat-sig-synthetic

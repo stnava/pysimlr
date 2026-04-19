@@ -2,9 +2,9 @@
 title: "Discussion"
 ---
 
-The integration of disparate, high-dimensional datasets remains a primary challenge in computational science. As experimental modalities grow more heterogeneous, analytical tools must balance representational capacity with mathematically guaranteed interpretability. In this work, we presented the expansion of the **SiMLR** framework into the deep learning regime via the **Non-negative Stiefel approximating flow** (NSA-Flow).
+Integrating disparate, high-dimensional datasets remains a primary challenge in computational science. As modalities grow more heterogeneous—from genomic sequencing to complex longitudinal neuroimaging [@stone2020longitudinal]—analytical tools must balance representational capacity with guaranteed interpretability. In this work, we presented the deep learning expansion of the **SiMLR** framework via **Non-negative Stiefel approximating flow** (NSA-Flow).
 
-Through extensive systematic benchmarking and clinical application, we have quantified the operational parameters of deep multi-view alignment, identifying the robust configurations required for mechanistic discovery.
+Through systematic benchmarking and clinical application, we quantified the operational parameters of deep multi-view alignment and identified robust configurations for mechanistic discovery.
 
 ## The Optimal Configuration for Scientific Discovery
 
@@ -17,7 +17,7 @@ Our systematic evaluation under the v21 suite identifies the **LEND-ICA-LogCosh*
 
 ## Mechanical Interpretability
 
-A central theme of this work is the structural integration of interpretability. Post-hoc methods like SHAP or LIME are fundamentally limited because they provide approximations of a model's behavior after the information has been entangled through nonlinear layers. 
+A central theme of our work is structural interpretability. Post-hoc methods like SHAP or LIME are fundamentally limited by providing approximations of model behavior only after information is entangled through nonlinear layers. 
 
 In contrast, our **First-Layer Contract** ensures that interpretability is a structural property of the model. We provide a mathematical connection between global and local interpretability, where the global feature importance and local patient audits are derived from the exact same linear operator. The v21 results demonstrate that enforcing **Strict Positivity** and **Parsimonious Sparsity** ($q=0.5$) does not degrade predictive signal; rather, it distills the representation into a set of additive, non-redundant biomarkers that are directly actionable for clinicians.
 
@@ -33,4 +33,4 @@ However, we note a critical statistical boundary: on datasets with predominantly
 
 The deep SiMLR framework provides a unified continuum for multimodal integration. By constraining deep neural networks with the First-Layer Contract and NSA-Flow, we have connected the expressive power of deep learning and the rigorous interpretability of spectral factor analysis. 
 
-The **LEND-ICA-LogCosh** configuration offers researchers a robust tool for integrating complex biological signals while maintaining a mathematically guaranteed audit trail back to physical measurements. This framework ensures that deep learning models act not only as accurate predictors, but as transparent analytical instruments for scientific and clinical discovery.
+The **LEND-ICA-LogCosh** configuration offers researchers a robust tool for integrating complex biological signals while maintaining a guaranteed audit trail to physical measurements. This framework ensures deep learning models function not just as accurate predictors, but as transparent, auditable instruments for clinical discovery and precision medicine, echoing the rigorous standardization pioneered by tools like ANTs [@avants2014ants].

@@ -6,13 +6,13 @@ title: "Methods"
 
 ### Architectural Rationale: The Multi-Observer Sketch Problem
 
-Multi-modal integration can be understood through the lens of the "Multi-observer sketch problem." Imagine a central object of immense complexity—a high-dimensional manifold representing the true, underlying state of a system (e.g., the biological health of a patient). This object cannot be observed directly in its entirety. Instead, we rely on a **Multimodal Consensus Basis**, each equipped with a unique but limited sensorium. One observer might record the low-frequency acoustic vibrations (clinical demographics), another might capture the high-frequency electromagnetic scatter (gene expression profiles), and yet another might trace the topological representation variations (medical imaging). Each observer produces a "sketch" of the central object. 
+Multi-modal integration can be viewed as a \"multi-observer sketch problem.\" Consider a central object of immense complexity—a high-dimensional manifold representing a system's true underlying state (e.g., patient health) that cannot be directly observed. Instead, we rely on a **Multimodal Consensus Basis**, where each modality acts as an observer with a unique but limited sensorium. One observer might record the low-frequency acoustic vibrations (clinical demographics), another might capture the high-frequency electromagnetic scatter (gene expression profiles), and yet another might trace the topological representation variations (medical imaging). Each observer produces a "sketch" of the central object. 
 
-Crucially, each sketch is not merely a projection; it is corrupted by the observer's own internal noise, their specific viewing angle, and the inherent limitations of their sensory apparatus. The multi-observer sketch problem asks: How can we synthesize these disparate, noisy, and intrinsically different sketches into a single, coherent representation—a shared melody—of the true central object? 
+Crucially, each \"sketch\" is corrupted by observer-specific noise, viewing angles, and sensory limitations. The core challenge is synthesizing these disparate, noisy sketches into a coherent, shared representation of the true central object. 
 
 ### Joint-Variational Optimization Framework
 
-SiMLR addresses the multi-observer sketch problem by formulating it as a generalized, joint-variational optimization objective. We define a framework under which various architectures (linear, non-linear, shared-private) can harmoniously coexist and optimize toward a unified goal. 
+SiMLR addresses this by formulating a generalized, joint-variational optimization objective, building upon principles from Normative Neurological Health Embedding (NNHEmbed) and advanced multi-modal integration [@avants2025]. We define a framework where linear, non-linear, and shared-private architectures harmonize to optimize a unified goal. 
 
 Let $M$ be the number of modalities. For each modality $m \in \{1, \dots, M\}$, let $X_m \in \mathbb{R}^{n \times d_m}$ be the input data matrix, where $n$ is the number of samples and $d_m$ is the feature dimension of the $m$-th modality. We seek to learn an encoder $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k$ and a decoder $g_m: \mathbb{R}^k \to \mathbb{R}^{d_m}$. We denote the latent representation (scores) as $Z_m = f_m(X_m) \in \mathbb{R}^{n \times k}$ and the reconstruction as $\hat{X}_m = g_m(Z_m)$.
 
@@ -25,7 +25,7 @@ $$
 Specifically, these loss components are defined as follows:
 
 *   $\mathcal{L}_{\text{recon}}(X_m, \hat{X}_m) = \| X_m - \hat{X}_m \|_F^2$ enforces that the learned representations retain sufficient information to reconstruct the original input features.
-*   $\mathcal{L}_{\text{align}}(Z_m, Z_l)$ measures the cross-modal alignment between latent spaces. Depending on the chosen similarity metric, this can be implemented as Average Cross-Correlation (ACC) or Normalized Covariance (NC) to maximize consensus.
+*   $\mathcal{L}_{\text{align}}(Z_m, Z_l)$ measures the cross-modal alignment between latent spaces. Depending on the chosen similarity metric, this can be implemented as Absolute Canonical Covariance (ACC) or Normalized Covariance (NC) to maximize consensus.
 *   $\mathcal{L}_{\text{var}} = \sum_{m=1}^M (1 - \text{Var}(Z_m))^2$ acts as a variance regularization term, ensuring that the latent projections do not collapse and maintain unit variance.
 *   $\mathcal{L}_{\text{cov}}$ penalizes off-diagonal elements in the covariance matrix of $Z_m$, encouraging disentangled, independent latent factors within each modality.
 *   $\Omega(f_m)$ represents structural regularization on the encoder. For our interpretable linear models, this applies Non-negative Stiefel approximating flow (NSA-Flow) constraints to enforce orthogonality and optional positivity on the projection matrix $V_m$.
@@ -45,7 +45,7 @@ The framework supports multiple similarity energies:
 
 #### ACC: Formal Derivation
 
-Average Cross-Correlation (ACC) encourages shared alignment. Derived from the Orthogonal Procrustes problem $\min_{R^T R = I} \| Z_m - Z_l R \|_F^2$:
+Absolute Canonical Covariance (ACC) encourages shared alignment. Derived from the Orthogonal Procrustes problem $\min_{R^T R = I} \| Z_m - Z_l R \|_F^2$:
 $$ \mathcal{L}_{ACC} = - \frac{1}{M(M-1)} \sum_{m \neq l} \text{Tr}(Z_m^T Z_l) $$
 
 #### NC: Scale-Invariance and Modality-Starvation
@@ -70,7 +70,7 @@ NC prevents "Modality Starvation" but introduces a "Noise Boosting" risk. We for
 
 #### Newton-Schulz Iteration
 
-Newton-Schulz provides a high-performance alternative to SVD for maintaining latent orthogonality. It exhibits **quadratic convergence**, ensuring that the consensus representation $U$ remains numerically stable across thousands of training epochs. 
+Newton-Schulz iteration provides a high-performance alternative to SVD for maintaining latent orthogonality. Its **quadratic convergence** ensures the consensus representation $U$ remains numerically stable across thousands of training epochs. 
 
 A formal proof of the quadratic convergence is detailed in **Appendix A.2.2**.
 
@@ -90,7 +90,7 @@ This EMA update acts as a low-pass filter on the consensus manifold, ensuring th
 
 ### Orthogonal Manifold Optimization via NSA-Flow
 
-Orthogonality prevents feature collapse and ensures distinct latent dimensions. We use **Non-negative Stiefel approximating flow (NSA-Flow)** to navigate the manifold $\mathbb{V}_{k,n} = \{ V \in \mathbb{R}^{n \times k} \mid V^T V = I_k \}$. 
+Orthogonality prevents feature collapse and ensures distinct latent dimensions. We use **Non-negative Stiefel approximating flow (NSA-Flow)** [@nsaflow2025] to navigate the manifold $\mathbb{V}_{k,n} = \{ V \in \mathbb{R}^{n \times k} \mid V^T V = I_k \}$. 
 
 #### Biomarker Discovery Integrity
 
