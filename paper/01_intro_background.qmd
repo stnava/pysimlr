@@ -60,6 +60,15 @@ graph LR
 The Interpretability Paradigm Shift. Post-hoc methods guess importance by perturbing a black box. SiMLR's Structural Interpretability enforces importance by design through the Linear Projection Constraint.
 :::
 
+### Summary of Contributions
+
+To rigorously evaluate the framework, we rank our scientific and methodological contributions as follows:
+
+1.  **Operationalizing "Auditability by Design" via the First-Layer Contract:** Our primary contribution is demonstrating that deep representational capacity and mathematical transparency are not mutually exclusive. Across our entire architectural taxonomy (LEND, NED, NEDPP), enforcing a strict, orthogonal initial linear projection provides analytically exact feature importance and enables structural interpretability. This solves the instability and "Information Masking" problems inherent to post-hoc explanation methods, proving that complex, deep multi-view consensus can be driven by a transparent bottleneck.
+2.  **Manifold Regularization via NSA-Flow:** We provide a stable, continuous vector field penalty that enforces strict orthogonality on the linear encoding layer during stochastic gradient descent. This solves the feature collapse problem and guarantees "Biomarker Discovery Integrity," preventing the discovery of redundant latent factors.
+3.  **Methodological Correctives for Model Selection:** We synthesize deep multi-view learning with classical statistical guardrails (e.g., Tracy-Widom distributions for Parallel Analysis, BIC, and the One-Standard-Error rule). This forces the deep learning community to rigorously prove that their discovered multi-modal consensus is statistically distinguishable from pure noise.
+4.  **Shared-Private Disentanglement:** We successfully engineer a shared-private partitioning mechanism into the SiMLR objective using cross-covariance penalties. This explicitly sequesters modality-specific idiosyncratic noise from the true cross-modal consensus signal.
+
 ### Architectural Taxonomy and Visual Roadmap
 
 We evaluate our framework across four distinct algorithmic rationales, each anchored by a consistent visual identity to facilitate rapid conceptual scanning:
