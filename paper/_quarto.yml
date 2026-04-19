@@ -1,37 +1,43 @@
 project:
   type: book
   output-dir: _book
+
 execute:
   freeze: auto
-book:
-  title: 'Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery'
-  author:
+
+title: "Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery"
+author:
   - name: Brian B. Avants
     affiliations:
-    - name: Department of Radiology and Medical Imaging, University of Virginia
-      city: Charlottesville
-      state: VA
+      - ref: uva
   - name: Nicholas J. Tustison
     affiliations:
-    - name: Department of Radiology and Medical Imaging, University of Virginia
-      city: Charlottesville
-      state: VA
+      - ref: uva
   - name: James R. Stone
     affiliations:
-    - name: Department of Radiology and Medical Imaging, University of Virginia
-      city: Charlottesville
-      state: VA
+      - ref: uva
+
+affiliations:
+  - id: uva
+    name: University of Virginia
+    department: Department of Radiology and Medical Imaging
+    city: Charlottesville
+    state: VA
+
+book:
   date: today
   chapters:
-  - index.qmd
-  - 01_intro_background.qmd
-  - 02_methods.qmd
-  - 03_experiments.qmd
-  - 04_discussion.qmd
+    - index.qmd
+    - 01_intro_background.qmd
+    - 02_methods.qmd
+    - 03_experiments.qmd
+    - 04_discussion.qmd
   appendices:
-  - appendix_brca_clinical_validation.qmd
-  - appendix_operational.qmd
+    - appendix_brca_clinical_validation.qmd
+    - appendix_operational.qmd
+
 bibliography: references.bib
+
 format:
   html:
     theme: cosmo

@@ -11,7 +11,6 @@ def generate_mermaid_png(mermaid_code, output_path, retries=3):
     
     # Encode to base64 for mermaid.ink
     graphbytes = clean_code.encode("utf-8")
-    # Using standard b64encode and then stripping = as it often helps with mermaid.ink
     base64_string = base64.b64encode(graphbytes).decode("ascii")
     url = f"https://mermaid.ink/img/{base64_string}"
     
@@ -30,7 +29,6 @@ def generate_mermaid_png(mermaid_code, output_path, retries=3):
                 time.sleep(2)
             else:
                 print(f"Error generating {output_path}: {response.status_code}")
-                # For 4xx errors, we might not want to retry
                 if response.status_code < 500:
                     return False
                 time.sleep(2)
@@ -46,7 +44,6 @@ def extract_and_build():
     if not os.path.exists(fig_dir):
         os.makedirs(fig_dir)
 
-    # Map Figure IDs to their source files
     mapping = {
         "fig-interpretability-gap": "paper/01_intro_background.qmd",
         "fig-simlr": "paper/02_methods.qmd",
@@ -64,8 +61,6 @@ def extract_and_build():
         with open(filepath, 'r') as f:
             content = f.read()
         
-        # Regex to find the mermaid code inside the conditional HTML block for this ID
-        # Looking for the block inside ::: {#fig-id} ... :::
         pattern = rf"::: \{{#{fig_id}\}}[\s\S]*?```{{mermaid}}([\s\S]*?)```"
         match = re.search(pattern, content)
         
@@ -81,13 +76,20 @@ def extract_and_build():
 
     if all_success:
         print("\nAll Mermaid diagrams generated successfully.")
-        print("Starting Quarto PDF Render...")
+        
+        print("Starting Quarto HTML Render...")
         try:
-            # Render the whole paper
-            subprocess.run(["quarto", "render", "paper", "--to", "pdf"], check=True)
-            print("\nPaper rendered successfully to PDF.")
+            subprocess.run(["quarto", "render", "paper", "--to", "html"], check=True)
+            print("HTML version rendered successfully.")
         except subprocess.CalledProcessError as e:
-            print(f"\nQuarto render failed: {e}")
+            print(f"HTML render failed: {e}")
+
+        print("\nStarting Quarto PDF Render...")
+        try:
+            subprocess.run(["quarto", "render", "paper", "--to", "pdf"], check=True)
+            print("PDF version rendered successfully.")
+        except subprocess.CalledProcessError as e:
+            print(f"PDF render failed: {e}")
     else:
         print("\nSkipping Quarto render due to Mermaid generation errors.")
 
