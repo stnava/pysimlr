@@ -45,7 +45,7 @@ The framework supports multiple similarity energies:
 
 #### ACC: Formal Derivation
 
-Absolute Canonical Covariance (ACC) encourages shared alignment. Derived from the Orthogonal Procrustes problem $\min_{R^T R = I} \| Z_m - Z_l R \|_F^2$:
+Absolute Canonical Covariance (ACC) encourages shared alignment. Derived from the Orthogonal Procrustes problem [@schonemann1966generalized] $\min_{R^T R = I} \| Z_m - Z_l R \|_F^2$:
 $$ \mathcal{L}_{ACC} = - \frac{1}{M(M-1)} \sum_{m \neq l} \text{Tr}(Z_m^T Z_l) $$
 
 #### NC: Scale-Invariance and Modality-Starvation
@@ -76,7 +76,7 @@ A formal proof of the quadratic convergence is detailed in **Appendix A.2.2**.
 
 #### Anchor Map Fix: EMA Consensus Stabilization
 
-In stochastic gradient descent (SGD) optimization of multi-modal systems, the shared latent consensus $U$ can suffer from "representation drift" across mini-batches. This is particularly acute for algorithms like ICA or SVD that are sensitive to the specific samples in a batch. To mitigate this, we introduce the **Anchor Map Fix**, which utilizes an Exponential Moving Average (EMA) to stabilize the consensus projection.
+In stochastic gradient descent (SGD) optimization of multi-modal systems, the shared latent consensus $U$ can suffer from "representation drift" across mini-batches. This is particularly acute for algorithms like ICA or SVD that are sensitive to the specific samples in a batch. To mitigate this, we introduce the **Anchor Map Fix**, which utilizes an Exponential Moving Average (EMA) to stabilize the consensus projection, a technique closely related to momentum encoders and target networks in deep representation learning [@he2020momentum; @tarvainen2017mean; @polyak1992acceleration].
 
 Let $Z_{cat} \in \mathbb{R}^{n \times MK}$ be the concatenation of latent scores from all $M$ modalities. The raw projection matrix $P_t$ is computed at each step $t$ using the chosen mixing algorithm (e.g., SVD or ICA):
 $$ P_t = \text{MixingAlgorithm}(Z_{cat, t}) $$
@@ -136,7 +136,7 @@ Classical SiMLR Architecture. Both the encoder ($V$) and decoder ($W$) are linea
 
 ### LEND (Linear Encoder, Deep Decoder)
 
-Our primary innovation for scientific discovery, preserving linear interpretability while enabling deep manifold denoising.
+Our primary innovation for scientific discovery, preserving linear interpretability while enabling deep manifold denoising [@vincent2008extracting].
 
 *   **Encoder:** $f_m(X_m) = X_m V_m$
 *   **Decoder:** $g_m(Z_m) = \text{MLP}_{\theta_m}(Z_m)$
@@ -164,12 +164,12 @@ graph LR
     style Interpretability fill:#ffffff,stroke:#333
     style Denoising fill:#ffffff,stroke:#333
 ```
-LEND Architecture. The "First-Layer Contract" restricts the encoder to a single linear projection $V$. This ensures that every latent factor can be exactly decomposed into the original features, while the Deep MLP decoder ($g_\theta$) handles the non-linear reconstruction of the data manifold.
+LEND Architecture. The "First-Layer Contract" restricts the encoder to a single linear projection $V$. This ensures that every latent factor can be exactly decomposed into the original features, while the Deep MLP decoder ($g_\theta$) [@goodfellow2016deep] handles the non-linear reconstruction of the data manifold.
 :::
 
 ### Fully Deep NED (Non-linear Encoder Decoder)
 
-The upper bound for representational capacity, designed for extreme periodic or non-monotonic manifolds.
+The upper bound for representational capacity, designed for extreme periodic or non-monotonic manifolds [@hinton2006reducing].
 
 *   **Encoder:** $f_m(X_m) = \text{MLP}_{\phi_m}(X_m V_m)$
 *   **Decoder:** $g_m(Z_m) = \text{MLP}_{\theta_m}(Z_m)$
@@ -195,7 +195,7 @@ NED Architecture. While it adheres to the First-Layer Contract (starting with li
 
 ### Shared-Private NEDPP (Disentangled Discovery)
 
-The most advanced variant, explicitly partitioning the latent space to sequester view-specific noise via the **Shared-Private Disentanglement Mechanism**.
+The most advanced variant, explicitly partitioning the latent space to sequester view-specific noise via the **Shared-Private Disentanglement Mechanism** [@bousmalis2016domain; @salzmann2010factorized].
 
 *   **Encoder:** $f_m(X_m) = [\text{MLP}_{\phi_{m,shared}}(X_m V_{m,shared}) \parallel \text{MLP}_{\phi_{m,private}}(X_m V_{m,private})] = [S_m \parallel P_m]$
 *   **Decoder:** $g_m(S_m \parallel P_m) = \text{MLP}_{\theta_m}(S_m \parallel P_m)$
@@ -234,24 +234,24 @@ Conceptually, the NEDPP architecture acts as a latent manifold projection. Just 
 
 The First-Layer Contract establishes a rigid boundary between feature discovery and manifold learning. This translates into three critical XAI properties:
 
-**1. Exact Global Feature Importance:** By enforcing the Stiefel manifold constraint ($V_m^T V_m = I_k$), the basis vectors in $V_m$ define a set of strictly orthogonal, non-redundant directions. This **Auditability by Design** ensures that feature rankings are mathematically exact rather than post-hoc approximations.
+**1. Exact Global Feature Importance:** By enforcing the Stiefel manifold constraint ($V_m^T V_m = I_k$), the basis vectors in $V_m$ define a set of strictly orthogonal, non-redundant directions. This **Auditability by Design** [@Rudin_2019; @alvarez2018towards] ensures that feature rankings are mathematically exact rather than post-hoc approximations.
 
-**2. Exact Local Interpretability:** For a specific sample $i$, the latent score $z_{ik}$ is the literal, linear sum of its features weighted by the basis: $z_{ik} = \sum_{j=1}^d x_{ij} v_{jk}$. This enables "Waterfall Audits" with zero approximation error.
+**2. Exact Local Interpretability:** For a specific sample $i$, the latent score $z_{ik}$ is the literal, linear sum of its features weighted by the basis: $z_{ik} = \sum_{j=1}^d x_{ij} v_{jk}$. This enables "Waterfall Audits" with zero approximation error, avoiding the instability of post-hoc local approximations [@Ribeiro_2016; @Lundberg_2017; @guidotti2018survey].
 
-**3. Analytically Exact Counterfactuals:** A counterfactual explanation seeks the minimum perturbation $\delta x$ to an input $x$ that results in a desired shift in the latent representation $\Delta z$. 
+**3. Analytically Exact Counterfactuals:** A counterfactual explanation seeks the minimum perturbation $\delta x$ to an input $x$ that results in a desired shift in the latent representation $\Delta z$ [@Wachter_2017]. 
 
 Under the First-Layer Contract, the relationship is strictly linear: $z + \Delta z = (x + \delta x) V_m$. Because $V_m$ is orthonormal, the minimum-norm counterfactual perturbation is analytically solved as:
 $$ \delta x = \Delta z V_m^T $$
 This provides a **Counterfactual Guide** for clinicians. For example, if a model identifies high "Metabolic Risk" ($z_k$), the guide $\delta x = \Delta z V_{m,k}^T$ specifies exactly how much to reduce a patient's BMI or Triglycerides to move them to a low-risk latent coordinate. 
 
-***Statistical Caveat:*** While analytically exact, these counterfactuals represent mathematical perturbations within the model's learned subspace. They should be interpreted as diagnostic prescriptions rather than guaranteed causal interventions unless the underlying features satisfy formal unconfoundedness assumptions.
+***Statistical Caveat:*** While analytically exact, these counterfactuals represent mathematical perturbations within the model's learned subspace. They should be interpreted as diagnostic prescriptions rather than guaranteed causal interventions unless the underlying features satisfy formal unconfoundedness assumptions [@karimi2021algorithmic; @pearl2009causality].
 
 #### Subspace Inversion and Information Fidelity
-Unlike black-box models that suffer from "Information Masking" (collapsing distinct inputs into identical latent points), SiMLR's mechanical interpretability preserves **Information Fidelity**. The linear encoder is invertible within its spanned subspace ($x_{proj} = z V^T$), ensuring that the discovered biomarkers fully capture the feature variance utilized by the model.
+Unlike black-box models that suffer from "Information Masking" (collapsing distinct inputs into identical latent points), SiMLR's mechanical interpretability preserves **Information Fidelity** [@yeh2019fidelity; @hooker2019benchmark]. The linear encoder is invertible within its spanned subspace ($x_{proj} = z V^T$), ensuring that the discovered biomarkers fully capture the feature variance utilized by the model.
 
 ### The Consistency-Interpretability Tradeoff
 
-A fundamental tension exists between the complexity of the encoder and the auditability of the model. We formalize this as the **Consistency-Interpretability Tradeoff**. While Fully Deep models (NED) can achieve superior latent recovery ($R^2_U \to 1$) by modeling arbitrary non-linearities in the encoding process, they sacrifice the direct, additive interpretability of the features. 
+A fundamental tension exists between the complexity of the encoder and the auditability of the model. We formalize this as the **Consistency-Interpretability Tradeoff** [@gilpin2018explaining; @Lipton_2018]. While Fully Deep models (NED) can achieve superior latent recovery ($R^2_U \to 1$) by modeling arbitrary non-linearities in the encoding process, they sacrifice the direct, additive interpretability of the features [@Doshi_Velez_2018]. 
 
 LEND occupies the Pareto-optimal position in this tradeoff space: it enforces the First-Layer Contract (Linear Encoder) to maintain absolute auditability, while delegating the non-linear "heavy lifting" to the Deep Decoder. This ensures that the discovered consensus is both highly accurate and mathematically transparent.
 
@@ -288,7 +288,7 @@ To ensure mathematical rigor across the linear and deep regimes, we standardize 
 In linear models, $R^2_{XV}$ is identical to $R^2_U$. However, in deep architectures (LEND/NED), $R^2_{XV}$ measures the degree to which the initial linear transformation $V$ captures the shared signal *before* non-linear transformations. It is defined as the Procrustes $R^2$ between the linear score $XV$ and the ground truth consensus $U^*$. This metric quantifies the "interpretability floor" of the model.
 
 **2. Deep Consensus Accuracy (CMC, $R^2_U$):**
-CMC measures the quality of cross-modal alignment at the deepest latent level. It is defined as the variance explained ($R^2$) between the predicted shared latent consensus $\hat{U}$ and the ground truth latent space $U^*$ after Orthogonal Procrustes alignment. Statistically, for centered and standardized latent spaces, CMC represents the squared mean of the canonical correlations between the estimated and true subspaces.
+CMC measures the quality of cross-modal alignment at the deepest latent level. It is defined as the variance explained ($R^2$) between the predicted shared latent consensus $\hat{U}$ and the ground truth latent space $U^*$ after Orthogonal Procrustes alignment [@schonemann1966generalized]. Statistically, for centered and standardized latent spaces, CMC represents the squared mean of the canonical correlations [@hotelling1936relations] between the estimated and true subspaces.
 
 **3. Subspace Recovery Error (SRE):**
 SRE quantifies the failure to recover the true generative feature basis $V$. Calculated as $1 - \bar{R}^2_P$, where $\bar{R}^2_P$ is the average Procrustes $R^2$ between estimated and true weight matrices across all modalities. High SRE indicates that the model has failed to identify the true underlying physical or biological drivers, even if the latent consensus $U$ appears aligned.
@@ -307,7 +307,7 @@ We advocate three statistically rigorous strategies for selecting $K$, each bala
 
 #### 1. Information Criteria (BIC)
 
-For generative variants or probabilistic relaxations of SiMLR, where a likelihood function $L(\theta \mid X)$ can be defined, Information Criteria provide a penalized likelihood approach to model selection. We heavily favor the Bayesian Information Criterion (BIC) due to its stricter penalty for model complexity, which directly guards against fitting noise.
+For generative variants or probabilistic relaxations of SiMLR, where a likelihood function $L(\theta \mid X)$ can be defined, Information Criteria provide a penalized likelihood approach to model selection. We heavily favor the Bayesian Information Criterion (BIC) [@schwarz1978estimating] due to its stricter penalty for model complexity, which directly guards against fitting noise.
 
 Let $\hat{\theta}_K$ be the maximum likelihood estimate of the model parameters under dimensionality $K$, and let $p_K$ denote the number of free parameters (which scales with $K \times \sum_{m} d_m$). The BIC is formulated as:
 
@@ -319,9 +319,9 @@ where $n$ is the sample size. The optimal $K^*$ minimizes the BIC. The $\ln(n)$ 
 
 #### 2. Spectral Truncation and Parallel Analysis (Tracy-Widom)
 
-When strict likelihoods are unavailable, we evaluate the eigenspectrum of the cross-covariance matrices. In classical Parallel Analysis, we compare the observed eigenvalues $\lambda_i$ of the data matrix against the expected eigenvalues $\lambda_i^{(null)}$ from a synthesized noise matrix of identical dimensions. 
+When strict likelihoods are unavailable, we evaluate the eigenspectrum of the cross-covariance matrices. In classical Parallel Analysis [@horn1965rationale], we compare the observed eigenvalues $\lambda_i$ of the data matrix against the expected eigenvalues $\lambda_i^{(null)}$ from a synthesized noise matrix of identical dimensions. 
 
-More rigorously, under the null hypothesis that the data represents pure, unstructured Gaussian noise, the largest eigenvalue of the sample covariance matrix follows a Tracy-Widom distribution. For the observed singular values $s_i$ of the cross-modal alignment matrix, we test for significance. Let the standardized leading eigenvalue be $T_1$. The $p$-value for the $i$-th dimension is approximated by evaluating the cumulative distribution function (CDF) of the Tracy-Widom distribution ($F_{TW}$):
+More rigorously, under the null hypothesis that the data represents pure, unstructured Gaussian noise, the largest eigenvalue of the sample covariance matrix follows a Tracy-Widom distribution [@tracy1994level; @johnstone2001distribution]. For the observed singular values $s_i$ of the cross-modal alignment matrix, we test for significance. Let the standardized leading eigenvalue be $T_1$. The $p$-value for the $i$-th dimension is approximated by evaluating the cumulative distribution function (CDF) of the Tracy-Widom distribution ($F_{TW}$):
 
 $$
 p_i = 1 - F_{TW}(T_i)
@@ -331,7 +331,7 @@ We only retain dimensions $k$ where the corresponding $p$-value falls below a pr
 
 #### 3. V-fold Cross-Validation
 
-The ultimate arbiter of a model's true signal recovery capability is out-of-sample performance. V-fold cross-validation avoids the strict parametric assumptions of BIC or Tracy-Widom. The data is partitioned into $V$ folds. For a candidate dimension $K$, the model is trained on $V-1$ folds and its out-of-sample objective loss, $\mathcal{L}_{test}(K)$, is evaluated on the held-out fold.
+The ultimate arbiter of a model's true signal recovery capability is out-of-sample performance. V-fold cross-validation [@stone1974cross] avoids the strict parametric assumptions of BIC or Tracy-Widom. The data is partitioned into $V$ folds. For a candidate dimension $K$, the model is trained on $V-1$ folds and its out-of-sample objective loss, $\mathcal{L}_{test}(K)$, is evaluated on the held-out fold.
 
 We define the cross-validation risk for $K$ as the expected out-of-sample loss:
 
@@ -339,7 +339,7 @@ $$
 \hat{R}(K) = \frac{1}{V} \sum_{v=1}^V \mathcal{L}_{test}^{(v)}(K)
 $$
 
-To enforce extreme caution and prefer simpler, more robust models, we utilize the **One-Standard-Error Rule**. We select the smallest $K$ whose cross-validated risk is within one standard error of the absolute minimum risk:
+To enforce extreme caution and prefer simpler, more robust models, we utilize the **One-Standard-Error Rule** [@hastie2009elements]. We select the smallest $K$ whose cross-validated risk is within one standard error of the absolute minimum risk:
 
 $$
 K^* = \min \left\{ K \mid \hat{R}(K) \leq \min_{K'} \hat{R}(K') + \text{SE}\left(\min_{K'} \hat{R}(K')\right) \right\}
