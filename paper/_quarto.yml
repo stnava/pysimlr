@@ -7,7 +7,8 @@ execute:
 
 book:
   title: "Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery"
-  author: "Brian B. Avants, Nicholas J. Tustison, James R. Stone (Department of Radiology and Medical Imaging, University of Virginia, Charlottesville, VA)"
+  subtitle: "Brian B. Avants, Nicholas J. Tustison, James R. Stone"
+  author: "Department of Radiology and Medical Imaging, University of Virginia"
   date: today
   chapters:
     - index.qmd
