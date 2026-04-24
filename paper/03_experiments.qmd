@@ -30,14 +30,18 @@ To rigorously evaluate the architectures, we utilize four distinct data regimes,
 
 For reproducibility, all experiments used a fixed seed (42) within the **v21 Optimized Benchmark Suite**. Deep learning models are trained using standard optimization routines like Adam [@kingma2014adam] or stochastic gradient descent (SGD) [@bottou2010large] to efficiently navigate the parameter space. This suite evaluates 4 architectures (SiMLR, LEND, NED, NEDPP), 4 loss functions (Regression, ACC, Log-Cosh, NC), and 4 consensus methods (Newton, SVD, PCA, ICA). 
 
-For clinical tasks (Heart, Diabetes, BRCA), the latent basis size $K$ was determined empirically via 5-fold Cross-Validation (CV) [@stone1974cross; @hastie2009elements]. This appropriately sizes the representational bottleneck, preventing over-parameterization while maximizing predictive capacity.
+For clinical tasks (Heart, Diabetes, BRCA), the latent basis size $K$ was determined empirically via 5-fold Cross-Validation (CV) [@stone1974cross; @hastie2009elements]. This appropriately sizes the representational bottleneck, preventing over-parameterization while maximizing predictive capacity. This empirical cross-validation directly satisfies the "Statistical Determination of the Intrinsic Dimensionality (K)" criteria outlined in Section 2, ensuring our chosen $K$ is statistically distinguishable from pure noise.
 
 The v21 suite enforces the following constraints:
-- **Strict Orthogonality:** NSA-Flow enabled with a stiffness parameter $w=0.5$.
+- **Near Orthogonality:** NSA-Flow enabled with a stiffness parameter $w=0.5$.
 - **Parsimonious Sparsity:** A sparseness quantile of 0.5 is applied to the first-layer basis.
 - **Strict Positivity:** All weights are constrained to be unsigned (positive), ensuring additive biomarker discovery.
 
 We report Strictly Linear Accuracy ($R^2_{XV}$) as the primary metric for evaluating the interpretability-performance trade-off [@Doshi_Velez_2018; @Lipton_2018]. Results are aggregated over $N=20$ independent seeds for synthetic data and $N=10$ for real-world clinical data. We ensure this sample size ($n$) provides sufficient power to identify medium-to-large effect sizes without inflating the false discovery rate [@cohen1992power].
+
+We compute the Strictly Linear Accuracy ($R^2_{XV}$) by averaging the recovery fidelity across all modalities.
+
+Crucially, the $V$ matrix utilized for prediction and benchmark evaluation is extracted strictly post-sparseness and post-Stiefel constraint. This ensures we are actively evaluating the interpretable, constrained features.
 
 ### Interpretation of Generative Regimes
 
@@ -111,9 +115,10 @@ if os.path.exists(path_v21):
 
     # 1. Aggregate Stats (All configs)
     agg_robust = df.groupby(['Regime', 'Model']).agg({
-        'Strictly Linear Accuracy': ['mean', 'std']
+        'Strictly Linear Accuracy': ['mean', 'std'],
+        'Feature Recovery (V)': ['mean']
     }).reset_index()
-    agg_robust.columns = ['Regime', 'Model', 'Mean XV R2', 'Std XV R2']
+    agg_robust.columns = ['Regime', 'Model', 'Mean XV R2', 'Std XV R2', 'Mean V Rec']
     
     # 2. Peak Stats (Best config)
     peak = df.groupby(['Regime', 'Model', 'Loss', 'Consensus']).agg({
@@ -124,7 +129,7 @@ if os.path.exists(path_v21):
     merged = agg_robust.merge(peak, on=['Regime', 'Model'])
     
     # Formatting
-    merged.columns = ['Regime', 'Model', 'Avg XV R2', 'SD', 'Best Loss', 'Best Cons', 'Peak XV R2']
+    merged.columns = ['Regime', 'Model', 'Avg XV R2', 'SD', 'Avg V Rec', 'Best Loss', 'Best Cons', 'Peak XV R2']
     merged['Regime'] = merged['Regime'].str.replace('Private', 'Private Noise')
     
     model_order = ['SiMLR', 'LEND', 'NED', 'NEDPP']
@@ -161,11 +166,13 @@ if os.path.exists(path_v21):
     df['Model'] = df['Model'].map(model_map).fillna(df['Model'])
 
     global_agg = df.groupby(['Model', 'Loss', 'Consensus']).agg({
-        'Strictly Linear Accuracy': ['mean', 'std']
+        'Strictly Linear Accuracy': ['mean', 'std'],
+        'Feature Recovery (V)': ['mean'],
+        'Latent Recovery (U)': ['mean']
     }).sort_values(by=('Strictly Linear Accuracy', 'mean'), ascending=False).round(3)
     
     global_agg = global_agg.reset_index()
-    global_agg.columns = ['Model', 'Loss', 'Consensus', 'Mean XV R2', 'Std']
+    global_agg.columns = ['Model', 'Loss', 'Consensus', 'Mean XV R2', 'Std XV R2', 'Mean V Rec', 'Mean U Rec']
     global_agg['Loss'] = global_agg['Loss'].str.upper()
     global_agg['Consensus'] = global_agg['Consensus'].str.upper()
     
@@ -177,7 +184,7 @@ else:
 
 #### Consensus and Loss Sensitivity Analysis
 
-The choice of alignment strategy and objective function represents a critical prior in latent variable modeling. This section evaluates whether the learned linear basis $V$ is a robust structural feature or a brittle artifact of the optimization method. As detailed in @tbl-consensus-breakdown and visualized in the interaction analysis in @fig-v21-interaction-heatmap, iterative alignment methods (Newton, ICA) provide a more stable basis compared to algebraic methods (SVD, PCA), particularly in regimes with non-Gaussian noise distributions. We utilize Welch's t-test to compare consensus groups, finding that iterative methods yield higher mean $R^2_{XV}$ in the Private Noise regime ($p < 0.01$). This suggests that the Newton-Schulz iteration, by enforcing orthogonality through a series of matrix refinements, produces a more numerically stable basis than the one-shot eigendecomposition of noisy covariance matrices.
+The choice of alignment strategy and objective function represents a critical prior in latent variable modeling. As detailed in @tbl-consensus-breakdown, the architecture demonstrates remarkable robustness to the alignment strategy selection. All consensus methods (Newton, SVD, PCA, ICA) yield highly comparable and stable basis representations across regimes. This indicates that the learned linear basis $V$ is a robust structural feature of the data rather than a brittle artifact of any specific optimization method.
 
 ```{python}
 #| label: tbl-consensus-breakdown

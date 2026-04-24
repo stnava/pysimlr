@@ -4,12 +4,10 @@ import requests
 import os
 import subprocess
 import time
+import shutil
 
 def generate_mermaid_png(mermaid_code, output_path, retries=3):
-    # Strip Quarto comments (#|) before encoding
     clean_code = "\n".join([line for line in mermaid_code.split("\n") if not line.strip().startswith("#|")])
-    
-    # Encode to base64 for mermaid.ink
     graphbytes = clean_code.encode("utf-8")
     base64_string = base64.b64encode(graphbytes).decode("ascii")
     url = f"https://mermaid.ink/img/{base64_string}"
@@ -77,19 +75,45 @@ def extract_and_build():
     if all_success:
         print("\nAll Mermaid diagrams generated successfully.")
         
-        print("Starting Quarto HTML Render...")
+        print("\n--- Phase 1: Rendering HTML ---")
         try:
+            # Render to HTML
             subprocess.run(["quarto", "render", "paper", "--to", "html"], check=True)
-            print("HTML version rendered successfully.")
+            
+            # Identify output directory
+            source_dir = os.path.abspath("paper/_book")
+            target_dir = os.path.abspath("docs/manuscript")
+            
+            # Check if index.html exists
+            html_path = os.path.join(source_dir, "index.html")
+            if os.path.exists(html_path):
+                print(f"\nSUCCESS: HTML version rendered to: {html_path}")
+                
+                # Copy to docs/manuscript for GitHub Pages
+                print(f"Publishing to: {target_dir}...")
+                if os.path.exists(target_dir):
+                    shutil.rmtree(target_dir)
+                shutil.copytree(source_dir, target_dir)
+                print(f"Done! Book is now available at {target_dir}")
+                print(f"To view: open '{os.path.join(target_dir, 'index.html')}'")
+            else:
+                print(f"\nWARNING: HTML render finished but {html_path} was not found.")
         except subprocess.CalledProcessError as e:
-            print(f"HTML render failed: {e}")
+            print(f"HTML render failed with error code {e.returncode}")
 
-        print("\nStarting Quarto PDF Render...")
+        print("\n--- Phase 2: Rendering PDF ---")
         try:
             subprocess.run(["quarto", "render", "paper", "--to", "pdf"], check=True)
-            print("PDF version rendered successfully.")
+            pdf_path = os.path.abspath("paper/_book/paper.pdf")
+            if os.path.exists(pdf_path):
+                print(f"\nSUCCESS: PDF version rendered to: {pdf_path}")
+                # Also copy PDF to docs/manuscript
+                shutil.copy(pdf_path, os.path.join(target_dir, "Deep-SiMLR-Manuscript.pdf"))
+                print(f"PDF copied to {target_dir}/Deep-SiMLR-Manuscript.pdf")
+            else:
+                print(f"\nWARNING: PDF render finished but {pdf_path} was not found.")
         except subprocess.CalledProcessError as e:
-            print(f"PDF render failed: {e}")
+            print(f"PDF render failed with error code {e.returncode}")
     else:
         print("\nSkipping Quarto render due to Mermaid generation errors.")
 

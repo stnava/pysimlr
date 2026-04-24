@@ -2,13 +2,11 @@
 title: "Methods"
 ---
 
-## I. Technical Foundation
+## Technical Foundation
 
 ### Architectural Rationale: The Multi-Observer Sketch Problem
 
-Multi-modal integration can be viewed as a \"multi-observer sketch problem.\" Consider a central object of immense complexity—a high-dimensional manifold representing a system's true underlying state (e.g., patient health) that cannot be directly observed. Instead, we rely on a **Multimodal Consensus Basis**, where each modality acts as an observer with a unique but limited sensorium. One observer might record the low-frequency acoustic vibrations (clinical demographics), another might capture the high-frequency electromagnetic scatter (gene expression profiles), and yet another might trace the topological representation variations (medical imaging). Each observer produces a "sketch" of the central object. 
-
-Crucially, each \"sketch\" is corrupted by observer-specific noise, viewing angles, and sensory limitations. The core challenge is synthesizing these disparate, noisy sketches into a coherent, shared representation of the true central object. 
+Multi-modal integration can be viewed as a \"multi-observer sketch problem.\" Consider a central, potentially complex object that may be construed as a high-dimensional manifold representing a system's true underlying state (e.g., patient health) that cannot be directly observed. To approximate this inaccessible object, we rely on a **Multimodal Consensus Basis**, where each modality acts as an observer with a unique but limited sensorium. One observer might record the low-frequency acoustic vibrations (clinical demographics), another might capture the high-frequency electromagnetic scatter (gene expression profiles), and yet another might trace the topological representation variations (medical imaging). Each observer produces a "sketch" of the central object.  Crucially, each \"sketch\" is corrupted by observer-specific noise, viewing angles, and sensory limitations. The core challenge is synthesizing these disparate, noisy sketches into a coherent, shared representation of the true central object. 
 
 ### Joint-Variational Optimization Framework
 
@@ -19,52 +17,46 @@ Let $M$ be the number of modalities. For each modality $m \in \{1, \dots, M\}$, 
 The fundamental SiMLR objective is to minimize a joint loss function $\mathcal{L}$ that balances intra-modality reconstruction, inter-modality alignment, and representation stability via discrete penalty weights (e.g., $\lambda_{\text{sim}}, \lambda_{\text{var}}, \lambda_{\text{cov}}$):
 
 $$
-\mathcal{L}(\{f_m, g_m\}) = \sum_{m=1}^M \mathcal{L}_{\text{recon}}(X_m, \hat{X}_m) + \lambda_{\text{sim}} \sum_{m \neq l} \mathcal{L}_{\text{align}}(Z_m, Z_l) + \lambda_{\text{var}} \mathcal{L}_{\text{var}} + \lambda_{\text{cov}} \mathcal{L}_{\text{cov}} + \gamma \sum_{m=1}^M \Omega(f_m)
+\mathcal{L}(\{f_m, g_m\}, U) = \sum_{m=1}^M \mathcal{L}_{\text{recon}}(X_m, \hat{X}_m) + \lambda_{\text{sim}} \sum_{m=1}^M \mathcal{L}_{\text{align}}(Z_m, \text{detach}(U)) + \lambda_{\text{var}} \mathcal{L}_{\text{var}} + \lambda_{\text{cov}} \mathcal{L}_{\text{cov}} + \gamma \sum_{m=1}^M \Omega(V_m)
 $$
 
 Specifically, these loss components are defined as follows:
 
 *   $\mathcal{L}_{\text{recon}}(X_m, \hat{X}_m) = \| X_m - \hat{X}_m \|_F^2$ enforces that the learned representations retain sufficient information to reconstruct the original input features.
-*   $\mathcal{L}_{\text{align}}(Z_m, Z_l)$ measures the cross-modal alignment between latent spaces. Depending on the chosen similarity metric, this can be implemented as Absolute Canonical Covariance (ACC) or Normalized Covariance (NC) to maximize consensus.
+*   $\mathcal{L}_{\text{align}}(Z_m, \text{detach}(U))$ measures the cross-modal alignment of each latent space to a consensus space $U$. We utilize a **Leave-One-Out (LOO) topology** by default, where modality $m$ aligns against the consensus of all *other* modalities ($U_{\neq m}$). This strict cross-modal prediction pathway acts as a powerful structural regularizer, preventing high-capacity deep networks from "cheating" by memorizing their own idiosyncratic noise. A computationally simpler "star-topology" (where all modalities align to a single shared $U$) is also supported for faster approximation with $O(M)$ complexity.
 *   $\mathcal{L}_{\text{var}} = \sum_{m=1}^M (1 - \text{Var}(Z_m))^2$ acts as a variance regularization term, ensuring that the latent projections do not collapse and maintain unit variance.
 *   $\mathcal{L}_{\text{cov}}$ penalizes off-diagonal elements in the covariance matrix of $Z_m$, encouraging disentangled, independent latent factors within each modality.
-*   $\Omega(f_m)$ represents structural regularization on the encoder. For our interpretable linear models, this applies Non-negative Stiefel approximating flow (NSA-Flow) constraints to enforce orthogonality and optional positivity on the projection matrix $V_m$.
+*   $\Omega(V_m)$ represents the structural constraint on the encoder's linear basis. We apply Non-negative Stiefel approximating flow (NSA-Flow) to strictly constrain the initial projection matrix $V_m$ to the Stiefel manifold ($V_m^T V_m = I_k$), ensuring orthogonal, non-redundant feature discovery.
+
+This formalizes our constrained optimization problem: minimizing $\mathcal{L}(\theta, U)$ subject to $V_m \in \text{Stiefel Manifold}$ for all $m$.
 
 This generalized formulation directly encapsulates the classical SiMLR model as a specific derivation. By defining the encoder as a strictly linear mapping $f_m(X_m) = X_m V_m$ and the decoder as a corresponding linear mapping $g_m(Z_m) = Z_m W_m$, the general objective distills to the exact linear trace optimizations of the original method. Building upon this flexible foundation, we construct a taxonomy of architectures—each defining $f_m$ and $g_m$ differently to traverse the continuum from interpretable linear projections to high-capacity deep manifold learning.
 
-### Objective Functions and Similarity Measures
+The multi-view objectives $\mathcal{L}_{\text{align}}(Z_m, Z_l)$ will ideally ensure consistency between latent representations while remaining invariant to nuisance transformations [@wang2015deep; @bach2002kernel].  The framework supports multiple similarity energies:
 
-The multi-view objective must ensure consistency while remaining invariant to nuisance transformations [@wang2015deep; @bach2002kernel].
+1. **Regression:** Mean squared error between normalized latents and consensus. This assumes a Gaussian noise distribution and strictly penalizes magnitude differences, pulling the modality-specific projection directly toward the consensus coordinate.
 
-#### Similarity Energies: Regression, ACC, NC, and Log-Cosh
-The framework supports multiple similarity energies:
-1. **Regression:** Mean squared error between normalized latents and consensus.
-2. **ACC:** Negative sum of absolute covariances.
-3. **NC:** Normalized correlation / Procrustes correlation.
-4. **Log-Cosh:** A robust, ICA-inspired similarity measure.
+2. **ACC:** Negative sum of absolute covariances. Absolute Canonical Covariance (ACC) encourages shared alignment by maximizing the unnormalized inner product with the consensus. It is derived from the Orthogonal Procrustes problem [@schonemann1966generalized] $\min_{R^T R = I} \| Z_m - U R \|_F^2$ and is highly effective when signal magnitude correlates with signal quality:
+$$ \mathcal{L}_{ACC} = - \frac{1}{M} \sum_{m=1}^M \text{Tr}(Z_m^T U) $$
 
-#### ACC: Formal Derivation
-
-Absolute Canonical Covariance (ACC) encourages shared alignment. Derived from the Orthogonal Procrustes problem [@schonemann1966generalized] $\min_{R^T R = I} \| Z_m - Z_l R \|_F^2$:
-$$ \mathcal{L}_{ACC} = - \frac{1}{M(M-1)} \sum_{m \neq l} \text{Tr}(Z_m^T Z_l) $$
-
-#### NC: Scale-Invariance and Modality-Starvation
-
-Normalized Covariance (NC) prevents modality-starvation by scaling views to unit variance:
+3. **NC:** Normalized correlation (Procrustes correlation). Normalized Covariance (NC) prevents modality-starvation by scaling views to unit variance, ensuring that modalities with smaller intrinsic variance contribute equally to the consensus:
 $$ \tilde{Z}_m = Z_m \Sigma_m^{-1/2} $$
+
+4. **Log-Cosh:** A robust, ICA-inspired similarity measure. By utilizing the log-cosh approximation of absolute value, this metric bounds outlier influence and encourages statistically independent components within the alignment.
+
 
 #### The Signal-to-Noise Ratio (SNR) Perspective
 
-The choice between ACC and NC loss is a fundamental statistical decision regarding the expected SNR of the input modalities. 
+The choice between inter-modality loss is a fundamental statistical decision regarding the expected signal-to-noise ratio (SNR) of the input modalities. Below we compare NC and ACC, noting that ACC outperforms NC when the expected noise variance is low and the signal magnitude is trustworthy.
 
-Let $Z_m = S + \epsilon_m$ be the latent representation of modality $m$, where $S \sim \mathcal{N}(0, \Sigma_s)$ is the shared signal and $\epsilon_m \sim \mathcal{N}(0, \Sigma_{n,m})$ is view-specific noise.
-
-**ACC Loss** optimizes the unnormalized inner product:
+Let $Z_m = S + \epsilon_m$ be the latent representation of modality $m$, where $S \sim \mathcal{N}(0, \Sigma_s)$ is the shared signal and $\epsilon_m \sim \mathcal{N}(0, \Sigma_{n,m})$ is view-specific noise. **ACC** optimizes the unnormalized inner product:
 $$ \mathcal{L}_{ACC} \propto - \mathbb{E}[\text{Tr}((S + \epsilon_m)^T (S + \epsilon_l))] = - \text{Tr}(\Sigma_s) $$
-
-**NC Loss** optimizes the whitened alignment:
+while **NC** optimizes the whitened alignment:
 $$ \mathcal{L}_{NC} \propto - \text{Tr}\left( (\Sigma_s + \Sigma_{n,m})^{-1/2} \Sigma_s (\Sigma_s + \Sigma_{n,l})^{-1/2} \right) $$
-NC prevents "Modality Starvation" but introduces a "Noise Boosting" risk. We formalize this tradeoff as the *Equivariance-Invariance Dilemma*.
+
+NC prevents "Modality Starvation" by ensuring equal representation, but introduces a "Noise Boosting" risk when $\Sigma_{n,m}$ is large. We formalize this tradeoff as the *Equivariance-Invariance Dilemma*. To mitigate these extremes, Regression enforces Gaussian alignment assumptions, while Log-Cosh provides a robust alternative that inherently bounds outlier influence, offering a balanced approach when the noise distribution is unknown or heavy-tailed.
+
+In the absence of a deep understanding of input modality's statistical properties, the choice of loss must therefore be chosen based on empirical experiments.
 
 ### Consensus Formation and Stabilization
 
@@ -268,7 +260,7 @@ Conceptually, the NEDPP architecture acts as a latent manifold projection. Just 
 
 ### Formalizing Mechanical Interpretability and Exact Counterfactuals
 
-The OLEE establishes a rigid boundary between feature discovery and manifold learning. This translates into three critical XAI properties:
+The OLEE establishes a rigid boundary between feature discovery and manifold learning. This translates into three critical explainable artificial intelligence (XAI) properties:
 
 **1. Exact Global Feature Importance:** By enforcing the Stiefel manifold constraint ($V_m^T V_m = I_k$), the basis vectors in $V_m$ define a set of strictly orthogonal, non-redundant directions. This **Auditability by Design** [@Rudin_2019; @alvarez2018towards] ensures that feature rankings are mathematically exact rather than post-hoc approximations.
 
@@ -337,11 +329,9 @@ The architectural guarantee of **Auditability by Design**. It mandates that the 
 
 ### Statistical Determination of the Intrinsic Dimensionality (K)
 
-A foundational, and often dangerously overlooked, step in multimodal integration is determining the intrinsic dimensionality, $K$, of the latent consensus space. Arbitrarily specifying $K$ without statistical justification risks either severe under-parameterization—where critical signals are compressed and lost—or over-parameterization, where the model begins to hallucinate structure by fitting random view-specific noise. To ensure that our representations are statistically significant and not mere mathematical artifacts, we must adhere to rigorous, data-driven procedures for model selection. Remember, no matter how sophisticated a deep architecture may be, correlation does not imply causation, and discovering a "latent space" means nothing if it is not distinguishable from noise.
+A foundational, and often dangerously overlooked, step in multimodal integration is determining the intrinsic dimensionality, $K$, of the latent consensus space. Arbitrarily specifying $K$ without statistical justification risks either severe under-parameterization—where critical signals are compressed and lost—or over-parameterization, where the model begins to hallucinate structure by fitting random view-specific noise. To ensure that our representations are statistically significant and not mere mathematical artifacts, we must adhere to rigorous, data-driven procedures for model selection. Discovering a "latent space" means nothing if it is indistinguishable from noise.  We thus advocate three statistically rigorous strategies for selecting $K$, each balancing computational feasibility with mathematical robustness. 
 
-We advocate three statistically rigorous strategies for selecting $K$, each balancing computational feasibility with mathematical robustness. 
-
-#### 1. Information Criteria (BIC)
+#### Information Criteria (BIC)
 
 For generative variants or probabilistic relaxations of SiMLR, where a likelihood function $L(\theta \mid X)$ can be defined, Information Criteria provide a penalized likelihood approach to model selection. We heavily favor the Bayesian Information Criterion (BIC) [@schwarz1978estimating] due to its stricter penalty for model complexity, which directly guards against fitting noise.
 
@@ -353,7 +343,7 @@ $$
 
 where $n$ is the sample size. The optimal $K^*$ minimizes the BIC. The $\ln(n)$ penalty guarantees asymptotic consistency, ensuring that as $n \to \infty$, the probability of selecting the true intrinsic dimension approaches 1. This is critical: if your sample size $n$ is inadequate compared to the feature dimensions $d_m$, the BIC will aggressively and correctly penalize large values of $K$. 
 
-#### 2. Spectral Truncation and Parallel Analysis (Tracy-Widom)
+#### Spectral Truncation and Parallel Analysis (Tracy-Widom)
 
 When strict likelihoods are unavailable, we evaluate the eigenspectrum of the cross-covariance matrices. In classical Parallel Analysis [@horn1965rationale], we compare the observed eigenvalues $\lambda_i$ of the data matrix against the expected eigenvalues $\lambda_i^{(null)}$ from a synthesized noise matrix of identical dimensions. 
 
@@ -365,7 +355,7 @@ $$
 
 We only retain dimensions $k$ where the corresponding $p$-value falls below a pre-specified significance threshold (e.g., $p_k < 0.05$), after applying appropriate multiple testing corrections (such as Bonferroni or Benjamini-Hochberg). Any dimension that fails to reject the null hypothesis of pure noise must be discarded.
 
-#### 3. V-fold Cross-Validation
+#### V-fold Cross-Validation
 
 The ultimate arbiter of a model's true signal recovery capability is out-of-sample performance. V-fold cross-validation [@stone1974cross] avoids the strict parametric assumptions of BIC or Tracy-Widom. The data is partitioned into $V$ folds. For a candidate dimension $K$, the model is trained on $V-1$ folds and its out-of-sample objective loss, $\mathcal{L}_{test}(K)$, is evaluated on the held-out fold.
 

@@ -17,7 +17,7 @@ def test_lend_mix_ica():
     print("LEND Mix ICA test PASSED")
 
 def test_simlr_mix_pca():
-    from pysimlr import simlr
+    from pysimlr.simlr import simlr
     torch.manual_seed(42)
     n, p1, p2, k = 100, 20, 20, 2
     x1 = torch.randn(n, p1)
