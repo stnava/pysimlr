@@ -53,6 +53,8 @@ We evaluate SiMLR across four data regimes representing distinct manifold struct
 #| out-width: 100%
 #| echo: false
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 u = np.linspace(-2, 2, 100)
@@ -377,6 +379,8 @@ To ensure the practical applicability of these architectures to large-scale biom
 #| out-width: 100%
 #| echo: false
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
 
@@ -416,6 +420,8 @@ from sklearn.datasets import load_diabetes
 from sklearn.preprocessing import StandardScaler
 import torch
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 torch.manual_seed(42)
 np.random.seed(42)
@@ -462,6 +468,8 @@ A key concern in deep manifold learning is whether the enforced constraints, suc
 #| echo: false
 import pandas as pd
 import seaborn as sns
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
 

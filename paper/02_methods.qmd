@@ -115,16 +115,14 @@ The foundation of the framework, relying on dual linear projections for encoding
 #| fig-width: 6
 #| fig-align: center
 graph LR
-    X[Input X] -->|Linear Basis V| Z[Latent Z]
-    Z -->|Linear Weights W| R[Recon X']
-    
-    subgraph Constraints
-        V -.->|NSA-Flow| Stiefel[Stiefel Manifold]
-        Z -.->|ACC/NC Loss| Consensus[Shared Alignment]
-    end
+    X[Input X_m] --> V[Basis V_m]
+    V --> Z[Latent Z_m]
+    V -.->|NSA-Flow| Stiefel[Stiefel Manifold]
+    Z -->|Linear Weights W_m| R[Recon X'_m]
+    Z -.->|Alignment Loss| U[Consensus U]
     
     style Z fill:#e3f2fd,stroke:#1565c0,color:#000
-    style Constraints fill:#ffffff,stroke:#333
+    style U fill:#fce4ec,stroke:#8e24aa,color:#000
 ```
 :::
 
@@ -149,24 +147,18 @@ Our primary innovation for scientific discovery, preserving linear interpretabil
 #| fig-width: 6
 #| fig-align: center
 graph LR
-    X[Input X] -->|OLEE V| Z[Latent Z]
-    Z -->|Deep MLP g| H1[Hidden L1]
-    H1 -->|Activation| H2[Hidden L2]
-    H2 --> R[Recon X']
+    X[Input X_m] --> V[OLEE V_m]
+    V --> Z[Latent Z_m]
+    V -.->|NSA-Flow| S[Stiefel Manifold]
+    V -.->|Exact Mapping| A[Waterfall Audit]
+    Z -.->|Alignment Loss| U[Consensus U]
     
-    subgraph Interpretability
-        V -.->|NSA-Flow| S[Stiefel Manifold]
-        V -.->|Exact Mapping| A[Waterfall Audit]
-    end
-
-    subgraph Denoising
-        H1 -.->|Non-linear| Recon[Manifold Recovery]
-        H2 -.->|Non-linear| Recon
-    end
+    Z -->|Deep MLP g_m| H1[Hidden L1]
+    H1 -->|Activation| H2[Hidden L2]
+    H2 --> R[Recon X'_m]
     
     style Z fill:#e8f5e9,stroke:#2e7d32,color:#000
-    style Interpretability fill:#ffffff,stroke:#333
-    style Denoising fill:#ffffff,stroke:#333
+    style U fill:#fce4ec,stroke:#8e24aa,color:#000
 ```
 :::
 
@@ -191,17 +183,15 @@ The upper bound for representational capacity, designed for extreme periodic or 
 #| fig-width: 6
 #| fig-align: center
 graph LR
-    X[Input X] -->|OLEE V| H_enc[Hidden Head]
-    H_enc -->|Activation| Z[Latent Z]
-    Z -->|Deep MLP Decoder g| R[Recon X']
+    X[Input X_m] --> V[OLEE V_m]
+    V -.->|NSA-Flow| Ortho[Stiefel Manifold]
+    V --> H_enc[Hidden Head]
+    H_enc -->|Activation| Z[Latent Z_m]
+    Z -.->|Alignment Loss| U[Consensus U]
+    Z -->|Deep MLP Decoder g_m| R[Recon X'_m]
     
-    subgraph Alignment
-        Z -.->|Newton-Schulz| Ortho[Latent Orthogonality]
-        Z -.->|ACC Loss| Shared[Consensus]
-    end
-
     style Z fill:#fff3e0,stroke:#e65100,color:#000
-    style Alignment fill:#ffffff,stroke:#333
+    style U fill:#fce4ec,stroke:#8e24aa,color:#000
 ```
 :::
 
@@ -226,8 +216,14 @@ The most advanced variant, explicitly partitioning the latent space to sequester
 #| fig-width: 6
 #| fig-align: center
 graph TD
-    X[Input X] -->|Basis Vs| S[Shared U]
-    X -->|Basis Vp| P[Private P]
+    X[Input X_m] --> Vs[OLEE V_shared]
+    X --> Vp[OLEE V_private]
+    Vs -.->|NSA-Flow| Stiefel[Stiefel Manifold]
+    Vp -.->|NSA-Flow| Stiefel
+    Vs --> S_enc[Shared Head] --> S[Shared Z_m]
+    Vp --> P_enc[Private Head] --> P[Private P_m]
+    
+    S -.->|Alignment Loss| U[Consensus U]
     
     subgraph Disentanglement
         S -.->|Cross-Covariance| O[S perp P]
@@ -236,11 +232,12 @@ graph TD
 
     S -->|Concat| J[Joint Latent]
     P -->|Concat| J
-    J -->|Deep Decoder| R[Recon X']
+    J -->|Deep Decoder g_m| R[Recon X'_m]
     
     style S fill:#e3f2fd,stroke:#1565c0,color:#000
     style P fill:#f3e5f5,stroke:#7b1fa2,color:#000
     style J fill:#fffde7,stroke:#fbc02d,color:#000
+    style U fill:#fce4ec,stroke:#8e24aa,color:#000
     style Disentanglement fill:#ffffff,stroke:#333
 ```
 :::
