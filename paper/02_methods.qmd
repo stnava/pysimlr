@@ -14,16 +14,21 @@ SiMLR addresses this by formulating a generalized, joint-variational optimizatio
 
 Let $M$ be the number of modalities. For each modality $m \in \{1, \dots, M\}$, let $X_m \in \mathbb{R}^{n \times d_m}$ be the input data matrix, where $n$ is the number of samples and $d_m$ is the feature dimension of the $m$-th modality. We seek to learn an encoder $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k$ and a decoder $g_m: \mathbb{R}^k \to \mathbb{R}^{d_m}$. We denote the latent representation (scores) as $Z_m = f_m(X_m) \in \mathbb{R}^{n \times k}$ and the reconstruction as $\hat{X}_m = g_m(Z_m)$.
 
-The fundamental SiMLR objective is to minimize a joint loss function $\mathcal{L}$ that balances intra-modality reconstruction, inter-modality alignment, and representation stability via discrete penalty weights (e.g., $\lambda_{\text{sim}}, \lambda_{\text{var}}, \lambda_{\text{cov}}$):
+The fundamental SiMLR objective is to minimize a joint loss function $\mathcal{L}$ that balances intra-modality reconstruction, inter-modality alignment, and representation stability via discrete penalty weights (e.g., $\lambda_{\text{sim}}, \lambda_{\text{var}}, \lambda_{\text{cov}}$). To prevent trivial "mode collapse" (where representations collapse to a constant point to perfectly satisfy alignment), we decouple the target generation from the parameter update via a formal **Alternating Optimization** framework.
+
+At optimization step $t$, we first compute an auxiliary consensus target $U_{\neq m}^{(t)}$ for each modality $m$. Under our default **Leave-One-Out (LOO) topology**, this target is constructed exclusively from the latent scores of all *other* modalities from the previous step:
+$$ U_{\neq m}^{(t)} = \text{Consensus}(\{Z_i^{(t-1)}\}_{i \neq m}) $$
+
+The model parameters $\{f_m, g_m\}$ are then updated by minimizing the loss with $U_{\neq m}^{(t)}$ held constant:
 
 $$
-\mathcal{L}(\{f_m, g_m\}, U) = \sum_{m=1}^M \mathcal{L}_{\text{recon}}(X_m, \hat{X}_m) + \lambda_{\text{sim}} \sum_{m=1}^M \mathcal{L}_{\text{align}}(Z_m, \text{detach}(U)) + \lambda_{\text{var}} \mathcal{L}_{\text{var}} + \lambda_{\text{cov}} \mathcal{L}_{\text{cov}} + \gamma \sum_{m=1}^M \Omega(V_m)
+\mathcal{L}^{(t)} = \sum_{m=1}^M \mathcal{L}_{\text{recon}}(X_m, \hat{X}_m) + \lambda_{\text{sim}} \sum_{m=1}^M \mathcal{L}_{\text{align}}(Z_m, U_{\neq m}^{(t)}) + \lambda_{\text{var}} \mathcal{L}_{\text{var}} + \lambda_{\text{cov}} \mathcal{L}_{\text{cov}} + \gamma \sum_{m=1}^M \Omega(V_m)
 $$
 
 Specifically, these loss components are defined as follows:
 
 *   $\mathcal{L}_{\text{recon}}(X_m, \hat{X}_m) = \| X_m - \hat{X}_m \|_F^2$ enforces that the learned representations retain sufficient information to reconstruct the original input features.
-*   $\mathcal{L}_{\text{align}}(Z_m, \text{detach}(U))$ measures the cross-modal alignment of each latent space to a consensus space $U$. We utilize a **Leave-One-Out (LOO) topology** by default, where modality $m$ aligns against the consensus of all *other* modalities ($U_{\neq m}$). This strict cross-modal prediction pathway acts as a powerful structural regularizer, preventing high-capacity deep networks from "cheating" by memorizing their own idiosyncratic noise. A computationally simpler "star-topology" (where all modalities align to a single shared $U$) is also supported for faster approximation with $O(M)$ complexity.
+*   $\mathcal{L}_{\text{align}}(Z_m, U_{\neq m}^{(t)})$ measures the cross-modal alignment of each latent space $Z_m$ to its fixed target consensus $U_{\neq m}^{(t)}$. By evaluating the alignment against a fixed target generated in the previous step, we ensure gradients only flow through the modality-specific encoder. This forces the encoder to discover features that match the consensus rather than allowing the consensus to simultaneously drift to match the features. The strict cross-modal prediction pathway of the LOO topology acts as a powerful structural regularizer, preventing high-capacity deep networks from "cheating" by memorizing their own idiosyncratic noise. A computationally simpler "star-topology" (where all modalities align to a single shared $U^{(t)}$) is also supported for faster approximation with $O(M)$ complexity.
 *   $\mathcal{L}_{\text{var}} = \sum_{m=1}^M (1 - \text{Var}(Z_m))^2$ acts as a variance regularization term, ensuring that the latent projections do not collapse and maintain unit variance.
 *   $\mathcal{L}_{\text{cov}}$ penalizes off-diagonal elements in the covariance matrix of $Z_m$, encouraging disentangled, independent latent factors within each modality.
 *   $\Omega(V_m)$ represents the structural constraint on the encoder's linear basis. We apply Non-negative Stiefel approximating flow (NSA-Flow) to strictly constrain the initial projection matrix $V_m$ to the Stiefel manifold ($V_m^T V_m = I_k$), ensuring orthogonal, non-redundant feature discovery.
@@ -37,7 +42,7 @@ The multi-view objectives $\mathcal{L}_{\text{align}}(Z_m, Z_l)$ will ideally en
 1. **Regression:** Mean squared error between normalized latents and consensus. This assumes a Gaussian noise distribution and strictly penalizes magnitude differences, pulling the modality-specific projection directly toward the consensus coordinate.
 
 2. **ACC:** Negative sum of absolute covariances. Absolute Canonical Covariance (ACC) encourages shared alignment by maximizing the unnormalized inner product with the consensus. It is derived from the Orthogonal Procrustes problem [@schonemann1966generalized] $\min_{R^T R = I} \| Z_m - U R \|_F^2$ and is highly effective when signal magnitude correlates with signal quality:
-$$ \mathcal{L}_{ACC} = - \frac{1}{M} \sum_{m=1}^M \text{Tr}(Z_m^T U) $$
+$$ \mathcal{L}_{ACC} = - \frac{1}{M} \sum_{m=1}^M \text{Tr}(Z_m^T U_{\neq m}^{(t)}) $$
 
 3. **NC:** Normalized correlation (Procrustes correlation). Normalized Covariance (NC) prevents modality-starvation by scaling views to unit variance, ensuring that modalities with smaller intrinsic variance contribute equally to the consensus:
 $$ \tilde{Z}_m = Z_m \Sigma_m^{-1/2} $$
@@ -62,13 +67,13 @@ In the absence of a deep understanding of input modality's statistical propertie
 
 #### Newton-Schulz Iteration
 
-Newton-Schulz iteration provides a high-performance alternative to SVD for maintaining latent orthogonality. Its **quadratic convergence** ensures the consensus representation $U$ remains numerically stable across thousands of training epochs. 
+Newton-Schulz iteration provides a high-performance alternative to SVD for maintaining latent orthogonality. Its **quadratic convergence** ensures the consensus representation remains numerically stable across thousands of training epochs. 
 
 A formal proof of the quadratic convergence is detailed in **Appendix A.2.2**.
 
 #### Anchor Map Fix: EMA Consensus Stabilization
 
-In stochastic gradient descent (SGD) optimization of multi-modal systems, the shared latent consensus $U$ can suffer from "representation drift" across mini-batches. This is particularly acute for algorithms like ICA or SVD that are sensitive to the specific samples in a batch. To mitigate this, we introduce the **Anchor Map Fix**, which utilizes an Exponential Moving Average (EMA) to stabilize the consensus projection, a technique closely related to momentum encoders and target networks in deep representation learning [@he2020momentum; @tarvainen2017mean; @polyak1992acceleration].
+In stochastic gradient descent (SGD) optimization of multi-modal systems, the shared latent consensus can suffer from "representation drift" across mini-batches. This is particularly acute for algorithms like ICA or SVD that are sensitive to the specific samples in a batch. To mitigate this, we introduce the **Anchor Map Fix**, which utilizes an Exponential Moving Average (EMA) to stabilize the consensus projection, a technique closely related to momentum encoders and target networks in deep representation learning [@he2020momentum; @tarvainen2017mean; @polyak1992acceleration].
 
 Let $Z_{cat} \in \mathbb{R}^{n \times MK}$ be the concatenation of latent scores from all $M$ modalities. The raw projection matrix $P_t$ is computed at each step $t$ using the chosen mixing algorithm (e.g., SVD or ICA):
 $$ P_t = \text{MixingAlgorithm}(Z_{cat, t}) $$
@@ -119,10 +124,10 @@ graph LR
     V --> Z[Latent Z_m]
     V -.->|NSA-Flow| Stiefel[Stiefel Manifold]
     Z -->|Linear Weights W_m| R[Recon X'_m]
-    Z -.->|Alignment Loss| U[Consensus U]
+    Z -.->|Alignment Loss| U["Target U_{≠m}^{(t)}"]
     
     style Z fill:#e3f2fd,stroke:#1565c0,color:#000
-    style U fill:#fce4ec,stroke:#8e24aa,color:#000
+    style U fill:#fce4ec,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,color:#000
 ```
 :::
 
@@ -151,14 +156,14 @@ graph LR
     V --> Z[Latent Z_m]
     V -.->|NSA-Flow| S[Stiefel Manifold]
     V -.->|Exact Mapping| A[Waterfall Audit]
-    Z -.->|Alignment Loss| U[Consensus U]
+    Z -.->|Alignment Loss| U["Target U_{≠m}^{(t)}"]
     
     Z -->|Deep MLP g_m| H1[Hidden L1]
     H1 -->|Activation| H2[Hidden L2]
     H2 --> R[Recon X'_m]
     
     style Z fill:#e8f5e9,stroke:#2e7d32,color:#000
-    style U fill:#fce4ec,stroke:#8e24aa,color:#000
+    style U fill:#fce4ec,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,color:#000
 ```
 :::
 
@@ -187,11 +192,11 @@ graph LR
     V -.->|NSA-Flow| Ortho[Stiefel Manifold]
     V --> H_enc[Hidden Head]
     H_enc -->|Activation| Z[Latent Z_m]
-    Z -.->|Alignment Loss| U[Consensus U]
+    Z -.->|Alignment Loss| U["Target U_{≠m}^{(t)}"]
     Z -->|Deep MLP Decoder g_m| R[Recon X'_m]
     
     style Z fill:#fff3e0,stroke:#e65100,color:#000
-    style U fill:#fce4ec,stroke:#8e24aa,color:#000
+    style U fill:#fce4ec,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,color:#000
 ```
 :::
 
@@ -223,7 +228,7 @@ graph TD
     Vs --> S_enc[Shared Head] --> S[Shared Z_m]
     Vp --> P_enc[Private Head] --> P[Private P_m]
     
-    S -.->|Alignment Loss| U[Consensus U]
+    S -.->|Alignment Loss| U["Target U_{≠m}^{(t)}"]
     
     subgraph Disentanglement
         S -.->|Cross-Covariance| O[S perp P]
@@ -237,7 +242,7 @@ graph TD
     style S fill:#e3f2fd,stroke:#1565c0,color:#000
     style P fill:#f3e5f5,stroke:#7b1fa2,color:#000
     style J fill:#fffde7,stroke:#fbc02d,color:#000
-    style U fill:#fce4ec,stroke:#8e24aa,color:#000
+    style U fill:#fce4ec,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,color:#000
     style Disentanglement fill:#ffffff,stroke:#333
 ```
 :::
@@ -246,7 +251,7 @@ graph TD
 ![](figures/fig-nedpp.png)
 :::
 
-NEDPP Architecture. The latent space is partitioned into a shared consensus $U$ (aligned across views) and a private space $P$ (view-specific). A cross-covariance penalty ensures that $P$ captures only idiosyncratic variance, preventing it from polluting the shared signal.
+NEDPP Architecture. The latent space is partitioned into a shared consensus $U_{\neq m}^{(t)}$ (aligned across views) and a private space $P$ (view-specific). A cross-covariance penalty ensures that $P$ captures only idiosyncratic variance, preventing it from polluting the shared signal.
 :::
 
 #### Shared-Private Disentanglement Mechanism

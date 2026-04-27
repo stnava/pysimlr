@@ -16,7 +16,9 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                             orthogonalize: bool = False,
                             training: bool = False,
                             anchor: Optional[torch.Tensor] = None,
-                            topology: str = "star") -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
+                            topology: str = "star",
+                            prune_threshold: Optional[float] = None,
+                            modality_weights: Optional[torch.Tensor] = None) -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
     """
     Combine modality-specific projections into a shared latent consensus (U).
     
@@ -43,6 +45,12 @@ def compute_shared_consensus(projections: List[torch.Tensor],
             norm_projs.append(p_safe / (p_rms + 1e-8))
         else:
             norm_projs.append(torch.randn_like(p_safe) * 1e-4)
+            
+    if modality_weights is not None:
+        scaled_projs = []
+        for i, p in enumerate(norm_projs):
+            scaled_projs.append(p * modality_weights[i].item())
+        norm_projs = scaled_projs
 
     # Core consensus logic separated into a helper to reuse for LOO
     def _get_u(proj_list, return_anchor=False):
@@ -88,8 +96,38 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         local_u = local_u / u_std
             
         if return_anchor:
+            if len(proj_list) != len(projections):
+                return local_u, None
             return local_u, local_anchor
         return local_u
+
+    # Variance-Weighted Pruning Option
+    orig_norm_projs = norm_projs
+    valid_indices = set(range(len(norm_projs)))
+    
+    if prune_threshold is not None and len(norm_projs) > 1:
+        u_pre = torch.mean(torch.stack(norm_projs), dim=0)
+        u_pre = u_pre - u_pre.mean(dim=0, keepdim=True)
+        u_pre_norm = torch.norm(u_pre, p='fro')
+        
+        valid_projs = []
+        temp_valid_indices = set()
+        for i, p in enumerate(norm_projs):
+            p_c = p - p.mean(dim=0, keepdim=True)
+            p_norm = torch.norm(p_c, p='fro')
+            
+            if u_pre_norm > 1e-8 and p_norm > 1e-8:
+                sim = torch.trace(p_c.t() @ u_pre) / (p_norm * u_pre_norm)
+                if sim >= prune_threshold:
+                    valid_projs.append(p)
+                    temp_valid_indices.add(i)
+            else:
+                valid_projs.append(p)
+                temp_valid_indices.add(i)
+                
+        if len(valid_projs) > 0:
+            norm_projs = valid_projs
+            valid_indices = temp_valid_indices
 
     if topology == "star":
         if training:
@@ -99,26 +137,18 @@ def compute_shared_consensus(projections: List[torch.Tensor],
             return _get_u(norm_projs, return_anchor=False)
             
     elif topology == "loo":
-        # For leave-one-out, we return a list of U matrices, one for each modality.
-        # U_i is the consensus of all modalities EXCEPT i.
-        # Note: Anchor EMA fix is theoretically complex for LOO since there are M anchors. 
-        # For simplicity, we fallback to star-anchor for inference, or recompute if deterministic.
-        
         if not training and anchor is not None:
-            # If inference and we have an anchor, just use star topology for stability
             return _get_u(norm_projs, return_anchor=False)
             
         u_list = []
-        for i in range(len(norm_projs)):
-            loo_projs = norm_projs[:i] + norm_projs[i+1:]
+        for i in range(len(orig_norm_projs)):
+            loo_projs = [p for j, p in enumerate(orig_norm_projs) if j != i and j in valid_indices]
             if len(loo_projs) == 0:
-                # Edge case: only 1 modality. Fallback to its own projection.
-                u_list.append(norm_projs[0])
+                u_list.append(orig_norm_projs[i])
             else:
                 u_list.append(_get_u(loo_projs, return_anchor=False))
                 
         if training:
-            # We still compute the star anchor to save for inference stability
             _, new_anchor = _get_u(norm_projs, return_anchor=True)
             return u_list, new_anchor
         return u_list
