@@ -410,32 +410,32 @@ class LENDSiMRModel(nn.Module):
                     mcis.append(0.0)
             
             mci_tensor = torch.tensor(mcis, device=self.mci.device)
-            # Apply momentum for stability
-            self.mci.copy_(0.9 * self.mci + 0.1 * mci_tensor)
-            
-            # 1. Sigmoid Gate (Dynamic Soft-Thresholding)
-            # We preserve useful modalities strictly proportional to their MCI (preventing zero-outs),
-            # while softly gating off rogue modalities using a Sigmoid centered at half the max MCI.
-            
-            # Use an absolute warmup schedule to prevent early stopping from breaking the transition
-            # After 20 epochs, it fully trusts the target weights.
-            progress = min(1.0, epoch / 20.0)
-            
-            center = 0.5 * self.mci.max()
-            # Steepness grows during warmup
-            steepness = 20.0 * progress 
-            
-            gate = torch.sigmoid(steepness * (self.mci - center))
-            
-            # Target weights are proportional to gated MCIs
+            # Fast momentum to track the evolving consensus
+            mom = 0.2 if epoch < 30 else 0.05
+            self.mci.copy_((1.0 - mom) * self.mci + mom * mci_tensor)
+
+            # 1. Rank-based Scaling
+            # We don't just use the raw MCI; we use the Relative Rank.
+            # This ensures that the 'best' modality always gets a strong weight,
+            # and 'worst' is pushed down, regardless of the absolute value of similarity.
+            ranks = torch.argsort(torch.argsort(self.mci, descending=False)).float()
+            # Scale ranks to [0, 1]
+            rank_scores = ranks / (len(ranks) - 1 + 1e-8)
+
+            # 2. Sigmoid Gate centered at the top quartile
+            progress = min(1.0, epoch / 40.0)
+            steepness = 5.0 + 15.0 * progress
+            # Only modalities in the top half of ranks get through cleanly
+            gate = torch.sigmoid(steepness * (rank_scores - 0.5))
+
+            # 3. Transition Schedule
+            target_rho = max(0.0, min(1.0, (epoch - 10) / 30.0))
+
             raw_w = self.mci * gate
             target_weights = raw_w / (raw_w.sum() + 1e-8)
-            
-            # 2. Linear Annealing Schedule for Time
-            # Linearly transition from uniform to target over the warmup period
             uniform_weights = torch.ones_like(target_weights) / len(target_weights)
-            
-            final_weights = (1.0 - progress) * uniform_weights + progress * target_weights
+
+            final_weights = (1.0 - target_rho) * uniform_weights + target_rho * target_weights
             self.modality_weights.copy_(final_weights)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         latents = self.encode_first_layer(x_list)
@@ -563,32 +563,32 @@ class NEDSiMRModel(nn.Module):
                     mcis.append(0.0)
             
             mci_tensor = torch.tensor(mcis, device=self.mci.device)
-            # Apply momentum for stability
-            self.mci.copy_(0.9 * self.mci + 0.1 * mci_tensor)
-            
-            # 1. Sigmoid Gate (Dynamic Soft-Thresholding)
-            # We preserve useful modalities strictly proportional to their MCI (preventing zero-outs),
-            # while softly gating off rogue modalities using a Sigmoid centered at half the max MCI.
-            
-            # Use an absolute warmup schedule to prevent early stopping from breaking the transition
-            # After 20 epochs, it fully trusts the target weights.
-            progress = min(1.0, epoch / 20.0)
-            
-            center = 0.5 * self.mci.max()
-            # Steepness grows during warmup
-            steepness = 20.0 * progress 
-            
-            gate = torch.sigmoid(steepness * (self.mci - center))
-            
-            # Target weights are proportional to gated MCIs
+            # Fast momentum to track the evolving consensus
+            mom = 0.2 if epoch < 30 else 0.05
+            self.mci.copy_((1.0 - mom) * self.mci + mom * mci_tensor)
+
+            # 1. Rank-based Scaling
+            # We don't just use the raw MCI; we use the Relative Rank.
+            # This ensures that the 'best' modality always gets a strong weight,
+            # and 'worst' is pushed down, regardless of the absolute value of similarity.
+            ranks = torch.argsort(torch.argsort(self.mci, descending=False)).float()
+            # Scale ranks to [0, 1]
+            rank_scores = ranks / (len(ranks) - 1 + 1e-8)
+
+            # 2. Sigmoid Gate centered at the top quartile
+            progress = min(1.0, epoch / 40.0)
+            steepness = 5.0 + 15.0 * progress
+            # Only modalities in the top half of ranks get through cleanly
+            gate = torch.sigmoid(steepness * (rank_scores - 0.5))
+
+            # 3. Transition Schedule
+            target_rho = max(0.0, min(1.0, (epoch - 10) / 30.0))
+
             raw_w = self.mci * gate
             target_weights = raw_w / (raw_w.sum() + 1e-8)
-            
-            # 2. Linear Annealing Schedule for Time
-            # Linearly transition from uniform to target over the warmup period
             uniform_weights = torch.ones_like(target_weights) / len(target_weights)
-            
-            final_weights = (1.0 - progress) * uniform_weights + progress * target_weights
+
+            final_weights = (1.0 - target_rho) * uniform_weights + target_rho * target_weights
             self.modality_weights.copy_(final_weights)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         first_layer_scores = self.encode_first_layer(x_list)
@@ -724,32 +724,32 @@ class NEDSharedPrivateSiMRModel(nn.Module):
                     mcis.append(0.0)
             
             mci_tensor = torch.tensor(mcis, device=self.mci.device)
-            # Apply momentum for stability
-            self.mci.copy_(0.9 * self.mci + 0.1 * mci_tensor)
-            
-            # 1. Sigmoid Gate (Dynamic Soft-Thresholding)
-            # We preserve useful modalities strictly proportional to their MCI (preventing zero-outs),
-            # while softly gating off rogue modalities using a Sigmoid centered at half the max MCI.
-            
-            # Use an absolute warmup schedule to prevent early stopping from breaking the transition
-            # After 20 epochs, it fully trusts the target weights.
-            progress = min(1.0, epoch / 20.0)
-            
-            center = 0.5 * self.mci.max()
-            # Steepness grows during warmup
-            steepness = 20.0 * progress 
-            
-            gate = torch.sigmoid(steepness * (self.mci - center))
-            
-            # Target weights are proportional to gated MCIs
+            # Fast momentum to track the evolving consensus
+            mom = 0.2 if epoch < 30 else 0.05
+            self.mci.copy_((1.0 - mom) * self.mci + mom * mci_tensor)
+
+            # 1. Rank-based Scaling
+            # We don't just use the raw MCI; we use the Relative Rank.
+            # This ensures that the 'best' modality always gets a strong weight,
+            # and 'worst' is pushed down, regardless of the absolute value of similarity.
+            ranks = torch.argsort(torch.argsort(self.mci, descending=False)).float()
+            # Scale ranks to [0, 1]
+            rank_scores = ranks / (len(ranks) - 1 + 1e-8)
+
+            # 2. Sigmoid Gate centered at the top quartile
+            progress = min(1.0, epoch / 40.0)
+            steepness = 5.0 + 15.0 * progress
+            # Only modalities in the top half of ranks get through cleanly
+            gate = torch.sigmoid(steepness * (rank_scores - 0.5))
+
+            # 3. Transition Schedule
+            target_rho = max(0.0, min(1.0, (epoch - 10) / 30.0))
+
             raw_w = self.mci * gate
             target_weights = raw_w / (raw_w.sum() + 1e-8)
-            
-            # 2. Linear Annealing Schedule for Time
-            # Linearly transition from uniform to target over the warmup period
             uniform_weights = torch.ones_like(target_weights) / len(target_weights)
-            
-            final_weights = (1.0 - progress) * uniform_weights + progress * target_weights
+
+            final_weights = (1.0 - target_rho) * uniform_weights + target_rho * target_weights
             self.modality_weights.copy_(final_weights)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
         first_layer_scores = self.encode_first_layer(x_list)
