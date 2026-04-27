@@ -413,16 +413,30 @@ class LENDSiMRModel(nn.Module):
             # Apply momentum for stability
             self.mci.copy_(0.9 * self.mci + 0.1 * mci_tensor)
             
-            # Instead of a sharp Softmax (which acts like argmax and kills redundant valid sensors),
-            # we use a Polynomial Weighting scheme. This preserves the relative contributions of valid
-            # modalities while smoothly squashing rogue signals toward zero.
-            progress = epoch / max(1, total_epochs)
-            # Power transitions from 1 (uniform-ish) to 3 or 4 (sharp but proportional)
-            power = 1.0 + progress * 3.0
+            # 1. Sigmoid Gate (Dynamic Soft-Thresholding)
+            # We preserve useful modalities strictly proportional to their MCI (preventing zero-outs),
+            # while softly gating off rogue modalities using a Sigmoid centered at half the max MCI.
             
-            # Apply polynomial weighting and normalize
-            w_unnorm = torch.pow(self.mci, power)
-            self.modality_weights.copy_(w_unnorm / (w_unnorm.sum() + 1e-8))
+            # Use an absolute warmup schedule to prevent early stopping from breaking the transition
+            # After 20 epochs, it fully trusts the target weights.
+            progress = min(1.0, epoch / 20.0)
+            
+            center = 0.5 * self.mci.max()
+            # Steepness grows during warmup
+            steepness = 20.0 * progress 
+            
+            gate = torch.sigmoid(steepness * (self.mci - center))
+            
+            # Target weights are proportional to gated MCIs
+            raw_w = self.mci * gate
+            target_weights = raw_w / (raw_w.sum() + 1e-8)
+            
+            # 2. Linear Annealing Schedule for Time
+            # Linearly transition from uniform to target over the warmup period
+            uniform_weights = torch.ones_like(target_weights) / len(target_weights)
+            
+            final_weights = (1.0 - progress) * uniform_weights + progress * target_weights
+            self.modality_weights.copy_(final_weights)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         latents = self.encode_first_layer(x_list)
         res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor, topology=self.topology, prune_threshold=self.prune_threshold, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None)
@@ -552,16 +566,30 @@ class NEDSiMRModel(nn.Module):
             # Apply momentum for stability
             self.mci.copy_(0.9 * self.mci + 0.1 * mci_tensor)
             
-            # Instead of a sharp Softmax (which acts like argmax and kills redundant valid sensors),
-            # we use a Polynomial Weighting scheme. This preserves the relative contributions of valid
-            # modalities while smoothly squashing rogue signals toward zero.
-            progress = epoch / max(1, total_epochs)
-            # Power transitions from 1 (uniform-ish) to 3 or 4 (sharp but proportional)
-            power = 1.0 + progress * 3.0
+            # 1. Sigmoid Gate (Dynamic Soft-Thresholding)
+            # We preserve useful modalities strictly proportional to their MCI (preventing zero-outs),
+            # while softly gating off rogue modalities using a Sigmoid centered at half the max MCI.
             
-            # Apply polynomial weighting and normalize
-            w_unnorm = torch.pow(self.mci, power)
-            self.modality_weights.copy_(w_unnorm / (w_unnorm.sum() + 1e-8))
+            # Use an absolute warmup schedule to prevent early stopping from breaking the transition
+            # After 20 epochs, it fully trusts the target weights.
+            progress = min(1.0, epoch / 20.0)
+            
+            center = 0.5 * self.mci.max()
+            # Steepness grows during warmup
+            steepness = 20.0 * progress 
+            
+            gate = torch.sigmoid(steepness * (self.mci - center))
+            
+            # Target weights are proportional to gated MCIs
+            raw_w = self.mci * gate
+            target_weights = raw_w / (raw_w.sum() + 1e-8)
+            
+            # 2. Linear Annealing Schedule for Time
+            # Linearly transition from uniform to target over the warmup period
+            uniform_weights = torch.ones_like(target_weights) / len(target_weights)
+            
+            final_weights = (1.0 - progress) * uniform_weights + progress * target_weights
+            self.modality_weights.copy_(final_weights)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         first_layer_scores = self.encode_first_layer(x_list)
         latents = [head(z0) for head, z0 in zip(self.nonlinear_heads, first_layer_scores)]
@@ -699,16 +727,30 @@ class NEDSharedPrivateSiMRModel(nn.Module):
             # Apply momentum for stability
             self.mci.copy_(0.9 * self.mci + 0.1 * mci_tensor)
             
-            # Instead of a sharp Softmax (which acts like argmax and kills redundant valid sensors),
-            # we use a Polynomial Weighting scheme. This preserves the relative contributions of valid
-            # modalities while smoothly squashing rogue signals toward zero.
-            progress = epoch / max(1, total_epochs)
-            # Power transitions from 1 (uniform-ish) to 3 or 4 (sharp but proportional)
-            power = 1.0 + progress * 3.0
+            # 1. Sigmoid Gate (Dynamic Soft-Thresholding)
+            # We preserve useful modalities strictly proportional to their MCI (preventing zero-outs),
+            # while softly gating off rogue modalities using a Sigmoid centered at half the max MCI.
             
-            # Apply polynomial weighting and normalize
-            w_unnorm = torch.pow(self.mci, power)
-            self.modality_weights.copy_(w_unnorm / (w_unnorm.sum() + 1e-8))
+            # Use an absolute warmup schedule to prevent early stopping from breaking the transition
+            # After 20 epochs, it fully trusts the target weights.
+            progress = min(1.0, epoch / 20.0)
+            
+            center = 0.5 * self.mci.max()
+            # Steepness grows during warmup
+            steepness = 20.0 * progress 
+            
+            gate = torch.sigmoid(steepness * (self.mci - center))
+            
+            # Target weights are proportional to gated MCIs
+            raw_w = self.mci * gate
+            target_weights = raw_w / (raw_w.sum() + 1e-8)
+            
+            # 2. Linear Annealing Schedule for Time
+            # Linearly transition from uniform to target over the warmup period
+            uniform_weights = torch.ones_like(target_weights) / len(target_weights)
+            
+            final_weights = (1.0 - progress) * uniform_weights + progress * target_weights
+            self.modality_weights.copy_(final_weights)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
         first_layer_scores = self.encode_first_layer(x_list)
         shared_l = [head(z0) for head, z0 in zip(self.shared_heads, first_layer_scores)]
@@ -1084,7 +1126,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     model.initialize_v(torch_mats, k)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    loss_h, recon_h, sim_h, conv_ep, first_layer_training = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs)
+    loss_h, recon_h, sim_h, conv_ep, first_layer_training = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=kwargs.get('tol', 1e-6), patience=kwargs.get('patience', 10), stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs)
     model.eval(); 
     with torch.no_grad():
         eval_mats = [m.to(device) for m in torch_mats]
@@ -1174,7 +1216,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     model.initialize_v(torch_mats, k)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    loss_h, recon_h, sim_h, conv_ep, first_layer_training = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs)
+    loss_h, recon_h, sim_h, conv_ep, first_layer_training = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=kwargs.get('tol', 1e-6), patience=kwargs.get('patience', 10), stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs)
     model.eval(); 
     with torch.no_grad():
         eval_mats = [m.to(device) for m in torch_mats]
