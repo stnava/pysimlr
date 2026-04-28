@@ -1,3 +1,9 @@
+import os
+import matplotlib
+# Force Agg backend if not in an interactive session or if explicitly requested
+if "DISPLAY" not in os.environ or os.environ.get("MPLBACKEND") == "Agg":
+    matplotlib.use("Agg")
+
 from .simlr import (
     simlr,
     predict_simlr,

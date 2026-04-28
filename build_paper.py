@@ -75,27 +75,24 @@ def extract_and_build():
     if all_success:
         print("\nAll Mermaid diagrams generated successfully.")
         
+        # Prepare environment
+        env = os.environ.copy()
+        env["MPLBACKEND"] = "Agg"
+
         print("\n--- Phase 1: Rendering HTML ---")
         try:
-            # Render to HTML
-            subprocess.run(["quarto", "render", "paper", "--to", "html"], check=True)
+            subprocess.run(["quarto", "render", "paper", "--to", "html"], env=env, check=True)
             
-            # Identify output directory
             source_dir = os.path.abspath("paper/_book")
             target_dir = os.path.abspath("docs/manuscript")
             
-            # Check if index.html exists
             html_path = os.path.join(source_dir, "index.html")
             if os.path.exists(html_path):
                 print(f"\nSUCCESS: HTML version rendered to: {html_path}")
-                
-                # Copy to docs/manuscript for GitHub Pages
-                print(f"Publishing to: {target_dir}...")
                 if os.path.exists(target_dir):
                     shutil.rmtree(target_dir)
                 shutil.copytree(source_dir, target_dir)
-                print(f"Done! Book is now available at {target_dir}")
-                print(f"To view: open '{os.path.join(target_dir, 'index.html')}'")
+                print(f"Published to: {target_dir}")
             else:
                 print(f"\nWARNING: HTML render finished but {html_path} was not found.")
         except subprocess.CalledProcessError as e:
@@ -103,11 +100,10 @@ def extract_and_build():
 
         print("\n--- Phase 2: Rendering PDF ---")
         try:
-            subprocess.run(["quarto", "render", "paper", "--to", "pdf"], check=True)
+            subprocess.run(["quarto", "render", "paper", "--to", "pdf"], env=env, check=True)
             pdf_path = os.path.abspath("paper/_book/paper.pdf")
             if os.path.exists(pdf_path):
                 print(f"\nSUCCESS: PDF version rendered to: {pdf_path}")
-                # Also copy PDF to docs/manuscript
                 shutil.copy(pdf_path, os.path.join(target_dir, "Deep-SiMLR-Manuscript.pdf"))
                 print(f"PDF copied to {target_dir}/Deep-SiMLR-Manuscript.pdf")
             else:
