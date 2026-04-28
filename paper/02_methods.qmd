@@ -85,6 +85,29 @@ $$ U_t = Z_{cat, t} A_t $$
 
 This EMA update acts as a low-pass filter on the consensus manifold, ensuring that the gradient signal remains consistent even when mini-batch statistics are noisy. Statistically, this can be viewed as a temporal regularizer that prevents the model from over-fitting to transient cross-modal correlations in small sample subsets.
 
+#### Spectral Triage and Modality Contribution Index (MCI)
+
+To ensure the stability of the consensus representation, we introduce **Spectral Triage**, a self-healing mechanism that automatically identifies and quarantines high-dimensional noise traps ("Rogue modalities"). This is operationalized through the **Modality Contribution Index (MCI)**, which weights each modality's contribution to the shared consensus $U$ based on its alignment quality and spectral structure.
+
+The MCI supports four distinct metrics for quantifying modality contribution:
+
+1. **Procrustes $R^2$:** Measures the variance explained between the modality latent $Z_m$ and the current consensus $U$ after orthogonal alignment.
+2. **RV-Coefficient:** A multivariate generalization of the squared Pearson correlation coefficient, measuring the similarity between the covariance structures of $Z_m$ and $U$.
+3. **CCA:** Uses the leading canonical correlation between $Z_m$ and $U$ to assess alignment.
+4. **Procrustes $R^2$ with Spectral Sharpness (Default):** Our preferred metric that augments alignment with a penalty for spectral isotropic noise.
+
+##### Spectral Sharpness
+
+Spectral Sharpness $S$ is defined as the ratio of the leading singular value to the sum of all singular values in the modality's latent projection:
+$$ S = \frac{\sigma_1}{\sum_{i=1}^k \sigma_i} $$
+where $\sigma_i$ are the singular values of $Z_m$. This metric distinguishes structured biological signal (characterized by a "sharp" spectrum with dominant components) from isotropic accidental correlation (characterized by a "flat" spectrum where noise is distributed evenly across dimensions).
+
+##### Sigmoid Gating
+
+The MCI weights $\omega_m$ are computed using a **Sigmoid Gating** mechanism that maps the chosen metric $M_m$ to a contribution weight:
+$$ \omega_m = \frac{1}{1 + e^{-\beta(M_m - \tau)}} $$
+where $\tau$ is a significance threshold and $\beta$ is a steepness parameter. This ensures that modalities failing to meet the "Spectral Triage" criteria are automatically quarantined (weighted near zero), preventing them from polluting the shared consensus. The final weighted consensus is normalized to maintain representation stability.
+
 ### Orthogonal Manifold Optimization via NSA-Flow
 
 Orthogonality prevents feature collapse and ensures distinct latent dimensions. We use **Non-negative Stiefel approximating flow (NSA-Flow)** [@nsaflow2025] to navigate the manifold $\mathbb{V}_{k,n} = \{ V \in \mathbb{R}^{n \times k} \mid V^T V = I_k \}$. 
@@ -124,10 +147,14 @@ graph LR
     V --> Z[Latent Z_m]
     V -.->|NSA-Flow| Stiefel[Stiefel Manifold]
     Z -->|Linear Weights W_m| R[Recon X'_m]
-    Z -.->|Alignment Loss| U["Target U_{≠m}^{(t)}"]
+    
+    Other[Other Latents] --> MCI[MCI Weighting]
+    MCI --> U["Target U_{≠m}^{(t)}"]
+    Z -.->|Alignment Loss| U
     
     style Z fill:#e3f2fd,stroke:#1565c0,color:#000
     style U fill:#fce4ec,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,color:#000
+    style MCI fill:#fff3e0,stroke:#e65100,color:#000
 ```
 :::
 
@@ -156,7 +183,10 @@ graph LR
     V --> Z[Latent Z_m]
     V -.->|NSA-Flow| S[Stiefel Manifold]
     V -.->|Exact Mapping| A[Waterfall Audit]
-    Z -.->|Alignment Loss| U["Target U_{≠m}^{(t)}"]
+    
+    Other[Other Latents] --> MCI[MCI Weighting]
+    MCI --> U["Target U_{≠m}^{(t)}"]
+    Z -.->|Alignment Loss| U
     
     Z -->|Deep MLP g_m| H1[Hidden L1]
     H1 -->|Activation| H2[Hidden L2]
@@ -164,6 +194,7 @@ graph LR
     
     style Z fill:#e8f5e9,stroke:#2e7d32,color:#000
     style U fill:#fce4ec,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,color:#000
+    style MCI fill:#fff3e0,stroke:#e65100,color:#000
 ```
 :::
 
@@ -192,11 +223,16 @@ graph LR
     V -.->|NSA-Flow| Ortho[Stiefel Manifold]
     V --> H_enc[Hidden Head]
     H_enc -->|Activation| Z[Latent Z_m]
-    Z -.->|Alignment Loss| U["Target U_{≠m}^{(t)}"]
+    
+    Other[Other Latents] --> MCI[MCI Weighting]
+    MCI --> U["Target U_{≠m}^{(t)}"]
+    Z -.->|Alignment Loss| U
+    
     Z -->|Deep MLP Decoder g_m| R[Recon X'_m]
     
     style Z fill:#fff3e0,stroke:#e65100,color:#000
     style U fill:#fce4ec,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,color:#000
+    style MCI fill:#fff3e0,stroke:#e65100,color:#000
 ```
 :::
 
@@ -228,7 +264,9 @@ graph TD
     Vs --> S_enc[Shared Head] --> S[Shared Z_m]
     Vp --> P_enc[Private Head] --> P[Private P_m]
     
-    S -.->|Alignment Loss| U["Target U_{≠m}^{(t)}"]
+    Other[Other Latents] --> MCI[MCI Weighting]
+    MCI --> U["Target U_{≠m}^{(t)}"]
+    S -.->|Alignment Loss| U
     
     subgraph Disentanglement
         S -.->|Cross-Covariance| O[S perp P]
@@ -243,6 +281,7 @@ graph TD
     style P fill:#f3e5f5,stroke:#7b1fa2,color:#000
     style J fill:#fffde7,stroke:#fbc02d,color:#000
     style U fill:#fce4ec,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,color:#000
+    style MCI fill:#fff3e0,stroke:#e65100,color:#000
     style Disentanglement fill:#ffffff,stroke:#333
 ```
 :::
@@ -306,7 +345,7 @@ Comprehensive complexity analysis and VRAM scaling theorems are provided in **Ap
 To ensure mathematical rigor across the linear and deep regimes, we standardize the following definitions for evaluating multimodal integration and feature discovery.
 
 | Metric | Symbol | Definition | Interpretation |
-| :--- | :---: | :--- | :--- |
+| :--- | :--- | :--- | :--- |
 | **Strictly Linear Accuracy** | $R^2_{XV}$ | $R^2_P(X V, U^*)$ | Fidelity of the linear feature projection. |
 | **Deep Consensus Accuracy** | $R^2_U$ (CMC) | $\max_{\Omega, s} \left( 1 - \frac{\|\hat{U}\Omega s - U^*\|_F^2}{\|U^*\|_F^2} \right)$ | Fidelity of the shared latent consensus recovery. |
 | **Subspace Recovery Error** | $SRE$ | $1 - \frac{1}{M} \sum_{m=1}^M R^2_P(\hat{V}_m, V^*_m)$ | Failure to recover the true generative feature basis. |

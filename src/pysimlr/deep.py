@@ -343,7 +343,7 @@ class LENDSiMRModel(nn.Module):
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
                  dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "positive", 
                  sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
-                 topology: str = "loo", prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
+                 topology: str = "loo", prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mci_metric: str = "procrustes_r2_sharp",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
         super().__init__()
         if isinstance(sparseness_quantile, (float, int)):
@@ -354,6 +354,7 @@ class LENDSiMRModel(nn.Module):
         self.topology = topology
         self.prune_threshold = prune_threshold
         self.dynamic_weights = dynamic_weights
+        self.mci_metric = mci_metric
         self.register_buffer("mci", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
@@ -404,39 +405,53 @@ class LENDSiMRModel(nn.Module):
                 u_loo_norm = torch.norm(u_loo, p='fro')
                 if u_loo_norm > 1e-8:
                     u_loo = u_loo / u_loo_norm
-                    sim = torch.trace(norm_projs[i].t() @ u_loo).item()
-                    mcis.append(max(0.0, sim))
+                    Z = norm_projs[i]
+                    cross = Z.t() @ u_loo
+                    try:
+                        u_svd, s_svd, vh_svd = torch.linalg.svd(cross, full_matrices=False)
+                        metric = getattr(self, "mci_metric", "procrustes_r2_sharp")
+                        
+                        if metric == "procrustes_r2" or metric == "procrustes_r2_sharp":
+                            omega = u_svd @ vh_svd
+                            aligned = Z @ omega
+                            r2 = max(0.0, 1.0 - (torch.norm(aligned - u_loo, p='fro')**2 / (torch.norm(u_loo, p='fro')**2 + 1e-8)).item())
+                            if metric == "procrustes_r2_sharp":
+                                sharpness = s_svd[0] / (s_svd.sum() + 1e-8)
+                                mcis.append(r2 * sharpness.item())
+                            else:
+                                mcis.append(r2)
+                        elif metric == "cca":
+                            mcis.append(s_svd.mean().item())
+                        elif metric == "rvcoef":
+                            num = torch.norm(cross, p='fro')**2
+                            den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
+                            mcis.append((num / (den + 1e-8)).item())
+                        else: # trace
+                            mcis.append(max(0.0, torch.trace(cross).item()))
+                    except:
+                        mcis.append(0.0)
                 else:
                     mcis.append(0.0)
             
             mci_tensor = torch.tensor(mcis, device=self.mci.device)
-            # Fast momentum to track the evolving consensus
-            mom = 0.2 if epoch < 30 else 0.05
-            self.mci.copy_((1.0 - mom) * self.mci + mom * mci_tensor)
-
-            # 1. Rank-based Scaling
-            # We don't just use the raw MCI; we use the Relative Rank.
-            # This ensures that the 'best' modality always gets a strong weight,
-            # and 'worst' is pushed down, regardless of the absolute value of similarity.
-            ranks = torch.argsort(torch.argsort(self.mci, descending=False)).float()
-            # Scale ranks to [0, 1]
-            rank_scores = ranks / (len(ranks) - 1 + 1e-8)
-
-            # 2. Sigmoid Gate centered at the top quartile
-            progress = min(1.0, epoch / 40.0)
-            steepness = 5.0 + 15.0 * progress
-            # Only modalities in the top half of ranks get through cleanly
-            gate = torch.sigmoid(steepness * (rank_scores - 0.5))
-
-            # 3. Transition Schedule
-            target_rho = max(0.0, min(1.0, (epoch - 10) / 30.0))
-
+            # EMA for stability
+            self.mci.copy_(0.9 * self.mci + 0.1 * mci_tensor)
+            
+            # Gating Logic: Only squashing severe outliers
+            # Use mean similarity as the soft threshold center
+            center = self.mci.mean()
+            progress = min(1.0, epoch / 30.0)
+            steepness = 5.0 + 10.0 * progress
+            gate = torch.sigmoid(steepness * (self.mci - center))
+            
+            # Target weights = Proportional MCI * Gating Signal
             raw_w = self.mci * gate
-            target_weights = raw_w / (raw_w.sum() + 1e-8)
-            uniform_weights = torch.ones_like(target_weights) / len(target_weights)
-
-            final_weights = (1.0 - target_rho) * uniform_weights + target_rho * target_weights
-            self.modality_weights.copy_(final_weights)
+            target_w = raw_w / (raw_w.sum() + 1e-8)
+            
+            # Temporal transition (from uniform to target) over first 30 epochs
+            rho = max(0.0, min(1.0, (epoch - 10) / 20.0))
+            uniform_w = torch.ones_like(target_w) / len(target_w)
+            self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         latents = self.encode_first_layer(x_list)
         res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor, topology=self.topology, prune_threshold=self.prune_threshold, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None)
@@ -495,7 +510,7 @@ class NEDSiMRModel(nn.Module):
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
                  dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "positive", 
                  sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
-                 topology: str = "loo", prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
+                 topology: str = "loo", prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mci_metric: str = "procrustes_r2_sharp",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
         super().__init__()
         if isinstance(sparseness_quantile, (float, int)):
@@ -507,6 +522,7 @@ class NEDSiMRModel(nn.Module):
         self.topology = topology
         self.prune_threshold = prune_threshold
         self.dynamic_weights = dynamic_weights
+        self.mci_metric = mci_metric
         self.register_buffer("mci", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
@@ -557,39 +573,53 @@ class NEDSiMRModel(nn.Module):
                 u_loo_norm = torch.norm(u_loo, p='fro')
                 if u_loo_norm > 1e-8:
                     u_loo = u_loo / u_loo_norm
-                    sim = torch.trace(norm_projs[i].t() @ u_loo).item()
-                    mcis.append(max(0.0, sim))
+                    Z = norm_projs[i]
+                    cross = Z.t() @ u_loo
+                    try:
+                        u_svd, s_svd, vh_svd = torch.linalg.svd(cross, full_matrices=False)
+                        metric = getattr(self, "mci_metric", "procrustes_r2_sharp")
+                        
+                        if metric == "procrustes_r2" or metric == "procrustes_r2_sharp":
+                            omega = u_svd @ vh_svd
+                            aligned = Z @ omega
+                            r2 = max(0.0, 1.0 - (torch.norm(aligned - u_loo, p='fro')**2 / (torch.norm(u_loo, p='fro')**2 + 1e-8)).item())
+                            if metric == "procrustes_r2_sharp":
+                                sharpness = s_svd[0] / (s_svd.sum() + 1e-8)
+                                mcis.append(r2 * sharpness.item())
+                            else:
+                                mcis.append(r2)
+                        elif metric == "cca":
+                            mcis.append(s_svd.mean().item())
+                        elif metric == "rvcoef":
+                            num = torch.norm(cross, p='fro')**2
+                            den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
+                            mcis.append((num / (den + 1e-8)).item())
+                        else: # trace
+                            mcis.append(max(0.0, torch.trace(cross).item()))
+                    except:
+                        mcis.append(0.0)
                 else:
                     mcis.append(0.0)
             
             mci_tensor = torch.tensor(mcis, device=self.mci.device)
-            # Fast momentum to track the evolving consensus
-            mom = 0.2 if epoch < 30 else 0.05
-            self.mci.copy_((1.0 - mom) * self.mci + mom * mci_tensor)
-
-            # 1. Rank-based Scaling
-            # We don't just use the raw MCI; we use the Relative Rank.
-            # This ensures that the 'best' modality always gets a strong weight,
-            # and 'worst' is pushed down, regardless of the absolute value of similarity.
-            ranks = torch.argsort(torch.argsort(self.mci, descending=False)).float()
-            # Scale ranks to [0, 1]
-            rank_scores = ranks / (len(ranks) - 1 + 1e-8)
-
-            # 2. Sigmoid Gate centered at the top quartile
-            progress = min(1.0, epoch / 40.0)
-            steepness = 5.0 + 15.0 * progress
-            # Only modalities in the top half of ranks get through cleanly
-            gate = torch.sigmoid(steepness * (rank_scores - 0.5))
-
-            # 3. Transition Schedule
-            target_rho = max(0.0, min(1.0, (epoch - 10) / 30.0))
-
+            # EMA for stability
+            self.mci.copy_(0.9 * self.mci + 0.1 * mci_tensor)
+            
+            # Gating Logic: Only squashing severe outliers
+            # Use mean similarity as the soft threshold center
+            center = self.mci.mean()
+            progress = min(1.0, epoch / 30.0)
+            steepness = 5.0 + 10.0 * progress
+            gate = torch.sigmoid(steepness * (self.mci - center))
+            
+            # Target weights = Proportional MCI * Gating Signal
             raw_w = self.mci * gate
-            target_weights = raw_w / (raw_w.sum() + 1e-8)
-            uniform_weights = torch.ones_like(target_weights) / len(target_weights)
-
-            final_weights = (1.0 - target_rho) * uniform_weights + target_rho * target_weights
-            self.modality_weights.copy_(final_weights)
+            target_w = raw_w / (raw_w.sum() + 1e-8)
+            
+            # Temporal transition (from uniform to target) over first 30 epochs
+            rho = max(0.0, min(1.0, (epoch - 10) / 20.0))
+            uniform_w = torch.ones_like(target_w) / len(target_w)
+            self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         first_layer_scores = self.encode_first_layer(x_list)
         latents = [head(z0) for head, z0 in zip(self.nonlinear_heads, first_layer_scores)]
@@ -655,7 +685,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
     def __init__(self, input_dims: List[int], shared_latent_dim: int, private_latent_dim: int,
                  hidden_dims: List[int] = [128, 64], dropout: float = 0.1, nsa_w: float = 0.1,
                  positivity: str = "positive", sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
-                 topology: str = "loo", prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
+                 topology: str = "loo", prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mci_metric: str = "procrustes_r2_sharp",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
         super().__init__()
         if isinstance(sparseness_quantile, (float, int)):
@@ -669,6 +699,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         self.topology = topology
         self.prune_threshold = prune_threshold
         self.dynamic_weights = dynamic_weights
+        self.mci_metric = mci_metric
         self.register_buffer("mci", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
@@ -718,39 +749,53 @@ class NEDSharedPrivateSiMRModel(nn.Module):
                 u_loo_norm = torch.norm(u_loo, p='fro')
                 if u_loo_norm > 1e-8:
                     u_loo = u_loo / u_loo_norm
-                    sim = torch.trace(norm_projs[i].t() @ u_loo).item()
-                    mcis.append(max(0.0, sim))
+                    Z = norm_projs[i]
+                    cross = Z.t() @ u_loo
+                    try:
+                        u_svd, s_svd, vh_svd = torch.linalg.svd(cross, full_matrices=False)
+                        metric = getattr(self, "mci_metric", "procrustes_r2_sharp")
+                        
+                        if metric == "procrustes_r2" or metric == "procrustes_r2_sharp":
+                            omega = u_svd @ vh_svd
+                            aligned = Z @ omega
+                            r2 = max(0.0, 1.0 - (torch.norm(aligned - u_loo, p='fro')**2 / (torch.norm(u_loo, p='fro')**2 + 1e-8)).item())
+                            if metric == "procrustes_r2_sharp":
+                                sharpness = s_svd[0] / (s_svd.sum() + 1e-8)
+                                mcis.append(r2 * sharpness.item())
+                            else:
+                                mcis.append(r2)
+                        elif metric == "cca":
+                            mcis.append(s_svd.mean().item())
+                        elif metric == "rvcoef":
+                            num = torch.norm(cross, p='fro')**2
+                            den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
+                            mcis.append((num / (den + 1e-8)).item())
+                        else: # trace
+                            mcis.append(max(0.0, torch.trace(cross).item()))
+                    except:
+                        mcis.append(0.0)
                 else:
                     mcis.append(0.0)
             
             mci_tensor = torch.tensor(mcis, device=self.mci.device)
-            # Fast momentum to track the evolving consensus
-            mom = 0.2 if epoch < 30 else 0.05
-            self.mci.copy_((1.0 - mom) * self.mci + mom * mci_tensor)
-
-            # 1. Rank-based Scaling
-            # We don't just use the raw MCI; we use the Relative Rank.
-            # This ensures that the 'best' modality always gets a strong weight,
-            # and 'worst' is pushed down, regardless of the absolute value of similarity.
-            ranks = torch.argsort(torch.argsort(self.mci, descending=False)).float()
-            # Scale ranks to [0, 1]
-            rank_scores = ranks / (len(ranks) - 1 + 1e-8)
-
-            # 2. Sigmoid Gate centered at the top quartile
-            progress = min(1.0, epoch / 40.0)
-            steepness = 5.0 + 15.0 * progress
-            # Only modalities in the top half of ranks get through cleanly
-            gate = torch.sigmoid(steepness * (rank_scores - 0.5))
-
-            # 3. Transition Schedule
-            target_rho = max(0.0, min(1.0, (epoch - 10) / 30.0))
-
+            # EMA for stability
+            self.mci.copy_(0.9 * self.mci + 0.1 * mci_tensor)
+            
+            # Gating Logic: Only squashing severe outliers
+            # Use mean similarity as the soft threshold center
+            center = self.mci.mean()
+            progress = min(1.0, epoch / 30.0)
+            steepness = 5.0 + 10.0 * progress
+            gate = torch.sigmoid(steepness * (self.mci - center))
+            
+            # Target weights = Proportional MCI * Gating Signal
             raw_w = self.mci * gate
-            target_weights = raw_w / (raw_w.sum() + 1e-8)
-            uniform_weights = torch.ones_like(target_weights) / len(target_weights)
-
-            final_weights = (1.0 - target_rho) * uniform_weights + target_rho * target_weights
-            self.modality_weights.copy_(final_weights)
+            target_w = raw_w / (raw_w.sum() + 1e-8)
+            
+            # Temporal transition (from uniform to target) over first 30 epochs
+            rho = max(0.0, min(1.0, (epoch - 10) / 20.0))
+            uniform_w = torch.ones_like(target_w) / len(target_w)
+            self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
         first_layer_scores = self.encode_first_layer(x_list)
         shared_l = [head(z0) for head, z0 in zip(self.shared_heads, first_layer_scores)]
@@ -1053,7 +1098,7 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     return loss_history, recon_history, sim_history, converged_epoch, first_layer_training
 
 def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
-                 topology: str = "loo", prune_threshold: Optional[float] = None, dynamic_weights: bool = False, device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, **kwargs) -> Dict[str, Any]:
+                 topology: str = "loo", prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mci_metric: str = "procrustes_r2_sharp", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, **kwargs) -> Dict[str, Any]:
     """
     Fit a Linear Encoded Nonlinear Decoding (LEND) model.
 
@@ -1122,7 +1167,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
-    model = LENDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations).to(device)
+    model = LENDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mci_metric=mci_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations).to(device)
     model.initialize_v(torch_mats, k)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -1143,7 +1188,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     return result
 
 def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
-                 topology: str = "loo", prune_threshold: Optional[float] = None, dynamic_weights: bool = False, device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, **kwargs) -> Dict[str, Any]:
+                 topology: str = "loo", prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mci_metric: str = "procrustes_r2_sharp", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, **kwargs) -> Dict[str, Any]:
     """
     Fit a Nonlinear Encoded Decoding (NED) model.
 
@@ -1212,7 +1257,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
-    model = NEDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations).to(device)
+    model = NEDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mci_metric=mci_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations).to(device)
     model.initialize_v(torch_mats, k)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -1233,7 +1278,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     return result
 
 def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
-                 topology: str = "loo", prune_threshold: Optional[float] = None, dynamic_weights: bool = False, private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, **kwargs) -> Dict[str, Any]:
+                 topology: str = "loo", prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mci_metric: str = "procrustes_r2_sharp", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, **kwargs) -> Dict[str, Any]:
     """
     Fit a Nonlinear Encoded Decoding model with Shared and Private Latents (NED++).
 
@@ -1317,7 +1362,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     if private_k is None: private_k = max(1, k // 2)
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
-    model = NEDSharedPrivateSiMRModel(input_dims, k, private_k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations).to(device)
+    model = NEDSharedPrivateSiMRModel(input_dims, k, private_k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mci_metric=mci_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations).to(device)
     model.initialize_v(torch_mats, k)
     
     # Store weights on model for train loop access
