@@ -170,7 +170,7 @@ def nnh_embed(blaster: pd.DataFrame,
     if do_asym == 0:
         idps = [x for x in idps if "Asym" not in x]
     else:
-        idps = [x for x in idps if "Asymcit168" not in x]
+        idps = [x for x in idps if "Asymait168" not in x]
         
     # Assemble modalities
     idplist = {}
