@@ -9,13 +9,13 @@ def test_dynamic_weights_initialization():
     
     assert 'u' in res
     assert 'modality_weights' in res
-    assert 'mci' in res
+    assert 'mai' in res
     
     weights = res['modality_weights']
-    mci = res['mci']
+    mai = res['mai']
     
     assert len(weights) == 3
-    assert len(mci) == 3
+    assert len(mai) == 3
     assert np.all(weights >= 0.0)
     assert np.all(weights <= 1.0)
     assert np.isclose(np.sum(weights), 1.0)

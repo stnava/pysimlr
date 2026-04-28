@@ -1,12 +1,12 @@
 # Appendix: Operational Implementation and Complexity
 
-This appendix provides the technical details for practitioners implementing the SiMLR framework, including hyperparameter guidance, computational complexity, and the core optimization protocol.
+This appendix provides technical details for the SiMLR framework, including hyperparameter ranges, computational complexity, and the optimization protocol.
 
 ## 1. Operational Protocol: The SiMLR Training Loop
 
-The training process for SiMLR and its deep extensions (LEND, NED, NEDPP) involves the interleaving of neural network backpropagation with manifold projection.
+The training process for SiMLR and its deep extensions (LEND, NED, NEDPP) interleaves neural network backpropagation with manifold projection.
 
-### 1.1 Training Algorithm (Pseudo-code)
+### 1.1 Training Algorithm
 
 ```python
 Initialize {V_m, theta_m, phi_m}
@@ -30,125 +30,87 @@ For epoch t in 1..T:
     6. Update weights via Optimizer (Adam with weight decay)
 ```
 
-## 2. Mathematical Proofs and Derivations
+## 2. Mathematical Derivations
 
-### 2.1 Riemannian Geometry of NSA-Flow
+### 2.1 Riemannian Updates
 
-The theoretical foundation for Riemannian updates on the Stiefel manifold is well-established [@edelman1998geometry; @absil2009optimization; @boumal2023introduction].
-
-**Riemannian vs Euclidean Gradient:**
-The Riemannian gradient $\text{grad} \mathcal{J}(V)$ is the projection of the Euclidean gradient $\nabla \mathcal{J}(V)$ onto the tangent space $T_V \mathbb{V}_{k,n}$:
+Riemannian updates on the Stiefel manifold are implemented via projection onto the tangent space $T_V \mathbb{V}_{k,n}$. The Riemannian gradient $\text{grad} \mathcal{J}(V)$ is derived from the Euclidean gradient $\nabla \mathcal{J}(V)$:
 $$ \text{grad} \mathcal{J}(V) = \nabla \mathcal{J}(V) - V \text{sym}(V^T \nabla \mathcal{J}(V)) $$
 
-**Taylor Expansion of the Orthogonal Penalty:**
-We approximate orthogonality via the penalty $\mathcal{P}(V) = \frac{1}{4} \| V^T V - I_k \|_F^2$. For a perturbation $\Delta$:
+The orthogonal penalty $\mathcal{P}(V) = \frac{1}{4} \| V^T V - I_k \|_F^2$ has a Taylor expansion for a perturbation $\Delta$:
 $$ \mathcal{P}(V + \Delta) \approx \frac{1}{4} \text{Tr}\left( (V^T \Delta + \Delta^T V)^2 \right) $$
-This expansion proves that the penalty function perfectly aligns with the local geometry of the manifold, as it vanishes for any $\Delta$ in the tangent space.
+The penalty vanishes for any $\Delta$ in the tangent space.
 
-### 2.2 Newton-Schulz: Quadratic Convergence Proof
+### 2.2 Newton-Schulz Convergence
 
-Rapidly maintains orthogonality via the update:
+Orthogonality is maintained via the update:
 $$ Y_{k+1} = \frac{1}{2} Y_k (3I - Y_k^T Y_k) $$
-We define the error $E_k = I - Y_k^T Y_k$ and show:
-$$ E_{k+1} = \frac{3}{4} E_k^2 + \frac{1}{4} E_k^3 $$
-Taking the norm, $\| E_{k+1} \|_2 < \| E_k \|_2^2$, which constitutes the formal definition of **quadratic convergence**.
+The error $E_k = I - Y_k^T Y_k$ satisfies $E_{k+1} = \frac{3}{4} E_k^2 + \frac{1}{4} E_k^3$, which defines quadratic convergence: $\| E_{k+1} \|_2 < \| E_k \|_2^2$.
 
-### 2.3 Derivation of the 1/M Law
+### 2.3 Noise Reduction Law
 
-Under independent noise $\epsilon_m \sim \mathcal{N}(0, \sigma^2 I)$, the consensus variance is:
+Under independent noise $\epsilon_m \sim \mathcal{N}(0, \sigma^2 I)$, consensus variance follows:
 $$ \text{Var}\left( \frac{1}{M} \sum_{m=1}^M \epsilon_m \right) = \frac{\sigma^2}{M} $$
-Proving that noise power drops precisely as $1/M$.
+The $100(1-\delta)\%$ confidence interval for the signal $\mu$ is:
+$$ \hat{\mu}_{consensus} \pm z_{\delta/2} \sqrt{\frac{\sigma^2}{M}(1-\rho) + \rho\sigma^2} $$
+Correlated noise $\rho\sigma^2$ establishes the statistical lower bound for consensus error.
 
-Given the consensus variance, we can construct an asymptotic $100(1-\delta)\%$ confidence interval for the true underlying signal $\mu$:
-$$ P\left( \hat{\mu}_{consensus} - z_{\delta/2} \sqrt{\frac{\sigma^2}{M}(1-\rho) + \rho\sigma^2} \right) \leq \mu \leq \hat{\mu}_{consensus} + z_{\delta/2} \sqrt{\frac{\sigma^2}{M}(1-\rho) + \rho\sigma^2} = 1 - \delta $$
-This interval explicitly demonstrates how the irreducible correlated noise $\rho\sigma^2$ limits our statistical confidence.
+## 3. Statistical Sensitivity
 
-## 3. Statistical Sensitivity: The $w$ and $\alpha$ Manifolds
+### 3.1 Modality Weights ($w$)
 
-The performance and stability of the SiMLR consensus are governed by the modality weights $w \in \mathbb{R}^M$ and the alignment-reconstruction tradeoff $\alpha \in [0, 1]$. 
+The Statistical Influence Function $\mathcal{I}_m = \frac{\partial U}{\partial w_m}$ is bounded by the spectral gap $(\lambda_1 - \lambda_2)^{-1}$ of the feature covariance $\Sigma_m$. SiMLR sensitivity increases in the presence of multicollinearity.
 
-### 3.1 Sensitivity to Modality Weights ($w$)
+### 3.2 $\alpha$-Transition
 
-We define the **Statistical Influence Function** of modality $m$ on the consensus $U$ as $\mathcal{I}_m = \frac{\partial U}{\partial w_m}$. In the linear regime, we prove that $\mathcal{I}_m$ is bounded by the **spectral gap** $(\lambda_1 - \lambda_2)^{-1}$ of the feature covariance $\Sigma_m$. This implies that SiMLR is robust in well-conditioned modalities but highly sensitive in the presence of multicollinearity.
+The parameter $\alpha$ weights independent reconstruction against consensus alignment. The transition point is determined by the stabilization of the rate of change in consensus variance.
 
-### 3.2 The $\alpha$-Transition and Phase Collapse
+## 4. Hyperparameter Guidance
 
-The hyperparameter $\alpha$ controls the transition from independent reconstruction ($\alpha=0$) to rigid consensus ($\alpha=1$). We propose that the optimal $\alpha$ is found at the "Statistical Knee," where the rate of change of the consensus variance stabilizes.
-
-## 4. Hyperparameter Guidance (Inductive Priors)
-
-The following table provides the recommended default values and ranges for the energy functional weights used in this work.
-
-| Parameter | Recommended Default | Range | Rationale |
+| Parameter | Default | Range | Rationale |
 | :--- | :--- | :--- | :--- |
-| **$\lambda_{\text{sim}}$** | 1.0 | $[0.1, 10.0]$ | Relative importance of cross-modal alignment (ACC/NC). |
-| **$\lambda_{\text{rec}}$** | 0.5 | $[0.0, 5.0]$ | Generative reconstruction priority (LEND/NED). |
-| **$\lambda_{\text{var}}$** | 1.0 | $[0.5, 2.0]$ | Strictness of variance preservation (anti-collapse). |
-| **$\lambda_{\text{cov}}$** | 1.0 | $[0.5, 2.0]$ | De-correlation of latent components (Stiefel penalty). |
-| **$\alpha_{\text{ramp}}$** | 0.5 * Total Epochs | $[0.2, 0.8]$ | Duration of the transition to the Stiefel manifold. |
-| **$N_{\text{warmup}}$** | 10 epochs | $[5, 50]$ | Shared-First schedule duration for NEDPP. |
+| **$\lambda_{\text{sim}}$** | 1.0 | $[0.1, 10.0]$ | Cross-modal alignment weighting. |
+| **$\lambda_{\text{rec}}$** | 0.5 | $[0.0, 5.0]$ | Reconstruction priority. |
+| **$\lambda_{\text{var}}$** | 1.0 | $[0.5, 2.0]$ | Variance preservation. |
+| **$\lambda_{\text{cov}}$** | 1.0 | $[0.5, 2.0]$ | Latent de-correlation. |
+| **$\alpha_{\text{ramp}}$** | 0.5 * Total Epochs | $[0.2, 0.8]$ | Stiefel manifold transition duration. |
+| **$N_{\text{warmup}}$** | 10 epochs | $[5, 50]$ | Shared-First schedule for NEDPP. |
 
-## 5. MCI Hyperparameters
+## 5. MAI Implementation
 
-The Modality Consensus Index (MCI) serves as the "Safety Valve" of the SiMLR framework, enabling automated de-prioritization of noise. This is implemented via a Sigmoid Gate that squashes the contribution of modalities with poor structural alignment.
+The Modality Consensus Index (MAI) provides automated weighting of modalities via a Sigmoid Gate:
 
-### 5.1 Sigmoid Gate Configuration
-The automated gating mechanism follows a sigmoid response curve to transition from a uniform weight distribution to a ranked distribution:
+- **Center:** Mean(MAI).
+- **Steepness:** 20.0.
+- **Transition_Epochs:** 20.
 
-- **Center:** Mean(MCI). The threshold for de-prioritization is dynamically anchored to the average alignment across all modalities.
-- **Steepness:** 20.0 (Annealed). The gating response is gradually sharpened over the training duration to prevent premature modality exclusion.
-- **Transition_Epochs:** 20. The period over which the model transitions from uniform weighting to MCI-driven weighting.
+The framework supports multiple MAI metrics: Procrustes $R^2$, Spectral Sharpness, Mean CCA, and the RV Coefficient.
 
-### 5.2 Configurable MCI Metrics
-The framework supports four primary metrics for quantifying cross-modal structural alignment, selectable by the user based on the expected data regime:
+## 6. Computational Complexity
 
-1. **Procrustes $R^2$ (Default):** Measures subspace alignment after optimal rotation.
-2. **Spectral Sharpness:** Augments $R^2$ with the ratio of top-to-total eigenvalues to penalize high-dimensional "Rogue" noise.
-3. **Mean CCA:** Canonical Correlation Analysis to identify shared directional variance.
-4. **RV Coefficient:** A multivariate generalization of the squared correlation coefficient.
-
-## 6. Computational Complexity Analysis
-
-The scalability of the SiMLR framework is driven by the efficiency of the **NSA-Flow** and **Newton-Schulz** mechanisms.
-
-### 6.1 Scaling Properties
 | Operation | Complexity | Scaling Law |
 | :--- | :--- | :--- |
-| **Manifold Projection** | $O(D \cdot K^2)$ | Linear in features, Quadratic in Latents. |
-| **Consensus Estimation** | $O(M \cdot K^3)$ | Constant in Samples, Cubic in Latents. |
-| **Forward/Backward** | $O(N \cdot D \cdot K)$ | Big Data Ready (Linear in N and D). |
-| **VRAM Consumption** | $O(N \cdot K + D \cdot K)$ | Efficient (Linear in N and D). |
+| **Manifold Projection** | $O(D \cdot K^2)$ | Linear in features ($D$), Quadratic in Latents ($K$). |
+| **Consensus Estimation** | $O(M \cdot K^3)$ | Linear in modalities ($M$), Cubic in Latents ($K$). |
+| **Forward/Backward** | $O(N \cdot D \cdot K)$ | Linear in Samples ($N$) and features ($D$). |
+| **VRAM Consumption** | $O(N \cdot K + D \cdot K)$ | Linear in Samples ($N$) and features ($D$). |
 
-### 6.2 Hardware Optimization
-Newton-Schulz iteration provides a 2x-5x speedup over standard SVD retractions in deep learning frameworks (PyTorch/TensorFlow) due to its formulation as a sequence of matrix multiplications, which are highly optimized for GPU Tensor Cores.
+Newton-Schulz iteration utilizes matrix multiplications optimized for GPU execution.
 
-**VRAM Scaling Theorem:** Peak memory scales linearly with $N$ and $D$, but quadratically with $K$ due to covariance Jacobian requirements. 
+## 7. Pre-processing Protocol
 
-## 7. Input Normalization Protocol
+Input matrices $\{X_m\}$ must be mean-centered and unit-scaled ($z$-score normalization). This ensures alignment energy $E_{\text{align}}$ is independent of measurement scale.
 
-To ensure that the alignment energy $E_{\text{align}}$ is not dominated by the arbitrary scale of a specific modality, all input matrices $\{X_m\}$ must be **mean-centered and unit-scaled** ($z$-score normalization) as a pre-processing step. This ensures that the variance in the shared consensus $U$ is a true reflection of biological signal rather than measurement scale.
+## 8. System Optimizations
 
-## 8. Statistical Proof: The irreducible Recovery Floor
+### 8.1 Gradient Stability
 
-As derived in the Methods section, the recovery of the true signal $\mu$ is limited by the cross-modal noise correlation $\rho$. The consensus error variance $\sigma^2_{consensus}$ follows:
-$$ \sigma^2_{consensus} = \frac{\sigma^2}{M} (1 - \rho) + \rho \sigma^2 $$
-This implies that even with an infinite number of modalities ($M \to \infty$), the discovery fidelity is bounded by the correlated noise floor $\sqrt{\rho}\sigma$. This floor defines the "Fundamental Limit of Multimodal Integration."
+Using LeakyReLU or GELU activations with Kaiming He Initialization prevents vanishing gradients in high-dimensional data regimes.
 
-## 9. Deep Learning System Optimizations
+### 8.2 Learning Rate Schedules
 
-Based on a rigorous review of the PyTorch computational graph and data ingestion pipeline (specifically within `deep.py`), we propose the following architectural and system-level optimizations to address potential bottlenecks:
+OneCycleLR combines warmup and annealing into a single phase, facilitating convergence in non-convex joint-variational objectives.
 
-### 9.1 Mitigating Dead ReLUs and Vanishing Gradients
-The deep components (e.g., `ModalityEncoder`, `ModalityDecoder`) currently utilize standard `nn.ReLU()` activations without specialized weight initialization. In high-dimensional, sparse clinical data regimes, this can lead to the "Dead ReLU" problem, where neurons permanently output zero and gradients vanish. 
-**Optimization:** Replacing `ReLU` with `LeakyReLU` or `GELU`, coupled with **Kaiming He Initialization** for the linear weights, prevents early-training gradient starvation. 
-*Expected Gain:* This change should improve early epoch convergence speed by ~15% and increase final latent recovery ($R^2_U$) by ~5%.
+### 8.3 Data Throughput
 
-### 9.2 Learning Rate Schedules: Transitioning to OneCycleLR
-The current implementation utilizes `CosineAnnealingLR` combined with a fixed warmup period. While stable, this is sub-optimal for the highly non-convex joint-variational objective of SiMLR.
-**Optimization:** Transitioning to **OneCycleLR** provides a unified phase that combines warmup and annealing. It allows for a significantly higher maximum learning rate, acting as a powerful regularizer to escape local minima.
-*Expected Gain:* Implementing OneCycleLR should reduce total training time by ~30% (requiring fewer epochs to reach the same tolerance) while modestly improving generalization.
-
-### 9.3 Data Loader Efficiency
-The standard `TensorDataset` and `DataLoader` are instantiated without parallelization parameters (e.g., `num_workers=0`, `pin_memory=False`).
-**Optimization:** Enabling `pin_memory=True` and setting `num_workers > 0` (e.g., `num_workers=4`) allows asynchronous data transfer to the GPU, preventing the Tensor Cores from starving while waiting for memory I/O.
-*Expected Gain:* This asynchronous ingestion should reduce VRAM-to-RAM bottleneck overhead and reduce wall-clock time per epoch by ~20%.
+Setting `pin_memory=True` and `num_workers > 0` in the PyTorch DataLoader enables asynchronous data transfer to the GPU, reducing I/O bottlenecks.
