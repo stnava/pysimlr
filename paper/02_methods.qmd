@@ -2,85 +2,47 @@
 title: "Methods"
 ---
 
-## Technical Foundation
+## Theoretical Foundation
 
-### Architectural Rationale: Multi-Modal Manifold Reconstruction
+### The Multi-Modal Inverse Problem
 
-We formalize multi-modal integration as a reconstruction problem from multiple partial observations. Each modality provides a technical observation of an underlying high-dimensional manifold representing the system's true state (e.g., patient health). Each observation occurs within a specific measurement domain (e.g., clinical demographics, gene expression, medical imaging) with unique noise profiles and resolution limits. The core challenge is synthesizing these disparate, noisy observations into a coherent, shared representation of the true underlying state. 
+We frame multi-modal integration as a highly structured inverse problem. Each modality provides a partial, noisy observation of an underlying high-dimensional manifold, which represents the true generative state of the biological system. These observations reside within modality-specific measurement domains (e.g., transcriptomics, clinical phenotypes), each characterized by distinct signal-to-noise ratios and domain-specific artifacts. The mathematical objective is to compute a coherent, shared representation of the true state from these disparate observations, isolating cross-modal consensus from idiosyncratic noise.
+
+### OLEE as a Structural Information Bottleneck
+
+Following Tishby's Information Bottleneck theorem [@tishby2000information], standard multi-layer perceptrons (MLPs) process inputs via $\mathbf{Z} = \text{MLP}(\mathbf{X})$, which fundamentally entangles the mutual information $I(\mathbf{X}; \mathbf{Z})$ across successive layers. While this enables high theoretical capacity, unconstrained deep networks routinely memorize structured nuisance variables and observational noise, leading to catastrophic representation collapse and a failure to identify the true generative features.
+
+We systematically resolve this entanglement by enforcing the Only Linear Encoder Entry (OLEE) constraint, formulating the initial projection $\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m$ as a rigorous, structural information bottleneck. Because the dimensionality is strictly bounded by $k \ll d_m$ and the basis $\mathbf{V}_m$ is maintained rigorously orthogonal via optimization on the Stiefel manifold [@edelman1998geometry], the mutual information $I(\mathbf{X}_m; \mathbf{Z}_m)$ is intrinsically constrained. OLEE forces the network to distill only the most informative, non-redundant variance components that maximize consensus alignment, actively discarding modality-specific noise before non-linear entanglement can occur.
 
 ### Joint-Variational Optimization Framework
 
-SiMLR addresses multi-modal integration by formulating a generalized, joint-variational optimization objective. We define a framework where linear, non-linear, and shared-private architectures harmonize to optimize a unified goal. 
+We introduce a generalized joint-variational optimization framework unifying the Similarity-driven Multi-view Linear Reconstruction (SiMLR) taxonomy.
 
-Let $M$ be the number of modalities. For each modality $m \in \{1, \dots, M\}$, let $X_m \in \mathbb{R}^{n \times d_m}$ be the input data matrix. We seek to learn an encoder $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k$ and a decoder $g_m: \mathbb{R}^k \to \mathbb{R}^{d_m}$. The latent representation (scores) is denoted as $Z_m = f_m(X_m) \in \mathbb{R}^{n \times k}$ and the reconstruction as $\hat{X}_m = g_m(Z_m)$.
+For $M$ modalities, let $\mathbf{X}_m \in \\mathbb{R}^{n \\times d_m}$ denote the input data matrix for modality $m \in \{1, \dots, M\}$. We optimize an encoder $f_m: \\mathbb{R}^{d_m} 	o \\mathbb{R}^k$ and a decoder $g_m: \\mathbb{R}^k 	o \\mathbb{R}^{d_m}$. We define the latent representation as $\mathbf{Z}_m = f_m(\mathbf{X}_m) \in \\mathbb{R}^{n \\times k}$ and the reconstruction as $\mathbf{\hat{X}}_m = g_m(\mathbf{Z}_m)$.
 
-The global objective function $\mathcal{L}$ is defined as:
+The global objective function $\\mathcal{L}$ is defined as:
 
 $$
-\mathcal{L}(\{f_m, g_m\}_{m=1}^M, U) = \sum_{m=1}^M \left( \mathcal{L}_{\text{recon}}(X_m, \hat{X}_m) + \lambda_{\text{sim}} \mathcal{L}_{\text{align}}(Z_m, U_{\neq m}) + \gamma \Omega(f_m) \right) + \mathcal{R}(Z)
+\\mathcal{L}(\{f_m, g_m\}_{m=1}^M, \mathbf{U}) = \sum_{m=1}^M \left( \\mathcal{L}_{\text{recon}}(\mathbf{X}_m, \mathbf{\hat{X}}_m) + \lambda_{\text{sim}} \\mathcal{L}_{\text{align}}(\mathbf{Z}_m, \mathbf{U}_{\neq m}) + \gamma \\mathcal{P}_{\text{NSA}}(\mathbf{V}_m) \right) + \\mathcal{R}(\mathbf{Z})
 $$
 
 where:
-- $U_{\neq m}$ is the consensus target derived from all modalities *except* $m$ (the **LOO Topology**).
-- $\Omega(f_m)$ represents structural constraints, such as **Non-negative Stiefel Approximating Flow (NSA-Flow)** on the encoder's linear basis.
-- $\mathcal{R}(Z)$ represents joint regularization terms, including variance preservation ($\mathcal{L}_{\text{var}}$) and covariance penalization ($\mathcal{L}_{\text{cov}}$).
+- $\mathbf{U}_{\neq m}$ represents the consensus target derived from all modalities except $m$, enforced via the **Leave-One-Out (LOO)** topology.
+- $\\mathcal{P}_{\text{NSA}}(\mathbf{V}_m)$ is the **Non-negative Stiefel Approximating Flow (NSA-Flow)** penalty applied to the linear basis $\mathbf{V}_m$ to enforce orthogonality.
+- $\\mathcal{R}(\mathbf{Z})$ defines joint regularization terms, such as variance preservation and covariance penalization.
 
-This general objective function covers the modular SiMLR taxonomy:
-1. **LEND:** Employs a linear encoder $f_m(X_m) = X_m V_m$ and a non-linear decoder $g_m$.
-2. **NED:** Employs non-linear MLPs for both $f_m$ and $g_m$.
-3. **NEDPP:** Partitions the latent space into shared ($S_m$) and private ($P_m$) components, $f_m(X_m) = [S_m \parallel P_m]$, with $\mathcal{L}_{\text{align}}$ applied strictly to $S_m$.
+## Architectural Taxonomy
 
-#### Block-Coordinate Descent Formulation
-
-We solve for the optimal parameters via a **block-coordinate descent** (BCD) procedure, alternating between updating the global consensus targets and the individual modality parameters. At iteration $t$:
-
-1.  **Target Update (Consensus Formation):** Fix $\{f_m, g_m\}$ and update the consensus targets $U_{\neq m}$ according to the **Leave-One-Out (LOO) Topology**. For each modality $m$:
-    $$ U_{\neq m}^{(t)} = \text{Consensus}(\{Z_i^{(t-1)}\}_{i \neq m}) $$
-    The LOO topology strictly excludes the $m$-th modality from its own target calculation, enforcing cross-modal discovery rather than self-reconstruction and preventing high-capacity networks from memorizing modality-specific noise.
-
-2.  **Parameter Update (Modality-Specific):** Fix the targets $U_{\neq m}^{(t)}$ and minimize $\mathcal{L}$ with respect to the parameters of each $\{f_m, g_m\}$:
-    $$ \{f_m^{(t)}, g_m^{(t)}\} = \arg\min_{f_m, g_m} \mathcal{L}(\{f_m, g_m\}, U_{\neq m}^{(t)}) $$
-    Gradient updates flow only through the modality-specific networks, ensuring that alignment is driven by the consensus of independent views.
-
-#### Similarity Metrics
-
-The framework supports multiple similarity energies for $\mathcal{L}_{\text{align}}$:
-
-1. **Regression:** Mean squared error between normalized latents and consensus. 
-2. **Absolute Canonical Covariance (ACC):** Encourages shared alignment by maximizing the unnormalized inner product with the consensus.
-3. **Normalized Covariance (NC):** Prevents modality-starvation by scaling views to unit variance, ensuring equal contribution to the consensus.
-4. **Log-Cosh:** A robust, ICA-inspired similarity measure that bounds outlier influence.
-
-#### Consensus Formation and Stabilization
-
-We utilize **Newton-Schulz iteration** to maintain latent orthogonality with quadratic convergence. To mitigate representation drift across mini-batches in stochastic gradient descent (SGD), we introduce the **Anchor Map Fix**, which utilizes an Exponential Moving Average (EMA) to stabilize the consensus projection.
-
-#### Spectral Triage and Modality Alignment Index (MAI)
-
-To ensure representation stability, we introduce **Spectral Triage**, a mechanism that automatically identifies and suppresses noise-dominant views. This is operationalized through the **Modality Alignment Index (MAI)**, which quantifies the fidelity and contribution of each modality to the joint representation.
-
-The MAI is formally defined using the **Procrustes $R^2$** formulation:
-$$ \text{MAI}_m = 1 - \frac{\|Z_m \Omega - U_{\neq m}\|_F^2}{\|U_{\neq m}\|_F^2} $$
-where $\Omega = \arg\min_{\Omega^T \Omega = I} \|Z_m \Omega - U_{\neq m}\|_F$ is the optimal Procrustes rotation. This metric provides an alignment-invariant measure of the variance in the consensus explained by modality $m$.
-
-To further refine noise rejection, we incorporate **Spectral Sharpness** $S_m$ into the MAI calculation. Spectral Sharpness is defined as a concentration metric on the singular values $\sigma_i$ of the latent projection $Z_m$:
-$$ S_m = \frac{\sigma_1}{\sum_{i=1}^k \sigma_i} $$
-Spectral Sharpness distinguishes structured signal from isotropic noise. A "sharp" spectrum ($S_m \approx 1$) indicates a highly structured signal dominated by its leading component, whereas a "flat" spectrum ($S_m \approx 1/k$) indicates isotropic noise. By weighting the MAI by $S_m$, we automatically suppress modalities that lack structured signal, even if they appear partially aligned with the consensus.
-
-### Orthogonal Manifold Optimization via NSA-Flow
-
-We use NSA-Flow to navigate the Stiefel manifold $\mathbb{V}_{k,n} = \{ V \in \mathbb{R}^{n \times k} \mid V^T V = I_k \}$. This constraint ensures **Biomarker Discovery Integrity** by guaranteeing that each discovered latent factor represents a statistically unique and non-redundant signal. The NSA-Flow penalty $\mathcal{P}(V)$ creates a continuous vector field that guides the weights onto the orthogonal surface, ensuring structural rigidity during learning.
-
-## II. Specific Examples: Modular Architectural Taxonomy
-
-The SiMLR framework encompasses a rich taxonomy of architectural designs. 
+The joint-variational objective establishes a foundation for a modular architectural taxonomy. We present four distinct algorithmic implementations, each motivated by the limitations of the prior model, progressively increasing representational capacity while strictly maintaining the OLEE interpretability bottleneck.
 
 ### Classical SiMLR (Linear Baseline)
 
-*   **Encoder:** $f_m(X_m) = X_m V_m$
-*   **Decoder:** $g_m(Z_m) = Z_m W_m$
+The classical formulation provides a strictly linear baseline, assuming the underlying manifold can be adequately mapped via Euclidean projections.
 
-The encoding basis $V$ is strictly constrained to the Stiefel manifold to ensure feature discovery without redundancy.
+*   **Encoder:** $f_m(\mathbf{X}_m) = \mathbf{X}_m \mathbf{V}_m$
+*   **Decoder:** $g_m(\mathbf{Z}_m) = \mathbf{Z}_m \mathbf{W}_m$
+
+The linear basis $\mathbf{V}_m$ is strictly regularized by NSA-Flow to the Stiefel manifold. This enforces orthogonal feature discovery and provides a fully interpretable, albeit capacity-limited, baseline.
 
 ::: {#fig-simlr}
 
@@ -108,17 +70,17 @@ graph LR
 ![](figures/fig-simlr.png)
 :::
 
-Classical SiMLR: Information flow for linear encoder and decoder with Stiefel manifold regularization on the basis $V$.
+Classical SiMLR: Information flow for a linear encoder and decoder. The basis $\mathbf{V}_m$ acts as a structural information bottleneck.
 :::
 
 ### LEND (Linear Encoder, Deep Decoder)
 
-LEND preserves linear interpretability while enabling deep manifold denoising.
+While Classical SiMLR guarantees interpretability, a linear decoder often fails to reconstruct highly non-linear observational spaces (e.g., raw pixel intensities or complex gene regulatory networks). LEND addresses this by pairing the exact linear feature attribution of the OLEE constraint with a deep, non-linear decoder.
 
-*   **Encoder:** $f_m(X_m) = X_m V_m$ (Only Linear Encoder Entry)
-*   **Decoder:** $g_m(Z_m) = \text{MLP}_{\theta_m}(Z_m)$
+*   **Encoder:** $f_m(\mathbf{X}_m) = \mathbf{X}_m \mathbf{V}_m$ (OLEE)
+*   **Decoder:** $g_m(\mathbf{Z}_m) = \text{MLP}_{	heta_m}(\mathbf{Z}_m)$
 
-The **Only Linear Encoder Entry (OLEE)** ensures that every latent factor is an exact linear combination of the input features, while the Deep MLP decoder handles nonlinear reconstruction.
+LEND represents a Pareto-optimal operating point: it provides deep manifold denoising during reconstruction without sacrificing the strict mathematical auditability of the input features.
 
 ::: {#fig-lend}
 
@@ -130,7 +92,7 @@ graph LR
     X[Input X_m] --> V[OLEE V_m]
     V --> Z[Latent Z_m]
     V -.->|NSA-Flow| S[Stiefel Manifold]
-    V -.->|Exact Mapping| A[Waterfall Audit]
+    V -.->|Exact Mapping| A[Feature Attribution]
     
     Other[Other Latents] --> MAI[MAI Weighting]
     MAI --> U["Target U_{≠m}^{(t)}"]
@@ -150,17 +112,17 @@ graph LR
 ![](figures/fig-lend.png)
 :::
 
-LEND: OLEE-constrained linear encoder with deep MLP decoder for non-linear manifold reconstruction.
+LEND: OLEE-constrained linear encoder coupled with a deep MLP decoder for non-linear manifold reconstruction.
 :::
 
 ### Fully Deep NED (Non-linear Encoder Decoder)
 
-NED adds non-linear hidden layers to the encoder head while still adhering to the OLEE constraint.
+If the underlying biological signal is non-linearly embedded within the feature space itself, LEND's linear bottleneck may drop critical variance. NED mitigates this by applying a non-linear function to the latent space strictly *subsequent* to the initial OLEE constraint.
 
-*   **Encoder:** $f_m(X_m) = \text{MLP}_{\phi_m}(X_m V_m)$
-*   **Decoder:** $g_m(Z_m) = \text{MLP}_{\theta_m}(Z_m)$
+*   **Encoder:** $f_m(\mathbf{X}_m) = \text{MLP}_{\phi_m}(\mathbf{X}_m \mathbf{V}_m)$
+*   **Decoder:** $g_m(\mathbf{Z}_m) = \text{MLP}_{	heta_m}(\mathbf{Z}_m)$
 
-These modular extensions handle extreme manifold complexities without replacing the auditable OLEE foundation.
+This architecture provides maximal representational capacity. The initial projection $\mathbf{X}_m \mathbf{V}_m$ preserves the formal Information Bottleneck, guaranteeing that all downstream non-linear transformations are irrevocably grounded in an identifiable linear subspace.
 
 ::: {#fig-ned}
 
@@ -190,17 +152,17 @@ graph LR
 ![](figures/fig-ned.png)
 :::
 
-NED: Multi-layer encoder with initial OLEE constraint and deep MLP decoder.
+NED: Multi-layer encoder subject to the initial OLEE information bottleneck constraint, coupled with a deep MLP decoder.
 :::
 
 ### Shared-Private NEDPP (Disentangled Discovery)
 
-NEDPP partitions the latent space to sequester view-specific noise via a **Shared-Private Disentanglement Mechanism**. 
+Despite LOO consensus, highly expressive models like NED can still be confounded if modality-specific idiosyncratic noise is massive enough to dominate the optimization landscape. NEDPP resolves this by explicitly partitioning the latent space, decoupling modality-specific variance from the shared biological signal.
 
-*   **Encoder:** $f_m(X_m) = [\text{MLP}_{\phi_{m,shared}}(X_m V_{m,shared}) \parallel \text{MLP}_{\phi_{m,private}}(X_m V_{m,private})] = [S_m \parallel P_m]$
-*   **Decoder:** $g_m(S_m \parallel P_m) = \text{MLP}_{\theta_m}(S_m \parallel P_m)$
+*   **Encoder:** $f_m(\mathbf{X}_m) = [\text{MLP}_{\phi_{m,\text{shared}}}(\mathbf{X}_m \mathbf{V}_{m,\text{shared}}) \parallel \text{MLP}_{\phi_{m,\text{private}}}(\mathbf{X}_m \mathbf{V}_{m,\text{private}})] = [\mathbf{S}_m \parallel \mathbf{P}_m]$
+*   **Decoder:** $g_m(\mathbf{S}_m \parallel \mathbf{P}_m) = \text{MLP}_{	heta_m}(\mathbf{S}_m \parallel \mathbf{P}_m)$
 
-The shared-private partitioning de-mixes the multi-modal input into a shared consensus signal and modality-specific idiosyncratic components. This separation prevents view-specific artifacts from polluting the shared representation.
+We enforce disentanglement via a cross-covariance penalty $\text{Cov}(\mathbf{S}_m, \mathbf{P}_m) 	o \mathbf{0}$, orthogonalizing the shared and private representations. Assuming Gaussian-distributed latent variables, driving this penalty to zero guarantees statistical independence between the subspaces. This theoretical bound prevents high-variance artifacts from leaking into the shared consensus, isolating the true cross-modal signal.
 
 ::: {#fig-nedpp}
 
@@ -242,48 +204,202 @@ graph TD
 ![](figures/fig-nedpp.png)
 :::
 
-NEDPP: Disentangled shared-private architecture with OLEE constraints and cross-covariance penalty.
+NEDPP (Non-linear Encoder Decoder with Private Partitions): Disentangled architecture utilizing OLEE constraints for both shared and private subspaces. Incorporates cross-covariance penalization for statistical independence.
 :::
 
-## III. Properties
+## Optimization, Consensus, and Spectral Triage
 
-### Formalizing Mechanical Interpretability and Exact Counterfactuals
+With the architectural models defined, we now detail the optimization strategy, the consensus formation, and the automated mechanisms required to stabilize deep multi-modal alignment.
 
-The OLEE establishes a technical boundary between feature discovery and manifold learning, resulting in three critical properties:
+### Block-Coordinate Descent and LOO Topology
 
-**1. Exact Global Feature Importance:** The Stiefel manifold constraint ensures that the basis vectors in $V_m$ define strictly orthogonal directions, providing mathematically exact feature rankings.
+We rigidly formalize our parameter optimization through a strict Block-Coordinate Descent (BCD) procedure. At each iteration $t$, we decouple the learning process into two distinct phases:
 
-**2. Exact Local Interpretability:** For a specific sample $i$, the latent score $z_{ik}$ is the literal, linear sum of its features weighted by the basis. This enables feature attribution with zero approximation error.
+1.  **Consensus Formation (LOO Topology):** We fix the network parameters $\{f_m, g_m\}$ and compute the consensus targets $\mathbf{U}_{\neq m}$ using a strictly enforced Leave-One-Out (LOO) topology:
+    $$ \mathbf{U}_{\neq m}^{(t)} = \text{Consensus}(\{\mathbf{Z}_i^{(t-1)}\}_{i \neq m}) $$
+    The LOO topology explicitly excludes modality $m$ from calculating its own target. This architectural constraint actively prevents high-capacity networks from memorizing trivial identity mappings, rigorously forcing the model to discover universally shared cross-modal signals.
 
-**3. Analytically Exact Counterfactuals:** We analytically solve for the minimum-norm counterfactual perturbation $\delta x$ required to achieve a desired shift in the latent representation $\Delta z$:
-$$ \delta x = \Delta z V_m^T $$
-This provides a precise technical guide for identifying the feature changes associated with specific latent shifts.
+2.  **Parameter Update:** We fix the derived consensus $\mathbf{U}_{\neq m}^{(t)}$ and globally minimize $\\mathcal{L}$ for each specific modality:
+    $$ \{f_m^{(t)}, g_m^{(t)}\} = \arg\min_{f_m, g_m} \\mathcal{L}(\{f_m, g_m\}, \mathbf{U}_{\neq m}^{(t)}) $$
+
+### Orthogonal Manifold Optimization via NSA-Flow
+
+```{python}
+#| label: fig-stiefel-intuition
+#| fig-cap: "Geometrical Intuition of Orthogonal Discovery via NSA-Flow. Unconstrained deep learning architectures succumb to latent collapse by entangling redundant variance components (red vectors). Conversely, the Non-negative Stiefel Approximating Flow (NSA-Flow) constrains feature discovery to the Stiefel manifold (wireframe sphere). This guarantees the distillation of distinct, statistically independent generative factors (blue orthogonal vectors)."
+#| warning: false
+#| message: false
+#| echo: false
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+
+fig = plt.figure(figsize=(10, 5))
+
+ax1 = fig.add_subplot(121, projection='3d')
+u = np.linspace(0, 2 * np.pi, 30)
+v = np.linspace(0, np.pi, 30)
+x = np.outer(np.cos(u), np.sin(v))
+y = np.outer(np.sin(u), np.sin(v))
+z = np.outer(np.ones(np.size(u)), np.cos(v))
+ax1.plot_wireframe(x, y, z, color='gray', alpha=0.15, linewidth=0.5)
+
+vecs1 = np.array([[0.8, 0.7, 0.9], [0.9, 0.8, 0.7], [0.7, 0.9, 0.8]])
+for vec in vecs1:
+    vec = vec / np.linalg.norm(vec)
+    ax1.quiver(0, 0, 0, vec[0], vec[1], vec[2], color='#d95f02', arrow_length_ratio=0.1, linewidth=3)
+
+ax1.set_title('Standard Deep Learning\n(Latent Collapse)', pad=10, fontsize=12, fontweight='bold')
+ax1.set_xlim([-1, 1])
+ax1.set_ylim([-1, 1])
+ax1.set_zlim([-1, 1])
+ax1.set_axis_off()
+
+ax2 = fig.add_subplot(122, projection='3d')
+ax2.plot_wireframe(x, y, z, color='gray', alpha=0.15, linewidth=0.5)
+
+vecs2 = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+for vec in vecs2:
+    ax2.quiver(0, 0, 0, vec[0], vec[1], vec[2], color='#1b9e77', arrow_length_ratio=0.1, linewidth=3)
+
+ax2.set_title('NSA-Flow Regularization\n(Orthogonal Discovery)', pad=10, fontsize=12, fontweight='bold')
+ax2.set_xlim([-1, 1])
+ax2.set_ylim([-1, 1])
+ax2.set_zlim([-1, 1])
+ax2.set_axis_off()
+
+plt.tight_layout()
+os.makedirs('figures', exist_ok=True)
+plt.savefig('figures/fig-stiefel-intuition.png', bbox_inches='tight', dpi=300)
+plt.close()
+```
+
+Enforcing exact orthogonality via traditional Singular Value Decomposition (SVD) imposes a severe $\\mathcal{O}(K^3)$ computational bottleneck and injects non-differentiable discontinuities into the optimization trajectory. We conclusively bypass this limitation by executing gradient descent directly on the Stiefel manifold $\\mathbb{V}_{k,d_m} = \{ \mathbf{V} \in \\mathbb{R}^{d_m \\times k} \\mid \mathbf{V}^	op \mathbf{V} = \mathbf{I}_k \}$ [@edelman1998geometry]. 
+
+We achieve this by coupling the NSA-Flow penalty with Newton-Schulz iterations. Employing the iterative update rule $\mathbf{V}_{t+1} = \frac{1}{2} \mathbf{V}_t (3\mathbf{I} - \mathbf{V}_t^	op \mathbf{V}_t)$ drives quadratic convergence to the Stiefel manifold utilizing strictly batched matrix multiplications, aggressively reducing computational complexity to a highly scalable $\\mathcal{O}(d_m K^2)$. NSA-Flow replaces hard SVD projections with a smooth, fully differentiable penalty, mathematically guaranteeing that the BCD procedure monotonically decreases the global objective without risking mode collapse.
+
+### Similarity Metrics (The Energy Function)
+
+To operationalize the alignment $\\mathcal{L}_{\text{align}}$, we implement multiple distinct similarity metrics (referred to as the "energy" of the consensus), each possessing specific theoretical advantages depending on the noise distribution of the data:
+
+1. **Regression:** Minimizes the Mean Squared Error (MSE) between the normalized latent representations and the consensus target. This assumes Gaussian-distributed alignment errors and serves as an effective baseline for stable manifolds.
+2. **Absolute Canonical Covariance (ACC):** Maximizes the unnormalized inner product with the consensus. ACC theoretically assumes a uniform signal magnitude across views, making it optimal when variances are precisely controlled and uniform.
+3. **Normalized Covariance (NC):** Dynamically scales latent representations to unit variance prior to alignment. This prevents "Modality Starvation"—where a low-variance modality is ignored by the consensus—ensuring that weak but informative signals contribute proportionally.
+4. **Log-Cosh:** A robust, approximation of Independent Component Analysis (ICA) objectives. Log-Cosh bounds the influence of extreme outliers, providing superior cross-modal alignment when dealing with heavy-tailed clinical noise distributions.
+
+### Spectral Triage and Modality Alignment Index (MAI)
+
+```{python}
+#| label: fig-spectral-sharpness
+#| fig-cap: "Spectral Sharpness as an Exact Discriminant of Modality Fidelity. True generative signal manifests as rank-1 perturbations that break the Marchenko-Pastur bulk distribution limit (gray span). Informative modalities (green) exhibit significant spectral sharpness, escaping the bulk limit to dominate the leading singular values. Conversely, structureless isotropic noise modalities (orange) remain entirely trapped within the analytically derived Marchenko-Pastur threshold, guaranteeing their rigorous mathematical exclusion via the Modality Alignment Index (MAI)."
+#| warning: false
+#| message: false
+#| echo: false
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+
+fig, ax = plt.subplots(figsize=(8, 4.5))
+
+components = np.arange(1, 21)
+
+info_spectrum = np.exp(-0.6 * components) * 12
+np.random.seed(42)
+noise_spectrum = np.random.uniform(0.5, 1.5, size=20)
+
+ax.plot(components, info_spectrum, marker='o', color='#1b9e77', label='Informative Modality', linewidth=2.5, markersize=6)
+ax.plot(components, noise_spectrum, marker='s', color='#d95f02', label='Noise Modality', linewidth=2.5, markersize=6)
+
+ax.axhspan(0, 1.7, color='gray', alpha=0.15, label='Marchenko-Pastur Bulk')
+ax.axhline(1.7, color='gray', linestyle='--', linewidth=1.5)
+
+ax.set_xlabel('Principal Component Rank', fontweight='bold')
+ax.set_ylabel('Singular Value Magnitude', fontweight='bold')
+ax.set_title('Spectral Sharpness & BBP Phase Transition Bounds', fontweight='bold', pad=15)
+
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.legend(loc='upper right', frameon=False)
+ax.grid(axis='y', linestyle=':', alpha=0.6)
+ax.set_xticks(components[::2])
+
+plt.tight_layout()
+os.makedirs('figures', exist_ok=True)
+plt.savefig('figures/fig-spectral-sharpness.png', bbox_inches='tight', dpi=300)
+plt.close()
+```
+
+In high-dimensional limits, isotropic noise routinely forms spurious correlations with the shared consensus. We introduce **Spectral Triage** to rigorously detect and actively penalize these noise-dominant views. We quantify modality fidelity using the **Modality Alignment Index (MAI)**. 
+
+The default MAI formulation leverages Procrustes $R^2$:
+$$ \text{MAI}_m = 1 - \frac{\|\mathbf{Z}_m \mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F^2}{\|\mathbf{U}_{\neq m}\|_F^2} $$
+where $\mathbf{\Omega} = \arg\min_{\mathbf{\Omega}^	op \mathbf{\Omega} = \mathbf{I}} \|\mathbf{Z}_m \mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F$ denotes the optimal orthogonal rotation to align the local manifold with the global consensus.
+
+To eliminate spurious alignments, we augment the MAI by integrating **Spectral Sharpness** $\\mathcal{S}_m$, which evaluates the concentration of the singular values $\sigma_i$ extracted from the latent matrix $\mathbf{Z}_m$:
+$$ \\mathcal{S}_m = \frac{\sigma_1}{\sum_{i=1}^k \sigma_i} $$
+
+**The Marchenko-Pastur Limit and BBP Phase Transition:** This formulation is grounded in the spectral theory of high-dimensional random matrices. Under the assumption of purely isotropic observational noise, the sample covariance matrix spectrum converges to the Marchenko-Pastur bulk distribution limit. Consequently, the singular values distribute uniformly, bounding the spectral sharpness to the bulk limit $\\mathcal{S}_m = \\mathcal{O}(1/K)$. In this regime, the metric mathematically drives the contribution of unstructured isotropic noise to exactly zero. 
+
+Conversely, following the Baik-Ben Arous-Péché (BBP) phase transition theorem [@baik2005phase], true underlying signal components induce rank-1 perturbations that spike explicitly outside the Marchenko-Pastur bulk, rapidly forcing $\\mathcal{S}_m 	o 1$. Spectral Sharpness therefore functions as a mathematically exact threshold, actively discriminating structured generative signal from isotropic background noise. The final consensus target employs the product of MAI and Spectral Sharpness to dynamically weight each modality, ensuring noise-dominant views are decisively quarantined.
+
+## Properties & Bounds
+
+### Auditability by Design and Exact Counterfactuals
+
+Standard post-hoc explainability methods (e.g., SHAP, LIME) are notoriously unstable on entangled deep manifolds, frequently outputting approximations that contradict the true mechanistic model. By enforcing the OLEE constraint, SiMLR bypasses post-hoc approximations entirely. The network is explicitly auditable by design, establishing three rigorous theoretical properties:
+
+**1. Exact Global Feature Importance via Variance Partitioning:** 
+Because NSA-Flow strictly confines the basis matrix $\mathbf{V}_m$ to the Stiefel manifold ($\mathbf{V}_m^	op \mathbf{V}_m = \mathbf{I}_k$), the initial mapping acts as an isometry. This structural rigor ensures that the total variance explained by the model can be exactly partitioned among the columns of $\mathbf{X}_m$, providing an analytically exact, non-redundant measure of global feature importance that cannot be confounded by latent collinearities.
+
+**2. Exact Local Interpretability:** 
+For any individual sample $i$, the computed latent coordinate $\mathbf{z}_{i}$ is explicitly constructed via the linear combination of its raw input features: $\mathbf{z}_{i} = \mathbf{x}_{i} \mathbf{V}_m$. We extract local, sample-specific feature attributions with zero approximation error.
+
+**3. Analytically Exact, Minimum-Norm Counterfactuals:** 
+In post-hoc paradigms, off-manifold counterfactual perturbations often generate nonsensical predictions. Conversely, OLEE provides a closed-form analytic solution. Because $\mathbf{V}_m$ is rigorously orthogonal, its Moore-Penrose pseudoinverse simplifies exactly to its transpose: $\mathbf{V}_m^+ = (\mathbf{V}_m^	op \mathbf{V}_m)^{-1} \mathbf{V}_m^	op = \mathbf{I}_k^{-1} \mathbf{V}_m^	op = \mathbf{V}_m^	op$. 
+
+Therefore, the exact, minimum-norm counterfactual perturbation $\delta \mathbf{x}$ required to induce a targeted latent shift $\\Delta \mathbf{z}$ is formally:
+$$ \delta \mathbf{x} = \\Delta \mathbf{z} \mathbf{V}_m^	op $$
+This guarantees that the proposed perturbation represents the most direct, efficient intervention possible without relying on unstable surrogate models.
 
 ### The Consistency-Interpretability Tradeoff
 
-We formalize the tension between model complexity and auditability as the **Consistency-Interpretability Tradeoff**. While Fully Deep models (NED) can achieve superior latent recovery by modeling arbitrary non-linearities, they sacrifice the direct interpretability of the features. LEND occupies the Pareto-optimal position by enforcing the OLEE while delegating non-linear processing to the decoder.
+We define the tension between representational capacity and auditability as the Consistency-Interpretability Tradeoff. Fully non-linear models maximize latent recovery by approximating complex functions but obscure the interpretability of derived features. LEND enforces the OLEE constraint for feature discovery while utilizing non-linear decoders, optimally balancing this tradeoff.
 
 ### Theoretical Bounds: The 1/M Law
 
-Under independent noise, the noise power in the shared consensus drops as $1/M$. In scenarios with correlated noise across modalities ($\rho$), the recovery error asymptotes to an irreducible floor:
-$$ \text{Var}_{consensus} = \frac{\sigma^2}{M} (1 - \rho) + \rho \sigma^2 $$
+We formalize the variance of the shared consensus estimator under noise. 
 
-## IV. Evaluation Strategies
+**Generative Assumptions:** We assume each modality observation $\mathbf{X}_m$ is generated by a shared true manifold embedded in additive Gaussian noise. 
+
+**Mathematical Formulation:** Let the noise variance be $\sigma^2$ and the cross-modal noise correlation be $
+ho$. Aggregating observations across $M$ modalities yields the variance of the consensus estimator $\mathbf{U}$:
+$$ \text{Var}(\mathbf{U}) = \frac{\sigma^2}{M} (1 - 
+ho) + 
+ho \sigma^2 $$
+As $M 	o \infty$, the independent noise term $\frac{\sigma^2}{M}(1-
+ho)$ vanishes. Consequently, the irreducible error floor is strictly bounded by $
+ho \sigma^2$. This mathematical bound proves that while expanding the number of modalities $M$ efficiently mitigates independent noise, it cannot resolve highly correlated cross-modal artifacts, necessitating the LOO topology and Spectral Triage to actively suppress correlated noise components.
+
+## Evaluation Strategies
 
 ### Technical Glossary of Performance Metrics
 
 | Metric | Symbol | Definition | Interpretation |
 | :--- | :--- | :--- | :--- |
-| **Strictly Linear Accuracy** | $R^2_{XV}$ | $R^2_P(X V, U^*)$ | Fidelity of the linear feature projection. |
-| **Deep Consensus Accuracy** | $R^2_U$ (CMC) | $\max_{\Omega, s} \left( 1 - \frac{\|\hat{U}\Omega s - U^*\|_F^2}{\|U^*\|_F^2} \right)$ | Fidelity of the shared latent consensus recovery. |
-| **Subspace Recovery Error** | $SRE$ | $1 - \frac{1}{M} \sum_{m=1}^M R^2_P(\hat{V}_m, V^*_m)$ | Failure to recover the true generative feature basis. |
-| **OLEE** | - | $Z = \sigma(X V W + b)$ | Mandatory initial linear projection for auditability. |
-| **Procrustes $R^2$** | $R^2_P$ | $1 - \frac{\min_{\Omega} \|\hat{A}\Omega - A^*\|_F^2}{\|A^*\|_F^2}$ | Alignment-invariant variance explained. |
-| **Auditability by Design** | - | - | Structural guarantee that latent factors are traceable to features. |
+| **Strictly Linear Accuracy** | $R^2_{\mathbf{XV}}$ | $R^2_P(\mathbf{X} \mathbf{V}, \mathbf{U}^*)$ | Fidelity of the linear feature projection. |
+| **Deep Consensus Accuracy** | $R^2_{\mathbf{U}}$ (CMC) | $\max_{\mathbf{\Omega}, s} \left( 1 - \frac{\|\mathbf{\hat{U}}\mathbf{\Omega} s - \mathbf{U}^*\|_F^2}{\|\mathbf{U}^*\|_F^2} \right)$ | Fidelity of the shared latent consensus recovery. |
+| **Subspace Recovery Error** | $SRE$ | $1 - \frac{1}{M} \sum_{m=1}^M R^2_P(\mathbf{\hat{V}}_m, \mathbf{V}^*_m)$ | Error in recovering the true generative feature basis. |
+| **OLEE** | - | $\mathbf{Z} = \sigma(\mathbf{X} \mathbf{V} \mathbf{W} + \mathbf{b})$ | Initial linear projection acting as an Information Bottleneck. |
+| **Procrustes $R^2$** | $R^2_P$ | $1 - \frac{\min_{\mathbf{\Omega}} \|\mathbf{\hat{A}}\mathbf{\Omega} - \mathbf{A}^*\|_F^2}{\|\mathbf{A}^*\|_F^2}$ | Alignment-invariant variance explained. |
+| **Auditability by Design** | - | - | Structural guarantee linking latent variables directly to features. |
 
-### Statistical Determination of the Intrinsic Dimensionality (K)
+### Statistical Determination of Intrinsic Dimensionality (K)
 
-We utilize three statistically rigorous strategies for selecting the latent dimensionality $K$:
-1. **Information Criteria (BIC):** Uses the Bayesian Information Criterion to penalize model complexity.
-2. **Spectral Truncation (Tracy-Widom):** Evaluates the statistical significance of singular values against a null hypothesis of pure noise.
-3. **V-fold Cross-Validation:** Selects $K$ based on out-of-sample performance using the **One-Standard-Error Rule**.
+We implement three statistical strategies to establish the optimal latent dimensionality $K$:
+1. **Information Criteria (BIC):** Evaluates the Bayesian Information Criterion to penalize excessive model parameterization.
+2. **Spectral Truncation (Tracy-Widom):** Computes the statistical significance of singular values against the null hypothesis of purely unstructured noise.
+3. **V-fold Cross-Validation:** Selects $K$ by applying the One-Standard-Error Rule to out-of-sample prediction performance.

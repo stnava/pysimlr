@@ -1,21 +1,21 @@
 # Appendix: Operational Implementation and Complexity
 
-This appendix provides technical details for the SiMLR framework, including hyperparameter ranges, computational complexity, and the optimization protocol.
+This appendix specifies technical details for the SiMLR framework, including hyperparameter definitions, computational complexity bounds, and the optimization protocol.
 
 ## 1. Operational Protocol: The SiMLR Training Loop
 
-The training process for SiMLR and its deep extensions (LEND, NED, NEDPP) interleaves neural network backpropagation with manifold projection.
+The training procedure for SiMLR and its deep extensions (LEND, NED, NEDPP) interleaves neural network backpropagation with manifold projection.
 
 ### 1.1 Training Algorithm
 
 ```python
 Initialize {V_m, theta_m, phi_m}
 For epoch t in 1..T:
-    1. Calculate Alpha_t (Stiefel mixing coefficient)
-       - Alpha_t = min(1.0, t / (Total_Epochs * ramp_ratio))
+    1. Calculate alpha_t (Stiefel mixing coefficient)
+       - alpha_t = min(1.0, t / (Total_Epochs * ramp_ratio))
     2. Forward Pass:
        # Apply OLEE
-       V_active = (1 - Alpha_t) * V_raw + Alpha_t * NewtonSchulz(V_raw)
+       V_active = (1 - alpha_t) * V_raw + alpha_t * NewtonSchulz(V_raw)
        Z_m = Encoder(X_m, V_active, theta_m)
        
        # For NEDPP: Disentangle Shared vs Private
@@ -25,7 +25,7 @@ For epoch t in 1..T:
     3. Consensus Estimation:
        - U_hat = Average(Z_1, ..., Z_M) or NewtonSchulzConsensus(Z_list)
     4. Calculate Total Energy J:
-       - J = (1-alpha)*L_recon + alpha*L_align + gamma*L_disentangle
+       - J = (1 - alpha_t) * L_recon + alpha_t * L_align + gamma * L_disentangle
     5. Backpropagate gradients to {V_raw, theta_m, phi_m}
     6. Update weights via Optimizer (Adam with weight decay)
 ```
@@ -34,36 +34,36 @@ For epoch t in 1..T:
 
 ### 2.1 Riemannian Updates
 
-Riemannian updates on the Stiefel manifold are implemented via projection onto the tangent space $T_V \mathbb{V}_{k,n}$. The Riemannian gradient $\text{grad} \mathcal{J}(V)$ is derived from the Euclidean gradient $\nabla \mathcal{J}(V)$:
-$$ \text{grad} \mathcal{J}(V) = \nabla \mathcal{J}(V) - V \text{sym}(V^T \nabla \mathcal{J}(V)) $$
+We implement Riemannian updates on the Stiefel manifold via projection onto the tangent space $\mathcal{T}_{\mathbf{V}} \mathbb{V}_{k,n}$. We compute the Riemannian gradient $\text{grad} \mathcal{J}(\mathbf{V})$ from the Euclidean gradient $\nabla \mathcal{J}(\mathbf{V})$:
+$$ \text{grad} \mathcal{J}(\mathbf{V}) = \nabla \mathcal{J}(\mathbf{V}) - \mathbf{V} \text{sym}(\mathbf{V}^T \nabla \mathcal{J}(\mathbf{V})) $$
 
-The orthogonal penalty $\mathcal{P}(V) = \frac{1}{4} \| V^T V - I_k \|_F^2$ has a Taylor expansion for a perturbation $\Delta$:
-$$ \mathcal{P}(V + \Delta) \approx \frac{1}{4} \text{Tr}\left( (V^T \Delta + \Delta^T V)^2 \right) $$
-The penalty vanishes for any $\Delta$ in the tangent space.
+The orthogonal penalty $\mathcal{P}(\mathbf{V}) = \frac{1}{4} \| \mathbf{V}^T \mathbf{V} - \mathbf{I}_k \|_F^2$ permits a Taylor expansion for a perturbation $\mathbf{\Delta}$:
+$$ \mathcal{P}(\mathbf{V} + \mathbf{\Delta}) \approx \frac{1}{4} \text{Tr}\left( (\mathbf{V}^T \mathbf{\Delta} + \mathbf{\Delta}^T \mathbf{V})^2 \right) $$
+This penalty evaluates to zero for any $\mathbf{\Delta}$ strictly within the tangent space.
 
 ### 2.2 Newton-Schulz Convergence
 
-Orthogonality is maintained via the update:
-$$ Y_{k+1} = \frac{1}{2} Y_k (3I - Y_k^T Y_k) $$
-The error $E_k = I - Y_k^T Y_k$ satisfies $E_{k+1} = \frac{3}{4} E_k^2 + \frac{1}{4} E_k^3$, which defines quadratic convergence: $\| E_{k+1} \|_2 < \| E_k \|_2^2$.
+We enforce orthogonality via the iteration sequence:
+$$ \mathbf{Y}_{k+1} = \frac{1}{2} \mathbf{Y}_k (3\mathbf{I} - \mathbf{Y}_k^T \mathbf{Y}_k) $$
+The residual error $\mathbf{E}_k = \mathbf{I} - \mathbf{Y}_k^T \mathbf{Y}_k$ obeys the relation $\mathbf{E}_{k+1} = \frac{3}{4} \mathbf{E}_k^2 + \frac{1}{4} \mathbf{E}_k^3$. This yields quadratic convergence: $\| \mathbf{E}_{k+1} \|_2 < \| \mathbf{E}_k \|_2^2$.
 
 ### 2.3 Noise Reduction Law
 
-Under independent noise $\epsilon_m \sim \mathcal{N}(0, \sigma^2 I)$, consensus variance follows:
-$$ \text{Var}\left( \frac{1}{M} \sum_{m=1}^M \epsilon_m \right) = \frac{\sigma^2}{M} $$
-The $100(1-\delta)\%$ confidence interval for the signal $\mu$ is:
-$$ \hat{\mu}_{consensus} \pm z_{\delta/2} \sqrt{\frac{\sigma^2}{M}(1-\rho) + \rho\sigma^2} $$
-Correlated noise $\rho\sigma^2$ establishes the statistical lower bound for consensus error.
+Assuming independent noise distributions $\boldsymbol{\epsilon}_m \sim \mathcal{N}(\mathbf{0}, \sigma^2 \mathbf{I})$, the consensus variance scales as:
+$$ \text{Var}\left( \frac{1}{M} \sum_{m=1}^M \boldsymbol{\epsilon}_m \right) = \frac{\sigma^2}{M} $$
+The corresponding $100(1-\delta)\%$ confidence interval for the underlying signal $\boldsymbol{\mu}$ is bounded by:
+$$ \hat{\boldsymbol{\mu}}_{\text{consensus}} \pm z_{\delta/2} \sqrt{\frac{\sigma^2}{M}(1-\rho) + \rho\sigma^2} $$
+The covariance term $\rho\sigma^2$ provides the strict statistical lower bound for the multi-modal consensus error.
 
 ## 3. Statistical Sensitivity
 
 ### 3.1 Modality Weights ($w$)
 
-The Statistical Influence Function $\mathcal{I}_m = \frac{\partial U}{\partial w_m}$ is bounded by the spectral gap $(\lambda_1 - \lambda_2)^{-1}$ of the feature covariance $\Sigma_m$. SiMLR sensitivity increases in the presence of multicollinearity.
+We bound the Statistical Influence Function $\mathcal{I}_m = \frac{\partial \mathbf{U}}{\partial w_m}$ by the spectral gap $(\lambda_1 - \lambda_2)^{-1}$ of the input feature covariance $\mathbf{\Sigma}_m$. Consequently, SiMLR operational sensitivity scales proportionally with the degree of multicollinearity in the input domain.
 
 ### 3.2 $\alpha$-Transition
 
-The parameter $\alpha$ weights independent reconstruction against consensus alignment. The transition point is determined by the stabilization of the rate of change in consensus variance.
+The mixing parameter $\alpha$ controls the trade-off between independent modality reconstruction and cross-modal consensus alignment. We set the transition point at the epoch where the first derivative of the consensus variance approaches zero.
 
 ## 4. Hyperparameter Guidance
 
@@ -78,39 +78,43 @@ The parameter $\alpha$ weights independent reconstruction against consensus alig
 
 ## 5. MAI Implementation
 
-The Modality Consensus Index (MAI) provides automated weighting of modalities via a Sigmoid Gate:
+The Modality Alignment Index (MAI) applies automated weighting to modalities via a Sigmoid Gate. We configure the MAI parameters as follows:
 
 - **Center:** Mean(MAI).
-- **Steepness:** 20.0.
+- **Steepness:** 20.0 (annealed).
 - **Transition_Epochs:** 20.
 
-The framework supports multiple MAI metrics: Procrustes $R^2$, Spectral Sharpness, Mean CCA, and the RV Coefficient.
+The SiMLR framework provides 4 available MAI metrics:
+- `procrustes_r2`
+- `procrustes_r2_sharp`
+- `cca`
+- `rvcoef`
 
 ## 6. Computational Complexity
 
 | Operation | Complexity | Scaling Law |
 | :--- | :--- | :--- |
-| **Manifold Projection** | $O(D \cdot K^2)$ | Linear in features ($D$), Quadratic in Latents ($K$). |
-| **Consensus Estimation** | $O(M \cdot K^3)$ | Linear in modalities ($M$), Cubic in Latents ($K$). |
-| **Forward/Backward** | $O(N \cdot D \cdot K)$ | Linear in Samples ($N$) and features ($D$). |
-| **VRAM Consumption** | $O(N \cdot K + D \cdot K)$ | Linear in Samples ($N$) and features ($D$). |
+| **Manifold Projection** | $\mathcal{O}(D \cdot K^2)$ | Linear in features ($D$), Quadratic in Latents ($K$). |
+| **Consensus Estimation** | $\mathcal{O}(M \cdot K^3)$ | Linear in modalities ($M$), Cubic in Latents ($K$). |
+| **Forward/Backward** | $\mathcal{O}(N \cdot D \cdot K)$ | Linear in Samples ($N$) and features ($D$). |
+| **VRAM Consumption** | $\mathcal{O}(N \cdot K + D \cdot K)$ | Linear in Samples ($N$) and features ($D$). |
 
-Newton-Schulz iteration utilizes matrix multiplications optimized for GPU execution.
+The Newton-Schulz iteration relies exclusively on dense matrix multiplications, achieving optimal throughput on parallel GPU architectures.
 
 ## 7. Pre-processing Protocol
 
-Input matrices $\{X_m\}$ must be mean-centered and unit-scaled ($z$-score normalization). This ensures alignment energy $E_{\text{align}}$ is independent of measurement scale.
+We require mean-centering and unit-scaling ($z$-score normalization) for all input matrices $\{\mathbf{X}_m\}$. This normalizes the alignment energy $E_{\text{align}}$ independently of the native measurement scale.
 
 ## 8. System Optimizations
 
 ### 8.1 Gradient Stability
 
-Using LeakyReLU or GELU activations with Kaiming He Initialization prevents vanishing gradients in high-dimensional data regimes.
+We employ LeakyReLU or GELU activations coupled with Kaiming He initialization to bound gradient magnitudes and prevent signal decay in high-dimensional domains.
 
 ### 8.2 Learning Rate Schedules
 
-OneCycleLR combines warmup and annealing into a single phase, facilitating convergence in non-convex joint-variational objectives.
+We utilize the OneCycleLR scheduler to fuse the warmup and annealing phases. This accelerates convergence traversing the non-convex joint-variational objective space.
 
 ### 8.3 Data Throughput
 
-Setting `pin_memory=True` and `num_workers > 0` in the PyTorch DataLoader enables asynchronous data transfer to the GPU, reducing I/O bottlenecks.
+We specify `pin_memory=True` and configure `num_workers > 0` in the PyTorch DataLoader. This implements asynchronous memory transfer to the GPU, mitigating host-device I/O latency.

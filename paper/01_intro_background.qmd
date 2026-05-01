@@ -1,36 +1,40 @@
-# Introduction and Background
+---
+title: "Introduction and Background"
+---
 
 ## Introduction
 
-Modern biomedical research increasingly relies on high-throughput multi-modal datasets to capture the complexity of biological systems. Researchers frequently integrate transcriptomics, proteomics, and epigenomics to characterize cellular states or pair structural and functional neuroimaging with clinical metrics to study brain injury [@stone2020longitudinal; @stone2024blast]. These disparate data types, termed *views* or *modalities*, provide complementary technical observations of an underlying shared biological signal. Established frameworks like Advanced Normalization Tools (ANTs) provide the foundation for robust image registration and multi-modal integration in neuroimaging [@avants2011reproducible; @avants2014ants]. 
+High-throughput multi-modal datasets provide complementary observations of shared biological signals. Integrating these distinct data streams—formalized as *views* or *modalities* $\mathbf{X}_m$—is essential for defining complex phenotypes in neuroimaging and genomics [@stone2020longitudinal; @avants2014ants]. Deep representation learning techniques, including Deep Canonical Correlation Analysis (Deep CCA) [@andrew2013deep], Multi-Omics Factor Analysis extensions (MOFA+) [@argelaguet2020mofa], and Multimodal Variational Autoencoders (MVAEs) [@wu2018multimodal], achieve state-of-the-art predictive performance by modeling non-linear covariance structures. However, these architectures fundamentally fail to provide exact feature attribution. By projecting inputs through deeply nested non-linearities, they induce the **Information Masking** problem: the mathematical relationship between the original input features and the derived latent consensus is irrevocably entangled. This black-box formulation violates the strict interpretability requirements of high-stakes scientific and clinical domains, where actionable discovery relies on identifying exactly which biomarkers drive the predictive model.
+
+We solve the Information Masking problem by introducing Deep SiMLR. We enforce Auditability by Design through two core mechanisms. First, we impose an Information Bottleneck termed the **Only Linear Encoder Entry (OLEE)**. OLEE mandates that the initial transformation of any modality $\mathbf{X}_m$ is a strict projection onto an orthogonal basis $\mathbf{V}_m$ on the Stiefel manifold ($\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}$). This guarantees that the entry point to any downstream deep network is a mathematically exact, interpretable linear combination of the input features. Second, to prevent high-dimensional noise from corrupting the shared representation, we deploy **Spectral Triage**. This mechanism computes a Modality Alignment Index (MAI) based on Spectral Sharpness, aggressively penalizing noise-dominant modalities during consensus formation. Together, OLEE and Spectral Triage yield a family of architectures that match the predictive power of unconstrained deep models while preserving perfect analytic transparency.
 
 ### Multimodal Consensus as Latent Signal Recovery
 
-We formalize the multi-view integration problem as the recovery of a latent signal $S \in \mathbb{R}^k$ from a collection of $M$ high-dimensional observations $\{X_m\}_{m=1}^M$. We model each view as $X_m = g_m(S) + \epsilon_m$, where $g_m$ represents a view-specific generative process and $\epsilon_m$ denotes modality-specific noise. Effective integration requires a mathematical framework that accounts for the unique covariance structure of each observer while converging on a shared consensus representation $U$ that captures the underlying signal $S$. 
+We formalize multi-view integration as the recovery of a latent signal $\mathbf{S} \in \mathbb{R}^{N \times K}$ from a set of $M$ high-dimensional observations $\{\mathbf{X}_m\}_{m=1}^M$, where $\mathbf{X}_m \in \mathbb{R}^{N \times D_m}$. We model each view as $\mathbf{X}_m = g_m(\mathbf{S}) + \mathbf{E}_m$, where $g_m$ denotes a modality-specific generative function and $\mathbf{E}_m$ represents modality-specific noise. Optimal integration requires a mathematical formulation that maps the covariance structure of each observer to a shared consensus representation $\mathbf{U}$ that approximates $\mathbf{S}$. 
 
-Heterogeneous noise profiles and distinct generative processes complicate this integration. A critical failure mode occurs when "noise-dominant modalities"—high-dimensional data streams lacking structured signal—distort the consensus through accidental correlations. Robust consensus discovery requires a mechanism to identify and suppress these noise sources, ensuring that the discovered representations reflect structured biological signal rather than isotropic artifacts.
+Heterogeneous noise profiles and distinct generative functions complicate multi-modal integration. A primary failure mode arises when high-dimensional data streams lacking structured signal, termed "noise-dominant modalities," corrupt the consensus representation through spurious correlations. Robust consensus discovery necessitates a statistical mechanism to identify and attenuate these noise sources, guaranteeing that the derived representations capture biological signal rather than isotropic artifacts.
 
-Historically, Canonical Correlation Analysis (CCA) [@hotelling1936relations] established the basis for multi-view integration. Similarity-driven Multi-view Linear Reconstruction (SiMLR) generalized CCA by incorporating sparsity and positivity constraints [@Zhao_2011;@Lee_1999], alongside modern optimization techniques that scale to normative modeling and multi-site neuroimaging [@avants2021; @avants2025]. While SiMLR provides a robust foundation, deep learning architectures like Deep CCA (DCCA) [@andrew2013deep] and multi-view autoencoders offer superior predictive performance by modeling nonlinear processes. However, these "black-box" models sacrifice interpretability and remain susceptible to over-fitting in high-dimensional noise regimes.
+Historically, Canonical Correlation Analysis (CCA) [@hotelling1936relations] provided the foundation for multi-view integration. Similarity-driven Multi-view Linear Reconstruction (SiMLR) extended CCA by applying sparsity and positivity constraints [@Zhao_2011;@Lee_1999], alongside optimization strategies that scale to large normative modeling cohorts [@avants2021; @avants2025]. While SiMLR provides a robust, linear approach, modern deep learning architectures such as Deep CCA and MVAEs achieve higher predictive performance by mapping non-linear manifolds. However, as noted, these complex models obscure the mapping from features to latents and are highly susceptible to over-fitting in high-dimensional, noise-dominant regimes.
 
-We resolve the tension between deep learning's expressivity and the transparency required for scientific and regulatory validation. We present a family of architectures (LEND, NED, NEDPP) that implements **Auditability by Design**. These methods enforce an interpretable first layer that learns a linear basis with soft orthogonality constraints, ensuring parts-based feature representations. This approach enables the nonlinear regularization of linear projections, where high-capacity encoders and decoders guide the discovery of optimal linear bases [@CarlesBou2026achieving; @Becker2024hyperparameter]. Furthermore, we introduce the **Spectral Triage** mechanism, which uses a novel **Spectral Sharpness** metric to automatically weight modality contributions, providing a defense against noise-dominant views.
+We bridge the gap between deep learning's representational capacity and the transparency necessitated by scientific and clinical validation. We introduce a family of architectures (LEND, NED, NEDPP) that implements Auditability by Design. These models impose an interpretable first layer that learns a linear basis subject to soft orthogonality constraints, ensuring parts-based feature representations. This structural constraint enables high-capacity encoders and decoders to guide the discovery of optimal linear bases while retaining structural interpretability [@CarlesBou2026achieving; @Becker2024hyperparameter]. Additionally, we apply our Spectral Triage mechanism to systematically weight modality contributions, mitigating the impact of noise-dominant views.
 
 ## Background
 
 ### Multi-View Representation Learning
 
-Multi-view representation learning seeks a unified latent space $U$ that captures the consensus across $M$ distinct data matrices $\{X_m\}_{m=1}^M$. This process identifies view-specific transformations $f_m(X_m)$ that converge toward $U$ via a shared similarity metric. Linear methods like gCCA and SiMLR rely on projection matrices $V_m$, where the weights directly quantify feature contributions. In contrast, deep multi-view models parametrize $f_m$ as multilayer perceptrons [@Sapkota_2025;@Zhao_2024]. While these models excel at capturing complex structures, they lack **Structural Interpretability**, as nested nonlinearities obscure the relationship between input features $X$ and the latent space [@Schennach2019independent; @Chiueh1988learning]. 
+Multi-view representation learning derives a unified latent space $\mathbf{U}$ that captures the shared variance across $M$ distinct data matrices $\{\mathbf{X}_m\}_{m=1}^M$. This process identifies view-specific transformations $f_m(\mathbf{X}_m)$ that map each view to $\mathbf{U}$ via a shared similarity metric. Linear methods, including generalized CCA and SiMLR, compute projection matrices $\mathbf{V}_m$, where the matrix elements directly quantify feature contributions. In contrast, deep multi-view models parametrize $f_m$ as multilayer perceptrons [@Sapkota_2025;@Zhao_2024]. While these non-linear models capture complex data manifolds, they suffer from the Information Masking problem; nested non-linearities obscure the mathematical relationship between input features $\mathbf{X}_m$ and the latent space $\mathbf{U}$ [@Schennach2019independent; @Chiueh1988learning]. 
 
-### The Linear Projection Constraint: Structural Interpretability
+### Information Bottleneck and Structural Interpretability
 
-To restore transparency to deep multi-view learning, we enforce a **Linear Projection Constraint** as a foundational architectural requirement. This constraint governs the model's entry point:
+To resolve Information Masking and re-establish transparency in deep multi-view learning, we enforce a mandatory linear projection constraint, designated the **Only Linear Encoder Entry (OLEE)**. The OLEE acts as an Information Bottleneck. It restricts the model's representational capacity at the input layer:
 
-1.  **Only Linear Encoder Entry (OLEE):** The model's initial operation is a mandatory linear transformation $Z_m = X_m V_m$. This OLEE constraint applies universally across our architectural taxonomy (LEND, NED, NEDPP).
-2.  **Orthonormal Basis and the Stiefel Manifold:** We restrict the basis $V_m$ to the **Stiefel manifold** — the set of all orthonormal $k$-frames in $\mathbb{R}^{d_m}$, defined by the constraint $V_m^\top V_m = I_k$. This ensures the discovery of non-redundant, near-orthonormal features.
-3.  **Direct Feature Attribution:** By restricting the initial encoding step, we ensure that every downstream latent factor $Z$ is a direct linear combination of the input features $X$. This makes $V$ a globally interpretable weight matrix.
+1.  **Only Linear Encoder Entry (OLEE):** The model performs an initial, strictly linear transformation $\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m$. This constraint applies across our architectural taxonomy (LEND, NED, NEDPP).
+2.  **Orthonormal Basis and the Stiefel Manifold:** We restrict the projection matrix $\mathbf{V}_m$ to the Stiefel manifold, defined by $\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_K$. We enforce this constraint using **Non-negative Stiefel Approximating Flow (NSA-Flow)**, an optimization penalty that regularizes the linear encoding layer. This enforces the discovery of non-redundant, near-orthogonal features.
+3.  **Direct Feature Attribution:** By enforcing the OLEE, we guarantee that every downstream latent factor is an explicit linear combination of the input features $\mathbf{X}_m$. The matrix $\mathbf{V}_m$ operates as a globally interpretable weight matrix.
 
-This architecture ensures that interpretability is a **structural property of the system**. High-stakes decision-making in medicine and science demands inherently interpretable models rather than post-hoc approximations [@Rudin_2019]. Widespread post-hoc methods like LIME [@Ribeiro_2016] and SHAP [@Lundberg_2017] attempt to reverse-engineer feature attribution by fitting local surrogate models. However, these approximations suffer from instability and often fail to reflect the true mechanics of entangled networks.
+This architecture ensures that interpretability is a structural property. High-stakes clinical decision-making requires inherently interpretable models [@Rudin_2019]. Existing post-hoc methods, such as LIME [@Ribeiro_2016] and SHAP [@Lundberg_2017], estimate feature attribution by fitting local surrogate models to perturbed inputs. These approximations lack stability, fail in high-dimensional settings, and frequently fail to capture the true mechanics of complex neural networks.
 
-In contrast, our framework provides **Auditability by Design**. The weights in the basis $V_m$ represent the exact global importance of each feature [@Smith2023posthoc]. Furthermore, this structural guarantee enables precise **counterfactual reasoning** [@Wachter_2017]. In scientific discovery, researchers often ask: *"What is the minimal change in input features required to alter the model's consensus?"* Because we project features linearly before any nonlinear mixing occurs, we define the answer analytically rather than empirically, allowing for exact, verifiable counterfactuals.
+Our framework guarantees Auditability by Design. The weights within the basis $\mathbf{V}_m$ represent exact global feature importance [@Smith2023posthoc]. This structural property permits exact counterfactual reasoning [@Wachter_2017]. Because we map features linearly prior to non-linear transformation, we compute the minimal input perturbation required to shift the latent representation analytically.
 
 ::: {#fig-interpretability-gap}
 
@@ -49,9 +53,9 @@ graph LR
 
     subgraph Structural [Structural: Auditability by Design]
         direction TB
-        InputM[Input X] -->|Linear Entry| SparseWeights["Basis Matrix V"]
+        InputM[Input X] -->|OLEE Constraint| SparseWeights["Basis Matrix V"]
         SparseWeights -->|Z = XV| Latent[Latent Z]
-        Latent -->|Deep Heads/Decoders| Meaning["Deep Topology"]
+        Latent -->|Deep Decoders| Meaning["Deep Topology"]
         Latent -.->|Exact Alignment| Exact["Importance = Weights"]
     end
     
@@ -66,27 +70,27 @@ graph LR
 ![](figures/fig-interpretability-gap.png)
 :::
 
-The Interpretability Paradigm Shift. Post-hoc methods estimate importance by perturbing a black box. SiMLR's Structural Interpretability enforces importance by design through the Only Linear Encoder Entry (OLEE).
+The Interpretability Paradigm Shift. Post-hoc methods estimate importance by perturbing non-linear models. Our framework enforces importance by design through the Only Linear Encoder Entry (OLEE) constraint, acting as an Information Bottleneck to resolve Information Masking.
 :::
 
 ### Summary of Contributions
 
-We rank our scientific and methodological contributions as follows:
+We summarize our methodological contributions:
 
-1.  **Operationalizing "Auditability by Design" via the OLEE:** We demonstrate that deep representational capacity and mathematical transparency are compatible. Across our architectural taxonomy (LEND, NED, NEDPP), enforcing a near-orthogonal initial linear projection provides analytically exact feature importance and enables structural interpretability. This linear bottleneck performs feature discovery, while deep extensions handle manifold complexities without compromising the auditable foundation.
-2.  **Spectral Triage and Robust Consensus:** We introduce a consensus mechanism that utilizes **Spectral Sharpness** to detect and suppress noise-dominant views. This **Modality Alignment Index (MAI)** automatically down-weights views that fail to provide structured signal, ensuring the stability of the shared representation.
-3.  **Manifold Regularization via NSA-Flow:** We utilize **Non-negative Stiefel Approximating Flow (NSA-Flow)** to provide a stable penalty that enforces approximate orthogonality on the linear encoding layer. This prevents feature collapse and guarantees that each discovered latent factor represents a unique signal.
-4.  **Methodological Correctives for Model Selection:** We apply statistical guardrails, including Tracy-Widom distributions, BIC, and the One-Standard-Error rule, to ensure discovered models are rigorously validated.
-5.  **Shared-Private Disentanglement:** We engineer a shared-private partitioning mechanism using cross-covariance penalties. This explicitly separates modality-specific idiosyncratic noise from the true cross-modal consensus signal.
+1.  **Solving Information Masking via OLEE:** We demonstrate the compatibility of deep representational capacity and mathematical transparency. Across LEND, NED, and NEDPP, enforcing an initial orthogonal linear projection provides analytically exact feature importance. This Information Bottleneck manages feature discovery, while downstream non-linear layers address manifold complexities.
+2.  **Spectral Triage and Robust Consensus:** We formulate a consensus mechanism utilizing **Spectral Sharpness** to identify and down-weight noise-dominant views. This **Modality Alignment Index (MAI)** stabilizes the shared representation by dynamically penalizing non-structured modalities.
+3.  **Manifold Regularization via NSA-Flow:** We apply **Non-negative Stiefel Approximating Flow (NSA-Flow)** to enforce approximate orthogonality on the linear encoding layer. This regularization prevents feature collapse and ensures each latent factor represents a statistically unique signal.
+4.  **Leave-One-Out (LOO) Topology:** We employ a **Leave-One-Out (LOO)** topology during consensus formation. By omitting each modality from its own target calculation, we prevent deep networks from memorizing modality-specific noise.
+5.  **Methodological Correctives for Model Selection:** We implement rigorous statistical criteria, including Tracy-Widom distributions, Bayesian Information Criterion (BIC), and the One-Standard-Error rule, for objective model validation.
+6.  **Shared-Private Disentanglement:** We formulate a shared-private partitioning architecture using cross-covariance penalties to isolate modality-specific idiosyncratic noise from the cross-modal consensus signal.
 
-### Architectural Taxonomy and Visual Roadmap
+### Architectural Taxonomy
 
-We evaluate our framework across four distinct algorithmic rationales:
+We evaluate this framework across four algorithmic implementations:
 
-*   [**SiMLR (Purely Linear - Blue):**]{style="color: #1f77b4; font-weight: bold;"} The baseline for spectral integrity and Gaussian data.
-*   [**LEND (Mixed Architecture - Green):**]{style="color: #2ca02c; font-weight: bold;"} Our minimal deep extension combining a linear encoder for discovery with a deep decoder for nonlinear denoising.
-*   [**NED (Fully Nonlinear - Orange):**]{style="color: #ff7f0e; font-weight: bold;"} The upper bound for representational capacity, still adhering to the OLEE constraint.
-*   [**NEDPP (Shared/Private - Purple):**]{style="color: #9467bd; font-weight: bold;"} Disentangling cross-modal consensus from view-specific idiosyncratic noise via a shared-private decomposition of the latent space.
+*   [**SiMLR (Purely Linear - Blue):**]{style="color: #1f77b4; font-weight: bold;"} The strictly linear baseline, optimal for Gaussian data distributions.
+*   [**LEND (Mixed Architecture - Green):**]{style="color: #2ca02c; font-weight: bold;"} A hybrid architecture coupling an OLEE-constrained linear encoder for feature discovery with a deep decoder for non-linear manifold mapping.
+*   [**NED (Fully Nonlinear - Orange):**]{style="color: #ff7f0e; font-weight: bold;"} A non-linear architecture that applies multi-layer perceptrons subsequent to the mandatory OLEE bottleneck.
+*   [**NEDPP (Shared/Private - Purple):**]{style="color: #9467bd; font-weight: bold;"} A disentangled architecture that explicitly separates the latent space into shared consensus and modality-specific private components.
 
-
-Section 2 formalizes the SiMLR objective and loss functions, detailing our architectural taxonomy. Section 3 conducts synthetic experiments to evaluate the consistency-interpretability tradeoff and applies these models to a clinical breast cancer (BRCA) study. Section 4 discusses the implications for explainable multi-omics integration and clinical translation.
+Section 2 provides the mathematical definitions for the joint-variational objective, OLEE, MAI, NSA-Flow, and the algorithmic variants. Section 3 presents empirical evaluations of the consistency-interpretability tradeoff using simulated benchmarks and a clinical breast cancer (BRCA) cohort. Section 4 discusses implications for explainable multi-omics integration and clinical translation.

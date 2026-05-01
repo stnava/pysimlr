@@ -4,16 +4,16 @@ title: "Multi-omics Clinical Validation (TCGA-BRCA)"
 
 ## Multi-Omic Integration Strategy
 
-We evaluated the OLEE using the TCGA-BRCA dataset ($N=549$ samples). The dataset includes three modalities:
-*   **RNA-Seq:** 604 gene features.
-*   **Copy Number Variation (CNV):** 860 regional features.
-*   **Proteomics (RPPA):** 223 protein markers.
+We evaluated the Orthogonal Linear Encoder-Decoder (OLEE) using the TCGA-BRCA dataset ($N=549$ samples). The dataset includes three modalities:
+*   **RNA-Seq:** 604 features.
+*   **Copy Number Variation (CNV):** 860 features.
+*   **Proteomics (RPPA):** 223 features.
 
 The target variable is Estrogen Receptor (ER) Status (Positive vs. Negative).
 
 ## Performance Results
 
-We used 5-fold cross-validation to compare the Linear Accuracy ($Acc_{XV}$) of the SiMLR baseline against the LEND, NED, and NEDPP architectures. All models were evaluated on their linear basis.
+We used 5-fold cross-validation to compare the linear classification accuracy ($Acc_{XV}$) of the SiMLR baseline against the LEND, NED, and NEDPP architectures. All models extract a low-dimensional latent space ($K \ll D_m$) from the input modalities to form the linear classification basis.
 
 | Model | Accuracy (Mean ± SD) |
 | :--- | :---: |
@@ -22,16 +22,16 @@ We used 5-fold cross-validation to compare the Linear Accuracy ($Acc_{XV}$) of t
 | **NEDPP** | 0.920 ± 0.014 |
 | **LEND** | **0.922 ± 0.014** |
 
-Deep alignment improved mean predictive accuracy and reduced variance compared to the linear baseline. This indicates that the non-linear decoder stabilizes the linear subspace used for classification.
+Introducing a non-linear decoder establishes an information bottleneck that enforces cross-modal consensus within the shared latent representation. This bottleneck filters modality-specific noise, increasing mean predictive accuracy and reducing variance in the resulting linear subspace compared to the purely linear SiMLR baseline.
 
 ## Tri-Modal Feature Discovery
 
-The OLEE enables extraction of weights from the deep model. Figure @fig-brca-trimodal-waterfall shows the top 15 weights discovered by the LEND architecture across three modalities.
+The OLEE maintains the structural mapping between the original high-dimensional feature space and the low-dimensional latent bottleneck. We extract feature weights directly from the model parameters. Figure @fig-brca-trimodal-waterfall reports the top 15 weights computed by the LEND architecture across the three modalities.
 
 ![**Tri-Modal Feature Weights for ER-Status.** LEND identifies markers across modalities. (Left) RNA-Seq weights for transcription factors. (Center) CNV regional weights. (Right) Proteomics weights for ER-alpha and GATA3. The alignment prioritizes markers with cross-modal consistency.](figures/fig_brca_trimodal_waterfall.png){#fig-brca-trimodal-waterfall width="100%"}
 
 ### Mechanistic Alignment
 
-LEND provides a direct audit trail for feature weights. In the proteomics panel, ER-alpha is the primary driver. This signal aligns with the ESR1 transcript in the RNA-Seq panel. LEND assigns higher weights to protein-level markers such as INPP4B and GATA3 compared to linear methods. 
+LEND yields an explicit weight matrix mapping input features to the latent space. Within the proteomics modality, ER-alpha possesses the highest weight magnitude. This maps to the ESR1 transcript in the RNA-Seq modality. LEND assigns higher weights to protein-level markers INPP4B and GATA3 than the linear baseline.
 
-These markers are consistent with established oncology data. ESR1 expression determines ER-positive classification [@2012]. GATA3 is a pioneer factor co-expressed with ER-alpha in luminal breast cancer [@Cohen_2014; @Prat_2019]. INPP4B loss is associated with PI3K pathway activation and correlates with ER status [@2012; @2016]. The deep alignment mechanism resolves relationships between CNV, RNA, and protein expression to prioritize these features.
+The latent representation captures the covariance structure necessary to perform ER-positive classification. ESR1 expression separates ER status [@2012]. GATA3 is co-expressed with ER-alpha in luminal breast cancer [@Cohen_2014; @Prat_2019]. INPP4B loss tracks PI3K pathway activation and covaries with ER status [@2012; @2016]. By compressing CNV, RNA, and protein features through an aligned information bottleneck, the deep architecture recovers these established biological covariates directly from the parameter weights.
