@@ -63,14 +63,13 @@ graph LR
     style Structural fill:#f0f7ff,stroke:#01579b,stroke-width:2px
     style SparseWeights fill:#e3f2fd,stroke:#1976d2,color:#000
     style BlackBox fill:#fff5f5,stroke:#c62828,color:#000
+#| fig-cap: 'The Interpretability Paradigm Shift. Post-hoc methods estimate importance by perturbing non-linear models. Our framework enforces importance by design through the Only Linear Encoder Entry (OLEE) constraint, acting as an Information Bottleneck to resolve Information Masking.'
 ```
 :::
 
 ::: {.content-visible when-format="pdf"}
 ![](figures/fig-interpretability-gap.png)
 :::
-
-The Interpretability Paradigm Shift. Post-hoc methods estimate importance by perturbing non-linear models. Our framework enforces importance by design through the Only Linear Encoder Entry (OLEE) constraint, acting as an Information Bottleneck to resolve Information Masking.
 :::
 
 ### Summary of Contributions

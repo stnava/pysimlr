@@ -37,11 +37,11 @@ The benchmark enforces the following constraints:
 - **Parsimonious Sparsity:** A sparseness quantile of 0.5 applied to the first-layer basis.
 - **Strict Positivity:** All weights constrained to be non-negative, enforcing additive biomarker discovery.
 
-We report Strictly Linear Accuracy ($R^2_{\\mathbf{X}\\mathbf{V}}$) as the primary metric for the interpretability-performance trade-off [@Doshi_Velez_2018; @Lipton_2018]. We aggregate results over $N=20$ independent seeds for synthetic data and $N=10$ for clinical data. This sample size ($N$) provides sufficient power to identify medium-to-large effect sizes without inflating the false discovery rate [@cohen1992power].
+We report Strictly Linear Accuracy ($R^2_{\mathbf{X}\mathbf{V}}$) as the primary metric for the interpretability-performance trade-off [@Doshi_Velez_2018; @Lipton_2018]. We aggregate results over $N=20$ independent seeds for synthetic data and $N=10$ for clinical data. This sample size ($N$) provides sufficient power to identify medium-to-large effect sizes without inflating the false discovery rate [@cohen1992power].
 
-We compute $R^2_{\\mathbf{X}\\mathbf{V}}$ by averaging recovery fidelity across all modalities.
+We compute $R^2_{\mathbf{X}\mathbf{V}}$ by averaging recovery fidelity across all modalities.
 
-Crucially, we extract the $\\mathbf{V}$ matrix utilized for prediction and evaluation strictly post-sparseness and post-Stiefel constraint. This ensures we evaluate the interpretable, constrained features directly.
+Crucially, we extract the $\mathbf{V}$ matrix utilized for prediction and evaluation strictly post-sparseness and post-Stiefel constraint. This ensures we evaluate the interpretable, constrained features directly.
 
 ### Interpretation of Generative Regimes
 
@@ -51,7 +51,7 @@ We evaluate architectures across four distinct manifold structures.
 #| warning: false
 #| message: false
 #| label: fig-generative-shapes
-#| fig-cap: "**Figure 1: The Generative Landscape.** Visualization of the mapping from a 1D latent coordinate $\\mathbf{U}$ to observable features $\\mathbf{X}$. Baseline (Linear) demonstrates pure proportionality (A). Non-linear regimes (B-Polynomial, C-Sine) test higher-order and periodic interactions. Proposed private noise mapping (D) tests robustness to view-specific interference. Takeaway: Deep manifold learning resolves structural interference where standard linear projections fail."
+#| fig-cap: 'The Generative Landscape. Visualization of the mapping from a 1D latent coordinate $\mathbf{U}$ to observable features $\mathbf{X}$. Baseline (Linear) demonstrates pure proportionality (A). Non-linear regimes (B-Polynomial, C-Sine) test higher-order and periodic interactions. Proposed private noise mapping (D) tests robustness to view-specific interference. Takeaway: Deep manifold learning resolves structural interference where standard linear projections fail.'
 #| out-width: 100%
 #| echo: false
 import numpy as np
@@ -89,13 +89,13 @@ plt.tight_layout()
 plt.show()
 ```
 
-Figure 1 utilizes a four-panel layout. By plotting the 1D latent coordinate $\\mathbf{U}$ against the observable feature space $\\mathbf{X}$, we illustrate the mathematical relationships discussed in Section 2. Synthetic features incorporate Gaussian additive noise and structured, non-Gaussian interference (Private Noise) to simulate realistic biological variability [@hastie2009elements]. The progression from linearity (A) to structured private noise (D) defines the architectural challenge. Standard linear methods exhibit diminished performance under non-linearity, whereas deep architectures naturally disentangle complex latent generative factors [@bengio2013representation; @goodfellow2016deep].
+Figure 1 utilizes a four-panel layout. By plotting the 1D latent coordinate $\mathbf{U}$ against the observable feature space $\mathbf{X}$, we illustrate the mathematical relationships discussed in Section 2. Synthetic features incorporate Gaussian additive noise and structured, non-Gaussian interference (Private Noise) to simulate realistic biological variability [@hastie2009elements]. The progression from linearity (A) to structured private noise (D) defines the architectural challenge. Standard linear methods exhibit diminished performance under non-linearity, whereas deep architectures naturally disentangle complex latent generative factors [@bengio2013representation; @goodfellow2016deep].
 
 ## Performance Matrix Summary
 
 ### Synthetic Benchmark Results
 
-The synthetic benchmarking suite provides a controlled environment to test whether deep architectural regularizers improve the recovery of linear latent structures. We evaluate models across four manifold topologies (Linear, Polynomial, Sine, Private Noise). As shown in @tbl-synthetic-summary, Strictly Linear Accuracy ($R^2_{\\mathbf{X}\\mathbf{V}}$) measures the signal captured by the auditable first layer. The results confirm the hypothesis. The baseline (SiMLR) performs optimally in the Linear regime. Proposed deep architectures (NED, NEDPP) yield superior performance in non-linear regimes (Sine, Polynomial), where the baseline linear projection fails to capture periodic or higher-order variance.
+The synthetic benchmarking suite provides a controlled environment to test whether deep architectural regularizers improve the recovery of linear latent structures. We evaluate models across four manifold topologies (Linear, Polynomial, Sine, Private Noise). As shown in @tbl-synthetic-summary, Strictly Linear Accuracy ($R^2_{\mathbf{X}\mathbf{V}}$) measures the signal captured by the auditable first layer. The results confirm the hypothesis. The baseline (SiMLR) performs optimally in the Linear regime. Proposed deep architectures (NED, NEDPP) yield superior performance in non-linear regimes (Sine, Polynomial), where the baseline linear projection fails to capture periodic or higher-order variance.
 
 Table 1 summarizes model performance across synthetic regimes, focusing on the recovery of ground-truth structure via the strictly linear basis.
 
@@ -103,7 +103,7 @@ Table 1 summarizes model performance across synthetic regimes, focusing on the r
 #| warning: false
 #| message: false
 #| label: tbl-synthetic-summary
-#| tbl-cap: "**Table 1: Synthetic Benchmark Summary.** Baseline (SiMLR) versus Proposed Architectures (LEND, NED, NEDPP). Mean ± SD and Peak Performance based on Strictly Linear Accuracy ($R^2_{\\mathbf{X}\\mathbf{V}}$). Results aggregate $N=1280$ tasks. Takeaway: Deep architectures consistently outperform the linear baseline in recovering structure from non-linear generative regimes (Polynomial, Sine, Private Noise)."
+#| tbl-cap: 'Synthetic Benchmark Summary. Baseline (SiMLR) versus Proposed Architectures (LEND, NED, NEDPP). Mean ± SD and Peak Performance based on Strictly Linear Accuracy ($R^2_{\mathbf{X}\mathbf{V}}$). Results aggregate $N=1280$ tasks. Deep architectures consistently outperform the linear baseline in recovering structure from non-linear generative regimes (Polynomial, Sine, Private Noise).'
 #| echo: false
 #| output: asis
 import pandas as pd
@@ -149,19 +149,19 @@ else:
     print("**Warning:** v21 Synthetic cache not found.")
 ```
 
-![**Figure 2: Global Performance Landscape.** Summary of Strictly Linear Accuracy ($R^2_{\\mathbf{X}\\mathbf{V}}$) across synthetic regimes. Baseline: SiMLR (Blue). Proposed Methods: LEND, NED, NEDPP. Takeaway: Deep architectures maintain higher linear accuracy in non-linear regimes, proving that deep representational capacity facilitates robust linear projections [@hornik1989multilayer].](figures/fig_v21_global_landscape.png){#fig-v21-global-landscape width="100%"}
+![**Figure 2: Global Performance Landscape.** Summary of Strictly Linear Accuracy ($R^2_{\mathbf{X}\mathbf{V}}$) across synthetic regimes. Baseline: SiMLR (Blue). Proposed Methods: LEND, NED, NEDPP. Deep architectures maintain higher linear accuracy in non-linear regimes, proving that deep representational capacity facilitates robust linear projections [@hornik1989multilayer].](figures/fig_v21_global_landscape.png){#fig-v21-global-landscape width="100%"}
 
-![**Figure 3: The Deep-to-Linear Benefit Frontier.** Visualization of regularization gain achieved by the OLEE. Baseline: Purely linear methods (Blue). Proposed Method: Deep-aligned linear methods (Green). The horizontal dumbbell lines represent the shift in Strictly Linear Accuracy ($\\mathbf{X}\\mathbf{V}$). Takeaway: The deep decoder back-propagates alignment signals that refine the linear basis, yielding significant performance improvements across non-linear regimes.](figures/fig_v21_dumbbell_benefit.png){#fig-v21-dumbbell-benefit width="100%"}
+![**Figure 3: The Deep-to-Linear Benefit Frontier.** Visualization of regularization gain achieved by the OLEE. Baseline: Purely linear methods (Blue). Proposed Method: Deep-aligned linear methods (Green). The horizontal dumbbell lines represent the shift in Strictly Linear Accuracy ($\mathbf{X}\mathbf{V}$). The deep decoder back-propagates alignment signals that refine the linear basis, yielding significant performance improvements across non-linear regimes.](figures/fig_v21_dumbbell_benefit.png){#fig-v21-dumbbell-benefit width="100%"}
 
 #### Global Architectural Robustness
 
-We investigate global configuration stability to identify a multi-modal integration standard invariant to data topology. This robustness analysis aggregates performance across all $N=1280$ tasks. @tbl-global-robustness ranks the configurations. The combination of the NEDPP architecture with Log-Cosh loss and Newton-Schulz consensus consistently places in the top-performing quintile. This stability is statistically significant, evidenced by a low standard deviation (SD) relative to the mean $R^2_{\\mathbf{X}\\mathbf{V}}$. These configurations are robust against the optimization noise typical of stochastic deep learning.
+We investigate global configuration stability to identify a multi-modal integration standard invariant to data topology. This robustness analysis aggregates performance across all $N=1280$ tasks. @tbl-global-robustness ranks the configurations. The combination of the NEDPP architecture with Log-Cosh loss and Newton-Schulz consensus consistently places in the top-performing quintile. This stability is statistically significant, evidenced by a low standard deviation (SD) relative to the mean $R^2_{\mathbf{X}\mathbf{V}}$. These configurations are robust against the optimization noise typical of stochastic deep learning.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: tbl-global-robustness
-#| tbl-cap: "**Table 2: Global Robustness Ranking.** Baseline vs. Proposed methods ranked by mean Strictly Linear Accuracy ($R^2_{\\mathbf{X}\\mathbf{V}}$) across all regimes. Takeaway: The proposed NEDPP architecture with Log-Cosh loss and Newton-Schulz consensus provides the most stable structural recovery."
+#| tbl-cap: 'Global Robustness Ranking. Baseline vs. Proposed methods ranked by mean Strictly Linear Accuracy ($R^2_{\mathbf{X}\mathbf{V}}$) across all regimes. The proposed NEDPP architecture with Log-Cosh loss and Newton-Schulz consensus provides the most stable structural recovery.'
 #| echo: false
 #| output: asis
 import pandas as pd
@@ -195,13 +195,13 @@ else:
 
 #### Consensus and Loss Sensitivity Analysis
 
-Alignment strategy and objective function selection are critical priors. As @tbl-consensus-breakdown details, the architecture demonstrates robustness to alignment strategy. All consensus methods (Newton, SVD, PCA, ICA) yield highly comparable basis representations. The learned linear basis $\\mathbf{V}$ is a robust structural feature of the data, not a brittle artifact of the optimization method.
+Alignment strategy and objective function selection are critical priors. As @tbl-consensus-breakdown details, the architecture demonstrates robustness to alignment strategy. All consensus methods (Newton, SVD, PCA, ICA) yield highly comparable basis representations. The learned linear basis $\mathbf{V}$ is a robust structural feature of the data, not a brittle artifact of the optimization method.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: tbl-consensus-breakdown
-#| tbl-cap: "**Table 3: Architectural Sensitivity to Alignment Strategy.** Baseline vs. Proposed consensus algorithms. Aggregate Strictly Linear Accuracy ($R^2_{\\mathbf{X}\\mathbf{V}}$) stratified by consensus method. Takeaway: The $\\mathbf{X}\\mathbf{V}$ projection remains robust across consensus algorithms, proving structural stability in the learned linear basis."
+#| tbl-cap: 'Architectural Sensitivity to Alignment Strategy. Baseline vs. Proposed consensus algorithms. Aggregate Strictly Linear Accuracy ($R^2_{\mathbf{X}\mathbf{V}}$) stratified by consensus method. The $\mathbf{X}\mathbf{V}$ projection remains robust across consensus algorithms, proving structural stability in the learned linear basis.'
 #| echo: false
 #| output: asis
 import pandas as pd
@@ -223,7 +223,7 @@ if os.path.exists(path_v21):
     print(tabulate(pivot, headers='keys', tablefmt='pipe', showindex=True))
 ```
 
-Iterative methods (Newton-Schulz, ICA) provide more stable latent alignment than algebraic methods (SVD, PCA). The learned linear basis $\\mathbf{V}$ identifies consistent feature subspaces regardless of the consensus algorithm. This guarantees an invariant audit trail.
+Iterative methods (Newton-Schulz, ICA) provide more stable latent alignment than algebraic methods (SVD, PCA). The learned linear basis $\mathbf{V}$ identifies consistent feature subspaces regardless of the consensus algorithm. This guarantees an invariant audit trail.
 
 ### Spectral Triage: Ablation Study of the Modality Alignment Index (MAI)
 
@@ -238,7 +238,7 @@ As @tbl-metric-tournament shows, the proposed **Procrustes $R^2$ with Spectral S
 | M3 (Partial) | -0.003     | 0.647    | 0.516            | 0.594    |
 | M4 (Noisy)   | -0.172     | 0.114    | 0.000            | 0.326    |
 | M5 (Rogue)   | 0.007      | 0.004    | 0.000            | 0.057    |
-: **Table 4: Ablation Study of Modality Alignment Metrics.** Baseline metrics (Cosine MCI, RV Coeff, Mean CCA) compared to the proposed method (Procrustes $R^2$ with Spectral Sharpness). Takeaway: The proposed spectral sharpness metric provides a rigorous deterministic floor of 0.00, correctly identifying Noisy and Rogue modalities and preventing corruption of the shared representation. {#tbl-metric-tournament}
+: **Table 4: Ablation Study of Modality Alignment Metrics.** Baseline metrics (Cosine MCI, RV Coeff, Mean CCA) compared to the proposed method (Procrustes $R^2$ with Spectral Sharpness). The proposed spectral sharpness metric provides a rigorous deterministic floor of 0.00, correctly identifying Noisy and Rogue modalities and preventing corruption of the shared representation. {#tbl-metric-tournament}
 
 We validate this mechanism through an ablation study on the BRCA multi-omics dataset via step-wise modality inclusion. We simulate a high-dimensional rogue sensor (500 features, 20x variance) appended to biological views (RNA-Seq, CNV, Proteomics). As @tbl-brca-stepwise indicates, the model correctly ranks biological views, achieving a peak predictive AUC of **0.939** using only RNA-Seq, CNV, and Proteomics. Adding the Rogue modality correctly triggers weight suppression via the automated gating logic, preserving diagnostic representation integrity.
 
@@ -248,7 +248,7 @@ We validate this mechanism through an ablation study on the BRCA multi-omics dat
 | RNA-Seq, CNV                      | 0.777           | 0.902    |
 | **RNA-Seq, CNV, Proteomics**      | **0.950**       | **0.939**|
 | RNA-Seq, CNV, Proteomics, Rogue   | 1.000           | 0.938    |
-: **Table 5: Ablation Study of Step-wise Modality Inclusion (BRCA).** Baseline (All modalities including Rogue) versus Proposed (Automated MAI Ranking). Takeaway: The model achieves peak performance (AUC 0.939) using only validated biological views. The proposed gating logic self-corrects in the presence of massive noise by suppressing the rogue modality. {#tbl-brca-stepwise}
+: **Table 5: Ablation Study of Step-wise Modality Inclusion (BRCA).** Baseline (All modalities including Rogue) versus Proposed (Automated MAI Ranking). The model achieves peak performance (AUC 0.939) using only validated biological views. The proposed gating logic self-corrects in the presence of massive noise by suppressing the rogue modality. {#tbl-brca-stepwise}
 
 ### The Interpretability-Performance Frontier
 
@@ -256,20 +256,20 @@ We validate this mechanism through an ablation study on the BRCA multi-omics dat
 
 To evaluate deep architecture utility, we partition predictive capacity into two paradigms:
 
-1. **Deep Consensus ($\\mathbf{Y}|\\mathbf{U}$):** Predictor trained on the final, deep non-linear shared latent space. This represents the upper bound of representational capacity [@hornik1989multilayer; @goodfellow2016deep].
-2. **Strictly Linear ($\\mathbf{Y}|\\mathbf{X}\\mathbf{V}$):** Predictor trained only on the concatenated linear projections of the first layer ($[\\mathbf{X}_1 \\mathbf{V}_1, \\mathbf{X}_2 \\mathbf{V}_2]$). This isolates performance achieved through auditable pathways.
+1. **Deep Consensus ($\mathbf{Y}|\mathbf{U}$):** Predictor trained on the final, deep non-linear shared latent space. This represents the upper bound of representational capacity [@hornik1989multilayer; @goodfellow2016deep].
+2. **Strictly Linear ($\mathbf{Y}|\mathbf{X}\mathbf{V}$):** Predictor trained only on the concatenated linear projections of the first layer ($[\mathbf{X}_1 \mathbf{V}_1, \mathbf{X}_2 \mathbf{V}_2]$). This isolates performance achieved through auditable pathways.
 
 #### Linear-to-Deep Performance Parity
 
-Evaluation reveals that under optimized sparsity and orthogonality constraints, the **Strictly Linear Accuracy ($\\mathbf{X}\\mathbf{V}$)** maintains high performance, approaching parity with the deep consensus ($\\mathbf{U}$). This Linear-to-Deep Performance Parity proves the shared linear bottleneck extracts the fundamental feature variance. The deep layers in NED and NEDPP act as modular extensions to handle extreme manifold complexities or sequester view-specific noise, not as replacements for the auditable foundation. This architecture aligns with private-shared space paradigms for domain separation [@bousmalis2016domain].
+Evaluation reveals that under optimized sparsity and orthogonality constraints, the **Strictly Linear Accuracy ($\mathbf{X}\mathbf{V}$)** maintains high performance, approaching parity with the deep consensus ($\mathbf{U}$). This Linear-to-Deep Performance Parity proves the shared linear bottleneck extracts the fundamental feature variance. The deep layers in NED and NEDPP act as modular extensions to handle extreme manifold complexities or sequester view-specific noise, not as replacements for the auditable foundation. This architecture aligns with private-shared space paradigms for domain separation [@bousmalis2016domain].
 
-![**Figure 4: Linear-to-Deep Performance Parity (Real-World).** Baseline (Pure Deep Performance, $\\mathbf{Y}|\\mathbf{U}$) compared to the Proposed Auditable Performance ($\\mathbf{Y}|\\mathbf{X}\\mathbf{V}$). Points clustering along the dashed parity line indicate the linear basis captures the majority of the predictive signal. Takeaway: Parity allows for high-performance discovery where the linear entry point serves as an exact audit trail, eliminating the performance penalty typically associated with linear constraints.](figures/fig_v21_blessing_interpretability.png){#fig-v21-blessing-interpretability width="100%"}
+![**Figure 4: Linear-to-Deep Performance Parity (Real-World).** Baseline (Pure Deep Performance, $\mathbf{Y}|\mathbf{U}$) compared to the Proposed Auditable Performance ($\mathbf{Y}|\mathbf{X}\mathbf{V}$). Points clustering along the dashed parity line indicate the linear basis captures the majority of the predictive signal. Parity allows for high-performance discovery where the linear entry point serves as an exact audit trail, eliminating the performance penalty typically associated with linear constraints.](figures/fig_v21_blessing_interpretability.png){#fig-v21-blessing-interpretability width="100%"}
 
 | Factor | Effect Size ($\eta^2_p$) [@cohen1973eta] | p-value (Synthetic) | p-value (Real) | Interpretation |
 | :--- | :---: | :---: | :---: | :--- |
 | **Model** | 0.24 | $< 10^{-8}$ | $< 10^{-8}$ | Architecture dominates ground-truth recovery. |
 | **Regime/Dataset** | 0.92 | $< 10^{-80}$ | $< 10^{-30}$ | Data topology is the primary variance driver. |
-: **Table 6: Analysis of Variance.** Breakdown of performance variance by model and regime. Takeaway: Data topology dictates difficulty, while the proposed architectures significantly drive ground-truth recovery. {#tbl-anova}
+: **Table 6: Analysis of Variance.** Breakdown of performance variance by model and regime. Data topology dictates difficulty, while the proposed architectures significantly drive ground-truth recovery. {#tbl-anova}
 
 #### Rigorous Statistical Review: Deep-to-Linear Benefit
 
@@ -279,7 +279,7 @@ Comparing Deep models (LEND, NED, NEDPP) against the linear baseline (SiMLR), we
 #| warning: false
 #| message: false
 #| label: tbl-stat-sig-synthetic
-#| tbl-cap: "**Table 7: Statistical Significance: Deep vs Linear (Strictly Linear Accuracy, Synthetic).** Baseline (Linear) versus Proposed (Deep). Independent Welch's t-tests [@welch1947generalization] and Cohen's $d$ [@cohen1988statistical]. Takeaway: Deep architectures yield statistically significant improvements and large effect sizes in complex generative regimes, proving the Deep-to-Linear benefit."
+#| tbl-cap: 'Statistical Significance: Deep vs Linear (Strictly Linear Accuracy, Synthetic). Baseline (Linear) versus Proposed (Deep). Independent Welch''s t-tests [@welch1947generalization] and Cohen''s $d$ [@cohen1988statistical]. Deep architectures yield statistically significant improvements and large effect sizes in complex generative regimes, proving the Deep-to-Linear benefit.'
 #| echo: false
 #| output: asis
 import pandas as pd
@@ -347,7 +347,7 @@ The Diabetes dataset benchmarks continuous regression in a clinical context. We 
 #| warning: false
 #| message: false
 #| label: tbl-diabetes-results
-#| tbl-cap: "**Table 8: Diabetes Progression.** Baseline (SiMLR) vs. Proposed Architectures. Mean ± SD and Peak Strictly Linear Accuracy ($R^2_{\\mathbf{X}\\mathbf{V}}$). Takeaway: Proposed deep architectures significantly outperform the linear baseline, capturing complex metabolic interactions within the auditable linear basis."
+#| tbl-cap: 'Diabetes Progression. Baseline (SiMLR) vs. Proposed Architectures. Mean ± SD and Peak Strictly Linear Accuracy ($R^2_{\mathbf{X}\mathbf{V}}$). Proposed deep architectures significantly outperform the linear baseline, capturing complex metabolic interactions within the auditable linear basis.'
 #| echo: false
 #| output: asis
 import pandas as pd
@@ -372,13 +372,13 @@ else:
 
 #### Heart Disease: Strictly Linear Accuracy
 
-For the Heart Disease dataset, we evaluate binary classification on categorical clinical outcomes. This dataset includes 13 clinical features to predict cardiovascular disease. We utilize Strictly Linear Accuracy ($Acc_{\\mathbf{X}\\mathbf{V}}$) to ensure diagnostic decisions trace to individual physiological indicators. Results in @tbl-heart-results demonstrate that the proposed LEND architecture outperforms the purely linear SiMLR baseline ($p = 8 \times 10^{-11}$, Welch's t-test). The deep consensus layer identifies complex patterns of cardiovascular stress—such as age and tachycardia interactions—distilling them into the auditable linear basis. The stability across runs confirms the model's reliability as a decision-support tool.
+For the Heart Disease dataset, we evaluate binary classification on categorical clinical outcomes. This dataset includes 13 clinical features to predict cardiovascular disease. We utilize Strictly Linear Accuracy ($Acc_{\mathbf{X}\mathbf{V}}$) to ensure diagnostic decisions trace to individual physiological indicators. Results in @tbl-heart-results demonstrate that the proposed LEND architecture outperforms the purely linear SiMLR baseline ($p = 8 \times 10^{-11}$, Welch's t-test). The deep consensus layer identifies complex patterns of cardiovascular stress—such as age and tachycardia interactions—distilling them into the auditable linear basis. The stability across runs confirms the model's reliability as a decision-support tool.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: tbl-heart-results
-#| tbl-cap: "**Table 9: Heart Disease Classification.** Baseline (SiMLR) vs. Proposed Architectures. Mean ± SD and Peak Strictly Linear Accuracy ($Acc_{\\mathbf{X}\\mathbf{V}}$). Takeaway: LEND architecture significantly outperforms the baseline, proving the deep decoder facilitates superior diagnostic basis discovery."
+#| tbl-cap: 'Heart Disease Classification. Baseline (SiMLR) vs. Proposed Architectures. Mean ± SD and Peak Strictly Linear Accuracy ($Acc_{\mathbf{X}\mathbf{V}}$). LEND architecture significantly outperforms the baseline, proving the deep decoder facilitates superior diagnostic basis discovery.'
 #| echo: false
 #| output: asis
 import pandas as pd
@@ -403,22 +403,22 @@ else:
 
 The evaluation confirms the utility of the OLEE. For **Heart Disease classification**, the **LEND** architecture achieved leading performance with statistical significance over the linear baseline ($p = 8 \times 10^{-11}$). For **Diabetes progression**, the deep architectures provide a statistically significant benefit ($p = 3 \times 10^{-4}$).
 
-### Interpretability of the NSA Layer (Learned $\\mathbf{V}$ Matrices)
+### Interpretability of the NSA Layer (Learned $\mathbf{V}$ Matrices)
 
-The learned $\\mathbf{V}$ matrices represent the core of the OLEE, mapping feature contributions to the latent consensus space. We visualize these weights using importance heatmaps in @fig-nsa-v-interpretability, where rows correspond to features and columns to latent dimensions ($K$). In the Heart Disease dataset, the model weights demographics and exercise metrics to form distinct latent risk profiles. For Diabetes, the model delineates vitals against blood serums. The Newton-Schulz Alignment (NSA) ensures latent dimensions remain orthogonal and non-redundant. By enforcing this linear bottleneck, the final prediction decomposes into a weighted sum of observable features, fulfilling global interpretability requirements.
+The learned $\mathbf{V}$ matrices represent the core of the OLEE, mapping feature contributions to the latent consensus space. We visualize these weights using importance heatmaps in @fig-nsa-v-interpretability, where rows correspond to features and columns to latent dimensions ($K$). In the Heart Disease dataset, the model weights demographics and exercise metrics to form distinct latent risk profiles. For Diabetes, the model delineates vitals against blood serums. The Newton-Schulz Alignment (NSA) ensures latent dimensions remain orthogonal and non-redundant. By enforcing this linear bottleneck, the final prediction decomposes into a weighted sum of observable features, fulfilling global interpretability requirements.
 
-![**Figure 5: Interpretability of Learned NSA Layer Weights.** Baseline (Black Box Importance) vs. Proposed (Exact $\\mathbf{V}$ Matrix Weights). Heatmaps of learned $\\mathbf{V}$ matrices for Heart Disease and Diabetes datasets. Takeaway: The visualization provides exact magnitude and direction of feature contributions, demonstrating strict global interpretability.](figures/nsa_v_interpretability.png){#fig-nsa-v-interpretability width="100%"}
+![**Figure 5: Interpretability of Learned NSA Layer Weights.** Baseline (Black Box Importance) vs. Proposed (Exact $\mathbf{V}$ Matrix Weights). Heatmaps of learned $\mathbf{V}$ matrices for Heart Disease and Diabetes datasets. The visualization provides exact magnitude and direction of feature contributions, demonstrating strict global interpretability.](figures/nsa_v_interpretability.png){#fig-nsa-v-interpretability width="100%"}
 
-The $\\mathbf{V}$ matrices provide an explicit mapping via importance heatmaps [@Holmberg_2022; @Han_2020]. 
+The $\mathbf{V}$ matrices provide an explicit mapping via importance heatmaps [@Holmberg_2022; @Han_2020]. 
 
 **Global Feature Importance and Sparsity:**
-The NSA layer acts as a 'hard' feature selector. As quantified by the Gini coefficients in @fig-nsa-v-interpretability, the discovered basis vectors exhibit high sparsity. Each latent dimension is dominated by a clear biological module. By constraining the first layer to be linear and enforcing NSA orthogonality, we ensure deep consensus mechanisms ($\\mathbf{U}$) do not obscure foundational clinical drivers.
+The NSA layer acts as a 'hard' feature selector. As quantified by the Gini coefficients in @fig-nsa-v-interpretability, the discovered basis vectors exhibit high sparsity. Each latent dimension is dominated by a clear biological module. By constraining the first layer to be linear and enforcing NSA orthogonality, we ensure deep consensus mechanisms ($\mathbf{U}$) do not obscure foundational clinical drivers.
 
 ## Systematic Evaluation Matrix
 
 We sweep the architectural space, testing Loss Functions and Consensus Methods.
 
-![**Figure 6: Architectural Sensitivity: Loss x Consensus Interaction.** Baseline vs. Proposed parameter grid. Heatmap of mean predictive performance ($R^2_{\\mathbf{X}\\mathbf{V}}$) for LEND. Takeaway: Newton consensus paired with ACC or Log-Cosh loss provides the optimal balance between representational capacity and latent stability.](figures/fig_v21_interaction_heatmap.png){#fig-v21-interaction-heatmap width="100%"}
+![**Figure 6: Architectural Sensitivity: Loss x Consensus Interaction.** Baseline vs. Proposed parameter grid. Heatmap of mean predictive performance ($R^2_{\mathbf{X}\mathbf{V}}$) for LEND. Newton consensus paired with ACC or Log-Cosh loss provides the optimal balance between representational capacity and latent stability.](figures/fig_v21_interaction_heatmap.png){#fig-v21-interaction-heatmap width="100%"}
 
 ## Complexity and Scaling Benchmarks
 
@@ -428,7 +428,7 @@ We analyze wall-time complexity as a function of sample size $N$ and latent dime
 #| warning: false
 #| message: false
 #| label: fig-scaling
-#| fig-cap: "**Figure 7: Algorithmic Efficiency.** Baseline (Linear Scaling) vs. Proposed (NSA Overhead). Execution Wall-time Scaling. (Left) Sample size $N$ scaling is linear. (Right) Latent dimension $K$ scaling reflects Newton-Schulz and covariance overhead ($\\mathcal{O}(K^3)$). Takeaway: The proposed architectures maintain scalable execution times for typical biomedical dataset dimensions."
+#| fig-cap: 'Algorithmic Efficiency. Baseline (Linear Scaling) vs. Proposed (NSA Overhead). Execution Wall-time Scaling. (Left) Sample size $N$ scaling is linear. (Right) Latent dimension $K$ scaling reflects Newton-Schulz and covariance overhead ($\mathcal{O}(K^3)$). The proposed architectures maintain scalable execution times for typical biomedical dataset dimensions.'
 #| out-width: 100%
 #| echo: false
 import pandas as pd
@@ -459,7 +459,7 @@ if os.path.exists(cache_scaling):
 
 The **NED** architecture provides a specialized pathway for structural explainability. Post-hoc explainable AI (XAI) baselines, such as SHAP or LIME [@Lundberg_2017; @Ribeiro_2016], suffer from instability on entangled manifolds because they approximate feature importance after non-linear mixing. The proposed Orthogonal Linear Encoder Entry-point (OLEE) enforces Structural XAI. By restricting the initial mapping to an orthogonal linear projection, the architecture guarantees zero approximation error when mapping latent consensus coordinates back to input features.
 
-We evaluate the hypothesis that structural local feature attributions provide consistent and clinically valid representations. The architecture permits exact counterfactual analysis; the required perturbation in the input space $\delta \\mathbf{x}$ to achieve a targeted shift in the latent diagnostic coordinate $\Delta \\mathbf{z}$ is formally defined as $\delta \\mathbf{x} = \Delta \\mathbf{z} \\mathbf{V}_m^T$. As @fig-diabetes-audit demonstrates, local feature attribution identifies BMI and S5 as primary drivers of diabetic progression for Patient #1. This mathematical exactness satisfies the requirement for mechanistic transparency [@Rudin_2019; @Biswas2025explainable].
+We evaluate the hypothesis that structural local feature attributions provide consistent and clinically valid representations. The architecture permits exact counterfactual analysis; the required perturbation in the input space $\delta \mathbf{x}$ to achieve a targeted shift in the latent diagnostic coordinate $\Delta \mathbf{z}$ is formally defined as $\delta \mathbf{x} = \Delta \mathbf{z} \mathbf{V}_m^\top$. As @fig-diabetes-audit demonstrates, local feature attribution identifies BMI and S5 as primary drivers of diabetic progression for Patient #1. This mathematical exactness satisfies the requirement for mechanistic transparency [@Rudin_2019; @Biswas2025explainable].
 
 ### Diabetes Progression Audit
 
@@ -469,7 +469,7 @@ To bridge the gap between global importance and individual patient care, we util
 #| warning: false
 #| message: false
 #| label: fig-diabetes-audit
-#| fig-cap: "**Figure 8: Localized Feature Impact Analysis (Diabetes).** Baseline (Post-hoc SHAP) vs. Proposed (Exact Structural XAI). Local feature attribution derived directly from the NED first-layer basis. Takeaway: The proposed architecture conceptually mirrors SHAP but operates with zero approximation error, proving exact interpretability at the patient level [@Lundberg_2017; @Smith2023posthoc]."
+#| fig-cap: 'Localized Feature Impact Analysis (Diabetes). Baseline (Post-hoc SHAP) vs. Proposed (Exact Structural XAI). Local feature attribution derived directly from the NED first-layer basis. The proposed architecture conceptually mirrors SHAP but operates with zero approximation error, proving exact interpretability at the patient level [@Lundberg_2017; @Smith2023posthoc].'
 #| out-width: 100%
 #| echo: false
 from pysimlr.deep import ned_simr
@@ -512,29 +512,29 @@ plt.show()
 
 We apply the local audit protocol to the Heart Disease dataset. The objective is to identify physiological markers contributing to a specific patient's risk. @fig-heart-audit highlights 'thalach' (maximum heart rate) and 'cp' (chest pain type) as dominant factors for a high-risk individual. Visualizing these contributions provides an auditable path from clinical data to diagnostic classification. This eliminates the 'black box' problem.
 
-![**Figure 9: Individualized Cardiovascular Audit.** Baseline (Black box classification) vs. Proposed (Auditable Linear Attribution). Local feature attribution for a high-risk patient. Takeaway: The audit reveals the exact additive contribution of clinical features (thalach, cp) to the latent risk factor, establishing clinical trust.](figures/heart_waterfall.png){#fig-heart-audit width="100%"}
+![**Figure 9: Individualized Cardiovascular Audit.** Baseline (Black box classification) vs. Proposed (Auditable Linear Attribution). Local feature attribution for a high-risk patient. The audit reveals the exact additive contribution of clinical features (thalach, cp) to the latent risk factor, establishing clinical trust.](figures/heart_waterfall.png){#fig-heart-audit width="100%"}
 
 ### Latent Trajectory and Counterfactual Discovery
 
-The auditable linear basis enables **Latent Trajectory Analysis**. By analyzing shifts along a specific SiMLR component, we observe how a patient's risk profile responds to feature perturbations. This provides a formal mechanism for discovering exact counterfactuals: calculating the minimal required shift in clinical vitals ($\delta \\mathbf{x} = \Delta \\mathbf{z} \\mathbf{V}_m^T$) to transition a patient from a high-risk latent cluster to a stable projection.
+The auditable linear basis enables **Latent Trajectory Analysis**. By analyzing shifts along a specific SiMLR component, we observe how a patient's risk profile responds to feature perturbations. This provides a formal mechanism for discovering exact counterfactuals: calculating the minimal required shift in clinical vitals ($\delta \mathbf{x} = \Delta \mathbf{z} \mathbf{V}_m^\top$) to transition a patient from a high-risk latent cluster to a stable projection.
 
 ### Topological Regularization: LOO vs. STAR Consensus Pathways
 
-To evaluate architectural constraints, we compare the baseline **Star topology** with the proposed strict **Leave-One-Out (LOO) topology**. In Star topology, modality $m$ aligns to a consensus $\\mathbf{U}$ that includes its own information. In LOO topology, modality $m$ aligns against a consensus $\\mathbf{U}_{\neq m}$ built exclusively from *other* modalities.
+To evaluate architectural constraints, we compare the baseline **Star topology** with the proposed strict **Leave-One-Out (LOO) topology**. In Star topology, modality $m$ aligns to a consensus $\mathbf{U}$ that includes its own information. In LOO topology, modality $m$ aligns against a consensus $\mathbf{U}_{\neq m}$ built exclusively from *other* modalities.
 
-![**Figure 10: Topological Regularization Benefit.** Baseline (Star Topology) vs. Proposed (LOO Topology). Strictly Linear Accuracy on the Diabetes dataset. Takeaway: The LOO topology acts as a powerful regularizer for high-capacity models, forcing the discovery of robust shared features rather than memorizing modality-specific noise.](figures/fig_v21_loo_vs_star.png){#fig-v21-loo-vs-star width="100%"}
+![**Figure 10: Topological Regularization Benefit.** Baseline (Star Topology) vs. Proposed (LOO Topology). Strictly Linear Accuracy on the Diabetes dataset. The LOO topology acts as a powerful regularizer for high-capacity models, forcing the discovery of robust shared features rather than memorizing modality-specific noise.](figures/fig_v21_loo_vs_star.png){#fig-v21-loo-vs-star width="100%"}
 
-![**Figure 11: Generalization Gap by Topology.** Baseline (Star Topology) vs. Proposed (LOO Topology). Train-test accuracy gap. Takeaway: The LOO consensus pathway effectively narrows the generalization gap for deep architectures, proving that strict cross-modal prediction prevents self-prediction leaks.](figures/fig_v21_loo_vs_star_gap.png){#fig-v21-loo-vs-star-gap width="100%"}
+![**Figure 11: Generalization Gap by Topology.** Baseline (Star Topology) vs. Proposed (LOO Topology). Train-test accuracy gap. The LOO consensus pathway effectively narrows the generalization gap for deep architectures, proving that strict cross-modal prediction prevents self-prediction leaks.](figures/fig_v21_loo_vs_star_gap.png){#fig-v21-loo-vs-star-gap width="100%"}
 
 ## Structural Generalization: Basis vs. Feature Orthogonality
 
-A key concern is whether enforced constraints (e.g., orthogonality) generalize to unseen data. We quantify this using the Invariant Orthogonality Defect, defined as $\mathcal{D}_I(\\mathbf{V}) = \| \\mathbf{V}^T \\mathbf{V} - \\mathbf{I} \|_F$. @fig-ortho-gen demonstrates the NSA-Flow mechanism maintains a low defect across training and test sets. The stability of the feature defect on the test set (@fig-ortho-gen, Right) provides strong evidence that the OLEE identifies a robust, generalizing subspace.
+A key concern is whether enforced constraints (e.g., orthogonality) generalize to unseen data. We quantify this using the Invariant Orthogonality Defect, defined as $\mathcal{D}_I(\mathbf{V}) = \| \mathbf{V}^\top \mathbf{V} - \mathbf{I} \|_F$. @fig-ortho-gen demonstrates the NSA-Flow mechanism maintains a low defect across training and test sets. The stability of the feature defect on the test set (@fig-ortho-gen, Right) provides strong evidence that the OLEE identifies a robust, generalizing subspace.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-ortho-gen
-#| fig-cap: "**Figure 12: Manifold Integrity Generalization.** Baseline (Unconstrained) vs. Proposed (NSA-Flow). Invariant Orthogonality Defect. (Left) Scale-invariant defect of weights $\\mathbf{V}$. (Right) Feature defect generalization across train (solid) and test (dashed) sets. Takeaway: Stability across train and test sets confirms the OLEE identifies a robust, generalizing subspace resistant to overfitting."
+#| fig-cap: 'Manifold Integrity Generalization. Baseline (Unconstrained) vs. Proposed (NSA-Flow). Invariant Orthogonality Defect. (Left) Scale-invariant defect of weights $\mathbf{V}$. (Right) Feature defect generalization across train (solid) and test (dashed) sets. Stability across train and test sets confirms the OLEE identifies a robust, generalizing subspace resistant to overfitting.'
 #| out-width: 100%
 #| echo: false
 import pandas as pd

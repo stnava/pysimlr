@@ -35,17 +35,17 @@ For epoch t in 1..T:
 ### 2.1 Riemannian Updates
 
 We implement Riemannian updates on the Stiefel manifold via projection onto the tangent space $\mathcal{T}_{\mathbf{V}} \mathbb{V}_{k,n}$. We compute the Riemannian gradient $\text{grad} \mathcal{J}(\mathbf{V})$ from the Euclidean gradient $\nabla \mathcal{J}(\mathbf{V})$:
-$$ \text{grad} \mathcal{J}(\mathbf{V}) = \nabla \mathcal{J}(\mathbf{V}) - \mathbf{V} \text{sym}(\mathbf{V}^T \nabla \mathcal{J}(\mathbf{V})) $$
+$$ \text{grad} \mathcal{J}(\mathbf{V}) = \nabla \mathcal{J}(\mathbf{V}) - \mathbf{V} \text{sym}(\mathbf{V}^\top \nabla \mathcal{J}(\mathbf{V})) $$
 
-The orthogonal penalty $\mathcal{P}(\mathbf{V}) = \frac{1}{4} \| \mathbf{V}^T \mathbf{V} - \mathbf{I}_k \|_F^2$ permits a Taylor expansion for a perturbation $\mathbf{\Delta}$:
-$$ \mathcal{P}(\mathbf{V} + \mathbf{\Delta}) \approx \frac{1}{4} \text{Tr}\left( (\mathbf{V}^T \mathbf{\Delta} + \mathbf{\Delta}^T \mathbf{V})^2 \right) $$
+The orthogonal penalty $\mathcal{P}(\mathbf{V}) = \frac{1}{4} \| \mathbf{V}^\top \mathbf{V} - \mathbf{I}_k \|_F^2$ permits a Taylor expansion for a perturbation $\mathbf{\Delta}$:
+$$ \mathcal{P}(\mathbf{V} + \mathbf{\Delta}) \approx \frac{1}{4} \text{Tr}\left( (\mathbf{V}^\top \mathbf{\Delta} + \mathbf{\Delta}^\top \mathbf{V})^2 \right) $$
 This penalty evaluates to zero for any $\mathbf{\Delta}$ strictly within the tangent space.
 
 ### 2.2 Newton-Schulz Convergence
 
 We enforce orthogonality via the iteration sequence:
-$$ \mathbf{Y}_{k+1} = \frac{1}{2} \mathbf{Y}_k (3\mathbf{I} - \mathbf{Y}_k^T \mathbf{Y}_k) $$
-The residual error $\mathbf{E}_k = \mathbf{I} - \mathbf{Y}_k^T \mathbf{Y}_k$ obeys the relation $\mathbf{E}_{k+1} = \frac{3}{4} \mathbf{E}_k^2 + \frac{1}{4} \mathbf{E}_k^3$. This yields quadratic convergence: $\| \mathbf{E}_{k+1} \|_2 < \| \mathbf{E}_k \|_2^2$.
+$$ \mathbf{Y}_{k+1} = \frac{1}{2} \mathbf{Y}_k (3\mathbf{I} - \mathbf{Y}_k^\top \mathbf{Y}_k) $$
+The residual error $\mathbf{E}_k = \mathbf{I} - \mathbf{Y}_k^\top \mathbf{Y}_k$ obeys the relation $\mathbf{E}_{k+1} = \frac{3}{4} \mathbf{E}_k^2 + \frac{1}{4} \mathbf{E}_k^3$. This yields quadratic convergence: $\| \mathbf{E}_{k+1} \|_2 < \| \mathbf{E}_k \|_2^2$.
 
 ### 2.3 Noise Reduction Law
 

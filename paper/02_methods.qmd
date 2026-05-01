@@ -18,18 +18,18 @@ We systematically resolve this entanglement by enforcing the Only Linear Encoder
 
 We introduce a generalized joint-variational optimization framework unifying the Similarity-driven Multi-view Linear Reconstruction (SiMLR) taxonomy.
 
-For $M$ modalities, let $\mathbf{X}_m \in \\mathbb{R}^{n \\times d_m}$ denote the input data matrix for modality $m \in \{1, \dots, M\}$. We optimize an encoder $f_m: \\mathbb{R}^{d_m} 	o \\mathbb{R}^k$ and a decoder $g_m: \\mathbb{R}^k 	o \\mathbb{R}^{d_m}$. We define the latent representation as $\mathbf{Z}_m = f_m(\mathbf{X}_m) \in \\mathbb{R}^{n \\times k}$ and the reconstruction as $\mathbf{\hat{X}}_m = g_m(\mathbf{Z}_m)$.
+For $M$ modalities, let $\mathbf{X}_m \in \mathbb{R}^{n \times d_m}$ denote the input data matrix for modality $m \in \{1, \dots, M\}$. We optimize an encoder $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k$ and a decoder $g_m: \mathbb{R}^k \to \mathbb{R}^{d_m}$. We define the latent representation as $\mathbf{Z}_m = f_m(\mathbf{X}_m) \in \mathbb{R}^{n \times k}$ and the reconstruction as $\hat{\mathbf{X}}_m = g_m(\mathbf{Z}_m)$.
 
-The global objective function $\\mathcal{L}$ is defined as:
+The global objective function $\mathcal{L}$ is defined as:
 
 $$
-\\mathcal{L}(\{f_m, g_m\}_{m=1}^M, \mathbf{U}) = \sum_{m=1}^M \left( \\mathcal{L}_{\text{recon}}(\mathbf{X}_m, \mathbf{\hat{X}}_m) + \lambda_{\text{sim}} \\mathcal{L}_{\text{align}}(\mathbf{Z}_m, \mathbf{U}_{\neq m}) + \gamma \\mathcal{P}_{\text{NSA}}(\mathbf{V}_m) \right) + \\mathcal{R}(\mathbf{Z})
+\mathcal{L}(\{f_m, g_m\}_{m=1}^M, \mathbf{U}) = \sum_{m=1}^M \left( \mathcal{L}_{\text{recon}}(\mathbf{X}_m, \hat{\mathbf{X}}_m) + \lambda_{\text{sim}} \mathcal{L}_{\text{align}}(\mathbf{Z}_m, \mathbf{U}_{\neq m}) + \gamma \mathcal{P}_{\text{NSA}}(\mathbf{V}_m) \right) + \mathcal{R}(\mathbf{Z})
 $$
 
 where:
 - $\mathbf{U}_{\neq m}$ represents the consensus target derived from all modalities except $m$, enforced via the **Leave-One-Out (LOO)** topology.
-- $\\mathcal{P}_{\text{NSA}}(\mathbf{V}_m)$ is the **Non-negative Stiefel Approximating Flow (NSA-Flow)** penalty applied to the linear basis $\mathbf{V}_m$ to enforce orthogonality.
-- $\\mathcal{R}(\mathbf{Z})$ defines joint regularization terms, such as variance preservation and covariance penalization.
+- $\mathcal{P}_{\text{NSA}}(\mathbf{V}_m)$ is the **Non-negative Stiefel Approximating Flow (NSA-Flow)** penalty applied to the linear basis $\mathbf{V}_m$ to enforce orthogonality.
+- $\mathcal{R}(\mathbf{Z})$ defines joint regularization terms, such as variance preservation and covariance penalization.
 
 ## Architectural Taxonomy
 
@@ -78,7 +78,7 @@ Classical SiMLR: Information flow for a linear encoder and decoder. The basis $\
 While Classical SiMLR guarantees interpretability, a linear decoder often fails to reconstruct highly non-linear observational spaces (e.g., raw pixel intensities or complex gene regulatory networks). LEND addresses this by pairing the exact linear feature attribution of the OLEE constraint with a deep, non-linear decoder.
 
 *   **Encoder:** $f_m(\mathbf{X}_m) = \mathbf{X}_m \mathbf{V}_m$ (OLEE)
-*   **Decoder:** $g_m(\mathbf{Z}_m) = \text{MLP}_{	heta_m}(\mathbf{Z}_m)$
+*   **Decoder:** $g_m(\mathbf{Z}_m) = \text{MLP}_{\theta_m}(\mathbf{Z}_m)$
 
 LEND represents a Pareto-optimal operating point: it provides deep manifold denoising during reconstruction without sacrificing the strict mathematical auditability of the input features.
 
@@ -120,7 +120,7 @@ LEND: OLEE-constrained linear encoder coupled with a deep MLP decoder for non-li
 If the underlying biological signal is non-linearly embedded within the feature space itself, LEND's linear bottleneck may drop critical variance. NED mitigates this by applying a non-linear function to the latent space strictly *subsequent* to the initial OLEE constraint.
 
 *   **Encoder:** $f_m(\mathbf{X}_m) = \text{MLP}_{\phi_m}(\mathbf{X}_m \mathbf{V}_m)$
-*   **Decoder:** $g_m(\mathbf{Z}_m) = \text{MLP}_{	heta_m}(\mathbf{Z}_m)$
+*   **Decoder:** $g_m(\mathbf{Z}_m) = \text{MLP}_{\theta_m}(\mathbf{Z}_m)$
 
 This architecture provides maximal representational capacity. The initial projection $\mathbf{X}_m \mathbf{V}_m$ preserves the formal Information Bottleneck, guaranteeing that all downstream non-linear transformations are irrevocably grounded in an identifiable linear subspace.
 
@@ -160,9 +160,9 @@ NED: Multi-layer encoder subject to the initial OLEE information bottleneck cons
 Despite LOO consensus, highly expressive models like NED can still be confounded if modality-specific idiosyncratic noise is massive enough to dominate the optimization landscape. NEDPP resolves this by explicitly partitioning the latent space, decoupling modality-specific variance from the shared biological signal.
 
 *   **Encoder:** $f_m(\mathbf{X}_m) = [\text{MLP}_{\phi_{m,\text{shared}}}(\mathbf{X}_m \mathbf{V}_{m,\text{shared}}) \parallel \text{MLP}_{\phi_{m,\text{private}}}(\mathbf{X}_m \mathbf{V}_{m,\text{private}})] = [\mathbf{S}_m \parallel \mathbf{P}_m]$
-*   **Decoder:** $g_m(\mathbf{S}_m \parallel \mathbf{P}_m) = \text{MLP}_{	heta_m}(\mathbf{S}_m \parallel \mathbf{P}_m)$
+*   **Decoder:** $g_m(\mathbf{S}_m \parallel \mathbf{P}_m) = \text{MLP}_{\theta_m}(\mathbf{S}_m \parallel \mathbf{P}_m)$
 
-We enforce disentanglement via a cross-covariance penalty $\text{Cov}(\mathbf{S}_m, \mathbf{P}_m) 	o \mathbf{0}$, orthogonalizing the shared and private representations. Assuming Gaussian-distributed latent variables, driving this penalty to zero guarantees statistical independence between the subspaces. This theoretical bound prevents high-variance artifacts from leaking into the shared consensus, isolating the true cross-modal signal.
+We enforce disentanglement via a cross-covariance penalty $\text{Cov}(\mathbf{S}_m, \mathbf{P}_m) \to \mathbf{0}$, orthogonalizing the shared and private representations. Assuming Gaussian-distributed latent variables, driving this penalty to zero guarantees statistical independence between the subspaces. This theoretical bound prevents high-variance artifacts from leaking into the shared consensus, isolating the true cross-modal signal.
 
 ::: {#fig-nedpp}
 
@@ -219,14 +219,14 @@ We rigidly formalize our parameter optimization through a strict Block-Coordinat
     $$ \mathbf{U}_{\neq m}^{(t)} = \text{Consensus}(\{\mathbf{Z}_i^{(t-1)}\}_{i \neq m}) $$
     The LOO topology explicitly excludes modality $m$ from calculating its own target. This architectural constraint actively prevents high-capacity networks from memorizing trivial identity mappings, rigorously forcing the model to discover universally shared cross-modal signals.
 
-2.  **Parameter Update:** We fix the derived consensus $\mathbf{U}_{\neq m}^{(t)}$ and globally minimize $\\mathcal{L}$ for each specific modality:
-    $$ \{f_m^{(t)}, g_m^{(t)}\} = \arg\min_{f_m, g_m} \\mathcal{L}(\{f_m, g_m\}, \mathbf{U}_{\neq m}^{(t)}) $$
+2.  **Parameter Update:** We fix the derived consensus $\mathbf{U}_{\neq m}^{(t)}$ and globally minimize $\mathcal{L}$ for each specific modality:
+    $$ \{f_m^{(t)}, g_m^{(t)}\} = \arg\min_{f_m, g_m} \mathcal{L}(\{f_m, g_m\}, \mathbf{U}_{\neq m}^{(t)}) $$
 
 ### Orthogonal Manifold Optimization via NSA-Flow
 
 ```{python}
 #| label: fig-stiefel-intuition
-#| fig-cap: "Geometrical Intuition of Orthogonal Discovery via NSA-Flow. Unconstrained deep learning architectures succumb to latent collapse by entangling redundant variance components (red vectors). Conversely, the Non-negative Stiefel Approximating Flow (NSA-Flow) constrains feature discovery to the Stiefel manifold (wireframe sphere). This guarantees the distillation of distinct, statistically independent generative factors (blue orthogonal vectors)."
+#| fig-cap: 'Geometrical Intuition of Orthogonal Discovery via NSA-Flow. Unconstrained deep learning architectures succumb to latent collapse by entangling redundant variance components (red vectors). Conversely, the Non-negative Stiefel Approximating Flow (NSA-Flow) constrains feature discovery to the Stiefel manifold (wireframe sphere). This guarantees the distillation of distinct, statistically independent generative factors (blue orthogonal vectors).'
 #| warning: false
 #| message: false
 #| echo: false
@@ -276,13 +276,13 @@ plt.savefig('figures/fig-stiefel-intuition.png', bbox_inches='tight', dpi=300)
 plt.close()
 ```
 
-Enforcing exact orthogonality via traditional Singular Value Decomposition (SVD) imposes a severe $\\mathcal{O}(K^3)$ computational bottleneck and injects non-differentiable discontinuities into the optimization trajectory. We conclusively bypass this limitation by executing gradient descent directly on the Stiefel manifold $\\mathbb{V}_{k,d_m} = \{ \mathbf{V} \in \\mathbb{R}^{d_m \\times k} \\mid \mathbf{V}^	op \mathbf{V} = \mathbf{I}_k \}$ [@edelman1998geometry]. 
+Enforcing exact orthogonality via traditional Singular Value Decomposition (SVD) imposes a severe $\mathcal{O}(K^3)$ computational bottleneck and injects non-differentiable discontinuities into the optimization trajectory. We conclusively bypass this limitation by executing gradient descent directly on the Stiefel manifold $\mathbb{V}_{k,d_m} = \{ \mathbf{V} \in \mathbb{R}^{d_m \times k} \mid \mathbf{V}^\top \mathbf{V} = \mathbf{I}_k \}$ [@edelman1998geometry]. 
 
-We achieve this by coupling the NSA-Flow penalty with Newton-Schulz iterations. Employing the iterative update rule $\mathbf{V}_{t+1} = \frac{1}{2} \mathbf{V}_t (3\mathbf{I} - \mathbf{V}_t^	op \mathbf{V}_t)$ drives quadratic convergence to the Stiefel manifold utilizing strictly batched matrix multiplications, aggressively reducing computational complexity to a highly scalable $\\mathcal{O}(d_m K^2)$. NSA-Flow replaces hard SVD projections with a smooth, fully differentiable penalty, mathematically guaranteeing that the BCD procedure monotonically decreases the global objective without risking mode collapse.
+We achieve this by coupling the NSA-Flow penalty with Newton-Schulz iterations. Employing the iterative update rule $\mathbf{V}_{t+1} = \frac{1}{2} \mathbf{V}_t (3\mathbf{I} - \mathbf{V}_t^\top \mathbf{V}_t)$ drives quadratic convergence to the Stiefel manifold utilizing strictly batched matrix multiplications, aggressively reducing computational complexity to a highly scalable $\mathcal{O}(d_m K^2)$. NSA-Flow replaces hard SVD projections with a smooth, fully differentiable penalty, mathematically guaranteeing that the BCD procedure monotonically decreases the global objective without risking mode collapse.
 
 ### Similarity Metrics (The Energy Function)
 
-To operationalize the alignment $\\mathcal{L}_{\text{align}}$, we implement multiple distinct similarity metrics (referred to as the "energy" of the consensus), each possessing specific theoretical advantages depending on the noise distribution of the data:
+To operationalize the alignment $\mathcal{L}_{\text{align}}$, we implement multiple distinct similarity metrics (referred to as the "energy" of the consensus), each possessing specific theoretical advantages depending on the noise distribution of the data:
 
 1. **Regression:** Minimizes the Mean Squared Error (MSE) between the normalized latent representations and the consensus target. This assumes Gaussian-distributed alignment errors and serves as an effective baseline for stable manifolds.
 2. **Absolute Canonical Covariance (ACC):** Maximizes the unnormalized inner product with the consensus. ACC theoretically assumes a uniform signal magnitude across views, making it optimal when variances are precisely controlled and uniform.
@@ -293,7 +293,7 @@ To operationalize the alignment $\\mathcal{L}_{\text{align}}$, we implement mult
 
 ```{python}
 #| label: fig-spectral-sharpness
-#| fig-cap: "Spectral Sharpness as an Exact Discriminant of Modality Fidelity. True generative signal manifests as rank-1 perturbations that break the Marchenko-Pastur bulk distribution limit (gray span). Informative modalities (green) exhibit significant spectral sharpness, escaping the bulk limit to dominate the leading singular values. Conversely, structureless isotropic noise modalities (orange) remain entirely trapped within the analytically derived Marchenko-Pastur threshold, guaranteeing their rigorous mathematical exclusion via the Modality Alignment Index (MAI)."
+#| fig-cap: 'Spectral Sharpness as an Exact Discriminant of Modality Fidelity. True generative signal manifests as rank-1 perturbations that break the Marchenko-Pastur bulk distribution limit (gray span). Informative modalities (green) exhibit significant spectral sharpness, escaping the bulk limit to dominate the leading singular values. Conversely, structureless isotropic noise modalities (orange) remain entirely trapped within the analytically derived Marchenko-Pastur threshold, guaranteeing their rigorous mathematical exclusion via the Modality Alignment Index (MAI).'
 #| warning: false
 #| message: false
 #| echo: false
@@ -337,14 +337,14 @@ In high-dimensional limits, isotropic noise routinely forms spurious correlation
 
 The default MAI formulation leverages Procrustes $R^2$:
 $$ \text{MAI}_m = 1 - \frac{\|\mathbf{Z}_m \mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F^2}{\|\mathbf{U}_{\neq m}\|_F^2} $$
-where $\mathbf{\Omega} = \arg\min_{\mathbf{\Omega}^	op \mathbf{\Omega} = \mathbf{I}} \|\mathbf{Z}_m \mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F$ denotes the optimal orthogonal rotation to align the local manifold with the global consensus.
+where $\mathbf{\Omega} = \arg\min_{\mathbf{\Omega}^\top \mathbf{\Omega} = \mathbf{I}} \|\mathbf{Z}_m \mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F$ denotes the optimal orthogonal rotation to align the local manifold with the global consensus.
 
-To eliminate spurious alignments, we augment the MAI by integrating **Spectral Sharpness** $\\mathcal{S}_m$, which evaluates the concentration of the singular values $\sigma_i$ extracted from the latent matrix $\mathbf{Z}_m$:
-$$ \\mathcal{S}_m = \frac{\sigma_1}{\sum_{i=1}^k \sigma_i} $$
+To eliminate spurious alignments, we augment the MAI by integrating **Spectral Sharpness** $\mathcal{S}_m$, which evaluates the concentration of the singular values $\sigma_i$ extracted from the latent matrix $\mathbf{Z}_m$:
+$$ \mathcal{S}_m = \frac{\sigma_1}{\sum_{i=1}^k \sigma_i} $$
 
-**The Marchenko-Pastur Limit and BBP Phase Transition:** This formulation is grounded in the spectral theory of high-dimensional random matrices. Under the assumption of purely isotropic observational noise, the sample covariance matrix spectrum converges to the Marchenko-Pastur bulk distribution limit. Consequently, the singular values distribute uniformly, bounding the spectral sharpness to the bulk limit $\\mathcal{S}_m = \\mathcal{O}(1/K)$. In this regime, the metric mathematically drives the contribution of unstructured isotropic noise to exactly zero. 
+**The Marchenko-Pastur Limit and BBP Phase Transition:** This formulation is grounded in the spectral theory of high-dimensional random matrices. Under the assumption of purely isotropic observational noise, the sample covariance matrix spectrum converges to the Marchenko-Pastur bulk distribution limit. Consequently, the singular values distribute uniformly, bounding the spectral sharpness to the bulk limit $\mathcal{S}_m = \mathcal{O}(1/K)$. In this regime, the metric mathematically drives the contribution of unstructured isotropic noise to exactly zero. 
 
-Conversely, following the Baik-Ben Arous-Péché (BBP) phase transition theorem [@baik2005phase], true underlying signal components induce rank-1 perturbations that spike explicitly outside the Marchenko-Pastur bulk, rapidly forcing $\\mathcal{S}_m 	o 1$. Spectral Sharpness therefore functions as a mathematically exact threshold, actively discriminating structured generative signal from isotropic background noise. The final consensus target employs the product of MAI and Spectral Sharpness to dynamically weight each modality, ensuring noise-dominant views are decisively quarantined.
+Conversely, following the Baik-Ben Arous-Péché (BBP) phase transition theorem [@baik2005phase], true underlying signal components induce rank-1 perturbations that spike explicitly outside the Marchenko-Pastur bulk, rapidly forcing $\mathcal{S}_m \to 1$. Spectral Sharpness therefore functions as a mathematically exact threshold, actively discriminating structured generative signal from isotropic background noise. The final consensus target employs the product of MAI and Spectral Sharpness to dynamically weight each modality, ensuring noise-dominant views are decisively quarantined.
 
 ## Properties & Bounds
 
@@ -353,16 +353,16 @@ Conversely, following the Baik-Ben Arous-Péché (BBP) phase transition theorem 
 Standard post-hoc explainability methods (e.g., SHAP, LIME) are notoriously unstable on entangled deep manifolds, frequently outputting approximations that contradict the true mechanistic model. By enforcing the OLEE constraint, SiMLR bypasses post-hoc approximations entirely. The network is explicitly auditable by design, establishing three rigorous theoretical properties:
 
 **1. Exact Global Feature Importance via Variance Partitioning:** 
-Because NSA-Flow strictly confines the basis matrix $\mathbf{V}_m$ to the Stiefel manifold ($\mathbf{V}_m^	op \mathbf{V}_m = \mathbf{I}_k$), the initial mapping acts as an isometry. This structural rigor ensures that the total variance explained by the model can be exactly partitioned among the columns of $\mathbf{X}_m$, providing an analytically exact, non-redundant measure of global feature importance that cannot be confounded by latent collinearities.
+Because NSA-Flow strictly confines the basis matrix $\mathbf{V}_m$ to the Stiefel manifold ($\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k$), the initial mapping acts as an isometry. This structural rigor ensures that the total variance explained by the model can be exactly partitioned among the columns of $\mathbf{X}_m$, providing an analytically exact, non-redundant measure of global feature importance that cannot be confounded by latent collinearities.
 
 **2. Exact Local Interpretability:** 
 For any individual sample $i$, the computed latent coordinate $\mathbf{z}_{i}$ is explicitly constructed via the linear combination of its raw input features: $\mathbf{z}_{i} = \mathbf{x}_{i} \mathbf{V}_m$. We extract local, sample-specific feature attributions with zero approximation error.
 
 **3. Analytically Exact, Minimum-Norm Counterfactuals:** 
-In post-hoc paradigms, off-manifold counterfactual perturbations often generate nonsensical predictions. Conversely, OLEE provides a closed-form analytic solution. Because $\mathbf{V}_m$ is rigorously orthogonal, its Moore-Penrose pseudoinverse simplifies exactly to its transpose: $\mathbf{V}_m^+ = (\mathbf{V}_m^	op \mathbf{V}_m)^{-1} \mathbf{V}_m^	op = \mathbf{I}_k^{-1} \mathbf{V}_m^	op = \mathbf{V}_m^	op$. 
+In post-hoc paradigms, off-manifold counterfactual perturbations often generate nonsensical predictions. Conversely, OLEE provides a closed-form analytic solution. Because $\mathbf{V}_m$ is rigorously orthogonal, its Moore-Penrose pseudoinverse simplifies exactly to its transpose: $\mathbf{V}_m^+ = (\mathbf{V}_m^\top \mathbf{V}_m)^{-1} \mathbf{V}_m^\top = \mathbf{I}_k^{-1} \mathbf{V}_m^\top = \mathbf{V}_m^\top$. 
 
-Therefore, the exact, minimum-norm counterfactual perturbation $\delta \mathbf{x}$ required to induce a targeted latent shift $\\Delta \mathbf{z}$ is formally:
-$$ \delta \mathbf{x} = \\Delta \mathbf{z} \mathbf{V}_m^	op $$
+Therefore, the exact, minimum-norm counterfactual perturbation $\delta \mathbf{x}$ required to induce a targeted latent shift $\Delta \mathbf{z}$ is formally:
+$$ \delta \mathbf{x} = \Delta \mathbf{z} \mathbf{V}_m^\top $$
 This guarantees that the proposed perturbation represents the most direct, efficient intervention possible without relying on unstable surrogate models.
 
 ### The Consistency-Interpretability Tradeoff
@@ -375,14 +375,9 @@ We formalize the variance of the shared consensus estimator under noise.
 
 **Generative Assumptions:** We assume each modality observation $\mathbf{X}_m$ is generated by a shared true manifold embedded in additive Gaussian noise. 
 
-**Mathematical Formulation:** Let the noise variance be $\sigma^2$ and the cross-modal noise correlation be $
-ho$. Aggregating observations across $M$ modalities yields the variance of the consensus estimator $\mathbf{U}$:
-$$ \text{Var}(\mathbf{U}) = \frac{\sigma^2}{M} (1 - 
-ho) + 
-ho \sigma^2 $$
-As $M 	o \infty$, the independent noise term $\frac{\sigma^2}{M}(1-
-ho)$ vanishes. Consequently, the irreducible error floor is strictly bounded by $
-ho \sigma^2$. This mathematical bound proves that while expanding the number of modalities $M$ efficiently mitigates independent noise, it cannot resolve highly correlated cross-modal artifacts, necessitating the LOO topology and Spectral Triage to actively suppress correlated noise components.
+**Mathematical Formulation:** Let the noise variance be $\sigma^2$ and the cross-modal noise correlation be $\rho$. Aggregating observations across $M$ modalities yields the variance of the consensus estimator $\mathbf{U}$:
+$$ \text{Var}(\mathbf{U}) = \frac{\sigma^2}{M} (1 - \rho) + \rho \sigma^2 $$
+As $M \to \infty$, the independent noise term $\frac{\sigma^2}{M}(1-\rho)$ vanishes. Consequently, the irreducible error floor is strictly bounded by $\rho \sigma^2$. This mathematical bound proves that while expanding the number of modalities $M$ efficiently mitigates independent noise, it cannot resolve highly correlated cross-modal artifacts, necessitating the LOO topology and Spectral Triage to actively suppress correlated noise components.
 
 ## Evaluation Strategies
 
