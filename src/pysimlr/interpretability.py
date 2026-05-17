@@ -428,13 +428,14 @@ def attribute_shared_to_first_layer(
     first_layer = extract_first_layer_factors(model_res)
     z0_list = first_layer["scores"]
     v_list = first_layer["v"]
-    u = model_res.get("u")
-    if u is None:
+    u_all = model_res.get("u")
+    if u_all is None:
         raise KeyError("model_res does not contain shared latent u")
 
     per_modality: List[Dict[str, Any]] = []
     global_r2_values: List[float] = []
     for modality_index, (z0, v) in enumerate(zip(z0_list, v_list)):
+        u = u_all[modality_index] if isinstance(u_all, list) else u_all
         fit = _fit_linear_map(z0, u, l2=l2)
         component_importance = torch.mean(torch.abs(fit["coefficients"]), dim=1)
         feature_importance = _feature_importance_from_basis(v, component_importance)

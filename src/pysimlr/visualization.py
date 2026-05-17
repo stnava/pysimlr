@@ -354,3 +354,39 @@ def generate_all_architecture_graphs(output_dir=".", base_fontsize=11) -> List[p
     figs.append(plot_ned_shared_private_architecture(save_path=os.path.join(output_dir, "detailed_ned_shared_private.pdf"), base_fontsize=base_fontsize))
     figs.append(plot_nsa_flow_architecture(save_path=os.path.join(output_dir, "detailed_nsa_flow.pdf"), base_fontsize=base_fontsize))
     return figs
+
+def plot_path_model(path_graph: Dict[int, List[int]], modality_names: Optional[List[str]] = None, title: str = "Path Model Structure") -> plt.Figure:
+    """
+    Visualize the structure of a structural path model using NetworkX.
+
+    Parameters
+    ----------
+    path_graph : Dict[int, List[int]]
+        The adjacency list defining the model structure.
+    modality_names : List[str], optional
+        Names for each modality to use as node labels.
+    title : str, default="Path Model Structure"
+        The title for the plot.
+
+    Returns
+    -------
+    plt.Figure
+        The generated Matplotlib figure.
+    """
+    try:
+        import networkx as nx
+        fig, ax = plt.subplots(figsize=(8, 6))
+        G = nx.Graph()
+        for u, neighbors in path_graph.items():
+            for v in neighbors:
+                G.add_edge(u, v)
+        
+        pos = nx.spring_layout(G)
+        labels = {i: (modality_names[i] if modality_names and i < len(modality_names) else f"M{i}") for i in G.nodes()}
+        nx.draw(G, pos, with_labels=True, labels=labels, node_color='#e3f2fd', node_size=2000, font_size=10, font_weight='bold', edge_color='gray', ax=ax)
+        ax.set_title(title)
+        return fig
+    except ImportError:
+        import warnings
+        warnings.warn("networkx not installed, skipping path model plot.")
+        return None

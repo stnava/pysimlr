@@ -17,6 +17,7 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                             training: bool = False,
                             anchor: Optional[torch.Tensor] = None,
                             topology: str = "star",
+                            path_graph: Optional[Dict[int, List[int]]] = None,
                             prune_threshold: Optional[float] = None,
                             modality_weights: Optional[torch.Tensor] = None) -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
     """
@@ -25,6 +26,7 @@ def compute_shared_consensus(projections: List[torch.Tensor],
     Topology:
     - 'star': All modalities align to a single shared consensus.
     - 'loo': (Leave-One-Out) Modality i aligns to the consensus of all OTHER modalities.
+    - 'graph': Modality i aligns to the consensus of its NEIGHBORS in path_graph.
     
     Anchor-based Prediction Fix:
     To prevent coordinate drift/rotation in SVD/PCA/ICA during prediction,
@@ -152,8 +154,23 @@ def compute_shared_consensus(projections: List[torch.Tensor],
             _, new_anchor = _get_u(norm_projs, return_anchor=True)
             return u_list, new_anchor
         return u_list
-    u = u - u.mean(0, keepdim=True)
-    u_std = torch.std(u, dim=0, keepdim=True) + 1e-6
-    u = u / u_std
-        
-    return u
+
+    elif topology == "graph":
+        if path_graph is None:
+            raise ValueError("path_graph must be provided for topology='graph'")
+            
+        u_list = []
+        for i in range(len(orig_norm_projs)):
+            neighbors = path_graph.get(i, [])
+            neighbor_projs = [orig_norm_projs[j] for j in neighbors if j in valid_indices]
+            if len(neighbor_projs) == 0:
+                u_list.append(orig_norm_projs[i])
+            else:
+                u_list.append(_get_u(neighbor_projs, return_anchor=False))
+                
+        if training:
+            _, new_anchor = _get_u(norm_projs, return_anchor=True)
+            return u_list, new_anchor
+        return u_list
+
+    return _get_u(norm_projs, return_anchor=training)

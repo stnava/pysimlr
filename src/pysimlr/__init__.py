@@ -45,6 +45,10 @@ from .regression import (
 from .nnh import (
     nnh_embed
 )
+from .structural import (
+    fit_structural_models,
+    create_path_graph
+)
 from .paths import (
     simlr_path,
     permutation_test
@@ -91,6 +95,7 @@ from .visualization import (
     plot_ned_simr_architecture,
     plot_ned_shared_private_architecture,
     plot_nsa_flow_architecture,
+    plot_path_model,
     generate_all_architecture_graphs
 )
 
@@ -125,6 +130,8 @@ __all__ = [
     'smooth_matrix_prediction',
     'smooth_regression',
     'nnh_embed',
+    'fit_structural_models',
+    'create_path_graph',
     'simlr_path',
     'permutation_test',
     'deep_simr',
@@ -160,6 +167,7 @@ __all__ = [
     'plot_ned_simr_architecture',
     'plot_ned_shared_private_architecture',
     'plot_nsa_flow_architecture',
+    'plot_path_model',
     'generate_all_architecture_graphs',
     'benchmarks'
 ]

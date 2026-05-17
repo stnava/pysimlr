@@ -398,9 +398,9 @@ def rvcoef_trace_impl(x_centered: torch.Tensor, y_centered: torch.Tensor) -> Dic
     """
     s_xx = x_centered @ x_centered.t()
     s_yy = y_centered @ y_centered.t()
-    s_xy = x_centered @ y_centered.t()
     
-    numerator = torch.sum(s_xy * s_xy) # Equivalent to trace(S_XY @ S_YX)
+    
+    numerator = torch.sum(s_xx * s_yy) # Equivalent to trace(S_XY @ S_YX)
     denom_part1 = torch.sum(s_xx * s_xx)
     denom_part2 = torch.sum(s_yy * s_yy)
     denominator = torch.sqrt(denom_part1 * denom_part2)

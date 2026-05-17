@@ -383,11 +383,13 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           constraint: str = "orthox0.1x1",
           mixing_algorithm: str = "svd",
           sparseness_quantile: float = 0.5,
-          positivity: str = "positive",
+          positivity: str = "either",
           smoothing_matrices: Optional[List[torch.Tensor]] = None,
           domain_matrices: Optional[List[Union[torch.Tensor, np.ndarray]]] = None,
           domain_lambdas: Optional[Union[float, List[float]]] = None,
           orthogonalize_u: bool = False,
+          topology: str = "star",
+          path_graph: Optional[Dict[int, List[int]]] = None,
           scale_list: List[str] = ["centerAndScale", "np"],
           tol: float = 1e-6,
           verbose: bool = False,
@@ -428,6 +430,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         Weight(s) for the domain knowledge alignment objective.
     orthogonalize_u : bool, default=False
         Whether to enforce orthogonality on the consensus matrix U.
+    topology : str, default="star"
+        The consensus topology ("star", "loo", "graph").
+    path_graph : Dict[int, List[int]], optional
+        Adjacency list for "graph" topology.
     scale_list : List[str], default=["centerAndScale", "np"]
         Preprocessing methods to apply to input data.
     tol : float, default=1e-6
@@ -495,8 +501,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     
     for it in range(iterations):
         projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
-        u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u)
+        u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
         for i in range(n_modalities):
+            u_i = u[i] if isinstance(u, list) else u
             # Local energy function that incorporates sparsification/retraction
             def smooth_energy_fn(v_cand):
                 v_cand = v_cand.to(orig_dtype)
@@ -509,10 +516,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                                         constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, 
                                         energy_type=energy_type, modality_index=i)
                 
-                sim_e = calculate_simlr_energy(v_sp, torch_mats[i], u, energy_type) * normalizing_weights[i]
+                sim_e = calculate_simlr_energy(v_sp, torch_mats[i], u_i, energy_type) * normalizing_weights[i]
                 dom_e = 0.0
                 if torch_domains is not None and torch_domains[i] is not None:
-                    dom_e = calculate_simlr_energy(v_sp, torch_mats[i], u, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
+                    dom_e = calculate_simlr_energy(v_sp, torch_mats[i], u_i, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
                 orth_e = 0.0
                 if constraint_type == "ortho": orth_e = invariant_orthogonality_defect(v_sp) * constraint_weight * orth_weights[i]
                 return (sim_e + dom_e + orth_e).item()
@@ -521,10 +528,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             def smooth_gradient_fn(v_curr):
                 if positivity == 'positive': v_curr = torch.abs(v_curr)
                 
-                sim_grad = calculate_simlr_gradient(v_curr, torch_mats[i], u, energy_type) * normalizing_weights[i]
+                sim_grad = calculate_simlr_gradient(v_curr, torch_mats[i], u_i, energy_type) * normalizing_weights[i]
                 dom_grad = 0.0
                 if torch_domains is not None and torch_domains[i] is not None:
-                    dom_grad = calculate_simlr_gradient(v_curr, torch_mats[i], u, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
+                    dom_grad = calculate_simlr_gradient(v_curr, torch_mats[i], u_i, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
                 
                 total_grad = sim_grad + dom_grad
                 # Project gradient onto tangent space
@@ -546,16 +553,22 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             
         if it == 0:
             for i in range(n_modalities):
-                sim_e = calculate_simlr_energy(v_mats[i], torch_mats[i], u, energy_type).item()
+                u_i = u[i] if isinstance(u, list) else u
+                sim_e = calculate_simlr_energy(v_mats[i], torch_mats[i], u_i, energy_type).item()
                 normalizing_weights[i] = 1.0 / (abs(sim_e) * n_modalities + 1e-10)
                 orth_e = invariant_orthogonality_defect(v_mats[i]).item()
                 if orth_e > 1e-10: orth_weights[i] = abs(sim_e) * normalizing_weights[i] / orth_e
                 else: orth_weights[i] = 0.0
                 if torch_domains is not None and torch_domains[i] is not None:
-                    dom_e_raw = calculate_simlr_energy(v_mats[i], torch_mats[i], u, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]).item()
+                    dom_e_raw = calculate_simlr_energy(v_mats[i], torch_mats[i], u_i, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]).item()
                     if abs(dom_e_raw) > 1e-10: domain_weights[i] = abs(sim_e * normalizing_weights[i]) / abs(dom_e_raw)
                     else: domain_weights[i] = 1.0
-        total_energy = sum(calculate_simlr_energy(v_mats[i], torch_mats[i], u, energy_type).item() * normalizing_weights[i] for i in range(n_modalities))
+        
+        total_energy = 0.0
+        for i in range(n_modalities):
+            u_i = u[i] if isinstance(u, list) else u
+            total_energy += calculate_simlr_energy(v_mats[i], torch_mats[i], u_i, energy_type).item() * normalizing_weights[i]
+            
         energy_history.append(total_energy)
         
         # Check for convergence
@@ -569,21 +582,21 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         
     # Re-calculate final shared consensus after the last V update
     projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
-    u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u)
+    u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
     
     v_summaries = [orthogonality_summary(v) for v in v_mats]
     
     # Compute reconstruction weights W_i such that X_i approx U @ W_i
     # W_i = pinv(U) @ X_i
     w_mats = []
-    try:
-        u_pinv = torch.linalg.pinv(u)
-        for x in torch_mats:
+    for i, x in enumerate(torch_mats):
+        u_i = u[i] if isinstance(u, list) else u
+        try:
+            u_pinv = torch.linalg.pinv(u_i)
             w_mats.append(u_pinv @ x)
-    except:
-        # Fallback if pinv fails
-        for x in torch_mats:
-            w_mats.append(torch.zeros(k, x.shape[1], dtype=u.dtype, device=u.device))
+        except:
+            # Fallback if pinv fails
+            w_mats.append(torch.zeros(k, x.shape[1], dtype=u_i.dtype, device=u_i.device))
 
     return {
         "u": u, "v": v_mats, "w": w_mats, "energy": energy_history, 
@@ -592,6 +605,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "converged_iter": converged_iter, "v_orthogonality": v_summaries,
         "mixing_algorithm": mixing_algorithm,
         "orthogonalize_u": orthogonalize_u,
+        "topology": topology,
+        "path_graph": path_graph,
         "energy_type": energy_type,
         "scale_list": scale_list,
         "provenance_list": provenance_list
@@ -687,7 +702,7 @@ def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_p
     return {"simlr_result": res, "stats": stats}
 
 def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
-                          simlr_result: Dict[str, Any]) -> torch.Tensor:
+                          simlr_result: Dict[str, Any]) -> Union[torch.Tensor, List[torch.Tensor]]:
     """
     Compute the shared latent basis U for new data using the trained SIMLR model.
 
@@ -700,8 +715,8 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
     Returns
     -------
-    torch.Tensor
-        The shared consensus latent matrix (N x K) for the new data.
+    Union[torch.Tensor, List[torch.Tensor]]
+        The shared consensus latent matrix (N x K) or list of matrices for the new data.
 
     Raises
     ------
@@ -727,24 +742,26 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     v_mats = simlr_result['v']
     mixing_alg = simlr_result.get('mixing_algorithm', 'svd')
     orthogonalize_u = simlr_result.get('orthogonalize_u', False)
+    topology = simlr_result.get('topology', 'star')
+    path_graph = simlr_result.get('path_graph', None)
     k = v_mats[0].shape[1]
     
     # 2. Project to shared space
     projections = [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)]
     
     # 3. Compute consensus U using the original mixing settings
-    u_new = compute_shared_consensus(projections, mixing_algorithm=mixing_alg, k=k, orthogonalize=orthogonalize_u)
+    u_new = compute_shared_consensus(projections, mixing_algorithm=mixing_alg, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
     return u_new
 
-def reconstruct_from_learned_maps(u: torch.Tensor, 
+def reconstruct_from_learned_maps(u: Union[torch.Tensor, List[torch.Tensor]], 
                                   simlr_result: Dict[str, Any]) -> List[torch.Tensor]:
     """
     Reconstruct all data matrices (modalities) from the shared latent basis U.
 
     Parameters
     ----------
-    u : torch.Tensor
-        The shared latent matrix (N x K).
+    u : Union[torch.Tensor, List[torch.Tensor]]
+        The shared latent matrix (N x K) or list of matrices.
     simlr_result : Dict[str, Any]
         The result dictionary from a previous `simlr` call, which must 
         contain the learned reconstruction weights "w".
@@ -769,8 +786,9 @@ def reconstruct_from_learned_maps(u: torch.Tensor,
     
     w_mats = simlr_result['w']
     reconstructions = []
-    for w in w_mats:
-        x_pred = u @ w.to(u.dtype)
+    for i, w in enumerate(w_mats):
+        u_i = u[i] if isinstance(u, list) else u
+        x_pred = u_i @ w.to(u_i.dtype)
         reconstructions.append(x_pred)
     return reconstructions
 
@@ -826,15 +844,9 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         torch_mats = scaled_mats
 
     if 'model' in simlr_result:
-        model = simlr_result['model']; model.eval(); device = next(model.parameters()).device
-        torch_mats_device = [m.to(device) for m in torch_mats]
-        with torch.no_grad():
-            output = model(torch_mats_device)
-            latents = output[0]
-            reconstructions = output[1]
-            u_new = output[2]
-        errors = [torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10) for x, x_pred in zip(torch_mats_device, reconstructions)]
-        return {"u": torch.nan_to_num(u_new.cpu()), "latents": [torch.nan_to_num(l.cpu()) for l in latents], "reconstructions": [torch.nan_to_num(r.cpu()) for r in reconstructions], "errors": errors}
+        # Fallback to predict_deep logic if a deep model is detected
+        from .deep import predict_deep
+        return predict_deep(data_matrices, simlr_result)
     
     # For standard SIMLR:
     u_new = predict_shared_latent(data_matrices, simlr_result)
@@ -848,14 +860,15 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         mixing_alg = simlr_result.get('mixing_algorithm', 'svd')
         orthogonalize_u = simlr_result.get('orthogonalize_u', False)
         for i, x in enumerate(torch_mats):
+            u_i = u_new[i] if isinstance(u_new, list) else u_new
             u_ortho = orthogonalize_u or (mixing_alg in ["svd", "pca"])
             if u_ortho:
-                weights = u_new.t() @ x
-                x_pred = u_new @ weights
+                weights = u_i.t() @ x
+                x_pred = u_i @ weights
             else:
-                u_pinv = torch.linalg.pinv(u_new)
+                u_pinv = torch.linalg.pinv(u_i)
                 weights = u_pinv @ x
-                x_pred = u_new @ weights
+                x_pred = u_i @ weights
             reconstructions.append(x_pred)
     else:
         raise ValueError("Learned reconstruction weights 'w' missing from simlr_result. "
@@ -868,7 +881,7 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         errors.append(err)
         
     latents = [x @ v.to(x.dtype) for x, v in zip(torch_mats, simlr_result.get("v", []))]
-    return {"u": torch.nan_to_num(u_new), "latents": latents, "reconstructions": reconstructions, "errors": errors}
+    return {"u": u_new, "latents": latents, "reconstructions": reconstructions, "errors": errors}
 
 
 def estimate_rank(data_matrices: List[Union[torch.Tensor, np.ndarray]], n_permutations: int = 20, var_threshold: float = 0.99) -> int:
@@ -969,9 +982,10 @@ def decompose_energy(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr
     This function has been audited for Numpy docstring validity and functional correctness.
     """
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
-    u = simlr_result['u']; v_mats = simlr_result['v']
+    u_all = simlr_result['u']; v_mats = simlr_result['v']
     modality_energies = []; feature_importances = []
     for i, (x, v) in enumerate(zip(torch_mats, v_mats)):
+        u = u_all[i] if isinstance(u_all, list) else u_all
         mod_energy = calculate_simlr_energy(v, x, u, energy_type).item()
         grad = calculate_simlr_gradient(v, x, u, energy_type)
         feat_imp = torch.sum(torch.abs(grad), dim=1).numpy()

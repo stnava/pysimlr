@@ -745,10 +745,16 @@ class NSAFlowOptimizer(SimlrOptimizer):
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         v_next = v_current + self.lr * descent_gradient
         if self.nsa_flow:
+            # Save RNG state because nsa_flow_orth has side effects on global seed
+            rng_state = torch.get_rng_state()
             try:
                 res = self.nsa_flow(v_next, w=self.w, max_iter=5)
+                # Restore RNG state
+                torch.set_rng_state(rng_state)
                 if res['Y'] is not None: return res['Y'].to(v_current.dtype)
-            except: pass
+            except: 
+                torch.set_rng_state(rng_state)
+                pass
         u, s, v_h = torch.linalg.svd(v_next, full_matrices=False)
         return u @ v_h
 
