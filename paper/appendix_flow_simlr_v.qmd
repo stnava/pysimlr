@@ -4,7 +4,7 @@ title: "Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMLR-V)"
 
 ## Model Formulation
 
-To resolve the "Information Masking" problem inherent in deep multi-modal normalizing flows, we introduce **Flow-SiMLR-V**, which pre-pends a Stiefel-constrained linear encoder matrix $\mathbf{V}_m$ to each view's Normalizing Flow. This architecture establishes a strict globally interpretable information bottleneck at the input entry point while retaining bijective density mapping and conditional inference on the consensus latent space.
+To resolve the "Information Masking" problem inherent in deep multi-modal normalizing flows, we introduce **Flow-SiMLR-V**, which pre-pends a Stiefel-constrained linear encoder matrix $\mathbf{V}_m$ to each view's Normalizing Flow. This architecture establishes a strict globally interpretable information bottleneck at the input entry point while retaining bijective density mapping and conditional inference on the consensus latent space. The underlying normalizing flows are implemented natively in PyTorch, adapting structures from the Latent-Aligned Multiview Normalizing Flows (LAMNr Flows) open-source framework ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)).
 
 ### Mathematical Formulation
 For each input modality $\mathbf{X}_m \in \mathbb{R}^{N \times D_m}$:

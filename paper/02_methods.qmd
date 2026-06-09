@@ -209,7 +209,7 @@ NEDPP (Non-linear Encoder Decoder with Private Partitions): Disentangled archite
 
 ### Normalizing Flow SiMLR (Flow-SiMLR): Bijective Multimodal Integration
 
-While the deep architectures (LEND, NED, NEDPP) increase representation capacity, their projection bottlenecks are fundamentally lossy, entangling features and losing fine-grained modality-specific variations. Flow-SiMLR solves this by deploying bijective Normalizing Flows [@rezende2015variational; @dinh2016density] to perform exact, information-preserving coordinate transformations.
+While the deep architectures (LEND, NED, NEDPP) increase representation capacity, their projection bottlenecks are fundamentally lossy, entangling features and losing fine-grained modality-specific variations. Flow-SiMLR solves this by deploying bijective Normalizing Flows [@rezende2015variational; @dinh2016density] to perform exact, information-preserving coordinate transformations. Our normalizing flow model is implemented natively in PyTorch, adapting design principles and architectures from the Latent-Aligned Multiview Normalizing Flows (LAMNr Flows) open-source library ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)), which focuses on exact log-likelihood maximization and consensus alignment of multi-view spaces.
 
 #### 1. Invertible Affine Coupling Formulation
 Each view $m$ is modeled via an invertible mapping $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^{d_m}$ composed of a sequence of affine coupling layers. For input $x \in \mathbb{R}^{d_m}$, a coupling layer splits features using a binary mask $b \in \{0, 1\}^{d_m}$ and maps them as:
