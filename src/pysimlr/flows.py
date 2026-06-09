@@ -19,13 +19,21 @@ class AffineCouplingLayer(nn.Module):
         self.split_dim = dim // 2
         self.scale_bound = scale_bound
         
+        # Dynamically determine the input and output sizes to handle odd dimensions
+        if index % 2 == 0:
+            self.input_size = self.split_dim
+            self.output_size = (dim - self.split_dim) * 2
+        else:
+            self.input_size = dim - self.split_dim
+            self.output_size = self.split_dim * 2
+            
         # Scale and translation neural network
         self.net = nn.Sequential(
-            nn.Linear(self.split_dim, hidden_dim),
+            nn.Linear(self.input_size, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, (dim - self.split_dim) * 2)
+            nn.Linear(hidden_dim, self.output_size)
         )
         
     def _get_mask(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
