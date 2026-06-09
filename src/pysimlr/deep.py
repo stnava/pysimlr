@@ -1545,7 +1545,7 @@ def predict_deep(data_matrices: List[Union[torch.Tensor, np.ndarray]], model_res
         res = model([m.to(device) for m in torch_mats])
         first_layer_scores = [z.cpu() for z in model.encode_first_layer([m.to(device) for m in torch_mats], use_projected=True)] if hasattr(model, "encode_first_layer") else None
         v_list = None
-        if hasattr(model, "encoders"):
+        if hasattr(model, "encoders") and not getattr(model, "is_flow", False):
             v_list = [enc.v.detach().cpu() for enc in model.encoders]
         elif hasattr(model, "linear_encoders"):
             v_list = [enc.v.detach().cpu() for enc in model.linear_encoders]

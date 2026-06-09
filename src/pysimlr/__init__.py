@@ -66,6 +66,13 @@ from .deep import (
     ModalityEncoder,
     predict_deep
 )
+from .flows import (
+    flow_simr,
+    FlowSiMRModel,
+    FlowEncoderWrapper,
+    FlowDecoderWrapper,
+    FlowConditionalInference
+)
 from .consensus import (
     compute_shared_consensus
 )
@@ -145,6 +152,11 @@ __all__ = [
     'NEDSharedPrivateSiMRModel',
     'ModalityEncoder',
     'predict_deep',
+    'flow_simr',
+    'FlowSiMRModel',
+    'FlowEncoderWrapper',
+    'FlowDecoderWrapper',
+    'FlowConditionalInference',
     'compute_shared_consensus',
     'summarize_basis_matrix',
     'build_first_layer_contract',
