@@ -355,6 +355,99 @@ def generate_all_architecture_graphs(output_dir=".", base_fontsize=11) -> List[p
     figs.append(plot_nsa_flow_architecture(save_path=os.path.join(output_dir, "detailed_nsa_flow.pdf"), base_fontsize=base_fontsize))
     return figs
 
+def plot_flow_simr_architecture(save_path=None, base_fontsize=11):
+    """
+    Generate a schematic diagram of the Flow-SiMLR (Normalizing Flow) architecture.
+
+    Flow-SiMLR utilizes bijective normalizing flows to map raw inputs to a joint
+    Gaussian space, partitioning the latent space into shared consensus-aligned
+    coordinates and private coordinate dimensions. This bijectivity enables exact
+    cross-view conditional inference.
+
+    Parameters
+    ----------
+    save_path : str, optional
+        Path to save the generated figure.
+    base_fontsize : int, default=11
+        Base font size for labels and text.
+
+    Returns
+    -------
+    plt.Figure
+        The generated Matplotlib figure.
+    """
+    fig, ax = plt.subplots(figsize=(13, 8))
+    ax.set_xlim(0, 100); ax.set_ylim(0, 100)
+    ax.axis('off')
+    ax.text(50, 95, "Flow-SiMLR: Invertible Normalizing Flow Multi-Modal Integration", ha='center', va='center', fontsize=base_fontsize+3, fontweight='bold')
+    
+    # Input
+    _draw_box(ax, 5, 40, 12, 20, "Input\nX_m", color='#e3f2fd')
+    
+    # Bijective Flow
+    _draw_box(ax, 22, 40, 15, 20, "Normalizing Flow\n(Bijective)", color='#e0f2f1')
+    
+    # Latent coordinates split
+    _draw_box(ax, 45, 60, 12, 15, "Shared Latent\nZ_shared", color='#e0f7fa')
+    _draw_box(ax, 45, 25, 12, 15, "Private Latent\nZ_private", color='#ffe0b2')
+    
+    # Consensus U
+    _draw_box(ax, 65, 60, 12, 15, "Consensus\nTarget U", color='#fce4ec')
+    
+    # Inverse Flow Decoder / Imputation
+    _draw_box(ax, 82, 40, 14, 20, "Inverse Flow\n[Z_shared || 0]", color='#e0f2f1')
+    
+    # Output
+    _draw_box(ax, 93, 20, 5, 20, "X_m'", color='#fafafa')
+    _draw_box(ax, 93, 60, 5, 20, "X_oth'", color='#f3e5f5')
+    
+    # Flow arrows
+    _draw_arrow(ax, 17, 50, 22, 50)
+    _draw_arrow(ax, 37, 55, 45, 65)
+    _draw_arrow(ax, 37, 45, 45, 35)
+    
+    # Latent alignment & conditioning arrows
+    _draw_arrow(ax, 57, 67, 65, 67)
+    _draw_arrow(ax, 57, 60, 82, 53)
+    _draw_arrow(ax, 45+6, 25, 82, 47, color='gray') # private zero-out arrow
+    _draw_arrow(ax, 77, 67, 82, 60, color='blue') # conditional inference path
+    
+    # Decoder output arrows
+    _draw_arrow(ax, 91, 47, 93, 30)
+    _draw_arrow(ax, 91, 53, 93, 65)
+    
+    ax.text(73, 78, "Joint Gaussian\nConditioning", ha='center', fontsize=base_fontsize-2, color='blue', fontweight='bold')
+    
+    if save_path: plt.savefig(save_path, bbox_inches='tight', dpi=300)
+    return fig
+
+# Update generate_all_architecture_graphs to include the new function
+def generate_all_architecture_graphs(output_dir="docs/manuscript/figures", base_fontsize=11):
+    """
+    Generate and save schematic diagrams for all architectures.
+
+    Parameters
+    ----------
+    output_dir : str, default="docs/manuscript/figures"
+        Directory to save the generated PDF figures.
+    base_fontsize : int, default=11
+        Base font size for labels and text.
+
+    Returns
+    -------
+    List[plt.Figure]
+        A list of generated Matplotlib figures.
+    """
+    import os
+    if not os.path.exists(output_dir): os.makedirs(output_dir)
+    figs = []
+    figs.append(plot_lend_simr_architecture(save_path=os.path.join(output_dir, "detailed_lend_simr.pdf"), base_fontsize=base_fontsize))
+    figs.append(plot_ned_simr_architecture(save_path=os.path.join(output_dir, "detailed_ned_simr.pdf"), base_fontsize=base_fontsize))
+    figs.append(plot_ned_shared_private_architecture(save_path=os.path.join(output_dir, "detailed_ned_shared_private.pdf"), base_fontsize=base_fontsize))
+    figs.append(plot_nsa_flow_architecture(save_path=os.path.join(output_dir, "detailed_nsa_flow.pdf"), base_fontsize=base_fontsize))
+    figs.append(plot_flow_simr_architecture(save_path=os.path.join(output_dir, "detailed_flow_simr.pdf"), base_fontsize=base_fontsize))
+    return figs
+
 def plot_path_model(path_graph: Dict[int, List[int]], modality_names: Optional[List[str]] = None, title: str = "Path Model Structure") -> plt.Figure:
     """
     Visualize the structure of a structural path model using NetworkX.

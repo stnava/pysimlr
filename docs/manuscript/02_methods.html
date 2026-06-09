@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.36">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Brian B. Avants">
+<meta name="author" content="Nicholas J. Tustison">
+<meta name="author" content="James R. Stone">
+
+<title>2&nbsp; Methods</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for citations */
+div.csl-bib-body { }
+div.csl-entry {
+  clear: both;
+}
+.hanging-indent div.csl-entry {
+  margin-left:2em;
+  text-indent:-2em;
+}
+div.csl-left-margin {
+  min-width:2em;
+  float:left;
+}
+div.csl-right-inline {
+  margin-left:2em;
+  padding-left:1em;
+}
+div.csl-indent {
+  margin-left: 2em;
+}</style>
+
+
+<script src="site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="site_libs/quarto-nav/headroom.min.js"></script>
+<script src="site_libs/clipboard/clipboard.min.js"></script>
+<script src="site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="site_libs/quarto-search/fuse.min.js"></script>
+<script src="site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="./">
+<link href="./03_experiments.html" rel="next">
+<link href="./01_intro_background.html" rel="prev">
+<script src="site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="site_libs/quarto-html/popper.min.js"></script>
+<script src="site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="site_libs/quarto-html/anchor.min.js"></script>
+<link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-845c23b38eaddc0f92fda52bfe77a8c8.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="site_libs/bootstrap/bootstrap-5ccb035bea26c1e21f80f44cf7c27909.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<script src="site_libs/quarto-diagram/mermaid.min.js"></script>
+<script src="site_libs/quarto-diagram/mermaid-init.js"></script>
+<link href="site_libs/quarto-diagram/mermaid.css" rel="stylesheet">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./02_methods.html"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Methods</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="Search" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="Search"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./01_intro_background.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Background</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./02_methods.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Methods</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./03_experiments.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Experiments</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./04_discussion.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Discussion</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">Appendices</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./appendix_brca_clinical_validation.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-omics Clinical Validation (TCGA-BRCA)</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./appendix_operational.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">B</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./appendix_flow_simlr_v.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMLR-V)</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#theoretical-foundation" id="toc-theoretical-foundation" class="nav-link active" data-scroll-target="#theoretical-foundation"><span class="header-section-number">2.1</span> Theoretical Foundation</a>
+  <ul class="collapse">
+  <li><a href="#the-multi-modal-inverse-problem" id="toc-the-multi-modal-inverse-problem" class="nav-link" data-scroll-target="#the-multi-modal-inverse-problem"><span class="header-section-number">2.1.1</span> The Multi-Modal Inverse Problem</a></li>
+  <li><a href="#olee-as-a-structural-information-bottleneck" id="toc-olee-as-a-structural-information-bottleneck" class="nav-link" data-scroll-target="#olee-as-a-structural-information-bottleneck"><span class="header-section-number">2.1.2</span> OLEE as a Structural Information Bottleneck</a></li>
+  <li><a href="#joint-variational-optimization-framework" id="toc-joint-variational-optimization-framework" class="nav-link" data-scroll-target="#joint-variational-optimization-framework"><span class="header-section-number">2.1.3</span> Joint-Variational Optimization Framework</a></li>
+  </ul></li>
+  <li><a href="#architectural-taxonomy" id="toc-architectural-taxonomy" class="nav-link" data-scroll-target="#architectural-taxonomy"><span class="header-section-number">2.2</span> Architectural Taxonomy</a>
+  <ul class="collapse">
+  <li><a href="#classical-simlr-linear-baseline" id="toc-classical-simlr-linear-baseline" class="nav-link" data-scroll-target="#classical-simlr-linear-baseline"><span class="header-section-number">2.2.1</span> Classical SiMLR (Linear Baseline)</a></li>
+  <li><a href="#lend-linear-encoder-deep-decoder" id="toc-lend-linear-encoder-deep-decoder" class="nav-link" data-scroll-target="#lend-linear-encoder-deep-decoder"><span class="header-section-number">2.2.2</span> LEND (Linear Encoder, Deep Decoder)</a></li>
+  <li><a href="#fully-deep-ned-non-linear-encoder-decoder" id="toc-fully-deep-ned-non-linear-encoder-decoder" class="nav-link" data-scroll-target="#fully-deep-ned-non-linear-encoder-decoder"><span class="header-section-number">2.2.3</span> Fully Deep NED (Non-linear Encoder Decoder)</a></li>
+  <li><a href="#shared-private-nedpp-disentangled-discovery" id="toc-shared-private-nedpp-disentangled-discovery" class="nav-link" data-scroll-target="#shared-private-nedpp-disentangled-discovery"><span class="header-section-number">2.2.4</span> Shared-Private NEDPP (Disentangled Discovery)</a></li>
+  <li><a href="#normalizing-flow-simlr-flow-simlr-bijective-multimodal-integration" id="toc-normalizing-flow-simlr-flow-simlr-bijective-multimodal-integration" class="nav-link" data-scroll-target="#normalizing-flow-simlr-flow-simlr-bijective-multimodal-integration"><span class="header-section-number">2.2.5</span> Normalizing Flow SiMLR (Flow-SiMLR): Bijective Multimodal Integration</a></li>
+  </ul></li>
+  <li><a href="#optimization-consensus-and-spectral-triage" id="toc-optimization-consensus-and-spectral-triage" class="nav-link" data-scroll-target="#optimization-consensus-and-spectral-triage"><span class="header-section-number">2.3</span> Optimization, Consensus, and Spectral Triage</a>
+  <ul class="collapse">
+  <li><a href="#block-coordinate-descent-and-loo-topology" id="toc-block-coordinate-descent-and-loo-topology" class="nav-link" data-scroll-target="#block-coordinate-descent-and-loo-topology"><span class="header-section-number">2.3.1</span> Block-Coordinate Descent and LOO Topology</a></li>
+  <li><a href="#orthogonal-manifold-optimization-via-nsa-flow" id="toc-orthogonal-manifold-optimization-via-nsa-flow" class="nav-link" data-scroll-target="#orthogonal-manifold-optimization-via-nsa-flow"><span class="header-section-number">2.3.2</span> Orthogonal Manifold Optimization via NSA-Flow</a></li>
+  <li><a href="#similarity-metrics-the-energy-function" id="toc-similarity-metrics-the-energy-function" class="nav-link" data-scroll-target="#similarity-metrics-the-energy-function"><span class="header-section-number">2.3.3</span> Similarity Metrics (The Energy Function)</a></li>
+  <li><a href="#spectral-triage-and-modality-alignment-index-mai" id="toc-spectral-triage-and-modality-alignment-index-mai" class="nav-link" data-scroll-target="#spectral-triage-and-modality-alignment-index-mai"><span class="header-section-number">2.3.4</span> Spectral Triage and Modality Alignment Index (MAI)</a></li>
+  </ul></li>
+  <li><a href="#properties-bounds" id="toc-properties-bounds" class="nav-link" data-scroll-target="#properties-bounds"><span class="header-section-number">2.4</span> Properties &amp; Bounds</a>
+  <ul class="collapse">
+  <li><a href="#auditability-by-design-and-exact-counterfactuals" id="toc-auditability-by-design-and-exact-counterfactuals" class="nav-link" data-scroll-target="#auditability-by-design-and-exact-counterfactuals"><span class="header-section-number">2.4.1</span> Auditability by Design and Exact Counterfactuals</a></li>
+  <li><a href="#the-consistency-interpretability-tradeoff" id="toc-the-consistency-interpretability-tradeoff" class="nav-link" data-scroll-target="#the-consistency-interpretability-tradeoff"><span class="header-section-number">2.4.2</span> The Consistency-Interpretability Tradeoff</a></li>
+  <li><a href="#theoretical-bounds-the-1m-law" id="toc-theoretical-bounds-the-1m-law" class="nav-link" data-scroll-target="#theoretical-bounds-the-1m-law"><span class="header-section-number">2.4.3</span> Theoretical Bounds: The 1/M Law</a></li>
+  </ul></li>
+  <li><a href="#evaluation-strategies" id="toc-evaluation-strategies" class="nav-link" data-scroll-target="#evaluation-strategies"><span class="header-section-number">2.5</span> Evaluation Strategies</a>
+  <ul class="collapse">
+  <li><a href="#technical-glossary-of-performance-metrics" id="toc-technical-glossary-of-performance-metrics" class="nav-link" data-scroll-target="#technical-glossary-of-performance-metrics"><span class="header-section-number">2.5.1</span> Technical Glossary of Performance Metrics</a></li>
+  <li><a href="#statistical-determination-of-intrinsic-dimensionality-k" id="toc-statistical-determination-of-intrinsic-dimensionality-k" class="nav-link" data-scroll-target="#statistical-determination-of-intrinsic-dimensionality-k"><span class="header-section-number">2.5.2</span> Statistical Determination of Intrinsic Dimensionality (K)</a></li>
+  </ul></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Methods</span></h1>
+</div>
+
+
+<div class="quarto-title-meta-author">
+  <div class="quarto-title-meta-heading">Authors</div>
+  <div class="quarto-title-meta-heading">Affiliation</div>
+  
+    <div class="quarto-title-meta-contents">
+    <p class="author">Brian B. Avants </p>
+  </div>
+  <div class="quarto-title-meta-contents">
+        <p class="affiliation">
+            University of Virginia
+          </p>
+      </div>
+    <div class="quarto-title-meta-contents">
+    <p class="author">Nicholas J. Tustison </p>
+  </div>
+  <div class="quarto-title-meta-contents">
+        <p class="affiliation">
+            University of Virginia
+          </p>
+      </div>
+    <div class="quarto-title-meta-contents">
+    <p class="author">James R. Stone </p>
+  </div>
+  <div class="quarto-title-meta-contents">
+        <p class="affiliation">
+            University of Virginia
+          </p>
+      </div>
+  </div>
+
+<div class="quarto-title-meta">
+
+      
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="theoretical-foundation" class="level2" data-number="2.1">
+<h2 data-number="2.1" class="anchored" data-anchor-id="theoretical-foundation"><span class="header-section-number">2.1</span> Theoretical Foundation</h2>
+<section id="the-multi-modal-inverse-problem" class="level3" data-number="2.1.1">
+<h3 data-number="2.1.1" class="anchored" data-anchor-id="the-multi-modal-inverse-problem"><span class="header-section-number">2.1.1</span> The Multi-Modal Inverse Problem</h3>
+<p>We frame multi-modal integration as a highly structured inverse problem. Each modality provides a partial, noisy observation of an underlying high-dimensional manifold, which represents the true generative state of the biological system. These observations reside within modality-specific measurement domains (e.g., transcriptomics, clinical phenotypes), each characterized by distinct signal-to-noise ratios and domain-specific artifacts. The mathematical objective is to compute a coherent, shared representation of the true state from these disparate observations, isolating cross-modal consensus from idiosyncratic noise.</p>
+</section>
+<section id="olee-as-a-structural-information-bottleneck" class="level3" data-number="2.1.2">
+<h3 data-number="2.1.2" class="anchored" data-anchor-id="olee-as-a-structural-information-bottleneck"><span class="header-section-number">2.1.2</span> OLEE as a Structural Information Bottleneck</h3>
+<p>Following Tishby’s Information Bottleneck theorem <span class="citation" data-cites="tishby2000information">(<a href="#ref-tishby2000information" role="doc-biblioref">Tishby et al. 2000</a>)</span>, standard multi-layer perceptrons (MLPs) process inputs via <span class="math inline">\(\mathbf{Z} = \text{MLP}(\mathbf{X})\)</span>, which fundamentally entangles the mutual information <span class="math inline">\(I(\mathbf{X}; \mathbf{Z})\)</span> across successive layers. While this enables high theoretical capacity, unconstrained deep networks routinely memorize structured nuisance variables and observational noise, leading to catastrophic representation collapse and a failure to identify the true generative features.</p>
+<p>We systematically resolve this entanglement by enforcing the Only Linear Encoder Entry (OLEE) constraint, formulating the initial projection <span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span> as a rigorous, structural information bottleneck. Because the dimensionality is strictly bounded by <span class="math inline">\(k \ll d_m\)</span> and the basis <span class="math inline">\(\mathbf{V}_m\)</span> is maintained rigorously orthogonal via optimization on the Stiefel manifold <span class="citation" data-cites="edelman1998geometry">(<a href="#ref-edelman1998geometry" role="doc-biblioref">Edelman et al. 1998</a>)</span>, the mutual information <span class="math inline">\(I(\mathbf{X}_m; \mathbf{Z}_m)\)</span> is intrinsically constrained. OLEE forces the network to distill only the most informative, non-redundant variance components that maximize consensus alignment, actively discarding modality-specific noise before non-linear entanglement can occur.</p>
+</section>
+<section id="joint-variational-optimization-framework" class="level3" data-number="2.1.3">
+<h3 data-number="2.1.3" class="anchored" data-anchor-id="joint-variational-optimization-framework"><span class="header-section-number">2.1.3</span> Joint-Variational Optimization Framework</h3>
+<p>We introduce a generalized joint-variational optimization framework unifying the Similarity-driven Multi-view Linear Reconstruction (SiMLR) taxonomy.</p>
+<p>For <span class="math inline">\(M\)</span> modalities, let <span class="math inline">\(\mathbf{X}_m \in \mathbb{R}^{n \times d_m}\)</span> denote the input data matrix for modality <span class="math inline">\(m \in \{1, \dots, M\}\)</span>. We optimize an encoder <span class="math inline">\(f_m: \mathbb{R}^{d_m} \to \mathbb{R}^k\)</span> and a decoder <span class="math inline">\(g_m: \mathbb{R}^k \to \mathbb{R}^{d_m}\)</span>. We define the latent representation as <span class="math inline">\(\mathbf{Z}_m = f_m(\mathbf{X}_m) \in \mathbb{R}^{n \times k}\)</span> and the reconstruction as <span class="math inline">\(\hat{\mathbf{X}}_m = g_m(\mathbf{Z}_m)\)</span>.</p>
+<p>The global objective function <span class="math inline">\(\mathcal{L}\)</span> is defined as:</p>
+<p><span class="math display">\[
+\mathcal{L}(\{f_m, g_m\}_{m=1}^M, \mathbf{U}) = \sum_{m=1}^M \left( \mathcal{L}_{\text{recon}}(\mathbf{X}_m, \hat{\mathbf{X}}_m) + \lambda_{\text{sim}} \mathcal{L}_{\text{align}}(\mathbf{Z}_m, \mathbf{U}_{\neq m}) + \gamma \mathcal{P}_{\text{NSA}}(\mathbf{V}_m) \right) + \mathcal{R}(\mathbf{Z})
+\]</span></p>
+<p>where: - <span class="math inline">\(\mathbf{U}_{\neq m}\)</span> represents the consensus target derived from all modalities except <span class="math inline">\(m\)</span>, enforced via the <strong>Leave-One-Out (LOO)</strong> topology. - <span class="math inline">\(\mathcal{P}_{\text{NSA}}(\mathbf{V}_m)\)</span> is the <strong>Non-negative Stiefel Approximating Flow (NSA-Flow)</strong> penalty applied to the linear basis <span class="math inline">\(\mathbf{V}_m\)</span> to enforce orthogonality. - <span class="math inline">\(\mathcal{R}(\mathbf{Z})\)</span> defines joint regularization terms, such as variance preservation and covariance penalization.</p>
+</section>
+</section>
+<section id="architectural-taxonomy" class="level2" data-number="2.2">
+<h2 data-number="2.2" class="anchored" data-anchor-id="architectural-taxonomy"><span class="header-section-number">2.2</span> Architectural Taxonomy</h2>
+<p>The joint-variational objective establishes a foundation for a modular architectural taxonomy. We present four distinct algorithmic implementations, each motivated by the limitations of the prior model, progressively increasing representational capacity while strictly maintaining the OLEE interpretability bottleneck.</p>
+<section id="classical-simlr-linear-baseline" class="level3" data-number="2.2.1">
+<h3 data-number="2.2.1" class="anchored" data-anchor-id="classical-simlr-linear-baseline"><span class="header-section-number">2.2.1</span> Classical SiMLR (Linear Baseline)</h3>
+<p>The classical formulation provides a strictly linear baseline, assuming the underlying manifold can be adequately mapped via Euclidean projections.</p>
+<ul>
+<li><strong>Encoder:</strong> <span class="math inline">\(f_m(\mathbf{X}_m) = \mathbf{X}_m \mathbf{V}_m\)</span></li>
+<li><strong>Decoder:</strong> <span class="math inline">\(g_m(\mathbf{Z}_m) = \mathbf{Z}_m \mathbf{W}_m\)</span></li>
+</ul>
+<p>The linear basis <span class="math inline">\(\mathbf{V}_m\)</span> is strictly regularized by NSA-Flow to the Stiefel manifold. This enforces orthogonal feature discovery and provides a fully interpretable, albeit capacity-limited, baseline.</p>
+<div id="fig-simlr" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-simlr-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">#| fig-width: 6
+#| fig-align: center
+graph LR
+    X[Input X_m] --&gt; V[Basis V_m]
+    V --&gt; Z[Latent Z_m]
+    V -.-&gt;|NSA-Flow| Stiefel[Stiefel Manifold]
+    Z --&gt;|Linear Weights W_m| R[Recon X'_m]
+    
+    Other[Other Latents] --&gt; MAI[MAI Weighting]
+    MAI --&gt; U["Target U_{≠m}^{(t)}"]
+    Z -.-&gt;|Alignment Loss| U
+    
+    style Z fill:#e3f2fd,stroke:#1565c0,color:#000
+    style U fill:#fce4ec,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,color:#000
+    style MAI fill:#fff3e0,stroke:#e65100,color:#000
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-simlr-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2.1: Classical SiMLR: Information flow for a linear encoder and decoder. The basis <span class="math inline">\(\mathbf{V}_m\)</span> acts as a structural information bottleneck.
+</figcaption>
+</figure>
+</div>
+</section>
+<section id="lend-linear-encoder-deep-decoder" class="level3" data-number="2.2.2">
+<h3 data-number="2.2.2" class="anchored" data-anchor-id="lend-linear-encoder-deep-decoder"><span class="header-section-number">2.2.2</span> LEND (Linear Encoder, Deep Decoder)</h3>
+<p>While Classical SiMLR guarantees interpretability, a linear decoder often fails to reconstruct highly non-linear observational spaces (e.g., raw pixel intensities or complex gene regulatory networks). LEND addresses this by pairing the exact linear feature attribution of the OLEE constraint with a deep, non-linear decoder.</p>
+<ul>
+<li><strong>Encoder:</strong> <span class="math inline">\(f_m(\mathbf{X}_m) = \mathbf{X}_m \mathbf{V}_m\)</span> (OLEE)</li>
+<li><strong>Decoder:</strong> <span class="math inline">\(g_m(\mathbf{Z}_m) = \text{MLP}_{\theta_m}(\mathbf{Z}_m)\)</span></li>
+</ul>
+<p>LEND represents a Pareto-optimal operating point: it provides deep manifold denoising during reconstruction without sacrificing the strict mathematical auditability of the input features.</p>
+<div id="fig-lend" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-lend-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">#| fig-width: 6
+#| fig-align: center
+graph LR
+    X[Input X_m] --&gt; V[OLEE V_m]
+    V --&gt; Z[Latent Z_m]
+    V -.-&gt;|NSA-Flow| S[Stiefel Manifold]
+    V -.-&gt;|Exact Mapping| A[Feature Attribution]
+    
+    Other[Other Latents] --&gt; MAI[MAI Weighting]
+    MAI --&gt; U["Target U_{≠m}^{(t)}"]
+    Z -.-&gt;|Alignment Loss| U
+    
+    Z --&gt;|Deep MLP g_m| H1[Hidden L1]
+    H1 --&gt;|Activation| H2[Hidden L2]
+    H2 --&gt; R[Recon X'_m]
+    
+    style Z fill:#e8f5e9,stroke:#2e7d32,color:#000
+    style U fill:#fce4ec,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,color:#000
+    style MAI fill:#fff3e0,stroke:#e65100,color:#000
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-lend-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2.2: LEND: OLEE-constrained linear encoder coupled with a deep MLP decoder for non-linear manifold reconstruction.
+</figcaption>
+</figure>
+</div>
+</section>
+<section id="fully-deep-ned-non-linear-encoder-decoder" class="level3" data-number="2.2.3">
+<h3 data-number="2.2.3" class="anchored" data-anchor-id="fully-deep-ned-non-linear-encoder-decoder"><span class="header-section-number">2.2.3</span> Fully Deep NED (Non-linear Encoder Decoder)</h3>
+<p>If the underlying biological signal is non-linearly embedded within the feature space itself, LEND’s linear bottleneck may drop critical variance. NED mitigates this by applying a non-linear function to the latent space strictly <em>subsequent</em> to the initial OLEE constraint.</p>
+<ul>
+<li><strong>Encoder:</strong> <span class="math inline">\(f_m(\mathbf{X}_m) = \text{MLP}_{\phi_m}(\mathbf{X}_m \mathbf{V}_m)\)</span></li>
+<li><strong>Decoder:</strong> <span class="math inline">\(g_m(\mathbf{Z}_m) = \text{MLP}_{\theta_m}(\mathbf{Z}_m)\)</span></li>
+</ul>
+<p>This architecture provides maximal representational capacity. The initial projection <span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> preserves the formal Information Bottleneck, guaranteeing that all downstream non-linear transformations are irrevocably grounded in an identifiable linear subspace.</p>
+<div id="fig-ned" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-ned-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">#| fig-width: 6
+#| fig-align: center
+graph LR
+    X[Input X_m] --&gt; V[OLEE V_m]
+    V -.-&gt;|NSA-Flow| Ortho[Stiefel Manifold]
+    V --&gt; H_enc[Hidden Head]
+    H_enc --&gt;|Activation| Z[Latent Z_m]
+    
+    Other[Other Latents] --&gt; MAI[MAI Weighting]
+    MAI --&gt; U["Target U_{≠m}^{(t)}"]
+    Z -.-&gt;|Alignment Loss| U
+    
+    Z --&gt;|Deep MLP Decoder g_m| R[Recon X'_m]
+    
+    style Z fill:#fff3e0,stroke:#e65100,color:#000
+    style U fill:#fce4ec,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,color:#000
+    style MAI fill:#fff3e0,stroke:#e65100,color:#000
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-ned-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2.3: NED: Multi-layer encoder subject to the initial OLEE information bottleneck constraint, coupled with a deep MLP decoder.
+</figcaption>
+</figure>
+</div>
+</section>
+<section id="shared-private-nedpp-disentangled-discovery" class="level3" data-number="2.2.4">
+<h3 data-number="2.2.4" class="anchored" data-anchor-id="shared-private-nedpp-disentangled-discovery"><span class="header-section-number">2.2.4</span> Shared-Private NEDPP (Disentangled Discovery)</h3>
+<p>Despite LOO consensus, highly expressive models like NED can still be confounded if modality-specific idiosyncratic noise is massive enough to dominate the optimization landscape. NEDPP resolves this by explicitly partitioning the latent space, decoupling modality-specific variance from the shared biological signal.</p>
+<ul>
+<li><strong>Encoder:</strong> <span class="math inline">\(f_m(\mathbf{X}_m) = [\text{MLP}_{\phi_{m,\text{shared}}}(\mathbf{X}_m \mathbf{V}_{m,\text{shared}}) \parallel \text{MLP}_{\phi_{m,\text{private}}}(\mathbf{X}_m \mathbf{V}_{m,\text{private}})] = [\mathbf{S}_m \parallel \mathbf{P}_m]\)</span></li>
+<li><strong>Decoder:</strong> <span class="math inline">\(g_m(\mathbf{S}_m \parallel \mathbf{P}_m) = \text{MLP}_{\theta_m}(\mathbf{S}_m \parallel \mathbf{P}_m)\)</span></li>
+</ul>
+<p>We enforce disentanglement via a cross-covariance penalty <span class="math inline">\(\text{Cov}(\mathbf{S}_m, \mathbf{P}_m) \to \mathbf{0}\)</span>, orthogonalizing the shared and private representations. Assuming Gaussian-distributed latent variables, driving this penalty to zero guarantees statistical independence between the subspaces. This theoretical bound prevents high-variance artifacts from leaking into the shared consensus, isolating the true cross-modal signal.</p>
+<div id="fig-nedpp" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-nedpp-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">#| fig-width: 6
+#| fig-align: center
+graph TD
+    X[Input X_m] --&gt; Vs[OLEE V_shared]
+    X --&gt; Vp[OLEE V_private]
+    Vs -.-&gt;|NSA-Flow| Stiefel[Stiefel Manifold]
+    Vp -.-&gt;|NSA-Flow| Stiefel
+    Vs --&gt; S_enc[Shared Head] --&gt; S[Shared Z_m]
+    Vp --&gt; P_enc[Private Head] --&gt; P[Private P_m]
+    
+    Other[Other Latents] --&gt; MAI[MAI Weighting]
+    MAI --&gt; U["Target U_{≠m}^{(t)}"]
+    S -.-&gt;|Alignment Loss| U
+    
+    subgraph Disentanglement
+        S -.-&gt;|Cross-Covariance| O[S perp P]
+        P -.-&gt;|Cross-Covariance| O
+    end
+
+    S --&gt;|Concat| J[Joint Latent]
+    P --&gt;|Concat| J
+    J --&gt;|Deep Decoder g_m| R[Recon X'_m]
+    
+    style S fill:#e3f2fd,stroke:#1565c0,color:#000
+    style P fill:#f3e5f5,stroke:#7b1fa2,color:#000
+    style J fill:#fffde7,stroke:#fbc02d,color:#000
+    style U fill:#fce4ec,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5,color:#000
+    style MAI fill:#fff3e0,stroke:#e65100,color:#000
+    style Disentanglement fill:#ffffff,stroke:#333
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-nedpp-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2.4: NEDPP (Non-linear Encoder Decoder with Private Partitions): Disentangled architecture utilizing OLEE constraints for both shared and private subspaces. Incorporates cross-covariance penalization for statistical independence.
+</figcaption>
+</figure>
+</div>
+</section>
+<section id="normalizing-flow-simlr-flow-simlr-bijective-multimodal-integration" class="level3" data-number="2.2.5">
+<h3 data-number="2.2.5" class="anchored" data-anchor-id="normalizing-flow-simlr-flow-simlr-bijective-multimodal-integration"><span class="header-section-number">2.2.5</span> Normalizing Flow SiMLR (Flow-SiMLR): Bijective Multimodal Integration</h3>
+<p>While the deep architectures (LEND, NED, NEDPP) increase representation capacity, their projection bottlenecks are fundamentally lossy, entangling features and losing fine-grained modality-specific variations. Flow-SiMLR solves this by deploying bijective Normalizing Flows <span class="citation" data-cites="rezende2015variational dinh2016density">(<a href="#ref-rezende2015variational" role="doc-biblioref">Rezende and Mohamed 2015</a>; <a href="#ref-dinh2016density" role="doc-biblioref">Dinh et al. 2016</a>)</span> to perform exact, information-preserving coordinate transformations.</p>
+<section id="invertible-affine-coupling-formulation" class="level4" data-number="2.2.5.1">
+<h4 data-number="2.2.5.1" class="anchored" data-anchor-id="invertible-affine-coupling-formulation"><span class="header-section-number">2.2.5.1</span> 1. Invertible Affine Coupling Formulation</h4>
+<p>Each view <span class="math inline">\(m\)</span> is modeled via an invertible mapping <span class="math inline">\(f_m: \mathbb{R}^{d_m} \to \mathbb{R}^{d_m}\)</span> composed of a sequence of affine coupling layers. For input <span class="math inline">\(x \in \mathbb{R}^{d_m}\)</span>, a coupling layer splits features using a binary mask <span class="math inline">\(b \in \{0, 1\}^{d_m}\)</span> and maps them as: <span class="math display">\[z_{1} = b \odot x\]</span> <span class="math display">\[z_{2} = (1 - b) \odot \left( x \odot e^{s(z_{1})} + t(z_{1}) \right)\]</span> where <span class="math inline">\(s\)</span> and <span class="math inline">\(t\)</span> are scaling and translation networks (MLPs). To ensure mathematical stability and prevent gradient explosion, scale outputs are bounded using: <span class="math display">\[s(z_{1}) = \text{scale\_bound} \times \tanh\left(s_{\text{net}}(z_{1})\right)\]</span> The inverse transformation is analytically exact and requires no network inversion: <span class="math display">\[x_{1} = b \odot z\]</span> <span class="math display">\[x_{2} = (1 - b) \odot \left( (z - t(z_{1})) \odot e^{-s(z_{1})} \right)\]</span> The log-Jacobian determinant for a single coupling layer is: <span class="math display">\[\log |\det J| = \sum_{j: b_j = 0} s_j(z_{1})\]</span></p>
+</section>
+<section id="shared-private-bottleneck-hybrid-loss" class="level4" data-number="2.2.5.2">
+<h4 data-number="2.2.5.2" class="anchored" data-anchor-id="shared-private-bottleneck-hybrid-loss"><span class="header-section-number">2.2.5.2</span> 2. Shared-Private Bottleneck &amp; Hybrid Loss</h4>
+<p>Normalizing flows preserve input dimensions. To implement a low-dimensional consensus bottleneck <span class="math inline">\(k \ll d_m\)</span>, we partition the latent coordinates into shared and private subspaces: <span class="math display">\[\mathbf{Z}_m = f_m(\mathbf{X}_m) \quad \text{where} \quad \mathbf{Z}_{m,\text{shared}} = \mathbf{Z}_{m, 1:k}, \quad \mathbf{Z}_{m,\text{private}} = \mathbf{Z}_{m, k+1:d_m}\]</span> Alignment optimization guides the shared components <span class="math inline">\(\mathbf{Z}_{m,\text{shared}}\)</span> toward the consensus target <span class="math inline">\(\mathbf{U}_{\neq m}\)</span>. To force the flow to pack the essential reconstruction information into these first <span class="math inline">\(k\)</span> dimensions, we define the decoder wrapper using zero-padding: <span class="math display">\[\hat{\mathbf{X}}_m = f_m^{-1}\left([\mathbf{Z}_{m,\text{shared}} \parallel \mathbf{0}]\right)\]</span> This yields a hybrid objective function: <span class="math display">\[\mathcal{L}_{\text{Flow-SiMLR}} = \beta \sum_{m=1}^M \mathcal{L}_{\text{NLL}}(\mathbf{X}_m) + \sum_{m=1}^M \mathcal{L}_{\text{align}}(\mathbf{Z}_{m,\text{shared}}, \mathbf{U}_{\neq m}) + \gamma \sum_{m=1}^M \mathcal{L}_{\text{MSE}}(\mathbf{X}_m, \hat{\mathbf{X}}_m)\]</span> where <span class="math inline">\(\mathcal{L}_{\text{NLL}}\)</span> is the negative log-prior density under a standard multivariate Gaussian: <span class="math display">\[\mathcal{L}_{\text{NLL}}(\mathbf{X}_m) = - \mathbb{E}_{x \sim \mathbf{X}_m} \left[ \log p_Z(f_m(x)) + \log |\det J_{f_m}(x)| \right]\]</span> with <span class="math inline">\(\log p_Z(z) = -\frac{1}{2} \|z\|_2^2 - \frac{d_m}{2}\log(2\pi)\)</span>. The scaling factors <span class="math inline">\(\beta\)</span> (default <span class="math inline">\(0.05\)</span>) and <span class="math inline">\(\gamma\)</span> (default <span class="math inline">\(2.0\)</span>) balance density maximization, alignment, and low-dimensional reconstruction fidelity.</p>
+</section>
+<section id="joint-gaussian-conditional-inference" class="level4" data-number="2.2.5.3">
+<h4 data-number="2.2.5.3" class="anchored" data-anchor-id="joint-gaussian-conditional-inference"><span class="header-section-number">2.2.5.3</span> 3. Joint Gaussian Conditional Inference</h4>
+<p>Because normalizing flows transform complex distributions into Gaussian latent representations, we parameterize the concatenated shared latent space across all views as a joint multivariate Gaussian distribution: <span class="math display">\[\mathbf{Z}_{\text{joint}} = \left[\mathbf{Z}_{1,\text{shared}} \parallel \mathbf{Z}_{2,\text{shared}} \parallel \dots \parallel \mathbf{Z}_{M,\text{shared}}\right] \sim \mathcal{N}(\mu, \Sigma)\]</span> For any observed view <span class="math inline">\(A\)</span> and unobserved target view <span class="math inline">\(B\)</span>, we partition the joint mean vector and covariance matrix: <span class="math display">\[\mu = \begin{pmatrix} \mu_A \\ \mu_B \end{pmatrix}, \quad \Sigma = \begin{pmatrix} \Sigma_{AA} &amp; \Sigma_{AB} \\ \Sigma_{BA} &amp; \Sigma_{BB} \end{pmatrix}\]</span> Using the Schur complement, the exact conditional latent mean of view <span class="math inline">\(B\)</span> given observed latent view <span class="math inline">\(A\)</span> is: <span class="math display">\[\mu_{B|A} = \mu_B + \Sigma_{BA} \Sigma_{AA}^{-1} \left(\mathbf{Z}_{A,\text{shared}} - \mu_A\right)\]</span> We solve this linear system efficiently using a Cholesky solver. Finally, we pass the conditional latent coordinates through the inverse flow decoder of view <span class="math inline">\(B\)</span> to synthesize its features: <span class="math display">\[\hat{\mathbf{X}}_B = f_B^{-1}\left([\mu_{B|A} \parallel \mathbf{0}]\right)\]</span> This enables exact, mathematically principled cross-view imputation and counterfactual clinical synthesis.</p>
+<div id="fig-flow-simlr" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-flow-simlr-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">#| fig-width: 6
+#| fig-align: center
+graph TD
+    subgraph FlowEncoder ["Flow Encoder"]
+        X[Input X_m] --&gt; Flow[Normalizing Flow]
+        Flow --&gt; Z_full[Full Latent]
+        Z_full --&gt; Z_shared[Shared Latent]
+        Z_full --&gt; Z_private[Private Latent]
+    end
+
+    subgraph Consensus ["Consensus Alignment"]
+        Z_shared -.-&gt; Alignment[Alignment Loss]
+        Alignment -.-&gt; Target[Target U]
+    end
+
+    subgraph FlowDecoder ["Flow Decoder"]
+        Z_shared --&gt; Z_padded[Padded Latent]
+        Z_padded --&gt; InvFlow[Inverse Flow]
+        InvFlow --&gt; R[Reconstructed X_m]
+    end
+
+    subgraph Conditioning ["Joint Conditional Inference"]
+        Z_shared --&gt; Fit[Fit Joint Gaussian]
+        Fit --&gt; Cond[Predict Target Latent]
+        Cond --&gt; DecB[Decode to Target View]
+    end
+
+    style Z_shared fill:#e0f2f1,stroke:#004d40,color:#000
+    style Z_private fill:#ffe0b2,stroke:#e65100,color:#000
+    style Z_padded fill:#e0f2f1,stroke:#004d40,color:#000
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-flow-simlr-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2.5: Flow-SiMLR: Normalizing flow architecture. The bijective flow maps inputs to a joint Gaussian latent space. The first <span class="math inline">\(k\)</span> dimensions are aligned with the shared cross-view consensus, while the remaining dimensions act as an implicit private partition. Padded decoding and Gaussian conditioning enable exact reconstruction and cross-view synthesis.
+</figcaption>
+</figure>
+</div>
+</section>
+</section>
+</section>
+<section id="optimization-consensus-and-spectral-triage" class="level2" data-number="2.3">
+<h2 data-number="2.3" class="anchored" data-anchor-id="optimization-consensus-and-spectral-triage"><span class="header-section-number">2.3</span> Optimization, Consensus, and Spectral Triage</h2>
+<p>With the architectural models defined, we now detail the optimization strategy, the consensus formation, and the automated mechanisms required to stabilize deep multi-modal alignment.</p>
+<section id="block-coordinate-descent-and-loo-topology" class="level3" data-number="2.3.1">
+<h3 data-number="2.3.1" class="anchored" data-anchor-id="block-coordinate-descent-and-loo-topology"><span class="header-section-number">2.3.1</span> Block-Coordinate Descent and LOO Topology</h3>
+<p>We rigidly formalize our parameter optimization through a strict Block-Coordinate Descent (BCD) procedure. At each iteration <span class="math inline">\(t\)</span>, we decouple the learning process into two distinct phases:</p>
+<ol type="1">
+<li><p><strong>Consensus Formation (LOO Topology):</strong> We fix the network parameters <span class="math inline">\(\{f_m, g_m\}\)</span> and compute the consensus targets <span class="math inline">\(\mathbf{U}_{\neq m}\)</span> using a strictly enforced Leave-One-Out (LOO) topology: <span class="math display">\[ \mathbf{U}_{\neq m}^{(t)} = \text{Consensus}(\{\mathbf{Z}_i^{(t-1)}\}_{i \neq m}) \]</span> The LOO topology explicitly excludes modality <span class="math inline">\(m\)</span> from calculating its own target. This architectural constraint actively prevents high-capacity networks from memorizing trivial identity mappings, rigorously forcing the model to discover universally shared cross-modal signals.</p></li>
+<li><p><strong>Parameter Update:</strong> We fix the derived consensus <span class="math inline">\(\mathbf{U}_{\neq m}^{(t)}\)</span> and globally minimize <span class="math inline">\(\mathcal{L}\)</span> for each specific modality: <span class="math display">\[ \{f_m^{(t)}, g_m^{(t)}\} = \arg\min_{f_m, g_m} \mathcal{L}(\{f_m, g_m\}, \mathbf{U}_{\neq m}^{(t)}) \]</span></p></li>
+</ol>
+</section>
+<section id="orthogonal-manifold-optimization-via-nsa-flow" class="level3" data-number="2.3.2">
+<h3 data-number="2.3.2" class="anchored" data-anchor-id="orthogonal-manifold-optimization-via-nsa-flow"><span class="header-section-number">2.3.2</span> Orthogonal Manifold Optimization via NSA-Flow</h3>
+<p>Enforcing exact orthogonality via traditional Singular Value Decomposition (SVD) imposes a severe <span class="math inline">\(\mathcal{O}(K^3)\)</span> computational bottleneck and injects non-differentiable discontinuities into the optimization trajectory. We conclusively bypass this limitation by executing gradient descent directly on the Stiefel manifold <span class="math inline">\(\mathbb{V}_{k,d_m} = \{ \mathbf{V} \in \mathbb{R}^{d_m \times k} \mid \mathbf{V}^\top \mathbf{V} = \mathbf{I}_k \}\)</span> <span class="citation" data-cites="edelman1998geometry">(<a href="#ref-edelman1998geometry" role="doc-biblioref">Edelman et al. 1998</a>)</span>.</p>
+<p>We achieve this by coupling the NSA-Flow penalty with Newton-Schulz iterations. Employing the iterative update rule <span class="math inline">\(\mathbf{V}_{t+1} = \frac{1}{2} \mathbf{V}_t (3\mathbf{I} - \mathbf{V}_t^\top \mathbf{V}_t)\)</span> drives quadratic convergence to the Stiefel manifold utilizing strictly batched matrix multiplications, aggressively reducing computational complexity to a highly scalable <span class="math inline">\(\mathcal{O}(d_m K^2)\)</span>. NSA-Flow replaces hard SVD projections with a smooth, fully differentiable penalty, mathematically guaranteeing that the BCD procedure monotonically decreases the global objective without risking mode collapse.</p>
+</section>
+<section id="similarity-metrics-the-energy-function" class="level3" data-number="2.3.3">
+<h3 data-number="2.3.3" class="anchored" data-anchor-id="similarity-metrics-the-energy-function"><span class="header-section-number">2.3.3</span> Similarity Metrics (The Energy Function)</h3>
+<p>To operationalize the alignment <span class="math inline">\(\mathcal{L}_{\text{align}}\)</span>, we implement multiple distinct similarity metrics (referred to as the “energy” of the consensus), each possessing specific theoretical advantages depending on the noise distribution of the data:</p>
+<ol type="1">
+<li><strong>Regression:</strong> Minimizes the Mean Squared Error (MSE) between the normalized latent representations and the consensus target. This assumes Gaussian-distributed alignment errors and serves as an effective baseline for stable manifolds.</li>
+<li><strong>Absolute Canonical Covariance (ACC):</strong> Maximizes the unnormalized inner product with the consensus. ACC theoretically assumes a uniform signal magnitude across views, making it optimal when variances are precisely controlled and uniform.</li>
+<li><strong>Normalized Covariance (NC):</strong> Dynamically scales latent representations to unit variance prior to alignment. This prevents “Modality Starvation”—where a low-variance modality is ignored by the consensus—ensuring that weak but informative signals contribute proportionally.</li>
+<li><strong>Log-Cosh:</strong> A robust, approximation of Independent Component Analysis (ICA) objectives. Log-Cosh bounds the influence of extreme outliers, providing superior cross-modal alignment when dealing with heavy-tailed clinical noise distributions.</li>
+</ol>
+</section>
+<section id="spectral-triage-and-modality-alignment-index-mai" class="level3" data-number="2.3.4">
+<h3 data-number="2.3.4" class="anchored" data-anchor-id="spectral-triage-and-modality-alignment-index-mai"><span class="header-section-number">2.3.4</span> Spectral Triage and Modality Alignment Index (MAI)</h3>
+<p>In high-dimensional limits, isotropic noise routinely forms spurious correlations with the shared consensus. We introduce <strong>Spectral Triage</strong> to rigorously detect and actively penalize these noise-dominant views. We quantify modality fidelity using the <strong>Modality Alignment Index (MAI)</strong>.</p>
+<p>The default MAI formulation leverages Procrustes <span class="math inline">\(R^2\)</span>: <span class="math display">\[ \text{MAI}_m = 1 - \frac{\|\mathbf{Z}_m \mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F^2}{\|\mathbf{U}_{\neq m}\|_F^2} \]</span> where <span class="math inline">\(\mathbf{\Omega} = \arg\min_{\mathbf{\Omega}^\top \mathbf{\Omega} = \mathbf{I}} \|\mathbf{Z}_m \mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F\)</span> denotes the optimal orthogonal rotation to align the local manifold with the global consensus.</p>
+<p>To eliminate spurious alignments, we augment the MAI by integrating <strong>Spectral Sharpness</strong> <span class="math inline">\(\mathcal{S}_m\)</span>, which evaluates the concentration of the singular values <span class="math inline">\(\sigma_i\)</span> extracted from the latent matrix <span class="math inline">\(\mathbf{Z}_m\)</span>: <span class="math display">\[ \mathcal{S}_m = \frac{\sigma_1}{\sum_{i=1}^k \sigma_i} \]</span></p>
+<p><strong>The Marchenko-Pastur Limit and BBP Phase Transition:</strong> This formulation is grounded in the spectral theory of high-dimensional random matrices. Under the assumption of purely isotropic observational noise, the sample covariance matrix spectrum converges to the Marchenko-Pastur bulk distribution limit. Consequently, the singular values distribute uniformly, bounding the spectral sharpness to the bulk limit <span class="math inline">\(\mathcal{S}_m = \mathcal{O}(1/K)\)</span>. In this regime, the metric mathematically drives the contribution of unstructured isotropic noise to exactly zero.</p>
+<p>Conversely, following the Baik-Ben Arous-Péché (BBP) phase transition theorem <span class="citation" data-cites="baik2005phase">(<a href="#ref-baik2005phase" role="doc-biblioref">Baik et al. 2005</a>)</span>, true underlying signal components induce rank-1 perturbations that spike explicitly outside the Marchenko-Pastur bulk, rapidly forcing <span class="math inline">\(\mathcal{S}_m \to 1\)</span>. Spectral Sharpness therefore functions as a mathematically exact threshold, actively discriminating structured generative signal from isotropic background noise. The final consensus target employs the product of MAI and Spectral Sharpness to dynamically weight each modality, ensuring noise-dominant views are decisively quarantined.</p>
+</section>
+</section>
+<section id="properties-bounds" class="level2" data-number="2.4">
+<h2 data-number="2.4" class="anchored" data-anchor-id="properties-bounds"><span class="header-section-number">2.4</span> Properties &amp; Bounds</h2>
+<section id="auditability-by-design-and-exact-counterfactuals" class="level3" data-number="2.4.1">
+<h3 data-number="2.4.1" class="anchored" data-anchor-id="auditability-by-design-and-exact-counterfactuals"><span class="header-section-number">2.4.1</span> Auditability by Design and Exact Counterfactuals</h3>
+<p>Standard post-hoc explainability methods (e.g., SHAP, LIME) are notoriously unstable on entangled deep manifolds, frequently outputting approximations that contradict the true mechanistic model. By enforcing the OLEE constraint, SiMLR bypasses post-hoc approximations entirely. The network is explicitly auditable by design, establishing three rigorous theoretical properties:</p>
+<p><strong>1. Exact Global Feature Importance via Variance Partitioning:</strong> Because NSA-Flow strictly confines the basis matrix <span class="math inline">\(\mathbf{V}_m\)</span> to the Stiefel manifold (<span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k\)</span>), the initial mapping acts as an isometry. This structural rigor ensures that the total variance explained by the model can be exactly partitioned among the columns of <span class="math inline">\(\mathbf{X}_m\)</span>, providing an analytically exact, non-redundant measure of global feature importance that cannot be confounded by latent collinearities.</p>
+<p><strong>2. Exact Local Interpretability:</strong> For any individual sample <span class="math inline">\(i\)</span>, the computed latent coordinate <span class="math inline">\(\mathbf{z}_{i}\)</span> is explicitly constructed via the linear combination of its raw input features: <span class="math inline">\(\mathbf{z}_{i} = \mathbf{x}_{i} \mathbf{V}_m\)</span>. We extract local, sample-specific feature attributions with zero approximation error.</p>
+<p><strong>3. Analytically Exact, Minimum-Norm Counterfactuals:</strong> In post-hoc paradigms, off-manifold counterfactual perturbations often generate nonsensical predictions. Conversely, OLEE provides a closed-form analytic solution. Because <span class="math inline">\(\mathbf{V}_m\)</span> is rigorously orthogonal, its Moore-Penrose pseudoinverse simplifies exactly to its transpose: <span class="math inline">\(\mathbf{V}_m^+ = (\mathbf{V}_m^\top \mathbf{V}_m)^{-1} \mathbf{V}_m^\top = \mathbf{I}_k^{-1} \mathbf{V}_m^\top = \mathbf{V}_m^\top\)</span>.</p>
+<p>Therefore, the exact, minimum-norm counterfactual perturbation <span class="math inline">\(\delta \mathbf{x}\)</span> required to induce a targeted latent shift <span class="math inline">\(\Delta \mathbf{z}\)</span> is formally: <span class="math display">\[ \delta \mathbf{x} = \Delta \mathbf{z} \mathbf{V}_m^\top \]</span> This guarantees that the proposed perturbation represents the most direct, efficient intervention possible without relying on unstable surrogate models.</p>
+</section>
+<section id="the-consistency-interpretability-tradeoff" class="level3" data-number="2.4.2">
+<h3 data-number="2.4.2" class="anchored" data-anchor-id="the-consistency-interpretability-tradeoff"><span class="header-section-number">2.4.2</span> The Consistency-Interpretability Tradeoff</h3>
+<p>We define the tension between representational capacity and auditability as the Consistency-Interpretability Tradeoff. Fully non-linear models maximize latent recovery by approximating complex functions but obscure the interpretability of derived features. LEND enforces the OLEE constraint for feature discovery while utilizing non-linear decoders, optimally balancing this tradeoff.</p>
+</section>
+<section id="theoretical-bounds-the-1m-law" class="level3" data-number="2.4.3">
+<h3 data-number="2.4.3" class="anchored" data-anchor-id="theoretical-bounds-the-1m-law"><span class="header-section-number">2.4.3</span> Theoretical Bounds: The 1/M Law</h3>
+<p>We formalize the variance of the shared consensus estimator under noise.</p>
+<p><strong>Generative Assumptions:</strong> We assume each modality observation <span class="math inline">\(\mathbf{X}_m\)</span> is generated by a shared true manifold embedded in additive Gaussian noise.</p>
+<p><strong>Mathematical Formulation:</strong> Let the noise variance be <span class="math inline">\(\sigma^2\)</span> and the cross-modal noise correlation be <span class="math inline">\(\rho\)</span>. Aggregating observations across <span class="math inline">\(M\)</span> modalities yields the variance of the consensus estimator <span class="math inline">\(\mathbf{U}\)</span>: <span class="math display">\[ \text{Var}(\mathbf{U}) = \frac{\sigma^2}{M} (1 - \rho) + \rho \sigma^2 \]</span> As <span class="math inline">\(M \to \infty\)</span>, the independent noise term <span class="math inline">\(\frac{\sigma^2}{M}(1-\rho)\)</span> vanishes. Consequently, the irreducible error floor is strictly bounded by <span class="math inline">\(\rho \sigma^2\)</span>. This mathematical bound proves that while expanding the number of modalities <span class="math inline">\(M\)</span> efficiently mitigates independent noise, it cannot resolve highly correlated cross-modal artifacts, necessitating the LOO topology and Spectral Triage to actively suppress correlated noise components.</p>
+</section>
+</section>
+<section id="evaluation-strategies" class="level2" data-number="2.5">
+<h2 data-number="2.5" class="anchored" data-anchor-id="evaluation-strategies"><span class="header-section-number">2.5</span> Evaluation Strategies</h2>
+<section id="technical-glossary-of-performance-metrics" class="level3" data-number="2.5.1">
+<h3 data-number="2.5.1" class="anchored" data-anchor-id="technical-glossary-of-performance-metrics"><span class="header-section-number">2.5.1</span> Technical Glossary of Performance Metrics</h3>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Metric</th>
+<th style="text-align: left;">Symbol</th>
+<th style="text-align: left;">Definition</th>
+<th style="text-align: left;">Interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><strong>Strictly Linear Accuracy</strong></td>
+<td style="text-align: left;"><span class="math inline">\(R^2_{\mathbf{XV}}\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(R^2_P(\mathbf{X} \mathbf{V}, \mathbf{U}^*)\)</span></td>
+<td style="text-align: left;">Fidelity of the linear feature projection.</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>Deep Consensus Accuracy</strong></td>
+<td style="text-align: left;"><span class="math inline">\(R^2_{\mathbf{U}}\)</span> (CMC)</td>
+<td style="text-align: left;"><span class="math inline">\(\max_{\mathbf{\Omega}, s} \left( 1 - \frac{\|\mathbf{\hat{U}}\mathbf{\Omega} s - \mathbf{U}^*\|_F^2}{\|\mathbf{U}^*\|_F^2} \right)\)</span></td>
+<td style="text-align: left;">Fidelity of the shared latent consensus recovery.</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><strong>Subspace Recovery Error</strong></td>
+<td style="text-align: left;"><span class="math inline">\(SRE\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(1 - \frac{1}{M} \sum_{m=1}^M R^2_P(\mathbf{\hat{V}}_m, \mathbf{V}^*_m)\)</span></td>
+<td style="text-align: left;">Error in recovering the true generative feature basis.</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>OLEE</strong></td>
+<td style="text-align: left;">-</td>
+<td style="text-align: left;"><span class="math inline">\(\mathbf{Z} = \sigma(\mathbf{X} \mathbf{V} \mathbf{W} + \mathbf{b})\)</span></td>
+<td style="text-align: left;">Initial linear projection acting as an Information Bottleneck.</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><strong>Procrustes <span class="math inline">\(R^2\)</span></strong></td>
+<td style="text-align: left;"><span class="math inline">\(R^2_P\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(1 - \frac{\min_{\mathbf{\Omega}} \|\mathbf{\hat{A}}\mathbf{\Omega} - \mathbf{A}^*\|_F^2}{\|\mathbf{A}^*\|_F^2}\)</span></td>
+<td style="text-align: left;">Alignment-invariant variance explained.</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>Auditability by Design</strong></td>
+<td style="text-align: left;">-</td>
+<td style="text-align: left;">-</td>
+<td style="text-align: left;">Structural guarantee linking latent variables directly to features.</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="statistical-determination-of-intrinsic-dimensionality-k" class="level3" data-number="2.5.2">
+<h3 data-number="2.5.2" class="anchored" data-anchor-id="statistical-determination-of-intrinsic-dimensionality-k"><span class="header-section-number">2.5.2</span> Statistical Determination of Intrinsic Dimensionality (K)</h3>
+<p>We implement three statistical strategies to establish the optimal latent dimensionality <span class="math inline">\(K\)</span>: 1. <strong>Information Criteria (BIC):</strong> Evaluates the Bayesian Information Criterion to penalize excessive model parameterization. 2. <strong>Spectral Truncation (Tracy-Widom):</strong> Computes the statistical significance of singular values against the null hypothesis of purely unstructured noise. 3. <strong>V-fold Cross-Validation:</strong> Selects <span class="math inline">\(K\)</span> by applying the One-Standard-Error Rule to out-of-sample prediction performance.</p>
+
+
+<div id="refs" class="references csl-bib-body hanging-indent" role="list">
+<div id="ref-baik2005phase" class="csl-entry" role="listitem">
+Baik, Jinho, G’erard Ben Arous, and Sandrine P’ech’e. 2005. <span>“Phase Transition of the Largest Eigenvalue for Nonnull Complex Sample Covariance Matrices.”</span> <em>The Annals of Probability</em> 33 (5): 1643–97.
+</div>
+<div id="ref-dinh2016density" class="csl-entry" role="listitem">
+Dinh, Laurent, Jascha Sohl-Dickstein, and Samy Bengio. 2016. <span>“Density Estimation Using Real NVP.”</span> <em>arXiv Preprint arXiv:1605.08803</em>.
+</div>
+<div id="ref-edelman1998geometry" class="csl-entry" role="listitem">
+Edelman, Alan, Tomés A Arias, and Steven T Smith. 1998. <span>“The Geometry of Algorithms with Orthogonality Constraints.”</span> <em>SIAM Journal on Matrix Analysis and Applications</em> 20 (2): 303–53.
+</div>
+<div id="ref-rezende2015variational" class="csl-entry" role="listitem">
+Rezende, Danilo, and Shakir Mohamed. 2015. <span>“Variational Inference with Normalizing Flows.”</span> <em>International Conference on Machine Learning</em>, 1530–38.
+</div>
+<div id="ref-tishby2000information" class="csl-entry" role="listitem">
+Tishby, Naftali, Fernando C Pereira, and William Bialek. 2000. <span>“The Information Bottleneck Method.”</span> <em>arXiv Preprint Physics/0004057</em>.
+</div>
+</div>
+</section>
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="./01_intro_background.html" class="pagination-link" aria-label="Introduction and Background">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Background</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="./03_experiments.html" class="pagination-link" aria-label="Experiments">
+        <span class="nav-page-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Experiments</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

@@ -93,16 +93,19 @@ def test_svd_extra():
 def test_visualization_coverage():
     from pysimlr.visualization import (plot_energy, plot_latent_2d, plot_v_matrix, 
                                        plot_lend_simr_architecture, plot_ned_simr_architecture,
-                                       plot_ned_shared_private_architecture, generate_all_architecture_graphs)
+                                       plot_ned_shared_private_architecture, plot_flow_simr_architecture,
+                                       generate_all_architecture_graphs)
     assert plot_energy([1.0, 0.5]) is not None
     assert plot_latent_2d(torch.randn(10, 2)) is not None
     assert plot_v_matrix(torch.randn(5, 2)) is not None
     assert plot_lend_simr_architecture() is not None
     assert plot_ned_simr_architecture() is not None
     assert plot_ned_shared_private_architecture() is not None
+    assert plot_flow_simr_architecture() is not None
     test_dir = "test_viz_output"
     generate_all_architecture_graphs(test_dir)
     assert os.path.exists(os.path.join(test_dir, "detailed_lend_simr.pdf"))
+    assert os.path.exists(os.path.join(test_dir, "detailed_flow_simr.pdf"))
     import shutil
     shutil.rmtree(test_dir)
 

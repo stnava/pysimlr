@@ -413,3 +413,176 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     ]
     
     return result
+
+
+class FlowSiMRVModel(nn.Module):
+    """
+    Normalizing Flow SiMR Model with Pre-pended Linear Encoder Matrix V (Flow-SiMLR-V).
+    """
+    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, 
+                 hidden_dim: int = 64, mixing_algorithm: str = 'newton', scale_bound: float = 2.0,
+                 nsa_w: float = 0.1, positivity: str = 'positive', 
+                 sparseness_quantile: Union[float, List[float]] = 0.0, use_nsa: bool = True):
+        super().__init__()
+        self.input_dims = input_dims
+        self.latent_dim = latent_dim
+        self.is_flow = True
+        self.mixing_algorithm = mixing_algorithm
+        
+        # Local import to prevent circular dependency
+        from .deep import LENDNSAEncoder
+        
+        if isinstance(sparseness_quantile, (float, int)):
+            sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
+            
+        self.linear_encoders = nn.ModuleList([
+            LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa) 
+            for dim, sq in zip(input_dims, sparseness_quantile)
+        ])
+        
+        # flows now operate on the low-dimensional projected space of size latent_dim (K)
+        self.flows = nn.ModuleList([
+            NormalizingFlow(latent_dim, num_layers, hidden_dim, scale_bound) 
+            for _ in range(len(input_dims))
+        ])
+        self.encoders = nn.ModuleList([
+            FlowEncoderWrapper(flow, latent_dim) 
+            for flow in self.flows
+        ])
+        self.decoders = nn.ModuleList([
+            FlowDecoderWrapper(flow, latent_dim) 
+            for flow in self.flows
+        ])
+        
+        self.register_buffer('consensus_anchor', torch.zeros(len(input_dims) * latent_dim, latent_dim))
+        
+    def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
+        return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
+        
+    def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
+        # 1. Linear projection layer
+        projected_zs = [enc(x) for enc, x in zip(self.linear_encoders, x_list)]
+        
+        # 2. Flow encoders wrapper on projected zs
+        latents = [enc(z) for enc, z in zip(self.encoders, projected_zs)]
+        
+        # 3. Consensus mixing
+        res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor)
+        if self.training:
+            u_shared, new_anchor = res_u
+            if new_anchor is not None: 
+                self.consensus_anchor.copy_(0.9 * self.consensus_anchor + 0.1 * new_anchor)
+        else:
+            u_shared = res_u
+            
+        # 4. Decoders: invert normalizing flows, then project back using V_m.t()
+        reconstructions = []
+        for i, (flow, enc) in enumerate(zip(self.flows, self.linear_encoders)):
+            ui = u_shared[i] if isinstance(u_shared, list) else u_shared
+            z_recon = flow.inverse(ui)
+            v = enc.v
+            x_recon = z_recon @ v.t()
+            reconstructions.append(x_recon)
+            
+        return latents, reconstructions, u_shared
+        
+    def initialize_weights(self, data_matrices: List[torch.Tensor]):
+        from .simlr import ba_svd
+        with torch.no_grad():
+            k = self.latent_dim
+            for i, x in enumerate(data_matrices):
+                u, s, v = ba_svd(x, nu=0, nv=k)
+                if v.shape[1] < k: 
+                    v = torch.cat([v, torch.randn(v.shape[0], k-v.shape[1], device=v.device)*1e-4], dim=1)
+                if self.linear_encoders[i].positivity in {'positive', 'hard', 'softplus'}:
+                    for j in range(v.shape[1]):
+                        if v[:, j].sum() < 0: v[:, j] *= -1
+                self.linear_encoders[i].v_raw.copy_(v.to(x.dtype))
+
+def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
+                k: int, 
+                epochs: int = 150, 
+                batch_size: int = 64, 
+                learning_rate: float = 1e-3, 
+                weight_decay: float = 1e-4, 
+                sim_weight: float = 1.0, 
+                warmup_epochs: int = 20, 
+                num_layers: int = 4, 
+                hidden_dim: int = 64, 
+                energy_type: str = 'regression', 
+                mixing_algorithm: str = 'newton',
+                device: Optional[str] = None,
+                verbose: bool = False,
+                beta: float = 0.05,
+                scale_bound: float = 2.0,
+                gamma: float = 2.0,
+                nsa_w: float = 0.1,
+                positivity: str = 'positive',
+                sparseness_quantile: Union[float, List[float]] = 0.0,
+                use_nsa: bool = True) -> Dict[str, Any]:
+    """
+    Perform Flow-based Similarity-driven Multi-view Representation with Linear Encoder (Flow-SiMLR-V).
+    """
+    if device is None: 
+        device = 'cuda' if torch.cuda.is_available() else ('cpu')
+    device = torch.device(device)
+    
+    from .deep import _standardize_deep, _get_optimizer
+    from torch.utils.data import TensorDataset, DataLoader
+    from torch.optim.lr_scheduler import CosineAnnealingLR
+    
+    torch_mats, provenance_list = _standardize_deep(data_matrices, ['centerAndScale'])
+    input_dims = [m.shape[1] for m in torch_mats]
+    
+    model = FlowSiMRVModel(
+        input_dims, k, num_layers=num_layers, hidden_dim=hidden_dim, 
+        mixing_algorithm=mixing_algorithm, scale_bound=scale_bound,
+        nsa_w=nsa_w, positivity=positivity, 
+        sparseness_quantile=sparseness_quantile, use_nsa=use_nsa
+    ).to(device)
+    
+    # Initialize linear encoders via SVD
+    model.initialize_weights(torch_mats)
+    
+    optimizer = _get_optimizer(model, 'adam', learning_rate, weight_decay)
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
+    
+    dataset = TensorDataset(*torch_mats)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    
+    loss_h, recon_h, sim_h = _train_flow_loop(
+        model, dataloader, optimizer, scheduler, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, beta=beta, gamma=gamma
+    )
+    
+    model.eval()
+    with torch.no_grad():
+        eval_mats = [m.to(device) for m in torch_mats]
+        final_latents, recons, u_final = model(eval_mats)
+        
+    cond_inference = FlowConditionalInference(len(input_dims), k)
+    cond_inference.fit(final_latents)
+    
+    # Extract linear projection matrices V
+    v_mats = [enc.v.detach().cpu() for enc in model.linear_encoders]
+    
+    result = {
+        'model': model.cpu(),
+        'model_type': 'flow_simr_v',
+        'u': u_final.cpu() if not isinstance(u_final, list) else [ui.cpu() for ui in u_final],
+        'latents': [l.cpu() for l in final_latents],
+        'reconstructions': [r.cpu() for r in recons],
+        'v': v_mats,
+        'loss_history': loss_h,
+        'recon_history': recon_h,
+        'sim_history': sim_h,
+        'scale_list': ['centerAndScale'],
+        'provenance_list': provenance_list,
+        'cond_inference': cond_inference
+    }
+    
+    result['errors'] = [
+        torch.norm(x.cpu() - r.cpu(), p='fro').item() / (torch.norm(x.cpu(), p='fro').item() + 1e-10) 
+        for x, r in zip(torch_mats, recons)
+    ]
+    
+    return result

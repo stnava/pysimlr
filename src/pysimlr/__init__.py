@@ -1,8 +1,13 @@
 import os
 import matplotlib
+import sys
 # Force Agg backend if not in an interactive session or if explicitly requested
 if "DISPLAY" not in os.environ or os.environ.get("MPLBACKEND") == "Agg":
-    matplotlib.use("Agg")
+    # Preserve inline plotting when executing within Jupyter/IPython notebooks
+    if not ('IPython' in sys.modules or 'ipykernel' in sys.modules):
+        matplotlib.use("Agg")
+
+
 
 from .simlr import (
     simlr,
@@ -102,6 +107,7 @@ from .visualization import (
     plot_ned_simr_architecture,
     plot_ned_shared_private_architecture,
     plot_nsa_flow_architecture,
+    plot_flow_simr_architecture,
     plot_path_model,
     generate_all_architecture_graphs
 )
@@ -179,6 +185,7 @@ __all__ = [
     'plot_ned_simr_architecture',
     'plot_ned_shared_private_architecture',
     'plot_nsa_flow_architecture',
+    'plot_flow_simr_architecture',
     'plot_path_model',
     'generate_all_architecture_graphs',
     'benchmarks'

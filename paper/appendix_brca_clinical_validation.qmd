@@ -18,11 +18,13 @@ We used 5-fold cross-validation to compare the linear classification accuracy ($
 | Model | Accuracy (Mean ± SD) |
 | :--- | :---: |
 | **SiMLR** | 0.898 ± 0.028 |
+| **Flow-SiMLR** | 0.871 ± 0.011 |
+| **Flow-SiMLR-V (Ours)** | 0.913 ± 0.012 |
 | **NED** | 0.914 ± 0.014 |
 | **NEDPP** | 0.920 ± 0.014 |
 | **LEND** | **0.922 ± 0.014** |
 
-Introducing a non-linear decoder establishes an information bottleneck that enforces cross-modal consensus within the shared latent representation. This bottleneck filters modality-specific noise, increasing mean predictive accuracy and reducing variance in the resulting linear subspace compared to the purely linear SiMLR baseline.
+Note that for Flow-SiMLR, since it utilizes a bijective Normalizing Flow architecture, it does not incorporate the initial linear encoder entry (OLEE) bottleneck, and classification is evaluated directly on its learned latent representations ($). In contrast, the proposed **Flow-SiMLR-V** architecture pre-pends a Stiefel-constrained linear encoder matrix $, enabling strictly linear classification on the projected space $ and achieving full parity with the deep MLP-based models. Introducing a non-linear decoder establishes an information bottleneck that enforces cross-modal consensus within the shared latent representation. This bottleneck filters modality-specific noise, increasing mean predictive accuracy and reducing variance in the resulting linear subspace compared to the purely linear SiMLR baseline.
 
 ## Tri-Modal Feature Discovery
 

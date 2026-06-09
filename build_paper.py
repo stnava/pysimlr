@@ -47,7 +47,8 @@ def extract_and_build():
         "fig-simlr": "paper/02_methods.qmd",
         "fig-lend": "paper/02_methods.qmd",
         "fig-ned": "paper/02_methods.qmd",
-        "fig-nedpp": "paper/02_methods.qmd"
+        "fig-nedpp": "paper/02_methods.qmd",
+        "fig-flow-simlr": "paper/02_methods.qmd"
     }
 
     all_success = True

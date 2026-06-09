@@ -54,6 +54,11 @@ def run_single_experiment(model_type: str,
         f_params = filter_kwargs(ned_simr_shared_private, params)
         if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
         res = ned_simr_shared_private(train_mats, k=k, **f_params)
+    elif model_type == "flow_v":
+        from pysimlr.flows import flow_simr_v
+        f_params = filter_kwargs(flow_simr_v, params)
+        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
+        res = flow_simr_v(train_mats, k=k, **f_params)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
         

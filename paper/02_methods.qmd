@@ -207,6 +207,88 @@ graph TD
 NEDPP (Non-linear Encoder Decoder with Private Partitions): Disentangled architecture utilizing OLEE constraints for both shared and private subspaces. Incorporates cross-covariance penalization for statistical independence.
 :::
 
+### Normalizing Flow SiMLR (Flow-SiMLR): Bijective Multimodal Integration
+
+While the deep architectures (LEND, NED, NEDPP) increase representation capacity, their projection bottlenecks are fundamentally lossy, entangling features and losing fine-grained modality-specific variations. Flow-SiMLR solves this by deploying bijective Normalizing Flows [@rezende2015variational; @dinh2016density] to perform exact, information-preserving coordinate transformations.
+
+#### 1. Invertible Affine Coupling Formulation
+Each view $m$ is modeled via an invertible mapping $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^{d_m}$ composed of a sequence of affine coupling layers. For input $x \in \mathbb{R}^{d_m}$, a coupling layer splits features using a binary mask $b \in \{0, 1\}^{d_m}$ and maps them as:
+$$z_{1} = b \odot x$$
+$$z_{2} = (1 - b) \odot \left( x \odot e^{s(z_{1})} + t(z_{1}) \right)$$
+where $s$ and $t$ are scaling and translation networks (MLPs). To ensure mathematical stability and prevent gradient explosion, scale outputs are bounded using:
+$$s(z_{1}) = \text{scale\_bound} \times \tanh\left(s_{\text{net}}(z_{1})\right)$$
+The inverse transformation is analytically exact and requires no network inversion:
+$$x_{1} = b \odot z$$
+$$x_{2} = (1 - b) \odot \left( (z - t(z_{1})) \odot e^{-s(z_{1})} \right)$$
+The log-Jacobian determinant for a single coupling layer is:
+$$\log |\det J| = \sum_{j: b_j = 0} s_j(z_{1})$$
+
+#### 2. Shared-Private Bottleneck & Hybrid Loss
+Normalizing flows preserve input dimensions. To implement a low-dimensional consensus bottleneck $k \ll d_m$, we partition the latent coordinates into shared and private subspaces:
+$$\mathbf{Z}_m = f_m(\mathbf{X}_m) \quad \text{where} \quad \mathbf{Z}_{m,\text{shared}} = \mathbf{Z}_{m, 1:k}, \quad \mathbf{Z}_{m,\text{private}} = \mathbf{Z}_{m, k+1:d_m}$$
+Alignment optimization guides the shared components $\mathbf{Z}_{m,\text{shared}}$ toward the consensus target $\mathbf{U}_{\neq m}$. To force the flow to pack the essential reconstruction information into these first $k$ dimensions, we define the decoder wrapper using zero-padding:
+$$\hat{\mathbf{X}}_m = f_m^{-1}\left([\mathbf{Z}_{m,\text{shared}} \parallel \mathbf{0}]\right)$$
+This yields a hybrid objective function:
+$$\mathcal{L}_{\text{Flow-SiMLR}} = \beta \sum_{m=1}^M \mathcal{L}_{\text{NLL}}(\mathbf{X}_m) + \sum_{m=1}^M \mathcal{L}_{\text{align}}(\mathbf{Z}_{m,\text{shared}}, \mathbf{U}_{\neq m}) + \gamma \sum_{m=1}^M \mathcal{L}_{\text{MSE}}(\mathbf{X}_m, \hat{\mathbf{X}}_m)$$
+where $\mathcal{L}_{\text{NLL}}$ is the negative log-prior density under a standard multivariate Gaussian:
+$$\mathcal{L}_{\text{NLL}}(\mathbf{X}_m) = - \mathbb{E}_{x \sim \mathbf{X}_m} \left[ \log p_Z(f_m(x)) + \log |\det J_{f_m}(x)| \right]$$
+with $\log p_Z(z) = -\frac{1}{2} \|z\|_2^2 - \frac{d_m}{2}\log(2\pi)$. The scaling factors $\beta$ (default $0.05$) and $\gamma$ (default $2.0$) balance density maximization, alignment, and low-dimensional reconstruction fidelity.
+
+#### 3. Joint Gaussian Conditional Inference
+Because normalizing flows transform complex distributions into Gaussian latent representations, we parameterize the concatenated shared latent space across all views as a joint multivariate Gaussian distribution:
+$$\mathbf{Z}_{\text{joint}} = \left[\mathbf{Z}_{1,\text{shared}} \parallel \mathbf{Z}_{2,\text{shared}} \parallel \dots \parallel \mathbf{Z}_{M,\text{shared}}\right] \sim \mathcal{N}(\mu, \Sigma)$$
+For any observed view $A$ and unobserved target view $B$, we partition the joint mean vector and covariance matrix:
+$$\mu = \begin{pmatrix} \mu_A \\ \mu_B \end{pmatrix}, \quad \Sigma = \begin{pmatrix} \Sigma_{AA} & \Sigma_{AB} \\ \Sigma_{BA} & \Sigma_{BB} \end{pmatrix}$$
+Using the Schur complement, the exact conditional latent mean of view $B$ given observed latent view $A$ is:
+$$\mu_{B|A} = \mu_B + \Sigma_{BA} \Sigma_{AA}^{-1} \left(\mathbf{Z}_{A,\text{shared}} - \mu_A\right)$$
+We solve this linear system efficiently using a Cholesky solver. Finally, we pass the conditional latent coordinates through the inverse flow decoder of view $B$ to synthesize its features:
+$$\hat{\mathbf{X}}_B = f_B^{-1}\left([\mu_{B|A} \parallel \mathbf{0}]\right)$$
+This enables exact, mathematically principled cross-view imputation and counterfactual clinical synthesis.
+
+::: {#fig-flow-simlr}
+
+::: {.content-visible when-format="html"}
+```{mermaid}
+#| fig-width: 6
+#| fig-align: center
+graph TD
+    subgraph FlowEncoder ["Flow Encoder"]
+        X[Input X_m] --> Flow[Normalizing Flow]
+        Flow --> Z_full[Full Latent]
+        Z_full --> Z_shared[Shared Latent]
+        Z_full --> Z_private[Private Latent]
+    end
+
+    subgraph Consensus ["Consensus Alignment"]
+        Z_shared -.-> Alignment[Alignment Loss]
+        Alignment -.-> Target[Target U]
+    end
+
+    subgraph FlowDecoder ["Flow Decoder"]
+        Z_shared --> Z_padded[Padded Latent]
+        Z_padded --> InvFlow[Inverse Flow]
+        InvFlow --> R[Reconstructed X_m]
+    end
+
+    subgraph Conditioning ["Joint Conditional Inference"]
+        Z_shared --> Fit[Fit Joint Gaussian]
+        Fit --> Cond[Predict Target Latent]
+        Cond --> DecB[Decode to Target View]
+    end
+
+    style Z_shared fill:#e0f2f1,stroke:#004d40,color:#000
+    style Z_private fill:#ffe0b2,stroke:#e65100,color:#000
+    style Z_padded fill:#e0f2f1,stroke:#004d40,color:#000
+```
+:::
+
+::: {.content-visible when-format="pdf"}
+![](figures/fig-flow-simlr.png)
+:::
+
+Flow-SiMLR: Normalizing flow architecture. The bijective flow maps inputs to a joint Gaussian latent space. The first $k$ dimensions are aligned with the shared cross-view consensus, while the remaining dimensions act as an implicit private partition. Padded decoding and Gaussian conditioning enable exact reconstruction and cross-view synthesis.
+:::
+
 ## Optimization, Consensus, and Spectral Triage
 
 With the architectural models defined, we now detail the optimization strategy, the consensus formation, and the automated mechanisms required to stabilize deep multi-modal alignment.
@@ -231,7 +313,6 @@ We rigidly formalize our parameter optimization through a strict Block-Coordinat
 #| message: false
 #| echo: false
 import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -298,7 +379,6 @@ To operationalize the alignment $\mathcal{L}_{\text{align}}$, we implement multi
 #| message: false
 #| echo: false
 import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import os

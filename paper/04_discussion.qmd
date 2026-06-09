@@ -39,6 +39,14 @@ Furthermore, we provide formal statistical proof that the OLEE minimizes the gen
 
 However, we note a critical statistical boundary: on datasets with predominantly linear effects, such as the Diabetes progression cohort, the classical **SiMLR** baseline significantly outperforms deep alternatives ($p < 10^{-7}$). This reinforces the principle that deep models should be deployed where manifold complexity justifies the risk of overfitting, while linear methods remain the most robust baseline for low-complexity diagnostic tasks.
 
+## Geodesic Latent Path Interpolation and Clinical Counterfactuals
+
+By preserving exact mathematical bijectivity, the **Flow-SiMLR** model enables a novel class of scientific explanation: **Geodesic Latent Path Interpolation**. Because normalizing flows define a continuous, bijective diffeomorphism between the observational feature manifold and the joint Gaussian latent space, we can map continuous trajectories directly in the latent space and project them back to the input space without encountering the off-manifold artifacts typical of generative adversarial networks (GANs) or standard autoencoders.
+
+For a patient projected at high clinical risk $\mathbf{z}_{\text{start}}$, we compute the shortest geodesic path (a straight line in the standardized Gaussian latent space) toward a low-risk target consensus coordinate $\mathbf{z}_{\text{end}}$:
+$$\mathbf{z}(t) = (1 - t)\mathbf{z}_{\text{start}} + t\mathbf{z}_{\text{end}} \quad \text{for} \quad t \in [0, 1]$$
+Using the flow's inverse mapping $f_m^{-1}([\mathbf{z}(t) \parallel \mathbf{0}])$, we reconstruct the corresponding physical biomarker trajectory $\mathbf{x}_m(t)$ in the input space. This maps the continuous, non-linear progression of biomarkers required to transition from a diseased to a healthy state, providing exact counterfactual clinical discovery. Clinicians can identify which serum variables or vitals must change, and in what non-linear order, to guide therapy, fulfilling the explainability goals of precision medicine.
+
 ## Limitations and Broader Impacts
 
 While Deep SiMLR provides rigorous interpretability, it imposes specific architectural constraints that define its operational limits. Foremost, the reliance on the OLEE at the first layer fundamentally limits the model's capacity to learn intra-modality non-linear feature interactions directly from the raw input space. We intentionally sacrifice this early-stage representational capacity to preserve the exact linear audit trail ($\mathbf{X}\mathbf{V}$). Consequently, datasets where the critical signal relies heavily on complex, nonlinear interactions between specific scalar features within the same modality may experience suboptimal feature extraction compared to fully unconstrained deep networks.

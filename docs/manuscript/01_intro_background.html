@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.36">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Brian B. Avants">
+<meta name="author" content="Nicholas J. Tustison">
+<meta name="author" content="James R. Stone">
+
+<title>1&nbsp; Introduction and Background</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for citations */
+div.csl-bib-body { }
+div.csl-entry {
+  clear: both;
+}
+.hanging-indent div.csl-entry {
+  margin-left:2em;
+  text-indent:-2em;
+}
+div.csl-left-margin {
+  min-width:2em;
+  float:left;
+}
+div.csl-right-inline {
+  margin-left:2em;
+  padding-left:1em;
+}
+div.csl-indent {
+  margin-left: 2em;
+}</style>
+
+
+<script src="site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="site_libs/quarto-nav/headroom.min.js"></script>
+<script src="site_libs/clipboard/clipboard.min.js"></script>
+<script src="site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="site_libs/quarto-search/fuse.min.js"></script>
+<script src="site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="./">
+<link href="./02_methods.html" rel="next">
+<link href="./index.html" rel="prev">
+<script src="site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="site_libs/quarto-html/popper.min.js"></script>
+<script src="site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="site_libs/quarto-html/anchor.min.js"></script>
+<link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-845c23b38eaddc0f92fda52bfe77a8c8.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="site_libs/bootstrap/bootstrap-5ccb035bea26c1e21f80f44cf7c27909.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<script src="site_libs/quarto-diagram/mermaid.min.js"></script>
+<script src="site_libs/quarto-diagram/mermaid-init.js"></script>
+<link href="site_libs/quarto-diagram/mermaid.css" rel="stylesheet">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./01_intro_background.html"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Background</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="Search" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="Search"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./01_intro_background.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Background</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./02_methods.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Methods</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./03_experiments.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Experiments</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./04_discussion.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Discussion</span></span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">Appendices</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./appendix_brca_clinical_validation.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-omics Clinical Validation (TCGA-BRCA)</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./appendix_operational.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">B</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./appendix_flow_simlr_v.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMLR-V)</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#introduction" id="toc-introduction" class="nav-link active" data-scroll-target="#introduction"><span class="header-section-number">1.1</span> Introduction</a>
+  <ul class="collapse">
+  <li><a href="#multimodal-consensus-as-latent-signal-recovery" id="toc-multimodal-consensus-as-latent-signal-recovery" class="nav-link" data-scroll-target="#multimodal-consensus-as-latent-signal-recovery"><span class="header-section-number">1.1.1</span> Multimodal Consensus as Latent Signal Recovery</a></li>
+  </ul></li>
+  <li><a href="#background" id="toc-background" class="nav-link" data-scroll-target="#background"><span class="header-section-number">1.2</span> Background</a>
+  <ul class="collapse">
+  <li><a href="#multi-view-representation-learning" id="toc-multi-view-representation-learning" class="nav-link" data-scroll-target="#multi-view-representation-learning"><span class="header-section-number">1.2.1</span> Multi-View Representation Learning</a></li>
+  <li><a href="#information-bottleneck-and-structural-interpretability" id="toc-information-bottleneck-and-structural-interpretability" class="nav-link" data-scroll-target="#information-bottleneck-and-structural-interpretability"><span class="header-section-number">1.2.2</span> Information Bottleneck and Structural Interpretability</a></li>
+  <li><a href="#summary-of-contributions" id="toc-summary-of-contributions" class="nav-link" data-scroll-target="#summary-of-contributions"><span class="header-section-number">1.2.3</span> Summary of Contributions</a></li>
+  <li><a href="#architectural-taxonomy" id="toc-architectural-taxonomy" class="nav-link" data-scroll-target="#architectural-taxonomy"><span class="header-section-number">1.2.4</span> Architectural Taxonomy</a></li>
+  </ul></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Background</span></h1>
+</div>
+
+
+<div class="quarto-title-meta-author">
+  <div class="quarto-title-meta-heading">Authors</div>
+  <div class="quarto-title-meta-heading">Affiliation</div>
+  
+    <div class="quarto-title-meta-contents">
+    <p class="author">Brian B. Avants </p>
+  </div>
+  <div class="quarto-title-meta-contents">
+        <p class="affiliation">
+            University of Virginia
+          </p>
+      </div>
+    <div class="quarto-title-meta-contents">
+    <p class="author">Nicholas J. Tustison </p>
+  </div>
+  <div class="quarto-title-meta-contents">
+        <p class="affiliation">
+            University of Virginia
+          </p>
+      </div>
+    <div class="quarto-title-meta-contents">
+    <p class="author">James R. Stone </p>
+  </div>
+  <div class="quarto-title-meta-contents">
+        <p class="affiliation">
+            University of Virginia
+          </p>
+      </div>
+  </div>
+
+<div class="quarto-title-meta">
+
+      
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="introduction" class="level2" data-number="1.1">
+<h2 data-number="1.1" class="anchored" data-anchor-id="introduction"><span class="header-section-number">1.1</span> Introduction</h2>
+<p>High-throughput multi-modal datasets provide complementary observations of shared biological signals. Integrating these distinct data streams—formalized as <em>views</em> or <em>modalities</em> <span class="math inline">\(\mathbf{X}_m\)</span>—is essential for defining complex phenotypes in neuroimaging and genomics <span class="citation" data-cites="stone2020longitudinal avants2014ants">(<a href="#ref-stone2020longitudinal" role="doc-biblioref"><span class="nocase">Stone et al.</span> 2020</a>; <a href="#ref-avants2014ants" role="doc-biblioref">Avants et al. 2014</a>)</span>. Deep representation learning techniques, including Deep Canonical Correlation Analysis (Deep CCA) <span class="citation" data-cites="andrew2013deep">(<a href="#ref-andrew2013deep" role="doc-biblioref">Andrew et al. 2013</a>)</span>, Multi-Omics Factor Analysis extensions (MOFA+) <span class="citation" data-cites="argelaguet2020mofa">(<a href="#ref-argelaguet2020mofa" role="doc-biblioref">Argelaguet et al. 2020</a>)</span>, and Multimodal Variational Autoencoders (MVAEs) <span class="citation" data-cites="wu2018multimodal">(<a href="#ref-wu2018multimodal" role="doc-biblioref">Wu and Goodman 2018</a>)</span>, achieve state-of-the-art predictive performance by modeling non-linear covariance structures. However, standard deep autoencoders and CCA variants fail to preserve information bidirectionally, relying on lossy projection bottlenecks. Furthermore, they fundamentally fail to provide exact feature attribution. By projecting inputs through deeply nested non-linearities, they induce the <strong>Information Masking</strong> problem: the mathematical relationship between the original input features and the derived latent consensus is irrevocably entangled. Normalizing Flows <span class="citation" data-cites="rezende2015variational dinh2016density">(<a href="#ref-rezende2015variational" role="doc-biblioref">Rezende and Mohamed 2015</a>; <a href="#ref-dinh2016density" role="doc-biblioref">Dinh et al. 2016</a>)</span> present an alternative: by defining bijective, information-preserving coordinate transformations, they map high-dimensional observations to structured latents without information loss. This black-box formulation violates the strict interpretability requirements of high-stakes scientific and clinical domains, where actionable discovery relies on identifying exactly which biomarkers drive the predictive model.</p>
+<p>We solve the Information Masking problem by introducing Deep SiMLR. We enforce Auditability by Design through two core mechanisms. First, we impose an Information Bottleneck termed the <strong>Only Linear Encoder Entry (OLEE)</strong>. OLEE mandates that the initial transformation of any modality <span class="math inline">\(\mathbf{X}_m\)</span> is a strict projection onto an orthogonal basis <span class="math inline">\(\mathbf{V}_m\)</span> on the Stiefel manifold (<span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}\)</span>). This guarantees that the entry point to any downstream deep network is a mathematically exact, interpretable linear combination of the input features. Second, to prevent high-dimensional noise from corrupting the shared representation, we deploy <strong>Spectral Triage</strong>. This mechanism computes a Modality Alignment Index (MAI) based on Spectral Sharpness, aggressively penalizing noise-dominant modalities during consensus formation. Together, OLEE and Spectral Triage yield a family of architectures that match the predictive power of unconstrained deep models while preserving perfect analytic transparency.</p>
+<section id="multimodal-consensus-as-latent-signal-recovery" class="level3" data-number="1.1.1">
+<h3 data-number="1.1.1" class="anchored" data-anchor-id="multimodal-consensus-as-latent-signal-recovery"><span class="header-section-number">1.1.1</span> Multimodal Consensus as Latent Signal Recovery</h3>
+<p>We formalize multi-view integration as the recovery of a latent signal <span class="math inline">\(\mathbf{S} \in \mathbb{R}^{N \times K}\)</span> from a set of <span class="math inline">\(M\)</span> high-dimensional observations <span class="math inline">\(\{\mathbf{X}_m\}_{m=1}^M\)</span>, where <span class="math inline">\(\mathbf{X}_m \in \mathbb{R}^{N \times D_m}\)</span>. We model each view as <span class="math inline">\(\mathbf{X}_m = g_m(\mathbf{S}) + \mathbf{E}_m\)</span>, where <span class="math inline">\(g_m\)</span> denotes a modality-specific generative function and <span class="math inline">\(\mathbf{E}_m\)</span> represents modality-specific noise. Optimal integration requires a mathematical formulation that maps the covariance structure of each observer to a shared consensus representation <span class="math inline">\(\mathbf{U}\)</span> that approximates <span class="math inline">\(\mathbf{S}\)</span>.</p>
+<p>Heterogeneous noise profiles and distinct generative functions complicate multi-modal integration. A primary failure mode arises when high-dimensional data streams lacking structured signal, termed “noise-dominant modalities,” corrupt the consensus representation through spurious correlations. Robust consensus discovery necessitates a statistical mechanism to identify and attenuate these noise sources, guaranteeing that the derived representations capture biological signal rather than isotropic artifacts.</p>
+<p>Historically, Canonical Correlation Analysis (CCA) <span class="citation" data-cites="hotelling1936relations">(<a href="#ref-hotelling1936relations" role="doc-biblioref">Hotelling 1936</a>)</span> provided the foundation for multi-view integration. Similarity-driven Multi-view Linear Reconstruction (SiMLR) extended CCA by applying sparsity and positivity constraints <span class="citation" data-cites="Zhao_2011 Lee_1999">(<a href="#ref-Zhao_2011" role="doc-biblioref">Zhao et al. 2011</a>; <a href="#ref-Lee_1999" role="doc-biblioref">Lee and Seung 1999</a>)</span>, alongside optimization strategies that scale to large normative modeling cohorts <span class="citation" data-cites="avants2021 avants2025">(<a href="#ref-avants2021" role="doc-biblioref">Avants et al. 2021</a>, <a href="#ref-avants2025" role="doc-biblioref">2025</a>)</span>. While SiMLR provides a robust, linear approach, modern deep learning architectures such as Deep CCA and MVAEs achieve higher predictive performance by mapping non-linear manifolds. However, as noted, these complex models obscure the mapping from features to latents and are highly susceptible to over-fitting in high-dimensional, noise-dominant regimes.</p>
+<p>We bridge the gap between deep learning’s representational capacity and the transparency necessitated by scientific and clinical validation. We introduce a family of architectures (LEND, NED, NEDPP) that implements Auditability by Design. These models impose an interpretable first layer that learns a linear basis subject to soft orthogonality constraints, ensuring parts-based feature representations. This structural constraint enables high-capacity encoders and decoders to guide the discovery of optimal linear bases while retaining structural interpretability <span class="citation" data-cites="CarlesBou2026achieving Becker2024hyperparameter">(<a href="#ref-CarlesBou2026achieving" role="doc-biblioref">Carles-Bou and Carmona 2026</a>; <a href="#ref-Becker2024hyperparameter" role="doc-biblioref">Otávio Becker 2023</a>)</span>. Additionally, we apply our Spectral Triage mechanism to systematically weight modality contributions, mitigating the impact of noise-dominant views.</p>
+</section>
+</section>
+<section id="background" class="level2" data-number="1.2">
+<h2 data-number="1.2" class="anchored" data-anchor-id="background"><span class="header-section-number">1.2</span> Background</h2>
+<section id="multi-view-representation-learning" class="level3" data-number="1.2.1">
+<h3 data-number="1.2.1" class="anchored" data-anchor-id="multi-view-representation-learning"><span class="header-section-number">1.2.1</span> Multi-View Representation Learning</h3>
+<p>Multi-view representation learning derives a unified latent space <span class="math inline">\(\mathbf{U}\)</span> that captures the shared variance across <span class="math inline">\(M\)</span> distinct data matrices <span class="math inline">\(\{\mathbf{X}_m\}_{m=1}^M\)</span>. This process identifies view-specific transformations <span class="math inline">\(f_m(\mathbf{X}_m)\)</span> that map each view to <span class="math inline">\(\mathbf{U}\)</span> via a shared similarity metric. Linear methods, including generalized CCA and SiMLR, compute projection matrices <span class="math inline">\(\mathbf{V}_m\)</span>, where the matrix elements directly quantify feature contributions. In contrast, deep multi-view models parametrize <span class="math inline">\(f_m\)</span> as multilayer perceptrons <span class="citation" data-cites="Sapkota_2025 Zhao_2024">(<a href="#ref-Sapkota_2025" role="doc-biblioref">Sapkota et al. 2025</a>; <a href="#ref-Zhao_2024" role="doc-biblioref">Zhao et al. 2024</a>)</span>. While these non-linear models capture complex data manifolds, they suffer from the Information Masking problem; nested non-linearities obscure the mathematical relationship between input features <span class="math inline">\(\mathbf{X}_m\)</span> and the latent space <span class="math inline">\(\mathbf{U}\)</span> <span class="citation" data-cites="Schennach2019independent Chiueh1988learning">(<a href="#ref-Schennach2019independent" role="doc-biblioref">Schennach and Gunsilius 2019</a>; <a href="#ref-Chiueh1988learning" role="doc-biblioref">Chiueh and Goodman 1988</a>)</span>.</p>
+</section>
+<section id="information-bottleneck-and-structural-interpretability" class="level3" data-number="1.2.2">
+<h3 data-number="1.2.2" class="anchored" data-anchor-id="information-bottleneck-and-structural-interpretability"><span class="header-section-number">1.2.2</span> Information Bottleneck and Structural Interpretability</h3>
+<p>To resolve Information Masking and re-establish transparency in deep multi-view learning, we enforce a mandatory linear projection constraint, designated the <strong>Only Linear Encoder Entry (OLEE)</strong>. The OLEE acts as an Information Bottleneck. It restricts the model’s representational capacity at the input layer:</p>
+<ol type="1">
+<li><strong>Only Linear Encoder Entry (OLEE):</strong> The model performs an initial, strictly linear transformation <span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span>. This constraint applies across our architectural taxonomy (LEND, NED, NEDPP).</li>
+<li><strong>Orthonormal Basis and the Stiefel Manifold:</strong> We restrict the projection matrix <span class="math inline">\(\mathbf{V}_m\)</span> to the Stiefel manifold, defined by <span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_K\)</span>. We enforce this constraint using <strong>Non-negative Stiefel Approximating Flow (NSA-Flow)</strong>, an optimization penalty that regularizes the linear encoding layer. This enforces the discovery of non-redundant, near-orthogonal features.</li>
+<li><strong>Direct Feature Attribution:</strong> By enforcing the OLEE, we guarantee that every downstream latent factor is an explicit linear combination of the input features <span class="math inline">\(\mathbf{X}_m\)</span>. The matrix <span class="math inline">\(\mathbf{V}_m\)</span> operates as a globally interpretable weight matrix.</li>
+</ol>
+<p>This architecture ensures that interpretability is a structural property. High-stakes clinical decision-making requires inherently interpretable models <span class="citation" data-cites="Rudin_2019">(<a href="#ref-Rudin_2019" role="doc-biblioref">Rudin 2019</a>)</span>. Existing post-hoc methods, such as LIME <span class="citation" data-cites="Ribeiro_2016">(<a href="#ref-Ribeiro_2016" role="doc-biblioref">Ribeiro et al. 2016</a>)</span> and SHAP <span class="citation" data-cites="Lundberg_2017">(<a href="#ref-Lundberg_2017" role="doc-biblioref">Lundberg and Lee 2017</a>)</span>, estimate feature attribution by fitting local surrogate models to perturbed inputs. These approximations lack stability, fail in high-dimensional settings, and frequently fail to capture the true mechanics of complex neural networks.</p>
+<p>Our framework guarantees Auditability by Design. The weights within the basis <span class="math inline">\(\mathbf{V}_m\)</span> represent exact global feature importance <span class="citation" data-cites="Smith2023posthoc">(<a href="#ref-Smith2023posthoc" role="doc-biblioref">Radulovic 2023</a>)</span>. This structural property permits exact counterfactual reasoning <span class="citation" data-cites="Wachter_2017">(<a href="#ref-Wachter_2017" role="doc-biblioref">Wachter et al. 2017</a>)</span>. Because we map features linearly prior to non-linear transformation, we compute the minimal input perturbation required to shift the latent representation analytically.</p>
+<div id="fig-interpretability-gap" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-interpretability-gap-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">#| fig-width: 6
+#| fig-align: center
+graph LR
+    subgraph PostHoc [Post-hoc: Attribution via Approximation]
+        direction TB
+        InputP[Input X] --&gt; BlackBox[Black Box Model]
+        BlackBox --&gt;|Nonlinear Composition| OutputP[Output Y]
+        BlackBox -.-&gt;|Perturbations| Explainer[SHAP/LIME Explainer]
+        Explainer --&gt;|Local Surrogate| Guess[Importance Estimate]
+    end
+
+    subgraph Structural [Structural: Auditability by Design]
+        direction TB
+        InputM[Input X] --&gt;|OLEE Constraint| SparseWeights["Basis Matrix V"]
+        SparseWeights --&gt;|Z = XV| Latent[Latent Z]
+        Latent --&gt;|Deep Decoders| Meaning["Deep Topology"]
+        Latent -.-&gt;|Exact Alignment| Exact["Importance = Weights"]
+    end
+    
+    style PostHoc fill:#ffffff,stroke:#333,stroke-width:2px
+    style Structural fill:#f0f7ff,stroke:#01579b,stroke-width:2px
+    style SparseWeights fill:#e3f2fd,stroke:#1976d2,color:#000
+    style BlackBox fill:#fff5f5,stroke:#c62828,color:#000
+#| fig-cap: 'The Interpretability Paradigm Shift. Post-hoc methods estimate importance by perturbing non-linear models. Our framework enforces importance by design through the Only Linear Encoder Entry (OLEE) constraint, acting as an Information Bottleneck to resolve Information Masking.'
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig quarto-uncaptioned" id="fig-interpretability-gap-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;1.1
+</figcaption>
+</figure>
+</div>
+</section>
+<section id="summary-of-contributions" class="level3" data-number="1.2.3">
+<h3 data-number="1.2.3" class="anchored" data-anchor-id="summary-of-contributions"><span class="header-section-number">1.2.3</span> Summary of Contributions</h3>
+<p>We summarize our methodological contributions:</p>
+<ol type="1">
+<li><strong>Solving Information Masking via OLEE:</strong> We demonstrate the compatibility of deep representational capacity and mathematical transparency. Across LEND, NED, and NEDPP, enforcing an initial orthogonal linear projection provides analytically exact feature importance. This Information Bottleneck manages feature discovery, while downstream non-linear layers address manifold complexities.</li>
+<li><strong>Spectral Triage and Robust Consensus:</strong> We formulate a consensus mechanism utilizing <strong>Spectral Sharpness</strong> to identify and down-weight noise-dominant views. This <strong>Modality Alignment Index (MAI)</strong> stabilizes the shared representation by dynamically penalizing non-structured modalities.</li>
+<li><strong>Manifold Regularization via NSA-Flow:</strong> We apply <strong>Non-negative Stiefel Approximating Flow (NSA-Flow)</strong> to enforce approximate orthogonality on the linear encoding layer. This regularization prevents feature collapse and ensures each latent factor represents a statistically unique signal.</li>
+<li><strong>Leave-One-Out (LOO) Topology:</strong> We employ a <strong>Leave-One-Out (LOO)</strong> topology during consensus formation. By omitting each modality from its own target calculation, we prevent deep networks from memorizing modality-specific noise.</li>
+<li><strong>Methodological Correctives for Model Selection:</strong> We implement rigorous statistical criteria, including Tracy-Widom distributions, Bayesian Information Criterion (BIC), and the One-Standard-Error rule, for objective model validation.</li>
+<li><strong>Shared-Private Disentanglement:</strong> We formulate a shared-private partitioning architecture using cross-covariance penalties to isolate modality-specific idiosyncratic noise from the cross-modal consensus signal.</li>
+<li><strong>Invertible Integration via Flow-SiMLR:</strong> We introduce <strong>Flow-SiMLR</strong>, which embeds bijective Normalizing Flows directly into multi-view consensus discovery. By leveraging affine coupling layers, the architecture preserves exact mathematical invertibility, enabling joint Gaussian conditional inference for cross-view feature synthesis and clinical imputation.</li>
+</ol>
+</section>
+<section id="architectural-taxonomy" class="level3" data-number="1.2.4">
+<h3 data-number="1.2.4" class="anchored" data-anchor-id="architectural-taxonomy"><span class="header-section-number">1.2.4</span> Architectural Taxonomy</h3>
+<p>We evaluate this framework across four algorithmic implementations:</p>
+<ul>
+<li><span style="color: #1f77b4; font-weight: bold;"><strong>SiMLR (Purely Linear - Blue):</strong></span> The strictly linear baseline, optimal for Gaussian data distributions.</li>
+<li><span style="color: #2ca02c; font-weight: bold;"><strong>LEND (Mixed Architecture - Green):</strong></span> A hybrid architecture coupling an OLEE-constrained linear encoder for feature discovery with a deep decoder for non-linear manifold mapping.</li>
+<li><span style="color: #ff7f0e; font-weight: bold;"><strong>NED (Fully Nonlinear - Orange):</strong></span> A non-linear architecture that applies multi-layer perceptrons subsequent to the mandatory OLEE bottleneck.</li>
+<li><span style="color: #9467bd; font-weight: bold;"><strong>NEDPP (Shared/Private - Purple):</strong></span> A disentangled architecture that explicitly separates the latent space into shared consensus and modality-specific private components.</li>
+<li><span style="color: #008080; font-weight: bold;"><strong>Flow-SiMLR (Normalizing Flows - Teal):</strong></span> An invertible architecture utilizing normalizing flows to establish bijective, information-preserving coordinate transforms, enabling exact conditional inference and cross-view imputation.</li>
+</ul>
+<p>Section 2 provides the mathematical definitions for the joint-variational objective, OLEE, MAI, NSA-Flow, and the algorithmic variants. Section 3 presents empirical evaluations of the consistency-interpretability tradeoff using simulated benchmarks and a clinical breast cancer (BRCA) cohort. Section 4 discusses implications for explainable multi-omics integration and clinical translation.</p>
+
+
+<div id="refs" class="references csl-bib-body hanging-indent" role="list">
+<div id="ref-andrew2013deep" class="csl-entry" role="listitem">
+Andrew, Galen, Raman Arora, Jeff Bilmes, and Karen Livescu. 2013. <span>“Deep Canonical Correlation Analysis.”</span> <em>International Conference on Machine Learning</em>, 1247–55.
+</div>
+<div id="ref-argelaguet2020mofa" class="csl-entry" role="listitem">
+Argelaguet, Ricard, Damien Arnol, Danila Bredikhin, Olivier Delaneau, John C Marioni, and Oliver Stegle. 2020. <span>“MOFA+: A Statistical Framework for Comprehensive Integration of Multi-Modal Single-Cell Data.”</span> <em>Genome Biology</em> 21 (1): 1–17.
+</div>
+<div id="ref-avants2025" class="csl-entry" role="listitem">
+<span class="nocase">Avants, Brian B., Nicholas J. Tustison, et al.</span> 2025. <span>“Normative Neurological Health.”</span> <em>medRxiv</em>, ahead of print. <a href="https://doi.org/10.1101/2025.09.27.25336706v2">https://doi.org/10.1101/2025.09.27.25336706v2</a>.
+</div>
+<div id="ref-avants2021" class="csl-entry" role="listitem">
+Avants, Brian B., Nicholas J. Tustison, and James R. Stone. 2021. <span>“SiMLR: Robust Metric Learning for Multi-View Datasets.”</span> <em>Machine Learning in Medicine</em> 1: 100–115.
+</div>
+<div id="ref-avants2014ants" class="csl-entry" role="listitem">
+Avants, Brian B, Nicholas J Tustison, Michael Stauffer, Gang Song, Baohua Wu, and James C Gee. 2014. <span>“The Insight ToolKit Image Registration Framework.”</span> <em>Frontiers in Neuroinformatics</em> 8: 44.
+</div>
+<div id="ref-CarlesBou2026achieving" class="csl-entry" role="listitem">
+Carles-Bou, Jose L., and Enrique J. Carmona. 2026. <span>“Achieving Faithful Explainability in Feedforward Neural Networks Through Accurately Computed Feature Attribution.”</span> <em>Neural Networks</em>, ahead of print. <a href="https://doi.org/10.1016/j.neunet.2025.108277">https://doi.org/10.1016/j.neunet.2025.108277</a>.
+</div>
+<div id="ref-Chiueh1988learning" class="csl-entry" role="listitem">
+Chiueh, T. D., and R. M. Goodman. 1988. <span>“Learning Algorithms for Neural Networks with Ternary Weights.”</span> <em>Neural Networks</em>, ahead of print. <a href="https://doi.org/10.1016/0893-6080(88)90203-1">https://doi.org/10.1016/0893-6080(88)90203-1</a>.
+</div>
+<div id="ref-dinh2016density" class="csl-entry" role="listitem">
+Dinh, Laurent, Jascha Sohl-Dickstein, and Samy Bengio. 2016. <span>“Density Estimation Using Real NVP.”</span> <em>arXiv Preprint arXiv:1605.08803</em>.
+</div>
+<div id="ref-hotelling1936relations" class="csl-entry" role="listitem">
+Hotelling, Harold. 1936. <span>“Relations Between Two Sets of Variates.”</span> <em>Biometrika</em> 28 (3/4): 321. <a href="https://doi.org/10.2307/2333955">https://doi.org/10.2307/2333955</a>.
+</div>
+<div id="ref-Lee_1999" class="csl-entry" role="listitem">
+Lee, Daniel D., and H. Sebastian Seung. 1999. <span>“Learning the Parts of Objects by Non-Negative Matrix Factorization.”</span> <em>Nature</em> 401 (6755): 788–91. <a href="https://doi.org/10.1038/44565">https://doi.org/10.1038/44565</a>.
+</div>
+<div id="ref-Lundberg_2017" class="csl-entry" role="listitem">
+Lundberg, Scott M, and Su-In Lee. 2017. <span>“A Unified Approach to Interpreting Model Predictions.”</span> <em>Advances in Neural Information Processing Systems</em> 30.
+</div>
+<div id="ref-Becker2024hyperparameter" class="csl-entry" role="listitem">
+Otávio Becker, Cassiano. 2023. <em>Hyper-Parameter Optimization for Manifold Regularization Learning</em>. <a href="https://doi.org/10.47749/t/unicamp.2013.916883">https://doi.org/10.47749/t/unicamp.2013.916883</a>.
+</div>
+<div id="ref-Smith2023posthoc" class="csl-entry" role="listitem">
+Radulovic, Nedeljko. 2023. <em>Post-Hoc Explainable AI for Black Box Models on Tabular Data</em>. <a href="https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5">https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5</a>.
+</div>
+<div id="ref-rezende2015variational" class="csl-entry" role="listitem">
+Rezende, Danilo, and Shakir Mohamed. 2015. <span>“Variational Inference with Normalizing Flows.”</span> <em>International Conference on Machine Learning</em>, 1530–38.
+</div>
+<div id="ref-Ribeiro_2016" class="csl-entry" role="listitem">
+Ribeiro, Marco, Sameer Singh, and Carlos Guestrin. 2016. <span>“<span>‘Why Should i Trust You?’</span>: Explaining the Predictions of Any Classifier.”</span> <em>Proceedings of the 2016 Conference of the North American Chapter of the Association for Computational Linguistics: Demonstrations</em>, 97–101. <a href="https://doi.org/10.18653/v1/n16-3020">https://doi.org/10.18653/v1/n16-3020</a>.
+</div>
+<div id="ref-Rudin_2019" class="csl-entry" role="listitem">
+Rudin, Cynthia. 2019. <span>“Stop Explaining Black Box Machine Learning Models for High Stakes Decisions and Use Interpretable Models Instead.”</span> <em>Nature Machine Intelligence</em> 1 (5): 206–15. <a href="https://doi.org/10.1038/s42256-019-0048-x">https://doi.org/10.1038/s42256-019-0048-x</a>.
+</div>
+<div id="ref-Sapkota_2025" class="csl-entry" role="listitem">
+Sapkota, Ram, Bishal Thapaliya, Bhaskar Ray, Pranav Suresh, and Jingyu Liu. 2025. <em>Multimodal Brain Growth Patterns: Insights from Canonical Correlation Analysis and Deep Canonical Correlation Analysis with Auto-Encoder</em>. February. <a href="https://doi.org/10.20944/preprints202502.0163.v1">https://doi.org/10.20944/preprints202502.0163.v1</a>.
+</div>
+<div id="ref-Schennach2019independent" class="csl-entry" role="listitem">
+Schennach, Susanne M., and Florian Gunsilius. 2019. <em>Independent Nonlinear Component Analysis</em>. <a href="https://doi.org/10.1920/wp.cem.2019.4619">https://doi.org/10.1920/wp.cem.2019.4619</a>.
+</div>
+<div id="ref-stone2020longitudinal" class="csl-entry" role="listitem">
+<span class="nocase">Stone, James R, Brian B Avants, et al.</span> 2020. <span>“Longitudinal Structural Magnetic Resonance Imaging of Blast-Induced Mild Traumatic Brain Injury.”</span> <em>Journal of Neurotrauma</em> 37 (21): 2343–54.
+</div>
+<div id="ref-Wachter_2017" class="csl-entry" role="listitem">
+Wachter, Sandra, Brent Mittelstadt, and Chris Russell. 2017. <span>“Counterfactual Explanations Without Opening the Black Box: Automated Decisions and the GDPR.”</span> <em>SSRN Electronic Journal</em>, ahead of print. <a href="https://doi.org/10.2139/ssrn.3063289">https://doi.org/10.2139/ssrn.3063289</a>.
+</div>
+<div id="ref-wu2018multimodal" class="csl-entry" role="listitem">
+Wu, Mike, and Noah Goodman. 2018. <span>“Multimodal Generative Models for Scalable Weakly-Supervised Learning.”</span> <em>Advances in Neural Information Processing Systems</em> 31.
+</div>
+<div id="ref-Zhao_2011" class="csl-entry" role="listitem">
+Zhao, Weizhong, Huifang Ma, and Ning Li. 2011. <span>“A New Non-Negative Matrix Factorization Algorithm with Sparseness Constraints.”</span> <em>2011 International Conference on Machine Learning and Cybernetics</em>, 1449–52. <a href="https://doi.org/10.1109/icmlc.2011.6016966">https://doi.org/10.1109/icmlc.2011.6016966</a>.
+</div>
+<div id="ref-Zhao_2024" class="csl-entry" role="listitem">
+Zhao, Xingbiao, Enze Chen, Panli Yuan, Limengzi Yuan, and Yuchen Zheng. 2024. <em>Deep Canonically Correlated Denoising Autoencoders for Signature Verification Purpose</em>. <a href="https://doi.org/10.21203/rs.3.rs-4569259/v1">https://doi.org/10.21203/rs.3.rs-4569259/v1</a>.
+</div>
+</div>
+</section>
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="./index.html" class="pagination-link" aria-label="Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="./02_methods.html" class="pagination-link" aria-label="Methods">
+        <span class="nav-page-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Methods</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
