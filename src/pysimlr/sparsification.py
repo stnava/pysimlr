@@ -485,14 +485,15 @@ def simlr_sparseness(v: torch.Tensor,
 
     # --- New Prioritized Flow ---
     # 1. Handle Hard Constraints (Stiefel/Grassmann/NewtonSchulz) or prioritized nsa_flow_orth
-    if constraint_type in ["Stiefel", "Grassmann"]:
+    if constraint_type in ["Stiefel", "Grassmann", "Stiefel_ns", "Grassmann_ns", "Stiefel_polar", "Grassmann_polar"]:
         if sparseness_alg == 'nnorth':
             v_out = project_to_orthonormal_nonnegative(v_out, constraint=positivity)
         elif nsa_flow_orth is not None:
             precision = "float32" if orig_dtype == torch.float32 else "float64"
             w = constraint_weight if constraint_weight > 0 else 1.0
+            retract_mode = "polar" if "_polar" in constraint_type else "ns"
             try:
-                res = nsa_flow_orth(v_out, w=w, retraction="soft_polar", max_iter=max(5, constraint_iterations), precision=precision, apply_nonneg=apply_nonneg)
+                res = nsa_flow_orth(v_out, w=w, retraction=retract_mode, max_iter=max(5, constraint_iterations), precision=precision, apply_nonneg=apply_nonneg)
                 if res['Y'] is not None:
                     v_out = res['Y'].to(orig_dtype)
             except:
@@ -516,18 +517,20 @@ def simlr_sparseness(v: torch.Tensor,
         if sq != 0 and sparseness_alg == 'soft':
             v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sq, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
 
-    elif constraint_type == "ortho":
-        if nsa_flow_orth is not None and constraint_weight > 0:
+    elif constraint_type in ["ortho", "nsaflow", "ortho_ns", "nsaflow_ns", "ortho_polar", "nsaflow_polar"]:
+        if nsa_flow_orth is not None and (constraint_weight > 0 or "nsaflow" in constraint_type):
             precision = "float32" if orig_dtype == torch.float32 else "float64"
+            retract_mode = "soft_polar" if "_polar" in constraint_type else "soft_ns"
+            w = constraint_weight if constraint_weight > 0 else 0.5
             try:
-                res = nsa_flow_orth(v_out, w=constraint_weight, retraction="soft_polar", max_iter=max(5, constraint_iterations), precision=precision, apply_nonneg=apply_nonneg)
+                res = nsa_flow_orth(v_out, w=w, retraction=retract_mode, max_iter=max(5, constraint_iterations), precision=precision, apply_nonneg=apply_nonneg)
                 if res['Y'] is not None:
                     v_out = res['Y'].to(orig_dtype)
             except:
                 if not torch.isnan(v_out).any():
                     u, s, v_h = safe_svd(v_out, full_matrices=False)
                     v_ortho = u @ v_h
-                    v_out = (1 - constraint_weight) * v_out + constraint_weight * v_ortho
+                    v_out = (1 - w) * v_out + w * v_ortho
         elif constraint_weight > 0:
             v_out = project_to_partially_orthonormal_nonnegative(v_out, max_iter=constraint_iterations, constraint=positivity, ortho_strength=constraint_weight)
             

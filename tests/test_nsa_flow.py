@@ -43,8 +43,17 @@ def test_nsa_flow_triggered_by_ortho_constraint():
     assert kwargs['w'] == weight
     # max_iter should be max(5, iters)
     assert kwargs['max_iter'] == max(5, iters)
-    # retraction should be "soft_polar"
-    assert kwargs['retraction'] == "soft_polar"
+    # retraction should be "soft_ns"
+    assert kwargs['retraction'] == "soft_ns"
+
+    # Verify ortho_polar sets retraction to soft_polar
+    mock_nsa.reset_mock()
+    constraint_str_polar = f"ortho_polarx{weight}x{iters}"
+    with patch('pysimlr.sparsification.nsa_flow_orth', mock_nsa):
+        simlr([x1, x2], k=2, iterations=1, constraint=constraint_str_polar)
+    assert mock_nsa.called
+    _, kwargs_polar = mock_nsa.call_args_list[0]
+    assert kwargs_polar['retraction'] == "soft_polar"
 
 def test_nsa_flow_triggered_by_none_constraint_with_weight():
     """
@@ -84,6 +93,43 @@ def test_nsa_flow_fallback_mechanism():
     assert mock_nsa.called
     assert 'v' in res
     assert res['v'][0].shape == (5, 2)
+
+def test_newton_schulz_retraction_support():
+    """Verify that Newton-Schulz retraction parameter is correctly parsed and passed to nsa_flow_orth."""
+    set_all_seeds(42)
+    x1 = torch.randn(20, 5)
+    
+    mock_nsa = MagicMock()
+    mock_nsa.side_effect = lambda Y, **kwargs: {'Y': Y.clone()}
+    
+    # 1. Test linear simlr with Stiefel_ns constraint
+    with patch('pysimlr.sparsification.nsa_flow_orth', mock_nsa):
+        simlr([x1], k=2, iterations=1, constraint="Stiefel_nsx0.5")
+    assert mock_nsa.called
+    _, kwargs = mock_nsa.call_args
+    assert kwargs['retraction'] == "ns"
+    
+    # Reset mock
+    mock_nsa.reset_mock()
+    
+    # 2. Test linear simlr with nsaflow_ns constraint
+    with patch('pysimlr.sparsification.nsa_flow_orth', mock_nsa):
+        simlr([x1], k=2, iterations=1, constraint="nsaflow_nsx0.5")
+    assert mock_nsa.called
+    _, kwargs = mock_nsa.call_args
+    assert kwargs['retraction'] == "soft_ns"
+
+    # 3. Test deep model (lend_simr) with retraction_type='soft_ns'
+    from pysimlr.deep import lend_simr
+    res_deep = lend_simr([x1], k=2, epochs=2, batch_size=10, warmup_epochs=0, use_nsa=True, retraction_type="soft_ns", verbose=False)
+    assert 'model' in res_deep
+    # Check that model has retraction_type='soft_ns' on its encoders
+    encoders = getattr(res_deep['model'], 'linear_encoders', getattr(res_deep['model'], 'encoders', []))
+    for enc in encoders:
+        if enc.nsa_linear is not None:
+            assert enc.nsa_linear.retraction_type == "soft_ns"
+        elif enc.nsa_layer is not None:
+            assert enc.nsa_layer.retraction_type == "soft_ns"
 
 if __name__ == "__main__":
     pytest.main([__file__])
