@@ -48,7 +48,10 @@ from .regression import (
     smooth_regression
 )
 from .nnh import (
-    nnh_embed
+    nnh_embed,
+    extend_simlr_embedding_with_new_modalities,
+    apply_simlr_matrices,
+    apply_simlr_matrices_dtfix
 )
 from .structural import (
     fit_structural_models,
@@ -73,6 +76,7 @@ from .deep import (
 )
 from .flows import (
     flow_simr,
+    flow_simr_v,
     FlowSiMRModel,
     FlowEncoderWrapper,
     FlowDecoderWrapper,
@@ -143,6 +147,9 @@ __all__ = [
     'smooth_matrix_prediction',
     'smooth_regression',
     'nnh_embed',
+    'extend_simlr_embedding_with_new_modalities',
+    'apply_simlr_matrices',
+    'apply_simlr_matrices_dtfix',
     'fit_structural_models',
     'create_path_graph',
     'simlr_path',
@@ -159,6 +166,7 @@ __all__ = [
     'ModalityEncoder',
     'predict_deep',
     'flow_simr',
+    'flow_simr_v',
     'FlowSiMRModel',
     'FlowEncoderWrapper',
     'FlowDecoderWrapper',

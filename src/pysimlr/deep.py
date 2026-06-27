@@ -54,12 +54,13 @@ except ImportError:
 
 def _svd_project_columns(u: torch.Tensor) -> torch.Tensor:
     """Project towards the Stiefel manifold using SVD."""
-    try:
-        u_svd, _, vh_svd = safe_svd(u, full_matrices=False)
-        return u_svd @ vh_svd
-    except:
-        # Fallback to column normalization
-        return torch.nn.functional.normalize(u, p=2, dim=0)
+    with torch.no_grad():
+        try:
+            u_svd, _, vh_svd = safe_svd(u, full_matrices=False)
+            return u_svd @ vh_svd
+        except:
+            # Fallback to column normalization
+            return torch.nn.functional.normalize(u, p=2, dim=0)
 
 def _newton_step_ortho(u: torch.Tensor) -> torch.Tensor:
     """Deprecated: Use _svd_project_columns."""
@@ -157,8 +158,13 @@ class LENDNSAEncoder(nn.Module):
     def __init__(self, input_dim: int, latent_dim: int, nsa_w: float = 0.1, 
                  positivity: str = "positive", sparseness_quantile: float = 0.0,
                  soft_thresholding: bool = False, use_nsa: bool = True,
-                 first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
+                 first_layer_mode: str = "scheduled", nsa_iterations: int = 1,
+                 retraction_type: str = "soft_polar"):
         super().__init__()
+        if positivity is True or (isinstance(positivity, str) and positivity.lower() == 'true'):
+            positivity = 'positive'
+        elif positivity is False or (isinstance(positivity, str) and positivity.lower() == 'false'):
+            positivity = 'either'
         self.positivity = positivity
         self.sparseness_quantile = sparseness_quantile
         self.soft_thresholding = soft_thresholding
@@ -190,7 +196,7 @@ class LENDNSAEncoder(nn.Module):
             if hasattr(nsa, 'NSAFlowLinear'):
                 self.nsa_linear = nsa.NSAFlowLinear(
                     in_features=input_dim, out_features=latent_dim, bias=False,
-                    w_retract=nsa_w, retraction_type="soft_polar", 
+                    w_retract=nsa_w, retraction_type=retraction_type, 
                     apply_nonneg=nsa_apply_nonneg
                 )
                 self.v_raw = self.nsa_linear.weight_raw
@@ -198,7 +204,7 @@ class LENDNSAEncoder(nn.Module):
                 # Fallback to NSAFlowLayer (activation-squeeze) applied to weights
                 self.v_raw = nn.Parameter(torch.randn(input_dim, latent_dim) * 0.01)
                 self.nsa_layer = nsa.NSAFlowLayer(
-                    k=latent_dim, w_retract=nsa_w, retraction_type="soft_polar", 
+                    k=latent_dim, w_retract=nsa_w, retraction_type=retraction_type, 
                     apply_nonneg=nsa_apply_nonneg, residual=False, use_transform=False
                 )
         else:
@@ -379,11 +385,12 @@ class LENDSiMRModel(nn.Module):
                  dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "positive", 
                  sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
-                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
+                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
+                 retraction_type: str = "soft_polar"):
         super().__init__()
         if isinstance(sparseness_quantile, (float, int)):
             sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
-        self.encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations) for dim, sq in zip(input_dims, sparseness_quantile)])
+        self.encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, retraction_type=retraction_type) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.mixing_algorithm, self.latent_dim = mixing_algorithm, latent_dim
         self.topology = topology
@@ -392,6 +399,7 @@ class LENDSiMRModel(nn.Module):
         self.prune_threshold = prune_threshold
         self.dynamic_weights = dynamic_weights
         self.mai_metric = mai_metric
+        self.use_rank_mai = use_rank_mai
         self.register_buffer("mai", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
@@ -423,6 +431,13 @@ class LENDSiMRModel(nn.Module):
     def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int):
         if not getattr(self, "dynamic_weights", False): return
         with torch.no_grad():
+            if getattr(self, "use_rank_mai", False):
+                ranked_latents = []
+                for p in latents:
+                    r = torch.argsort(torch.argsort(p, dim=0), dim=0).float()
+                    ranked_latents.append(r)
+                latents = ranked_latents
+                
             norm_projs = []
             for p in latents:
                 p_c = p - p.mean(dim=0, keepdim=True)
@@ -551,11 +566,12 @@ class NEDSiMRModel(nn.Module):
                  dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "positive", 
                  sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
-                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
+                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
+                 retraction_type: str = "soft_polar"):
         super().__init__()
         if isinstance(sparseness_quantile, (float, int)):
             sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
-        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations) for dim, sq in zip(input_dims, sparseness_quantile)])
+        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, retraction_type=retraction_type) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.nonlinear_heads = nn.ModuleList([ModalityDecoder(latent_dim, latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.mixing_algorithm, self.latent_dim = mixing_algorithm, latent_dim
@@ -565,6 +581,7 @@ class NEDSiMRModel(nn.Module):
         self.prune_threshold = prune_threshold
         self.dynamic_weights = dynamic_weights
         self.mai_metric = mai_metric
+        self.use_rank_mai = use_rank_mai
         self.register_buffer("mai", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
@@ -596,6 +613,13 @@ class NEDSiMRModel(nn.Module):
     def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int):
         if not getattr(self, "dynamic_weights", False): return
         with torch.no_grad():
+            if getattr(self, "use_rank_mai", False):
+                ranked_latents = []
+                for p in latents:
+                    r = torch.argsort(torch.argsort(p, dim=0), dim=0).float()
+                    ranked_latents.append(r)
+                latents = ranked_latents
+                
             norm_projs = []
             for p in latents:
                 p_c = p - p.mean(dim=0, keepdim=True)
@@ -731,11 +755,12 @@ class NEDSharedPrivateSiMRModel(nn.Module):
                  hidden_dims: List[int] = [128, 64], dropout: float = 0.1, nsa_w: float = 0.1,
                  positivity: str = "positive", sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
-                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
+                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
+                 retraction_type: str = "soft_polar"):
         super().__init__()
         if isinstance(sparseness_quantile, (float, int)):
             sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
-        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, shared_latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations) for dim, sq in zip(input_dims, sparseness_quantile)])
+        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, shared_latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, retraction_type=retraction_type) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.shared_heads = nn.ModuleList([ModalityDecoder(shared_latent_dim, shared_latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * shared_latent_dim, shared_latent_dim))
         self.private_encoders = nn.ModuleList([ModalityEncoder(dim, private_latent_dim, hidden_dims, dropout) for dim in input_dims])
@@ -747,6 +772,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         self.prune_threshold = prune_threshold
         self.dynamic_weights = dynamic_weights
         self.mai_metric = mai_metric
+        self.use_rank_mai = use_rank_mai
         self.register_buffer("mai", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
@@ -777,6 +803,13 @@ class NEDSharedPrivateSiMRModel(nn.Module):
     def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int):
         if not getattr(self, "dynamic_weights", False): return
         with torch.no_grad():
+            if getattr(self, "use_rank_mai", False):
+                ranked_latents = []
+                for p in latents:
+                    r = torch.argsort(torch.argsort(p, dim=0), dim=0).float()
+                    ranked_latents.append(r)
+                latents = ranked_latents
+                
             norm_projs = []
             for p in latents:
                 p_c = p - p.mean(dim=0, keepdim=True)
@@ -1152,7 +1185,7 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     return loss_history, recon_history, sim_history, converged_epoch, first_layer_training
 
 def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', **kwargs) -> Dict[str, Any]:
+                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False, **kwargs) -> Dict[str, Any]:
     """
     Fit a Linear Encoded Nonlinear Decoding (LEND) model.
 
@@ -1221,7 +1254,8 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
-    model = LENDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations).to(device)
+    retraction_type = kwargs.pop('retraction_type', 'soft_polar')
+    model = LENDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai, retraction_type=retraction_type).to(device)
     model.initialize_v(torch_mats, k)
     optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -1243,7 +1277,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     return result
 
 def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', **kwargs) -> Dict[str, Any]:
+                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False, **kwargs) -> Dict[str, Any]:
     """
     Fit a Nonlinear Encoded Decoding (NED) model.
 
@@ -1312,7 +1346,8 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
-    model = NEDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations).to(device)
+    retraction_type = kwargs.pop('retraction_type', 'soft_polar')
+    model = NEDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai, retraction_type=retraction_type).to(device)
     model.initialize_v(torch_mats, k)
     optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -1334,7 +1369,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     return result
 
 def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, optimizer_type: str = 'adam', **kwargs) -> Dict[str, Any]:
+                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, optimizer_type: str = 'adam', use_rank_mai: bool = False, **kwargs) -> Dict[str, Any]:
     """
     Fit a Nonlinear Encoded Decoding model with Shared and Private Latents (NED++).
 
@@ -1418,7 +1453,8 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     if private_k is None: private_k = max(1, k // 2)
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
-    model = NEDSharedPrivateSiMRModel(input_dims, k, private_k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations).to(device)
+    retraction_type = kwargs.pop('retraction_type', 'soft_polar')
+    model = NEDSharedPrivateSiMRModel(input_dims, k, private_k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai, retraction_type=retraction_type).to(device)
     model.initialize_v(torch_mats, k)
     
     # Store weights on model for train loop access
