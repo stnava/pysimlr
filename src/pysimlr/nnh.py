@@ -578,6 +578,7 @@ def apply_simlr_matrices(
     existing_df: pd.DataFrame,
     simlr_v: Union[List[Union[pd.DataFrame, np.ndarray, torch.Tensor]], Dict[str, Union[pd.DataFrame, np.ndarray, torch.Tensor]]],
     feature_names: Optional[Union[List[List[str]], Dict[str, List[str]]]] = None,
+    modality_names: Optional[List[str]] = None,
     n_limit: Optional[int] = None,
     version_prefix: str = "r",
     verbose: bool = False
@@ -594,7 +595,8 @@ def apply_simlr_matrices(
         simlr_v_dict = simlr_v
     else:
         for i, W in enumerate(simlr_v):
-            simlr_v_dict[f"block{i}"] = W
+            name = modality_names[i] if (modality_names and i < len(modality_names)) else f"block{i}"
+            simlr_v_dict[name] = W
             
     feature_names_dict = {}
     if feature_names is not None:
@@ -602,7 +604,8 @@ def apply_simlr_matrices(
             feature_names_dict = feature_names
         else:
             for i, names_list in enumerate(feature_names):
-                feature_names_dict[f"block{i}"] = names_list
+                name = modality_names[i] if (modality_names and i < len(modality_names)) else f"block{i}"
+                feature_names_dict[name] = names_list
                 
     for block_name, W in simlr_v_dict.items():
         if isinstance(W, pd.DataFrame):
@@ -642,7 +645,9 @@ def apply_simlr_matrices(
             clean_cname = cname
             if clean_cname.startswith(block_name):
                 clean_cname = clean_cname[len(block_name):]
-            base_name = f"{block_name}{clean_cname}"
+            if clean_cname.startswith("_"):
+                clean_cname = clean_cname[1:]
+            base_name = f"{block_name}_{clean_cname}"
             
             candidate = base_name
             major = 0
@@ -673,6 +678,7 @@ def apply_simlr_matrices_dtfix(
     existing_df: pd.DataFrame,
     matrices_list: Union[List[Union[pd.DataFrame, np.ndarray, torch.Tensor]], Dict[str, Union[pd.DataFrame, np.ndarray, torch.Tensor]]],
     feature_names: Optional[Union[List[List[str]], Dict[str, List[str]]]] = None,
+    modality_names: Optional[List[str]] = None,
     n_limit: Optional[int] = None,
     verbose: bool = False
 ) -> Tuple[pd.DataFrame, List[str]]:
@@ -692,7 +698,8 @@ def apply_simlr_matrices_dtfix(
                 matrices_list_fix[k] = W
     else:
         for i, W in enumerate(matrices_list):
-            matrices_list_fix[f"block{i}"] = W
+            name = modality_names[i] if (modality_names and i < len(modality_names)) else f"block{i}"
+            matrices_list_fix[name] = W
             
     feature_names_fix = {}
     if feature_names is not None:
@@ -700,7 +707,8 @@ def apply_simlr_matrices_dtfix(
             feature_names_fix = copy.deepcopy(feature_names)
         else:
             for i, names_list in enumerate(feature_names):
-                feature_names_fix[f"block{i}"] = list(names_list)
+                name = modality_names[i] if (modality_names and i < len(modality_names)) else f"block{i}"
+                feature_names_fix[name] = list(names_list)
                 
     if dti_cols:
         shortened_existing_df_cols = _shorten_pymm_names(dti_cols)
@@ -761,6 +769,7 @@ def apply_simlr_matrices_dtfix(
         existing_df_fix,
         matrices_list_fix,
         feature_names=feature_names_fix,
+        modality_names=modality_names,
         n_limit=n_limit,
         verbose=verbose
     )
@@ -937,6 +946,7 @@ def extend_simlr_embedding_with_new_modalities(
     preprocess: str = "drop",
     method: str = "simlr",
     feature_names: Optional[Union[List[List[str]], Dict[str, List[str]]]] = None,
+    standardize: bool = True,
     verbose: bool = False,
     **kwargs
 ) -> Dict[str, Any]:
@@ -977,6 +987,8 @@ def extend_simlr_embedding_with_new_modalities(
         pysimlr method to use ("simlr", "flow_simr_v", or "lend_simr").
     feature_names : Union[List[List[str]], Dict[str, List[str]]], optional
         Feature names of the original simlr run.
+    standardize : bool, default=True
+        Whether to standard-scale the new modality features.
     verbose : bool, default=False
         Whether to print diagnostic messages.
     **kwargs : dict
@@ -1009,7 +1021,10 @@ def extend_simlr_embedding_with_new_modalities(
     feat_names_arg = feature_names
     if feat_names_arg is None:
         if "feature_names" in simlr_result:
-            feat_names_arg = simlr_result["feature_names"]
+            if isinstance(simlr_result["feature_names"], dict) and "modality_names" in simlr_result:
+                feat_names_arg = [simlr_result["feature_names"][m] for m in simlr_result["modality_names"] if m in simlr_result["feature_names"]]
+            else:
+                feat_names_arg = simlr_result["feature_names"]
         elif "modality_names" in simlr_result and isinstance(simlr_result.get("v"), dict):
             feat_names_arg = {k: v.index.tolist() for k, v in simlr_result["v"].items() if isinstance(v, pd.DataFrame)}
             
@@ -1017,9 +1032,21 @@ def extend_simlr_embedding_with_new_modalities(
         pymm,
         simlr_result["v"],
         feature_names=feat_names_arg,
+        modality_names=simlr_result.get("modality_names"),
         verbose=verbose
     )
     
+    # 3. Standardization of new modality features
+    if standardize:
+        for mod, cols in new_modalities.items():
+            for col in cols:
+                vals = pymm_proj[col].values
+                mean = np.nanmean(vals)
+                std = np.nanstd(vals, ddof=1)
+                if std == 0:
+                    std = 1.0
+                pymm_proj[col] = (pymm_proj[col] - mean) / std
+                
     if mode == "auto":
         detected = _detect_prefixes(simnames)
         if not detected:
@@ -1158,6 +1185,12 @@ def extend_simlr_embedding_with_new_modalities(
         v_mat = simlr_fit["v"][idx]
         if torch.is_tensor(v_mat):
             v_mat = v_mat.detach().cpu().numpy()
+            
+        # L2-normalize columns of weight matrix
+        norms = np.linalg.norm(v_mat, axis=0, keepdims=True)
+        norms[norms == 0] = 1.0
+        v_mat = v_mat / norms
+        
         features = block_features_preprocessed[name]
         df_v = pd.DataFrame(
             v_mat,
@@ -1185,6 +1218,42 @@ def extend_simlr_embedding_with_new_modalities(
                     v_new_val = torch.tensor(v_new_val).float()
                 updated_simlr_result["v"].append(v_new_val)
                 
+    # Auto-L2 normalize columns of all weight matrices V in updated_simlr_result
+    if isinstance(updated_simlr_result["v"], dict):
+        for k in updated_simlr_result["v"]:
+            W = updated_simlr_result["v"][k]
+            if isinstance(W, pd.DataFrame):
+                w_vals = W.values
+                norms = np.linalg.norm(w_vals, axis=0, keepdims=True)
+                norms[norms == 0] = 1.0
+                updated_simlr_result["v"][k] = pd.DataFrame(w_vals / norms, index=W.index, columns=W.columns)
+            else:
+                if torch.is_tensor(W):
+                    w_vals = W.detach().cpu().numpy()
+                else:
+                    w_vals = np.asarray(W)
+                norms = np.linalg.norm(w_vals, axis=0, keepdims=True)
+                norms[norms == 0] = 1.0
+                w_normed = w_vals / norms
+                if torch.is_tensor(W):
+                    updated_simlr_result["v"][k] = torch.tensor(w_normed).to(W.dtype).to(W.device)
+                else:
+                    updated_simlr_result["v"][k] = w_normed
+    else:
+        for idx in range(len(updated_simlr_result["v"])):
+            W = updated_simlr_result["v"][idx]
+            if torch.is_tensor(W):
+                w_vals = W.detach().cpu().numpy()
+            else:
+                w_vals = np.asarray(W)
+            norms = np.linalg.norm(w_vals, axis=0, keepdims=True)
+            norms[norms == 0] = 1.0
+            w_normed = w_vals / norms
+            if torch.is_tensor(W):
+                updated_simlr_result["v"][idx] = torch.tensor(w_normed).to(W.dtype).to(W.device)
+            else:
+                updated_simlr_result["v"][idx] = w_normed
+                
     if "modality_names" in updated_simlr_result:
         if not isinstance(updated_simlr_result["modality_names"], list):
             updated_simlr_result["modality_names"] = list(updated_simlr_result["modality_names"])
@@ -1202,6 +1271,19 @@ def extend_simlr_embedding_with_new_modalities(
             for nm in new_modality_names:
                 updated_simlr_result["feature_names"][nm] = new_modalities[nm]
                 
+    # 4. Clean, isolated projections output
+    new_proj_df = pd.DataFrame(index=pymm.index)
+    for nm in new_modality_names:
+        if nm in new_v_dict:
+            cols = new_modalities[nm]
+            X = pymm_proj[cols].values
+            X_clean = np.nan_to_num(X)
+            W = new_v_dict[nm].values
+            Y = X_clean @ W
+            for j in range(Y.shape[1]):
+                col_name = f"{nm}_PC{j+1}"
+                new_proj_df[col_name] = Y[:, j]
+                
     diagnostics = {
         "mode_used": mode,
         "split_prefixes_used": split_prefixes,
@@ -1216,7 +1298,8 @@ def extend_simlr_embedding_with_new_modalities(
         "k_method": k_method,
         "cumvar_threshold": cumvar_threshold,
         "min_k": min_k,
-        "joint_k_policy": joint_k_policy
+        "joint_k_policy": joint_k_policy,
+        "standardized": standardize
     }
     
     return {
@@ -1225,6 +1308,7 @@ def extend_simlr_embedding_with_new_modalities(
         "blocks": blocks,
         "adjacency": adjacency,
         "projected_data": pymm_proj,
+        "new_projections": new_proj_df,
         "k_new_used": k_new_used,
         "joint_k": joint_k,
         "diagnostics": diagnostics

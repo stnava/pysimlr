@@ -50,13 +50,13 @@ def test_apply_simlr_matrices():
     }
     
     extended, added_names = apply_simlr_matrices(df, simlr_v)
-    assert "t1PC1" in extended.columns
-    assert "t1PC2" in extended.columns
-    assert "dtPC1" in extended.columns
+    assert "t1_PC1" in extended.columns
+    assert "t1_PC2" in extended.columns
+    assert "dt_PC1" in extended.columns
     assert len(added_names) == 3
     
-    np.testing.assert_array_almost_equal(extended["t1PC1"].values, df["t1_f1"].values)
-    np.testing.assert_array_almost_equal(extended["dtPC1"].values, df["dt_f1"].values * 2.0)
+    np.testing.assert_array_almost_equal(extended["t1_PC1"].values, df["t1_f1"].values)
+    np.testing.assert_array_almost_equal(extended["dt_PC1"].values, df["dt_f1"].values * 2.0)
 
 def test_extend_simlr_embedding():
     # Set seed
@@ -69,8 +69,9 @@ def test_extend_simlr_embedding():
         "t1_f2": np.random.randn(20),
         "dt_f1": np.random.randn(20),
         "dt_f2": np.random.randn(20),
-        "pet_f1": np.random.randn(20),
-        "pet_f2": np.random.randn(20),
+        # very low raw variance features to check standardize/normalization
+        "pet_f1": 1.2 + 0.05 * np.random.randn(20),
+        "pet_f2": 1.3 + 0.04 * np.random.randn(20),
         "age": np.random.randn(20)
     })
     
@@ -121,7 +122,7 @@ def test_extend_simlr_embedding():
         "pet": ["PET_suvr_Left", "PET_suvr_Right"]
     }
     
-    # 3. Test extend_simlr_embedding_with_new_modalities using 'simlr'
+    # 3. Test extend_simlr_embedding_with_new_modalities using 'simlr' and omitting feature_names
     ext_res = extend_simlr_embedding_with_new_modalities(
         pymm=df_pymm,
         simlr_result=simlr_result,
@@ -131,6 +132,7 @@ def test_extend_simlr_embedding():
         min_k=2,
         method="simlr",
         iterations=5,
+        standardize=True,
         verbose=False
     )
     
@@ -140,13 +142,23 @@ def test_extend_simlr_embedding():
     assert "pet" in ext_res["blocks"]
     assert "sim" in ext_res["blocks"]
     
+    # Verify the new projections return value
+    assert "new_projections" in ext_res
+    assert isinstance(ext_res["new_projections"], pd.DataFrame)
+    assert "pet_PC1" in ext_res["new_projections"].columns
+    assert "pet_PC2" in ext_res["new_projections"].columns
+    assert len(ext_res["new_projections"]) == 20
+    
     updated_result = ext_res["updated_simlr_result"]
     assert "pet" in updated_result["v"]
     assert isinstance(updated_result["v"]["pet"], pd.DataFrame)
     assert updated_result["v"]["pet"].shape == (2, 2)
     
-    pd.testing.assert_frame_equal(updated_result["v"]["t1"], simlr_result["v"]["t1"])
-    pd.testing.assert_frame_equal(updated_result["v"]["dt"], simlr_result["v"]["dt"])
+    # Verify L2-normalization of columns of weight matrices V
+    for block_name, W in updated_result["v"].items():
+        w_vals = W.values
+        norms = np.linalg.norm(w_vals, axis=0)
+        np.testing.assert_array_almost_equal(norms, np.ones(norms.shape[0]), decimal=5)
     
     # 4. Test with method='flow_simr_v'
     ext_res_flow = extend_simlr_embedding_with_new_modalities(
@@ -158,7 +170,14 @@ def test_extend_simlr_embedding():
         min_k=2,
         method="flow_simr_v",
         iterations=5,
+        standardize=True,
         verbose=False
     )
     assert ext_res_flow["simlr_fit"]["model_type"] == "flow_simr_v"
     assert "pet" in ext_res_flow["updated_simlr_result"]["v"]
+    
+    # Verify columns of flow v are also L2-normalized
+    for block_name, W in ext_res_flow["updated_simlr_result"]["v"].items():
+        w_vals = W.values
+        norms = np.linalg.norm(w_vals, axis=0)
+        np.testing.assert_array_almost_equal(norms, np.ones(norms.shape[0]), decimal=5)
