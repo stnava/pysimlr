@@ -215,7 +215,11 @@ window.Quarto = {
   <li><a href="#exact-patient-level-attribution-waterfall-xai" id="toc-exact-patient-level-attribution-waterfall-xai" class="nav-link" data-scroll-target="#exact-patient-level-attribution-waterfall-xai"><span class="header-section-number">C.2.2</span> 2. Exact Patient-Level Attribution Waterfall (XAI)</a></li>
   <li><a href="#geodesic-latent-trajectory-counterfactuals" id="toc-geodesic-latent-trajectory-counterfactuals" class="nav-link" data-scroll-target="#geodesic-latent-trajectory-counterfactuals"><span class="header-section-number">C.2.3</span> 3. Geodesic Latent Trajectory &amp; Counterfactuals</a></li>
   </ul></li>
-  <li><a href="#orthogonality-sparsity-diagnostics" id="toc-orthogonality-sparsity-diagnostics" class="nav-link" data-scroll-target="#orthogonality-sparsity-diagnostics"><span class="header-section-number">C.3</span> Orthogonality &amp; Sparsity Diagnostics</a></li>
+  <li><a href="#algorithm-for-flow-simlr-v-with-delayed-gating-warmup" id="toc-algorithm-for-flow-simlr-v-with-delayed-gating-warmup" class="nav-link" data-scroll-target="#algorithm-for-flow-simlr-v-with-delayed-gating-warmup"><span class="header-section-number">C.3</span> Algorithm for Flow-SiMLR-V with Delayed Gating Warmup</a>
+  <ul class="collapse">
+  <li><a href="#algorithmic-flow" id="toc-algorithmic-flow" class="nav-link" data-scroll-target="#algorithmic-flow"><span class="header-section-number">C.3.1</span> Algorithmic Flow</a></li>
+  </ul></li>
+  <li><a href="#orthogonality-sparsity-diagnostics" id="toc-orthogonality-sparsity-diagnostics" class="nav-link" data-scroll-target="#orthogonality-sparsity-diagnostics"><span class="header-section-number">C.4</span> Orthogonality &amp; Sparsity Diagnostics</a></li>
   </ul>
 </nav>
     </div>
@@ -344,8 +348,42 @@ Figure&nbsp;C.3: Clinical Counterfactual Trajectory. Biomarker evolution curves 
 <hr>
 </section>
 </section>
-<section id="orthogonality-sparsity-diagnostics" class="level2" data-number="C.3">
-<h2 data-number="C.3" class="anchored" data-anchor-id="orthogonality-sparsity-diagnostics"><span class="header-section-number">C.3</span> Orthogonality &amp; Sparsity Diagnostics</h2>
+<section id="algorithm-for-flow-simlr-v-with-delayed-gating-warmup" class="level2" data-number="C.3">
+<h2 data-number="C.3" class="anchored" data-anchor-id="algorithm-for-flow-simlr-v-with-delayed-gating-warmup"><span class="header-section-number">C.3</span> Algorithm for Flow-SiMLR-V with Delayed Gating Warmup</h2>
+<p>To stably optimize the joint-variational objective under dynamic modality weighting without triggering weight collapse, we train the linear encoders, normalizing flows, and dynamic weights using the Block-Coordinate Descent (BCD) procedure detailed below.</p>
+<section id="algorithmic-flow" class="level3" data-number="C.3.1">
+<h3 data-number="C.3.1" class="anchored" data-anchor-id="algorithmic-flow"><span class="header-section-number">C.3.1</span> Algorithmic Flow</h3>
+<p>For a set of <span class="math inline">\(M\)</span> data matrices <span class="math inline">\(\mathbf{X}_1, \dots, \mathbf{X}_M\)</span>, shared latent rank <span class="math inline">\(K\)</span>, and max training epochs <span class="math inline">\(E\)</span>:</p>
+<ol type="1">
+<li><strong>Forward Pass</strong>:
+<ul>
+<li>Project features to low-dimensional space: <span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span> for <span class="math inline">\(m=1, \dots, M\)</span>.</li>
+<li>Apply normalizing flows: <span class="math inline">\(\mathbf{U}_m = f_{\text{flow}, m}(\mathbf{Z}_m)\)</span> and extract shared consensus latents <span class="math inline">\(\mathbf{Z}_{m, \text{shared}} = \mathbf{U}_{m, 1:K}\)</span>.</li>
+<li>Compute shared consensus coordinates using Newton-Schulz or ICA mixing: <span class="math inline">\(\mathbf{U}_{\text{consensus}} = \text{mixing}(\mathbf{Z}_{1, \text{shared}}, \dots, \mathbf{Z}_{M, \text{shared}})\)</span>.</li>
+</ul></li>
+<li><strong>Delayed Gating (Modality Gating Schedule)</strong>:
+<ul>
+<li>For epoch <span class="math inline">\(t &lt; T_{\text{delayed}}\)</span>: set modality weights uniformly <span class="math inline">\(w_m = 1/M\)</span>.</li>
+<li>For epoch <span class="math inline">\(t \ge T_{\text{delayed}}\)</span>:
+<ul>
+<li>Compute the Leave-One-Out (LOO) consensus target for each view: <span class="math inline">\(\mathbf{U}_{\neq m} = \sum_{j \neq m} w_j \mathbf{Z}_{j, \text{shared}}\)</span>.</li>
+<li>Compute the Modality Alignment Index: <span class="math inline">\(\text{MAI}_m = 1 - \frac{\|\mathbf{Z}_{m, \text{shared}}\mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F^2}{\|\mathbf{U}_{\neq m}\|_F^2}\)</span>.</li>
+<li>Update gating weights: <span class="math inline">\(w_m = (1 - \rho) \cdot \frac{1}{M} + \rho \cdot \text{softmax}(\tau \cdot \text{MAI}_m)\)</span> (with exponential ramp-up <span class="math inline">\(\rho\)</span>).</li>
+</ul></li>
+</ul></li>
+<li><strong>Loss Computation &amp; Backpropagation</strong>:
+<ul>
+<li>Compute reconstruction loss: <span class="math inline">\(\mathcal{L}_{\text{MSE}} = \sum_m \|\mathbf{X}_m - \hat{\mathbf{X}}_m\|_F^2\)</span> where <span class="math inline">\(\hat{\mathbf{X}}_m = f_{\text{flow}, m}^{-1}([\mathbf{U}_{\text{consensus}} \parallel \mathbf{0}])\mathbf{V}_m^\top\)</span>.</li>
+<li>Compute alignment loss: <span class="math inline">\(\mathcal{L}_{\text{align}} = \sum_m \|\mathbf{Z}_{m, \text{shared}}\mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F^2\)</span>.</li>
+<li>Backpropagate gradients to update linear projections <span class="math inline">\(\mathbf{V}_m\)</span> and flow parameters.</li>
+<li>Retract <span class="math inline">\(\mathbf{V}_m\)</span> onto the Stiefel manifold using NSA-Flow Newton-Schulz updates.</li>
+</ul></li>
+</ol>
+<hr>
+</section>
+</section>
+<section id="orthogonality-sparsity-diagnostics" class="level2" data-number="C.4">
+<h2 data-number="C.4" class="anchored" data-anchor-id="orthogonality-sparsity-diagnostics"><span class="header-section-number">C.4</span> Orthogonality &amp; Sparsity Diagnostics</h2>
 <p>We compute the <strong>Orthogonality Defect</strong> (<span class="math inline">\(\|\mathbf{V}^\top\mathbf{V} - \mathbf{I}\|_F\)</span>) and <strong>Gini Sparsity</strong> coefficients of the learned Flow-SiMLR-V basis matrices across the three clinical datasets to verify structural alignment. The results confirm that the NSA-Flow retraction successfully enforces near-orthogonality (defect <span class="math inline">\(&lt; 0.01\)</span>) and high feature sparsity (Gini <span class="math inline">\(&gt; 0.65\)</span>), guaranteeing non-redundant and globally explainable latent consensus dimensions.</p>
 
 

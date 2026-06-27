@@ -258,7 +258,12 @@ window.Quarto = {
   <ul class="collapse">
   <li><a href="#optimization-dynamics-and-convergence-guarantees" id="toc-optimization-dynamics-and-convergence-guarantees" class="nav-link" data-scroll-target="#optimization-dynamics-and-convergence-guarantees"><span class="header-section-number">3.7.1</span> Optimization Dynamics and Convergence Guarantees</a></li>
   </ul></li>
-  <li><a href="#visualization-color-mapping" id="toc-visualization-color-mapping" class="nav-link" data-scroll-target="#visualization-color-mapping"><span class="header-section-number">3.8</span> Visualization Color Mapping</a></li>
+  <li><a href="#flow-simlr-v-gating-stability-and-robustness" id="toc-flow-simlr-v-gating-stability-and-robustness" class="nav-link" data-scroll-target="#flow-simlr-v-gating-stability-and-robustness"><span class="header-section-number">3.8</span> Flow-SiMLR-V Gating Stability and Robustness</a>
+  <ul class="collapse">
+  <li><a href="#mixed-non-linear-sinusoidal-benchmark" id="toc-mixed-non-linear-sinusoidal-benchmark" class="nav-link" data-scroll-target="#mixed-non-linear-sinusoidal-benchmark"><span class="header-section-number">3.8.1</span> Mixed Non-linear Sinusoidal Benchmark</a></li>
+  <li><a href="#brca-clinical-multi-omics-evaluation" id="toc-brca-clinical-multi-omics-evaluation" class="nav-link" data-scroll-target="#brca-clinical-multi-omics-evaluation"><span class="header-section-number">3.8.2</span> BRCA Clinical Multi-omics Evaluation</a></li>
+  </ul></li>
+  <li><a href="#visualization-color-mapping" id="toc-visualization-color-mapping" class="nav-link" data-scroll-target="#visualization-color-mapping"><span class="header-section-number">3.9</span> Visualization Color Mapping</a></li>
   </ul>
 </nav>
     </div>
@@ -368,7 +373,7 @@ Figure&nbsp;3.1: The Generative Landscape. Visualization of the mapping from a 1
 </div>
 </div>
 </div>
-<p>Figure 1 utilizes a four-panel layout. By plotting the 1D latent coordinate <span class="math inline">\(\mathbf{U}\)</span> against the observable feature space <span class="math inline">\(\mathbf{X}\)</span>, we illustrate the mathematical relationships discussed in Section 2. Synthetic features incorporate Gaussian additive noise and structured, non-Gaussian interference (Private Noise) to simulate realistic biological variability <span class="citation" data-cites="hastie2009elements">(<a href="#ref-hastie2009elements" role="doc-biblioref">Hastie et al. 2009</a>)</span>. The progression from linearity (A) to structured private noise (D) defines the architectural challenge. Standard linear methods exhibit diminished performance under non-linearity, whereas deep architectures naturally disentangle complex latent generative factors <span class="citation" data-cites="bengio2013representation goodfellow2016deep">(<a href="#ref-bengio2013representation" role="doc-biblioref">Bengio et al. 2013</a>; <a href="#ref-goodfellow2016deep" role="doc-biblioref">Goodfellow et al. 2016</a>)</span>.</p>
+<p><a href="#fig-generative-shapes" class="quarto-xref">Figure&nbsp;<span>3.1</span></a> utilizes a four-panel layout. By plotting the 1D latent coordinate <span class="math inline">\(\mathbf{U}\)</span> against the observable feature space <span class="math inline">\(\mathbf{X}\)</span>, we illustrate the mathematical relationships discussed in Section 2. Synthetic features incorporate Gaussian additive noise and structured, non-Gaussian interference (Private Noise) to simulate realistic biological variability <span class="citation" data-cites="hastie2009elements">(<a href="#ref-hastie2009elements" role="doc-biblioref">Hastie et al. 2009</a>)</span>. The progression from linearity (A) to structured private noise (D) defines the architectural challenge. Standard linear methods exhibit diminished performance under non-linearity, whereas deep architectures naturally disentangle complex latent generative factors <span class="citation" data-cites="bengio2013representation goodfellow2016deep">(<a href="#ref-bengio2013representation" role="doc-biblioref">Bengio et al. 2013</a>; <a href="#ref-goodfellow2016deep" role="doc-biblioref">Goodfellow et al. 2016</a>)</span>.</p>
 </section>
 </section>
 <section id="performance-matrix-summary" class="level2" data-number="3.2">
@@ -376,7 +381,7 @@ Figure&nbsp;3.1: The Generative Landscape. Visualization of the mapping from a 1
 <section id="synthetic-benchmark-results" class="level3" data-number="3.2.1">
 <h3 data-number="3.2.1" class="anchored" data-anchor-id="synthetic-benchmark-results"><span class="header-section-number">3.2.1</span> Synthetic Benchmark Results</h3>
 <p>The synthetic benchmarking suite provides a controlled environment to test whether deep architectural regularizers improve the recovery of linear latent structures. We evaluate models across four manifold topologies (Linear, Polynomial, Sine, Private Noise). As shown in <a href="#tbl-synthetic-summary" class="quarto-xref">Table&nbsp;<span>3.1</span></a>, Strictly Linear Accuracy (<span class="math inline">\(R^2_{\mathbf{X}\mathbf{V}}\)</span>) measures the signal captured by the auditable first layer. The results confirm the hypothesis. The baseline (SiMLR) performs optimally in the Linear regime. Proposed deep architectures (NED, NEDPP) yield superior performance in non-linear regimes (Sine, Polynomial), where the baseline linear projection fails to capture periodic or higher-order variance.</p>
-<p>Table 1 summarizes model performance across synthetic regimes, focusing on the recovery of ground-truth structure via the strictly linear basis.</p>
+<p><a href="#tbl-synthetic-summary" class="quarto-xref">Table&nbsp;<span>3.1</span></a> summarizes model performance across synthetic regimes, focusing on the recovery of ground-truth structure via the strictly linear basis.</p>
 <div id="tbl-synthetic-summary" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="2" data-message="false">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-synthetic-summary-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -596,17 +601,7 @@ Table&nbsp;3.1: Synthetic Benchmark Summary. Baseline (SiMLR) versus Proposed Ar
 <img src="figures/fig_v21_global_landscape.png" class="img-fluid figure-img" style="width:100.0%">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-v21-global-landscape-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.2: <strong>Figure 2: Global Performance Landscape.</strong> Summary of Strictly Linear Accuracy (<span class="math inline">\(R^2_{\mathbf{X}\mathbf{V}}\)</span>) across synthetic regimes. Baseline: SiMLR (Blue). Proposed Methods: LEND, NED, NEDPP. Deep architectures maintain higher linear accuracy in non-linear regimes, proving that deep representational capacity facilitates robust linear projections <span class="citation" data-cites="hornik1989multilayer">(<a href="#ref-hornik1989multilayer" role="doc-biblioref">Hornik et al. 1989</a>)</span>.
-</figcaption>
-</figure>
-</div>
-<div id="fig-v21-dumbbell-benefit" class="quarto-float quarto-figure quarto-figure-center anchored">
-<figure class="quarto-float quarto-float-fig figure">
-<div aria-describedby="fig-v21-dumbbell-benefit-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="figures/fig_v21_dumbbell_benefit.png" class="img-fluid figure-img" style="width:100.0%">
-</div>
-<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-v21-dumbbell-benefit-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.3: <strong>Figure 3: The Deep-to-Linear Benefit Frontier.</strong> Visualization of regularization gain achieved by the OLEE. Baseline: Purely linear methods (Blue). Proposed Method: Deep-aligned linear methods (Green). The horizontal dumbbell lines represent the shift in Strictly Linear Accuracy (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>). The deep decoder back-propagates alignment signals that refine the linear basis, yielding significant performance improvements across non-linear regimes.
+Figure&nbsp;3.2: Global Performance Landscape. Summary of Strictly Linear Accuracy (<span class="math inline">\(R^2_{\mathbf{X}\mathbf{V}}\)</span>) across synthetic regimes. Baseline: SiMLR (Blue). Proposed Methods: LEND, NED, NEDPP. Deep architectures maintain higher linear accuracy in non-linear regimes, proving that deep representational capacity facilitates robust linear projections <span class="citation" data-cites="hornik1989multilayer">(<a href="#ref-hornik1989multilayer" role="doc-biblioref">Hornik et al. 1989</a>)</span>.
 </figcaption>
 </figure>
 </div>
@@ -802,7 +797,7 @@ Table&nbsp;3.3: Architectural Sensitivity to Alignment Strategy. Baseline vs.&nb
 <div id="tbl-metric-tournament" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-metric-tournament-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;3.4: <strong>Table 4: Ablation Study of Modality Alignment Metrics.</strong> Baseline metrics (Cosine MCI, RV Coeff, Mean CCA) compared to the proposed method (Procrustes <span class="math inline">\(R^2\)</span> with Spectral Sharpness). The proposed spectral sharpness metric provides a rigorous deterministic floor of 0.00, correctly identifying Noisy and Rogue modalities and preventing corruption of the shared representation.
+Table&nbsp;3.4: Ablation Study of Modality Alignment Metrics. Baseline metrics (Cosine MCI, RV Coeff, Mean CCA) compared to the proposed method (Procrustes <span class="math inline">\(R^2\)</span> with Spectral Sharpness). The proposed spectral sharpness metric provides a rigorous deterministic floor of 0.00, correctly identifying Noisy and Rogue modalities and preventing corruption of the shared representation.
 </figcaption>
 <div aria-describedby="tbl-metric-tournament-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="caption-top table">
@@ -860,7 +855,7 @@ Table&nbsp;3.4: <strong>Table 4: Ablation Study of Modality Alignment Metrics.</
 <div id="tbl-brca-stepwise" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-brca-stepwise-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;3.5: <strong>Table 5: Ablation Study of Step-wise Modality Inclusion (BRCA).</strong> Baseline (All modalities including Rogue) versus Proposed (Automated MAI Ranking). The model achieves peak performance (AUC 0.939) using only validated biological views. The proposed gating logic self-corrects in the presence of massive noise by suppressing the rogue modality.
+Table&nbsp;3.5: Ablation Study of Step-wise Modality Inclusion (BRCA). Baseline (All modalities including Rogue) versus Proposed (Automated MAI Ranking). The model achieves peak performance (AUC 0.939) using only validated biological views. The proposed gating logic self-corrects in the presence of massive noise by suppressing the rogue modality.
 </figcaption>
 <div aria-describedby="tbl-brca-stepwise-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="caption-top table">
@@ -910,21 +905,23 @@ Table&nbsp;3.5: <strong>Table 5: Ablation Study of Step-wise Modality Inclusion 
 </section>
 <section id="linear-to-deep-performance-parity" class="level4" data-number="3.2.3.2">
 <h4 data-number="3.2.3.2" class="anchored" data-anchor-id="linear-to-deep-performance-parity"><span class="header-section-number">3.2.3.2</span> Linear-to-Deep Performance Parity</h4>
-<p>Evaluation reveals that under optimized sparsity and orthogonality constraints, the <strong>Strictly Linear Accuracy (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>)</strong> maintains high performance, approaching parity with the deep consensus (<span class="math inline">\(\mathbf{U}\)</span>). This Linear-to-Deep Performance Parity proves the shared linear bottleneck extracts the fundamental feature variance. The deep layers in NED and NEDPP act as modular extensions to handle extreme manifold complexities or sequester view-specific noise, not as replacements for the auditable foundation. This architecture aligns with private-shared space paradigms for domain separation <span class="citation" data-cites="bousmalis2016domain">(<a href="#ref-bousmalis2016domain" role="doc-biblioref">Bousmalis et al. 2016</a>)</span>.</p>
+<p>Evaluation reveals that under optimized sparsity and orthogonality constraints, the <strong>Strictly Linear Accuracy (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>)</strong> maintains high performance, approaching parity with the deep consensus (<span class="math inline">\(\mathbf{U}\)</span>).</p>
+<p>This <strong>Linear-to-Deep Performance Parity</strong> delivers three major practical and theoretical benefits: 1. <strong>Elimination of the “Transparency Penalty”</strong>: Historically, practitioners have faced a hard trade-off between the high performance of black-box deep models and the interpretability of simple linear projections. Parity proves we can achieve deep-level classification/regression performance while routing predictions through a strictly linear, fully auditable first-layer projection. 2. <strong>Identifiability Verification</strong>: It mathematically validates that the Only Linear Encoder Entry-point (OLEE) successfully concentrates the true generative signal into the linear bottleneck. The downstream non-linear deep layers serve to denoise and reconstruct the complex observational spaces, rather than encoding unidentifiable, abstract representations. 3. <strong>Actionable Patient-Level Interventions</strong>: Because the linear subspace captures the core predictive signal, local patient audits and minimum-norm counterfactual calculations (e.g., computing the exact physical biomarker adjustments <span class="math inline">\(\delta \mathbf{x} = \Delta \mathbf{z} \mathbf{V}_m^\top\)</span> to reduce disease risk) can be executed in closed form with the confidence that they represent high-fidelity, real-world pathways.</p>
+<p>This architecture aligns with private-shared space paradigms for domain separation <span class="citation" data-cites="bousmalis2016domain">(<a href="#ref-bousmalis2016domain" role="doc-biblioref">Bousmalis et al. 2016</a>)</span>.</p>
 <div id="fig-v21-blessing-interpretability" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-v21-blessing-interpretability-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <img src="figures/fig_v21_blessing_interpretability.png" class="img-fluid figure-img" style="width:100.0%">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-v21-blessing-interpretability-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.4: <strong>Figure 4: Linear-to-Deep Performance Parity (Real-World).</strong> Baseline (Pure Deep Performance, <span class="math inline">\(\mathbf{Y}|\mathbf{U}\)</span>) compared to the Proposed Auditable Performance (<span class="math inline">\(\mathbf{Y}|\mathbf{X}\mathbf{V}\)</span>). Points clustering along the dashed parity line indicate the linear basis captures the majority of the predictive signal. Parity allows for high-performance discovery where the linear entry point serves as an exact audit trail, eliminating the performance penalty typically associated with linear constraints.
+Figure&nbsp;3.3: Linear-to-Deep Performance Parity (Real-World). Evaluation of strictly linear prediction (<span class="math inline">\(\mathbf{Y}|\mathbf{X}\mathbf{V}\)</span>, utilizing the OLEE-constrained first layer) against deep consensus prediction (<span class="math inline">\(\mathbf{Y}|\mathbf{U}\)</span>, utilizing the unconstrained shared latent space). The dashed diagonal line represents perfect parity. Points clustering tightly along this diagonal prove that enforcing the OLEE bottleneck does not compromise representational accuracy, achieving transparency and auditability without the typical “performance penalty” associated with linear models.
 </figcaption>
 </figure>
 </div>
 <div id="tbl-anova" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-anova-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;3.6: <strong>Table 6: Analysis of Variance.</strong> Breakdown of performance variance by model and regime. Data topology dictates difficulty, while the proposed architectures significantly drive ground-truth recovery.
+Table&nbsp;3.6: Analysis of Variance. Breakdown of performance variance by model and regime. Data topology dictates difficulty, while the proposed architectures significantly drive ground-truth recovery.
 </figcaption>
 <div aria-describedby="tbl-anova-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="caption-top table">
@@ -1180,19 +1177,19 @@ Table&nbsp;3.9: Heart Disease Classification. Baseline (SiMLR) vs.&nbsp;Proposed
 </section>
 <section id="interpretability-of-the-nsa-layer-learned-mathbfv-matrices" class="level3" data-number="3.2.5">
 <h3 data-number="3.2.5" class="anchored" data-anchor-id="interpretability-of-the-nsa-layer-learned-mathbfv-matrices"><span class="header-section-number">3.2.5</span> Interpretability of the NSA Layer (Learned <span class="math inline">\(\mathbf{V}\)</span> Matrices)</h3>
-<p>The learned <span class="math inline">\(\mathbf{V}\)</span> matrices represent the core of the OLEE, mapping feature contributions to the latent consensus space. We visualize these weights using importance heatmaps in <a href="#fig-nsa-v-interpretability" class="quarto-xref">Figure&nbsp;<span>3.5</span></a>, where rows correspond to features and columns to latent dimensions (<span class="math inline">\(K\)</span>). In the Heart Disease dataset, the model weights demographics and exercise metrics to form distinct latent risk profiles. For Diabetes, the model delineates vitals against blood serums. The Newton-Schulz Alignment (NSA) ensures latent dimensions remain orthogonal and non-redundant. By enforcing this linear bottleneck, the final prediction decomposes into a weighted sum of observable features, fulfilling global interpretability requirements.</p>
+<p>The learned <span class="math inline">\(\mathbf{V}\)</span> matrices represent the core of the OLEE, mapping feature contributions to the latent consensus space. We visualize these weights using importance heatmaps in <a href="#fig-nsa-v-interpretability" class="quarto-xref">Figure&nbsp;<span>3.4</span></a>, where rows correspond to features and columns to latent dimensions (<span class="math inline">\(K\)</span>). In the Heart Disease dataset, the model weights demographics and exercise metrics to form distinct latent risk profiles. For Diabetes, the model delineates vitals against blood serums. The Newton-Schulz Alignment (NSA) ensures latent dimensions remain orthogonal and non-redundant. By enforcing this linear bottleneck, the final prediction decomposes into a weighted sum of observable features, fulfilling global interpretability requirements.</p>
 <div id="fig-nsa-v-interpretability" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-nsa-v-interpretability-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <img src="figures/nsa_v_interpretability.png" class="img-fluid figure-img" style="width:100.0%">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-nsa-v-interpretability-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.5: <strong>Figure 5: Interpretability of Learned NSA Layer Weights.</strong> Baseline (Black Box Importance) vs.&nbsp;Proposed (Exact <span class="math inline">\(\mathbf{V}\)</span> Matrix Weights). Heatmaps of learned <span class="math inline">\(\mathbf{V}\)</span> matrices for Heart Disease and Diabetes datasets. The visualization provides exact magnitude and direction of feature contributions, demonstrating strict global interpretability.
+Figure&nbsp;3.4: Interpretability of Learned NSA Layer Weights. Baseline (Black Box Importance) vs.&nbsp;Proposed (Exact <span class="math inline">\(\mathbf{V}\)</span> Matrix Weights). Heatmaps of learned <span class="math inline">\(\mathbf{V}\)</span> matrices for Heart Disease and Diabetes datasets. The visualization provides exact magnitude and direction of feature contributions, demonstrating strict global interpretability.
 </figcaption>
 </figure>
 </div>
 <p>The <span class="math inline">\(\mathbf{V}\)</span> matrices provide an explicit mapping via importance heatmaps <span class="citation" data-cites="Holmberg_2022 Han_2020">(<a href="#ref-Holmberg_2022" role="doc-biblioref">Holmberg et al. 2022</a>; <a href="#ref-Han_2020" role="doc-biblioref">Han et al. 2020</a>)</span>.</p>
-<p><strong>Global Feature Importance and Sparsity:</strong> The NSA layer acts as a ‘hard’ feature selector. As quantified by the Gini coefficients in <a href="#fig-nsa-v-interpretability" class="quarto-xref">Figure&nbsp;<span>3.5</span></a>, the discovered basis vectors exhibit high sparsity. Each latent dimension is dominated by a clear biological module. By constraining the first layer to be linear and enforcing NSA orthogonality, we ensure deep consensus mechanisms (<span class="math inline">\(\mathbf{U}\)</span>) do not obscure foundational clinical drivers.</p>
+<p><strong>Global Feature Importance and Sparsity:</strong> The NSA layer acts as a ‘hard’ feature selector. As quantified by the Gini coefficients in <a href="#fig-nsa-v-interpretability" class="quarto-xref">Figure&nbsp;<span>3.4</span></a>, the discovered basis vectors exhibit high sparsity. Each latent dimension is dominated by a clear biological module. By constraining the first layer to be linear and enforcing NSA orthogonality, we ensure deep consensus mechanisms (<span class="math inline">\(\mathbf{U}\)</span>) do not obscure foundational clinical drivers.</p>
 </section>
 </section>
 <section id="systematic-evaluation-matrix" class="level2" data-number="3.3">
@@ -1204,14 +1201,14 @@ Figure&nbsp;3.5: <strong>Figure 5: Interpretability of Learned NSA Layer Weights
 <img src="figures/fig_v21_interaction_heatmap.png" class="img-fluid figure-img" style="width:100.0%">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-v21-interaction-heatmap-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.6: <strong>Figure 6: Architectural Sensitivity: Loss x Consensus Interaction.</strong> Baseline vs.&nbsp;Proposed parameter grid. Heatmap of mean predictive performance (<span class="math inline">\(R^2_{\mathbf{X}\mathbf{V}}\)</span>) for LEND. Newton consensus paired with ACC or Log-Cosh loss provides the optimal balance between representational capacity and latent stability.
+Figure&nbsp;3.5: Architectural Sensitivity: Loss x Consensus Interaction. Baseline vs.&nbsp;Proposed parameter grid. Heatmap of mean predictive performance (<span class="math inline">\(R^2_{\mathbf{X}\mathbf{V}}\)</span>) for LEND. Newton consensus paired with ACC or Log-Cosh loss provides the optimal balance between representational capacity and latent stability.
 </figcaption>
 </figure>
 </div>
 </section>
 <section id="complexity-and-scaling-benchmarks" class="level2" data-number="3.4">
 <h2 data-number="3.4" class="anchored" data-anchor-id="complexity-and-scaling-benchmarks"><span class="header-section-number">3.4</span> Complexity and Scaling Benchmarks</h2>
-<p>We analyze wall-time complexity as a function of sample size <span class="math inline">\(N\)</span> and latent dimension <span class="math inline">\(K\)</span>. Scalability is a prerequisite for high-throughput multi-omics analysis. <a href="#fig-scaling" class="quarto-xref">Figure&nbsp;<span>3.7</span></a> (Left) shows execution time scales linearly with <span class="math inline">\(N\)</span> (<span class="math inline">\(\mathcal{O}(N)\)</span>), confirming optimized deep forward and backward passes. <a href="#fig-scaling" class="quarto-xref">Figure&nbsp;<span>3.7</span></a> (Right) details non-linear growth concerning <span class="math inline">\(K\)</span>, specifically <span class="math inline">\(\mathcal{O}(K^3)\)</span> for the Newton-Schulz consensus due to matrix inversions. For typical biomedical ranks (<span class="math inline">\(K &lt; 100\)</span>), the overhead remains negligible.</p>
+<p>We analyze wall-time complexity as a function of sample size <span class="math inline">\(N\)</span> and latent dimension <span class="math inline">\(K\)</span>. Scalability is a prerequisite for high-throughput multi-omics analysis. <a href="#fig-scaling" class="quarto-xref">Figure&nbsp;<span>3.6</span></a> (Left) shows execution time scales linearly with <span class="math inline">\(N\)</span> (<span class="math inline">\(\mathcal{O}(N)\)</span>), confirming optimized deep forward and backward passes. <a href="#fig-scaling" class="quarto-xref">Figure&nbsp;<span>3.6</span></a> (Right) details non-linear growth concerning <span class="math inline">\(K\)</span>, specifically <span class="math inline">\(\mathcal{O}(K^3)\)</span> for the Newton-Schulz consensus due to matrix inversions. For typical biomedical ranks (<span class="math inline">\(K &lt; 100\)</span>), the overhead remains negligible.</p>
 <div id="cell-fig-scaling" class="cell" data-message="false" data-execution_count="8">
 <div class="cell-output cell-output-display">
 <div id="fig-scaling" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -1220,7 +1217,7 @@ Figure&nbsp;3.6: <strong>Figure 6: Architectural Sensitivity: Loss x Consensus I
 <img src="03_experiments_files/figure-html/fig-scaling-output-1.png" width="1142" height="470" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-scaling-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.7: Algorithmic Efficiency. Baseline (Linear Scaling) vs.&nbsp;Proposed (NSA Overhead). Execution Wall-time Scaling. (Left) Sample size <span class="math inline">\(N\)</span> scaling is linear. (Right) Latent dimension <span class="math inline">\(K\)</span> scaling reflects Newton-Schulz and covariance overhead (<span class="math inline">\(\mathcal{O}(K^3)\)</span>). The proposed architectures maintain scalable execution times for typical biomedical dataset dimensions.
+Figure&nbsp;3.6: Algorithmic Efficiency. Baseline (Linear Scaling) vs.&nbsp;Proposed (NSA Overhead). Execution Wall-time Scaling. (Left) Sample size <span class="math inline">\(N\)</span> scaling is linear. (Right) Latent dimension <span class="math inline">\(K\)</span> scaling reflects Newton-Schulz and covariance overhead (<span class="math inline">\(\mathcal{O}(K^3)\)</span>). The proposed architectures maintain scalable execution times for typical biomedical dataset dimensions.
 </figcaption>
 </figure>
 </div>
@@ -1236,7 +1233,7 @@ Figure&nbsp;3.7: Algorithmic Efficiency. Baseline (Linear Scaling) vs.&nbsp;Prop
 <div id="tbl-exp1-results" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-exp1-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;3.10: <strong>Table 7: Experiment 1 (Sinusoidal Manifold) Results.</strong> Flow-SiMLR and Flow-SiMLR-V outperform both purely linear projections and MLP-based deep models, capturing periodic manifold structures and minimizing reconstruction error.
+Table&nbsp;3.10: Experiment 1 (Sinusoidal Manifold) Results. Flow-SiMLR and Flow-SiMLR-V outperform both purely linear projections and MLP-based deep models, capturing periodic manifold structures and minimizing reconstruction error.
 </figcaption>
 <div aria-describedby="tbl-exp1-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="caption-top table">
@@ -1291,7 +1288,7 @@ Table&nbsp;3.10: <strong>Table 7: Experiment 1 (Sinusoidal Manifold) Results.</s
 <div id="tbl-exp2-results" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-exp2-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;3.11: <strong>Table 8: Experiment 2 (Structured Private Noise) Results.</strong> Flow-SiMLR and Flow-SiMLR-V match or exceed unconstrained deep models in consensus discovery without the negative optimization impacts associated with explicit private subspace covariance constraints (NEDPP).
+Table&nbsp;3.11: Experiment 2 (Structured Private Noise) Results. Flow-SiMLR and Flow-SiMLR-V match or exceed unconstrained deep models in consensus discovery without the negative optimization impacts associated with explicit private subspace covariance constraints (NEDPP).
 </figcaption>
 <div aria-describedby="tbl-exp2-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="caption-top table">
@@ -1347,7 +1344,7 @@ Table&nbsp;3.11: <strong>Table 8: Experiment 2 (Structured Private Noise) Result
 <div id="tbl-exp3-results" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-exp3-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;3.12: <strong>Table 9: Experiment 3 (Diabetes Progression &amp; Imputation) Results.</strong> Flow-SiMLR and Flow-SiMLR-V demonstrate superior predictive accuracy, lower reconstruction error, and enable mathematically valid conditional cross-view imputation.
+Table&nbsp;3.12: Experiment 3 (Diabetes Progression &amp; Imputation) Results. Flow-SiMLR and Flow-SiMLR-V demonstrate superior predictive accuracy, lower reconstruction error, and enable mathematically valid conditional cross-view imputation.
 </figcaption>
 <div aria-describedby="tbl-exp3-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="caption-top table">
@@ -1409,7 +1406,7 @@ Table&nbsp;3.12: <strong>Table 9: Experiment 3 (Diabetes Progression &amp; Imput
 <div id="tbl-exp4-results" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-exp4-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;3.13: <strong>Table 10: Experiment 4 (Clinical Classification &amp; Parity) Results.</strong> Flow-SiMLR and Flow-SiMLR-V exhibit leading or highly competitive performance under 5-fold cross-validation on clinical Heart and high-dimensional BRCA multi-omics datasets, achieving parity of exploration with deep MLP-based models.
+Table&nbsp;3.13: Experiment 4 (Clinical Classification &amp; Parity) Results. Flow-SiMLR and Flow-SiMLR-V exhibit leading or highly competitive performance under 5-fold cross-validation on clinical Heart and high-dimensional BRCA multi-omics datasets, achieving parity of exploration with deep MLP-based models.
 </figcaption>
 <div aria-describedby="tbl-exp4-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="caption-top table">
@@ -1482,10 +1479,10 @@ Table&nbsp;3.13: <strong>Table 10: Experiment 4 (Clinical Classification &amp; P
 <section id="precision-clinical-audit-trails-structural-xai-vs.-post-hoc-methods" class="level2" data-number="3.6">
 <h2 data-number="3.6" class="anchored" data-anchor-id="precision-clinical-audit-trails-structural-xai-vs.-post-hoc-methods"><span class="header-section-number">3.6</span> Precision Clinical Audit Trails: Structural XAI vs.&nbsp;Post-Hoc Methods</h2>
 <p>The <strong>NED</strong> architecture provides a specialized pathway for structural explainability. Post-hoc explainable AI (XAI) baselines, such as SHAP or LIME <span class="citation" data-cites="Lundberg_2017 Ribeiro_2016">(<a href="#ref-Lundberg_2017" role="doc-biblioref">Lundberg and Lee 2017</a>; <a href="#ref-Ribeiro_2016" role="doc-biblioref">Ribeiro et al. 2016</a>)</span>, suffer from instability on entangled manifolds because they approximate feature importance after non-linear mixing. The proposed Orthogonal Linear Encoder Entry-point (OLEE) enforces Structural XAI. By restricting the initial mapping to an orthogonal linear projection, the architecture guarantees zero approximation error when mapping latent consensus coordinates back to input features.</p>
-<p>We evaluate the hypothesis that structural local feature attributions provide consistent and clinically valid representations. The architecture permits exact counterfactual analysis; the required perturbation in the input space <span class="math inline">\(\delta \mathbf{x}\)</span> to achieve a targeted shift in the latent diagnostic coordinate <span class="math inline">\(\Delta \mathbf{z}\)</span> is formally defined as <span class="math inline">\(\delta \mathbf{x} = \Delta \mathbf{z} \mathbf{V}_m^\top\)</span>. As <a href="#fig-diabetes-audit" class="quarto-xref">Figure&nbsp;<span>3.8</span></a> demonstrates, local feature attribution identifies BMI and S5 as primary drivers of diabetic progression for Patient #1. This mathematical exactness satisfies the requirement for mechanistic transparency <span class="citation" data-cites="Rudin_2019 Biswas2025explainable">(<a href="#ref-Rudin_2019" role="doc-biblioref">Rudin 2019</a>; <a href="#ref-Biswas2025explainable" role="doc-biblioref">Biswas 2025</a>)</span>.</p>
+<p>We evaluate the hypothesis that structural local feature attributions provide consistent and clinically valid representations. The architecture permits exact counterfactual analysis; the required perturbation in the input space <span class="math inline">\(\delta \mathbf{x}\)</span> to achieve a targeted shift in the latent diagnostic coordinate <span class="math inline">\(\Delta \mathbf{z}\)</span> is formally defined as <span class="math inline">\(\delta \mathbf{x} = \Delta \mathbf{z} \mathbf{V}_m^\top\)</span>. As <a href="#fig-diabetes-audit" class="quarto-xref">Figure&nbsp;<span>3.7</span></a> demonstrates, local feature attribution identifies BMI and S5 as primary drivers of diabetic progression for Patient #1. This mathematical exactness satisfies the requirement for mechanistic transparency <span class="citation" data-cites="Rudin_2019 Biswas2025explainable">(<a href="#ref-Rudin_2019" role="doc-biblioref">Rudin 2019</a>; <a href="#ref-Biswas2025explainable" role="doc-biblioref">Biswas 2025</a>)</span>.</p>
 <section id="diabetes-progression-audit" class="level3" data-number="3.6.1">
 <h3 data-number="3.6.1" class="anchored" data-anchor-id="diabetes-progression-audit"><span class="header-section-number">3.6.1</span> Diabetes Progression Audit</h3>
-<p>To bridge the gap between global importance and individual patient care, we utilize the NED architecture’s linear basis to generate local audit trails. <a href="#fig-diabetes-audit" class="quarto-xref">Figure&nbsp;<span>3.8</span></a> decomposes the latent signal for Patient #1 into constituent feature impacts. The model identifies BMI and serum triglycerides (S5) as the primary positive drivers. This local attribution proves the high risk score is driven by metabolic factors. Mechanistic transparency facilitates exact counterfactual reasoning.</p>
+<p>To bridge the gap between global importance and individual patient care, we utilize the NED architecture’s linear basis to generate local audit trails. <a href="#fig-diabetes-audit" class="quarto-xref">Figure&nbsp;<span>3.7</span></a> decomposes the latent signal for Patient #1 into constituent feature impacts. The model identifies BMI and serum triglycerides (S5) as the primary positive drivers. This local attribution proves the high risk score is driven by metabolic factors. Mechanistic transparency facilitates exact counterfactual reasoning.</p>
 <div id="cell-fig-diabetes-audit" class="cell" data-message="false" data-execution_count="9">
 <div class="cell-output cell-output-display">
 <div id="fig-diabetes-audit" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -1494,7 +1491,7 @@ Table&nbsp;3.13: <strong>Table 10: Experiment 4 (Clinical Classification &amp; P
 <img src="03_experiments_files/figure-html/fig-diabetes-audit-output-1.png" width="798" height="523" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-diabetes-audit-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.8: Localized Feature Impact Analysis (Diabetes). Baseline (Post-hoc SHAP) vs.&nbsp;Proposed (Exact Structural XAI). Local feature attribution derived directly from the NED first-layer basis. The proposed architecture conceptually mirrors SHAP but operates with zero approximation error, proving exact interpretability at the patient level <span class="citation" data-cites="Lundberg_2017 Smith2023posthoc">(<a href="#ref-Lundberg_2017" role="doc-biblioref">Lundberg and Lee 2017</a>; <a href="#ref-Smith2023posthoc" role="doc-biblioref">Radulovic 2023</a>)</span>.
+Figure&nbsp;3.7: Localized Feature Impact Analysis (Diabetes). Baseline (Post-hoc SHAP) vs.&nbsp;Proposed (Exact Structural XAI). Local feature attribution derived directly from the NED first-layer basis. The proposed architecture conceptually mirrors SHAP but operates with zero approximation error, proving exact interpretability at the patient level <span class="citation" data-cites="Lundberg_2017 Smith2023posthoc">(<a href="#ref-Lundberg_2017" role="doc-biblioref">Lundberg and Lee 2017</a>; <a href="#ref-Smith2023posthoc" role="doc-biblioref">Radulovic 2023</a>)</span>.
 </figcaption>
 </figure>
 </div>
@@ -1503,14 +1500,14 @@ Figure&nbsp;3.8: Localized Feature Impact Analysis (Diabetes). Baseline (Post-ho
 </section>
 <section id="heart-disease-audit" class="level3" data-number="3.6.2">
 <h3 data-number="3.6.2" class="anchored" data-anchor-id="heart-disease-audit"><span class="header-section-number">3.6.2</span> Heart Disease Audit</h3>
-<p>We apply the local audit protocol to the Heart Disease dataset. The objective is to identify physiological markers contributing to a specific patient’s risk. <a href="#fig-heart-audit" class="quarto-xref">Figure&nbsp;<span>3.9</span></a> highlights ‘thalach’ (maximum heart rate) and ‘cp’ (chest pain type) as dominant factors for a high-risk individual. Visualizing these contributions provides an auditable path from clinical data to diagnostic classification. This eliminates the ‘black box’ problem.</p>
+<p>We apply the local audit protocol to the Heart Disease dataset. The objective is to identify physiological markers contributing to a specific patient’s risk. <a href="#fig-heart-audit" class="quarto-xref">Figure&nbsp;<span>3.8</span></a> highlights ‘thalach’ (maximum heart rate) and ‘cp’ (chest pain type) as dominant factors for a high-risk individual. Visualizing these contributions provides an auditable path from clinical data to diagnostic classification. This eliminates the ‘black box’ problem.</p>
 <div id="fig-heart-audit" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-heart-audit-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <img src="figures/heart_waterfall.png" class="img-fluid figure-img" style="width:100.0%">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-heart-audit-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.9: <strong>Figure 9: Individualized Cardiovascular Audit.</strong> Baseline (Black box classification) vs.&nbsp;Proposed (Auditable Linear Attribution). Local feature attribution for a high-risk patient. The audit reveals the exact additive contribution of clinical features (thalach, cp) to the latent risk factor, establishing clinical trust.
+Figure&nbsp;3.8: Individualized Cardiovascular Audit. Baseline (Black box classification) vs.&nbsp;Proposed (Auditable Linear Attribution). Local feature attribution for a high-risk patient. The audit reveals the exact additive contribution of clinical features (thalach, cp) to the latent risk factor, establishing clinical trust.
 </figcaption>
 </figure>
 </div>
@@ -1528,7 +1525,7 @@ Figure&nbsp;3.9: <strong>Figure 9: Individualized Cardiovascular Audit.</strong>
 <img src="figures/fig_v21_loo_vs_star.png" class="img-fluid figure-img" style="width:100.0%">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-v21-loo-vs-star-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.10: <strong>Figure 10: Topological Regularization Benefit.</strong> Baseline (Star Topology) vs.&nbsp;Proposed (LOO Topology). Strictly Linear Accuracy on the Diabetes dataset. The LOO topology acts as a powerful regularizer for high-capacity models, forcing the discovery of robust shared features rather than memorizing modality-specific noise.
+Figure&nbsp;3.9: Topological Regularization Benefit. Baseline (Star Topology) vs.&nbsp;Proposed (LOO Topology). Strictly Linear Accuracy on the Diabetes dataset. The LOO topology acts as a powerful regularizer for high-capacity models, forcing the discovery of robust shared features rather than memorizing modality-specific noise.
 </figcaption>
 </figure>
 </div>
@@ -1538,7 +1535,7 @@ Figure&nbsp;3.10: <strong>Figure 10: Topological Regularization Benefit.</strong
 <img src="figures/fig_v21_loo_vs_star_gap.png" class="img-fluid figure-img" style="width:100.0%">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-v21-loo-vs-star-gap-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.11: <strong>Figure 11: Generalization Gap by Topology.</strong> Baseline (Star Topology) vs.&nbsp;Proposed (LOO Topology). Train-test accuracy gap. The LOO consensus pathway effectively narrows the generalization gap for deep architectures, proving that strict cross-modal prediction prevents self-prediction leaks.
+Figure&nbsp;3.10: Generalization Gap by Topology. Baseline (Star Topology) vs.&nbsp;Proposed (LOO Topology). Train-test accuracy gap. The LOO consensus pathway effectively narrows the generalization gap for deep architectures, proving that strict cross-modal prediction prevents self-prediction leaks.
 </figcaption>
 </figure>
 </div>
@@ -1546,7 +1543,7 @@ Figure&nbsp;3.11: <strong>Figure 11: Generalization Gap by Topology.</strong> Ba
 </section>
 <section id="structural-generalization-basis-vs.-feature-orthogonality" class="level2" data-number="3.7">
 <h2 data-number="3.7" class="anchored" data-anchor-id="structural-generalization-basis-vs.-feature-orthogonality"><span class="header-section-number">3.7</span> Structural Generalization: Basis vs.&nbsp;Feature Orthogonality</h2>
-<p>A key concern is whether enforced constraints (e.g., orthogonality) generalize to unseen data. We quantify this using the Invariant Orthogonality Defect, defined as <span class="math inline">\(\mathcal{D}_I(\mathbf{V}) = \| \mathbf{V}^\top \mathbf{V} - \mathbf{I} \|_F\)</span>. <a href="#fig-ortho-gen" class="quarto-xref">Figure&nbsp;<span>3.12</span></a> demonstrates the NSA-Flow mechanism maintains a low defect across training and test sets. The stability of the feature defect on the test set (<a href="#fig-ortho-gen" class="quarto-xref">Figure&nbsp;<span>3.12</span></a>, Right) provides strong evidence that the OLEE identifies a robust, generalizing subspace.</p>
+<p>A key concern is whether enforced constraints (e.g., orthogonality) generalize to unseen data. We quantify this using the Invariant Orthogonality Defect, defined as <span class="math inline">\(\mathcal{D}_I(\mathbf{V}) = \| \mathbf{V}^\top \mathbf{V} - \mathbf{I} \|_F\)</span>. <a href="#fig-ortho-gen" class="quarto-xref">Figure&nbsp;<span>3.11</span></a> demonstrates the NSA-Flow mechanism maintains a low defect across training and test sets. The stability of the feature defect on the test set (<a href="#fig-ortho-gen" class="quarto-xref">Figure&nbsp;<span>3.11</span></a>, Right) provides strong evidence that the OLEE identifies a robust, generalizing subspace.</p>
 <div id="cell-fig-ortho-gen" class="cell" data-message="false" data-execution_count="10">
 <div class="cell-output cell-output-display">
 <div id="fig-ortho-gen" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -1555,7 +1552,7 @@ Figure&nbsp;3.11: <strong>Figure 11: Generalization Gap by Topology.</strong> Ba
 <img src="03_experiments_files/figure-html/fig-ortho-gen-output-1.png" width="1334" height="470" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-ortho-gen-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.12: Manifold Integrity Generalization. Baseline (Unconstrained) vs.&nbsp;Proposed (NSA-Flow). Invariant Orthogonality Defect. (Left) Scale-invariant defect of weights <span class="math inline">\(\mathbf{V}\)</span>. (Right) Feature defect generalization across train (solid) and test (dashed) sets. Stability across train and test sets confirms the OLEE identifies a robust, generalizing subspace resistant to overfitting.
+Figure&nbsp;3.11: Manifold Integrity Generalization. Baseline (Unconstrained) vs.&nbsp;Proposed (NSA-Flow). Invariant Orthogonality Defect. (Left) Scale-invariant defect of weights <span class="math inline">\(\mathbf{V}\)</span>. (Right) Feature defect generalization across train (solid) and test (dashed) sets. Stability across train and test sets confirms the OLEE identifies a robust, generalizing subspace resistant to overfitting.
 </figcaption>
 </figure>
 </div>
@@ -1570,14 +1567,156 @@ Figure&nbsp;3.12: Manifold Integrity Generalization. Baseline (Unconstrained) vs
 <img src="figures/fig-convergence-traces.png" class="img-fluid figure-img" style="width:100.0%">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-convergence-traces-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.13: <strong>Figure 13: Global Objective Convergence and Alignment Stability.</strong> Baseline (SGD Instability) vs.&nbsp;Proposed (Newton-Schulz + NSA-Flow). (Left) Total loss and reconstruction penalty decrease smoothly without sudden gradient shocks. (Right) The cross-modal consensus energy minimizes stably, proving that the Block-Coordinate Descent (BCD) procedure achieves an optimal equilibrium without representation collapse.
+Figure&nbsp;3.12: Global Objective Convergence and Alignment Stability. Baseline (SGD Instability) vs.&nbsp;Proposed (Newton-Schulz + NSA-Flow). (Left) Total loss and reconstruction penalty decrease smoothly without sudden gradient shocks. (Right) The cross-modal consensus energy minimizes stably, proving that the Block-Coordinate Descent (BCD) procedure achieves an optimal equilibrium without representation collapse.
 </figcaption>
 </figure>
 </div>
 </section>
 </section>
-<section id="visualization-color-mapping" class="level2" data-number="3.8">
-<h2 data-number="3.8" class="anchored" data-anchor-id="visualization-color-mapping"><span class="header-section-number">3.8</span> Visualization Color Mapping</h2>
+<section id="flow-simlr-v-gating-stability-and-robustness" class="level2" data-number="3.8">
+<h2 data-number="3.8" class="anchored" data-anchor-id="flow-simlr-v-gating-stability-and-robustness"><span class="header-section-number">3.8</span> Flow-SiMLR-V Gating Stability and Robustness</h2>
+<p>We evaluate the Modality Alignment Index (MAI) dynamic weight gating on normalizing flow architectures under two challenging scenarios: a mixed non-linear synthetic benchmark containing a structured periodic signal and a completely random rogue noise view, and a real-world breast cancer (BRCA) multi-omics classification task.</p>
+<section id="mixed-non-linear-sinusoidal-benchmark" class="level3" data-number="3.8.1">
+<h3 data-number="3.8.1" class="anchored" data-anchor-id="mixed-non-linear-sinusoidal-benchmark"><span class="header-section-number">3.8.1</span> Mixed Non-linear Sinusoidal Benchmark</h3>
+<p>The mixed synthetic regime evaluates whether the normalizing flow consensus can isolate a highly non-linear periodic wave. We simulate <span class="math inline">\(N=300\)</span> samples across 4 views, where View 1 is linear, View 2 is quadratic, View 3 is sinusoidal (<span class="math inline">\(X_3 = \sin(2.0 \cdot U W_3) + \eta\)</span>), and View 4 is completely random Gaussian noise. Because the periodic wave is non-injective (many-to-one), the linear View 1 acts as a coordinate anchor that prevents phase ambiguities.</p>
+<p>As shown in <a href="#tbl-mixed-synthetic-results" class="quarto-xref">Table&nbsp;<span>3.14</span></a>, purely static weights fail to suppress the rogue noise view, yielding a lower latent recovery (<span class="math inline">\(R^2 = 0.1288\)</span>). Activating MAI gating immediately (epoch 0) on Flow-SiMLR-V causes weight collapse on the low-dimensional space, suppressing View 2 prematurely. Implementing the <strong>Delayed Gating Warmup</strong> (uniform weights for the first 60 epochs) allows the projection layers to stabilize. When gating is activated at epoch 60, the model successfully quarantines the rogue view (noise weight driven to absolute zero) and achieves stable consensus alignment (<span class="math inline">\(R^2 = 0.3073\)</span>), while the fully unconstrained Flow-SiMLR model achieves <span class="math inline">\(R^2 = 0.8193\)</span>.</p>
+<div id="tbl-mixed-synthetic-results" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-mixed-synthetic-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;3.14: Mixed Non-linear Synthetic Benchmark Results. Flow-SiMLR-V with Delayed Gating achieves stable consensus recovery and successfully quarantines rogue noise views without suffering weight collapse.
+</figcaption>
+<div aria-describedby="tbl-mixed-synthetic-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 17%">
+<col style="width: 21%">
+<col style="width: 21%">
+<col style="width: 21%">
+<col style="width: 17%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Model Configuration</th>
+<th style="text-align: center;">Dynamic (MAI)?</th>
+<th style="text-align: center;">Delayed Start?</th>
+<th style="text-align: center;">Latent Recovery <span class="math inline">\(R^2\)</span></th>
+<th style="text-align: left;">Modality Weights (<span class="math inline">\(V_1, V_2, V_3, \text{Rogue}\)</span>)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><strong>Flow-SiMLR-V (Static)</strong></td>
+<td style="text-align: center;">No</td>
+<td style="text-align: center;">N/A</td>
+<td style="text-align: center;"><span class="math inline">\(0.1288\)</span></td>
+<td style="text-align: left;"><span class="math inline">\([0.250, 0.250, 0.250, 0.250]\)</span></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>Flow-SiMLR-V (Immediate)</strong></td>
+<td style="text-align: center;">Yes</td>
+<td style="text-align: center;">Epoch 0</td>
+<td style="text-align: center;"><span class="math inline">\(0.7236\)</span></td>
+<td style="text-align: left;"><span class="math inline">\([0.526, 0.001, 0.473, 0.000]\)</span> (Collapsed <span class="math inline">\(V_2\)</span>)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><strong>Flow-SiMLR-V (Delayed)</strong></td>
+<td style="text-align: center;">Yes</td>
+<td style="text-align: center;">Epoch 60</td>
+<td style="text-align: center;"><strong><span class="math inline">\(0.3073\)</span></strong></td>
+<td style="text-align: left;"><span class="math inline">\([0.445, 0.149, 0.406, 0.000]\)</span> (Stable Gating)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>Flow-SiMLR (Static)</strong></td>
+<td style="text-align: center;">No</td>
+<td style="text-align: center;">N/A</td>
+<td style="text-align: center;"><span class="math inline">\(0.8257\)</span></td>
+<td style="text-align: left;"><span class="math inline">\([0.250, 0.250, 0.250, 0.250]\)</span></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><strong>Flow-SiMLR (Dynamic)</strong></td>
+<td style="text-align: center;">Yes</td>
+<td style="text-align: center;">Epoch 0</td>
+<td style="text-align: center;"><strong><span class="math inline">\(0.8193\)</span></strong></td>
+<td style="text-align: left;"><span class="math inline">\([0.341, 0.306, 0.332, 0.021]\)</span> (Stable Gating)</td>
+</tr>
+</tbody>
+</table>
+</div>
+</figure>
+</div>
+</section>
+<section id="brca-clinical-multi-omics-evaluation" class="level3" data-number="3.8.2">
+<h3 data-number="3.8.2" class="anchored" data-anchor-id="brca-clinical-multi-omics-evaluation"><span class="header-section-number">3.8.2</span> BRCA Clinical Multi-omics Evaluation</h3>
+<p>We validate the stability of Flow-SiMLR-V gating on the high-dimensional TCGA-BRCA multi-omics clinical dataset (<span class="math inline">\(N = 1010\)</span> samples). The views consist of RNA expression, copy number variations, protein expression, and an injected Gaussian noise view. We train the models to learn a joint consensus representation, and predict patient Estrogen Receptor (ER) binary status using a downstream logistic regression model.</p>
+<p>As shown in <a href="#tbl-brca-gating-results" class="quarto-xref">Table&nbsp;<span>3.15</span></a>, prepending the Stiefel-constrained linear encoder matrix with unconstrained positive and negative attributions (<code>positivity='either'</code>) prevents feature clamping and enables leading classification accuracies. Under <strong>Delayed Gating (warmup = 75 epochs)</strong>, Flow-SiMLR-V achieves the highest downstream ER status prediction accuracy of <strong>87.27%</strong>, outperforming both the static baseline (79.09%) and unconstrained Flow-SiMLR (74.55%) by successfully quarantining the noise modality (weight reduced to <span class="math inline">\(0.0593\)</span>) while maintaining representation capacity across all biological views.</p>
+<div id="tbl-brca-gating-results" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-brca-gating-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;3.15: BRCA Clinical Multi-omics Gating Results. Flow-SiMLR-V with Delayed Gating achieves the highest classification accuracy by isolating genomic noise and balancing biological views.
+</figcaption>
+<div aria-describedby="tbl-brca-gating-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 17%">
+<col style="width: 21%">
+<col style="width: 21%">
+<col style="width: 21%">
+<col style="width: 17%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Model Configuration</th>
+<th style="text-align: center;">Dynamic (MAI)?</th>
+<th style="text-align: center;">Delayed Start?</th>
+<th style="text-align: center;">ER Status Accuracy</th>
+<th style="text-align: left;">Modality Weights (<span class="math inline">\(\text{RNA}, \text{DNA}_{\text{CN}}, \text{Protein}, \text{Noise}\)</span>)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><strong>Flow-SiMLR-V (Static)</strong></td>
+<td style="text-align: center;">No</td>
+<td style="text-align: center;">N/A</td>
+<td style="text-align: center;"><span class="math inline">\(79.09\%\)</span></td>
+<td style="text-align: left;"><span class="math inline">\([0.2500, 0.2500, 0.2500, 0.2500]\)</span></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>Flow-SiMLR-V (Immediate)</strong></td>
+<td style="text-align: center;">Yes</td>
+<td style="text-align: center;">Epoch 0</td>
+<td style="text-align: center;"><span class="math inline">\(82.73\%\)</span></td>
+<td style="text-align: left;"><span class="math inline">\([0.3640, 0.3288, 0.3042, 0.0029]\)</span></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><strong>Flow-SiMLR-V (Delayed)</strong></td>
+<td style="text-align: center;">Yes</td>
+<td style="text-align: center;">Epoch 75</td>
+<td style="text-align: center;"><strong><span class="math inline">\(87.27\%\)</span></strong></td>
+<td style="text-align: left;"><span class="math inline">\([0.3353, 0.3364, 0.2690, 0.0593]\)</span> (Optimal Gating)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>Flow-SiMLR (Static)</strong></td>
+<td style="text-align: center;">No</td>
+<td style="text-align: center;">N/A</td>
+<td style="text-align: center;"><span class="math inline">\(70.00\%\)</span></td>
+<td style="text-align: left;"><span class="math inline">\([0.2500, 0.2500, 0.2500, 0.2500]\)</span></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><strong>Flow-SiMLR (Dynamic)</strong></td>
+<td style="text-align: center;">Yes</td>
+<td style="text-align: center;">Epoch 0</td>
+<td style="text-align: center;"><span class="math inline">\(74.55\%\)</span></td>
+<td style="text-align: left;"><span class="math inline">\([0.3102, 0.2502, 0.3167, 0.1229]\)</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+</figure>
+</div>
+</section>
+</section>
+<section id="visualization-color-mapping" class="level2" data-number="3.9">
+<h2 data-number="3.9" class="anchored" data-anchor-id="visualization-color-mapping"><span class="header-section-number">3.9</span> Visualization Color Mapping</h2>
 <p>The results are presented using the following color mapping: <span style="color: #1f77b4; font-weight: bold;"><strong>Blue for SiMLR</strong></span>, <span style="color: #2ca02c; font-weight: bold;"><strong>Green for LEND</strong></span>, <span style="color: #ff7f0e; font-weight: bold;"><strong>Orange for NED</strong></span>, and <span style="color: #9467bd; font-weight: bold;"><strong>Purple for NEDPP</strong></span>.</p>
 
 

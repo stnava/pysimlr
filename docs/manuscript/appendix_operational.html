@@ -266,6 +266,7 @@ window.Quarto = {
   <li><a href="#learning-rate-schedules" id="toc-learning-rate-schedules" class="nav-link" data-scroll-target="#learning-rate-schedules"><span class="header-section-number">B.8.2</span> 8.2 Learning Rate Schedules</a></li>
   <li><a href="#data-throughput" id="toc-data-throughput" class="nav-link" data-scroll-target="#data-throughput"><span class="header-section-number">B.8.3</span> 8.3 Data Throughput</a></li>
   </ul></li>
+  <li><a href="#technical-glossary" id="toc-technical-glossary" class="nav-link" data-scroll-target="#technical-glossary"><span class="header-section-number">B.9</span> 9. Technical Glossary</a></li>
   </ul>
 </nav>
     </div>
@@ -498,9 +499,29 @@ window.Quarto = {
 <section id="data-throughput" class="level3" data-number="B.8.3">
 <h3 data-number="B.8.3" class="anchored" data-anchor-id="data-throughput"><span class="header-section-number">B.8.3</span> 8.3 Data Throughput</h3>
 <p>We specify <code>pin_memory=True</code> and configure <code>num_workers &gt; 0</code> in the PyTorch DataLoader. This implements asynchronous memory transfer to the GPU, mitigating host-device I/O latency.</p>
-
-
 </section>
+</section>
+<section id="technical-glossary" class="level2" data-number="B.9">
+<h2 data-number="B.9" class="anchored" data-anchor-id="technical-glossary"><span class="header-section-number">B.9</span> 9. Technical Glossary</h2>
+<ul>
+<li><strong>Normalizing Flow</strong>: A family of deep generative models that transforms a simple probability distribution (e.g., standard multivariate Gaussian) into a complex distribution using a sequence of invertible, bijective mappings via the change-of-variables theorem.</li>
+<li><strong>Bijective Mapping</strong>: A mathematically exact, one-to-one and onto function. In Flow-SiMLR, bijectivity guarantees that the forward mapping (encoding) and inverse mapping (decoding) preserve information perfectly with zero reconstruction error (<span class="math inline">\(\mathcal{L}_{MSE} = 0\)</span>).</li>
+<li><strong>Affine Coupling Layer</strong>: The core building block of RealNVP normalizing flows. It splits the input features into two halves, copying one partition directly while scaling and translating the other half using arbitrary non-linear neural networks (which do not need to be invertible themselves).</li>
+<li><strong>OLEE (Only Linear Encoder Entry-point)</strong>: An architectural constraint that restricts the entry layer of a deep neural network to be an orthogonal linear projection. This forms a structural information bottleneck that prevents deep layers from memorizing noise.</li>
+<li><strong>NSA-Flow (Non-negative Stiefel Approximating Flow)</strong>: A smooth, fully differentiable optimization penalty used to constrain the linear encoder basis matrix <span class="math inline">\(\mathbf{V}_m\)</span> to the Stiefel manifold (<span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_K\)</span>) during backpropagation, replacing hard SVD projections.</li>
+<li><strong>Schur Complement</strong>: A matrix operation used to compute the conditional mean and covariance of a partitioned multivariate Gaussian distribution in closed form, enabling mathematically valid cross-view imputation.</li>
+<li><strong>Leave-One-Out (LOO) Topology</strong>: An optimization pathway where each view’s latent representation is aligned against a consensus target computed exclusively from all <em>other</em> views, preventing the model from learning trivial identity mappings.</li>
+<li><strong>Modality Alignment Index (MAI)</strong>: A metric (typically based on Procrustes <span class="math inline">\(R^2\)</span>) that quantifies the alignment fidelity between an individual view’s latent space and the global consensus.</li>
+<li><strong>Spectral Sharpness</strong>: A random-matrix-theory-based metric evaluating singular value concentrations to identify and suppress isotropic high-dimensional noise, preventing it from corrupting the consensus representation.</li>
+<li><strong>Classical SiMLR</strong>: Similarity-driven Multi-view Linear Reconstruction. Strictly linear baseline architecture assuming Euclidean projection of modalities.</li>
+<li><strong>LEND</strong>: Linear Encoder, Deep Decoder. Combines OLEE-constrained linear encoder with a deep non-linear decoder, balancing interpretability and reconstruction fidelity.</li>
+<li><strong>NED</strong>: Non-linear Encoder-Decoder. Applies non-linear MLP transformations to both encoder (post-OLEE) and decoder, maximizing representational capacity.</li>
+<li><strong>NEDPP</strong>: Non-linear Encoder-Decoder with Private Partitions. Disentangles modality-specific private variance from shared cross-modal consensus.</li>
+<li><strong>Flow-SiMLR</strong>: Normalizing Flow Similarity-driven Multi-view Reconstruction. Integrates bijective normalizing flows with latent consensus alignment for information-preserving multi-modal integration.</li>
+<li><strong>Flow-SiMLR-V</strong>: Flow-SiMLR with a linear projection matrix (OLEE) entry point to allow feature attribution while maintaining deep flow-based mappings.</li>
+</ul>
+
+
 </section>
 
 </main> <!-- /main -->

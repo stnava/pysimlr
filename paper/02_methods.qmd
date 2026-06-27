@@ -426,6 +426,19 @@ $$ \mathcal{S}_m = \frac{\sigma_1}{\sum_{i=1}^k \sigma_i} $$
 
 Conversely, following the Baik-Ben Arous-Péché (BBP) phase transition theorem [@baik2005phase], true underlying signal components induce rank-1 perturbations that spike explicitly outside the Marchenko-Pastur bulk, rapidly forcing $\mathcal{S}_m \to 1$. Spectral Sharpness therefore functions as a mathematically exact threshold, actively discriminating structured generative signal from isotropic background noise. The final consensus target employs the product of MAI and Spectral Sharpness to dynamically weight each modality, ensuring noise-dominant views are decisively quarantined.
 
+### Delayed Dynamic Weight Start (Gating Warmup)
+
+When applying dynamic weights ($w_m$) to Normalizing Flow networks or models with linear encoder layers (like Flow-SiMLR-V), initiating the competitive gating update at epoch 0 can trigger a catastrophic positive feedback loop. Early in training, the linear projection matrices $\mathbf{V}_m$ and bijective flow transformations are random, producing noisy latents $\mathbf{Z}_m$ and low MAI values. Softmax competition:
+$$ w_m^{(t)} = \text{softmax}(\tau \cdot \text{MAI}_m^{(t)}) $$
+amplifies minor initialization variances, prematurely driving the weights of valid but slow-to-converge views to zero. Once a modality's weight approaches zero, its parameters stop receiving gradient updates, locking the model into a collapsed state (Weight Collapse).
+
+To resolve this instability, we introduce a **Delayed Dynamic Weight Start** (gating warmup). We define the gating scheduler $\theta(t)$ at training epoch $t$ as:
+$$ w_m^{(t)} = \begin{cases} 
+\frac{1}{M} & \text{for } t < T_{\text{delayed}} \\
+\text{softmax}(\tau \cdot \text{MAI}_m^{(t)}) & \text{for } t \ge T_{\text{delayed}}
+\end{cases} $$
+By setting the weights to be uniform for the first $T_{\text{delayed}}$ epochs, the model is forced to train all projections and flows cooperatively. Gating is activated only after the network has established stable coordinate mappings, enabling smooth and robust convergence to optimal weights.
+
 ## Properties & Bounds
 
 ### Auditability by Design and Exact Counterfactuals

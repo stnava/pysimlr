@@ -118,3 +118,21 @@ We utilize the OneCycleLR scheduler to fuse the warmup and annealing phases. Thi
 ### 8.3 Data Throughput
 
 We specify `pin_memory=True` and configure `num_workers > 0` in the PyTorch DataLoader. This implements asynchronous memory transfer to the GPU, mitigating host-device I/O latency.
+
+## 9. Technical Glossary
+
+- **Normalizing Flow**: A family of deep generative models that transforms a simple probability distribution (e.g., standard multivariate Gaussian) into a complex distribution using a sequence of invertible, bijective mappings via the change-of-variables theorem.
+- **Bijective Mapping**: A mathematically exact, one-to-one and onto function. In Flow-SiMLR, bijectivity guarantees that the forward mapping (encoding) and inverse mapping (decoding) preserve information perfectly with zero reconstruction error ($\mathcal{L}_{MSE} = 0$).
+- **Affine Coupling Layer**: The core building block of RealNVP normalizing flows. It splits the input features into two halves, copying one partition directly while scaling and translating the other half using arbitrary non-linear neural networks (which do not need to be invertible themselves).
+- **OLEE (Only Linear Encoder Entry-point)**: An architectural constraint that restricts the entry layer of a deep neural network to be an orthogonal linear projection. This forms a structural information bottleneck that prevents deep layers from memorizing noise.
+- **NSA-Flow (Non-negative Stiefel Approximating Flow)**: A smooth, fully differentiable optimization penalty used to constrain the linear encoder basis matrix $\mathbf{V}_m$ to the Stiefel manifold ($\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_K$) during backpropagation, replacing hard SVD projections.
+- **Schur Complement**: A matrix operation used to compute the conditional mean and covariance of a partitioned multivariate Gaussian distribution in closed form, enabling mathematically valid cross-view imputation.
+- **Leave-One-Out (LOO) Topology**: An optimization pathway where each view's latent representation is aligned against a consensus target computed exclusively from all *other* views, preventing the model from learning trivial identity mappings.
+- **Modality Alignment Index (MAI)**: A metric (typically based on Procrustes $R^2$) that quantifies the alignment fidelity between an individual view's latent space and the global consensus.
+- **Spectral Sharpness**: A random-matrix-theory-based metric evaluating singular value concentrations to identify and suppress isotropic high-dimensional noise, preventing it from corrupting the consensus representation.
+- **Classical SiMLR**: Similarity-driven Multi-view Linear Reconstruction. Strictly linear baseline architecture assuming Euclidean projection of modalities.
+- **LEND**: Linear Encoder, Deep Decoder. Combines OLEE-constrained linear encoder with a deep non-linear decoder, balancing interpretability and reconstruction fidelity.
+- **NED**: Non-linear Encoder-Decoder. Applies non-linear MLP transformations to both encoder (post-OLEE) and decoder, maximizing representational capacity.
+- **NEDPP**: Non-linear Encoder-Decoder with Private Partitions. Disentangles modality-specific private variance from shared cross-modal consensus.
+- **Flow-SiMLR**: Normalizing Flow Similarity-driven Multi-view Reconstruction. Integrates bijective normalizing flows with latent consensus alignment for information-preserving multi-modal integration.
+- **Flow-SiMLR-V**: Flow-SiMLR with a linear projection matrix (OLEE) entry point to allow feature attribution while maintaining deep flow-based mappings.

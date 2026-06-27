@@ -1275,7 +1275,7 @@ def extend_simlr_embedding_with_new_modalities(
     new_proj_df = pd.DataFrame(index=pymm.index)
     for nm in new_modality_names:
         if nm in new_v_dict:
-            cols = new_modalities[nm]
+            cols = list(new_v_dict[nm].index)
             X = pymm_proj[cols].values
             X_clean = np.nan_to_num(X)
             W = new_v_dict[nm].values
