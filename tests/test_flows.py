@@ -121,3 +121,32 @@ def test_flow_simr_training_and_imputation():
     x2_synth = res["model"].decoders[1](z2_pred)
     assert x2_synth.shape == (n, p2)
     assert not torch.isnan(x2_synth).any()
+
+def test_flow_simr_v_bottleneck():
+    torch.manual_seed(42)
+    n = 30
+    p1 = 8
+    p2 = 10
+    k = 15 # K is larger than modality features
+    
+    x1 = torch.randn(n, p1)
+    x2 = torch.randn(n, p2)
+    
+    from pysimlr.flows import flow_simr_v
+    
+    # This should execute successfully without PyTorch shape mismatches
+    res = flow_simr_v(
+        [x1, x2],
+        k=k,
+        epochs=3,
+        batch_size=10,
+        warmup_epochs=1,
+        num_layers=2,
+        hidden_dim=8,
+        verbose=False
+    )
+    
+    assert res["model"] is not None
+    assert res["latents"][0].shape == (n, k)
+    assert res["reconstructions"][0].shape == (n, p1)
+    assert res["reconstructions"][1].shape == (n, p2)

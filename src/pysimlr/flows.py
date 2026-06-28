@@ -201,6 +201,9 @@ class FlowEncoderWrapper(nn.Module):
         z, log_det = self.flow(x)
         self.last_z = z
         self.last_log_det = log_det
+        if self.latent_dim > z.shape[1]:
+            padding = torch.zeros(z.shape[0], self.latent_dim - z.shape[1], device=z.device, dtype=z.dtype)
+            return torch.cat([z, padding], dim=1)
         return z[:, :self.latent_dim]
 
 class FlowDecoderWrapper(nn.Module):
@@ -218,8 +221,9 @@ class FlowDecoderWrapper(nn.Module):
         batch_size = z_shared.shape[0]
         full_dim = self.flow.dim
         
-        z_full = torch.zeros(batch_size, full_dim, device=device)
-        z_full[:, :self.latent_dim] = z_shared
+        z_full = torch.zeros(batch_size, full_dim, device=device, dtype=z_shared.dtype)
+        min_dim = min(self.latent_dim, full_dim)
+        z_full[:, :min_dim] = z_shared[:, :min_dim]
         
         return self.flow.inverse(z_full)
 
