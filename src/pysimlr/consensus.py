@@ -91,6 +91,9 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                 _, _, vh = safe_svd(local_big_p, full_matrices=False)
             
             local_anchor = vh.T[:, :k]
+            if local_anchor.shape[1] < k:
+                padding = torch.zeros(local_anchor.shape[0], k - local_anchor.shape[1], device=local_anchor.device, dtype=local_anchor.dtype)
+                local_anchor = torch.cat([local_anchor, padding], dim=1)
             local_u = local_big_p @ local_anchor
             
         local_u = local_u - local_u.mean(0, keepdim=True)
