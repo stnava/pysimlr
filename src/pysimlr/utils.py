@@ -1086,3 +1086,393 @@ def newton_schulz_orthogonalize(x: torch.Tensor, iterations: int = 5, tol: float
             break
             
     return y
+
+def write_simlr(simlr_object: Dict[str, Any], file_prefix: str, clear_dir: bool = False, use_r: bool = True):
+    """
+    Python implementation of ANTsR::write_simlr.
+    Writes a SiMLR results dictionary to a directory containing CSV and JSON/RDS files.
+    
+    Parameters
+    ----------
+    simlr_object : Dict[str, Any]
+        The SiMLR results dictionary/object to save.
+    file_prefix : str
+        The prefix/base name of the directory where results are saved.
+    clear_dir : bool, default=False
+        Whether to clear the destination directory if it already exists.
+    use_r : bool, default=True
+        Whether to run Rscript to generate R-compatible .rds files (manifest.rds, etc.)
+        so that ANTsR::read_simlr can load them directly.
+    """
+    import os
+    import shutil
+    import json
+    import subprocess
+    import pandas as pd
+    import numpy as np
+    import torch
+    
+    if not isinstance(simlr_object, dict):
+        raise TypeError("simlr_object must be a dictionary")
+        
+    outdir = f"{file_prefix}_simlr"
+    if clear_dir and os.path.exists(outdir):
+        shutil.rmtree(outdir)
+        
+    os.makedirs(outdir, exist_ok=True)
+    
+    manifest = {}
+    
+    # Iterate and write contents
+    for n, obj in simlr_object.items():
+        if obj is None:
+            manifest[n] = {"type": "null", "file": None}
+            continue
+            
+        # Treat energyPath as dataframe if possible
+        if n == "energyPath" and not isinstance(obj, pd.DataFrame):
+            if isinstance(obj, (np.ndarray, torch.Tensor)):
+                if torch.is_tensor(obj):
+                    obj = obj.detach().cpu().numpy()
+                obj = pd.DataFrame(obj)
+                
+        if isinstance(obj, pd.DataFrame):
+            fname = f"{n}.csv"
+            abs_fname = os.path.join(outdir, fname)
+            obj.to_csv(abs_fname, index=True)
+            manifest[n] = {
+                "type": "data_frame",
+                "file": fname,
+                "has_rownames": True
+            }
+        elif isinstance(obj, (np.ndarray, torch.Tensor)):
+            if torch.is_tensor(obj):
+                obj = obj.detach().cpu().numpy()
+            fname = f"{n}.csv"
+            abs_fname = os.path.join(outdir, fname)
+            pd.DataFrame(obj).to_csv(abs_fname, index=True)
+            manifest[n] = {
+                "type": "matrix",
+                "file": fname,
+                "has_rownames": True,
+                "storage.mode": "double"
+            }
+        elif isinstance(obj, dict):
+            subdir = os.path.join(outdir, n)
+            os.makedirs(subdir, exist_ok=True)
+            submanifest = {}
+            for subk, subobj in obj.items():
+                if subobj is None:
+                    submanifest[subk] = {"file": None, "type": "null", "use_name": True}
+                    continue
+                    
+                subfile_name = f"{subk}.csv"
+                if isinstance(subobj, pd.DataFrame):
+                    subfile = os.path.join(subdir, subfile_name)
+                    subobj.to_csv(subfile, index=True)
+                    submanifest[subk] = {
+                        "file": f"{n}/{subfile_name}",
+                        "type": "data_frame",
+                        "use_name": True,
+                        "has_rownames": True
+                    }
+                elif isinstance(subobj, (np.ndarray, torch.Tensor)):
+                    if torch.is_tensor(subobj):
+                        subobj = subobj.detach().cpu().numpy()
+                    subfile = os.path.join(subdir, subfile_name)
+                    pd.DataFrame(subobj).to_csv(subfile, index=True)
+                    submanifest[subk] = {
+                        "file": f"{n}/{subfile_name}",
+                        "type": "matrix",
+                        "use_name": True,
+                        "has_rownames": True,
+                        "storage.mode": "double"
+                    }
+                else:
+                    json_file_name = f"{subk}.json"
+                    subfile = os.path.join(subdir, json_file_name)
+                    with open(subfile, "w") as f:
+                        json.dump(subobj, f)
+                    submanifest[subk] = {
+                        "file": f"{n}/{json_file_name}",
+                        "type": "rds",
+                        "use_name": True
+                    }
+            manifest[n] = {"type": "list", "contents": submanifest}
+        elif isinstance(obj, list):
+            subdir = os.path.join(outdir, n)
+            os.makedirs(subdir, exist_ok=True)
+            submanifest = {}
+            for idx, subobj in enumerate(obj):
+                subname = str(idx + 1) # 1-based index for R compatibility
+                if subobj is None:
+                    submanifest[subname] = {"file": None, "type": "null", "use_name": False}
+                    continue
+                    
+                subfile_name = f"{subname}.csv"
+                if isinstance(subobj, pd.DataFrame):
+                    subfile = os.path.join(subdir, subfile_name)
+                    subobj.to_csv(subfile, index=True)
+                    submanifest[subname] = {
+                        "file": f"{n}/{subfile_name}",
+                        "type": "data_frame",
+                        "use_name": False,
+                        "has_rownames": True
+                    }
+                elif isinstance(subobj, (np.ndarray, torch.Tensor)):
+                    if torch.is_tensor(subobj):
+                        subobj = subobj.detach().cpu().numpy()
+                    subfile = os.path.join(subdir, subfile_name)
+                    pd.DataFrame(subobj).to_csv(subfile, index=True)
+                    submanifest[subname] = {
+                        "file": f"{n}/{subfile_name}",
+                        "type": "matrix",
+                        "use_name": False,
+                        "has_rownames": True,
+                        "storage.mode": "double"
+                    }
+                else:
+                    json_file_name = f"{subname}.json"
+                    subfile = os.path.join(subdir, json_file_name)
+                    with open(subfile, "w") as f:
+                        json.dump(subobj, f)
+                    submanifest[subname] = {
+                        "file": f"{n}/{json_file_name}",
+                        "type": "rds",
+                        "use_name": False
+                    }
+            manifest[n] = {"type": "list", "contents": submanifest}
+        else:
+            fname = f"{n}.json"
+            abs_fname = os.path.join(outdir, fname)
+            with open(abs_fname, "w") as f:
+                json.dump(obj, f)
+            manifest[n] = {
+                "type": "rds",
+                "file": fname
+            }
+            
+    # Write Python manifest
+    manifest_json_path = os.path.join(outdir, "manifest.json")
+    with open(manifest_json_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+        
+    # If use_r is True, try to compile to RDS using R
+    if use_r:
+        try:
+            # Check if Rscript is available
+            subprocess.run(["Rscript", "--version"], capture_output=True, check=True)
+            
+            outdir_clean = os.path.abspath(outdir).replace('\\', '/')
+            # Construct R compilation script using raw f-string
+            r_script = fr"""
+library(jsonlite)
+outdir <- "{outdir_clean}"
+# Load manifest.json
+manifest <- fromJSON(file.path(outdir, "manifest.json"), simplifyVector=FALSE)
+
+process_entry <- function(entry, name, parent_dir) {{
+  if (entry$type == "rds") {{
+    json_file <- file.path(parent_dir, entry$file)
+    # Change file extension to .rds
+    entry$file <- gsub("\\\\.json$", ".rds", entry$file)
+    rds_file <- file.path(parent_dir, entry$file)
+    if (file.exists(json_file)) {{
+      val <- fromJSON(json_file, simplifyVector=TRUE)
+      saveRDS(val, rds_file)
+      file.remove(json_file)
+    }}
+  }} else if (entry$type == "list") {{
+    for (subname in names(entry$contents)) {{
+      sub_entry <- entry$contents[[subname]]
+      if (sub_entry$type == "rds") {{
+        json_file <- file.path(parent_dir, sub_entry$file)
+        sub_entry$file <- gsub("\\\\.json$", ".rds", sub_entry$file)
+        rds_file <- file.path(parent_dir, sub_entry$file)
+        if (file.exists(json_file)) {{
+          val <- fromJSON(json_file, simplifyVector=TRUE)
+          saveRDS(val, rds_file)
+          file.remove(json_file)
+        }}
+      }}
+      entry$contents[[subname]] <- sub_entry
+    }}
+  }}
+  return(entry)
+}}
+
+for (n in names(manifest)) {{
+  manifest[[n]] <- process_entry(manifest[[n]], n, outdir)
+}}
+
+# Save manifest.rds
+saveRDS(manifest, file.path(outdir, "manifest.rds"))
+"""
+            # run the script
+            subprocess.run(["Rscript", "--vanilla", "-e", r_script], capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as e:
+            # Fallback silently or print depending on debug, but let's keep it silent like original
+            pass
+        except Exception:
+            pass
+
+def read_simlr(dir_path: str, use_r: bool = True) -> Dict[str, Any]:
+    """
+    Python implementation of ANTsR::read_simlr.
+    Reads a saved SiMLR directory back into a Python dictionary.
+    
+    Parameters
+    ----------
+    dir_path : str
+        The path to the SiMLR directory (e.g. "prefix_simlr").
+    use_r : bool, default=True
+        Whether to attempt loading RDS files via R if only manifest.rds or .rds files exist.
+        
+    Returns
+    -------
+    Dict[str, Any]
+        The restored SiMLR results dictionary.
+    """
+    import os
+    import json
+    import subprocess
+    import pandas as pd
+    
+    manifest_json = os.path.join(dir_path, "manifest.json")
+    manifest_rds = os.path.join(dir_path, "manifest.rds")
+    
+    manifest = None
+    has_r = False
+    
+    if use_r:
+        try:
+            subprocess.run(["Rscript", "--version"], capture_output=True, check=True)
+            has_r = True
+        except Exception:
+            has_r = False
+            
+    if os.path.exists(manifest_rds) and use_r and has_r:
+        # Load manifest.rds using R and jsonlite
+        dir_path_clean = os.path.abspath(dir_path).replace('\\', '/')
+        cmd = ["Rscript", "--vanilla", "-e", f"cat(jsonlite::toJSON(readRDS(file.path('{dir_path_clean}', 'manifest.rds')), auto_unbox=TRUE))"]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        stdout_str = res.stdout
+        json_start = stdout_str.find("{")
+        if json_start == -1:
+            raise RuntimeError(f"Could not parse manifest.rds JSON output: {stdout_str}")
+        manifest = json.loads(stdout_str[json_start:])
+    elif os.path.exists(manifest_json):
+        with open(manifest_json, "r") as f:
+            manifest = json.load(f)
+    elif os.path.exists(manifest_rds):
+        # manifest.rds exists but R is not found or use_r is False
+        raise RuntimeError(f"Rscript is required to read manifest.rds, but R was not found or use_r=False.")
+    else:
+        raise FileNotFoundError(f"Neither manifest.json nor manifest.rds found in {dir_path}")
+        
+    result = {}
+    
+    # Helper to load RDS file via R
+    def load_rds(file_path):
+        if not has_r:
+            raise RuntimeError(f"Rscript is required to load RDS file: {file_path}")
+        file_path_clean = os.path.abspath(file_path).replace('\\', '/')
+        cmd = ["Rscript", "--vanilla", "-e", f"cat(jsonlite::toJSON(readRDS('{file_path_clean}'), auto_unbox=TRUE))"]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        stdout_str = res.stdout
+        json_start = stdout_str.find("[")
+        if json_start == -1:
+            json_start = stdout_str.find("{")
+        if json_start == -1:
+            json_start = stdout_str.find('"')
+        if json_start == -1:
+            return stdout_str.strip()
+        return json.loads(stdout_str[json_start:])
+        
+    for n, entry in manifest.items():
+        if entry["type"] == "null":
+            result[n] = None
+            continue
+            
+        file_name = entry.get("file")
+        abs_file = os.path.join(dir_path, file_name) if file_name else None
+        
+        if entry["type"] == "data_frame":
+            if entry.get("has_rownames", False):
+                result[n] = pd.read_csv(abs_file, index_col=0)
+            else:
+                result[n] = pd.read_csv(abs_file)
+        elif entry["type"] == "matrix":
+            if entry.get("has_rownames", False):
+                df = pd.read_csv(abs_file, index_col=0)
+            else:
+                df = pd.read_csv(abs_file)
+            result[n] = df.values
+        elif entry["type"] == "rds":
+            if file_name.endswith(".rds"):
+                result[n] = load_rds(abs_file)
+            else:
+                with open(abs_file, "r") as f:
+                    result[n] = json.load(f)
+        elif entry["type"] == "list":
+            subcontents = entry.get("contents", {})
+            is_seq_list = True
+            for k in subcontents.keys():
+                if not k.isdigit():
+                    is_seq_list = False
+                    break
+                    
+            if is_seq_list:
+                sublist = []
+                sorted_keys = sorted(subcontents.keys(), key=int)
+                for k in sorted_keys:
+                    subentry = subcontents[k]
+                    if subentry["type"] == "null":
+                        sublist.append(None)
+                        continue
+                    sub_file = os.path.join(dir_path, subentry["file"])
+                    if subentry["type"] == "data_frame":
+                        if subentry.get("has_rownames", False):
+                            sublist.append(pd.read_csv(sub_file, index_col=0))
+                        else:
+                            sublist.append(pd.read_csv(sub_file))
+                    elif subentry["type"] == "matrix":
+                        if subentry.get("has_rownames", False):
+                            df = pd.read_csv(sub_file, index_col=0)
+                        else:
+                            df = pd.read_csv(sub_file)
+                        sublist.append(df.values)
+                    elif subentry["type"] == "rds":
+                        if subentry["file"].endswith(".rds"):
+                            sublist.append(load_rds(sub_file))
+                        else:
+                            with open(sub_file, "r") as f:
+                                sublist.append(json.load(f))
+                result[n] = sublist
+            else:
+                subdict = {}
+                for k, subentry in subcontents.items():
+                    if subentry["type"] == "null":
+                        subdict[k] = None
+                        continue
+                    sub_file = os.path.join(dir_path, subentry["file"])
+                    if subentry["type"] == "data_frame":
+                        if subentry.get("has_rownames", False):
+                            subdict[k] = pd.read_csv(sub_file, index_col=0)
+                        else:
+                            subdict[k] = pd.read_csv(sub_file)
+                    elif subentry["type"] == "matrix":
+                        if subentry.get("has_rownames", False):
+                            df = pd.read_csv(sub_file, index_col=0)
+                        else:
+                            df = pd.read_csv(sub_file)
+                        subdict[k] = df.values
+                    elif subentry["type"] == "rds":
+                        if subentry["file"].endswith(".rds"):
+                            subdict[k] = load_rds(sub_file)
+                        else:
+                            with open(sub_file, "r") as f:
+                                subdict[k] = json.load(f)
+                result[n] = subdict
+                
+    return result

@@ -104,7 +104,9 @@ from .utils import (
     adjusted_rvcoef,
     l1_normalize_features,
     invariant_orthogonality_defect,
-    gradient_invariant_orthogonality_defect
+    gradient_invariant_orthogonality_defect,
+    write_simlr,
+    read_simlr
 )
 from .visualization import (
     plot_lend_simr_architecture,
@@ -189,6 +191,8 @@ __all__ = [
     'l1_normalize_features',
     'invariant_orthogonality_defect',
     'gradient_invariant_orthogonality_defect',
+    'write_simlr',
+    'read_simlr',
     'plot_lend_simr_architecture',
     'plot_ned_simr_architecture',
     'plot_ned_shared_private_architecture',
