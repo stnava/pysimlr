@@ -150,7 +150,7 @@ def backtracking_linesearch(v_current: torch.Tensor,
     ascent_gradient : torch.Tensor
         The gradient at the current position (used for slope calculation).
     energy_function : Callable
-        Function that computes the energy\/loss for a given parameter set.
+        Function that computes the energy or loss for a given parameter set.
     initial_step_size : float, default=1.0
         The first step size to try.
     alpha : float, default=1e-4
