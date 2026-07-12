@@ -6,8 +6,6 @@ import copy
 from typing import List, Optional, Union, Dict, Any, Tuple
 from .simlr import simlr, initialize_simlr
 from .utils import multigrep
-from sklearn.linear_model import LinearRegression
-from sklearn.impute import SimpleImputer
 
 def _get_names_from_dataframe(
     x: Union[str, List[str]],
@@ -290,6 +288,7 @@ def nnh_update_residuals(mat: torch.Tensor,
     mat_np = mat.numpy()
     residuals = np.zeros_like(mat_np)
     
+    from sklearn.linear_model import LinearRegression
     for i in range(mat_np.shape[1]):
         y = mat_np[:, i]
         reg = LinearRegression().fit(cov_vals, y)
@@ -407,6 +406,7 @@ def nnh_embed(blaster: pd.DataFrame,
 
     # Step 3: Matrix Assembly and Imputation
     mats = {}
+    from sklearn.impute import SimpleImputer
     imputer = SimpleImputer(strategy='mean')
     
     for name, cols in idplist.items():

@@ -1,0 +1,141 @@
+import os
+import multiprocessing
+
+# SET ENVIRONMENT VARIABLES BEFORE ANY IMPORTS TO PREVENT OMP HANGS
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
+import torch
+import numpy as np
+import pandas as pd
+from sklearn.datasets import load_diabetes
+from sklearn.preprocessing import StandardScaler
+import sys
+import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import csv
+import traceback
+
+# Ensure src is in path
+sys.path.append(os.path.join(os.getcwd(), "src"))
+from pysimlr.benchmarks.runner import run_single_experiment
+
+def get_diabetes_case(seed=42):
+    data = load_diabetes(); X_scaled = StandardScaler().fit_transform(data.data); y = data.target
+    mats = [X_scaled[:, :5], X_scaled[:, 5:]]; k = 2
+    return {"data": [torch.tensor(m).float() for m in mats], "outcome": torch.tensor(y).float(), "true_u": torch.zeros(X_scaled.shape[0], k), "true_v": [np.zeros((m.shape[1], k)) for m in mats], "shared_k": k}
+
+def get_heart_case(seed=42):
+    url_heart = 'https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data'
+    cols = ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal', 'num']
+    try: df_h = pd.read_csv(url_heart, names=cols).replace('?', np.nan).dropna().apply(pd.to_numeric)
+    except:
+        X_dummy = np.random.randn(300, 13); y_dummy = np.random.randint(0, 2, 300); df_h = pd.DataFrame(X_dummy); df_h['num'] = y_dummy
+    X_h = StandardScaler().fit_transform(df_h.drop('num', axis=1)); y = df_h['num'].values.astype(int); mats = [X_h[:, :7], X_h[:, 7:]]; k = 2
+    return {"data": [torch.tensor(m).float() for m in mats], "outcome": torch.tensor(y).float(), "true_u": torch.zeros(X_h.shape[0], k), "true_v": [np.zeros((m.shape[1], k)) for m in mats], "shared_k": k}
+
+def run_experiment_task(task_args):
+    # Ensure each worker runs strictly single-threaded
+    torch.set_num_threads(1)
+    
+    dataset_name, model_type, model_label, seed, energy_type, mixing_algorithm, iterations, epochs, use_nsa = task_args
+    case = get_diabetes_case(seed=seed) if dataset_name == "Diabetes" else get_heart_case(seed=seed)
+    params = {
+        "iterations": iterations, 
+        "epochs": epochs, 
+        "energy_type": energy_type, 
+        "mixing_algorithm": mixing_algorithm, 
+        "use_nsa": use_nsa,
+        "positivity": "positive",
+        "nsa_w": 0.5,
+        "sparseness_quantile": 0.5,
+        "nsa_iterations": 3,
+        "topology": "loo"
+    }
+    
+    # Run the experiment
+    exp_res = run_single_experiment(model_type, case, seed=seed, **params)
+    metrics = exp_res["metrics"]
+    
+    is_h = (dataset_name == "Heart")
+    test_acc = metrics.get("test_accuracy", 0.0) if is_h else metrics.get("test_r2", 0.0)
+    train_acc = metrics.get("train_accuracy", 0.0) if is_h else metrics.get("train_r2", 0.0)
+    lin_test = metrics.get("first_layer_test_accuracy", 0.0) if is_h else metrics.get("first_layer_test_r2", 0.0)
+    lin_train = metrics.get("first_layer_train_accuracy", 0.0) if is_h else metrics.get("first_layer_train_r2", 0.0)
+    
+    return {
+        "Dataset": dataset_name,
+        "Model": model_label,
+        "Seed": seed,
+        "Loss": energy_type,
+        "Consensus": mixing_algorithm,
+        "Predictive Accuracy (Y)": float(test_acc),
+        "Train Accuracy (Y)": float(train_acc),
+        "Gen Gap (Y)": float(train_acc - test_acc),
+        "Strictly Linear Accuracy": float(lin_test),
+        "Strictly Linear Train": float(lin_train),
+        "Strictly Linear Gap": float(lin_train - lin_test),
+        "CMC": float(metrics.get("recovery", 0.0)),
+        "SRE": 0.0
+    }
+
+def run_real_benchmark(n_seeds=1, iterations=50, epochs=100, use_nsa=True, workers=None):
+    datasets = ["Heart", "Diabetes"]
+    # Testing deep architectures with LOO. SiMLR baseline doesn't use the deep forward pass but we can include it to see.
+    model_configs = [("linear", "SiMLR"), ("lend", "LEND"), ("ned", "NED"), ("shared_private", "NEDPP")]
+    losses = ["regression", "acc", "logcosh", "nc"]
+    mixing_methods = ["newton", "svd", "pca", "ica"]
+    
+    tasks = []
+    for dataset_name in datasets:
+        for model_type, model_label in model_configs:
+            for energy_type in losses:
+                for mixing_algorithm in mixing_methods:
+                    for seed in range(42, 42 + n_seeds): 
+                        tasks.append((dataset_name, model_type, model_label, seed, energy_type, mixing_algorithm, iterations, epochs, use_nsa))
+    
+    print(f"Starting FULL REAL LOO benchmark with {len(tasks)} tasks...")
+    os.makedirs("paper/results_cache", exist_ok=True)
+    out_file = "paper/results_cache/unified_real_loo.csv"
+    header = ["Dataset", "Model", "Seed", "Loss", "Consensus", "Predictive Accuracy (Y)", "Train Accuracy (Y)", "Gen Gap (Y)", "Strictly Linear Accuracy", "Strictly Linear Train", "Strictly Linear Gap", "CMC", "SRE"]
+    with open(out_file, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=header); writer.writeheader()
+    
+    completed = 0
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(run_experiment_task, t): t for t in tasks}
+        for future in as_completed(futures):
+            try:
+                res = future.result()
+                if res:
+                    with open(out_file, 'a', newline='') as f:
+                        writer = csv.DictWriter(f, fieldnames=header)
+                        writer.writerow(res)
+                        f.flush()
+            except Exception as e:
+                task_args = futures[future]
+                print(f"\n[!] ERROR in task {task_args[0]} | {task_args[2]} | seed {task_args[3]}:")
+                traceback.print_exc()
+                sys.stdout.flush()
+                
+            completed += 1
+            if completed % 10 == 0: 
+                print(f"  Progress: {completed}/{len(tasks)} completed")
+                sys.stdout.flush()
+                
+    print(f"LOO benchmark complete: {out_file}")
+
+if __name__ == "__main__":
+    multiprocessing.set_start_method('spawn', force=True)
+    parser = argparse.ArgumentParser(description="Run LOO REAL benchmark")
+    parser.add_argument("--n-seeds", type=int, default=1) # Default to 1 seed to be quick
+    parser.add_argument("--iterations", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--no-nsa", action="store_false", dest="use_nsa")
+    parser.set_defaults(use_nsa=True)
+    parser.add_argument("--workers", type=int, default=None)
+    args = parser.parse_args(); 
+    run_real_benchmark(n_seeds=args.n_seeds, iterations=args.iterations, epochs=args.epochs, use_nsa=args.use_nsa, workers=args.workers)

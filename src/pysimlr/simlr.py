@@ -7,12 +7,6 @@ from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness
 from .utils import (set_seed_based_on_time, adjusted_rvcoef, safe_svd,
                     invariant_orthogonality_defect, l1_normalize_features, orthogonality_summary, preprocess_data)
 from .consensus import compute_shared_consensus
-from scipy.stats import ttest_1samp
-
-try:
-    from sklearn.decomposition import FastICA
-except ImportError:
-    FastICA = None
 
 def parse_constraint(constraint_str: str) -> Dict[str, Any]:
     """
@@ -683,6 +677,7 @@ def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_p
     -----------
     This function has been audited for Numpy docstring validity and functional correctness.
     """
+    from scipy.stats import ttest_1samp
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     res = simlr(torch_mats, k=k, verbose=verbose, **simlr_params)
     v_norm = [l1_normalize_features(v) for v in res['v']]

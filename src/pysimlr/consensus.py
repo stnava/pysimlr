@@ -3,12 +3,6 @@ import numpy as np
 import warnings
 from typing import List, Optional, Union, Dict, Any, Tuple
 from .utils import newton_schulz_orthogonalize, safe_svd
-try:
-    from sklearn.decomposition import FastICA
-    from sklearn.exceptions import ConvergenceWarning
-except ImportError:
-    FastICA = None
-    ConvergenceWarning = None
 
 def compute_shared_consensus(projections: List[torch.Tensor], 
                             mixing_algorithm: str = "svd", 
@@ -73,13 +67,25 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         elif mixing_algorithm == "ica":
             avg_p = local_big_p.detach().cpu().numpy()
             with warnings.catch_warnings():
+                try:
+                    from sklearn.decomposition import FastICA
+                    from sklearn.exceptions import ConvergenceWarning
+                except ImportError:
+                    FastICA = None
+                    ConvergenceWarning = None
+                
                 if ConvergenceWarning is not None:
                     warnings.filterwarnings("ignore", category=ConvergenceWarning)
-                ica = FastICA(n_components=k, random_state=42, max_iter=2000, tol=1e-2)
-                try:
-                    u_np = ica.fit_transform(avg_p)
-                    local_anchor = torch.from_numpy(ica.components_.T).to(local_big_p.device).to(local_big_p.dtype)
-                except:
+                
+                if FastICA is not None:
+                    ica = FastICA(n_components=k, random_state=42, max_iter=2000, tol=1e-2)
+                    try:
+                        u_np = ica.fit_transform(avg_p)
+                        local_anchor = torch.from_numpy(ica.components_.T).to(local_big_p.device).to(local_big_p.dtype)
+                    except:
+                        u_np = avg_p[:, :k]
+                        local_anchor = torch.eye(local_big_p.shape[1], k, device=local_big_p.device).to(local_big_p.dtype)
+                else:
                     u_np = avg_p[:, :k]
                     local_anchor = torch.eye(local_big_p.shape[1], k, device=local_big_p.device).to(local_big_p.dtype)
             local_u = torch.from_numpy(u_np).to(local_big_p.device).to(local_big_p.dtype)

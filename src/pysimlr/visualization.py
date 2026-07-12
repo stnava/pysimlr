@@ -2,7 +2,6 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import torch
-import seaborn as sns
 from typing import List, Optional, Union, Dict, Any
 
 def _draw_box(ax, x, y, w, h, label, color='white', edgecolor='black', alpha=1.0, fontsize=10):
@@ -317,6 +316,7 @@ def plot_v_matrix(v: torch.Tensor, title: str = "Feature Importance (V Matrix)")
     """
     v_np = v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
     fig, ax = plt.subplots(figsize=(10, 6))
+    import seaborn as sns
     sns.heatmap(v_np, cmap='coolwarm', center=0, ax=ax)
     ax.set_title(title)
     return fig

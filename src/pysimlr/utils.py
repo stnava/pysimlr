@@ -4,8 +4,6 @@ import re
 import time
 import numpy as np
 from typing import List, Optional, Union, Dict, Any, Tuple
-from scipy.linalg import orthogonal_procrustes
-from sklearn.metrics import r2_score
 
 def set_seed_based_on_time() -> int:
     """
