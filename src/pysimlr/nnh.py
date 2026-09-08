@@ -309,10 +309,10 @@ def nnh_embed(blaster: pd.DataFrame,
               verbose: bool = False,
               **simlr_kwargs) -> Dict[str, Any]:
     """
-    NNHEmbed: Perform SiMLR or Flow-SiMLR Analysis on Multimodal Neuroimaging Data.
+    NNHEmbed: Perform SiMLR or Flow-SiMR Analysis on Multimodal Neuroimaging Data.
 
     This function automates the preprocessing, modality grouping, and 
-    SiMLR/Flow-SiMLR embedding for complex neuroimaging datasets (e.g., ANTsPyMM 
+    SiMLR/Flow-SiMR embedding for complex neuroimaging datasets (e.g., ANTsPyMM 
     outputs). It handles asymmetry, covariate correction, and 
     automated feature selection.
 
@@ -337,11 +337,11 @@ def nnh_embed(blaster: pd.DataFrame,
     resnet_grade_thresh : float, default=1.02
         Quality control threshold for neuroimaging features.
     use_flow : bool, default=False
-        If True, run Flow-SiMLR (flow_simr_v) instead of linear SiMLR.
+        If True, run Flow-SiMR (flow_simr_v) instead of linear SiMLR.
     verbose : bool, default=False
         Whether to print progress messages.
     **simlr_kwargs : Dict[str, Any]
-        Additional arguments passed to the underlying SiMLR / Flow-SiMLR function.
+        Additional arguments passed to the underlying SiMLR / Flow-SiMR function.
 
     Returns
     -------
@@ -422,7 +422,7 @@ def nnh_embed(blaster: pd.DataFrame,
         for name in mats:
             mats[name] = nnh_update_residuals(mats[name], blaster_sub, covariates)
             
-    # Step 5: Run SIMLR or Flow-SIMLR
+    # Step 5: Run SIMLR or Flow-SiMR
     mat_list = list(mats.values())
     
     if use_flow:
@@ -461,7 +461,7 @@ def nnh_embed(blaster: pd.DataFrame,
         flow_kwargs = {k: v for k, v in flow_kwargs.items() if k in valid_flow_params}
         
         if verbose:
-            print(f"Running Flow-SiMLR with k={nsimlr}...")
+            print(f"Running Flow-SiMR with k={nsimlr}...")
             
         result = flow_simr_v(
             data_matrices=mat_list,
@@ -1146,7 +1146,7 @@ def extend_simlr_embedding_with_new_modalities(
     adj_list = [adjacency[name] for name in block_names_ordered]
     
     method_kwargs = copy.deepcopy(kwargs)
-    if method in ["flow_simr_v", "lend_simr"]:
+    if method in ["flow_simr_v", "flow_simlr_v", "lend_simr"]:
         if "iterations" in method_kwargs:
             method_kwargs["epochs"] = method_kwargs.pop("iterations")
     elif method == "simlr":
@@ -1161,7 +1161,7 @@ def extend_simlr_embedding_with_new_modalities(
             verbose=verbose,
             **method_kwargs
         )
-    elif method == "flow_simr_v":
+    elif method in ("flow_simr_v", "flow_simlr_v"):
         from .flows import flow_simr_v
         simlr_fit = flow_simr_v(
             data_matrices=mat_list,

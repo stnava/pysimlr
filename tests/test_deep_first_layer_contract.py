@@ -70,8 +70,8 @@ def test_ned_first_layer_contract_and_extraction():
     assert len(extracted["sparsity_summary"][1]["top_features"][0]) == 3
 
 
-@pytest.mark.xfail(reason="shared-private training path has a pre-existing runtime instability in this repo", strict=False)
 def test_shared_private_first_layer_contract():
+    torch.manual_seed(42)
     mats = [torch.randn(18, 9), torch.randn(18, 6)]
     res = ned_simr_shared_private(
         mats,
@@ -85,6 +85,11 @@ def test_shared_private_first_layer_contract():
         private_variance_weight=0.0,
     )
     _assert_first_layer_contract(res, mats)
+    pred = predict_deep(mats, res, device="cpu")
+    assert pred["first_layer"] is not None
+    assert len(pred["first_layer_scores"]) == 2
+    assert pred["interpretability"] is not None
+    assert pred["deep_layer"] is not None
 
 
 def test_first_layer_training_schedule_metadata():

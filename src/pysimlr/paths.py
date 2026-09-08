@@ -5,6 +5,17 @@ from .simlr import initialize_simlr
 from .optimizers import create_optimizer
 from .sparsification import orthogonalize_and_q_sparsify
 from .utils import adjusted_rvcoef
+def _to_consensus_tensor(u: Union[torch.Tensor, List[torch.Tensor]]) -> torch.Tensor:
+    """
+    Ensure consensus representation is returned as a single 2D tensor (N x K).
+    If u is a list of tensors (from LOO or graph topology), computes the mean
+    consensus across all modalities.
+    """
+    if isinstance(u, list):
+        if len(u) == 0:
+            raise ValueError("Consensus list cannot be empty.")
+        return torch.mean(torch.stack([torch.as_tensor(x).float() for x in u]), dim=0)
+    return torch.as_tensor(u).float()
 
 def simlr_path(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                k: int,
@@ -79,12 +90,12 @@ def simlr_path(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         path_results.append(res)
         
     # Calculate stability of U across the path
-    final_u = path_results[-1]['u']
+    final_u = _to_consensus_tensor(path_results[-1]['u'])
     correlations = []
     for res in path_results:
-        u_i = res['u']
+        u_i = _to_consensus_tensor(res['u'])
         # Compute similarity between consensus at this step and final consensus
-        correlations.append(adjusted_rvcoef(u_i, final_u))
+        correlations.append(float(adjusted_rvcoef(u_i, final_u)))
         
     return {
         "path_results": path_results,
@@ -150,11 +161,18 @@ def permutation_test(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         perm_mats = [m[torch.randperm(m.shape[0])] for m in torch_mats]
         perm_res = simlr(perm_mats, k=k, verbose=False, **kwargs)
         # Compute average similarity between views and consensus
-        sims = [adjusted_rvcoef(m @ v, perm_res['u']) for m, v in zip(perm_mats, perm_res['v'])]
-        null_sims.append(np.mean(sims))
+        sims = []
+        for idx, (m, v) in enumerate(zip(perm_mats, perm_res['v'])):
+            u_target = perm_res['u'][idx] if isinstance(perm_res['u'], list) else perm_res['u']
+            sims.append(float(adjusted_rvcoef(m @ v, u_target)))
+        null_sims.append(float(np.mean(sims)))
         
-    obs_sim = np.mean([adjusted_rvcoef(m @ v, obs_u) for m, v in zip(torch_mats, obs_res['v'])])
-    p_value = np.mean(np.array(null_sims) >= obs_sim)
+    obs_sims = []
+    for idx, (m, v) in enumerate(zip(torch_mats, obs_res['v'])):
+        u_target = obs_u[idx] if isinstance(obs_u, list) else obs_u
+        obs_sims.append(float(adjusted_rvcoef(m @ v, u_target)))
+    obs_sim = float(np.mean(obs_sims))
+    p_value = float(np.mean(np.array(null_sims) >= obs_sim))
     
     return {
         "observed_similarity": obs_sim,

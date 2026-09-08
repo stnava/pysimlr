@@ -1,10 +1,12 @@
 ---
-title: "Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMLR-V)"
+title: "Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)"
+aliases:
+  - appendix_flow_simlr_v.html
 ---
 
 ## Model Formulation
 
-To resolve the "Information Masking" problem inherent in deep multi-modal normalizing flows, we introduce **Flow-SiMLR-V**, which pre-pends a Stiefel-constrained linear encoder matrix $\mathbf{V}_m$ to each view's Normalizing Flow. This architecture establishes a strict globally interpretable information bottleneck at the input entry point while retaining bijective density mapping and conditional inference on the consensus latent space. The underlying normalizing flows are implemented natively in PyTorch, adapting structures from the Latent-Aligned Multiview Normalizing Flows (LAMNr Flows) open-source framework ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)).
+To resolve the "Information Masking" problem inherent in deep multi-modal normalizing flows, we introduce **Flow-SiMR-V**, which pre-pends a Stiefel-constrained linear encoder matrix $\mathbf{V}_m$ to each view's Normalizing Flow. This architecture establishes a strict globally interpretable information bottleneck at the input entry point while retaining bijective density mapping and conditional inference on the consensus latent space. The underlying normalizing flows are implemented natively in PyTorch, adapting structures from the Latent-Aligned Multiview Normalizing Flows (LAMNr Flows) open-source framework ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)).
 
 ### Mathematical Formulation
 For each input modality $\mathbf{X}_m \in \mathbb{R}^{N \times D_m}$:
@@ -27,13 +29,13 @@ For each input modality $\mathbf{X}_m \in \mathbb{R}^{N \times D_m}$:
 
 ### 1. Conditional Clinical Imputation (True vs. Imputed Serums)
 
-Because Flow-SiMLR-V preserves mathematical bijectivity on the bottleneck space, it enables exact conditional inference. In @fig-flow-imputation, we train Flow-SiMLR-V on the Diabetes dataset (split into vitals and blood serums) under a 70/30 split. We then simulate a clinical scenario where the blood serums are entirely missing, and predict them from vitals using the Schur complement solver. The scatter plot below shows the relationship between True and Imputed serum levels for S5 (triglycerides).
+Because Flow-SiMR-V preserves mathematical bijectivity on the bottleneck space, it enables exact conditional inference. In @fig-flow-imputation, we train Flow-SiMR-V on the Diabetes dataset (split into vitals and blood serums) under a 70/30 split. We then simulate a clinical scenario where the blood serums are entirely missing, and predict them from vitals using the Schur complement solver. The scatter plot below shows the relationship between True and Imputed serum levels for S5 (triglycerides).
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-flow-imputation
-#| fig-cap: 'Conditional Cross-View Imputation (Diabetes). Scatter plot comparing True vs. Imputed Serum levels (S5) generated via the Flow-SiMLR-V Schur complement solver on the test set.'
+#| fig-cap: 'Conditional Cross-View Imputation (Diabetes). Scatter plot comparing True vs. Imputed Serum levels (S5) generated via the Flow-SiMR-V Schur complement solver on the test set.'
 #| out-width: 100%
 #| echo: false
 import matplotlib
@@ -94,7 +96,7 @@ Pre-pending the linear encoder matrix $\mathbf{V}_m$ ensures that the normalizin
 #| warning: false
 #| message: false
 #| label: fig-flow-attribution
-#| fig-cap: 'Patient-Level Attribution Auditing. Individualized waterfall-style bar chart showing exact additive feature attributions for a selected patient on the Heart Disease dataset using the Flow-SiMLR-V basis.'
+#| fig-cap: 'Patient-Level Attribution Auditing. Individualized waterfall-style bar chart showing exact additive feature attributions for a selected patient on the Heart Disease dataset using the Flow-SiMR-V basis.'
 #| out-width: 100%
 #| echo: false
 import matplotlib
@@ -133,7 +135,7 @@ plt.figure(figsize=(7, 4.5))
 colors = ['#d62728' if imp > 0 else '#1f77b4' for imp in impact[idx]]
 plt.barh([feat_names[i] for i in idx], impact[idx], color=colors)
 plt.axvline(0, color='black', lw=0.8)
-plt.title(f'Patient #1 (Flow-SiMLR-V): Cardiovascular Attributions (Latent #{latent_idx+1})')
+plt.title(f'Patient #1 (Flow-SiMR-V): Cardiovascular Attributions (Latent #{latent_idx+1})')
 plt.xlabel('Exact Feature Contribution (Feature * Weight)')
 plt.grid(True, linestyle=':', alpha=0.6)
 plt.tight_layout()
@@ -192,7 +194,7 @@ plt.plot(alphas, bp_curve, 's-', color='#1f77b4', lw=2, label='Blood Pressure')
 plt.plot(alphas, age_curve, '^-', color='#2ca02c', lw=2, label='Age')
 plt.xlabel('Latent Trajectory Coordinate (Low-Risk -> High-Risk)')
 plt.ylabel('Attributed Feature Level (Standardized)')
-plt.title('Clinical Counterfactual Trajectory (Flow-SiMLR-V)')
+plt.title('Clinical Counterfactual Trajectory (Flow-SiMR-V)')
 plt.legend()
 plt.grid(True, linestyle=':', alpha=0.6)
 plt.tight_layout()
@@ -201,7 +203,7 @@ plt.show()
 
 ---
 
-## Algorithm for Flow-SiMLR-V with Delayed Gating Warmup
+## Algorithm for Flow-SiMR-V with Delayed Gating Warmup
 
 To stably optimize the joint-variational objective under dynamic modality weighting without triggering weight collapse, we train the linear encoders, normalizing flows, and dynamic weights using the Block-Coordinate Descent (BCD) procedure detailed below.
 
@@ -231,4 +233,4 @@ For a set of $M$ data matrices $\mathbf{X}_1, \dots, \mathbf{X}_M$, shared laten
 
 ## Orthogonality & Sparsity Diagnostics
 
-We compute the **Orthogonality Defect** ($\|\mathbf{V}^\top\mathbf{V} - \mathbf{I}\|_F$) and **Gini Sparsity** coefficients of the learned Flow-SiMLR-V basis matrices across the three clinical datasets to verify structural alignment. The results confirm that the NSA-Flow retraction successfully enforces near-orthogonality (defect $< 0.01$) and high feature sparsity (Gini $> 0.65$), guaranteeing non-redundant and globally explainable latent consensus dimensions.
+We compute the **Orthogonality Defect** ($\|\mathbf{V}^\top\mathbf{V} - \mathbf{I}\|_F$) and **Gini Sparsity** coefficients of the learned Flow-SiMR-V basis matrices across the three clinical datasets to verify structural alignment. The results confirm that the NSA-Flow retraction successfully enforces near-orthogonality (defect $< 0.01$) and high feature sparsity (Gini $> 0.65$), guaranteeing non-redundant and globally explainable latent consensus dimensions.

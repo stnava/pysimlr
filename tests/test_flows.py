@@ -50,6 +50,7 @@ def test_normalizing_flow():
     x = torch.randn(15, dim)
     
     flow = NormalizingFlow(dim=dim, num_layers=4, hidden_dim=16)
+    assert flow.use_fallback is False
     z, log_det = flow(x)
     x_rec = flow.inverse(z)
     
@@ -73,7 +74,7 @@ def test_flow_simr_training_and_imputation():
     x1 = u_true @ w1 + 0.05 * torch.randn(n, p1)
     x2 = u_true @ w2 + 0.05 * torch.randn(n, p2)
     
-    # Fit Flow-SiMLR model for a few epochs
+    # Fit Flow-SiMR model for a few epochs
     res = flow_simr(
         [x1, x2], 
         k=k, 
@@ -88,6 +89,8 @@ def test_flow_simr_training_and_imputation():
     # Verify outputs
     assert res["model"] is not None
     assert res["model_type"] == "flow_simr"
+    for f in res["model"].flows:
+        assert f.use_fallback is False
     assert len(res["latents"]) == 2
     assert res["latents"][0].shape == (n, k)
     assert len(res["reconstructions"]) == 2
@@ -147,6 +150,53 @@ def test_flow_simr_v_bottleneck():
     )
     
     assert res["model"] is not None
+    for f in res["model"].flows:
+        assert f.use_fallback is False
     assert res["latents"][0].shape == (n, k)
     assert res["reconstructions"][0].shape == (n, p1)
     assert res["reconstructions"][1].shape == (n, p2)
+
+
+def test_normalizing_flow_forced_fallback():
+    torch.manual_seed(42)
+    dim = 8
+    x = torch.randn(15, dim)
+    
+    # Must emit UserWarning on fallback
+    with pytest.warns(UserWarning, match="Using local fallback CustomRealNVP"):
+        flow = NormalizingFlow(dim=dim, num_layers=4, hidden_dim=16, force_fallback=True)
+    
+    assert flow.use_fallback is True
+    
+    # Forward pass
+    z, log_det = flow(x)
+    assert z.shape == (15, dim)
+    assert log_det.shape == (15,)
+    
+    # Exact invertibility verification for fallback CustomRealNVP
+    x_rec = flow.inverse(z)
+    assert torch.allclose(x, x_rec, atol=1e-5, rtol=1e-5)
+    
+    # forward_and_log_det consistency
+    z2, log_det2 = flow.forward_and_log_det(x)
+    assert torch.allclose(z, z2, atol=1e-5)
+    assert torch.allclose(log_det, log_det2, atol=1e-5)
+    
+    # inverse_and_log_det consistency
+    x_rec2, log_det_inv = flow.inverse_and_log_det(z)
+    assert torch.allclose(x, x_rec2, atol=1e-5)
+    assert log_det_inv.shape == (15,)
+
+
+def test_flow_simr_backward_compatibility_aliases():
+    """Verify backward compatibility aliases in pysimlr."""
+    from pysimlr import (
+        FlowSiMRModel, FlowSiMRVModel,
+        FlowSiMLRModel, FlowSiMLRVModel,
+        flow_simr, flow_simr_v,
+        flow_simlr, flow_simlr_v
+    )
+    assert FlowSiMLRModel is FlowSiMRModel
+    assert FlowSiMLRVModel is FlowSiMRVModel
+    assert flow_simlr is flow_simr
+    assert flow_simlr_v is flow_simr_v

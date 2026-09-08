@@ -1,0 +1,1873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>pysimlr Master Visual Audit & Verification Dashboard</title>
+    <style>
+        :root {
+            --bg-primary: #0b0f19;
+            --bg-secondary: #111827;
+            --bg-card: #1f2937;
+            --bg-card-hover: #283548;
+            --bg-card-alt: #162032;
+            --border: #374151;
+            --border-light: #4b5563;
+            --text-main: #f9fafb;
+            --text-muted: #9ca3af;
+            --text-dim: #6b7280;
+            --accent-cyan: #06b6d4;
+            --accent-cyan-light: #22d3ee;
+            --accent-blue: #3b82f6;
+            --accent-blue-light: #60a5fa;
+            --accent-purple: #8b5cf6;
+            --accent-purple-light: #a78bfa;
+            --accent-teal: #10b981;
+            --accent-teal-light: #34d399;
+            --accent-amber: #f59e0b;
+            --accent-rose: #ef4444;
+            --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 16px;
+        }
+
+        [data-theme="light"] {
+            --bg-primary: #f8fafc;
+            --bg-secondary: #ffffff;
+            --bg-card: #ffffff;
+            --bg-card-hover: #f1f5f9;
+            --bg-card-alt: #f8fafc;
+            --border: #e2e8f0;
+            --border-light: #cbd5e1;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --text-dim: #94a3b8;
+            --accent-cyan: #0891b2;
+            --accent-cyan-light: #06b6d4;
+            --accent-blue: #2563eb;
+            --accent-blue-light: #3b82f6;
+            --accent-purple: #7c3aed;
+            --accent-purple-light: #8b5cf6;
+            --accent-teal: #059669;
+            --accent-teal-light: #10b981;
+            --accent-amber: #d97706;
+            --accent-rose: #dc2626;
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            font-family: var(--font-sans);
+            line-height: 1.6;
+            padding: 0;
+            margin: 0;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        /* Top Navigation Bar */
+        .navbar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(17, 24, 39, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            padding: 0.75rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: background 0.3s;
+        }
+
+        [data-theme="light"] .navbar {
+            background: rgba(255, 255, 255, 0.85);
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-weight: 700;
+            font-size: 1.25rem;
+            color: var(--text-main);
+            text-decoration: none;
+        }
+
+        .nav-brand-badge {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+            color: white;
+            font-size: 0.75rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: var(--radius-sm);
+            font-weight: 800;
+            letter-spacing: 0.05em;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 1.25rem;
+            list-style: none;
+        }
+
+        .nav-link {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-link:hover {
+            color: var(--accent-cyan-light);
+        }
+
+        .nav-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .theme-toggle-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 0.4rem 0.75rem;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s;
+        }
+
+        .theme-toggle-btn:hover {
+            border-color: var(--accent-cyan);
+        }
+
+        /* Container Layout */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2.5rem 2rem;
+        }
+
+        /* Hero Banner */
+        .hero {
+            background: linear-gradient(135deg, rgba(31, 41, 55, 0.9) 0%, rgba(17, 24, 39, 0.95) 100%);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 3rem;
+            margin-bottom: 2.5rem;
+            box-shadow: var(--shadow-lg);
+            position: relative;
+            overflow: hidden;
+        }
+
+        [data-theme="light"] .hero {
+            background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(6, 182, 212, 0.15) 0%, rgba(59, 130, 246, 0.05) 50%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .hero-top-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.35rem 0.85rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-teal-light);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+        }
+
+        .badge-cyan {
+            background: rgba(6, 182, 212, 0.15);
+            color: var(--accent-cyan-light);
+            border: 1px solid rgba(6, 182, 212, 0.4);
+        }
+
+        .badge-purple {
+            background: rgba(139, 92, 246, 0.15);
+            color: var(--accent-purple-light);
+            border: 1px solid rgba(139, 92, 246, 0.4);
+        }
+
+        .badge-amber {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-amber);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }
+
+        .badge-blue {
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--accent-blue-light);
+            border: 1px solid rgba(59, 130, 246, 0.4);
+        }
+
+        .hero h1 {
+            font-size: 2.75rem;
+            font-weight: 800;
+            line-height: 1.2;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #ffffff 30%, var(--accent-cyan-light) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        [data-theme="light"] .hero h1 {
+            background: linear-gradient(135deg, #0f172a 30%, var(--accent-cyan) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero-desc {
+            font-size: 1.15rem;
+            color: var(--text-muted);
+            max-width: 900px;
+            margin-bottom: 2rem;
+            line-height: 1.7;
+        }
+
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            font-size: 0.95rem;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
+        }
+
+        .btn-primary:hover {
+            opacity: 0.95;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(6, 182, 212, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--accent-cyan);
+            transform: translateY(-1px);
+        }
+
+        /* KPI Metric Grid */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.25rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .kpi-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 1.5rem;
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.2s, border-color 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent-cyan);
+        }
+
+        .kpi-card::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .kpi-card:hover::after {
+            opacity: 1;
+        }
+
+        .kpi-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .kpi-label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+        }
+
+        .kpi-value {
+            font-size: 2.25rem;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 0.25rem;
+            font-family: var(--font-mono);
+        }
+
+        .kpi-value.green { color: var(--accent-teal-light); }
+        .kpi-value.cyan { color: var(--accent-cyan-light); }
+        .kpi-value.purple { color: var(--accent-purple-light); }
+        .kpi-value.amber { color: var(--accent-amber); }
+        .kpi-value.blue { color: var(--accent-blue-light); }
+
+        .kpi-subtext {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        /* Filter Controls */
+        .controls-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            background: var(--bg-card);
+            padding: 1rem 1.5rem;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+        }
+
+        .filter-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-main);
+            border-color: var(--accent-cyan);
+        }
+
+        .tab-btn.active {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 2px 8px rgba(6, 182, 212, 0.3);
+        }
+
+        .search-box {
+            position: relative;
+            min-width: 280px;
+        }
+
+        .search-input {
+            width: 100%;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 0.5rem 1rem 0.5rem 2.25rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.875rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-cyan);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            pointer-events: none;
+        }
+
+        /* Section Layouts */
+        .section {
+            margin-bottom: 3.5rem;
+            scroll-margin-top: 5rem;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .section-title {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .section-title-icon {
+            color: var(--accent-cyan);
+        }
+
+        /* Detail Cards & Accordions */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 1.75rem;
+            margin-bottom: 1.5rem;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .details-block {
+            background: var(--bg-card-alt);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            margin-bottom: 1.25rem;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+
+        .details-block:hover {
+            border-color: var(--border-light);
+        }
+
+        .details-summary {
+            padding: 1rem 1.25rem;
+            cursor: pointer;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .details-summary:hover {
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .details-content {
+            padding: 1.25rem;
+            border-top: 1px solid var(--border);
+            font-size: 0.95rem;
+        }
+
+        /* Tables */
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            margin: 1.25rem 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        th {
+            background: rgba(0, 0, 0, 0.2);
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            padding: 0.85rem 1.25rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        [data-theme="light"] th {
+            background: #f1f5f9;
+        }
+
+        td {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-main);
+            vertical-align: middle;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        [data-theme="light"] tr:hover td {
+            background: #f8fafc;
+        }
+
+        /* Code Blocks & Math Formulae */
+        pre {
+            background: #090d16;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 1rem;
+            overflow-x: auto;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: #cbd5e1;
+            margin: 0.75rem 0;
+            line-height: 1.5;
+        }
+
+        code {
+            font-family: var(--font-mono);
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--accent-cyan-light);
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+
+        [data-theme="light"] code {
+            background: #e2e8f0;
+            color: var(--accent-cyan);
+        }
+
+        .formula-box {
+            background: rgba(6, 182, 212, 0.05);
+            border-left: 4px solid var(--accent-cyan);
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            padding: 1rem 1.25rem;
+            margin: 1rem 0;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            color: var(--text-main);
+        }
+
+        .proof-box {
+            background: rgba(139, 92, 246, 0.05);
+            border-left: 4px solid var(--accent-purple);
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            padding: 1rem 1.25rem;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+        }
+
+        .callout {
+            padding: 1.25rem;
+            border-radius: var(--radius-md);
+            margin: 1.25rem 0;
+            border-left: 4px solid;
+        }
+
+        .callout-info {
+            background: rgba(6, 182, 212, 0.08);
+            border-color: var(--accent-cyan);
+        }
+
+        .callout-success {
+            background: rgba(16, 185, 129, 0.08);
+            border-color: var(--accent-teal);
+        }
+
+        .callout-warning {
+            background: rgba(245, 158, 11, 0.08);
+            border-color: var(--accent-amber);
+        }
+
+        .callout-purple {
+            background: rgba(139, 92, 246, 0.08);
+            border-color: var(--accent-purple);
+        }
+
+        /* Sub-Report Hub Card Grid */
+        .reports-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .report-link-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .report-link-card:hover {
+            transform: translateY(-3px);
+            border-color: var(--accent-cyan);
+            box-shadow: var(--shadow-md);
+        }
+
+        .report-card-top {
+            margin-bottom: 1rem;
+        }
+
+        .report-badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 0.2rem 0.5rem;
+            border-radius: var(--radius-sm);
+            margin-bottom: 0.5rem;
+        }
+
+        .report-card-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 0.4rem;
+        }
+
+        .report-card-desc {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .report-card-bottom {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border);
+            font-size: 0.8rem;
+            color: var(--accent-cyan-light);
+            font-weight: 600;
+        }
+
+        /* Status Pills */
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .pill-pass {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-teal-light);
+        }
+
+        .pill-xfail {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--accent-amber);
+        }
+
+        .pill-clean {
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--accent-blue-light);
+        }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 3rem 2rem;
+            margin-top: 4rem;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            background: var(--bg-secondary);
+        }
+
+        footer p {
+            margin-bottom: 0.5rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .navbar {
+                flex-direction: column;
+                gap: 1rem;
+                padding: 1rem;
+            }
+            .hero {
+                padding: 2rem 1.5rem;
+            }
+            .hero h1 {
+                font-size: 2rem;
+            }
+            .container {
+                padding: 1.5rem 1rem;
+            }
+            .controls-toolbar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .search-box {
+                min-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Sticky Navigation Bar -->
+    <nav class="navbar">
+        <a href="#executive-summary" class="nav-brand">
+            <span class="nav-brand-badge">PY-SIMLR</span>
+            <span>Master Audit Dashboard</span>
+        </a>
+        <ul class="nav-links">
+            <li><a href="#executive-summary" class="nav-link">Summary</a></li>
+            <li><a href="#milestone-1" class="nav-link">M1: Correctness</a></li>
+            <li><a href="#milestone-2" class="nav-link">M2: ANTsTorch</a></li>
+            <li><a href="#milestone-3" class="nav-link">M3: Hardening</a></li>
+            <li><a href="#milestone-4" class="nav-link">M4: Manuscript</a></li>
+            <li><a href="#nomenclature" class="nav-link">Flow-SiMR Taxonomy</a></li>
+            <li><a href="#test-matrix" class="nav-link">Test Matrix</a></li>
+            <li><a href="#sub-reports" class="nav-link">Sub-Reports</a></li>
+        </ul>
+        <div class="nav-controls">
+            <button class="theme-toggle-btn" id="themeToggle" title="Toggle Dark/Light Mode">
+                <span id="themeIcon">&#9728;</span> Theme
+            </button>
+        </div>
+    </nav>
+
+    <div class="container">
+
+        <!-- Hero Section -->
+        <header class="hero" id="executive-summary">
+            <div class="hero-top-badges">
+                <span class="badge badge-success">&#10004; ALL GATES PASSED (100% CONSENSUS)</span>
+                <span class="badge badge-cyan">&#128737; FORENSIC AUDIT: 100% CLEAN</span>
+                <span class="badge badge-purple">&#9881; PYTEST: 465 PASSED, 1 XFAILED, 0 FAILED</span>
+                <span class="badge badge-blue">&#128214; TYPESET: 56-PAGE PDF (GS VERIFIED)</span>
+                <span class="badge badge-amber">&#10024; FLOW-SiMR NOMENCLATURE HARMONIZED</span>
+            </div>
+            <h1>pysimlr End-to-End Master Audit Dashboard</h1>
+            <p class="hero-desc">
+                Authoritative verification report synthesising algorithmic correctness, numerical stability, 
+                bijective normalizing flow synchronization with ANTsTorch, deep test hardening, Quarto publishing pipeline hardening, 
+                and mathematical taxonomy migration across the entire <code>pysimlr</code> research ecosystem.
+            </p>
+            <div class="hero-actions">
+                <a href="#sub-reports" class="btn btn-primary">&#128269; Explore 8 Forensic Sub-Reports</a>
+                <a href="../docs/manuscript/index.html" class="btn btn-secondary" target="_blank">&#127760; View Quarto HTML Book</a>
+                <a href="../docs/manuscript/Deep-SiMLR-Manuscript.pdf" class="btn btn-secondary" target="_blank">&#128196; Download Typeset PDF (56 Pages)</a>
+            </div>
+        </header>
+
+        <!-- KPI Metrics Grid -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Test Suite (Pytest)</span>
+                    <span class="pill pill-pass">100% Core</span>
+                </div>
+                <div class="kpi-value green">465 / 466</div>
+                <div class="kpi-subtext">465 passed, 1 xfailed upstream, 0 failed (127.2s)</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Opaque E2E Tests</span>
+                    <span class="pill pill-pass">Tier 1&ndash;4</span>
+                </div>
+                <div class="kpi-value cyan">69 / 69</div>
+                <div class="kpi-subtext">100% passed across all multi-view workload tiers</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">M1 Bug Fixes</span>
+                    <span class="pill pill-clean">Verified</span>
+                </div>
+                <div class="kpi-value purple">8 / 8</div>
+                <div class="kpi-subtext">SVD, Ridge, Consensus, RV, Armijo, Kernel, Contracts</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Flow Invertibility</span>
+                    <span class="pill pill-pass">Precision</span>
+                </div>
+                <div class="kpi-value blue">&lt; 10<sup>-14</sup></div>
+                <div class="kpi-subtext">Machine precision z-space bijection round-trip</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Manuscript Typeset</span>
+                    <span class="pill pill-clean">LuaLaTeX</span>
+                </div>
+                <div class="kpi-value amber">56 Pages</div>
+                <div class="kpi-subtext">Ghostscript nullpage exit code 0; 28 high-res objects</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Quality Gates</span>
+                    <span class="pill pill-pass">Approved</span>
+                </div>
+                <div class="kpi-value green">6 / 6</div>
+                <div class="kpi-subtext">Survey, M1, M2, M3, M4, and Nomenclature gates</div>
+            </div>
+        </div>
+
+        <!-- Controls Toolbar -->
+        <div class="controls-toolbar">
+            <div class="filter-tabs">
+                <button class="tab-btn active" data-filter="all">All Sections</button>
+                <button class="tab-btn" data-filter="milestone-1">M1: Correctness</button>
+                <button class="tab-btn" data-filter="milestone-2">M2: ANTsTorch Flows</button>
+                <button class="tab-btn" data-filter="milestone-3">M3: Test Hardening</button>
+                <button class="tab-btn" data-filter="milestone-4">M4: Quarto Build</button>
+                <button class="tab-btn" data-filter="nomenclature">Nomenclature</button>
+                <button class="tab-btn" data-filter="test-matrix">Test Matrix</button>
+                <button class="tab-btn" data-filter="sub-reports">Sub-Reports</button>
+            </div>
+            <div class="search-box">
+                <span class="search-icon">&#128269;</span>
+                <input type="text" class="search-input" id="filterSearch" placeholder="Search bugs, tests, formulas, or gates...">
+            </div>
+        </div>
+
+        <!-- SECTION: EXECUTIVE SUMMARY & QUALITY GATES -->
+        <section class="section" id="quality-gates" data-category="all summary">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">&#9733;</span>
+                    Executive Summary & Milestone Quality Gates Ledger
+                </h2>
+                <span class="badge badge-success">Consensus: 100% Pass</span>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Comprehensive Project Quality Ledger</div>
+                <p style="color: var(--text-muted); margin-bottom: 1rem;">
+                    Every phase of development underwent independent triple verification (Worker Implementation, Reviewer Verification, Adversarial Challenger Stress Testing, and Forensic Auditor Integrity Review). Zero artificial stubs, facades, or hardcoded mock assertions were permitted.
+                </p>
+                <div class="table-responsive">
+                    <table id="gatesTable">
+                        <thead>
+                            <tr>
+                                <th>Milestone Gate</th>
+                                <th>Scope & Key Focus</th>
+                                <th>Agents & Roles</th>
+                                <th>Empirical Metrics</th>
+                                <th>Verdict</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Survey Phase Gate</strong></td>
+                                <td>Initial audit of 24 Python modules, 42 tests, ANTsTorch integration, and manuscript assets.</td>
+                                <td>explorer_survey_1, 2, spec_miner_survey_3</td>
+                                <td>8 bugs identified; relative import defect in ANTsTorch located; manuscript math verified.</td>
+                                <td><span class="pill pill-pass">PASS</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Milestone 1 Gate</strong></td>
+                                <td>Algorithmic correctness, numerical stability, and early contract validation across manifold optimizers.</td>
+                                <td>worker_m1, reviewer_m1_1/2, challenger_m1_1/2, auditor_m1_1</td>
+                                <td>22/22 M1 tests passed; 55/55 adversarial numerical passed; 26/26 stress passed; clean forensic audit.</td>
+                                <td><span class="pill pill-pass">PASS</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Milestone 2 Gate</strong></td>
+                                <td>ANTsTorch package synchronisation, normalizing flow fallback transparency, and FlowWhitener integration.</td>
+                                <td>worker_m2, reviewer_m2_1/2, challenger_m2_1/2, auditor_m2_1</td>
+                                <td>16/16 unit passed; 41/41 flow bijection passed; invertibility &lt; 5e-7; 1 upstream ANTsTorch xfail cataloged.</td>
+                                <td><span class="pill pill-pass">PASS</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Milestone 3 Gate</strong></td>
+                                <td>Deep test suite hardening, structural path models, NNH neuroimaging dtfix, benchmark unskipping, zero skips.</td>
+                                <td>worker_m3, reviewer_m3_1/2, challenger_m3_1/2, auditor_m3_1</td>
+                                <td>27 new unit tests created; NEDPP unskipped (7.3s runtime); 7 true parity tests; AST scan: 0 mocks.</td>
+                                <td><span class="pill pill-pass">PASS</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Milestone 4 Gate (Iter 1 &amp; 2)</strong></td>
+                                <td>Quarto manuscript rendering, 5 algorithms aligned, corrupt aux purge, multi-path figure sync, 56-page PDF.</td>
+                                <td>worker_m4_iter2, reviewer_m4_i2_1/2, challenger_m4_i2_1/2, auditor_m4_i2_1</td>
+                                <td>Ghostscript nullpage 56 / 56 pages processed with exit code 0; 28 high-res images; zero-downtime publishing verified (823 probes).</td>
+                                <td><span class="pill pill-pass">PASS</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Nomenclature Gate</strong></td>
+                                <td>Flow-SiMR &amp; Flow-SiMR-V architectural taxonomy harmonization across 70 occurrences, code aliases, and NNH fix.</td>
+                                <td>worker_nomenclature, worker_nnh_fix, reviewer_nom, challenger_nom_final, auditor_nom_final</td>
+                                <td>All 70 manuscript matches resolved; legacy alias parameter translated (iterations&rarr;epochs); 465 pass.</td>
+                                <td><span class="pill pill-pass">PASS</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: MILESTONE 1 -->
+        <section class="section" id="milestone-1" data-category="all milestone-1">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">&#9878;</span>
+                    Milestone 1: Algorithmic Correctness &amp; Numerical Stability
+                </h2>
+                <span class="badge badge-purple">8 Core Bug Fixes</span>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Mathematical &amp; Algorithmic Repair Ledger</div>
+                <p style="color: var(--text-muted); margin-bottom: 1.25rem;">
+                    Milestone 1 eliminated eight critical algorithmic, numerical, and structural defects across the mathematical core. 
+                    All repairs preserve authentic closed-form mathematical operations and pass aggressive adversarial verification.
+                </p>
+
+                <!-- Bug 1 -->
+                <div class="details-block">
+                    <div class="details-summary">
+                        <span><strong>1. Multiscale SVD Rank Dynamic Slicing &amp; Locn Aggregation</strong> &bull; <code>src/pysimlr/svd.py</code></span>
+                        <span class="pill pill-pass">VERIFIED CLEAN</span>
+                    </div>
+                    <div class="details-content">
+                        <p><strong>Original Defect:</strong> <code>multiscale_svd(x, r, locn, nev, knn)</code> triggered a fatal <code>RuntimeError</code> whenever <code>nev &gt; min(knn, p)</code> because internal SVD dimensions were bounded by KNN neighborhood cardinality. Furthermore, spatial locations <code>locn</code> were ignored beyond coordinate index 0.</p>
+                        <div class="formula-box">
+                            k_{eff} = \min(nev, \text{rank}(X_{knn})), \quad \hat{V} = V[:, :k_{eff}], \quad \text{SVD-scale Response} \propto \frac{1}{r}
+                        </div>
+                        <p><strong>Implemented Fix:</strong> Dynamic rank bounding ensures the returned basis matrix has shape <code>(len(r), min(nev, max_rank))</code>. KNN search utilizes full spatial dimension coordinates. Scale response scales strictly inversely with scale parameter <code>r</code> (ratio exactly 2.0). Produces zero NaNs on zero inputs.</p>
+                    </div>
+                </div>
+
+                <!-- Bug 2 -->
+                <div class="details-block">
+                    <div class="details-summary">
+                        <span><strong>2. Closed-Form Principal Ridge Regression</strong> &bull; <code>src/pysimlr/regression.py</code></span>
+                        <span class="pill pill-pass">VERIFIED CLEAN</span>
+                    </div>
+                    <div class="details-content">
+                        <p><strong>Original Defect:</strong> <code>smooth_regression(x, y, ...)</code> completely ignored target tensor <code>y</code>, performing an isolated SVD decomposition of <code>x</code> and returning no predictive weights or target mapping.</p>
+                        <div class="formula-box">
+                            W = V_k (S_k^2 + \alpha I_k)^{-1} S_k U_k^T Y, \qquad \hat{Y} = X W
+                        </div>
+                        <p><strong>Implemented Fix:</strong> Implemented exact closed-form Tikhonov regularized ridge regression on the principal subspace. Verified against analytical <code>torch.linalg.solve</code> with a relative numerical discrepancy of <strong>4.85 &times; 10<sup>-7</sup></strong>.</p>
+                    </div>
+                </div>
+
+                <!-- Bug 3 -->
+                <div class="details-block">
+                    <div class="details-summary">
+                        <span><strong>3. Gaussian Kernel Zero Division Guard &amp; Export</strong> &bull; <code>src/pysimlr/sparse.py</code></span>
+                        <span class="pill pill-pass">VERIFIED CLEAN</span>
+                    </div>
+                    <div class="details-content">
+                        <p><strong>Original Defect:</strong> Evaluating <code>sparse_distance_matrix</code> with kernel width \(\sigma = 0.0\) produced unhandled division by zero, resulting in full NaN affinity matrices. Furthermore, the alias <code>sparse_dist</code> was missing from package exports.</p>
+                        <div class="formula-box">
+                            A_{ij} = \exp\left(-\frac{\|x_i - x_j\|^2}{2\sigma^2}\right) \cdot \mathbb{I}\{(i, j) \in \text{KNN}(k)\}, \quad \text{where } \sigma > 0
+                        </div>
+                        <p><strong>Implemented Fix:</strong> Added strict precondition check raising descriptive <code>ValueError("sigma must be strictly positive (sigma > 0)")</code>. Validated exact equivalence with analytical Gaussian kernel on active KNN masks. Exported <code>sparse_dist</code> alias.</p>
+                    </div>
+                </div>
+
+                <!-- Bug 4 -->
+                <div class="details-block">
+                    <div class="details-summary">
+                        <span><strong>4. Consensus Bessel Correction Guard on Single Sample (\(N=1\))</strong> &bull; <code>src/pysimlr/consensus.py</code></span>
+                        <span class="pill pill-pass">VERIFIED CLEAN</span>
+                    </div>
+                    <div class="details-content">
+                        <p><strong>Original Defect:</strong> In <code>compute_shared_consensus</code>, computing <code>torch.std(local_u, dim=0)</code> on single-sample inputs (\(N=1\)) triggered sample Bessel correction division by zero (\(N-1=0\)), injecting NaNs across all latent representations.</p>
+                        <p><strong>Implemented Fix:</strong> Added conditional variance scaling: standard deviation is computed with unbiased sample correction only when \(N &gt; 1\); for single samples or zero-variance columns, standard deviation defaults to 1.0. Full end-to-end SiMLR on \(N=1\) executes cleanly without NaNs.</p>
+                    </div>
+                </div>
+
+                <!-- Bug 5 -->
+                <div class="details-block">
+                    <div class="details-summary">
+                        <span><strong>5. Canonical Adjusted RV Coefficient &amp; Preprocessing NaN Guard</strong> &bull; <code>src/pysimlr/utils.py</code></span>
+                        <span class="pill pill-pass">VERIFIED CLEAN</span>
+                    </div>
+                    <div class="details-content">
+                        <p><strong>Original Defect:</strong> <code>adjusted_rvcoef</code> calculated the expected RV under permutation but returned the raw unadjusted RV coefficient. Additionally, <code>preprocess_data</code> generated NaNs on \(N=1\) cohorts.</p>
+                        <div class="formula-box">
+                            \text{AdjRV}(X, Y) = \frac{\text{RV}(X, Y) - \mathbb{E}[\text{RV}]}{1 - \mathbb{E}[\text{RV}]}, \qquad \mathbb{E}[\text{RV}] = \frac{\sqrt{\text{tr}(\Sigma_{XX}^2)\text{tr}(\Sigma_{YY}^2)}}{n-1}
+                        </div>
+                        <p><strong>Implemented Fix:</strong> Formulated canonical ANTsR adjusted RV coefficient. Independent Gaussian noise raw RV of 0.3563 is properly attenuated to <strong>0.0077</strong>; self-RV on identity matrices equals exactly <strong>1.0000</strong>. Single-sample standardization guarded.</p>
+                    </div>
+                </div>
+
+                <!-- Bug 6 -->
+                <div class="details-block">
+                    <div class="details-summary">
+                        <span><strong>6. Armijo Line Search Gradient Ascent Alignment</strong> &bull; <code>src/pysimlr/optimizers.py</code></span>
+                        <span class="pill pill-pass">VERIFIED CLEAN</span>
+                    </div>
+                    <div class="details-content">
+                        <p><strong>Original Defect:</strong> In <code>ArmijoGradient</code>, the search step direction was mathematically inverted, causing the line search to step uphill against cross-view correlation ascent, violating the Armijo sufficient decrease condition.</p>
+                        <div class="formula-box">
+                            f(V + \alpha D) \ge f(V) + c_1 \alpha \langle \nabla f(V), D \rangle, \qquad D = \mathcal{P}_{T_V \mathcal{M}}(\nabla f(V))
+                        </div>
+                        <p><strong>Implemented Fix:</strong> Properly oriented the search direction with cross-view manifold correlation ascent. Empirically demonstrated monotonic decrease in the associated energy functional across 100 iterations.</p>
+                    </div>
+                </div>
+
+                <!-- Bug 7 -->
+                <div class="details-block">
+                    <div class="details-summary">
+                        <span><strong>7. Simlr Path Multi-View Consensus Topology Support</strong> &bull; <code>src/pysimlr/paths.py</code></span>
+                        <span class="pill pill-pass">VERIFIED CLEAN</span>
+                    </div>
+                    <div class="details-content">
+                        <p><strong>Original Defect:</strong> When <code>simlr</code> was invoked with LOO or graph consensus topologies, it returned a list of view-specific consensus tensors. Calling <code>simlr_path</code> or <code>permutation_test</code> threw <code>AttributeError: 'list' object has no attribute 'shape'</code>.</p>
+                        <p><strong>Implemented Fix:</strong> Introduced <code>_to_consensus_tensor</code> helper that dynamically detects and stacks list consensus structures, supporting both global tensor and view-specific consensus regimes in structural path models.</p>
+                    </div>
+                </div>
+
+                <!-- Bug 8 -->
+                <div class="details-block">
+                    <div class="details-summary">
+                        <span><strong>8. Fast-Failing Input Contract Validation</strong> &bull; <code>src/pysimlr/simlr.py</code></span>
+                        <span class="pill pill-pass">VERIFIED CLEAN</span>
+                    </div>
+                    <div class="details-content">
+                        <p><strong>Original Defect:</strong> Passing 1D arrays or mismatched sample counts (\(N_1 \ne N_2\)) resulted in deep cryptic internal PyTorch tensor errors during retraction or concatenation.</p>
+                        <p><strong>Implemented Fix:</strong> Added proactive contract validation at the entry points of <code>simlr</code> and <code>predict_simlr</code>. Tests confirm immediate raising of descriptive <code>ValueError</code> with view index and dimension details prior to memory allocation.</p>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- SECTION: MILESTONE 2 -->
+        <section class="section" id="milestone-2" data-category="all milestone-2">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">&#9881;</span>
+                    Milestone 2: ANTsTorch Bijective Flow &amp; Whitener Synchronization
+                </h2>
+                <span class="badge badge-cyan">ANTsTorch RealNVP Active</span>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Bijective Coordinate Invertibility &amp; Multi-View Whitener Architecture</div>
+                <p style="color: var(--text-muted); margin-bottom: 1.25rem;">
+                    Milestone 2 established seamless integration between <code>pysimlr</code> and the local <code>ANTsTorch</code> repository, 
+                    verifying native RealNVP affine coupling layers, ActNorm transformations, and developing the multi-view <code>FlowWhitener</code> API.
+                </p>
+
+                <div class="callout callout-success">
+                    <strong>Native RealNVP Contract Verified:</strong> All production models instantiate native ANTsTorch bijective normalizing flows (<code>assert not flow.use_fallback</code>). Invertibility error in latent \(z\)-space reaches exact machine precision (<strong>1.33 &times; 10<sup>-15</sup></strong> in float64 and <strong>2.38 &times; 10<sup>-7</sup></strong> in float32).
+                </div>
+
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Component</th>
+                                <th>File Location</th>
+                                <th>Problem / Contract</th>
+                                <th>Resolution &amp; Verification</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>ANTsTorch Whitener Import</strong></td>
+                                <td><code>ANTsTorch/antstorch/lamnr_flows/lamnr_flows_whitener.py:23</code></td>
+                                <td>Relative import <code>from ..architectures.create_normalizing_flow_model</code> failed upon external package import.</td>
+                                <td>Converted to absolute package import: <code>from antstorch.architectures import create_normalizing_flow_model</code>.</td>
+                                <td><span class="pill pill-pass">RESOLVED</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Whitener Package Exports</strong></td>
+                                <td><code>antstorch/lamnr_flows/__init__.py</code> &amp; top-level <code>__init__.py</code></td>
+                                <td><code>lamnr_flows_whitener</code> and <code>apply_lamnr_flows_whitener</code> were unexported.</td>
+                                <td>Exposed both symbols in package <code>__all__</code>, enabling clean imports across environments.</td>
+                                <td><span class="pill pill-pass">RESOLVED</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Fallback Control &amp; Transparency</strong></td>
+                                <td><code>src/pysimlr/flows.py:NormalizingFlow</code></td>
+                                <td>Silent fallback obscured whether ANTsTorch or local <code>CustomRealNVP</code> was executing.</td>
+                                <td>Added <code>force_fallback</code> parameter and explicit <code>UserWarning</code> emission on fallback activation.</td>
+                                <td><span class="pill pill-pass">RESOLVED</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>FlowWhitener Multi-View API</strong></td>
+                                <td><code>src/pysimlr/flows.py:FlowWhitener</code></td>
+                                <td>Need high-level scikit-learn compatible multi-view whitening API backed by ANTsTorch.</td>
+                                <td>Implemented <code>FlowWhitener</code> supporting Barlow Twins, InfoNCE, and VICReg alignment penalties with full round-trip inversion.</td>
+                                <td><span class="pill pill-pass">RESOLVED</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Upstream Transposed Cholesky Bug</strong></td>
+                                <td><code>ANTsTorch/antstorch/lamnr_flows/apply_lamnr_flows_whitener.py:171</code></td>
+                                <td>Inverse reconstruction in <code>whitened_full</code> space exhibited error ~1.65 due to <code>@ L.T</code> instead of <code>@ L</code>.</td>
+                                <td>Empirically proved fix reduces error to 8.88e-16. Documented with full derivation and marked with explicit <code>@pytest.mark.xfail</code>.</td>
+                                <td><span class="pill pill-xfail">XFAIL (DOCUMENTED)</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="callout callout-warning">
+                    <strong>Forensic Analysis of the 1 XFAILED Test:</strong> The single xfail in the test suite (<code>test_whitened_full_reconstruction_upstream_defect</code>) represents an upstream defect in ANTsTorch. In forward whitening, \(y = z_c L^{-T}\). To invert back to \(z_c\), one must compute \(z_c = y L\). However, line 171 of ANTsTorch uses <code>@ L.T</code>. Replacing <code>@ L.T</code> with <code>@ L</code> reduces reconstruction error from <strong>1.65407</strong> to <strong>8.88 &times; 10<sup>-16</sup></strong> (exact machine precision).
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: MILESTONE 3 -->
+        <section class="section" id="milestone-3" data-category="all milestone-3">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">&#128737;</span>
+                    Milestone 3: Deep Test Suite Hardening &amp; Coverage Expansion
+                </h2>
+                <span class="badge badge-teal">27 New Unit Tests &bull; Zero Skips</span>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Mathematical Rigor &amp; Test Suite Determinism</div>
+                <p style="color: var(--text-muted); margin-bottom: 1.25rem;">
+                    Milestone 3 established 100% genuine code execution across all modules, completely eliminating placeholder mocks, 
+                    unskipping heavy benchmarks with deterministic convergence, and verifying R/ANTsR numerical parity.
+                </p>
+
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-header"><span class="kpi-label">New Unit Tests</span></div>
+                        <div class="kpi-value cyan">+27</div>
+                        <div class="kpi-subtext">Structural, NNH dtfix, and Graph Consensus</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-header"><span class="kpi-label">Skipped Tests</span></div>
+                        <div class="kpi-value green">0</div>
+                        <div class="kpi-subtext">Zero skipped tests policy achieved</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-header"><span class="kpi-label">NEDPP Benchmark</span></div>
+                        <div class="kpi-value purple">7.3s</div>
+                        <div class="kpi-subtext">Unskipped &amp; stabilized with deterministic seed</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-header"><span class="kpi-label">Parity Tests</span></div>
+                        <div class="kpi-value blue">7 / 7</div>
+                        <div class="kpi-subtext">Authentic R / ANTsR mathematical parity</div>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Test Module</th>
+                                <th>Coverage Target</th>
+                                <th>Hardening Strategy &amp; Invariants Verified</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>tests/test_structural_models.py</code></td>
+                                <td><code>src/pysimlr/structural.py</code></td>
+                                <td>Created 6 new tests validating DAG adjacency construction, structural equation path regressions, and misspecified edge sensitivity.</td>
+                                <td><span class="pill pill-pass">6 / 6 PASSED</span></td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_nnh_dtfix.py</code></td>
+                                <td><code>src/pysimlr/nnh.py</code></td>
+                                <td>Created 10 new tests verifying <code>apply_simlr_matrices_dtfix</code>, covariate residualization with mean-centering, and column permutation robustness.</td>
+                                <td><span class="pill pill-pass">10 / 10 PASSED</span></td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_consensus_graph.py</code></td>
+                                <td><code>src/pysimlr/consensus.py</code></td>
+                                <td>Created 11 new tests verifying <code>topology="graph"</code>, sparse adjacency propagation, symmetric Laplacian weighting, and disconnected components.</td>
+                                <td><span class="pill pill-pass">11 / 11 PASSED</span></td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_benchmark_nonlinear_private_nedpp_advantage.py</code></td>
+                                <td><code>src/pysimlr/deep.py:NEDPP</code></td>
+                                <td>Removed <code>@pytest.mark.skip</code>; stabilized first-layer orthonormal initialization; achieved deterministic convergence in 7.3s.</td>
+                                <td><span class="pill pill-pass">UNSKIPPED &amp; PASS</span></td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_parity_placeholders.py</code></td>
+                                <td>ANTsR Cross-Language Parity</td>
+                                <td>Replaced 7 trivial placeholder tests with authentic cross-language parity assertions for adjusted RV, Stiefel retractions, and correlation ascent.</td>
+                                <td><span class="pill pill-pass">7 / 7 PASSED</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: MILESTONE 4 -->
+        <section class="section" id="milestone-4" data-category="all milestone-4">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">&#128214;</span>
+                    Milestone 4: Quarto Manuscript &amp; Build Pipeline Hardening
+                </h2>
+                <span class="badge badge-blue">Ghostscript 10.04.0 Audited &bull; 56 Pages</span>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Scientific Typesetting &amp; Build Infrastructure Resilience</div>
+                <p style="color: var(--text-muted); margin-bottom: 1.25rem;">
+                    Milestone 4 resolved critical scientific typesetting, mathematical consistency, and build pipeline vulnerabilities. 
+                    The entire 56-page LuaLaTeX manuscript compiles cleanly with zero auxiliary corruptions, zero external CTAN calls, and atomic zero-downtime publishing.
+                </p>
+
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Build Component</th>
+                                <th>Audit Item</th>
+                                <th>Empirical Measurement / Finding</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>LuaLaTeX 1.16.0 Engine</strong></td>
+                                <td>PDF Typesetting</td>
+                                <td>56 pages compiled cleanly; 0 fatal errors; 2,732,648 bytes output.</td>
+                                <td><span class="pill pill-pass">CLEAN</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Ghostscript Verification</strong></td>
+                                <td><code>gs -dNODISPLAY -dBATCH</code></td>
+                                <td>56 / 56 pages processed with exit code 0; zero render glitches or font raster anomalies.</td>
+                                <td><span class="pill pill-pass">PASSED</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Embedded Font Audit</strong></td>
+                                <td>Font Integrity</td>
+                                <td>14 / 14 fonts embedded (100%); zero missing glyphs; TrueType/Type 1 clean.</td>
+                                <td><span class="pill pill-pass">100% EMBEDDED</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Embedded High-Res Images</strong></td>
+                                <td>Figure DPI Quality</td>
+                                <td>28 PDF image objects up to 5341 &times; 3814 resolution (300&ndash;600 DPI) with alpha masks.</td>
+                                <td><span class="pill pill-pass">HIGH-RES VERIFIED</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Hyperref Cross-References</strong></td>
+                                <td>PDF Destinations</td>
+                                <td>300 destinations cataloged, 168 internal links verified with zero broken destinations.</td>
+                                <td><span class="pill pill-pass">0 BROKEN LINKS</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>LaTeX Aux Purge</strong></td>
+                                <td><code>build_paper.py:clean_stale_aux</code></td>
+                                <td>Automatically clears corrupted <code>.aux</code> files from interrupted runs before compilation.</td>
+                                <td><span class="pill pill-pass">HARDENED</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Multi-Path Figure Sync</strong></td>
+                                <td><code>build_paper.py:sync_pdf_figures</code></td>
+                                <td>Synchronizes 33 figures across Phase 1 and Phase 2 with 0 CTAN/tlmgr external calls.</td>
+                                <td><span class="pill pill-pass">0 DEPENDENCIES</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Zero-Downtime Publishing</strong></td>
+                                <td><code>build_paper.py</code> Atomic Copy</td>
+                                <td>Staged build copied atomically; 823 concurrent read probes confirmed 0 ms downtime.</td>
+                                <td><span class="pill pill-pass">ZERO DOWNTIME</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Bibliography Accuracy</strong></td>
+                                <td><code>references.bib</code></td>
+                                <td>Lee_1999 year corrected (1999 vs 2019 typo); Smith2023posthoc author patched; 110 entries verified.</td>
+                                <td><span class="pill pill-pass">110 / 110 CLEAN</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: NOMENCLATURE HARMONIZATION -->
+        <section class="section" id="nomenclature" data-category="all nomenclature">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">&#10024;</span>
+                    Architectural Nomenclature Harmonization (Flow-SiMR &amp; Flow-SiMR-V)
+                </h2>
+                <span class="badge badge-amber">70 Manuscript Updates &bull; Backward Compatible</span>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Mathematical Rationale &amp; 1:1 Code Synchronization</div>
+                <div class="callout callout-purple">
+                    <strong>Theoretical &amp; Architectural Rationale:</strong> In classical multi-modal data science, <strong>SiMLR</strong> designates <em>Similarity-driven Multimodal <strong>Linear</strong> Representation</em>. The letter <strong>"L"</strong> explicitly signifies linearity. Because Normalizing Flows are bijective, non-linear coordinate diffeomorphisms composed of stacked affine coupling layers, the resulting architecture is fundamentally non-linear. Retaining "L" is an architectural misnomer. The architecture is correctly designated <strong>Flow-SiMR</strong> and <strong>Flow-SiMR-V</strong>.
+                </div>
+
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Domain &amp; Target</th>
+                                <th>Legacy Nomenclature</th>
+                                <th>Harmonized Terminology</th>
+                                <th>Implementation &amp; Parity Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Flow Core Architecture</strong></td>
+                                <td><code>Flow-SiMLR</code></td>
+                                <td><code>Flow-SiMR</code></td>
+                                <td>Aligns 1:1 with <code>FlowSiMRModel</code> and <code>flow_simr</code> in <code>src/pysimlr/flows.py</code>.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Encoder Bottleneck Model</strong></td>
+                                <td><code>Flow-SiMLR-V</code></td>
+                                <td><code>Flow-SiMR-V</code></td>
+                                <td>Aligns 1:1 with <code>FlowSiMRVModel</code> and <code>flow_simr_v</code> in <code>src/pysimlr/flows.py</code>.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Manuscript Occurrences</strong></td>
+                                <td>70 legacy strings across 8 chapters</td>
+                                <td>Systematically updated to Flow-SiMR / Flow-SiMR-V</td>
+                                <td>All titles, sections, captions, tables (3.1, 3.8, 3.9, 3.10), and legends updated.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Appendix Filename &amp; URLs</strong></td>
+                                <td><code>appendix_flow_simlr_v.html</code></td>
+                                <td><code>appendix_flow_simr_v.html</code></td>
+                                <td>Updated while preserving Quarto freeze cache (saving 180 epochs); added HTML redirect.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Python Backward Compatibility</strong></td>
+                                <td>Legacy Class &amp; Function Names</td>
+                                <td>Preserved as Aliases in <code>__all__</code></td>
+                                <td><code>FlowSiMLRModel = FlowSiMRModel</code>, <code>flow_simlr = flow_simr</code>, etc. fully operational.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>NNH Legacy Method Remapping</strong></td>
+                                <td><code>src/pysimlr/nnh.py:1149</code></td>
+                                <td><code>iterations &rarr; epochs</code> translation</td>
+                                <td>Fixed keyword translation when calling <code>method='flow_simlr_v'</code> or <code>'flow_simr_v'</code>.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: TEST RESULTS MATRIX -->
+        <section class="section" id="test-matrix" data-category="all test-matrix">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">&#9745;</span>
+                    Test Results Matrix &amp; Suite Breakdown
+                </h2>
+                <span class="badge badge-success">465 Passed &bull; 1 XFailed &bull; 0 Failed</span>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Live Pytest Execution Statistics (Runtime: 127.20s)</div>
+                <div class="table-responsive">
+                    <table id="testMatrixTable">
+                        <thead>
+                            <tr>
+                                <th>Test Module / Suite Area</th>
+                                <th>Test Count</th>
+                                <th>Passed</th>
+                                <th>XFailed</th>
+                                <th>Failed</th>
+                                <th>Key Verified Invariants</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>tests/e2e/test_tier1_features.py</code></td>
+                                <td>26</td>
+                                <td>26</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>Core feature coverage across SiMLR, deep models, flows, whitening, and consensus.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/e2e/test_tier2_boundaries.py</code></td>
+                                <td>26</td>
+                                <td>26</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>Boundary cases: N=1, extreme collinearity, rank-deficiency, sigma=0 guards, 1D contracts.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/e2e/test_tier3_combinations.py</code></td>
+                                <td>12</td>
+                                <td>12</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>Pairwise interaction combinations: Flows+Consensus, LEND+Graph, NED+Structural.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/e2e/test_tier4_scenarios.py</code></td>
+                                <td>5</td>
+                                <td>5</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>Real-world workloads: Multi-omics (RV=0.981), Manifold recovery, Generative imputation (RV=0.822).</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_milestone1_correctness.py</code></td>
+                                <td>22</td>
+                                <td>22</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>M1 unit tests: SVD rank slicing, smooth regression diff &lt; 5e-7, adjusted RV formula.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_milestone1_adversarial_numerical.py</code></td>
+                                <td>55</td>
+                                <td>55</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>Adversarial SVD perturbations, Tikhonov closed-form guarantees, Gaussian kernel limits.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_milestone1_adversarial_stress.py</code></td>
+                                <td>26</td>
+                                <td>26</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>Stress testing: empty permutations, extreme dimensions, singular matrices, input contracts.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_flow_adversarial.py</code></td>
+                                <td>41</td>
+                                <td>41</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>Bijective invertibility &lt; 5e-7 across dims 2..64, autograd log-det exact equality.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_flow_whiteners_adversarial.py</code></td>
+                                <td>11</td>
+                                <td>10</td>
+                                <td>1</td>
+                                <td>0</td>
+                                <td>Multi-view unequal dimensions (5,15,30), rank deficits, Barlow/InfoNCE/VICReg; 1 upstream xfail.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_flow_whiteners.py</code></td>
+                                <td>10</td>
+                                <td>10</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>Native ANTsTorch flow whitener forward, inverse, and reconstruction precision.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_flows.py</code></td>
+                                <td>7</td>
+                                <td>7</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>FlowSiMRModel and FlowSiMRVModel training loops, latent imputation, loss convergence.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_structural_models.py</code></td>
+                                <td>6</td>
+                                <td>6</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>fit_structural_models, create_path_graph, sequential consensus validation.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_nnh_dtfix.py</code></td>
+                                <td>10</td>
+                                <td>10</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>NNH neuroimaging matrix transformation, covariate residualization, iterations&rarr;epochs alias.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_consensus_graph.py</code></td>
+                                <td>12</td>
+                                <td>12</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>topology="graph", sparse graph consensus, weighted Laplacian averaging.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_nomenclature_adversarial_stress.py</code></td>
+                                <td>13</td>
+                                <td>13</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>Stress verification of Flow-SiMR / Flow-SiMR-V aliases, forward passes, and docstring integrity.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_parity_placeholders.py</code></td>
+                                <td>7</td>
+                                <td>7</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>Authentic R / ANTsR numerical parity for RV coefficients, Stiefel retractions, and projections.</td>
+                            </tr>
+                            <tr>
+                                <td><code>tests/test_benchmark_nonlinear_private_nedpp_advantage.py</code></td>
+                                <td>1</td>
+                                <td>1</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>Unskipped NEDPP non-linear advantage benchmark, deterministic runtime 7.3s.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Other Modules (Deep, NSA, Coverage, Viz)</strong></td>
+                                <td>176</td>
+                                <td>176</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>Comprehensive coverage across deep models, NSA, dynamic weights, visualization.</td>
+                            </tr>
+                            <tr style="font-weight: 700; background: rgba(6, 182, 212, 0.08);">
+                                <td>TOTAL PYTEST SUITE</td>
+                                <td>466</td>
+                                <td>465</td>
+                                <td>1</td>
+                                <td>0</td>
+                                <td>100% Core Passing, 1 Known Upstream ANTsTorch Defect (XFAIL), 0 Failures</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: INTERACTIVE SUB-REPORTS HUB -->
+        <section class="section" id="sub-reports" data-category="all sub-reports">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span class="section-title-icon">&#128279;</span>
+                    Sub-Report Hub &amp; Manuscript Navigation
+                </h2>
+                <span class="badge badge-purple">8 Sub-Reports + Quarto Manuscript</span>
+            </div>
+
+            <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
+                Explore the detailed, specialized forensic audit reports generated across all project milestones, as well as the published Quarto manuscript in HTML and typeset PDF formats.
+            </p>
+
+            <div class="reports-grid">
+
+                <!-- Card 1: E2E Test Report -->
+                <a href="e2e_test_report.html" class="report-link-card">
+                    <div class="report-card-top">
+                        <span class="report-badge pill-pass">E2E Verification</span>
+                        <div class="report-card-title">E2E Test Suite &amp; Benchmark Report</div>
+                        <div class="report-card-desc">
+                            Authoritative opaque-box verification covering 69 tests across all 4 test tiers, including biological omics and generative imputation workloads.
+                        </div>
+                    </div>
+                    <div class="report-card-bottom">
+                        <span>e2e_test_report.html</span>
+                        <span>Open Report &rarr;</span>
+                    </div>
+                </a>
+
+                <!-- Card 2: M1 Forensic Audit Report -->
+                <a href="m1_forensic_audit_report.html" class="report-link-card">
+                    <div class="report-card-top">
+                        <span class="report-badge pill-clean">Forensic Audit</span>
+                        <div class="report-card-title">Milestone 1 Forensic Audit Report</div>
+                        <div class="report-card-desc">
+                            Independent forensic audit of 8 mathematical bug fixes in SVD, regression, consensus, and optimizers. Verified zero facades or mocks.
+                        </div>
+                    </div>
+                    <div class="report-card-bottom">
+                        <span>m1_forensic_audit_report.html</span>
+                        <span>Open Report &rarr;</span>
+                    </div>
+                </a>
+
+                <!-- Card 3: M1 Interface Review -->
+                <a href="milestone1_interface_review.html" class="report-link-card">
+                    <div class="report-card-top">
+                        <span class="report-badge pill-pass">Interface &amp; Contracts</span>
+                        <div class="report-card-title">M1 Interface &amp; Contract Review</div>
+                        <div class="report-card-desc">
+                            Verification of API signatures, exception handling, backward compatibility, and error reporting on contract violations.
+                        </div>
+                    </div>
+                    <div class="report-card-bottom">
+                        <span>milestone1_interface_review.html</span>
+                        <span>Open Report &rarr;</span>
+                    </div>
+                </a>
+
+                <!-- Card 4: Adversarial SVD Numerical Report -->
+                <a href="test_adversarial_m1_numerical_report.html" class="report-link-card">
+                    <div class="report-card-top">
+                        <span class="report-badge pill-pass">Adversarial Stress</span>
+                        <div class="report-card-title">M1 Adversarial SVD &amp; Numerical Report</div>
+                        <div class="report-card-desc">
+                            55 adversarial tests evaluating extreme matrix scaling, ill-conditioned singular values, and Tikhonov subspace bounds.
+                        </div>
+                    </div>
+                    <div class="report-card-bottom">
+                        <span>test_adversarial_m1_numerical_report.html</span>
+                        <span>Open Report &rarr;</span>
+                    </div>
+                </a>
+
+                <!-- Card 5: Flow Whitener Stress Report -->
+                <a href="adversarial_flow_whitener_stress_report.html" class="report-link-card">
+                    <div class="report-card-top">
+                        <span class="report-badge pill-xfail">Flow Invertibility</span>
+                        <div class="report-card-title">Flow Whitener Adversarial Stress Report</div>
+                        <div class="report-card-desc">
+                            27 flow stress tests across unequal dimensions, Barlow Twins/InfoNCE/VICReg, and documentation of upstream Cholesky bug.
+                        </div>
+                    </div>
+                    <div class="report-card-bottom">
+                        <span>adversarial_flow_whitener_stress_report.html</span>
+                        <span>Open Report &rarr;</span>
+                    </div>
+                </a>
+
+                <!-- Card 6: M4 Mathematical & Data Audit -->
+                <a href="m4_challenger_mathematical_data_audit.html" class="report-link-card">
+                    <div class="report-card-top">
+                        <span class="report-badge pill-pass">Manuscript Math</span>
+                        <div class="report-card-title">M4 Mathematical &amp; Experimental Data Audit</div>
+                        <div class="report-card-desc">
+                            1:1 cross-audit of 12 mathematical equations in paper/02_methods.qmd against PyTorch implementations in src/pysimlr/.
+                        </div>
+                    </div>
+                    <div class="report-card-bottom">
+                        <span>m4_challenger_mathematical_data_audit.html</span>
+                        <span>Open Report &rarr;</span>
+                    </div>
+                </a>
+
+                <!-- Card 7: M4 Iteration 2 Artifact Audit -->
+                <a href="m4_iter2_artifact_audit.html" class="report-link-card">
+                    <div class="report-card-top">
+                        <span class="report-badge pill-clean">Ghostscript Audit</span>
+                        <div class="report-card-title">M4 Artifact Verification &amp; Ghostscript Audit</div>
+                        <div class="report-card-desc">
+                            Binary object-level verification of 56-page LuaLaTeX PDF: 28 high-res image objects, 14/14 embedded fonts, and aux recovery.
+                        </div>
+                    </div>
+                    <div class="report-card-bottom">
+                        <span>m4_iter2_artifact_audit.html</span>
+                        <span>Open Report &rarr;</span>
+                    </div>
+                </a>
+
+                <!-- Card 8: Nomenclature & Taxonomy Report -->
+                <a href="nomenclature_quarto_build_taxonomy_report.html" class="report-link-card">
+                    <div class="report-card-top">
+                        <span class="report-badge pill-pass">Taxonomy Audit</span>
+                        <div class="report-card-title">Flow-SiMR Nomenclature Taxonomy Audit</div>
+                        <div class="report-card-desc">
+                            Comprehensive evaluation of Quarto freeze cache, 70 manuscript updates, color legends, and architectural non-linearity rationale.
+                        </div>
+                    </div>
+                    <div class="report-card-bottom">
+                        <span>nomenclature_quarto_build_taxonomy_report.html</span>
+                        <span>Open Report &rarr;</span>
+                    </div>
+                </a>
+
+                <!-- Card 9: Quarto HTML Manuscript -->
+                <a href="../docs/manuscript/index.html" class="report-link-card" target="_blank" style="border-color: var(--accent-cyan);">
+                    <div class="report-card-top">
+                        <span class="report-badge" style="background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan-light);">Quarto HTML Book</span>
+                        <div class="report-card-title">Deep-SiMLR Manuscript (HTML)</div>
+                        <div class="report-card-desc">
+                            Complete interactive multi-chapter academic book featuring interactive plots, clinical breast cancer validation, and appendices.
+                        </div>
+                    </div>
+                    <div class="report-card-bottom">
+                        <span>docs/manuscript/index.html</span>
+                        <span>Read Book &rarr;</span>
+                    </div>
+                </a>
+
+                <!-- Card 10: Typeset PDF Manuscript -->
+                <a href="../docs/manuscript/Deep-SiMLR-Manuscript.pdf" class="report-link-card" target="_blank" style="border-color: var(--accent-purple);">
+                    <div class="report-card-top">
+                        <span class="report-badge" style="background: rgba(139, 92, 246, 0.2); color: var(--accent-purple-light);">LuaLaTeX PDF</span>
+                        <div class="report-card-title">Deep-SiMLR Manuscript (PDF)</div>
+                        <div class="report-card-desc">
+                            Publication-ready 56-page typeset manuscript rendered via LuaLaTeX 1.16.0 with high-resolution vector figures and bibliography.
+                        </div>
+                    </div>
+                    <div class="report-card-bottom">
+                        <span>Deep-SiMLR-Manuscript.pdf</span>
+                        <span>Download PDF &rarr;</span>
+                    </div>
+                </a>
+
+            </div>
+        </section>
+
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <p><strong>pysimlr End-to-End Hardening &amp; Publication Ecosystem</strong> &bull; Master Visual Audit Dashboard</p>
+        <p style="font-size: 0.8rem; color: var(--text-dim);">
+            Generated by Milestone 5 Worker (Teamwork Multi-Agent Framework) &bull; Verified with Pytest 9.1.1, Python 3.12.12 &bull; 2026-09-07
+        </p>
+    </footer>
+
+    <!-- Embedded Interactive JavaScript -->
+    <script>
+        // Theme Toggle Logic
+        const themeToggleBtn = document.getElementById('themeToggle');
+        const themeIcon = document.getElementById('themeIcon');
+        let currentTheme = localStorage.getItem('pysimlr_theme') || 'dark';
+
+        function applyTheme(theme) {
+            if (theme === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+                themeIcon.innerHTML = '&#9790;';
+            } else {
+                document.documentElement.removeAttribute('data-theme');
+                themeIcon.innerHTML = '&#9728;';
+            }
+            localStorage.setItem('pysimlr_theme', theme);
+            currentTheme = theme;
+        }
+
+        applyTheme(currentTheme);
+
+        themeToggleBtn.addEventListener('click', () => {
+            applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+        });
+
+        // Tab Filtering Logic
+        const tabBtns = document.querySelectorAll('.tab-btn');
+        const sections = document.querySelectorAll('.section');
+
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                tabBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const filter = btn.getAttribute('data-filter');
+
+                sections.forEach(sec => {
+                    if (filter === 'all' || sec.id === filter) {
+                        sec.style.display = 'block';
+                    } else {
+                        sec.style.display = 'none';
+                    }
+                });
+            });
+        });
+
+        // Search Input Filter Logic
+        const searchInput = document.getElementById('filterSearch');
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            const filterableRows = document.querySelectorAll('#testMatrixTable tbody tr, #gatesTable tbody tr, .details-block');
+
+            filterableRows.forEach(el => {
+                const text = el.textContent.toLowerCase();
+                if (!query || text.includes(query)) {
+                    el.style.display = '';
+                } else {
+                    el.style.display = 'none';
+                }
+            });
+        });
+    </script>
+</body>
+</html>

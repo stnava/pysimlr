@@ -477,26 +477,42 @@ def adjusted_rvcoef(x: torch.Tensor, y: torch.Tensor) -> float:
     -----------
     This function has been audited for Numpy docstring validity and functional correctness.
     """
+    x = torch.as_tensor(x).float()
+    y = torch.as_tensor(y).float()
+    if x.ndim == 1:
+        x = x.unsqueeze(1)
+    if y.ndim == 1:
+        y = y.unsqueeze(1)
+        
     n = x.shape[0]
-    if n <= 1:
+    if n <= 1 or y.shape[0] <= 1 or x.shape[0] != y.shape[0]:
         return 0.0
         
     components = rvcoef_components(x, y)
-    rv_obs = components['rv']
+    rv_obs = float(components['rv'])
     rv_den = components['denominator']
+    if isinstance(rv_den, torch.Tensor):
+        rv_den = float(rv_den.item())
+    else:
+        rv_den = float(rv_den)
     
-    if rv_den == 0:
+    if rv_den == 0.0:
         return 0.0
         
     x_centered = x - torch.mean(x, dim=0)
     y_centered = y - torch.mean(y, dim=0)
     
-    tr_s_xx = torch.sum(x_centered * x_centered)
-    tr_s_yy = torch.sum(y_centered * y_centered)
+    tr_s_xx = float(torch.sum(x_centered * x_centered).item())
+    tr_s_yy = float(torch.sum(y_centered * y_centered).item())
     
-    # Simple adjustment for now matching R
     exp_rv_num = tr_s_xx * tr_s_yy / (n - 1)
-    return rv_obs
+    exp_rv = exp_rv_num / rv_den
+    
+    if exp_rv >= 1.0:
+        return float('nan')
+        
+    adj_rv = (rv_obs - exp_rv) / (1.0 - exp_rv)
+    return float(adj_rv)
 
 def l1_normalize_features(features: torch.Tensor) -> torch.Tensor:
     """
@@ -839,8 +855,11 @@ def preprocess_data(x: torch.Tensor, scale_list: List[str], provenance: Optional
                 std = provenance["cas_std"]
             else:
                 mean = torch.mean(x_out, dim=0)
-                std = torch.std(x_out, dim=0)
-                std[std < 1e-10] = 1.0
+                if x_out.shape[0] > 1:
+                    std = torch.std(x_out, dim=0)
+                    std = torch.where(torch.isnan(std) | (std < 1e-10), torch.ones_like(std), std)
+                else:
+                    std = torch.ones_like(mean)
                 if new_provenance is not None:
                     new_provenance["cas_mean"] = mean
                     new_provenance["cas_std"] = std

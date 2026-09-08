@@ -100,7 +100,10 @@ def safe_pca(x: torch.Tensor, nc: int = 2) -> Dict[str, torch.Tensor]:
     x = torch.as_tensor(x).float()
     x = torch.nan_to_num(x, nan=0.0)
     
-    std = torch.std(x, dim=0)
+    if x.shape[0] > 1:
+        std = torch.std(x, dim=0)
+    else:
+        std = torch.zeros(x.shape[1], device=x.device, dtype=x.dtype)
     mask = std > 1e-10
     if not torch.any(mask):
         return {
@@ -203,26 +206,37 @@ def multiscale_svd(x: torch.Tensor,
     r = torch.as_tensor(r).float()
     orig_dtype = x.dtype
     
-    n = x.shape[0]
-    m_response = torch.full((len(r), nev), float('nan'), dtype=orig_dtype, device=x.device)
+    if x.ndim == 1:
+        x = x.unsqueeze(1)
+    n, p = x.shape
     
     if isinstance(locn, (list, torch.Tensor, np.ndarray)):
         locn_indices = torch.as_tensor(locn).long()
     else:
         locn_indices = torch.randperm(n)[:int(locn)]
 
+    k_eff = min(knn, n) if knn > 0 else len(locn_indices)
+    max_rank = min(k_eff, p)
+    actual_nev = min(nev, max_rank)
+    
+    m_response = torch.full((len(r), actual_nev), float('nan'), dtype=orig_dtype, device=x.device)
+    if actual_nev == 0 or len(locn_indices) == 0:
+        return {"evals_vs_scale": m_response}
+
     for scl_idx, my_r in enumerate(r):
+        denom = my_r if torch.abs(my_r) > 1e-12 else 1.0
         if knn > 0:
             dist = torch.cdist(x[locn_indices], x)
-            _, indices = torch.topk(dist, k=min(knn, n), largest=False)
-            subset = x[indices.view(-1)].view(len(locn_indices), min(knn, n), -1)
-            _, s, _ = safe_svd(subset[0], full_matrices=False)
-            m_response[scl_idx, :] = s[:nev]
+            _, indices = torch.topk(dist, k=k_eff, largest=False)
+            subset = x[indices]
+            subset_c = (subset - subset.mean(dim=-2, keepdim=True)) / denom
+            _, s_all, _ = safe_svd(subset_c, full_matrices=False)
+            s = s_all.mean(dim=0)
+            m_response[scl_idx, :] = s[:actual_nev]
         else:
             subset = x[locn_indices]
-            subset_c = (subset - torch.mean(subset, dim=0)) / my_r
+            subset_c = (subset - torch.mean(subset, dim=0)) / denom
             _, s, _ = safe_svd(subset_c, full_matrices=False)
-            actual_nev = min(nev, len(s))
             m_response[scl_idx, :actual_nev] = s[:actual_nev]
             
     return {"evals_vs_scale": m_response}

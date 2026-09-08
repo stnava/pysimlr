@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PySIMLR Milestone 1 - Forensic Audit Report</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: #161b22;
+            --border-color: #30363d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --accent-green: #2ea043;
+            --accent-blue: #58a6ff;
+            --accent-purple: #bc8cff;
+            --accent-red: #f85149;
+            --accent-amber: #d29922;
+            --badge-bg: rgba(46, 160, 67, 0.15);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 30px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+            margin-bottom: 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            margin: 0 0 8px 0;
+            color: #ffffff;
+            font-size: 26px;
+        }
+        .badge-verdict {
+            display: inline-block;
+            background-color: var(--badge-bg);
+            color: var(--accent-green);
+            border: 1px solid var(--accent-green);
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 16px;
+            letter-spacing: 0.5px;
+        }
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .meta-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            padding: 16px;
+            border-radius: 8px;
+        }
+        .meta-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .meta-val {
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .meta-val.green { color: var(--accent-green); }
+        .meta-val.blue { color: var(--accent-blue); }
+        .meta-val.purple { color: var(--accent-purple); }
+
+        .section-title {
+            font-size: 20px;
+            color: #fff;
+            margin: 35px 0 15px 0;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .audit-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .audit-table th, .audit-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 14px;
+        }
+        .audit-table th {
+            background-color: rgba(255, 255, 255, 0.03);
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 12px;
+        }
+        .audit-table tr:last-child td {
+            border-bottom: none;
+        }
+        .status-pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-pass {
+            background: rgba(46, 160, 67, 0.2);
+            color: var(--accent-green);
+        }
+        pre {
+            background-color: #000;
+            border: 1px solid var(--border-color);
+            padding: 14px;
+            border-radius: 6px;
+            color: #79c0ff;
+            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+            font-size: 13px;
+            overflow-x: auto;
+        }
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .card h3 {
+            margin-top: 0;
+            color: var(--accent-blue);
+            font-size: 16px;
+        }
+        code {
+            font-family: ui-monospace, SFMono-Regular, monospace;
+            background-color: rgba(255, 255, 255, 0.08);
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #ff7b72;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Forensic Audit Report: Milestone 1</h1>
+                <div style="color: var(--text-secondary); font-size: 14px;">
+                    PySIMLR Algorithmic Correctness & Stability Verification
+                </div>
+            </div>
+            <div>
+                <span class="badge-verdict">VERDICT: CLEAN</span>
+            </div>
+        </div>
+
+        <div class="meta-grid">
+            <div class="meta-card">
+                <div class="meta-label">Audit Verdict</div>
+                <div class="meta-val green">CLEAN (PASSED)</div>
+            </div>
+            <div class="meta-card">
+                <div class="meta-label">Integrity Mode</div>
+                <div class="meta-val purple">development</div>
+            </div>
+            <div class="meta-card">
+                <div class="meta-label">M1 Specific Tests</div>
+                <div class="meta-val green">22 / 22 Passed</div>
+            </div>
+            <div class="meta-card">
+                <div class="meta-label">Full Repo Test Suite</div>
+                <div class="meta-val green">254 Passed, 0 Failed</div>
+            </div>
+            <div class="meta-card">
+                <div class="meta-label">Smooth Regression Diff</div>
+                <div class="meta-val blue">4.85e-07 vs Ridge</div>
+            </div>
+            <div class="meta-card">
+                <div class="meta-label">RV Noise Attenuation</div>
+                <div class="meta-val blue">0.3563 &rarr; 0.0077</div>
+            </div>
+        </div>
+
+        <div class="section-title">1. Executive Summary & Forensic Verification Scope</div>
+        <div class="card">
+            <p>An independent forensic audit was performed on the Milestone 1 deliverables for <code>pysimlr</code> under the authoritative request <code>ORIGINAL_REQUEST.md</code> and project specification <code>PROJECT.md</code>.</p>
+            <p><strong>Audited Modules:</strong> <code>src/pysimlr/svd.py</code>, <code>regression.py</code>, <code>sparse.py</code>, <code>consensus.py</code>, <code>utils.py</code>, <code>optimizers.py</code>, <code>paths.py</code>, <code>simlr.py</code>, and <code>tests/test_milestone1_correctness.py</code>.</p>
+            <p><strong>Forensic Criteria:</strong> Detection of hardcoded test results, facade implementations, mock bypasses, self-certifying tests, or non-computational stubs. Verification of genuine mathematical algorithms (SVD, Tikhonov regularization, Gaussian kernel metrics, Armijo energy descent, and permutation test consensus).</p>
+        </div>
+
+        <div class="section-title">2. Milestone 1 Subsystem Integrity Matrix</div>
+        <table class="audit-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Subsystem & File</th>
+                    <th>Original Vulnerability</th>
+                    <th>Forensic Verification & Empirical Finding</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1</td>
+                    <td><code>svd.py:multiscale_svd</code></td>
+                    <td><code>RuntimeError</code> when <code>nev &gt; min(knn, p)</code>; locn discarded beyond index 0.</td>
+                    <td>Verified dynamic rank bounding <code>min(nev, max_rank)</code> and true KNN neighborhood SVD averaging. Verified scale response scales inversely with scale parameter <code>r</code> (ratio exactly 2.0). Zero NaNs on zero inputs.</td>
+                    <td><span class="status-pill status-pass">CLEAN</span></td>
+                </tr>
+                <tr>
+                    <td>2</td>
+                    <td><code>regression.py:smooth_regression</code></td>
+                    <td>Ignored target <code>Y</code>, returned only SVD of <code>X</code> without coefficients or predictions.</td>
+                    <td>Verified exact closed-form Tikhonov regularized regression on the principal subspace: \(W = V_k (S_k^2 + \alpha I)^{-1} S_k U_k^T Y\). Validated against analytical <code>torch.linalg.solve</code> with relative error of <strong>4.85e-07</strong>.</td>
+                    <td><span class="status-pill status-pass">CLEAN</span></td>
+                </tr>
+                <tr>
+                    <td>3</td>
+                    <td><code>sparse.py:sparse_distance_matrix</code></td>
+                    <td>Division by zero and NaN generation on \(\sigma=0.0\); missing <code>sparse_dist</code> export.</td>
+                    <td>Verified strict exception <code>ValueError: sigma must be strictly positive (sigma &gt; 0)</code> on \(\sigma \le 0\). Verified positive \(\sigma\) matches analytical Gaussian kernel on active KNN mask with zero error. Exported <code>sparse_dist</code> alias.</td>
+                    <td><span class="status-pill status-pass">CLEAN</span></td>
+                </tr>
+                <tr>
+                    <td>4</td>
+                    <td><code>consensus.py:compute_shared_consensus</code></td>
+                    <td>Bessel correction division by zero (\(N-1=0\)) producing NaNs on \(N=1\); centering zeroed single samples.</td>
+                    <td>Verified conditional standardization on \(N &gt; 1\) and replacement of zero-variance standard deviations. Full end-to-end SiMLR on \(N=1\) succeeds with zero NaNs and valid basis matrices.</td>
+                    <td><span class="status-pill status-pass">CLEAN</span></td>
+                </tr>
+                <tr>
+                    <td>5</td>
+                    <td><code>utils.py:adjusted_rvcoef & preprocess_data</code></td>
+                    <td>Preprocess produced NaNs on \(N=1\); <code>adjusted_rvcoef</code> computed adjustment numerator but returned unadjusted raw RV.</td>
+                    <td>Verified ANTsR canonical adjusted RV formula: \(\text{adj\_rv} = (\text{rv} - \text{exp}) / (1 - \text{exp})\). Independent noise raw RV of 0.3563 is correctly attenuated to 0.0077; identity matrix self-RV equals 1.0000. Provenance std on \(N=1\) correctly set to 1.0 without NaNs.</td>
+                    <td><span class="status-pill status-pass">CLEAN</span></td>
+                </tr>
+                <tr>
+                    <td>6</td>
+                    <td><code>optimizers.py:ArmijoGradient</code></td>
+                    <td>Search direction inverted, causing line searches to step uphill against correlation ascent.</td>
+                    <td>Verified search direction aligned with correlation ascent (energy descent). Validated Armijo sufficient decrease condition with slope term. Empirically demonstrated monotonic decrease in energy function.</td>
+                    <td><span class="status-pill status-pass">CLEAN</span></td>
+                </tr>
+                <tr>
+                    <td>7</td>
+                    <td><code>paths.py:simlr_path & permutation_test</code></td>
+                    <td>Crashed with <code>AttributeError</code> when <code>simlr</code> returned list consensus under LOO/graph topologies.</td>
+                    <td>Verified <code>_to_consensus_tensor</code> correctly stacks and averages multi-view consensus lists. In <code>permutation_test</code>, view-specific consensus matching evaluated cleanly with realistic p-values.</td>
+                    <td><span class="status-pill status-pass">CLEAN</span></td>
+                </tr>
+                <tr>
+                    <td>8</td>
+                    <td><code>simlr.py:simlr, predict_simlr</code></td>
+                    <td>Missing early contract validation; silent deep crashes on 1D tensors or sample count mismatches.</td>
+                    <td>Verified 10 distinct contract violation scenarios. All raise descriptive <code>ValueError</code> with view indices and dimensions prior to allocation.</td>
+                    <td><span class="status-pill status-pass">CLEAN</span></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="section-title">3. Test Authenticity & Assertion Analysis</div>
+        <div class="card">
+            <h3>Static & Dynamic Test Verification</h3>
+            <ul>
+                <li><strong>No Mocks:</strong> Zero occurrences of <code>unittest.mock</code>, <code>MagicMock</code>, or monkeypatching found in <code>tests/test_milestone1_correctness.py</code> or <code>src/pysimlr/</code>.</li>
+                <li><strong>No Trivial Assertions:</strong> Zero occurrences of <code>assert True</code>, <code>assert 1</code>, or empty test bodies.</li>
+                <li><strong>Mathematical Assertions:</strong> Tests assert specific algebraic invariants: correlation &gt; 0.99 for linear recovery, exact identity for self-RV, matrix dimensional invariants, finite energy reduction, and non-negativity of eigenvalues.</li>
+            </ul>
+        </div>
+
+        <div class="section-title">4. Empirical Test Suite Execution</div>
+        <div class="card">
+            <h3>Milestone 1 Test Suite (/Users/stnava/venvs/ants/bin/pytest tests/test_milestone1_correctness.py -v)</h3>
+            <pre>============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0 -- /Users/stnava/venvs/ants/bin/python3.12
+cachedir: .pytest_cache
+rootdir: /Users/stnava/data/repos/pysimlr
+configfile: pytest.ini
+collected 22 items
+
+tests/test_milestone1_correctness.py::test_m1_multiscale_svd_rank_slicing_nev_exceeds_dimension PASSED [  4%]
+tests/test_milestone1_correctness.py::test_m1_multiscale_svd_neighborhood_aggregation PASSED [  9%]
+tests/test_milestone1_correctness.py::test_m1_smooth_regression_fits_target_y PASSED [ 13%]
+tests/test_milestone1_correctness.py::test_m1_smooth_regression_reconstruction_accuracy PASSED [ 18%]
+tests/test_milestone1_correctness.py::test_m1_smooth_regression_sample_mismatch PASSED [ 22%]
+tests/test_milestone1_correctness.py::test_m1_sparse_dist_zero_sigma_exception PASSED [ 27%]
+tests/test_milestone1_correctness.py::test_m1_sparse_dist_positive_sigma_affinity PASSED [ 31%]
+tests/test_milestone1_correctness.py::test_m1_consensus_single_sample_n1_no_nan PASSED [ 36%]
+tests/test_milestone1_correctness.py::test_m1_simlr_end_to_end_single_sample_n1 PASSED [ 40%]
+tests/test_milestone1_correctness.py::test_m1_preprocess_center_and_scale_n1 PASSED [ 45%]
+tests/test_milestone1_correctness.py::test_m1_adjusted_rvcoef_exact_formula PASSED [ 50%]
+tests/test_milestone1_correctness.py::test_m1_armijo_gradient_energy_monotonic_descent PASSED [ 54%]
+tests/test_milestone1_correctness.py::test_m1_bidirectional_armijo_gradient_descent PASSED [ 59%]
+tests/test_milestone1_correctness.py::test_m1_simlr_armijo_gradient_execution PASSED [ 63%]
+tests/test_milestone1_correctness.py::test_m1_simlr_path_loo_topology PASSED [ 68%]
+tests/test_milestone1_correctness.py::test_m1_simlr_path_graph_topology PASSED [ 72%]
+tests/test_milestone1_correctness.py::test_m1_permutation_test_loo_topology PASSED [ 77%]
+tests/test_milestone1_correctness.py::test_m1_input_contract_mismatched_samples PASSED [ 81%]
+tests/test_milestone1_correctness.py::test_m1_input_contract_1d_array PASSED [ 86%]
+tests/test_milestone1_correctness.py::test_m1_input_contract_empty_views PASSED [ 90%]
+tests/test_milestone1_correctness.py::test_m1_input_contract_invalid_k PASSED [ 95%]
+tests/test_milestone1_correctness.py::test_m1_predict_simlr_contracts PASSED [100%]
+
+============================== 22 passed in 2.19s ==============================</pre>
+            
+            <h3>Repository Regression Suite (/Users/stnava/venvs/ants/bin/pytest tests/)</h3>
+            <pre>================================ 254 passed, 1 skipped, 1 xpassed, 5 warnings in 45.19s ================================</pre>
+        </div>
+
+        <div class="section-title">5. Final Forensic Determination</div>
+        <div class="card">
+            <p><strong>Verdict: CLEAN</strong></p>
+            <p>Milestone 1 satisfies all functional, architectural, and integrity standards set forth in <code>ORIGINAL_REQUEST.md</code> and <code>PROJECT.md</code>. No shortcuts, stubs, mocks, or facade implementations exist. All algorithms perform authentic, mathematically verified computations.</p>
+        </div>
+    </div>
+</body>
+</html>

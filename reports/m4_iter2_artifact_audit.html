@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>M4 Iteration 2 Artifact Verification & Ghostscript Audit</title>
+  <style>
+    :root {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-card: #334155;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --accent-green: #10b981;
+      --accent-blue: #38bdf8;
+      --accent-purple: #a855f7;
+      --accent-amber: #f59e0b;
+      --border-color: #475569;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      padding: 2rem;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    header {
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3);
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .badge-approved { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
+    .badge-info { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #0284c7; }
+    h1 { font-size: 2rem; margin: 0.75rem 0 0.5rem; color: #fff; }
+    p.lead { color: var(--text-secondary); font-size: 1.1rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+    .card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 1.5rem;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .card:hover { transform: translateY(-2px); border-color: var(--accent-blue); }
+    .card-title { font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); margin-bottom: 0.5rem; }
+    .card-value { font-size: 2rem; font-weight: 700; color: var(--accent-green); margin-bottom: 0.25rem; }
+    .card-subtext { font-size: 0.85rem; color: var(--text-secondary); }
+    
+    .section-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 1.75rem;
+      margin-bottom: 2rem;
+    }
+    .section-card h2 { font-size: 1.4rem; margin-bottom: 1rem; color: var(--accent-blue); border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; }
+    
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.95rem; }
+    th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); }
+    th { background: rgba(51, 65, 85, 0.5); color: var(--text-secondary); font-weight: 600; }
+    tr:hover { background: rgba(51, 65, 85, 0.3); }
+    
+    .status-ok { color: var(--accent-green); font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; }
+    .code-pill { background: #0f172a; border: 1px solid #334155; padding: 0.2rem 0.5rem; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.85rem; color: #f1f5f9; }
+    pre {
+      background: #0f172a;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 1rem;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      margin-top: 0.75rem;
+    }
+    footer { text-align: center; color: var(--text-secondary); font-size: 0.85rem; margin-top: 3rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+          <span class="badge badge-approved">Verification: APPROVED</span>
+          <span class="badge badge-info" style="margin-left: 0.5rem;">Ghostscript 10.04.0 Audited</span>
+        </div>
+        <span style="font-size: 0.85rem; color: var(--text-secondary);">M4 Iteration 2 | Challenger 2</span>
+      </div>
+      <h1>Artifact Verification & Typeset Integrity Audit</h1>
+      <p class="lead">Independent adversarial verification of PDF and HTML publication artifacts for <code>pysimlr</code> (Deep-SiMLR Manuscript).</p>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-title">Ghostscript Nullpage</div>
+        <div class="card-value">58 / 58</div>
+        <div class="card-subtext">Pages processed, Exit Code 0</div>
+      </div>
+      <div class="card">
+        <div class="card-title">PDF Embedded Images</div>
+        <div class="card-value">28 Objects</div>
+        <div class="card-subtext">Up to 5341x3814 (300-600 DPI), Alpha Masks</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Document Fonts</div>
+        <div class="card-value">100% Embedded</div>
+        <div class="card-subtext">14/14 embedded, 0 missing fonts</div>
+      </div>
+      <div class="card">
+        <div class="card-title">PDF Hyperref Links</div>
+        <div class="card-value">0 Broken</div>
+        <div class="card-subtext">300 destinations, 168 links verified</div>
+      </div>
+      <div class="card">
+        <div class="card-title">HTML Chapters & Links</div>
+        <div class="card-value">8 Chapters</div>
+        <div class="card-subtext">0 broken images (14/14), 0 broken links (321/321)</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Citation @Lee_1999</div>
+        <div class="card-value">1999 (Verified)</div>
+        <div class="card-subtext">"Lee and Seung 1999" in HTML & PDF (0 instances of 2019)</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Full Test Suite</div>
+        <div class="card-value">450 / 451</div>
+        <div class="card-subtext">450 passed, 1 xfailed (84.82s), 0 failures</div>
+      </div>
+    </div>
+
+    <!-- PDF Audit Section -->
+    <div class="section-card">
+      <h2>1. Deep Inspection: docs/manuscript/Deep-SiMLR-Manuscript.pdf</h2>
+      <p>A rigorous binary object-level audit was conducted on <code>Deep-SiMLR-Manuscript.pdf</code> (3,063,979 bytes) compiled via LuaLaTeX 1.16.0.</p>
+      
+      <table>
+        <thead>
+          <tr>
+            <th>Audit Category</th>
+            <th>Specification / Expectation</th>
+            <th>Empirical Measurement</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Ghostscript Processing</strong></td>
+            <td>Exit code 0 across all pages</td>
+            <td><code>gs -dNOPAUSE -dBATCH -sDEVICE=nullpage</code> completed pages 1–58 (Exit 0)</td>
+            <td><span class="status-ok">✔ PASS</span></td>
+          </tr>
+          <tr>
+            <td><strong>Exact Page Count</strong></td>
+            <td>58 pages</td>
+            <td>Root <code>/Pages</code> node (obj 1187) <code>/Count 58</code>; exactly 58 <code>/Type /Page</code> nodes</td>
+            <td><span class="status-ok">✔ PASS</span></td>
+          </tr>
+          <tr>
+            <td><strong>Embedded Image Resolutions</strong></td>
+            <td>High-resolution publication figures</td>
+            <td>28 image objects: from 1041x300 to 5341x3814; 8-bit depth; RGB + SMask transparency</td>
+            <td><span class="status-ok">✔ PASS</span></td>
+          </tr>
+          <tr>
+            <td><strong>Font Embedding Audit</strong></td>
+            <td>No missing external system fonts</td>
+            <td>14 document fonts (LMRoman, LMMono, LatinModernMath) are 100% embedded (CFF/Type0); 2 matplotlib Type 3 vector charproc sets</td>
+            <td><span class="status-ok">✔ PASS</span></td>
+          </tr>
+          <tr>
+            <td><strong>Internal Hyperrefs</strong></td>
+            <td>All internal links resolve</td>
+            <td>300 named destinations in <code>/Dests</code> tree, 133 internal GoTo links, 35 external URI links. <strong>0 broken links</strong></td>
+            <td><span class="status-ok">✔ PASS</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin-top: 1.5rem; font-size: 1.1rem; color: #fff;">Selected Image Objects from PDF Catalog</h3>
+      <pre>
+Image obj  421: 4800x1500 | BPC: 8 | RGB Stream (21.6 MB uncompressed) | Displays at 300+ DPI
+Image obj  443: 2306x1676 | BPC: 8 | RGB Stream (11.6 MB uncompressed) | Displays at 300+ DPI
+Image obj  475: 4057x3706 | BPC: 8 | RGB Stream (45.1 MB uncompressed) | Displays at 450+ DPI
+Image obj  484: 3000x2400 | BPC: 8 | RGB Stream (21.6 MB uncompressed) | Displays at 300+ DPI
+Image obj  529: 3600x1800 | BPC: 8 | RGB Stream (19.4 MB uncompressed) | Displays at 350+ DPI
+Image obj  546: 3600x1500 | BPC: 8 | RGB Stream (16.2 MB uncompressed) | Displays at 350+ DPI
+Image obj  597: 5341x3814 | BPC: 8 | RGB Stream (61.1 MB uncompressed) | Displays at 500+ DPI
+      </pre>
+    </div>
+
+    <!-- HTML Audit Section -->
+    <div class="section-card">
+      <h2>2. Deep Inspection: docs/manuscript/ (HTML Book)</h2>
+      <p>Every HTML chapter and associated web asset was audited for anchor integrity, image asset existence, and MathJax configuration.</p>
+      
+      <table>
+        <thead>
+          <tr>
+            <th>Chapter / File</th>
+            <th>Size</th>
+            <th>Math Elements</th>
+            <th>MathJax Script</th>
+            <th>Image Status</th>
+            <th>Link Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>index.html</code></td>
+            <td>28.9 KB</td>
+            <td>3 spans</td>
+            <td><span class="status-ok">✔ Active</span></td>
+            <td>0 referenced</td>
+            <td><span class="status-ok">✔ 0 broken</span></td>
+          </tr>
+          <tr>
+            <td><code>01_intro_background.html</code></td>
+            <td>56.8 KB</td>
+            <td>28 spans</td>
+            <td><span class="status-ok">✔ Active</span></td>
+            <td>1/1 valid</td>
+            <td><span class="status-ok">✔ 0 broken</span></td>
+          </tr>
+          <tr>
+            <td><code>02_methods.html</code></td>
+            <td>81.8 KB</td>
+            <td>131 spans</td>
+            <td><span class="status-ok">✔ Active</span></td>
+            <td>0 referenced</td>
+            <td><span class="status-ok">✔ 0 broken</span></td>
+          </tr>
+          <tr>
+            <td><code>03_experiments.html</code></td>
+            <td>136.0 KB</td>
+            <td>236 spans</td>
+            <td><span class="status-ok">✔ Active</span></td>
+            <td>11/11 valid</td>
+            <td><span class="status-ok">✔ 0 broken</span></td>
+          </tr>
+          <tr>
+            <td><code>04_discussion.html</code></td>
+            <td>55.1 KB</td>
+            <td>28 spans</td>
+            <td><span class="status-ok">✔ Active</span></td>
+            <td>0 referenced</td>
+            <td><span class="status-ok">✔ 0 broken</span></td>
+          </tr>
+          <tr>
+            <td><code>appendix_brca_clinical_validation.html</code></td>
+            <td>36.9 KB</td>
+            <td>6 spans</td>
+            <td><span class="status-ok">✔ Active</span></td>
+            <td>0 referenced</td>
+            <td><span class="status-ok">✔ 0 broken</span></td>
+          </tr>
+          <tr>
+            <td><code>appendix_flow_simlr_v.html</code></td>
+            <td>42.5 KB</td>
+            <td>34 spans</td>
+            <td><span class="status-ok">✔ Active</span></td>
+            <td>2/2 valid</td>
+            <td><span class="status-ok">✔ 0 broken</span></td>
+          </tr>
+          <tr>
+            <td><code>appendix_operational.html</code></td>
+            <td>54.2 KB</td>
+            <td>57 spans</td>
+            <td><span class="status-ok">✔ Active</span></td>
+            <td>0 referenced</td>
+            <td><span class="status-ok">✔ 0 broken</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top: 1rem; padding: 0.75rem; background: rgba(16, 185, 129, 0.1); border-left: 4px solid var(--accent-green); border-radius: 4px;">
+        <strong>HTML Summary:</strong> 8 chapters verified, 14 images verified on disk (0 broken images), 321 internal/anchor links verified (0 broken links), 523 mathematical formula elements rendered via MathJax.
+      </div>
+    </div>
+
+    <!-- Citation Audit Section -->
+    <div class="section-card">
+      <h2>3. Citation Integrity Audit: @Lee_1999 ("Lee and Seung 1999")</h2>
+      <p>Targeted audit to confirm that <code>@Lee_1999</code> (Nature 401:788–791) renders correctly as <strong>1999</strong> (not 2019) across all output modalities.</p>
+      
+      <table>
+        <thead>
+          <tr>
+            <th>Format / Location</th>
+            <th>Rendered In-Text Citation</th>
+            <th>Rendered Bibliography Entry</th>
+            <th>Verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>HTML (01_intro_background.html)</strong></td>
+            <td><code>(Zhao et al. 2011; Lee and Seung 1999)</code></td>
+            <td><code>Lee, Daniel D., and H. Sebastian Seung. 1999. "Learning the Parts of Objects by Non-Negative Matrix Factorization." Nature 401 (6755): 788–91.</code></td>
+            <td><span class="status-ok">✔ VERIFIED (1999)</span></td>
+          </tr>
+          <tr>
+            <td><strong>PDF (Deep-SiMLR-Manuscript.pdf)</strong></td>
+            <td>Page 7: <code>(Zhao et al. 2011; Lee and Seung 1999)</code></td>
+            <td>Page 56: <code>Lee, Daniel D., and H. Sebastian Seung. 1999. "Learning the Parts of Objects by Non-Negative Matrix Factorization." Nature 401 (6755): 788–91.</code></td>
+            <td><span class="status-ok">✔ VERIFIED (1999)</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Test Suite Section -->
+    <div class="section-card">
+      <h2>4. Full Regression Test Suite Execution</h2>
+      <p>Executed full test suite via <code>/Users/stnava/venvs/ants/bin/pytest tests/</code>:</p>
+      <pre>
+============ 450 passed, 1 xfailed, 30 warnings in 84.82s (0:01:24) ============
+      </pre>
+      <p style="margin-top: 0.5rem;"><span class="status-ok">✔ All 451 test cases executed with 100% expected behavior (0 failures, 0 unexpected errors).</span></p>
+    </div>
+
+    <!-- Final Verdict -->
+    <div class="section-card" style="border-color: var(--accent-green); background: rgba(16, 185, 129, 0.05);">
+      <h2 style="color: var(--accent-green);">5. Empirical Challenger Verdict: APPROVE</h2>
+      <p>All typeset artifacts across both PDF and HTML formats satisfy all verification criteria. Ghostscript nullpage processing passes cleanly, embedded images maintain high resolution, fonts are 100% embedded, internal links are 100% functional, citation metadata is empirically correct, and the full test suite passes with zero regressions.</p>
+    </div>
+
+    <footer>
+      Generated on 2026-09-07 | PySiMLR Empirical Verification Harness | Challenger 2
+    </footer>
+  </div>
+</body>
+</html>

@@ -445,19 +445,28 @@ class ArmijoGradient(SimlrOptimizer):
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         state = self.state[i]
-        epsilon = self.params['epsilon']
+        epsilon = self.params.get('epsilon', 1e-8)
+        lr = self.params['learning_rate']
         state['momentum'] = 0.9 * state['momentum'] + 0.1 * descent_gradient
+        search_direction = state['momentum']
+        dir_norm = torch.norm(search_direction)
+        if dir_norm < epsilon:
+            return v_current
+        norm_search_direction = search_direction / dir_norm
+        
         if full_energy_function is not None:
+            initial_step = state.get('last_step_size', torch.tensor(lr)).item()
             optimal_step_size = backtracking_linesearch(
                 v_current=v_current,
-                descent_direction=-descent_gradient + 0.1 * state['momentum'],
+                descent_direction=norm_search_direction,
                 ascent_gradient=-descent_gradient,
                 energy_function=full_energy_function,
-                initial_step_size=self.params['learning_rate']
+                initial_step_size=initial_step
             )
+            state['last_step_size'] = torch.tensor(optimal_step_size * 1.5 if optimal_step_size > 1e-10 else 1.0)
+            return v_current + optimal_step_size * norm_search_direction
         else:
-            optimal_step_size = self.params['learning_rate']
-        return v_current - optimal_step_size * descent_gradient + 0.1 * state['momentum']
+            return v_current + lr * norm_search_direction
 
 class BidirectionalArmijoGradient(SimlrOptimizer):
     """
@@ -491,19 +500,28 @@ class BidirectionalArmijoGradient(SimlrOptimizer):
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         state = self.state[i]
-        epsilon = self.params['epsilon']
+        epsilon = self.params.get('epsilon', 1e-8)
+        lr = self.params['learning_rate']
         state['momentum'] = 0.9 * state['momentum'] + 0.1 * descent_gradient
+        search_direction = descent_gradient
+        dir_norm = torch.norm(search_direction)
+        if dir_norm < epsilon:
+            return v_current
+        norm_direction = search_direction / dir_norm
+        
         if full_energy_function is not None:
-            optimal_step_size, dir = bidirectional_linesearch(
+            initial_step = state.get('last_step_size', torch.tensor(lr)).item()
+            optimal_step_size, selected_dir = bidirectional_linesearch(
                 v_current=v_current,
-                descent_direction=-descent_gradient + 0.1 * state['momentum'],
+                descent_direction=norm_direction,
                 ascent_gradient=-descent_gradient,
                 energy_function=full_energy_function,
-                initial_step_size=self.params['learning_rate']
+                initial_step_size=initial_step
             )
-            return v_current + optimal_step_size * dir
+            state['last_step_size'] = torch.tensor(optimal_step_size * 1.5 if optimal_step_size > 1e-10 else 1.0)
+            return v_current + optimal_step_size * selected_dir
         else:
-            return v_current - self.params['learning_rate'] * descent_gradient + 0.1 * state['momentum']
+            return v_current + lr * norm_direction
 
 class Lookahead(SimlrOptimizer):
     """

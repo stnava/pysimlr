@@ -212,8 +212,8 @@ window.Quarto = {
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="./appendix_flow_simlr_v.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMLR-V)</span></span></a>
+  <a href="./appendix_flow_simr_v.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)</span></span></a>
   </div>
 </li>
       </ul>
@@ -376,18 +376,18 @@ Figure&nbsp;1.1
 <li><strong>Leave-One-Out (LOO) Topology:</strong> We employ a <strong>Leave-One-Out (LOO)</strong> topology during consensus formation. By omitting each modality from its own target calculation, we prevent deep networks from memorizing modality-specific noise.</li>
 <li><strong>Methodological Correctives for Model Selection:</strong> We implement rigorous statistical criteria, including Tracy-Widom distributions, Bayesian Information Criterion (BIC), and the One-Standard-Error rule, for objective model validation.</li>
 <li><strong>Shared-Private Disentanglement:</strong> We formulate a shared-private partitioning architecture using cross-covariance penalties to isolate modality-specific idiosyncratic noise from the cross-modal consensus signal.</li>
-<li><strong>Invertible Integration via Flow-SiMLR:</strong> We introduce <strong>Flow-SiMLR</strong>, which embeds bijective Normalizing Flows directly into multi-view consensus discovery. By leveraging affine coupling layers, the architecture preserves exact mathematical invertibility, enabling joint Gaussian conditional inference for cross-view feature synthesis and clinical imputation.</li>
+<li><strong>Invertible Integration via Flow-SiMR:</strong> We introduce <strong>Flow-SiMR</strong>, which embeds bijective Normalizing Flows directly into multi-view consensus discovery. By leveraging affine coupling layers, the architecture preserves exact mathematical invertibility, enabling joint Gaussian conditional inference for cross-view feature synthesis and clinical imputation.</li>
 </ol>
 </section>
 <section id="architectural-taxonomy" class="level3" data-number="1.2.4">
 <h3 data-number="1.2.4" class="anchored" data-anchor-id="architectural-taxonomy"><span class="header-section-number">1.2.4</span> Architectural Taxonomy</h3>
-<p>We evaluate this framework across four algorithmic implementations:</p>
+<p>We evaluate this framework across five algorithmic implementations (SiMLR, LEND, NED, NEDPP, Flow-SiMR):</p>
 <ul>
 <li><span style="color: #1f77b4; font-weight: bold;"><strong>SiMLR (Purely Linear - Blue):</strong></span> The strictly linear baseline, optimal for Gaussian data distributions.</li>
 <li><span style="color: #2ca02c; font-weight: bold;"><strong>LEND (Mixed Architecture - Green):</strong></span> A hybrid architecture coupling an OLEE-constrained linear encoder for feature discovery with a deep decoder for non-linear manifold mapping.</li>
 <li><span style="color: #ff7f0e; font-weight: bold;"><strong>NED (Fully Nonlinear - Orange):</strong></span> A non-linear architecture that applies multi-layer perceptrons subsequent to the mandatory OLEE bottleneck.</li>
 <li><span style="color: #9467bd; font-weight: bold;"><strong>NEDPP (Shared/Private - Purple):</strong></span> A disentangled architecture that explicitly separates the latent space into shared consensus and modality-specific private components.</li>
-<li><span style="color: #008080; font-weight: bold;"><strong>Flow-SiMLR (Normalizing Flows - Teal):</strong></span> An invertible architecture utilizing normalizing flows to establish bijective, information-preserving coordinate transforms, enabling exact conditional inference and cross-view imputation.</li>
+<li><span style="color: #008080; font-weight: bold;"><strong>Flow-SiMR (Normalizing Flows - Teal):</strong></span> An invertible architecture utilizing normalizing flows to establish bijective, information-preserving coordinate transforms, enabling exact conditional inference and cross-view imputation.</li>
 </ul>
 <p>Section 2 provides the mathematical definitions for the joint-variational objective, OLEE, MAI, NSA-Flow, and the algorithmic variants. Section 3 presents empirical evaluations of the consistency-interpretability tradeoff using simulated benchmarks and a clinical breast cancer (BRCA) cohort. Section 4 discusses implications for explainable multi-omics integration and clinical translation.</p>
 
@@ -427,10 +427,10 @@ Lee, Daniel D., and H. Sebastian Seung. 1999. <span>“Learning the Parts of Obj
 Lundberg, Scott M, and Su-In Lee. 2017. <span>“A Unified Approach to Interpreting Model Predictions.”</span> <em>Advances in Neural Information Processing Systems</em> 30.
 </div>
 <div id="ref-Becker2024hyperparameter" class="csl-entry" role="listitem">
-Otávio Becker, Cassiano. 2023. <em>Hyper-Parameter Optimization for Manifold Regularization Learning</em>. <a href="https://doi.org/10.47749/t/unicamp.2013.916883">https://doi.org/10.47749/t/unicamp.2013.916883</a>.
+Otávio Becker, Cassiano. 2023. <span>“Hyper-Parameter Optimization for Manifold Regularization Learning.”</span> PhD thesis, Universidade Estadual de Campinas. <a href="https://doi.org/10.47749/t/unicamp.2013.916883">https://doi.org/10.47749/t/unicamp.2013.916883</a>.
 </div>
 <div id="ref-Smith2023posthoc" class="csl-entry" role="listitem">
-Radulovic, Nedeljko. 2023. <em>Post-Hoc Explainable AI for Black Box Models on Tabular Data</em>. <a href="https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5">https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5</a>.
+Radulovic, Nedeljko. 2023. <span>“Post-Hoc Explainable AI for Black Box Models on Tabular Data.”</span> PhD thesis, Institut Polytechnique de Paris. <a href="https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5">https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5</a>.
 </div>
 <div id="ref-rezende2015variational" class="csl-entry" role="listitem">
 Rezende, Danilo, and Shakir Mohamed. 2015. <span>“Variational Inference with Normalizing Flows.”</span> <em>International Conference on Machine Learning</em>, 1530–38.
@@ -445,7 +445,7 @@ Rudin, Cynthia. 2019. <span>“Stop Explaining Black Box Machine Learning Models
 Sapkota, Ram, Bishal Thapaliya, Bhaskar Ray, Pranav Suresh, and Jingyu Liu. 2025. <em>Multimodal Brain Growth Patterns: Insights from Canonical Correlation Analysis and Deep Canonical Correlation Analysis with Auto-Encoder</em>. February. <a href="https://doi.org/10.20944/preprints202502.0163.v1">https://doi.org/10.20944/preprints202502.0163.v1</a>.
 </div>
 <div id="ref-Schennach2019independent" class="csl-entry" role="listitem">
-Schennach, Susanne M., and Florian Gunsilius. 2019. <em>Independent Nonlinear Component Analysis</em>. <a href="https://doi.org/10.1920/wp.cem.2019.4619">https://doi.org/10.1920/wp.cem.2019.4619</a>.
+Schennach, Susanne M., and Florian Gunsilius. 2019. <em>Independent Nonlinear Component Analysis</em>. Centre for Microdata Methods; Practice (cemmap). <a href="https://doi.org/10.1920/wp.cem.2019.4619">https://doi.org/10.1920/wp.cem.2019.4619</a>.
 </div>
 <div id="ref-stone2020longitudinal" class="csl-entry" role="listitem">
 <span class="nocase">Stone, James R, Brian B Avants, et al.</span> 2020. <span>“Longitudinal Structural Magnetic Resonance Imaging of Blast-Induced Mild Traumatic Brain Injury.”</span> <em>Journal of Neurotrauma</em> 37 (21): 2343–54.
@@ -457,10 +457,10 @@ Wachter, Sandra, Brent Mittelstadt, and Chris Russell. 2017. <span>“Counterfac
 Wu, Mike, and Noah Goodman. 2018. <span>“Multimodal Generative Models for Scalable Weakly-Supervised Learning.”</span> <em>Advances in Neural Information Processing Systems</em> 31.
 </div>
 <div id="ref-Zhao_2011" class="csl-entry" role="listitem">
-Zhao, Weizhong, Huifang Ma, and Ning Li. 2011. <span>“A New Non-Negative Matrix Factorization Algorithm with Sparseness Constraints.”</span> <em>2011 International Conference on Machine Learning and Cybernetics</em>, 1449–52. <a href="https://doi.org/10.1109/icmlc.2011.6016966">https://doi.org/10.1109/icmlc.2011.6016966</a>.
+Zhao, Weizhong, Huifang Ma, and Ning Li. 2011. <span>“A New Non-Negative Matrix Factorization Algorithm with Sparseness Constraints.”</span> <em>2011 International Conference on Machine Learning and Cybernetics</em>, July, 1449–52. <a href="https://doi.org/10.1109/icmlc.2011.6016966">https://doi.org/10.1109/icmlc.2011.6016966</a>.
 </div>
 <div id="ref-Zhao_2024" class="csl-entry" role="listitem">
-Zhao, Xingbiao, Enze Chen, Panli Yuan, Limengzi Yuan, and Yuchen Zheng. 2024. <em>Deep Canonically Correlated Denoising Autoencoders for Signature Verification Purpose</em>. <a href="https://doi.org/10.21203/rs.3.rs-4569259/v1">https://doi.org/10.21203/rs.3.rs-4569259/v1</a>.
+Zhao, Xingbiao, Enze Chen, Panli Yuan, Limengzi Yuan, and Yuchen Zheng. 2024. <em>Deep Canonically Correlated Denoising Autoencoders for Signature Verification Purpose</em>. June. <a href="https://doi.org/10.21203/rs.3.rs-4569259/v1">https://doi.org/10.21203/rs.3.rs-4569259/v1</a>.
 </div>
 </div>
 </section>

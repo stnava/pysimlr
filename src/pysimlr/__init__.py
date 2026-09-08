@@ -78,9 +78,18 @@ from .flows import (
     flow_simr,
     flow_simr_v,
     FlowSiMRModel,
+    FlowSiMRVModel,
+    FlowSiMLRModel,
+    FlowSiMLRVModel,
+    flow_simlr,
+    flow_simlr_v,
     FlowEncoderWrapper,
     FlowDecoderWrapper,
-    FlowConditionalInference
+    FlowConditionalInference,
+    NormalizingFlow,
+    FlowWhitener,
+    flow_whiten_matrix,
+    flow_whitener
 )
 from .consensus import (
     compute_shared_consensus
@@ -170,9 +179,18 @@ __all__ = [
     'flow_simr',
     'flow_simr_v',
     'FlowSiMRModel',
+    'FlowSiMRVModel',
+    'FlowSiMLRModel',
+    'FlowSiMLRVModel',
+    'flow_simlr',
+    'flow_simlr_v',
     'FlowEncoderWrapper',
     'FlowDecoderWrapper',
     'FlowConditionalInference',
+    'NormalizingFlow',
+    'FlowWhitener',
+    'flow_whiten_matrix',
+    'flow_whitener',
     'compute_shared_consensus',
     'summarize_basis_matrix',
     'build_first_layer_contract',

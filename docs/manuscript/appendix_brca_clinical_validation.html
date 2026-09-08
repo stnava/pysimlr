@@ -209,8 +209,8 @@ window.Quarto = {
 </li>
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="./appendix_flow_simlr_v.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMLR-V)</span></span></a>
+  <a href="./appendix_flow_simr_v.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)</span></span></a>
   </div>
 </li>
       </ul>
@@ -306,11 +306,11 @@ window.Quarto = {
 <td style="text-align: center;">0.898 ± 0.028</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;"><strong>Flow-SiMLR</strong></td>
+<td style="text-align: left;"><strong>Flow-SiMR</strong></td>
 <td style="text-align: center;">0.871 ± 0.011</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;"><strong>Flow-SiMLR-V (Ours)</strong></td>
+<td style="text-align: left;"><strong>Flow-SiMR-V (Ours)</strong></td>
 <td style="text-align: center;">0.913 ± 0.012</td>
 </tr>
 <tr class="even">
@@ -327,7 +327,7 @@ window.Quarto = {
 </tr>
 </tbody>
 </table>
-<p>Note that for Flow-SiMLR, since it utilizes a bijective Normalizing Flow architecture, it does not incorporate the initial linear encoder entry (OLEE) bottleneck, and classification is evaluated directly on its learned latent representations ($). In contrast, the proposed <strong>Flow-SiMLR-V</strong> architecture pre-pends a Stiefel-constrained linear encoder matrix $, enabling strictly linear classification on the projected space $ and achieving full parity with the deep MLP-based models. Introducing a non-linear decoder establishes an information bottleneck that enforces cross-modal consensus within the shared latent representation. This bottleneck filters modality-specific noise, increasing mean predictive accuracy and reducing variance in the resulting linear subspace compared to the purely linear SiMLR baseline.</p>
+<p>Note that for Flow-SiMR, since it utilizes a bijective Normalizing Flow architecture, it does not incorporate the initial linear encoder entry (OLEE) bottleneck, and classification is evaluated directly on its learned latent representations (<span class="math inline">\(\mathbf{U}\)</span>). In contrast, the proposed <strong>Flow-SiMR-V</strong> architecture pre-pends a Stiefel-constrained linear encoder matrix <span class="math inline">\(\mathbf{V}\)</span>, enabling strictly linear classification on the projected space <span class="math inline">\(\mathbf{X}\mathbf{V}\)</span> and achieving full parity with the deep MLP-based models. Introducing a non-linear decoder establishes an information bottleneck that enforces cross-modal consensus within the shared latent representation. This bottleneck filters modality-specific noise, increasing mean predictive accuracy and reducing variance in the resulting linear subspace compared to the purely linear SiMLR baseline.</p>
 </section>
 <section id="tri-modal-feature-discovery" class="level2" data-number="A.3">
 <h2 data-number="A.3" class="anchored" data-anchor-id="tri-modal-feature-discovery"><span class="header-section-number">A.3</span> Tri-Modal Feature Discovery</h2>
@@ -345,21 +345,21 @@ Figure&nbsp;A.1: <strong>Tri-Modal Feature Weights for ER-Status.</strong> LEND 
 <section id="mechanistic-alignment" class="level3" data-number="A.3.1">
 <h3 data-number="A.3.1" class="anchored" data-anchor-id="mechanistic-alignment"><span class="header-section-number">A.3.1</span> Mechanistic Alignment</h3>
 <p>LEND yields an explicit weight matrix mapping input features to the latent space. Within the proteomics modality, ER-alpha possesses the highest weight magnitude. This maps to the ESR1 transcript in the RNA-Seq modality. LEND assigns higher weights to protein-level markers INPP4B and GATA3 than the linear baseline.</p>
-<p>The latent representation captures the covariance structure necessary to perform ER-positive classification. ESR1 expression separates ER status <span class="citation" data-cites="2012">(<a href="#ref-2012" role="doc-biblioref"><span>“Comprehensive Molecular Portraits of Human Breast Tumours”</span> 2012</a>)</span>. GATA3 is co-expressed with ER-alpha in luminal breast cancer <span class="citation" data-cites="Cohen_2014 Prat_2019">(<a href="#ref-Cohen_2014" role="doc-biblioref">Cohen et al. 2014</a>; <a href="#ref-Prat_2019" role="doc-biblioref">Prat and Parker 2019</a>)</span>. INPP4B loss tracks PI3K pathway activation and covaries with ER status <span class="citation" data-cites="2012 2016">(<a href="#ref-2012" role="doc-biblioref"><span>“Comprehensive Molecular Portraits of Human Breast Tumours”</span> 2012</a>; <a href="#ref-2016" role="doc-biblioref">2016</a>)</span>. By compressing CNV, RNA, and protein features through an aligned information bottleneck, the deep architecture recovers these established biological covariates directly from the parameter weights.</p>
+<p>The latent representation captures the covariance structure necessary to perform ER-positive classification. ESR1 expression separates ER status <span class="citation" data-cites="2012">(<a href="#ref-2012" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>)</span>. GATA3 is co-expressed with ER-alpha in luminal breast cancer <span class="citation" data-cites="Cohen_2014 Prat_2019">(<a href="#ref-Cohen_2014" role="doc-biblioref">Cohen et al. 2014</a>; <a href="#ref-Prat_2019" role="doc-biblioref">Prat and Parker 2019</a>)</span>. INPP4B loss tracks PI3K pathway activation and covaries with ER status <span class="citation" data-cites="2012 2016">(<a href="#ref-2012" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-2016" role="doc-biblioref">Cancer Discovery 2016</a>)</span>. By compressing CNV, RNA, and protein features through an aligned information bottleneck, the deep architecture recovers these established biological covariates directly from the parameter weights.</p>
 
 
 <div id="refs" class="references csl-bib-body hanging-indent" role="list">
 <div id="ref-2016" class="csl-entry" role="listitem">
-2016. <em>Cancer Discovery</em> 6 (11): OF5–5. <a href="https://doi.org/10.1158/2159-8290.cd-rw2016-170">https://doi.org/10.1158/2159-8290.cd-rw2016-170</a>.
+Cancer Discovery. 2016. <span>“Multiple Noncoding Mutations Regulate ESR1 Expression in Breast Cancer.”</span> <em>Cancer Discovery</em> 6 (11): OF5–5. <a href="https://doi.org/10.1158/2159-8290.cd-rw2016-170">https://doi.org/10.1158/2159-8290.cd-rw2016-170</a>.
 </div>
 <div id="ref-Cohen_2014" class="csl-entry" role="listitem">
 Cohen, Helit, Rotem Ben-Hamo, Moriah Gidoni, et al. 2014. <span>“Shift in GATA3 Functions, and GATA3 Mutations, Control Progression and Clinical Presentation in Breast Cancer.”</span> <em>Breast Cancer Research</em> 16 (6). <a href="https://doi.org/10.1186/s13058-014-0464-0">https://doi.org/10.1186/s13058-014-0464-0</a>.
 </div>
-<div id="ref-2012" class="csl-entry" role="listitem">
-<span>“Comprehensive Molecular Portraits of Human Breast Tumours.”</span> 2012. <em>Nature</em> 490 (7418): 61–70. <a href="https://doi.org/10.1038/nature11412">https://doi.org/10.1038/nature11412</a>.
-</div>
 <div id="ref-Prat_2019" class="csl-entry" role="listitem">
 Prat, A., and J. S. Parker. 2019. <span>“Standardized Versus Research-Based PAM50 Intrinsic Subtyping of Breast Cancer.”</span> <em>Clinical and Translational Oncology</em> 22 (6): 953–55. <a href="https://doi.org/10.1007/s12094-019-02203-x">https://doi.org/10.1007/s12094-019-02203-x</a>.
+</div>
+<div id="ref-2012" class="csl-entry" role="listitem">
+The Cancer Genome Atlas Network. 2012. <span>“Comprehensive Molecular Portraits of Human Breast Tumours.”</span> <em>Nature</em> 490 (7418): 61–70. <a href="https://doi.org/10.1038/nature11412">https://doi.org/10.1038/nature11412</a>.
 </div>
 </div>
 </section>

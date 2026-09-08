@@ -357,9 +357,9 @@ def generate_all_architecture_graphs(output_dir=".", base_fontsize=11) -> List[p
 
 def plot_flow_simr_architecture(save_path=None, base_fontsize=11):
     """
-    Generate a schematic diagram of the Flow-SiMLR (Normalizing Flow) architecture.
+    Generate a schematic diagram of the Flow-SiMR (Normalizing Flow) architecture.
 
-    Flow-SiMLR utilizes bijective normalizing flows to map raw inputs to a joint
+    Flow-SiMR utilizes bijective normalizing flows to map raw inputs to a joint
     Gaussian space, partitioning the latent space into shared consensus-aligned
     coordinates and private coordinate dimensions. This bijectivity enables exact
     cross-view conditional inference.
@@ -379,7 +379,7 @@ def plot_flow_simr_architecture(save_path=None, base_fontsize=11):
     fig, ax = plt.subplots(figsize=(13, 8))
     ax.set_xlim(0, 100); ax.set_ylim(0, 100)
     ax.axis('off')
-    ax.text(50, 95, "Flow-SiMLR: Invertible Normalizing Flow Multi-Modal Integration", ha='center', va='center', fontsize=base_fontsize+3, fontweight='bold')
+    ax.text(50, 95, "Flow-SiMR: Invertible Normalizing Flow Multi-Modal Integration", ha='center', va='center', fontsize=base_fontsize+3, fontweight='bold')
     
     # Input
     _draw_box(ax, 5, 40, 12, 20, "Input\nX_m", color='#e3f2fd')

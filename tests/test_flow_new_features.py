@@ -8,7 +8,7 @@ def test_flow_simr_v_positivity_either():
     torch.manual_seed(42)
     xs = [torch.randn(30, 5) for _ in range(3)]
     
-    # Run Flow-SiMLR-V with positivity='either'
+    # Run Flow-SiMR-V with positivity='either'
     res = flow_simr_v(xs, k=2, epochs=3, batch_size=15, warmup_epochs=0, positivity='either', verbose=False)
     
     # Extract projection matrices V and convert to numpy
@@ -28,7 +28,7 @@ def test_flow_simr_v_positivity_positive():
     torch.manual_seed(42)
     xs = [torch.randn(30, 5) for _ in range(3)]
     
-    # Run Flow-SiMLR-V with default positivity='positive'
+    # Run Flow-SiMR-V with default positivity='positive'
     res = flow_simr_v(xs, k=2, epochs=3, batch_size=15, warmup_epochs=0, positivity='positive', verbose=False)
     
     # Extract projection matrices V and convert to numpy
@@ -67,7 +67,7 @@ def test_delayed_dynamic_weights_start_epoch():
         torch.randn(30, 5)
     ]
     
-    # Run Flow-SiMLR-V with dynamic_weights_start = 3 and epochs = 5
+    # Run Flow-SiMR-V with dynamic_weights_start = 3 and epochs = 5
     res = flow_simr_v(xs, k=2, epochs=5, batch_size=15, warmup_epochs=0, dynamic_weights=True, dynamic_weights_start=3, verbose=False)
     
     weight_hist = res['weight_history']

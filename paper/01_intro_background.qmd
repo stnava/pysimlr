@@ -82,16 +82,16 @@ We summarize our methodological contributions:
 4.  **Leave-One-Out (LOO) Topology:** We employ a **Leave-One-Out (LOO)** topology during consensus formation. By omitting each modality from its own target calculation, we prevent deep networks from memorizing modality-specific noise.
 5.  **Methodological Correctives for Model Selection:** We implement rigorous statistical criteria, including Tracy-Widom distributions, Bayesian Information Criterion (BIC), and the One-Standard-Error rule, for objective model validation.
 6.  **Shared-Private Disentanglement:** We formulate a shared-private partitioning architecture using cross-covariance penalties to isolate modality-specific idiosyncratic noise from the cross-modal consensus signal.
-7.  **Invertible Integration via Flow-SiMLR:** We introduce **Flow-SiMLR**, which embeds bijective Normalizing Flows directly into multi-view consensus discovery. By leveraging affine coupling layers, the architecture preserves exact mathematical invertibility, enabling joint Gaussian conditional inference for cross-view feature synthesis and clinical imputation.
+7.  **Invertible Integration via Flow-SiMR:** We introduce **Flow-SiMR**, which embeds bijective Normalizing Flows directly into multi-view consensus discovery. By leveraging affine coupling layers, the architecture preserves exact mathematical invertibility, enabling joint Gaussian conditional inference for cross-view feature synthesis and clinical imputation.
 
 ### Architectural Taxonomy
 
-We evaluate this framework across four algorithmic implementations:
+We evaluate this framework across five algorithmic implementations (SiMLR, LEND, NED, NEDPP, Flow-SiMR):
 
 *   [**SiMLR (Purely Linear - Blue):**]{style="color: #1f77b4; font-weight: bold;"} The strictly linear baseline, optimal for Gaussian data distributions.
 *   [**LEND (Mixed Architecture - Green):**]{style="color: #2ca02c; font-weight: bold;"} A hybrid architecture coupling an OLEE-constrained linear encoder for feature discovery with a deep decoder for non-linear manifold mapping.
 *   [**NED (Fully Nonlinear - Orange):**]{style="color: #ff7f0e; font-weight: bold;"} A non-linear architecture that applies multi-layer perceptrons subsequent to the mandatory OLEE bottleneck.
 *   [**NEDPP (Shared/Private - Purple):**]{style="color: #9467bd; font-weight: bold;"} A disentangled architecture that explicitly separates the latent space into shared consensus and modality-specific private components.
-*   [**Flow-SiMLR (Normalizing Flows - Teal):**]{style="color: #008080; font-weight: bold;"} An invertible architecture utilizing normalizing flows to establish bijective, information-preserving coordinate transforms, enabling exact conditional inference and cross-view imputation.
+*   [**Flow-SiMR (Normalizing Flows - Teal):**]{style="color: #008080; font-weight: bold;"} An invertible architecture utilizing normalizing flows to establish bijective, information-preserving coordinate transforms, enabling exact conditional inference and cross-view imputation.
 
 Section 2 provides the mathematical definitions for the joint-variational objective, OLEE, MAI, NSA-Flow, and the algorithmic variants. Section 3 presents empirical evaluations of the consistency-interpretability tradeoff using simulated benchmarks and a clinical breast cancer (BRCA) cohort. Section 4 discusses implications for explainable multi-omics integration and clinical translation.

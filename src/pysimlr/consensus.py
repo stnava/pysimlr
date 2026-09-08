@@ -102,9 +102,11 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                 local_anchor = torch.cat([local_anchor, padding], dim=1)
             local_u = local_big_p @ local_anchor
             
-        local_u = local_u - local_u.mean(0, keepdim=True)
-        u_std = torch.std(local_u, dim=0, keepdim=True) + 1e-6
-        local_u = local_u / u_std
+        if local_u.shape[0] > 1:
+            local_u = local_u - local_u.mean(0, keepdim=True)
+            u_std = torch.std(local_u, dim=0, keepdim=True)
+            u_std = torch.where(torch.isnan(u_std) | (u_std < 1e-6), torch.ones_like(u_std), u_std)
+            local_u = local_u / u_std
             
         if return_anchor:
             if len(proj_list) != len(projections):

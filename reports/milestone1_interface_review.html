@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pysimlr Milestone 1: Interface & Contract Review Report</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0ea5e9;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #a855f7;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text-main);
+      line-height: 1.6;
+      padding: 2rem 1rem;
+    }
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    header {
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 1rem;
+    }
+    .badge-success {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--success);
+      border: 1px solid rgba(34, 197, 94, 0.4);
+    }
+    .badge-info {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+    }
+    .badge-warn {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+    h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(to right, #38bdf8, #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+    }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 2rem;
+    }
+    .metric-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      text-align: center;
+      transition: transform 0.2s ease;
+    }
+    .metric-card:hover {
+      transform: translateY(-2px);
+    }
+    .metric-value {
+      font-size: 2.5rem;
+      font-weight: 800;
+      margin-bottom: 0.25rem;
+    }
+    .metric-value.success { color: var(--success); }
+    .metric-value.info { color: var(--accent); }
+    .metric-label {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1.75rem;
+      margin-bottom: 1.75rem;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    }
+    h2 {
+      font-size: 1.4rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--accent);
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 0.5rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+    }
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--card-border);
+    }
+    th {
+      background: rgba(15, 23, 42, 0.6);
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+    }
+    tr:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .status-pill {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .status-pass {
+      background: rgba(34, 197, 94, 0.2);
+      color: var(--success);
+    }
+    .status-info {
+      background: rgba(56, 189, 248, 0.2);
+      color: var(--accent);
+    }
+    code {
+      background: rgba(15, 23, 42, 0.8);
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.875rem;
+      color: #38bdf8;
+    }
+    pre {
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 1rem;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+      color: #e2e8f0;
+      margin: 0.75rem 0;
+    }
+    .findings-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .finding-item {
+      background: rgba(15, 23, 42, 0.5);
+      border-left: 4px solid var(--warning);
+      padding: 1rem;
+      border-radius: 0 8px 8px 0;
+    }
+    .finding-title {
+      font-weight: 700;
+      color: var(--warning);
+      margin-bottom: 0.25rem;
+    }
+    footer {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--card-border);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+          <span class="badge badge-success">Review Verdict: APPROVE</span>
+          <span class="badge badge-info">Milestone 1</span>
+          <h1>Interface &amp; Contract Conformance Review</h1>
+          <p class="subtitle">Independent adversarial assessment of Milestone 1 algorithmic correctness &amp; stability</p>
+        </div>
+        <div style="text-align: right; color: var(--text-muted); font-size: 0.85rem;">
+          <div><strong>Reviewer:</strong> M1 Reviewer 2</div>
+          <div><strong>Target:</strong> pysimlr (Milestone 1)</div>
+          <div><strong>Date:</strong> 2026-09-07</div>
+        </div>
+      </div>
+    </header>
+
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-value success">APPROVE</div>
+        <div class="metric-label">Review Verdict</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value success">22 / 22</div>
+        <div class="metric-label">M1 Correctness Suite</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value success">69 / 69</div>
+        <div class="metric-label">E2E Multi-Tier Suite</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value success">254 / 254</div>
+        <div class="metric-label">Full Repo Suite (100%)</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value info">0</div>
+        <div class="metric-label">Integrity Violations</div>
+      </div>
+    </div>
+
+    <!-- Contract Audit Matrix -->
+    <div class="card">
+      <h2>1. Interface &amp; Contract Conformance Audit Matrix</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Module &amp; Target</th>
+            <th>Contract Specification</th>
+            <th>Verification Status</th>
+            <th>Compatibility &amp; Return Type</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td><code>pysimlr.svd.multiscale_svd</code></td>
+            <td>Handles <code>nev > min(k, p)</code>, returns <code>(len(r), min(nev, max_rank))</code>, aggregates all <code>locn</code></td>
+            <td><span class="status-pill status-pass">CONFORMS</span></td>
+            <td><code>Dict[str, Tensor]</code> (preserves signature, guards <code>r=0</code>)</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td><code>pysimlr.regression.smooth_regression</code></td>
+            <td>Predicts $Y$ from $X$, regularized pseudoinverse, returns coefficients &amp; predictions</td>
+            <td><span class="status-pill status-pass">CONFORMS</span></td>
+            <td><code>Dict[str, Tensor]</code> (returns <code>coef</code>, <code>y_pred</code>, <code>v</code>, <code>s</code> + aliases)</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td><code>pysimlr.sparse.sparse_distance_matrix</code></td>
+            <td>Strictly positive $\sigma > 0$ requirement; fast-fails with <code>ValueError</code> on $\sigma \le 0$</td>
+            <td><span class="status-pill status-pass">CONFORMS</span></td>
+            <td><code>Tensor</code> (dense sparse representation; <code>sparse_dist</code> helper in module)</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td><code>pysimlr.consensus.compute_shared_consensus</code></td>
+            <td>$N=1$ Bessel correction NaN guard; zero-variance column stabilization</td>
+            <td><span class="status-pill status-pass">CONFORMS</span></td>
+            <td><code>Tensor</code> or <code>List[Tensor]</code> (no NaNs on $N=1$)</td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td><code>pysimlr.utils.adjusted_rvcoef</code> &amp; <code>preprocess_data</code></td>
+            <td>Canonical ANTsR adjustment ($1.0$ identity, $\approx 0$ noise); $N=1$ std guard</td>
+            <td><span class="status-pill status-pass">CONFORMS</span></td>
+            <td><code>float</code> (centered expected noise trace adjustment)</td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td><code>pysimlr.optimizers.ArmijoGradient</code></td>
+            <td>Monotonic energy reduction aligned with cross-view correlation ascent direction</td>
+            <td><span class="status-pill status-pass">CONFORMS</span></td>
+            <td><code>Tensor</code> (positive step on normalized momentum ascent gradient)</td>
+          </tr>
+          <tr>
+            <td>7</td>
+            <td><code>pysimlr.paths.simlr_path</code> &amp; <code>permutation_test</code></td>
+            <td>Support list consensus under <code>topology="loo"|"graph"</code> via <code>_to_consensus_tensor</code></td>
+            <td><span class="status-pill status-pass">CONFORMS</span></td>
+            <td><code>Dict[str, Any]</code> (path correlations &amp; permutation p-values)</td>
+          </tr>
+          <tr>
+            <td>8</td>
+            <td><code>pysimlr.simlr.simlr</code> &amp; predict functions</td>
+            <td>Early contract validation: fast failure with <code>ValueError</code> on sample mismatch or 1D arrays</td>
+            <td><span class="status-pill status-pass">CONFORMS</span></td>
+            <td>Raises descriptive <code>ValueError</code> / <code>TypeError</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Integrity & Adversarial Review -->
+    <div class="card">
+      <h2>2. Integrity &amp; Adversarial Stress-Testing Audit</h2>
+      <p style="margin-bottom: 1rem; color: var(--text-muted);">
+        The codebase was audited against adversarial integrity criteria: hardcoded values, dummy facades, test result copying, and self-certification bypasses.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Integrity Check</th>
+            <th>Observed Evidence</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>No Hardcoded Constants</strong></td>
+            <td>All algorithm results are dynamically computed via genuine linear algebra (SVD, line search, Woodbury projections, kernel affinities).</td>
+            <td><span class="status-pill status-pass">VERIFIED CLEAN</span></td>
+          </tr>
+          <tr>
+            <td><strong>No Dummy / Facade Implementations</strong></td>
+            <td><code>smooth_regression</code> computes full $W = V_k S_k^\dagger U_k^T Y$; <code>multiscale_svd</code> processes batched neighborhood SVD; <code>ArmijoGradient</code> evaluates backtracking line search condition.</td>
+            <td><span class="status-pill status-pass">VERIFIED REAL</span></td>
+          </tr>
+          <tr>
+            <td><strong>No Test Mocking / Bypass Cheats</strong></td>
+            <td>Zero instances of <code>unittest.mock</code>, monkeypatching, or trivial <code>assert True</code> in <code>tests/test_milestone1_correctness.py</code>.</td>
+            <td><span class="status-pill status-pass">VERIFIED GENUINE</span></td>
+          </tr>
+          <tr>
+            <td><strong>Adversarial Boundary Resilience</strong></td>
+            <td>Tested with $N=1, N=2$, $P \gg N$, $N \gg P$, $r=0.0$, zero-variance constant features, 3D tensor injection, and negative $k$. Handled cleanly without unhandled panics.</td>
+            <td><span class="status-pill status-pass">VERIFIED ROBUST</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Findings & Recommendations -->
+    <div class="card">
+      <h2>3. Review Findings &amp; Non-Blocking Observations</h2>
+      <div class="findings-list">
+        <div class="finding-item">
+          <div class="finding-title">[Minor] Top-Level Export Visibility for <code>sparse_dist</code></div>
+          <p style="color: var(--text-muted); font-size: 0.9rem;">
+            <code>sparse_dist</code> is implemented in <code>src/pysimlr/sparse.py</code>, but is not imported into <code>src/pysimlr/__init__.py</code>. Direct import <code>from pysimlr import sparse_dist</code> raises <code>ImportError</code>, whereas <code>from pysimlr.sparse import sparse_dist</code> succeeds.
+          </p>
+          <p style="margin-top: 0.5rem; font-size: 0.85rem;"><strong>Recommendation:</strong> Export <code>sparse_dist</code> in <code>src/pysimlr/__init__.py</code> and add to <code>__all__</code> in a future polish pass.</p>
+        </div>
+
+        <div class="finding-item">
+          <div class="finding-title">[Minor] Docstring Shape Nuance in <code>multiscale_svd</code></div>
+          <p style="color: var(--text-muted); font-size: 0.9rem;">
+            <code>multiscale_svd</code> docstring documents <code>evals_vs_scale</code> as shape <code>(len(r), nev)</code>, but when <code>nev > min(knn, p)</code>, the returned tensor is bounded to <code>(len(r), min(nev, max_rank))</code>.
+          </p>
+          <p style="margin-top: 0.5rem; font-size: 0.85rem;"><strong>Recommendation:</strong> Update docstring to clarify that the second dimension is <code>min(nev, max_rank)</code>.</p>
+        </div>
+
+        <div class="finding-item">
+          <div class="finding-title">[Info] PyTorch Learning Rate Scheduler Step Order</div>
+          <p style="color: var(--text-muted); font-size: 0.9rem;">
+            In <code>src/pysimlr/flows.py:479</code>, a <code>UserWarning</code> notes that <code>lr_scheduler.step()</code> is called before <code>optimizer.step()</code> during flow training.
+          </p>
+          <p style="margin-top: 0.5rem; font-size: 0.85rem;"><strong>Recommendation:</strong> Reorder to <code>optimizer.step()</code> then <code>lr_scheduler.step()</code> during Milestone 2 ANTsTorch flow refactoring.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Independent Verification Transcript -->
+    <div class="card">
+      <h2>4. Verification Execution Transcript</h2>
+      <pre>$ /Users/stnava/venvs/ants/bin/pytest -v tests/test_milestone1_correctness.py
+============================== 22 passed in 2.06s ==============================
+
+$ /Users/stnava/venvs/ants/bin/pytest -v tests/e2e/
+======================== 69 passed, 1 warning in 7.03s =========================
+
+$ /Users/stnava/venvs/ants/bin/pytest -v tests/
+============ 254 passed, 1 skipped, 1 xpassed, 5 warnings in 43.38s ============</pre>
+    </div>
+
+    <footer>
+      pysimlr End-to-End Hardening &amp; Publication Synchronization &bull; Milestone 1 Review Completed &bull; Verdict: <strong>APPROVE</strong>
+    </footer>
+  </div>
+</body>
+</html>

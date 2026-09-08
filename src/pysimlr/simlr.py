@@ -461,7 +461,37 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     if 'sparseness' in opt_params:
         sparseness_quantile = opt_params.pop('sparseness')
 
-    torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
+    # Contract Validation: data_matrices structure
+    if not isinstance(data_matrices, (list, tuple)) or len(data_matrices) == 0:
+        raise ValueError("data_matrices must be a non-empty list or tuple of matrices/arrays.")
+
+    if not isinstance(k, (int, np.integer)) or k <= 0:
+        raise ValueError(f"k must be a positive integer, got k={k}.")
+
+    torch_mats = []
+    for idx, m in enumerate(data_matrices):
+        if not isinstance(m, (torch.Tensor, np.ndarray)):
+            raise TypeError(f"View {idx} must be a torch.Tensor or np.ndarray, got {type(m).__name__}.")
+        m_t = torch.as_tensor(m).float()
+        if m_t.ndim != 2:
+            raise ValueError(
+                f"Each view in data_matrices must be 2D (samples x features). "
+                f"View {idx} has {m_t.ndim} dimension(s) with shape {tuple(m_t.shape)}."
+            )
+        if m_t.shape[0] == 0:
+            raise ValueError(f"View {idx} has 0 samples.")
+        if m_t.shape[1] == 0:
+            raise ValueError(f"View {idx} has 0 features.")
+        torch_mats.append(m_t)
+
+    # Contract Validation: sample count consistency across all views
+    n_samples_list = [m.shape[0] for m in torch_mats]
+    if len(set(n_samples_list)) > 1:
+        details = ", ".join(f"view {i}: {n}" for i, n in enumerate(n_samples_list))
+        raise ValueError(
+            f"All data matrices must have identical number of samples (rows), "
+            f"but found mismatched sample counts: {details}."
+        )
     
     provenance_list = []
     if scale_list is not None and len(scale_list) > 0 and scale_list[0] != "none":
@@ -722,7 +752,34 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     -----------
     This function has been audited for Numpy docstring validity and functional correctness.
     """
-    # 1. Preprocess data matrices
+    # 1. Contract Validation
+    if not isinstance(data_matrices, (list, tuple)) or len(data_matrices) == 0:
+        raise ValueError("data_matrices must be a non-empty list or tuple of matrices/arrays.")
+
+    v_mats = simlr_result.get('v')
+    if v_mats is not None and len(data_matrices) != len(v_mats):
+        raise ValueError(
+            f"Expected {len(v_mats)} data matrices matching model views, "
+            f"but received {len(data_matrices)}."
+        )
+
+    for idx, m in enumerate(data_matrices):
+        m_t = torch.as_tensor(m)
+        if m_t.ndim != 2:
+            raise ValueError(
+                f"Each view in data_matrices must be 2D (samples x features). "
+                f"View {idx} has {m_t.ndim} dimension(s) with shape {tuple(m_t.shape)}."
+            )
+
+    n_samples_list = [torch.as_tensor(m).shape[0] for m in data_matrices]
+    if len(set(n_samples_list)) > 1:
+        details = ", ".join(f"view {i}: {n}" for i, n in enumerate(n_samples_list))
+        raise ValueError(
+            f"All data matrices must have identical number of samples (rows), "
+            f"but found mismatched sample counts: {details}."
+        )
+
+    # 2. Preprocess data matrices
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     scale_list = simlr_result.get('scale_list', [])
     provenance_list = simlr_result.get('provenance_list', [])
@@ -826,6 +883,33 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     -----------
     This function has been audited for Numpy docstring validity and functional correctness.
     """
+    # 1. Contract Validation
+    if not isinstance(data_matrices, (list, tuple)) or len(data_matrices) == 0:
+        raise ValueError("data_matrices must be a non-empty list or tuple of matrices/arrays.")
+
+    v_mats = simlr_result.get('v')
+    if v_mats is not None and len(data_matrices) != len(v_mats):
+        raise ValueError(
+            f"Expected {len(v_mats)} data matrices matching model views, "
+            f"but received {len(data_matrices)}."
+        )
+
+    for idx, m in enumerate(data_matrices):
+        m_t = torch.as_tensor(m)
+        if m_t.ndim != 2:
+            raise ValueError(
+                f"Each view in data_matrices must be 2D (samples x features). "
+                f"View {idx} has {m_t.ndim} dimension(s) with shape {tuple(m_t.shape)}."
+            )
+
+    n_samples_list = [torch.as_tensor(m).shape[0] for m in data_matrices]
+    if len(set(n_samples_list)) > 1:
+        details = ", ".join(f"view {i}: {n}" for i, n in enumerate(n_samples_list))
+        raise ValueError(
+            f"All data matrices must have identical number of samples (rows), "
+            f"but found mismatched sample counts: {details}."
+        )
+
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     
     scale_list = simlr_result.get('scale_list', [])

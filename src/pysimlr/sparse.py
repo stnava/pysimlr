@@ -35,7 +35,11 @@ def sparse_distance_matrix(x: torch.Tensor,
     This function has been audited for Numpy docstring validity and functional correctness.
     """
     x = torch.as_tensor(x).float()
+    if x.ndim != 2:
+        raise ValueError(f"Expected 2D tensor (samples x features), got ndim={x.ndim}")
     n = x.shape[0]
+    if k <= 0:
+        raise ValueError(f"k must be at least 1, got {k}")
     
     # Compute full distance matrix
     dist = torch.cdist(x, x)
@@ -47,14 +51,17 @@ def sparse_distance_matrix(x: torch.Tensor,
     mask = torch.zeros_like(dist, dtype=torch.bool)
     mask.scatter_(1, indices, True)
     
-    sparse_dist = torch.zeros_like(dist)
-    sparse_dist[mask] = dist[mask]
+    sparse_dist_mat = torch.zeros_like(dist)
+    sparse_dist_mat[mask] = dist[mask]
     
     if sigma is not None:
-        sparse_dist = torch.exp(-sparse_dist**2 / (2 * sigma**2))
-        sparse_dist[~mask] = 0.0
+        if sigma <= 0.0:
+            raise ValueError(f"sigma must be strictly positive (sigma > 0), got {sigma}")
+        denom = 2.0 * (float(sigma) ** 2)
+        sparse_dist_mat = torch.zeros_like(dist)
+        sparse_dist_mat[mask] = torch.exp(- (dist[mask] ** 2) / denom)
         
-    return sparse_dist
+    return sparse_dist_mat
 
 def sparse_distance_matrix_xy(x: torch.Tensor, 
                               y: torch.Tensor, 
@@ -94,8 +101,14 @@ def sparse_distance_matrix_xy(x: torch.Tensor,
     """
     x = torch.as_tensor(x).float()
     y = torch.as_tensor(y).float()
+    if x.ndim != 2 or y.ndim != 2:
+        raise ValueError(f"Expected 2D tensors, got x.ndim={x.ndim}, y.ndim={y.ndim}")
+    if x.shape[1] != y.shape[1]:
+        raise ValueError(f"Feature dimension mismatch: x has {x.shape[1]} features, y has {y.shape[1]} features")
     nx = x.shape[0]
     ny = y.shape[0]
+    if k <= 0:
+        raise ValueError(f"k must be at least 1, got {k}")
     
     dist = torch.cdist(x, y)
     
@@ -104,11 +117,39 @@ def sparse_distance_matrix_xy(x: torch.Tensor,
     mask = torch.zeros_like(dist, dtype=torch.bool)
     mask.scatter_(1, indices, True)
     
-    sparse_dist = torch.zeros_like(dist)
-    sparse_dist[mask] = dist[mask]
+    sparse_dist_mat = torch.zeros_like(dist)
+    sparse_dist_mat[mask] = dist[mask]
     
     if sigma is not None:
-        sparse_dist = torch.exp(-sparse_dist**2 / (2 * sigma**2))
-        sparse_dist[~mask] = 0.0
+        if sigma <= 0.0:
+            raise ValueError(f"sigma must be strictly positive (sigma > 0), got {sigma}")
+        denom = 2.0 * (float(sigma) ** 2)
+        sparse_dist_mat = torch.zeros_like(dist)
+        sparse_dist_mat[mask] = torch.exp(- (dist[mask] ** 2) / denom)
         
-    return sparse_dist
+    return sparse_dist_mat
+
+def sparse_dist(x: torch.Tensor, 
+                k: Optional[int] = None, 
+                sigma: Optional[float] = None) -> torch.Tensor:
+    """
+    Compute a k-nearest neighbor sparse distance or affinity matrix.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        Input data matrix (N x P).
+    k : int, optional
+        Number of nearest neighbors to retain. Defaults to N - 1.
+    sigma : float, optional
+        Gaussian kernel bandwidth.
+
+    Returns
+    -------
+    torch.Tensor
+        Sparse distance or affinity matrix.
+    """
+    if k is None:
+        x_t = torch.as_tensor(x)
+        k = max(1, x_t.shape[0] - 1)
+    return sparse_distance_matrix(x, k=k, sigma=sigma)

@@ -1,6 +1,8 @@
+import warnings
 import torch
 import torch.nn as nn
 import numpy as np
+import pandas as pd
 from typing import List, Tuple, Optional, Dict, Any, Union
 from .consensus import compute_shared_consensus
 
@@ -152,23 +154,32 @@ class NormalizingFlow(nn.Module):
     Normalizing Flow model wrapped around antstorch's create_real_nvp_normalizing_flow_model,
     with a pure PyTorch fallback if antstorch is not available.
     """
-    def __init__(self, dim: int, num_layers: int = 4, hidden_dim: int = 64, scale_bound: float = 2.0):
+    def __init__(self, dim: int, num_layers: int = 4, hidden_dim: int = 64, scale_bound: float = 2.0, force_fallback: bool = False):
         super().__init__()
         self.dim = dim
-        try:
-            from antstorch import create_real_nvp_normalizing_flow_model
-            # Map num_layers to K, hidden_dim to mlp_width, scale_bound to scale_cap
-            self.flow = create_real_nvp_normalizing_flow_model(
-                latent_size=dim,
-                K=num_layers,
-                mlp_width=hidden_dim,
-                scale_cap=scale_bound
-            )
-            self.use_fallback = False
-        except ImportError:
-            # Fallback to local implementation
+        if force_fallback:
             self.flow = CustomRealNVP(dim, num_layers, hidden_dim, scale_bound)
             self.use_fallback = True
+            warnings.warn("Using local fallback CustomRealNVP because force_fallback is True.", UserWarning, stacklevel=2)
+        else:
+            try:
+                from antstorch import create_real_nvp_normalizing_flow_model
+                import antsnormflows as nf
+                q0 = nf.distributions.DiagGaussian(dim)
+                # Map num_layers to K, hidden_dim to mlp_width, scale_bound to scale_cap
+                self.flow = create_real_nvp_normalizing_flow_model(
+                    latent_size=dim,
+                    K=num_layers,
+                    mlp_width=hidden_dim,
+                    scale_cap=scale_bound,
+                    q0=q0
+                )
+                self.use_fallback = False
+            except (ImportError, Exception) as e:
+                # Fallback to local implementation
+                self.flow = CustomRealNVP(dim, num_layers, hidden_dim, scale_bound)
+                self.use_fallback = True
+                warnings.warn(f"Using local fallback CustomRealNVP because ANTsTorch flow model initialization failed: {e}", UserWarning, stacklevel=2)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.use_fallback:
@@ -231,7 +242,7 @@ class FlowSiMRModel(nn.Module):
     """
     Normalizing Flow SiMR Model.
     """
-    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, hidden_dim: int = 64, mixing_algorithm: str = "newton", scale_bound: float = 2.0, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False):
+    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, hidden_dim: int = 64, mixing_algorithm: str = "newton", scale_bound: float = 2.0, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False, force_fallback: bool = False):
         super().__init__()
         self.input_dims = input_dims
         self.latent_dim = latent_dim
@@ -241,8 +252,9 @@ class FlowSiMRModel(nn.Module):
         self.mai_metric = mai_metric
         self.dynamic_weights_start = dynamic_weights_start
         self.use_rank_mai = use_rank_mai
+        self.force_fallback = force_fallback
         
-        self.flows = nn.ModuleList([NormalizingFlow(dim, num_layers, hidden_dim, scale_bound) for dim in input_dims])
+        self.flows = nn.ModuleList([NormalizingFlow(dim, num_layers, hidden_dim, scale_bound, force_fallback=force_fallback) for dim in input_dims])
         self.encoders = nn.ModuleList([FlowEncoderWrapper(flow, latent_dim) for flow in self.flows])
         self.decoders = nn.ModuleList([FlowDecoderWrapper(flow, latent_dim) for flow in self.flows])
         
@@ -415,6 +427,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         stabilization_ramp_epochs,
     )
     
+    has_stepped = False
     for epoch in range(epochs):
         model.train()
         epoch_loss, epoch_recon, epoch_sim = 0.0, 0.0, 0.0
@@ -459,6 +472,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            has_stepped = True
             
             if hasattr(model, 'update_mai'):
                 model.update_mai(latents, epoch, epochs, dynamic_weights_start=dynamic_weights_start)
@@ -473,7 +487,8 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         loss_history.append(epoch_loss)
         recon_history.append(epoch_recon)
         sim_history.append(epoch_sim)
-        scheduler.step()
+        if has_stepped and scheduler is not None:
+            scheduler.step()
         
         if hasattr(model, 'modality_weights'):
             model.weight_history.append(model.modality_weights.detach().cpu().numpy().copy())
@@ -505,9 +520,10 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               dynamic_weights: bool = False,
               mai_metric: str = "procrustes_r2",
               dynamic_weights_start: Optional[int] = None,
-              use_rank_mai: bool = False) -> Dict[str, Any]:
+              use_rank_mai: bool = False,
+              force_fallback: bool = False) -> Dict[str, Any]:
     """
-    Perform Flow-based Similarity-driven Multi-view Representation (Flow-SiMLR).
+    Perform Flow-based Similarity-driven Multi-view Representation (Flow-SiMR).
     
     Parameters
     ----------
@@ -562,7 +578,7 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"])
     input_dims = [m.shape[1] for m in torch_mats]
     
-    model = FlowSiMRModel(input_dims, k, num_layers=num_layers, hidden_dim=hidden_dim, mixing_algorithm=mixing_algorithm, scale_bound=scale_bound, dynamic_weights=dynamic_weights, mai_metric=mai_metric, dynamic_weights_start=dynamic_weights_start, use_rank_mai=use_rank_mai).to(device)
+    model = FlowSiMRModel(input_dims, k, num_layers=num_layers, hidden_dim=hidden_dim, mixing_algorithm=mixing_algorithm, scale_bound=scale_bound, dynamic_weights=dynamic_weights, mai_metric=mai_metric, dynamic_weights_start=dynamic_weights_start, use_rank_mai=use_rank_mai, force_fallback=force_fallback).to(device)
     optimizer = _get_optimizer(model, "adam", learning_rate, weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
     
@@ -608,7 +624,7 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
 class FlowSiMRVModel(nn.Module):
     """
-    Normalizing Flow SiMR Model with Pre-pended Linear Encoder Matrix V (Flow-SiMLR-V).
+    Normalizing Flow SiMR Model with Pre-pended Linear Encoder Matrix V (Flow-SiMR-V).
     """
     def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, 
                  hidden_dim: int = 64, mixing_algorithm: str = 'newton', scale_bound: float = 2.0,
@@ -616,7 +632,8 @@ class FlowSiMRVModel(nn.Module):
                  sparseness_quantile: Union[float, List[float]] = 0.0, use_nsa: bool = True,
                  dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False,
-                 retraction_type: str = "soft_polar"):
+                 retraction_type: str = "soft_polar",
+                 force_fallback: bool = False):
         super().__init__()
         if positivity is True or (isinstance(positivity, str) and positivity.lower() == 'true'):
             positivity = 'positive'
@@ -631,6 +648,7 @@ class FlowSiMRVModel(nn.Module):
         self.dynamic_weights_start = dynamic_weights_start
         self.use_rank_mai = use_rank_mai
         self.retraction_type = retraction_type
+        self.force_fallback = force_fallback
         
         # Local import to prevent circular dependency
         from .deep import LENDNSAEncoder
@@ -645,7 +663,7 @@ class FlowSiMRVModel(nn.Module):
         
         # flows now operate on the low-dimensional projected space of size latent_dim (K)
         self.flows = nn.ModuleList([
-            NormalizingFlow(latent_dim, num_layers, hidden_dim, scale_bound) 
+            NormalizingFlow(latent_dim, num_layers, hidden_dim, scale_bound, force_fallback=force_fallback) 
             for _ in range(len(input_dims))
         ])
         self.encoders = nn.ModuleList([
@@ -833,9 +851,10 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 use_rank_mai: bool = False,
                 stabilization_start_epoch: Optional[int] = None,
                 stabilization_ramp_epochs: Optional[int] = None,
-                retraction_type: str = 'soft_polar') -> Dict[str, Any]:
+                retraction_type: str = 'soft_polar',
+                force_fallback: bool = False) -> Dict[str, Any]:
     """
-    Perform Flow-based Similarity-driven Multi-view Representation with Linear Encoder (Flow-SiMLR-V).
+    Perform Flow-based Similarity-driven Multi-view Representation with Linear Encoder (Flow-SiMR-V).
     """
     if positivity is True or (isinstance(positivity, str) and positivity.lower() == 'true'):
         positivity = 'positive'
@@ -861,7 +880,8 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         dynamic_weights=dynamic_weights, mai_metric=mai_metric,
         dynamic_weights_start=dynamic_weights_start,
         use_rank_mai=use_rank_mai,
-        retraction_type=retraction_type
+        retraction_type=retraction_type,
+        force_fallback=force_fallback
     ).to(device)
     
     # Initialize linear encoders via SVD
@@ -915,3 +935,261 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     ]
     
     return result
+
+
+class FlowWhitener:
+    """
+    Normalizing Flow Whitener backed by ANTsTorch's lamnr_flows_whitener.
+    
+    Transforms single- or multi-modal data matrices into whitened representations
+    via bijective normalizing flows with GaussianPCA or DiagGaussian base distributions.
+    """
+    def __init__(
+        self,
+        K: int = 16,
+        max_iter: int = 500,
+        base_distribution: str = "GaussianPCA",
+        pca_latent_dimension: Optional[int] = None,
+        output_space: str = "whitened",
+        device: str = "cpu",
+        batch_size: int = 256,
+        seed: int = 0,
+        **kwargs
+    ):
+        self.K = K
+        self.max_iter = max_iter
+        self.base_distribution = base_distribution
+        self.pca_latent_dimension = pca_latent_dimension
+        self.output_space = output_space
+        self.device = device
+        self.batch_size = batch_size
+        self.seed = seed
+        self.kwargs = kwargs
+        self.trainer_output: Optional[Dict[str, Any]] = None
+        self.models: Optional[List[nn.Module]] = None
+
+    def _convert_input(self, data_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]]):
+        is_single = not isinstance(data_matrices, (list, tuple))
+        raw_list = [data_matrices] if is_single else list(data_matrices)
+        df_list = []
+        meta_list = []
+        for i, m in enumerate(raw_list):
+            if isinstance(m, pd.DataFrame):
+                df_list.append(m.copy())
+                meta_list.append({"kind": "dataframe", "columns": m.columns, "index": m.index})
+            elif isinstance(m, torch.Tensor):
+                arr = m.detach().cpu().numpy()
+                cols = [f"dim_{j}" for j in range(arr.shape[1])]
+                df_list.append(pd.DataFrame(np.ascontiguousarray(arr).copy(), columns=cols))
+                meta_list.append({"kind": "tensor", "device": m.device, "dtype": m.dtype})
+            elif isinstance(m, np.ndarray):
+                cols = [f"dim_{j}" for j in range(m.shape[1])]
+                df_list.append(pd.DataFrame(np.ascontiguousarray(m).copy(), columns=cols))
+                meta_list.append({"kind": "numpy", "dtype": m.dtype})
+            else:
+                arr = np.asarray(m)
+                cols = [f"dim_{j}" for j in range(arr.shape[1])]
+                df_list.append(pd.DataFrame(np.ascontiguousarray(arr).copy(), columns=cols))
+                meta_list.append({"kind": "numpy", "dtype": arr.dtype})
+        return df_list, is_single, meta_list
+
+    def _convert_output(self, dfs: Union[pd.DataFrame, List[pd.DataFrame]], is_single: bool, meta_list: List[Dict[str, Any]]):
+        df_list = [dfs] if isinstance(dfs, pd.DataFrame) else list(dfs)
+        out_list = []
+        for df, meta in zip(df_list, meta_list):
+            if meta["kind"] == "dataframe":
+                out_list.append(df)
+            elif meta["kind"] == "tensor":
+                t = torch.tensor(df.values, dtype=meta["dtype"], device=meta["device"])
+                out_list.append(t)
+            elif meta["kind"] == "numpy":
+                arr = np.asarray(df.values, dtype=meta["dtype"])
+                out_list.append(arr)
+            else:
+                out_list.append(df.values)
+        return out_list[0] if is_single else out_list
+
+    def fit(self, data_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]]) -> "FlowWhitener":
+        try:
+            from antstorch.lamnr_flows import lamnr_flows_whitener
+        except ImportError:
+            from antstorch import lamnr_flows_whitener
+
+        df_list, _, _ = self._convert_input(data_matrices)
+        whitener_kwargs = dict(self.kwargs)
+        whitener_kwargs.setdefault("early_stop_enabled", False)
+        whitener_kwargs.setdefault("val_interval", max(20, self.max_iter // 5) if self.max_iter > 20 else 10)
+        whitener_kwargs.setdefault("val_batch_size", self.batch_size)
+
+        train_kwargs = dict(
+            K=self.K,
+            max_iter=self.max_iter,
+            base_distribution=self.base_distribution,
+            batch_size=self.batch_size,
+            seed=self.seed,
+            **whitener_kwargs
+        )
+        if self.pca_latent_dimension is not None:
+            train_kwargs["pca_latent_dimension"] = self.pca_latent_dimension
+
+        self.trainer_output = lamnr_flows_whitener(df_list, **train_kwargs)
+        self.models = self.trainer_output.get("models", None)
+        return self
+
+    def transform(
+        self,
+        data_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]],
+        output_space: Optional[str] = None,
+        direction: str = "forward",
+        **kwargs
+    ) -> Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Any]]:
+        if self.trainer_output is None:
+            raise RuntimeError("FlowWhitener must be fitted before calling transform.")
+        try:
+            from antstorch.lamnr_flows import apply_lamnr_flows_whitener
+        except ImportError:
+            from antstorch import apply_lamnr_flows_whitener
+
+        df_list, is_single, meta_list = self._convert_input(data_matrices)
+        target_space = output_space if output_space is not None else self.output_space
+        applied = apply_lamnr_flows_whitener(
+            self.trainer_output,
+            df_list,
+            direction=direction,
+            output_space=target_space,
+            device=self.device,
+            **kwargs
+        )
+        return self._convert_output(applied, is_single, meta_list)
+
+    def inverse_transform(
+        self,
+        whitened_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]],
+        input_space: Optional[str] = None,
+        **kwargs
+    ) -> Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Any]]:
+        if self.trainer_output is None:
+            raise RuntimeError("FlowWhitener must be fitted before calling inverse_transform.")
+        try:
+            from antstorch.lamnr_flows import apply_lamnr_flows_whitener
+        except ImportError:
+            from antstorch import apply_lamnr_flows_whitener
+
+        df_list, is_single, meta_list = self._convert_input(whitened_matrices)
+        target_space = input_space if input_space is not None else self.output_space
+        applied = apply_lamnr_flows_whitener(
+            self.trainer_output,
+            df_list,
+            direction="inverse",
+            input_space=target_space,
+            device=self.device,
+            **kwargs
+        )
+        return self._convert_output(applied, is_single, meta_list)
+
+    def fit_transform(
+        self,
+        data_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]],
+        output_space: Optional[str] = None,
+        **kwargs
+    ) -> Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Any]]:
+        self.fit(data_matrices)
+        return self.transform(data_matrices, output_space=output_space, **kwargs)
+
+
+def flow_whiten_matrix(
+    data_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]],
+    K: int = 16,
+    max_iter: int = 500,
+    base_distribution: str = "GaussianPCA",
+    pca_latent_dimension: Optional[int] = None,
+    output_space: str = "whitened",
+    device: str = "cpu",
+    batch_size: int = 256,
+    seed: int = 0,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    Whiten data matrices using ANTsTorch normalizing flows (Flow-Whitening).
+
+    Parameters
+    ----------
+    data_matrices : torch.Tensor, np.ndarray, pd.DataFrame, or list thereof
+        Single matrix or list of multi-view data matrices.
+    K : int, default=16
+        Number of normalizing flow coupling layers.
+    max_iter : int, default=500
+        Maximum training iterations for the flow whitener.
+    base_distribution : str, default='GaussianPCA'
+        Base distribution ('GaussianPCA' or 'DiagGaussian').
+    pca_latent_dimension : int, optional
+        Latent dimension for GaussianPCA base distribution.
+    output_space : str, default='whitened'
+        Output representation ('whitened', 'z', or 'whitened_full').
+    device : str, default='cpu'
+        PyTorch device ('cpu' or 'cuda').
+    batch_size : int, default=256
+        Batch size for training.
+    seed : int, default=0
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    dict
+        A dictionary containing:
+        - "whitened_views": Transformed views in original input container type (list or single).
+        - "whitened_matrix": Transformed matrix if single input was provided.
+        - "whitened_dfs": Whitened pandas DataFrames.
+        - "models": List of trained normalizing flow models.
+        - "trainer_output": Complete ANTsTorch training output dictionary.
+        - "metrics": Training metrics (best step, best metric, etc.).
+        - "whitener": Fitted FlowWhitener instance.
+    """
+    whitener = FlowWhitener(
+        K=K,
+        max_iter=max_iter,
+        base_distribution=base_distribution,
+        pca_latent_dimension=pca_latent_dimension,
+        output_space=output_space,
+        device=device,
+        batch_size=batch_size,
+        seed=seed,
+        **kwargs
+    )
+    whitener.fit(data_matrices)
+    whitened_out = whitener.transform(data_matrices, output_space=output_space)
+    
+    df_list, is_single, _ = whitener._convert_input(data_matrices)
+    try:
+        from antstorch.lamnr_flows import apply_lamnr_flows_whitener
+    except ImportError:
+        from antstorch import apply_lamnr_flows_whitener
+    dfs_out = apply_lamnr_flows_whitener(
+        whitener.trainer_output,
+        df_list,
+        direction="forward",
+        output_space=output_space,
+        device=device
+    )
+
+    res = {
+        "whitened_views": whitened_out,
+        "whitened_dfs": dfs_out,
+        "models": whitener.models,
+        "trainer_output": whitener.trainer_output,
+        "metrics": whitener.trainer_output.get("metrics", {}),
+        "whitener": whitener,
+    }
+    if is_single:
+        res["whitened_matrix"] = whitened_out
+
+    return res
+
+
+flow_whitener = flow_whiten_matrix
+
+# Backward-compatibility aliases
+FlowSiMLRModel = FlowSiMRModel
+FlowSiMLRVModel = FlowSiMRVModel
+flow_simlr = flow_simr
+flow_simlr_v = flow_simr_v

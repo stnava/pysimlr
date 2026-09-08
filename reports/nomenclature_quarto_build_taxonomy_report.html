@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nomenclature & Quarto Build Taxonomy Audit — Flow-SiMR Migration</title>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --accent-teal: #0d9488;
+            --accent-teal-light: #14b8a6;
+            --accent-blue: #3b82f6;
+            --accent-green: #22c55e;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --accent-purple: #a855f7;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 2.5rem 1.5rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 2rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .badge {
+            display: inline-block;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 0.35rem 0.75rem;
+            border-radius: 9999px;
+            background: rgba(13, 148, 136, 0.2);
+            color: var(--accent-teal-light);
+            border: 1px solid rgba(20, 184, 166, 0.4);
+            margin-bottom: 1rem;
+        }
+
+        .badge-amber {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            border-color: rgba(245, 158, 11, 0.4);
+        }
+
+        .badge-rose {
+            background: rgba(244, 63, 94, 0.2);
+            color: #fda4af;
+            border-color: rgba(244, 63, 94, 0.4);
+        }
+
+        .badge-green {
+            background: rgba(34, 197, 94, 0.2);
+            color: #86efac;
+            border-color: rgba(34, 197, 94, 0.4);
+        }
+
+        h1 {
+            font-size: 2.25rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            margin-bottom: 0.75rem;
+            background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            max-width: 850px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            transition: border-color 0.2s;
+        }
+
+        .card:hover {
+            border-color: var(--accent-teal);
+        }
+
+        .card-stat {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--accent-teal-light);
+            margin-bottom: 0.25rem;
+        }
+
+        .card-label {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+        }
+
+        .card-desc {
+            font-size: 0.9rem;
+            color: #cbd5e1;
+            margin-top: 0.5rem;
+        }
+
+        section {
+            margin-bottom: 3rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            border-left: 4px solid var(--accent-teal);
+            padding-left: 0.75rem;
+        }
+
+        h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin: 1.25rem 0 0.75rem 0;
+            color: #e2e8f0;
+        }
+
+        p, li {
+            color: #cbd5e1;
+            font-size: 0.975rem;
+            margin-bottom: 0.75rem;
+        }
+
+        ul, ol {
+            padding-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        li {
+            margin-bottom: 0.35rem;
+        }
+
+        code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            background: #0f172a;
+            color: #38bdf8;
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.25rem;
+            font-size: 0.85em;
+            border: 1px solid #1e293b;
+        }
+
+        pre {
+            background: #090d16;
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            overflow-x: auto;
+            margin: 1rem 0;
+            font-size: 0.875rem;
+            color: #e2e8f0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.25rem 0;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            overflow: hidden;
+            font-size: 0.9rem;
+        }
+
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background-color: rgba(15, 23, 42, 0.8);
+            font-weight: 600;
+            color: #f1f5f9;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background-color: rgba(255, 255, 255, 0.02);
+        }
+
+        .highlight-box {
+            background: rgba(13, 148, 136, 0.1);
+            border: 1px solid rgba(20, 184, 166, 0.3);
+            border-radius: 0.5rem;
+            padding: 1.25rem;
+            margin: 1.25rem 0;
+        }
+
+        .warning-box {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 0.5rem;
+            padding: 1.25rem;
+            margin: 1.25rem 0;
+        }
+
+        .danger-box {
+            background: rgba(244, 63, 94, 0.1);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            border-radius: 0.5rem;
+            padding: 1.25rem;
+            margin: 1.25rem 0;
+        }
+
+        .color-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 0.35rem;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+
+        footer {
+            border-top: 1px solid var(--border);
+            padding-top: 2rem;
+            margin-top: 3rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="badge">Authoritative Specification Report</div>
+            <h1>Flow-SiMR & Flow-SiMR-V Manuscript Taxonomy Audit</h1>
+            <p class="subtitle">
+                Systematic evaluation of Quarto configuration (<code>_quarto.yml</code>), compilation pipeline (<code>build_paper.py</code>), 
+                freeze cache dependencies, table headers, color legends, and architectural taxonomy.
+            </p>
+        </header>
+
+        <!-- KPI Grid -->
+        <div class="grid">
+            <div class="card">
+                <div class="card-stat">52</div>
+                <div class="card-label">Nomenclature Matches</div>
+                <div class="card-desc">Occurrences of <code>Flow-SiMLR</code> / <code>Flow-SiMLR-V</code> cataloged across 8 manuscript and build files.</div>
+            </div>
+            <div class="card">
+                <div class="card-stat">0</div>
+                <div class="card-label">Broken References</div>
+                <div class="card-desc">No external chapter cross-references point to appendix labels; internal figure refs stay localized.</div>
+            </div>
+            <div class="card">
+                <div class="card-stat">180</div>
+                <div class="card-label">Epochs Saved via Freeze</div>
+                <div class="card-desc">Preserving the appendix filename avoids full neural re-training and flaky UCI network downloads.</div>
+            </div>
+            <div class="card">
+                <div class="card-stat">100%</div>
+                <div class="card-label">Python Native Parity</div>
+                <div class="card-desc">Directly aligns manuscript taxonomy with <code>FlowSiMRModel</code> and <code>flow_simr_v</code> in <code>flows.py</code>.</div>
+            </div>
+        </div>
+
+        <!-- Section 1: Executive Summary & Rationale -->
+        <section>
+            <h2>1. Authoritative Rationale: SiMLR vs. Flow-SiMR</h2>
+            <div class="highlight-box">
+                <h3 style="margin-top: 0; color: #14b8a6;">Mathematical & Architectural Correction</h3>
+                <p>
+                    <strong>User Directive:</strong> <em>"seems like it should be Flow-SiMR and Flow-SIMR-V instead of Flow-SiMLR and Flow-SiMLR-V"</em>
+                </p>
+                <p>
+                    <strong>Theoretical Rationale:</strong> In classical multi-modal literature, <strong>SiMLR</strong> designates 
+                    <em>Similarity-driven Multimodal <strong>Linear</strong> Representation</em> (or Reconstruction). 
+                    The letter <strong>"L"</strong> explicitly signifies linearity. Because Normalizing Flows are bijective, non-linear 
+                    diffeomorphic coordinate transformations composed of stacked affine coupling layers, the resulting architecture 
+                    is fundamentally non-linear. Retaining "L" is an architectural misnomer.
+                </p>
+                <p>
+                    <strong>Codebase Synchronization:</strong> This correction establishes 1:1 parity with the underlying Python 
+                    implementations in <code>src/pysimlr/flows.py</code>:
+                </p>
+                <ul>
+                    <li><code>class FlowSiMRModel(nn.Module)</code> &rarr; <strong>Flow-SiMR</strong> (Ours)</li>
+                    <li><code>class FlowSiMRVModel(nn.Module)</code> &rarr; <strong>Flow-SiMR-V</strong> (Ours)</li>
+                    <li><code>def flow_simr(...)</code> &rarr; Training functional for Flow-SiMR</li>
+                    <li><code>def flow_simr_v(...)</code> &rarr; Training functional with OLEE linear encoder bottleneck</li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- Section 2: Quarto Freeze vs. Renaming Evaluation -->
+        <section>
+            <h2>2. Quarto Freeze Cache vs. File Renaming Decision Matrix</h2>
+            <p>
+                A core question in the dispatch prompt is whether renaming <code>paper/appendix_flow_simlr_v.qmd</code> to 
+                <code>paper/appendix_flow_simr_v.qmd</code> is desirable or if keeping the filename with updated title and internal headings 
+                is cleaner to prevent breaking freeze caches.
+            </p>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Criteria</th>
+                        <th>Option A: Rename File (<code>appendix_flow_simr_v.qmd</code>)</th>
+                        <th>Option B: Keep Filename, Update All Content (Recommended)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Quarto Freeze (<code>freeze: auto</code>)</strong></td>
+                        <td><span class="badge badge-rose">Cache Broken</span> Quarto looks for <code>_freeze/appendix_flow_simr_v/</code>, which does not exist. Triggers full Jupyter re-execution.</td>
+                        <td><span class="badge badge-green">100% Preserved</span> Quarto parses Markdown title/text changes via Pandoc without invalidating the execution cache.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Execution Overhead & Network Risk</strong></td>
+                        <td><span class="badge badge-rose">High Risk</span> Requires 180 training epochs across Diabetes and Heart datasets, plus external HTTP download from UCI repository.</td>
+                        <td><span class="badge badge-green">Zero Risk</span> Pre-computed figures in <code>figure-html</code> and <code>figure-pdf</code> are rendered without re-executing cells.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Build Script (<code>build_paper.py</code>)</strong></td>
+                        <td><span class="badge badge-amber">Requires Code Edit</span> Must update hard-coded <code>chapters</code> set (line 147) and sync paths.</td>
+                        <td><span class="badge badge-green">Zero Edit Needed</span> Existing PDF synchronization routine works immediately out of the box.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Quarto Config (<code>_quarto.yml</code>)</strong></td>
+                        <td><span class="badge badge-amber">Requires Edit</span> Must modify line 38 from <code>appendix_flow_simlr_v.qmd</code> to <code>appendix_flow_simr_v.qmd</code>.</td>
+                        <td><span class="badge badge-green">Preserved</span> No changes required in <code>_quarto.yml</code>.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Rendered Presentation (HTML & PDF)</strong></td>
+                        <td>Displays <em>"Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)"</em></td>
+                        <td>Displays <em>"Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)"</em> (Exact Identical Display)</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="highlight-box">
+                <h3 style="margin-top: 0; color: #14b8a6;">Taxonomy Miner Assessment & Recommendation</h3>
+                <p>
+                    <strong>Primary Recommendation:</strong> Adopt <strong>Option B</strong>. Keep the physical filename as 
+                    <code>paper/appendix_flow_simlr_v.qmd</code>, but systematically update the YAML frontmatter title, section titles, 
+                    algorithmic descriptions, figure captions, and math formulations. This achieves 100% editorial and visual purity 
+                    in both HTML and PDF outputs while maintaining zero risk of build disruption or Jupyter execution failures.
+                </p>
+                <p>
+                    <strong>Alternative Pure Path:</strong> If the orchestrator mandates physical file renaming, implementers must follow 
+                    the <em>Strict Renaming Protocol</em> detailed in Section 5, which includes synchronizing <code>_quarto.yml</code>, 
+                    updating <code>build_paper.py</code>, copying freeze JSONs, and adapting internal figure paths.
+                </p>
+            </div>
+        </section>
+
+        <!-- Section 3: Tables, Legends & Algorithm Counts -->
+        <section>
+            <h2>3. Audit: Table Headers, Color Legends & Algorithm Counts</h2>
+
+            <h3>A. Table Headers & Rows Audit (Chapter 03 & Appendix)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Table Label</th>
+                        <th>Location</th>
+                        <th>Current Terminology</th>
+                        <th>Required Correction</th>
+                        <th>Audit Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>tbl-synthetic-summary</code> (Table 3.1)</td>
+                        <td><code>03_experiments.qmd:142</code></td>
+                        <td><code>model_order = [..., 'Flow-SiMLR-V']</code></td>
+                        <td><code>model_order = [..., 'Flow-SiMR-V']</code></td>
+                        <td><span class="badge badge-amber">Action Required</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>tbl-global-robustness</code> (Table 3.2)</td>
+                        <td><code>03_experiments.qmd:160-191</code></td>
+                        <td><code>SiMLR, LEND, NED, NEDPP</code></td>
+                        <td>No changes (Exclusively ranks 4 core deep/linear models)</td>
+                        <td><span class="badge badge-green">Verified Clean</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>tbl-diabetes-results</code> (Table 3.8)</td>
+                        <td><code>03_experiments.qmd:377</code></td>
+                        <td><code>{"Model": "Flow-SiMLR", ...}</code></td>
+                        <td><code>{"Model": "Flow-SiMR", ...}</code></td>
+                        <td><span class="badge badge-amber">Action Required</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>tbl-heart-results</code> (Table 3.9)</td>
+                        <td><code>03_experiments.qmd:412</code></td>
+                        <td><code>{"Model": "Flow-SiMLR", ...}</code></td>
+                        <td><code>{"Model": "Flow-SiMR", ...}</code></td>
+                        <td><span class="badge badge-amber">Action Required</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>tbl-exp1-results</code> (Table 3.10)</td>
+                        <td><code>03_experiments.qmd:486-488</code></td>
+                        <td><code>Flow-SiMLR (Ours)</code> / <code>Flow-SiMLR-V (Ours)</code></td>
+                        <td><code>Flow-SiMR (Ours)</code> / <code>Flow-SiMR-V (Ours)</code></td>
+                        <td><span class="badge badge-amber">Action Required</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>tbl-exp2-results</code> (Table 3.11)</td>
+                        <td><code>03_experiments.qmd:499-501</code></td>
+                        <td><code>Flow-SiMLR (Ours)</code> / <code>Flow-SiMLR-V (Ours)</code></td>
+                        <td><code>Flow-SiMR (Ours)</code> / <code>Flow-SiMR-V (Ours)</code></td>
+                        <td><span class="badge badge-amber">Action Required</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>tbl-exp3-results</code> (Table 3.12)</td>
+                        <td><code>03_experiments.qmd:512-514</code></td>
+                        <td><code>Flow-SiMLR (Ours)</code> / <code>Flow-SiMLR-V (Ours)</code></td>
+                        <td><code>Flow-SiMR (Ours)</code> / <code>Flow-SiMR-V (Ours)</code></td>
+                        <td><span class="badge badge-amber">Action Required</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>tbl-exp4-results</code> (Table 3.13)</td>
+                        <td><code>03_experiments.qmd:527-529</code></td>
+                        <td><code>Flow-SiMLR</code> / <code>Flow-SiMLR-V (Ours)</code></td>
+                        <td><code>Flow-SiMR</code> / <code>Flow-SiMR-V (Ours)</code></td>
+                        <td><span class="badge badge-amber">Action Required</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>tbl-mixed-synthetic-results</code> (Table 3.14)</td>
+                        <td><code>03_experiments.qmd:661-666</code></td>
+                        <td><code>Flow-SiMLR-V (...)</code> / <code>Flow-SiMLR (...)</code></td>
+                        <td><code>Flow-SiMR-V (...)</code> / <code>Flow-SiMR (...)</code></td>
+                        <td><span class="badge badge-amber">Action Required</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>tbl-brca-gating-results</code> (Table 3.15)</td>
+                        <td><code>03_experiments.qmd:675-680</code></td>
+                        <td><code>Flow-SiMLR-V (...)</code> / <code>Flow-SiMLR (...)</code></td>
+                        <td><code>Flow-SiMR-V (...)</code> / <code>Flow-SiMR (...)</code></td>
+                        <td><span class="badge badge-amber">Action Required</span></td>
+                    </tr>
+                    <tr>
+                        <td>BRCA Appendix Table</td>
+                        <td><code>appendix_brca_clinical_validation.qmd:21-22</code></td>
+                        <td><code>Flow-SiMLR</code> / <code>Flow-SiMLR-V (Ours)</code></td>
+                        <td><code>Flow-SiMR</code> / <code>Flow-SiMR-V (Ours)</code></td>
+                        <td><span class="badge badge-amber">Action Required</span></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>B. Color Legend & Styling Consistency</h3>
+            <p>
+                The manuscript establishes an explicit global color scheme across introductory narratives and experimental visualizations:
+            </p>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 1rem 0;">
+                <span class="color-pill" style="background: rgba(31, 119, 180, 0.2); color: #60a5fa; border: 1px solid #1f77b4;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #1f77b4; display: inline-block;"></span>
+                    SiMLR (#1f77b4) — Blue
+                </span>
+                <span class="color-pill" style="background: rgba(44, 160, 44, 0.2); color: #4ade80; border: 1px solid #2ca02c;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #2ca02c; display: inline-block;"></span>
+                    LEND (#2ca02c) — Green
+                </span>
+                <span class="color-pill" style="background: rgba(255, 127, 14, 0.2); color: #fb923c; border: 1px solid #ff7f0e;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #ff7f0e; display: inline-block;"></span>
+                    NED (#ff7f0e) — Orange
+                </span>
+                <span class="color-pill" style="background: rgba(148, 103, 189, 0.2); color: #c084fc; border: 1px solid #9467bd;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #9467bd; display: inline-block;"></span>
+                    NEDPP (#9467bd) — Purple
+                </span>
+                <span class="color-pill" style="background: rgba(0, 128, 128, 0.2); color: #2dd4bf; border: 1px solid #008080;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #008080; display: inline-block;"></span>
+                    Flow-SiMR (#008080) — Teal
+                </span>
+            </div>
+            <ul>
+                <li><strong>Section 03 Color Mapping (<code>03_experiments.qmd:684</code>):</strong> Currently reads <code>[**Teal for Flow-SiMLR**]</code> &rarr; Must be updated to <code>[**Teal for Flow-SiMR**]</code>.</li>
+                <li><strong>Section 01 Framework List (<code>01_intro_background.qmd:95</code>):</strong> Currently reads <code>[**Flow-SiMLR (Normalizing Flows - Teal):**]</code> &rarr; Must be updated to <code>[**Flow-SiMR (Normalizing Flows - Teal):**]</code>.</li>
+            </ul>
+
+            <h3>C. Algorithm Counts Audit</h3>
+            <ul>
+                <li>
+                    <strong><code>01_intro_background.qmd:89</code>:</strong> Reads <em>"We evaluate this framework across five algorithmic implementations (SiMLR, LEND, NED, NEDPP, Flow-SiMLR):"</em>.
+                    <br>&rarr; Count (5) is correct, referencing the 5 primary architectural paradigms. Update name to <code>Flow-SiMR</code>.
+                </li>
+                <li>
+                    <strong><code>02_methods.qmd:36</code>:</strong> Reads <em>"We present four distinct algorithmic implementations, each motivated by the limitations of the prior model..."</em>, but the section contains <strong>five</strong> sub-sections (Classical SiMLR, LEND, Fully Deep NED, Shared-Private NEDPP, Normalizing Flow SiMR).
+                    <br>&rarr; <span class="badge badge-amber">Discrepancy</span>: Line 36 must be amended to: <em>"We present five distinct algorithmic implementations..."</em>.
+                </li>
+                <li>
+                    <strong><code>03_experiments.qmd:31</code>:</strong> Reads <em>"The suite evaluates 4 architectures (SiMLR, LEND, NED, NEDPP), 4 loss functions, and 4 consensus methods."</em>.
+                    <br>&rarr; <span class="badge badge-green">Accurate</span>: This refers specifically to the factorial synthetic benchmark ($4 \times 4 \times 4 = 64$ configurations, $N=1280$), while Flow-SiMR is evaluated in dedicated subsequent experiments (Exp 1–4 and Gating Stability).
+                </li>
+            </ul>
+        </section>
+
+        <!-- Section 4: Mermaid Diagram & build_paper.py Synchronization -->
+        <section>
+            <h2>4. Mermaid Diagram & <code>build_paper.py</code> Synchronization</h2>
+            <p>
+                In <code>build_paper.py</code>, the script automatically parses Mermaid code blocks from markdown files and generates 
+                PNG images via the Mermaid.ink API before Quarto compiles:
+            </p>
+            <pre><code># build_paper.py (Lines 268-275)
+mapping = {
+    "fig-interpretability-gap": "paper/01_intro_background.qmd",
+    "fig-simlr": "paper/02_methods.qmd",
+    "fig-lend": "paper/02_methods.qmd",
+    "fig-ned": "paper/02_methods.qmd",
+    "fig-nedpp": "paper/02_methods.qmd",
+    "fig-flow-simlr": "paper/02_methods.qmd"  # <--- CRITICAL DEPENDENCY
+}</code></pre>
+            <div class="danger-box">
+                <h3 style="margin-top: 0; color: #f43f5e;">Build Breaker Alert</h3>
+                <p>
+                    If an editor renames the Mermaid figure block in <code>02_methods.qmd:248</code> from 
+                    <code>::: {#fig-flow-simlr}</code> to <code>::: {#fig-flow-simr}</code> <strong>without</strong> updating 
+                    <code>build_paper.py</code> line 274, <code>build_paper.py</code> will fail with:
+                </p>
+                <pre><code>Could not find mermaid block for fig-flow-simlr in paper/02_methods.qmd
+Skipping Quarto render due to Mermaid generation errors.</code></pre>
+                <p>
+                    <strong>Requirement:</strong> If updating figure ID to <code>fig-flow-simr</code>, line 274 of <code>build_paper.py</code> 
+                    AND line 286 of <code>02_methods.qmd</code> (<code>![](figures/fig-flow-simr.png)</code>) MUST be updated simultaneously.
+                </p>
+            </div>
+        </section>
+
+        <!-- Section 5: Step-by-Step Implementation Specification -->
+        <section>
+            <h2>5. Zero-Error Implementation Specification for Implementers</h2>
+            <p>
+                The following step-by-step checklist defines the precise changes required for implementers to achieve zero-error compilation:
+            </p>
+
+            <ol>
+                <li>
+                    <strong><code>paper/01_intro_background.qmd</code>:</strong>
+                    <ul>
+                        <li>Line 85: Replace <code>**Flow-SiMLR**</code> with <code>**Flow-SiMR**</code>.</li>
+                        <li>Line 89: Replace <code>Flow-SiMLR</code> with <code>Flow-SiMR</code>.</li>
+                        <li>Line 95: Replace <code>Flow-SiMLR (Normalizing Flows - Teal)</code> with <code>Flow-SiMR (Normalizing Flows - Teal)</code>.</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong><code>paper/02_methods.qmd</code>:</strong>
+                    <ul>
+                        <li>Line 36: Update <em>"four distinct algorithmic implementations"</em> to <em>"five distinct algorithmic implementations"</em>.</li>
+                        <li>Line 210: Update heading to <code>### Normalizing Flow SiMR (Flow-SiMR): Bijective Multimodal Integration</code>.</li>
+                        <li>Line 212: Replace <code>Flow-SiMLR solves this</code> with <code>Flow-SiMR solves this</code>.</li>
+                        <li>Line 232: Replace <code>\mathcal{L}_{\text{Flow-SiMLR}}</code> with <code>\mathcal{L}_{\text{Flow-SiMR}}</code>.</li>
+                        <li>Line 248 &amp; 286: Synchronously update Mermaid block ID and image target (coordinate with <code>build_paper.py</code>).</li>
+                        <li>Line 289: Caption: Replace <code>Flow-SiMLR: Normalizing flow architecture.</code> with <code>Flow-SiMR: Normalizing flow architecture.</code>.</li>
+                        <li>Line 431: Replace <code>(like Flow-SiMLR-V)</code> with <code>(like Flow-SiMR-V)</code>.</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong><code>paper/03_experiments.qmd</code>:</strong>
+                    <ul>
+                        <li>Line 142: Update <code>'Flow-SiMLR-V'</code> to <code>'Flow-SiMR-V'</code> in <code>model_order</code>.</li>
+                        <li>Lines 377, 412: Update <code>"Model": "Flow-SiMLR"</code> to <code>"Model": "Flow-SiMR"</code> in table rows.</li>
+                        <li>Line 473: Section heading: <code>## Normalizing Flow SiMR (Flow-SiMR) Scientific Evaluation</code>.</li>
+                        <li>Lines 480, 486–488, 493, 499–501, 506, 512–514, 517, 519, 527–529: Systematically replace <code>Flow-SiMLR</code> &rarr; <code>Flow-SiMR</code> and <code>Flow-SiMLR-V</code> &rarr; <code>Flow-SiMR-V</code>.</li>
+                        <li>Lines 650, 657, 661–666, 669, 671, 675–680: Section heading, narrative, and Table 3.14 / 3.15 rows &rarr; <code>Flow-SiMR-V</code> and <code>Flow-SiMR</code>.</li>
+                        <li>Line 684: Color legend: Replace <code>Teal for Flow-SiMLR</code> with <code>Teal for Flow-SiMR</code>.</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong><code>paper/04_discussion.qmd</code>:</strong>
+                    <ul>
+                        <li>Lines 44, 46, 50, 62: Systematically replace <code>Flow-SiMLR</code> &rarr; <code>Flow-SiMR</code> and <code>Flow-SiMLR-V</code> &rarr; <code>Flow-SiMR-V</code>.</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong><code>paper/appendix_brca_clinical_validation.qmd</code>:</strong>
+                    <ul>
+                        <li>Lines 21, 22, 27: Replace <code>Flow-SiMLR</code> &rarr; <code>Flow-SiMR</code> and <code>Flow-SiMLR-V</code> &rarr; <code>Flow-SiMR-V</code>.</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong><code>paper/appendix_operational.qmd</code>:</strong>
+                    <ul>
+                        <li>Lines 125, 137, 138: Update definitions of Bijective Mapping, Flow-SiMR, and Flow-SiMR-V.</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong><code>paper/appendix_flow_simlr_v.qmd</code>:</strong>
+                    <ul>
+                        <li>Line 2: <code>title: "Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)"</code>.</li>
+                        <li>Lines 7, 30, 36, 91, 97, 204, 234: Update narrative, caption, and section headings. Keep Python code lines untouched to maintain freeze cache hash.</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong><code>build_paper.py</code>:</strong>
+                    <ul>
+                        <li>Line 274: Update <code>"fig-flow-simlr"</code> to <code>"fig-flow-simr"</code> (matching <code>02_methods.qmd:248</code>).</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Compilation & Verification Commands</h3>
+            <pre><code># 1. Ensure Python Virtual Environment
+export QUARTO_PYTHON=/Users/stnava/venvs/ants/bin/python
+export MPLBACKEND=Agg
+
+# 2. Execute Full Build via build_paper.py (Mermaid + HTML + PDF)
+/Users/stnava/venvs/ants/bin/python build_paper.py
+
+# 3. Verify HTML & PDF outputs
+open docs/manuscript/index.html
+open docs/manuscript/Deep-SiMLR-Manuscript.pdf</code></pre>
+        </section>
+
+        <footer>
+            <div>Report generated: 2026-09-07 | Specification Miner: Nomenclature (Agent 3)</div>
+            <div>Target: <code>stnava/pysimlr</code></div>
+        </footer>
+    </div>
+</body>
+</html>

@@ -33,7 +33,7 @@ where:
 
 ## Architectural Taxonomy
 
-The joint-variational objective establishes a foundation for a modular architectural taxonomy. We present four distinct algorithmic implementations, each motivated by the limitations of the prior model, progressively increasing representational capacity while strictly maintaining the OLEE interpretability bottleneck.
+The joint-variational objective establishes a foundation for a modular architectural taxonomy. We present five distinct algorithmic implementations, each motivated by the limitations of the prior model, progressively increasing representational capacity while strictly maintaining the OLEE interpretability bottleneck.
 
 ### Classical SiMLR (Linear Baseline)
 
@@ -207,9 +207,9 @@ graph TD
 NEDPP (Non-linear Encoder Decoder with Private Partitions): Disentangled architecture utilizing OLEE constraints for both shared and private subspaces. Incorporates cross-covariance penalization for statistical independence.
 :::
 
-### Normalizing Flow SiMLR (Flow-SiMLR): Bijective Multimodal Integration
+### Normalizing Flow SiMR (Flow-SiMR): Bijective Multimodal Integration
 
-While the deep architectures (LEND, NED, NEDPP) increase representation capacity, their projection bottlenecks are fundamentally lossy, entangling features and losing fine-grained modality-specific variations. Flow-SiMLR solves this by deploying bijective Normalizing Flows [@rezende2015variational; @dinh2016density] to perform exact, information-preserving coordinate transformations. Our normalizing flow model is implemented natively in PyTorch, adapting design principles and architectures from the Latent-Aligned Multiview Normalizing Flows (LAMNr Flows) open-source library ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)), which focuses on exact log-likelihood maximization and consensus alignment of multi-view spaces.
+While the deep architectures (LEND, NED, NEDPP) increase representation capacity, their projection bottlenecks are fundamentally lossy, entangling features and losing fine-grained modality-specific variations. Flow-SiMR solves this by deploying bijective Normalizing Flows [@rezende2015variational; @dinh2016density] to perform exact, information-preserving coordinate transformations. Our normalizing flow model is implemented natively in PyTorch, adapting design principles and architectures from the Latent-Aligned Multiview Normalizing Flows (LAMNr Flows) open-source library ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)), which focuses on exact log-likelihood maximization and consensus alignment of multi-view spaces.
 
 #### 1. Invertible Affine Coupling Formulation
 Each view $m$ is modeled via an invertible mapping $f_m: \mathbb{R}^{d_m} \to \mathbb{R}^{d_m}$ composed of a sequence of affine coupling layers. For input $x \in \mathbb{R}^{d_m}$, a coupling layer splits features using a binary mask $b \in \{0, 1\}^{d_m}$ and maps them as:
@@ -229,7 +229,7 @@ $$\mathbf{Z}_m = f_m(\mathbf{X}_m) \quad \text{where} \quad \mathbf{Z}_{m,\text{
 Alignment optimization guides the shared components $\mathbf{Z}_{m,\text{shared}}$ toward the consensus target $\mathbf{U}_{\neq m}$. To force the flow to pack the essential reconstruction information into these first $k$ dimensions, we define the decoder wrapper using zero-padding:
 $$\hat{\mathbf{X}}_m = f_m^{-1}\left([\mathbf{Z}_{m,\text{shared}} \parallel \mathbf{0}]\right)$$
 This yields a hybrid objective function:
-$$\mathcal{L}_{\text{Flow-SiMLR}} = \beta \sum_{m=1}^M \mathcal{L}_{\text{NLL}}(\mathbf{X}_m) + \sum_{m=1}^M \mathcal{L}_{\text{align}}(\mathbf{Z}_{m,\text{shared}}, \mathbf{U}_{\neq m}) + \gamma \sum_{m=1}^M \mathcal{L}_{\text{MSE}}(\mathbf{X}_m, \hat{\mathbf{X}}_m)$$
+$$\mathcal{L}_{\text{Flow-SiMR}} = \beta \sum_{m=1}^M \mathcal{L}_{\text{NLL}}(\mathbf{X}_m) + \sum_{m=1}^M \mathcal{L}_{\text{align}}(\mathbf{Z}_{m,\text{shared}}, \mathbf{U}_{\neq m}) + \gamma \sum_{m=1}^M \mathcal{L}_{\text{MSE}}(\mathbf{X}_m, \hat{\mathbf{X}}_m)$$
 where $\mathcal{L}_{\text{NLL}}$ is the negative log-prior density under a standard multivariate Gaussian:
 $$\mathcal{L}_{\text{NLL}}(\mathbf{X}_m) = - \mathbb{E}_{x \sim \mathbf{X}_m} \left[ \log p_Z(f_m(x)) + \log |\det J_{f_m}(x)| \right]$$
 with $\log p_Z(z) = -\frac{1}{2} \|z\|_2^2 - \frac{d_m}{2}\log(2\pi)$. The scaling factors $\beta$ (default $0.05$) and $\gamma$ (default $2.0$) balance density maximization, alignment, and low-dimensional reconstruction fidelity.
@@ -245,7 +245,7 @@ We solve this linear system efficiently using a Cholesky solver. Finally, we pas
 $$\hat{\mathbf{X}}_B = f_B^{-1}\left([\mu_{B|A} \parallel \mathbf{0}]\right)$$
 This enables exact, mathematically principled cross-view imputation and counterfactual clinical synthesis.
 
-::: {#fig-flow-simlr}
+::: {#fig-flow-simr}
 
 ::: {.content-visible when-format="html"}
 ```{mermaid}
@@ -283,10 +283,10 @@ graph TD
 :::
 
 ::: {.content-visible when-format="pdf"}
-![](figures/fig-flow-simlr.png)
+![](figures/fig-flow-simr.png)
 :::
 
-Flow-SiMLR: Normalizing flow architecture. The bijective flow maps inputs to a joint Gaussian latent space. The first $k$ dimensions are aligned with the shared cross-view consensus, while the remaining dimensions act as an implicit private partition. Padded decoding and Gaussian conditioning enable exact reconstruction and cross-view synthesis.
+Flow-SiMR: Normalizing flow architecture. The bijective flow maps inputs to a joint Gaussian latent space. The first $k$ dimensions are aligned with the shared cross-view consensus, while the remaining dimensions act as an implicit private partition. Padded decoding and Gaussian conditioning enable exact reconstruction and cross-view synthesis.
 :::
 
 ## Optimization, Consensus, and Spectral Triage
@@ -428,7 +428,7 @@ Conversely, following the Baik-Ben Arous-Péché (BBP) phase transition theorem 
 
 ### Delayed Dynamic Weight Start (Gating Warmup)
 
-When applying dynamic weights ($w_m$) to Normalizing Flow networks or models with linear encoder layers (like Flow-SiMLR-V), initiating the competitive gating update at epoch 0 can trigger a catastrophic positive feedback loop. Early in training, the linear projection matrices $\mathbf{V}_m$ and bijective flow transformations are random, producing noisy latents $\mathbf{Z}_m$ and low MAI values. Softmax competition:
+When applying dynamic weights ($w_m$) to Normalizing Flow networks or models with linear encoder layers (like Flow-SiMR-V), initiating the competitive gating update at epoch 0 can trigger a catastrophic positive feedback loop. Early in training, the linear projection matrices $\mathbf{V}_m$ and bijective flow transformations are random, producing noisy latents $\mathbf{Z}_m$ and low MAI values. Softmax competition:
 $$ w_m^{(t)} = \text{softmax}(\tau \cdot \text{MAI}_m^{(t)}) $$
 amplifies minor initialization variances, prematurely driving the weights of valid but slow-to-converge views to zero. Once a modality's weight approaches zero, its parameters stop receiving gradient updates, locking the model into a collapsed state (Weight Collapse).
 
