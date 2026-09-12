@@ -6,8 +6,10 @@ import torch
 from pysimlr import (
     SparseGraphResolvent,
     create_grid_graph_laplacian,
+    create_graph_laplacian,
     create_laplacian_resolvent_operator,
     create_spatial_smoothing_operator,
+    create_smoothing_operator,
     simlr
 )
 
@@ -85,20 +87,70 @@ def test_sparse_graph_resolvent_numerical_accuracy():
     assert S_sparse_t.is_sparse_csr
 
 
-def test_create_spatial_smoothing_operator():
-    mask = np.ones((10, 10), dtype=bool)
-    S_op = create_spatial_smoothing_operator(mask, lambda_val=0.05, connectivity=8)
-    assert isinstance(S_op, SparseGraphResolvent)
-    assert S_op.P == 100
-    assert S_op.shape == (100, 100)
+def test_create_graph_laplacian_general_structures():
+    # 1. Coordinates (P x 3)
+    P = 80
+    coords = np.random.randn(P, 3).astype(np.float32)
+    L_coords = create_graph_laplacian(coords, k=6)
+    assert L_coords.shape == (P, P)
+    assert np.allclose((L_coords - L_coords.T).data, 0, atol=1e-6)
+
+    # Test with Gaussian sigma
+    L_gauss = create_graph_laplacian(coords, k=6, sigma=1.0)
+    assert L_gauss.shape == (P, P)
+
+    # Test normalized Laplacian
+    L_norm = create_graph_laplacian(coords, k=6, normalized=True)
+    assert L_norm.shape == (P, P)
+    assert np.allclose((L_norm - L_norm.T).data, 0, atol=1e-6)
+
+    # 2. Triangular mesh faces (F x 3)
+    faces = np.array([[0, 1, 2], [1, 2, 3], [2, 3, 4], [0, 2, 4]], dtype=np.int64)
+    L_mesh = create_graph_laplacian(faces)
+    assert L_mesh.shape == (5, 5)
+    assert np.allclose((L_mesh - L_mesh.T).data, 0, atol=1e-6)
+
+    # 3. Edge list (E x 2)
+    edges = np.array([[0, 1], [1, 2], [2, 3], [3, 0]], dtype=np.int64)
+    L_edges = create_graph_laplacian(edges)
+    assert L_edges.shape == (4, 4)
+    assert np.allclose((L_edges - L_edges.T).data, 0, atol=1e-6)
+
+    # 4. Adjacency matrix
+    adj = sp.csr_matrix([[0, 1, 0], [1, 0, 1], [0, 1, 0]], dtype=np.float32)
+    L_adj = create_graph_laplacian(adj)
+    assert L_adj.shape == (3, 3)
+    assert np.allclose(L_adj.toarray(), [[1, -1, 0], [-1, 2, -1], [0, -1, 1]])
 
 
-def test_simlr_integration_with_sparse_resolvent():
-    N = 30
-    P = 64
-    mask = np.ones((8, 8), dtype=bool)
+def test_create_smoothing_operator_universal():
+    # 1. From coordinates
+    coords = np.random.randn(50, 3).astype(np.float32)
+    S_coords = create_smoothing_operator(coords, lambda_val=0.05, k=5)
+    assert isinstance(S_coords, SparseGraphResolvent)
+    assert S_coords.shape == (50, 50)
 
-    S_op = create_spatial_smoothing_operator(mask, lambda_val=0.05)
+    # Test multiplication
+    v = torch.randn(50, 2)
+    v_smooth = S_coords @ v
+    assert v_smooth.shape == (50, 2)
+
+    # 2. From mesh faces
+    faces = np.array([[0, 1, 2], [1, 2, 3]], dtype=np.int64)
+    S_mesh = create_smoothing_operator(faces, lambda_val=0.1)
+    assert S_mesh.shape == (4, 4)
+
+    # 3. From boolean mask
+    mask = np.ones((6, 6), dtype=bool)
+    S_mask = create_smoothing_operator(mask, lambda_val=0.05)
+    assert S_mask.shape == (36, 36)
+
+
+def test_simlr_integration_with_universal_operator():
+    N = 25
+    P = 40
+    coords = np.random.randn(P, 3).astype(np.float32)
+    S_op = create_smoothing_operator(coords, lambda_val=0.05, k=6)
 
     torch.manual_seed(42)
     X = torch.randn(N, P)
@@ -109,7 +161,7 @@ def test_simlr_integration_with_sparse_resolvent():
         k=1,
         iterations=10,
         smoothing_matrices=[S_op, None],
-        sparseness_quantile=0.15,
+        sparseness_quantile=0.10,
         optimizer_type='lars',
         verbose=False
     )
