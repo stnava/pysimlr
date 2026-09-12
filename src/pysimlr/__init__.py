@@ -41,7 +41,14 @@ from .svd import (
 )
 from .sparse import (
     sparse_distance_matrix,
-    sparse_distance_matrix_xy
+    sparse_distance_matrix_xy,
+    sparse_dist,
+    SparseGraphResolvent,
+    create_grid_graph_laplacian,
+    create_graph_laplacian,
+    create_laplacian_resolvent_operator,
+    create_spatial_smoothing_operator,
+    create_smoothing_operator
 )
 from .regression import (
     smooth_matrix_prediction,
@@ -155,6 +162,11 @@ __all__ = [
     'multiscale_svd',
     'sparse_distance_matrix',
     'sparse_distance_matrix_xy',
+    'sparse_dist',
+    'SparseGraphResolvent',
+    'create_grid_graph_laplacian',
+    'create_laplacian_resolvent_operator',
+    'create_spatial_smoothing_operator',
     'smooth_matrix_prediction',
     'smooth_regression',
     'nnh_embed',
