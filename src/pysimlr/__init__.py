@@ -9,6 +9,8 @@ if "DISPLAY" not in os.environ or os.environ.get("MPLBACKEND") == "Agg":
 
 
 
+__version__ = "0.2.10"
+
 from .simlr import (
     simlr,
     predict_simlr,
@@ -138,6 +140,7 @@ from .visualization import (
 from . import benchmarks
 
 __all__ = [
+    '__version__',
     'simlr',
     'predict_simlr',
     'predict_shared_latent',
