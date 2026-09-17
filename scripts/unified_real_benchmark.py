@@ -64,6 +64,12 @@ def run_experiment_task(task_args):
     train_acc = metrics.get("train_accuracy", 0.0) if is_h else metrics.get("train_r2", 0.0)
     lin_test = metrics.get("first_layer_test_accuracy", 0.0) if is_h else metrics.get("first_layer_test_r2", 0.0)
     lin_train = metrics.get("first_layer_train_accuracy", 0.0) if is_h else metrics.get("first_layer_train_r2", 0.0)
+    # "Strictly Linear Accuracy" is a linear model on the projected scores, so
+    # it is invariant to reparametrising the basis and measures the subspace
+    # rather than the axes -- see pysimlr.benchmarks.metrics.cross_val_metrics.
+    # The axis-sensitive column is a forest on the same scores, which does see
+    # the axes, and is what a claim about a basis has to rest on.
+    axis_test = metrics.get("first_layer_axis_test_accuracy", 0.0) if is_h else metrics.get("first_layer_axis_test_r2", 0.0)
     
     return {
         "Dataset": dataset_name,
@@ -75,6 +81,7 @@ def run_experiment_task(task_args):
         "Train Accuracy (Y)": float(train_acc),
         "Gen Gap (Y)": float(train_acc - test_acc),
         "Strictly Linear Accuracy": float(lin_test),
+        "Axis-Sensitive Accuracy": float(axis_test),
         "Strictly Linear Train": float(lin_train),
         "Strictly Linear Gap": float(lin_train - lin_test),
         "CMC": float(metrics.get("recovery", 0.0)),
@@ -103,7 +110,7 @@ def run_real_benchmark(version="v22", n_seeds=5, iterations=50, epochs=150, use_
     print(f"Starting FULL REAL benchmark ({version}) with {len(tasks)} tasks, {n_seeds} seeds...")
     os.makedirs("paper/results_cache", exist_ok=True)
     out_file = f"paper/results_cache/unified_real_{version}.csv"
-    header = ["Dataset", "Model", "Seed", "Loss", "Consensus", "Predictive Accuracy (Y)", "Train Accuracy (Y)", "Gen Gap (Y)", "Strictly Linear Accuracy", "Strictly Linear Train", "Strictly Linear Gap", "CMC", "SRE"]
+    header = ["Dataset", "Model", "Seed", "Loss", "Consensus", "Predictive Accuracy (Y)", "Train Accuracy (Y)", "Gen Gap (Y)", "Strictly Linear Accuracy", "Axis-Sensitive Accuracy", "Strictly Linear Train", "Strictly Linear Gap", "CMC", "SRE"]
     with open(out_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=header); writer.writeheader()
     

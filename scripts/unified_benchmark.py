@@ -72,6 +72,10 @@ def run_experiment_task(task_args):
         "Train Accuracy (Y)": float(metrics.get("train_r2", 0.0)),
         "Gen Gap (Y)": float(metrics.get("gen_gap", 0.0)),
         "Strictly Linear Accuracy": float(metrics.get("first_layer_test_r2", 0.0)),
+        # A linear model on projected scores is invariant to reparametrising
+        # the basis, so the column above measures the subspace and not the
+        # axes. The forest below sees the axes; a basis claim needs it.
+        "Axis-Sensitive Accuracy": float(metrics.get("first_layer_axis_test_r2", 0.0)),
         "Strictly Linear Train": float(metrics.get("first_layer_train_r2", 0.0)),
         "Strictly Linear Gap": float(metrics.get("first_layer_gen_gap", 0.0)),
         "Latent Recovery (U)": float(metrics.get("recovery", 0.0)),
@@ -105,7 +109,7 @@ def run_unified_benchmark(version="v22", n_seeds=5, iterations=50, epochs=150, u
     print(f"Starting FULL SYNTHETIC benchmark ({version}) with {len(tasks)} tasks, {n_seeds} seeds...")
     os.makedirs("paper/results_cache", exist_ok=True)
     out_file = f"paper/results_cache/unified_synthetic_{version}.csv"
-    header = ["Regime", "Model", "Seed", "Loss", "Consensus", "CMC", "SRE", "Predictive Accuracy (Y)", "Train Accuracy (Y)", "Gen Gap (Y)", "Strictly Linear Accuracy", "Strictly Linear Train", "Strictly Linear Gap", "Latent Recovery (U)", "Feature Recovery (V)"]
+    header = ["Regime", "Model", "Seed", "Loss", "Consensus", "CMC", "SRE", "Predictive Accuracy (Y)", "Train Accuracy (Y)", "Gen Gap (Y)", "Strictly Linear Accuracy", "Axis-Sensitive Accuracy", "Strictly Linear Train", "Strictly Linear Gap", "Latent Recovery (U)", "Feature Recovery (V)"]
     
     with open(out_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=header); writer.writeheader()
