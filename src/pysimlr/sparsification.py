@@ -387,14 +387,26 @@ def _usable_retraction(candidate: Optional[torch.Tensor],
     """
     Whether a retraction backend's output can be accepted in place of `reference`.
 
-    The NSA-Flow backend returns a result dict whose ``Y`` is not always a
-    usable basis. For some combinations of shape and retraction weight it
-    returns an all-zero matrix -- measured for a 5x2 non-negative input at
-    ``w`` of 0.1 and 0.3 with ``apply_nonneg="hard"`` -- and a zero basis
-    silently destroys the model: every projection becomes zero, the latent
-    carries no signal, and downstream R-squared is exactly 0 while nothing
-    raises. Checking only ``Y is not None``, as this code previously did, does
-    not catch that.
+    The NSA-Flow backend returns a result dict whose ``Y`` is not guaranteed to
+    be a usable basis, and a zero basis destroys the model silently: every
+    projection becomes zero, the latent carries no signal, and downstream
+    R-squared is exactly 0 while nothing raises. Checking only
+    ``Y is not None``, as this code previously did, does not catch that. That
+    is the failure this guard exists for, and it is worth keeping regardless of
+    which backend version is installed.
+
+    History, since the specific collapse it was written against no longer
+    reproduces. An all-zero ``Y`` was observed for a 5x2 non-negative input at
+    ``w`` of 0.1 and 0.3 with ``apply_nonneg="hard"``, on the backend version
+    current when this guard was added; it is what took SiMLR's Diabetes
+    R-squared from +0.3932 to +0.0000 with min and max identical across all 160
+    runs. On 2.7.0 the same call returns ``||Y||`` of 2.02 and 1.55 with no zero
+    entries. The likely mechanism is the signed-target pathology the backend
+    since fixed: a non-negative ``Y`` anchored entrywise to a signed target is
+    charged for negative entries it cannot reach, and the optimum degenerates
+    toward ``max(0, X0)``. 2.7.0 routes a signed target to its sign-blind
+    subspace fidelity instead, which is why the collapse is gone rather than
+    merely rarer.
 
     Parameters
     ----------

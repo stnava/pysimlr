@@ -743,9 +743,15 @@ class NSAFlowOptimizer(SimlrOptimizer):
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
         self.lr = self.params['learning_rate']
-        self.w = self.params['nsa_w']
-        from .nsa_backend import load_nsa_flow_orth
-        self.nsa_flow = load_nsa_flow_orth()
+        # Clamp like every other retraction weight. This path constructs its
+        # own solver call rather than going through `_nsa_retract`, so it would
+        # otherwise bypass the cap and reach w=1, where the fidelity term drops
+        # out and every scaled Stiefel matrix is optimal.
+        from .sparsification import _clamp_retraction_weight
+        self.w = _clamp_retraction_weight(self.params['nsa_w'])
+        # The canonical resolver; `load_nsa_flow_orth` is a deprecated alias.
+        from .nsa_backend import load_nsa_flow
+        self.nsa_flow = load_nsa_flow()
 
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
@@ -755,6 +761,15 @@ class NSAFlowOptimizer(SimlrOptimizer):
             rng_state = torch.get_rng_state()
             try:
                 try:
+                    # nonneg=False deliberately: this is an intermediate
+                    # retraction inside the optimizer step, and `simlr`
+                    # applies the caller's sign constraint afterwards in
+                    # `simlr_sparseness`. Asking for non-negativity here too
+                    # would impose it twice, on an iterate that is not the one
+                    # returned. So NSA-Flow acts as a soft orthogonality
+                    # retraction on this path and nothing more -- which is the
+                    # intent, not an oversight, but is worth stating because
+                    # non-negativity is the backend's defining constraint.
                     res = self.nsa_flow(v_next.double(), w=self.w, nonneg=False)
                 except TypeError:
                     res = self.nsa_flow(v_next, w=self.w, max_iter=5)
@@ -763,11 +778,11 @@ class NSAFlowOptimizer(SimlrOptimizer):
                 candidate = res.get('Y') if hasattr(res, 'get') else getattr(res, 'Y', None)
                 if candidate is not None:
                     candidate = candidate.to(v_current.dtype)
-                # Validate before accepting. The backend returns an all-zero
-                # matrix for some shape/weight combinations, and a zero basis is
-                # not None -- accepting it on a None-check alone silently
-                # replaces the iterate with nothing. See
-                # pysimlr.sparsification._usable_retraction.
+                # Validate before accepting: a zero basis is not None, so a
+                # None-check alone would silently replace the iterate with
+                # nothing. See pysimlr.sparsification._usable_retraction, which
+                # also records why the specific collapse this was written
+                # against no longer reproduces.
                 if _usable_retraction(candidate, v_next):
                     return candidate
             except Exception:

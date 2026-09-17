@@ -631,12 +631,28 @@ def gradient_orthogonality_defect(a: torch.Tensor,
 def angle_defect(a: torch.Tensor, eps: float = 1e-12,
                  diagonal: bool = True) -> torch.Tensor:
     r"""
-    Mean squared cosine between distinct columns: ``C``, in [0, 1].
+    Squared-cosine orthogonality defect ``C``, in [0, 1].
 
-    ``C = 1/(k(k-1)) * sum_{i != j} cos^2(a_i, a_j)``. Zero exactly when the
-    columns are mutually orthogonal, *at any column norms*, and invariant to
-    rescaling each column independently -- which is the gauge freedom of a
-    basis.
+    With ``M`` the matrix of pairwise cosines between the columns,
+
+    ``C = ||M - I||_F^2 / (k(k-1))``      (the default, ``diagonal=True``)
+
+    Zero exactly when the columns are mutually orthogonal, *at any column
+    norms*, and invariant to rescaling each column independently -- which is
+    the gauge freedom of a basis.
+
+    Note the reference is the identity, not the observed diagonal. The
+    pairwise-only form
+
+    ``C = 1/(k(k-1)) * sum_{i != j} cos^2(a_i, a_j)``   (``diagonal=False``)
+
+    looks equivalent -- for a matrix with no dead column it is -- but scores a
+    rank-collapsed matrix 0.0, because a zero column has zero cosine against
+    everything. That is the same too-large zero set that makes
+    :func:`invariant_orthogonality_defect` unusable as a penalty, so writing
+    the sum form as the definition and then implementing the identity form is
+    a documentation bug worth avoiding: the two disagree exactly where it
+    matters and agree on random inputs.
 
     Parameters
     ----------

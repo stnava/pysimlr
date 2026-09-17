@@ -8,10 +8,14 @@ lazy.
 Three modules used to import this package three different ways -- ``import
 nsa`` (sparsification), ``import nsa_flow as nsa`` (deep) and ``from nsa_flow
 import nsa_flow_orth`` (optimizers) -- so at most one could have been correct,
-and which retraction path ran depended on which name happened to resolve. The
-package is not declared in ``pyproject.toml`` either, which means results
-silently differ between environments that do and do not happen to have it
-installed. Centralising the lookup makes the resolved backend inspectable.
+and which retraction path ran depended on which name happened to resolve.
+Centralising the lookup makes the resolved backend inspectable.
+
+The package is now declared as the ``nsa`` extra in ``pyproject.toml``. It is
+still optional, so results differ between environments that do and do not have
+it installed -- the constrained branches fall back to the SVD polar factor
+without it. That difference is intended but not self-evident, so record
+:func:`backend_report` alongside any results.
 """
 import functools
 from functools import lru_cache
