@@ -460,7 +460,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         "u_var": 1.0
     }
     
-    from .deep import calculate_sim_loss, _resolve_stabilization_schedule, _update_first_layer_schedule, invariant_orthogonality_defect
+    from .deep import calculate_sim_loss, _resolve_stabilization_schedule, _update_first_layer_schedule, orthogonality_defect
     mse_loss = nn.MSELoss()
     
     stabilization_start_epoch, stabilization_ramp_epochs = _resolve_stabilization_schedule(
@@ -516,8 +516,8 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             
             # Add orthogonality penalty for encoder basis V (both actual enc.v and raw enc.v_raw)
             if hasattr(model, 'linear_encoders'):
-                total_loss += 0.05 * sum(invariant_orthogonality_defect(enc.v) for enc in model.linear_encoders)
-                total_loss += 0.05 * sum(invariant_orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
+                total_loss += 0.05 * sum(orthogonality_defect(enc.v) for enc in model.linear_encoders)
+                total_loss += 0.05 * sum(orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
                 
             if torch.isnan(total_loss): 
                 continue

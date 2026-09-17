@@ -62,8 +62,8 @@ def shared_private_diagnostics(
     return res
 
 def calculate_v_orthogonality(v_mats: List[torch.Tensor]) -> float:
-    from ..utils import invariant_orthogonality_defect
-    return float(np.mean([invariant_orthogonality_defect(v).item() for v in v_mats]))
+    from ..utils import orthogonality_defect
+    return float(np.mean([orthogonality_defect(v).item() for v in v_mats]))
 
 def first_layer_sparsity_metrics(first_layer: Dict[str, Any]) -> Dict[str, float]:
     if not first_layer: return {}

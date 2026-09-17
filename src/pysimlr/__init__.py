@@ -134,6 +134,8 @@ from .utils import (
     l1_normalize_features,
     invariant_orthogonality_defect,
     gradient_invariant_orthogonality_defect,
+    orthogonality_defect,
+    gradient_orthogonality_defect,
     write_simlr,
     read_simlr
 )
@@ -225,6 +227,8 @@ __all__ = [
     'l1_normalize_features',
     'invariant_orthogonality_defect',
     'gradient_invariant_orthogonality_defect',
+    'orthogonality_defect',
+    'gradient_orthogonality_defect',
     'write_simlr',
     'read_simlr',
     'plot_lend_simr_architecture',

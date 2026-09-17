@@ -501,11 +501,144 @@ def l1_normalize_features(features: torch.Tensor) -> torch.Tensor:
     col_l1_norms[col_l1_norms == 0] = 1.0
     return features / col_l1_norms
 
+def orthogonality_defect(a: torch.Tensor, normalized: bool = True) -> torch.Tensor:
+    r"""
+    Trace-normalised orthogonality defect: ``||G - I/k||_F^2``, ``G = A'A/tr(A'A)``.
+
+    Zero exactly on the scaled Stiefel manifold -- mutually orthogonal columns
+    of equal norm -- and otherwise positive. Scale invariant, since ``G`` is.
+
+    Parameters
+    ----------
+    a : torch.Tensor
+        Basis matrix of shape (features, components).
+    normalized : bool, default=True
+        Divide by ``1 - 1/k`` so the result lies in [0, 1] and equals 1 at rank
+        one, making it comparable across different numbers of components.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar defect. Zero for ``k == 1``, where orthogonality is vacuous.
+
+    Notes
+    -----
+    This replaces :func:`invariant_orthogonality_defect` as the penalty used in
+    SiMLR's energy and the deep models' losses. That function normalises by the
+    *global* Frobenius norm and sums only the off-diagonal Gram entries, which
+    has two consequences that make it unfit to optimise against:
+
+    - **Rank collapse attains zero.** A matrix with one non-zero column and
+      ``k - 1`` zero columns scores exactly 0.0, because a zero column is
+      orthogonal to everything. A penalty meant to enforce orthogonality was
+      therefore minimised by throwing components away. This measure scores that
+      matrix 1.0, and in general obeys ``D >= 1/r - 1/k`` at rank ``r``, so
+      collapse is penalised rather than rewarded.
+    - **It is not a function of the angles.** Dividing by the global
+      ``||A||_F^4`` rather than by ``||a_i||^2 ||a_j||^2`` leaves it invariant to
+      a global rescaling but not to rescaling one column, so it can be reduced
+      by inflating a single column while every angle stays fixed: on an
+      orthonormal basis, scaling one column by 100 took it from 2.9e-15 down to
+      6.0e-19.
+
+    `D` admits the spectral reading ``D = 1/EffRank(A) - 1/k`` with
+    ``EffRank = (tr S)^2 / ||S||_F^2``, so it is a participation-ratio deficit,
+    and it decomposes into a decorrelation term plus a norm-balance term --
+    ``D = 0`` requires orthogonality *and* equal column norms.
+
+    Examples
+    --------
+    >>> import torch
+    >>> q, _ = torch.linalg.qr(torch.randn(10, 3, generator=torch.Generator().manual_seed(0)))
+    >>> bool(orthogonality_defect(q) < 1e-6)
+    True
+    >>> collapsed = torch.zeros(10, 3); collapsed[:, 0] = 1.0
+    >>> bool(abs(float(orthogonality_defect(collapsed)) - 1.0) < 1e-6)
+    True
+    >>> float(invariant_orthogonality_defect(collapsed))  # the measure this replaces
+    0.0
+    """
+    if not isinstance(a, torch.Tensor):
+        a = torch.as_tensor(a).float()
+    k = a.shape[1]
+    if k < 2:
+        return torch.zeros((), device=a.device, dtype=a.dtype)
+    s_mat = a.t() @ a
+    t = torch.diagonal(s_mat).sum()
+    if t <= 0:
+        # An all-zero basis has no defined Gram direction; report the rank-one
+        # ceiling rather than dividing by zero.
+        ceiling = torch.ones((), device=a.device, dtype=a.dtype)
+        return ceiling if normalized else ceiling * (1.0 - 1.0 / k)
+    gram = s_mat / t
+    eye = torch.eye(k, device=a.device, dtype=a.dtype) / k
+    # Formed as ||G - I/k||^2 directly. The algebraically identical
+    # ||G||^2 - 1/k suffers catastrophic cancellation near the optimum and
+    # returns small negative values.
+    defect = torch.sum((gram - eye) ** 2)
+    if normalized:
+        defect = defect / (1.0 - 1.0 / k)
+    return defect
+
+
+def gradient_orthogonality_defect(a: torch.Tensor,
+                                  normalized: bool = True) -> torch.Tensor:
+    r"""
+    Closed-form gradient of :func:`orthogonality_defect`.
+
+    ``grad D = (4 / t^2) [A S - (||S||_F^2 / t) A]`` with ``S = A'A`` and
+    ``t = tr S``, requiring no factorisation.
+
+    Satisfies the Euler identity ``<grad D, A> = 0`` -- ``D`` is homogeneous of
+    degree zero -- so the defect term cannot alter ``||A||_F``.
+
+    Parameters
+    ----------
+    a : torch.Tensor
+        Basis matrix of shape (features, components).
+    normalized : bool, default=True
+        Must match the flag used for the value.
+
+    Returns
+    -------
+    torch.Tensor
+        Gradient with the same shape as `a`.
+
+    Examples
+    --------
+    >>> import torch
+    >>> a = torch.randn(8, 3, generator=torch.Generator().manual_seed(1), requires_grad=True)
+    >>> orthogonality_defect(a).backward()
+    >>> manual = gradient_orthogonality_defect(a.detach())
+    >>> bool(torch.allclose(a.grad, manual, atol=1e-6))
+    True
+    """
+    if not isinstance(a, torch.Tensor):
+        a = torch.as_tensor(a).float()
+    k = a.shape[1]
+    if k < 2:
+        return torch.zeros_like(a)
+    s_mat = a.t() @ a
+    t = torch.diagonal(s_mat).sum()
+    if t <= 0:
+        return torch.zeros_like(a)
+    grad = (4.0 / t.pow(2)) * (a @ s_mat - (torch.sum(s_mat ** 2) / t) * a)
+    if normalized:
+        grad = grad / (1.0 - 1.0 / k)
+    return grad
+
+
 def invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     """
-    Compute invariant orthogonality defect.
+    Deprecated. Use :func:`orthogonality_defect`.
 
-    Measures deviation from orthogonality after normalizing for global Frobenius norm.
+    Sums the off-diagonal Gram entries after normalising by the *global*
+    Frobenius norm. Retained so previously reported numbers can be reproduced,
+    but unfit to optimise against: a matrix with one non-zero column and
+    ``k - 1`` zero columns attains exactly 0.0, so it is minimised by rank
+    collapse, and because it normalises globally rather than per column it is
+    not a function of the angles and can be reduced by inflating one column.
+    See :func:`orthogonality_defect` for the measurements.
 
     Parameters
     ----------
@@ -718,7 +851,7 @@ def orthogonality_summary(a: torch.Tensor) -> Dict[str, float]:
         If inputs are of invalid types.
     """
     if not isinstance(a, torch.Tensor): a = torch.as_tensor(a).float()
-    defect = invariant_orthogonality_defect(a).item()
+    defect = orthogonality_defect(a).item()
     stiefel = stiefel_defect(a).item()
     mean_defect = mean_orthogonality_defect(a).item()
     

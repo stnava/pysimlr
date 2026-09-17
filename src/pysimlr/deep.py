@@ -52,7 +52,8 @@ def _get_optimizer(model, optimizer_type, learning_rate, weight_decay):
 
 from .simlr import ba_svd
 from .consensus import compute_shared_consensus
-from .utils import preprocess_data, invariant_orthogonality_defect, safe_svd
+from .utils import (preprocess_data, invariant_orthogonality_defect,
+                    orthogonality_defect, safe_svd)
 from .interpretability import build_first_layer_contract, build_interpretability_report
 
 from .nsa_backend import load_nsa_backend
@@ -1397,11 +1398,11 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
                     # Apply a stronger soft disjoint penalty to low-dimensional modalities 
                     # since they bypassed the hard Stiefel projection
                     penalty_weight = 0.5 if getattr(enc, 'is_low_dim', False) else 0.05
-                    total_loss += penalty_weight * invariant_orthogonality_defect(enc.v)
-                    total_loss += penalty_weight * invariant_orthogonality_defect(enc.v_raw)
+                    total_loss += penalty_weight * orthogonality_defect(enc.v)
+                    total_loss += penalty_weight * orthogonality_defect(enc.v_raw)
             elif hasattr(model, 'linear_encoders'):
-                total_loss += 0.05 * sum(invariant_orthogonality_defect(enc.v) for enc in model.linear_encoders)
-                total_loss += 0.05 * sum(invariant_orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
+                total_loss += 0.05 * sum(orthogonality_defect(enc.v) for enc in model.linear_encoders)
+                total_loss += 0.05 * sum(orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
             
             if torch.isnan(total_loss): continue
             total_loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0); optimizer.step()

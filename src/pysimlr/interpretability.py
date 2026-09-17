@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import torch
 
-from .utils import invariant_orthogonality_defect
+from .utils import orthogonality_defect
 
 
 def _sanitize_tensor(x: torch.Tensor) -> torch.Tensor:
@@ -239,7 +239,7 @@ def summarize_basis_matrix(
     density = l0_counts.to(torch.float32) / max(1, n_features)
     l1_norm = abs_v.sum(dim=0)
     l2_norm = torch.linalg.norm(v_cpu, dim=0)
-    orthogonality_defect = float(invariant_orthogonality_defect(v_cpu).item())
+    orthogonality_defect_value = float(orthogonality_defect(v_cpu).item())
 
     resolved_names = list(feature_names) if feature_names is not None else [f"feature_{i}" for i in range(n_features)]
     if len(resolved_names) != n_features:
@@ -263,7 +263,7 @@ def summarize_basis_matrix(
     return {
         "n_features": int(n_features),
         "n_components": int(n_components),
-        "orthogonality_defect": orthogonality_defect,
+        "orthogonality_defect": orthogonality_defect_value,
         "component_l0": [int(x) for x in l0_counts.tolist()],
         "component_density": [float(x) for x in density.tolist()],
         "component_l1": [float(x) for x in l1_norm.tolist()],

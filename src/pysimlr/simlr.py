@@ -5,7 +5,8 @@ from .svd import ba_svd, safe_pca
 from .optimizers import create_optimizer
 from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness
 from .utils import (set_seed_based_on_time, adjusted_rvcoef, safe_svd,
-                    invariant_orthogonality_defect, l1_normalize_features, orthogonality_summary, preprocess_data)
+                    invariant_orthogonality_defect, l1_normalize_features, orthogonality_defect,
+                    orthogonality_summary, preprocess_data)
 from .consensus import compute_shared_consensus
 
 def parse_constraint(constraint_str: str) -> Dict[str, Any]:
@@ -690,7 +691,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 if torch_domains is not None and torch_domains[i] is not None:
                     dom_e = calculate_simlr_energy(v_sp, torch_mats[i], u_i, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
                 orth_e = 0.0
-                if constraint_type == "ortho": orth_e = invariant_orthogonality_defect(v_sp) * constraint_weight * orth_weights[i]
+                if constraint_type == "ortho": orth_e = orthogonality_defect(v_sp) * constraint_weight * orth_weights[i]
                 return (sim_e + dom_e + orth_e).item()
 
             # Local gradient function that also incorporates manifold projection
@@ -743,7 +744,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 u_i = u[i] if isinstance(u, list) else u
                 sim_e = calculate_simlr_energy(v_mats[i], torch_mats[i], u_i, energy_type).item()
                 normalizing_weights[i] = 1.0 / (abs(sim_e) * n_modalities + 1e-10)
-                orth_e = invariant_orthogonality_defect(v_mats[i]).item()
+                orth_e = orthogonality_defect(v_mats[i]).item()
                 if orth_e > 1e-10: orth_weights[i] = abs(sim_e) * normalizing_weights[i] / orth_e
                 else: orth_weights[i] = 0.0
                 if torch_domains is not None and torch_domains[i] is not None:
