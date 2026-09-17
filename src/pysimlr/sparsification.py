@@ -109,7 +109,8 @@ def _nsa_retract(v: torch.Tensor,
                  w: float,
                  nonneg: bool,
                  max_iter: int = 5000,
-                 max_w: float = None) -> Optional[torch.Tensor]:
+                 max_w: float = None,
+                 diagnostics: Optional[dict] = None) -> Optional[torch.Tensor]:
     """
     Retract `v` toward a non-negative, near-orthogonal basis via NSA-Flow.
 
@@ -130,6 +131,12 @@ def _nsa_retract(v: torch.Tensor,
         Upper bound applied to `w`, defaulting to `NSA_MAX_W`. Every constraint
         family uses that default; the parameter exists so a caller can bound a
         single solve more tightly, not so the cap can be lifted.
+    diagnostics : dict, optional
+        If given, updated in place with what the solver reported: the stopping
+        rule, the stationarity certificate, the effective rank, the scale
+        drift, which fidelity it chose and the target's negative mass. These
+        are the quantities that say whether a retraction is trustworthy, and
+        they were previously read only to extract `Y` and then discarded.
 
     Returns
     -------
@@ -192,6 +199,8 @@ def _nsa_retract(v: torch.Tensor,
         return None
 
     candidate = result.get('Y') if hasattr(result, 'get') else getattr(result, 'Y', None)
+    if diagnostics is not None:
+        diagnostics.update(_retraction_diagnostics(result, w))
     if candidate is None:
         return None
 
@@ -285,6 +294,40 @@ def _clamp_retraction_weight(w: float, max_w: float = None) -> float:
         return NSA_DEFAULT_W
     upper = NSA_MAX_W if max_w is None else float(max_w)
     return float(min(max(w, NSA_MIN_W), upper))
+
+
+#: Solver-reported fields worth keeping. `stop_reason` and `converged` say
+#: whether the solve finished, `grad_map` how close to stationary it got,
+#: `effective_rank` whether the basis collapsed, `scale_ratio` how far the
+#: scale drifted, and `fidelity_mode`/`target_negative_mass` which notion of
+#: closeness the backend chose and why.
+_RETRACTION_DIAGNOSTIC_FIELDS = (
+    'stop_reason', 'converged', 'grad_map', 'iters', 'defect',
+    'effective_rank', 'scale_ratio', 'fidelity_mode', 'target_negative_mass',
+)
+
+
+def _retraction_diagnostics(result, w: float) -> Dict[str, Any]:
+    """
+    Extract the solver's self-report, tolerating fields a version may not have.
+
+    Returns a plain dict so it can be carried in a result payload without
+    keeping a reference to the backend's own object.
+    """
+    def field(name):
+        if hasattr(result, 'get'):
+            return result.get(name)
+        return getattr(result, name, None)
+
+    out = {'w': float(w)}
+    for name in _RETRACTION_DIAGNOSTIC_FIELDS:
+        value = field(name)
+        if value is None:
+            continue
+        if isinstance(value, torch.Tensor):
+            value = value.item() if value.numel() == 1 else value.tolist()
+        out[name] = value
+    return out
 
 
 def _warn_if_unconverged(result) -> None:
@@ -1022,7 +1065,8 @@ def simlr_sparseness(v: torch.Tensor,
                      constraint_iterations: int = 1,
                      sparseness_alg: str = 'soft',
                      energy_type: Optional[str] = None,
-                     modality_index: Optional[int] = None) -> torch.Tensor:
+                     modality_index: Optional[int] = None,
+                     retraction_diagnostics: Optional[dict] = None) -> torch.Tensor:
     """
     Main sparsification and constraint enforcement function for SiMLR.
 
@@ -1106,7 +1150,7 @@ def simlr_sparseness(v: torch.Tensor,
                 nonneg = (apply_nonneg == 'hard')
                 retracted = _nsa_retract(
                     _retraction_candidate(v_signed, v_out, nonneg), w=w,
-                    nonneg=nonneg)
+                    nonneg=nonneg, diagnostics=retraction_diagnostics)
                 if retracted is None:
                     retracted = _svd_polar(v_out)
             if retracted is not None:
@@ -1137,7 +1181,7 @@ def simlr_sparseness(v: torch.Tensor,
             nonneg = (apply_nonneg == 'hard')
             retracted = _nsa_retract(
                 _retraction_candidate(v_signed, v_out, nonneg), w=w,
-                nonneg=nonneg)
+                nonneg=nonneg, diagnostics=retraction_diagnostics)
             if retracted is not None:
                 v_out = retracted
             elif not torch.isnan(v_out).any():

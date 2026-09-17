@@ -352,7 +352,15 @@ class LENDNSAEncoder(nn.Module):
         # 'softplus' positivity is excluded deliberately: the `v` property
         # applies its own `softplus(v - 4)`, so asking the layer for softplus
         # too would apply it twice.
-        self.nsa_w = float(nsa_w)
+        # The layer's own `w` is a retraction weight like any other, so it
+        # takes the same bound: at w=1 the fidelity term drops out and every
+        # scaled Stiefel matrix is optimal, so nothing selects among them.
+        # `_nsa_retract` clamps its own calls, but the layer is constructed
+        # with this value directly and would otherwise bypass the cap --
+        # `lend_simr(nsa_w=1.0)` reached the degenerate case.
+        from .sparsification import _clamp_retraction_weight
+        self.nsa_w = _clamp_retraction_weight(nsa_w)
+        nsa_w = self.nsa_w
         nsa_nonneg = positivity in {'positive', 'hard', 'nonnegative', 'nonneg'}
         nsa_layer_nonneg = 'hard' if nsa_nonneg else None
         

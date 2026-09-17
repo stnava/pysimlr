@@ -653,6 +653,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # the final iterate is not the best one found. Keep the best.
     best_total_energy = float('inf')
     best_v_mats = None
+    # The solver's self-report for each modality's final projection. Kept
+    # alongside the best iterate so the reported diagnostics describe the basis
+    # actually returned, not whichever iteration the loop happened to stop on.
+    retraction_diags = [{} for _ in range(n_modalities)]
+    best_retraction_diags = None
     
     normalizing_weights = [1.0] * n_modalities
     orth_weights = [1.0] * n_modalities
@@ -730,7 +735,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             v_updated = optimizer.step(i, v_mats[i], total_grad, smooth_energy_fn)
             
             # Apply final projection
-            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness_quantile=sparseness_quantile, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type, modality_index=i)
+            retraction_diags[i] = {}
+            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness_quantile=sparseness_quantile, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type, modality_index=i, retraction_diagnostics=retraction_diags[i])
             
         if it == 0:
             for i in range(n_modalities):
@@ -755,6 +761,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         if total_energy < best_total_energy:
             best_total_energy = total_energy
             best_v_mats = [v.clone() for v in v_mats]
+            best_retraction_diags = [dict(d) for d in retraction_diags]
         
         # Check for convergence
         if abs(prev_total_energy - total_energy) < tol * (abs(prev_total_energy) + 1e-10):
@@ -769,6 +776,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # happened to stop on.
     if best_v_mats is not None:
         v_mats = best_v_mats
+        if best_retraction_diags is not None:
+            retraction_diags = best_retraction_diags
 
     # Re-calculate final shared consensus after the last V update
     projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
@@ -795,6 +804,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "converged_iter": converged_iter, "v_orthogonality": v_summaries,
         "best_energy": best_total_energy,
         "best_iteration": (int(np.argmin(energy_history)) if energy_history else None),
+        # What the retraction solver reported for each modality: the stopping
+        # rule, the stationarity certificate, the effective rank, the scale
+        # drift and which fidelity it chose. Empty when no backend ran.
+        "v_retraction": retraction_diags,
         "mixing_algorithm": mixing_algorithm,
         "orthogonalize_u": orthogonalize_u,
         "topology": topology,
