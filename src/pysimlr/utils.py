@@ -628,6 +628,128 @@ def gradient_orthogonality_defect(a: torch.Tensor,
     return grad
 
 
+def angle_defect(a: torch.Tensor, eps: float = 1e-12,
+                 diagonal: bool = True) -> torch.Tensor:
+    r"""
+    Mean squared cosine between distinct columns: ``C``, in [0, 1].
+
+    ``C = 1/(k(k-1)) * sum_{i != j} cos^2(a_i, a_j)``. Zero exactly when the
+    columns are mutually orthogonal, *at any column norms*, and invariant to
+    rescaling each column independently -- which is the gauge freedom of a
+    basis.
+
+    Parameters
+    ----------
+    a : torch.Tensor
+        Basis matrix of shape (features, components).
+    eps : float, default=1e-12
+        Floor on a column norm. A zero column has no direction, so its cosines
+        are undefined; flooring the norm avoids a NaN.
+    diagonal : bool, default=True
+        Subtract the identity rather than the observed diagonal. A column whose
+        norm has been floored then contributes ``cos_ii = 0`` against a target
+        of 1 and is charged ``1/(k(k-1))``, which doubles as a dead-column
+        penalty. Without it a rank-collapsed matrix scores 0, since a zero
+        column has zero cosine against everything -- the same failure that
+        makes :func:`invariant_orthogonality_defect` unusable as a penalty.
+        Pass False only where a dead column is a legitimate outcome and
+        something else keeps the basis non-degenerate.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar defect. Zero for ``k == 1``, where orthogonality is vacuous.
+
+    Notes
+    -----
+    The companion to :func:`orthogonality_defect` (``D``), and the choice
+    between them is about whether the components should carry equal weight.
+
+    ``D`` decomposes into a decorrelation term plus a norm-balance term, so its
+    zero set is orthonormality. Use it where equal column norms are part of the
+    contract -- a Stiefel constraint, say.
+
+    ``C`` charges only the angles. Use it where the column scale is absorbed
+    downstream and so is not meaningful: a deep encoder whose decoder can
+    reweight components freely is charged by ``D`` for an imbalance that costs
+    the model nothing, which dilutes the decorrelation pressure the penalty is
+    there to apply.
+
+    ``C`` still penalises collapse, though less sharply than ``D``: on a matrix
+    with one non-zero column and ``k - 1`` zero columns, ``C`` scores 1/3 at
+    ``k = 3`` where ``D`` scores 1. Both are far from the 0.0 that
+    :func:`invariant_orthogonality_defect` assigns it -- but only because
+    `diagonal` is set; see that parameter.
+
+    Examples
+    --------
+    >>> import torch
+    >>> q, _ = torch.linalg.qr(torch.randn(10, 3, generator=torch.Generator().manual_seed(0)))
+    >>> bool(angle_defect(q) < 1e-6)
+    True
+    >>> rescaled = q.clone(); rescaled[:, 0] *= 100.0
+    >>> bool(abs(float(angle_defect(rescaled)) - float(angle_defect(q))) < 1e-6)
+    True
+    """
+    if not isinstance(a, torch.Tensor):
+        a = torch.as_tensor(a).float()
+    k = a.shape[1]
+    if k < 2:
+        return torch.zeros((), device=a.device, dtype=a.dtype)
+    norms = a.norm(dim=0, keepdim=True).clamp_min(eps)
+    unit = a / norms
+    gram = unit.t() @ unit
+    if diagonal:
+        ref = torch.eye(k, device=a.device, dtype=a.dtype)
+    else:
+        ref = torch.diag(torch.diagonal(gram))
+    return torch.sum((gram - ref) ** 2) / (k * (k - 1))
+
+
+def gradient_angle_defect(a: torch.Tensor, eps: float = 1e-12,
+                          diagonal: bool = True) -> torch.Tensor:
+    r"""
+    Closed-form gradient of :func:`angle_defect`.
+
+    With ``U`` the column-normalised ``a``, ``H`` its Gram matrix with the
+    diagonal removed and ``n`` the column norms,
+
+    ``grad C = 4/(k(k-1)) * [U H - U diag(rowsum(H^2))] / n``.
+
+    Tangential to each column's sphere, so ``C`` cannot alter any individual
+    column norm -- the counterpart of the Euler identity that ``D`` satisfies
+    for the global norm.
+
+    Examples
+    --------
+    >>> import torch
+    >>> a = torch.randn(9, 3, generator=torch.Generator().manual_seed(2), requires_grad=True)
+    >>> angle_defect(a).backward()
+    >>> bool(torch.allclose(a.grad, gradient_angle_defect(a.detach()), atol=1e-6))
+    True
+    """
+    if not isinstance(a, torch.Tensor):
+        a = torch.as_tensor(a).float()
+    k = a.shape[1]
+    if k < 2:
+        return torch.zeros_like(a)
+    norms = a.norm(dim=0, keepdim=True).clamp_min(eps)
+    unit = a / norms
+    gram = unit.t() @ unit
+    if diagonal:
+        ref = torch.eye(k, device=a.device, dtype=a.dtype)
+    else:
+        ref = torch.diag(torch.diagonal(gram))
+    # For a column whose norm exceeds `eps` the diagonal residual is exactly
+    # zero, so this agrees with the off-diagonal-only gradient there; the
+    # difference is confined to floored columns, where the unit vector and
+    # hence the gradient are zero anyway.
+    off = gram - ref
+    row_energy = torch.sum(off ** 2, dim=1)
+    grad = (unit @ off - unit * row_energy.unsqueeze(0)) / norms
+    return grad * (4.0 / (k * (k - 1)))
+
+
 def invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     """
     Deprecated. Use :func:`orthogonality_defect`.
@@ -839,7 +961,17 @@ def orthogonality_summary(a: torch.Tensor) -> Dict[str, float]:
     -------
     Dict[str, float]
         Dictionary of various orthogonality metrics:
-        - `invariant_defect`: Defect normalized for global magnitude.
+        - `invariant_defect`: the trace-normalised defect ``D`` from
+          :func:`orthogonality_defect`, zero only on orthonormality. The key
+          keeps its historical name; the quantity behind it changed when the
+          old globally-normalised defect was found to be minimised by rank
+          collapse.
+        - `angle_defect`: the mean squared cosine ``C`` from
+          :func:`angle_defect`, zero on orthogonality at any column norms.
+          Reported beside ``D`` because ``D`` conflates two things: read
+          together, a low ``C`` with a high ``D`` says the columns are
+          decorrelated but unequal in norm, which for a basis feeding a layer
+          that can rescale them is a gauge rather than a defect.
         - `stiefel_defect`: Violation of Stiefel manifold constraint.
         - `mean_defect`: Average off-diagonal squared correlation.
         - `condition_number`: Ratio of maximum to minimum singular value.
@@ -852,6 +984,7 @@ def orthogonality_summary(a: torch.Tensor) -> Dict[str, float]:
     """
     if not isinstance(a, torch.Tensor): a = torch.as_tensor(a).float()
     defect = orthogonality_defect(a).item()
+    angle = angle_defect(a).item()
     stiefel = stiefel_defect(a).item()
     mean_defect = mean_orthogonality_defect(a).item()
     
@@ -866,6 +999,7 @@ def orthogonality_summary(a: torch.Tensor) -> Dict[str, float]:
         
     return {
         "invariant_defect": defect,
+        "angle_defect": angle,
         "stiefel_defect": stiefel,
         "mean_defect": mean_defect,
         "condition_number": cond,

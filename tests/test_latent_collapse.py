@@ -5,28 +5,24 @@ from pysimlr.deep import ned_simr
 
 
 @pytest.mark.xfail(strict=True, reason=(
-    "NED's latents are ~0.93 correlated under the default positivity='positive' "
-    "(off-diagonal covariance norm 1.31 against the 0.5 threshold) while the "
-    "per-dimension standard deviations stay at 1.0, so this is redundancy "
-    "rather than collapse.\n\n"
-    "This is a real quality issue, not a stale threshold, and it is not "
-    "intrinsic to non-negativity: rectifying oracle least-squares loadings on "
-    "the same data separates the two latents to a correlation of 0.003, so a "
-    "non-negative basis can do it. With positivity='either' NED reaches an "
-    "off-diagonal norm of 0.002.\n\n"
-    "It became visible when the encoder's layer was given nonneg='hard' again. "
-    "The backend renamed this keyword and now reads nonneg=True as *softplus*, "
-    "so during the rename adaptation the hard constraint the published code "
-    "asked for (apply_nonneg='hard') silently became a smooth one. Softplus "
-    "maps every zero to log(2), which left the effective basis dense and "
-    "near-uniform -- normalized Stiefel defect 2.38 with every entry above "
-    "0.689, against 0.09 and 27 of 60 entries non-zero under hard "
-    "rectification -- and that near-uniform basis is what kept these latents "
-    "decorrelated. Restoring the intended constraint fixes the basis and "
-    "exposes this.\n\n"
-    "Marked xfail rather than relaxed so it flips to a failure when NED's "
-    "optimization under hard non-negativity is fixed. Real-data accuracy is "
-    "unaffected either way (mean +0.005 over 160 cells, within seed noise)."))
+    "NED has a bistable failure mode: the two latents sometimes collapse onto "
+    "one direction, giving an off-diagonal covariance norm around 1.3 against "
+    "the 0.5 threshold while the per-dimension standard deviations stay at 1.0. "
+    "It is redundancy rather than collapse, and it is a basin the optimisation "
+    "sometimes falls into rather than a property of any one setting.\n\n"
+    "Measured over seeds 0-9 plus 42, it occurs in 1 of 11 seeds under the "
+    "default positivity='positive' (median off-diagonal 0.0025) and in 6 of 11 "
+    "under positivity='either' (median 1.2632). Seed 42, which this test uses, "
+    "is the one 'positive' failure -- so the fixture is unlucky rather than "
+    "representative, and 'either' is the worse setting overall.\n\n"
+    "It is not intrinsic to non-negativity: rectifying oracle least-squares "
+    "loadings on the same data separates the latents to a correlation of 0.003. "
+    "Nor is it the orthogonality penalty -- switching from the orthonormality "
+    "defect D to the angle defect C moves the off-diagonal from 0.0025 to "
+    "0.0024 and recovery from 0.8718 to 0.8723 over four seeds. The cause is in "
+    "the consensus path, not the basis.\n\n"
+    "Marked xfail rather than relaxed so it flips to a failure once NED's "
+    "optimisation stops admitting this basin. Real-data accuracy is unaffected."))
 def test_latent_collapse():
     # 1. Create data with k=2 real signal
     n_samples = 200

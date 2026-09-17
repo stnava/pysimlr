@@ -142,3 +142,102 @@ def test_agrees_with_the_backend_when_it_is_installed():
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+# --------------------------------------------------------------------------
+# The angle defect C, reported beside D
+# --------------------------------------------------------------------------
+
+def test_angle_defect_is_invariant_to_per_column_rescaling():
+    """``C`` measures only the angles, which is the point of having it: the
+    column scale of a basis feeding a layer that can rescale it is a gauge."""
+    from pysimlr.utils import angle_defect
+
+    torch.manual_seed(0)
+    v = torch.randn(20, 4, dtype=torch.float64)
+    base = float(angle_defect(v))
+    scaled = v * torch.tensor([1.0, 10.0, 0.1, 100.0], dtype=torch.float64)
+    assert float(angle_defect(scaled)) == pytest.approx(base, rel=1e-9)
+
+
+def test_angle_defect_separates_decorrelation_from_norm_balance():
+    """The reason to report both: ``D`` conflates the two and ``C`` does not."""
+    from pysimlr.utils import angle_defect
+
+    torch.manual_seed(0)
+    q, _ = torch.linalg.qr(torch.randn(12, 3, dtype=torch.float64))
+    unequal = q.clone()
+    unequal[:, 0] *= 50.0
+
+    assert float(orthogonality_defect(unequal)) > 0.5, "D should charge the imbalance"
+    assert float(angle_defect(unequal)) < 1e-12, "C should not"
+
+
+def test_angle_defect_still_penalises_a_dead_column():
+    """
+    The subtlety: written as a sum over ``i != j``, ``C`` scores a
+    rank-collapsed matrix 0.0, because a zero column has zero cosine against
+    everything -- the same failure that makes the old invariant defect unusable
+    as a penalty. Subtracting the identity charges a floored column
+    ``1/(k(k-1))`` for its missing unit diagonal.
+    """
+    from pysimlr.utils import angle_defect
+
+    collapsed = torch.zeros(10, 3, dtype=torch.float64)
+    collapsed[:, 0] = torch.randn(10, dtype=torch.float64)
+
+    assert float(angle_defect(collapsed)) == pytest.approx(1.0 / 3.0), (
+        "a rank-one basis must be charged for its two dead columns")
+    assert float(angle_defect(collapsed, diagonal=False)) == pytest.approx(0.0), (
+        "without the diagonal term the dead-column penalty is gone, which is "
+        "why it is on by default")
+
+    one_dead = torch.randn(10, 3, dtype=torch.float64)
+    one_dead[:, 1] = 0.0
+    assert float(angle_defect(one_dead)) > 0.15
+
+
+@pytest.mark.parametrize("shape", [(9, 3), (20, 4), (50, 2)])
+@pytest.mark.parametrize("diagonal", [True, False])
+def test_angle_defect_gradient_agrees_with_autograd(shape, diagonal):
+    from pysimlr.utils import angle_defect, gradient_angle_defect
+
+    torch.manual_seed(sum(shape))
+    a = torch.randn(*shape, dtype=torch.float64, requires_grad=True)
+    angle_defect(a, diagonal=diagonal).backward()
+    manual = gradient_angle_defect(a.detach(), diagonal=diagonal)
+    assert torch.allclose(a.grad, manual, atol=1e-12)
+
+
+def test_angle_defect_matches_the_backend_including_degenerate_cases():
+    """Random matrices are not enough here: the two definitions agree on those
+    and diverge exactly where a column norm is floored."""
+    nsa_flow = pytest.importorskip("nsa_flow")
+    from pysimlr.utils import angle_defect
+
+    torch.manual_seed(0)
+    cases = [torch.randn(10, 3, dtype=torch.float64)]
+    q, _ = torch.linalg.qr(torch.randn(10, 3, dtype=torch.float64))
+    cases.append(q)
+    rescaled = q.clone(); rescaled[:, 0] *= 100.0
+    cases.append(rescaled)
+    collapsed = torch.zeros(10, 3, dtype=torch.float64)
+    collapsed[:, 0] = torch.randn(10, dtype=torch.float64)
+    cases.append(collapsed)
+    one_zero = torch.randn(10, 3, dtype=torch.float64); one_zero[:, 1] = 0.0
+    cases.append(one_zero)
+
+    for v in cases:
+        assert float(angle_defect(v)) == pytest.approx(
+            float(nsa_flow.angle_defect(v)), rel=1e-9, abs=1e-15)
+
+
+def test_summary_reports_both_defects():
+    from pysimlr.utils import orthogonality_summary
+
+    torch.manual_seed(0)
+    q, _ = torch.linalg.qr(torch.randn(10, 3))
+    summary = orthogonality_summary(q)
+    assert "invariant_defect" in summary and "angle_defect" in summary
+    assert summary["invariant_defect"] < 1e-6
+    assert summary["angle_defect"] < 1e-6
