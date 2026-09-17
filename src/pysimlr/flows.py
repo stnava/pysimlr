@@ -6,6 +6,48 @@ import pandas as pd
 from typing import List, Tuple, Optional, Dict, Any, Union
 from .consensus import compute_shared_consensus
 
+
+class preserve_matplotlib_backend:
+    """
+    Context manager restoring the active matplotlib backend on exit.
+
+    The optional `antstorch` dependency calls ``matplotlib.use("Agg")`` at
+    module import time (in ``lamnr_flows/core/train_lamnr_glow_base.py`` and
+    ``lamnr_glow_tool_base.py``). Because this module imports antstorch lazily
+    inside the flow constructors, merely *fitting* a flow model switched the
+    process-wide backend to Agg.
+
+    In a notebook or Quarto render that silently breaks inline figure capture:
+    the cell still runs to completion, but nothing is emitted, so figures
+    disappear from the document without any error. Three figures in the
+    Flow-SiMR-V appendix were missing for exactly this reason.
+
+    Restoring the backend afterwards leaves antstorch's own behaviour intact
+    while keeping the side effect out of the caller's session. Only used where
+    antstorch is imported; a no-op when matplotlib is absent.
+    """
+
+    def __enter__(self):
+        self._backend = None
+        try:
+            import matplotlib
+            self._backend = matplotlib.get_backend()
+        except Exception:
+            pass
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._backend is None:
+            return False
+        try:
+            import matplotlib
+            if matplotlib.get_backend() != self._backend:
+                matplotlib.use(self._backend, force=False)
+        except Exception:
+            pass
+        return False
+
+
 class AffineCouplingLayer(nn.Module):
     """
     Affine Coupling Layer for Normalizing Flows.
@@ -163,7 +205,8 @@ class NormalizingFlow(nn.Module):
             warnings.warn("Using local fallback CustomRealNVP because force_fallback is True.", UserWarning, stacklevel=2)
         else:
             try:
-                from antstorch import create_real_nvp_normalizing_flow_model
+                with preserve_matplotlib_backend():
+                    from antstorch import create_real_nvp_normalizing_flow_model
                 import antsnormflows as nf
                 q0 = nf.distributions.DiagGaussian(dim)
                 # Map num_layers to K, hidden_dim to mlp_width, scale_bound to scale_cap
@@ -325,7 +368,7 @@ class FlowSiMRModel(nn.Module):
                             mais.append((num / (den + 1e-8)).item())
                         else: # trace
                             mais.append(max(0.0, torch.trace(cross).item()))
-                    except:
+                    except Exception:
                         mais.append(0.0)
                 else:
                     mais.append(0.0)
@@ -444,7 +487,17 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             
             latents, reconstructions, u_shared = model(batch_mats)
             
-            # Flow negative log-likelihood (NLL) as reconstruction loss
+            # Flow negative log-likelihood (NLL) as reconstruction loss.
+            #
+            # This is the density of the *projected latent* z = flow(X @ V),
+            # not of the data X: the change-of-variables term for the X -> XV
+            # projection (0.5 * logdet(V'V)) is not included. That term
+            # vanishes for the norm-constrained bases these encoders produce,
+            # so the objective is well posed and the latent does not collapse
+            # in practice (measured latent std stays near 1.5-2.2 over
+            # training). But the value is therefore NOT a data likelihood and
+            # is not comparable across models whose first-layer projections
+            # differ in scale or rank.
             recon_loss = 0.0
             for enc in model.encoders:
                 z = enc.last_z
@@ -742,7 +795,7 @@ class FlowSiMRVModel(nn.Module):
                             mais.append((num / (den + 1e-8)).item())
                         else: # trace
                             mais.append(max(0.0, torch.trace(cross).item()))
-                    except:
+                    except Exception:
                         mais.append(0.0)
                 else:
                     mais.append(0.0)
@@ -812,16 +865,15 @@ class FlowSiMRVModel(nn.Module):
         return latents, reconstructions, u_shared
         
     def initialize_weights(self, data_matrices: List[torch.Tensor]):
-        from .simlr import ba_svd
+        """Seed each encoder's basis; see `initial_basis_for_view` for why a
+        rectifying encoder is started from a data-fitted non-negative basis
+        rather than from rectified PCA loadings."""
+        from .simlr import initial_basis_for_view
         with torch.no_grad():
             k = self.latent_dim
             for i, x in enumerate(data_matrices):
-                u, s, v = ba_svd(x, nu=0, nv=k)
-                if v.shape[1] < k: 
-                    v = torch.cat([v, torch.randn(v.shape[0], k-v.shape[1], device=v.device)*1e-4], dim=1)
-                if self.linear_encoders[i].positivity in {'positive', 'hard', 'softplus'}:
-                    for j in range(v.shape[1]):
-                        if v[:, j].sum() < 0: v[:, j] *= -1
+                v = initial_basis_for_view(
+                    x, k, positivity=self.linear_encoders[i].positivity)
                 self.linear_encoders[i].v_raw.copy_(v.to(x.dtype))
 
 def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
@@ -1011,9 +1063,11 @@ class FlowWhitener:
 
     def fit(self, data_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]]) -> "FlowWhitener":
         try:
-            from antstorch.lamnr_flows import lamnr_flows_whitener
+            with preserve_matplotlib_backend():
+                from antstorch.lamnr_flows import lamnr_flows_whitener
         except ImportError:
-            from antstorch import lamnr_flows_whitener
+            with preserve_matplotlib_backend():
+                from antstorch import lamnr_flows_whitener
 
         df_list, _, _ = self._convert_input(data_matrices)
         whitener_kwargs = dict(self.kwargs)
@@ -1046,9 +1100,11 @@ class FlowWhitener:
         if self.trainer_output is None:
             raise RuntimeError("FlowWhitener must be fitted before calling transform.")
         try:
-            from antstorch.lamnr_flows import apply_lamnr_flows_whitener
+            with preserve_matplotlib_backend():
+                from antstorch.lamnr_flows import apply_lamnr_flows_whitener
         except ImportError:
-            from antstorch import apply_lamnr_flows_whitener
+            with preserve_matplotlib_backend():
+                from antstorch import apply_lamnr_flows_whitener
 
         df_list, is_single, meta_list = self._convert_input(data_matrices)
         target_space = output_space if output_space is not None else self.output_space
@@ -1071,9 +1127,11 @@ class FlowWhitener:
         if self.trainer_output is None:
             raise RuntimeError("FlowWhitener must be fitted before calling inverse_transform.")
         try:
-            from antstorch.lamnr_flows import apply_lamnr_flows_whitener
+            with preserve_matplotlib_backend():
+                from antstorch.lamnr_flows import apply_lamnr_flows_whitener
         except ImportError:
-            from antstorch import apply_lamnr_flows_whitener
+            with preserve_matplotlib_backend():
+                from antstorch import apply_lamnr_flows_whitener
 
         df_list, is_single, meta_list = self._convert_input(whitened_matrices)
         target_space = input_space if input_space is not None else self.output_space
@@ -1161,9 +1219,11 @@ def flow_whiten_matrix(
     
     df_list, is_single, _ = whitener._convert_input(data_matrices)
     try:
-        from antstorch.lamnr_flows import apply_lamnr_flows_whitener
+        with preserve_matplotlib_backend():
+            from antstorch.lamnr_flows import apply_lamnr_flows_whitener
     except ImportError:
-        from antstorch import apply_lamnr_flows_whitener
+        with preserve_matplotlib_backend():
+            from antstorch import apply_lamnr_flows_whitener
     dfs_out = apply_lamnr_flows_whitener(
         whitener.trainer_output,
         df_list,

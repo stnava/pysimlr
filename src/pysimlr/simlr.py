@@ -32,19 +32,34 @@ def parse_constraint(constraint_str: str) -> Dict[str, Any]:
     ------
     TypeError
         If the input is not a string.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     parts = constraint_str.split('x')
     constraint_type = parts[0].strip()
-    # Default weight depends on type
-    if constraint_type in ["Stiefel", "Grassmann"]:
+
+    # Default weight depends on type. Every soft-orthogonality branch in
+    # simlr_sparseness is gated on `weight > 0`, so defaulting the "ortho" and
+    # "nsaflow" families to 0.0 made a bare constraint="ortho" apply no
+    # constraint whatsoever -- and zero the orthogonality penalty in simlr's
+    # energy as well. An explicit "orthox0" still selects no constraint.
+    if constraint_type in ("Stiefel", "Grassmann", "Stiefel_ns", "Grassmann_ns",
+                           "Stiefel_polar", "Grassmann_polar", "NewtonSchulz"):
         weight = 1.0
+    elif constraint_type in ("ortho", "nsaflow", "ortho_ns", "nsaflow_ns",
+                             "ortho_polar", "nsaflow_polar"):
+        weight = 0.1
+    elif constraint_type == "none":
+        weight = 0.0
     else:
-        weight = 0.0 # Default to 0 for "none" or "ortho" unless specified
-        
+        import warnings
+        warnings.warn(
+            f"Unrecognised constraint type {constraint_type!r} in "
+            f"{constraint_str!r}; no manifold constraint will be applied. "
+            f"Known types: Stiefel, Grassmann, NewtonSchulz, ortho, nsaflow "
+            f"(optionally suffixed _ns or _polar), none.",
+            UserWarning, stacklevel=2,
+        )
+        weight = 0.0
+
     iterations = 1
     if len(parts) > 1:
         try: weight = float(parts[1])
@@ -80,10 +95,6 @@ def project_gradient(v_grad: torch.Tensor, v_current: torch.Tensor, constraint_t
     ------
     TypeError
         If inputs are not tensors.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if constraint_type == "Grassmann":
         # Project onto Grassmann tangent space: G = G - V(V^T G)
@@ -123,17 +134,14 @@ def calculate_u(projections: List[torch.Tensor],
     ------
     TypeError
         If projections is not a list of tensors.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     return compute_shared_consensus(projections, mixing_algorithm, k, orthogonalize)
 
-def initialize_simlr(data_matrices: List[torch.Tensor], 
-                     k: int, 
-                     initialization_type: str = "pca", 
-                     joint_reduction: bool = True) -> List[torch.Tensor]:
+def initialize_simlr(data_matrices: List[torch.Tensor],
+                     k: int,
+                     initialization_type: str = "pca",
+                     joint_reduction: bool = True,
+                     positivity: str = "either") -> List[torch.Tensor]:
     """
     Initialize the basis matrices (V) for SiMLR.
 
@@ -147,9 +155,17 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
     k : int
         Target rank for the latent space.
     initialization_type : str, default="pca"
-        Strategy for initialization (currently only "pca" is supported).
+        Strategy for initialization. Only "pca" (truncated SVD of each view) is
+        implemented; any other value raises.
     joint_reduction : bool, default=True
-        Whether to use joint dimensionality reduction (future expansion).
+        Reserved for a future joint-reduction initializer and currently
+        ignored. Previously both of these arguments were accepted and silently
+        discarded, so callers could believe they had selected a strategy that
+        did not exist.
+    positivity : str, default="either"
+        When this requests a non-negative basis and the NSA-Flow backend is
+        installed, the basis is fitted directly from the data instead of being
+        taken from the signed PCA loadings.
 
     Returns
     -------
@@ -161,18 +177,128 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
     TypeError
         If input matrices are not tensors.
 
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
+    Notes
+    -----
+    Under a non-negative constraint the signed PCA loadings are not a usable
+    starting point, and the fix is not to rectify them. `simlr_sparseness`
+    applies the positivity constraint by reflection, so a signed
+    initialization reached the first retraction as ``abs(V_pca)``: a matrix
+    whose orthogonality has been destroyed outright (normalized Stiefel defect
+    1.60, against 0.00 for the signed loadings it came from), and the anchored
+    retraction then stays near that damaged target rather than repairing it.
+
+    Fitting the basis from ``X`` with `nsa_flow_data` avoids the rectification
+    entirely. Measured over 10 seeds against a known non-negative basis, in
+    recovery and in defect:
+
+    ==============================  ==========  ==========  ==========  ======
+    candidate                       disjoint    defect      overlapping defect
+    ==============================  ==========  ==========  ==========  ======
+    ``abs(PCA)`` then retract       0.9162      0.62        0.8112      0.72
+    signed PCA then retract         0.7451      0.43        0.7691      0.46
+    ``nsa_flow_data(X)``            **0.9945**  **0.05**    **0.9032**  0.13
+    ==============================  ==========  ==========  ==========  ======
+
+    Note that feeding the *signed* loadings to the non-negative solver is worse
+    than rectifying them, not better: the solve is anchored, so a signed target
+    pushes entries to zero wherever the anchor is negative rather than where
+    the data says the basis is small. Solving from the data is what removes the
+    problem. The synthetic truth used above is itself non-negative, which
+    flatters a non-negative fit; the defect column does not depend on that,
+    since ``abs(PCA)`` simply is not orthogonal.
     """
-    v_mats = []
-    for x in data_matrices:
-        u, s, v = ba_svd(x, nu=0, nv=k)
-        if v.shape[1] < k:
-            padding = torch.randn(v.shape[0], k - v.shape[1], dtype=v.dtype, device=v.device) * 1e-4
-            v = torch.cat([v, padding], dim=1)
-        v_mats.append(v.to(x.dtype))
-    return v_mats
+    if initialization_type != "pca":
+        raise ValueError(
+            f"initialization_type={initialization_type!r} is not implemented; "
+            f"only 'pca' is supported."
+        )
+    return [initial_basis_for_view(x, k, positivity=positivity)
+            for x in data_matrices]
+
+
+def initial_basis_for_view(x: torch.Tensor, k: int,
+                           positivity: str = "either") -> torch.Tensor:
+    """
+    Build the initial ``(features, k)`` basis for one view.
+
+    Shared by `initialize_simlr` and the deep models' ``initialize_v`` so that
+    every entry point starts from the same basis for a given constraint.
+
+    Under a non-negative constraint the basis is fitted from ``x`` with
+    `nsa_flow_data` when the backend is available. Otherwise it is the signed
+    PCA loadings, with each column's sign resolved so that its sum is positive
+    -- a sign flip preserves orthogonality exactly, unlike the rectification
+    that a non-negative constraint would otherwise apply downstream.
+
+    The deep encoders need this as much as the linear model does: they rectify
+    at use time (`LENDNSAEncoder.v` clamps negatives) rather than at init, so a
+    signed start reaches the first forward pass as ``clamp(V_pca)``, which is
+    the same loss of orthogonality as ``abs(V_pca)`` by another route.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        The view, shape (samples, features).
+    k : int
+        Target rank.
+    positivity : str, default="either"
+        When non-negative, fit from the data rather than rectifying PCA.
+
+    Returns
+    -------
+    torch.Tensor
+        Basis of shape (features, k) in `x`'s dtype.
+    """
+    from .nsa_backend import load_nsa_flow_data
+    from .sparsification import NSA_DEFAULT_W, _usable_retraction
+
+    want_nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg',
+                                 'softplus')
+    if want_nonneg and x.shape[1] > k:
+        fit_from_data = load_nsa_flow_data()
+        if fit_from_data is not None:
+            fitted = _nonnegative_basis_from_data(
+                fit_from_data, x, k, NSA_DEFAULT_W, _usable_retraction)
+            if fitted is not None:
+                return fitted.to(x.dtype)
+
+    u, s, v = ba_svd(x, nu=0, nv=k)
+    if v.shape[1] < k:
+        padding = torch.randn(v.shape[0], k - v.shape[1],
+                              dtype=v.dtype, device=v.device) * 1e-4
+        v = torch.cat([v, padding], dim=1)
+    if want_nonneg:
+        # Resolve each column's sign so downstream rectification removes as
+        # little as possible. This is a sign flip, not a rectification, so the
+        # basis stays exactly as orthogonal as PCA made it.
+        for j in range(v.shape[1]):
+            if v[:, j].sum() < 0:
+                v[:, j] *= -1
+    return v.to(x.dtype)
+
+
+def _nonnegative_basis_from_data(fit_from_data, x: torch.Tensor, k: int,
+                                 w: float, usable) -> Optional[torch.Tensor]:
+    """
+    Fit a non-negative, near-orthogonal basis for `x` directly from the data.
+
+    Returns None if the backend raises or returns something unusable, so the
+    caller falls back to the PCA initializer rather than starting from a
+    degenerate basis. A wide view (``p <= k``) is left to PCA: no basis with
+    more columns than rows can be orthogonal, so there is nothing to fit.
+    """
+    reference = torch.ones(x.shape[1], k, dtype=torch.float64)
+    try:
+        result = fit_from_data(x.detach().double(), k=k, w=float(w))
+    except Exception:
+        return None
+    candidate = result.get('Y') if hasattr(result, 'get') else getattr(result, 'Y', None)
+    if candidate is None:
+        return None
+    candidate = torch.as_tensor(candidate, dtype=torch.float64)
+    if not usable(candidate, reference):
+        return None
+    return candidate
 
 def calculate_ica_energy(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, nonlinearity: str = "logcosh", a: float = 1.0) -> torch.Tensor:
     """
@@ -203,10 +329,6 @@ def calculate_ica_energy(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, nonl
     ------
     TypeError
         If inputs are not valid tensors.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     s = (u.t() @ x) @ v
     n = x.shape[0]
@@ -247,17 +369,17 @@ def calculate_ica_gradient(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, no
     ------
     TypeError
         If inputs are not valid tensors.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     s = (u.t() @ x) @ v
-    nk = s.shape[0] # k
-    if nonlinearity == "logcosh": return (1.0 / nk) * (x.t() @ u @ torch.tanh(s))
-    elif nonlinearity == "exp": return (1.0 / nk) * (x.t() @ u @ (s * torch.exp(-s**2 / 2.0)))
-    elif nonlinearity == "gauss": return (1.0 / nk) * (x.t() @ u @ (a * s * torch.exp(-a * s**2)))
-    elif nonlinearity == "kurtosis": return (1.0 / nk) * (x.t() @ u @ (s**3))
+    # Must match the normalizer used by calculate_ica_energy, which divides by
+    # the sample count. This previously divided by s.shape[0] == k, so the
+    # gradient was off by a factor of n/k relative to the energy it belongs to
+    # -- enough to invalidate any Armijo sufficient-decrease test.
+    n = x.shape[0]
+    if nonlinearity == "logcosh": return (1.0 / n) * (x.t() @ u @ torch.tanh(s))
+    elif nonlinearity == "exp": return (1.0 / n) * (x.t() @ u @ (s * torch.exp(-s**2 / 2.0)))
+    elif nonlinearity == "gauss": return (1.0 / n) * (x.t() @ u @ (a * s * torch.exp(-a * s**2)))
+    elif nonlinearity == "kurtosis": return (1.0 / n) * (x.t() @ u @ (s**3))
     return torch.zeros_like(v)
 
 def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, energy_type: str = "regression", lambda_val: float = 0.0, prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -297,10 +419,6 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
     ------
     TypeError
         If inputs are not valid tensors.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     ica_types = ["logcosh", "exp", "gauss", "kurtosis"]
     u = u.to(x.dtype); v = v.to(x.dtype)
@@ -352,10 +470,6 @@ def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor,
     ------
     TypeError
         If inputs are not valid tensors.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     ica_types = ["logcosh", "exp", "gauss", "kurtosis"]
     u = u.to(x.dtype); v = v.to(x.dtype)
@@ -444,17 +558,19 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         - "u": Shared latent consensus (N x K).
         - "v": List of view-specific basis matrices (P_i x K).
         - "w": Reconstruction mapping matrices.
-        - "energy": List of optimization energy trajectories.
+        - "energy": The total energy after each iteration.
         - "converged_iter": The iteration at which convergence occurred.
+        - "best_energy": The lowest total energy reached.
+        - "best_iteration": Index into "energy" of that lowest value. The
+          returned "v" and "u" come from this iterate, because alternating
+          minimization is not monotone in the joint objective -- `u` is
+          recomputed after each sweep over the views, so the energy typically
+          drops steeply and then drifts slowly upward.
 
     Raises
     ------
     TypeError
         If the inputs are not valid data structures.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if 'sparsity' in opt_params:
         sparseness_quantile = opt_params.pop('sparsity')
@@ -504,7 +620,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         
     n_modalities = len(torch_mats)
     orig_dtype = torch_mats[0].dtype
-    v_mats = initialize_simlr(torch_mats, k)
+    v_mats = initialize_simlr(torch_mats, k, positivity=positivity)
     optimizer = create_optimizer(optimizer_type, v_mats, **opt_params)
     
     constraint_info = parse_constraint(constraint)
@@ -513,11 +629,30 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     constraint_iterations = constraint_info["iterations"]
     
     torch_domains = [torch.as_tensor(dm).float() if dm is not None else None for dm in domain_matrices] if domain_matrices else None
-    if isinstance(domain_lambdas, float): domain_lambdas = [domain_lambdas] * n_modalities
+    if domain_lambdas is not None and not isinstance(domain_lambdas, (list, tuple)):
+        # Accept any scalar, not just float; `domain_lambdas=1` used to reach
+        # `domain_lambdas[i]` and raise "'int' object is not subscriptable".
+        domain_lambdas = [float(domain_lambdas)] * n_modalities
+    elif isinstance(domain_lambdas, (list, tuple)):
+        domain_lambdas = list(domain_lambdas)
+        if len(domain_lambdas) != n_modalities:
+            raise ValueError(
+                f"domain_lambdas has {len(domain_lambdas)} entries but there are "
+                f"{n_modalities} views."
+            )
+    if torch_domains is not None and domain_lambdas is None:
+        domain_lambdas = [1.0] * n_modalities
     
     energy_history = []
     prev_total_energy = float('inf')
     converged_iter = iterations
+    # Alternating minimization is not monotone in the joint objective: each V_i
+    # is optimized against a fixed u_i, and then u is recomputed from the new
+    # projections, which can raise the total. In practice the energy drops
+    # sharply over the first few iterations and then drifts slowly upward, so
+    # the final iterate is not the best one found. Keep the best.
+    best_total_energy = float('inf')
+    best_v_mats = None
     
     normalizing_weights = [1.0] * n_modalities
     orth_weights = [1.0] * n_modalities
@@ -529,17 +664,22 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         for i in range(n_modalities):
             u_i = u[i] if isinstance(u, list) else u
             # Local energy function that incorporates sparsification/retraction
+            # Single definition of "the feasible point corresponding to v", so
+            # the energy and the gradient are evaluated at the *same* place.
+            # Previously the energy was measured after sparsification/retraction
+            # while the gradient was taken at the raw iterate, which left every
+            # Armijo/backtracking optimizer testing a sufficient-decrease
+            # condition against the slope of a different function.
+            def to_feasible(v_cand):
+                return simlr_sparseness(
+                    v_cand.to(orig_dtype), constraint_type=constraint_type,
+                    smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None,
+                    positivity=positivity, sparseness_quantile=sparseness_quantile,
+                    constraint_weight=constraint_weight, constraint_iterations=constraint_iterations,
+                    energy_type=energy_type, modality_index=i)
+
             def smooth_energy_fn(v_cand):
-                v_cand = v_cand.to(orig_dtype)
-                if positivity == 'positive': v_cand = torch.abs(v_cand)
-                elif positivity == 'negative': v_cand = -torch.abs(v_cand)
-                
-                v_sp = simlr_sparseness(v_cand, constraint_type=constraint_type, 
-                                        smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, 
-                                        positivity=positivity, sparseness_quantile=sparseness_quantile, 
-                                        constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, 
-                                        energy_type=energy_type, modality_index=i)
-                
+                v_sp = to_feasible(v_cand)
                 sim_e = calculate_simlr_energy(v_sp, torch_mats[i], u_i, energy_type) * normalizing_weights[i]
                 dom_e = 0.0
                 if torch_domains is not None and torch_domains[i] is not None:
@@ -550,26 +690,43 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
             # Local gradient function that also incorporates manifold projection
             def smooth_gradient_fn(v_curr):
-                if positivity == 'positive': v_curr = torch.abs(v_curr)
-                
-                sim_grad = calculate_simlr_gradient(v_curr, torch_mats[i], u_i, energy_type) * normalizing_weights[i]
+                # Evaluate at the feasible point the energy also uses.
+                v_feas = to_feasible(v_curr)
+
+                sim_grad = calculate_simlr_gradient(v_feas, torch_mats[i], u_i, energy_type) * normalizing_weights[i]
                 dom_grad = 0.0
                 if torch_domains is not None and torch_domains[i] is not None:
-                    dom_grad = calculate_simlr_gradient(v_curr, torch_mats[i], u_i, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
+                    dom_grad = calculate_simlr_gradient(v_feas, torch_mats[i], u_i, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
                 
                 total_grad = sim_grad + dom_grad
                 # Project gradient onto tangent space
-                total_grad = project_gradient(total_grad, v_curr, constraint_type)
+                total_grad = project_gradient(total_grad, v_feas, constraint_type)
                 
-                # Further sparsify/constrain the gradient direction
-                total_grad = simlr_sparseness(total_grad, constraint_type=constraint_type, 
-                                              smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, 
-                                              positivity=positivity, sparseness_quantile=sparseness_quantile, 
-                                              constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, 
+                # Smooth/retract the search *direction*. positivity is a
+                # constraint on the parameter, not on the direction: forcing the
+                # direction non-negative (as passing `positivity` here used to)
+                # lets the update push V only one way, so the iterate can never
+                # descend along any coordinate it has overshot. Feasibility is
+                # restored by re-projecting after the step, which is how
+                # projected gradient descent is supposed to work.
+                #
+                # Note: retracting the direction here orthonormalizes it and so
+                # discards its magnitude, which looks like it should block
+                # descent -- but skipping this step entirely changes the
+                # outcome by less than 0.0004 in latent recovery, so it is not
+                # what limits the iteration (see CORRECTNESS_AUDIT.md).
+                total_grad = simlr_sparseness(total_grad, constraint_type=constraint_type,
+                                              smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None,
+                                              positivity='either', sparseness_quantile=sparseness_quantile,
+                                              constraint_weight=constraint_weight, constraint_iterations=constraint_iterations,
                                               energy_type=energy_type, modality_index=i)
                 return total_grad
 
             total_grad = smooth_gradient_fn(v_mats[i])
+            # Optimizers that re-evaluate along their own line search (LBFGS)
+            # need to recompute the analytic gradient at each trial point.
+            if hasattr(optimizer, "gradient_function"):
+                optimizer.gradient_function = smooth_gradient_fn
             v_updated = optimizer.step(i, v_mats[i], total_grad, smooth_energy_fn)
             
             # Apply final projection
@@ -594,6 +751,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             total_energy += calculate_simlr_energy(v_mats[i], torch_mats[i], u_i, energy_type).item() * normalizing_weights[i]
             
         energy_history.append(total_energy)
+
+        if total_energy < best_total_energy:
+            best_total_energy = total_energy
+            best_v_mats = [v.clone() for v in v_mats]
         
         # Check for convergence
         if abs(prev_total_energy - total_energy) < tol * (abs(prev_total_energy) + 1e-10):
@@ -604,6 +765,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         
         if verbose and it % 10 == 0: print(f"Iteration {it}: Total Energy {total_energy}")
         
+    # Return the lowest-energy iterate rather than whichever one the loop
+    # happened to stop on.
+    if best_v_mats is not None:
+        v_mats = best_v_mats
+
     # Re-calculate final shared consensus after the last V update
     projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
     u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
@@ -618,7 +784,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         try:
             u_pinv = torch.linalg.pinv(u_i)
             w_mats.append(u_pinv @ x)
-        except:
+        except Exception:
             # Fallback if pinv fails
             w_mats.append(torch.zeros(k, x.shape[1], dtype=u_i.dtype, device=u_i.device))
 
@@ -627,6 +793,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "normalizing_weights": normalizing_weights, 
         "orth_weights": orth_weights, "domain_weights": domain_weights, 
         "converged_iter": converged_iter, "v_orthogonality": v_summaries,
+        "best_energy": best_total_energy,
+        "best_iteration": (int(np.argmin(energy_history)) if energy_history else None),
         "mixing_algorithm": mixing_algorithm,
         "orthogonalize_u": orthogonalize_u,
         "topology": topology,
@@ -657,10 +825,6 @@ def pairwise_matrix_similarity(mat_list: List[torch.Tensor], v_list: List[torch.
     ------
     TypeError
         If inputs are not valid lists of tensors.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     n_modalities = len(mat_list); similarities = {}
     for i in range(n_modalities):
@@ -695,36 +859,98 @@ def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_p
     Dict[str, Any]
         A dictionary containing:
         - "simlr_result": The result of SiMLR on the original data.
-        - "stats": A dictionary of permutation statistics for each pair of modalities, 
-          including observed similarity, p-value, and t-statistic.
+        - "stats": Per-modality-pair permutation statistics, keyed "sim_i_j",
+          each a dict with "observed", "p_value", "n_permutations",
+          "n_exceeding", "null_mean", "null_sd", "z_score" and
+          "null_distribution".
+        - "n_permutations": The requested number of permutations.
+
+    Notes
+    -----
+    The p-value is the add-one permutation estimate
+    ``(1 + #{null >= observed}) / (1 + n_perms)`` (Phipson & Smyth, 2010).
+
+    Earlier revisions reported ``scipy.stats.ttest_1samp(null, observed,
+    alternative='less')``, which tests whether the *mean* of the null lies below
+    the observed value rather than how far into the null's upper tail the
+    observation falls. That statistic assumes a normally distributed null,
+    ignores the tail entirely, and shrinks without bound as `n_perms` grows, so
+    it reported arbitrarily small p-values for data with no shared structure.
+    The `t_stat` key it produced has been replaced by `z_score`, a plain
+    standardized effect size that makes no distributional claim.
 
     Raises
     ------
     TypeError
         If the inputs are of an invalid type.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
-    from scipy.stats import ttest_1samp
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
-    res = simlr(torch_mats, k=k, verbose=verbose, **simlr_params)
-    v_norm = [l1_normalize_features(v) for v in res['v']]
-    obs_sims = pairwise_matrix_similarity(torch_mats, v_norm)
-    perm_results = {k: [v] for k, v in obs_sims.items()}
+
+    def _fit_and_score(mats):
+        """Fit SiMLR and score pairwise similarity on the same matrices the fit saw."""
+        fit = simlr(mats, k=k, verbose=False, **simlr_params)
+        # The basis V is learned on preprocessed data, so the similarity must be
+        # evaluated on preprocessed data too. Scoring raw matrices against a V
+        # fitted on centered/scaled ones mixes two different feature scalings.
+        scale_list = fit.get('scale_list') or []
+        prov_list = fit.get('provenance_list') or []
+        if scale_list and scale_list[0] != "none" and len(prov_list) == len(mats):
+            scored = [preprocess_data(m, scale_list, provenance=pv)
+                      for m, pv in zip(mats, prov_list)]
+        else:
+            scored = mats
+        v_norm = [l1_normalize_features(v) for v in fit['v']]
+        return fit, pairwise_matrix_similarity(scored, v_norm)
+
+    res, obs_sims = _fit_and_score(torch_mats)
+    if verbose:
+        print(f"Observed pairwise similarities: {obs_sims}")
+
+    null_results = {key: [] for key in obs_sims}
     for p in range(n_perms):
+        if verbose and p % 10 == 0:
+            print(f"Permutation {p}/{n_perms}")
+        # Independently shuffling rows of every view destroys cross-view
+        # correspondence while preserving each view's marginal distribution.
         mats_perm = [m[torch.randperm(m.shape[0])] for m in torch_mats]
-        res_p = simlr(mats_perm, k=k, verbose=False, **simlr_params)
-        v_p_norm = [l1_normalize_features(v) for v in res_p['v']]
-        sims_p = pairwise_matrix_similarity(mats_perm, v_p_norm)
-        for k_sim, v_sim in sims_p.items(): perm_results[k_sim].append(v_sim)
+        _, sims_p = _fit_and_score(mats_perm)
+        for k_sim, v_sim in sims_p.items():
+            null_results[k_sim].append(v_sim)
+
     stats = {}
-    for k_sim, vals in perm_results.items():
-        obs = vals[0]; null_dist = np.array(vals[1:])
-        t_stat, p_val = ttest_1samp(null_dist, obs, alternative='less')
-        stats[k_sim] = {"observed": obs, "p_value": p_val, "t_stat": t_stat}
-    return {"simlr_result": res, "stats": stats}
+    for k_sim, obs in obs_sims.items():
+        null_dist = np.asarray(null_results[k_sim], dtype=float)
+        null_dist = null_dist[np.isfinite(null_dist)]
+        n_eff = int(null_dist.size)
+        if n_eff == 0:
+            stats[k_sim] = {"observed": obs, "p_value": float('nan'),
+                            "n_permutations": 0, "null_mean": float('nan'),
+                            "null_sd": float('nan'), "z_score": float('nan'),
+                            "null_distribution": []}
+            continue
+        # Add-one (Phipson & Smyth 2010) permutation p-value: the observed
+        # statistic is itself one realisation under the null, so the estimate is
+        # (1 + #{null >= obs}) / (1 + n_perm). This is bounded below by
+        # 1/(1 + n_perm) and never returns an impossible p of exactly 0.
+        n_exceed = int(np.sum(null_dist >= obs))
+        p_val = (1.0 + n_exceed) / (1.0 + n_eff)
+        null_mean = float(null_dist.mean())
+        null_sd = float(null_dist.std(ddof=1)) if n_eff > 1 else 0.0
+        if null_sd > 0.0:
+            z_score = (float(obs) - null_mean) / null_sd
+        else:
+            z_score = float('inf') if float(obs) > null_mean else 0.0
+        stats[k_sim] = {
+            "observed": float(obs),
+            "p_value": float(p_val),
+            "n_permutations": n_eff,
+            "n_exceeding": n_exceed,
+            "null_mean": null_mean,
+            "null_sd": null_sd,
+            "z_score": float(z_score),
+            "null_distribution": null_dist.tolist(),
+        }
+    return {"simlr_result": res, "stats": stats, "n_permutations": n_perms}
 
 def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
                           simlr_result: Dict[str, Any]) -> Union[torch.Tensor, List[torch.Tensor]]:
@@ -747,10 +973,6 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     ------
     TypeError
         If inputs are of invalid type.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     # 1. Contract Validation
     if not isinstance(data_matrices, (list, tuple)) or len(data_matrices) == 0:
@@ -827,10 +1049,6 @@ def reconstruct_from_learned_maps(u: Union[torch.Tensor, List[torch.Tensor]],
     ------
     TypeError
         If inputs are of invalid type.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if 'w' not in simlr_result:
         # For backward compatibility, but this should be avoided
@@ -878,10 +1096,6 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         If learned weights are missing and legacy refit is not allowed.
     TypeError
         If the inputs are not valid formats.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     # 1. Contract Validation
     if not isinstance(data_matrices, (list, tuple)) or len(data_matrices) == 0:
@@ -990,17 +1204,17 @@ def estimate_rank(data_matrices: List[Union[torch.Tensor, np.ndarray]], n_permut
     ------
     TypeError
         If input types are invalid.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     n_modalities = len(torch_mats); k_max_list = []
     for x in torch_mats:
         x_centered = x - torch.mean(x, dim=0); _, s, _ = safe_svd(x_centered, full_matrices=False)
         eigenvalues = s**2; prop_var = torch.cumsum(eigenvalues, dim=0) / (torch.sum(eigenvalues) + 1e-10)
-        k_max_list.append(torch.where(prop_var >= var_threshold)[0][0].item() + 1)
+        reached = torch.where(prop_var >= var_threshold)[0]
+        # A degenerate view (near-zero total variance) never crosses the
+        # threshold because of the 1e-10 floor in the denominator, and indexing
+        # the empty result raised IndexError. Fall back to the full spectrum.
+        k_max_list.append(int(reached[0].item()) + 1 if reached.numel() else int(s.numel()))
     k_max = min(k_max_list) if k_max_list else 1
     if k_max < 1: k_max = 1
     def calculate_rv_curve(mats, km):
@@ -1055,18 +1269,25 @@ def decompose_energy(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr
     ------
     TypeError
         If input types are invalid.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
+
+    # V and U were fitted on preprocessed data, so the energy has to be
+    # evaluated on preprocessed data too. Skipping this made the returned
+    # decomposition inconsistent with the model's own energies.
+    scale_list = simlr_result.get('scale_list') or []
+    prov_list = simlr_result.get('provenance_list') or []
+    if scale_list and scale_list[0] != "none" and len(prov_list) == len(torch_mats):
+        torch_mats = [preprocess_data(m, scale_list, provenance=pv)
+                      for m, pv in zip(torch_mats, prov_list)]
+
     u_all = simlr_result['u']; v_mats = simlr_result['v']
     modality_energies = []; feature_importances = []
     for i, (x, v) in enumerate(zip(torch_mats, v_mats)):
         u = u_all[i] if isinstance(u_all, list) else u_all
         mod_energy = calculate_simlr_energy(v, x, u, energy_type).item()
         grad = calculate_simlr_gradient(v, x, u, energy_type)
-        feat_imp = torch.sum(torch.abs(grad), dim=1).numpy()
+        # .detach().cpu() is required: a bare .numpy() raises on CUDA/MPS.
+        feat_imp = torch.sum(torch.abs(grad), dim=1).detach().cpu().numpy()
         modality_energies.append(mod_energy); feature_importances.append(feat_imp)
     return {"modality_energies": modality_energies, "feature_importances": feature_importances}

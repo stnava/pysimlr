@@ -40,10 +40,6 @@ def build_linear_footprint_case(n_samples: int = 1000,
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     torch.manual_seed(seed)
@@ -115,10 +111,6 @@ def build_nonlinear_shared_case(n_samples: int = 1000,
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     torch.manual_seed(seed)
@@ -206,10 +198,6 @@ def build_shared_plus_private_case(n_samples: int = 1000,
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     torch.manual_seed(seed)
@@ -278,10 +266,6 @@ def build_case(kind: str = "nonlinear_shared", **kwargs) -> Dict[str, Any]:
         If an unknown `kind` is provided.
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     builders = {
         "linear": build_linear_footprint_case,
@@ -320,10 +304,6 @@ def plot_case_generative_shape(case_res: Dict[str, Any], feature_idx: int = 0) -
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     u = case_res["true_u"].numpy()
     data = case_res["data"]

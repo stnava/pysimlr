@@ -33,10 +33,6 @@ def smooth_matrix_prediction(x: Union[torch.Tensor, np.ndarray],
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     x = torch.as_tensor(x).float()
     y = torch.as_tensor(y).float()
@@ -84,7 +80,9 @@ def smooth_regression(x: Union[torch.Tensor, np.ndarray],
     y : torch.Tensor or np.ndarray
         The output (target) matrix (samples x features_y).
     iterations : int, default=10
-        Number of iterations for the solver (reserved for iterative variants).
+        Unused. The ridge solution is computed in closed form from a single SVD,
+        so there is nothing to iterate; the argument is retained only for
+        backwards compatibility.
     nv : int, optional
         Number of principal components to keep. Defaults to all.
     alpha : float, default=1e-4
@@ -112,10 +110,6 @@ def smooth_regression(x: Union[torch.Tensor, np.ndarray],
         If sample counts mismatch or dimensions are invalid.
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     x = torch.as_tensor(x).float()
     y = torch.as_tensor(y).float()

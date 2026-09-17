@@ -106,13 +106,13 @@ def test_create_graph_laplacian_general_structures():
 
     # 2. Triangular mesh faces (F x 3)
     faces = np.array([[0, 1, 2], [1, 2, 3], [2, 3, 4], [0, 2, 4]], dtype=np.int64)
-    L_mesh = create_graph_laplacian(faces)
+    L_mesh = create_graph_laplacian(faces, source_type="mesh_faces")
     assert L_mesh.shape == (5, 5)
     assert np.allclose((L_mesh - L_mesh.T).data, 0, atol=1e-6)
 
     # 3. Edge list (E x 2)
     edges = np.array([[0, 1], [1, 2], [2, 3], [3, 0]], dtype=np.int64)
-    L_edges = create_graph_laplacian(edges)
+    L_edges = create_graph_laplacian(edges, source_type="edges")
     assert L_edges.shape == (4, 4)
     assert np.allclose((L_edges - L_edges.T).data, 0, atol=1e-6)
 
@@ -137,7 +137,7 @@ def test_create_smoothing_operator_universal():
 
     # 2. From mesh faces
     faces = np.array([[0, 1, 2], [1, 2, 3]], dtype=np.int64)
-    S_mesh = create_smoothing_operator(faces, lambda_val=0.1)
+    S_mesh = create_smoothing_operator(faces, lambda_val=0.1, source_type="mesh_faces")
     assert S_mesh.shape == (4, 4)
 
     # 3. From boolean mask

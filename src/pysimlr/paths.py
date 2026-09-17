@@ -65,10 +65,6 @@ def simlr_path(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     path_results = []
@@ -134,17 +130,18 @@ def permutation_test(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         A dictionary containing:
         - "observed_similarity": The cross-modality similarity of the original data.
         - "null_similarities": A list of similarities from the permuted data.
-        - "p_value": The probability of observing a similarity as extreme as 
-          the one measured, under the null hypothesis of no shared structure.
+        - "p_value": The add-one permutation estimate
+          ``(1 + #{null >= observed}) / (1 + n_permutations)`` of the
+          probability of a similarity at least as extreme as the one measured,
+          under the null hypothesis of no shared structure. NaN when
+          `n_permutations` is 0.
+        - "n_permutations": Number of null replicates actually drawn.
+        - "n_exceeding": How many null replicates met or exceeded the observation.
 
     Raises
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     from .simlr import simlr
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
@@ -172,10 +169,21 @@ def permutation_test(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         u_target = obs_u[idx] if isinstance(obs_u, list) else obs_u
         obs_sims.append(float(adjusted_rvcoef(m @ v, u_target)))
     obs_sim = float(np.mean(obs_sims))
-    p_value = float(np.mean(np.array(null_sims) >= obs_sim))
-    
+
+    if len(null_sims) == 0:
+        p_value = float('nan')
+    else:
+        # Add-one (Phipson & Smyth 2010) permutation p-value. A plain
+        # mean(null >= obs) can return exactly 0, which is not an attainable
+        # p-value from a finite permutation set and understates uncertainty:
+        # the floor is 1 / (1 + n_permutations).
+        n_exceed = int(np.sum(np.asarray(null_sims) >= obs_sim))
+        p_value = (1.0 + n_exceed) / (1.0 + len(null_sims))
+
     return {
         "observed_similarity": obs_sim,
         "null_similarities": null_sims,
-        "p_value": p_value
+        "p_value": float(p_value),
+        "n_permutations": len(null_sims),
+        "n_exceeding": int(np.sum(np.asarray(null_sims) >= obs_sim)) if null_sims else 0,
     }

@@ -1,7 +1,9 @@
+import pytest
 import torch
 import numpy as np
 from scripts.benchmark_linear_noise_simlr_vs_lend import run_linear_benchmark
 
+@pytest.mark.slow
 def test_linear_parity_contract():
     # Run with fixed protocol
     df = run_linear_benchmark(n_samples=1000, n_seeds=3, noise_level=0.1)
@@ -31,6 +33,7 @@ if __name__ == "__main__":
     test_linear_parity_contract()
 
 
+@pytest.mark.slow
 def test_linear_model_heldout_regression_not_broken():
     df = run_linear_benchmark(n_samples=1000, n_seeds=3, noise_level=0.1)
     simlr = df[df["model"] == "linear"]

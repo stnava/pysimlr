@@ -1,15 +1,26 @@
+import importlib
 import os
-import matplotlib
 import sys
-# Force Agg backend if not in an interactive session or if explicitly requested
-if "DISPLAY" not in os.environ or os.environ.get("MPLBACKEND") == "Agg":
-    # Preserve inline plotting when executing within Jupyter/IPython notebooks
-    if not ('IPython' in sys.modules or 'ipykernel' in sys.modules):
-        matplotlib.use("Agg")
-
-
+from typing import Any
 
 __version__ = "0.2.10"
+
+
+def _configure_matplotlib_backend() -> None:
+    """
+    Select a non-interactive backend when there is no display.
+
+    Called lazily, the first time a plotting entry point is actually used.
+    Importing matplotlib at package import time cost roughly a second -- it
+    arrives via pysimlr.benchmarks.plotting, which pulls in seaborn,
+    scipy.stats and ipywidgets -- which defeated the point of deferring the
+    other heavy scientific imports.
+    """
+    import matplotlib
+    if "DISPLAY" not in os.environ or os.environ.get("MPLBACKEND") == "Agg":
+        # Preserve inline plotting when executing within Jupyter/IPython notebooks
+        if not ('IPython' in sys.modules or 'ipykernel' in sys.modules):
+            matplotlib.use("Agg")
 
 from .simlr import (
     simlr,
@@ -126,18 +137,6 @@ from .utils import (
     write_simlr,
     read_simlr
 )
-from .visualization import (
-    plot_lend_simr_architecture,
-    plot_ned_simr_architecture,
-    plot_ned_shared_private_architecture,
-    plot_nsa_flow_architecture,
-    plot_flow_simr_architecture,
-    plot_path_model,
-    generate_all_architecture_graphs
-)
-
-# Optional: Expose benchmarks sub-package
-from . import benchmarks
 
 __all__ = [
     '__version__',
@@ -237,3 +236,45 @@ __all__ = [
     'generate_all_architecture_graphs',
     'benchmarks'
 ]
+
+#: Attributes served on first access instead of at import time, because their
+#: modules pull in matplotlib/seaborn. Maps attribute name -> submodule.
+_LAZY_ATTRS = {
+    'plot_lend_simr_architecture': 'visualization',
+    'plot_ned_simr_architecture': 'visualization',
+    'plot_ned_shared_private_architecture': 'visualization',
+    'plot_nsa_flow_architecture': 'visualization',
+    'plot_flow_simr_architecture': 'visualization',
+    'plot_path_model': 'visualization',
+    'generate_all_architecture_graphs': 'visualization',
+}
+
+#: Submodules exposed as attributes but not imported eagerly.
+_LAZY_MODULES = ('visualization', 'viz', 'benchmarks')
+
+
+def __getattr__(name: str) -> Any:
+    """
+    Resolve plotting entry points and heavy submodules on first access.
+
+    Raises
+    ------
+    AttributeError
+        If `name` is not a public attribute of this package.
+    """
+    if name in _LAZY_ATTRS:
+        _configure_matplotlib_backend()
+        module = importlib.import_module(f".{_LAZY_ATTRS[name]}", __name__)
+        value = getattr(module, name)
+        globals()[name] = value
+        return value
+    if name in _LAZY_MODULES:
+        _configure_matplotlib_backend()
+        module = importlib.import_module(f".{name}", __name__)
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))

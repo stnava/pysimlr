@@ -27,10 +27,6 @@ class BenchmarkProtocol:
     ------
     ValueError
         If proportions are invalid.
-
-    Correctness
-    -----------
-    This class and its methods have been audited for Numpy docstring validity and functional correctness.
     """
     def __init__(self, n_samples: int, train_prop: float = 0.6, val_prop: float = 0.2):
         if train_prop + val_prop >= 1.0:
@@ -66,10 +62,6 @@ class BenchmarkProtocol:
         ------
         TypeError
             If inputs are of invalid types.
-
-        Correctness
-        -----------
-        This function has been audited for Numpy docstring validity and functional correctness.
         """
         res = {
             "train": {"data": [m[:self.train_n] for m in data], "u": u[:self.train_n], "y": y[:self.train_n]},
@@ -109,10 +101,6 @@ class BenchmarkProtocol:
         ------
         TypeError
             If inputs are of invalid types.
-
-        Correctness
-        -----------
-        This function has been audited for Numpy docstring validity and functional correctness.
         """
         test_data = split_data["test"]
         train_data = split_data["train"]
@@ -209,10 +197,6 @@ def run_repeated_benchmark(protocol: BenchmarkProtocol,
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     results = []
     for i in range(n_seeds):

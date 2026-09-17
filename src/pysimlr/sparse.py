@@ -4,14 +4,94 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 from typing import Optional, Union, Any, List, Tuple
 
+def _laplacian_from_weights(W: sp.spmatrix, scale_degree: bool = False) -> sp.csr_matrix:
+    """
+    Build ``L = D - W`` after normalizing the mean degree of `W` to 1.
+
+    The normalization makes `lambda_val` in the downstream resolvent
+    ``(I + lambda*L)^-1`` comparable across graphs: inverse-distance weights
+    carry the units of the input coordinates, and grid graphs have intrinsically
+    larger degrees than k-NN graphs, so without it the same `lambda_val` meant
+    wildly different amounts of smoothing. Scaling `W` by a positive constant
+    scales `L` by the same constant, leaving the graph structure and the
+    Laplacian's null space unchanged.
+
+    Parameters
+    ----------
+    W : scipy.sparse matrix
+        Symmetric non-negative weight matrix with a zero diagonal.
+    scale_degree : bool, default=False
+        If True, rescale `W` so the mean degree over connected nodes is 1.
+
+    Returns
+    -------
+    scipy.sparse.csr_matrix
+        The normalized combinatorial Laplacian.
+    """
+    W = W.tocsr()
+    if scale_degree:
+        raw_deg = np.array(W.sum(axis=1)).flatten()
+        connected = raw_deg > 0
+        if np.any(connected):
+            mean_degree = float(raw_deg[connected].mean())
+            if mean_degree > 0 and np.isfinite(mean_degree):
+                W = W.multiply(1.0 / mean_degree).tocsr()
+    deg = np.array(W.sum(axis=1)).flatten()
+    return (sp.diags(deg) - W).tocsr()
+
+
+def _to_scipy_sparse(t: "torch.Tensor") -> sp.csr_matrix:
+    """
+    Convert any torch tensor layout to a SciPy CSR matrix.
+
+    ``Tensor.is_sparse`` is True only for the COO layout, so a
+    ``torch.sparse_csr`` / ``sparse_csc`` / ``sparse_bsr`` tensor -- which is
+    exactly what ``return_torch=True`` produces here -- tested as dense and then
+    raised ``TypeError: can't convert SparseCsr layout tensor to numpy``. Any
+    sparse layout is routed through COO instead.
+
+    Parameters
+    ----------
+    t : torch.Tensor
+        Dense or sparse tensor of any layout.
+
+    Returns
+    -------
+    scipy.sparse.csr_matrix
+        The same matrix in SciPy CSR form.
+    """
+    sparse_layouts = {torch.sparse_coo, torch.sparse_csr, torch.sparse_csc}
+    for name in ("sparse_bsr", "sparse_bsc"):
+        layout = getattr(torch, name, None)
+        if layout is not None:
+            sparse_layouts.add(layout)
+
+    if t.layout in sparse_layouts:
+        coo = t.detach().cpu().to_sparse_coo().coalesce()
+        idx = coo.indices().numpy()
+        vals = coo.values().numpy()
+        return sp.coo_matrix((vals, (idx[0], idx[1])), shape=tuple(t.shape)).tocsr()
+    return sp.csr_matrix(t.detach().cpu().numpy())
+
+
 def sparse_distance_matrix(x: torch.Tensor, 
                            k: int, 
                            sigma: Optional[float] = None) -> torch.Tensor:
     """
-    Compute a k-nearest neighbor sparse distance matrix.
+    Compute a k-nearest neighbor distance matrix, zeroed outside each row's neighbours.
 
-    Calculates the Euclidean distance between all pairs of rows in `x`, 
+    Calculates the Euclidean distance between all pairs of rows in `x`,
     keeping only the `k` closest neighbors for each row.
+
+    Warnings
+    --------
+    The result is a **dense** (N, N) tensor whose non-neighbour entries are
+    zero, not a sparse data structure, and the full pairwise distance matrix is
+    materialised on the way -- both O(N^2) in memory. It is also **asymmetric**,
+    since "j is among i's k nearest" is not a symmetric relation; symmetrize it
+    before using it as a graph adjacency (`create_graph_laplacian` does this for
+    you). When `sigma` is given, the self-distance of zero maps to an affinity
+    of 1, so the diagonal carries self-loops.
 
     Parameters
     ----------
@@ -32,10 +112,6 @@ def sparse_distance_matrix(x: torch.Tensor,
     ------
     TypeError
         If the input is not a valid tensor.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     x = torch.as_tensor(x).float()
     if x.ndim != 2:
@@ -97,10 +173,6 @@ def sparse_distance_matrix_xy(x: torch.Tensor,
     ------
     TypeError
         If the inputs are not valid tensors.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     x = torch.as_tensor(x).float()
     y = torch.as_tensor(y).float()
@@ -192,13 +264,7 @@ class SparseGraphResolvent:
 
         # Convert to scipy CSC matrix
         if isinstance(laplacian, torch.Tensor):
-            if laplacian.is_sparse:
-                coo = laplacian.to_sparse_coo().coalesce()
-                indices = coo.indices().cpu().numpy()
-                values = coo.values().cpu().numpy()
-                L_sp = sp.coo_matrix((values, (indices[0], indices[1])), shape=laplacian.shape).tocsc()
-            else:
-                L_sp = sp.csc_matrix(laplacian.detach().cpu().numpy())
+            L_sp = _to_scipy_sparse(laplacian).tocsc()
         elif isinstance(laplacian, np.ndarray):
             L_sp = sp.csc_matrix(laplacian)
         elif sp.issparse(laplacian):
@@ -280,8 +346,9 @@ class SparseGraphResolvent:
 
 def create_grid_graph_laplacian(
     mask: Union[torch.Tensor, np.ndarray],
-    connectivity: int = 8,
-    return_torch: bool = False
+    connectivity: Optional[int] = None,
+    return_torch: bool = False,
+    scale_degree: bool = False
 ) -> Union[sp.csr_matrix, torch.Tensor]:
     """
     Construct an adjacency graph Laplacian for a 2D or 3D grid domain mask.
@@ -293,13 +360,24 @@ def create_grid_graph_laplacian(
     ----------
     mask : torch.Tensor or np.ndarray
         2D or 3D binary array defining the domain of interest.
-    connectivity : int, default=8
-        Neighborhood connectivity:
+    connectivity : int, optional
+        Neighborhood connectivity. Defaults to 8 for a 2D mask and 26 for a 3D
+        mask.
         - For 2D: 4 (orthogonal) or 8 (orthogonal + diagonal).
         - For 3D: 6 (face) or 26 (face + edge + corner).
     return_torch : bool, default=False
         If True, returns a PyTorch sparse CSR tensor. Otherwise, returns a
         scipy.sparse.csr_matrix.
+    scale_degree : bool, default=False
+        Rescale edge weights so the mean degree over connected nodes is 1. This
+        makes `lambda_val` in ``(I + lambda*L)^-1`` mean the same thing across
+        graphs: inverse-distance weights carry the units of the input
+        coordinates, and grid graphs have intrinsically larger degrees than k-NN
+        graphs, so without it the same `lambda_val` gave wildly different
+        smoothing (the identical geometry in mm vs um went from a 0.41
+        shrinkage factor to 0.998). It is a single positive constant, so the
+        graph structure and the Laplacian's null space are unchanged. Set False
+        to get the textbook unscaled Laplacian.
 
     Returns
     -------
@@ -315,6 +393,12 @@ def create_grid_graph_laplacian(
     ndim = mask_np.ndim
     if ndim not in (2, 3):
         raise ValueError(f"Expected 2D or 3D mask array, got {ndim}D")
+
+    # Resolve the default per dimensionality. A fixed default of 8 meant a 3-D
+    # mask raised "Invalid 3D connectivity 8" unless the caller happened to know
+    # to pass 26, even though the 3-D mask path was the documented use case.
+    if connectivity is None:
+        connectivity = 8 if ndim == 2 else 26
 
     shape = mask_np.shape
     P = int(np.sum(mask_np))
@@ -352,43 +436,46 @@ def create_grid_graph_laplacian(
             raise ValueError(f"Invalid 3D connectivity {connectivity}. Choose 6 or 26.")
         offsets = deltas_all
 
-    rows, cols, weights = [], [], []
+    # Vectorized neighbour enumeration. The previous implementation walked
+    # every grid position in Python and then every offset, which for the 3-D
+    # brain masks this function documents (e.g. 256^3 at 26-connectivity) is
+    # hundreds of millions of interpreter iterations. Shifting the whole index
+    # map per offset does the same work in a handful of array operations.
+    rows_parts, cols_parts, weight_parts = [], [], []
 
-    if ndim == 2:
-        H, W_dim = shape
-        for r in range(H):
-            for c in range(W_dim):
-                idx1 = idx_map[r, c]
-                if idx1 < 0:
-                    continue
-                for (dr, dc), w in offsets:
-                    nr, nc = r + dr, c + dc
-                    if 0 <= nr < H and 0 <= nc < W_dim:
-                        idx2 = idx_map[nr, nc]
-                        if idx2 >= 0:
-                            rows.append(idx1)
-                            cols.append(idx2)
-                            weights.append(w)
-    elif ndim == 3:
-        D, H, W_dim = shape
-        for z in range(D):
-            for r in range(H):
-                for c in range(W_dim):
-                    idx1 = idx_map[z, r, c]
-                    if idx1 < 0:
-                        continue
-                    for (dz, dr, dc), w in offsets:
-                        nz, nr, nc = z + dz, r + dr, c + dc
-                        if 0 <= nz < D and 0 <= nr < H and 0 <= nc < W_dim:
-                            idx2 = idx_map[nz, nr, nc]
-                            if idx2 >= 0:
-                                rows.append(idx1)
-                                cols.append(idx2)
-                                weights.append(w)
+    for delta, w in offsets:
+        # For each axis, the overlapping window between the array and its shift.
+        src_slices, dst_slices = [], []
+        for axis, d in enumerate(delta):
+            n = shape[axis]
+            lo, hi = max(0, -d), n - max(0, d)
+            if lo >= hi:
+                break
+            src_slices.append(slice(lo, hi))
+            dst_slices.append(slice(lo + d, hi + d))
+        else:
+            src_idx = idx_map[tuple(src_slices)]
+            dst_idx = idx_map[tuple(dst_slices)]
+            valid = (src_idx >= 0) & (dst_idx >= 0)
+            if not np.any(valid):
+                continue
+            r = src_idx[valid]
+            c = dst_idx[valid]
+            rows_parts.append(r)
+            cols_parts.append(c)
+            weight_parts.append(np.full(r.shape[0], w, dtype=np.float32))
+
+    if rows_parts:
+        rows = np.concatenate(rows_parts)
+        cols = np.concatenate(cols_parts)
+        weights = np.concatenate(weight_parts)
+    else:
+        rows = np.empty(0, dtype=np.int64)
+        cols = np.empty(0, dtype=np.int64)
+        weights = np.empty(0, dtype=np.float32)
 
     W_sp = sp.coo_matrix((weights, (rows, cols)), shape=(P, P), dtype=np.float32).tocsr()
-    deg = np.array(W_sp.sum(axis=1)).flatten()
-    L_sp = (sp.diags(deg) - W_sp).tocsr()
+    L_sp = _laplacian_from_weights(W_sp, scale_degree=scale_degree)
 
     if return_torch:
         L_coo = L_sp.tocoo()
@@ -423,7 +510,8 @@ def create_laplacian_resolvent_operator(
 def create_spatial_smoothing_operator(
     mask: Union[torch.Tensor, np.ndarray],
     lambda_val: float = 0.05,
-    connectivity: int = 8
+    connectivity: Optional[int] = None,
+    scale_degree: bool = True
 ) -> SparseGraphResolvent:
     """
     Convenience one-liner: Build a grid graph Laplacian from a domain mask
@@ -435,8 +523,9 @@ def create_spatial_smoothing_operator(
         2D or 3D binary domain mask (e.g. cortical flatmap or brain mask).
     lambda_val : float, default=0.05
         Spatial smoothing scale parameter.
-    connectivity : int, default=8
-        Grid neighborhood connectivity (4 or 8 for 2D, 6 or 26 for 3D).
+    connectivity : int, optional
+        Grid neighborhood connectivity. Defaults to 8 for a 2D mask and 26 for
+        a 3D mask. Valid values are 4 or 8 for 2D, 6 or 26 for 3D.
 
     Returns
     -------
@@ -446,12 +535,118 @@ def create_spatial_smoothing_operator(
     Examples
     --------
     >>> import pysimlr
-    >>> mask = (flatmap_pixels > 0)
-    >>> S = pysimlr.create_spatial_smoothing_operator(mask, lambda_val=0.05)
-    >>> res = pysimlr.simlr([X, Y], smoothing_matrices=[S, None], k=1)
+    >>> mask = (flatmap_pixels > 0)  # doctest: +SKIP
+    >>> S = pysimlr.create_spatial_smoothing_operator(mask, lambda_val=0.05)  # doctest: +SKIP
+    >>> res = pysimlr.simlr([X, Y], smoothing_matrices=[S, None], k=1)  # doctest: +SKIP
     """
-    L_sp = create_grid_graph_laplacian(mask, connectivity=connectivity, return_torch=False)
+    L_sp = create_grid_graph_laplacian(mask, connectivity=connectivity,
+                                       return_torch=False, scale_degree=scale_degree)
     return SparseGraphResolvent(L_sp, lambda_val=lambda_val)
+
+
+_AMBIGUOUS_HINT = (
+    "Pass source_type= explicitly ('coordinates', 'mesh_faces', 'edges', "
+    "'adjacency' or 'mask') to say what this array is."
+)
+
+
+def _infer_source_type(source_np) -> str:
+    """
+    Decide how to interpret `source_np`, refusing genuinely ambiguous input.
+
+    Auto-detection is only safe where the shape and dtype pin the meaning down.
+    Several common inputs do not, and the previous heuristics resolved them
+    silently and wrongly:
+
+    - A ``(P, 3)`` integer array is both a triangular face list and a set of
+      integer voxel coordinates. It was read as faces, so ``P`` points at
+      coordinates like ``[10, 20, 30]`` produced a 31-node graph. Now raises.
+    - A ``(P, 2)`` integer array is both an edge list and 2-D integer
+      coordinates. Same problem, now raises.
+    - Only ``bool`` arrays counted as masks, so a ``uint8``/``int`` mask -- what
+      ``img > 0`` gives after a cast, and what most imaging I/O returns -- was
+      read as coordinates (a 16x16 mask became "16 points in 16-D") in 2-D, and
+      raised in 3-D. Now any 3-D array, and any 2-D array whose values are all
+      in {0, 1}, is treated as a mask.
+    - A square float array with 3 or fewer columns skipped the adjacency test
+      (``shape[1] > 3``) and fell through to coordinates. The width condition is
+      gone; symmetry with a zero diagonal is the signal instead.
+
+    Parameters
+    ----------
+    source_np : np.ndarray or scipy.sparse matrix
+        The array whose interpretation is to be inferred.
+
+    Returns
+    -------
+    str
+        One of "adjacency", "mask", "coordinates", "mesh_faces", "edges".
+
+    Raises
+    ------
+    ValueError
+        If the input is ambiguous or unrecognised.
+    TypeError
+        If the input is not an ndarray or SciPy sparse matrix.
+    """
+    if sp.issparse(source_np):
+        if source_np.shape[0] != source_np.shape[1]:
+            raise ValueError(
+                f"Sparse matrix must be square (P x P) for adjacency, got shape {source_np.shape}"
+            )
+        return "adjacency"
+
+    if not isinstance(source_np, np.ndarray):
+        raise TypeError(f"Unsupported source type: {type(source_np)}")
+
+    # 3-D input can only be a volumetric domain mask.
+    if source_np.ndim == 3:
+        return "mask"
+
+    if source_np.ndim != 2:
+        raise ValueError(
+            f"Cannot auto-detect source_type for a {source_np.ndim}D array "
+            f"(shape {source_np.shape}). {_AMBIGUOUS_HINT}"
+        )
+
+    n_rows, n_cols = source_np.shape
+    is_int = np.issubdtype(source_np.dtype, np.integer)
+    is_bool = source_np.dtype == bool
+
+    # A binary-valued 2-D array is a domain mask, whatever its dtype.
+    if is_bool:
+        return "mask"
+    if is_int and source_np.size and np.all((source_np == 0) | (source_np == 1)):
+        # (P, 2) / (P, 3) 0/1 arrays are also valid tiny edge/face lists, so
+        # only call it a mask when it is too wide to be one.
+        if n_cols > 3:
+            return "mask"
+
+    # Square, symmetric, zero-diagonal, non-negative => adjacency matrix.
+    if n_rows == n_cols and n_rows > 1:
+        sym = np.allclose(source_np, source_np.T, atol=1e-8)
+        zero_diag = np.allclose(np.diag(source_np), 0.0, atol=1e-8)
+        if sym and zero_diag:
+            return "adjacency"
+
+    if is_int and source_np.size and source_np.min() >= 0:
+        if n_cols == 3:
+            raise ValueError(
+                f"Ambiguous input: a ({n_rows}, 3) array of non-negative integers "
+                f"is both a triangular face list and a set of 3-D integer "
+                f"coordinates, and the two give completely different graphs. "
+                f"{_AMBIGUOUS_HINT} For integer voxel coordinates you can also "
+                f"cast to float first."
+            )
+        if n_cols == 2:
+            raise ValueError(
+                f"Ambiguous input: a ({n_rows}, 2) array of non-negative integers "
+                f"is both an edge list and a set of 2-D integer coordinates. "
+                f"{_AMBIGUOUS_HINT} For integer coordinates you can also cast to "
+                f"float first."
+            )
+
+    return "coordinates"
 
 
 def create_graph_laplacian(
@@ -459,9 +654,10 @@ def create_graph_laplacian(
     source_type: str = "auto",
     k: int = 6,
     sigma: Optional[float] = None,
-    connectivity: int = 8,
+    connectivity: Optional[int] = None,
     normalized: bool = False,
-    return_torch: bool = False
+    return_torch: bool = False,
+    scale_degree: bool = False
 ) -> Union[sp.csr_matrix, torch.Tensor]:
     """
     Construct a sparse graph Laplacian from arbitrary data structures.
@@ -484,11 +680,14 @@ def create_graph_laplacian(
     sigma : float, optional
         Bandwidth for Gaussian heat kernel weights: exp(-dist^2 / (2 * sigma^2)).
         If None, inverse Euclidean distance weights (1 / dist) are used.
-    connectivity : int, default=8
-        Grid neighborhood connectivity when source is a 2D or 3D mask.
+    connectivity : int, optional
+        Grid neighborhood connectivity when source is a mask. Defaults to 8 for
+        a 2D mask and 26 for a 3D mask.
     normalized : bool, default=False
         If True, returns the symmetric normalized Laplacian:
-        L_norm = D^(-1/2) L D^(-1/2) = I - D^(-1/2) W D^(-1/2).
+        L_norm = D^(-1/2) L D^(-1/2) = I - D^(-1/2) W D^(-1/2). Note that for a
+        graph with isolated nodes this is not exactly I - D^(-1/2) W D^(-1/2):
+        an isolated node's row is left at zero rather than 1.
     return_torch : bool, default=False
         If True, returns a PyTorch sparse CSR tensor. Otherwise, returns a
         scipy.sparse.csr_matrix.
@@ -497,14 +696,26 @@ def create_graph_laplacian(
     -------
     L : scipy.sparse.csr_matrix or torch.Tensor
         Sparse graph Laplacian of shape (P, P).
+
+    Notes
+    -----
+    Edge weights are rescaled so the mean degree over connected nodes is 1.
+    This makes `lambda_val` in the downstream resolvent ``(I + lambda*L)^-1``
+    mean the same thing across graphs built from different weightings and from
+    coordinates in different units; without it, inverse-distance weights carry
+    the coordinate units and the same geometry in mm vs. um produced completely
+    different smoothing. The rescaling is a single positive constant, so it does
+    not change the graph structure or the Laplacian's null space.
+
+    Building a graph from coordinates that contain exact duplicates yields a
+    zero distance; weights use ``1 / (d + 1e-8)``, so duplicate points get a
+    very large weight. Deduplicate first, or pass `sigma` to use a bounded
+    Gaussian kernel instead.
     """
     # Convert PyTorch tensor to NumPy / SciPy
     if isinstance(source, torch.Tensor):
-        if source.is_sparse:
-            coo = source.to_sparse_coo().coalesce()
-            idx = coo.indices().cpu().numpy()
-            vals = coo.values().cpu().numpy()
-            source_np = sp.coo_matrix((vals, (idx[0], idx[1])), shape=source.shape)
+        if source.layout != torch.strided:
+            source_np = _to_scipy_sparse(source)
         else:
             source_np = source.detach().cpu().numpy()
     else:
@@ -512,27 +723,7 @@ def create_graph_laplacian(
 
     # Infer source_type if auto
     if source_type == "auto":
-        if sp.issparse(source_np):
-            if source_np.shape[0] == source_np.shape[1]:
-                source_type = "adjacency"
-            else:
-                raise ValueError(f"Sparse matrix must be square (P x P) for adjacency, got shape {source_np.shape}")
-        elif isinstance(source_np, np.ndarray):
-            if source_np.ndim in (2, 3) and source_np.dtype == bool:
-                source_type = "mask"
-            elif source_np.ndim == 2:
-                if source_np.shape[0] == source_np.shape[1] and source_np.shape[1] > 3 and not np.issubdtype(source_np.dtype, np.integer):
-                    source_type = "adjacency"
-                elif source_np.shape[1] == 3 and np.issubdtype(source_np.dtype, np.integer) and source_np.min() >= 0:
-                    source_type = "mesh_faces"
-                elif source_np.shape[1] == 2 and np.issubdtype(source_np.dtype, np.integer) and source_np.min() >= 0:
-                    source_type = "edges"
-                else:
-                    source_type = "coordinates"
-            else:
-                raise ValueError(f"Cannot auto-detect source_type for array with shape {source_np.shape} and dtype {source_np.dtype}")
-        else:
-            raise TypeError(f"Unsupported source type: {type(source)}")
+        source_type = _infer_source_type(source_np)
 
     # Dispatch based on source_type
     if source_type == "mask":
@@ -621,9 +812,9 @@ def create_graph_laplacian(
     else:
         raise ValueError(f"Unknown source_type '{source_type}'. Choose 'auto', 'coordinates', 'mesh_faces', 'edges', 'adjacency', or 'mask'.")
 
-    # Compute unnormalized Laplacian L = D - W
-    deg = np.array(W.sum(axis=1)).flatten()
-    L_sp = (sp.diags(deg) - W).tocsr()
+    # Mean-degree normalization plus L = D - W (see _laplacian_from_weights).
+    L_sp = _laplacian_from_weights(W, scale_degree=scale_degree)
+    deg = L_sp.diagonal()
 
     # Optional normalization: L_norm = D^(-1/2) L D^(-1/2)
     if normalized:
@@ -647,8 +838,9 @@ def create_smoothing_operator(
     source_type: str = "auto",
     k: int = 6,
     sigma: Optional[float] = None,
-    connectivity: int = 8,
-    normalized: bool = False
+    connectivity: Optional[int] = None,
+    normalized: bool = False,
+    scale_degree: bool = True
 ) -> SparseGraphResolvent:
     """
     Universal convenience factory: construct a graph Laplacian from any geometric,
@@ -671,8 +863,9 @@ def create_smoothing_operator(
         Number of nearest neighbors when source is coordinates.
     sigma : float, optional
         Bandwidth for Gaussian heat kernel when source is coordinates.
-    connectivity : int, default=8
-        Neighborhood connectivity when source is a 2D or 3D mask.
+    connectivity : int, optional
+        Neighborhood connectivity when source is a mask. Defaults to 8 for a 2D
+        mask and 26 for a 3D mask.
     normalized : bool, default=False
         If True, uses normalized Laplacian L_norm = D^(-1/2) L D^(-1/2).
 
@@ -684,18 +877,22 @@ def create_smoothing_operator(
     Examples
     --------
     >>> import pysimlr
-    >>> # 1. From 3D vertex coordinates (e.g. cortical skeleton or surface)
-    >>> coords = skel.coords # (P x 3)
-    >>> S = pysimlr.create_smoothing_operator(coords, lambda_val=0.05, k=6)
+    >>> # 1. From 3D vertex coordinates (e.g. cortical skeleton or surface).
+    >>> # Integer voxel coordinates need source_type="coordinates" (or a cast
+    >>> # to float), since a (P, 3) integer array is also a valid face list.
+    >>> coords = skel.coords  # doctest: +SKIP
+    >>> S = pysimlr.create_smoothing_operator(coords, lambda_val=0.05, k=6)  # doctest: +SKIP
     >>>
     >>> # 2. From a 2D flatmap domain mask
-    >>> S = pysimlr.create_smoothing_operator(flatmap_mask, lambda_val=0.05)
+    >>> S = pysimlr.create_smoothing_operator(flatmap_mask, lambda_val=0.05)  # doctest: +SKIP
     >>>
-    >>> # 3. From a triangular surface mesh
-    >>> S = pysimlr.create_smoothing_operator(mesh_faces, lambda_val=0.05)
+    >>> # 3. From a triangular surface mesh. source_type is required here: a
+    >>> # (F, 3) integer array is equally a face list and 3-D voxel coordinates.
+    >>> S = pysimlr.create_smoothing_operator(  # doctest: +SKIP
+    ...     mesh_faces, lambda_val=0.05, source_type="mesh_faces")
     >>>
     >>> # 4. Use directly in SiMLR
-    >>> res = pysimlr.simlr([X, Y], smoothing_matrices=[S, None], k=1)
+    >>> res = pysimlr.simlr([X, Y], smoothing_matrices=[S, None], k=1)  # doctest: +SKIP
     """
     L_sp = create_graph_laplacian(
         source,
@@ -704,7 +901,8 @@ def create_smoothing_operator(
         sigma=sigma,
         connectivity=connectivity,
         normalized=normalized,
-        return_torch=False
+        return_torch=False,
+        scale_degree=scale_degree,
     )
     return SparseGraphResolvent(L_sp, lambda_val=lambda_val)
 

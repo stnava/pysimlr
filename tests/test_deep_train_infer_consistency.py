@@ -29,7 +29,15 @@ def test_deep_train_infer_consistency():
         
     for la, lb in zip(l1, l2):
         assert torch.allclose(la, lb, atol=1e-6)
-    assert torch.allclose(u1, u2, atol=1e-6)
+    # forward() returns one consensus per modality under the default "loo"
+    # topology, so compare element-wise rather than assuming a single tensor.
+    assert type(u1) is type(u2)
+    if isinstance(u1, list):
+        assert len(u1) == len(u2)
+        for ua, ub in zip(u1, u2):
+            assert torch.allclose(ua, ub, atol=1e-6)
+    else:
+        assert torch.allclose(u1, u2, atol=1e-6)
     
     # 4. Check that train vs eval difference is expected (due to projection)
     # Actually, let's just check that with mixing_algorithm="avg", they are identical
@@ -49,15 +57,61 @@ def test_deep_train_infer_consistency():
     model_avg.eval()
     with torch.no_grad():
         l_eval, _, u_eval = model_avg(batch)
-        # u_eval should be mean of l_eval
-        u_expected = torch.mean(torch.stack(l_eval), dim=0)
-        # However, compute_shared_consensus also normalizes projections.
-        # So we check against the actual function.
         from pysimlr.consensus import compute_shared_consensus
-        u_manual = compute_shared_consensus(l_eval, mixing_algorithm="avg", k=k, training=False)
-        assert torch.allclose(u_eval, u_manual, atol=1e-6)
+        # Reproduce the model's own consensus call, including its topology --
+        # the default is "loo", which yields one consensus per modality.
+        u_manual = compute_shared_consensus(
+            l_eval, mixing_algorithm="avg", k=k, training=False,
+            topology=model_avg.topology,
+        )
+        assert type(u_eval) is type(u_manual)
+        if isinstance(u_eval, list):
+            for ua, ub in zip(u_eval, u_manual):
+                assert torch.allclose(ua, ub, atol=1e-6)
+        else:
+            assert torch.allclose(u_eval, u_manual, atol=1e-6)
 
     print("Deep train-infer consistency test: PASSED")
 
 if __name__ == "__main__":
     test_deep_train_infer_consistency()
+
+
+def test_train_and_eval_agree_for_every_mixing_algorithm():
+    """The case the test above deliberately sidesteps.
+
+    With the SVD/PCA/ICA mixing algorithms, eval() takes the anchored path
+    while train() recomputes the basis. Those used to disagree on scale: the
+    anchor branch returned before the shared standardization block, so eval
+    latents came back roughly half the size of the training ones.
+    """
+    torch.manual_seed(7)
+    n, d1, d2, k = 60, 10, 8, 3
+    z = torch.randn(n, k)
+    x = [
+        z @ torch.randn(k, d1) + 0.1 * torch.randn(n, d1),
+        z @ torch.randn(k, d2) + 0.1 * torch.randn(n, d2),
+    ]
+
+    for alg in ["svd", "pca", "avg", "newton"]:
+        res = lend_simr(
+            x, k=k, epochs=8, warmup_epochs=2, mixing_algorithm=alg,
+            topology="star", dropout=0.0, verbose=False,
+        )
+        model = res["model"]
+
+        model.train()
+        with torch.no_grad():
+            _, _, u_tr = model(x)
+        model.eval()
+        with torch.no_grad():
+            _, _, u_ev = model(x)
+
+        assert not isinstance(u_tr, list) and not isinstance(u_ev, list)
+        tr_std = u_tr.std(dim=0)
+        ev_std = u_ev.std(dim=0)
+        ratio = (ev_std / (tr_std + 1e-8))
+        assert torch.allclose(ratio, torch.ones_like(ratio), atol=0.05), (
+            f"{alg}: eval/train latent scale ratio {ratio.tolist()} -- the "
+            f"anchored prediction path is not standardized like training"
+        )

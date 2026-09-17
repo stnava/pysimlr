@@ -28,10 +28,6 @@ def set_seed_based_on_time() -> int:
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     seed_value = int(time.time() * 1000000) % (2**32 - 1)
     torch.manual_seed(seed_value)
@@ -77,10 +73,6 @@ def multigrep(patterns: List[str], desc: List[str], intersect: bool = False) -> 
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     indices_set = None
     for pattern in patterns:
@@ -138,10 +130,6 @@ def get_names_from_dataframe(patterns: List[str], df: pd.DataFrame, exclusions: 
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     all_colnames = df.columns.tolist()
     outnames_set = set()
@@ -192,17 +180,13 @@ def map_asym_var(df: pd.DataFrame, left_vars: List[str], left_name: str = 'left'
     >>> data = {"left_hippo": [3.0, 3.2], "right_hippo": [3.1, 3.2]}
     >>> df = pd.DataFrame(data)
     >>> res = map_asym_var(df, ["left_hippo"])
-    >>> res["Asym_hippo"].tolist()
-    [0.10000000149011612, 0.0]
+    >>> [round(v, 6) for v in res["Asym_hippo"].tolist()]
+    [0.1, 0.0]
 
     Raises
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     df = df.copy()
     for left_var in left_vars:
@@ -250,17 +234,13 @@ def map_lr_average_var(df: pd.DataFrame, left_vars: List[str], left_name: str = 
     >>> data = {"left_hippo": [3.0, 3.2], "right_hippo": [3.2, 3.2]}
     >>> df = pd.DataFrame(data)
     >>> res = map_lr_average_var(df, ["left_hippo"])
-    >>> res["LRAVG_hippo"].tolist()
-    [3.100000023841858, 3.200000047683716]
+    >>> [round(v, 6) for v in res["LRAVG_hippo"].tolist()]
+    [3.1, 3.2]
 
     Raises
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     df = df.copy()
     for left_var in left_vars:
@@ -302,10 +282,11 @@ def rvcoef(x: torch.Tensor, y: torch.Tensor) -> float:
     Examples
     --------
     >>> import torch
+    >>> _ = torch.manual_seed(0)
     >>> x = torch.randn(100, 10)
-    >>> # Perfect similarity with itself
-    >>> rvcoef(x, x)
-    1.0
+    >>> # Perfect similarity with itself (float32, so compare with tolerance)
+    >>> abs(rvcoef(x, x) - 1.0) < 1e-6
+    True
     >>> # High similarity with a noisy version
     >>> y = x + torch.randn(100, 10) * 0.1
     >>> rvcoef(x, y) > 0.9
@@ -315,10 +296,6 @@ def rvcoef(x: torch.Tensor, y: torch.Tensor) -> float:
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     return rvcoef_components(x, y)['rv']
 
@@ -353,10 +330,6 @@ def rvcoef_components(x: torch.Tensor, y: torch.Tensor) -> Dict[str, Union[float
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     n, p = x.shape
     q = y.shape[1]
@@ -389,10 +362,6 @@ def rvcoef_trace_impl(x_centered: torch.Tensor, y_centered: torch.Tensor) -> Dic
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     s_xx = x_centered @ x_centered.t()
     s_yy = y_centered @ y_centered.t()
@@ -428,10 +397,6 @@ def rvcoef_gram_impl(x_centered: torch.Tensor, y_centered: torch.Tensor) -> Dict
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     cross_product = x_centered.t() @ y_centered
     # Numerator is Frobenius norm squared of cross-product
@@ -472,10 +437,6 @@ def adjusted_rvcoef(x: torch.Tensor, y: torch.Tensor) -> float:
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     x = torch.as_tensor(x).float()
     y = torch.as_tensor(y).float()
@@ -535,10 +496,6 @@ def l1_normalize_features(features: torch.Tensor) -> torch.Tensor:
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     col_l1_norms = torch.sum(torch.abs(features), dim=0)
     col_l1_norms[col_l1_norms == 0] = 1.0
@@ -564,10 +521,6 @@ def invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if not isinstance(a, torch.Tensor): a = torch.as_tensor(a).float()
     norm_a_f = torch.sqrt(torch.sum(a**2))
@@ -596,10 +549,6 @@ def stiefel_defect(a: torch.Tensor) -> torch.Tensor:
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if not isinstance(a, torch.Tensor): a = torch.as_tensor(a).float()
     k = a.shape[1]
@@ -607,7 +556,7 @@ def stiefel_defect(a: torch.Tensor) -> torch.Tensor:
     return torch.norm(a.t() @ a - identity, p='fro')
 
 def gradient_invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
-    """
+    r"""
     Compute gradient of invariant orthogonality defect.
 
     Parameters
@@ -618,24 +567,55 @@ def gradient_invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     Returns
     -------
     torch.Tensor
-        The gradient of the defect with respect to the input matrix.
+        The gradient of the defect with respect to the input matrix, matching
+        `torch.autograd` on `invariant_orthogonality_defect` to within floating
+        point tolerance.
+
+    Notes
+    -----
+    Writing ``s = ||A||_F``, ``Ap = A / s`` and ``M = Ap.T @ Ap`` with its
+    diagonal removed, the defect is ``f(A) = ||M||_F**2``. Because `f` divides
+    by the Frobenius norm, it is invariant to rescaling `A`, so its gradient
+    must be orthogonal to `A` itself (``<A, grad> == 0``). Differentiating
+    through the normalization gives
+
+    .. math::
+        \nabla f = \frac{4}{s}\left(A_p M - \|M\|_F^2 A_p\right)
+
+    Earlier revisions returned only ``4 * Ap @ M``, dropping both the ``1 / s``
+    factor and the projection term. That expression is not a positive multiple
+    of the true gradient -- individual components can differ in sign -- and it
+    violates the scale-invariance identity, since ``<A, 4 Ap M> == 4 s f(A)``.
+
+    Examples
+    --------
+    >>> import torch
+    >>> a = torch.randn(6, 3, dtype=torch.float64, requires_grad=True)
+    >>> invariant_orthogonality_defect(a).backward()
+    >>> manual = gradient_invariant_orthogonality_defect(a.detach())
+    >>> bool(torch.allclose(manual, a.grad, atol=1e-10))
+    True
+    >>> # scale invariance: the gradient carries no radial component
+    >>> bool(torch.sum(a.detach() * manual).abs() < 1e-10)
+    True
 
     Raises
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
+    if not isinstance(a, torch.Tensor):
+        a = torch.as_tensor(a).float()
     norm_a_f = torch.norm(a, p='fro')
     if norm_a_f < 1e-10: return torch.zeros_like(a)
     ap = a / norm_a_f
     ata = ap.t() @ ap
     d = torch.diag(torch.diag(ata))
     orthogonality_diff = ata - d
-    gradient = 4 * (ap @ orthogonality_diff)
+    defect = torch.sum(orthogonality_diff**2)
+    # d/dAp of ||M||_F^2, then projected through the Frobenius normalization
+    grad_ap = 4.0 * (ap @ orthogonality_diff)
+    gradient = (grad_ap - 4.0 * defect * ap) / norm_a_f
     return gradient
 
 def mean_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
@@ -656,10 +636,6 @@ def mean_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if not isinstance(a, torch.Tensor): a = torch.as_tensor(a).float()
     n, k = a.shape
@@ -695,10 +671,6 @@ def gradient_mean_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     n, k = a.shape
     if k <= 1:
@@ -744,10 +716,6 @@ def orthogonality_summary(a: torch.Tensor) -> Dict[str, float]:
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if not isinstance(a, torch.Tensor): a = torch.as_tensor(a).float()
     defect = invariant_orthogonality_defect(a).item()
@@ -759,7 +727,7 @@ def orthogonality_summary(a: torch.Tensor) -> Dict[str, float]:
         _, s, _ = torch.linalg.svd(a, full_matrices=False)
         cond = (s[0] / (s[-1] + 1e-10)).item()
         ortho_score = torch.sum(s**2).item() / (s[0]**2).item() # Effective rank proxy
-    except:
+    except Exception:
         cond = float('nan')
         ortho_score = float('nan')
         
@@ -800,59 +768,94 @@ def preprocess_data(x: torch.Tensor, scale_list: List[str], provenance: Optional
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     x_out = x.clone().float()
-    new_provenance = {} if provenance is None else None
-    
+    replay = provenance is not None
+    new_provenance = None if replay else {}
+
+    def _need(key):
+        """Fetch a replay statistic, refusing to silently recompute it.
+
+        A missing key used to fall through to the `else` branch and recompute
+        the statistic from whatever matrix was passed in -- i.e. silently refit
+        the transform on the held-out data, with no error and no warning. An
+        empty dict slipped through every guard because ``if provenance`` is
+        False for ``{}``.
+        """
+        if key not in provenance:
+            raise KeyError(
+                f"preprocess_data was given a provenance dict that does not "
+                f"contain '{key}', which is required to replay scale_list="
+                f"{list(scale_list)}. Refusing to recompute it from the "
+                f"supplied matrix, because that would refit the transform on "
+                f"this data instead of reusing the training statistics. "
+                f"Provenance keys present: {sorted(provenance)}."
+            )
+        return provenance[key]
+
     # Handle NaNs using provenance or current data
-    if provenance and "nan_fill" in provenance:
-        nan_fill = provenance["nan_fill"]
+    if replay:
+        nan_fill = _need("nan_fill")
     else:
         nan_fill = torch.nanmean(x_out).item() if not torch.isnan(x_out).all() else 0.0
-        if new_provenance is not None: new_provenance["nan_fill"] = nan_fill
+        new_provenance["nan_fill"] = nan_fill
         
     x_out = torch.nan_to_num(x_out, nan=nan_fill)
     
-    for method in scale_list:
+    # First position at which each method appears. Applying the same method
+    # twice (e.g. ["center", "center"]) previously wrote both steps' statistics
+    # to a single key, so the second overwrote the first and replay then used
+    # the wrong statistics for both steps. Only repeat occurrences get a
+    # position suffix, so provenance dicts written by earlier versions -- which
+    # used bare keys -- still replay unchanged.
+    first_step = {}
+    for _idx, _m in enumerate(scale_list):
+        first_step.setdefault(_m, _idx)
+
+    def _prov_key(base, step, method):
+        return base if step == first_step[method] else f"{base}@{step}"
+
+    for step, method in enumerate(scale_list):
         if method == "none":
             continue
         elif method == "norm":
-            if provenance and "norm_factor" in provenance:
-                factor = provenance["norm_factor"]
+            key = _prov_key("norm_factor", step, method)
+            if replay:
+                factor = _need(key)
             else:
                 factor = torch.norm(x_out, p='fro').item() + 1e-10
-                if new_provenance is not None: new_provenance["norm_factor"] = factor
+                new_provenance[key] = factor
             x_out = x_out / factor
         elif method == "np":
             # np is dimension-dependent, but we store the factor for safety
-            if provenance and "np_factor" in provenance:
-                factor = provenance["np_factor"]
+            key = _prov_key("np_factor", step, method)
+            if replay:
+                factor = _need(key)
             else:
                 factor = float(x_out.shape[0] * x_out.shape[1])
-                if new_provenance is not None: new_provenance["np_factor"] = factor
+                new_provenance[key] = factor
             x_out = x_out / factor
         elif method == "sqrtnp":
-            if provenance and "sqrtnp_factor" in provenance:
-                factor = provenance["sqrtnp_factor"]
+            key = _prov_key("sqrtnp_factor", step, method)
+            if replay:
+                factor = _need(key)
             else:
                 factor = np.sqrt(x_out.shape[0] * x_out.shape[1])
-                if new_provenance is not None: new_provenance["sqrtnp_factor"] = factor
+                new_provenance[key] = factor
             x_out = x_out / factor
         elif method == "center":
-            if provenance and "center_mean" in provenance:
-                mean = provenance["center_mean"]
+            key = _prov_key("center_mean", step, method)
+            if replay:
+                mean = _need(key)
             else:
                 mean = torch.mean(x_out, dim=0)
-                if new_provenance is not None: new_provenance["center_mean"] = mean
+                new_provenance[key] = mean
             x_out = x_out - mean
         elif method == "centerAndScale":
-            if provenance and "cas_mean" in provenance:
-                mean = provenance["cas_mean"]
-                std = provenance["cas_std"]
+            mkey, skey = _prov_key("cas_mean", step, method), _prov_key("cas_std", step, method)
+            if replay:
+                mean = _need(mkey)
+                std = _need(skey)
             else:
                 mean = torch.mean(x_out, dim=0)
                 if x_out.shape[0] > 1:
@@ -860,20 +863,21 @@ def preprocess_data(x: torch.Tensor, scale_list: List[str], provenance: Optional
                     std = torch.where(torch.isnan(std) | (std < 1e-10), torch.ones_like(std), std)
                 else:
                     std = torch.ones_like(mean)
-                if new_provenance is not None:
-                    new_provenance["cas_mean"] = mean
-                    new_provenance["cas_std"] = std
+                new_provenance[mkey] = mean
+                new_provenance[skey] = std
             x_out = (x_out - mean) / std
         elif method == "eigenvalue":
-            if provenance and "eigen_factor" in provenance:
-                factor = provenance["eigen_factor"]
+            key = _prov_key("eigen_factor", step, method)
+            if replay:
+                factor = _need(key)
             else:
                 _, s, _ = torch.linalg.svd(x_out, full_matrices=False)
                 factor = torch.sum(s).item() + 1e-10
-                if new_provenance is not None: new_provenance["eigen_factor"] = factor
+                new_provenance[key] = factor
             x_out = x_out / factor
             
-    if provenance is not None:
+
+    if replay:
         return x_out
     return x_out, new_provenance
 
@@ -890,10 +894,6 @@ def set_all_seeds(seed: int = 42):
     ------
     TypeError
         If input is not an integer.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     import random
     torch.manual_seed(seed)
@@ -926,10 +926,6 @@ def safe_svd(x: torch.Tensor, full_matrices: bool = False) -> Tuple[torch.Tensor
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if x.device.type == 'mps':
         # Current MPS backend lacks stable linalg_svd support for all shapes/precisions
@@ -967,10 +963,6 @@ def procrustes_r2(u_true: torch.Tensor, u_est: torch.Tensor) -> float:
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     u_true = torch.as_tensor(u_true).detach().float()
     u_est = torch.as_tensor(u_est).detach().float()
@@ -1026,10 +1018,6 @@ def procrustes_mse(u_true: torch.Tensor, u_est: torch.Tensor) -> float:
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     u_true = torch.as_tensor(u_true).detach().float()
     u_est = torch.as_tensor(u_est).detach().float()
@@ -1054,8 +1042,19 @@ def newton_schulz_orthogonalize(x: torch.Tensor, iterations: int = 5, tol: float
     """
     Project a matrix onto the Stiefel manifold using Newton-Schulz iteration.
 
-    This is an iterative method to compute the polar retraction without explicit 
+    This is an iterative method to compute the polar retraction without explicit
     SVD, defined by the update: Y_{k+1} = 0.5 * Y_k * (3I - Y_k^T Y_k).
+
+    Warnings
+    --------
+    Convergence is only quadratic near singular values of 1, and the input is
+    pre-scaled by its **Frobenius** norm rather than its spectral norm -- a
+    bound that is loose by up to sqrt(k) and so pushes every singular value
+    well below 1. With the default 5 iterations the result can remain
+    percent-level away from orthonormal (a 100x10 Gaussian comes back about 2%
+    off), and the `tol` early exit will not trigger. Raise `iterations` to
+    roughly 20-30, or use an explicit SVD polar projection, when you need
+    orthonormality to tight tolerance.
 
     Parameters
     ----------
@@ -1075,10 +1074,6 @@ def newton_schulz_orthogonalize(x: torch.Tensor, iterations: int = 5, tol: float
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if not isinstance(x, torch.Tensor):
         x = torch.as_tensor(x).float()

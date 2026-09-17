@@ -39,10 +39,6 @@ def plot_lend_simr_architecture(save_path=None, base_fontsize=11):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     fig, ax = plt.subplots(figsize=(12, 7))
     ax.set_xlim(0, 100); ax.set_ylim(0, 100)
@@ -111,10 +107,6 @@ def plot_ned_simr_architecture(save_path=None, base_fontsize=11):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.set_xlim(0, 100); ax.set_ylim(0, 100)
@@ -156,10 +148,6 @@ def plot_ned_shared_private_architecture(save_path=None, base_fontsize=11):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     fig, ax = plt.subplots(figsize=(13, 8))
     ax.set_xlim(0, 100); ax.set_ylim(0, 100)
@@ -198,10 +186,6 @@ def plot_nsa_flow_architecture(save_path=None, base_fontsize=11):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     fig, ax = plt.subplots(figsize=(12, 7))
     ax.set_xlim(0, 100); ax.set_ylim(0, 100)
@@ -239,10 +223,6 @@ def plot_energy(energy_history: List[float], title: str = "Optimization Energy")
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(energy_history, lw=2, color='tab:blue')
@@ -273,10 +253,6 @@ def plot_latent_2d(u: torch.Tensor, labels: Optional[np.ndarray] = None, title: 
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     u_np = u.detach().cpu().numpy() if isinstance(u, torch.Tensor) else u
     fig, ax = plt.subplots(figsize=(8, 8))
@@ -309,10 +285,6 @@ def plot_v_matrix(v: torch.Tensor, title: str = "Feature Importance (V Matrix)")
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     v_np = v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -341,10 +313,6 @@ def generate_all_architecture_graphs(output_dir=".", base_fontsize=11) -> List[p
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     import os
     if not os.path.exists(output_dir): os.makedirs(output_dir)

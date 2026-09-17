@@ -478,7 +478,7 @@ def nnh_embed(blaster: pd.DataFrame,
                 try:
                     u_pinv = torch.linalg.pinv(u_val)
                     w_mats.append(u_pinv @ x)
-                except:
+                except Exception:
                     w_mats.append(torch.zeros(nsimlr, x.shape[1], dtype=u_val.dtype, device=u_val.device))
             result["w"] = w_mats
             
@@ -860,7 +860,7 @@ def _compute_recommended_k(M: np.ndarray, method: str = "cumulative", cumulative
     try:
         _, S, _ = np.linalg.svd(M, full_matrices=False)
         sdsq = S**2
-    except:
+    except Exception:
         return min_k_eff
         
     if len(sdsq) < 1 or np.sum(sdsq) <= 0:

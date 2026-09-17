@@ -43,8 +43,81 @@ from pysimlr.flows import NormalizingFlow, CustomRealNVP
 # FEATURE AREA 1: SiMLR Core
 # ============================================================================
 
+def test_simlr_stiefel_constraint_is_near_orthogonal(synthetic_two_views):
+    """
+    The Stiefel contract on its own, with nothing else acting on the basis.
+
+    ``V'V`` is the identity to about 1e-4 rather than to solver precision, and
+    that is deliberate: the retraction weight is capped at `NSA_MAX_W` = 0.95,
+    because at w=1 the fidelity term drops out and every scaled Stiefel matrix
+    becomes optimal, so nothing selects among them. Exactness is not on offer
+    for the non-negative solver at all -- exact orthogonality plus
+    non-negativity is disjoint supports, i.e. a clustering.
+
+    The column norms are still exact; only the off-diagonals carry the slack.
+
+    `sparseness_quantile` is set to 0 deliberately. It defaults to 0.5, and a
+    50% soft threshold applied after the retraction moves the basis further off
+    the manifold -- so leaving it on would test the interaction rather than the
+    constraint. See
+    `test_simlr_stiefel_orthogonality_is_approximate_once_sparsified`.
+    """
+    x1, x2 = synthetic_two_views["x1"], synthetic_two_views["x2"]
+    k = synthetic_two_views["k"]
+
+    res = simlr([x1, x2], k=k, iterations=15, constraint="Stiefel",
+                optimizer_type="hybrid_adam", sparseness_quantile=0.0)
+
+    for i, v in enumerate(res["v"]):
+        vtv = v.t() @ v
+        norms = v.norm(dim=0)
+        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5), (
+            f"Modality {i} lost its unit column norms: {norms}")
+        off = vtv - torch.diag(torch.diag(vtv))
+        # Measured 1.2e-4 and 0.0 for the two modalities at the 0.95 cap.
+        assert float(off.abs().max()) < 1e-3, (
+            f"Modality {i} is not near the Stiefel manifold: V'V = {vtv}")
+
+
+def test_simlr_stiefel_orthogonality_is_approximate_once_sparsified(synthetic_two_views):
+    """
+    `constraint="Stiefel"` and `sparseness_quantile=0.5` are both defaults and
+    they pull against each other: a 50% soft threshold is applied after the
+    retraction, so the returned basis is sparse and only approximately
+    orthogonal. The column norms are still pinned to 1 exactly -- that part of
+    the contract is restored after thresholding -- but the off-diagonals are
+    not zero.
+
+    Measured off-diagonal here is 0.001 and 0.054 for the two modalities. The
+    bound below is deliberately loose; it exists to catch a collapse to a
+    degenerate or wildly non-orthogonal basis, not to pin the exact value.
+    Whether a hard manifold constraint ought to be re-imposed after
+    sparsification is a semantics question about what the two requests mean
+    together, not something this test should decide: re-retracting afterwards
+    was measured to restore ``V'V = I`` exactly but to raise density from 49%
+    to 87%, discarding most of the sparsity the caller also asked for, while
+    leaving subspace recovery unchanged (0.9004 vs 0.9000 over 8 seeds).
+    """
+    x1, x2 = synthetic_two_views["x1"], synthetic_two_views["x2"]
+    k = synthetic_two_views["k"]
+
+    res = simlr([x1, x2], k=k, iterations=15, constraint="Stiefel",
+                optimizer_type="hybrid_adam")
+
+    for i, v in enumerate(res["v"]):
+        vtv = v.t() @ v
+        norms = v.norm(dim=0)
+        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5), (
+            f"Modality {i} lost its unit column norms: {norms}")
+        off = vtv - torch.diag(torch.diag(vtv))
+        assert float(off.abs().max()) < 0.10, (
+            f"Modality {i} is far from orthogonal: V'V = {vtv}")
+        assert float((v.abs() > 1e-10).float().mean()) < 0.75, (
+            f"Modality {i} was not sparsified: V = {v}")
+
+
 def test_simlr_canonical_correlation_two_views(synthetic_two_views):
-    """Verify 2-view SiMLR converges with orthogonal Stiefel basis and high correlation."""
+    """Verify 2-view SiMLR returns the documented shapes and aligns the views."""
     x1 = synthetic_two_views["x1"]
     x2 = synthetic_two_views["x2"]
     k = synthetic_two_views["k"]
@@ -59,12 +132,6 @@ def test_simlr_canonical_correlation_two_views(synthetic_two_views):
     assert len(res["v"]) == 2
     assert res["v"][0].shape == (synthetic_two_views["p1"], k)
     assert res["v"][1].shape == (synthetic_two_views["p2"], k)
-
-    # Check Stiefel manifold orthogonality: V_i^T V_i = I
-    for i, v in enumerate(res["v"]):
-        vtv = v.t() @ v
-        eye = torch.eye(k, dtype=v.dtype, device=v.device)
-        assert torch.allclose(vtv, eye, atol=2e-2), f"Modality {i} basis violates Stiefel orthogonality"
 
     # Verify orthogonality summary metrics
     assert "v_orthogonality" in res
@@ -433,9 +500,17 @@ def test_whiten_matrix_identity_covariance():
     w_centered = whitened - torch.mean(whitened, dim=0, keepdim=True)
     cov = (w_centered.t() @ w_centered) / (n - 1)
 
-    # Diagonal should be approximately scaled unity
-    diag_vals = torch.diag(cov)
-    assert torch.all(diag_vals > 0.0)
+    # Whitening means an identity covariance -- not merely positive variance.
+    rank = res["rank"]
+    assert rank == p, f"expected full rank {p}, got {rank}"
+    assert torch.allclose(cov, torch.eye(p), atol=1e-4), (
+        f"covariance is not the identity; max deviation "
+        f"{float((cov - torch.eye(p)).abs().max()):.3e}"
+    )
+    # and zero mean per column
+    assert torch.allclose(
+        whitened.mean(dim=0), torch.zeros(p), atol=1e-4
+    )
 
 
 def test_ba_svd_randomized_orthonormality():

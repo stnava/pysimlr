@@ -274,6 +274,7 @@ class TestFlowWhitenersAdversarial:
         assert len(res["whitened_views"]) == 3
         assert len(res["whitened_dfs"]) == 3
 
+    @pytest.mark.slow
     def test_unfitted_state_and_mismatched_view_count_errors(self, multiview_unequal_data):
         """
         Verify that FlowWhitener fast-fails with descriptive exceptions when transform/inverse_transform

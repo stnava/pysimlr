@@ -3,7 +3,29 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 from typing import List, Dict, Any, Optional, Union, Callable, Tuple
+import warnings
 from abc import ABC, abstractmethod
+from .utils import safe_svd
+from .sparsification import _usable_retraction
+
+#: Every hyperparameter any SiMLR optimizer reads, with its default. Keys absent
+#: from this mapping are rejected with a warning by
+#: :meth:`SimlrOptimizer.filter_params`, so it must stay in sync with the
+#: optimizer implementations below.
+SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
+    'learning_rate': 0.001,
+    'beta1': 0.9,          # Adam / Nadam / HybridAdam first moment
+    'beta2': 0.999,        # Adam / Nadam / HybridAdam second moment
+    'beta': 0.9,           # RMSProp squared-gradient decay
+    'epsilon': 1e-8,
+    'weight_decay': 0.0,
+    'amsgrad': False,
+    'momentum': 0.9,
+    'nsa_w': 0.1,          # NSAFlowOptimizer retraction weight
+    'decay_rate': 1e-3,    # LARS weight decay
+    'k': 5,                # Lookahead slow-weight period
+    'alpha': 0.5,          # Lookahead slow-weight interpolation
+}
 
 class SimlrOptimizer(ABC):
     """
@@ -26,10 +48,6 @@ class SimlrOptimizer(ABC):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         self.optimizer_type = optimizer_type
@@ -47,50 +65,51 @@ class SimlrOptimizer(ABC):
 
     def filter_params(self, optimizer_type: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Enhance parameter filtering to handle varying hyperparameters 
-        (beta1, beta2, amsgrad) across optimizer types.
+        Merge caller-supplied hyperparameters over the defaults.
 
         Parameters
         ----------
         optimizer_type : str
-            The type of optimizer.
+            The type of optimizer, used only for the warning message.
         params : Dict[str, Any]
-            Input parameters to filter.
+            Caller-supplied hyperparameters.
 
         Returns
         -------
         Dict[str, Any]
-            Filtered and defaulted parameters.
+            Every key in `SIMLR_OPTIMIZER_DEFAULTS`, overridden where the caller
+            supplied a value.
 
-        Raises
-        ------
-        TypeError
-            If inputs are of invalid types.
+        Warns
+        -----
+        UserWarning
+            If `params` contains a key no optimizer recognises -- most often a
+            typo. These used to be discarded in silence, so a misspelled
+            hyperparameter simply had no effect.
 
-        Correctness
-        -----------
-        This function has been audited for Numpy docstring validity and functional correctness.
+        Notes
+        -----
+        Earlier revisions built the result solely from a `defaults` dict that
+        omitted `decay_rate`, `beta`, `k` and `alpha`, and then pruned further
+        by optimizer type. Because every value was taken from that dict, any
+        key missing from it was dropped even when the caller passed it
+        explicitly, which made LARS's `decay_rate`, RMSProp's `beta` and
+        Lookahead's `k` and `alpha` permanently stuck at their fallbacks. The
+        per-optimizer pruning served no purpose, since each `step` reads only
+        the keys it needs.
         """
-        defaults = {
-            'learning_rate': 0.001,
-            'beta1': 0.9,
-            'beta2': 0.999,
-            'epsilon': 1e-8,
-            'weight_decay': 0.0,
-            'amsgrad': False,
-            'momentum': 0.9,
-            'nsa_w': 0.1
-        }
-        
-        # Merge defaults with provided params
-        filtered = {k: params.get(k, v) for k, v in defaults.items()}
-        
-        # Optimizer-specific pruning if needed
-        if optimizer_type == "gd":
-            filtered = {k: v for k, v in filtered.items() if k in ['learning_rate', 'momentum', 'weight_decay']}
-        elif optimizer_type in ["adam", "nadam", "hybrid_adam"]:
-            filtered = {k: v for k, v in filtered.items() if k in ['learning_rate', 'beta1', 'beta2', 'epsilon', 'amsgrad']}
-            
+        filtered = dict(SIMLR_OPTIMIZER_DEFAULTS)
+        unknown = sorted(set(params) - set(SIMLR_OPTIMIZER_DEFAULTS))
+        if unknown:
+            warnings.warn(
+                f"Unrecognised optimizer parameter(s) {unknown} for "
+                f"optimizer_type={optimizer_type!r}; they will be ignored. "
+                f"Known parameters: {sorted(SIMLR_OPTIMIZER_DEFAULTS)}.",
+                UserWarning,
+                stacklevel=3,
+            )
+        filtered.update({k: v for k, v in params.items()
+                         if k in SIMLR_OPTIMIZER_DEFAULTS})
         return filtered
 
     @abstractmethod
@@ -119,10 +138,6 @@ class SimlrOptimizer(ABC):
         ------
         NotImplementedError
             If not implemented by a subclass.
-
-        Correctness
-        -----------
-        This function has been audited for Numpy docstring validity and functional correctness.
         """
         pass
 
@@ -171,14 +186,10 @@ def backtracking_linesearch(v_current: torch.Tensor,
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     try:
         initial_energy = energy_function(v_current)
-    except:
+    except Exception:
         return 0.0
         
     step_size = initial_step_size
@@ -190,7 +201,7 @@ def backtracking_linesearch(v_current: torch.Tensor,
         v_candidate = v_current + step_size * descent_direction
         try:
             new_energy = energy_function(v_candidate)
-        except:
+        except Exception:
             new_energy = float('inf')
         if new_energy <= initial_energy + alpha * step_size * slope_term:
             return step_size
@@ -238,16 +249,14 @@ def bidirectional_linesearch(v_current: torch.Tensor,
     -------
     Tuple[float, torch.Tensor]
         A tuple of (optimal_step_size, direction), where direction is 
-        either `descent_direction` or `-descent_direction`.
+        either `descent_direction` or `-descent_direction`. The direction is
+        chosen by which candidate reaches the lower energy, not by which
+        admits the larger step.
 
     Raises
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     # Try positive direction
     pos_step = backtracking_linesearch(
@@ -260,13 +269,29 @@ def bidirectional_linesearch(v_current: torch.Tensor,
         v_current, -descent_direction, -ascent_gradient, energy_function,
         initial_step_size, alpha, beta, max_iter, min_step
     )
-    
-    if pos_step >= neg_step and pos_step > 0:
+
+    # Pick whichever candidate actually reaches the lower energy. Comparing the
+    # two *step sizes* (as this previously did, via `pos_step >= neg_step`) says
+    # nothing about which direction descends further: a larger admissible step
+    # in one direction can easily land above a smaller step in the other.
+    def _energy_at(step, direction):
+        if step <= 0.0:
+            return float('inf')
+        try:
+            return float(energy_function(v_current + step * direction))
+        except Exception:
+            return float('inf')
+
+    pos_energy = _energy_at(pos_step, descent_direction)
+    neg_energy = _energy_at(neg_step, -descent_direction)
+
+    if pos_energy <= neg_energy and pos_step > 0:
         return pos_step, descent_direction
-    elif neg_step > 0:
+    if neg_step > 0 and neg_energy < float('inf'):
         return neg_step, -descent_direction
-    else:
-        return 0.0, descent_direction
+    if pos_step > 0:
+        return pos_step, descent_direction
+    return 0.0, descent_direction
 
 class HybridAdam(SimlrOptimizer):
     """
@@ -295,10 +320,6 @@ class HybridAdam(SimlrOptimizer):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
@@ -308,8 +329,14 @@ class HybridAdam(SimlrOptimizer):
         epsilon = self.params['epsilon']
         state['m'] = beta1 * state['m'] + (1 - beta1) * descent_gradient
         state['v'] = beta2 * state['v'] + (1 - beta2) * (descent_gradient**2)
-        state['v_max'] = torch.maximum(state['v_max'], state['v'])
-        search_direction = state['m'] / (torch.sqrt(state['v_max']) + epsilon)
+        # Honour the advertised `amsgrad` flag; the running maximum used to be
+        # applied unconditionally, so amsgrad=False had no effect.
+        if self.params.get('amsgrad', False):
+            state['v_max'] = torch.maximum(state['v_max'], state['v'])
+            denom_sq = state['v_max']
+        else:
+            denom_sq = state['v']
+        search_direction = state['m'] / (torch.sqrt(denom_sq) + epsilon)
         if full_energy_function is not None:
             optimal_step_size = backtracking_linesearch(
                 v_current=v_current,
@@ -349,10 +376,6 @@ class Adam(SimlrOptimizer):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
@@ -394,10 +417,6 @@ class Nadam(SimlrOptimizer):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
@@ -437,10 +456,6 @@ class ArmijoGradient(SimlrOptimizer):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
@@ -492,18 +507,18 @@ class BidirectionalArmijoGradient(SimlrOptimizer):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         state = self.state[i]
         epsilon = self.params.get('epsilon', 1e-8)
         lr = self.params['learning_rate']
+        # Use the momentum-smoothed direction, matching ArmijoGradient. This
+        # buffer was updated every step and then ignored in favour of the raw
+        # gradient, so the class was plain gradient descent despite its
+        # docstring claiming to be "similar to ArmijoGradient".
         state['momentum'] = 0.9 * state['momentum'] + 0.1 * descent_gradient
-        search_direction = descent_gradient
+        search_direction = state['momentum']
         dir_norm = torch.norm(search_direction)
         if dir_norm < epsilon:
             return v_current
@@ -548,10 +563,6 @@ class Lookahead(SimlrOptimizer):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
@@ -595,10 +606,6 @@ class BidirectionalLookahead(SimlrOptimizer):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
@@ -641,10 +648,6 @@ class RMSProp(SimlrOptimizer):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
@@ -674,10 +677,6 @@ class SGD(SimlrOptimizer):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
@@ -707,10 +706,6 @@ class LARS(SimlrOptimizer):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
@@ -744,20 +739,13 @@ class NSAFlowOptimizer(SimlrOptimizer):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
         self.lr = self.params['learning_rate']
         self.w = self.params['nsa_w']
-        try:
-            from nsa_flow import nsa_flow_orth
-            self.nsa_flow = nsa_flow_orth
-        except ImportError:
-            self.nsa_flow = None
+        from .nsa_backend import load_nsa_flow_orth
+        self.nsa_flow = load_nsa_flow_orth()
 
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
@@ -766,14 +754,25 @@ class NSAFlowOptimizer(SimlrOptimizer):
             # Save RNG state because nsa_flow_orth has side effects on global seed
             rng_state = torch.get_rng_state()
             try:
-                res = self.nsa_flow(v_next, w=self.w, max_iter=5)
+                try:
+                    res = self.nsa_flow(v_next.double(), w=self.w, nonneg=False)
+                except TypeError:
+                    res = self.nsa_flow(v_next, w=self.w, max_iter=5)
                 # Restore RNG state
                 torch.set_rng_state(rng_state)
-                if res['Y'] is not None: return res['Y'].to(v_current.dtype)
-            except: 
+                candidate = res.get('Y') if hasattr(res, 'get') else getattr(res, 'Y', None)
+                if candidate is not None:
+                    candidate = candidate.to(v_current.dtype)
+                # Validate before accepting. The backend returns an all-zero
+                # matrix for some shape/weight combinations, and a zero basis is
+                # not None -- accepting it on a None-check alone silently
+                # replaces the iterate with nothing. See
+                # pysimlr.sparsification._usable_retraction.
+                if _usable_retraction(candidate, v_next):
+                    return candidate
+            except Exception:
                 torch.set_rng_state(rng_state)
-                pass
-        u, s, v_h = torch.linalg.svd(v_next, full_matrices=False)
+        u, s, v_h = safe_svd(v_next, full_matrices=False)
         return u @ v_h
 
 class TorchNativeOptimizer(SimlrOptimizer):
@@ -797,13 +796,12 @@ class TorchNativeOptimizer(SimlrOptimizer):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
+        #: Optional analytic-gradient callback, set by the caller. Only the
+        #: LBFGS path needs it, to refresh the gradient inside its line search.
+        self.gradient_function: Optional[Callable] = None
         self.v_params = [nn.Parameter(v.clone()) for v in v_mats]
         lr = self.params['learning_rate']
         if optimizer_type == "torch_adamw":
@@ -825,10 +823,32 @@ class TorchNativeOptimizer(SimlrOptimizer):
             v_param.copy_(v_current)
         v_param.grad = -descent_gradient
         if self.optimizer_type == "torch_lbfgs" and full_energy_function is not None:
+            # LBFGS re-evaluates the closure at trial points along its own line
+            # search, and needs the gradient *at that trial point* each time.
+            # SiMLR supplies gradients analytically rather than through autograd,
+            # so the closure has to call back into the gradient function; pinning
+            # `v_param.grad` to the entry-point gradient (as this used to) makes
+            # every trial evaluation use a stale direction, which defeats the
+            # curvature estimate LBFGS is built on.
+            grad_fn = getattr(self, "gradient_function", None)
+            if grad_fn is None:
+                warnings.warn(
+                    "torch_lbfgs was selected but no gradient_function was "
+                    "provided, so its line search will re-use the gradient from "
+                    "the start of the step. Results will not match a true LBFGS "
+                    "run; prefer 'hybrid_adam' or 'armijo_gradient'.",
+                    UserWarning, stacklevel=2,
+                )
+
             def closure():
                 optimizer.zero_grad()
-                v_param.grad = -descent_gradient
-                return full_energy_function(v_param)
+                with torch.no_grad():
+                    if grad_fn is not None:
+                        v_param.grad = -grad_fn(v_param.detach())
+                    else:
+                        v_param.grad = -descent_gradient
+                    loss = full_energy_function(v_param.detach())
+                return torch.as_tensor(float(loss), device=v_param.device)
             optimizer.step(closure)
         else:
             optimizer.step()
@@ -866,12 +886,10 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
 
     Raises
     ------
+    ValueError
+        If `optimizer_type` is not one of the supported names.
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     mapping = {
         "hybrid_adam": HybridAdam,
@@ -890,5 +908,11 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
         "torch_lbfgs": TorchNativeOptimizer,
         "lars": LARS
     }
-    opt_class = mapping.get(optimizer_type, HybridAdam)
+    if optimizer_type not in mapping:
+        raise ValueError(
+            f"Unknown optimizer_type {optimizer_type!r}. Choose one of: "
+            f"{sorted(mapping)}. (This used to fall back to 'hybrid_adam' "
+            f"silently, so a typo changed the algorithm without any notice.)"
+        )
+    opt_class = mapping[optimizer_type]
     return opt_class(optimizer_type, v_mats, **params)

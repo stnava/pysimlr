@@ -36,10 +36,6 @@ def tune_shared_private(case_kind: str = "shared_plus_private",
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     # Define grid
     ortho_weights = [0.0, 0.01, 0.05, 0.1]

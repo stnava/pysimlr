@@ -22,7 +22,15 @@ class larslow(optim.Optimizer):
                 if p.grad is None: continue
                 grad = p.grad
                 v_norm = torch.norm(p); g_norm = torch.norm(grad)
-                trust_ratio = group['trust_coefficient'] * v_norm / (g_norm + group['weight_decay'] * v_norm + 1e-10) if (v_norm > 0 and g_norm > 0) else 1.0
+                # The fallback must also carry `trust_coefficient`; returning a
+                # bare 1.0 gave any zero-initialised parameter (v_norm == 0,
+                # e.g. a LayerNorm bias) 1/trust_coefficient = 1000x the
+                # intended learning rate on that step.
+                if v_norm > 0 and g_norm > 0:
+                    trust_ratio = group['trust_coefficient'] * v_norm / (
+                        g_norm + group['weight_decay'] * v_norm + 1e-10)
+                else:
+                    trust_ratio = group['trust_coefficient']
                 state = self.state[p]
                 if 'momentum_buffer' not in state: state['momentum_buffer'] = torch.zeros_like(p)
                 buf = state['momentum_buffer']
@@ -47,10 +55,49 @@ from .consensus import compute_shared_consensus
 from .utils import preprocess_data, invariant_orthogonality_defect, safe_svd
 from .interpretability import build_first_layer_contract, build_interpretability_report
 
-try:
-    import nsa_flow as nsa
-except ImportError:
-    nsa = None
+from .nsa_backend import load_nsa_backend
+
+def _aggregate_shared_consensus(model, latents):
+    """
+    Single (n, k) shared embedding for a model whose topology yields one
+    consensus per modality.
+
+    With ``topology="loo"`` (the default) or ``"graph"``, each modality is
+    aligned to a *different* consensus, so ``forward`` returns a list. Users
+    and downstream code still need one shared embedding, which is the star
+    consensus taken over all modalities at once.
+
+    This is computed explicitly here rather than being inherited from a
+    prediction-time short-circuit inside `compute_shared_consensus`. That
+    short-circuit silently returned the star consensus whenever an anchor was
+    present, so a leave-one-out model's reported ``u`` came from a different
+    estimator than the one it was trained against -- and only at eval time.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        A fitted deep SiMR model.
+    latents : List[torch.Tensor]
+        Per-modality latent scores, as returned by ``model.forward``.
+
+    Returns
+    -------
+    torch.Tensor
+        The star consensus of shape (n_samples, k).
+    """
+    k = getattr(model, "latent_dim", None) or getattr(model, "shared_dim", None)
+    return compute_shared_consensus(
+        latents,
+        mixing_algorithm=model.mixing_algorithm,
+        k=k,
+        training=False,
+        anchor=getattr(model, "consensus_anchor", None),
+        topology="star",
+        prune_threshold=getattr(model, "prune_threshold", None),
+        modality_weights=(model.modality_weights
+                          if getattr(model, "dynamic_weights", False) else None),
+    )
+
 
 def _svd_project_columns(u: torch.Tensor) -> torch.Tensor:
     """Project towards the Stiefel manifold using SVD."""
@@ -58,7 +105,7 @@ def _svd_project_columns(u: torch.Tensor) -> torch.Tensor:
         try:
             u_svd, _, vh_svd = safe_svd(u, full_matrices=False)
             return u_svd @ vh_svd
-        except:
+        except Exception:
             # Fallback to column normalization
             return torch.nn.functional.normalize(u, p=2, dim=0)
 
@@ -112,6 +159,102 @@ def _standardize_deep(data_matrices, scale_list=["centerAndScale"]):
         provenance_list.append(prov)
     return scaled_mats, provenance_list
 
+
+def _construct_nsa(factory, modern_kwargs: dict, legacy_kwargs: dict):
+    """
+    Build an NSA-Flow module, tolerating the backend's keyword rename.
+
+    The backend renamed ``w_retract`` to ``w`` and ``apply_nonneg`` (a string)
+    to ``nonneg`` (a boolean), and dropped ``retraction_type`` entirely.
+    Pinning either spelling makes pysimlr fail against half the released
+    versions, so the modern signature is tried first and the legacy one second.
+
+    Parameters
+    ----------
+    factory : type
+        The backend class to instantiate.
+    modern_kwargs, legacy_kwargs : dict
+        Keyword sets for the current and previous signatures.
+
+    Returns
+    -------
+    object
+        The constructed module.
+
+    Raises
+    ------
+    TypeError
+        If neither keyword set is accepted, since that means the backend has
+        changed in a way this shim does not cover.
+    """
+    try:
+        return factory(**modern_kwargs)
+    except TypeError:
+        return factory(**legacy_kwargs)
+
+
+def _orient_first_layer(weight, input_dim: int, latent_dim: int):
+    """
+    Return ``weight`` oriented as the ``(features, latent)`` basis pysimlr uses.
+
+    The NSA-Flow backend's linear module follows the ``torch.nn.Linear``
+    convention and stores its weight as ``(out_features, in_features)``, i.e.
+    ``(latent, features)``. Everything in pysimlr treats the first-layer basis
+    as ``(features, latent)`` -- ``x @ v`` , column-wise normalization,
+    ``v.copy_(v_init)``. Transposing here rather than at each use site keeps a
+    single place responsible for the convention.
+
+    A transposed view shares storage with the parameter, so gradients flow back
+    and in-place writes (the ``v_raw.copy_(...)`` initialization paths) reach
+    the backend parameter.
+
+    Encoders only use the backend when ``input_dim > latent_dim``, so the two
+    orientations are never the same shape and the choice is unambiguous.
+    """
+    if weight.shape == (input_dim, latent_dim):
+        return weight
+    if weight.shape == (latent_dim, input_dim):
+        return weight.transpose(0, 1)
+    raise ValueError(
+        f"NSA-Flow weight has shape {tuple(weight.shape)}, which matches "
+        f"neither ({input_dim}, {latent_dim}) nor ({latent_dim}, {input_dim})."
+    )
+
+
+def _nsa_raw_parameter(module):
+    """
+    Return the backend module's trainable weight under either of its names.
+
+    The backend renamed ``weight_raw`` to ``weight``; both spellings are
+    accepted so pysimlr works against released versions on either side of the
+    rename.
+    """
+    for name in ("weight", "weight_raw"):
+        candidate = getattr(module, name, None)
+        if isinstance(candidate, torch.Tensor):
+            return candidate
+    raise AttributeError(
+        f"{type(module).__name__} exposes neither 'weight' nor 'weight_raw'; "
+        "the NSA-Flow backend interface has changed."
+    )
+
+
+def _nsa_effective_weight(module):
+    """
+    Return the backend module's retracted weight under either of its names.
+
+    ``get_manifold_weight`` was renamed to ``effective_weight``.
+    """
+    for name in ("effective_weight", "get_manifold_weight"):
+        accessor = getattr(module, name, None)
+        if callable(accessor):
+            return accessor()
+    raise AttributeError(
+        f"{type(module).__name__} exposes neither 'effective_weight()' nor "
+        "'get_manifold_weight()'; the NSA-Flow backend interface has changed."
+    )
+
+
 class LENDNSAEncoder(nn.Module):
     """
     Interpretable first-layer encoder using Linear Encoded Nonlinear Decoding (LEND).
@@ -150,10 +293,6 @@ class LENDNSAEncoder(nn.Module):
         If an unsupported first_layer_mode is provided.
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its methods have been audited for Numpy docstring validity and functional correctness.
     """
     def __init__(self, input_dim: int, latent_dim: int, nsa_w: float = 0.1, 
                  positivity: str = "positive", sparseness_quantile: float = 0.0,
@@ -174,41 +313,102 @@ class LENDNSAEncoder(nn.Module):
         self.first_layer_mode = first_layer_mode
         self.topology = "loo"
         self.nsa_iterations = nsa_iterations
-        self.projection_alpha = 0.0
+        # Absent a driven schedule, train on the same basis inference uses.
+        #
+        # `first_layer_mode="scheduled"` blends the raw and projected bases by
+        # `projection_alpha`, which the training loops set every epoch via
+        # `set_projection_schedule`. A caller who uses the encoder directly
+        # never advances it, so an initial 0.0 meant training ran on the raw
+        # signed basis while `eval()` switched to the projected one. Under the
+        # default `positivity="positive"` those differ by a sign clamp, and a
+        # k=1 encoder fitted to correlation 0.99 on its training basis scored
+        # 0.51 at inference. The trainers still start their own ramp at 0.0, so
+        # this only changes the undriven case.
+        self.projection_alpha = 1.0
         self.stabilization_epoch = 0
         self.stabilization_ramp_epochs = 1
-        self.is_low_dim = (input_dim <= latent_dim)
-        if self.is_low_dim: self.use_nsa = False
-        
+        self.input_dim = input_dim
+        self.latent_dim = latent_dim
         self.is_low_dim = (input_dim <= latent_dim)
         if self.is_low_dim:
+            # A basis cannot be near-orthogonal with more columns than rows, so
+            # the retraction backend is bypassed entirely in that regime. This
+            # also guarantees input_dim > latent_dim wherever the backend runs,
+            # which is what makes `_orient_first_layer` unambiguous.
             self.use_nsa = False
         
-        # Determine internal NSA constraint mode
-        # If using Softplus, we want the underlying NSA weights to flow freely
-        nsa_apply_nonneg = 'hard' if positivity in {'positive', 'hard'} else 'none'
+        # Determine internal NSA constraint mode.
+        #
+        # The backend's layers and its solver spell non-negativity differently,
+        # and they do not agree on what `True` means. `nsa_flow(V, nonneg=True)`
+        # applies a hard non-negativity constraint, but `NSAFlowLinear` maps
+        # `nonneg=True` to *softplus*: `_nonneg(W, True)` returns
+        # `F.softplus(W)`. Passing the boolean here therefore turned a sparse
+        # basis into a dense, near-uniform one -- softplus sends every zero to
+        # log(2) = 0.693 -- taking the encoder's effective basis from a
+        # normalized Stiefel defect of 0.10 to 2.38 with every one of its
+        # entries above 0.689. The layer wants the string.
+        #
+        # 'softplus' positivity is excluded deliberately: the `v` property
+        # applies its own `softplus(v - 4)`, so asking the layer for softplus
+        # too would apply it twice.
+        self.nsa_w = float(nsa_w)
+        nsa_nonneg = positivity in {'positive', 'hard', 'nonnegative', 'nonneg'}
+        nsa_layer_nonneg = 'hard' if nsa_nonneg else None
         
         self.nsa_linear = None
         self.nsa_layer = None
         
+        nsa = load_nsa_backend() if use_nsa else None
         if nsa is not None and use_nsa:
             # Prefer the new NSAFlowLinear for parameter-squeeze
             if hasattr(nsa, 'NSAFlowLinear'):
-                self.nsa_linear = nsa.NSAFlowLinear(
-                    in_features=input_dim, out_features=latent_dim, bias=False,
-                    w_retract=nsa_w, retraction_type=retraction_type, 
-                    apply_nonneg=nsa_apply_nonneg
+                self.nsa_linear = _construct_nsa(
+                    nsa.NSAFlowLinear,
+                    dict(in_features=input_dim, out_features=latent_dim,
+                         bias=False, w=nsa_w, nonneg=nsa_layer_nonneg),
+                    dict(in_features=input_dim, out_features=latent_dim,
+                         bias=False, w_retract=nsa_w,
+                         retraction_type=retraction_type,
+                         apply_nonneg='hard' if nsa_nonneg else 'none'),
                 )
-                self.v_raw = self.nsa_linear.weight_raw
             else:
                 # Fallback to NSAFlowLayer (activation-squeeze) applied to weights
                 self.v_raw = nn.Parameter(torch.randn(input_dim, latent_dim) * 0.01)
-                self.nsa_layer = nsa.NSAFlowLayer(
-                    k=latent_dim, w_retract=nsa_w, retraction_type=retraction_type, 
-                    apply_nonneg=nsa_apply_nonneg, residual=False, use_transform=False
+                self.nsa_layer = _construct_nsa(
+                    nsa.NSAFlowLayer,
+                    dict(w=nsa_w, nonneg=nsa_layer_nonneg),
+                    dict(k=latent_dim, w_retract=nsa_w,
+                         retraction_type=retraction_type,
+                         apply_nonneg='hard' if nsa_nonneg else 'none',
+                         residual=False, use_transform=False),
                 )
         else:
             self.v_raw = nn.Parameter(torch.randn(input_dim, latent_dim) * 0.01)
+
+    @property
+    def v_raw(self):
+        """
+        The unretracted ``(features, latent)`` first-layer basis.
+
+        When the NSA-Flow backend owns the parameter it lives inside
+        ``nsa_linear`` under the ``torch.nn.Linear`` orientation, so it is
+        transposed into pysimlr's convention on access. Aliasing it as a second
+        registered parameter (the previous approach) both duplicated it in the
+        state dict and handed out a ``(latent, features)`` tensor to call sites
+        that index it as ``(features, latent)``.
+
+        Otherwise the encoder owns the parameter directly, registered under
+        this same name by ``nn.Module.__setattr__``.
+        """
+        own = self._parameters.get("v_raw")
+        if own is not None:
+            return own
+        backend = getattr(self, "nsa_linear", None)
+        if backend is not None:
+            return _orient_first_layer(
+                _nsa_raw_parameter(backend), self.input_dim, self.latent_dim)
+        raise AttributeError("v_raw has not been initialized")
 
     @property
     def v(self):
@@ -217,7 +417,12 @@ class LENDNSAEncoder(nn.Module):
             if self.positivity in {'positive', 'hard', 'softplus'}:
                 magnitudes = torch.abs(v_out)
                 if self.positivity == 'softplus': magnitudes = torch.nn.functional.softplus(v_out - 4.0)
-                scores = torch.exp(v_out * 20.0)
+                # Shift by the global max before exponentiating. The shift is a
+                # single multiplicative constant on `scores`, which cancels in
+                # the first Sinkhorn normalization, so this is exact rather than
+                # an approximation.
+                logits = v_out * 20.0
+                scores = torch.exp(logits - logits.max().detach())
                 for _ in range(10):
                     scores = scores / (torch.sum(scores, dim=0, keepdim=True) + 1e-8)
                     scores = scores / (torch.sum(scores, dim=1, keepdim=True) + 1e-8)
@@ -225,18 +430,26 @@ class LENDNSAEncoder(nn.Module):
             v_out = torch.nn.functional.normalize(v_out, p=2, dim=0)
         else:
             if self.nsa_linear is not None:
-                v_out = self.nsa_linear.get_manifold_weight()
+                # Routing this through the full solver instead
+                # (`_nsa_retract(self.v_raw, ...)`) was tried and dropped: it
+                # produces a better-conditioned basis in isolation (defect
+                # 0.08 against 0.09) but leaves NED's latents just as
+                # correlated, costs 26x per access, and moved real-data
+                # accuracy by +0.005 on average -- within seed noise.
+                v_out = _orient_first_layer(
+                    _nsa_effective_weight(self.nsa_linear),
+                    self.input_dim, self.latent_dim)
                 if self.nsa_iterations > 1:
                     try: v_out = _svd_project_columns(v_out)
-                    except: pass
+                    except Exception: pass
             elif self.nsa_layer is not None:
                 v_out = self.nsa_layer(self.v_raw)
                 if self.nsa_iterations > 1:
                     try: v_out = _svd_project_columns(v_out)
-                    except: pass
+                    except Exception: pass
             else:
                 try: v_out = _svd_project_columns(self.v_raw)
-                except: v_out = torch.nn.functional.normalize(self.v_raw, p=2, dim=0)
+                except Exception: v_out = torch.nn.functional.normalize(self.v_raw, p=2, dim=0)
             if self.positivity in {'positive', 'hard'}: v_out = torch.clamp(v_out, min=0.0)
             elif self.positivity == 'softplus': v_out = torch.nn.functional.softplus(v_out - 4.0)
         if torch.isnan(v_out).any(): v_out = torch.nan_to_num(v_out, nan=0.0)
@@ -321,10 +534,6 @@ class ModalityDecoder(nn.Module):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def __init__(self, latent_dim: int, output_dim: int, hidden_dims: List[int] = [128, 64], dropout: float = 0.1):
         super().__init__()
@@ -376,10 +585,6 @@ class LENDSiMRModel(nn.Module):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its methods have been audited for Numpy docstring validity and functional correctness.
     """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
                  dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "positive", 
@@ -404,14 +609,20 @@ class LENDSiMRModel(nn.Module):
         self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
+        """
+        Seed each encoder's first-layer basis.
+
+        `initial_basis_for_view` fits a non-negative basis from the data when
+        the encoder rectifies (its `v` property clamps negatives), so the first
+        forward pass does not see ``clamp(V_pca)``; otherwise it returns the
+        signed PCA loadings with column signs resolved. Sharing it with
+        `initialize_simlr` keeps the linear and deep paths on the same start.
+        """
+        from .simlr import initial_basis_for_view
         with torch.no_grad():
             for i, x in enumerate(data_matrices):
-                u, s, v = ba_svd(x, nu=0, nv=k)
-                if v.shape[1] < k: v = torch.cat([v, torch.randn(v.shape[0], k-v.shape[1], device=v.device)*1e-4], dim=1)
-                # Positivity-aware sign flipping to prevent zero-vector collapse
-                if self.encoders[i].positivity in {"positive", "hard", "softplus"}:
-                    for j in range(v.shape[1]):
-                        if v[:, j].sum() < 0: v[:, j] *= -1
+                v = initial_basis_for_view(
+                    x, k, positivity=self.encoders[i].positivity)
                 self.encoders[i].v_raw.copy_(v.to(x.dtype))
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.encoders, x_list)]
@@ -483,7 +694,7 @@ class LENDSiMRModel(nn.Module):
                             mais.append((num / (den + 1e-8)).item())
                         else: # trace
                             mais.append(max(0.0, torch.trace(cross).item()))
-                    except:
+                    except Exception:
                         mais.append(0.0)
                 else:
                     mais.append(0.0)
@@ -557,10 +768,6 @@ class NEDSiMRModel(nn.Module):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its methods have been audited for Numpy docstring validity and functional correctness.
     """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
                  dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "positive", 
@@ -586,14 +793,20 @@ class NEDSiMRModel(nn.Module):
         self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
+        """
+        Seed each encoder's first-layer basis.
+
+        `initial_basis_for_view` fits a non-negative basis from the data when
+        the encoder rectifies (its `v` property clamps negatives), so the first
+        forward pass does not see ``clamp(V_pca)``; otherwise it returns the
+        signed PCA loadings with column signs resolved. Sharing it with
+        `initialize_simlr` keeps the linear and deep paths on the same start.
+        """
+        from .simlr import initial_basis_for_view
         with torch.no_grad():
             for i, x in enumerate(data_matrices):
-                u, s, v = ba_svd(x, nu=0, nv=k)
-                if v.shape[1] < k: v = torch.cat([v, torch.randn(v.shape[0], k-v.shape[1], device=v.device)*1e-4], dim=1)
-                # Positivity-aware sign flipping to prevent zero-vector collapse
-                if self.linear_encoders[i].positivity in {"positive", "hard", "softplus"}:
-                    for j in range(v.shape[1]):
-                        if v[:, j].sum() < 0: v[:, j] *= -1
+                v = initial_basis_for_view(
+                    x, k, positivity=self.linear_encoders[i].positivity)
                 self.linear_encoders[i].v_raw.copy_(v.to(x.dtype))
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
@@ -665,7 +878,7 @@ class NEDSiMRModel(nn.Module):
                             mais.append((num / (den + 1e-8)).item())
                         else: # trace
                             mais.append(max(0.0, torch.trace(cross).item()))
-                    except:
+                    except Exception:
                         mais.append(0.0)
                 else:
                     mais.append(0.0)
@@ -702,10 +915,19 @@ class NEDSiMRModel(nn.Module):
         return latents, [dec(u_shared[i] if isinstance(u_shared, list) else u_shared) for i, dec in enumerate(self.decoders)], u_shared
 
     def transform(self, x_list: List[torch.Tensor]) -> torch.Tensor:
-        """Unify downstream prediction API: Returns the consensus representation U."""
+        """
+        Unify downstream prediction API: return the shared consensus U as an
+        (n_samples, latent_dim) tensor.
+
+        ``forward`` yields one consensus per modality under the "loo" and
+        "graph" topologies; this collapses those to the single star consensus,
+        so the public transform contract is a tensor regardless of topology.
+        """
         self.eval()
         with torch.no_grad():
-            _, _, u = self.forward(x_list)
+            latents, _, u = self.forward(x_list)
+            if isinstance(u, list):
+                return _aggregate_shared_consensus(self, latents)
             return u
 
 class NEDSharedPrivateSiMRModel(nn.Module):
@@ -746,10 +968,6 @@ class NEDSharedPrivateSiMRModel(nn.Module):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its methods have been audited for Numpy docstring validity and functional correctness.
     """
     def __init__(self, input_dims: List[int], shared_latent_dim: int, private_latent_dim: int,
                  hidden_dims: List[int] = [128, 64], dropout: float = 0.1, nsa_w: float = 0.1,
@@ -776,14 +994,20 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         self.register_buffer("mai", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
+        """
+        Seed each encoder's first-layer basis.
+
+        `initial_basis_for_view` fits a non-negative basis from the data when
+        the encoder rectifies (its `v` property clamps negatives), so the first
+        forward pass does not see ``clamp(V_pca)``; otherwise it returns the
+        signed PCA loadings with column signs resolved. Sharing it with
+        `initialize_simlr` keeps the linear and deep paths on the same start.
+        """
+        from .simlr import initial_basis_for_view
         with torch.no_grad():
             for i, x in enumerate(data_matrices):
-                u, s, v = ba_svd(x, nu=0, nv=k)
-                if v.shape[1] < k: v = torch.cat([v, torch.randn(v.shape[0], k-v.shape[1], device=v.device)*1e-4], dim=1)
-                # Positivity-aware sign flipping to prevent zero-vector collapse
-                if self.linear_encoders[i].positivity in {"positive", "hard", "softplus"}:
-                    for j in range(v.shape[1]):
-                        if v[:, j].sum() < 0: v[:, j] *= -1
+                v = initial_basis_for_view(
+                    x, k, positivity=self.linear_encoders[i].positivity)
                 self.linear_encoders[i].v_raw.copy_(v.to(x.dtype))
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
@@ -855,7 +1079,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
                             mais.append((num / (den + 1e-8)).item())
                         else: # trace
                             mais.append(max(0.0, torch.trace(cross).item()))
-                    except:
+                    except Exception:
                         mais.append(0.0)
                 else:
                     mais.append(0.0)
@@ -893,9 +1117,18 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         return shared_l, recons, u_shared, private_l
 
     def transform(self, x_list: List[torch.Tensor]) -> torch.Tensor:
+        """
+        Return the shared consensus U as an (n_samples, shared_dim) tensor.
+
+        See :meth:`NEDSiMRModel.transform` -- the "loo"/"graph" topologies give
+        one consensus per modality, which is collapsed to the star consensus
+        here so the transform contract stays a tensor.
+        """
         self.eval()
         with torch.no_grad():
-            _, _, u, _ = self.forward(x_list)
+            shared_l, _, u, _ = self.forward(x_list)
+            if isinstance(u, list):
+                return _aggregate_shared_consensus(self, shared_l)
             return u
 
 class ModalityEncoder(nn.Module):
@@ -920,10 +1153,6 @@ class ModalityEncoder(nn.Module):
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This class and its functions have been audited for Numpy docstring validity and functional correctness.
     """
     def __init__(self, input_dim: int, k: int, hidden_dims: List[int] = [128, 64], dropout: float = 0.1):
         super().__init__()
@@ -986,10 +1215,6 @@ def calculate_sim_loss(latents: List[torch.Tensor],
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     is_loo = isinstance(u_shared, list)
     device = u_shared[0].device if is_loo else u_shared.device
@@ -1092,6 +1317,7 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     loss_history, recon_history, sim_history = [], [], []
     projection_alpha_history, basis_drift_history = [], []
     best_loss = float('inf'); patience_counter = 0; converged_epoch = epochs
+    last_sim_weight = None
     stabilization_start_epoch, stabilization_ramp_epochs = _resolve_stabilization_schedule(
         epochs,
         warmup_epochs,
@@ -1121,6 +1347,15 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
         projection_alpha_history.append(float(schedule_diag.get("projection_alpha", 1.0)))
         basis_drift_history.append(float(schedule_diag.get("basis_drift", 0.0)))
         current_sim_weight = 0.0 if epoch < warmup_epochs else sim_weight
+        # The similarity term switches on at `warmup_epochs`, which discontinuously
+        # raises the objective. Comparing post-warmup losses against a best_loss
+        # recorded while the term was switched off makes the patience counter
+        # increment every epoch, stopping training at warmup+patience regardless
+        # of actual convergence. Restart the baseline when the objective changes.
+        if current_sim_weight != last_sim_weight:
+            best_loss = float('inf')
+            patience_counter = 0
+        last_sim_weight = current_sim_weight
         penalty_weights["sim"] = current_sim_weight
         
         for batch in dataloader:
@@ -1172,7 +1407,7 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
         
         if epoch_loss < best_loss - tol: 
             best_loss = epoch_loss; patience_counter = 0
-        elif epoch_loss != 0.0: 
+        else:
             patience_counter += 1
             
         if patience_counter >= patience and epoch > warmup_epochs:
@@ -1245,10 +1480,6 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     ------
     TypeError
         If inputs are invalid.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
@@ -1264,10 +1495,12 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     with torch.no_grad():
         eval_mats = [m.to(device) for m in torch_mats]
         final_latents, recons, u_final = model(eval_mats)
+        u_aggregate = (_aggregate_shared_consensus(model, final_latents)
+                       if isinstance(u_final, list) else u_final)
         v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.encoders]
         first_layer_scores = [torch.nan_to_num(z.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for z in model.encode_first_layer(eval_mats, use_projected=True)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "lend_simr", "u": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else torch.nan_to_num(u_final.cpu(), nan=0.0, posinf=0.0, neginf=0.0)), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
+    result = {"model": model.cpu(), "model_type": "lend_simr", "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
     result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
@@ -1337,10 +1570,6 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     ------
     TypeError
         If inputs are invalid.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
@@ -1356,10 +1585,12 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     with torch.no_grad():
         eval_mats = [m.to(device) for m in torch_mats]
         final_latents, recons, u_final = model(eval_mats)
+        u_aggregate = (_aggregate_shared_consensus(model, final_latents)
+                       if isinstance(u_final, list) else u_final)
         v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.linear_encoders]
         first_layer_scores = [torch.nan_to_num(z.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for z in model.encode_first_layer(eval_mats, use_projected=True)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "ned_simr", "u": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else torch.nan_to_num(u_final.cpu(), nan=0.0, posinf=0.0, neginf=0.0)), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
+    result = {"model": model.cpu(), "model_type": "ned_simr", "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
     result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
@@ -1443,10 +1674,6 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     ------
     TypeError
         If inputs are invalid.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
@@ -1476,10 +1703,12 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     with torch.no_grad():
         eval_mats = [m.to(device) for m in torch_mats]
         final_shared, final_recons, u_final, final_private = model(eval_mats)
+        u_aggregate = (_aggregate_shared_consensus(model, final_shared)
+                       if isinstance(u_final, list) else u_final)
         v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.linear_encoders]
         first_layer_scores = [torch.nan_to_num(z.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for z in model.encode_first_layer(eval_mats, use_projected=True)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "ned_shared_private", "u": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else torch.nan_to_num(u_final.cpu(), nan=0.0, posinf=0.0, neginf=0.0)), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_shared], "private_latents": [torch.nan_to_num(p.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for p in final_private], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
+    result = {"model": model.cpu(), "model_type": "ned_shared_private", "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_shared], "private_latents": [torch.nan_to_num(p.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for p in final_private], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
     result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, final_recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
@@ -1532,9 +1761,6 @@ def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     TypeError
         If inputs are invalid.
 
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
 
     See Also
     --------
@@ -1568,10 +1794,6 @@ def predict_deep(data_matrices: List[Union[torch.Tensor, np.ndarray]], model_res
     ------
     TypeError
         If inputs are invalid.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     model = model_res["model"]; model_type = model_res.get("model_type", "lend_simr")
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
@@ -1588,10 +1810,12 @@ def predict_deep(data_matrices: List[Union[torch.Tensor, np.ndarray]], model_res
         first_layer = build_first_layer_contract(v_list, first_layer_scores) if v_list is not None and first_layer_scores is not None else None
         if model_type == "ned_shared_private":
             shared_l, recons, u, private_l = res
-            result = {"u": [ui.cpu() for ui in u] if isinstance(u, list) else u.cpu(), "latents": [l.cpu() for l in shared_l], "reconstructions": [r.cpu() for r in recons], "private_latents": [p.cpu() for p in private_l], "first_layer_scores": first_layer_scores, "first_layer": first_layer, "v": v_list}
+            u_agg = _aggregate_shared_consensus(model, shared_l) if isinstance(u, list) else u
+            result = {"u": u_agg.cpu(), "u_per_modality": ([ui.cpu() for ui in u] if isinstance(u, list) else None), "latents": [l.cpu() for l in shared_l], "reconstructions": [r.cpu() for r in recons], "private_latents": [p.cpu() for p in private_l], "first_layer_scores": first_layer_scores, "first_layer": first_layer, "v": v_list}
         else:
             latents, recons, u = res
-            result = {"u": [ui.cpu() for ui in u] if isinstance(u, list) else u.cpu(), "latents": [l.cpu() for l in latents], "reconstructions": [r.cpu() for r in recons], "first_layer_scores": first_layer_scores, "first_layer": first_layer, "v": v_list}
+            u_agg = _aggregate_shared_consensus(model, latents) if isinstance(u, list) else u
+            result = {"u": u_agg.cpu(), "u_per_modality": ([ui.cpu() for ui in u] if isinstance(u, list) else None), "latents": [l.cpu() for l in latents], "reconstructions": [r.cpu() for r in recons], "first_layer_scores": first_layer_scores, "first_layer": first_layer, "v": v_list}
         result["interpretability"] = build_interpretability_report(result) if first_layer is not None else None
         result["deep_layer"] = None if result["interpretability"] is None else {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
         result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, recons)]

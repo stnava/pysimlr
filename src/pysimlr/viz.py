@@ -33,10 +33,6 @@ def plot_view_correlations(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     n = len(data_matrices)
     if names is None:
@@ -85,10 +81,6 @@ def plot_latent_consensus(u_shared: torch.Tensor,
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     n_mods = len(latents)
     corrs = [adjusted_rvcoef(u_shared, l) for l in latents]
@@ -136,10 +128,6 @@ def plot_feature_signatures(v_mat: torch.Tensor,
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if "top_n" in kwargs:
         top_k = kwargs["top_n"]
@@ -188,10 +176,6 @@ def plot_convergence_dynamics(history_dict: Dict[str, List[float]],
     ------
     TypeError
         If inputs are of invalid types.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if not history_dict or all(not v for v in history_dict.values()):
         return None

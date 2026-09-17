@@ -1,9 +1,11 @@
+import pytest
 import torch
 import numpy as np
 from pysimlr.deep import ned_simr_shared_private, predict_deep
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 
+@pytest.mark.slow
 def test_shared_private_non_starvation():
     # 1. Setup synthetic data
     # Increase samples for better stability

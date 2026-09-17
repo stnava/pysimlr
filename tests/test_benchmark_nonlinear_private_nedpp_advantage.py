@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 from scripts.benchmark_nonlinear_private_noise_simlr_vs_nedpp import run_shared_private_benchmark
 
+@pytest.mark.slow
 def test_nedpp_advantage_contract():
     # Run with fixed protocol (n_samples=300, n_seeds=2 provides fast, deterministic contract verification)
     df = run_shared_private_benchmark(n_samples=300, n_seeds=2, noise_level=0.1)

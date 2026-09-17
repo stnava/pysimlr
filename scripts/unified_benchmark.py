@@ -78,14 +78,19 @@ def run_experiment_task(task_args):
         "Feature Recovery (V)": v_rec
     }
 
-def run_unified_benchmark(n_seeds=5, iterations=50, epochs=150, use_nsa=True, workers=None):
+def run_unified_benchmark(version="v22", n_seeds=5, iterations=50, epochs=150, use_nsa=True, workers=None):
     regimes = [
         ("Linear", {"kind": "linear"}), 
         ("Polynomial", {"kind": "nonlinear", "regime": "polynomial"}), 
         ("Sine", {"kind": "nonlinear", "regime": "sinusoidal"}), 
         ("Private", {"kind": "shared_plus_private"})
     ]
-    model_configs = [("linear", "SiMLR"), ("lend", "LEND"), ("ned", "NED"), ("shared_private", "NEDPP")]
+    # Flow-SiMLR-V is included here because the published clinical tables
+    # report it. In v21 its 160 rows per cache were produced by a runner that
+    # was never committed, so those numbers could not be regenerated from the
+    # repository; `run_single_experiment` has supported "flow_v" all along.
+    model_configs = [("linear", "SiMLR"), ("lend", "LEND"), ("ned", "NED"),
+                     ("shared_private", "NEDPP"), ("flow_v", "Flow-SiMLR-V")]
     losses = ["regression", "acc", "logcosh", "nc"]
     mixing_methods = ["newton", "svd", "pca", "ica"]
     
@@ -97,9 +102,9 @@ def run_unified_benchmark(n_seeds=5, iterations=50, epochs=150, use_nsa=True, wo
                     for seed in range(42, 42 + n_seeds):
                         tasks.append((regime_name, case_params, model_type, model_label, seed, energy_type, mixing_algorithm, iterations, epochs, use_nsa))
     
-    print(f"Starting FULL SYNTHETIC benchmark (v21) with {len(tasks)} tasks...")
+    print(f"Starting FULL SYNTHETIC benchmark ({version}) with {len(tasks)} tasks, {n_seeds} seeds...")
     os.makedirs("paper/results_cache", exist_ok=True)
-    out_file = "paper/results_cache/unified_synthetic_v21.csv"
+    out_file = f"paper/results_cache/unified_synthetic_{version}.csv"
     header = ["Regime", "Model", "Seed", "Loss", "Consensus", "CMC", "SRE", "Predictive Accuracy (Y)", "Train Accuracy (Y)", "Gen Gap (Y)", "Strictly Linear Accuracy", "Strictly Linear Train", "Strictly Linear Gap", "Latent Recovery (U)", "Feature Recovery (V)"]
     
     with open(out_file, 'w', newline='') as f:
@@ -131,12 +136,14 @@ def run_unified_benchmark(n_seeds=5, iterations=50, epochs=150, use_nsa=True, wo
 
 if __name__ == "__main__":
     multiprocessing.set_start_method('spawn', force=True)
-    parser = argparse.ArgumentParser(description="Run v21 FULL synthetic benchmark")
-    parser.add_argument("--n-seeds", type=int, default=5)
+    parser = argparse.ArgumentParser(description="Run the FULL synthetic benchmark")
+    parser.add_argument("--version", type=str, default="v22",
+                        help="Results-cache version tag; names the output CSV.")
+    parser.add_argument("--n-seeds", type=int, default=10)
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--epochs", type=int, default=150)
     parser.add_argument("--no-nsa", action="store_false", dest="use_nsa")
     parser.set_defaults(use_nsa=True)
     parser.add_argument("--workers", type=int, default=None)
     args = parser.parse_args()
-    run_unified_benchmark(n_seeds=args.n_seeds, iterations=args.iterations, epochs=args.epochs, use_nsa=args.use_nsa, workers=args.workers)
+    run_unified_benchmark(version=args.version, n_seeds=args.n_seeds, iterations=args.iterations, epochs=args.epochs, use_nsa=args.use_nsa, workers=args.workers)

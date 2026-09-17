@@ -143,7 +143,7 @@ def test_stress_bidirectional_armijo_inverts_uphill_gradient():
 
 
 def test_stress_simlr_armijo_monotonic_correlation_ascent():
-    """Verify full SiMLR with armijo_gradient monotonically increases cross-view correlation on ill-conditioned data."""
+    """Verify full SiMLR with armijo_gradient improves cross-view correlation on ill-conditioned data, with a bounded, settling objective."""
     torch.manual_seed(123)
     n = 60
     # Ill-conditioned data: condition number > 1e4
@@ -157,15 +157,36 @@ def test_stress_simlr_armijo_monotonic_correlation_ascent():
 
     # In acc mode, energy = -sum(|cov|), so decreasing energy == increasing correlation
     assert energy_history[-1] <= energy_history[0], "Overall energy did not decrease across iterations"
-    for it in range(len(energy_history) - 1):
-        # Monotonicity check allowing tiny numerical tolerance
-        assert energy_history[it + 1] <= energy_history[it] + 1e-5, (
-            f"Energy increased at iter {it}: {energy_history[it]} -> {energy_history[it+1]}"
+    # Strict step-wise monotonicity is NOT a property of this algorithm and is
+    # deliberately not asserted. simlr alternates between optimizing each V_i
+    # against a fixed u_i and recomputing u from the updated projections; that
+    # second step can raise the total, so the joint objective is guaranteed to
+    # improve overall, not at every sweep.
+    #
+    # These tests previously asserted per-step monotonicity, which held only
+    # because the objective was diverging: with the basis column scale left
+    # free, -sum|U'XV| is unbounded below. The measured trajectory ran
+    # -1.0, -1.38, ... -8.11 with *growing* increments at iteration 12 and
+    # reached ~-2.6e6 by iteration 40 -- monotone, but because ||V|| was
+    # blowing up, not because the correlation was improving. With the columns
+    # unit-normalized the energy now converges near -3.5.
+    energies = np.asarray(energy_history, dtype=float)
+    assert np.all(np.isfinite(energies))
+    assert np.abs(energies).max() < 1e3, (
+        f"energy reached {np.abs(energies).max():.3e}; the objective is "
+        f"diverging rather than converging"
+    )
+    if len(energies) >= 6:
+        tail = energies[len(energies) // 2:]
+        assert np.ptp(tail) < 0.5 * abs(float(energies.min())), (
+            f"energy still moving by {np.ptp(tail):.4f} over the second half "
+            f"of the run; it has not settled"
         )
+    assert res["best_energy"] == pytest.approx(float(energies.min()), rel=1e-9)
 
 
 def test_stress_simlr_bidirectional_armijo_acc_correlation_ascent():
-    """Verify full SiMLR with bidirectional_armijo_gradient monotonically increases cross-view correlation (acc)."""
+    """Verify full SiMLR with bidirectional_armijo_gradient improves cross-view correlation (acc), with a bounded, settling objective."""
     torch.manual_seed(42)
     n = 45
     u_true = torch.randn(n, 2)
@@ -176,10 +197,32 @@ def test_stress_simlr_bidirectional_armijo_acc_correlation_ascent():
     assert not torch.isnan(res["u"]).any()
     energy_history = res["energy"]
     assert energy_history[-1] <= energy_history[0], "Overall energy did not decrease across iterations"
-    for it in range(len(energy_history) - 1):
-        assert energy_history[it + 1] <= energy_history[it] + 1e-5, (
-            f"Energy increased at iter {it}: {energy_history[it]} -> {energy_history[it+1]}"
+    # Strict step-wise monotonicity is NOT a property of this algorithm and is
+    # deliberately not asserted. simlr alternates between optimizing each V_i
+    # against a fixed u_i and recomputing u from the updated projections; that
+    # second step can raise the total, so the joint objective is guaranteed to
+    # improve overall, not at every sweep.
+    #
+    # These tests previously asserted per-step monotonicity, which held only
+    # because the objective was diverging: with the basis column scale left
+    # free, -sum|U'XV| is unbounded below. The measured trajectory ran
+    # -1.0, -1.38, ... -8.11 with *growing* increments at iteration 12 and
+    # reached ~-2.6e6 by iteration 40 -- monotone, but because ||V|| was
+    # blowing up, not because the correlation was improving. With the columns
+    # unit-normalized the energy now converges near -3.5.
+    energies = np.asarray(energy_history, dtype=float)
+    assert np.all(np.isfinite(energies))
+    assert np.abs(energies).max() < 1e3, (
+        f"energy reached {np.abs(energies).max():.3e}; the objective is "
+        f"diverging rather than converging"
+    )
+    if len(energies) >= 6:
+        tail = energies[len(energies) // 2:]
+        assert np.ptp(tail) < 0.5 * abs(float(energies.min())), (
+            f"energy still moving by {np.ptp(tail):.4f} over the second half "
+            f"of the run; it has not settled"
         )
+    assert res["best_energy"] == pytest.approx(float(energies.min()), rel=1e-9)
 
 
 # ============================================================================

@@ -25,8 +25,17 @@ def _fit_linear_map(
     target: torch.Tensor,
     *,
     l2: float = 1e-6,
+    cv_folds: int = 5,
 ) -> Dict[str, Any]:
-    """Fit a ridge-stabilized linear map source -> target."""
+    """Fit a ridge-stabilized linear map source -> target.
+
+    Returns both the in-sample ``global_r2`` / ``r2_per_target`` and the
+    out-of-sample ``global_r2_cv`` / ``r2_per_target_cv``. Prefer the
+    cross-validated figures when judging alignment: with `l2` at its 1e-6
+    default the fit is effectively unregularized, so the in-sample R-squared
+    approaches 1 whenever the predictor is wide relative to the sample count,
+    regardless of whether any real relationship exists.
+    """
     x = _sanitize_tensor(source).to(torch.float32)
     y = _to_2d_target(target).to(torch.float32)
     if x.shape[0] != y.shape[0]:
@@ -42,21 +51,7 @@ def _fit_linear_map(
     # Use lstsq for better numerical stability with potentially singular matrices
     # xtx + reg can still be unstable if l2 is too small or data scale is huge.
     # lstsq handles the pseudo-inverse internally.
-    try:
-        # We use the regularized normal equations approach but with safety
-        xtx = xc.T @ xc
-        reg = l2 * torch.eye(n_features, dtype=xc.dtype)
-        # Add a tiny bit more to the diagonal if it's really bad, or use lstsq
-        # But for Ridge, solving (X'X + L*I)B = X'Y is standard.
-        # If solve fails, we fallback to lstsq on the augmented problem or just lstsq.
-        beta = torch.linalg.solve(xtx + reg, xc.T @ yc)
-    except Exception:
-        # Fallback to least squares solver which is more robust to singularity
-        # We solve the original problem with a tiny bit of regularization implicit in lstsq
-        # or we can explicitly augment for Ridge.
-        # For simplicity and robustness:
-        beta = torch.linalg.lstsq(xc, yc, rcond=1e-6).solution
-        
+    beta = _ridge_solve(xc, yc, l2)
     intercept = y_mean - x_mean @ beta
 
     y_hat = x @ beta + intercept
@@ -65,12 +60,118 @@ def _fit_linear_map(
     r2 = 1.0 - ss_res / torch.clamp(ss_tot, min=1e-8)
     global_r2 = 1.0 - ss_res.sum() / torch.clamp(ss_tot.sum(), min=1e-8)
 
-    return {
+    result = {
         "coefficients": beta,
         "intercept": intercept.squeeze(0),
         "prediction": y_hat,
         "r2_per_target": torch.nan_to_num(r2, nan=0.0),
         "global_r2": float(torch.nan_to_num(global_r2, nan=0.0).item()),
+    }
+    result.update(_cross_validated_r2(x, y, l2=l2, folds=cv_folds))
+    return result
+
+
+def _ridge_solve(xc: torch.Tensor, yc: torch.Tensor, l2: float) -> torch.Tensor:
+    """
+    Solve the centered ridge problem ``(X'X + l2 I) B = X'Y``.
+
+    Parameters
+    ----------
+    xc, yc : torch.Tensor
+        Column-centered predictor and target matrices.
+    l2 : float
+        Ridge penalty.
+
+    Returns
+    -------
+    torch.Tensor
+        Coefficient matrix of shape (n_features, n_targets).
+
+    Notes
+    -----
+    The rank-deficient fallback uses the pseudo-inverse rather than
+    ``torch.linalg.lstsq(..., rcond=...)``. On CPU, lstsq's default `gels`
+    driver assumes full rank and ignores `rcond` entirely, so a rank-deficient
+    design returned unreliable coefficients with no error raised.
+    """
+    n_features = xc.shape[1]
+    xtx = xc.T @ xc
+    reg = l2 * torch.eye(n_features, dtype=xc.dtype, device=xc.device)
+    try:
+        return torch.linalg.solve(xtx + reg, xc.T @ yc)
+    except Exception:
+        return torch.linalg.pinv(xtx + reg) @ (xc.T @ yc)
+
+
+def _cross_validated_r2(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    *,
+    l2: float,
+    folds: int,
+) -> Dict[str, Any]:
+    """
+    Out-of-sample R-squared by contiguous k-fold cross-validation.
+
+    Parameters
+    ----------
+    x, y : torch.Tensor
+        Predictor and target matrices, already 2-D and row-aligned.
+    l2 : float
+        Ridge penalty used for each fold's fit.
+    folds : int
+        Number of folds. Values below 2, or fewer samples than folds, disable
+        cross-validation and yield NaN.
+
+    Returns
+    -------
+    Dict[str, Any]
+        "global_r2_cv" (float) and "r2_per_target_cv" (tensor).
+
+    Notes
+    -----
+    The in-sample `global_r2` that accompanies this is not evidence of
+    alignment when the predictor is wide relative to the sample count: with one
+    free coefficient per predictor per target it approaches 1 by construction.
+    Every alignment and attribution number this module reports was in-sample
+    only, with `l2` defaulting to 1e-6, i.e. effectively unregularized.
+    """
+    n = x.shape[0]
+    nan = float("nan")
+    if folds is None or folds < 2 or n < max(4, folds):
+        return {
+            "global_r2_cv": nan,
+            "r2_per_target_cv": torch.full((y.shape[1],), nan, dtype=y.dtype),
+        }
+
+    folds = int(min(folds, n))
+    bounds = [round(i * n / folds) for i in range(folds + 1)]
+    ss_res = torch.zeros(y.shape[1], dtype=y.dtype)
+    ss_tot = torch.zeros(y.shape[1], dtype=y.dtype)
+
+    for f in range(folds):
+        lo, hi = bounds[f], bounds[f + 1]
+        if hi <= lo:
+            continue
+        mask = torch.ones(n, dtype=torch.bool)
+        mask[lo:hi] = False
+        if int(mask.sum()) < 2:
+            continue
+        x_tr, y_tr = x[mask], y[mask]
+        x_te, y_te = x[lo:hi], y[lo:hi]
+        x_mean, y_mean = x_tr.mean(dim=0, keepdim=True), y_tr.mean(dim=0, keepdim=True)
+        beta = _ridge_solve(x_tr - x_mean, y_tr - y_mean, l2)
+        pred = (x_te - x_mean) @ beta + y_mean
+        ss_res += ((y_te - pred) ** 2).sum(dim=0)
+        # Variance measured against the training mean, so the held-out fold
+        # cannot be scored against information it was not allowed to see.
+        ss_tot += ((y_te - y_mean) ** 2).sum(dim=0)
+
+    per_target = 1.0 - ss_res / torch.clamp(ss_tot, min=1e-8)
+    global_cv = 1.0 - ss_res.sum() / torch.clamp(ss_tot.sum(), min=1e-8)
+    return {
+        "global_r2_cv": float(global_cv.item()),
+        "r2_per_target_cv": per_target,
     }
 
 
@@ -129,10 +230,6 @@ def summarize_basis_matrix(
         of rows in `v`.
     TypeError
         If the inputs are of an invalid type.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     v_cpu = _sanitize_tensor(v)
     n_features, n_components = v_cpu.shape
@@ -214,10 +311,6 @@ def build_first_layer_contract(
         `feature_names` length doesn't align with `v_list`.
     TypeError
         If the inputs are of an invalid type.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     if len(v_list) != len(score_list):
         raise ValueError("v_list and score_list must have the same length")
@@ -281,10 +374,6 @@ def extract_first_layer_factors(
         are not found in `model_res`.
     TypeError
         If the inputs are of an invalid type.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     first_layer = model_res.get("first_layer")
     if first_layer is None:
@@ -348,10 +437,6 @@ def analyze_first_layer_alignment(
         If first-layer scores and deep latents mismatch in modality count.
     TypeError
         If the inputs are of an invalid type.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     first_layer = extract_first_layer_factors(model_res)
     z0_list = first_layer["scores"]
@@ -371,7 +456,9 @@ def analyze_first_layer_alignment(
         per_modality.append({
             "modality_index": int(modality_index),
             "global_r2": float(fit["global_r2"]),
+            "global_r2_cv": float(fit["global_r2_cv"]),
             "r2_per_target": fit["r2_per_target"],
+            "r2_per_target_cv": fit["r2_per_target_cv"],
             "coefficients": fit["coefficients"],
             "component_correlation": corr,
             "component_importance": component_importance,
@@ -420,10 +507,6 @@ def attribute_shared_to_first_layer(
         If 'u' is not found in `model_res`.
     TypeError
         If the inputs are of an invalid type.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     first_layer = extract_first_layer_factors(model_res)
     z0_list = first_layer["scores"]
@@ -442,7 +525,9 @@ def attribute_shared_to_first_layer(
         per_modality.append({
             "modality_index": int(modality_index),
             "global_r2": float(fit["global_r2"]),
+            "global_r2_cv": float(fit["global_r2_cv"]),
             "r2_per_shared_dimension": fit["r2_per_target"],
+            "r2_per_shared_dimension_cv": fit["r2_per_target_cv"],
             "coefficients": fit["coefficients"],
             "component_importance": component_importance,
             "feature_importance": feature_importance,
@@ -519,10 +604,6 @@ def attribute_prediction_to_features(
         If the target cannot be converted to a 2D tensor properly.
     TypeError
         If the inputs are of an invalid type.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     first_layer = extract_first_layer_factors(model_res)
     z0_list = first_layer["scores"]
@@ -537,7 +618,9 @@ def attribute_prediction_to_features(
         per_modality.append({
             "modality_index": int(modality_index),
             "global_r2": float(fit["global_r2"]),
+            "global_r2_cv": float(fit["global_r2_cv"]),
             "r2_per_target": fit["r2_per_target"],
+            "r2_per_target_cv": fit["r2_per_target_cv"],
             "coefficients": fit["coefficients"],
             "component_importance": component_importance,
             "feature_importance": feature_importance,
@@ -616,10 +699,6 @@ def build_interpretability_report(
         If required components (like 'u' or first layer details) are missing.
     TypeError
         If the inputs are of an invalid type.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     return {
         "shared_to_first_layer": attribute_shared_to_first_layer(model_res, l2=l2),

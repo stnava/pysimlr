@@ -81,9 +81,14 @@ def run_experiment_task(task_args):
         "SRE": 0.0
     }
 
-def run_real_benchmark(n_seeds=5, iterations=50, epochs=150, use_nsa=True, workers=None):
+def run_real_benchmark(version="v22", n_seeds=5, iterations=50, epochs=150, use_nsa=True, workers=None):
     datasets = ["Heart", "Diabetes"]
-    model_configs = [("linear", "SiMLR"), ("lend", "LEND"), ("ned", "NED"), ("shared_private", "NEDPP")]
+    # Flow-SiMLR-V is included here because the published clinical tables
+    # report it. In v21 its 160 rows per cache were produced by a runner that
+    # was never committed, so those numbers could not be regenerated from the
+    # repository; `run_single_experiment` has supported "flow_v" all along.
+    model_configs = [("linear", "SiMLR"), ("lend", "LEND"), ("ned", "NED"),
+                     ("shared_private", "NEDPP"), ("flow_v", "Flow-SiMLR-V")]
     losses = ["regression", "acc", "logcosh", "nc"]
     mixing_methods = ["newton", "svd", "pca", "ica"]
     
@@ -95,9 +100,9 @@ def run_real_benchmark(n_seeds=5, iterations=50, epochs=150, use_nsa=True, worke
                     for seed in range(42, 42 + n_seeds): 
                         tasks.append((dataset_name, model_type, model_label, seed, energy_type, mixing_algorithm, iterations, epochs, use_nsa))
     
-    print(f"Starting FULL REAL benchmark (v21) with {len(tasks)} tasks...")
+    print(f"Starting FULL REAL benchmark ({version}) with {len(tasks)} tasks, {n_seeds} seeds...")
     os.makedirs("paper/results_cache", exist_ok=True)
-    out_file = "paper/results_cache/unified_real_v21.csv"
+    out_file = f"paper/results_cache/unified_real_{version}.csv"
     header = ["Dataset", "Model", "Seed", "Loss", "Consensus", "Predictive Accuracy (Y)", "Train Accuracy (Y)", "Gen Gap (Y)", "Strictly Linear Accuracy", "Strictly Linear Train", "Strictly Linear Gap", "CMC", "SRE"]
     with open(out_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=header); writer.writeheader()
@@ -128,12 +133,14 @@ def run_real_benchmark(n_seeds=5, iterations=50, epochs=150, use_nsa=True, worke
 
 if __name__ == "__main__":
     multiprocessing.set_start_method('spawn', force=True)
-    parser = argparse.ArgumentParser(description="Run v21 REAL benchmark")
-    parser.add_argument("--n-seeds", type=int, default=5)
+    parser = argparse.ArgumentParser(description="Run the REAL benchmark")
+    parser.add_argument("--version", type=str, default="v22",
+                        help="Results-cache version tag; names the output CSV.")
+    parser.add_argument("--n-seeds", type=int, default=10)
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--epochs", type=int, default=150)
     parser.add_argument("--no-nsa", action="store_false", dest="use_nsa")
     parser.set_defaults(use_nsa=True)
     parser.add_argument("--workers", type=int, default=None)
     args = parser.parse_args(); 
-    run_real_benchmark(n_seeds=args.n_seeds, iterations=args.iterations, epochs=args.epochs, use_nsa=args.use_nsa, workers=args.workers)
+    run_real_benchmark(version=args.version, n_seeds=args.n_seeds, iterations=args.iterations, epochs=args.epochs, use_nsa=args.use_nsa, workers=args.workers)

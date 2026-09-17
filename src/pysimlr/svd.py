@@ -11,9 +11,10 @@ def ba_svd(x: torch.Tensor,
     """
     Compute a Basic block-based SVD approximation or full SVD.
 
-    This function provides a robust wrapper around torch.linalg.svd, 
-    handling potential convergence issues with a fallback to randomized 
-    initialization if the standard solver fails.
+    A wrapper around torch.linalg.svd that is NaN-safe on input and
+    hardware-aware (see :func:`pysimlr.utils.safe_svd`). Requesting more
+    vectors than the matrix rank supports returns fewer; use
+    :func:`safe_pca` if you need the result zero-padded to a fixed width.
 
     Parameters
     ----------
@@ -39,12 +40,10 @@ def ba_svd(x: torch.Tensor,
 
     Raises
     ------
+    RuntimeError
+        If the underlying SVD does not converge.
     TypeError
         If the input is not a tensor or array-like structure.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     x = torch.as_tensor(x).float()
     x = torch.nan_to_num(x, nan=0.0)
@@ -55,14 +54,20 @@ def ba_svd(x: torch.Tensor,
     
     try:
         u, s, vh = safe_svd(x, full_matrices=False)
-        u = u[:, :nu] if nu > 0 else u[:, :0]
-        s = s[:min(nu, nv)] if min(nu, nv) > 0 else s[:0]
-        v = vh.t()[:, :nv] if nv > 0 else vh.t()[:, :0]
-    except:
-        u = torch.randn(n, nu, dtype=x.dtype, device=x.device)
-        s = torch.ones(min(nu, nv), dtype=x.dtype, device=x.device)
-        v = torch.randn(p, nv, dtype=x.dtype, device=x.device)
-        
+    except RuntimeError as exc:
+        # Returning torch.randn() here made a numerical failure indistinguishable
+        # from a successful decomposition: downstream code silently consumed
+        # random vectors as singular vectors. A failed SVD is an error.
+        raise RuntimeError(
+            f"SVD failed for a {n}x{p} matrix. The input may contain infinities "
+            f"or be otherwise ill-conditioned (finite: "
+            f"{bool(torch.isfinite(x).all())})."
+        ) from exc
+
+    u = u[:, :nu] if nu > 0 else u[:, :0]
+    s = s[:min(nu, nv)] if min(nu, nv) > 0 else s[:0]
+    v = vh.t()[:, :nv] if nv > 0 else vh.t()[:, :0]
+
     return u, s, v
 
 def safe_pca(x: torch.Tensor, nc: int = 2) -> Dict[str, torch.Tensor]:
@@ -92,10 +97,6 @@ def safe_pca(x: torch.Tensor, nc: int = 2) -> Dict[str, torch.Tensor]:
     ------
     TypeError
         If the input is not a tensor or array-like structure.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     x = torch.as_tensor(x).float()
     x = torch.nan_to_num(x, nan=0.0)
@@ -116,10 +117,24 @@ def safe_pca(x: torch.Tensor, nc: int = 2) -> Dict[str, torch.Tensor]:
     x_centered = x_proc - torch.mean(x_proc, dim=0)
     
     u, s, v = ba_svd(x_centered, nu=nc, nv=nc)
-    v_full = torch.zeros(x.shape[1], nc, device=x.device)
-    v_full[mask, :] = v
-    
-    return {"u": u, "v": v_full, "s": s}
+
+    # The decomposition can yield fewer than `nc` components when nc exceeds
+    # min(n_samples, n_retained_features). Zero-pad so the returned shapes are
+    # always (n, nc) / (p, nc) / (nc,), matching both the docstring and the
+    # all-constant early-return branch above. Assigning the short `v` straight
+    # into a width-nc buffer previously raised a shape-mismatch RuntimeError.
+    n_found = min(u.shape[1], v.shape[1], s.shape[0])
+
+    u_full = torch.zeros(x.shape[0], nc, device=x.device, dtype=u.dtype)
+    u_full[:, :n_found] = u[:, :n_found]
+
+    v_full = torch.zeros(x.shape[1], nc, device=x.device, dtype=v.dtype)
+    v_full[mask, :n_found] = v[:, :n_found]
+
+    s_full = torch.zeros(nc, device=x.device, dtype=s.dtype)
+    s_full[:n_found] = s[:n_found]
+
+    return {"u": u_full, "v": v_full, "s": s_full}
 
 def whiten_matrix(x: torch.Tensor, nc: Optional[int] = None) -> Dict[str, Any]:
     """
@@ -140,22 +155,70 @@ def whiten_matrix(x: torch.Tensor, nc: Optional[int] = None) -> Dict[str, Any]:
     -------
     Dict[str, Any]
         A dictionary containing:
-        - "whitened_matrix": The transformed data.
+        - "whitened_matrix": The transformed data, shape (n, nc). Each retained
+          column has zero mean and unit variance, and distinct columns are
+          uncorrelated, so ``W.T @ W / (n - 1)`` is the identity on the
+          retained block.
         - "pca_res": The underlying PCA result (from `safe_pca`).
+        - "rank": Number of components with non-negligible singular value.
+          Columns beyond this are returned as exact zeros, because a direction
+          with no variance cannot be scaled to unit variance.
+
+    Notes
+    -----
+    `safe_pca` already returns the orthonormal left singular vectors `U`, which
+    are the scores ``U @ S`` already divided by `S` -- that is, the whitened
+    coordinates up to a constant. Earlier revisions divided by `S` a *second*
+    time (``u * (1 / s)``), producing a matrix whose column variances fell off
+    as ``1 / s**2`` rather than being constant. The only scaling needed is
+    ``sqrt(n - 1)``, which turns the unit-norm columns into unit-variance ones.
+
+    Examples
+    --------
+    >>> import torch
+    >>> torch.manual_seed(0)  # doctest: +ELLIPSIS
+    <torch._C.Generator object at ...>
+    >>> x = torch.randn(200, 4) @ torch.diag(torch.tensor([10.0, 5.0, 1.0, 0.5]))
+    >>> w = whiten_matrix(x)["whitened_matrix"]
+    >>> cov = (w - w.mean(0)).t() @ (w - w.mean(0)) / (w.shape[0] - 1)
+    >>> bool(torch.allclose(cov, torch.eye(4), atol=1e-4))
+    True
 
     Raises
     ------
     TypeError
         If the input is not a tensor or array-like structure.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
+    x = torch.as_tensor(x).float()
     res = safe_pca(x, nc=nc if nc else min(x.shape))
     u, s = res['u'], res['s']
-    whitened = u * (1.0 / (s + 1e-8))
-    return {"whitened_matrix": whitened, "pca_res": res}
+
+    n_samples = u.shape[0]
+    # U has orthonormal columns with (exactly) zero mean, because the data was
+    # centered before the SVD. Scaling by sqrt(n - 1) therefore yields unit
+    # variance, i.e. an identity covariance, without touching S again.
+    scale = float(np.sqrt(max(n_samples - 1, 1)))
+
+    # Directions with no variance stay zero rather than being scaled up from
+    # numerical noise. Uses the conventional numerical-rank cutoff
+    # (max(shape) * eps * s_max), matching numpy.linalg.matrix_rank; a tighter
+    # relative cutoff leaves float32 null-space directions in, and those are
+    # not mean-zero, so they come back with variance != 1.
+    if s.numel():
+        eps = torch.finfo(s.dtype).eps
+        tol = float(s.max()) * max(x.shape) * eps
+        keep = s > max(tol, torch.finfo(s.dtype).tiny)
+    else:
+        keep = s > 0
+    whitened = u * scale
+    if keep.numel():
+        whitened = whitened * keep.to(whitened.dtype)
+
+    return {
+        "whitened_matrix": whitened,
+        "pca_res": res,
+        "rank": int(keep.sum()) if keep.numel() else 0,
+    }
 
 def multiscale_svd(x: torch.Tensor,
                    r: torch.Tensor,
@@ -166,16 +229,27 @@ def multiscale_svd(x: torch.Tensor,
     """
     Perform multi-scale SVD to analyze local intrinsic dimensionality.
 
-    This function computes the singular values of the data at different 
-    spatial scales (radii) or neighborhood sizes. It is useful for 
-    estimating the local dimension of a manifold.
+    This function computes the singular values of the data at different
+    neighborhood sizes. It is useful for estimating the local dimension of a
+    manifold.
+
+    Warnings
+    --------
+    With the default ``knn=0`` no neighbourhood selection happens at all: the
+    same sampled subset is used at every scale and `r` acts purely as a
+    divisor, so every row of the returned table is the same spectrum scaled by
+    ``1 / r``. Pass ``knn > 0`` to get genuine multi-scale behaviour, where
+    each scale averages the spectra of k-nearest-neighbour patches. The
+    radius-based neighbour selection implied by calling `r` a radius is not
+    implemented.
 
     Parameters
     ----------
     x : torch.Tensor or array-like
         The input data matrix.
     r : torch.Tensor or array-like
-        A vector of scales (radii or denominators) to evaluate.
+        A vector of scale denominators. Each returned spectrum is divided by
+        the corresponding entry; see the warning about ``knn=0``.
     locn : int, List[int], or torch.Tensor
         Indices of locations to sample, or an integer specifying 
         the number of random locations to choose.
@@ -197,10 +271,6 @@ def multiscale_svd(x: torch.Tensor,
     ------
     TypeError
         If the inputs are not tensors or array-like structures.
-
-    Correctness
-    -----------
-    This function has been audited for Numpy docstring validity and functional correctness.
     """
     x = torch.as_tensor(x).float()
     r = torch.as_tensor(r).float()
