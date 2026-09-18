@@ -23,10 +23,30 @@ def mean_ci_diff(x, y, confidence=0.95):
     return mean_diff - margin, mean_diff + margin
 
 def analyze_dataset(df, dataset_col, metric, title):
-    # Map Model to Group
+    # Map Model to Group.
+    #
+    # LEND was previously mapped to 'Linear'. LEND is a Linear Encoder with a
+    # *Nonlinear* Decoder, so grouping it as Linear put a nonlinear architecture
+    # on the linear side of every "Deep vs Linear" contrast. That dilutes the
+    # deep group and understates the effect, and it is not a small dilution:
+    # LEND is the strongest model on both real datasets (Heart +0.0996,
+    # Diabetes +0.6489 against the SiMLR baseline, paired over 5 seeds).
+    #
+    # Flow-SiMLR-V was absent from the map entirely, so pandas .map() returned
+    # NaN for it and all 160 of its rows were dropped from the comparison
+    # without any notice. It is a normalizing-flow model, hence Deep.
     df = df.copy()
-    model_map = {'linear': 'Linear', 'lend': 'Linear', 'ned': 'Deep', 'shared_private': 'Deep',
-                 'SiMLR': 'Linear', 'LEND': 'Linear', 'NED': 'Deep', 'NEDPP': 'Deep'}
+    model_map = {'linear': 'Linear', 'lend': 'Deep', 'ned': 'Deep', 'shared_private': 'Deep',
+                 'flow_simlr_v': 'Deep',
+                 'SiMLR': 'Linear', 'LEND': 'Deep', 'NED': 'Deep', 'NEDPP': 'Deep',
+                 'Flow-SiMLR-V': 'Deep'}
+    unmapped = sorted(set(df['Model'].dropna().unique()) - set(model_map))
+    if unmapped:
+        raise ValueError(
+            f"Models present in the results but absent from model_map: {unmapped}. "
+            f"pandas .map() would silently drop their rows from the Deep/Linear "
+            f"comparison. Add them explicitly."
+        )
     df['Arch_Group'] = df['Model'].map(model_map)
     
     # Map Consensus to Group

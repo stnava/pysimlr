@@ -21,10 +21,16 @@ SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
     'weight_decay': 0.0,
     'amsgrad': False,
     'momentum': 0.9,
+    'use_nsa': True,       # NSA-Flow retraction toggle
     'nsa_w': 0.1,          # NSAFlowOptimizer retraction weight
     'decay_rate': 1e-3,    # LARS weight decay
     'k': 5,                # Lookahead slow-weight period
     'alpha': 0.5,          # Lookahead slow-weight interpolation
+    'lbfgs_lr': 1.0,       # Torch L-BFGS step size (quasi-Newton standard)
+    'max_iter': 20,        # Torch L-BFGS maximum iterations per step
+    'history_size': 10,    # Torch L-BFGS two-loop recursion history size
+    'line_search_fn': 'strong_wolfe', # Torch L-BFGS line search strategy
+    'reparameterize': True, # Quadratic reparameterization for non-negativity
 }
 
 class SimlrOptimizer(ABC):
@@ -770,12 +776,19 @@ class NSAFlowOptimizer(SimlrOptimizer):
                     # retraction on this path and nothing more -- which is the
                     # intent, not an oversight, but is worth stating because
                     # non-negativity is the backend's defining constraint.
-                    res = self.nsa_flow(v_next.double(), w=self.w, nonneg=False)
+                    try:
+                        res = self.nsa_flow(v_next.double(), w=self.w, nonneg=False, optimizer="torch_lbfgs")
+                    except TypeError:
+                        res = self.nsa_flow(v_next.double(), w=self.w, nonneg=False)
                 except TypeError:
                     res = self.nsa_flow(v_next, w=self.w, max_iter=5)
                 # Restore RNG state
                 torch.set_rng_state(rng_state)
-                candidate = res.get('Y') if hasattr(res, 'get') else getattr(res, 'Y', None)
+                candidate = None
+                if hasattr(res, 'get'):
+                    candidate = res.get('V') or res.get('Y')
+                if candidate is None:
+                    candidate = getattr(res, 'V', None) or getattr(res, 'Y', None)
                 if candidate is not None:
                     candidate = candidate.to(v_current.dtype)
                 # Validate before accepting: a zero basis is not None, so a
@@ -787,8 +800,8 @@ class NSAFlowOptimizer(SimlrOptimizer):
                     return candidate
             except Exception:
                 torch.set_rng_state(rng_state)
-        u, s, v_h = safe_svd(v_next, full_matrices=False)
-        return u @ v_h
+        from .sparsification import _svd_polar
+        return _svd_polar(v_next)
 
 class TorchNativeOptimizer(SimlrOptimizer):
     """
@@ -826,7 +839,20 @@ class TorchNativeOptimizer(SimlrOptimizer):
         elif optimizer_type == "torch_nadam":
             self.optimizers = [optim.NAdam([p], lr=lr) for p in self.v_params]
         elif optimizer_type == "torch_lbfgs":
-            self.optimizers = [optim.LBFGS([p], lr=lr) for p in self.v_params]
+            lbfgs_lr = float(self.params.get('lbfgs_lr', 1.0 if lr == 0.001 else lr))
+            max_iter = int(self.params.get('max_iter', 20))
+            history_size = int(self.params.get('history_size', 10))
+            line_search_fn = self.params.get('line_search_fn', 'strong_wolfe')
+            self.optimizers = [
+                optim.LBFGS(
+                    [p],
+                    lr=lbfgs_lr,
+                    max_iter=max_iter,
+                    history_size=history_size,
+                    line_search_fn=line_search_fn,
+                )
+                for p in self.v_params
+            ]
         else:
             self.optimizers = [optim.Adam([p], lr=lr) for p in self.v_params]
 
@@ -836,7 +862,7 @@ class TorchNativeOptimizer(SimlrOptimizer):
         optimizer = self.optimizers[i]
         with torch.no_grad():
             v_param.copy_(v_current)
-        v_param.grad = -descent_gradient
+        v_param.grad = (-descent_gradient).contiguous()
         if self.optimizer_type == "torch_lbfgs" and full_energy_function is not None:
             # LBFGS re-evaluates the closure at trial points along its own line
             # search, and needs the gradient *at that trial point* each time.
@@ -859,9 +885,10 @@ class TorchNativeOptimizer(SimlrOptimizer):
                 optimizer.zero_grad()
                 with torch.no_grad():
                     if grad_fn is not None:
-                        v_param.grad = -grad_fn(v_param.detach())
+                        g = -grad_fn(v_param.detach())
+                        v_param.grad = g.contiguous()
                     else:
-                        v_param.grad = -descent_gradient
+                        v_param.grad = (-descent_gradient).contiguous()
                     loss = full_energy_function(v_param.detach())
                 return torch.as_tensor(float(loss), device=v_param.device)
             optimizer.step(closure)

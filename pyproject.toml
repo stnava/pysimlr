@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pysimlr"
-version = "0.2.10"
+version = "0.2.11"
 description = "A professional PyTorch implementation of SIMLR"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -18,6 +18,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Optional retraction backend. When installed, the Stiefel/ortho constraints in
+# simlr_sparseness and NSAFlowOptimizer use its flow-based retraction instead of
+# the SVD polar fallback, which changes numerical results. It was previously
+# undeclared and imported under three different names across three modules, so
+# which path ran depended on the environment. `pysimlr.nsa_backend.backend_report()`
+# reports which backend resolved; record it alongside results.
+nsa = [
+    "nsa-flow"
+]
 test = [
     "pytest",
     "pytest-cov"
@@ -33,5 +42,12 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["pysimlr"]
 package-dir = {"" = "src"}
+
+# Discovered rather than listed, so a future subpackage is picked up without
+# anyone remembering to add it here. (The previous explicit list, ["pysimlr"],
+# did still ship pysimlr.benchmarks -- verified by building the wheel both ways
+# -- so this is robustness, not a fix.)
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["pysimlr*"]

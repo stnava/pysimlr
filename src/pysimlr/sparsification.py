@@ -3,7 +3,7 @@ import numpy as np
 from typing import Optional, List, Union, Dict, Any
 from .utils import safe_svd
 
-from .nsa_backend import load_nsa_flow
+from .nsa_backend import load_nsa_flow, load_polar_factor
 
 #: Retraction weight used when a constraint string does not name one. The
 #: backend's cost is driven by `w`, not by problem size: w=0.5 converges in
@@ -198,13 +198,20 @@ def _nsa_retract(v: torch.Tensor,
     except Exception:
         return None
 
-    candidate = result.get('Y') if hasattr(result, 'get') else getattr(result, 'Y', None)
+    candidate = None
+    if hasattr(result, 'get'):
+        candidate = result.get('V') or result.get('Y')
+    if candidate is None:
+        candidate = getattr(result, 'V', None) or getattr(result, 'Y', None)
     if diagnostics is not None:
         diagnostics.update(_retraction_diagnostics(result, w))
     if candidate is None:
         return None
 
     _warn_if_unconverged(result)
+
+    if nonneg and isinstance(candidate, torch.Tensor):
+        candidate = torch.clamp_min(candidate, 0.0)
 
     candidate = (candidate * scale).to(v.dtype)
     return candidate if _usable_retraction(candidate, v) else None
@@ -304,6 +311,7 @@ def _clamp_retraction_weight(w: float, max_w: float = None) -> float:
 _RETRACTION_DIAGNOSTIC_FIELDS = (
     'stop_reason', 'converged', 'grad_map', 'iters', 'defect',
     'effective_rank', 'scale_ratio', 'fidelity_mode', 'target_negative_mass',
+    'fidelity', 'energy', 'seconds', 'lobe_overlap', 'consolidated',
 )
 
 
@@ -441,7 +449,19 @@ def _usable_retraction(candidate: Optional[torch.Tensor],
 
 
 def _svd_polar(v: torch.Tensor) -> torch.Tensor:
-    """Polar retraction onto the Stiefel manifold via SVD (the fallback path)."""
+    """
+    Polar retraction onto the Stiefel manifold.
+
+    Prefers the Sylvester-based `polar_factor` from NSA-Flow (which avoids
+    SVD/QR in solver inner loops and provides smooth derivatives per the
+    NSA-Flow guide), falling back to SVD if unavailable.
+    """
+    polar_fn = load_polar_factor()
+    if polar_fn is not None:
+        try:
+            return polar_fn(v)
+        except Exception:
+            pass
     u, _, vh = safe_svd(v, full_matrices=False)
     return u @ vh
 
@@ -1000,8 +1020,7 @@ def project_to_orthonormal_nonnegative(x: torch.Tensor,
     for _ in range(max_iter):
         v_prev = v_out.clone()
         # Orthogonality projection
-        u, s, v_h = safe_svd(v_out, full_matrices=False)
-        v_out = u @ v_h
+        v_out = _svd_polar(v_out)
         # Positivity projection
         if constraint == 'positive':
             v_out = torch.clamp(v_out, min=0.0)
@@ -1058,8 +1077,7 @@ def project_to_partially_orthonormal_nonnegative(x: torch.Tensor,
         
     v_out = x.clone()
     for _ in range(max_iter):
-        u, s, v_h = safe_svd(v_out, full_matrices=False)
-        v_ortho = u @ v_h
+        v_ortho = _svd_polar(v_out)
         v_out = (1 - ortho_strength) * v_out + ortho_strength * v_ortho
         
         if constraint == 'positive':

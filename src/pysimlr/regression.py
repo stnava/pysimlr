@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from typing import Optional, Union, Dict, Any, Tuple, List
 from .utils import safe_svd
+from .nsa_backend import load_nsa_estimator
 
 def smooth_matrix_prediction(x: Union[torch.Tensor, np.ndarray],
                             y: Union[torch.Tensor, np.ndarray],
@@ -157,3 +158,79 @@ def smooth_regression(x: Union[torch.Tensor, np.ndarray],
         "projection": w,
         "s": s_k
     }
+
+
+def build_nsa_pipeline(
+    n_components: int = 6,
+    w: float = 0.5,
+    task: str = "classification",
+    model: Optional[Any] = None,
+    consolidate: bool = True,
+    scale: bool = True,
+    **nsa_kwargs: Any,
+) -> Any:
+    """
+    Build a turnkey scikit-learn Pipeline with NSA-Flow dimensionality reduction.
+
+    Adapts automatically to data sign and distribution:
+    - If X >= 0, NSA-Flow extracts non-negative constituent components (mode="data").
+    - If X has negative values, NSA-Flow uses signed contrast lifting with consolidate=True
+      to produce strictly disjoint lobes with zero crosstalk and zero frame defect.
+
+    Parameters
+    ----------
+    n_components : int, default=6
+        Number of components to extract.
+    w : float, default=0.5
+        Trade-off weight between data fidelity (w=0.0) and frame defect/orthogonality (w=1.0).
+        Default 0.5 provides the recommended balanced trade-off.
+    task : {"classification", "regression"}, default="classification"
+        Task type used to pick the default downstream predictor if `model` is None.
+    model : estimator, optional
+        Downstream scikit-learn estimator. If None, defaults to LogisticRegression(C=1.0, max_iter=500)
+        for classification, or Ridge(alpha=1.0) for regression.
+    consolidate : bool, default=True
+        Whether to enforce strictly disjoint supports in signed mode (eliminating crosstalk).
+    scale : bool, default=True
+        Whether to prepend StandardScaler() to the pipeline.
+    **nsa_kwargs : Any
+        Additional keyword arguments forwarded to NSAFlow (e.g. mode="auto", max_iter=1000).
+
+    Returns
+    -------
+    sklearn.pipeline.Pipeline
+        The constructed turnkey pipeline.
+    """
+    nsa_cls = load_nsa_estimator()
+    if nsa_cls is None:
+        raise ImportError(
+            "NSAFlow estimator is not available. Install nsa_flow to use build_nsa_pipeline."
+        )
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    steps = []
+    if scale:
+        steps.append(("scaler", StandardScaler()))
+
+    kwargs = {"mode": "auto", "consolidate": consolidate}
+    kwargs.update(nsa_kwargs)
+    steps.append(("dim_reduction", nsa_cls(n_components=n_components, w=w, **kwargs)))
+
+    if model is None:
+        if task == "classification":
+            from sklearn.linear_model import LogisticRegression
+            model = LogisticRegression(C=1.0, max_iter=500)
+            steps.append(("classifier", model))
+        elif task == "regression":
+            from sklearn.linear_model import Ridge
+            model = Ridge(alpha=1.0)
+            steps.append(("regressor", model))
+        else:
+            raise ValueError(f"Unknown task: {task}. Expected 'classification' or 'regression'.")
+    else:
+        step_name = "classifier" if task == "classification" else "regressor"
+        steps.append((step_name, model))
+
+    return Pipeline(steps)
+

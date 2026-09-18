@@ -156,19 +156,126 @@ def load_nsa_flow_orth() -> Optional[Any]:
     return load_nsa_flow()
 
 
-def backend_report() -> dict:
+@lru_cache(maxsize=1)
+def load_polar_factor() -> Optional[Any]:
+    """
+    Resolve the Sylvester-based polar factor retraction, ``polar_factor(Y, eps=...)``.
+
+    From the NSA-Flow guide:
+    In iterative optimization loops, avoid SVD/QR decompositions. For polar
+    factor derivatives and retractions, use ``nsa_flow.polar_factor``.
+
+    Returns
+    -------
+    callable or None
+        The polar factor operator, or None if unavailable.
+    """
+    module = load_nsa_backend()
+    if module is None:
+        return None
+    fn = getattr(module, "polar_factor", None)
+    return fn if callable(fn) else None
+
+
+@lru_cache(maxsize=1)
+def load_nsa_estimator() -> Optional[Any]:
+    """
+    Resolve the scikit-learn compatible estimator ``NSAFlow``.
+
+    Returns
+    -------
+    class or None
+        The ``NSAFlow`` class (subclass of BaseEstimator, TransformerMixin),
+        or None if unavailable.
+    """
+    module = load_nsa_backend()
+    if module is None:
+        return None
+    cls = getattr(module, "NSAFlow", None)
+    return cls if isinstance(cls, type) else None
+
+
+@lru_cache(maxsize=1)
+def load_stiefel_defect_normalised() -> Optional[Any]:
+    """
+    Resolve the scale-invariant normalized Stiefel defect diagnostic.
+
+    Returns
+    -------
+    callable or None
+        ``stiefel_defect_normalised(Y)``, or None if unavailable.
+    """
+    module = load_nsa_backend()
+    if module is None:
+        return None
+    fn = getattr(module, "stiefel_defect_normalised", None)
+    if callable(fn):
+        return fn
+    energy_mod = getattr(module, "energy", None)
+    if energy_mod is not None:
+        fn = getattr(energy_mod, "stiefel_defect_normalised", None)
+        if callable(fn):
+            return fn
+    return None
+
+
+@lru_cache(maxsize=1)
+def load_consolidate_supports() -> Optional[Any]:
+    """
+    Resolve the signed support consolidation utility.
+
+    Returns
+    -------
+    callable or None
+        ``consolidate_supports(V_pos, V_neg)``, or None if unavailable.
+    """
+    module = load_nsa_backend()
+    if module is None:
+        return None
+    fn = getattr(module, "consolidate_supports", None)
+    if callable(fn):
+        return fn
+    signed_mod = getattr(module, "signed", None)
+    if signed_mod is not None:
+        fn = getattr(signed_mod, "consolidate_supports", None)
+        if callable(fn):
+            return fn
+    return None
+
+
+def backend_report(extended: bool = False) -> dict:
     """
     Describe the resolved NSA-Flow backend, for diagnostics and provenance.
+
+    Parameters
+    ----------
+    extended : bool, default=False
+        If True, includes extended provenance keys (version, has_polar_factor,
+        has_estimator, default_optimizer). If False, returns the canonical
+        trio {"available", "module", "entry_point"} for backwards compatibility.
 
     Returns
     -------
     dict
         Keys "available" (bool), "module" (str or None) and "entry_point"
-        (str or None).
+        (str or None), plus extended keys if requested.
     """
+    module = load_nsa_backend()
     fn = load_nsa_flow_orth()
-    return {
+    rep = {
         "available": fn is not None,
         "module": RESOLVED_MODULE,
         "entry_point": getattr(fn, "__name__", None) if fn is not None else None,
     }
+    if extended:
+        version = getattr(module, "__version__", None) if module is not None else None
+        has_polar = load_polar_factor() is not None
+        has_est = load_nsa_estimator() is not None
+        opt = "torch_lbfgs" if version and tuple(int(x) for x in version.split(".")[:2] if x.isdigit()) >= (2, 11) else None
+        rep.update({
+            "version": version,
+            "has_polar_factor": has_polar,
+            "has_estimator": has_est,
+            "default_optimizer": opt,
+        })
+    return rep

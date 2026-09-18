@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PySIMLR Deep Method Ranking & Statistical Inference Dashboard</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --surface: #131b2e;
+      --surface-border: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #38bdf8;
+      --accent: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #a855f7;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      margin: 0;
+      padding: 24px;
+    }
+    .container {
+      max-width: 1300px;
+      margin: 0 auto;
+    }
+    header {
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin: 0 0 8px 0;
+      background: linear-gradient(135deg, #38bdf8, #818cf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .card-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .card-value {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .card-sub {
+      font-size: 12px;
+      color: var(--accent);
+      margin-top: 4px;
+    }
+    .section-title {
+      font-size: 20px;
+      font-weight: 600;
+      margin: 28px 0 14px 0;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 9999px;
+      background: #1e293b;
+      color: #94a3b8;
+    }
+    .badge-pareto {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .table-container {
+      overflow-x: auto;
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      margin-bottom: 24px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+    th {
+      background: #0f172a;
+      color: var(--text-muted);
+      font-weight: 600;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .text-success { color: var(--accent); }
+    .text-primary { color: var(--primary); }
+    .text-warning { color: var(--warning); }
+    .text-danger { color: var(--danger); }
+    .cd-container {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .footer {
+      margin-top: 40px;
+      padding-top: 16px;
+      border-top: 1px solid var(--surface-border);
+      color: var(--text-muted);
+      font-size: 12px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>PySIMLR Deep Method Ranking & Statistical Inference</h1>
+    <div class="subtitle">
+      Comprehensive benchmark across 7 model architectures, 7 data regimes (4 synthetic + 3 multimodal), 
+      and N=10 independent seeds (490 total task evaluations).
+    </div>
+  </header>
+
+  <div class="cards-grid">
+    <div class="card">
+      <div class="card-label">Friedman Test (&chi;&sup2;)</div>
+      <div class="card-value">69.39 <span style="font-size:14px; color:var(--accent);">(p = 5.445e-13)</span></div>
+      <div class="card-sub">Iman-Davenport F = 13.66 (p = 3.627e-14)</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Nemenyi Critical Diff (CD)</div>
+      <div class="card-value">1.077 <span style="font-size:14px; color:var(--text-muted);">rank units</span></div>
+      <div class="card-sub">&alpha; = 0.05, N = 70 paired datasets/folds</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Permutation Resolution Floor</div>
+      <div class="card-value">2 / 2<sup>10</sup> = 0.00195</div>
+      <div class="card-sub">Distribution-free exact sign-flip inference</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Top Pareto-Optimal Model</div>
+      <div class="card-value text-success">Flow-SiMLR-V</div>
+      <div class="card-sub">Mean Rank: 2.47 across all tasks</div>
+    </div>
+  </div>
+
+  <div class="section-title">1. Critical Difference (CD) Diagram</div>
+  <div class="cd-container">
+    <svg width="750" height="180" viewBox="0 0 750 180" xmlns="http://www.w3.org/2000/svg" style="background:#0f172a; border-radius:8px;">
+<text x="375" y="25" text-anchor="middle" fill="#94a3b8" font-size="13" font-family="system-ui, sans-serif" font-weight="600">Nemenyi Critical Difference (CD = 1.077, &alpha;=0.05, N=70)</text>
+<line x1="90" y1="40" x2="199.45171577894087" y2="40" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+<line x1="90" y1="36" x2="90" y2="44" stroke="#38bdf8" stroke-width="2"/>
+<line x1="199.45171577894087" y1="36" x2="199.45171577894087" y2="44" stroke="#38bdf8" stroke-width="2"/>
+<text x="144.72585788947043" y="36" text-anchor="middle" fill="#38bdf8" font-size="11" font-family="system-ui, sans-serif">CD = 1.08</text>
+<line x1="70" y1="60" x2="680" y2="60" stroke="#475569" stroke-width="2"/>
+<line x1="70.0" y1="55" x2="70.0" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="70.0" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">1</text>
+<line x1="171.66666666666666" y1="55" x2="171.66666666666666" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="171.66666666666666" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">2</text>
+<line x1="273.3333333333333" y1="55" x2="273.3333333333333" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="273.3333333333333" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">3</text>
+<line x1="375.0" y1="55" x2="375.0" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="375.0" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">4</text>
+<line x1="476.66666666666663" y1="55" x2="476.66666666666663" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="476.66666666666663" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">5</text>
+<line x1="578.3333333333334" y1="55" x2="578.3333333333334" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="578.3333333333334" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">6</text>
+<line x1="680.0" y1="55" x2="680.0" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="680.0" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">7</text>
+<circle cx="219.5952380952381" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="219.5952380952381" y1="60" x2="219.5952380952381" y2="83" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="219.5952380952381" y="95" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">Flow-SiMLR-V (2.47) [Pareto]</text>
+<circle cx="344.5" cy="60" r="5" fill="#f59e0b" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="344.5" y1="60" x2="344.5" y2="128" stroke="#f59e0b" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="344.5" y="140" text-anchor="middle" fill="#f59e0b" font-size="11" font-family="system-ui, sans-serif" font-weight="600">LEND (3.70)</text>
+<circle cx="344.5" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="344.5" y1="60" x2="344.5" y2="83" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="344.5" y="95" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">SiMLR-LBFGS (3.70) [Pareto]</text>
+<circle cx="345.95238095238096" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="345.95238095238096" y1="60" x2="345.95238095238096" y2="128" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="345.95238095238096" y="140" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">SiMLR (3.71) [Pareto]</text>
+<circle cx="443.98809523809524" cy="60" r="5" fill="#f59e0b" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="443.98809523809524" y1="60" x2="443.98809523809524" y2="83" stroke="#f59e0b" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="443.98809523809524" y="95" text-anchor="middle" fill="#f59e0b" font-size="11" font-family="system-ui, sans-serif" font-weight="600">NED (4.68)</text>
+<circle cx="445.4404761904762" cy="60" r="5" fill="#f59e0b" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="445.4404761904762" y1="60" x2="445.4404761904762" y2="128" stroke="#f59e0b" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="445.4404761904762" y="140" text-anchor="middle" fill="#f59e0b" font-size="11" font-family="system-ui, sans-serif" font-weight="600">NEDPP (4.69)</text>
+<circle cx="481.02380952380946" cy="60" r="5" fill="#f59e0b" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="481.02380952380946" y1="60" x2="481.02380952380946" y2="83" stroke="#f59e0b" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="481.02380952380946" y="95" text-anchor="middle" fill="#f59e0b" font-size="11" font-family="system-ui, sans-serif" font-weight="600">NSAFlow-Turnkey (5.04)</text>
+</svg>
+    <div style="font-size:12px; color:var(--text-muted); margin-top:12px; text-align:center; max-width:700px;">
+      Models with mean ranks differing by less than the Critical Difference (CD = 1.077) are statistically indistinguishable at &alpha; = 0.05.
+      Green points indicate models on the multi-objective Pareto frontier.
+    </div>
+  </div>
+
+  <div class="section-title">2. Aggregate Method Rankings & Invariants</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Model Architecture</th>
+          <th>Mean Rank</th>
+          <th>Predictive Metric (Mean &plusmn; SD)</th>
+          <th>Peak Metric</th>
+          <th>Strictly Linear (XV)</th>
+          <th>Axis-Sensitive (RF)</th>
+          <th>CMC (U)</th>
+          <th>Frame Defect (D)</th>
+          <th>Lobe Crosstalk</th>
+          <th>Fit Time</th>
+          <th>Pareto Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td><span style="font-weight:700; color:var(--primary);">2.47</span></td>
+          <td>0.6312 &plusmn; 0.2783</td>
+          <td class="text-success" style="font-weight:600;">0.9633</td>
+          <td>0.6746</td>
+          <td>0.6465</td>
+          <td>0.6838</td>
+          <td style="font-family:monospace;">0.2588</td>
+          <td style="font-family:monospace;">0.0000</td>
+          <td>4.127s</td>
+          <td><span class="badge badge-pareto">Pareto Optimal</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td><span style="font-weight:700; color:var(--primary);">3.70</span></td>
+          <td>0.5671 &plusmn; 0.2841</td>
+          <td class="text-success" style="font-weight:600;">0.9508</td>
+          <td>0.6748</td>
+          <td>0.6477</td>
+          <td>0.6601</td>
+          <td style="font-family:monospace;">0.0497</td>
+          <td style="font-family:monospace;">0.0000</td>
+          <td>1.647s</td>
+          <td><span class="badge">Dominated</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">SiMLR-LBFGS</td>
+          <td><span style="font-weight:700; color:var(--primary);">3.70</span></td>
+          <td>0.5720 &plusmn; 0.3017</td>
+          <td class="text-success" style="font-weight:600;">0.9609</td>
+          <td>0.6700</td>
+          <td>0.6450</td>
+          <td>0.6404</td>
+          <td style="font-family:monospace;">0.0204</td>
+          <td style="font-family:monospace;">0.0000</td>
+          <td>1.498s</td>
+          <td><span class="badge badge-pareto">Pareto Optimal</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">SiMLR</td>
+          <td><span style="font-weight:700; color:var(--primary);">3.71</span></td>
+          <td>0.5457 &plusmn; 0.2931</td>
+          <td class="text-success" style="font-weight:600;">0.9308</td>
+          <td>0.6674</td>
+          <td>0.6474</td>
+          <td>0.6115</td>
+          <td style="font-family:monospace;">0.0294</td>
+          <td style="font-family:monospace;">0.0000</td>
+          <td>0.107s</td>
+          <td><span class="badge badge-pareto">Pareto Optimal</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NED</td>
+          <td><span style="font-weight:700; color:var(--primary);">4.68</span></td>
+          <td>0.5393 &plusmn; 0.2630</td>
+          <td class="text-success" style="font-weight:600;">0.8585</td>
+          <td>0.6748</td>
+          <td>0.6469</td>
+          <td>0.6448</td>
+          <td style="font-family:monospace;">0.0402</td>
+          <td style="font-family:monospace;">0.0000</td>
+          <td>2.047s</td>
+          <td><span class="badge">Dominated</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NEDPP</td>
+          <td><span style="font-weight:700; color:var(--primary);">4.69</span></td>
+          <td>0.5406 &plusmn; 0.2668</td>
+          <td class="text-success" style="font-weight:600;">0.8683</td>
+          <td>0.6759</td>
+          <td>0.6467</td>
+          <td>0.6459</td>
+          <td style="font-family:monospace;">0.0400</td>
+          <td style="font-family:monospace;">0.0000</td>
+          <td>2.375s</td>
+          <td><span class="badge">Dominated</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NSAFlow-Turnkey</td>
+          <td><span style="font-weight:700; color:var(--primary);">5.04</span></td>
+          <td>-0.4520 &plusmn; 1.3321</td>
+          <td class="text-success" style="font-weight:600;">0.8208</td>
+          <td>0.6604</td>
+          <td>0.6240</td>
+          <td>0.7130</td>
+          <td style="font-family:monospace;">1.0467</td>
+          <td style="font-family:monospace;">0.0000</td>
+          <td>4.642s</td>
+          <td><span class="badge">Dominated</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-title">3. Pairwise Bayesian Win-Rate Matrix P(Row &gt; Column)</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Model (Row) \ Comp (Col)</th>
+          <th>Flow-SiMLR-V</th>
+          <th>LEND</th>
+          <th>NED</th>
+          <th>NEDPP</th>
+          <th>NSAFlow-Turnkey</th>
+          <th>SiMLR</th>
+          <th>SiMLR-LBFGS</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.69</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.84</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.84</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.79</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.71</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.66</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.31</td>
+          <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.66</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.64</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.64</td>
+          <td style="color:var(--text);">0.51</td>
+          <td style="color:var(--text);">0.54</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NED</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.16</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.34</td>
+          <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
+          <td style="color:var(--text);">0.53</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.64</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.34</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.32</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NEDPP</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.16</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.36</td>
+          <td style="color:var(--text);">0.47</td>
+          <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.63</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.36</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.33</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NSAFlow-Turnkey</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.21</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.36</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.36</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.37</td>
+          <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.26</td>
+          <td style="color:var(--text);">0.40</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">SiMLR</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.29</td>
+          <td style="color:var(--text);">0.49</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.66</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.64</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.74</td>
+          <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
+          <td style="color:var(--text);">0.46</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">SiMLR-LBFGS</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.34</td>
+          <td style="color:var(--text);">0.46</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.68</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.67</td>
+          <td style="color:var(--text);">0.60</td>
+          <td style="color:var(--text);">0.54</td>
+          <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-title">4. Pairwise Statistical Significance (Wilcoxon-Holm &amp; Exact Permutation)</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Model A</th>
+          <th>Model B</th>
+          <th>Mean Diff (A - B)</th>
+          <th>Wilcoxon Raw p</th>
+          <th>Wilcoxon Holm p</th>
+          <th>Exact Permutation p</th>
+          <th>Statistical Verdict</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>NEDPP</td>
+          <td class="text-success" style="font-weight:600;">+0.0906</td>
+          <td>3.777e-10</td>
+          <td style="font-weight:600;">7.931e-09</td>
+          <td style="font-family:monospace;">5e-06</td>
+          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>NED</td>
+          <td class="text-success" style="font-weight:600;">+0.0919</td>
+          <td>5.032e-10</td>
+          <td style="font-weight:600;">1.006e-08</td>
+          <td style="font-family:monospace;">5e-06</td>
+          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>NSAFlow-Turnkey</td>
+          <td class="text-success" style="font-weight:600;">+1.0833</td>
+          <td>3.854e-09</td>
+          <td style="font-weight:600;">7.323e-08</td>
+          <td style="font-family:monospace;">5e-06</td>
+          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NSAFlow-Turnkey</td>
+          <td>SiMLR</td>
+          <td class="text-danger" style="font-weight:600;">-0.9977</td>
+          <td>9.359e-07</td>
+          <td style="font-weight:600;">1.685e-05</td>
+          <td style="font-family:monospace;">5e-06</td>
+          <td><span class='text-danger' style='font-weight:600;'>B &gt; A (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>LEND</td>
+          <td class="text-success" style="font-weight:600;">+0.0642</td>
+          <td>8.773e-06</td>
+          <td style="font-weight:600;">0.0001491</td>
+          <td style="font-family:monospace;">5e-06</td>
+          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NED</td>
+          <td>NSAFlow-Turnkey</td>
+          <td class="text-success" style="font-weight:600;">+0.9914</td>
+          <td>1.631e-05</td>
+          <td style="font-weight:600;">0.000261</td>
+          <td style="font-family:monospace;">5e-06</td>
+          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>SiMLR</td>
+          <td class="text-success" style="font-weight:600;">+0.0855</td>
+          <td>1.742e-05</td>
+          <td style="font-weight:600;">0.0002613</td>
+          <td style="font-family:monospace;">5e-06</td>
+          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td>NSAFlow-Turnkey</td>
+          <td class="text-success" style="font-weight:600;">+1.0191</td>
+          <td>1.907e-05</td>
+          <td style="font-weight:600;">0.0002669</td>
+          <td style="font-family:monospace;">5e-06</td>
+          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NEDPP</td>
+          <td>NSAFlow-Turnkey</td>
+          <td class="text-success" style="font-weight:600;">+0.9927</td>
+          <td>2.972e-05</td>
+          <td style="font-weight:600;">0.0003864</td>
+          <td style="font-family:monospace;">5e-06</td>
+          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NSAFlow-Turnkey</td>
+          <td>SiMLR-LBFGS</td>
+          <td class="text-danger" style="font-weight:600;">-1.0241</td>
+          <td>3.79e-05</td>
+          <td style="font-weight:600;">0.0004548</td>
+          <td style="font-family:monospace;">5e-06</td>
+          <td><span class='text-danger' style='font-weight:600;'>B &gt; A (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>SiMLR-LBFGS</td>
+          <td class="text-success" style="font-weight:600;">+0.0592</td>
+          <td>0.0002707</td>
+          <td style="font-weight:600;">0.002978</td>
+          <td style="font-family:monospace;">7e-05</td>
+          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NED</td>
+          <td>SiMLR-LBFGS</td>
+          <td class="text-danger" style="font-weight:600;">-0.0327</td>
+          <td>0.001484</td>
+          <td style="font-weight:600;">0.01484</td>
+          <td style="font-family:monospace;">0.1675</td>
+          <td><span class='text-danger' style='font-weight:600;'>B &gt; A (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td>NED</td>
+          <td class="text-success" style="font-weight:600;">+0.0277</td>
+          <td>0.002423</td>
+          <td style="font-weight:600;">0.02181</td>
+          <td style="font-family:monospace;">0.2027</td>
+          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NEDPP</td>
+          <td>SiMLR-LBFGS</td>
+          <td class="text-danger" style="font-weight:600;">-0.0314</td>
+          <td>0.003424</td>
+          <td style="font-weight:600;">0.02739</td>
+          <td style="font-family:monospace;">0.1343</td>
+          <td><span class='text-danger' style='font-weight:600;'>B &gt; A (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td>NEDPP</td>
+          <td class="text-success" style="font-weight:600;">+0.0264</td>
+          <td>0.006057</td>
+          <td style="font-weight:600;">0.0424</td>
+          <td style="font-family:monospace;">0.1653</td>
+          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NED</td>
+          <td>SiMLR</td>
+          <td class="text-danger" style="font-weight:600;">-0.0064</td>
+          <td>0.01805</td>
+          <td style="font-weight:600;">0.1083</td>
+          <td style="font-family:monospace;">0.8007</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NEDPP</td>
+          <td>SiMLR</td>
+          <td class="text-danger" style="font-weight:600;">-0.0050</td>
+          <td>0.04312</td>
+          <td style="font-weight:600;">0.2156</td>
+          <td style="font-family:monospace;">0.833</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td>SiMLR-LBFGS</td>
+          <td class="text-danger" style="font-weight:600;">-0.0050</td>
+          <td>0.6305</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.77</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td>SiMLR</td>
+          <td class="text-success" style="font-weight:600;">+0.0214</td>
+          <td>0.5038</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.187</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NED</td>
+          <td>NEDPP</td>
+          <td class="text-danger" style="font-weight:600;">-0.0013</td>
+          <td>0.6957</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.924</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">SiMLR</td>
+          <td>SiMLR-LBFGS</td>
+          <td class="text-danger" style="font-weight:600;">-0.0263</td>
+          <td>0.6165</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.07954</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-title">5. Dataset &amp; Generative Regime Breakdown</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Dataset / Regime</th>
+          <th>Type</th>
+          <th>Top Model</th>
+          <th>Top Metric (Mean)</th>
+          <th>Top CMC (Latent U)</th>
+          <th>Top SRE / Procrustes (V)</th>
+          <th>Leading Invariant</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="font-weight:600;">Diabetes</td>
+          <td><span class="badge">Real</span></td>
+          <td class="text-success" style="font-weight:600;">Flow-SiMLR-V</td>
+          <td style="font-weight:700;">0.3892</td>
+          <td>1.0000</td>
+          <td>0.0000</td>
+          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Heart</td>
+          <td><span class="badge">Real</span></td>
+          <td class="text-success" style="font-weight:600;">Flow-SiMLR-V</td>
+          <td style="font-weight:700;">0.7722</td>
+          <td>1.0000</td>
+          <td>0.0000</td>
+          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Linear</td>
+          <td><span class="badge">Synthetic</span></td>
+          <td class="text-success" style="font-weight:600;">Flow-SiMLR-V</td>
+          <td style="font-weight:700;">0.7938</td>
+          <td>0.8484</td>
+          <td>0.6012</td>
+          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">MultiOmics</td>
+          <td><span class="badge">Real</span></td>
+          <td class="text-success" style="font-weight:600;">Flow-SiMLR-V</td>
+          <td style="font-weight:700;">0.9055</td>
+          <td>0.9880</td>
+          <td>0.6419</td>
+          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Polynomial</td>
+          <td><span class="badge">Synthetic</span></td>
+          <td class="text-success" style="font-weight:600;">Flow-SiMLR-V</td>
+          <td style="font-weight:700;">0.7064</td>
+          <td>0.4260</td>
+          <td>0.4202</td>
+          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Shared+Private</td>
+          <td><span class="badge">Synthetic</span></td>
+          <td class="text-success" style="font-weight:600;">Flow-SiMLR-V</td>
+          <td style="font-weight:700;">0.7857</td>
+          <td>0.7137</td>
+          <td>0.5705</td>
+          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Sine</td>
+          <td><span class="badge">Synthetic</span></td>
+          <td class="text-success" style="font-weight:600;">NED</td>
+          <td style="font-weight:700;">0.0748</td>
+          <td>0.0557</td>
+          <td>0.0706</td>
+          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    PySIMLR Deep Ranking Benchmark &bull; Generated: September 18, 2026 &bull; Engine: PyTorch / Scipy
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Milestone MR-M1 Review Report: Theory & Authorship</title>
+    <style>
+        :root {
+            --primary: #1565c0;
+            --primary-dark: #0d47a1;
+            --success: #2e7d32;
+            --warning: #ef6c00;
+            --danger: #c62828;
+            --neutral-bg: #f8f9fa;
+            --card-bg: #ffffff;
+            --text: #212529;
+            --text-muted: #6c757d;
+            --border: #dee2e6;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--neutral-bg);
+            color: var(--text);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+        header {
+            background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        header h1 {
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+        header p {
+            margin: 0;
+            opacity: 0.9;
+            font-size: 15px;
+        }
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+            font-size: 14px;
+        }
+        .meta-item strong {
+            display: block;
+            opacity: 0.8;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .verdict-banner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: #e8f5e9;
+            border-left: 6px solid var(--success);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        }
+        .verdict-banner.approve {
+            background-color: #e8f5e9;
+            border-left-color: var(--success);
+        }
+        .verdict-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--success);
+            margin: 0;
+        }
+        .badge {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .badge-success {
+            background-color: var(--success);
+            color: white;
+        }
+        .badge-info {
+            background-color: #0288d1;
+            color: white;
+        }
+        .card {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border: 1px solid var(--border);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+        }
+        .card h2 {
+            margin-top: 0;
+            font-size: 20px;
+            border-bottom: 2px solid var(--neutral-bg);
+            padding-bottom: 10px;
+            color: var(--primary-dark);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 14px;
+        }
+        th, td {
+            padding: 12px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            background-color: #f1f3f5;
+            font-weight: 600;
+        }
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+        .status-pass {
+            color: var(--success);
+            font-weight: bold;
+        }
+        .status-minor {
+            color: var(--warning);
+            font-weight: bold;
+        }
+        code {
+            background-color: #f1f3f5;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 13px;
+        }
+        pre {
+            background-color: #212529;
+            color: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+        .callout {
+            padding: 15px;
+            border-radius: 6px;
+            background-color: #e3f2fd;
+            border-left: 4px solid var(--primary);
+            margin: 15px 0;
+            font-size: 14px;
+        }
+        .callout-warning {
+            background-color: #fff3e0;
+            border-left-color: var(--warning);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>Peer Review Report: Theory, Derivations & Authorship</h1>
+        <p>Independent Evaluation of Manuscript for Milestone MR-M1: Deep SiMLR Quarto Book</p>
+        <div class="meta-grid">
+            <div class="meta-item">
+                <strong>Reviewer</strong>
+                Reviewer 1 (Theory & Authorship)
+            </div>
+            <div class="meta-item">
+                <strong>Date & Time</strong>
+                2026-09-18 16:55 EDT
+            </div>
+            <div class="meta-item">
+                <strong>Standards Standard</strong>
+                <code>brian-avants-authorship</code>
+            </div>
+            <div class="meta-item">
+                <strong>Target Artifacts</strong>
+                <code>paper/index.qmd</code>, <code>01</code>, <code>02</code>, <code>04</code>
+            </div>
+        </div>
+    </header>
+
+    <div class="verdict-banner approve">
+        <div>
+            <h2 class="verdict-title">Review Verdict: APPROVE</h2>
+            <p style="margin: 5px 0 0 0; color: #2e7d32; font-size: 14px;">
+                The mathematical formulations, architectural derivations, and scholarly tone fully satisfy the rigorous standards of Dr. Brian B. Avants and collaborator teams.
+            </p>
+        </div>
+        <span class="badge badge-success">APPROVE</span>
+    </div>
+
+    <div class="card">
+        <h2>1. Executive Summary & Verification Matrix</h2>
+        <p>
+            An exhaustive line-by-line examination of the four assigned manuscript files (<code>paper/index.qmd</code>, <code>paper/01_intro_background.qmd</code>, <code>paper/02_methods.qmd</code>, <code>paper/04_discussion.qmd</code>) was conducted in conjunction with code auditing in <code>src/pysimlr/</code> and independent test execution.
+        </p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Review Dimension</th>
+                    <th>Evaluated Aspect</th>
+                    <th>Status</th>
+                    <th>Notes & Findings</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Scientific Voice</strong></td>
+                    <td>Brian B. Avants Tone Standards</td>
+                    <td><span class="status-pass">PASS</span></td>
+                    <td>Zero promotional hyperbole ("revolutionary", "unprecedented", "game-changing"). Effects are stated plainly with exact p-values, confidence intervals, and Demšar rankings.</td>
+                </tr>
+                <tr>
+                    <td><strong>LOO Consensus</strong></td>
+                    <td>Variational Objective & Log-Cosh</td>
+                    <td><span class="status-pass">PASS</span></td>
+                    <td>Strict quarantine of view $m$ from $\mathbf{U}_{\neq m}$. Bounded variational gradient $\nabla \mathcal{L} = \frac{1}{n}\mathbf{X}^T \mathbf{U}\tanh(\mathbf{S})$ prevents outlier destabilization.</td>
+                </tr>
+                <tr>
+                    <td><strong>Polar Retraction</strong></td>
+                    <td>Sylvester System & Newton-Schulz</td>
+                    <td><span class="status-pass">PASS</span></td>
+                    <td>Analytic quadratic convergence proof $\epsilon_{\tau+1} = \frac{3}{2}\epsilon_\tau^2 - \frac{1}{2}\epsilon_\tau^3$ verified. Continuous Lyapunov formulation eliminates SVD singularities.</td>
+                </tr>
+                <tr>
+                    <td><strong>Quasi-Newton</strong></td>
+                    <td><code>torch_lbfgs</code> Two-Loop Recursion</td>
+                    <td><span class="status-pass">PASS</span></td>
+                    <td>Two-loop recursion and analytical gradient callback closure match <code>src/pysimlr/optimizers.py:841-894</code>. Eliminates stale directional cache during Strong Wolfe search.</td>
+                </tr>
+                <tr>
+                    <td><strong>Geometric Invariant</strong></td>
+                    <td>Normalized Frame Defect $D(V)$</td>
+                    <td><span class="status-pass">PASS</span></td>
+                    <td>Proof of Zero Radial Force $\langle \nabla D(V), V \rangle \equiv 0$ verified algebraically and numerically ($< 10^{-10}$ in test across scales $10^{-3}$ to $10^3$).</td>
+                </tr>
+                <tr>
+                    <td><strong>Support Consolidation</strong></td>
+                    <td>Signed Contrast Lifting $V^+ \odot V^- = 0$</td>
+                    <td><span class="status-pass">PASS</span></td>
+                    <td>Guarantees zero lobe crosstalk ($0.0000$), resolving the continuous combinatorial bottleneck at $w=0.5$.</td>
+                </tr>
+                <tr>
+                    <td><strong>Mechanistic Auditability</strong></td>
+                    <td>OLEE & Minimum-Norm Counterfactuals</td>
+                    <td><span class="status-pass">PASS</span></td>
+                    <td>Lagrangian stationarity proof for $\delta \mathbf{x}^* = \Delta \mathbf{z} \mathbf{V}^T$ verified as unique closed-form minimum-norm perturbation.</td>
+                </tr>
+                <tr>
+                    <td><strong>Disentanglement</strong></td>
+                    <td>Subspace vs. Basis Axis Theorem</td>
+                    <td><span class="status-pass">PASS</span></td>
+                    <td>Proof of OLS hat matrix invariance $\mathbf{H}_{\mathbf{Z}\mathbf{M}} \equiv \mathbf{H}_{\mathbf{Z}}$ demonstrates linear probes are rotationally blind; justifies tree probes.</td>
+                </tr>
+                <tr>
+                    <td><strong>Nomenclature</strong></td>
+                    <td>Flow-SiMR / Flow-SiMR-V Alignment</td>
+                    <td><span class="status-pass">PASS</span></td>
+                    <td>Explicitly justifies dropping 'L' due to non-linear affine couplings. Aligned with <code>FlowSiMRModel</code> and <code>FlowSiMRVModel</code> in <code>src/pysimlr/flows.py</code>.</td>
+                </tr>
+                <tr>
+                    <td><strong>Unit Test Suite</strong></td>
+                    <td><code>test_guide_nsa_alignment.py</code></td>
+                    <td><span class="status-pass">PASS</span></td>
+                    <td>11/11 tests passed in 13.67s; <code>test_deep_ranking_stats.py</code> 5/5 passed in 1.96s (16/16 total).</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>2. Detailed Derivation Analyses</h2>
+
+        <h3>2.1 Variational Leave-One-Out (LOO) Consensus & Log-Cosh Negentropy</h3>
+        <p>
+            The joint variational objective formulated in <code>02_methods.qmd:29-59</code>:
+            $$\min_{\{f_m, g_m\}_{m=1}^M} \sum_{m=1}^M \left[ \mathcal{L}_{\text{recon}}(\mathbf{X}_m, g_m(\mathbf{Z}_m)) + \lambda_{\text{sim}} \mathcal{L}_{\text{align}}(\mathbf{Z}_m, \mathbf{U}_{\neq m}) + \gamma D(\mathbf{V}_m) \right] + \mathcal{R}(\mathbf{Z})$$
+            properly quarantines modality $m$ by defining $\mathbf{U}_{\neq m} = \text{Consensus}(\{\mathbf{Z}_j\}_{j \neq m})$.
+            The log-cosh negentropy contrast functional gradient:
+            $$\nabla_{\mathbf{V}_m} \mathcal{L}_{\text{log-cosh}} = \frac{1}{n} \mathbf{X}_m^T \mathbf{U}_{\neq m} \tanh(\mathbf{S}), \quad \mathbf{S} = \mathbf{U}_{\neq m}^T \mathbf{X}_m \mathbf{V}_m \in \mathbb{R}^{k \times k}$$
+            is bounded because $|\tanh(s)| < 1$ for all $s \in \mathbb{R}$.
+        </p>
+        <div class="callout callout-warning">
+            <strong>Advisory Note (Minor Notation Erratum):</strong> In Equation (47) of <code>paper/02_methods.qmd</code>, the double summation is written as:
+            <code>\sum_{i=1}^k \sum_{j=1}^n (|S_{ji}| - \log 2 + \dots)</code>.
+            Because $\mathbf{S} = \mathbf{U}_{\neq m}^T \mathbf{X}_m \mathbf{V}_m \in \mathbb{R}^{k \times k}$, its indices span $i, j \in \{1, \dots, k\}$. The inner sum should be indexed to $k$ rather than $n$ (the $1/n$ normalizer outside divides by the sample count). This is purely a typographical index notation slip and does not affect the gradient formula or implementation.
+        </div>
+
+        <h3>2.2 Sylvester Polar Retraction & Newton-Schulz Quadratic Convergence</h3>
+        <p>
+            The manuscript eliminates SVD backpropagation singularities by formulating polar factor differentials via the continuous Lyapunov system:
+            $$\mathbf{H}(d\mathbf{H}) + (d\mathbf{H})\mathbf{H} = d(\mathbf{Y}^T \mathbf{Y}) = (d\mathbf{Y})^T \mathbf{Y} + \mathbf{Y}^T (d\mathbf{Y})$$
+            Because $\mathbf{H} = (\mathbf{Y}^T \mathbf{Y})^{1/2} \succ 0$, all eigenvalues are strictly positive ($\lambda_i > 0$), guaranteeing that $\lambda_i + \lambda_j > 0$ never vanishes. This cleanly resolves the clustering singularity $(\sigma_i^2 - \sigma_j^2)^{-1}$ inherent to SVD autograd.
+        </p>
+        <p>
+            The forward iteration $\mathbf{Y}_{\tau+1} = \frac{1}{2}\mathbf{Y}_\tau (3\mathbf{I}_k - \mathbf{Y}_\tau^T \mathbf{Y}_\tau)$ decouples into scalar singular value recurrences:
+            $$\sigma_{\tau+1, i} = \frac{1}{2}\sigma_{\tau, i}(3 - \sigma_{\tau, i}^2)$$
+            Substituting $\sigma_{\tau, i} = 1 - \epsilon_{\tau, i}$ yields:
+            $$\epsilon_{\tau+1, i} = \frac{3}{2}\epsilon_{\tau, i}^2 - \frac{1}{2}\epsilon_{\tau, i}^3 = \epsilon_{\tau, i}^2 \left(\frac{3 - \epsilon_{\tau, i}}{2}\right) = \mathcal{O}(\epsilon_{\tau, i}^2)$$
+            proving quadratic convergence. Pre-scaling by $\|\mathbf{Y}\|_F$ guarantees $\sigma_{0, i} \in (0, 1] \subset (0, \sqrt{3})$, ensuring monotonic contraction.
+        </p>
+
+        <h3>2.3 Normalized Frame Defect & Zero Radial Force Invariant</h3>
+        <p>
+            The scale-invariant normalized frame defect is:
+            $$D(\mathbf{V}) = \frac{1}{1 - 1/k} \left\| \frac{\mathbf{V}^T \mathbf{V}}{\text{tr}(\mathbf{V}^T \mathbf{V})} - \frac{1}{k}\mathbf{I}_k \right\|_F^2 = \frac{1}{1 - 1/k}\left(\frac{1}{\text{EffRank}(\mathbf{V})} - \frac{1}{k}\right)$$
+            The gradient evaluates in closed form:
+            $$\nabla_{\mathbf{V}} D(\mathbf{V}) = \frac{4}{t^2(1 - 1/k)} \left[ \mathbf{V}\mathbf{S} - \frac{\|\mathbf{S}\|_F^2}{t}\mathbf{V} \right]$$
+            Evaluating the matrix inner product:
+            $$\langle \nabla_{\mathbf{V}} D(\mathbf{V}), \mathbf{V} \rangle = \frac{4}{t^2(1 - 1/k)} \left[ \text{tr}(\mathbf{S}^2) - \frac{\|\mathbf{S}\|_F^2}{t}\text{tr}(\mathbf{S}) \right] = \frac{4}{t^2(1 - 1/k)} \left[ \|\mathbf{S}\|_F^2 - \|\mathbf{S}\|_F^2 \right] \equiv 0$$
+            This is corroborated by Euler's homogeneous function theorem ($D(\alpha \mathbf{V}) = D(\mathbf{V}) \implies \text{degree } 0$).
+        </p>
+
+        <h3>2.4 Subspace vs. Basis Axis Disentanglement</h3>
+        <p>
+            The OLS projection hat matrix for $\mathbf{Z}_2 = \mathbf{Z}_1 \mathbf{M}$ ($\mathbf{M} \in \text{GL}(k, \mathbb{R})$):
+            $$\mathbf{H}_{\mathbf{Z}_2} = (\mathbf{Z}_1 \mathbf{M}) \left( \mathbf{M}^T (\mathbf{Z}_1^T \mathbf{Z}_1) \mathbf{M} \right)^{-1} (\mathbf{Z}_1 \mathbf{M})^T = \mathbf{Z}_1 \mathbf{M} \mathbf{M}^{-1} (\mathbf{Z}_1^T \mathbf{Z}_1)^{-1} (\mathbf{M}^T)^{-1} \mathbf{M}^T \mathbf{Z}_1^T \equiv \mathbf{H}_{\mathbf{Z}_1}$$
+            This proves that linear probes (OLS regression) are mathematically incapable of detecting basis rotations. Consequently, downstream evaluations must deploy coordinate-sensitive tree probes (Random Forests) alongside linear probes to distinguish subspace capture from canonical axis disentanglement.
+        </p>
+    </div>
+
+    <div class="card">
+        <h2>3. Independent Test Execution</h2>
+        <p>Unit test execution was carried out directly within the project's Python virtual environment (<code>/Users/stnava/venvs/ants/bin/pytest</code>):</p>
+        <pre><code>============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0 -- /Users/stnava/venvs/ants/bin/python3.12
+rootdir: /Users/stnava/data/repos/pysimlr
+configfile: pytest.ini
+
+tests/test_guide_nsa_alignment.py::TestGuideAlignment::test_backend_report_extended_metadata PASSED [  9%]
+tests/test_guide_nsa_alignment.py::TestGuideAlignment::test_polar_factor_retraction_without_svd PASSED [ 18%]
+tests/test_guide_nsa_alignment.py::TestGuideAlignment::test_inner_loops_use_polar_retraction PASSED [ 27%]
+tests/test_guide_nsa_alignment.py::TestGuideAlignment::test_nsa_flow_optimizer_fallback_uses_polar PASSED [ 36%]
+tests/test_guide_nsa_alignment.py::TestGuideAlignment::test_retraction_diagnostics_coverage PASSED [ 45%]
+tests/test_guide_nsa_alignment.py::TestGuideAlignment::test_zero_radial_force_invariant PASSED [ 54%]
+tests/test_guide_nsa_alignment.py::TestGuideAlignment::test_sklearn_nsaflow_pipeline_and_infold PASSED [ 63%]
+tests/test_guide_nsa_alignment.py::TestGuideAlignment::test_recipe_a_nonnegative_spectra PASSED [ 72%]
+tests/test_guide_nsa_alignment.py::TestGuideAlignment::test_recipe_b_signed_disjoint_contrast_modules PASSED [ 81%]
+tests/test_guide_nsa_alignment.py::TestGuideAlignment::test_build_nsa_pipeline_classification PASSED [ 90%]
+tests/test_guide_nsa_alignment.py::TestGuideAlignment::test_build_nsa_pipeline_regression PASSED [100%]
+
+======================== 11 passed, 1 warning in 13.67s ========================</code></pre>
+    </div>
+
+    <div class="card">
+        <h2>4. Conclusion & Recommendation</h2>
+        <p>
+            The theoretical formulations and scientific voice are mature, robust, and mathematically verified. The manuscript completely eliminates marketing hype, replaces pooled $p$-values with rigorous Demšar non-parametric inference, establishes verifiable geometric invariants, and grounds deep representations in the auditable OLEE Stiefel bottleneck.
+        </p>
+        <p>
+            <strong>Verdict: APPROVE</strong>.
+        </p>
+    </div>
+</div>
+
+</body>
+</html>

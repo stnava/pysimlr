@@ -36,6 +36,7 @@ book:
     - appendix_brca_clinical_validation.qmd
     - appendix_operational.qmd
     - appendix_flow_simr_v.qmd
+    - appendix_reproducibility.qmd
 
 bibliography: references.bib
 

@@ -1,0 +1,124 @@
+# Reproducibility {#sec-reproducibility}
+
+This appendix documents the computational environment, replication structure, and exact mathematical procedures required to reproduce all benchmark tables, figures, and statistical hypothesis tests reported in the manuscript.
+
+## Building the Manuscript
+
+The manuscript is authored in Quarto and compiles to HTML and PDF formats. All benchmark result caches are vendored directly under `paper/results_cache/`, permitting a completely offline build with zero external network access:
+
+```bash
+git clone https://github.com/stnava/pysimlr.git
+cd pysimlr
+pip install -e ".[dev]"      # add ".[dev,nsa]" for optional ANTsTorch normalizing flow backends
+quarto render paper
+```
+
+Every figure and table in the manuscript is generated at render time from `paper/results_cache/deep_ranking_benchmark.csv`. There are no hardcoded statistical figures in the manuscript source.
+
+## Single Analysis Path and Benchmark Engine
+
+All statistical hypothesis tests, ranking matrices, and permutation null distributions are executed via a unified module: `src/pysimlr/benchmarks/deep_ranking.py`. This engine implements:
+- Non-parametric Friedman test and Iman-Davenport $F$ extension (@Demsar2006; @Iman1980).
+- Two-tailed Nemenyi Critical Difference ($CD$) computation at $\alpha = 0.05$ (@Nemenyi1963).
+- Pairwise Wilcoxon signed-rank tests (@Wilcoxon1945) with family-wise Holm-Bonferroni step-down adjustments (@Holm1979).
+- Exact sign-flip permutation tests bounded by the distribution-free resolution floor.
+- Multi-objective Pareto frontier identification.
+
+Consolidating all inference into `deep_ranking.py` ensures that the manuscript tables, figures, and text never diverge. The test suite `tests/test_deep_ranking_stats.py` validates the statistical calculations:
+
+```bash
+pytest tests/test_deep_ranking_stats.py -v
+```
+
+## Replication Structure and the Permutation Resolution Floor
+
+The deep ranking benchmark evaluates seven distinct architectures across 70 independent task blocks (4 synthetic generative manifolds + 3 real-world clinical/multi-omics cohorts $\times$ 10 independent random seeds):
+
+```{python}
+#| label: tbl-replication-design
+#| tbl-cap: 'Replication Structure of the Deep Ranking Benchmark. Each task block corresponds to an independent random seed controlling data partitioning, train/test split, and torch weight initialization. Multiplicity across loss functions or consensus methods on the same data split is strictly avoided.'
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+csv_path = "results_cache/deep_ranking_benchmark.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
+
+df = pd.read_csv(csv_path)
+
+summary_rows = []
+for dataset, grp in df.groupby("Dataset"):
+    n_seeds = grp["Seed"].nunique()
+    n_models = grp["Model"].nunique()
+    total_evals = len(grp)
+    case_type = grp["Case_Type"].iloc[0]
+    perm_floor = 2.0 / (2.0 ** n_seeds)
+    
+    summary_rows.append({
+        "Dataset / Regime": dataset,
+        "Type": case_type.capitalize(),
+        "Independent Seeds (N)": n_seeds,
+        "Architectures (k)": n_models,
+        "Total Runs": total_evals,
+        "Permutation Floor": f"{perm_floor:.6f}"
+    })
+
+df_summary = pd.DataFrame(summary_rows)
+print(tabulate(df_summary, headers="keys", tablefmt="pipe", showindex=False))
+```
+
+### The Permutation Floor ($2 / 2^{10} \approx 0.00195$)
+
+In statistical hypothesis testing between paired models, inference must be conducted at the level of the independent replicate ($N$). For a paired difference vector $\boldsymbol{\Delta} = \mathbf{y}_A - \mathbf{y}_B$ across $N$ independent seeds, the exact distribution-free sign-flip null distribution consists of $2^N$ equally probable sign assignments:
+$$
+p_{\text{perm}} = \frac{1}{2^N} \sum_{\mathbf{s} \in \{-1, +1\}^N} \mathbb{I}\left(\left|\frac{1}{N} \sum_{i=1}^N s_i \Delta_i\right| \ge |\bar{\Delta}|\right)
+$$
+
+For $N = 10$ independent seeds, the minimal attainable two-sided permutation $p$-value occurs when every replicate favours the same model:
+$$
+p_{\min} = \frac{2}{2^{10}} = \frac{2}{1024} \approx 0.001953
+$$
+
+We enforce the following statistical standards throughout the manuscript:
+1. **Zero Unadjusted Pooled $p$-values**: We completely eliminate pooled repeated-measures $t$-tests. Crossing multiple hyperparameters on the same seed does not increase statistical degrees of freedom.
+2. **Floor Truncation**: No distribution-free permutation test can report a value below $0.001953$. Cells at the floor represent instances where all 10 independent replicates unanimously favor the same architecture.
+3. **Dual Metric Reporting**: Strictly Linear accuracy ($\mathbf{X}\mathbf{V}$) and full non-linear predictive capacity ($Y$) are reported as distinct metrics. A deep architecture must demonstrate an improvement on the first-layer linear projection to justify the claim that it discovers a superior auditable basis.
+
+## Software Environment
+
+```{python}
+#| label: tbl-software-environment
+#| tbl-cap: 'Software environment and runtime dependencies under which the benchmark and manuscript are compiled.'
+#| echo: false
+#| output: asis
+import sys
+import torch
+import numpy
+import scipy
+import sklearn
+import pandas
+import tabulate
+import matplotlib
+
+env_info = [
+    {"Component": "Python", "Version": sys.version.split()[0]},
+    {"Component": "PyTorch", "Version": torch.__version__},
+    {"Component": "NumPy", "Version": numpy.__version__},
+    {"Component": "SciPy", "Version": scipy.__version__},
+    {"Component": "Scikit-Learn", "Version": sklearn.__version__},
+    {"Component": "Pandas", "Version": pandas.__version__},
+    {"Component": "Matplotlib", "Version": matplotlib.__version__},
+    {"Component": "ANTsTorch Integration", "Version": "Bypassed / Native Fallback Active"}
+]
+
+print(tabulate.tabulate(pd.DataFrame(env_info), headers="keys", tablefmt="pipe", showindex=False))
+```
+
+## Determinism and RNG Isolation
+
+To ensure absolute determinism across all benchmark runs:
+1. **Process RNG Isolation**: Invocations of normalizing flow retractions and torch optimization loops restore CPU and CUDA generator states upon completion. No model fitting operation mutates the caller's global random state.
+2. **Fixed Random Seeds**: The benchmark explicitly iterates over seeds $42, 43, 44, 45, 46, 47, 48, 49, 50, 51$. Data synthesis, train/test splitting ($70/30$), and neural network parameter initialization are strictly controlled by these seed parameters.

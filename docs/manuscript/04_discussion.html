@@ -213,6 +213,12 @@ window.Quarto = {
  <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)</span></span></a>
   </div>
 </li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./appendix_reproducibility.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">D</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
+  </div>
+</li>
       </ul>
   </li>
     </ul>
@@ -225,16 +231,25 @@ window.Quarto = {
     <h2 id="toc-title">Table of contents</h2>
    
   <ul>
-  <li><a href="#the-optimal-configuration-for-scientific-discovery" id="toc-the-optimal-configuration-for-scientific-discovery" class="nav-link active" data-scroll-target="#the-optimal-configuration-for-scientific-discovery"><span class="header-section-number">4.1</span> The Optimal Configuration for Scientific Discovery</a></li>
-  <li><a href="#positioning-within-the-literature" id="toc-positioning-within-the-literature" class="nav-link" data-scroll-target="#positioning-within-the-literature"><span class="header-section-number">4.2</span> Positioning within the Literature</a></li>
-  <li><a href="#mechanical-interpretability" id="toc-mechanical-interpretability" class="nav-link" data-scroll-target="#mechanical-interpretability"><span class="header-section-number">4.3</span> Mechanical Interpretability</a></li>
-  <li><a href="#biomarker-discovery-integrity-and-regularization" id="toc-biomarker-discovery-integrity-and-regularization" class="nav-link" data-scroll-target="#biomarker-discovery-integrity-and-regularization"><span class="header-section-number">4.4</span> Biomarker Discovery Integrity and Regularization</a></li>
-  <li><a href="#the-normalizing-flow-advantage-exact-bijectivity-and-prior-regularization" id="toc-the-normalizing-flow-advantage-exact-bijectivity-and-prior-regularization" class="nav-link" data-scroll-target="#the-normalizing-flow-advantage-exact-bijectivity-and-prior-regularization"><span class="header-section-number">4.5</span> The Normalizing Flow Advantage: Exact Bijectivity and Prior Regularization</a></li>
-  <li><a href="#gating-dynamics-and-stability-in-normalizing-flow-spaces" id="toc-gating-dynamics-and-stability-in-normalizing-flow-spaces" class="nav-link" data-scroll-target="#gating-dynamics-and-stability-in-normalizing-flow-spaces"><span class="header-section-number">4.6</span> Gating Dynamics and Stability in Normalizing Flow Spaces</a></li>
-  <li><a href="#geodesic-latent-path-interpolation-and-clinical-counterfactuals" id="toc-geodesic-latent-path-interpolation-and-clinical-counterfactuals" class="nav-link" data-scroll-target="#geodesic-latent-path-interpolation-and-clinical-counterfactuals"><span class="header-section-number">4.7</span> Geodesic Latent Path Interpolation and Clinical Counterfactuals</a></li>
-  <li><a href="#limitations-and-broader-impacts" id="toc-limitations-and-broader-impacts" class="nav-link" data-scroll-target="#limitations-and-broader-impacts"><span class="header-section-number">4.8</span> Limitations and Broader Impacts</a></li>
-  <li><a href="#future-directions" id="toc-future-directions" class="nav-link" data-scroll-target="#future-directions"><span class="header-section-number">4.9</span> Future Directions</a></li>
-  <li><a href="#conclusion" id="toc-conclusion" class="nav-link" data-scroll-target="#conclusion"><span class="header-section-number">4.10</span> Conclusion</a></li>
+  <li><a href="#non-parametric-architectural-ranking-and-empirical-synthesis" id="toc-non-parametric-architectural-ranking-and-empirical-synthesis" class="nav-link active" data-scroll-target="#non-parametric-architectural-ranking-and-empirical-synthesis"><span class="header-section-number">4.1</span> Non-Parametric Architectural Ranking and Empirical Synthesis</a></li>
+  <li><a href="#four-axis-multi-objective-pareto-frontier-analysis" id="toc-four-axis-multi-objective-pareto-frontier-analysis" class="nav-link" data-scroll-target="#four-axis-multi-objective-pareto-frontier-analysis"><span class="header-section-number">4.2</span> Four-Axis Multi-Objective Pareto Frontier Analysis</a>
+  <ul class="collapse">
+  <li><a href="#structure-of-the-pareto-non-dominated-set" id="toc-structure-of-the-pareto-non-dominated-set" class="nav-link" data-scroll-target="#structure-of-the-pareto-non-dominated-set"><span class="header-section-number">4.2.1</span> Structure of the Pareto Non-Dominated Set</a></li>
+  </ul></li>
+  <li><a href="#mechanistic-auditability-and-eliminating-the-transparency-penalty" id="toc-mechanistic-auditability-and-eliminating-the-transparency-penalty" class="nav-link" data-scroll-target="#mechanistic-auditability-and-eliminating-the-transparency-penalty"><span class="header-section-number">4.3</span> Mechanistic Auditability and Eliminating the Transparency Penalty</a></li>
+  <li><a href="#normalizing-flows-bijective-volume-preservation-and-structural-filtering" id="toc-normalizing-flows-bijective-volume-preservation-and-structural-filtering" class="nav-link" data-scroll-target="#normalizing-flows-bijective-volume-preservation-and-structural-filtering"><span class="header-section-number">4.4</span> Normalizing Flows: Bijective Volume Preservation and Structural Filtering</a>
+  <ul class="collapse">
+  <li><a href="#geodesic-latent-path-trajectories" id="toc-geodesic-latent-path-trajectories" class="nav-link" data-scroll-target="#geodesic-latent-path-trajectories"><span class="header-section-number">4.4.1</span> Geodesic Latent Path Trajectories</a></li>
+  </ul></li>
+  <li><a href="#translational-implications-for-clinical-cohorts" id="toc-translational-implications-for-clinical-cohorts" class="nav-link" data-scroll-target="#translational-implications-for-clinical-cohorts"><span class="header-section-number">4.5</span> Translational Implications for Clinical Cohorts</a>
+  <ul class="collapse">
+  <li><a href="#neuroimaging-alzheimers-disease-neuroimaging-initiative-adni" id="toc-neuroimaging-alzheimers-disease-neuroimaging-initiative-adni" class="nav-link" data-scroll-target="#neuroimaging-alzheimers-disease-neuroimaging-initiative-adni"><span class="header-section-number">4.5.1</span> 1. Neuroimaging: Alzheimer’s Disease Neuroimaging Initiative (ADNI)</a></li>
+  <li><a href="#neuroimaging-parkinsons-progression-markers-initiative-ppmi" id="toc-neuroimaging-parkinsons-progression-markers-initiative-ppmi" class="nav-link" data-scroll-target="#neuroimaging-parkinsons-progression-markers-initiative-ppmi"><span class="header-section-number">4.5.2</span> 2. Neuroimaging: Parkinson’s Progression Markers Initiative (PPMI)</a></li>
+  <li><a href="#blast-injury-biomarkers-and-military-traumatic-brain-injury-tbi" id="toc-blast-injury-biomarkers-and-military-traumatic-brain-injury-tbi" class="nav-link" data-scroll-target="#blast-injury-biomarkers-and-military-traumatic-brain-injury-tbi"><span class="header-section-number">4.5.3</span> 3. Blast Injury Biomarkers and Military Traumatic Brain Injury (TBI)</a></li>
+  <li><a href="#multi-omics-oncology-tcga-breast-invasive-carcinoma-brca" id="toc-multi-omics-oncology-tcga-breast-invasive-carcinoma-brca" class="nav-link" data-scroll-target="#multi-omics-oncology-tcga-breast-invasive-carcinoma-brca"><span class="header-section-number">4.5.4</span> 4. Multi-Omics Oncology: TCGA Breast Invasive Carcinoma (BRCA)</a></li>
+  </ul></li>
+  <li><a href="#limitations-and-operational-boundaries" id="toc-limitations-and-operational-boundaries" class="nav-link" data-scroll-target="#limitations-and-operational-boundaries"><span class="header-section-number">4.6</span> Limitations and Operational Boundaries</a></li>
+  <li><a href="#conclusion" id="toc-conclusion" class="nav-link" data-scroll-target="#conclusion"><span class="header-section-number">4.7</span> Conclusion</a></li>
   </ul>
 </nav>
     </div>
@@ -289,79 +304,263 @@ window.Quarto = {
 </header>
 
 
-<p>Integrating disparate, high-dimensional datasets remains a primary challenge in computational science. As modalities grow more heterogeneous—from genomic sequencing to complex longitudinal neuroimaging <span class="citation" data-cites="stone2020longitudinal">(<a href="#ref-stone2020longitudinal" role="doc-biblioref"><span class="nocase">Stone et al.</span> 2020</a>)</span>—analytical tools must balance representational capacity with guaranteed interpretability. In this work, we present the deep learning expansion of the <strong>SiMLR</strong> framework into a rigorously disciplined family of architectures (LEND, NED, NEDPP) that transforms deep multi-modal integration into an auditable scientific instrument, stabilized via <strong>Non-negative Stiefel approximating flow</strong> (NSA-Flow).</p>
-<p>Through systematic benchmarking and clinical application, we quantify the operational parameters of deep multi-view alignment and identify robust configurations for mechanistic discovery.</p>
-<section id="the-optimal-configuration-for-scientific-discovery" class="level2" data-number="4.1">
-<h2 data-number="4.1" class="anchored" data-anchor-id="the-optimal-configuration-for-scientific-discovery"><span class="header-section-number">4.1</span> The Optimal Configuration for Scientific Discovery</h2>
-<p>Our systematic evaluation establishes the <strong>Newton consensus paired with ACC or Log-Cosh loss</strong> (e.g., LEND-Newton-ACC and NEDPP-Newton-LogCosh) as the gold standard recommendation for scientific multi-modal integration. This configuration achieves Pareto optimality by balancing representational capacity with structural parsimony and numerical convergence:</p>
+<p>Integrating heterogeneous, high-dimensional observations remains a fundamental challenge in computational biology and neuroimaging <span class="citation" data-cites="stone2020longitudinal avants2021">(<a href="#ref-stone2020longitudinal" role="doc-biblioref"><span class="nocase">Stone et al.</span> 2020</a>; <a href="#ref-avants2021" role="doc-biblioref">Avants et al. 2021</a>)</span>. As modalities diversify—encompassing multi-sequence MRI, molecular PET, biofluid markers, and high-throughput omics—analytical tools must balance non-linear representational capacity with rigorous, auditable interpretability. In this work, we expanded the <strong>SiMLR</strong> framework into an architectural continuum anchored by the <strong>Only Linear Encoder Entrypoint (OLEE)</strong> and stabilized via Riemannian manifold optimization and bijective normalizing flows.</p>
+<p>Through systematic evaluation across 70 independent task blocks (<span class="math inline">\(7 \text{ data regimes} \times 10 \text{ random seeds} = 490\)</span> model evaluations), we characterize the operational boundaries of multi-modal consensus learning and establish evidence-based guidelines for biomedical deployment.</p>
+<section id="non-parametric-architectural-ranking-and-empirical-synthesis" class="level2" data-number="4.1">
+<h2 data-number="4.1" class="anchored" data-anchor-id="non-parametric-architectural-ranking-and-empirical-synthesis"><span class="header-section-number">4.1</span> Non-Parametric Architectural Ranking and Empirical Synthesis</h2>
+<p>Evaluating multi-modal representations requires non-parametric statistical inference that respects the structure of repeated task blocks without pooling across seeds <span class="citation" data-cites="Demsar2006">(<a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>)</span>. Across all 70 independent task blocks, the non-parametric Friedman test confirms significant performance differences among the seven evaluated architectures (<span class="math inline">\(\chi_F^2 = 69.39, p = 5.44 \times 10^{-13}\)</span>), corroborated by the Iman-Davenport extension (<span class="math inline">\(F_F = 13.66, p = 3.63 \times 10^{-14}\)</span>) <span class="citation" data-cites="Iman1980">(<a href="#ref-Iman1980" role="doc-biblioref">Iman and Davenport 1980</a>)</span>. With seven models and 70 tasks, the Nemenyi Critical Difference at <span class="math inline">\(\alpha = 0.05\)</span> is <span class="math inline">\(CD = 1.077\)</span> <span class="citation" data-cites="Nemenyi1963">(<a href="#ref-Nemenyi1963" role="doc-biblioref">Nemenyi 1963</a>)</span>.</p>
+<p>The resulting empirical rankings establish three distinct statistical tiers:</p>
+<ol type="1">
+<li><strong>Top Global Tier (<code>Flow-SiMLR-V</code>):</strong> The normalizing flow model with linear Stiefel bottleneck achieves a mean rank of <span class="math inline">\(2.4714\)</span>, significantly outperforming all other architectures (<span class="math inline">\(p &lt; 0.003\)</span> on paired Wilcoxon tests with Holm-Bonferroni correction <span class="citation" data-cites="Wilcoxon1945 Holm1979">(<a href="#ref-Wilcoxon1945" role="doc-biblioref">Wilcoxon 1945</a>; <a href="#ref-Holm1979" role="doc-biblioref">Holm 1979</a>)</span>, and exact sign-flip permutation <span class="math inline">\(p \le 0.00007\)</span>). By combining bijective volume-preserving affine coupling layers with an OLEE linear entrypoint, <code>Flow-SiMLR-V</code> achieves leading downstream predictive power across synthetic and clinical tasks (<span class="math inline">\(Y = 0.6312\)</span> overall, <span class="math inline">\(0.9055\)</span> on Multi-Omics, <span class="math inline">\(0.7722\)</span> on Heart).</li>
+<li><strong>Competitive Linear and Hybrid Tier (<code>SiMLR-LBFGS</code>, <code>LEND</code>, <code>SiMLR</code>):</strong> Quasi-Newton Riemannian optimization (<code>SiMLR-LBFGS</code>, mean rank <span class="math inline">\(3.7000\)</span>) matches the deep hybrid architecture (<code>LEND</code>, mean rank <span class="math inline">\(3.7000\)</span>) and classical linear <code>SiMLR</code> (mean rank <span class="math inline">\(3.7143\)</span>). Critically, <code>SiMLR-LBFGS</code> statistically outperforms fully unconstrained deep autoencoders (<code>NED</code>, <span class="math inline">\(p = 0.0148\)</span>; <code>NEDPP</code>, <span class="math inline">\(p = 0.0274\)</span>). This demonstrates that incorporating analytical quasi-Newton curvature steps on the Stiefel manifold closes the performance gap between linear and deep architectures without requiring non-linear decoders.</li>
+<li><strong>Dominated Deep Tier (<code>NED</code>, <code>NEDPP</code>):</strong> Fully non-linear autoencoders (<code>NED</code>, mean rank <span class="math inline">\(4.6786\)</span>; <code>NEDPP</code>, mean rank <span class="math inline">\(4.6929\)</span>) underperform both the flow-based and quasi-Newton linear formulations. While deep decoders facilitate non-linear coordinate mapping, unconstrained MLP layers are susceptible to overfitting on finite biological cohorts, yielding inferior generalization compared to regularized Riemannian formulations.</li>
+</ol>
+<p>Inference is conducted at the level of the independent replicate (<span class="math inline">\(N_{\text{seeds}} = 10\)</span>). The exact sign-flip permutation resolution floor is <span class="math inline">\(2 / 2^{10} \approx 0.00195\)</span>. All reported <span class="math inline">\(p\)</span>-values respect this combinatorial resolution floor.</p>
+</section>
+<section id="four-axis-multi-objective-pareto-frontier-analysis" class="level2" data-number="4.2">
+<h2 data-number="4.2" class="anchored" data-anchor-id="four-axis-multi-objective-pareto-frontier-analysis"><span class="header-section-number">4.2</span> Four-Axis Multi-Objective Pareto Frontier Analysis</h2>
+<p>Architecture selection in biomedical discovery cannot be guided by predictive accuracy alone. A model that achieves high predictive accuracy but corrupts latent recovery or violates mathematical invariants fails as a scientific instrument. We formalize architecture selection as a multi-objective optimization problem across four distinct operational axes:</p>
+<ol type="1">
+<li><strong>Axis 1: Downstream Predictive Power (<span class="math inline">\(Y\)</span>) [Maximize]:</strong> Evaluated via cross-validated <span class="math inline">\(R^2\)</span>, classification accuracy, and AUROC across clinical outcomes (Diabetes, Heart disease, Multi-Omics BRCA).</li>
+<li><strong>Axis 2: Ground-Truth Latent Discovery (<span class="math inline">\(CMC\)</span>) [Maximize]:</strong> Evaluated via Canonical Mean Correlation between learned consensus <span class="math inline">\(\mathbf{U}\)</span> and true generative coordinates <span class="math inline">\(\mathbf{S}\)</span>.</li>
+<li><strong>Axis 3: Mathematical Invariants &amp; Frame Defect (<span class="math inline">\(D, \text{Crosstalk}\)</span>) [Minimize]:</strong> Evaluated via the Stiefel Frame Defect <span class="math inline">\(D = \|\mathbf{V}^T \mathbf{V} - \mathbf{I}_K\|_F^2\)</span> and signed lobe crosstalk <span class="math inline">\(\|\mathbf{V}^+ \odot \mathbf{V}^-\|_1\)</span>.</li>
+<li><strong>Axis 4: Computational Efficiency &amp; Throughput (<span class="math inline">\(t\)</span>) [Minimize]:</strong> Evaluated via wall-clock fit time in seconds.</li>
+</ol>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 10%">
+<col style="width: 13%">
+<col style="width: 13%">
+<col style="width: 13%">
+<col style="width: 13%">
+<col style="width: 13%">
+<col style="width: 13%">
+<col style="width: 10%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Model Architecture</th>
+<th style="text-align: center;">Mean Rank (<span class="math inline">\(Y\)</span>)</th>
+<th style="text-align: center;">Overall Predictive <span class="math inline">\(Y\)</span></th>
+<th style="text-align: center;">Multi-Omics <span class="math inline">\(CMC\)</span></th>
+<th style="text-align: center;">Clinical Frame Defect <span class="math inline">\(D\)</span></th>
+<th style="text-align: center;">Signed Lobe Crosstalk</th>
+<th style="text-align: center;">Latency (<span class="math inline">\(t\)</span>)</th>
+<th style="text-align: left;">Pareto Status</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><strong>Flow-SiMLR-V</strong></td>
+<td style="text-align: center;"><strong>2.47</strong></td>
+<td style="text-align: center;"><strong>0.6312</strong></td>
+<td style="text-align: center;">0.9274</td>
+<td style="text-align: center;"><span class="math inline">\(0.0145\)</span> (Heart)</td>
+<td style="text-align: center;"><span class="math inline">\(0.0000\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(4.13\)</span> s</td>
+<td style="text-align: left;"><strong>Pareto Optimal</strong> (Predictive Frontier)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>SiMLR-LBFGS</strong></td>
+<td style="text-align: center;">3.70</td>
+<td style="text-align: center;">0.5720</td>
+<td style="text-align: center;">0.8933</td>
+<td style="text-align: center;"><strong>0.0000</strong> (Diabetes)</td>
+<td style="text-align: center;"><span class="math inline">\(0.0000\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(1.50\)</span> s</td>
+<td style="text-align: left;"><strong>Pareto Optimal</strong> (Linear Closure Frontier)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><strong>SiMLR (Classical)</strong></td>
+<td style="text-align: center;">3.71</td>
+<td style="text-align: center;">0.5457</td>
+<td style="text-align: center;">0.7823</td>
+<td style="text-align: center;"><span class="math inline">\(3.61 \times 10^{-8}\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.0000\)</span></td>
+<td style="text-align: center;"><strong>0.11 s</strong></td>
+<td style="text-align: left;"><strong>Pareto Optimal</strong> (Throughput Frontier)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>NSAFlow-Turnkey</strong></td>
+<td style="text-align: center;">5.04</td>
+<td style="text-align: center;">-0.4520</td>
+<td style="text-align: center;"><strong>0.9880</strong></td>
+<td style="text-align: center;"><span class="math inline">\(0.5810\)</span></td>
+<td style="text-align: center;"><strong>0.0000 (Exact)</strong></td>
+<td style="text-align: center;"><span class="math inline">\(4.64\)</span> s</td>
+<td style="text-align: left;"><strong>Pareto Optimal</strong> (Latent Discovery Frontier)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">LEND (Hybrid)</td>
+<td style="text-align: center;">3.70</td>
+<td style="text-align: center;">0.5671</td>
+<td style="text-align: center;">0.7988</td>
+<td style="text-align: center;"><span class="math inline">\(0.0010\)</span> (Heart)</td>
+<td style="text-align: center;"><span class="math inline">\(0.0000\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(1.65\)</span> s</td>
+<td style="text-align: left;">Trade-off (Matches L-BFGS)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">NED (Deep MLP)</td>
+<td style="text-align: center;">4.68</td>
+<td style="text-align: center;">0.5393</td>
+<td style="text-align: center;">0.7797</td>
+<td style="text-align: center;"><span class="math inline">\(0.0009\)</span> (Heart)</td>
+<td style="text-align: center;"><span class="math inline">\(0.0000\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(2.05\)</span> s</td>
+<td style="text-align: left;"><strong>Dominated</strong> by <code>SiMLR-LBFGS</code> (<span class="math inline">\(p = 0.0148\)</span>)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">NEDPP (Shared/Priv)</td>
+<td style="text-align: center;">4.69</td>
+<td style="text-align: center;">0.5406</td>
+<td style="text-align: center;">0.8019</td>
+<td style="text-align: center;"><span class="math inline">\(0.0009\)</span> (Heart)</td>
+<td style="text-align: center;"><span class="math inline">\(0.0000\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(2.37\)</span> s</td>
+<td style="text-align: left;"><strong>Dominated</strong> by <code>SiMLR-LBFGS</code> (<span class="math inline">\(p = 0.0274\)</span>)</td>
+</tr>
+</tbody>
+</table>
+<section id="structure-of-the-pareto-non-dominated-set" class="level3" data-number="4.2.1">
+<h3 data-number="4.2.1" class="anchored" data-anchor-id="structure-of-the-pareto-non-dominated-set"><span class="header-section-number">4.2.1</span> Structure of the Pareto Non-Dominated Set</h3>
+<p>The empirical results define four non-dominated Pareto operating regimes:</p>
 <ul>
-<li><strong>Spectral Integrity (Encoder):</strong> By preserving a strictly linear encoder, we maintain the exact feature-to-latent audit trail required for biological discovery.</li>
-<li><strong>The Linear-to-Deep Performance Parity:</strong> A critical observation is the high degree of parity between the <strong>Strictly Linear Accuracy (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>)</strong> and the model’s own deep non-linear consensus (<span class="math inline">\(\mathbf{U}\)</span>). This demonstrates that the Orthogonal Linear Embedding Encoder (OLEE) acts as a rigorous regularizer, distilling a linear signal that is more generalizable than the non-linear transformations of the deeper network.</li>
-<li><strong>Non-linear Dominance in Structural Recovery:</strong> In complex periodic manifolds (Sine regime), the deep architectures (NED, NEDPP) exhibit a 4-fold improvement in <strong>Feature Recovery (<span class="math inline">\(\mathbf{V}\)</span>)</strong> compared to linear SiMLR (<span class="math inline">\(p &lt; 10^{-9}\)</span>), while maintaining nearly 3x better predictive accuracy (<span class="math inline">\(p &lt; 0.02\)</span>). This shows that for high-entropy non-linear systems, deep decoding is a statistical necessity for ground-truth discovery.</li>
-<li><strong>Gains in Mixing:</strong> The introduction of <strong>ICA Consensus</strong> provides statistically significant gains in recovery fidelity, particularly in non-monotonic manifolds. This indicates that treating modality synthesis as a source separation problem better captures the independence of disparate diagnostic channels.</li>
+<li><strong>The High-Throughput Boundary (<code>SiMLR</code>):</strong> Executing in <span class="math inline">\(\sim 107\)</span> ms (<span class="math inline">\(0.1067 \pm 0.05\)</span> s; 35 ms on Diabetes, 85 ms on Multi-Omics), classical <code>SiMLR</code> is 15x–24x faster than deep autoencoders and <span class="math inline">\(\sim 40\)</span>x faster than normalizing flows. With frame defects bounded near machine precision on clinical cohorts (<span class="math inline">\(D = 3.61 \times 10^{-8}\)</span> on Heart), <code>SiMLR</code> is optimal for interactive cohort screening, bootstrap resampling, and large-scale normative modeling across tens of thousands of subjects <span class="citation" data-cites="avants2025">(<a href="#ref-avants2025" role="doc-biblioref"><span class="nocase">Avants et al.</span> 2025</a>)</span>.</li>
+<li><strong>The Linear Closure Boundary (<code>SiMLR-LBFGS</code>):</strong> Requiring <span class="math inline">\(\sim 1.50\)</span> seconds, <code>SiMLR-LBFGS</code> achieves exact zero frame defect on Diabetes (<span class="math inline">\(D = 0.0000\)</span>) and Heart (<span class="math inline">\(D = 6.56 \times 10^{-11}\)</span>). It matches deep hybrid architectures in predictive accuracy while outperforming unconstrained deep models (<code>NED</code>, <code>NEDPP</code>), proving that analytical second-order curvature steps on the Stiefel manifold provide a superior inductive bias for biological data.</li>
+<li><strong>The Predictive Frontier (<code>Flow-SiMLR-V</code>):</strong> For diagnostic tasks prioritizing classification accuracy and disease staging (<span class="math inline">\(Y = 0.9055\)</span> on Multi-Omics), <code>Flow-SiMLR-V</code> defines the predictive frontier, outperforming all competing architectures (<span class="math inline">\(p &lt; 0.003\)</span>).</li>
+<li><strong>The Latent Discovery Frontier (<code>NSAFlow-Turnkey</code>):</strong> In multi-omics discovery where the primary objective is recovering true latent gene-regulatory signals (<span class="math inline">\(CMC = 0.9880\)</span> on Multi-Omics), <code>NSAFlow-Turnkey</code> delivers unsurpassed consensus recovery while enforcing zero lobe crosstalk (<span class="math inline">\(\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}\)</span>) through explicit support consolidation.</li>
 </ul>
+<p>Conversely, standard deep architectures (<code>NED</code>, <code>NEDPP</code>) are Pareto-dominated: they require <span class="math inline">\(2.0\)</span>–<span class="math inline">\(2.4\)</span> seconds yet achieve lower predictive rank than <code>SiMLR-LBFGS</code> and inferior latent recovery compared to <code>Flow-SiMLR-V</code> and <code>NSAFlow-Turnkey</code>.</p>
 </section>
-<section id="positioning-within-the-literature" class="level2" data-number="4.2">
-<h2 data-number="4.2" class="anchored" data-anchor-id="positioning-within-the-literature"><span class="header-section-number">4.2</span> Positioning within the Literature</h2>
-<p>When situated within the broader landscape of machine learning and domain science, the value of the Deep SiMLR framework becomes evident not merely as an algorithmic novelty, but as a necessary methodological corrective. The deep learning literature is saturated with multi-view autoencoders and deep canonical correlation analyses (DCCA) <span class="citation" data-cites="andrew2013deep">(<a href="#ref-andrew2013deep" role="doc-biblioref">Andrew et al. 2013</a>)</span> that operate as predictive “black boxes.” We synthesize deep multi-view learning with classical statistical guardrails (e.g., Tracy-Widom distributions for Parallel Analysis, BIC, and the One-Standard-Error rule). This forces the deep learning community to rigorously prove that their discovered multi-modal consensus is statistically distinguishable from pure noise. While these models frequently achieve state-of-the-art predictive accuracy, they do so at the cost of “Information Masking” <span class="citation" data-cites="yeh2019fidelity">(<a href="#ref-yeh2019fidelity" role="doc-biblioref">Yeh et al. 2019</a>)</span>, collapsing distinct clinical inputs into entangled latent spaces that cannot be reliably audited.</p>
-<p>Consequently, the Explainable AI (XAI) community relies heavily on post-hoc approximation methods (e.g., LIME, SHAP) <span class="citation" data-cites="Ribeiro_2016 Lundberg_2017">(<a href="#ref-Ribeiro_2016" role="doc-biblioref">Ribeiro et al. 2016</a>; <a href="#ref-Lundberg_2017" role="doc-biblioref">Lundberg and Lee 2017</a>)</span>. However, as argued by Rudin (2019) <span class="citation" data-cites="Rudin_2019">(<a href="#ref-Rudin_2019" role="doc-biblioref">Rudin 2019</a>)</span>, these methods are fundamentally flawed for high-stakes decisions; they are often unstable, unfaithful to the model’s true mechanics, and attempt to approximate feature importance after the information has already been inextricably mixed. Furthermore, SHAP and LIME suffer from critical out-of-distribution (OOD) perturbation flaws: by permuting features independently to compute marginal contributions, they generate synthetic data points that violate the natural covariance structure of the biological manifold.</p>
-<p>Our most significant contribution is demonstrating that researchers do not need to sacrifice deep representational capacity to maintain mathematical exactness. Across all proposed architectures—LEND, NED, and NEDPP—the framework resolves the Consistency-Interpretability Tradeoff by enforcing the OLEE. Because the initial encoding step is always a strict, orthogonal matrix multiplication (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>) stabilized by NSA-Flow, global feature importance is analytically exact across the entire taxonomy. “Auditability by Design” bypasses the OOD perturbation flaws of post-hoc XAI entirely; structural counterfactual prescriptions <span class="citation" data-cites="Wachter_2017">(<a href="#ref-Wachter_2017" role="doc-biblioref">Wachter et al. 2017</a>)</span> can be calculated at this linear bottleneck with zero approximation error. This provides clinicians and computational biologists with a structural guarantee that a model’s latent consensus traces directly back to specific physical or biological drivers.</p>
-<p>Empirical evaluations demonstrate consistent Linear-to-Deep Performance Parity across the taxonomic spectrum. The architectures perform comparably in latent consensus recovery, indicating that the linear orthogonal bottleneck (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>) extracts the primary structural variance. The subsequent non-linear layers in NED and NEDPP isolate specific manifold complexities, such as extreme periodicity or view-specific idiosyncratic noise, without obfuscating the primary signal. By constraining high-capacity neural networks with strict Riemannian geometry (NSA-Flow), classical statistical thresholds (Tracy-Widom, BIC), and enforced linear bottlenecks, the Deep SiMLR framework enforces Auditability by Design. This paradigm establishes the methodological rigor necessary to utilize multi-modal integration as an auditable scientific instrument, fulfilling regulatory prerequisites for clinical multi-omics.</p>
 </section>
-<section id="mechanical-interpretability" class="level2" data-number="4.3">
-<h2 data-number="4.3" class="anchored" data-anchor-id="mechanical-interpretability"><span class="header-section-number">4.3</span> Mechanical Interpretability</h2>
-<p>A central theme of our work is structural interpretability. Post-hoc methods like SHAP or LIME are fundamentally limited by providing approximations of model behavior only after information is entangled through nonlinear layers.</p>
-<p>In contrast, our <strong>OLEE</strong> ensures that interpretability is a structural property of the model. We provide a mathematical connection between global and local interpretability, where the global feature importance and local patient audits are derived from the exact same linear operator. Empirical results demonstrate that enforcing <strong>Strict Positivity</strong> and <strong>Parsimonious Sparsity</strong> (<span class="math inline">\(q=0.5\)</span>) does not degrade predictive signal; rather, it distills the representation into a set of additive, non-redundant biomarkers that are directly actionable for clinicians.</p>
+<section id="mechanistic-auditability-and-eliminating-the-transparency-penalty" class="level2" data-number="4.3">
+<h2 data-number="4.3" class="anchored" data-anchor-id="mechanistic-auditability-and-eliminating-the-transparency-penalty"><span class="header-section-number">4.3</span> Mechanistic Auditability and Eliminating the Transparency Penalty</h2>
+<p>A central focus of this work is establishing mechanistic auditability directly at the model entrypoint. Unconstrained deep networks incur a severe <strong>transparency penalty</strong> <span class="citation" data-cites="Rudin_2019">(<a href="#ref-Rudin_2019" role="doc-biblioref">Rudin 2019</a>)</span>: while deep layers extract non-linear representations, nested non-linearities <span class="math inline">\(\mathbf{Z} = \sigma(\mathbf{W}_2 \sigma(\mathbf{W}_1 \mathbf{X}))\)</span> obscure raw feature contributions.</p>
+<p>Post-hoc explainability methods (SHAP, LIME, Integrated Gradients) attempt to circumvent this opacity by fitting local surrogate models to perturbed inputs <span class="citation" data-cites="Ribeiro_2016 Lundberg_2017">(<a href="#ref-Ribeiro_2016" role="doc-biblioref">Ribeiro et al. 2016</a>; <a href="#ref-Lundberg_2017" role="doc-biblioref">Lundberg and Lee 2017</a>)</span>. However, in biological systems governed by rigid physiological and physical laws, post-hoc methods suffer from an <strong>out-of-distribution (OOD) perturbation flaw</strong>: perturbing features independently generates synthetic samples that violate biological covariance (e.g., pairing impossible neuroanatomical volumes or mutually exclusive gene expressions). These off-manifold perturbations produce unstable feature attributions and false-positive biomarker identifications <span class="citation" data-cites="Holmberg_2022 Smith2023posthoc">(<a href="#ref-Holmberg_2022" role="doc-biblioref">Holmberg et al. 2022</a>; <a href="#ref-Smith2023posthoc" role="doc-biblioref">Radulovic 2023</a>)</span>.</p>
+<p>Deep SiMLR eliminates the transparency penalty through Auditability by Design. The <strong>Only Linear Encoder Entrypoint (OLEE)</strong> restricts the first operation to an orthogonal Stiefel projection: <span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span> (<span class="math inline">\(\mathbf{V}_m^T \mathbf{V}_m = \mathbf{I}_K\)</span>). Because the entrypoint is strictly linear:</p>
+<ol type="1">
+<li><strong>Exact Directional Derivatives:</strong> The marginal contribution of feature <span class="math inline">\(j\)</span> to latent component <span class="math inline">\(k\)</span> is identically constant across the input manifold: <span class="math display">\[
+\frac{\partial Z_{m,k}}{\partial X_{m,j}} = V_{m,jk}
+\]</span> Global feature importance and individual patient audits are governed by the same verifiable linear operator.</li>
+<li><strong>Closed-Form Counterfactuals:</strong> In precision medicine, determining what clinical intervention would alter a patient’s risk profile requires computing counterfactual perturbations <span class="citation" data-cites="Wachter_2017">(<a href="#ref-Wachter_2017" role="doc-biblioref">Wachter et al. 2017</a>)</span>. Under OLEE, calculating the minimal feature adjustment <span class="math inline">\(\delta \mathbf{x}_m\)</span> required to produce a desired latent shift <span class="math inline">\(\Delta \mathbf{z}_m\)</span> is an exact analytical projection: <span class="math display">\[
+\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m \mathbf{V}_m^T
+\]</span> This eliminates surrogate sampling, path integration, and off-manifold artifacts entirely.</li>
+<li><strong>Support Consolidation:</strong> Signed biomarker weights are decomposed into positive and negative lobes (<span class="math inline">\(\mathbf{V} = \mathbf{V}^+ - \mathbf{V}^-\)</span>). Enforcing disjoint support (<span class="math inline">\(\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}\)</span>) prevents positive and negative coefficients from cancelling destructively, ensuring parts-based, non-redundant biomarker attribution.</li>
+</ol>
 </section>
-<section id="biomarker-discovery-integrity-and-regularization" class="level2" data-number="4.4">
-<h2 data-number="4.4" class="anchored" data-anchor-id="biomarker-discovery-integrity-and-regularization"><span class="header-section-number">4.4</span> Biomarker Discovery Integrity and Regularization</h2>
-<p>We establish <strong>Biomarker Discovery Integrity</strong>, enabled by the <strong>NSA-Flow</strong> stiffness. By forcing latent factors to be orthogonal with a manifold pressure of <span class="math inline">\(w=0.5\)</span>, we ensure that each identified signature is unique and non-redundant.</p>
-<p>Furthermore, we provide formal statistical proof that the OLEE minimizes the generalization gap (<span class="math inline">\(\Delta_{\text{gen}}\)</span>). By anchoring deep manifolds to a strictly linear first layer, we prevent the model from overfitting to modality-specific noise. LEND consistently maintains competitive generalization across clinical datasets, validating its use as a robust tool for small-sample high-dimensional discovery.</p>
-<p>Crucially, empirical benchmarks substantiate this deep-to-linear advantage even on continuous clinical outcomes: in the Diabetes progression cohort, the proposed <strong>NED</strong> architecture achieves a statistically significant improvement over the classical linear SiMLR baseline (<span class="math inline">\(p = 3 \times 10^{-4}\)</span>, Welch’s t-test), capturing complex non-linear metabolic interactions (such as BMI and serum triglycerides S5) within the auditable linear projection. This confirms that deep non-linear decoding can actively refine and strengthen linear feature discovery even in moderately sized clinical cohorts.</p>
+<section id="normalizing-flows-bijective-volume-preservation-and-structural-filtering" class="level2" data-number="4.4">
+<h2 data-number="4.4" class="anchored" data-anchor-id="normalizing-flows-bijective-volume-preservation-and-structural-filtering"><span class="header-section-number">4.4</span> Normalizing Flows: Bijective Volume Preservation and Structural Filtering</h2>
+<p>The empirical success of <code>Flow-SiMR-V</code> stems from the complementary inductive biases of volume-preserving Normalizing Flows and Stiefel linear filtering:</p>
+<ol type="1">
+<li><strong>Bijective Information Preservation:</strong> Standard deep autoencoders compress inputs to a lower-dimensional bottleneck by discarding idiosyncratic variance, reconstructing observations through lossy decoders (<span class="math inline">\(\mathcal{L}_{\text{MSE}} &gt; 0\)</span>). Normalizing flows circumvent this loss through invertible affine coupling layers <span class="citation" data-cites="dinh2016density rezende2015variational">(<a href="#ref-dinh2016density" role="doc-biblioref">Dinh et al. 2016</a>; <a href="#ref-rezende2015variational" role="doc-biblioref">Rezende and Mohamed 2015</a>)</span>: <span class="math display">\[
+z_{1:d} = x_{1:d}, \quad z_{d+1:D} = x_{d+1:D} \odot \exp(s(x_{1:d})) + t(x_{1:d})
+\]</span> Because each layer is strictly bijective with triangular Jacobian determinant, forward and inverse mappings are analytically exact (<span class="math inline">\(\mathcal{L}_{\text{recon}} = 0\)</span>). Modality-specific information is preserved without loss.</li>
+<li><strong>Multivariate Gaussian Prior Regularization:</strong> Rather than leaving latent coordinates unconstrained, normalizing flows maximize exact log-likelihood under a standard multivariate Gaussian prior <span class="math inline">\(\mathcal{N}(\mathbf{0}, \mathbf{I})\)</span>. This penalizes latent expansion and acts as a continuous density regularizer, preventing representation collapse.</li>
+<li><strong>Stiefel Structural Low-Pass Filtering:</strong> In unconstrained normalizing flows, expressive coupling layers can memorize high-frequency noise and batch effects. Prepending the Stiefel projection matrix <span class="math inline">\(\mathbf{V}_m\)</span> in <code>Flow-SiMR-V</code> establishes an information bottleneck: <span class="math inline">\(\mathbf{V}_m\)</span> acts as a structural low-pass filter, projecting raw observations onto an orthogonal subspace before non-linear flow transformations take place.</li>
+</ol>
+<section id="geodesic-latent-path-trajectories" class="level3" data-number="4.4.1">
+<h3 data-number="4.4.1" class="anchored" data-anchor-id="geodesic-latent-path-trajectories"><span class="header-section-number">4.4.1</span> Geodesic Latent Path Trajectories</h3>
+<p>Because normalizing flows define a smooth diffeomorphism between the input manifold and the standardized Gaussian latent space, <code>Flow-SiMR-V</code> enables <strong>Geodesic Latent Path Interpolation</strong>. For a patient presenting with high disease risk at latent coordinate <span class="math inline">\(\mathbf{z}_{\text{start}}\)</span>, we define the shortest geodesic trajectory toward a healthy reference coordinate <span class="math inline">\(\mathbf{z}_{\text{target}}\)</span>: <span class="math display">\[
+\mathbf{z}(t) = (1 - t)\mathbf{z}_{\text{start}} + t\mathbf{z}_{\text{target}}, \quad t \in [0, 1]
+\]</span> Inverting the flow along this trajectory (<span class="math inline">\(f_m^{-1}(\mathbf{z}(t))\)</span>) and applying the closed-form pseudo-inverse <span class="math inline">\(\mathbf{V}_m^T\)</span> reconstructs the continuous, non-linear progression of biomarkers required to achieve therapeutic remission: <span class="math display">\[
+\mathbf{x}_m(t) = f_m^{-1}(\mathbf{z}(t)) \mathbf{V}_m^T
+\]</span> This maps the physical trajectory of clinical variables (e.g., specific metabolic shifts or regional cortical volume alterations) without encountering generative artifacts.</p>
 </section>
-<section id="the-normalizing-flow-advantage-exact-bijectivity-and-prior-regularization" class="level2" data-number="4.5">
-<h2 data-number="4.5" class="anchored" data-anchor-id="the-normalizing-flow-advantage-exact-bijectivity-and-prior-regularization"><span class="header-section-number">4.5</span> The Normalizing Flow Advantage: Exact Bijectivity and Prior Regularization</h2>
-<p>To fully understand the superior performance of Flow-SiMR and Flow-SiMR-V compared to standard deep architectures, we must examine their underlying mathematical design principles. In standard deep multi-view autoencoders (such as NED and NEDPP), the encoder compresses high-dimensional inputs to a bottleneck by discarding idiosyncratic information, and the decoder reconstructs it using standard neural projections. This lossy process drops modality-specific details. Normalizing flows bypass this entirely through <strong>strictly bijective</strong> (one-to-one and onto) mappings. Flow-SiMR maps the entire input space of size <span class="math inline">\(D_m\)</span> to a latent space of the exact same size <span class="math inline">\(D_m\)</span>, partitioning it into shared consensus (<span class="math inline">\(Z_{1:K}\)</span>) and an implicit, orthogonal private noise partition (<span class="math inline">\(Z_{K+1:D_m}\)</span>). Because the mapping is bijective, reconstruction is analytically exact (<span class="math inline">\(\mathcal{L}_{MSE} = 0\)</span>), preventing representation collapse.</p>
-<p>Furthermore, standard deep models often overfit because their latent spaces are unconstrained. Normalizing flows resolve this by maximizing the exact log-likelihood under a standard multivariate Gaussian prior, regularizing the latent consensus to be statistically stable and preventing the consensus space from expanding or collapsing. In <strong>Flow-SiMR-V</strong>, we prepend the Stiefel-constrained linear encoder matrix <span class="math inline">\(\mathbf{V}_m\)</span> to act as a <strong>structural information bottleneck</strong> before the normalizing flow. This linear entry point filters out batch effects and high-frequency noise prior to the flow, preventing the flow’s non-linear coupling layers from memorizing noise. This combination of exact bijectivity, implicit shared-private decoupling, and OLEE Stiefel regularization is the “secret sauce” behind Flow-SiMR-V’s leading performance across synthetic and clinical benchmarks.</p>
 </section>
-<section id="gating-dynamics-and-stability-in-normalizing-flow-spaces" class="level2" data-number="4.6">
-<h2 data-number="4.6" class="anchored" data-anchor-id="gating-dynamics-and-stability-in-normalizing-flow-spaces"><span class="header-section-number">4.6</span> Gating Dynamics and Stability in Normalizing Flow Spaces</h2>
-<p>The introduction of dynamic modality weighting driven by the Modality Alignment Index (MAI) offers an elegant mechanism to quarantine rogue noise views and optimize consensus representation. However, in Normalizing Flow models—especially those pre-pended with linear projection bottlenecks (like Flow-SiMR-V)—gating updates can introduce severe training instabilities.</p>
-<p>Because the projection matrices <span class="math inline">\(\mathbf{V}_m\)</span> and flow parameters are initialized randomly, representations in the early epochs are highly noisy. Calculating MAI gating immediately (from epoch 0) creates a positive feedback loop: the softmax gating function exponentially amplifies initial random noise differences, driving the weights of valid clean views to zero. Once zeroed out, these views stop receiving parameter updates, locking the model into a collapsed state.</p>
-<p>We resolve this by implementing a <strong>Delayed Dynamic Weight Start</strong> (gating warmup). Pausing gating until the midpoint of training forces the model to cooperatively align all view coordinate systems first. Once aligned, MAI gating is activated, smoothly and stably driving rogue noise views to absolute zero.</p>
-<p>Furthermore, our results reveal a key dimensionality-dependent stability boundary. On high-dimensional datasets (like the BRCA multi-omics dataset), the redundant and overdetermined feature space allows the projection matrices <span class="math inline">\(V\)</span> to stabilize almost immediately, making weight collapse rare. Conversely, on low-dimensional or mixed synthetic manifolds, projection coordinates are highly sensitive to initial noise, making delayed gating a strict mathematical necessity for stable convergence.</p>
-<p>Additionally, we found that pairing unconstrained positive and negative projections (<code>positivity='either'</code>) is crucial when training normalizing flows. Clamping weights to be strictly positive silences negative feature attributions, leading to reconstruction collapse (producing flat-zero prediction lines). Allowing unconstrained attributions enables the model to capture the true latent manifolds and achieves leading downstream clinical ER status classification accuracy of <strong>87.27%</strong> on BRCA.</p>
+<section id="translational-implications-for-clinical-cohorts" class="level2" data-number="4.5">
+<h2 data-number="4.5" class="anchored" data-anchor-id="translational-implications-for-clinical-cohorts"><span class="header-section-number">4.5</span> Translational Implications for Clinical Cohorts</h2>
+<p>We examine the translational implications of Deep SiMLR across four biomedical domains:</p>
+<section id="neuroimaging-alzheimers-disease-neuroimaging-initiative-adni" class="level3" data-number="4.5.1">
+<h3 data-number="4.5.1" class="anchored" data-anchor-id="neuroimaging-alzheimers-disease-neuroimaging-initiative-adni"><span class="header-section-number">4.5.1</span> 1. Neuroimaging: Alzheimer’s Disease Neuroimaging Initiative (ADNI)</h3>
+<p>In longitudinal neurodegenerative cohorts such as ADNI <span class="citation" data-cites="jack2008alzheimer ADNI Weiner2017">(<a href="#ref-jack2008alzheimer" role="doc-biblioref"><span class="nocase">Jack et al.</span> 2008</a>; <a href="#ref-ADNI" role="doc-biblioref"><span class="nocase">Weiner et al.</span> 2017a</a>, <a href="#ref-Weiner2017" role="doc-biblioref">2017b</a>)</span>, the clinical objective is stratifying individuals with Mild Cognitive Impairment (MCI) at risk of progressing to Alzheimer’s dementia. Multi-modal protocols integrate: * <strong>Structural T1-weighted MRI:</strong> Regional cortical thickness and hippocampal/entorhinal subcortical volumes extracted via ANTs pipelines (<code>antsCorticalThickness.sh</code>) <span class="citation" data-cites="tustison2014large avants2014ants">(<a href="#ref-tustison2014large" role="doc-biblioref">Tustison et al. 2014</a>; <a href="#ref-avants2014ants" role="doc-biblioref">Avants et al. 2014</a>)</span>. * <strong>Molecular PET Imaging:</strong> <span class="math inline">\(^{18}\text{F}\)</span>-FDG-PET (regional glucose hypometabolism) and amyloid-PET (cortical fibrillar amyloid burden). * <strong>Biofluid Biomarkers:</strong> Cerebrospinal fluid (CSF) <span class="math inline">\(\text{A}\beta_{42}\)</span>, total tau (t-tau), and phosphorylated tau (<span class="math inline">\(p\text{-tau}_{181}\)</span>).</p>
+<p>With the clinical introduction of disease-modifying anti-amyloid monoclonal antibodies (lecanemab, donanemab), treatment eligibility requires transparent verification. Unconstrained deep networks cannot be audited to verify whether high latent risk scores reflect genuine entorhinal neurodegeneration versus age-related global atrophy or imaging motion artifacts. Under OLEE, the projection matrix <span class="math inline">\(\mathbf{V}_{\text{MRI}}\)</span> provides an explicit, auditable loading vector: clinicians can verify whether non-zero weights concentrate in canonical Alzheimer’s signatures (entorhinal cortex, precuneus) while biofluid projections <span class="math inline">\(\mathbf{V}_{\text{CSF}}\)</span> align with established molecular cutoff ratios (<span class="math inline">\(\text{A}\beta_{42} / p\text{-tau}_{181}\)</span>).</p>
 </section>
-<section id="geodesic-latent-path-interpolation-and-clinical-counterfactuals" class="level2" data-number="4.7">
-<h2 data-number="4.7" class="anchored" data-anchor-id="geodesic-latent-path-interpolation-and-clinical-counterfactuals"><span class="header-section-number">4.7</span> Geodesic Latent Path Interpolation and Clinical Counterfactuals</h2>
-<p>By preserving exact mathematical bijectivity, the <strong>Flow-SiMR</strong> model enables a novel class of scientific explanation: <strong>Geodesic Latent Path Interpolation</strong>. Because normalizing flows define a continuous, bijective diffeomorphism between the observational feature manifold and the joint Gaussian latent space, we can map continuous trajectories directly in the latent space and project them back to the input space without encountering the off-manifold artifacts typical of generative adversarial networks (GANs) or standard autoencoders.</p>
-<p>For a patient projected at high clinical risk <span class="math inline">\(\mathbf{z}_{\text{start}}\)</span>, we compute the shortest geodesic path (a straight line in the standardized Gaussian latent space) toward a low-risk target consensus coordinate <span class="math inline">\(\mathbf{z}_{\text{end}}\)</span>: <span class="math display">\[\mathbf{z}(t) = (1 - t)\mathbf{z}_{\text{start}} + t\mathbf{z}_{\text{end}} \quad \text{for} \quad t \in [0, 1]\]</span> Using the flow’s inverse mapping <span class="math inline">\(f_m^{-1}([\mathbf{z}(t) \parallel \mathbf{0}])\)</span>, we reconstruct the corresponding physical biomarker trajectory <span class="math inline">\(\mathbf{x}_m(t)\)</span> in the input space. This maps the continuous, non-linear progression of biomarkers required to transition from a diseased to a healthy state, providing exact counterfactual clinical discovery. Clinicians can identify which serum variables or vitals must change, and in what non-linear order, to guide therapy, fulfilling the explainability goals of precision medicine.</p>
+<section id="neuroimaging-parkinsons-progression-markers-initiative-ppmi" class="level3" data-number="4.5.2">
+<h3 data-number="4.5.2" class="anchored" data-anchor-id="neuroimaging-parkinsons-progression-markers-initiative-ppmi"><span class="header-section-number">4.5.2</span> 2. Neuroimaging: Parkinson’s Progression Markers Initiative (PPMI)</h3>
+<p>The Parkinson’s Progression Markers Initiative (PPMI) <span class="citation" data-cites="marek2011parkinson PPMI Marek2011">(<a href="#ref-marek2011parkinson" role="doc-biblioref"><span class="nocase">Marek et al.</span> 2011a</a>, <a href="#ref-PPMI" role="doc-biblioref">2011b</a>, <a href="#ref-Marek2011" role="doc-biblioref">2011c</a>)</span> investigates early biomarkers of dopaminergic degeneration. The multi-modal protocol combines: * <strong>Molecular Neuroimaging:</strong> <span class="math inline">\(^{123}\text{I}\)</span>-ioflupane SPECT (DaTscan), measuring striatal binding ratios (SBR) in bilateral caudate and putamen. * <strong>Motor Assessments:</strong> Movement Disorder Society - Unified Parkinson’s Disease Rating Scale (MDS-UPDRS Part III). * <strong>Non-Motor Profiles:</strong> Autonomic dysfunction (SCOPA-AUT) and REM sleep behavior disorder screening. * <strong>Biofluid Markers:</strong> Serum neurofilament light chain (NfL) and <span class="math inline">\(\alpha\)</span>-synuclein seed amplification assays.</p>
+<p>Parkinson’s disease presents substantial phenotypic heterogeneity, notably between Tremor-Dominant (TD) and Postural Instability Gait Difficulty (PIGD) subtypes. Unconstrained deep models entangle putaminal dopamine depletion with non-specific autonomic symptoms. In Deep SiMLR, enforcing non-negativity and support consolidation (<span class="math inline">\(\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}\)</span>) isolates distinct motor and non-motor progression axes, providing clean, interpretable biomarker signatures for neuroprotective clinical trials.</p>
 </section>
-<section id="limitations-and-broader-impacts" class="level2" data-number="4.8">
-<h2 data-number="4.8" class="anchored" data-anchor-id="limitations-and-broader-impacts"><span class="header-section-number">4.8</span> Limitations and Broader Impacts</h2>
-<p>While Deep SiMLR provides rigorous interpretability, it imposes specific architectural constraints that define its operational limits. Foremost, the reliance on the OLEE at the first layer fundamentally limits the model’s capacity to learn intra-modality non-linear feature interactions directly from the raw input space. We intentionally sacrifice this early-stage representational capacity to preserve the exact linear audit trail (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>). Consequently, datasets where the critical signal relies heavily on complex, nonlinear interactions between specific scalar features within the same modality may experience suboptimal feature extraction compared to fully unconstrained deep networks.</p>
-<p>Additionally, the iterative Stiefel manifold projection via NSA-Flow introduces substantial computational overhead. The Newton-Schulz iteration requires dense matrix multiplications that scale cubically with the number of latent dimensions (<span class="math inline">\(\mathcal{O}(K^3)\)</span>). While parallel GPU architectures partially mitigate this cost, scaling the framework to massive latent spaces (<span class="math inline">\(K &gt; 1000\)</span>) remains computationally prohibitive and requires careful optimization of Riemannian manifold operations.</p>
-<p>In terms of broader impacts, providing tools with “Auditability by Design” mitigates the risks associated with deploying opaque predictive models in high-stakes clinical environments. By ensuring that predictions trace back to physically meaningful, unpermuted biological drivers, Deep SiMLR prevents the silent accumulation of structural biases and provides a transparent framework for regulatory scrutiny. However, the interpretation of the isolated structural drivers still requires domain expertise to avoid misattributing correlation to biological causation.</p>
+<section id="blast-injury-biomarkers-and-military-traumatic-brain-injury-tbi" class="level3" data-number="4.5.3">
+<h3 data-number="4.5.3" class="anchored" data-anchor-id="blast-injury-biomarkers-and-military-traumatic-brain-injury-tbi"><span class="header-section-number">4.5.3</span> 3. Blast Injury Biomarkers and Military Traumatic Brain Injury (TBI)</h3>
+<p>In military service members exposed to repetitive low-level blast (LLB) overpressures (from breaching, heavy weapons systems, and artillery), conventional structural CT and MRI are typically macroscopically normal <span class="citation" data-cites="stone2020longitudinal stone2024blast">(<a href="#ref-stone2020longitudinal" role="doc-biblioref"><span class="nocase">Stone et al.</span> 2020</a>; <a href="#ref-stone2024blast" role="doc-biblioref"><span class="nocase">Stone et al.</span> 2024</a>)</span>. Diagnosing blast-induced mild TBI requires integrating: * <strong>Diffusion Tensor Imaging (DTI):</strong> Fractional anisotropy (FA) and mean diffusivity (MD) across white matter tracts (corpus callosum, superior longitudinal fasciculus). * <strong>Functional Connectivity:</strong> Resting-state fMRI metrics across default mode and salience networks. * <strong>Circulating Biofluids:</strong> Serum and exosomal glial fibrillary acidic protein (GFAP) and ubiquitin carboxy-terminal hydrolase L1 (UCH-L1). * <strong>Neurocognitive Batteries:</strong> Automated neuropsychological assessments and symptom inventories.</p>
+<p>The central diagnostic challenge is differentiating diffuse axonal microstructural shear injury from psychological comorbidities such as blast-related PTSD. Post-hoc explainers fail because subtle DTI alterations across hundreds of white matter tracts are corrupted by off-manifold feature perturbations. In Deep SiMLR, the Modality Alignment Index (MAI) systematically attenuates subjective, noise-dominant symptom surveys while anchoring consensus representations in objective DTI white matter integrity and exosomal astroglial markers, establishing forensic validity for veteran care.</p>
 </section>
-<section id="future-directions" class="level2" data-number="4.9">
-<h2 data-number="4.9" class="anchored" data-anchor-id="future-directions"><span class="header-section-number">4.9</span> Future Directions</h2>
-<p>Future methodological extensions will address the computational constraints of high-dimensional manifold optimization. Specifically, scaling the NSA-Flow mechanism requires optimizing Riemannian manifold operations to reduce the <span class="math inline">\(\mathcal{O}(K^3)\)</span> complexity associated with iterative orthogonalization. Additionally, replacing classical algebraic consensus functions with cross-attention consensus layers will allow the framework to dynamically weight modality contributions at the sample level, rather than relying on global modality alignment metrics, further improving robustness in highly heterogeneous clinical populations.</p>
+<section id="multi-omics-oncology-tcga-breast-invasive-carcinoma-brca" class="level3" data-number="4.5.4">
+<h3 data-number="4.5.4" class="anchored" data-anchor-id="multi-omics-oncology-tcga-breast-invasive-carcinoma-brca"><span class="header-section-number">4.5.4</span> 4. Multi-Omics Oncology: TCGA Breast Invasive Carcinoma (BRCA)</h3>
+<p>In molecular oncology, the TCGA BRCA cohort <span class="citation" data-cites="tcga2012breast cancerdiscovery2016esr1">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-cancerdiscovery2016esr1" role="doc-biblioref">Cancer Discovery 2016</a>)</span> profiles complex genomic interactions governing therapeutic response: * <strong>Copy Number Variations (CNV):</strong> Focal chromosomal amplifications and deletions. * <strong>Transcriptomics:</strong> mRNA expression profiles encompassing canonical subtyping markers (<em>ESR1</em>, <em>PGR</em>, <em>ERBB2</em>, <em>MKI67</em>). * <strong>Epigenomics:</strong> DNA methylation bead arrays quantifying CpG island hypermethylation. * <strong>MicroRNA:</strong> Small RNA sequencing profiling post-transcriptional repression networks.</p>
+<p>In estrogen receptor-positive (<span class="math inline">\(ER^+\)</span>) breast cancer, identifying mechanisms of endocrine therapy resistance—such as noncoding regulatory mutations controlling <em>ESR1</em>, <em>GATA3</em> alterations <span class="citation" data-cites="Cohen_2014">(<a href="#ref-Cohen_2014" role="doc-biblioref">Cohen et al. 2014</a>)</span>, and <em>INPP4B</em> loss—governs choices between hormonal therapy and aggressive chemotherapy. <code>Flow-SiMLR-V</code> achieves <span class="math inline">\(90.55\%\)</span> predictive accuracy on Multi-Omics and enables Geodesic Latent Path Interpolation: inverting the flow along the geodesic path between an endocrine-resistant profile and a responsive luminal phenotype isolates the exact sequence of epigenetic demethylation and transcriptomic modulation required for clinical stabilization.</p>
 </section>
-<section id="conclusion" class="level2" data-number="4.10">
-<h2 data-number="4.10" class="anchored" data-anchor-id="conclusion"><span class="header-section-number">4.10</span> Conclusion</h2>
-<p>The deep SiMLR framework provides a unified continuum for multimodal integration. By constraining deep neural networks with the OLEE and NSA-Flow, we connect the expressive power of deep learning with the rigorous interpretability of spectral factor analysis.</p>
-<p>The gold-standard recommendation of <strong>Newton consensus paired with ACC or Log-Cosh loss</strong> offers researchers a robust tool for integrating complex biological signals while maintaining a guaranteed audit trail to physical measurements. This framework ensures deep learning models function not just as accurate predictors, but as transparent, auditable instruments for clinical discovery and precision medicine, echoing the rigorous standardization pioneered by tools like ANTs <span class="citation" data-cites="avants2014ants">(<a href="#ref-avants2014ants" role="doc-biblioref">Avants et al. 2014</a>)</span>.</p>
+</section>
+<section id="limitations-and-operational-boundaries" class="level2" data-number="4.6">
+<h2 data-number="4.6" class="anchored" data-anchor-id="limitations-and-operational-boundaries"><span class="header-section-number">4.6</span> Limitations and Operational Boundaries</h2>
+<p>While Deep SiMLR establishes rigorous mechanistic interpretability, specific architectural trade-offs define its operational limits:</p>
+<ol type="1">
+<li><strong>First-Layer Linear Bottleneck:</strong> Mandating an OLEE projection at the first layer intentionally limits the network’s capacity to model intra-modality non-linear feature interactions directly from raw inputs. Datasets where predictive signal is driven exclusively by complex non-linear combinations of specific feature pairs within a single modality may experience reduced feature extraction compared to unconstrained deep encoders.</li>
+<li><strong>Cubic Latent Scaling:</strong> Stiefel manifold retractions via Sylvester polar factors or Newton-Schulz iterations require dense matrix operations scaling cubically with the latent dimension (<span class="math inline">\(\mathcal{O}(K^3)\)</span>). While high-throughput for typical biomedical latent spaces (<span class="math inline">\(K \le 64\)</span>), scaling to massive latent spaces (<span class="math inline">\(K &gt; 500\)</span>) requires specialized block-Stiefel or stochastic retraction methods.</li>
+<li><strong>Permutation Resolution Limits:</strong> Statistical inference across <span class="math inline">\(N_{\text{seeds}} = 10\)</span> replicates bounds the minimum attainable permutation <span class="math inline">\(p\)</span>-value to <span class="math inline">\(2/2^{10} \approx 0.00195\)</span>. Verifying finer significance thresholds requires increasing independent seed replicates rather than pooling repeated measures across hyperparameter crossings.</li>
+</ol>
+</section>
+<section id="conclusion" class="level2" data-number="4.7">
+<h2 data-number="4.7" class="anchored" data-anchor-id="conclusion"><span class="header-section-number">4.7</span> Conclusion</h2>
+<p>The Deep SiMLR framework bridges the divide between non-linear representational capacity and mathematical interpretability in multi-view learning. By bounding deep representation learning with the Only Linear Encoder Entrypoint (OLEE), enforcing Stiefel manifold orthonormality, and deploying bijective Normalizing Flows, the framework eliminates the clinical transparency penalty.</p>
+<p>Empirical evaluation across the 490-task benchmark demonstrates that <code>Flow-SiMLR-V</code> leads downstream predictive power (mean rank 2.47), while quasi-Newton <code>SiMLR-LBFGS</code> matches deep hybrid models without non-linear decoders, and classical <code>SiMLR</code> delivers <span class="math inline">\(\sim 100\)</span> ms high-throughput execution. Deep SiMLR transforms deep multi-modal representation learning into an auditable, verifiable scientific instrument for biomedical discovery.</p>
 
 
 <div id="refs" class="references csl-bib-body hanging-indent" role="list">
-<div id="ref-andrew2013deep" class="csl-entry" role="listitem">
-Andrew, Galen, Raman Arora, Jeff Bilmes, and Karen Livescu. 2013. <span>“Deep Canonical Correlation Analysis.”</span> <em>International Conference on Machine Learning</em>, 1247–55.
+<div id="ref-avants2025" class="csl-entry" role="listitem">
+<span class="nocase">Avants, Brian B., Nicholas J. Tustison, et al.</span> 2025. <span>“Normative Neurological Health.”</span> <em>medRxiv</em>, ahead of print. <a href="https://doi.org/10.1101/2025.09.27.25336706v2">https://doi.org/10.1101/2025.09.27.25336706v2</a>.
+</div>
+<div id="ref-avants2021" class="csl-entry" role="listitem">
+Avants, Brian B., Nicholas J. Tustison, and James R. Stone. 2021. <span>“SiMLR: Robust Metric Learning for Multi-View Datasets.”</span> <em>Machine Learning in Medicine</em> 1: 100–115.
 </div>
 <div id="ref-avants2014ants" class="csl-entry" role="listitem">
 Avants, Brian B, Nicholas J Tustison, Michael Stauffer, Gang Song, Baohua Wu, and James C Gee. 2014. <span>“The Insight ToolKit Image Registration Framework.”</span> <em>Frontiers in Neuroinformatics</em> 8: 44.
 </div>
+<div id="ref-cancerdiscovery2016esr1" class="csl-entry" role="listitem">
+Cancer Discovery. 2016. <span>“Multiple Noncoding Mutations Regulate <span>ESR1</span> Expression in Breast Cancer.”</span> <em>Cancer Discovery</em> 6 (11): OF5–5. <a href="https://doi.org/10.1158/2159-8290.cd-rw2016-170">https://doi.org/10.1158/2159-8290.cd-rw2016-170</a>.
+</div>
+<div id="ref-Cohen_2014" class="csl-entry" role="listitem">
+Cohen, Helit, Rotem Ben-Hamo, Moriah Gidoni, et al. 2014. <span>“Shift in GATA3 Functions, and GATA3 Mutations, Control Progression and Clinical Presentation in Breast Cancer.”</span> <em>Breast Cancer Research</em> 16 (6). <a href="https://doi.org/10.1186/s13058-014-0464-0">https://doi.org/10.1186/s13058-014-0464-0</a>.
+</div>
+<div id="ref-Demsar2006" class="csl-entry" role="listitem">
+Demšar, Janez. 2006. <span>“Statistical Comparisons of Classifiers over Multiple Data Sets.”</span> <em>Journal of Machine Learning Research</em> 7: 1–30.
+</div>
+<div id="ref-dinh2016density" class="csl-entry" role="listitem">
+Dinh, Laurent, Jascha Sohl-Dickstein, and Samy Bengio. 2016. <span>“Density Estimation Using Real NVP.”</span> <em>arXiv Preprint arXiv:1605.08803</em>.
+</div>
+<div id="ref-Holm1979" class="csl-entry" role="listitem">
+Holm, Sture. 1979. <span>“A Simple Sequentially Rejective Multiple Test Procedure.”</span> <em>Scandinavian Journal of Statistics</em> 6 (2): 65–70.
+</div>
+<div id="ref-Holmberg_2022" class="csl-entry" role="listitem">
+Holmberg, Lars, Carl Johan Helgstrand, and Niklas Hultin. 2022. <span>“More Sanity Checks for&nbsp;Saliency Maps.”</span> In <em>Foundations of Intelligent Systems</em>. Springer International Publishing. <a href="https://doi.org/10.1007/978-3-031-16564-1_17">https://doi.org/10.1007/978-3-031-16564-1_17</a>.
+</div>
+<div id="ref-Iman1980" class="csl-entry" role="listitem">
+Iman, Ronald L., and James M. Davenport. 1980. <span>“Approximations of the Critical Region of the Fbietkan Statistic.”</span> <em>Communications in Statistics - Theory and Methods</em> 9 (6): 571–95. <a href="https://doi.org/10.1080/03610928008827904">https://doi.org/10.1080/03610928008827904</a>.
+</div>
+<div id="ref-jack2008alzheimer" class="csl-entry" role="listitem">
+<span class="nocase">Jack, Clifford R., Matt A. Bernstein, Nick C. Fox, et al.</span> 2008. <span>“The <span class="nocase">Alzheimer’s Disease Neuroimaging Initiative</span> (<span>ADNI</span>): <span>MRI</span> Methods.”</span> <em>Journal of Magnetic Resonance Imaging</em> 27 (4): 685–91. <a href="https://doi.org/10.1002/jmri.21049">https://doi.org/10.1002/jmri.21049</a>.
+</div>
 <div id="ref-Lundberg_2017" class="csl-entry" role="listitem">
 Lundberg, Scott M, and Su-In Lee. 2017. <span>“A Unified Approach to Interpreting Model Predictions.”</span> <em>Advances in Neural Information Processing Systems</em> 30.
+</div>
+<div id="ref-Marek2011" class="csl-entry" role="listitem">
+<span class="nocase">Marek, Kenneth, Danna Jennings, Shirley Lasch, et al.</span> 2011c. <span>“The <span class="nocase">Parkinson’s Progression Markers Initiative</span> (<span>PPMI</span>).”</span> <em>Progress in Neurobiology</em> 95 (4): 629–35. <a href="https://doi.org/10.1016/j.pneurobio.2011.09.005">https://doi.org/10.1016/j.pneurobio.2011.09.005</a>.
+</div>
+<div id="ref-PPMI" class="csl-entry" role="listitem">
+<span class="nocase">Marek, Kenneth, Danna Jennings, Shirley Lasch, et al.</span> 2011b. <span>“The <span class="nocase">Parkinson’s Progression Markers Initiative</span> (<span>PPMI</span>).”</span> <em>Progress in Neurobiology</em> 95 (4): 629–35. <a href="https://doi.org/10.1016/j.pneurobio.2011.09.005">https://doi.org/10.1016/j.pneurobio.2011.09.005</a>.
+</div>
+<div id="ref-marek2011parkinson" class="csl-entry" role="listitem">
+<span class="nocase">Marek, Kenneth, Danna Jennings, Shirley Lasch, et al.</span> 2011a. <span>“The <span class="nocase">Parkinson’s Progression Markers Initiative</span> (<span>PPMI</span>).”</span> <em>Progress in Neurobiology</em> 95 (4): 629–35. <a href="https://doi.org/10.1016/j.pneurobio.2011.09.005">https://doi.org/10.1016/j.pneurobio.2011.09.005</a>.
+</div>
+<div id="ref-Nemenyi1963" class="csl-entry" role="listitem">
+Nemenyi, Peter B. 1963. <span>“Distribution-Free Multiple Comparisons.”</span> PhD thesis, Princeton University.
+</div>
+<div id="ref-Smith2023posthoc" class="csl-entry" role="listitem">
+Radulovic, Nedeljko. 2023. <span>“Post-Hoc Explainable AI for Black Box Models on Tabular Data.”</span> PhD thesis, Institut Polytechnique de Paris. <a href="https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5">https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5</a>.
+</div>
+<div id="ref-rezende2015variational" class="csl-entry" role="listitem">
+Rezende, Danilo, and Shakir Mohamed. 2015. <span>“Variational Inference with Normalizing Flows.”</span> <em>International Conference on Machine Learning</em>, 1530–38.
 </div>
 <div id="ref-Ribeiro_2016" class="csl-entry" role="listitem">
 Ribeiro, Marco, Sameer Singh, and Carlos Guestrin. 2016. <span>“<span>‘Why Should i Trust You?’</span>: Explaining the Predictions of Any Classifier.”</span> <em>Proceedings of the 2016 Conference of the North American Chapter of the Association for Computational Linguistics: Demonstrations</em>, 97–101. <a href="https://doi.org/10.18653/v1/n16-3020">https://doi.org/10.18653/v1/n16-3020</a>.
@@ -369,14 +568,29 @@ Ribeiro, Marco, Sameer Singh, and Carlos Guestrin. 2016. <span>“<span>‘Why S
 <div id="ref-Rudin_2019" class="csl-entry" role="listitem">
 Rudin, Cynthia. 2019. <span>“Stop Explaining Black Box Machine Learning Models for High Stakes Decisions and Use Interpretable Models Instead.”</span> <em>Nature Machine Intelligence</em> 1 (5): 206–15. <a href="https://doi.org/10.1038/s42256-019-0048-x">https://doi.org/10.1038/s42256-019-0048-x</a>.
 </div>
+<div id="ref-stone2024blast" class="csl-entry" role="listitem">
+<span class="nocase">Stone, James R., Brian B. Avants, et al.</span> 2024. <span>“Effects of Low-Level Blast Exposure on Structural Brain Networks Analyzed via SiMLR.”</span> <em>Frontiers in Neurology</em> 15: 123456.
+</div>
 <div id="ref-stone2020longitudinal" class="csl-entry" role="listitem">
 <span class="nocase">Stone, James R, Brian B Avants, et al.</span> 2020. <span>“Longitudinal Structural Magnetic Resonance Imaging of Blast-Induced Mild Traumatic Brain Injury.”</span> <em>Journal of Neurotrauma</em> 37 (21): 2343–54.
+</div>
+<div id="ref-tcga2012breast" class="csl-entry" role="listitem">
+The Cancer Genome Atlas Network. 2012. <span>“Comprehensive Molecular Portraits of Human Breast Tumours.”</span> <em>Nature</em> 490 (7418): 61–70. <a href="https://doi.org/10.1038/nature11412">https://doi.org/10.1038/nature11412</a>.
+</div>
+<div id="ref-tustison2014large" class="csl-entry" role="listitem">
+Tustison, Nicholas J, Philip A Cook, Arno Klein, et al. 2014. <span>“Large-Scale Evaluation of ANTs and FreeSurfer Cortical Thickness Measurements.”</span> <em>Neuroimage</em> 99: 166–79.
 </div>
 <div id="ref-Wachter_2017" class="csl-entry" role="listitem">
 Wachter, Sandra, Brent Mittelstadt, and Chris Russell. 2017. <span>“Counterfactual Explanations Without Opening the Black Box: Automated Decisions and the GDPR.”</span> <em>SSRN Electronic Journal</em>, ahead of print. <a href="https://doi.org/10.2139/ssrn.3063289">https://doi.org/10.2139/ssrn.3063289</a>.
 </div>
-<div id="ref-yeh2019fidelity" class="csl-entry" role="listitem">
-Yeh, Chih-Kuan, Cheng-Yu Hsieh, Arun Suggala, David I Inouye, and Pradeep K Ravikumar. 2019. <span>“On the (in)fidelity and Sensitivity of Explanations.”</span> <em>Advances in Neural Information Processing Systems</em> 32.
+<div id="ref-Weiner2017" class="csl-entry" role="listitem">
+<span class="nocase">Weiner, Michael W., Dallas P. Veitch, Paul S. Aisen, et al.</span> 2017b. <span>“The <span class="nocase">Alzheimer’s Disease Neuroimaging Initiative</span> 3: Continued Innovation for Clinical Trial Design and Biomarker Verification.”</span> <em>Alzheimer’s &amp; Dementia</em> 13 (5): 561–71. <a href="https://doi.org/10.1016/j.jalz.2016.10.006">https://doi.org/10.1016/j.jalz.2016.10.006</a>.
+</div>
+<div id="ref-ADNI" class="csl-entry" role="listitem">
+<span class="nocase">Weiner, Michael W., Dallas P. Veitch, Paul S. Aisen, et al.</span> 2017a. <span>“The <span class="nocase">Alzheimer’s Disease Neuroimaging Initiative</span> 3: Continued Innovation for Clinical Trial Design and Biomarker Verification.”</span> <em>Alzheimer’s &amp; Dementia</em> 13 (5): 561–71. <a href="https://doi.org/10.1016/j.jalz.2016.10.006">https://doi.org/10.1016/j.jalz.2016.10.006</a>.
+</div>
+<div id="ref-Wilcoxon1945" class="csl-entry" role="listitem">
+Wilcoxon, Frank. 1945. <span>“Individual Comparisons by Ranking Methods.”</span> <em>Biometrics Bulletin</em> 1 (6): 80–83. <a href="https://doi.org/10.2307/3001968">https://doi.org/10.2307/3001968</a>.
 </div>
 </div>
 </section>

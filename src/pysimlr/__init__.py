@@ -3,7 +3,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.2.10"
+__version__ = "0.2.11"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -31,7 +31,18 @@ from .simlr import (
     decompose_energy,
     simlr_perm,
     initialize_simlr,
-    calculate_u
+    calculate_u,
+    nsa_contrast_transform,
+    nsa_nonnegative_transform,
+)
+from .nsa_backend import (
+    load_nsa_backend,
+    load_nsa_flow,
+    load_polar_factor,
+    load_nsa_estimator,
+    load_stiefel_defect_normalised,
+    load_consolidate_supports,
+    backend_report,
 )
 from .optimizers import (
     create_optimizer,
@@ -65,7 +76,17 @@ from .sparse import (
 )
 from .regression import (
     smooth_matrix_prediction,
-    smooth_regression
+    smooth_regression,
+    build_nsa_pipeline,
+)
+from .sklearn import (
+    SiMLREstimator,
+    SiMLRTransformer,
+    SiMLR,
+    LENDTransformer,
+    NEDTransformer,
+    FlowSiMLRTransformer,
+    build_simlr_pipeline,
 )
 from .nnh import (
     nnh_embed,
@@ -153,6 +174,16 @@ __all__ = [
     'simlr_perm',
     'initialize_simlr',
     'calculate_u',
+    'nsa_contrast_transform',
+    'nsa_nonnegative_transform',
+    'load_nsa_backend',
+    'load_nsa_flow',
+    'load_polar_factor',
+    'load_nsa_estimator',
+    'load_stiefel_defect_normalised',
+    'load_consolidate_supports',
+    'backend_report',
+    'NSAFlow',
     'create_optimizer',
     'SimlrOptimizer',
     'optimize_indicator_matrix',
@@ -177,6 +208,14 @@ __all__ = [
     'create_smoothing_operator',
     'smooth_matrix_prediction',
     'smooth_regression',
+    'build_nsa_pipeline',
+    'SiMLREstimator',
+    'SiMLRTransformer',
+    'SiMLR',
+    'LENDTransformer',
+    'NEDTransformer',
+    'FlowSiMLRTransformer',
+    'build_simlr_pipeline',
     'nnh_embed',
     'extend_simlr_embedding_with_new_modalities',
     'apply_simlr_matrices',
@@ -281,6 +320,15 @@ def __getattr__(name: str) -> Any:
         module = importlib.import_module(f".{name}", __name__)
         globals()[name] = module
         return module
+    if name == "NSAFlow":
+        from .nsa_backend import load_nsa_estimator
+        cls = load_nsa_estimator()
+        if cls is None:
+            raise AttributeError(
+                "NSAFlow estimator is not available. Install nsa-flow via `pip install nsa-flow`."
+            )
+        globals()[name] = cls
+        return cls
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

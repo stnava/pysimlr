@@ -9,7 +9,7 @@
 <meta name="author" content="Brian B. Avants">
 <meta name="author" content="Nicholas J. Tustison">
 <meta name="author" content="James R. Stone">
-<meta name="dcterms.date" content="2026-09-07">
+<meta name="dcterms.date" content="2026-09-18">
 
 <title>Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</title>
 <style>
@@ -27,7 +27,26 @@ ul.task-list li input[type="checkbox"] {
   margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
   vertical-align: middle;
 }
-</style>
+/* CSS for citations */
+div.csl-bib-body { }
+div.csl-entry {
+  clear: both;
+}
+.hanging-indent div.csl-entry {
+  margin-left:2em;
+  text-indent:-2em;
+}
+div.csl-left-margin {
+  min-width:2em;
+  float:left;
+}
+div.csl-right-inline {
+  margin-left:2em;
+  padding-left:1em;
+}
+div.csl-indent {
+  margin-left: 2em;
+}</style>
 
 
 <script src="site_libs/quarto-nav/quarto-nav.js"></script>
@@ -194,6 +213,12 @@ window.Quarto = {
  <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)</span></span></a>
   </div>
 </li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./appendix_reproducibility.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">D</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
+  </div>
+</li>
       </ul>
   </li>
     </ul>
@@ -255,7 +280,7 @@ window.Quarto = {
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">September 7, 2026</p>
+      <p class="date">September 18, 2026</p>
     </div>
   </div>
   
@@ -269,9 +294,15 @@ window.Quarto = {
 
 <section id="abstract" class="level1 unnumbered">
 <h1 class="unnumbered">Abstract</h1>
-<p>Deep multi-modal integration—typified by Deep Canonical Correlation Analysis (Deep CCA), Multi-Omics Factor Analysis extensions (MOFA+), and Multimodal Variational Autoencoders (MVAEs)—achieves strong predictive performance but suffers from the “Information Masking” problem: deeply nested non-linearities irreparably entangle input features, precluding the exact feature attribution required in high-stakes scientific domains. To solve this, we introduce Deep SiMLR (Similarity-driven Multi-view Reconstruction), a joint-variational framework that bounds deep representation learning with exact structural interpretability. We impose an Information Bottleneck termed the Only Linear Encoder Entry (OLEE)—a mandatory projection onto the Stiefel manifold (<span class="math inline">\(\mathbf{V}^\top \mathbf{V} = \mathbf{I}\)</span>) mapped as <span class="math inline">\(\mathbf{Z} = \mathbf{X}\mathbf{V}\)</span>—that guarantees every latent factor remains a mathematically exact, invertible linear combination of the input features. To combat the corruption of multi-modal consensus by high-dimensional noise, we derive a Spectral Triage mechanism. By weighting modalities via a Modality Alignment Index (MAI) based on Spectral Sharpness (<span class="math inline">\(\sigma_1 / \sum \sigma_i\)</span>), this mechanism explicitly down-weights isotropic noise. Comprehensive evaluations on synthetic manifolds and clinical multi-omics (BRCA) demonstrate that our framework achieves predictive parity with unconstrained deep models while solving Information Masking, providing the exact, analytic feature attribution required for auditable discovery.</p>
+<p>Deep multi-modal representation learning—exemplified by Deep Canonical Correlation Analysis (Deep CCA), Multi-Omics Factor Analysis extensions (MOFA+), and Multimodal Variational Autoencoders (MVAEs)—captures complex non-linear covariance structures across heterogeneous biological observations. However, in high-stakes scientific and clinical decision-making, unconstrained deep architectures impose a severe “transparency penalty”: deeply nested non-linear transformations irrevocably entangle biological inputs, precluding the exact, auditable feature attribution required for regulatory verification and biomarker discovery. To eliminate this transparency penalty without sacrificing non-linear representational capacity, we formulate Deep SiMLR (Similarity-driven Multi-view Reconstruction). We enforce Auditability by Design through an Information Bottleneck termed the Only Linear Encoder Entrypoint (OLEE)—a mandatory projection onto the compact Stiefel manifold (<span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_K\)</span>) yielding initial latent coordinates <span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span>. OLEE guarantees that downstream representation learning operates on an orthogonal linear basis, preserving closed-form feature attribution (<span class="math inline">\(\nabla_{\mathbf{X}_m} \mathbf{Z}_m = \mathbf{V}_m\)</span>) and exact counterfactual prescriptions. To prevent high-dimensional isotropic noise from corrupting consensus formation, we derive a Spectral Triage mechanism that weights modalities via a Modality Alignment Index (MAI) based on Spectral Sharpness (<span class="math inline">\(\sigma_1 / \sum \sigma_i\)</span>).</p>
+<p>We evaluate the framework across a rigorous 490-task statistical benchmark encompassing 70 independent task blocks (<span class="math inline">\(7 \text{ generative and clinical data regimes} \times 10 \text{ random seeds}\)</span>) evaluated under distribution-free non-parametric inference (<span class="citation" data-cites="Demsar2006">Demšar (<a href="#ref-Demsar2006" role="doc-biblioref">2006</a>)</span>). The non-parametric Friedman test (<span class="math inline">\(\chi_F^2 = 69.39, p = 5.44 \times 10^{-13}\)</span>) and Iman-Davenport extension (<span class="math inline">\(F_F = 13.66, p = 3.63 \times 10^{-14}\)</span>) confirm statistically significant differences among architectures. Across a Nemenyi Critical Difference of <span class="math inline">\(CD = 1.077\)</span> (<span class="math inline">\(\alpha = 0.05\)</span>), the invertible normalizing flow model with linear bottleneck (<code>Flow-SiMLR-V</code>) achieves the top global rank (mean rank 2.47), outperforming all baseline architectures (<span class="math inline">\(p &lt; 0.003\)</span> on paired Wilcoxon-Holm and exact sign-flip permutation tests at the <span class="math inline">\(2 / 2^{10} \approx 0.00195\)</span> resolution floor). A quasi-Newton Riemannian formulation (<code>SiMLR-LBFGS</code>) matches deep hybrid architectures (mean rank 3.70) while statistically outperforming unconstrained deep autoencoders (<code>NED</code>, <span class="math inline">\(p = 0.0148\)</span>; <code>NEDPP</code>, <span class="math inline">\(p = 0.0274\)</span>). Multi-objective Pareto analysis demonstrates that classical <code>SiMLR</code> establishes the ultra-low latency boundary (<span class="math inline">\(\sim 100\)</span> ms wall-clock time), while <code>NSAFlow-Turnkey</code> provides leading ground-truth latent recovery (Canonical Mean Correlation <span class="math inline">\(CMC = 0.9880\)</span> on Multi-Omics) with guaranteed mathematical zero frame defect (<span class="math inline">\(D = 0.0000\)</span>) and zero signed lobe crosstalk (<span class="math inline">\(\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}\)</span>). Deep SiMLR bridges the gap between deep representational capacity and exact mathematical transparency, establishing an auditable instrument for multi-modal biomedical discovery.</p>
 
 
+<div id="refs" class="references csl-bib-body hanging-indent" role="list">
+<div id="ref-Demsar2006" class="csl-entry" role="listitem">
+Demšar, Janez. 2006. <span>“Statistical Comparisons of Classifiers over Multiple Data Sets.”</span> <em>Journal of Machine Learning Research</em> 7: 1–30.
+</div>
+</div>
 </section>
 
 </main> <!-- /main -->

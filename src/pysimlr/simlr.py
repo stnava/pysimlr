@@ -293,13 +293,134 @@ def _nonnegative_basis_from_data(fit_from_data, x: torch.Tensor, k: int,
         result = fit_from_data(x.detach().double(), k=k, w=float(w))
     except Exception:
         return None
-    candidate = result.get('Y') if hasattr(result, 'get') else getattr(result, 'Y', None)
+    candidate = None
+    if hasattr(result, 'get'):
+        candidate = result.get('V') or result.get('Y')
+    if candidate is None:
+        candidate = getattr(result, 'V', None) or getattr(result, 'Y', None)
     if candidate is None:
         return None
     candidate = torch.as_tensor(candidate, dtype=torch.float64)
+    candidate = torch.clamp_min(candidate, 0.0)
     if not usable(candidate, reference):
         return None
     return candidate
+
+
+def nsa_contrast_transform(x: Union[torch.Tensor, np.ndarray],
+                           k: int = 6,
+                           w: float = 0.5,
+                           consolidate: bool = True,
+                           optimizer: str = "torch_lbfgs",
+                           max_iter: Optional[int] = None,
+                           tol: Optional[float] = None) -> Dict[str, Any]:
+    """
+    Fit an NSA-Flow Signed Contrast representation (Recipe B / Guide v2.11.0+).
+
+    Lifts standardized feature profiles into non-overlapping positive and negative
+    lobes (V = V^+ - V^-) with strictly disjoint supports when `consolidate=True`.
+
+    Parameters
+    ----------
+    x : torch.Tensor or np.ndarray
+        Input data matrix of shape (n_samples, n_features).
+    k : int, default=6
+        Number of components to extract.
+    w : float, default=0.5
+        Trade-off weight in [0, 1]. w=0 maximizes reconstruction fidelity,
+        w=1 maximizes orthogonality (disjoint supports).
+    consolidate : bool, default=True
+        Guarantees strictly disjoint supports (zero lobe overlap).
+    optimizer : str, default="torch_lbfgs"
+        Optimization algorithm ("torch_lbfgs", "spg", or "lbfgs").
+    max_iter : int, optional
+        Maximum iterations cap.
+    tol : float, optional
+        Stationarity tolerance.
+
+    Returns
+    -------
+    dict
+        Dictionary containing:
+        - 'v': Component loading matrix [features, k]
+        - 'scores': Projection scores [samples, k]
+        - 'result': Underlying NSAResult object
+    """
+    from .nsa_backend import load_nsa_flow
+    fn = load_nsa_flow()
+    if fn is None:
+        raise RuntimeError("NSA-Flow is not installed. Install with `pip install nsa-flow`.")
+    x_t = torch.as_tensor(x, dtype=torch.float32)
+    res = fn(x_t, k=k, w=w, mode="signed", consolidate=consolidate,
+             optimizer=optimizer, max_iter=max_iter, tol=tol)
+    v = getattr(res, 'V', None)
+    if v is None:
+        v = getattr(res, 'Y', None)
+    if v is None and hasattr(res, 'get'):
+        v = res.get('V') if res.get('V') is not None else res.get('Y')
+    scores = x_t @ v
+    return {
+        "v": v,
+        "scores": scores,
+        "result": res,
+    }
+
+
+def nsa_nonnegative_transform(x: Union[torch.Tensor, np.ndarray],
+                              k: int = 6,
+                              w: float = 0.5,
+                              optimizer: str = "torch_lbfgs",
+                              max_iter: Optional[int] = None,
+                              tol: Optional[float] = None) -> Dict[str, Any]:
+    """
+    Fit an NSA-Flow Non-Negative representation on physical quantities (Recipe A).
+
+    Extracts physically realizable non-negative constituent spectra without negative
+    loadings, maintaining frame defect D ≈ 0. Do not mean-center input features.
+
+    Parameters
+    ----------
+    x : torch.Tensor or np.ndarray
+        Input data matrix of shape (n_samples, n_features), where x >= 0.
+    k : int, default=6
+        Number of components to extract.
+    w : float, default=0.5
+        Trade-off weight in [0, 1].
+    optimizer : str, default="torch_lbfgs"
+        Optimization algorithm ("torch_lbfgs", "spg", or "lbfgs").
+    max_iter : int, optional
+        Maximum iterations cap.
+    tol : float, optional
+        Stationarity tolerance.
+
+    Returns
+    -------
+    dict
+        Dictionary containing:
+        - 'v': Non-negative constituent loading matrix [features, k]
+        - 'scores': Projection scores [samples, k]
+        - 'result': Underlying NSAResult object
+    """
+    from .nsa_backend import load_nsa_flow
+    fn = load_nsa_flow()
+    if fn is None:
+        raise RuntimeError("NSA-Flow is not installed. Install with `pip install nsa-flow`.")
+    x_t = torch.as_tensor(x, dtype=torch.float32)
+    res = fn(x_t, k=k, w=w, mode="data", nonneg=True,
+             optimizer=optimizer, max_iter=max_iter, tol=tol)
+    v = getattr(res, 'V', None)
+    if v is None:
+        v = getattr(res, 'Y', None)
+    if v is None and hasattr(res, 'get'):
+        v = res.get('V') if res.get('V') is not None else res.get('Y')
+    if v is not None:
+        v = torch.clamp_min(v, 0.0)
+    scores = x_t @ v
+    return {
+        "v": v,
+        "scores": scores,
+        "result": res,
+    }
 
 def calculate_ica_energy(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, nonlinearity: str = "logcosh", a: float = 1.0) -> torch.Tensor:
     """
@@ -500,6 +621,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           topology: str = "star",
           path_graph: Optional[Dict[int, List[int]]] = None,
           scale_list: List[str] = ["centerAndScale", "np"],
+          consolidate: bool = False,
+          use_nsa: bool = True,
+          nsa_w: float = 0.5,
           tol: float = 1e-6,
           verbose: bool = False,
           **opt_params) -> Dict[str, Any]:
@@ -622,6 +746,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     n_modalities = len(torch_mats)
     orig_dtype = torch_mats[0].dtype
     v_mats = initialize_simlr(torch_mats, k, positivity=positivity)
+    opt_params.setdefault("use_nsa", use_nsa)
+    opt_params.setdefault("nsa_w", nsa_w)
     optimizer = create_optimizer(optimizer_type, v_mats, **opt_params)
     
     constraint_info = parse_constraint(constraint)
@@ -731,7 +857,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                                               positivity='either', sparseness_quantile=sparseness_quantile,
                                               constraint_weight=constraint_weight, constraint_iterations=constraint_iterations,
                                               energy_type=energy_type, modality_index=i)
-                return total_grad
+                return total_grad.contiguous()
 
             total_grad = smooth_gradient_fn(v_mats[i])
             # Optimizers that re-evaluate along their own line search (LBFGS)
@@ -785,6 +911,23 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         if best_retraction_diags is not None:
             retraction_diags = best_retraction_diags
 
+    if consolidate:
+        from .nsa_backend import load_consolidate_supports
+        cons_fn = load_consolidate_supports()
+        if cons_fn is not None:
+            consolidated_v = []
+            for v_mat in v_mats:
+                if positivity == "positive":
+                    consolidated_v.append(cons_fn(v_mat.double()).to(orig_dtype))
+                else:
+                    k_v = v_mat.shape[1]
+                    v_p = torch.clamp_min(v_mat, 0.0)
+                    v_n = torch.clamp_min(-v_mat, 0.0)
+                    W = torch.cat([v_p, v_n], dim=1)
+                    W_c = cons_fn(W.double()).to(orig_dtype)
+                    consolidated_v.append(W_c[:, :k_v] - W_c[:, k_v:])
+            v_mats = consolidated_v
+
     # Re-calculate final shared consensus after the last V update
     projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
     u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
@@ -830,7 +973,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "path_graph": path_graph,
         "energy_type": energy_type,
         "scale_list": scale_list,
-        "provenance_list": provenance_list
+        "provenance_list": provenance_list,
+        "consolidated": consolidate
     }
 
 

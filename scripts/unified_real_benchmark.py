@@ -94,8 +94,15 @@ def run_real_benchmark(version="v22", n_seeds=5, iterations=50, epochs=150, use_
     # report it. In v21 its 160 rows per cache were produced by a runner that
     # was never committed, so those numbers could not be regenerated from the
     # repository; `run_single_experiment` has supported "flow_v" all along.
-    model_configs = [("linear", "SiMLR"), ("lend", "LEND"), ("ned", "NED"),
-                     ("shared_private", "NEDPP"), ("flow_v", "Flow-SiMLR-V")]
+    model_configs = [
+        ("linear", "SiMLR"),
+        ("simlr_lbfgs", "SiMLR-LBFGS"),
+        ("lend", "LEND"),
+        ("ned", "NED"),
+        ("shared_private", "NEDPP"),
+        ("flow_v", "Flow-SiMLR-V"),
+        ("nsa_pipeline", "NSAFlow-Turnkey"),
+    ]
     losses = ["regression", "acc", "logcosh", "nc"]
     mixing_methods = ["newton", "svd", "pca", "ica"]
     

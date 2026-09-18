@@ -36,6 +36,7 @@ ul.task-list li input[type="checkbox"] {
 <script src="site_libs/quarto-search/fuse.min.js"></script>
 <script src="site_libs/quarto-search/quarto-search.js"></script>
 <meta name="quarto:offset" content="./">
+<link href="./appendix_reproducibility.html" rel="next">
 <link href="./appendix_operational.html" rel="prev">
 <script src="site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
@@ -193,6 +194,12 @@ window.Quarto = {
  <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)</span></span></a>
   </div>
 </li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./appendix_reproducibility.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">D</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
+  </div>
+</li>
       </ul>
   </li>
     </ul>
@@ -292,17 +299,59 @@ window.Quarto = {
 <h2 data-number="C.2" class="anchored" data-anchor-id="performance-visualizations"><span class="header-section-number">C.2</span> Performance Visualizations</h2>
 <section id="conditional-clinical-imputation-true-vs.-imputed-serums" class="level3" data-number="C.2.1">
 <h3 data-number="C.2.1" class="anchored" data-anchor-id="conditional-clinical-imputation-true-vs.-imputed-serums"><span class="header-section-number">C.2.1</span> 1. Conditional Clinical Imputation (True vs.&nbsp;Imputed Serums)</h3>
-<p>Because Flow-SiMR-V preserves mathematical bijectivity on the bottleneck space, it enables exact conditional inference. In <span class="quarto-unresolved-ref">?fig-flow-imputation</span>, we train Flow-SiMR-V on the Diabetes dataset (split into vitals and blood serums) under a 70/30 split. We then simulate a clinical scenario where the blood serums are entirely missing, and predict them from vitals using the Schur complement solver. The scatter plot below shows the relationship between True and Imputed serum levels for S5 (triglycerides).</p>
+<p>Because Flow-SiMR-V preserves mathematical bijectivity on the bottleneck space, it enables exact conditional inference. In <a href="#fig-flow-imputation" class="quarto-xref">Figure&nbsp;<span>C.1</span></a>, we train Flow-SiMR-V on the Diabetes dataset (split into vitals and blood serums) under a 70/30 split. We then simulate a clinical scenario where the blood serums are entirely missing, and predict them from vitals using the Schur complement solver. The scatter plot below shows the relationship between True and Imputed serum levels for S5 (triglycerides).</p>
+<div id="cell-fig-flow-imputation" class="cell" data-message="false" data-execution_count="1">
+<div class="cell-output cell-output-display">
+<div id="fig-flow-imputation" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-flow-imputation-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_flow_simr_v_files/figure-html/fig-flow-imputation-output-1.png" width="567" height="470" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-flow-imputation-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;C.1: Conditional Cross-View Imputation (Diabetes). Scatter plot comparing True vs.&nbsp;Imputed Serum levels (S5) generated via the Flow-SiMR-V Schur complement solver on the test set.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
 <hr>
 </section>
 <section id="exact-patient-level-attribution-waterfall-xai" class="level3" data-number="C.2.2">
 <h3 data-number="C.2.2" class="anchored" data-anchor-id="exact-patient-level-attribution-waterfall-xai"><span class="header-section-number">C.2.2</span> 2. Exact Patient-Level Attribution Waterfall (XAI)</h3>
-<p>Pre-pending the linear encoder matrix <span class="math inline">\(\mathbf{V}_m\)</span> ensures that the normalizing flow decoders do not mask individual feature importance. In <span class="quarto-unresolved-ref">?fig-flow-attribution</span>, we visualize the exact local feature contributions for a patient on the Heart Disease dataset, computed analytically as <span class="math inline">\(\delta \mathbf{x} = \mathbf{x} \circ \mathbf{V}_m\)</span>.</p>
+<p>Pre-pending the linear encoder matrix <span class="math inline">\(\mathbf{V}_m\)</span> ensures that the normalizing flow decoders do not mask individual feature importance. In <a href="#fig-flow-attribution" class="quarto-xref">Figure&nbsp;<span>C.2</span></a>, we visualize the exact local feature contributions for a patient on the Heart Disease dataset, computed analytically as <span class="math inline">\(\delta \mathbf{x} = \mathbf{x} \circ \mathbf{V}_m\)</span>.</p>
+<div id="cell-fig-flow-attribution" class="cell" data-message="false" data-execution_count="2">
+<div class="cell-output cell-output-display">
+<div id="fig-flow-attribution" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-flow-attribution-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_flow_simr_v_files/figure-html/fig-flow-attribution-output-1.png" width="665" height="422" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-flow-attribution-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;C.2: Patient-Level Attribution Auditing. Individualized waterfall-style bar chart showing exact additive feature attributions for a selected patient on the Heart Disease dataset using the Flow-SiMR-V basis.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
 <hr>
 </section>
 <section id="geodesic-latent-trajectory-counterfactuals" class="level3" data-number="C.2.3">
 <h3 data-number="C.2.3" class="anchored" data-anchor-id="geodesic-latent-trajectory-counterfactuals"><span class="header-section-number">C.2.3</span> 3. Geodesic Latent Trajectory &amp; Counterfactuals</h3>
-<p>By tracing a straight-line interpolation in the shared latent space between a low-risk and high-risk patient and decoding it back to the feature space, we construct an exact clinical counterfactual trajectory. In <span class="quarto-unresolved-ref">?fig-flow-geodesic</span>, we visualize the smooth progression of Age, BMI, and Blood Pressure (BP) along the latent disease path.</p>
+<p>By tracing a straight-line interpolation in the shared latent space between a low-risk and high-risk patient and decoding it back to the feature space, we construct an exact clinical counterfactual trajectory. In <a href="#fig-flow-geodesic" class="quarto-xref">Figure&nbsp;<span>C.3</span></a>, we visualize the smooth progression of Age, BMI, and Blood Pressure (BP) along the latent disease path.</p>
+<div id="cell-fig-flow-geodesic" class="cell" data-message="false" data-execution_count="3">
+<div class="cell-output cell-output-display">
+<div id="fig-flow-geodesic" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-flow-geodesic-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_flow_simr_v_files/figure-html/fig-flow-geodesic-output-1.png" width="664" height="470" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-flow-geodesic-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;C.3: Clinical Counterfactual Trajectory. Biomarker evolution curves decoded along a straight latent geodesic path between a low-risk patient (coordinate 0.0) and high-risk patient (coordinate 1.0) on the Diabetes dataset.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
 <hr>
 </section>
 </section>
@@ -755,6 +804,9 @@ window.Quarto = {
       </a>          
   </div>
   <div class="nav-page nav-page-next">
+      <a href="./appendix_reproducibility.html" class="pagination-link" aria-label="Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery">
+        <span class="nav-page-text"><span class="chapter-number">D</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
   </div>
 </nav>
 </div> <!-- /content -->

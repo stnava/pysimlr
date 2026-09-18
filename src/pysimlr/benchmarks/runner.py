@@ -6,6 +6,7 @@ import yaml
 import os
 import inspect
 import json
+import time
 from typing import List, Dict, Any, Optional, Union, Callable
 from .synthetic_cases import build_case
 from .metrics import calculate_all_metrics
@@ -38,6 +39,7 @@ def run_single_experiment(model_type: str,
     torch.manual_seed(seed)
     np.random.seed(seed)
     
+    t0 = time.perf_counter()
     if model_type == "linear":
         f_params = filter_kwargs(simlr, params)
         if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
@@ -54,13 +56,52 @@ def run_single_experiment(model_type: str,
         f_params = filter_kwargs(ned_simr_shared_private, params)
         if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
         res = ned_simr_shared_private(train_mats, k=k, **f_params)
+    elif model_type == "simlr_lbfgs":
+        f_params = filter_kwargs(simlr, params)
+        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
+        f_params['optimizer_type'] = 'torch_lbfgs'
+        f_params['consolidate'] = True
+        res = simlr(train_mats, k=k, **f_params)
     elif model_type == "flow_v":
         from pysimlr.flows import flow_simr_v
         f_params = filter_kwargs(flow_simr_v, params)
         if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
         res = flow_simr_v(train_mats, k=k, **f_params)
+    elif model_type == "nsa_pipeline":
+        from pysimlr import build_nsa_pipeline
+        from pysimlr.consensus import compute_shared_consensus
+        from pysimlr.simlr import _capture_consensus_anchor
+        X_tr = torch.cat(train_mats, dim=1).numpy()
+        y_tr_np = y_train.numpy()
+        is_classif = (len(torch.unique(y_train)) <= 5 and (y_train == y_train.round()).all())
+        task_type = "classification" if is_classif else "regression"
+        pipe = build_nsa_pipeline(n_components=k, w=params.get("nsa_w", 0.5), task=task_type)
+        pipe.fit(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np)
+        nsa_step = pipe.named_steps["dim_reduction"]
+        V_tot = torch.from_numpy(nsa_step.components_.T).float()
+        p_offsets = [0] + list(np.cumsum([m.shape[1] for m in train_mats]))
+        v_mats = [V_tot[p_offsets[i]:p_offsets[i+1]] for i in range(len(train_mats))]
+        projections = [m @ v for m, v in zip(train_mats, v_mats)]
+        u_tr = compute_shared_consensus(projections, mixing_algorithm=params.get("mixing_algorithm", "newton"), k=k)
+        anchor = _capture_consensus_anchor(
+            projections, params.get("mixing_algorithm", "newton"), k, False, "star", None
+        )
+        w_mats = []
+        for x, u_i in zip(train_mats, u_tr if isinstance(u_tr, list) else [u_tr]*len(train_mats)):
+            w_mats.append(torch.linalg.pinv(u_i) @ x)
+        res = {
+            "v": v_mats,
+            "u": u_tr,
+            "w": w_mats,
+            "consensus_anchor": anchor,
+            "scale_list": ["none"],
+            "provenance_list": [],
+            "first_layer": {"v": v_mats},
+            "first_layer_scores": torch.cat(projections, dim=1),
+        }
     else:
         raise ValueError(f"Unknown model type: {model_type}")
+    fit_seconds = time.perf_counter() - t0
         
     if "model" in res:
         pred_test = predict_deep(test_mats, res, device="cpu")
@@ -73,7 +114,7 @@ def run_single_experiment(model_type: str,
     private_l = pred_test.get("private_latents")
     fl_scores_train = pred_train.get("first_layer_scores")
     fl_scores_test = pred_test.get("first_layer_scores")
-    if fl_scores_train is None and model_type == "linear":
+    if fl_scores_train is None and model_type in ("linear", "simlr_lbfgs", "nsa_pipeline"):
         fl_scores_train = pred_train.get("latents")
         fl_scores_test = pred_test.get("latents")
 
@@ -85,7 +126,39 @@ def run_single_experiment(model_type: str,
         interpretability=pred_test.get("interpretability") or res.get("interpretability"),
         first_layer_scores_train=fl_scores_train, first_layer_scores_test=fl_scores_test,
     )
-    metrics.update({"model": model_type, "sparsity": sparsity, "seed": seed})
+
+    frame_defect = 0.0
+    lobe_crosstalk = 0.0
+    sparsity_ratio = 0.0
+    v_list = res.get("v")
+    if v_list is not None and len(v_list) > 0:
+        defects = []
+        crosstalks = []
+        zeros = 0
+        total = 0
+        for vm in v_list:
+            vm_t = torch.as_tensor(vm).float()
+            eye = torch.eye(vm_t.shape[1], device=vm_t.device)
+            gram = vm_t.T @ vm_t
+            defects.append(torch.norm(gram - eye, p='fro').item() ** 2)
+            pos = torch.clamp(vm_t, min=0.0)
+            neg = torch.clamp(-vm_t, min=0.0)
+            crosstalks.append(torch.norm(pos * neg, p='fro').item())
+            zeros += (vm_t.abs() < 1e-6).sum().item()
+            total += vm_t.numel()
+        frame_defect = float(np.mean(defects))
+        lobe_crosstalk = float(np.mean(crosstalks))
+        sparsity_ratio = float(zeros / max(1, total))
+
+    metrics.update({
+        "model": model_type,
+        "sparsity": sparsity,
+        "seed": seed,
+        "fit_seconds": fit_seconds,
+        "frame_defect": frame_defect,
+        "lobe_crosstalk": lobe_crosstalk,
+        "sparsity_ratio": sparsity_ratio,
+    })
     return {"metrics": metrics, "result": res}
 
 def run_seeded_benchmark(model_type: str, 

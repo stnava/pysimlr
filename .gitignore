@@ -38,6 +38,8 @@ docs/comparison_simlr_lend.quarto_ipynb_1
 
 /.quarto/
 **/*.quarto_ipynb*
+*.log
+tmp_matplotlib_cache/
 paper/_book/
 .agents/
 ORIGINAL_REQUEST.md
