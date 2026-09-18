@@ -918,14 +918,18 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             consolidated_v = []
             for v_mat in v_mats:
                 if positivity == "positive":
-                    consolidated_v.append(cons_fn(v_mat.double()).to(orig_dtype))
+                    v_c = cons_fn(v_mat.double()).to(orig_dtype)
+                    v_c = torch.nn.functional.normalize(v_c, p=2, dim=0, eps=1e-8)
+                    consolidated_v.append(v_c)
                 else:
                     k_v = v_mat.shape[1]
                     v_p = torch.clamp_min(v_mat, 0.0)
                     v_n = torch.clamp_min(-v_mat, 0.0)
                     W = torch.cat([v_p, v_n], dim=1)
                     W_c = cons_fn(W.double()).to(orig_dtype)
-                    consolidated_v.append(W_c[:, :k_v] - W_c[:, k_v:])
+                    v_c = W_c[:, :k_v] - W_c[:, k_v:]
+                    v_c = torch.nn.functional.normalize(v_c, p=2, dim=0, eps=1e-8)
+                    consolidated_v.append(v_c)
             v_mats = consolidated_v
 
     # Re-calculate final shared consensus after the last V update

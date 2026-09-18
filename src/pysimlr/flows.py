@@ -516,8 +516,8 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             
             # Add orthogonality penalty for encoder basis V (both actual enc.v and raw enc.v_raw)
             if hasattr(model, 'linear_encoders'):
-                total_loss += 0.05 * sum(orthogonality_defect(enc.v) for enc in model.linear_encoders)
-                total_loss += 0.05 * sum(orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
+                total_loss += 0.5 * sum(orthogonality_defect(enc.v) for enc in model.linear_encoders)
+                total_loss += 0.5 * sum(orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
                 
             if torch.isnan(total_loss): 
                 continue
@@ -527,6 +527,9 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             optimizer.step()
             has_stepped = True
             
+            if hasattr(model, 'retract_linear_encoders'):
+                model.retract_linear_encoders()
+                
             if hasattr(model, 'update_mai'):
                 model.update_mai(latents, epoch, epochs, dynamic_weights_start=dynamic_weights_start)
             
@@ -836,7 +839,18 @@ class FlowSiMRVModel(nn.Module):
             "basis_drift": float(sum(drifts) / max(1, len(drifts))),
             "projection_alpha": float(sum(alphas) / max(1, len(alphas))),
         }
-        
+
+    def retract_linear_encoders(self) -> None:
+        """Retract linear encoders to the Stiefel manifold to prevent basis drift."""
+        with torch.no_grad():
+            for enc in self.linear_encoders:
+                target_v = enc.v.detach()
+                if hasattr(enc, 'v_raw') and enc.v_raw is not None:
+                    enc.v_raw.data.copy_(target_v)
+                elif hasattr(enc, 'nsa_linear') and enc.nsa_linear is not None:
+                    if hasattr(enc.nsa_linear, 'weight'):
+                        enc.nsa_linear.weight.data.copy_(target_v.t())
+
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         # 1. Linear projection layer
         projected_zs = [enc(x) for enc, x in zip(self.linear_encoders, x_list)]

@@ -69,41 +69,63 @@ def run_single_experiment(model_type: str,
         res = flow_simr_v(train_mats, k=k, **f_params)
     elif model_type == "nsa_pipeline":
         from pysimlr import build_nsa_pipeline
-        from pysimlr.consensus import compute_shared_consensus
-        from pysimlr.simlr import _capture_consensus_anchor
         X_tr = torch.cat(train_mats, dim=1).numpy()
+        X_te = torch.cat(test_mats, dim=1).numpy()
         y_tr_np = y_train.numpy()
+        y_te_np = y_test.numpy()
         is_classif = (len(torch.unique(y_train)) <= 5 and (y_train == y_train.round()).all())
         task_type = "classification" if is_classif else "regression"
         pipe = build_nsa_pipeline(n_components=k, w=params.get("nsa_w", 0.5), task=task_type)
         pipe.fit(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np)
-        nsa_step = pipe.named_steps["dim_reduction"]
-        V_tot = torch.from_numpy(nsa_step.components_.T).float()
+        
+        scaler = pipe.named_steps.get("scaler")
+        dim_red = pipe.named_steps["dim_reduction"]
+        
+        X_tr_sc = scaler.transform(X_tr) if scaler else X_tr
+        X_te_sc = scaler.transform(X_te) if scaler else X_te
+        
+        u_tr = torch.from_numpy(dim_red.transform(X_tr_sc)).float()
+        u_te = torch.from_numpy(dim_red.transform(X_te_sc)).float()
+        
+        V_tot = torch.from_numpy(dim_red.components_.T).float()
         p_offsets = [0] + list(np.cumsum([m.shape[1] for m in train_mats]))
         v_mats = [V_tot[p_offsets[i]:p_offsets[i+1]] for i in range(len(train_mats))]
-        projections = [m @ v for m, v in zip(train_mats, v_mats)]
-        u_tr = compute_shared_consensus(projections, mixing_algorithm=params.get("mixing_algorithm", "newton"), k=k)
-        anchor = _capture_consensus_anchor(
-            projections, params.get("mixing_algorithm", "newton"), k, False, "star", None
-        )
-        w_mats = []
-        for x, u_i in zip(train_mats, u_tr if isinstance(u_tr, list) else [u_tr]*len(train_mats)):
-            w_mats.append(torch.linalg.pinv(u_i) @ x)
+        
+        # Exact orthogonal adjoint reconstruction
+        x_rec_sc = u_te.numpy() @ V_tot.numpy().T
+        x_rec_te = scaler.inverse_transform(x_rec_sc) if scaler else x_rec_sc
+        recons_te = [torch.from_numpy(x_rec_te[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(test_mats))]
+        
+        x_rec_sc_tr = u_tr.numpy() @ V_tot.numpy().T
+        x_rec_tr = scaler.inverse_transform(x_rec_sc_tr) if scaler else x_rec_sc_tr
+        recons_tr = [torch.from_numpy(x_rec_tr[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(train_mats))]
+        
+        pred_test_score = float(pipe.score(X_te, y_te_np.astype(int) if is_classif else y_te_np))
+        pred_train_score = float(pipe.score(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np))
+        
         res = {
             "v": v_mats,
+            "v_tot": V_tot,
             "u": u_tr,
-            "w": w_mats,
-            "consensus_anchor": anchor,
+            "w": [],
             "scale_list": ["none"],
             "provenance_list": [],
             "first_layer": {"v": v_mats},
-            "first_layer_scores": torch.cat(projections, dim=1),
+            "first_layer_scores": [u_tr],
+            "pipeline": pipe,
+            "pred_test_score": pred_test_score,
+            "pred_train_score": pred_train_score,
+            "custom_pred_test": {"u": u_te, "reconstructions": recons_te, "first_layer_scores": [u_te]},
+            "custom_pred_train": {"u": u_tr, "reconstructions": recons_tr, "first_layer_scores": [u_tr]},
         }
     else:
         raise ValueError(f"Unknown model type: {model_type}")
     fit_seconds = time.perf_counter() - t0
         
-    if "model" in res:
+    if "custom_pred_test" in res:
+        pred_test = res["custom_pred_test"]
+        pred_train = res["custom_pred_train"]
+    elif "model" in res:
         pred_test = predict_deep(test_mats, res, device="cpu")
         pred_train = predict_deep(train_mats, res, device="cpu")
     else:
@@ -127,16 +149,23 @@ def run_single_experiment(model_type: str,
         first_layer_scores_train=fl_scores_train, first_layer_scores_test=fl_scores_test,
     )
 
+    if "pred_test_score" in res:
+        is_cls = metrics.get("is_classification", False) or "test_accuracy" in metrics
+        test_k = "test_accuracy" if is_cls else "test_r2"
+        train_k = "train_accuracy" if is_cls else "train_r2"
+        metrics[test_k] = res["pred_test_score"]
+        metrics[train_k] = res["pred_train_score"]
+
     frame_defect = 0.0
     lobe_crosstalk = 0.0
     sparsity_ratio = 0.0
-    v_list = res.get("v")
-    if v_list is not None and len(v_list) > 0:
+    v_eval = [res["v_tot"]] if "v_tot" in res else res.get("v")
+    if v_eval is not None and len(v_eval) > 0:
         defects = []
         crosstalks = []
         zeros = 0
         total = 0
-        for vm in v_list:
+        for vm in v_eval:
             vm_t = torch.as_tensor(vm).float()
             eye = torch.eye(vm_t.shape[1], device=vm_t.device)
             gram = vm_t.T @ vm_t

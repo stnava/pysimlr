@@ -459,14 +459,43 @@ class LENDNSAEncoder(nn.Module):
             else:
                 try: v_out = _svd_project_columns(self.v_raw)
                 except Exception: v_out = torch.nn.functional.normalize(self.v_raw, p=2, dim=0)
-            if self.positivity in {'positive', 'hard'}: v_out = torch.clamp(v_out, min=0.0)
-            elif self.positivity == 'softplus': v_out = torch.nn.functional.softplus(v_out - 4.0)
-        if torch.isnan(v_out).any(): v_out = torch.nan_to_num(v_out, nan=0.0)
-        if self.sparseness_quantile > 0:
-            v_abs = torch.abs(v_out) if self.positivity == "either" else v_out
-            q_vals = torch.quantile(v_abs, self.sparseness_quantile, dim=0, keepdim=True)
-            if self.soft_thresholding: v_out = torch.sign(v_out) * torch.clamp(v_abs - q_vals, min=0.0)
-            else: v_out = v_out * (v_abs >= q_vals).float()
+        if self.positivity in {'positive', 'hard'}:
+            from .nsa_backend import load_consolidate_supports
+            cons_fn = load_consolidate_supports()
+            if cons_fn is not None:
+                try:
+                    v_out = cons_fn(v_out.double()).to(v_out.dtype)
+                except Exception:
+                    pass
+            v_out = torch.clamp(v_out, min=0.0)
+            v_out = torch.nn.functional.normalize(v_out, p=2, dim=0, eps=1e-8)
+        elif self.positivity == 'softplus':
+            v_out = torch.nn.functional.normalize(v_out, p=2, dim=0, eps=1e-8)
+        elif self.positivity == 'either':
+            if self.sparseness_quantile > 0:
+                from .nsa_backend import load_consolidate_supports
+                cons_fn = load_consolidate_supports()
+                if cons_fn is not None:
+                    try:
+                        k_v = v_out.shape[1]
+                        v_p = torch.clamp_min(v_out, 0.0)
+                        v_n = torch.clamp_min(-v_out, 0.0)
+                        W = torch.cat([v_p, v_n], dim=1)
+                        W_c = cons_fn(W.double()).to(v_out.dtype)
+                        v_out = W_c[:, :k_v] - W_c[:, k_v:]
+                    except Exception:
+                        pass
+                v_out = torch.nn.functional.normalize(v_out, p=2, dim=0, eps=1e-8)
+            else:
+                from .nsa_backend import load_polar_factor
+                pf = load_polar_factor()
+                if pf is not None:
+                    try:
+                        v_out = pf(v_out)
+                    except Exception:
+                        v_out = _svd_project_columns(v_out)
+                else:
+                    v_out = _svd_project_columns(v_out)
         return v_out
 
     def set_projection_schedule(self, epoch: int, total_epochs: int, stabilization_start_epoch: int, stabilization_ramp_epochs: int) -> None:

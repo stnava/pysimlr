@@ -145,7 +145,7 @@ def exact_sign_flip_permutation(diffs: Sequence[float], n_mc: int = 200_000) -> 
         return float(hits / (2 ** n))
 
     rng = np.random.default_rng(42)
-    signs = rng.choice((-1.0, 1.0), size=(n_mc, n))
+    signs = rng.choice(np.array([-1.0, 1.0]), size=(n_mc, n))
     means = np.abs((signs * arr).mean(axis=1))
     hits = int(np.sum(means >= observed - 1e-14))
     return float((hits + 1) / (n_mc + 1))

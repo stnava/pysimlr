@@ -182,6 +182,7 @@ def run_experiment_task(task_args: tuple) -> dict:
         "nsa_w": 0.5,
         "sparseness_quantile": 0.5,
         "nsa_iterations": 3,
+        "consolidate": True,
     }
     if model_type == "shared_private" and "private_k" in case:
         params["private_k"] = case["private_k"]
