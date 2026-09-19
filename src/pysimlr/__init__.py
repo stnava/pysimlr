@@ -79,15 +79,6 @@ from .regression import (
     smooth_regression,
     build_nsa_pipeline,
 )
-from .sklearn import (
-    SiMLREstimator,
-    SiMLRTransformer,
-    SiMLR,
-    LENDTransformer,
-    NEDTransformer,
-    FlowSiMLRTransformer,
-    build_simlr_pipeline,
-)
 from .nnh import (
     nnh_embed,
     extend_simlr_embedding_with_new_modalities,
@@ -320,6 +311,15 @@ def __getattr__(name: str) -> Any:
         module = importlib.import_module(f".{name}", __name__)
         globals()[name] = module
         return module
+    if name in _LAZY_SKLEARN:
+        # scikit-learn wrappers resolve lazily (PEP 562): importing them
+        # eagerly made `import pysimlr` import sklearn for every caller, which
+        # test_heavy_optional_modules_are_not_imported_eagerly forbids.
+        # nsa_flow 3.1.2 fixed the same bug on its side.
+        from . import sklearn as _sk
+        obj = getattr(_sk, name)
+        globals()[name] = obj
+        return obj
     if name == "NSAFlow":
         from .nsa_backend import load_nsa_estimator
         cls = load_nsa_estimator()
@@ -334,3 +334,6 @@ def __getattr__(name: str) -> Any:
 
 def __dir__():
     return sorted(set(globals()) | set(__all__))
+
+
+_LAZY_SKLEARN = ('FlowSiMLRTransformer', 'LENDTransformer', 'NEDTransformer', 'SiMLR', 'SiMLREstimator', 'SiMLRTransformer', 'build_simlr_pipeline')

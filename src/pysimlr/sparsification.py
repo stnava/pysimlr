@@ -1,3 +1,4 @@
+import warnings
 import torch
 import numpy as np
 from typing import Optional, List, Union, Dict, Any
@@ -184,17 +185,21 @@ def _nsa_retract(v: torch.Tensor,
         return None
     target = v_detached.double() / scale
 
+    # This call is the proximal operator of the SiMLR outer loop:
+    #     prox(z) = argmin_{Y >= 0} (1-w) ||Y - z||^2 / ||z||^2 + w Dtilde(Y)
+    # so the fidelity MUST be the entrywise Euclidean distance to z.  Left at
+    # "auto", nsa_flow switches to its sign-blind subspace fidelity whenever the
+    # target has negative mass > 1%, which a post-gradient-step iterate always
+    # does; that operator is invariant under X0 -> X0 M for any invertible M,
+    # discards where the step moved within the span, and is not a prox of
+    # anything -- and the switch is a threshold on the iterate, so it can flip
+    # between iterations.  "subspace" is the right choice for one-shot basis
+    # recovery from a signed initialiser; it is the wrong one inside a loop.
+    # mode="anchored" is what "no k" already implies; saying it makes the call
+    # immune to changes in nsa_flow's auto-dispatch.
     try:
-        result = fn(target, w=float(w), nonneg=bool(nonneg),
-                    max_iter=int(max_iter))
-    except TypeError:
-        # An older backend with the pre-rename keyword set.
-        try:
-            result = fn(target, w=float(w),
-                        apply_nonneg='hard' if nonneg else 'none',
-                        max_iter=int(max_iter))
-        except Exception:
-            return None
+        result = fn(target, w=float(w), mode="anchored", fidelity="anchor",
+                    nonneg=bool(nonneg), max_iter=int(max_iter))
     except Exception:
         return None
 
@@ -214,7 +219,34 @@ def _nsa_retract(v: torch.Tensor,
         candidate = torch.clamp_min(candidate, 0.0)
 
     candidate = (candidate * scale).to(v.dtype)
-    return candidate if _usable_retraction(candidate, v) else None
+    return candidate if _usable_retraction(candidate, v, nonneg=nonneg) else None
+
+
+def _resolve_column_sign_gauge(z: torch.Tensor) -> torch.Tensor:
+    """
+    Fix the per-column sign gauge so the non-negative constraint is least destructive.
+
+    Every SiMLR energy is even in each column of ``V`` (they act on ``X V``
+    through squares, covariances or a regression whose coefficient absorbs the
+    sign), so ``V -> V diag(s)``, ``s in {-1,+1}^k``, is a symmetry of ``E``.
+    Choosing ``s`` is therefore a gauge choice, not a change of the iterate, and
+    the prox applied to ``z diag(s)`` is still the prox step of the outer loop
+    -- on the quotient by that symmetry.
+
+    Pick, per column, the sign under which more of the column's mass survives
+    projection onto the orthant: flip column ``j`` iff
+    ``||max(0, -z_j)|| > ||max(0, z_j)||``. A column that is entirely
+    non-positive becomes entirely non-negative, so it is never zeroed by the
+    constraint for a reason that was only ever a sign convention. Columns of
+    mixed sign keep their orientation and are projected honestly: a feature
+    that loads negatively is zeroed, not reflected. This replaces the old
+    ``abs(v)`` fallback, which is not a symmetry of anything and reports a
+    negatively fitted feature as a positive one.
+    """
+    pos = torch.linalg.vector_norm(z.clamp_min(0.0), dim=0)
+    neg = torch.linalg.vector_norm((-z).clamp_min(0.0), dim=0)
+    sign = torch.where(neg > pos, -torch.ones_like(pos), torch.ones_like(pos))
+    return z * sign.unsqueeze(0)
 
 
 def _retraction_candidate(v_signed: torch.Tensor, v_rectified: torch.Tensor,
@@ -255,11 +287,10 @@ def _retraction_candidate(v_signed: torch.Tensor, v_rectified: torch.Tensor,
     When the solver is not enforcing non-negativity there is nothing to choose:
     the rectified candidate already carries whatever sign the caller asked for.
     """
-    if not nonneg:
-        return v_rectified
-    if not _backend_has_sign_blind_fidelity():
-        return v_rectified
-    return v_signed
+    # Retained for import compatibility.  The prox always receives the signed
+    # iterate now (see simlr_sparseness); the fidelity is fixed to "anchor"
+    # explicitly rather than inferred from the backend's signature.
+    return v_rectified if not nonneg else v_signed
 
 
 def _backend_has_sign_blind_fidelity() -> bool:
@@ -309,9 +340,11 @@ def _clamp_retraction_weight(w: float, max_w: float = None) -> float:
 #: scale drifted, and `fidelity_mode`/`target_negative_mass` which notion of
 #: closeness the backend chose and why.
 _RETRACTION_DIAGNOSTIC_FIELDS = (
-    'stop_reason', 'converged', 'grad_map', 'iters', 'defect',
+    'stop_reason', 'converged', 'certificate', 'grad_map', 'tol', 'iters',
+    'n_grad', 'n_energy', 'defect', 'defect_D', 'defect_Cg',
     'effective_rank', 'scale_ratio', 'fidelity_mode', 'target_negative_mass',
-    'fidelity', 'energy', 'seconds', 'lobe_overlap', 'consolidated',
+    'fidelity', 'energy', 'energy_start', 'energy_reduction', 'seconds',
+    'lobe_overlap', 'consolidated', 'optimizer',
 )
 
 
@@ -342,11 +375,12 @@ def _warn_if_unconverged(result) -> None:
     """
     Warn when the solver stopped on its iteration cap rather than converging.
 
-    The backend defines convergence as ``stop_reason != "max_iter"``, so
-    ``line_search`` and ``grad_map`` stops are both converged states. A capped
-    solve still returns a structurally valid basis, so the result is used
-    rather than discarded -- but silently accepting an unconverged retraction
-    is how a degenerate basis previously reached the caller unnoticed. The
+    nsa_flow >= 3 sets ``converged`` only when a certificate was earned
+    (``certificate`` is ``"stationary"`` or ``"numerical_floor"``); a
+    ``line_search`` or ``max_iter`` stop is not converged.  A capped solve
+    still returns a structurally valid basis, so the result is used rather
+    than discarded -- but silently accepting an unconverged retraction is how
+    a degenerate basis previously reached the caller unnoticed. The
     message is constant, so Python's default filter reports it once per call
     site instead of once per SiMLR iteration.
     """
@@ -358,14 +392,14 @@ def _warn_if_unconverged(result) -> None:
     converged = _field('converged')
     stop_reason = _field('stop_reason')
     if converged is None and stop_reason is not None:
-        converged = (stop_reason != 'max_iter')
+        converged = stop_reason in ('grad_map', 'plateau')
     if converged is False:
         import warnings
         warnings.warn(
-            "NSA-Flow hit its iteration cap without converging "
-            f"(stop_reason={stop_reason!r}); the retraction may be far from "
-            "the constraint set. Lower the retraction weight or raise "
-            "max_iter.",
+            "NSA-Flow stopped without a convergence certificate "
+            f"(stop_reason={stop_reason!r}, |Gmap|={_field('grad_map')}); the "
+            "retraction may be far from the constraint set. Raise max_iter or "
+            "loosen the retraction weight.",
             RuntimeWarning, stacklevel=3,
         )
 
@@ -391,7 +425,8 @@ def _unit_normalize_columns(v: torch.Tensor, eps: float = 1e-12) -> torch.Tensor
 
 
 def _usable_retraction(candidate: Optional[torch.Tensor],
-                       reference: torch.Tensor) -> bool:
+                       reference: torch.Tensor,
+                       nonneg: bool = False) -> bool:
     """
     Whether a retraction backend's output can be accepted in place of `reference`.
 
@@ -440,8 +475,16 @@ def _usable_retraction(candidate: Optional[torch.Tensor],
     # A zero column means a component with no loading at all.
     if bool((torch.linalg.vector_norm(candidate, dim=0) <= 0.0).any()):
         return False
+    # Rank loss is judged against the rank the FEASIBLE SET can support near
+    # the input, not against the input itself.  The prox now receives the
+    # signed iterate; a full-rank signed square matrix (e.g. a 5x5 orthogonal
+    # Q) has no full-rank non-negative neighbour in general -- clamp(Q) is
+    # typically rank 4 -- so demanding rank(Y) >= rank(z) would reject the
+    # correct prox output.  The old code passed this check only because it
+    # compared against the already-clamped candidate.
+    rank_ref = reference.clamp_min(0.0) if nonneg else reference
     try:
-        if int(torch.linalg.matrix_rank(candidate)) < int(torch.linalg.matrix_rank(reference)):
+        if int(torch.linalg.matrix_rank(candidate)) < int(torch.linalg.matrix_rank(rank_ref)):
             return False
     except RuntimeError:
         return False
@@ -1086,7 +1129,37 @@ def project_to_partially_orthonormal_nonnegative(x: torch.Tensor,
             v_out = torch.clamp(v_out, max=0.0)
     return v_out
 
-def simlr_sparseness(v: torch.Tensor, 
+#: Energies whose value is unchanged or driven to -inf by rescaling ``V``, so
+#: the column scale is a free gauge that the objective cannot pin down.
+#: Measured homogeneity degree of ``E(cV)`` in ``c``:
+#:
+#:     regression  1.87  finite minimiser, scale is set by the data
+#:     acc         1.00  -> -inf, unbounded below
+#:     logcosh     1.01  -> -inf, unbounded below
+#:     kurtosis    4.00  -> -inf, unbounded below
+#:     nc          0.00  scale-invariant
+#:     exp/gauss   0.00  scale-invariant
+#:
+#: For the unbounded ones the optimiser can "improve" the energy forever by
+#: inflating ``||V||`` -- magnitudes around 1e8 were observed -- so the gauge
+#: has to be fixed or the objective is meaningless. For the scale-invariant
+#: ones fixing it is free and removes a null direction.
+#:
+#: ``regression`` is the exception and must be left alone: its minimiser is
+#: ``V* = X^T u (u^T u)^{-1}``, whose column norms are determined by the data.
+#: The previous code unit-normalised **every** energy on every sweep, which
+#: deleted the very scale the default objective was trying to find.
+GAUGE_FREE_ENERGIES = frozenset({"regression"})
+
+
+def energy_needs_unit_columns(energy_type: Optional[str]) -> bool:
+    """Whether ``energy_type`` requires the column scale to be fixed."""
+    if energy_type is None:
+        return False
+    return energy_type not in GAUGE_FREE_ENERGIES
+
+
+def simlr_sparseness(v: torch.Tensor,
                      constraint_type: str = "none",
                      smoothing_matrix: Optional[torch.Tensor] = None,
                      positivity: str = 'either',
@@ -1096,143 +1169,157 @@ def simlr_sparseness(v: torch.Tensor,
                      sparseness_alg: str = 'soft',
                      energy_type: Optional[str] = None,
                      modality_index: Optional[int] = None,
+                     unit_columns: Optional[bool] = None,
                      retraction_diagnostics: Optional[dict] = None) -> torch.Tensor:
     """
-    Main sparsification and constraint enforcement function for SiMLR.
+    Project a basis onto the NSA-Flow feasible set.
 
-    This is the high-level entry point for all matrix constraints used during 
-    the SiMLR optimization loop. It dispatches to specific methods based on 
-    the requested `constraint_type` and `sparseness_alg`.
+    This is the single projection operator for SiMLR. It applies the optional
+    smoothing prior, resolves the sign convention, and calls NSA-Flow. There is
+    nothing else: the non-negativity, the near-orthogonality and the sparsity
+    are all properties of the set NSA-Flow solves onto, controlled by one
+    weight ``w``.
+
+    Why it is only a call
+    ---------------------
+    This function used to be a five-branch dispatch that applied
+    ``apply_positivity``, then a manifold retraction (NSA-Flow, or an SVD polar
+    factor when the backend was missing, which its own docstring admitted
+    "changes numerical results"), then quantile soft-thresholding, then a
+    column renormalisation. Four operators, each with its own notion of what
+    the feasible set is, composed in an order nothing verified.
+
+    NSA-Flow already solves for that set in one step. ``w`` is a genuine convex
+    weight: ``w = 0`` returns ``max(0, V)`` and ``w = 1`` gives orthogonal
+    columns, which under non-negativity means *disjoint supports* -- a hard
+    clustering of the features. Sparsity is therefore a consequence of ``w``,
+    not a separate quantile applied afterwards, and the two cannot disagree
+    because there is only one of them.
 
     Parameters
     ----------
     v : torch.Tensor
-        The matrix to constrain (typically basis V or gradient).
+        Candidate basis, shape (features, components).
     constraint_type : str, default="none"
-        Type of manifold or orthogonality constraint ("Stiefel", "Grassmann", 
-        "ortho", "NewtonSchulz", "none").
+        Retained for call compatibility. ``"none"`` returns the (optionally
+        smoothed, sign-resolved) input unprojected; anything else projects.
     smoothing_matrix : torch.Tensor, optional
-        A prior matrix used for spatially-aware smoothing (V = S @ V).
+        Spatial/graph prior applied as ``S @ V`` before projection. This is a
+        prior on the basis, not part of the feasible set, so it stays outside
+        the solver. Used by `nnh_embed` and by the operators in `sparse`.
     positivity : str, default='either'
-        Sign constraint ("positive", "negative", or "either").
-    sparseness_quantile : float, default=0.0
-        Threshold for element-wise sparsity.
+        ``'positive'``/``'hard'``/``'nonnegative'`` constrain ``V >= 0``;
+        ``'negative'`` solves the reflected problem and negates the result;
+        anything else leaves the sign free.
+    sparseness_quantile, sparseness_alg, constraint_iterations : deprecated
+        Sparsity is set by ``w``. Passing a non-default value warns rather than
+        being silently dropped, because a parameter that looks respected and is
+        not is how a benchmark ends up reporting a setting it never ran.
     constraint_weight : float, default=0.0
-        Strength of the manifold projection or retraction.
-    constraint_iterations : int, default=1
-        Number of inner iterations for the constraint solver.
-    sparseness_alg : str, default='soft'
-        The algorithm for sparsity ("soft", "hard", "nnorth", "orthorank").
-    energy_type : str, optional
-        The SiMLR objective function (affects normalization).
-    modality_index : int, optional
-        Index of the current modality if sparseness_quantile is a list.
+        The NSA-Flow weight ``w``. ``0`` means "use `NSA_DEFAULT_W`".
+    energy_type, modality_index : optional
+        ``modality_index`` indexes a per-view ``constraint_weight`` list.
+        ``energy_type`` selects the gauge: see `GAUGE_FREE_ENERGIES`.
+    unit_columns : bool, optional
+        Rescale the projected columns to unit norm. ``None`` derives it from
+        ``energy_type`` via `energy_needs_unit_columns`, which is the only
+        correct default: the covariance and negentropy energies are unbounded
+        below under rescaling and need the gauge fixed, while ``regression``
+        has a finite minimiser whose scale carries information and must not be
+        renormalised.
+    retraction_diagnostics : dict, optional
+        Updated in place with the solver's self-report.
 
     Returns
     -------
     torch.Tensor
-        The constrained and sparsified matrix.
+        The projected basis, in the input dtype.
 
     Raises
     ------
-    TypeError
-        If inputs are of invalid types.
+    ImportError
+        If the NSA-Flow backend is unavailable and a projection was requested.
+        There is deliberately no fallback: substituting a different operator
+        silently changes the feasible set.
     """
+    orig_dtype = v.dtype
     v_out = v.clone()
-    orig_dtype = v_out.dtype
-    
-    # Robust NaN handling
     if torch.isnan(v_out).any():
         v_out = torch.nan_to_num(v_out, nan=0.0)
-    
-    # Keep the signed candidate: the non-negative solver wants it, not a
-    # rectified version of it. See `_retraction_candidate`.
-    v_signed = v_out
-    v_out = apply_positivity(v_out, positivity)
+
     if smoothing_matrix is not None:
+        # No dtype coercion here: `sparse` supplies matrix-free operators
+        # (e.g. SparseGraphResolvent) that implement `@` but not `.to()`.
         v_out = smoothing_matrix @ v_out
-        v_signed = smoothing_matrix @ v_signed
-    
-    # if it's a list then index it with the correct index, otherwise pass as a scalar.
-    sq = sparseness_quantile
-    if isinstance(sq, (list, torch.Tensor, np.ndarray)) and modality_index is not None:
-        sq = sq[modality_index]
 
-    apply_nonneg = 'hard' if positivity in ['positive', 'hard'] else 'none'
+    for name, value, default in (("sparseness_quantile", sparseness_quantile, 0.0),
+                                 ("sparseness_alg", sparseness_alg, "soft"),
+                                 ("constraint_iterations", constraint_iterations, 1)):
+        if isinstance(value, (list, tuple, np.ndarray)) or value != default:
+            warnings.warn(
+                f"simlr_sparseness: {name}={value!r} is ignored. Sparsity is "
+                f"now a consequence of the NSA-Flow weight w "
+                f"(constraint_weight); w -> 1 gives disjoint supports. "
+                f"Set w rather than {name}.",
+                DeprecationWarning, stacklevel=2,
+            )
 
-    # --- New Prioritized Flow ---
-    # 1. Handle Hard Constraints (Stiefel/Grassmann/NewtonSchulz) or prioritized nsa_flow_orth
-    if constraint_type in ["Stiefel", "Grassmann", "Stiefel_ns", "Grassmann_ns", "Stiefel_polar", "Grassmann_polar"]:
-        if sparseness_alg == 'nnorth':
-            v_out = project_to_orthonormal_nonnegative(v_out, constraint=positivity)
-        else:
-            # Hard manifold constraint: retract, preferring NSA-Flow and
-            # falling back to the SVD polar factor when it is unavailable or
-            # returns something unusable.
-            retracted = None
-            if not torch.isnan(v_out).any():
-                w = constraint_weight if constraint_weight > 0 else NSA_DEFAULT_W
-                # `parse_constraint` assigns weight 1.0 here, which is the
-                # degenerate end of the solver: see `NSA_MAX_W`, which caps it.
-                # The column norms the constraint promises are restored by
-                # `_unit_normalize_columns` below; the off-diagonals settle
-                # near 1e-2 rather than 0, which is the deliberate cost.
-                nonneg = (apply_nonneg == 'hard')
-                retracted = _nsa_retract(
-                    _retraction_candidate(v_signed, v_out, nonneg), w=w,
-                    nonneg=nonneg, diagnostics=retraction_diagnostics)
-                if retracted is None:
-                    retracted = _svd_polar(v_out)
-            if retracted is not None:
-                v_out = retracted
+    nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg', 'softplus')
+    negative = (positivity == 'negative')
 
-        # 2. Apply Sparsity on top of constrained matrix, then restore the unit
-        #    column norms the Stiefel/Grassmann contract requires. Soft
-        #    thresholding shrinks every surviving coefficient by the threshold,
-        #    so normalizing *before* it would leave ||v_j|| < 1 on the way out
-        #    and V'V would not be the identity.
-        if sq != 0 and sparseness_alg == 'soft':
-            v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sq, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
+    if constraint_type == "none":
+        # The sign constraint is part of the feasible set whether or not the
+        # orthogonality projection runs, so it is applied on this path too.
+        # Returning `v` untouched here made `positivity='positive'` silently
+        # inert for the default `constraint_type`.
+        return apply_positivity(v_out, positivity).to(orig_dtype)
 
-        v_out = _unit_normalize_columns(v_out)
+    if negative:
+        # The solver only knows V >= 0; solve the reflected problem.
+        v_out = -v_out
+        nonneg = True
 
-    elif constraint_type == "NewtonSchulz":
-        from .utils import newton_schulz_orthogonalize
-        v_out = newton_schulz_orthogonalize(v_out, iterations=max(10, constraint_iterations))
-        
-        if sq != 0 and sparseness_alg == 'soft':
-            v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sq, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
+    w = constraint_weight
+    if isinstance(w, (list, tuple, np.ndarray)) and modality_index is not None:
+        w = w[modality_index]
+    w = float(w) if w and float(w) > 0 else NSA_DEFAULT_W
 
-        v_out = _unit_normalize_columns(v_out)
+    # The solver receives the SIGNED iterate.  With nonneg=True the feasible
+    # set Y >= 0 is enforced by the solver's projection; rectifying first
+    # computes prox(clamp(z)) rather than prox(z), which is not the proximal
+    # operator and breaks the descent argument for the outer loop.  (The
+    # rectified path had in fact been the live one on nsa_flow 3.0.x, because
+    # the backend moved `fidelity` into **kwargs and the signature probe that
+    # gated the signed path went False.)  Without nonneg there is nothing to
+    # choose: the sign is whatever the caller asked for.
+    candidate = (_resolve_column_sign_gauge(v_out) if nonneg
+                 else apply_positivity(v_out.clone(), positivity))
+    projected = _nsa_retract(candidate, w=w, nonneg=nonneg,
+                             diagnostics=retraction_diagnostics)
+    if projected is None and load_nsa_flow() is None:
+        raise ImportError(
+            "simlr_sparseness requires the NSA-Flow backend to project onto "
+            "the constrained set. Install nsa_flow, or pass "
+            "constraint_type='none' to skip projection. The previous SVD-polar "
+            "fallback projected onto a different set and was applied silently."
+        )
+    if projected is None:
+        # The backend is installed but returned something unusable (all-zero,
+        # NaN, wrong shape, or it raised). That is a runtime failure of the
+        # projection, not a missing install, and it must not be papered over
+        # with a different operator -- a zero basis used to propagate silently.
+        raise RuntimeError(
+            f"NSA-Flow returned an unusable projection for a "
+            f"{tuple(v_out.shape)} basis at w={w:.3g}, nonneg={nonneg}. "
+            f"No substitute is applied, because a different projection means a "
+            f"different feasible set. Inspect retraction_diagnostics, or pass "
+            f"constraint_type='none'."
+        )
+    if unit_columns is None:
+        unit_columns = energy_needs_unit_columns(energy_type)
+    if unit_columns:
+        projected = _unit_normalize_columns(projected)
 
-    elif constraint_type in ["ortho", "nsaflow", "ortho_ns", "nsaflow_ns", "ortho_polar", "nsaflow_polar"]:
-        if nsa_flow_orth and (constraint_weight > 0 or "nsaflow" in constraint_type):
-            w = constraint_weight if constraint_weight > 0 else NSA_DEFAULT_W
-            nonneg = (apply_nonneg == 'hard')
-            retracted = _nsa_retract(
-                _retraction_candidate(v_signed, v_out, nonneg), w=w,
-                nonneg=nonneg, diagnostics=retraction_diagnostics)
-            if retracted is not None:
-                v_out = retracted
-            elif not torch.isnan(v_out).any():
-                # Blend toward the polar factor by the same weight, which is the
-                # soft-retraction semantics the backend would have applied.
-                v_out = (1 - w) * v_out + w * _svd_polar(v_out)
-        elif constraint_weight > 0:
-            v_out = project_to_partially_orthonormal_nonnegative(v_out, max_iter=constraint_iterations, constraint=positivity, ortho_strength=constraint_weight)
-
-        # A soft orthogonality constraint does not pin down the column scale,
-        # so covariance-style energies such as "acc" (-sum|U'XV|) are unbounded
-        # below: the optimizer can keep improving them by inflating ||V||. The
-        # reported energy then diverges (observed magnitudes of ~1e8) and the
-        # relative-change convergence test becomes meaningless. Unit-norm
-        # columns fix the gauge without changing the subspace V spans.
-        if sq != 0 and sparseness_alg == 'soft':
-            v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sq, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
-
-        v_out = _unit_normalize_columns(v_out)
-
-    elif constraint_type == "none" and sq != 0 and sparseness_alg == 'soft':
-        v_out = orthogonalize_and_q_sparsify(v_out, sparseness_quantile=sq, positivity=positivity, orthogonalize=False, unit_norm=False, soft_thresholding=True)
-    
-    return v_out.to(orig_dtype)
+    if negative:
+        projected = -projected
+    return projected.to(orig_dtype)

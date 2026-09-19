@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pysimlr"
-version = "0.2.11"
+version = "0.2.12"
 description = "A professional PyTorch implementation of SIMLR"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -14,7 +14,14 @@ dependencies = [
     "numpy",
     "scipy",
     "pandas",
-    "scikit-learn"
+    "scikit-learn",
+    # Required, not optional. `simlr_sparseness` is a call to NSA-Flow: it is
+    # the projection that defines SiMLR's feasible set (non-negative,
+    # near-orthogonal, disjoint at w -> 1). The previous SVD-polar fallback
+    # projected onto a *different* set and was applied silently whenever the
+    # backend was missing, so the same code produced two different algorithms
+    # depending on the install.
+    "nsa_flow>=3.0.0",
 ]
 
 [project.optional-dependencies]
