@@ -3,9 +3,10 @@ import numpy as np
 from typing import List, Optional, Union, Dict, Any, Tuple, Callable
 from .svd import ba_svd, safe_pca
 from .optimizers import create_optimizer
-from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness
+from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness, NSA_DEFAULT_W
 from .utils import (set_seed_based_on_time, adjusted_rvcoef, safe_svd,
                     invariant_orthogonality_defect, l1_normalize_features, orthogonality_defect,
+                    gradient_orthogonality_defect,
                     orthogonality_summary, preprocess_data)
 from .consensus import compute_shared_consensus
 
@@ -504,6 +505,14 @@ def calculate_ica_gradient(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, no
     elif nonlinearity == "kurtosis": return (1.0 / n) * (x.t() @ u @ (s**3))
     return torch.zeros_like(v)
 
+#: Objectives with both an energy and a matching gradient. Anything else is
+#: refused by both, rather than silently evaluating to zero.
+SUPPORTED_ENERGY_TYPES = frozenset({
+    "regression", "acc", "logcosh", "exp", "gauss", "kurtosis",
+    "nc", "normalized_correlation", "dat",
+})
+
+
 def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, energy_type: str = "regression", lambda_val: float = 0.0, prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
     """
     Compute the energy (loss) for a single modality in SiMLR.
@@ -559,7 +568,12 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
     elif energy_type == "dat" and prior_matrix is not None:
         alignment = prior_matrix.to(x.dtype) @ v
         return -lambda_val * torch.sum(alignment**2)
-    return torch.tensor(0.0, dtype=u.dtype, device=u.device)
+    raise ValueError(
+        f"calculate_simlr_energy: energy_type={energy_type!r} is not "
+        f"implemented. This used to return 0.0, so an unsupported objective "
+        f"looked like a perfectly flat one. Supported: "
+        f"{sorted(SUPPORTED_ENERGY_TYPES)}."
+    )
 
 def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, 
                              energy_type: str = "regression", lambda_val: float = 0.0, 
@@ -595,15 +609,46 @@ def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor,
     """
     ica_types = ["logcosh", "exp", "gauss", "kurtosis"]
     u = u.to(x.dtype); v = v.to(x.dtype)
-    if energy_type == "regression": return 2 * (x.t() @ u - v)
+    if energy_type == "regression":
+        # -dE/dV for E = ||X - U V^T||_F^2 is 2 (X^T U - V U^T U).
+        #
+        # This used to return `2 * (x.t() @ u - v)`, dropping U^T U. That is
+        # the right direction only when U^T U = I, and it never is here:
+        # `compute_shared_consensus` returns column-standardised scores, so
+        # U^T U = (n-1) I -- 279 I on the 3-view case. The V term was therefore
+        # under-weighted by a factor of n-1 and the direction collapsed to the
+        # constant 2 X^T U, which does not depend on the iterate at all.
+        # Measured against finite differences with U ~ N(0,1), the shipped
+        # direction had cosine -0.0045 with true descent; it was orthogonal to
+        # the objective it claimed to minimise. See docs/audit/AUDIT_2026_09.md.
+        return 2 * (x.t() @ u - v @ (u.t() @ u))
     elif energy_type == "acc":
         cov = (u.t() @ x @ v) / (x.shape[0] - 1)
         return (x.t() @ u @ torch.sign(cov)) / (x.shape[0] - 1)
     elif energy_type in ica_types: return calculate_ica_gradient(x, u, v, nonlinearity=energy_type)
+    elif energy_type in ("normalized_correlation", "nc"):
+        # d/dV of corr = <U, XV> / (||U|| ||XV||), returned as a descent
+        # direction for E = -corr. This branch previously fell through to
+        # `torch.zeros_like(v)`: the energy was defined and differentiable
+        # (finite-difference gradient norm 0.134) but no gradient was ever
+        # written, so `energy_type="nc"` optimised nothing. V still moved,
+        # because the retraction runs every sweep, which is why it looked
+        # like it was working.
+        proj = x @ v
+        a = torch.norm(u)
+        b = torch.norm(proj)
+        denom = a * b + 1e-10
+        sdot = torch.sum(u * proj)
+        return x.t() @ (u / denom - sdot * proj / (denom * b * b + 1e-30))
     elif energy_type == "dat" and prior_matrix is not None: 
         prior_matrix = prior_matrix.to(x.dtype)
         return 2 * lambda_val * (prior_matrix.t() @ prior_matrix @ v)
-    return torch.zeros_like(v)
+    raise ValueError(
+        f"calculate_simlr_gradient: energy_type={energy_type!r} has no "
+        f"gradient. This used to return zeros, so the caller ran a loop that "
+        f"could not descend and reported it as a converged fit. Supported: "
+        f"{sorted(SUPPORTED_ENERGY_TYPES)}."
+    )
 
 def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           k: int,
@@ -612,7 +657,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           energy_type: str = "acc",
           constraint: str = "orthox0.1x1",
           mixing_algorithm: str = "svd",
-          sparseness_quantile: float = 0.5,
+          sparseness_quantile: float = 0.0,
           positivity: str = "either",
           smoothing_matrices: Optional[List[torch.Tensor]] = None,
           domain_matrices: Optional[List[Union[torch.Tensor, np.ndarray]]] = None,
@@ -623,7 +668,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           scale_list: List[str] = ["centerAndScale", "np"],
           consolidate: bool = False,
           use_nsa: bool = True,
-          nsa_w: float = 0.5,
+          nsa_w: Optional[float] = None,
           tol: float = 1e-6,
           verbose: bool = False,
           **opt_params) -> Dict[str, Any]:
@@ -747,6 +792,14 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     orig_dtype = torch_mats[0].dtype
     v_mats = initialize_simlr(torch_mats, k, positivity=positivity)
     opt_params.setdefault("use_nsa", use_nsa)
+    # One weight.  `constraint` sets the prox weight; the "nsa_flow" optimizer's
+    # intermediate soft retraction used to default to a DIFFERENT weight (0.5
+    # against 0.1), so one call applied two different operators.  Unless the
+    # caller separates them explicitly, they agree.  (parse_constraint is pure;
+    # the full parse below is unchanged.)
+    if nsa_w is None:
+        _w0 = parse_constraint(constraint)["weight"]
+        nsa_w = _w0 if _w0 > 0 else NSA_DEFAULT_W
     opt_params.setdefault("nsa_w", nsa_w)
     optimizer = create_optimizer(optimizer_type, v_mats, **opt_params)
     
@@ -770,8 +823,21 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     if torch_domains is not None and domain_lambdas is None:
         domain_lambdas = [1.0] * n_modalities
     
+    from .nsa_backend import load_gradient_mapping
+    _grad_mapping = load_gradient_mapping()
+    # The feasible set the certificate projects onto must match the one the
+    # iterate actually lives in, or the measure is of a different problem.
+    _want_nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg',
+                                  'softplus')
+    _cert_proj = (lambda z: torch.clamp(z, min=0.0)) if _want_nonneg else None
+
     energy_history = []
+    grad_map_history = []
+    n_degenerate_iterates = 0
+    stop_reason = "max_iter"
+    certificate = None
     prev_total_energy = float('inf')
+    prev_grad_map = float('inf')
     converged_iter = iterations
     # Alternating minimization is not monotone in the joint objective: each V_i
     # is optimized against a fixed u_i, and then u is recomputed from the new
@@ -790,7 +856,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     orth_weights = [1.0] * n_modalities
     domain_weights = [1.0] * n_modalities
     
+    prev_resid = [None] * n_modalities   # last prox-gradient fixed-point residual per view
     for it in range(iterations):
+        cert_terms = []
         projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
         u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
         # Capture the linear map this consensus used, so that
@@ -826,6 +894,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 return (sim_e + dom_e + orth_e).item()
 
             # Local gradient function that also incorporates manifold projection
+            raw_grad_holder = [None]
+
             def smooth_gradient_fn(v_curr):
                 # Evaluate at the feasible point the energy also uses.
                 v_feas = to_feasible(v_curr)
@@ -835,31 +905,78 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 if torch_domains is not None and torch_domains[i] is not None:
                     dom_grad = calculate_simlr_gradient(v_feas, torch_mats[i], u_i, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
                 
-                total_grad = sim_grad + dom_grad
+                # The energy `smooth_energy_fn` also carries an orthogonality
+                # term, so omitting it here made energy and gradient describe
+                # two different functions. Any line search or curvature
+                # estimate built from the pair was then inconsistent, and the
+                # stationarity certificate certified the wrong objective. The
+                # mismatch was survivable only while the fidelity gradient was
+                # itself ~(n-1) times too small; correcting that (see the
+                # `regression` branch of `calculate_simlr_gradient`) made the
+                # inconsistency dominate and drove `energy_reduction` to zero.
+                orth_grad = 0.0
+                if constraint_type == "ortho" and constraint_weight != 0.0:
+                    orth_grad = (gradient_orthogonality_defect(v_feas)
+                                 * constraint_weight * orth_weights[i])
+
+                total_grad = sim_grad + dom_grad - orth_grad
+                # Keep the analytic gradient before it is projected onto the
+                # tangent space and retracted. The retraction orthonormalises
+                # the direction and so throws its magnitude away, which is
+                # correct for a search direction and useless for a certificate:
+                # scoring the retracted direction returns a constant (3.0000 on
+                # the 3-view case, independent of how far from stationary the
+                # iterate is). The certificate has to see the real gradient.
+                raw_grad_holder[0] = total_grad.detach().clone()
                 # Project gradient onto tangent space
                 total_grad = project_gradient(total_grad, v_feas, constraint_type)
                 
-                # Smooth/retract the search *direction*. positivity is a
-                # constraint on the parameter, not on the direction: forcing the
-                # direction non-negative (as passing `positivity` here used to)
-                # lets the update push V only one way, so the iterate can never
-                # descend along any coordinate it has overshot. Feasibility is
-                # restored by re-projecting after the step, which is how
-                # projected gradient descent is supposed to work.
-                #
-                # Note: retracting the direction here orthonormalizes it and so
-                # discards its magnitude, which looks like it should block
-                # descent -- but skipping this step entirely changes the
-                # outcome by less than 0.0004 in latent recovery, so it is not
-                # what limits the iteration (see CORRECTNESS_AUDIT.md).
-                total_grad = simlr_sparseness(total_grad, constraint_type=constraint_type,
-                                              smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None,
-                                              positivity='either', sparseness_quantile=sparseness_quantile,
-                                              constraint_weight=constraint_weight, constraint_iterations=constraint_iterations,
-                                              energy_type=energy_type, modality_index=i)
+                # The search direction is NOT retracted.  Proximal gradient is
+                # `prox(v + eta * g)`: one operator, applied to the point, after
+                # the step.  The direction used to be passed through
+                # simlr_sparseness too (orthonormalising it and discarding its
+                # magnitude); CORRECTNESS_AUDIT.md measured that as changing
+                # latent recovery by < 0.0004, i.e. an extra solve per view per
+                # iteration that bought nothing, and it is not part of any
+                # proximal-gradient method.
                 return total_grad.contiguous()
 
             total_grad = smooth_gradient_fn(v_mats[i])
+            # Stationarity certificate at the iterate entering this sweep,
+            # using the gradient that was going to be computed anyway. See
+            # `nsa_backend.load_gradient_mapping`: energy plateau is not
+            # stationarity, and this loop previously claimed convergence with
+            # nothing measuring the latter.
+            # Stationarity certificate for THE PROBLEM BEING SOLVED.  This loop
+            # is proximal gradient on E + w*Dtilde over the feasible set, whose
+            # fixed points satisfy v = prox(v + eta*d(v)).  The right residual is
+            # therefore the relative fixed-point residual ||v+ - v|| / ||v||,
+            # computed after the step and prox below.  The gradient mapping of
+            # E alone under the sign projection -- what used to be certified --
+            # is NOT zero at that fixed point (it settled at 6.2 on a problem
+            # the iteration had converged on) and is kept only as a diagnostic.
+            gm_E = None
+            if _grad_mapping is not None and raw_grad_holder[0] is not None:
+                try:
+                    gm_E = float(_grad_mapping(v_mats[i], raw_grad_holder[0],
+                                               _cert_proj))
+                except Exception:
+                    gm_E = None
+            gm_i = prev_resid[i]
+            # A view certified stationary takes no step and is not re-projected.
+            # Proximal gradient has nothing to do at a stationary point, and
+            # doing it anyway is not free: the prox is solved to `tol`, so
+            # re-applying it to its own output moves the basis by O(tol) per
+            # sweep -- measured as a 5e-5 drift in the overall energy over 12
+            # sweeps from an already-optimal initialisation, which the
+            # first-vs-last monotonicity tests caught.  The first sweep always
+            # projects, so a raw initialisation never bypasses the constraint.
+            if gm_i is not None and gm_i <= tol and it > 0:
+                cert_terms.append(gm_i)
+                retraction_diags[i] = {"skipped": "stationary", "fixed_point_residual": gm_i,
+                                       "grad_map_E": gm_E}
+                continue
+            v_before = v_mats[i].detach().clone()
             # Optimizers that re-evaluate along their own line search (LBFGS)
             # need to recompute the analytic gradient at each trial point.
             if hasattr(optimizer, "gradient_function"):
@@ -869,6 +986,12 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             # Apply final projection
             retraction_diags[i] = {}
             v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness_quantile=sparseness_quantile, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type, modality_index=i, retraction_diagnostics=retraction_diags[i])
+            resid = float(torch.linalg.norm(v_mats[i] - v_before)
+                          / torch.linalg.norm(v_before).clamp_min(1e-300))
+            prev_resid[i] = resid
+            cert_terms.append(resid)
+            retraction_diags[i]["fixed_point_residual"] = resid
+            retraction_diags[i]["grad_map_E"] = gm_E
             
         if it == 0:
             for i in range(n_modalities):
@@ -890,17 +1013,68 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             
         energy_history.append(total_energy)
 
-        if total_energy < best_total_energy:
+        # A modality whose basis is identically zero contributes zero energy,
+        # so the cheapest way to reduce a *sum* of per-view energies is to kill
+        # a view. Selecting the lowest-energy iterate therefore selects the
+        # degenerate one: on the 3-view case the loop returned V with view 0
+        # entirely zero at total energy 2/3 (exactly one of three views
+        # surviving), and reported it as `best_iteration=1`.
+        #
+        # A rank-deficient basis is not a solution to a rank-k problem, so such
+        # an iterate is not eligible to be "best" however low its energy.
+        iterate_is_degenerate = any(
+            not bool((v.detach().abs() > 1e-12).any(dim=0).all()) for v in v_mats
+        )
+        if total_energy < best_total_energy and not iterate_is_degenerate:
             best_total_energy = total_energy
             best_v_mats = [v.clone() for v in v_mats]
             best_retraction_diags = [dict(d) for d in retraction_diags]
+        if iterate_is_degenerate:
+            n_degenerate_iterates += 1
         
-        # Check for convergence
-        if abs(prev_total_energy - total_energy) < tol * (abs(prev_total_energy) + 1e-10):
-            if verbose: print(f"Converged at iteration {it}: Total Energy {total_energy}")
+        # Stopping. An energy plateau is not stationarity: the total energy is
+        # normalised to 1.0 at iteration 0, so a loop that is barely descending
+        # produces relative changes below `tol` within two or three sweeps and
+        # the old test then declared convergence. Measured on the 3-view case
+        # it fired at iteration 3 for every problem and every `iterations`,
+        # so the argument never bound; with the test disabled one seed carried
+        # on improving from R^2 0.300 to 0.366.
+        #
+        # `grad_map` is the certificate: dimensionless, scale invariant, and
+        # zero exactly at a stationary point of the constrained problem. Only
+        # it may claim convergence. A plateau still stops the loop -- there is
+        # no point burning sweeps that do nothing -- but it is certified only
+        # when the certificate is also within a wide band of stationarity,
+        # following nsa_flow's `CERTIFICATES` contract.
+        this_grad_map = max(cert_terms) if cert_terms else float("nan")
+        grad_map_history.append(this_grad_map)
+
+        energy_stalled = abs(prev_total_energy - total_energy) < tol * (
+            abs(prev_total_energy) + 1e-10)
+
+        if cert_terms and this_grad_map <= tol:
+            stop_reason, certificate = "grad_map", "stationary"
             converged_iter = it + 1
+            if verbose: print(f"Stationary at iteration {it}: grad_map {this_grad_map:.3e}")
             break
+
+        cert_stalled = (
+            not cert_terms
+            or abs(prev_grad_map - this_grad_map) < tol * (abs(prev_grad_map) + 1e-10)
+        )
+        if energy_stalled and cert_stalled:
+            stop_reason = "plateau"
+            # Weaker than stationary, and only claimed near it.
+            certificate = ("numerical_floor"
+                           if cert_terms and this_grad_map <= 1e3 * tol else None)
+            converged_iter = it + 1
+            if verbose:
+                print(f"Plateau at iteration {it}: energy {total_energy}, "
+                      f"grad_map {this_grad_map:.3e}, certificate {certificate}")
+            break
+
         prev_total_energy = total_energy
+        prev_grad_map = this_grad_map
         
         if verbose and it % 10 == 0: print(f"Iteration {it}: Total Energy {total_energy}")
         
@@ -959,7 +1133,24 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "u": u, "v": v_mats, "w": w_mats, "energy": energy_history, 
         "normalizing_weights": normalizing_weights, 
         "orth_weights": orth_weights, "domain_weights": domain_weights, 
-        "converged_iter": converged_iter, "v_orthogonality": v_summaries,
+        "converged_iter": converged_iter,
+        # The stopping claim, and what backs it. `converged` is True only with
+        # a certificate; `stop_reason` says why iteration ceased either way,
+        # and `energy_reduction` answers "did this optimise anything at all",
+        # which a bare `converged_iter` never could.
+        "stop_reason": stop_reason,
+        "certificate": certificate,
+        "converged": certificate is not None,
+        "grad_map": (grad_map_history[-1] if grad_map_history else None),
+        "grad_map_history": grad_map_history,
+        # How many sweeps produced a rank-deficient basis. Nonzero means the
+        # objective is rewarding collapse and the result should be read with
+        # that in mind, even though such iterates can no longer be returned.
+        "n_degenerate_iterates": n_degenerate_iterates,
+        "energy_start": (energy_history[0] if energy_history else None),
+        "energy_reduction": ((energy_history[0] - min(energy_history))
+                             if energy_history else None),
+        "v_orthogonality": v_summaries,
         "best_energy": best_total_energy,
         "best_iteration": (int(np.argmin(energy_history)) if energy_history else None),
         # What the retraction solver reported for each modality: the stopping

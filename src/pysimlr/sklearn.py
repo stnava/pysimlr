@@ -89,7 +89,7 @@ class SiMLREstimator(BaseEstimator, TransformerMixin):
         Whether to enforce strictly disjoint module supports (zero crosstalk, zero lobe overlap).
     use_nsa : bool, default=True
         Whether to enable NSA-Flow manifold retractions during optimization.
-    nsa_w : float, default=0.5
+    nsa_w : float, default=0.1 (the wrapped function's default)
         NSA-Flow trade-off stiffness weight between data fidelity and orthogonality.
     scale : bool, default=True
         Whether to standardize features prior to fitting.
@@ -113,7 +113,7 @@ class SiMLREstimator(BaseEstimator, TransformerMixin):
         positivity: str = "either",
         consolidate: bool = True,
         use_nsa: bool = True,
-        nsa_w: float = 0.5,
+        nsa_w: float = 0.1,
         scale: bool = True,
         tol: float = 1e-6,
         verbose: bool = False,
@@ -297,7 +297,7 @@ class LENDTransformer(BaseEstimator, TransformerMixin):
         Latent consensus formation algorithm.
     use_nsa : bool, default=True
         Whether to enforce Stiefel manifold constraints via NSA-Flow.
-    nsa_w : float, default=0.5
+    nsa_w : float, default=0.1 (the wrapped function's default)
         NSA-Flow trade-off parameter.
     consolidate : bool, default=True
         Whether to consolidate supports for strictly disjoint modules.
@@ -315,7 +315,7 @@ class LENDTransformer(BaseEstimator, TransformerMixin):
         energy_type: str = "acc",
         mixing_algorithm: str = "newton",
         use_nsa: bool = True,
-        nsa_w: float = 0.5,
+        nsa_w: float = 0.1,
         consolidate: bool = True,
         verbose: bool = False,
         random_state: Optional[int] = None,
@@ -388,7 +388,7 @@ class NEDTransformer(BaseEstimator, TransformerMixin):
         energy_type: str = "acc",
         mixing_algorithm: str = "newton",
         use_nsa: bool = True,
-        nsa_w: float = 0.5,
+        nsa_w: float = 0.1,
         verbose: bool = False,
         random_state: Optional[int] = None,
     ):
@@ -458,7 +458,7 @@ class FlowSiMLRTransformer(BaseEstimator, TransformerMixin):
         energy_type: str = "regression",
         mixing_algorithm: str = "newton",
         use_nsa: bool = True,
-        nsa_w: float = 0.5,
+        nsa_w: float = 0.1,
         verbose: bool = False,
         random_state: Optional[int] = None,
     ):

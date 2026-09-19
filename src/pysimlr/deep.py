@@ -1457,6 +1457,37 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     first_layer_training = {"mode": getattr(getattr(model, "encoders", getattr(model, "linear_encoders", [None]))[0], "first_layer_mode", None) if (hasattr(model, "encoders") or hasattr(model, "linear_encoders")) else None, "stabilization_start_epoch": stabilization_start_epoch, "stabilization_ramp_epochs": stabilization_ramp_epochs, "projection_alpha_history": projection_alpha_history, "basis_drift_history": basis_drift_history}
     return loss_history, recon_history, sim_history, converged_epoch, first_layer_training
 
+
+def _finalize_bases(v_mats, positivity, nsa_w, energy_type):
+    """Project the returned bases with the SAME operator the linear method uses.
+
+    During training the deep encoders hold their basis on the
+    ``NSAFlowLinear`` blend plus a clamp and a column normalisation -- a cheap
+    surrogate that is fine for gradient steps but is not the feasible set
+    ``simlr`` returns its bases on.  Routing every access through the solver
+    was measured at 26x per access and dropped; projecting ONCE at the end costs
+    one solve per view and puts every method's ``result["v"]`` on the same set,
+    with the same certificate.  Scores are recomputed as ``X @ V`` from the
+    projected basis so the first-layer contract stays exact.  ``unit_columns``
+    keeps the encoders' unit-norm convention (a gauge; the energy is even in it).
+    Returns ``(bases, diagnostics)``; on a missing backend the inputs pass
+    through and the diagnostics say so.
+    """
+    from .sparsification import simlr_sparseness
+    out, diags = [], []
+    for v in v_mats:
+        d = {}
+        try:
+            v_f = simlr_sparseness(v.double(), constraint_type="orth",
+                                   positivity=positivity, constraint_weight=nsa_w,
+                                   energy_type=energy_type, unit_columns=True,
+                                   retraction_diagnostics=d).to(v.dtype)
+        except (ImportError, RuntimeError) as exc:
+            v_f, d = v, {"error": repr(exc)[:200]}
+        out.append(torch.nan_to_num(v_f, nan=0.0, posinf=0.0, neginf=0.0)); diags.append(d)
+    return out, diags
+
+
 def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False, **kwargs) -> Dict[str, Any]:
     """
@@ -1536,9 +1567,10 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
         u_aggregate = (_aggregate_shared_consensus(model, final_latents)
                        if isinstance(u_final, list) else u_final)
         v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.encoders]
-        first_layer_scores = [torch.nan_to_num(z.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for z in model.encode_first_layer(eval_mats, use_projected=True)]
+        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type)
+        first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "lend_simr", "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
+    result = {"model": model.cpu(), "model_type": "lend_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
     result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
@@ -1626,9 +1658,10 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
         u_aggregate = (_aggregate_shared_consensus(model, final_latents)
                        if isinstance(u_final, list) else u_final)
         v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.linear_encoders]
-        first_layer_scores = [torch.nan_to_num(z.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for z in model.encode_first_layer(eval_mats, use_projected=True)]
+        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type)
+        first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "ned_simr", "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
+    result = {"model": model.cpu(), "model_type": "ned_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
     result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
@@ -1744,9 +1777,10 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         u_aggregate = (_aggregate_shared_consensus(model, final_shared)
                        if isinstance(u_final, list) else u_final)
         v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.linear_encoders]
-        first_layer_scores = [torch.nan_to_num(z.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for z in model.encode_first_layer(eval_mats, use_projected=True)]
+        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type)
+        first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "ned_shared_private", "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_shared], "private_latents": [torch.nan_to_num(p.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for p in final_private], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
+    result = {"model": model.cpu(), "model_type": "ned_shared_private", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_shared], "private_latents": [torch.nan_to_num(p.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for p in final_private], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
     result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, final_recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}

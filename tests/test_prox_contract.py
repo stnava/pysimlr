@@ -115,3 +115,53 @@ def test_all_negative_column_is_flipped_not_zeroed_not_reflected():
     mixed = z[:, 1]
     assert (y[:, 1][mixed < 0] == 0).all() or float(torch.linalg.vector_norm(
         (-mixed).clamp_min(0))) > float(torch.linalg.vector_norm(mixed.clamp_min(0)))
+
+
+# ------------------------------------------------ consistency across methods
+
+def test_nsa_flow_optimizer_step_is_the_signfree_anchored_prox():
+    import nsa_flow
+    from pysimlr.optimizers import NSAFlowOptimizer
+    v = [torch.randn(30, 4, dtype=torch.float64)]
+    g = torch.randn(30, 4, dtype=torch.float64)
+    opt = NSAFlowOptimizer("nsa_flow", v, learning_rate=0.1, nsa_w=0.3)
+    out = opt.step(0, v[0], g)
+    ref = nsa_flow.nsa_flow((v[0] + 0.1 * g).double(), w=0.3, mode="anchored",
+                            fidelity="anchor", nonneg=False).Y
+    assert torch.allclose(out.double(), ref, atol=1e-8)
+
+
+def test_simlr_defaults_do_not_trigger_the_deprecated_path():
+    import warnings
+    from pysimlr.simlr import simlr
+    torch.manual_seed(0)
+    X = [torch.randn(60, 8), torch.randn(60, 6)]
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        simlr(X, k=2, iterations=3, verbose=False)
+    assert not [x for x in w if issubclass(x.category, DeprecationWarning)
+                and "simlr_sparseness" in str(x.message)]
+
+
+def test_simlr_one_weight_unless_separated():
+    """nsa_w defaults to the prox weight parsed from `constraint`."""
+    from pysimlr.simlr import parse_constraint
+    assert parse_constraint("orthox0.3x1")["weight"] == 0.3
+
+
+def test_deep_result_bases_are_prox_fixed_points():
+    """The returned deep bases lie on the same feasible set as simlr's:
+    applying the prox again changes nothing."""
+    from pysimlr import lend_simr
+    torch.manual_seed(0)
+    X = [torch.randn(80, 10), torch.randn(80, 7)]
+    res = lend_simr(X, k=3, epochs=3, positivity="positive", nsa_w=0.3,
+                    verbose=False)
+    assert "retraction_diagnostics" in res
+    for v, d in zip(res["v"], res["retraction_diagnostics"]):
+        assert d.get("fidelity_mode") == "anchor", d
+        again = simlr_sparseness(v.double(), constraint_type="orth", positivity="positive",
+                                 constraint_weight=0.3, energy_type="regression",
+                                 unit_columns=True)
+        assert torch.allclose(again, v.double(), atol=1e-6, rtol=1e-5)
+        assert (v >= 0).all()

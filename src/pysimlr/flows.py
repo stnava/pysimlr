@@ -975,6 +975,8 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     
     # Extract linear projection matrices V
     v_mats = [enc.v.detach().cpu() for enc in model.linear_encoders]
+    from .deep import _finalize_bases
+    v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type)
     
     result = {
         'model': model.cpu(),
@@ -983,6 +985,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         'latents': [l.cpu() for l in final_latents],
         'reconstructions': [r.cpu() for r in recons],
         'v': v_mats,
+        'retraction_diagnostics': retraction_diagnostics,
         'loss_history': loss_h,
         'recon_history': recon_h,
         'sim_history': sim_h,

@@ -143,7 +143,14 @@ def test_stress_bidirectional_armijo_inverts_uphill_gradient():
 
 
 def test_stress_simlr_armijo_monotonic_correlation_ascent():
-    """Verify full SiMLR with armijo_gradient improves cross-view correlation on ill-conditioned data, with a bounded, settling objective."""
+    """Verify full SiMLR with armijo_gradient improves cross-view correlation on ill-conditioned data, with a bounded, settling objective.
+
+    Run without the orthogonality constraint: with it, the iteration correctly
+    converges to the optimum of E + w*Dtilde, whose correlation energy is
+    slightly above the unconstrained optimum the SVD initialisation already
+    sits at, so first-vs-last monotonicity of E alone is not a property of the
+    constrained method (see docs/theory/SIMLR_THEORY.md S8).
+    """
     torch.manual_seed(123)
     n = 60
     # Ill-conditioned data: condition number > 1e4
@@ -152,7 +159,8 @@ def test_stress_simlr_armijo_monotonic_correlation_ascent():
     x1 = (u_true @ torch.randn(2, 5)) * scales + torch.randn(n, 5) * 0.1
     x2 = (u_true @ torch.randn(2, 6)) + torch.randn(n, 6) * 0.1
 
-    res = simlr([x1, x2], k=2, iterations=12, optimizer_type="armijo_gradient", energy_type="acc")
+    res = simlr([x1, x2], k=2, iterations=12, optimizer_type="armijo_gradient", energy_type="acc",
+                constraint="orthox0")  # the optimizer is under test, not the constraint
     energy_history = res["energy"]
 
     # In acc mode, energy = -sum(|cov|), so decreasing energy == increasing correlation
@@ -193,7 +201,8 @@ def test_stress_simlr_bidirectional_armijo_acc_correlation_ascent():
     x1 = u_true @ torch.randn(2, 8) + torch.randn(n, 8) * 0.1
     x2 = u_true @ torch.randn(2, 6) + torch.randn(n, 6) * 0.1
 
-    res = simlr([x1, x2], k=2, iterations=10, optimizer_type="bidirectional_armijo_gradient", energy_type="acc")
+    res = simlr([x1, x2], k=2, iterations=10, optimizer_type="bidirectional_armijo_gradient", energy_type="acc",
+                constraint="orthox0")  # the optimizer is under test, not the constraint
     assert not torch.isnan(res["u"]).any()
     energy_history = res["energy"]
     assert energy_history[-1] <= energy_history[0], "Overall energy did not decrease across iterations"

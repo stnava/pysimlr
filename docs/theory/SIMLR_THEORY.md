@@ -348,3 +348,40 @@ Not done
   `svd`/`pca` mixings written as a polar factor, `nsa_flow.polar_factor`'s
   Sylvester backward (`h_i + h_j` denominators) is the stable differentiable
   path at repeated singular values; `ica` stays out.
+
+### Consistency pass across methods (pysimlr 0.2.13)
+
+Each method was stepped through in order of complexity and made consistent
+with the shared prox of §8.
+
+`simlr` (linear)
+: The search *direction* is no longer passed through `simlr_sparseness`
+  (an extra solve per view per sweep that CORRECTNESS_AUDIT.md had measured
+  at < 0.0004 effect and that is not part of proximal gradient). One weight:
+  `nsa_w=None` now defaults to the prox weight parsed from `constraint`, so
+  the `"nsa_flow"` optimizer's intermediate retraction and the prox agree
+  unless the caller separates them. `sparseness_quantile` defaults to its
+  no-op value `0.0` (the old `0.5` fired the deprecation path three times per
+  sweep). A view whose certificate is `<= tol` takes no step and is not
+  re-projected after the first sweep.
+
+`NSAFlowOptimizer`
+: Its intermediate retraction is the same operator family in sign-free form,
+  `nsa_flow(z, w, mode="anchored", fidelity="anchor", nonneg=False)`, on the
+  default solver. It had been requesting the deprecated `torch_lbfgs` with a
+  `max_iter=5` fallback.
+
+`lend_simr`, `ned_simr`, `ned_simr_shared_private`, `flow_simr`
+: The encoders keep their training-time surrogate (`NSAFlowLinear` blend +
+  clamp + normalise; routing every access through the solver was 26x per
+  access). The **returned** bases are now projected once with the shared prox
+  (`_finalize_bases`, `unit_columns=True` to keep the encoders' gauge), first-
+  layer scores are recomputed as `X @ V` from the projected basis so the
+  contract is exact, and `result["retraction_diagnostics"]` carries the
+  certificate per view. Tested: the returned bases are fixed points of the
+  prox.
+
+sklearn wrappers
+: `nsa_w` defaults match the wrapped functions (`None` -> prox weight for
+  `SiMLREstimator`; `0.1` for LEND/NED/Flow, which had silently been `0.5`);
+  `sparseness_quantile` defaults to `0.0`.
