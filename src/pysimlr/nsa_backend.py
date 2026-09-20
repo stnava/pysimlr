@@ -151,6 +151,82 @@ def load_nsa_flow_data() -> Optional[Any]:
 
 
 @lru_cache(maxsize=1)
+def load_gradient_mapping() -> Optional[Any]:
+    """
+    Resolve NSA-Flow's scale-invariant stationarity certificate.
+
+    Returns
+    -------
+    callable or None
+        ``gradient_mapping(Y, grad, proj=...) -> float``, evaluating
+        ``||P(Y - ||Y||_F^2 grad) - Y||_F / ||Y||_F``, or None when the backend
+        is absent or too old to expose it.
+
+    Notes
+    -----
+    This is the quantity that makes one ``tol`` mean the same thing on every
+    problem: the fixed step ``t = ||Y||_F^2`` cancels the scale of ``Y``, so
+    the measure is dimensionless and vanishes exactly at a stationary point of
+    the *constrained* problem. It lives in ``nsa_flow.diagnostics``, which is
+    not re-exported from the package root, so it is probed on the submodule.
+
+    pysimlr needs it because `simlr` had no certificate at all: it stopped when
+    the total energy stopped moving, and the total energy is renormalised every
+    iteration by ``normalizing_weights``, which pins it to 1.0. The test
+    therefore fired at iteration 3 on every problem and ``iterations`` never
+    bound. A certificate makes the stopping claim checkable.
+    """
+    module = load_nsa_backend()
+    if module is None:
+        return None
+    fn = getattr(module, "gradient_mapping", None)
+    if not callable(fn):
+        try:
+            from importlib import import_module
+            fn = getattr(import_module(f"{module.__name__}.diagnostics"),
+                         "gradient_mapping", None)
+        except Exception:
+            return None
+    return fn if callable(fn) else None
+
+
+@lru_cache(maxsize=1)
+def load_lbfgsb() -> Optional[Any]:
+    """
+    Resolve NSA-Flow's pure-PyTorch bound-constrained L-BFGS-B.
+
+    Returns
+    -------
+    callable or None
+        ``lbfgsb_minimize(x0, fun_grad, fun=None, *, lower=0.0, upper=None,
+        mask=None, max_grad=..., tol=..., certificate=...)`` returning a dict
+        with ``x, f, n_grad, iters, stop, grad_map``; None when unavailable.
+
+    Notes
+    -----
+    Byrd-Lu-Nocedal-Zhu, written against torch so it stays on device. The
+    reason to prefer it over the projected-gradient and ``torch_lbfgs`` paths
+    here is the generalized Cauchy point: projected gradient is confined to a
+    diagonal metric, and two-metric projection releases at most one bound per
+    iteration, whereas the Cauchy search can identify the whole active set in
+    one step. On these objectives roughly half the coordinates sit at zero, so
+    that is the difference between moving the support and freezing it.
+    """
+    module = load_nsa_backend()
+    if module is None:
+        return None
+    fn = getattr(module, "lbfgsb_minimize", None)
+    if not callable(fn):
+        try:
+            from importlib import import_module
+            fn = getattr(import_module(f"{module.__name__}.lbfgsb"),
+                         "lbfgsb_minimize", None)
+        except Exception:
+            return None
+    return fn if callable(fn) else None
+
+
+@lru_cache(maxsize=1)
 def load_nsa_flow_orth() -> Optional[Any]:
     """Deprecated alias of :func:`load_nsa_flow`, kept for callers."""
     return load_nsa_flow()
