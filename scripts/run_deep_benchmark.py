@@ -193,7 +193,8 @@ def run_experiment_task(task_args: tuple) -> dict:
         "use_nsa": True,
         "positivity": "positive",
         "nsa_w": 0.5,
-        "sparseness_quantile": 0.5,
+        # sparseness_quantile is ignored: sparsity is a consequence of w.
+        "sparseness_quantile": 0.0,
         "nsa_iterations": 3,
         "consolidate": True,
     }
