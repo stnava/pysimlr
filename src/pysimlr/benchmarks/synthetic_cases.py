@@ -233,6 +233,111 @@ def build_shared_plus_private_case(n_samples: int = 1000,
         "private_k": private_k
     }
 
+def build_nonnegative_parts_case(n_samples: int = 400,
+                                 shared_k: int = 3,
+                                 p_list: List[int] = [60, 40, 30],
+                                 noise_scale: float = 0.3,
+                                 seed: int = 42,
+                                 signal_component: int = 0,
+                                 **kwargs) -> Dict[str, Any]:
+    r"""
+    Generate data whose ground-truth basis is non-negative, sparse and disjoint.
+
+    Every other generator in this module draws its loadings with
+    ``torch.randn``, so the true ``V`` is signed and dense. A method
+    constrained to ``V >= 0`` cannot represent that basis, and whether a
+    particular draw happens to be recoverable inside the non-negative cone is
+    luck. Ablating ``positivity`` on the 3-view generator makes the size of the
+    effect plain -- on the draws where SiMLR collapsed, lifting the constraint
+    moved test R-squared from 0.296, 0.321 and 0.348 to 0.966, 0.965 and 0.685,
+    while on a draw where it had succeeded the constraint was worth +0.13.
+
+    That is a property of the simulation, not of the estimator: the benchmark
+    was asking non-negative parts-based methods to fit a signed dense truth. A
+    comparison that only ever poses that question can show that constraining
+    costs accuracy, but it cannot show what the constraint buys, because there
+    is no regime in which the constraint is true.
+
+    This case supplies that regime. Each view's loading matrix has exactly one
+    non-zero block per component, the blocks partition the features, and every
+    entry is non-negative -- the structure `consolidate=True` and
+    ``positivity='positive'`` are built to find.
+
+    Parameters
+    ----------
+    n_samples : int, default=400
+        Rows to generate.
+    shared_k : int, default=3
+        Rank of the shared latent space, and the number of disjoint parts.
+    p_list : List[int], default=[60, 40, 30]
+        Features per view. Each is partitioned into ``shared_k`` blocks.
+    noise_scale : float, default=0.3
+        Standard deviation of the additive Gaussian noise.
+    seed : int, default=42
+        Random seed.
+    signal_component : int, default=0
+        Which latent drives the outcome. The latents are generated with
+        decreasing variance, so ``0`` puts the signal in the dominant
+        direction (where PCA finds it for free) and ``shared_k - 1`` puts it
+        in the weakest one (where a variance-ranked method has no reason to
+        retain it). See `build_case` kind ``'nonneg_parts_weak'``.
+    **kwargs : Dict[str, Any]
+        Supports ``noise_level`` as an alias for ``noise_scale``.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Standardised case dictionary. ``true_v`` entries are non-negative with
+        disjoint column supports.
+    """
+    if 'noise_level' in kwargs:
+        noise_scale = kwargs['noise_level']
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    if not 0 <= signal_component < shared_k:
+        raise ValueError(
+            f"signal_component must be in [0, {shared_k}), got {signal_component}."
+        )
+
+    # Non-negative latents with deliberately unequal scales, so that "which
+    # component carries the outcome" is a real question rather than a relabel.
+    scales = torch.tensor([1.0 / (1.0 + 1.5 * i) for i in range(shared_k)])
+    true_u = torch.rand(n_samples, shared_k) * scales
+
+    data_matrices = []
+    v_true = []
+    for p in p_list:
+        if p < shared_k:
+            raise ValueError(f"Each view needs at least shared_k={shared_k} features, got p={p}.")
+        v = torch.zeros(p, shared_k)
+        # Partition the features into shared_k contiguous blocks of a random
+        # permutation, so the supports are disjoint by construction.
+        order = torch.randperm(p)
+        bounds = np.linspace(0, p, shared_k + 1).astype(int)
+        for j in range(shared_k):
+            block = order[bounds[j]:bounds[j + 1]]
+            # Uniform on [0.5, 1.5]: strictly positive, so the support is the
+            # block exactly and is not softened by near-zero entries.
+            v[block, j] = 0.5 + torch.rand(len(block))
+        x = true_u @ v.t() + torch.randn(n_samples, p) * noise_scale
+        data_matrices.append(x)
+        v_true.append(v)
+
+    outcome_signal = (true_u[:, signal_component] * 3.0
+                      + torch.randn(n_samples) * 0.2)
+
+    return {
+        "kind": "nonnegative_parts",
+        "data": data_matrices,
+        "true_u": true_u,
+        "true_v": v_true,
+        "outcome": outcome_signal,
+        "shared_k": shared_k,
+        "signal_component": signal_component,
+    }
+
+
 def build_case(kind: str = "nonlinear_shared", **kwargs) -> Dict[str, Any]:
     """
     Factory function to generate synthetic benchmark cases for SiMLR.
@@ -270,12 +375,19 @@ def build_case(kind: str = "nonlinear_shared", **kwargs) -> Dict[str, Any]:
     builders = {
         "linear": build_linear_footprint_case,
         "nonlinear": build_nonlinear_shared_case,
-        "shared_plus_private": build_shared_plus_private_case
+        "shared_plus_private": build_shared_plus_private_case,
+        # Non-negative, sparse, disjoint ground truth -- the regime in which
+        # the structural constraints are true rather than violated.
+        "nonneg_parts": build_nonnegative_parts_case,
+        # Same basis, but the outcome is carried by the weakest latent, so the
+        # top-variance subspace is no longer the right answer by construction.
+        "nonneg_parts_weak": lambda **kw: build_nonnegative_parts_case(
+            **{**kw, "signal_component": kw.get("shared_k", 3) - 1}),
     }
     # Backward compat
     if kind == "nonlinear_shared": kind = "nonlinear"
     if kind == "linear_footprint": kind = "linear"
-    
+
     if kind not in builders:
         raise ValueError(f"Unknown case kind: {kind}")
     return builders[kind](**kwargs)

@@ -17,6 +17,53 @@ def filter_kwargs(func: Callable, kwargs: Dict[str, Any]) -> Dict[str, Any]:
     sig = inspect.signature(func)
     return {k: v for k, v in kwargs.items() if k in sig.parameters}
 
+
+def split_indices(n_samples: int,
+                  seed: int,
+                  train_frac: float = 0.7,
+                  stratify: Optional[torch.Tensor] = None) -> tuple:
+    """
+    Draw a train/test row split that actually depends on ``seed``.
+
+    Parameters
+    ----------
+    n_samples : int
+        Number of rows to split.
+    seed : int
+        Controls the permutation, so two seeds give two different splits.
+    train_frac : float, default=0.7
+        Fraction of rows assigned to training.
+    stratify : torch.Tensor, optional
+        Class labels. When given, each class is split at ``train_frac``
+        separately so a seed cannot produce a test fold missing a class.
+
+    Returns
+    -------
+    tuple
+        ``(train_idx, test_idx)`` as int64 tensors.
+    """
+    g = np.random.default_rng(seed)
+    if stratify is None:
+        perm = g.permutation(n_samples)
+        cut = int(n_samples * train_frac)
+        tr, te = perm[:cut], perm[cut:]
+    else:
+        labels = np.asarray(
+            stratify.detach().cpu().numpy() if isinstance(stratify, torch.Tensor)
+            else stratify
+        ).ravel()
+        tr_parts, te_parts = [], []
+        for cls in np.unique(labels):
+            idx = np.flatnonzero(labels == cls)
+            idx = g.permutation(idx)
+            # At least one row of every class on each side of the split.
+            cut = min(max(int(len(idx) * train_frac), 1), len(idx) - 1)
+            tr_parts.append(idx[:cut])
+            te_parts.append(idx[cut:])
+        tr = g.permutation(np.concatenate(tr_parts))
+        te = g.permutation(np.concatenate(te_parts))
+    return torch.as_tensor(tr, dtype=torch.long), torch.as_tensor(te, dtype=torch.long)
+
 def run_single_experiment(model_type: str, 
                           case: Dict[str, Any], 
                           sparsity: float = 0.0, 
@@ -28,13 +75,38 @@ def run_single_experiment(model_type: str,
     k = case["shared_k"]
     
     n_samples = data_all[0].shape[0]
-    train_size = int(n_samples * 0.7)
-    
-    train_mats = [m[:train_size] for m in data_all]
-    test_mats = [m[train_size:] for m in data_all]
-    u_true_test = u_all[train_size:]
-    y_test = y_all[train_size:]
-    y_train = y_all[:train_size]
+
+    # The split is drawn from `seed` rather than taken as the leading 70% of
+    # rows. A prefix split makes the whole experiment deterministic for any
+    # dataset that is itself fixed: `Heart` and `Diabetes` are loaded from disk
+    # and ignore the seed, so ten "independent" replicates of them were ten
+    # byte-identical rows. Those duplicates then entered the Friedman and
+    # permutation tests as if they were independent blocks.
+    train_idx, test_idx = split_indices(
+        n_samples, seed=seed, train_frac=0.7,
+        stratify=y_all if case.get("is_classification") else None,
+    )
+
+    train_mats = [m[train_idx] for m in data_all]
+    test_mats = [m[test_idx] for m in data_all]
+
+    # Standardise with statistics from the training split only. Cases that
+    # carry `needs_scaling` deliberately hand over unscaled features: fitting a
+    # StandardScaler on the full cohort before the split leaks the test fold's
+    # own mean and variance into its features, which is the same mistake as
+    # fitting a basis outside the cross-validation loop. Synthetic cases are
+    # left untouched, since they were never scaled here.
+    if case.get("needs_scaling"):
+        from sklearn.preprocessing import StandardScaler as _SS
+        scaled_train, scaled_test = [], []
+        for tr_m, te_m in zip(train_mats, test_mats):
+            sc = _SS().fit(tr_m.numpy())
+            scaled_train.append(torch.tensor(sc.transform(tr_m.numpy())).float())
+            scaled_test.append(torch.tensor(sc.transform(te_m.numpy())).float())
+        train_mats, test_mats = scaled_train, scaled_test
+    u_true_test = u_all[test_idx]
+    y_test = y_all[test_idx]
+    y_train = y_all[train_idx]
     
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -60,6 +132,15 @@ def run_single_experiment(model_type: str,
         f_params = filter_kwargs(simlr, params)
         if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
         f_params['optimizer_type'] = 'torch_lbfgs'
+        f_params['consolidate'] = True
+        res = simlr(train_mats, k=k, **f_params)
+    elif model_type == "simlr_lbfgsb":
+        # Bound-constrained L-BFGS-B from the NSA-Flow backend. `torch_lbfgs`
+        # is unconstrained and restores feasibility by clipping after the step;
+        # this builds V >= 0 into the step itself.
+        f_params = filter_kwargs(simlr, params)
+        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
+        f_params['optimizer_type'] = 'nsa_lbfgsb'
         f_params['consolidate'] = True
         res = simlr(train_mats, k=k, **f_params)
     elif model_type == "flow_v":
@@ -118,6 +199,60 @@ def run_single_experiment(model_type: str,
             "custom_pred_test": {"u": u_te, "reconstructions": recons_te, "first_layer_scores": [u_te]},
             "custom_pred_train": {"u": u_tr, "reconstructions": recons_tr, "first_layer_scores": [u_tr]},
         }
+    elif model_type in ("pca", "sklearn_pca"):
+        from sklearn.decomposition import PCA
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.pipeline import Pipeline
+        from sklearn.linear_model import Ridge, LogisticRegression
+        
+        X_tr = torch.cat(train_mats, dim=1).numpy()
+        X_te = torch.cat(test_mats, dim=1).numpy()
+        y_tr_np = y_train.numpy()
+        y_te_np = y_test.numpy()
+        is_classif = (len(torch.unique(y_train)) <= 5 and (y_train == y_train.round()).all())
+        
+        scaler = StandardScaler()
+        pca = PCA(n_components=k, random_state=seed)
+        head = LogisticRegression(C=1.0, max_iter=500) if is_classif else Ridge(alpha=1.0)
+        pipe = Pipeline([("scaler", scaler), ("dim_reduction", pca), ("estimator", head)])
+        pipe.fit(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np)
+        
+        X_tr_sc = scaler.transform(X_tr)
+        X_te_sc = scaler.transform(X_te)
+        
+        u_tr = torch.from_numpy(pca.transform(X_tr_sc)).float()
+        u_te = torch.from_numpy(pca.transform(X_te_sc)).float()
+        
+        V_tot = torch.from_numpy(pca.components_.T).float()
+        p_offsets = [0] + list(np.cumsum([m.shape[1] for m in train_mats]))
+        v_mats = [V_tot[p_offsets[i]:p_offsets[i+1]] for i in range(len(train_mats))]
+        
+        x_rec_sc = u_te.numpy() @ V_tot.numpy().T
+        x_rec_te = scaler.inverse_transform(x_rec_sc)
+        recons_te = [torch.from_numpy(x_rec_te[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(test_mats))]
+        
+        x_rec_sc_tr = u_tr.numpy() @ V_tot.numpy().T
+        x_rec_tr = scaler.inverse_transform(x_rec_sc_tr)
+        recons_tr = [torch.from_numpy(x_rec_tr[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(train_mats))]
+        
+        pred_test_score = float(pipe.score(X_te, y_te_np.astype(int) if is_classif else y_te_np))
+        pred_train_score = float(pipe.score(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np))
+        
+        res = {
+            "v": v_mats,
+            "v_tot": V_tot,
+            "u": u_tr,
+            "w": [],
+            "scale_list": ["none"],
+            "provenance_list": [],
+            "first_layer": {"v": v_mats},
+            "first_layer_scores": [u_tr],
+            "pipeline": pipe,
+            "pred_test_score": pred_test_score,
+            "pred_train_score": pred_train_score,
+            "custom_pred_test": {"u": u_te, "reconstructions": recons_te, "first_layer_scores": [u_te]},
+            "custom_pred_train": {"u": u_tr, "reconstructions": recons_tr, "first_layer_scores": [u_tr]},
+        }
     else:
         raise ValueError(f"Unknown model type: {model_type}")
     fit_seconds = time.perf_counter() - t0
@@ -136,7 +271,14 @@ def run_single_experiment(model_type: str,
     private_l = pred_test.get("private_latents")
     fl_scores_train = pred_train.get("first_layer_scores")
     fl_scores_test = pred_test.get("first_layer_scores")
-    if fl_scores_train is None and model_type in ("linear", "simlr_lbfgs", "nsa_pipeline"):
+    # Models without a separate first layer score their latents directly.
+    # This used to test `model_type` against a hardcoded list, so every model
+    # added to the benchmark silently defaulted its axis-sensitive metric to
+    # 0.0 until someone remembered to extend the list -- `simlr_lbfgsb` scored
+    # exactly 0.0000 on all 90 of its tasks that way, against ~0.60 for every
+    # other model. The condition that matters is whether first-layer scores
+    # exist, not which model produced them.
+    if fl_scores_train is None and pred_train.get("latents") is not None:
         fl_scores_train = pred_train.get("latents")
         fl_scores_test = pred_test.get("latents")
 
@@ -144,22 +286,33 @@ def run_single_experiment(model_type: str,
         pred_test['u'], u_true_test, y_test, test_mats, pred_test['reconstructions'],
         shared_latents=shared_l, private_latents=private_l, v_mats=res.get("v"),
         u_train=pred_train['u'], y_train=y_train,
+        is_classification=case.get("is_classification"),
         first_layer=pred_test.get("first_layer") or res.get("first_layer"),
         interpretability=pred_test.get("interpretability") or res.get("interpretability"),
         first_layer_scores_train=fl_scores_train, first_layer_scores_test=fl_scores_test,
     )
 
+    # The sklearn-pipeline models (PCA, nsa_pipeline) carry their own
+    # `pipe.score`, fitted with a *regularised* head (Ridge / penalised
+    # logistic) on their own StandardScaler. Overwriting `test_r2` with it gave
+    # those two models a different estimator from every other model in the
+    # comparison, on the metric used for the global ranking. Keep the number
+    # for reference under its own key and let `calculate_all_metrics` score
+    # every model through one estimator.
     if "pred_test_score" in res:
-        is_cls = metrics.get("is_classification", False) or "test_accuracy" in metrics
-        test_k = "test_accuracy" if is_cls else "test_r2"
-        train_k = "train_accuracy" if is_cls else "train_r2"
-        metrics[test_k] = res["pred_test_score"]
-        metrics[train_k] = res["pred_train_score"]
+        metrics["pipeline_test_score"] = res["pred_test_score"]
+        metrics["pipeline_train_score"] = res["pred_train_score"]
 
     frame_defect = 0.0
     lobe_crosstalk = 0.0
     sparsity_ratio = 0.0
-    v_eval = [res["v_tot"]] if "v_tot" in res else res.get("v")
+    # Evaluate the invariants on the per-view blocks for every model. These
+    # used to be read off the *joint* basis `v_tot` for PCA and nsa_pipeline
+    # and off the per-view blocks for everyone else, which are different
+    # objects: a joint orthonormal V has gram exactly I (frame defect 0 by
+    # construction) while its per-view restrictions do not. PCA's "D = 0.0000"
+    # and its place on the Pareto frontier were artefacts of that asymmetry.
+    v_eval = res.get("v")
     if v_eval is not None and len(v_eval) > 0:
         defects = []
         crosstalks = []
@@ -180,6 +333,15 @@ def run_single_experiment(model_type: str,
         sparsity_ratio = float(zeros / max(1, total))
 
     metrics.update({
+        # Solver self-report, so a row can say whether its fit converged and
+        # whether it optimised anything -- previously unanswerable from the
+        # results table.
+        "stop_reason": res.get("stop_reason"),
+        "certificate": res.get("certificate"),
+        "solver_converged": res.get("converged"),
+        "grad_map": res.get("grad_map"),
+        "energy_reduction": res.get("energy_reduction"),
+        "solver_iters": res.get("converged_iter"),
         "model": model_type,
         "sparsity": sparsity,
         "seed": seed,
@@ -209,8 +371,15 @@ def aggregate_results(results_df: pd.DataFrame) -> pd.DataFrame:
     for c in ["energy_type", "mixing_algorithm"]:
         if c in results_df.columns: group_cols.append(c)
     
+    # Mean/std only over numeric columns. The metrics dict also carries
+    # categorical solver diagnostics (`stop_reason`, `certificate`), and
+    # aggregating every column raised "dtype 'str' does not support operation
+    # 'mean'" as soon as they were added.
+    numeric_cols = [c for c in results_df.select_dtypes(include=[np.number]).columns
+                    if c not in group_cols]
+
     # Flatten MultiIndex and create _sd and _ci95 as expected by tests
-    agg = results_df.groupby(group_cols).agg(['mean', 'std']).reset_index()
+    agg = results_df.groupby(group_cols)[numeric_cols].agg(['mean', 'std']).reset_index()
     
     # Renaming logic to match test expectations (e.g., recovery -> recovery, recovery_sd)
     new_cols = []

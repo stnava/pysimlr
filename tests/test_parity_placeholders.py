@@ -109,10 +109,14 @@ def test_parity_simlr_sparseness_constraints():
     np.testing.assert_allclose(torch.norm(v_neg, p=2, dim=0).numpy(), 1.0, atol=1e-5)
     assert ((v_neg == 0).float().mean(dim=0) >= 0.45).all()
 
-    # simlr_sparseness entrypoint
-    v_sim = simlr_sparseness(v, sparseness_quantile=0.5, positivity='positive')
+    # `simlr_sparseness` entrypoint. Sparsity there is now a consequence of
+    # the NSA-Flow weight w, not of a quantile applied afterwards, so the
+    # quantile parity above applies to `orthogonalize_and_q_sparsify` (which
+    # still implements the R behaviour) and this checks the projection.
+    v_sim = simlr_sparseness(v, constraint_type='ortho', positivity='positive',
+                             constraint_weight=0.9)
     assert (v_sim < -1e-6).sum() == 0
-    assert ((v_sim == 0).float().mean(dim=0) >= 0.45).all()
+    assert (v_sim == 0).float().mean() > 0.3, "w=0.9 should drive real sparsity"
 
 
 def test_parity_procrustes_alignment():

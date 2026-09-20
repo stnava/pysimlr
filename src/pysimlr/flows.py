@@ -451,6 +451,7 @@ class FlowConditionalInference:
 
 def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epochs: int, sim_weight: float, energy_type: str, warmup_epochs: int, verbose: bool, device: torch.device, beta: float = 0.05, gamma: float = 2.0, dynamic_weights_start: Optional[int] = None, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None):
     loss_history, recon_history, sim_history = [], [], []
+    nonfinite_grad_steps = 0
     model.weight_history = []
     model.mai_history = []
     penalty_weights = {
@@ -460,7 +461,10 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         "u_var": 1.0
     }
     
-    from .deep import calculate_sim_loss, _resolve_stabilization_schedule, _update_first_layer_schedule, orthogonality_defect
+    from .deep import (calculate_sim_loss, _resolve_stabilization_schedule,
+                       _update_first_layer_schedule, orthogonality_defect,
+                       resolve_warmup_epochs)
+    warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     mse_loss = nn.MSELoss()
     
     stabilization_start_epoch, stabilization_ramp_epochs = _resolve_stabilization_schedule(
@@ -487,17 +491,30 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             
             latents, reconstructions, u_shared = model(batch_mats)
             
-            # Flow negative log-likelihood (NLL) as reconstruction loss.
+            # Flow negative log-likelihood. RETAINED, after an attempt to
+            # remove it was falsified.
             #
-            # This is the density of the *projected latent* z = flow(X @ V),
-            # not of the data X: the change-of-variables term for the X -> XV
-            # projection (0.5 * logdet(V'V)) is not included. That term
-            # vanishes for the norm-constrained bases these encoders produce,
-            # so the objective is well posed and the latent does not collapse
-            # in practice (measured latent std stays near 1.5-2.2 over
-            # training). But the value is therefore NOT a data likelihood and
-            # is not comparable across models whose first-layer projections
-            # differ in scale or rank.
+            # The objection to it stands on its own terms: it maximises
+            # log N(f(XV); 0, I) + log|det J|, so it drives the representation
+            # toward a unimodal Gaussian -- and the Gaussianised variable is
+            # what reaches the consensus and the downstream task. Measured on
+            # mfeat6, post/pre-warp class separability falls as its weight
+            # rises: 1.042 at beta=0.05, 0.953 at 0, 0.762 at 0.5.
+            #
+            # But it cannot simply be deleted. The decoder is
+            # ``flow.inverse(u) @ V.t()``, and the prior is what holds z near
+            # unit scale so that the inverse is evaluated in a bounded region.
+            # With the term removed the reconstruction MSE drove the inverse
+            # outward and V reached NaN within two epochs; a log-det volume
+            # penalty alone (1e-3 * mean(log|det J|^2)) did not save it either,
+            # because the instability is in the decoder path, not the warp's
+            # volume.
+            #
+            # Removing the Gaussianising prior therefore requires the decoder
+            # redesign -- tying reconstruction to s = XV rather than routing it
+            # through the inverse -- not a change to one loss term. That is a
+            # larger change than this pass, and is recorded in
+            # docs/theory/SIMLR_THEORY.md rather than half-done here.
             recon_loss = 0.0
             for enc in model.encoders:
                 z = enc.last_z
@@ -505,13 +522,12 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
                 log_prior = -0.5 * torch.sum(z ** 2, dim=1) - 0.5 * z.shape[1] * np.log(2 * np.pi)
                 nll = -torch.mean(log_prior + log_det)
                 recon_loss += nll
-                
+
             sim_loss_total, diagnostics = calculate_sim_loss(latents, u_shared, energy_type, weights=penalty_weights)
-            
+
             # Hybrid zero-padded MSE reconstruction loss
             mse_recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
-            
-            # Scaled total loss using beta and gamma parameters
+
             total_loss = beta * recon_loss + sim_loss_total + gamma * mse_recon_loss
             
             # Add orthogonality penalty for encoder basis V (both actual enc.v and raw enc.v_raw)
@@ -523,6 +539,25 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
                 continue
                 
             total_loss.backward()
+
+            # The loss guard above is not enough: a *finite* loss can still
+            # produce a non-finite gradient, and `clip_grad_norm_` propagates
+            # NaN rather than removing it (the norm of a NaN vector is NaN, so
+            # every parameter is scaled by NaN). Measured on mfeat6: at step 1
+            # the loss was 6.366 while max|grad| was NaN, and the optimizer
+            # wrote NaN into `linear_encoders.*.nsa_linear.weight`; from there
+            # every subsequent forward was NaN and the fit was silently ruined
+            # while still reporting a loss history.
+            #
+            # A non-finite gradient is not information, so the step is skipped
+            # and counted. A run that skips many steps has a real problem and
+            # `n_nonfinite_grad_steps` says so, rather than returning a basis
+            # of NaN with no indication anything went wrong.
+            if not all(torch.isfinite(p.grad).all()
+                       for p in model.parameters() if p.grad is not None):
+                nonfinite_grad_steps += 1
+                optimizer.zero_grad(set_to_none=True)
+                continue
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             has_stepped = True
@@ -554,6 +589,14 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         if verbose and epoch % 10 == 0:
             print(f"Flow Epoch {epoch}: Total={epoch_loss:.4f} (NLL={epoch_recon:.4f}, Sim={epoch_sim:.4f})")
             
+    if nonfinite_grad_steps:
+        warnings.warn(
+            f"{nonfinite_grad_steps} optimizer step(s) were skipped because the "
+            f"gradient was not finite while the loss was. The fit completed but "
+            f"used fewer updates than requested.",
+            RuntimeWarning, stacklevel=2,
+        )
+
     return loss_history, recon_history, sim_history
 
 def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
@@ -563,7 +606,7 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               learning_rate: float = 1e-3, 
               weight_decay: float = 1e-4, 
               sim_weight: float = 1.0, 
-              warmup_epochs: int = 20, 
+              warmup_epochs: Optional[int] = None, 
               num_layers: int = 4, 
               hidden_dim: int = 64, 
               energy_type: str = "regression", 
@@ -627,7 +670,8 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device)
     
-    from .deep import _standardize_deep, _get_optimizer
+    from .deep import (_standardize_deep, _get_optimizer,
+                       resolve_warmup_epochs, _drop_last)
     from torch.utils.data import TensorDataset, DataLoader
     from torch.optim.lr_scheduler import CosineAnnealingLR
     
@@ -639,7 +683,9 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
     
     dataset = TensorDataset(*torch_mats)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
+    
+    warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     
     loss_h, recon_h, sim_h = _train_flow_loop(
         model, dataloader, optimizer, scheduler, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, beta=beta, gamma=gamma, dynamic_weights_start=dynamic_weights_start
@@ -897,7 +943,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 learning_rate: float = 1e-3, 
                 weight_decay: float = 1e-4, 
                 sim_weight: float = 1.0, 
-                warmup_epochs: int = 20, 
+                warmup_epochs: Optional[int] = None, 
                 num_layers: int = 4, 
                 hidden_dim: int = 64, 
                 energy_type: str = 'regression', 
@@ -931,7 +977,8 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         device = 'cuda' if torch.cuda.is_available() else ('cpu')
     device = torch.device(device)
     
-    from .deep import _standardize_deep, _get_optimizer
+    from .deep import (_standardize_deep, _get_optimizer,
+                       resolve_warmup_epochs, _drop_last)
     from torch.utils.data import TensorDataset, DataLoader
     from torch.optim.lr_scheduler import CosineAnnealingLR
     
@@ -957,7 +1004,9 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
     
     dataset = TensorDataset(*torch_mats)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
+    
+    warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     
     loss_h, recon_h, sim_h = _train_flow_loop(
         model, dataloader, optimizer, scheduler, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, 

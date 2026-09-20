@@ -54,9 +54,28 @@ def test_sparsification_coverage():
 
 def test_simlr_energy_types():
     x1, x2 = torch.randn(50, 10), torch.randn(50, 8)
-    for e in ["regression", "acc", "logcosh", "exp", "nc", "gauss", "kurtosis", "dat"]:
-        dm = [torch.randn(2, 10), torch.randn(2, 8)] if e == "dat" else None
-        assert 'u' in simlr([x1, x2], k=2, iterations=2, energy_type=e, domain_matrices=dm, domain_lambdas=0.1, verbose=True)
+    # "dat" is a *domain regulariser*, not a primary objective: `simlr` calls
+    # the primary energy without a `prior_matrix`, so `energy_type="dat"`
+    # evaluated to a constant 0 with a zero gradient and optimised nothing.
+    # It is exercised below in the role it actually has.
+    for e in ["regression", "acc", "logcosh", "exp", "nc", "gauss", "kurtosis"]:
+        assert 'u' in simlr([x1, x2], k=2, iterations=2, energy_type=e, verbose=True)
+
+
+def test_simlr_domain_term_runs_alongside_a_real_objective():
+    x1, x2 = torch.randn(50, 10), torch.randn(50, 8)
+    dm = [torch.randn(2, 10), torch.randn(2, 8)]
+    res = simlr([x1, x2], k=2, iterations=2, energy_type="regression",
+                domain_matrices=dm, domain_lambdas=0.1)
+    assert 'u' in res
+
+
+def test_unsupported_energy_type_is_refused_not_silently_zero():
+    """`cca`/`pca`/`ica` had neither an energy nor a gradient and returned 0."""
+    x1, x2 = torch.randn(30, 10), torch.randn(30, 8)
+    for bad in ("cca", "pca", "ica"):
+        with pytest.raises(ValueError, match="unknown similarity|not implemented|no gradient"):
+            simlr([x1, x2], k=2, iterations=2, energy_type=bad)
 
 def test_simlr_perm_and_decomp():
     x1, x2 = torch.randn(30, 10), torch.randn(30, 8)

@@ -17,6 +17,126 @@ import pandas as pd
 from scipy import stats
 
 
+def build_ranking_blocks(
+    df: pd.DataFrame,
+    metric_col: str,
+    model_col: str = "Model",
+    dataset_col: str = "Dataset",
+    seed_col: str = "Seed",
+    floor_threshold: Optional[float] = 0.2,
+) -> Tuple[pd.DataFrame, Dict[str, object]]:
+    r"""
+    Build the paired blocks for a Friedman/Nemenyi analysis, one per dataset.
+
+    Demšar's :math:`N` is the number of **datasets**, not the number of fitted
+    models. Pivoting on ``(Dataset, Seed)`` instead treats every seed as an
+    independent block, which inflates :math:`N` tenfold and shrinks the
+    critical difference by :math:`\sqrt{10}`. On this suite that was the
+    difference between ``CD = 1.25`` (almost every pair "separated") and
+    ``CD = 3.97`` (almost none), and it reversed the reported 2nd/3rd place.
+
+    The inflation was not merely optimistic, it was partly vacuous: ``Heart``
+    and ``Diabetes`` are loaded from fixed files and, under the old prefix
+    split, produced byte-identical rows for all ten seeds. Twenty of the
+    seventy "independent" blocks were exact duplicates.
+
+    Seeds are averaged within a dataset, which is what they are: replicates of
+    one task, useful for reducing the noise in that task's estimate and not for
+    multiplying the number of tasks.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Long-format results, one row per (dataset, model, seed).
+    metric_col : str
+        Metric to rank on.
+    model_col, dataset_col, seed_col : str
+        Column names.
+    floor_threshold : float, optional, default=0.2
+        Drop datasets where *no* model exceeds this score. Such a regime
+        contributes a block of near-ties driven by noise, which adds rank
+        variance without adding evidence -- on this suite the ``Sine`` regime
+        left every model between 0.06 and 0.11. Pass ``None`` to keep all
+        datasets.
+
+    Returns
+    -------
+    Tuple[pd.DataFrame, Dict[str, object]]
+        ``(blocks, info)``. ``blocks`` is datasets x models, seeds averaged.
+        ``info`` records ``n_datasets``, ``n_seeds``, ``dropped_floor`` and
+        ``degenerate_datasets`` (those with no seed-to-seed variance in any
+        model, which indicates a split or loader that ignores the seed).
+    """
+    all_datasets = list(pd.unique(df[dataset_col].dropna()))
+    per_seed = df.pivot_table(
+        index=[dataset_col, seed_col], columns=model_col, values=metric_col, aggfunc="mean"
+    )
+
+    # A dataset whose every model has zero variance across seeds is not being
+    # replicated at all; surface it rather than silently averaging duplicates.
+    degenerate = []
+    for ds, grp in per_seed.groupby(level=0):
+        if len(grp) > 1 and float(np.nanmax(grp.std(axis=0, ddof=0).values)) < 1e-12:
+            degenerate.append(ds)
+
+    blocks = per_seed.groupby(level=0).mean()
+
+    # A metric can be undefined on a regime rather than merely low --
+    # `support_recovery_score` is nan wherever the true basis is dense, because
+    # there is no support to recover. Those datasets leave the ranking as
+    # "not applicable", which is a different statement from "everything failed
+    # here", and they must go before the floor rule so the two are not
+    # conflated in the report.
+    # `pivot_table` drops a group whose values are entirely NaN, so an
+    # undefined regime disappears from `blocks` rather than showing up as a
+    # NaN row. Recover it by difference against the input, or it would vanish
+    # from the report without ever being mentioned.
+    undefined = [d for d in all_datasets if d not in blocks.index]
+    undefined += list(blocks.index[blocks.isna().all(axis=1)])
+    blocks = blocks.drop(index=[d for d in undefined if d in blocks.index])
+
+    # A dataset scored for some models but not others cannot be ranked: the
+    # Friedman test needs a complete block.
+    partial = list(blocks.index[blocks.isna().any(axis=1)])
+    blocks = blocks.drop(index=partial)
+
+    # Two datasets can be distinct tasks yet identical under a given metric.
+    # `NonnegParts` and `NonnegPartsWeak` deliberately share a basis and differ
+    # only in which latent carries the outcome, so they are two blocks for a
+    # predictive metric and one block for any basis metric. Counting them twice
+    # would re-introduce, on a smaller scale, exactly the pseudo-replication
+    # that averaging the seeds removed.
+    duplicate_blocks: List[List[str]] = []
+    seen: List[str] = []
+    for ds in blocks.index:
+        for other in seen:
+            if np.allclose(blocks.loc[ds].values, blocks.loc[other].values,
+                           rtol=0, atol=1e-9, equal_nan=True):
+                duplicate_blocks.append([other, ds])
+                break
+        else:
+            seen.append(ds)
+
+    dropped: List[str] = []
+    if floor_threshold is not None and len(blocks):
+        keep = blocks.max(axis=1) > floor_threshold
+        dropped = list(blocks.index[~keep])
+        if keep.any():
+            blocks = blocks[keep]
+
+    info = {
+        "n_datasets": int(len(blocks)),
+        "n_seeds": int(df[seed_col].nunique()),
+        "dropped_floor": dropped,
+        "dropped_undefined": undefined,
+        "dropped_incomplete": partial,
+        "degenerate_datasets": degenerate,
+        "duplicate_blocks": duplicate_blocks,
+        "floor_threshold": floor_threshold,
+    }
+    return blocks, info
+
+
 def friedman_test(perf_matrix: np.ndarray, higher_is_better: bool = True) -> Dict[str, float]:
     """
     Perform the Friedman test and Iman-Davenport extension across models.
@@ -357,3 +477,72 @@ def compute_pareto_frontier(
 
     summary["is_pareto_optimal"] = is_pareto
     return summary
+
+
+def rank_effect_size(
+    df: pd.DataFrame,
+    metric_col: str,
+    model_col: str = "Model",
+    dataset_col: str = "Dataset",
+    seed_col: str = "Seed",
+) -> Dict[str, object]:
+    r"""
+    Compare the between-model spread of a metric to its seed-to-seed noise.
+
+    A Friedman test asks whether an ordering is *consistent*, not whether it is
+    *large*. With eight models and eight datasets, differences far below the
+    replicate noise still reach ``p < 0.05`` when they happen to fall the same
+    way -- the test is behaving correctly and the ranking is still meaningless.
+
+    This is not hypothetical. Ranking this suite on ``Axis_Sensitive_Metric``
+    gave a clean-looking ordering at ``p = 0.016``, while the spread across all
+    eight models was at or below the seed noise in every regime (median ratio
+    1.23, and 0.10 on ``NonnegParts``, where the eight models sat inside
+    0.0035 of one another against a seed standard deviation of 0.034). Any
+    metric used for a headline ranking should be required to clear this
+    diagnostic first.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Long-format results.
+    metric_col : str
+        Metric to characterise.
+    model_col, dataset_col, seed_col : str
+        Column names.
+
+    Returns
+    -------
+    Dict[str, object]
+        ``per_dataset`` (a frame of spread, noise and their ratio),
+        ``median_ratio``, ``max_ratio`` and ``resolvable`` -- ``False`` when
+        the median ratio is below 2, i.e. the typical gap between the best and
+        worst model is smaller than twice the noise on a single measurement.
+    """
+    means = df.pivot_table(index=dataset_col, columns=model_col, values=metric_col)
+    sds = df.groupby([dataset_col, model_col])[metric_col].std()
+
+    records = []
+    for ds in means.index:
+        row = means.loc[ds]
+        if row.isna().all():
+            continue
+        spread = float(row.max() - row.min())
+        noise = float(sds.loc[ds].mean())
+        if not np.isfinite(spread) or not np.isfinite(noise) or noise <= 0:
+            continue
+        records.append({"Dataset": ds, "spread": spread, "noise": noise,
+                        "ratio": spread / noise})
+
+    if not records:
+        return {"per_dataset": pd.DataFrame(), "median_ratio": float("nan"),
+                "max_ratio": float("nan"), "resolvable": False}
+
+    per_dataset = pd.DataFrame(records).set_index("Dataset")
+    median_ratio = float(per_dataset["ratio"].median())
+    return {
+        "per_dataset": per_dataset,
+        "median_ratio": median_ratio,
+        "max_ratio": float(per_dataset["ratio"].max()),
+        "resolvable": bool(median_ratio >= 2.0),
+    }

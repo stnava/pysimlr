@@ -1206,6 +1206,40 @@ class ModalityEncoder(nn.Module):
         self.network = nn.Sequential(*layers)
     def forward(self, x): return self.network(x)
 
+def resolve_warmup_epochs(warmup_epochs, epochs: int) -> int:
+    """How many epochs to hold the similarity term at zero.
+
+    ``None`` means ``min(20, max(1, epochs // 4))`` rather than a flat 20.
+
+    The flat default silently disabled the multi-view objective on any short
+    run: the training loops gate it with
+    ``sim_weight = 0 if epoch < warmup_epochs else sim_weight``, no benchmark
+    passed ``warmup_epochs``, and at ``epochs=8`` the alignment term -- the
+    entire reason these models exist -- never activated once. Even at the full
+    60-epoch budget it was off for the first third. Measured on mfeat6,
+    balanced accuracy, 8ep/warmup20 vs 60ep/warmup0: Flow-SiMLR-V 0.558 ->
+    0.750, NED 0.617 -> 0.817, LEND 0.625 -> 0.667.
+    """
+    if warmup_epochs is None:
+        return min(20, max(1, int(epochs) // 4))
+    return max(0, int(warmup_epochs))
+
+
+def _drop_last(dataset, batch_size: int) -> bool:
+    """Whether the final partial batch is too small to form a cross-moment.
+
+    Every centred similarity needs at least `similarity.MIN_ROWS_FOR_MOMENT`
+    rows; a DataLoader remainder of one or two rows does not, and it is a
+    property of the batching rather than of the data. Dropping it is correct --
+    the alternative is a batch whose similarity term is identically constant.
+    Only the remainder is dropped, and only when it is too small.
+    """
+    from .similarity import MIN_ROWS_FOR_MOMENT
+    n = len(dataset)
+    rem = n % int(batch_size)
+    return 0 < rem < MIN_ROWS_FOR_MOMENT and n > int(batch_size)
+
+
 def calculate_sim_loss(latents: List[torch.Tensor], 
                        u_shared: Union[torch.Tensor, List[torch.Tensor]], 
                        energy_type: str = "regression",
@@ -1261,34 +1295,24 @@ def calculate_sim_loss(latents: List[torch.Tensor],
     
     var_penalty = sum(_variance_penalty(z) for z in latents)
     
+    # Similarity terms come from `pysimlr.similarity`, which is the single
+    # definition of each energy. This block previously reimplemented them, and
+    # the two copies had drifted: "regression" meant ||X - uV'||^2 in the linear
+    # path and standardised latent MSE here, and "nc" meant two different
+    # formulas. A benchmark that held energy_type fixed while varying the model
+    # was therefore varying the objective at the same time.
+    #
+    # `latents` are already the representation entering the comparison -- the
+    # warp output for a flow model, the linear projection otherwise -- so this
+    # is exactly the registry's ``s``.
+    from .similarity import (SimilarityContext, resolve_energy_name,
+                             similarity_energy)
+    sim_name = resolve_energy_name(energy_type, path="deep")
+    ctx = SimilarityContext()
     for i, z in enumerate(latents):
-        z_c = z - z.mean(dim=0)
-        
-        # Get target for this modality
         u_target = u_shared[i].detach() if is_loo else u_shared.detach()
-        u_target_c = u_target - u_target.mean(dim=0)
-        u_std = _safe_std(u_target_c, dim=0, keepdim=True)
-        
-        if energy_type == "regression":
-            z_std = _safe_std(z_c, dim=0, keepdim=True)
-            sim_loss += torch.mean(((z_c / z_std) - (u_target_c / u_std))**2)
-        elif energy_type == "acc":
-            cov = (u_target_c.t() @ z_c) / (n - 1)
-            sim_loss -= torch.sum(torch.abs(cov))
-        elif energy_type in ["nc", "normalized_correlation"]:
-            cross_cov = u_target_c.t() @ z_c
-            numerator = torch.trace(cross_cov)
-            frobenius_norm = torch.norm(cross_cov, p='fro')
-            if frobenius_norm > 1e-8:
-                sim_loss -= (numerator / frobenius_norm)
-        elif energy_type == "logcosh":
-            z_std = _safe_std(z_c, dim=0, keepdim=True)
-            z_norm = z_c / z_std
-            u_norm = u_target_c / u_std
-            s = u_norm.t() @ z_norm / n
-            abs_s = torch.abs(s)
-            sim_loss -= torch.sum(abs_s - np.log(2.0) + torch.log1p(torch.exp(-2.0 * abs_s)))
-    
+        sim_loss = sim_loss + similarity_energy(sim_name, z, u_target, ctx)
+
     if is_loo:
         # For LOO, average the collapse and variance penalties across all leave-one-out consensus spaces
         collapse_loss = torch.tensor(0.0, device=device)
@@ -1352,6 +1376,7 @@ def _update_first_layer_schedule(model, epoch: int, epochs: int, stabilization_s
 
 
 def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=1e-6, patience=10, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, freeze_private_epochs: int = 0):
+    warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     loss_history, recon_history, sim_history = [], [], []
     projection_alpha_history, basis_drift_history = [], []
     best_loss = float('inf'); patience_counter = 0; converged_epoch = epochs
@@ -1488,7 +1513,7 @@ def _finalize_bases(v_mats, positivity, nsa_w, energy_type):
     return out, diags
 
 
-def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
+def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False, **kwargs) -> Dict[str, Any]:
     """
     Fit a Linear Encoded Nonlinear Decoding (LEND) model.
@@ -1558,7 +1583,8 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     model = LENDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai, retraction_type=retraction_type).to(device)
     model.initialize_v(torch_mats, k)
     optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
+    warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     loss_h, recon_h, sim_h, conv_ep, first_layer_training = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=kwargs.get('tol', 1e-6), patience=kwargs.get('patience', 10), stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs)
     model.eval(); 
     with torch.no_grad():
@@ -1579,7 +1605,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
         result["mai"] = model.mai.detach().cpu().numpy()
     return result
 
-def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
+def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False, **kwargs) -> Dict[str, Any]:
     """
     Fit a Nonlinear Encoded Decoding (NED) model.
@@ -1649,7 +1675,8 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     model = NEDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai, retraction_type=retraction_type).to(device)
     model.initialize_v(torch_mats, k)
     optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
+    warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     loss_h, recon_h, sim_h, conv_ep, first_layer_training = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=kwargs.get('tol', 1e-6), patience=kwargs.get('patience', 10), stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs)
     model.eval(); 
     with torch.no_grad():
@@ -1670,7 +1697,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
         result["mai"] = model.mai.detach().cpu().numpy()
     return result
 
-def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
+def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, optimizer_type: str = 'adam', use_rank_mai: bool = False, **kwargs) -> Dict[str, Any]:
     """
     Fit a Nonlinear Encoded Decoding model with Shared and Private Latents (NED++).
@@ -1760,7 +1787,9 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     model.private_var_w = private_variance_weight
     
     optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
+    
+    warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     
     loss_h, recon_h, sim_h, conv_ep, first_layer_training = _train_loop(
         model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, 
@@ -1789,7 +1818,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         result["mai"] = model.mai.detach().cpu().numpy()
     return result
 
-def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, sim_weight: float = 1.0, warmup_epochs: int = 20, energy_type: str = "regression", device: Optional[str] = None, verbose: bool = False, optimizer_type: str = 'adam', **kwargs) -> Dict[str, Any]:
+def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, energy_type: str = "regression", device: Optional[str] = None, verbose: bool = False, optimizer_type: str = 'adam', **kwargs) -> Dict[str, Any]:
     """
     Deep SiMLR (SiMR) implementation using Neural Spatially-Aware (NSA) Flow or LEND encoders.
 

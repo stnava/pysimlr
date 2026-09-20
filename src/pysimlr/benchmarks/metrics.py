@@ -52,15 +52,31 @@ def cross_val_metrics(
         from sklearn.linear_model import LogisticRegression
         y_train_int = y_train.astype(int).ravel()
         y_test_int = y_test.astype(int).ravel()
+        from sklearn.metrics import balanced_accuracy_score
         model = LogisticRegression(max_iter=1000).fit(u_train_np, y_train_int)
         train_perf = float(model.score(u_train_np, y_train_int))
         test_perf = float(model.score(u_test_np, y_test_int))
+        # Plain accuracy is uninformative on an imbalanced cohort: on PPMI
+        # (202 vs 819, majority rate 0.802) every model scored exactly 0.800,
+        # i.e. every one of them predicted the majority class and the table
+        # read as a nine-way tie rather than as nine failures. Balanced
+        # accuracy is chance-corrected at 1/n_classes whatever the prior.
+        extra = {
+            "balanced_train": float(balanced_accuracy_score(
+                y_train_int, model.predict(u_train_np))),
+            "balanced_test": float(balanced_accuracy_score(
+                y_test_int, model.predict(u_test_np))),
+            "majority_rate": float(np.bincount(y_test_int).max() / len(y_test_int)),
+        }
     else:
         from sklearn.linear_model import LinearRegression
         model = LinearRegression().fit(u_train_np, y_train)
         train_perf = float(model.score(u_train_np, y_train))
         test_perf = float(model.score(u_test_np, y_test))
-    return {"train": train_perf, "test": test_perf, "gap": train_perf - test_perf}
+    out = {"train": train_perf, "test": test_perf, "gap": train_perf - test_perf}
+    if is_classification:
+        out.update(extra)
+    return out
 
 def axis_sensitive_cross_val_metrics(
     u_train: torch.Tensor, y_train: np.ndarray,
@@ -250,9 +266,24 @@ def calculate_all_metrics(
         if u_train is not None and y_train is not None:
             y_train_np = y_train.detach().cpu().numpy() if isinstance(y_train, torch.Tensor) else y_train
             y_true_np = y_true.detach().cpu().numpy() if isinstance(y_true, torch.Tensor) else y_true
-            unique_y = np.unique(y_train_np); is_classification = len(unique_y) < 10 and np.all(y_train_np % 1 == 0)
+            # Prefer the caller's declaration over guessing. The heuristic
+            # below reads `len(unique) < 10`, which silently classes a
+            # *10-class* problem as regression: on UCI mfeat (10 balanced digit
+            # classes) every accuracy metric came back missing and the whole
+            # cohort reported NaN. A dataset that knows what it is should say
+            # so rather than be inferred from its own label cardinality.
+            declared = kwargs.get("is_classification")
+            unique_y = np.unique(y_train_np)
+            if declared is None:
+                is_classification = (len(unique_y) < 10
+                                     and np.all(y_train_np % 1 == 0))
+            else:
+                is_classification = bool(declared)
             deep_res = cross_val_metrics(u_train, y_train_np, u_pred, y_true_np, is_classification)
             metrics["test_r2"], metrics["train_r2"], metrics["gen_gap"] = deep_res["test"], deep_res["train"], deep_res["gap"]
+            for _k in ("balanced_train", "balanced_test", "majority_rate"):
+                if _k in deep_res:
+                    metrics[_k] = deep_res[_k]
             if is_classification: metrics["test_accuracy"], metrics["train_accuracy"] = deep_res["test"], deep_res["train"]
             fl_scores_train, fl_scores_test = kwargs.get("first_layer_scores_train"), kwargs.get("first_layer_scores_test")
             if fl_scores_train is not None and fl_scores_test is not None:
@@ -275,3 +306,86 @@ def calculate_all_metrics(
             metrics["test_r2"] = outcome_r2_score(u_pred, y_true)
             
     return metrics
+
+
+def support_recovery_score(v_est: List[torch.Tensor],
+                           v_true: List[torch.Tensor],
+                           tol: float = 1e-6,
+                           max_truth_density: float = 0.9) -> float:
+    r"""
+    Agreement between the *supports* of an estimated and a true basis.
+
+    Every other basis metric in this module is blind to the axes.
+    ``Feature_Recovery_V`` uses :func:`~pysimlr.utils.procrustes_r2`, which
+    aligns ``v_est`` to ``v_true`` including rotation, so it scores
+    :math:`\mathrm{span}(V)` and is unchanged by any orthogonal
+    reparametrisation -- the same invariance that makes
+    :func:`cross_val_metrics` unable to speak about a basis. Sparsity and
+    disjoint support are properties of *which features load on which
+    component*, which no rotation-invariant score can see.
+
+    This measures that directly: columns of ``v_est`` are matched one-to-one
+    to columns of ``v_true`` by the assignment maximising support overlap
+    (columns are exchangeable, so a permutation must not be penalised), and
+    the score is the mean Jaccard index of the matched supports.
+
+    Parameters
+    ----------
+    v_est : List[torch.Tensor]
+        Estimated per-view bases, each ``(features, k)``.
+    v_true : List[torch.Tensor]
+        Ground-truth per-view bases, same shapes. Views whose truth is
+        identically zero (real datasets, where no basis is known) are skipped.
+    tol : float, default=1e-6
+        Magnitude below which an entry counts as zero.
+    max_truth_density : float, default=0.9
+        Views whose true basis is denser than this are skipped: a fully dense
+        truth has no support structure, so "did you recover the support" is
+        not a question about the estimate. Without this guard the score is
+        maximised by guessing dense -- PCA scored exactly 1.000 on every
+        ``torch.randn`` regime in the suite and thereby *led* the support
+        ranking, while scoring 0.333 on the only regimes where support is
+        defined.
+
+    Returns
+    -------
+    float
+        Mean Jaccard index in ``[0, 1]``, or ``nan`` when no view has a truth
+        that is both known and sparse. ``nan`` rather than ``0.0`` so that a
+        regime where the question is ill-posed drops out of an average
+        instead of counting as a total failure to recover.
+        A dense estimate against a sparse truth scores the density of the
+        truth, not 1.0.
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    if not v_est or not v_true:
+        return float("nan")
+
+    scores = []
+    for ve, vt in zip(v_est, v_true):
+        if vt is None:
+            continue
+        vt_t = torch.as_tensor(vt).float()
+        ve_t = torch.as_tensor(ve).float()
+        if bool((vt_t == 0).all()) or vt_t.shape != ve_t.shape:
+            continue
+
+        s_est = (ve_t.abs() > tol).numpy()
+        s_true = (vt_t.abs() > tol).numpy()
+        if s_true.mean() > max_truth_density:
+            continue
+        k = s_true.shape[1]
+
+        # Jaccard between every estimated column and every true column.
+        jac = np.zeros((k, k))
+        for i in range(k):
+            for j in range(k):
+                inter = np.logical_and(s_est[:, i], s_true[:, j]).sum()
+                union = np.logical_or(s_est[:, i], s_true[:, j]).sum()
+                jac[i, j] = inter / union if union else 0.0
+
+        rows, cols = linear_sum_assignment(-jac)
+        scores.append(float(jac[rows, cols].mean()))
+
+    return float(np.mean(scores)) if scores else float("nan")

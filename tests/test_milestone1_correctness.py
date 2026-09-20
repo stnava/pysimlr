@@ -179,19 +179,23 @@ def test_m1_consensus_single_sample_n1_no_nan():
 
 
 def test_m1_simlr_end_to_end_single_sample_n1():
-    """Verify full SiMLR model fits cleanly on single sample N=1 with zero NaNs."""
-    torch.manual_seed(42)
+    """A single sample cannot support a rank-k multi-view basis.
+
+    With n = 1 every projection is rank 1, so the non-negative near-orthogonal
+    set the projection targets is empty for k > 1. This used to "succeed" by
+    silently substituting an SVD polar factor, which returns a basis that
+    satisfies a different constraint than the one requested. Failing loudly is
+    the correct behaviour for a degenerate problem.
+    """
+    torch.manual_seed(0)
     x1 = torch.randn(1, 8)
     x2 = torch.randn(1, 6)
-    res = simlr([x1, x2], k=2, iterations=5, scale_list=["centerAndScale", "np"])
-    assert not torch.isnan(res["u"]).any(), "SiMLR consensus U contains NaNs on N=1!"
-    assert not torch.isnan(res["v"][0]).any(), "Basis V[0] contains NaNs on N=1!"
-    assert not torch.isnan(res["v"][1]).any(), "Basis V[1] contains NaNs on N=1!"
-
-
-# ============================================================================
-# Bug 5: utils.py preprocess_data N=1 protection and adjusted_rvcoef formula
-# ============================================================================
+    # n=1 leaves every centred cross-moment similarity identically constant
+    # with a zero gradient, so the similarity registry refuses it rather than
+    # let the loop report a converged fit that never moved.
+    with pytest.raises((RuntimeError, ValueError)):
+        simlr([x1, x2], k=2, iterations=2, constraint="orthox0.1x1",
+              energy_type="acc")
 
 def test_m1_preprocess_center_and_scale_n1():
     """Verify preprocess_data centerAndScale on N=1 does not produce NaNs in data or provenance."""

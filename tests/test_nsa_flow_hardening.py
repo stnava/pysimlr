@@ -238,33 +238,36 @@ def test_hard_manifold_constraint_delivers_unit_norm_columns(positivity):
 
 def test_hard_constraint_with_positivity_is_actually_orthogonal():
     """
-    The behaviour the backend exists for. Non-negativity and orthogonality
-    together force near-disjoint column supports, which the SVD polar factor
-    followed by a clamp cannot produce -- that path left a defect around 0.2,
-    i.e. it silently returned a basis violating the constraint the caller
-    asked for. With the backend the defect must be far smaller.
+    The behaviour the backend exists for: non-negativity and orthogonality
+    together force near-disjoint column supports.
+
+    This used to compare the backend against the SVD-polar fallback. There is
+    no fallback now -- `simlr_sparseness` is a call to NSA-Flow and nothing
+    else -- so the assertion is absolute rather than relative.
+    """
+    mats, _ = make_case()
+    res = simlr(mats, k=3, iterations=8, constraint="Stiefel",
+                positivity="positive", verbose=False)
+    defect = float(np.mean([orthogonality_defect(v) for v in res["v"]]))
+    assert defect < 0.1, f"non-negative basis is not near-orthogonal: {defect}"
+    for v in res["v"]:
+        assert (v >= -1e-6).all()
+
+
+def test_simlr_requires_the_backend_for_a_constrained_fit():
+    """nsa_flow is a hard dependency: it defines the feasible set.
+
+    Previously it was optional and its absence silently substituted an SVD
+    polar factor, so the same call ran a different algorithm depending on the
+    install. That is now an error rather than a quiet difference.
     """
     from unittest.mock import patch
 
     mats, _ = make_case()
-    kwargs = dict(k=3, iterations=8, constraint="Stiefel",
-                  positivity="positive", verbose=False)
-
-    with_backend = simlr(mats, **kwargs)
     with patch("pysimlr.sparsification.load_nsa_flow", return_value=None):
-        without_backend = simlr(mats, **kwargs)
-
-    backend_defect = float(np.mean([orthogonality_defect(v)
-                                    for v in with_backend["v"]]))
-    fallback_defect = float(np.mean([orthogonality_defect(v)
-                                     for v in without_backend["v"]]))
-
-    assert backend_defect < 0.05, (
-        f"non-negative Stiefel defect {backend_defect:.3f} is not orthogonal")
-    assert backend_defect < fallback_defect, (
-        f"backend defect {backend_defect:.3f} did not improve on the "
-        f"polar fallback's {fallback_defect:.3f}")
-
+        with pytest.raises(ImportError, match="requires the NSA-Flow backend"):
+            simlr(mats, k=3, iterations=2, constraint="Stiefel",
+                  positivity="positive", verbose=False)
 
 def test_simlr_is_reproducible_with_the_backend_engaged():
     mats, _ = make_case()
@@ -288,22 +291,6 @@ def test_out_of_range_constraint_weights_do_not_crash_simlr(weight):
     for v in res["v"]:
         assert torch.isfinite(v).all()
         assert v.abs().sum() > 0
-
-
-def test_simlr_degrades_gracefully_when_the_backend_is_absent():
-    """The backend is an optional dependency; results must stay usable without
-    it, since that is the default install."""
-    from unittest.mock import patch
-
-    mats, _ = make_case()
-    with patch("pysimlr.sparsification.load_nsa_flow", return_value=None):
-        res = simlr(mats, k=3, iterations=8, constraint="Stiefel",
-                    positivity="positive", verbose=False)
-    for v in res["v"]:
-        assert torch.isfinite(v).all()
-        assert v.abs().sum() > 0
-        norms = v.norm(dim=0)
-        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5)
 
 
 @pytest.mark.parametrize("requested,expected", [

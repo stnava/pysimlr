@@ -293,16 +293,22 @@ def test_boundary_sparseness_quantile_dense_zero():
     assert torch.all(torch.abs(res["v"][0]) > 0.0)
 
 
-def test_boundary_sparseness_quantile_high_sparsity():
-    """Verify sparseness_quantile=0.85 aggressively sparsifies the basis matrix."""
+def test_boundary_high_w_gives_high_sparsity():
+    """A large NSA-Flow weight aggressively sparsifies the basis.
+
+    Sparsity used to be a quantile threshold applied after the projection;
+    it is now a property of the set the projection solves onto, so `w` is the
+    knob. w -> 1 drives disjoint supports.
+    """
     torch.manual_seed(42)
     x1 = torch.randn(40, 15)
     x2 = torch.randn(40, 12)
 
-    res = simlr([x1, x2], k=2, sparseness_quantile=0.85, iterations=10)
-    zero_count = torch.sum(res["v"][0] == 0.0).item()
-    total_count = res["v"][0].numel()
-    assert zero_count / total_count > 0.40, "Expected significant fraction of sparse zero entries"
+    res = simlr([x1, x2], k=2, constraint="orthox0.9", positivity="positive",
+                iterations=10)
+    v = res["v"][0]
+    frac_zero = float((v.abs() < 1e-9).float().mean())
+    assert frac_zero > 0.30, f"w=0.9 gave only {frac_zero:.2f} zeros"
 
 
 def test_boundary_flow_batch_size_equals_sample_size():

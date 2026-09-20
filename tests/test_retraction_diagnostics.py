@@ -118,7 +118,7 @@ def test_simlr_carries_per_modality_retraction_diagnostics():
         assert d["fidelity_mode"] in {"anchor", "subspace"}
 
 
-def test_diagnostics_are_optional_and_absent_without_a_backend():
+def test_diagnostics_are_optional_and_a_missing_backend_raises():
     """The out-dict is opt-in, and a missing backend leaves it empty rather
     than raising or inventing values."""
     from unittest.mock import patch
@@ -130,11 +130,15 @@ def test_diagnostics_are_optional_and_absent_without_a_backend():
     simlr_sparseness(v, constraint_type="ortho", positivity="positive",
                      constraint_weight=0.5)
 
+    # With the backend gone there is no projection to report on, and no
+    # substitute is applied, so the call raises rather than returning a basis
+    # produced by a different operator with an empty diagnostics dict.
     diagnostics = {}
     with patch("pysimlr.sparsification.load_nsa_flow", return_value=None):
-        simlr_sparseness(v, constraint_type="ortho", positivity="positive",
-                         constraint_weight=0.5,
-                         retraction_diagnostics=diagnostics)
+        with pytest.raises(ImportError, match="requires the NSA-Flow backend"):
+            simlr_sparseness(v, constraint_type="ortho", positivity="positive",
+                             constraint_weight=0.5,
+                             retraction_diagnostics=diagnostics)
     assert diagnostics == {}
 
 

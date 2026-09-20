@@ -79,42 +79,54 @@ def test_simlr_stiefel_constraint_is_near_orthogonal(synthetic_two_views):
             f"Modality {i} is not near the Stiefel manifold: V'V = {vtv}")
 
 
-def test_simlr_stiefel_orthogonality_is_approximate_once_sparsified(synthetic_two_views):
-    """
-    `constraint="Stiefel"` and `sparseness_quantile=0.5` are both defaults and
-    they pull against each other: a 50% soft threshold is applied after the
-    retraction, so the returned basis is sparse and only approximately
-    orthogonal. The column norms are still pinned to 1 exactly -- that part of
-    the contract is restored after thresholding -- but the off-diagonals are
-    not zero.
+def test_simlr_stiefel_orthogonality_and_sparsity_are_set_by_w(synthetic_two_views):
+    """A large NSA-Flow weight buys sparsity and near-orthogonality together.
 
-    Measured off-diagonal here is 0.001 and 0.054 for the two modalities. The
-    bound below is deliberately loose; it exists to catch a collapse to a
-    degenerate or wildly non-orthogonal basis, not to pin the exact value.
-    Whether a hard manifold constraint ought to be re-imposed after
-    sparsification is a semantics question about what the two requests mean
-    together, not something this test should decide: re-retracting afterwards
-    was measured to restore ``V'V = I`` exactly but to raise density from 49%
-    to 87%, discarding most of the sparsity the caller also asked for, while
-    leaving subspace recovery unchanged (0.9004 vs 0.9000 over 8 seeds).
+    Sparsity used to be a quantile threshold applied *after* the retraction,
+    which pulled against the orthogonality the retraction had just produced.
+    Both are now properties of the single set the projection solves onto, so
+    ``w`` is the only knob and they cannot disagree.
+
+    The column norms are checked under an energy that needs the gauge fixed.
+    Under ``regression`` -- which has a finite minimiser whose column scale is
+    set by the data -- unit norms are deliberately *not* imposed, so asserting
+    them there would be asserting a bug.
     """
     x1, x2 = synthetic_two_views["x1"], synthetic_two_views["x2"]
     k = synthetic_two_views["k"]
 
-    res = simlr([x1, x2], k=k, iterations=15, constraint="Stiefel",
+    res = simlr([x1, x2], k=k, iterations=15, constraint="Stiefelx0.9",
+                energy_type="acc", positivity="positive",
                 optimizer_type="hybrid_adam")
 
     for i, v in enumerate(res["v"]):
         vtv = v.t() @ v
         norms = v.norm(dim=0)
         assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5), (
-            f"Modality {i} lost its unit column norms: {norms}")
+            f"Modality {i} lost its unit column norms under a gauge-fixed "
+            f"energy: {norms}")
         off = vtv - torch.diag(torch.diag(vtv))
         assert float(off.abs().max()) < 0.10, (
             f"Modality {i} is far from orthogonal: V'V = {vtv}")
         assert float((v.abs() > 1e-10).float().mean()) < 0.75, (
-            f"Modality {i} was not sparsified: V = {v}")
+            f"Modality {i} was not sparsified at w=0.9: V = {v}")
 
+
+def test_simlr_regression_energy_keeps_its_column_scale(synthetic_two_views):
+    """The gauge must stay free for `regression`.
+
+    Its minimiser is ``V* = X^T u (u^T u)^{-1}``, whose column norms carry the
+    data's scale. The previous code unit-normalised every energy on every
+    sweep, deleting exactly the scale the default objective was solving for.
+    """
+    x1, x2 = synthetic_two_views["x1"], synthetic_two_views["x2"]
+    k = synthetic_two_views["k"]
+    res = simlr([x1, x2], k=k, iterations=10, constraint="Stiefelx0.5",
+                energy_type="regression", positivity="positive")
+    off_unit = [float((v.norm(dim=0) - 1.0).abs().max()) for v in res["v"]]
+    assert max(off_unit) > 1e-4, (
+        "regression columns were renormalised to unit norm; that removes the "
+        f"scale its minimiser encodes (max deviation {max(off_unit):.2e})")
 
 def test_simlr_canonical_correlation_two_views(synthetic_two_views):
     """Verify 2-view SiMLR returns the documented shapes and aligns the views."""

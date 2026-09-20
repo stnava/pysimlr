@@ -140,17 +140,21 @@ def test_positivity_selects_the_nonneg_flag(positivity, expected_nonneg):
     assert kwargs["nonneg"] is expected_nonneg
 
 
-def test_a_raising_backend_falls_back_without_crashing():
+def test_a_raising_backend_is_reported_not_substituted():
+    """A failing projection must surface, not be swapped for another operator.
+
+    This used to fall back to an SVD polar factor. That projects onto a
+    different feasible set, so the same call produced a different algorithm
+    depending on whether the backend happened to work -- silently.
+    """
     set_all_seeds(42)
     x1 = torch.randn(20, 5)
     mock = MagicMock(side_effect=Exception("nsa_flow internal error"))
 
     with _patch_backend(mock):
-        res = simlr([x1], k=2, iterations=1, constraint="orthox0.5")
-
+        with pytest.raises(RuntimeError, match="unusable projection"):
+            simlr([x1], k=2, iterations=1, constraint="orthox0.5")
     assert mock.called
-    assert res["v"][0].shape == (5, 2)
-    assert torch.isfinite(res["v"][0]).all()
 
 
 @pytest.mark.parametrize("bad", ["zeros", "wrong_shape", "nan", "none"])
@@ -159,6 +163,10 @@ def test_an_unusable_backend_result_is_rejected_rather_than_adopted(bad):
     The regression this guards: an earlier backend version returned an
     all-zero Y for narrow inputs, the code checked only `Y is not None`, and
     SiMLR silently produced a zero basis with no error anywhere.
+
+    Rejection now means raising. It previously meant substituting an SVD polar
+    factor, which is a projection onto a different set -- quieter, but it made
+    the algorithm depend on whether the backend happened to succeed.
     """
     set_all_seeds(42)
     x1 = torch.randn(20, 5)
@@ -174,13 +182,9 @@ def test_an_unusable_backend_result_is_rejected_rather_than_adopted(bad):
 
     mock = MagicMock(side_effect=payload)
     with _patch_backend(mock):
-        res = simlr([x1], k=2, iterations=1, constraint="orthox0.5")
-
-    v = res["v"][0]
+        with pytest.raises(RuntimeError, match="unusable projection"):
+            simlr([x1], k=2, iterations=1, constraint="orthox0.5")
     assert mock.called
-    assert v.shape == (5, 2)
-    assert torch.isfinite(v).all()
-    assert v.abs().sum() > 0, f"a '{bad}' backend result was adopted as the basis"
 
 
 def test_hard_stiefel_constraint_also_routes_through_the_backend():

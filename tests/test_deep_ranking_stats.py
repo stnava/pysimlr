@@ -101,3 +101,95 @@ def test_compute_pareto_frontier():
     assert m1_opt is True or m1_opt == 1
     assert m2_opt is True or m2_opt == 1
     assert m3_opt is False or m3_opt == 0
+
+
+# --- Regression tests for the ranking-block construction -------------------
+# These pin the three defects that made PCA look like the best method:
+# pseudo-replicated seeds inflating N, floor regimes entering the ranks, and
+# a ranking metric that cannot see the axes it is supposed to be judging.
+
+def _toy_results():
+    """Three datasets x three models x four seeds, with known pathologies."""
+    import pandas as pd
+    rows = []
+    for seed in range(4):
+        # 'Fixed' ignores the seed entirely -- the pseudo-replication case.
+        rows += [{"Dataset": "Fixed", "Seed": seed, "Model": m, "Score": s}
+                 for m, s in (("A", 0.80), ("B", 0.70), ("C", 0.60))]
+        # 'Varying' is a genuine replicate.
+        rows += [{"Dataset": "Varying", "Seed": seed, "Model": m, "Score": s + 0.01 * seed}
+                 for m, s in (("A", 0.50), ("B", 0.60), ("C", 0.70))]
+        # 'Floor' is a regime where nothing works.
+        rows += [{"Dataset": "Floor", "Seed": seed, "Model": m, "Score": s}
+                 for m, s in (("A", 0.05), ("B", 0.08), ("C", 0.03))]
+    return pd.DataFrame(rows)
+
+
+def test_ranking_blocks_are_datasets_not_dataset_seed_pairs():
+    """N must be the number of datasets; seeds are replicates, not blocks."""
+    from pysimlr.benchmarks.deep_ranking import build_ranking_blocks
+    df = _toy_results()
+    blocks, info = build_ranking_blocks(df, metric_col="Score")
+    # 3 datasets x 4 seeds = 12 would be the inflated count.
+    assert info["n_datasets"] == 2, "Floor regime should be dropped, leaving 2"
+    assert len(blocks) == info["n_datasets"]
+    assert info["n_seeds"] == 4
+
+
+def test_ranking_blocks_flag_seed_invariant_datasets():
+    """A dataset with zero seed-to-seed variance is not really replicated."""
+    from pysimlr.benchmarks.deep_ranking import build_ranking_blocks
+    blocks, info = build_ranking_blocks(_toy_results(), metric_col="Score")
+    assert "Fixed" in info["degenerate_datasets"]
+    assert "Varying" not in info["degenerate_datasets"]
+
+
+def test_ranking_blocks_drop_floor_regimes():
+    from pysimlr.benchmarks.deep_ranking import build_ranking_blocks
+    df = _toy_results()
+    blocks, info = build_ranking_blocks(df, metric_col="Score", floor_threshold=0.2)
+    assert info["dropped_floor"] == ["Floor"]
+    assert "Floor" not in blocks.index
+    kept, _ = build_ranking_blocks(df, metric_col="Score", floor_threshold=None)
+    assert "Floor" in kept.index
+
+
+def test_inflating_n_shrinks_critical_difference():
+    """The defect this guards: N=70 gave CD=1.25, N=7 gives CD=3.97."""
+    from pysimlr.benchmarks.deep_ranking import compute_nemenyi_cd
+    cd_honest = compute_nemenyi_cd(n_models=8, n_datasets=7)
+    cd_inflated = compute_nemenyi_cd(n_models=8, n_datasets=70)
+    assert cd_honest > 3.0 * cd_inflated * 0.9  # ~sqrt(10) apart
+    assert cd_inflated < 1.5 < cd_honest
+
+
+def test_undefined_metric_regimes_are_separated_from_floor_regimes():
+    """`support_recovery_score` is nan where the truth is dense, not zero."""
+    import pandas as pd
+    from pysimlr.benchmarks.deep_ranking import build_ranking_blocks
+    rows = []
+    for seed in range(3):
+        for m, s in (("A", 0.9), ("B", 0.8)):
+            rows.append({"Dataset": "Sparse", "Seed": seed, "Model": m, "Score": s})
+            rows.append({"Dataset": "Dense", "Seed": seed, "Model": m, "Score": float("nan")})
+            rows.append({"Dataset": "Floor", "Seed": seed, "Model": m, "Score": 0.01})
+    blocks, info = build_ranking_blocks(pd.DataFrame(rows), metric_col="Score")
+    assert info["dropped_undefined"] == ["Dense"]
+    assert info["dropped_floor"] == ["Floor"]
+    assert list(blocks.index) == ["Sparse"]
+    assert not blocks.isna().any().any(), "Friedman needs complete blocks"
+
+
+def test_duplicate_blocks_are_detected():
+    """Two regimes identical under a metric are one block, not two."""
+    import pandas as pd
+    from pysimlr.benchmarks.deep_ranking import build_ranking_blocks
+    rows = []
+    for seed in range(3):
+        for m, s in (("A", 0.9), ("B", 0.5)):
+            # Same basis, different outcome -> identical basis metric.
+            rows.append({"Dataset": "Parts", "Seed": seed, "Model": m, "Score": s})
+            rows.append({"Dataset": "PartsWeak", "Seed": seed, "Model": m, "Score": s})
+            rows.append({"Dataset": "Other", "Seed": seed, "Model": m, "Score": s / 2})
+    _, info = build_ranking_blocks(pd.DataFrame(rows), metric_col="Score")
+    assert info["duplicate_blocks"] == [["Parts", "PartsWeak"]]

@@ -878,12 +878,34 @@ class TorchNativeOptimizer(SimlrOptimizer):
             def closure():
                 optimizer.zero_grad()
                 with torch.no_grad():
-                    if grad_fn is not None:
-                        g = -grad_fn(v_param.detach())
-                        v_param.grad = g.contiguous()
-                    else:
-                        v_param.grad = (-descent_gradient).contiguous()
-                    loss = full_energy_function(v_param.detach())
+                    trial = v_param.detach()
+                    # Same hazard as `NSALBFGSB`: a line search probes points
+                    # the caller never asked for, and a long step can drive a
+                    # column -- or the whole basis -- to zero. The projection
+                    # inside the energy then refuses a rank-deficient basis and
+                    # the exception escapes the solve. Scoring the trial point
+                    # +inf tells the line search to back off, which is what it
+                    # is for. This path was left unpatched when the guard was
+                    # added to NSALBFGSB, and it is why `SiMLR-LBFGS` still
+                    # crashed on 13/3424 fits (all `logcosh`, seed dependent)
+                    # while `SiMLR-LBFGSB` did not.
+                    degenerate = not bool(
+                        (trial.abs() > 1e-12).any(dim=0).all())
+                    if degenerate:
+                        v_param.grad = torch.zeros_like(v_param)
+                        return torch.as_tensor(float("inf"),
+                                               device=v_param.device)
+                    try:
+                        if grad_fn is not None:
+                            g = -grad_fn(trial)
+                            v_param.grad = g.contiguous()
+                        else:
+                            v_param.grad = (-descent_gradient).contiguous()
+                        loss = full_energy_function(trial)
+                    except (RuntimeError, ValueError):
+                        v_param.grad = torch.zeros_like(v_param)
+                        return torch.as_tensor(float("inf"),
+                                               device=v_param.device)
                 return torch.as_tensor(float(loss), device=v_param.device)
             optimizer.step(closure)
         else:
@@ -952,11 +974,37 @@ class NSALBFGSB(SimlrOptimizer):
             v_next = v_current + descent_gradient
             return torch.clamp(v_next, min=0.0) if self.nonneg else v_next
 
+        # A line search probes points the caller never asked for, and under a
+        # V >= 0 bound a long step lands exactly on the zero corner: the whole
+        # basis becomes 0, which is feasible but rank-deficient, so the
+        # projection inside the energy refuses it and the exception propagated
+        # out of the solve. Captured at the point of failure the trial point
+        # was `colnorms=[0.00e+00, 0.00e+00]`.
+        #
+        # An invalid trial point is scored +inf, which is the standard way to
+        # tell a line search to back off. Reviving it instead would hand
+        # L-BFGS-B a different point than the one it asked to evaluate, and its
+        # curvature estimate is built from exactly those (point, value) pairs.
+        INVALID = float("inf")
+
+        def _degenerate(v):
+            return not bool((v.detach().abs() > 1e-12).any(dim=0).all())
+
         def fun_grad(v):
-            return float(full_energy_function(v)), (-grad_fn(v)).contiguous()
+            if _degenerate(v):
+                return INVALID, torch.zeros_like(v)
+            try:
+                return float(full_energy_function(v)), (-grad_fn(v)).contiguous()
+            except (RuntimeError, ValueError):
+                return INVALID, torch.zeros_like(v)
 
         def fun(v):
-            return float(full_energy_function(v))
+            if _degenerate(v):
+                return INVALID
+            try:
+                return float(full_energy_function(v))
+            except (RuntimeError, ValueError):
+                return INVALID
 
         certificate = None
         if self._grad_mapping is not None:

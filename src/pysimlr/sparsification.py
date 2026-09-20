@@ -1159,6 +1159,92 @@ def energy_needs_unit_columns(energy_type: Optional[str]) -> bool:
     return energy_type not in GAUGE_FREE_ENERGIES
 
 
+#: Smallest column norm a basis may carry, relative to its largest column.
+#: Not a tuning parameter: it is what keeps a rank-k basis rank-k.
+COLUMN_NORM_FLOOR = 1e-3
+
+
+def enforce_column_floor(v: torch.Tensor,
+                         rel_floor: float = COLUMN_NORM_FLOOR) -> torch.Tensor:
+    r"""Keep every column of ``v`` alive, at a scale-relative floor.
+
+    A column of exactly zero is not a small component, it is a *missing* one:
+    the basis has dropped rank and no longer solves the rank-``k`` problem the
+    caller asked for. The projection refuses such a basis, which is correct,
+    but by then the damage is upstream and the caller has no recourse.
+
+    Where the collapse comes from
+    -----------------------------
+    Only the *gauge-free* energies are exposed. ``regression`` has a finite
+    minimiser whose column norms carry the data's scale, so they are
+    deliberately not pinned (see `GAUGE_FREE_ENERGIES`); nothing then bounds
+    them from below, and a line-search optimiser walks into the degenerate
+    region. Measured on Heart and Diabetes, dead-column rejections per fit:
+
+    ==============  ==============  =========  ==============
+    energy          gauge fixed     ``lars``   ``nsa_lbfgsb``
+    ==============  ==============  =========  ==============
+    ``regression``  no              0          25 / 27
+    ``acc``         yes             0          0
+    ``logcosh``     yes             0          0 / 1
+    ``nc``          yes             0          3 / 1
+    ==============  ==============  =========  ==============
+
+    ``lars`` never triggers it because it rescales the step by
+    ``||v|| / ||g||`` and so cannot take the excursion; the gauge-fixed
+    energies are nearly immune because unit columns cannot vanish. The fix is
+    a floor, not unit normalisation -- renormalising ``regression`` would
+    delete the scale its minimiser encodes.
+
+    This is *not* a statement about the feasible set being small. A ``k = 2``
+    basis on ``p = 6`` features is trivially feasible (split the features 3+3,
+    one column per block: exactly disjoint, exactly non-negative, ``D = 0``).
+    Infeasibility begins only at ``k > p``.
+
+    Parameters
+    ----------
+    v : torch.Tensor
+        Basis of shape (features, components).
+    rel_floor : float, default `COLUMN_NORM_FLOOR`
+        Minimum column norm as a fraction of the largest column norm. Relative
+        so the guard is scale-invariant, like everything else here.
+
+    Returns
+    -------
+    torch.Tensor
+        ``v`` with every column at or above the floor. Unchanged when no
+        column is short, so the common path costs one norm.
+    """
+    if v.numel() == 0 or v.shape[1] == 0:
+        return v
+    norms = torch.linalg.vector_norm(v, dim=0)
+    scale = float(norms.max()) if norms.numel() else 0.0
+    if scale <= 0.0:
+        # Every column is dead; there is no scale to be relative to and no
+        # direction to preserve. Leave it: the caller's usability check should
+        # reject this rather than have a floor invent a basis from nothing.
+        return v
+    floor = rel_floor * scale
+    short = norms < floor
+    if not bool(short.any()):
+        return v
+
+    out = v.clone()
+    # Total loading each feature already carries, so a revived column is
+    # seeded where the surviving columns are *not* -- which is the disjoint
+    # support the constraint is driving toward anyway.
+    usage = out.abs().sum(dim=1)
+    for j in torch.nonzero(short).flatten().tolist():
+        nj = float(norms[j])
+        if nj > 0.0:
+            out[:, j] = out[:, j] * (floor / nj)      # keep direction, lift scale
+        else:
+            idx = int(torch.argmin(usage))
+            out[idx, j] = floor
+            usage[idx] += floor
+    return out
+
+
 def simlr_sparseness(v: torch.Tensor,
                      constraint_type: str = "none",
                      smoothing_matrix: Optional[torch.Tensor] = None,
@@ -1292,6 +1378,14 @@ def simlr_sparseness(v: torch.Tensor,
     # the backend moved `fidelity` into **kwargs and the signature probe that
     # gated the signed path went False.)  Without nonneg there is nothing to
     # choose: the sign is whatever the caller asked for.
+    # Keep the iterate rank-k on the way in. A column that reached zero
+    # upstream cannot be revived by a projection -- the solver returns the dead
+    # column faithfully and the usability check then rejects the whole solve,
+    # so the caller sees a failed projection for a problem that is perfectly
+    # feasible. Captured inputs at the point of failure were rank 1 with
+    # `colnorms=[0.00e+00, 1.02e+00]`. See `enforce_column_floor`.
+    v_out = enforce_column_floor(v_out)
+
     candidate = (_resolve_column_sign_gauge(v_out) if nonneg
                  else apply_positivity(v_out.clone(), positivity))
     projected = _nsa_retract(candidate, w=w, nonneg=nonneg,
@@ -1315,6 +1409,11 @@ def simlr_sparseness(v: torch.Tensor,
             f"different feasible set. Inspect retraction_diagnostics, or pass "
             f"constraint_type='none'."
         )
+    # ...and on the way out, so a caller that inspects the returned basis never
+    # sees a rank-deficient one either. Applied before the gauge so a revived
+    # column is normalised along with the rest when the energy fixes the scale.
+    projected = enforce_column_floor(projected)
+
     if unit_columns is None:
         unit_columns = energy_needs_unit_columns(energy_type)
     if unit_columns:

@@ -329,6 +329,13 @@ def resolve_energy_name(name: str, path: Optional[str] = None) -> str:
         ``"regression"`` meant ``recon`` in the linear path and ``align`` in
         the deep path; without ``path`` it raises rather than guess.
     """
+    if name == "recon" and path == "deep":
+        raise ValueError(
+            "similarity 'recon' is ||X - uV'||^2, a function of the data and "
+            "the loading matrix, and the deep path does not carry either into "
+            "the similarity term -- its reconstruction is a separate decoder "
+            "loss. Use 'align' for latent agreement on a deep model."
+        )
     if name in SIMILARITY:
         if path == "deep" and name in _DEEP_RENAMED:
             old, why = _DEEP_RENAMED[name]

@@ -66,8 +66,11 @@ def test_simlr_ica_gradient_kurtosis():
     assert grad.shape == (5, 2)
 
 def test_simlr_sparseness_alias():
-    x1 = torch.randn(10, 5)
-    x2 = torch.randn(10, 6)
+    # Wider views than before: 5 features cannot host 2 disjoint non-negative
+    # near-orthogonal components, so that shape now raises instead of being
+    # quietly handed a basis from a different projection.
+    x1 = torch.randn(30, 20)
+    x2 = torch.randn(30, 16)
     res = simlr([x1, x2], k=2, iterations=2, sparseness=0.1, positivity="negative")
     assert "u" in res
 

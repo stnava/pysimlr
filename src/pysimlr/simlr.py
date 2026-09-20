@@ -551,29 +551,22 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
     TypeError
         If inputs are not valid tensors.
     """
-    ica_types = ["logcosh", "exp", "gauss", "kurtosis"]
+    from .similarity import (SimilarityContext, resolve_energy_name,
+                             similarity_energy)
     u = u.to(x.dtype); v = v.to(x.dtype)
-    if energy_type == "regression":
-        pred = u @ v.t()
-        return torch.sum((x - pred)**2)
-    elif energy_type == "acc":
-        cov = (u.t() @ x @ v) / (x.shape[0] - 1)
-        return -torch.sum(torch.abs(cov))
-    elif energy_type in ica_types:
-        return calculate_ica_energy(x, u, v, nonlinearity=energy_type)
-    elif energy_type in ["normalized_correlation", "nc"]:
-        proj = x @ v
-        corr = torch.sum(u * proj) / (torch.norm(u) * torch.norm(proj) + 1e-10)
-        return -corr
-    elif energy_type == "dat" and prior_matrix is not None:
+    if energy_type == "dat":
+        # Domain regulariser, not a similarity: it scores V against a prior
+        # matrix rather than against the shared latent, so it stays here.
+        if prior_matrix is None:
+            raise ValueError(
+                "energy_type='dat' is a domain regulariser and requires "
+                "prior_matrix. It used to return a constant 0.0, so a caller "
+                "who passed it as a primary objective optimised nothing."
+            )
         alignment = prior_matrix.to(x.dtype) @ v
-        return -lambda_val * torch.sum(alignment**2)
-    raise ValueError(
-        f"calculate_simlr_energy: energy_type={energy_type!r} is not "
-        f"implemented. This used to return 0.0, so an unsupported objective "
-        f"looked like a perfectly flat one. Supported: "
-        f"{sorted(SUPPORTED_ENERGY_TYPES)}."
-    )
+        return -lambda_val * torch.sum(alignment ** 2)
+    name = resolve_energy_name(energy_type, path="linear")
+    return similarity_energy(name, x @ v, u, SimilarityContext(x=x, v=v))
 
 def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, 
                              energy_type: str = "regression", lambda_val: float = 0.0, 
@@ -607,48 +600,30 @@ def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor,
     TypeError
         If inputs are not valid tensors.
     """
-    ica_types = ["logcosh", "exp", "gauss", "kurtosis"]
+    from .similarity import (SimilarityContext, resolve_energy_name,
+                             similarity_gradient)
     u = u.to(x.dtype); v = v.to(x.dtype)
-    if energy_type == "regression":
-        # -dE/dV for E = ||X - U V^T||_F^2 is 2 (X^T U - V U^T U).
-        #
-        # This used to return `2 * (x.t() @ u - v)`, dropping U^T U. That is
-        # the right direction only when U^T U = I, and it never is here:
-        # `compute_shared_consensus` returns column-standardised scores, so
-        # U^T U = (n-1) I -- 279 I on the 3-view case. The V term was therefore
-        # under-weighted by a factor of n-1 and the direction collapsed to the
-        # constant 2 X^T U, which does not depend on the iterate at all.
-        # Measured against finite differences with U ~ N(0,1), the shipped
-        # direction had cosine -0.0045 with true descent; it was orthogonal to
-        # the objective it claimed to minimise. See docs/audit/AUDIT_2026_09.md.
-        return 2 * (x.t() @ u - v @ (u.t() @ u))
-    elif energy_type == "acc":
-        cov = (u.t() @ x @ v) / (x.shape[0] - 1)
-        return (x.t() @ u @ torch.sign(cov)) / (x.shape[0] - 1)
-    elif energy_type in ica_types: return calculate_ica_gradient(x, u, v, nonlinearity=energy_type)
-    elif energy_type in ("normalized_correlation", "nc"):
-        # d/dV of corr = <U, XV> / (||U|| ||XV||), returned as a descent
-        # direction for E = -corr. This branch previously fell through to
-        # `torch.zeros_like(v)`: the energy was defined and differentiable
-        # (finite-difference gradient norm 0.134) but no gradient was ever
-        # written, so `energy_type="nc"` optimised nothing. V still moved,
-        # because the retraction runs every sweep, which is why it looked
-        # like it was working.
-        proj = x @ v
-        a = torch.norm(u)
-        b = torch.norm(proj)
-        denom = a * b + 1e-10
-        sdot = torch.sum(u * proj)
-        return x.t() @ (u / denom - sdot * proj / (denom * b * b + 1e-30))
-    elif energy_type == "dat" and prior_matrix is not None: 
+    if energy_type == "dat":
+        if prior_matrix is None:
+            raise ValueError(
+                "energy_type='dat' is a domain regulariser and requires "
+                "prior_matrix."
+            )
         prior_matrix = prior_matrix.to(x.dtype)
         return 2 * lambda_val * (prior_matrix.t() @ prior_matrix @ v)
-    raise ValueError(
-        f"calculate_simlr_gradient: energy_type={energy_type!r} has no "
-        f"gradient. This used to return zeros, so the caller ran a loop that "
-        f"could not descend and reported it as a converged fit. Supported: "
-        f"{sorted(SUPPORTED_ENERGY_TYPES)}."
-    )
+
+    name = resolve_energy_name(energy_type, path="linear")
+    ctx = SimilarityContext(x=x, v=v)
+    s_rep = x @ v
+    if name == "recon":
+        # `recon` depends on V directly, not only through s = XV.
+        g_v = similarity_gradient(name, s_rep, u, ctx, wrt="v")
+    else:
+        # Chain rule through the linear encoder: dE/dV = X' dE/ds.
+        g_v = x.t() @ similarity_gradient(name, s_rep, u, ctx, wrt="s")
+    # Historical convention, preserved: this function returns a *descent*
+    # direction (-dE/dV), not the gradient. Callers add it to V.
+    return -g_v
 
 def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           k: int,

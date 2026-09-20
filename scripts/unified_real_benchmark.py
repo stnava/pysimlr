@@ -24,9 +24,12 @@ import traceback
 sys.path.append(os.path.join(os.getcwd(), "src"))
 
 def get_diabetes_case(seed=42):
-    data = load_diabetes(); X_scaled = StandardScaler().fit_transform(data.data); y = data.target
+    # Unscaled: `run_single_experiment` fits the scaler on the training split.
+    # Standardising the whole cohort here puts the test fold's own mean and
+    # variance into its features before the split is drawn.
+    data = load_diabetes(); X_scaled = data.data; y = data.target
     mats = [X_scaled[:, :5], X_scaled[:, 5:]]; k = 2
-    return {"data": [torch.tensor(m).float() for m in mats], "outcome": torch.tensor(y).float(), "true_u": torch.zeros(X_scaled.shape[0], k), "true_v": [np.zeros((m.shape[1], k)) for m in mats], "shared_k": k}
+    return {"data": [torch.tensor(m).float() for m in mats], "outcome": torch.tensor(y).float(), "true_u": torch.zeros(X_scaled.shape[0], k), "true_v": [np.zeros((m.shape[1], k)) for m in mats], "shared_k": k, "needs_scaling": True}
 
 def get_heart_case(seed=42):
     url_heart = 'https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data'
@@ -34,8 +37,8 @@ def get_heart_case(seed=42):
     try: df_h = pd.read_csv(url_heart, names=cols).replace('?', np.nan).dropna().apply(pd.to_numeric)
     except:
         X_dummy = np.random.randn(300, 13); y_dummy = np.random.randint(0, 2, 300); df_h = pd.DataFrame(X_dummy); df_h['num'] = y_dummy
-    X_h = StandardScaler().fit_transform(df_h.drop('num', axis=1)); y = df_h['num'].values.astype(int); mats = [X_h[:, :7], X_h[:, 7:]]; k = 2
-    return {"data": [torch.tensor(m).float() for m in mats], "outcome": torch.tensor(y).float(), "true_u": torch.zeros(X_h.shape[0], k), "true_v": [np.zeros((m.shape[1], k)) for m in mats], "shared_k": k}
+    X_h = df_h.drop('num', axis=1).values.astype(float); y = df_h['num'].values.astype(int); mats = [X_h[:, :7], X_h[:, 7:]]; k = 2
+    return {"data": [torch.tensor(m).float() for m in mats], "outcome": torch.tensor(y).float(), "true_u": torch.zeros(X_h.shape[0], k), "true_v": [np.zeros((m.shape[1], k)) for m in mats], "shared_k": k, "needs_scaling": True, "is_classification": True}
 
 def run_experiment_task(task_args):
     # Ensure each worker runs strictly single-threaded
@@ -97,6 +100,7 @@ def run_real_benchmark(version="v22", n_seeds=5, iterations=50, epochs=150, use_
     model_configs = [
         ("linear", "SiMLR"),
         ("simlr_lbfgs", "SiMLR-LBFGS"),
+        ("simlr_lbfgsb", "SiMLR-LBFGSB"),
         ("lend", "LEND"),
         ("ned", "NED"),
         ("shared_private", "NEDPP"),

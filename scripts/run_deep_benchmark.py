@@ -45,11 +45,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from pysimlr.benchmarks.runner import run_single_experiment
 from pysimlr.benchmarks.synthetic_cases import build_case
 from pysimlr.utils import procrustes_r2
+from pysimlr.benchmarks.metrics import support_recovery_score
 
 
 def get_diabetes_case(seed: int = 42) -> dict:
     data = load_diabetes()
-    X_scaled = StandardScaler().fit_transform(data.data)
+    # Unscaled on purpose. Standardising here fits the mean and variance on
+    # every row, including the rows that become the test fold, so the test
+    # features are centred with information drawn from themselves. The scaler
+    # is fitted on the training split instead -- see `needs_scaling` and
+    # `run_single_experiment`.
+    X_scaled = data.data
     y = data.target
     mats = [X_scaled[:, :5], X_scaled[:, 5:]]
     k = 2
@@ -60,7 +66,8 @@ def get_diabetes_case(seed: int = 42) -> dict:
         "true_u": torch.zeros(X_scaled.shape[0], k),
         "true_v": [np.zeros((m.shape[1], k)) for m in mats],
         "shared_k": k,
-        "is_classification": False
+        "is_classification": False,
+        "needs_scaling": True,
     }
 
 
@@ -75,7 +82,7 @@ def get_heart_case(seed: int = 42) -> dict:
         y_dummy = np.random.randint(0, 2, 300)
         df_h = pd.DataFrame(X_dummy)
         df_h['num'] = y_dummy
-    X_h = StandardScaler().fit_transform(df_h.drop('num', axis=1))
+    X_h = df_h.drop('num', axis=1).values.astype(float)  # scaled per-fold
     y = (df_h['num'].values > 0).astype(int)
     mats = [X_h[:, :7], X_h[:, 7:]]
     k = 2
@@ -86,7 +93,8 @@ def get_heart_case(seed: int = 42) -> dict:
         "true_u": torch.zeros(X_h.shape[0], k),
         "true_v": [np.zeros((m.shape[1], k)) for m in mats],
         "shared_k": k,
-        "is_classification": True
+        "is_classification": True,
+        "needs_scaling": True,
     }
 
 
@@ -115,7 +123,7 @@ def get_multiomics_case(n_samples: int = 400, seed: int = 42) -> dict:
     # Phenotype outcome: continuous survival index influenced by latents
     outcome = 1.5 * u[:, 0] - 1.2 * u[:, 1] + 0.8 * u[:, 2] + 0.2 * rng.standard_normal(n_samples)
     
-    mats = [StandardScaler().fit_transform(m) for m in [x1, x2, x3]]
+    mats = [x1, x2, x3]  # scaled per-fold, not across the whole cohort
     return {
         "kind": "multiomics_3view",
         "data": [torch.tensor(m).float() for m in mats],
@@ -123,7 +131,8 @@ def get_multiomics_case(n_samples: int = 400, seed: int = 42) -> dict:
         "true_u": torch.tensor(u).float(),
         "true_v": [v1, v2, v3],
         "shared_k": k,
-        "is_classification": False
+        "is_classification": False,
+        "needs_scaling": True,
     }
 
 
@@ -156,6 +165,10 @@ def run_experiment_task(task_args: tuple) -> dict:
             case = build_case(seed=seed, kind="nonlinear", regime="sinusoidal")
         elif dataset_name in ("Shared+Private", "Private"):
             case = build_case(seed=seed, kind="shared_plus_private")
+        elif dataset_name == "NonnegParts":
+            case = build_case(seed=seed, kind="nonneg_parts")
+        elif dataset_name == "NonnegPartsWeak":
+            case = build_case(seed=seed, kind="nonneg_parts_weak")
         else:
             case = build_case(seed=seed, kind="linear")
         is_classif = False
@@ -192,6 +205,10 @@ def run_experiment_task(task_args: tuple) -> dict:
     res = exp_res["result"]
 
     v_rec = calculate_v_recovery(res, case.get("true_v"))
+    # `v_rec` is Procrustes-aligned and therefore rotation invariant: it scores
+    # the subspace, not the axes. `v_sup` scores which features load on which
+    # component, which is what sparsity and disjoint support actually claim.
+    v_sup = support_recovery_score(res.get("v") or [], case.get("true_v") or [])
     test_metric = metrics.get("test_accuracy", 0.0) if is_classif else metrics.get("test_r2", 0.0)
     train_metric = metrics.get("train_accuracy", 0.0) if is_classif else metrics.get("train_r2", 0.0)
     lin_test = metrics.get("first_layer_test_accuracy", 0.0) if is_classif else metrics.get("first_layer_test_r2", 0.0)
@@ -209,20 +226,34 @@ def run_experiment_task(task_args: tuple) -> dict:
         "Axis_Sensitive_Metric": float(rf_test),
         "CMC_Latent_U": float(metrics.get("recovery", 0.0)),
         "Feature_Recovery_V": float(v_rec),
+        "Support_Recovery_V": float(v_sup),
         "Frame_Defect_D": float(metrics.get("frame_defect", 0.0)),
         "Lobe_Crosstalk": float(metrics.get("lobe_crosstalk", 0.0)),
         "Sparsity_Ratio": float(metrics.get("sparsity_ratio", 0.0)),
         "Fit_Seconds": float(metrics.get("fit_seconds", 0.0)),
+        "Stop_Reason": metrics.get("stop_reason"),
+        "Solver_Converged": metrics.get("solver_converged"),
+        "Grad_Map": metrics.get("grad_map"),
+        "Energy_Reduction": metrics.get("energy_reduction"),
+        "Solver_Iters": metrics.get("solver_iters"),
     }
 
 
 def run_deep_benchmark(n_seeds: int = 10, workers: int = 4, iterations: int = 40, epochs: int = 80) -> pd.DataFrame:
-    synthetic_regimes = ["Linear", "Polynomial", "Sine", "Shared+Private"]
+    # `NonnegParts` and `NonnegPartsWeak` have non-negative, sparse, disjoint
+    # ground-truth loadings. Every other synthetic regime draws `V` with
+    # `torch.randn`, so the truth is signed and dense and a non-negative method
+    # is being scored on a basis it cannot represent. Without these two there
+    # is no regime in the suite where the structural hypothesis holds.
+    synthetic_regimes = ["Linear", "Polynomial", "Sine", "Shared+Private",
+                         "NonnegParts", "NonnegPartsWeak"]
     real_regimes = ["Heart", "Diabetes", "MultiOmics"]
 
     model_configs = [
+        ("pca", "PCA"),
         ("linear", "SiMLR"),
         ("simlr_lbfgs", "SiMLR-LBFGS"),
+        ("simlr_lbfgsb", "SiMLR-LBFGSB"),
         ("nsa_pipeline", "NSAFlow-Turnkey"),
         ("lend", "LEND"),
         ("ned", "NED"),
@@ -244,7 +275,7 @@ def run_deep_benchmark(n_seeds: int = 10, workers: int = 4, iterations: int = 40
                 tasks.append((dset, "real", model_type, model_label, seed, iterations, epochs))
 
     total_tasks = len(tasks)
-    print(f"Starting Deep Benchmark with {total_tasks} tasks across {n_seeds} seeds and 7 models...")
+    print(f"Starting Deep Benchmark with {total_tasks} tasks across {n_seeds} seeds and {len(model_configs)} models...")
     print(f"Workers: {workers} parallel processes (single-threaded PyTorch).")
 
     results = []

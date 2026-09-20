@@ -105,3 +105,90 @@ def test_run_single_experiment_pr4_metrics_present():
     assert "first_layer_alignment_r2_mean" in metrics
     assert "shared_to_first_layer_r2_mean" in metrics
     assert "first_layer_prediction_preservation" in metrics
+
+
+# --- Regression tests for the evaluation-harness asymmetries ---------------
+# Before these, PCA and nsa_pipeline were scored by their own sklearn
+# Pipeline (a regularised head on their own scaler) while every other model
+# was scored by `cross_val_metrics`, and their invariants were read off the
+# joint basis while everyone else's came from the per-view blocks.
+
+def test_split_indices_depend_on_seed():
+    """A fixed prefix split made ten seeds of a fixed dataset identical."""
+    from pysimlr.benchmarks.runner import split_indices
+    a, _ = split_indices(100, seed=42)
+    b, _ = split_indices(100, seed=43)
+    assert not torch.equal(a, b)
+    again, _ = split_indices(100, seed=42)
+    assert torch.equal(a, again), "same seed must reproduce the same split"
+
+
+def test_split_indices_partition_all_rows():
+    from pysimlr.benchmarks.runner import split_indices
+    tr, te = split_indices(100, seed=7, train_frac=0.7)
+    assert len(tr) == 70 and len(te) == 30
+    assert sorted(torch.cat([tr, te]).tolist()) == list(range(100))
+
+
+def test_split_indices_stratify_keeps_every_class_on_both_sides():
+    from pysimlr.benchmarks.runner import split_indices
+    y = torch.tensor([0] * 90 + [1] * 10)
+    for seed in range(10):
+        tr, te = split_indices(100, seed=seed, train_frac=0.7, stratify=y)
+        assert set(y[tr].tolist()) == {0, 1}
+        assert set(y[te].tolist()) == {0, 1}
+
+
+def test_pipeline_models_do_not_override_the_shared_metric():
+    """PCA must be scored by the same estimator as every other model."""
+    from pysimlr.benchmarks.runner import run_single_experiment
+    from pysimlr.benchmarks.synthetic_cases import build_case
+    case = build_case(kind="linear", n_samples=200, seed=42)
+    from pysimlr.benchmarks.metrics import cross_val_metrics
+    from pysimlr.benchmarks.runner import split_indices
+
+    out = run_single_experiment("pca", case, seed=42, iterations=5)
+    metrics = out["metrics"]
+
+    # The pipeline's own (regularised) score is kept, but under its own key
+    # so it can never stand in for the shared metric.
+    assert "pipeline_test_score" in metrics
+
+    # `test_r2` must be exactly what the shared estimator gives on the latents.
+    tr_idx, te_idx = split_indices(
+        case["data"][0].shape[0], seed=42, train_frac=0.7, stratify=None
+    )
+    y = case["outcome"]
+    expected = cross_val_metrics(
+        out["result"]["custom_pred_train"]["u"], y[tr_idx].numpy(),
+        out["result"]["custom_pred_test"]["u"], y[te_idx].numpy(),
+        is_classification=False,
+    )
+    assert metrics["test_r2"] == pytest.approx(expected["test"], abs=1e-9)
+
+
+def test_invariants_use_per_view_blocks_for_every_model():
+    """PCA's D=0.0000 was an artefact of measuring the joint basis instead."""
+    from pysimlr.benchmarks.runner import run_single_experiment
+    from pysimlr.benchmarks.synthetic_cases import build_case
+    case = build_case(kind="linear", n_samples=200, seed=42)
+    pca = run_single_experiment("pca", case, seed=42, iterations=5)["metrics"]
+    # Per-view restrictions of a joint orthonormal basis are not orthonormal,
+    # so an honest per-view frame defect for PCA is strictly positive.
+    assert pca["frame_defect"] > 1e-3, (
+        "PCA scoring frame_defect 0 means the joint basis is still being used"
+    )
+
+
+def test_every_model_reports_the_axis_sensitive_metric():
+    """A hardcoded model allowlist silently zeroed this for new models."""
+    from pysimlr.benchmarks.runner import run_single_experiment
+    from pysimlr.benchmarks.synthetic_cases import build_case
+    case = build_case(kind="linear", n_samples=160, seed=42)
+    for model_type in ("linear", "simlr_lbfgs", "pca"):
+        m = run_single_experiment(model_type, case, seed=42, iterations=3)["metrics"]
+        assert "first_layer_axis_test_r2" in m, (
+            f"{model_type} reports no axis-sensitive metric, so the benchmark "
+            f"column defaults to 0.0 and the model looks infinitely bad"
+        )
+        assert m["first_layer_axis_test_r2"] != 0.0

@@ -213,27 +213,30 @@ def test_fit_structural_models_single_modality_view():
 
 
 def test_fit_structural_models_single_sample_n1():
-    """Verify fit_structural_models handles single sample (N=1) boundary condition without crashing."""
+    """N=1 is refused, loudly, rather than silently optimising nothing.
+
+    Every centred cross-moment similarity is identically constant at n=1 with
+    an exactly zero gradient, so the loop would run to completion and report a
+    converged fit having moved nothing. `pysimlr.similarity` refuses it; only
+    `recon`, which is a reconstruction rather than a moment, is defined there.
+    """
+    import pytest as _pytest
     torch.manual_seed(42)
     n_samples, k = 1, 1
     views_n1 = [torch.randn(n_samples, 4), torch.randn(n_samples, 4)]
     graph_pair = create_path_graph([(0, 1)], n_modalities=2)
 
-    res = fit_structural_models(
-        views_n1,
-        k=k,
-        models={"n1_model": graph_pair},
-        model_type="lend",
-        epochs=2,
-        batch_size=1,
-        warmup_epochs=0,
-        verbose=False,
-    )
-
-    assert "n1_model" in res["models"]
-    for lat in res["models"]["n1_model"]["latents"]:
-        assert lat.shape == (1, 1)
-        assert torch.isfinite(lat).all()
+    with _pytest.raises(ValueError, match="at least 3 rows"):
+        fit_structural_models(
+            views_n1,
+            k=k,
+            models={"n1_model": graph_pair},
+            model_type="lend",
+            epochs=2,
+            batch_size=1,
+            warmup_epochs=0,
+            verbose=False,
+        )
 
 
 def test_fit_structural_models_zero_variance_views():
