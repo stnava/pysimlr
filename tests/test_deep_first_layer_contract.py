@@ -117,7 +117,11 @@ def test_first_layer_training_schedule_metadata():
 
 
 def test_encoder_scheduled_projection_matches_projected_basis_at_alpha_one():
-    encoder = LENDNSAEncoder(6, 2, first_layer_mode="scheduled")
+    # Explicit positivity='positive': the point of this test is that the
+    # projection at alpha=1 diverges from the raw parameter, which needs an
+    # actual constraint to do -- under the default 'either' there is nothing
+    # to project and `v` trivially equals `v_raw`.
+    encoder = LENDNSAEncoder(6, 2, first_layer_mode="scheduled", positivity="positive")
     x = torch.randn(5, 6)
     encoder.train()
     encoder.set_projection_schedule(epoch=2, total_epochs=3, stabilization_start_epoch=0, stabilization_ramp_epochs=1)

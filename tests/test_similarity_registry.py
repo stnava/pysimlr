@@ -16,6 +16,7 @@ import torch
 from pysimlr.similarity import (
     SIMILARITY, SimilarityContext, describe_similarity, resolve_energy_name,
     similarity_energy, similarity_gradient, similarity_names,
+    similarity_needs_data,
 )
 
 
@@ -46,7 +47,7 @@ def test_gradient_matches_finite_differences(name):
     `V u'u` term and was *orthogonal* to descent (cosine -0.0045), while six of
     twelve declared objectives returned an identically zero gradient."""
     x, v, u, s, ctx = _case()
-    wrt = "v" if name == "recon" else "s"
+    wrt = "v" if similarity_needs_data(name) else "s"
     base = v if wrt == "v" else s
     g = similarity_gradient(name, s, u, ctx, wrt=wrt)
     assert g.shape == base.shape
@@ -73,7 +74,7 @@ def test_gradient_matches_finite_differences(name):
 def test_no_term_returns_a_zero_gradient(name):
     """A silently zero gradient is how six objectives optimised nothing."""
     x, v, u, s, ctx = _case()
-    wrt = "v" if name == "recon" else "s"
+    wrt = "v" if similarity_needs_data(name) else "s"
     g = similarity_gradient(name, s, u, ctx, wrt=wrt)
     assert torch.isfinite(g).all()
     assert float(g.abs().max()) > 0.0
@@ -99,19 +100,56 @@ def test_identity_equivalence_linear_and_deep():
     legacy_name = {"align": "regression", "acc": "acc",
                    "nc": "nc", "procrustes": "procrustes",
                    "logcosh": "logcosh"}
+    from pysimlr.sparsification import energy_needs_unit_columns
     for new, old in legacy_name.items():
-        got = float(similarity_energy(new, s, u, ctx))
+        # The deep path fixes the gauge on its input before scoring, exactly as
+        # the linear path does by returning V with unit columns -- `acc` is
+        # degree-1 and unbounded below, so without it the network reduces the
+        # energy forever by inflating the latent (measured: ||latent|| 28 ->
+        # 125, condition 7.6 -> 52, downstream R^2 0.400 -> 0.345). That is a
+        # gauge on the *argument*, not a second definition of the energy, so
+        # the comparison is made on the same gauged argument.
+        z = s
+        if energy_needs_unit_columns(new):
+            z = (s - s.mean(dim=0, keepdim=True)) / (s.std(dim=0, keepdim=True) + 1e-6)
+        got = float(similarity_energy(new, z, u, ctx))
         want = float(calculate_sim_loss([s], u, old, weights=weights)[0])
         assert got == pytest.approx(want, rel=1e-9, abs=1e-12), (
             f"{new} diverges from the deep path's {old}: {got} vs {want}")
 
 
 def test_recon_matches_the_linear_definition():
-    from pysimlr.simlr import calculate_simlr_energy
+    """`recon` is still exactly ||X - uV'||^2 when asked for by name.
+
+    `energy_type="regression"` no longer reaches it -- selecting it as an
+    objective is deprecated, because it is minimised by driving the basis to
+    zero -- so the comparison is against the registry entry directly. The
+    entry stays: the identifiability ground truths are stated in terms of it.
+    """
     x, v, u, s, ctx = _case()
     got = float(similarity_energy("recon", s, u, ctx))
-    want = float(calculate_simlr_energy(v, x, u, "regression"))
+    want = float(torch.sum((x - u @ v.t()) ** 2))
     assert got == pytest.approx(want, rel=1e-9)
+
+
+def test_regression_is_deprecated_in_favour_of_recon_r2():
+    """Selecting the degenerate objective warns and redirects.
+
+    The announcement fires once per process -- it resolves on every energy and
+    gradient call, for every view, on every sweep, which was 32k warnings for
+    one test run -- so the record has to be cleared or this test depends on
+    collection order.
+    """
+    from pysimlr.similarity import _DEPRECATION_ANNOUNCED
+    _DEPRECATION_ANNOUNCED.discard("regression")
+    with pytest.warns(DeprecationWarning, match="deprecated"):
+        assert resolve_energy_name("regression", path="linear") == "recon_r2"
+    # and it does not repeat
+    import warnings as _w
+    with _w.catch_warnings(record=True) as again:
+        _w.simplefilter("always")
+        resolve_energy_name("regression", path="linear")
+    assert not [m for m in again if issubclass(m.category, DeprecationWarning)]
 
 
 # --------------------------------------------------------------------------
@@ -125,10 +163,14 @@ def test_homogeneity_degrees_are_what_the_gauge_rule_assumes():
     degree-1 to degree-0, which is a deliberate change from the linear path.
     """
     x, v, u, s, ctx = _case()
+    # `gauss` is no longer an entry: it evaluated the identical expression to
+    # `exp` (verified bit-identical) and is now a documented alias, so a sweep
+    # over the registry runs that contrast once instead of twice.
+    # `negentropy` standardises each latent internally, so it is degree-0 too.
     expected_scale_free = {"align", "nc", "procrustes",
-                           "logcosh", "exp", "gauss", "kurtosis"}
+                           "logcosh", "exp", "kurtosis", "negentropy"}
     for name in sorted(SIMILARITY):
-        if name == "recon":
+        if similarity_needs_data(name):
             continue
         e1 = float(similarity_energy(name, s, u, ctx))
         e8 = float(similarity_energy(name, 8.0 * s, u, ctx))
@@ -147,7 +189,7 @@ def test_terms_are_centring_invariant():
     centre gets a covariance rather than a second moment."""
     x, v, u, s, ctx = _case()
     for name in sorted(SIMILARITY):
-        if name == "recon":       # depends on X, not only on s
+        if similarity_needs_data(name):   # depend on X, not only on s
             continue
         a = float(similarity_energy(name, s, u, ctx))
         b = float(similarity_energy(name, s + 7.0, u + 3.0, ctx))
@@ -160,7 +202,7 @@ def test_terms_are_centring_invariant():
 def test_regression_is_ambiguous_and_says_so():
     with pytest.raises(ValueError, match="ambiguous"):
         resolve_energy_name("regression")
-    assert resolve_energy_name("regression", path="linear") == "recon"
+    # `path="linear"` is covered by test_regression_is_deprecated_in_favour_of_recon_r2
     assert resolve_energy_name("regression", path="deep") == "align"
 
 
@@ -198,7 +240,7 @@ def test_tiny_n_is_refused_for_moment_terms(n):
     u = torch.randn(n, 3, generator=g)
     ctx = SimilarityContext(x=x, v=v)
     for name in similarity_names():
-        if name == "recon":       # a reconstruction, not a moment
+        if similarity_needs_data(name):   # a reconstruction, not a moment
             similarity_energy(name, x @ v, u, ctx)
             continue
         with pytest.raises(ValueError, match="at least 3 rows"):
@@ -213,3 +255,28 @@ def test_n3_is_enough():
     ctx = SimilarityContext(x=x, v=v)
     for name in similarity_names():
         assert torch.isfinite(similarity_energy(name, x @ v, u, ctx))
+
+
+def test_gauge_is_decided_by_the_energy_not_the_alias():
+    """Two names for one energy must be gauged the same way.
+
+    `calculate_sim_loss` standardises its latents for energies that do not fix
+    their own column scale. It used to key that off the raw ``energy_type``,
+    so the deep path's ``'regression'`` -- which *is* the registry's
+    ``'align'`` -- skipped the gauge while ``'align'`` took it: the same
+    objective computing two different numbers depending on which spelling the
+    caller used. Cheap to assert, and it is the only thing standing between a
+    future alias and the same split.
+    """
+    from pysimlr.deep import calculate_sim_loss
+    from pysimlr.similarity import resolve_energy_name
+    x, v, u, s, ctx = _case()
+    weights = {"sim": 1.0, "var": 1.0, "collapse": 1.0, "u_var": 1.0}
+    aliases = [("regression", "align")]
+    for legacy, registry in aliases:
+        assert resolve_energy_name(legacy, path="deep") == registry
+        a = float(calculate_sim_loss([s], u, legacy, weights=weights)[0])
+        b = float(calculate_sim_loss([s], u, registry, weights=weights)[0])
+        assert a == pytest.approx(b, rel=1e-12), (
+            f"{legacy!r} and {registry!r} are one energy but scored "
+            f"{a} vs {b} -- the gauge is keyed off the spelling.")

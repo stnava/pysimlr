@@ -5,6 +5,7 @@ import argparse
 import yaml
 import os
 import inspect
+import warnings
 import json
 import time
 from typing import List, Dict, Any, Optional, Union, Callable
@@ -14,8 +15,40 @@ from pysimlr.simlr import simlr, predict_simlr, predict_shared_latent
 from pysimlr.deep import lend_simr, ned_simr, ned_simr_shared_private, predict_deep
 
 def filter_kwargs(func: Callable, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep the kwargs ``func`` can actually accept, including via ``**kwargs``.
+
+    The previous version kept only *named* parameters. `simlr` forwards its
+    optimizer hyperparameters through ``**opt_params``, so ``learning_rate``
+    was not a named parameter and was silently dropped from every benchmark
+    call -- every recorded run used the default 0.001 whatever the sweep
+    asked for. That default is load-bearing rather than incidental: LARS moves
+    ``V`` by exactly ``lr`` of its norm per sweep, so at 0.001 a 12-iteration
+    fit ends within ~0.4% of its initialisation, and any parameter that acts
+    through the objective -- the energy, a regulariser weight -- cannot
+    change the answer. Six benchmark conditions that differ in energy,
+    negentropy weight and consensus positivity came back bit-identical on all
+    11 cohorts because of this.
+
+    A key the callee cannot accept under any route is still dropped, but now
+    with a warning rather than in silence.
+    """
     sig = inspect.signature(func)
-    return {k: v for k, v in kwargs.items() if k in sig.parameters}
+    takes_var_kw = any(q.kind is inspect.Parameter.VAR_KEYWORD
+                       for q in sig.parameters.values())
+    allowed = set(sig.parameters)
+    if takes_var_kw:
+        from pysimlr.optimizers import SIMLR_OPTIMIZER_DEFAULTS
+        allowed |= set(SIMLR_OPTIMIZER_DEFAULTS)
+    kept = {k: v for k, v in kwargs.items() if k in allowed}
+    dropped = sorted(set(kwargs) - set(kept))
+    if dropped:
+        warnings.warn(
+            f"{getattr(func, '__name__', func)!r} cannot accept {dropped}; "
+            f"these were dropped. A benchmark condition that differs only in a "
+            f"dropped key is not a distinct condition.",
+            RuntimeWarning, stacklevel=2,
+        )
+    return kept
 
 
 def split_indices(n_samples: int,
@@ -63,6 +96,106 @@ def split_indices(n_samples: int,
         tr = g.permutation(np.concatenate(tr_parts))
         te = g.permutation(np.concatenate(te_parts))
     return torch.as_tensor(tr, dtype=torch.long), torch.as_tensor(te, dtype=torch.long)
+
+def convergence_report(model_type: str, res: Dict[str, Any],
+                       train_mats: List[torch.Tensor],
+                       energy_type: str = "acc") -> Dict[str, Any]:
+    r"""One convergence contract, for every model.
+
+    Before this, only the three linear SiMLR variants reported anything: the
+    four deep models, PCA and NSAFlow-Turnkey returned no ``stop_reason``, no
+    ``grad_map`` and no ``converged``, so every convergence statement in the
+    benchmark covered a third of the table and said nothing about the rest.
+
+    The quantity is measured on the object every model has -- the per-view
+    basis ``V`` -- using the *same* scale-invariant gradient mapping
+    ``||P(V - ||V||^2 grad E) - V|| / ||V||`` that the linear path certifies
+    with. Measuring the same functional on the same object is what makes the
+    number comparable; a per-model notion of "converged" would reproduce the
+    one-name-several-definitions problem this package has already hit three
+    times.
+
+    Four cases:
+
+    ``linear SiMLR family``
+        Already reports it; passed through unchanged.
+    ``NSAFlow-Turnkey``
+        Its sklearn estimator carries ``converged_``, ``certificate_`` and
+        ``grad_map_``; they were simply never read.
+    ``PCA``
+        A closed-form eigendecomposition. Exactly stationary by construction,
+        so ``grad_map = 0`` with certificate ``"exact"`` -- not a claim about
+        an iteration that never ran.
+    ``deep / flow``
+        The mapping is evaluated post hoc on the returned ``V`` and consensus
+        ``u``. This certifies the *basis*, not the decoder weights, which is
+        the part that is comparable across the family.
+
+    Returns
+    -------
+    dict
+        ``stop_reason``, ``certificate``, ``converged``, ``grad_map``,
+        ``energy_reduction``, ``solver_iters``. Values are ``None`` only when
+        genuinely unavailable, never invented.
+    """
+    from ..nsa_backend import load_gradient_mapping
+    from ..similarity import SimilarityContext, resolve_energy_name, similarity_gradient
+
+    # 1. already reported
+    if res.get("stop_reason") is not None:
+        return {"stop_reason": res.get("stop_reason"),
+                "certificate": res.get("certificate"),
+                "converged": res.get("converged"),
+                "grad_map": res.get("grad_map"),
+                "energy_reduction": res.get("energy_reduction"),
+                "solver_iters": res.get("converged_iter")}
+
+    # 2. the sklearn NSA-Flow estimator knows its own answer
+    pipe = res.get("pipeline")
+    dim_red = getattr(pipe, "named_steps", {}).get("dim_reduction") if pipe is not None else None
+    if dim_red is not None and hasattr(dim_red, "grad_map_"):
+        return {"stop_reason": "grad_map" if getattr(dim_red, "converged_", False) else "max_iter",
+                "certificate": getattr(dim_red, "certificate_", None),
+                "converged": bool(getattr(dim_red, "converged_", False)),
+                "grad_map": float(getattr(dim_red, "grad_map_", float("nan"))),
+                "energy_reduction": None,
+                "solver_iters": getattr(dim_red, "n_iter_", None)}
+
+    # 3. closed form
+    if model_type in ("pca", "sklearn_pca"):
+        return {"stop_reason": "closed_form", "certificate": "exact",
+                "converged": True, "grad_map": 0.0,
+                "energy_reduction": None, "solver_iters": 0}
+
+    # 4. deep / flow: certify the returned basis with the shared mapping
+    gmap = load_gradient_mapping()
+    vs, u = res.get("v"), res.get("u")
+    if gmap is None or not vs or u is None:
+        return {"stop_reason": None, "certificate": None, "converged": None,
+                "grad_map": None, "energy_reduction": None, "solver_iters": None}
+    u_t = u[0] if isinstance(u, list) else u
+    u_t = torch.as_tensor(u_t).detach().float()
+    name = resolve_energy_name(energy_type, path="deep")
+    proj = (lambda z: torch.clamp(z, min=0.0))
+    terms = []
+    for x, v in zip(train_mats, vs):
+        v = torch.as_tensor(v).detach().float()
+        x = torch.as_tensor(x).detach().float()
+        if x.shape[0] != u_t.shape[0] or v.shape[1] != u_t.shape[1]:
+            continue
+        try:
+            g = x.t() @ similarity_gradient(name, x @ v, u_t,
+                                            SimilarityContext(x=x, v=v), wrt="s")
+            terms.append(gmap(v, g, proj))
+        except Exception:
+            continue
+    loss = res.get("loss_history") or []
+    red = (float(loss[0]) - float(min(loss))) if len(loss) > 1 else None
+    return {"stop_reason": "max_iter", "certificate": None, "converged": False,
+            "grad_map": (max(terms) if terms else None),
+            "energy_reduction": red,
+            "solver_iters": res.get("converged_iter") or (len(loss) or None)}
+
 
 def run_single_experiment(model_type: str, 
                           case: Dict[str, Any], 
@@ -282,6 +415,48 @@ def run_single_experiment(model_type: str,
         fl_scores_train = pred_train.get("latents")
         fl_scores_test = pred_test.get("latents")
 
+    # Rank reporting for every model, filled in here rather than in each
+    # branch. `simlr` and the four deep entry points compute it themselves;
+    # `pca` and `nsa_pipeline` build their result dict inline in this function
+    # and so reported NaN for the rank fields, which is the one number that
+    # reveals a basis that came back with fewer usable components than asked
+    # for. Doing it once after the dispatch also means a model added later
+    # cannot silently omit it -- the same failure mode as the hardcoded
+    # `model_type` list above.
+    if res.get("v") is not None:
+        from pysimlr.utils import basis_rank_report
+        try:
+            V = [v.detach() for v in res["v"]]
+            # Two kinds of model, and only one has a per-view basis.
+            #
+            # `pca` and `nsa_pipeline` fit ONE basis on the concatenated views
+            # and this function slices it into blocks for reporting. A block of
+            # a column-orthonormal matrix is not itself orthonormal, so its
+            # participation ratio measures how unevenly that view contributes
+            # to the shared components -- not whether components were lost.
+            # Reported as a per-view "effective rank" it read as 0.48-0.70 of k
+            # for PCA against ~0.99 for SiMLR, which looked like the
+            # unconstrained methods collapsing. They do not: the basis they
+            # actually fit has singular values [1, 1, 1], effective rank
+            # exactly k and condition number 1.000.
+            #
+            # So the joint figure is computed for every model, because it is
+            # the one number comparable across both families, and the per-view
+            # figure is withheld where there is no per-view basis.
+            joint = res.get("v_tot")
+            joint = joint.detach() if joint is not None else torch.cat(V, dim=0)
+            res.update({f"joint_{kk}": vv for kk, vv in
+                        basis_rank_report([joint], k, warn=False).items()})
+            res["basis_is_joint"] = res.get("v_tot") is not None
+            if not res["basis_is_joint"] and "effective_rank" not in res:
+                res.update(basis_rank_report(V, k, warn=False))
+            elif res["basis_is_joint"]:
+                for kk in ("effective_rank", "numerical_rank",
+                           "condition_number", "max_column_overlap"):
+                    res.pop(kk, None)
+        except Exception:
+            pass
+
     metrics = calculate_all_metrics(
         pred_test['u'], u_true_test, y_test, test_mats, pred_test['reconstructions'],
         shared_latents=shared_l, private_latents=private_l, v_mats=res.get("v"),
@@ -336,12 +511,10 @@ def run_single_experiment(model_type: str,
         # Solver self-report, so a row can say whether its fit converged and
         # whether it optimised anything -- previously unanswerable from the
         # results table.
-        "stop_reason": res.get("stop_reason"),
-        "certificate": res.get("certificate"),
-        "solver_converged": res.get("converged"),
-        "grad_map": res.get("grad_map"),
-        "energy_reduction": res.get("energy_reduction"),
-        "solver_iters": res.get("converged_iter"),
+        **{("solver_converged" if k == "converged" else k): v
+           for k, v in convergence_report(
+               model_type, res, train_mats,
+               params.get("energy_type", "acc")).items()},
         "model": model_type,
         "sparsity": sparsity,
         "seed": seed,

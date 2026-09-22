@@ -128,11 +128,22 @@ def _coupled(seed=0, n=120, k=3):
 
 @pytest.mark.parametrize("optimizer_type", ALL_OPTIMIZERS)
 def test_every_optimizer_recovers_a_strong_shared_latent(optimizer_type):
+    """The consensus is pinned so this measures the optimizer.
+
+    `u` is produced by the mixing method, not by the optimizer, so leaving
+    `mixing_algorithm` at its default made this test move whenever that
+    default moved -- and it did, from "svd" to "newton". Measured over 8 seeds
+    on this fixture, latent recovery is 0.987 under svd and ica but 0.784
+    under newton and avg, so every optimizer "failed" a 0.8 threshold that had
+    been calibrated against a different consensus. Which mixing recovers this
+    latent best is a real question, and a separate one from whether an
+    optimizer works; it belongs in the design sweep, not here.
+    """
     z, x = _coupled()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         res = simlr(x, k=3, iterations=12, optimizer_type=optimizer_type,
-                    energy_type="acc")
+                    energy_type="acc", mixing_algorithm="svd")
     u = res["u"]
     u = u[0] if isinstance(u, list) else u
     assert torch.isfinite(u).all()
@@ -179,8 +190,8 @@ def test_larslow_trust_ratio_fallback_is_scaled():
 # ----------------------------------------------- constraint string parsing
 
 @pytest.mark.parametrize("spec,expected_type,expected_weight", [
-    ("ortho", "ortho", 0.1),
-    ("nsaflow", "nsaflow", 0.1),
+    ("ortho", "ortho", 0.5),
+    ("nsaflow", "nsaflow", 0.5),
     ("Stiefel", "Stiefel", 1.0),
     ("Grassmann", "Grassmann", 1.0),
     ("NewtonSchulz", "NewtonSchulz", 1.0),

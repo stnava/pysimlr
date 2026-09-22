@@ -5,6 +5,16 @@ import numpy as np
 import pandas as pd
 from typing import List, Tuple, Optional, Dict, Any, Union
 from .consensus import compute_shared_consensus
+from .utils import basis_rank_report, align_column_signs
+
+
+#: MAI similarity metrics. `trace` was removed: tr(Z' u_loo) is the only one
+#: not computed through the SVD and it is not invariant to the arbitrary
+#: rotation of the k latent coordinates -- measured, the same data under three
+#: rotations gave 0.0348, 0.1319 and 0.0000, while the others were constant to
+#: four decimals. It ranked a planted pure-noise view above a signal view.
+VALID_MAI_METRICS = frozenset({"procrustes_r2", "procrustes_r2_sharp",
+                               "cca", "rvcoef"})
 
 
 class preserve_matplotlib_backend:
@@ -307,6 +317,18 @@ class FlowSiMRModel(nn.Module):
         
     def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int, dynamic_weights_start: Optional[int] = None):
         if not getattr(self, "dynamic_weights", False): return
+        _metric = getattr(self, "mai_metric", "procrustes_r2")
+        if _metric not in VALID_MAI_METRICS:
+            # Validated here rather than at the point of use: the per-view
+            # computation is wrapped in `except Exception: mais.append(0.0)`,
+            # which would turn a misspelled metric into "this view agrees with
+            # nothing" and quietly return uniform weights.
+            raise ValueError(
+                f"unknown mai_metric {_metric!r}; choose one of "
+                f"{sorted(VALID_MAI_METRICS)}. 'trace' was removed because "
+                f"tr(Z'u) is not invariant to the arbitrary rotation of the "
+                f"latent coordinates."
+            )
         
         if dynamic_weights_start is None:
             dynamic_weights_start = getattr(self, "dynamic_weights_start", None)
@@ -340,7 +362,10 @@ class FlowSiMRModel(nn.Module):
                 if not loo_projs:
                     mais.append(1.0)
                     continue
-                u_loo = torch.mean(torch.stack(loo_projs), dim=0)
+                # Sign-aligned: this leave-one-out average decides the
+                # modality weights, and unaligned views cancel here exactly as
+                # they do in the consensus (see `utils.align_column_signs`).
+                u_loo = torch.mean(torch.stack(align_column_signs(loo_projs)), dim=0)
                 u_loo_norm = torch.norm(u_loo, p='fro')
                 if u_loo_norm > 1e-8:
                     u_loo = u_loo / u_loo_norm
@@ -353,7 +378,26 @@ class FlowSiMRModel(nn.Module):
                         if metric == "procrustes_r2" or metric == "procrustes_r2_sharp":
                             omega = u_svd @ vh_svd
                             aligned = Z @ omega
-                            r2 = max(0.0, 1.0 - (torch.norm(aligned - u_loo, p='fro')**2 / (torch.norm(u_loo, p='fro')**2 + 1e-8)).item())
+                            # Scale-profiled Procrustes R^2. With Z and u_loo
+                            # both unit Frobenius norm and Omega orthogonal,
+                            # ||Z@Omega - u_loo||^2 = 2 - 2*sum(s), so the old
+                            # form below reduced to `2*sum(s) - 1` and clamped
+                            # to exactly 0 for every sum(s) < 0.5:
+                            #     max(0, 1 - ||aligned - u_loo||^2/||u_loo||^2)
+                            # At k=3 every view sits under that cliff, so all
+                            # modality scores came back 0, the gate saw no
+                            # spread, and the weights stayed uniform -- MAI was
+                            # inert. Measured with one planted pure-noise view:
+                            # mai = [0.0, 0.0, 0.0] every epoch, decaying only
+                            # because the EMA pulled the buffer toward zero.
+                            #
+                            # Profiling out the scale -- the same fix as
+                            # `similarity.energy_recon_r2` -- gives the squared
+                            # cosine between the optimally rotated-and-scaled Z
+                            # and u_loo, which is sum(s)^2: bounded in [0, 1],
+                            # never clamped, and still 0.989 for signal against
+                            # 0.020 for noise.
+                            r2 = float(s_svd.sum().item()) ** 2
                             if metric == "procrustes_r2_sharp":
                                 _, s_latent, _ = torch.linalg.svd(Z, full_matrices=False)
                                 sharpness = s_latent[0] / (s_latent.sum() + 1e-8)
@@ -366,9 +410,36 @@ class FlowSiMRModel(nn.Module):
                             num = torch.norm(cross, p='fro')**2
                             den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
                             mais.append((num / (den + 1e-8)).item())
-                        else: # trace
-                            mais.append(max(0.0, torch.trace(cross).item()))
+                        else:
+                            # Was `trace`, and was also the catch-all for any
+                            # unrecognised name, so a typo silently selected it.
+                            #
+                            # tr(Z' u_loo) is the only one of these computed
+                            # outside the SVD, and it is not invariant to the
+                            # latent gauge: the k latent coordinates carry an
+                            # arbitrary rotation Q, and tr((ZQ)' u) != tr(Z' u).
+                            # Measured on one fixed pair, rotating Q gave
+                            # 0.0348, 0.1319 and 0.0000 for the same data,
+                            # while procrustes / cca / rvcoef were constant to
+                            # four decimals. It therefore scores the accident
+                            # of the coordinate system rather than agreement
+                            # between views -- and on `flow_simr_v` it ranked a
+                            # planted pure-noise view *above* a signal view
+                            # (0.276 against 0.246).
+                            raise ValueError(
+                                f"unknown mai_metric {metric!r}. Choose one of "
+                                f"['procrustes_r2', 'procrustes_r2_sharp', "
+                                f"'cca', 'rvcoef']. 'trace' has been removed: "
+                                f"tr(Z'u) depends on the arbitrary rotation of "
+                                f"the latent coordinates, so it does not "
+                                f"measure agreement between views."
+                            )
+                    except ValueError:
+                        raise
                     except Exception:
+                        # A numerical failure on one view only. Note this
+                        # scores the view as agreeing with nothing, which is a
+                        # real bias if it happens often.
                         mais.append(0.0)
                 else:
                     mais.append(0.0)
@@ -449,7 +520,8 @@ class FlowConditionalInference:
         
         return mu_cond
 
-def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epochs: int, sim_weight: float, energy_type: str, warmup_epochs: int, verbose: bool, device: torch.device, beta: float = 0.05, gamma: float = 2.0, dynamic_weights_start: Optional[int] = None, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None):
+def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epochs: int, sim_weight: float, energy_type: str, warmup_epochs: int, verbose: bool, device: torch.device, beta: float = 0.05, gamma: float = 2.0, dynamic_weights_start: Optional[int] = None, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None,
+                     tol: float = 1e-4, patience: int = 10):
     loss_history, recon_history, sim_history = [], [], []
     nonfinite_grad_steps = 0
     model.weight_history = []
@@ -475,6 +547,15 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
     )
     
     has_stepped = False
+    # Same convergence rule and best-iterate policy as `simlr` and the deep
+    # trainers; see `utils.ConvergenceMonitor` and `deep._train_loop`. This
+    # loop is written out separately from `_train_loop`, so it had neither.
+    import copy as _copy
+    from .utils import ConvergenceMonitor
+    _monitor = ConvergenceMonitor(tol=float(tol), patience=int(patience),
+                                  max_steps=epochs)
+    _best_loss, _best_state, _best_epoch = float("inf"), None, None
+    _warm = int(warmup_epochs or 0)
     for epoch in range(epochs):
         model.train()
         epoch_loss, epoch_recon, epoch_sim = 0.0, 0.0, 0.0
@@ -576,10 +657,14 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         epoch_recon /= len(dataloader)
         epoch_sim /= len(dataloader)
         loss_history.append(epoch_loss)
+        if epoch >= _warm and np.isfinite(epoch_loss) and epoch_loss < _best_loss:
+            _best_loss, _best_epoch = epoch_loss, epoch
+            _best_state = _copy.deepcopy(model.state_dict())
         recon_history.append(epoch_recon)
         sim_history.append(epoch_sim)
         if has_stepped and scheduler is not None:
-            scheduler.step()
+            # Metric-driven now; see `deep._plateau_scheduler`.
+            scheduler.step(epoch_loss)
         
         if hasattr(model, 'modality_weights'):
             model.weight_history.append(model.modality_weights.detach().cpu().numpy().copy())
@@ -588,7 +673,20 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         
         if verbose and epoch % 10 == 0:
             print(f"Flow Epoch {epoch}: Total={epoch_loss:.4f} (NLL={epoch_recon:.4f}, Sim={epoch_sim:.4f})")
-            
+
+        if epoch >= _warm and _monitor.update(epoch_loss):
+            if verbose:
+                print(f"Flow stop at epoch {epoch}: "
+                      f"{_monitor.report()['stop_reason']}")
+            break
+
+    if _best_state is not None:
+        model.load_state_dict(_best_state)
+    _conv_report = _monitor.report()
+    _conv_report.update(returned="best" if _best_state is not None else "final",
+                        best_epoch=_best_epoch, warmup_epochs=_warm,
+                        best_loss=_best_loss if np.isfinite(_best_loss) else float("nan"))
+
     if nonfinite_grad_steps:
         warnings.warn(
             f"{nonfinite_grad_steps} optimizer step(s) were skipped because the "
@@ -597,7 +695,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             RuntimeWarning, stacklevel=2,
         )
 
-    return loss_history, recon_history, sim_history
+    return loss_history, recon_history, sim_history, _conv_report
 
 def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
               k: int, 
@@ -623,7 +721,14 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               force_fallback: bool = False) -> Dict[str, Any]:
     """
     Perform Flow-based Similarity-driven Multi-view Representation (Flow-SiMR).
-    
+
+    Unlike `flow_simr_v`, there is no prepended linear encoder `V_m` here --
+    `FlowSiMRModel` feeds each view directly into its normalizing flow -- so
+    there is no basis for a `positivity` or `initialization_type` parameter
+    to constrain or seed, and neither is accepted. Use `flow_simr_v` if a
+    sign-constrained or specifically-initialized linear entry point is
+    wanted.
+
     Parameters
     ----------
     data_matrices : List[Union[torch.Tensor, np.ndarray]]
@@ -680,14 +785,15 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     
     model = FlowSiMRModel(input_dims, k, num_layers=num_layers, hidden_dim=hidden_dim, mixing_algorithm=mixing_algorithm, scale_bound=scale_bound, dynamic_weights=dynamic_weights, mai_metric=mai_metric, dynamic_weights_start=dynamic_weights_start, use_rank_mai=use_rank_mai, force_fallback=force_fallback).to(device)
     optimizer = _get_optimizer(model, "adam", learning_rate, weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
+    from .deep import _plateau_scheduler
+    scheduler = _plateau_scheduler(optimizer)
     
     dataset = TensorDataset(*torch_mats)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
     
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     
-    loss_h, recon_h, sim_h = _train_flow_loop(
+    loss_h, recon_h, sim_h, _conv_report = _train_flow_loop(
         model, dataloader, optimizer, scheduler, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, beta=beta, gamma=gamma, dynamic_weights_start=dynamic_weights_start
     )
     
@@ -730,7 +836,7 @@ class FlowSiMRVModel(nn.Module):
     """
     def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, 
                  hidden_dim: int = 64, mixing_algorithm: str = 'newton', scale_bound: float = 2.0,
-                 nsa_w: float = 0.1, positivity: str = 'positive', 
+                 nsa_w: float = 0.1, positivity: str = 'either', 
                  sparseness_quantile: Union[float, List[float]] = 0.0, use_nsa: bool = True,
                  dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False,
@@ -783,6 +889,18 @@ class FlowSiMRVModel(nn.Module):
         
     def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int, dynamic_weights_start: Optional[int] = None):
         if not getattr(self, "dynamic_weights", False): return
+        _metric = getattr(self, "mai_metric", "procrustes_r2")
+        if _metric not in VALID_MAI_METRICS:
+            # Validated here rather than at the point of use: the per-view
+            # computation is wrapped in `except Exception: mais.append(0.0)`,
+            # which would turn a misspelled metric into "this view agrees with
+            # nothing" and quietly return uniform weights.
+            raise ValueError(
+                f"unknown mai_metric {_metric!r}; choose one of "
+                f"{sorted(VALID_MAI_METRICS)}. 'trace' was removed because "
+                f"tr(Z'u) is not invariant to the arbitrary rotation of the "
+                f"latent coordinates."
+            )
         
         if dynamic_weights_start is None:
             dynamic_weights_start = getattr(self, "dynamic_weights_start", None)
@@ -816,7 +934,10 @@ class FlowSiMRVModel(nn.Module):
                 if not loo_projs:
                     mais.append(1.0)
                     continue
-                u_loo = torch.mean(torch.stack(loo_projs), dim=0)
+                # Sign-aligned: this leave-one-out average decides the
+                # modality weights, and unaligned views cancel here exactly as
+                # they do in the consensus (see `utils.align_column_signs`).
+                u_loo = torch.mean(torch.stack(align_column_signs(loo_projs)), dim=0)
                 u_loo_norm = torch.norm(u_loo, p='fro')
                 if u_loo_norm > 1e-8:
                     u_loo = u_loo / u_loo_norm
@@ -829,7 +950,26 @@ class FlowSiMRVModel(nn.Module):
                         if metric == "procrustes_r2" or metric == "procrustes_r2_sharp":
                             omega = u_svd @ vh_svd
                             aligned = Z @ omega
-                            r2 = max(0.0, 1.0 - (torch.norm(aligned - u_loo, p='fro')**2 / (torch.norm(u_loo, p='fro')**2 + 1e-8)).item())
+                            # Scale-profiled Procrustes R^2. With Z and u_loo
+                            # both unit Frobenius norm and Omega orthogonal,
+                            # ||Z@Omega - u_loo||^2 = 2 - 2*sum(s), so the old
+                            # form below reduced to `2*sum(s) - 1` and clamped
+                            # to exactly 0 for every sum(s) < 0.5:
+                            #     max(0, 1 - ||aligned - u_loo||^2/||u_loo||^2)
+                            # At k=3 every view sits under that cliff, so all
+                            # modality scores came back 0, the gate saw no
+                            # spread, and the weights stayed uniform -- MAI was
+                            # inert. Measured with one planted pure-noise view:
+                            # mai = [0.0, 0.0, 0.0] every epoch, decaying only
+                            # because the EMA pulled the buffer toward zero.
+                            #
+                            # Profiling out the scale -- the same fix as
+                            # `similarity.energy_recon_r2` -- gives the squared
+                            # cosine between the optimally rotated-and-scaled Z
+                            # and u_loo, which is sum(s)^2: bounded in [0, 1],
+                            # never clamped, and still 0.989 for signal against
+                            # 0.020 for noise.
+                            r2 = float(s_svd.sum().item()) ** 2
                             if metric == "procrustes_r2_sharp":
                                 _, s_latent, _ = torch.linalg.svd(Z, full_matrices=False)
                                 sharpness = s_latent[0] / (s_latent.sum() + 1e-8)
@@ -842,9 +982,36 @@ class FlowSiMRVModel(nn.Module):
                             num = torch.norm(cross, p='fro')**2
                             den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
                             mais.append((num / (den + 1e-8)).item())
-                        else: # trace
-                            mais.append(max(0.0, torch.trace(cross).item()))
+                        else:
+                            # Was `trace`, and was also the catch-all for any
+                            # unrecognised name, so a typo silently selected it.
+                            #
+                            # tr(Z' u_loo) is the only one of these computed
+                            # outside the SVD, and it is not invariant to the
+                            # latent gauge: the k latent coordinates carry an
+                            # arbitrary rotation Q, and tr((ZQ)' u) != tr(Z' u).
+                            # Measured on one fixed pair, rotating Q gave
+                            # 0.0348, 0.1319 and 0.0000 for the same data,
+                            # while procrustes / cca / rvcoef were constant to
+                            # four decimals. It therefore scores the accident
+                            # of the coordinate system rather than agreement
+                            # between views -- and on `flow_simr_v` it ranked a
+                            # planted pure-noise view *above* a signal view
+                            # (0.276 against 0.246).
+                            raise ValueError(
+                                f"unknown mai_metric {metric!r}. Choose one of "
+                                f"['procrustes_r2', 'procrustes_r2_sharp', "
+                                f"'cca', 'rvcoef']. 'trace' has been removed: "
+                                f"tr(Z'u) depends on the arbitrary rotation of "
+                                f"the latent coordinates, so it does not "
+                                f"measure agreement between views."
+                            )
+                    except ValueError:
+                        raise
                     except Exception:
+                        # A numerical failure on one view only. Note this
+                        # scores the view as agreeing with nothing, which is a
+                        # real bias if it happens often.
                         mais.append(0.0)
                 else:
                     mais.append(0.0)
@@ -887,15 +1054,35 @@ class FlowSiMRVModel(nn.Module):
         }
 
     def retract_linear_encoders(self) -> None:
-        """Retract linear encoders to the Stiefel manifold to prevent basis drift."""
+        """Retract the linear encoders onto the feasible set.
+
+        Prefers ``NSAFlowLinear.project_()``, the backend's in-place no-grad
+        prox, which is the API provided for proximal-gradient training. The
+        fallback copies ``enc.v`` into the raw weight, which is the same idea
+        done by hand.
+
+        Why the preference matters: the hand-rolled path writes the *projected*
+        basis into the weight that the next forward pass will project again, so
+        the graph differentiates the projection at a point already on the
+        constraint boundary. Measured on a 2-view flow, one Adam step followed
+        by that retraction was enough to make
+        ``linear_encoders.0.nsa_linear.weight`` produce a non-finite gradient
+        while every parameter and the loss itself stayed finite -- after which
+        119 of 120 optimizer steps were skipped by the gradient guard and the
+        model trained on a single update. ``project_`` keeps the projection out
+        of the graph entirely.
+        """
         with torch.no_grad():
             for enc in self.linear_encoders:
+                nsa = getattr(enc, 'nsa_linear', None)
+                if nsa is not None and hasattr(nsa, 'project_'):
+                    nsa.project_()
+                    continue
                 target_v = enc.v.detach()
-                if hasattr(enc, 'v_raw') and enc.v_raw is not None:
+                if getattr(enc, 'v_raw', None) is not None:
                     enc.v_raw.data.copy_(target_v)
-                elif hasattr(enc, 'nsa_linear') and enc.nsa_linear is not None:
-                    if hasattr(enc.nsa_linear, 'weight'):
-                        enc.nsa_linear.weight.data.copy_(target_v.t())
+                elif nsa is not None and hasattr(nsa, 'weight'):
+                    nsa.weight.data.copy_(target_v.t())
 
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         # 1. Linear projection layer
@@ -924,17 +1111,15 @@ class FlowSiMRVModel(nn.Module):
             
         return latents, reconstructions, u_shared
         
-    def initialize_weights(self, data_matrices: List[torch.Tensor]):
-        """Seed each encoder's basis; see `initial_basis_for_view` for why a
-        rectifying encoder is started from a data-fitted non-negative basis
-        rather than from rectified PCA loadings."""
-        from .simlr import initial_basis_for_view
-        with torch.no_grad():
-            k = self.latent_dim
-            for i, x in enumerate(data_matrices):
-                v = initial_basis_for_view(
-                    x, k, positivity=self.linear_encoders[i].positivity)
-                self.linear_encoders[i].v_raw.copy_(v.to(x.dtype))
+    def initialize_weights(self, data_matrices: List[torch.Tensor], **init_kwargs):
+        """Seed each encoder's basis.
+
+        Delegates to `initialize_deep_encoders`, so any `INITIALIZATION_TYPES`
+        strategy is available here, not only PCA -- see `initialize_simlr`'s
+        docstring for what each does.
+        """
+        from .simlr import initialize_deep_encoders
+        initialize_deep_encoders(self.linear_encoders, data_matrices, self.latent_dim, **init_kwargs)
 
 def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
                 k: int, 
@@ -954,7 +1139,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 scale_bound: float = 2.0,
                 gamma: float = 2.0,
                 nsa_w: float = 0.1,
-                positivity: str = 'positive',
+                positivity: str = 'either',
                 sparseness_quantile: Union[float, List[float]] = 0.0,
                 use_nsa: bool = True,
                 dynamic_weights: bool = False,
@@ -964,10 +1149,48 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 stabilization_start_epoch: Optional[int] = None,
                 stabilization_ramp_epochs: Optional[int] = None,
                 retraction_type: str = 'soft_polar',
-                force_fallback: bool = False) -> Dict[str, Any]:
+                force_fallback: bool = False, iterations: Optional[int] = None,
+                initialization_type: str = 'pca',
+                init_seed: Optional[int] = None,
+                domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
+                n_candidates: int = 5,
+                perturbation_scale: float = 0.05) -> Dict[str, Any]:
     """
     Perform Flow-based Similarity-driven Multi-view Representation with Linear Encoder (Flow-SiMR-V).
+
+    Parameters
+    ----------
+    positivity : str, default="either"
+        Sign constraint on the prepended linear encoder `V_m`. Was
+        `"positive"`; changed because that silently forced every encoder
+        non-negative even on standardized (signed, zero-mean) input, which is
+        the common case for real tabular/omics data after scaling. Measured
+        on two real datasets (`scripts/real_data_method_comparison.py`,
+        epochs=60, k=3): switching `"positive"` -> `"either"` moved a
+        downstream random-forest's accuracy/R^2 from 0.7133 -> 0.7800 on
+        mfeat and 0.2794 -> 0.2928 on Diabetes. Pass `"positive"` explicitly
+        when the input is genuinely non-negative (e.g. raw counts, pixel
+        intensities) and that constraint is wanted.
+    initialization_type : str, default="pca"
+        One of `INITIALIZATION_TYPES` (`pysimlr.simlr`); see `initialize_simlr`
+        for what each does. Previously always PCA regardless of this
+        argument, since `initialize_weights` hardcoded it.
+    init_seed : int, optional
+        Seed for initialization types that need a `torch.Generator`
+        (`"random"`, `"perturbed_pca"`, `"best_of_n"`). Same contract as
+        `simlr`'s `init_seed`.
+    domain_matrices : list of torch.Tensor, optional
+        Per-view priors for `initialization_type="domain"`.
+    n_candidates : int, default=5
+        Candidates drawn for `initialization_type="best_of_n"`.
+    perturbation_scale : float, default=0.05
+        Noise scale for `initialization_type="perturbed_pca"`.
     """
+    # See `simlr`: the budget slot accepts either name so the entry
+    # points are interchangeable.
+    if iterations is not None:
+        epochs = int(iterations)
+
     if positivity is True or (isinstance(positivity, str) and positivity.lower() == 'true'):
         positivity = 'positive'
     elif positivity is False or (isinstance(positivity, str) and positivity.lower() == 'false'):
@@ -997,18 +1220,26 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         force_fallback=force_fallback
     ).to(device)
     
-    # Initialize linear encoders via SVD
-    model.initialize_weights(torch_mats)
+    # Initialize linear encoders
+    init_gen = None
+    if initialization_type in ("random", "perturbed_pca", "best_of_n"):
+        init_gen = torch.Generator()
+        if init_seed is not None:
+            init_gen.manual_seed(int(init_seed))
+    model.initialize_weights(torch_mats, initialization_type=initialization_type,
+                             generator=init_gen, domain_matrices=domain_matrices,
+                             n_candidates=n_candidates, perturbation_scale=perturbation_scale)
     
     optimizer = _get_optimizer(model, 'adam', learning_rate, weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
+    from .deep import _plateau_scheduler
+    scheduler = _plateau_scheduler(optimizer)
     
     dataset = TensorDataset(*torch_mats)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
     
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     
-    loss_h, recon_h, sim_h = _train_flow_loop(
+    loss_h, recon_h, sim_h, _conv_report = _train_flow_loop(
         model, dataloader, optimizer, scheduler, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, 
         beta=beta, gamma=gamma, dynamic_weights_start=dynamic_weights_start,
         stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs
@@ -1052,6 +1283,9 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         for x, r in zip(torch_mats, recons)
     ]
     
+    # How many components actually came back; see `utils.basis_rank_report`.
+    result.update(basis_rank_report(v_mats, k))
+    result["convergence"] = _conv_report
     return result
 
 

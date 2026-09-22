@@ -1,3 +1,5 @@
+import warnings
+
 import torch
 import pandas as pd
 import re
@@ -1186,12 +1188,37 @@ def set_all_seeds(seed: int = 42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+def _scipy_gesvd_fallback(x: torch.Tensor, full_matrices: bool) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Recompute an SVD with LAPACK's ``gesvd`` (QR-based) driver via SciPy.
+
+    ``torch.linalg.svd`` uses ``gesdd`` (divide-and-conquer) on CPU, which is
+    faster but can fail to converge on real, ill-conditioned data -- measured
+    on the ADNI+PPMI cohort (`scripts/adni_loader.py`): after
+    `_standardize_deep`'s centering/scaling, `torch.linalg.svd` on the
+    T1Hier view raises ``LinAlgError: ... failed to converge`` reliably (100%
+    of runs, both DX and CDRSB tasks), while the identical matrix decomposes
+    fine under `gesvd`. `gesdd` has no CPU driver switch in PyTorch itself
+    (the ``driver=`` kwarg to `torch.linalg.svd` is CUDA-only), so the
+    fallback goes through SciPy, which exposes `gesvd` on CPU. Slower, but
+    only reached when the fast path has already failed.
+    """
+    import scipy.linalg
+    arr = x.detach().cpu().numpy()
+    u, s, vh = scipy.linalg.svd(arr, full_matrices=full_matrices, lapack_driver='gesvd')
+    to = dict(dtype=x.dtype, device=x.device)
+    return (torch.from_numpy(u).to(**to), torch.from_numpy(s).to(**to), torch.from_numpy(vh).to(**to))
+
+
 def safe_svd(x: torch.Tensor, full_matrices: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Hardware-aware SVD that gracefully handles MPS (macOS) limitations.
+    Hardware-aware, convergence-robust SVD.
 
-    Falls back to CPU when necessary to ensure stability for SVD operations 
-    on Apple Silicon.
+    Falls back to CPU when necessary for MPS (Apple Silicon) stability, and
+    falls back to LAPACK's `gesvd` driver (via SciPy, see
+    `_scipy_gesvd_fallback`) when PyTorch's default `gesdd` driver raises
+    `LinAlgError` on ill-conditioned real data -- measured on ADNI+PPMI,
+    where this is not rare (every `gcca`/`nndsvd` initialization attempt
+    failed before this fallback existed).
 
     Parameters
     ----------
@@ -1213,14 +1240,22 @@ def safe_svd(x: torch.Tensor, full_matrices: bool = False) -> Tuple[torch.Tensor
     if x.device.type == 'mps':
         # Current MPS backend lacks stable linalg_svd support for all shapes/precisions
         x_cpu = x.cpu()
-        u, s, vh = torch.linalg.svd(x_cpu, full_matrices=full_matrices)
+        try:
+            u, s, vh = torch.linalg.svd(x_cpu, full_matrices=full_matrices)
+        except torch.linalg.LinAlgError:
+            u, s, vh = _scipy_gesvd_fallback(x_cpu, full_matrices)
         return u.to(x.device), s.to(x.device), vh.to(x.device)
     try:
         return torch.linalg.svd(x, full_matrices=full_matrices)
+    except torch.linalg.LinAlgError:
+        return _scipy_gesvd_fallback(x, full_matrices)
     except RuntimeError:
         # Fallback for unexpected backend failures
         x_cpu = x.cpu()
-        u, s, vh = torch.linalg.svd(x_cpu, full_matrices=full_matrices)
+        try:
+            u, s, vh = torch.linalg.svd(x_cpu, full_matrices=full_matrices)
+        except torch.linalg.LinAlgError:
+            u, s, vh = _scipy_gesvd_fallback(x_cpu, full_matrices)
         return u.to(x.device), s.to(x.device), vh.to(x.device)
 
 def procrustes_r2(u_true: torch.Tensor, u_est: torch.Tensor) -> float:
@@ -1771,3 +1806,258 @@ def read_simlr(dir_path: str, use_r: bool = True) -> Dict[str, Any]:
                 result[n] = subdict
                 
     return result
+
+
+def basis_rank_report(v_mats: List[torch.Tensor], k: int,
+                      warn: bool = True) -> Dict[str, Any]:
+    r"""How many components the returned basis actually carries.
+
+    A basis can come back with fewer usable columns than requested and nothing
+    else in the result says so. The gradient step drives columns together and
+    the projection holds them apart, so when the constraint is too weak the
+    columns become collinear: measured on BRCA4 at ``k=3``, the incoming
+    column overlap climbs 0.54, 0.79, 0.97, 1.00 over successive sweeps at
+    ``nsa_w=0.1`` and stays at 1.00, leaving an effective rank of 2.27 with a
+    condition number near 2.8e2. Test accuracy over the same sweep was flat
+    (0.759 to 0.799), so prediction does not reveal the collapse -- only the
+    rank does.
+
+    Returns, per view:
+
+    ``effective_rank``
+        The participation ratio :math:`(\sum_i \sigma_i)^2 / \sum_i \sigma_i^2`
+        -- a continuous count of contributing directions, equal to ``k`` for
+        equinormed orthogonal columns and falling smoothly as they merge.
+        Reported because a hard rank hides partial collapse.
+    ``numerical_rank``
+        `torch.linalg.matrix_rank`, the integer count.
+    ``condition_number``
+        :math:`\sigma_{\max}/\sigma_{\min}`.
+    ``max_column_overlap``
+        Largest off-diagonal cosine between columns; 1.0 means two columns
+        coincide.
+    """
+    eff, num, cond, ovl = [], [], [], []
+    for v in v_mats:
+        vd = v.detach().double()
+        sv = torch.linalg.svdvals(vd)
+        tot = float((sv ** 2).sum())
+        eff.append(float((sv.sum() ** 2) / tot) if tot > 0 else 0.0)
+        num.append(int(torch.linalg.matrix_rank(vd)))
+        smin = float(sv.min())
+        cond.append(float(sv.max()) / smin if smin > 0 else float("inf"))
+        n = vd / vd.norm(dim=0, keepdim=True).clamp_min(1e-12)
+        g = n.t() @ n
+        g.fill_diagonal_(0)
+        ovl.append(float(g.abs().max()))
+    report = {"effective_rank": eff, "numerical_rank": num,
+              "condition_number": cond, "max_column_overlap": ovl}
+    if warn:
+        # Gated on the *effective* rank, not the numerical one. Near-collinear
+        # columns clear `matrix_rank`'s tolerance: measured on BRCA4 at
+        # nsa_w=0.1 the effective rank was 1.53 and 1.90 for two views while
+        # `numerical_rank` still said 3, so a check on the integer rank would
+        # have stayed silent through the collapse it exists to catch.
+        # Half a component is the threshold: `effective_rank` equals k exactly
+        # for equinormed orthogonal columns and falls continuously from there.
+        bad = [i for i in range(len(eff)) if eff[i] < k - 0.5 or num[i] < k]
+        if bad:
+            warnings.warn(
+                f"simlr returned a degenerate basis for view(s) {bad} at k={k}: "
+                f"effective rank {[round(eff[i], 2) for i in bad]}, numerical "
+                f"rank {[num[i] for i in bad]}, condition number "
+                f"{['%.1e' % cond[i] for i in bad]}, max column overlap "
+                f"{[round(ovl[i], 3) for i in bad]}. Columns have merged, so "
+                f"fewer than k distinct components were recovered -- note that "
+                f"predictive accuracy does not reveal this. Raising nsa_w is "
+                f"the usual fix; see the `nsa_w` docstring.",
+                RuntimeWarning, stacklevel=3,
+            )
+    return report
+
+
+#: Default relative tolerance for `ConvergenceMonitor`. Relative, not absolute:
+#: the deep trainer used an absolute `tol=1e-6` against a loss of order 10, so
+#: any decrease at all reset its patience counter and it never stopped early --
+#: measured, it ran its full budget at 8, 30 and 80 epochs alike while the loss
+#: was still falling at -0.37 per epoch at the 8-epoch cap.
+CONVERGENCE_TOL = 1e-4
+CONVERGENCE_PATIENCE = 10
+
+
+class ConvergenceMonitor:
+    """One convergence rule for every method in the package.
+
+    `simlr` stopped on a stationarity certificate (``grad_map <= tol``) or on a
+    joint energy/certificate plateau; the deep trainer stopped on loss patience
+    with an absolute tolerance. Two different questions, two different report
+    shapes (``stop_reason``/``certificate``/``grad_map`` against
+    ``converged_iter``), and no way to set "run until converged" once and have
+    it mean the same thing everywhere.
+
+    The rule here is deliberately the weaker, universal one: **relative
+    improvement**. A step counts as progress when it improves the monitored
+    quantity by more than ``tol`` *relative to the best value so far*; after
+    ``patience`` consecutive non-improving steps the run has converged in the
+    only sense that applies to every method here.
+
+    A stationarity certificate is strictly stronger and is not replaced by
+    this -- `simlr` can still certify, and `certify()` records it. Where no
+    certificate exists, "converged" means the weaker statement, and
+    `report()` says which was obtained so the two are never confused.
+
+    Parameters
+    ----------
+    tol : float
+        Relative improvement below which a step does not count as progress.
+    patience : int
+        Consecutive non-improving steps before declaring convergence.
+    max_steps : int
+        Hard cap. Reaching it is reported as ``stop_reason="max_steps"`` and
+        ``converged=False`` -- a budget exhausted is not a fit that finished.
+    """
+
+    def __init__(self, tol: float = CONVERGENCE_TOL,
+                 patience: int = CONVERGENCE_PATIENCE,
+                 max_steps: int = 1000, smooth: int = 5):
+        self.tol = float(tol)
+        self.patience = int(patience)
+        self.max_steps = int(max_steps)
+        self.smooth = max(1, int(smooth))
+        self.history: List[float] = []
+        self.best = float("inf")
+        self._stale = 0
+        self.stop_reason = None
+        self.certificate = None
+        self.certificate_value = None
+
+    def update(self, value: float) -> bool:
+        """Record one step. Returns True when the run should stop."""
+        v = float(value)
+        self.history.append(v)
+        if not np.isfinite(v):
+            # A non-finite objective is not convergence and not progress; it
+            # is a failed step, and continuing to burn budget on it hides the
+            # failure behind a "max_steps" report.
+            self.stop_reason = "non_finite"
+            return True
+        # Compared on a trailing mean, not on the raw value. A stochastic
+        # objective moves by more than `tol` from epoch to epoch on noise
+        # alone, so the raw test makes the stopping point itself random:
+        # measured on one fixture, budgets of 120 and 300 epochs both reported
+        # "converged" but at losses of 4.45 and 3.71, because whether ten
+        # consecutive non-improvements happened early was luck. Smoothing
+        # makes the decision a statement about the trend.
+        win = [x for x in self.history[-self.smooth:] if np.isfinite(x)]
+        v = float(np.mean(win)) if win else v
+        rel = (self.best - v) / max(abs(self.best), 1e-12) if np.isfinite(self.best) else np.inf
+        if rel > self.tol:
+            self.best = v
+            self._stale = 0
+        else:
+            self.best = min(self.best, v)
+            self._stale += 1
+        if self._stale >= self.patience:
+            self.stop_reason = "converged"
+            return True
+        if len(self.history) >= self.max_steps:
+            self.stop_reason = "max_steps"
+            return True
+        return False
+
+    def certify(self, name: str, value: float, tol: Optional[float] = None) -> bool:
+        """Record a stronger, method-specific certificate (e.g. `grad_map`).
+
+        Returns True when it is satisfied, which stops the run with a strictly
+        stronger claim than the relative-improvement rule can make.
+        """
+        t = self.tol if tol is None else float(tol)
+        self.certificate_value = float(value)
+        if np.isfinite(value) and float(value) <= t:
+            self.certificate = name
+            self.stop_reason = name
+            return True
+        return False
+
+    def report(self) -> Dict[str, Any]:
+        """The same keys for every method, so one checker reads them all."""
+        h = self.history
+        recent = h[-(self.patience + 1):] if len(h) > 1 else h
+        rel = ((max(recent) - min(recent)) / max(abs(max(recent)), 1e-12)
+               if len(recent) > 1 else float("nan"))
+        return {
+            "converged": self.stop_reason in ("converged",) or self.certificate is not None,
+            "stop_reason": self.stop_reason or "max_steps",
+            "certificate": self.certificate,
+            "certificate_value": self.certificate_value,
+            "n_steps": len(h),
+            "max_steps": self.max_steps,
+            "tol": self.tol,
+            "patience": self.patience,
+            "best": self.best if np.isfinite(self.best) else float("nan"),
+            "final": h[-1] if h else float("nan"),
+            "recent_relative_range": rel,
+        }
+
+
+def align_column_signs(mats: List[torch.Tensor],
+                       reference: Optional[torch.Tensor] = None) -> List[torch.Tensor]:
+    r"""Put a set of latent matrices on a common sign convention, column by column.
+
+    A latent factorisation is defined only up to a sign per component: if
+    :math:`u_j` explains a view then so does :math:`-u_j`, with the loading
+    negated. Two views can therefore recover *the same* structure with
+    opposite signs, and averaging them then cancels it.
+
+    That is not hypothetical. Measured on a planted two-factor signal, two
+    views' latents were correlated at **-0.927 and -0.959** -- the same
+    factors, opposite signs -- and the plain mean collapsed from a standard
+    deviation of ~1.0 per column to 0.175 and 0.121, taking the predictive
+    R^2 of the consensus from 0.795 to **0.023**. The per-view latents scored
+    0.784 and 0.785; the average of them scored nothing. Aligning the signs
+    first restored 0.795.
+
+    The failure is silent and seed-dependent, which is what makes it
+    dangerous: across three seeds on one fixture the same model scored 0.034,
+    0.347 and 0.183, and a sibling model scored 0.701, 0.034 and 0.787. It
+    reads as an unstable method rather than as arithmetic.
+
+    Concatenating estimators (`svd`, `pca`, `ica`) are immune, because a sign
+    flip is absorbed by the basis they fit. Only estimators that *average*
+    across views need this.
+
+    The reference is built greedily -- the first matrix, then each subsequent
+    one flipped to agree with the running sum -- which is exact for two views
+    and stable for more. Signs are detached, so this is a relabelling and
+    does not change the gradient's magnitude.
+
+    Parameters
+    ----------
+    mats : list of torch.Tensor
+        Latents of matching shape ``(n, k)``.
+    reference : torch.Tensor, optional
+        Align to this instead of to the first matrix.
+
+    Returns
+    -------
+    list of torch.Tensor
+        The inputs, each with columns sign-flipped to agree.
+    """
+    if not mats:
+        return mats
+    if len(mats) == 1 and reference is None:
+        return list(mats)
+    running = (reference if reference is not None else mats[0]).detach().clone()
+    out, start = [], 0
+    if reference is None:
+        out.append(mats[0])
+        start = 1
+    for m in mats[start:]:
+        # sign of the per-column inner product with the running reference
+        dots = (m.detach() * running).sum(dim=0, keepdim=True)
+        sgn = torch.sign(dots)
+        sgn = torch.where(sgn == 0, torch.ones_like(sgn), sgn)
+        aligned = m * sgn
+        out.append(aligned)
+        running = running + aligned.detach()
+    return out

@@ -162,6 +162,93 @@ def energy_recon(s: torch.Tensor, u: torch.Tensor,
     return torch.sum((c.x - u @ c.v.t()) ** 2)
 
 
+def energy_recon_r2(s: torch.Tensor, u: torch.Tensor,
+                    ctx: Optional[SimilarityContext] = None) -> torch.Tensor:
+    r"""Profiled reconstruction error, :math:`\min_D \lVert X - uDV^\top\rVert_F^2 / \lVert X\rVert_F^2`.
+
+    The same residual as `energy_recon`, evaluated at the best per-component
+    scale :math:`D = \mathrm{diag}(d)` instead of at whatever scale the
+    projection happened to leave on ``V``, and expressed as a fraction of the
+    view's variance -- i.e. :math:`1 - R^2`, in :math:`[0, 1]`.
+
+    Why the plain residual is not usable as shipped
+    -----------------------------------------------
+    ``recon`` is degree-1.87 homogeneous in ``V``, so it carries a free scale
+    that the optimiser is not permitted to set: `simlr_sparseness` re-pins the
+    column gauge every sweep. Under the library default
+    ``scale_list=["centerAndScale", "np"]`` -- which divides ``X`` by
+    :math:`np`, leaving :math:`\lVert X\rVert_F = 0.0074` against
+    :math:`u^\top u = (n-1)I` -- the residual decomposes as
+
+        E = ||X||^2 - 2<X,uV'> + ||uV'||^2 = 1.3e-04 - 9.5e-01 + 1.79e+03
+
+    so **99.95% of the objective does not involve the data at all**, the
+    gradient is :math:`\approx 2(n-1)V` (pure rescaling; the component able to
+    move the support is 2e-4 of its norm), and the optimal scale is
+    :math:`d \approx 2.4\times10^{-4}` -- a 4000x correction the projection
+    prevents the iterate from making.
+
+    Eliminating the nuisance scale analytically (Golub-Pereyra variable
+    projection) rather than asking the optimiser to chase it gives, with
+    :math:`Q = (V^\top V)\odot(u^\top u)` and :math:`b_j = (V^\top X^\top u)_{jj}`,
+
+        d* = Q^{-1} b,    E = 1 - b'd* / ||X||^2 .
+
+    ``Q`` is PSD by the Schur product theorem, so :math:`b'Q^{-1}b \ge 0` and
+    the value lies in :math:`[0, 1]`; :math:`D = 0` attains the upper end.
+
+    Measured against `energy_recon` on a planted disjoint basis: invariant to
+    ``scale_list`` to 8 digits (1793 / 1681 / 18794 before), invariant to a
+    ``diag(1, 10, 100)`` regauge of ``V`` (1793 -> 6.0e6 before), gradient
+    component along the gauge cos 4e-12 (fraction 1.000000 before), off-orbit
+    fraction 0.99 (2e-4 before), and separation between the true partition and
+    a row-permuted one of 0.879 vs 0.066 per view -- against 0.03% for
+    `energy_recon`, the flatness recorded as GT2 in
+    ``tests/test_support_identifiability.py``.
+
+    The scale it profiles out is a gauge, not information: ``D`` rescales
+    columns, so the support pattern and every column's direction survive
+    untouched. Note ``d`` is not sign-constrained here -- see
+    `recon_r2_scales` -- so under ``positivity='positive'`` a negative
+    :math:`d_j` would reconstruct from a negatively-loaded component.
+    """
+    c = _require(ctx, "x", "v", name="recon_r2")
+    x, v = c.x, c.v
+    xx = torch.sum(x * x)
+    if float(xx) <= 0.0:
+        raise ValueError(
+            "recon_r2 needs a view with non-zero variance; ||X||_F^2 is 0, so "
+            "the fraction of explained variance is undefined. A constant view "
+            "should be dropped rather than scored."
+        )
+    q = (v.t() @ v) * (u.t() @ u)
+    b = torch.diagonal(v.t() @ x.t() @ u)
+    eye = torch.eye(q.shape[0], dtype=q.dtype, device=q.device)
+    # Relative ridge: Q is PSD but singular whenever two columns coincide or a
+    # column dies, which `enforce_column_floor` makes rare rather than absent.
+    ridge = 1e-10 * torch.clamp(q.diagonal().mean().abs(), min=1e-30)
+    d = torch.linalg.solve(q + ridge * eye, b)
+    # Not clamped to [0, 1]: the bound is guaranteed by the Schur product
+    # theorem, and a clamp would zero the gradient exactly where a degenerate
+    # view needs it most.
+    return (xx - b @ d) / xx
+
+
+def recon_r2_scales(x: torch.Tensor, u: torch.Tensor,
+                    v: torch.Tensor) -> torch.Tensor:
+    """The profiled per-component scales ``d*`` that `energy_recon_r2` uses.
+
+    Exposed for diagnostics: ``d`` far from 1 means the iterate's gauge is far
+    from the one the data wants, and a negative entry means the profile is
+    reconstructing from a sign-flipped component.
+    """
+    q = (v.t() @ v) * (u.t() @ u)
+    b = torch.diagonal(v.t() @ x.t() @ u)
+    eye = torch.eye(q.shape[0], dtype=q.dtype, device=q.device)
+    ridge = 1e-10 * torch.clamp(q.diagonal().mean().abs(), min=1e-30)
+    return torch.linalg.solve(q + ridge * eye, b)
+
+
 def energy_align(s: torch.Tensor, u: torch.Tensor,
                  ctx: Optional[SimilarityContext] = None) -> torch.Tensor:
     r"""Standardised latent agreement, :math:`\mathrm{mean}((s/\sigma_s - u/\sigma_u)^2)`.
@@ -249,14 +336,80 @@ def _ica_contrast(s: torch.Tensor, u: torch.Tensor, kind: str,
         # log cosh|c|, written so the exponential cannot overflow.
         g = a - float(np.log(2.0)) + torch.log1p(torch.exp(-2.0 * a))
     elif kind == "exp":
-        g = -torch.exp(-0.5 * c ** 2)
-    elif kind == "gauss":
+        # Hyvarinen's G2. The literature names it both "exponential" and
+        # "Gaussian"; there was a separate `kind == "gauss"` branch here
+        # evaluating this identical expression, and a separate registry entry
+        # for it, so every sweep over the energies ran this contrast twice and
+        # reported the two runs as independent results. `gauss` is now an
+        # alias in LEGACY_ENERGY_ALIASES and there is one implementation.
         g = -torch.exp(-0.5 * c ** 2)
     elif kind == "kurtosis":
         g = c ** 4
     else:  # pragma: no cover - guarded by the registry
         raise ValueError(kind)
     return -torch.sum(g)
+
+
+#: E[log cosh(nu)] for a standard normal nu. The reference value Hyvarinen's
+#: negentropy approximation subtracts; computed as \int logcosh(y) phi(y) dy.
+GAUSSIAN_LOGCOSH = 0.37457
+
+
+def energy_negentropy(s: torch.Tensor, u: torch.Tensor,
+                      ctx: Optional[SimilarityContext] = None) -> torch.Tensor:
+    r"""Hyvarinen negentropy on the *marginals*, :math:`-\sum_j (E[G(z_j)] - E[G(\nu)])^2`.
+
+    With :math:`z_j` the standardised j-th latent, :math:`G = \log\cosh` and
+    :math:`\nu` standard normal. Minimising this maximises how far each
+    component's own distribution is from Gaussian.
+
+    Why it is here, and why it is not one of the four terms above
+    -------------------------------------------------------------
+    ``logcosh``, ``exp`` and ``kurtosis`` apply :math:`G` to the entries of the
+    :math:`k\times k` cross-correlation :math:`c = u^\top z / n` (see
+    `_ica_contrast`). That is a criterion on how *matched* two representations
+    are; nothing in it looks at a distribution, so it cannot supply ICA
+    identifiability however it is weighted.
+
+    This term is what Comon's (1994) theorem is about: with independent
+    latents, at most one Gaussian, the mixing is identifiable up to permutation
+    and scaling. That matters here because a reconstruction term is provably
+    *unable* to identify the support -- :math:`(uT^{-1})(VT^\top)^\top`
+    reconstructs identically for any invertible :math:`T`, the rotation
+    indeterminacy of factor analysis -- so identification has to come from a
+    term that is not :math:`GL(k)`-invariant. Non-negativity is the other
+    candidate, but the NMF uniqueness results (separability, sufficiently
+    scattered, and min-volume as their surrogate) all require *both* factors
+    non-negative, and the consensus returns a signed, whitened ``u``
+    (measured: 56-58% negative entries, :math:`u^\top u = (n-1)I`). SiMLR is a
+    semi-NMF, so those results do not apply; non-Gaussianity needs no cone and
+    does.
+
+    Measured on a planted disjoint basis, 12 random starts at ``w=0.5``,
+    added to ``recon_r2`` with weight :math:`\mu`:
+
+    ======  ===================  ===========
+    mu      support recovery     agreement
+    ======  ===================  ===========
+    0       0.6524 +- 0.0260     0.9245
+    30      0.7780 +- 0.0123     0.9270
+    100     0.8806 +- 0.0901     0.9333
+    300     0.9159 +- 0.1234     0.8801
+    ======  ===================  ===========
+
+    Alone, with no data term, it scores 0.4313 -- the data term fixes the
+    subspace and this picks the rotation within it; neither does the job by
+    itself. The spread narrows up to ``mu`` ~ 30 and widens past ~100, so the
+    peak at 300 is not the safe operating point.
+
+    The planted latents are :math:`|N(0,1)|`, strongly non-Gaussian by
+    construction, which is the regime where this should win. It says nothing
+    about how much non-Gaussianity real data carries.
+    """
+    _check_rows(s, "negentropy")
+    z = _centre(s) / _std(_centre(s))
+    j = (torch.log(torch.cosh(z)).mean(dim=0) - GAUSSIAN_LOGCOSH) ** 2
+    return -torch.sum(j)
 
 
 def energy_logcosh(s, u, ctx=None):
@@ -267,11 +420,6 @@ def energy_logcosh(s, u, ctx=None):
 def energy_exp(s, u, ctx=None):
     """Exponential ICA contrast; see `_ica_contrast`."""
     return _ica_contrast(s, u, "exp", ctx.eps if ctx else 1e-10)
-
-
-def energy_gauss(s, u, ctx=None):
-    """Gaussian ICA contrast; see `_ica_contrast`."""
-    return _ica_contrast(s, u, "gauss", ctx.eps if ctx else 1e-10)
 
 
 def energy_kurtosis(s, u, ctx=None):
@@ -285,6 +433,8 @@ def energy_kurtosis(s, u, ctx=None):
 SIMILARITY: Dict[str, tuple] = {
     "recon": (energy_recon, True,
               "||X - u V'||_F^2 : reconstruct the data from the shared latent"),
+    "recon_r2": (energy_recon_r2, True,
+                 "min_D ||X - u D V'||^2 / ||X||^2 : profiled reconstruction, 1 - R^2 in [0,1]"),
     "align": (energy_align, False,
               "mean((s/sd(s) - u/sd(u))^2) : standardised latent agreement"),
     "acc": (energy_acc, False,
@@ -293,17 +443,32 @@ SIMILARITY: Dict[str, tuple] = {
            "-<u,s>/(||u|| ||s||) : normalised correlation, scale invariant"),
     "procrustes": (energy_procrustes, False,
                    "-tr(u's)/||u's||_F : rewards component-wise correspondence"),
-    "logcosh": (energy_logcosh, False, "ICA negentropy contrast (log cosh)"),
-    "exp": (energy_exp, False, "ICA negentropy contrast (exponential)"),
-    "gauss": (energy_gauss, False, "ICA negentropy contrast (Gaussian)"),
-    "kurtosis": (energy_kurtosis, False, "ICA negentropy contrast (kurtosis)"),
+    "negentropy": (energy_negentropy, False,
+                   "-sum_j (E[G(z_j)] - E[G(nu)])^2 : Hyvarinen negentropy on the marginals"),
+    "logcosh": (energy_logcosh, False,
+                "-sum logcosh|c| on the k x k cross correlation c = u'z/n (NOT negentropy)"),
+    "exp": (energy_exp, False,
+            "sum exp(-c^2/2) on the k x k cross correlation (NOT negentropy)"),
+    "kurtosis": (energy_kurtosis, False,
+                 "-sum c^4 on the k x k cross correlation (NOT negentropy)"),
 }
 
 #: Old names, and which term they actually meant in each path. ``regression``
 #: is deliberately *not* mapped: it meant two different functions, so resolving
 #: it silently would pick a winner and hide the change. Callers must say which.
+#: Names already announced as deprecated, so the notice is emitted once.
+_DEPRECATION_ANNOUNCED: set = set()
+
 LEGACY_ENERGY_ALIASES = {
     "normalized_correlation": "nc",
+    # `gauss` and `exp` were two registry entries evaluating the identical
+    # expression -exp(-c^2/2) -- verified bit-identical, 8.956381485164 both --
+    # under two descriptions ("Gaussian" and "exponential"). They are the same
+    # contrast: Hyvarinen's G2 is named both ways in the literature. Keeping
+    # both as entries meant every sweep over `similarity_names()` ran one
+    # objective twice and reported it as two independent results. `gauss` now
+    # resolves to `exp` and is listed once.
+    "gauss": "exp",
 }
 
 
@@ -329,13 +494,39 @@ def resolve_energy_name(name: str, path: Optional[str] = None) -> str:
         ``"regression"`` meant ``recon`` in the linear path and ``align`` in
         the deep path; without ``path`` it raises rather than guess.
     """
-    if name == "recon" and path == "deep":
+    if path == "deep" and name in SIMILARITY and SIMILARITY[name][1]:
         raise ValueError(
-            "similarity 'recon' is ||X - uV'||^2, a function of the data and "
-            "the loading matrix, and the deep path does not carry either into "
-            "the similarity term -- its reconstruction is a separate decoder "
-            "loss. Use 'align' for latent agreement on a deep model."
+            f"similarity {name!r} is a function of the data and the loading "
+            f"matrix, and the deep path does not carry either into the "
+            f"similarity term -- its reconstruction is a separate decoder "
+            f"loss. Use 'align' for latent agreement on a deep model."
         )
+    if path == "linear" and name in ("regression", "recon"):
+        # `recon` is degenerate as an objective: it is minimised by V -> 0.
+        # Driven hard on a planted basis it reaches E = 0.0001 by shrinking the
+        # basis away, against 1793 at the true basis, and under the library's
+        # own default scaling 99.95% of its value is ||u V'||^2 -- a term that
+        # does not involve the data at all. `recon_r2` is the same residual
+        # with the nuisance scale profiled out and normalised by ||X||^2, so it
+        # has a finite non-degenerate minimiser and lies in [0, 1].
+        #
+        # The registry entry stays: `recon` is still a well-defined quantity
+        # and the identifiability ground truths are stated in terms of it.
+        # What is deprecated is *selecting it as an objective*, which is what
+        # `path="linear"` means here.
+        # Once per process, not once per evaluation: this resolves on every
+        # energy and gradient call, for every view, on every sweep -- 32k
+        # warnings for one test run, which buries everything else.
+        if name not in _DEPRECATION_ANNOUNCED:
+            _DEPRECATION_ANNOUNCED.add(name)
+            warnings.warn(
+                f"energy_type={name!r} is deprecated: it is minimised by "
+                f"driving the basis to zero. Resolving to 'recon_r2', the "
+                f"scale-profiled form. Pass 'recon_r2' explicitly to silence "
+                f"this.",
+                DeprecationWarning, stacklevel=3,
+            )
+        return "recon_r2"
     if name in SIMILARITY:
         if path == "deep" and name in _DEEP_RENAMED:
             old, why = _DEEP_RENAMED[name]
@@ -366,6 +557,34 @@ def resolve_energy_name(name: str, path: Optional[str] = None) -> str:
 def similarity_names() -> list:
     """Registry keys, sorted."""
     return sorted(SIMILARITY)
+
+
+#: Terms already expressed on a common, absolute per-view scale. Everything
+#: else is in the view's own units, so `simlr` divides each view by its own
+#: initial energy to make the sum meaningful -- a normalisation that is
+#: relative to iteration 0 and therefore says nothing absolute. These need no
+#: such treatment and must not receive it: dividing `recon_r2` by its own
+#: initial value would discard exactly the interpretation (fraction of
+#: variance unexplained) that it exists to provide.
+SELF_NORMALISED = frozenset({"recon_r2"})
+
+
+def similarity_is_self_normalised(name: str) -> bool:
+    """True when per-view values are already comparable across views."""
+    return resolve_energy_name(name) in SELF_NORMALISED
+
+
+def similarity_needs_data(name: str) -> bool:
+    """True when the term is a function of ``X`` and ``V``, not only of ``s``.
+
+    Two call sites used to hardcode ``name == "recon"`` for this: the linear
+    gradient's choice of ``wrt`` and the deep path's refusal. Adding a second
+    data term (`recon_r2`) would have silently taken the wrong branch in both
+    -- differentiating w.r.t. ``s`` and then applying the chain rule through
+    ``X``, which is not the gradient of a term that also depends on ``V``
+    directly. The registry already records the flag; this reads it.
+    """
+    return bool(SIMILARITY[resolve_energy_name(name)][1])
 
 
 def describe_similarity(name: str) -> str:

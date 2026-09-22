@@ -146,6 +146,15 @@ def test_retraction_is_invariant_to_the_candidates_scale(scale):
     renormalizes afterwards -- so the retraction must not depend on it.
     Ungauged, the solver returned a visibly different solution at large scale
     (defect 2.45 rather than 0.83) and could stall on its iteration cap.
+
+    Tolerance note: the residual disagreement is bimodal, not scale-dependent.
+    Measured over 10 decades it is either ~1e-16 or exactly 1.095e-6 (norm) /
+    1.273e-6 (defect), with 1e-10 and 1e10 both landing on the small value --
+    the solver stops one iteration earlier or later relative to its float64
+    convergence tolerance. `rel=1e-6` sat exactly on that boundary, so which
+    scales failed was arbitrary. 1e-5 clears the noise floor and still leaves
+    five orders of margin over the regression above, whose relative error is
+    1.95.
     """
     g = torch.Generator().manual_seed(7)
     base = torch.rand(10, 3, generator=g, dtype=torch.float64)
@@ -156,10 +165,10 @@ def test_retraction_is_invariant_to_the_candidates_scale(scale):
     assert reference is not None and scaled is not None
 
     assert orthogonality_defect(scaled) == pytest.approx(
-        orthogonality_defect(reference), rel=1e-6, abs=1e-9)
+        orthogonality_defect(reference), rel=1e-5, abs=1e-9)
     # The scale is restored on the way out, so the result tracks the input.
     assert float(scaled.norm()) == pytest.approx(
-        float(reference.norm()) * scale, rel=1e-6)
+        float(reference.norm()) * scale, rel=1e-5)
 
 
 def test_retraction_preserves_the_candidates_dtype():

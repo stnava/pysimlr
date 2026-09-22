@@ -6,30 +6,36 @@ from pysimlr.deep import ned_simr
 
 @pytest.mark.xfail(strict=True, reason=(
     "NED has a bistable failure mode: the two latents sometimes collapse onto "
-    "one direction, giving an off-diagonal covariance norm around 1.3 against "
-    "the 0.5 threshold while the per-dimension standard deviations stay at 1.0. "
-    "It is redundancy rather than collapse, and it is a basin the optimisation "
-    "sometimes falls into rather than a property of any one setting.\n\n"
-    "Measured over seeds 0-9 plus 42, it occurs in 1 of 11 seeds under the "
-    "default positivity='positive' (median off-diagonal 0.0025) and in 6 of 11 "
-    "under positivity='either' (median 1.2632). Seed 42, which this test uses, "
-    "is the one 'positive' failure -- so the fixture is unlucky rather than "
-    "representative, and 'either' is the worse setting overall.\n\n"
+    "one direction, giving an off-diagonal covariance norm near 1.0 against "
+    "the 0.5 threshold while the per-dimension standard deviations stay at "
+    "1.0. It is redundancy rather than collapse, and it is a basin the "
+    "optimisation sometimes falls into rather than a property of any one "
+    "setting.\n\n"
+    "Re-measured over seeds 0-9 plus 42 after the latent gauge went into "
+    "`calculate_sim_loss`: 3 of 11 seeds land in the basin under the default "
+    "positivity='positive' (median off-diagonal 0.0023) and 4 of 11 under "
+    "positivity='either' (median 0.2509). The gauge moved *which* seeds fall "
+    "in -- seed 42, this test's original fixture, now comes out at 0.0032 and "
+    "the test xpassed -- but it did not remove the basin, so the fixture is "
+    "seed 1 (off-diagonal 0.9159), which is in it. Before the gauge the rates "
+    "were 1 of 11 and 6 of 11.\n\n"
     "It is not intrinsic to non-negativity: rectifying oracle least-squares "
-    "loadings on the same data separates the latents to a correlation of 0.003. "
-    "Nor is it the orthogonality penalty -- switching from the orthonormality "
-    "defect D to the angle defect C moves the off-diagonal from 0.0025 to "
-    "0.0024 and recovery from 0.8718 to 0.8723 over four seeds. The cause is in "
-    "the consensus path, not the basis.\n\n"
+    "loadings on the same data separates the latents to a correlation of "
+    "0.003. Nor is it the orthogonality penalty -- switching from the "
+    "orthonormality defect D to the angle defect C moves the off-diagonal from "
+    "0.0025 to 0.0024 and recovery from 0.8718 to 0.8723 over four seeds. The "
+    "cause is in the consensus path, not the basis.\n\n"
     "Marked xfail rather than relaxed so it flips to a failure once NED's "
-    "optimisation stops admitting this basin. Real-data accuracy is unaffected."))
+    "optimisation stops admitting this basin. A flip means re-running the "
+    "seed sweep before celebrating: a single seed leaving the basin is not "
+    "the basin closing. Real-data accuracy is unaffected."))
 def test_latent_collapse():
     # 1. Create data with k=2 real signal
     n_samples = 200
     d1, d2 = 20, 20
     k = 2
     
-    torch.manual_seed(42)
+    torch.manual_seed(1)
     u_true = torch.randn(n_samples, k)
     x1 = u_true @ torch.randn(k, d1) + 0.1 * torch.randn(n_samples, d1)
     x2 = u_true @ torch.randn(k, d2) + 0.1 * torch.randn(n_samples, d2)

@@ -136,9 +136,14 @@ def test_positive_constraint_does_not_cripple_latent_recovery_fast():
     for seed in range(2):
         z, x = _coupled(seed)
         for pos, acc in (("positive", r2_pos), ("either", r2_either)):
+            # Consensus pinned: this measures the sign constraint, and `u`
+            # is produced by the mixing method. The 0.85 floor was calibrated
+            # under svd; latent recovery on this fixture is 0.968 under svd
+            # and 0.713 under newton, so leaving the default in made a change
+            # of consensus look like a positivity regression.
             res = simlr(x, k=3, iterations=20, optimizer_type="lars",
                         positivity=pos, energy_type="acc",
-                        constraint="orthox0.1x1")
+                        constraint="orthox0.1x1", mixing_algorithm="svd")
             u = res["u"]
             u = u[0] if isinstance(u, list) else u
             acc.append(procrustes_r2(z, u))
@@ -242,7 +247,7 @@ def test_basis_columns_have_bounded_norm(constraint):
 
 # --- what the optimizer actually delivers -----------------------------------
 
-def _init_only_latent(x, k=3):
+def _init_only_latent(x, k=3, mixing="svd"):
     """Latent recovery from simlr's SVD initialization alone."""
     from pysimlr.consensus import compute_shared_consensus
     from pysimlr.simlr import initialize_simlr
@@ -251,20 +256,44 @@ def _init_only_latent(x, k=3):
     scaled = [preprocess_data(m, ["centerAndScale", "np"])[0] for m in x]
     v0 = initialize_simlr(scaled, k)
     return compute_shared_consensus(
-        [m @ v for m, v in zip(scaled, v0)], mixing_algorithm="svd", k=k
+        [m @ v for m, v in zip(scaled, v0)], mixing_algorithm=mixing, k=k
     )
 
 
-@pytest.mark.parametrize("constraint", ["orthox0"])
+@pytest.mark.parametrize("constraint", ["orthox0.5x1", "orthox0.9x1"])
 def test_simlr_is_no_worse_than_its_initialization(constraint):
-    """Best-iterate tracking guarantees this; without it the run could end on a
-    worse iterate than the one it started from (measured -0.0040 pre-fix)."""
+    """Best-iterate tracking guarantees this at any usable constraint weight.
+
+    `orthox0` was the only case tested here and it is the one case where the
+    guarantee does not hold, because the fit is degenerate rather than merely
+    unconstrained: the gain over the initialisation tracks the rank of the
+    returned basis almost exactly --
+
+        orthox0      gain -0.327   effective rank 1.83 / 3
+        orthox0.1x1  gain -0.035   effective rank 2.61 / 3
+        orthox0.5x1  gain -0.002   effective rank 2.98 / 3
+        orthox0.9x1  gain -0.001   effective rank 3.00 / 3
+
+    -- so what looked like "the iteration actively hurt" is the basis losing
+    a component. The guarantee is therefore asserted only where the basis
+    stays full rank, which is w >= 0.5 (the default); 0.1 is excluded because
+    it is partway into the collapse, not because the tolerance is
+    inconvenient. `test_degradation_tracks_rank_loss` below pins the
+    relationship itself.
+    """
     gains = []
     for seed in range(2):
         z, x = _coupled(seed)
-        u0 = _init_only_latent(x)
+        # The baseline must use the same consensus as the fit, or this
+        # compares two estimators rather than a fit against its own start.
+        # It was hardcoded to svd while the fit followed the default, so when
+        # that default moved to newton the test reported the iteration
+        # "actively hurt" by 0.18 -- measured under a matched consensus the
+        # gain is +0.0995 under newton and -0.0030 under svd.
+        u0 = _init_only_latent(x, mixing="newton")
         res = simlr(x, k=3, iterations=20, constraint=constraint,
-                    energy_type="acc", optimizer_type="lars")
+                    energy_type="acc", optimizer_type="lars",
+                    mixing_algorithm="newton")
         u = res["u"]
         u = u[0] if isinstance(u, list) else u
         gains.append(procrustes_r2(z, u) - procrustes_r2(z, u0))
@@ -302,3 +331,29 @@ def test_simlr_iteration_improves_on_initialization():
         u = u[0] if isinstance(u, list) else u
         gains.append(procrustes_r2(z, u) - procrustes_r2(z, u0))
     assert float(np.mean(gains)) > 0.01
+
+
+def test_degradation_tracks_rank_loss():
+    """The pathology `orthox0` actually exhibits, stated as the relationship.
+
+    An unconstrained fit is not merely unhelpful here, it returns fewer
+    components than asked for, and the loss of latent recovery follows the
+    loss of rank. Asserting "no degradation" at w=0 hid that behind a
+    threshold.
+    """
+    import numpy as np
+    from pysimlr.simlr import simlr
+    z, x = _coupled(0)
+    def fit(c):
+        return simlr(x, k=3, iterations=20, constraint=c, energy_type="acc",
+                     optimizer_type="lars", mixing_algorithm="newton")
+    ranks = {c: float(np.mean(fit(c)["effective_rank"]))
+             for c in ("orthox0", "orthox0.1x1", "orthox0.5x1")}
+    assert ranks["orthox0"] < ranks["orthox0.1x1"] < ranks["orthox0.5x1"], (
+        f"rank no longer increases with the constraint weight: {ranks}")
+    r_weak, r_ok = ranks["orthox0"], ranks["orthox0.5x1"]
+    assert r_weak < r_ok - 0.5, (
+        f"w=0 no longer loses rank relative to w=0.5 ({r_weak:.2f} against "
+        f"{r_ok:.2f}); if the projection now keeps the basis full rank at "
+        f"w=0, the degradation recorded above should be re-measured")
+    assert r_ok > 2.8, f"w=0.5 lost rank ({r_ok:.2f} of 3)"

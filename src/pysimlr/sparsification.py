@@ -1250,7 +1250,7 @@ def simlr_sparseness(v: torch.Tensor,
                      smoothing_matrix: Optional[torch.Tensor] = None,
                      positivity: str = 'either',
                      sparseness_quantile: float = 0.0,
-                     constraint_weight: float = 0.0,
+                     constraint_weight: Optional[float] = None,
                      constraint_iterations: int = 1,
                      sparseness_alg: str = 'soft',
                      energy_type: Optional[str] = None,
@@ -1301,8 +1301,21 @@ def simlr_sparseness(v: torch.Tensor,
         Sparsity is set by ``w``. Passing a non-default value warns rather than
         being silently dropped, because a parameter that looks respected and is
         not is how a benchmark ends up reporting a setting it never ran.
-    constraint_weight : float, default=0.0
-        The NSA-Flow weight ``w``. ``0`` means "use `NSA_DEFAULT_W`".
+    constraint_weight : float, optional
+        The NSA-Flow weight ``w``, in ``[0, 1]``. ``w -> 1`` gives disjoint
+        supports; ``w = 0`` is the unconstrained endpoint and is honoured as
+        such, reaching the backend as `NSA_MIN_W` via the usual clamp rather
+        than being re-read as "unset". ``None`` -- not ``0`` -- means "use
+        `NSA_DEFAULT_W`".
+
+        This used to read ``0`` means "use `NSA_DEFAULT_W`", implemented as
+        ``w if w and w > 0 else NSA_DEFAULT_W``. That made the unconstrained
+        endpoint unreachable: ``constraint_weight=0.0`` returned output
+        bit-identical to ``0.5``, so any sweep that included ``w=0`` as its
+        baseline silently measured ``w=0.5`` twice and read flat at the low
+        end. `parse_constraint` already supplies the type-dependent default,
+        and documents that an explicit ``"orthox0"`` selects no constraint, so
+        the substitution here also contradicted the layer above it.
     energy_type, modality_index : optional
         ``modality_index`` indexes a per-view ``constraint_weight`` list.
         ``energy_type`` selects the gauge: see `GAUGE_FREE_ENERGIES`.
@@ -1368,7 +1381,10 @@ def simlr_sparseness(v: torch.Tensor,
     w = constraint_weight
     if isinstance(w, (list, tuple, np.ndarray)) and modality_index is not None:
         w = w[modality_index]
-    w = float(w) if w and float(w) > 0 else NSA_DEFAULT_W
+    # `None`, not `0`, means "unset". Range is not policed here: `_clamp_w`
+    # one layer down is the single place that bounds w, mapping 0 to NSA_MIN_W,
+    # capping at NSA_MAX_W and sending non-finite values to the default.
+    w = NSA_DEFAULT_W if w is None else float(w)
 
     # The solver receives the SIGNED iterate.  With nonneg=True the feasible
     # set Y >= 0 is enforced by the solver's projection; rectifying first

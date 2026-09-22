@@ -18,7 +18,7 @@ import torch
 from unittest.mock import MagicMock, patch
 
 from pysimlr import simlr
-from pysimlr.sparsification import NSA_DEFAULT_W
+from pysimlr.sparsification import NSA_DEFAULT_W, NSA_MIN_W
 
 
 def set_all_seeds(seed=42):
@@ -68,10 +68,14 @@ def test_constraint_weight_is_passed_as_w():
 
 def test_a_bare_constraint_uses_parse_constraints_weight_not_nsa_default_w():
     """
-    Two defaults could supply `w` and they do not agree: `parse_constraint`
-    defaults the ortho family to 0.1, while `NSA_DEFAULT_W` is 0.5. The
-    parsed weight wins, and `NSA_DEFAULT_W` applies only when the weight is
-    explicitly zero.
+    Two defaults could supply `w`, and they must now agree.
+
+    `parse_constraint` defaulted the ortho family to 0.1 while
+    `NSA_DEFAULT_W` was 0.5, so "the default w" was two different numbers
+    depending on which path reached the projection. Both are 0.35 now, and
+    this asserts the parsed weight still wins -- `NSA_DEFAULT_W` applies only
+    when no weight is supplied at all (`constraint_weight=None`); an explicit
+    zero is honoured as the unconstrained endpoint, not treated as unset.
 
     That ordering is deliberate. Measured over four designs (12 paired seeds
     each), tightening the retraction under non-negativity lowered the
@@ -90,12 +94,29 @@ def test_a_bare_constraint_uses_parse_constraints_weight_not_nsa_default_w():
         simlr([x1], k=2, iterations=1, constraint="nsaflow")
 
     _, kwargs = mock.call_args
-    assert kwargs["w"] == pytest.approx(0.1)
+    assert kwargs["w"] == pytest.approx(NSA_DEFAULT_W)
 
 
-def test_an_explicitly_zero_weight_falls_back_to_nsa_default_w():
-    """`nsaflowx0` still selects the backend, so it needs some weight; that is
-    the one case `NSA_DEFAULT_W` governs."""
+def test_an_explicitly_zero_weight_reaches_the_backend_as_the_floor():
+    """`nsaflowx0` means no orthogonality term, and the floor is what gets sent.
+
+    This test previously asserted the opposite -- that an explicit zero falls
+    back to `NSA_DEFAULT_W` -- on the premise that the backend "needs some
+    weight". That premise is false: `_nsa_retract(v, w=0.0)` returns a finite
+    basis whose maximum off-diagonal column overlap (0.785) is the input's own,
+    i.e. exactly the unconstrained endpoint. `_clamp_w` then maps the request
+    to `NSA_MIN_W` (1e-3) so the solve is not a literal no-op -- that clamp is
+    deliberate and is asserted by
+    `test_retraction_weight_is_clamped_off_the_degenerate_endpoints`. The bug
+    was not the clamp; it was that the request never reached it.
+
+    The cost of the old behaviour was that `constraint_weight=0.0` produced
+    output *bit-identical* to `0.5` (measured: ||P_0(v) - P_0.5(v)|| = 0.0e+00,
+    43 zeros in both). Any sweep using w=0 as its unconstrained baseline
+    measured w=0.5 twice and therefore read flat at the low end. It also
+    contradicted `parse_constraint`, which documents that an explicit
+    `"orthox0"` selects no constraint.
+    """
     set_all_seeds(42)
     x1 = torch.randn(20, 10)
     mock = _identity_backend()
@@ -105,7 +126,36 @@ def test_an_explicitly_zero_weight_falls_back_to_nsa_default_w():
 
     assert mock.called
     _, kwargs = mock.call_args
-    assert kwargs["w"] == pytest.approx(NSA_DEFAULT_W)
+    assert kwargs["w"] == pytest.approx(NSA_MIN_W)
+
+
+def test_w_zero_is_not_w_default():
+    """The endpoint is reachable and distinct -- the property the bug removed.
+
+    Guards the projection directly rather than through `simlr`, so a future
+    re-introduction of a falsy-zero test anywhere on the path fails here.
+    """
+    from pysimlr.sparsification import simlr_sparseness, NSA_DEFAULT_W as W
+
+    g = torch.Generator().manual_seed(0)
+    v = torch.rand(40, 3, generator=g)
+    kw = dict(constraint_type="ortho", positivity="positive", energy_type="recon")
+    at = {w: simlr_sparseness(v, constraint_weight=w, **kw) for w in (0.0, W, 1.0)}
+
+    assert float((at[0.0] - at[W]).norm()) > 1e-3, (
+        "constraint_weight=0.0 collapsed onto the default again")
+    # `None`, not `0`, is the sentinel for "unset".
+    assert torch.equal(simlr_sparseness(v, constraint_weight=None, **kw), at[W])
+    assert torch.equal(simlr_sparseness(v, **kw), at[W])
+
+    def overlap(p):
+        pn = p / p.norm(dim=0, keepdim=True).clamp_min(1e-12)
+        o = pn.t() @ pn
+        o.fill_diagonal_(0)
+        return float(o.abs().max())
+
+    # Monotone in w, with w=0 leaving the input's own overlap untouched.
+    assert overlap(at[0.0]) > overlap(at[W]) > overlap(at[1.0])
 
 
 def test_candidate_is_handed_to_the_backend_in_float64():

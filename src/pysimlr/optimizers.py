@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from typing import List, Dict, Any, Optional, Union, Callable, Tuple
+from typing import List, Dict, Any, Optional, Union, Callable, Tuple, Sequence
 import warnings
 from abc import ABC, abstractmethod
 from .utils import safe_svd
@@ -66,7 +66,19 @@ class SimlrOptimizer(ABC):
                 'v_max': torch.zeros_like(v),
                 'iter': 0,
                 'momentum': torch.zeros_like(v),
-                'last_step_size': torch.tensor(0.01)
+                # Seeded from the configured learning rate, not a constant.
+                # It was a hardcoded 0.01, and because the key therefore always
+                # exists the `state.get('last_step_size', torch.tensor(lr))`
+                # fallbacks in the line-search optimizers never fired -- so
+                # `learning_rate` was read only in their `full_energy_function
+                # is None` branch, which `simlr` never takes because it always
+                # passes one. Measured across lr from 1e-4 to 1.0, the fitted
+                # basis was bit-identical for hybrid_adam, armijo_gradient,
+                # bidirectional_armijo_gradient, lookahead and
+                # bidirectional_lookahead: five optimizers whose documented
+                # "initial step size for the line search" did nothing.
+                'last_step_size': torch.tensor(
+                    float(self.params.get('learning_rate', 0.01)) or 0.01)
             })
 
     def filter_params(self, optimizer_type: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -1073,12 +1085,13 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
     ----------
     optimizer_type : str
         The name of the optimizer to create. Supported values include:
-        - 'hybrid_adam': `HybridAdam` (default)
+        - 'hybrid_adam': `HybridAdam`
         - 'adam': `Adam`
         - 'nadam': `Nadam`
         - 'rmsprop': `RMSProp`
         - 'gd': `SGD`
-        - 'armijo_gradient': `ArmijoGradient`
+        - 'armijo_gradient': `ArmijoGradient` (`simlr()`'s default -- not a
+          benchmarked winner, see its docstring)
         - 'bidirectional_armijo_gradient': `BidirectionalArmijoGradient`
         - 'lookahead': `Lookahead`
         - 'bidirectional_lookahead': `BidirectionalLookahead`
@@ -1129,3 +1142,126 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
         )
     opt_class = mapping[optimizer_type]
     return opt_class(optimizer_type, v_mats, **params)
+
+
+#: Probe grid for `tune_learning_rate`, geometric and spanning the range over
+#: which the SiMLR optimizers behave differently at all. It starts at 1.0
+#: because that is the largest step with a defensible meaning: LARS moves ``V``
+#: by exactly ``lr`` of its norm per sweep, so ``lr=1`` replaces the basis
+#: every sweep and nothing above it is a search, it is a restart.
+LR_PROBE_GRID = (1.0, 0.3, 0.1, 0.03, 0.01, 0.003, 0.001)
+
+
+def tune_learning_rate(fit: Callable[..., Dict[str, Any]],
+                       candidates: Sequence[float] = LR_PROBE_GRID,
+                       probe_iterations: int = 3,
+                       energy_key: Union[str, Sequence[str]] = ("best_energy", "energy", "loss_history"),
+                       verbose: bool = False) -> Tuple[float, Dict[float, float]]:
+    """Choose a learning rate by running short probes of the *real* fit.
+
+    Parameters
+    ----------
+    fit : callable
+        ``fit(learning_rate=lr, iterations=n)`` returning a result dict. Any
+        SiMLR entry point works, which is what makes this method-agnostic.
+    candidates : sequence of float
+        Learning rates to probe, largest first.
+    probe_iterations : int
+        Sweeps per probe. Three is enough to separate a step that helps from
+        one that overshoots, and cheap: the whole search costs about as much
+        as a single ``len(candidates) * probe_iterations`` sweep fit.
+    energy_key : str or sequence of str
+        Which reported energy to compare; the first key present in the result
+        is used. The default covers the linear path (``best_energy``) and the
+        deep models (``loss_history``).
+
+        A key holding a *history* is reduced to its **last** entry, not its
+        minimum. `simlr` returns its best iterate, so ``best_energy`` already
+        describes the basis the caller receives; the deep models return their
+        final weights, so for them the last loss is the one that corresponds
+        to the returned model. Scoring a history by its minimum would credit a
+        run for an iterate it then threw away.
+
+    Using it on a deep model
+    ------------------------
+    The deep entry points take ``epochs`` rather than ``iterations`` and are
+    reached with a two-line adapter, which is all the generality this needs::
+
+        tune_learning_rate(
+            lambda learning_rate, iterations: lend_simr(
+                mats, k=3, epochs=iterations, learning_rate=learning_rate))
+
+    Returns
+    -------
+    (best_lr, {lr: energy}) -- the scores are returned so a caller can see
+    whether the winner won clearly or by a rounding error.
+
+    Why the probe runs the real model
+    ---------------------------------
+    The obvious implementation -- pick ``lr`` by evaluating
+    :math:`f(v - lr\\,g)` -- describes plain gradient descent and is wrong for
+    every optimizer here. LARS steps
+    :math:`lr\\,(\\lVert v\\rVert/\\lVert g\\rVert)\\,\\hat g`, so its
+    displacement is ``lr * ||v||`` *independently of the gradient*; Adam's is
+    ~``lr`` per coordinate; only plain descent scales with ``||g||``. A single
+    analytic probe therefore cannot serve them, and a tuner built on one
+    returns a confident number that means nothing for the optimizer that
+    consumes it.
+
+    Running the model also keeps the projection in the loop. SiMLR's step is
+    proximal: ``prox`` is applied after every update and can undo most of it,
+    so the decrease that matters is in the *composite* objective, not in the
+    smooth part the gradient describes.
+
+    What it cannot do
+    -----------------
+    It compares energies, so it selects for optimisation quality, and on this
+    model that is not the same as selecting for a good answer: support
+    recovery has been measured to fall as the energy falls. It is a fix for
+    an optimizer that does not move, not for an objective that points the
+    wrong way. Candidates producing a non-finite or rank-deficient basis are
+    rejected rather than scored.
+    """
+    scores: Dict[float, float] = {}
+    first_error: Optional[BaseException] = None
+    for lr in candidates:
+        try:
+            res = fit(learning_rate=float(lr), iterations=int(probe_iterations))
+        except (ValueError, TypeError, KeyError):
+            # A configuration error -- an unknown energy, an unknown optimizer,
+            # a malformed argument -- is not a property of the step size and
+            # must surface as itself. Swallowing it here turned every such
+            # mistake into "no learning rate produced a usable fit", which
+            # names the wrong thing and sends the reader to the tuner.
+            raise
+        except Exception as exc:               # a step size that breaks the solve
+            if first_error is None:
+                first_error = exc
+            continue                           # is not a candidate
+        keys = (energy_key,) if isinstance(energy_key, str) else tuple(energy_key)
+        e = next((res[kk] for kk in keys if res.get(kk) is not None), None)
+        if isinstance(e, (list, tuple, np.ndarray)):
+            e = e[-1] if len(e) else None          # last, not min: see `energy_key`
+        vs = res.get("v", None)
+        if e is None or vs is None or not np.isfinite(float(e)):
+            continue
+        if not all(torch.isfinite(v).all() and float(v.abs().sum()) > 0 for v in vs):
+            continue
+        scores[float(lr)] = float(e)
+    if not scores:
+        if first_error is not None:
+            # Every candidate raised, so the failure is not a property of the
+            # step size -- it is the fit itself. Re-raise the real exception
+            # rather than a generic one about learning rates, which names the
+            # wrong component and sends the reader to the tuner. A broken
+            # backend surfaced as "no learning rate produced a usable fit".
+            raise first_error
+        raise RuntimeError(
+            f"no learning rate in {list(candidates)} produced a usable fit; "
+            f"every probe returned a non-finite energy or a degenerate basis."
+        )
+    best = min(scores, key=scores.get)
+    if verbose:
+        print(f"tune_learning_rate -> {best} from "
+              + ", ".join(f"{k:g}:{v:.6g}" for k, v in sorted(scores.items())))
+    return best, scores

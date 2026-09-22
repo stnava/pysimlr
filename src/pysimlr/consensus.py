@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import warnings
 from typing import List, Optional, Union, Dict, Any, Tuple
+from .utils import align_column_signs
 from .utils import newton_schulz_orthogonalize, safe_svd
 
 
@@ -110,10 +111,15 @@ def compute_shared_consensus(projections: List[torch.Tensor],
             local_u = local_big_p @ anchor
             local_anchor = anchor
         elif mixing_algorithm == "avg":
-            local_u = torch.mean(torch.stack(proj_list), dim=0)
+            # Signs aligned before averaging; see `utils.align_column_signs`.
+            # A latent is defined only up to a sign per component, so two views
+            # can recover the same factors with opposite signs and the mean
+            # then cancels them. Measured on a planted signal: per-view latents
+            # at R^2 0.784 and 0.785, their plain average at 0.023.
+            local_u = torch.mean(torch.stack(align_column_signs(proj_list)), dim=0)
             local_anchor = None
         elif mixing_algorithm == "newton":
-            local_u = torch.mean(torch.stack(proj_list), dim=0)
+            local_u = torch.mean(torch.stack(align_column_signs(proj_list)), dim=0)
             local_u = newton_schulz_orthogonalize(local_u, iterations=10)
             local_anchor = None
         elif mixing_algorithm == "ica":
@@ -194,7 +200,9 @@ def compute_shared_consensus(projections: List[torch.Tensor],
     valid_indices = set(range(len(norm_projs)))
     
     if prune_threshold is not None and len(norm_projs) > 1:
-        u_pre = torch.mean(torch.stack(norm_projs), dim=0)
+        # Aligned too: this probe decides which views are pruned, and a
+        # cancelled average makes every view look uninformative at once.
+        u_pre = torch.mean(torch.stack(align_column_signs(norm_projs)), dim=0)
         u_pre = u_pre - u_pre.mean(dim=0, keepdim=True)
         u_pre_norm = torch.norm(u_pre, p='fro')
         
@@ -216,6 +224,27 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         if len(valid_projs) > 0:
             norm_projs = valid_projs
             valid_indices = temp_valid_indices
+
+    # Reject an unrecognised topology rather than quietly running a different
+    # one. Every unknown string -- a typo, a wrong case like "LOO", or a name
+    # that sounds plausible like "path" -- used to fall through to the `star`
+    # consensus at the end of this function and return a perfectly reasonable
+    # answer for a model the caller did not ask for. `path_graph` is only read
+    # by "graph", so `topology="path", path_graph=...` silently discarded the
+    # graph and every graph gave an identical result.
+    _VALID_TOPOLOGIES = ("star", "loo", "graph")
+    if topology not in _VALID_TOPOLOGIES:
+        raise ValueError(
+            f"unknown topology {topology!r}; choose one of "
+            f"{list(_VALID_TOPOLOGIES)}. The graph-structured option is "
+            f"'graph' (it reads `path_graph`); there is no 'path'."
+        )
+    if path_graph is not None and topology != "graph":
+        warnings.warn(
+            f"path_graph was supplied with topology={topology!r}, which does "
+            f"not read it; it is ignored. Pass topology='graph' to use it.",
+            RuntimeWarning, stacklevel=2,
+        )
 
     if topology == "star":
         if training:
@@ -261,4 +290,6 @@ def compute_shared_consensus(projections: List[torch.Tensor],
             return u_list, new_anchor
         return u_list
 
+    # Unreachable: the topology is validated above. Kept so a future branch
+    # that forgets to return has a defined result rather than None.
     return _get_u(norm_projs, return_anchor=training)

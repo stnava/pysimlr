@@ -170,15 +170,18 @@ class SiMLREstimator(BaseEstimator, TransformerMixin):
             energy_type=self.energy_type,
             constraint=self.constraint,
             mixing_algorithm=self.mixing_algorithm,
-            sparseness_quantile=self.sparseness_quantile,
             positivity=self.positivity,
             consolidate=self.consolidate,
             scale_list=scale_list,
             tol=self.tol,
             verbose=self.verbose,
-            use_nsa=self.use_nsa,
             nsa_w=self.nsa_w,
         )
+        # `sparseness_quantile` and `use_nsa` are kept as constructor
+        # arguments for scikit-learn API stability (get_params/set_params and
+        # any pickled estimator), but are no longer forwarded: `simlr` removed
+        # them because neither had any effect. Sparsity follows from `nsa_w`,
+        # and the projection is not optional on the linear path.
         self.result_ = res
 
         # Convert learned loadings to numpy

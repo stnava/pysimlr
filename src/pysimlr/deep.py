@@ -53,7 +53,7 @@ def _get_optimizer(model, optimizer_type, learning_rate, weight_decay):
 from .simlr import ba_svd
 from .consensus import compute_shared_consensus
 from .utils import (preprocess_data, invariant_orthogonality_defect,
-                    orthogonality_defect, safe_svd)
+                    orthogonality_defect, safe_svd, basis_rank_report, align_column_signs)
 from .interpretability import build_first_layer_contract, build_interpretability_report
 
 from .nsa_backend import load_nsa_backend
@@ -161,6 +161,77 @@ def _standardize_deep(data_matrices, scale_list=["centerAndScale"]):
     return scaled_mats, provenance_list
 
 
+def nonneg_orthogonal_assignment(v: torch.Tensor, iters: int = 10,
+                                 temperature: float = 20.0) -> torch.Tensor:
+    r"""The non-negative orthogonal basis for ``p <= k``, by balanced assignment.
+
+    When a view has no more features than components the constrained problem
+    is not merely hard, it is forced. With :math:`V \ge 0`, orthogonality
+    :math:`\langle v_i, v_j \rangle = 0` requires *disjoint supports*; with
+    :math:`p \le k` disjoint supports over :math:`p` coordinates means one
+    coordinate per column. The feasible set is therefore the scaled
+    permutations, and the operator that lands on it is an assignment.
+
+    Sinkhorn is used rather than `consolidate_supports` because the constraint
+    is two-sided. `consolidate_supports` assigns each *row* to its best column
+    and does not guarantee that every *column* receives one: on the 2x2 case
+    in ``test_nsa_nonnegative_stiefel_collapse`` it puts both coordinates in
+    column 0 and leaves column 1 empty, `enforce_column_floor` then revives
+    the dead column, and the result has column overlap 0.707. Sinkhorn's
+    alternating row/column normalisation enforces both margins, which at
+    ``p == k`` is exactly a permutation.
+
+    This is a genuinely different operator from the one every other shape
+    uses, and that is a property of the regime rather than a shortcut: the
+    NSA-Flow retraction is bypassed entirely when ``p <= k`` (see
+    `LENDNSAEncoder.__init__`), because a basis cannot be near-orthogonal
+    with more columns than rows. It lives here, named and documented, rather
+    than inline in a property, so that a reader of `LENDNSAEncoder.v` can see
+    that the regime switches and why.
+
+    Parameters
+    ----------
+    v : torch.Tensor
+        ``(features, latent)`` basis, ``features <= latent``.
+    iters : int
+        Sinkhorn iterations.
+    temperature : float
+        Logit scale. Larger drives harder toward a permutation.
+    """
+    magnitudes = torch.abs(v)
+    logits = v * temperature
+    # Shift by the global max before exponentiating: a single multiplicative
+    # constant on `scores`, which cancels in the first normalisation, so the
+    # shift is exact rather than an approximation.
+    scores = torch.exp(logits - logits.max().detach())
+    for _ in range(iters):
+        scores = scores / (torch.sum(scores, dim=0, keepdim=True) + 1e-8)
+        scores = scores / (torch.sum(scores, dim=1, keepdim=True) + 1e-8)
+    return scores * magnitudes
+
+
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+
+#: LR schedule for the deep trainers. `CosineAnnealingLR(T_max=epochs)` tied
+#: the schedule to the epoch *budget*, which made `epochs` a hyperparameter
+#: rather than a cap: at the same step and seed, a 120-epoch run sits well
+#: down the cosine while a 600-epoch run is still near its initial rate, so
+#: two runs stopping at identical step counts landed at different losses.
+#: That is incompatible with running to convergence, where the cap is supposed
+#: to be a safety limit. ReduceLROnPlateau responds to the loss instead of the
+#: calendar, so the path no longer depends on the budget.
+#:
+#: Its patience is deliberately shorter than `ConvergenceMonitor`'s: the LR
+#: should drop and buy more progress *before* the monitor concludes there is
+#: none left.
+def _plateau_scheduler(optimizer, factor: float = 0.5, patience: int = 5,
+                       threshold: float = 1e-4):
+    return ReduceLROnPlateau(optimizer, mode="min", factor=factor,
+                             patience=patience, threshold=threshold,
+                             threshold_mode="rel")
+
+
 def _construct_nsa(factory, modern_kwargs: dict, legacy_kwargs: dict):
     """
     Build an NSA-Flow module, tolerating the backend's keyword rename.
@@ -240,6 +311,15 @@ def _nsa_raw_parameter(module):
     )
 
 
+#: MAI similarity metrics. `trace` was removed: tr(Z' u_loo) is the only one
+#: not computed through the SVD and it is not invariant to the arbitrary
+#: rotation of the k latent coordinates -- measured, the same data under three
+#: rotations gave 0.0348, 0.1319 and 0.0000, while the others were constant to
+#: four decimals. It ranked a planted pure-noise view above a signal view.
+VALID_MAI_METRICS = frozenset({"procrustes_r2", "procrustes_r2_sharp",
+                               "cca", "rvcoef"})
+
+
 def _nsa_effective_weight(module):
     """
     Return the backend module's retracted weight under either of its names.
@@ -272,8 +352,8 @@ class LENDNSAEncoder(nn.Module):
         Dimensionality of the projection (shared latent rank K).
     nsa_w : float, default=0.1
         Weight/step size for the Non-Standard Analysis (NSA) Flow retraction.
-    positivity : str, default="positive"
-        Positivity constraint on weights: 
+    positivity : str, default="either"
+        Positivity constraint on weights:
         - 'either': Unconstrained (standard orthogonal basis).
         - 'positive': Strictly non-negative via clamping (legacy behavior).
         - 'softplus': Smoothly non-negative via Softplus (advanced behavior).
@@ -296,7 +376,7 @@ class LENDNSAEncoder(nn.Module):
         If inputs are of invalid types.
     """
     def __init__(self, input_dim: int, latent_dim: int, nsa_w: float = 0.1, 
-                 positivity: str = "positive", sparseness_quantile: float = 0.0,
+                 positivity: str = "either", sparseness_quantile: float = 0.0,
                  soft_thresholding: bool = False, use_nsa: bool = True,
                  first_layer_mode: str = "scheduled", nsa_iterations: int = 1,
                  retraction_type: str = "soft_polar"):
@@ -422,20 +502,38 @@ class LENDNSAEncoder(nn.Module):
     @property
     def v(self):
         if getattr(self, 'is_low_dim', False):
+            # p <= k. A basis cannot be near-orthogonal with more columns than
+            # rows, so the retraction backend is bypassed here (see __init__).
+            #
+            # What used to occupy this branch was a Sinkhorn assignment --
+            # exp(20 * V) followed by ten alternating row/column
+            # normalisations -- which is a different algorithm from the one
+            # every other code path runs, selected silently by a shape test
+            # and documented nowhere in the public signature. At that
+            # temperature it drives the basis to a near-permutation matrix
+            # whatever `nsa_w` is, so a view with p <= k answered a different
+            # optimisation problem than its siblings in the same fit, and no
+            # sweep over the constraint could move it.
+            #
+            # What replaces it is not "do nothing": at p <= k the constrained
+            # problem still has an answer, and it is forced. Two non-negative
+            # orthogonal unit columns in R^2 must be [1,0] and [0,1] -- with
+            # V >= 0, <v_i, v_j> = 0 requires disjoint supports, and at p <= k
+            # disjoint supports over p coordinates means one coordinate per
+            # column. So the feasible set is the scaled permutations, and the
+            # right operator is an assignment. That is what the Sinkhorn was
+            # approximating, and `test_nsa_nonnegative_stiefel_collapse` is the
+            # case it existed for: without it a 2x2 basis comes back with
+            # column overlap 0.60 and orthogonality defect 0.18.
+            #
+            # See `nonneg_orthogonal_assignment` for why this needs a
+            # two-sided (Sinkhorn) assignment and why `consolidate_supports`
+            # is not a substitute.
             v_out = self.v_raw
             if self.positivity in {'positive', 'hard', 'softplus'}:
-                magnitudes = torch.abs(v_out)
-                if self.positivity == 'softplus': magnitudes = torch.nn.functional.softplus(v_out - 4.0)
-                # Shift by the global max before exponentiating. The shift is a
-                # single multiplicative constant on `scores`, which cancels in
-                # the first Sinkhorn normalization, so this is exact rather than
-                # an approximation.
-                logits = v_out * 20.0
-                scores = torch.exp(logits - logits.max().detach())
-                for _ in range(10):
-                    scores = scores / (torch.sum(scores, dim=0, keepdim=True) + 1e-8)
-                    scores = scores / (torch.sum(scores, dim=1, keepdim=True) + 1e-8)
-                v_out = scores * magnitudes
+                if self.positivity == 'softplus':
+                    v_out = torch.nn.functional.softplus(v_out - 4.0)
+                v_out = nonneg_orthogonal_assignment(v_out)
             v_out = torch.nn.functional.normalize(v_out, p=2, dim=0)
         else:
             if self.nsa_linear is not None:
@@ -460,13 +558,30 @@ class LENDNSAEncoder(nn.Module):
                 try: v_out = _svd_project_columns(self.v_raw)
                 except Exception: v_out = torch.nn.functional.normalize(self.v_raw, p=2, dim=0)
         if self.positivity in {'positive', 'hard'}:
-            from .nsa_backend import load_consolidate_supports
-            cons_fn = load_consolidate_supports()
-            if cons_fn is not None:
-                try:
-                    v_out = cons_fn(v_out.double()).to(v_out.dtype)
-                except Exception:
-                    pass
+            # `consolidate_supports` used to run here, unconditionally, and it
+            # is why `nsa_w` did nothing to any deep model. It forces strictly
+            # disjoint supports, so whatever the constrained layer produced was
+            # overwritten by a hard partition before anyone saw it. Measured on
+            # a 60-feature view with k=3, the layer's own output responds to w
+            # exactly as intended -- column overlap 0.0300, 0.0164, 0.0033 at
+            # w = 0.1, 0.5, 0.9 -- while the basis this property returned was
+            # 0.0000 overlap and 0.67 zeros at *every* w. The constraint the
+            # user selected never reached the result, and because the forward
+            # pass reads this property, it never reached the gradient either:
+            # the trained parameter came out bit-identical across w.
+            #
+            # The clamp and the column normalisation stay. The clamp is not
+            # redundant: NSAFlowLinear enforces non-negativity itself, but the
+            # `nsa_layer` and `_svd_project_columns` fallbacks above do not, so
+            # without it `positivity='positive'` would be silently unenforced
+            # whenever the backend is absent. The normalisation is the column
+            # gauge, which the energies are even in.
+            #
+            # Consolidation remains available where it is an explicit choice:
+            # `simlr(consolidate=True)` on the linear path, or
+            # `nsa_backend.load_consolidate_supports()` applied to a returned
+            # basis. It is not something a model should do to itself on every
+            # forward pass.
             v_out = torch.clamp(v_out, min=0.0)
             v_out = torch.nn.functional.normalize(v_out, p=2, dim=0, eps=1e-8)
         elif self.positivity == 'softplus':
@@ -625,7 +740,7 @@ class LENDSiMRModel(nn.Module):
         If inputs are of invalid types.
     """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
-                 dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "positive", 
+                 dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "either", 
                  sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
@@ -646,22 +761,16 @@ class LENDSiMRModel(nn.Module):
         self.register_buffer("mai", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
-    def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
+    def initialize_v(self, data_matrices: List[torch.Tensor], k: int, **init_kwargs):
         """
         Seed each encoder's first-layer basis.
 
-        `initial_basis_for_view` fits a non-negative basis from the data when
-        the encoder rectifies (its `v` property clamps negatives), so the first
-        forward pass does not see ``clamp(V_pca)``; otherwise it returns the
-        signed PCA loadings with column signs resolved. Sharing it with
-        `initialize_simlr` keeps the linear and deep paths on the same start.
+        Delegates to `initialize_deep_encoders`, so any `INITIALIZATION_TYPES`
+        strategy is available here, not only PCA -- see `initialize_simlr`'s
+        docstring for what each does.
         """
-        from .simlr import initial_basis_for_view
-        with torch.no_grad():
-            for i, x in enumerate(data_matrices):
-                v = initial_basis_for_view(
-                    x, k, positivity=self.encoders[i].positivity)
-                self.encoders[i].v_raw.copy_(v.to(x.dtype))
+        from .simlr import initialize_deep_encoders
+        initialize_deep_encoders(self.encoders, data_matrices, k, **init_kwargs)
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.encoders, x_list)]
 
@@ -679,6 +788,18 @@ class LENDSiMRModel(nn.Module):
 
     def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int):
         if not getattr(self, "dynamic_weights", False): return
+        _metric = getattr(self, "mai_metric", "procrustes_r2")
+        if _metric not in VALID_MAI_METRICS:
+            # Validated here rather than at the point of use: the per-view
+            # computation is wrapped in `except Exception: mais.append(0.0)`,
+            # which would turn a misspelled metric into "this view agrees with
+            # nothing" and quietly return uniform weights.
+            raise ValueError(
+                f"unknown mai_metric {_metric!r}; choose one of "
+                f"{sorted(VALID_MAI_METRICS)}. 'trace' was removed because "
+                f"tr(Z'u) is not invariant to the arbitrary rotation of the "
+                f"latent coordinates."
+            )
         with torch.no_grad():
             if getattr(self, "use_rank_mai", False):
                 ranked_latents = []
@@ -702,7 +823,10 @@ class LENDSiMRModel(nn.Module):
                 if not loo_projs:
                     mais.append(1.0)
                     continue
-                u_loo = torch.mean(torch.stack(loo_projs), dim=0)
+                # Sign-aligned: this leave-one-out average decides the
+                # modality weights, and unaligned views cancel here exactly as
+                # they do in the consensus (see `utils.align_column_signs`).
+                u_loo = torch.mean(torch.stack(align_column_signs(loo_projs)), dim=0)
                 u_loo_norm = torch.norm(u_loo, p='fro')
                 if u_loo_norm > 1e-8:
                     u_loo = u_loo / u_loo_norm
@@ -715,7 +839,26 @@ class LENDSiMRModel(nn.Module):
                         if metric == "procrustes_r2" or metric == "procrustes_r2_sharp":
                             omega = u_svd @ vh_svd
                             aligned = Z @ omega
-                            r2 = max(0.0, 1.0 - (torch.norm(aligned - u_loo, p='fro')**2 / (torch.norm(u_loo, p='fro')**2 + 1e-8)).item())
+                            # Scale-profiled Procrustes R^2. With Z and u_loo
+                            # both unit Frobenius norm and Omega orthogonal,
+                            # ||Z@Omega - u_loo||^2 = 2 - 2*sum(s), so the old
+                            # form below reduced to `2*sum(s) - 1` and clamped
+                            # to exactly 0 for every sum(s) < 0.5:
+                            #     max(0, 1 - ||aligned - u_loo||^2/||u_loo||^2)
+                            # At k=3 every view sits under that cliff, so all
+                            # modality scores came back 0, the gate saw no
+                            # spread, and the weights stayed uniform -- MAI was
+                            # inert. Measured with one planted pure-noise view:
+                            # mai = [0.0, 0.0, 0.0] every epoch, decaying only
+                            # because the EMA pulled the buffer toward zero.
+                            #
+                            # Profiling out the scale -- the same fix as
+                            # `similarity.energy_recon_r2` -- gives the squared
+                            # cosine between the optimally rotated-and-scaled Z
+                            # and u_loo, which is sum(s)^2: bounded in [0, 1],
+                            # never clamped, and still 0.989 for signal against
+                            # 0.020 for noise.
+                            r2 = float(s_svd.sum().item()) ** 2
                             if metric == "procrustes_r2_sharp":
                                 # Spectral Sharpness of the modality latent itself
                                 # Isotropic noise has flat singular values; structured signal is top-heavy.
@@ -730,9 +873,36 @@ class LENDSiMRModel(nn.Module):
                             num = torch.norm(cross, p='fro')**2
                             den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
                             mais.append((num / (den + 1e-8)).item())
-                        else: # trace
-                            mais.append(max(0.0, torch.trace(cross).item()))
+                        else:
+                            # Was `trace`, and was also the catch-all for any
+                            # unrecognised name, so a typo silently selected it.
+                            #
+                            # tr(Z' u_loo) is the only one of these computed
+                            # outside the SVD, and it is not invariant to the
+                            # latent gauge: the k latent coordinates carry an
+                            # arbitrary rotation Q, and tr((ZQ)' u) != tr(Z' u).
+                            # Measured on one fixed pair, rotating Q gave
+                            # 0.0348, 0.1319 and 0.0000 for the same data,
+                            # while procrustes / cca / rvcoef were constant to
+                            # four decimals. It therefore scores the accident
+                            # of the coordinate system rather than agreement
+                            # between views -- and on `flow_simr_v` it ranked a
+                            # planted pure-noise view *above* a signal view
+                            # (0.276 against 0.246).
+                            raise ValueError(
+                                f"unknown mai_metric {metric!r}. Choose one of "
+                                f"['procrustes_r2', 'procrustes_r2_sharp', "
+                                f"'cca', 'rvcoef']. 'trace' has been removed: "
+                                f"tr(Z'u) depends on the arbitrary rotation of "
+                                f"the latent coordinates, so it does not "
+                                f"measure agreement between views."
+                            )
+                    except ValueError:
+                        raise
                     except Exception:
+                        # A numerical failure on one view only. Note this
+                        # scores the view as agreeing with nothing, which is a
+                        # real bias if it happens often.
                         mais.append(0.0)
                 else:
                     mais.append(0.0)
@@ -752,8 +922,20 @@ class LENDSiMRModel(nn.Module):
             raw_w = self.mai * gate
             target_w = raw_w / (raw_w.sum() + 1e-8)
             
-            # Temporal transition (from uniform to target) over first 30 epochs
-            rho = max(0.0, min(1.0, (epoch - 10) / 20.0))
+            # Temporal transition from uniform to the MAI target, expressed as
+            # a fraction of the run rather than in absolute epochs.
+            #
+            # This was `(epoch - 10) / 20`, which is exactly 0 for the first
+            # ten epochs, so on any run of 10 epochs or fewer `dynamic_weights`
+            # did nothing whatsoever -- measured, the weights stayed at
+            # [0.333, 0.333, 0.333] at 10 epochs even with one view of pure
+            # noise, while `flow_simr_v`, which schedules this differently,
+            # reached [0.407, 0.409, 0.184] on the same data. The benchmarks
+            # run 8 and 12 epochs, so MAI was inert or nearly so in all of
+            # them, which is why the MAI arm of the design sweep read as
+            # "no effect". `total_epochs` was passed in and ignored.
+            warm = 0.33 * max(1, total_epochs)
+            rho = max(0.0, min(1.0, (epoch - warm) / max(1.0, warm)))
             uniform_w = torch.ones_like(target_w) / len(target_w)
             self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
@@ -808,7 +990,7 @@ class NEDSiMRModel(nn.Module):
         If inputs are of invalid types.
     """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
-                 dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "positive", 
+                 dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "either", 
                  sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
@@ -830,22 +1012,16 @@ class NEDSiMRModel(nn.Module):
         self.register_buffer("mai", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
-    def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
+    def initialize_v(self, data_matrices: List[torch.Tensor], k: int, **init_kwargs):
         """
         Seed each encoder's first-layer basis.
 
-        `initial_basis_for_view` fits a non-negative basis from the data when
-        the encoder rectifies (its `v` property clamps negatives), so the first
-        forward pass does not see ``clamp(V_pca)``; otherwise it returns the
-        signed PCA loadings with column signs resolved. Sharing it with
-        `initialize_simlr` keeps the linear and deep paths on the same start.
+        Delegates to `initialize_deep_encoders`, so any `INITIALIZATION_TYPES`
+        strategy is available here, not only PCA -- see `initialize_simlr`'s
+        docstring for what each does.
         """
-        from .simlr import initial_basis_for_view
-        with torch.no_grad():
-            for i, x in enumerate(data_matrices):
-                v = initial_basis_for_view(
-                    x, k, positivity=self.linear_encoders[i].positivity)
-                self.linear_encoders[i].v_raw.copy_(v.to(x.dtype))
+        from .simlr import initialize_deep_encoders
+        initialize_deep_encoders(self.linear_encoders, data_matrices, k, **init_kwargs)
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
 
@@ -863,6 +1039,18 @@ class NEDSiMRModel(nn.Module):
 
     def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int):
         if not getattr(self, "dynamic_weights", False): return
+        _metric = getattr(self, "mai_metric", "procrustes_r2")
+        if _metric not in VALID_MAI_METRICS:
+            # Validated here rather than at the point of use: the per-view
+            # computation is wrapped in `except Exception: mais.append(0.0)`,
+            # which would turn a misspelled metric into "this view agrees with
+            # nothing" and quietly return uniform weights.
+            raise ValueError(
+                f"unknown mai_metric {_metric!r}; choose one of "
+                f"{sorted(VALID_MAI_METRICS)}. 'trace' was removed because "
+                f"tr(Z'u) is not invariant to the arbitrary rotation of the "
+                f"latent coordinates."
+            )
         with torch.no_grad():
             if getattr(self, "use_rank_mai", False):
                 ranked_latents = []
@@ -886,7 +1074,10 @@ class NEDSiMRModel(nn.Module):
                 if not loo_projs:
                     mais.append(1.0)
                     continue
-                u_loo = torch.mean(torch.stack(loo_projs), dim=0)
+                # Sign-aligned: this leave-one-out average decides the
+                # modality weights, and unaligned views cancel here exactly as
+                # they do in the consensus (see `utils.align_column_signs`).
+                u_loo = torch.mean(torch.stack(align_column_signs(loo_projs)), dim=0)
                 u_loo_norm = torch.norm(u_loo, p='fro')
                 if u_loo_norm > 1e-8:
                     u_loo = u_loo / u_loo_norm
@@ -899,7 +1090,26 @@ class NEDSiMRModel(nn.Module):
                         if metric == "procrustes_r2" or metric == "procrustes_r2_sharp":
                             omega = u_svd @ vh_svd
                             aligned = Z @ omega
-                            r2 = max(0.0, 1.0 - (torch.norm(aligned - u_loo, p='fro')**2 / (torch.norm(u_loo, p='fro')**2 + 1e-8)).item())
+                            # Scale-profiled Procrustes R^2. With Z and u_loo
+                            # both unit Frobenius norm and Omega orthogonal,
+                            # ||Z@Omega - u_loo||^2 = 2 - 2*sum(s), so the old
+                            # form below reduced to `2*sum(s) - 1` and clamped
+                            # to exactly 0 for every sum(s) < 0.5:
+                            #     max(0, 1 - ||aligned - u_loo||^2/||u_loo||^2)
+                            # At k=3 every view sits under that cliff, so all
+                            # modality scores came back 0, the gate saw no
+                            # spread, and the weights stayed uniform -- MAI was
+                            # inert. Measured with one planted pure-noise view:
+                            # mai = [0.0, 0.0, 0.0] every epoch, decaying only
+                            # because the EMA pulled the buffer toward zero.
+                            #
+                            # Profiling out the scale -- the same fix as
+                            # `similarity.energy_recon_r2` -- gives the squared
+                            # cosine between the optimally rotated-and-scaled Z
+                            # and u_loo, which is sum(s)^2: bounded in [0, 1],
+                            # never clamped, and still 0.989 for signal against
+                            # 0.020 for noise.
+                            r2 = float(s_svd.sum().item()) ** 2
                             if metric == "procrustes_r2_sharp":
                                 # Spectral Sharpness of the modality latent itself
                                 # Isotropic noise has flat singular values; structured signal is top-heavy.
@@ -914,9 +1124,36 @@ class NEDSiMRModel(nn.Module):
                             num = torch.norm(cross, p='fro')**2
                             den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
                             mais.append((num / (den + 1e-8)).item())
-                        else: # trace
-                            mais.append(max(0.0, torch.trace(cross).item()))
+                        else:
+                            # Was `trace`, and was also the catch-all for any
+                            # unrecognised name, so a typo silently selected it.
+                            #
+                            # tr(Z' u_loo) is the only one of these computed
+                            # outside the SVD, and it is not invariant to the
+                            # latent gauge: the k latent coordinates carry an
+                            # arbitrary rotation Q, and tr((ZQ)' u) != tr(Z' u).
+                            # Measured on one fixed pair, rotating Q gave
+                            # 0.0348, 0.1319 and 0.0000 for the same data,
+                            # while procrustes / cca / rvcoef were constant to
+                            # four decimals. It therefore scores the accident
+                            # of the coordinate system rather than agreement
+                            # between views -- and on `flow_simr_v` it ranked a
+                            # planted pure-noise view *above* a signal view
+                            # (0.276 against 0.246).
+                            raise ValueError(
+                                f"unknown mai_metric {metric!r}. Choose one of "
+                                f"['procrustes_r2', 'procrustes_r2_sharp', "
+                                f"'cca', 'rvcoef']. 'trace' has been removed: "
+                                f"tr(Z'u) depends on the arbitrary rotation of "
+                                f"the latent coordinates, so it does not "
+                                f"measure agreement between views."
+                            )
+                    except ValueError:
+                        raise
                     except Exception:
+                        # A numerical failure on one view only. Note this
+                        # scores the view as agreeing with nothing, which is a
+                        # real bias if it happens often.
                         mais.append(0.0)
                 else:
                     mais.append(0.0)
@@ -936,8 +1173,20 @@ class NEDSiMRModel(nn.Module):
             raw_w = self.mai * gate
             target_w = raw_w / (raw_w.sum() + 1e-8)
             
-            # Temporal transition (from uniform to target) over first 30 epochs
-            rho = max(0.0, min(1.0, (epoch - 10) / 20.0))
+            # Temporal transition from uniform to the MAI target, expressed as
+            # a fraction of the run rather than in absolute epochs.
+            #
+            # This was `(epoch - 10) / 20`, which is exactly 0 for the first
+            # ten epochs, so on any run of 10 epochs or fewer `dynamic_weights`
+            # did nothing whatsoever -- measured, the weights stayed at
+            # [0.333, 0.333, 0.333] at 10 epochs even with one view of pure
+            # noise, while `flow_simr_v`, which schedules this differently,
+            # reached [0.407, 0.409, 0.184] on the same data. The benchmarks
+            # run 8 and 12 epochs, so MAI was inert or nearly so in all of
+            # them, which is why the MAI arm of the design sweep read as
+            # "no effect". `total_epochs` was passed in and ignored.
+            warm = 0.33 * max(1, total_epochs)
+            rho = max(0.0, min(1.0, (epoch - warm) / max(1.0, warm)))
             uniform_w = torch.ones_like(target_w) / len(target_w)
             self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
@@ -1009,7 +1258,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
     """
     def __init__(self, input_dims: List[int], shared_latent_dim: int, private_latent_dim: int,
                  hidden_dims: List[int] = [128, 64], dropout: float = 0.1, nsa_w: float = 0.1,
-                 positivity: str = "positive", sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
+                 positivity: str = "either", sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
                  retraction_type: str = "soft_polar"):
@@ -1031,22 +1280,16 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         self.use_rank_mai = use_rank_mai
         self.register_buffer("mai", torch.ones(len(input_dims)) / len(input_dims))
         self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
-    def initialize_v(self, data_matrices: List[torch.Tensor], k: int):
+    def initialize_v(self, data_matrices: List[torch.Tensor], k: int, **init_kwargs):
         """
         Seed each encoder's first-layer basis.
 
-        `initial_basis_for_view` fits a non-negative basis from the data when
-        the encoder rectifies (its `v` property clamps negatives), so the first
-        forward pass does not see ``clamp(V_pca)``; otherwise it returns the
-        signed PCA loadings with column signs resolved. Sharing it with
-        `initialize_simlr` keeps the linear and deep paths on the same start.
+        Delegates to `initialize_deep_encoders`, so any `INITIALIZATION_TYPES`
+        strategy is available here, not only PCA -- see `initialize_simlr`'s
+        docstring for what each does.
         """
-        from .simlr import initial_basis_for_view
-        with torch.no_grad():
-            for i, x in enumerate(data_matrices):
-                v = initial_basis_for_view(
-                    x, k, positivity=self.linear_encoders[i].positivity)
-                self.linear_encoders[i].v_raw.copy_(v.to(x.dtype))
+        from .simlr import initialize_deep_encoders
+        initialize_deep_encoders(self.linear_encoders, data_matrices, k, **init_kwargs)
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
 
@@ -1064,6 +1307,18 @@ class NEDSharedPrivateSiMRModel(nn.Module):
 
     def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int):
         if not getattr(self, "dynamic_weights", False): return
+        _metric = getattr(self, "mai_metric", "procrustes_r2")
+        if _metric not in VALID_MAI_METRICS:
+            # Validated here rather than at the point of use: the per-view
+            # computation is wrapped in `except Exception: mais.append(0.0)`,
+            # which would turn a misspelled metric into "this view agrees with
+            # nothing" and quietly return uniform weights.
+            raise ValueError(
+                f"unknown mai_metric {_metric!r}; choose one of "
+                f"{sorted(VALID_MAI_METRICS)}. 'trace' was removed because "
+                f"tr(Z'u) is not invariant to the arbitrary rotation of the "
+                f"latent coordinates."
+            )
         with torch.no_grad():
             if getattr(self, "use_rank_mai", False):
                 ranked_latents = []
@@ -1087,7 +1342,10 @@ class NEDSharedPrivateSiMRModel(nn.Module):
                 if not loo_projs:
                     mais.append(1.0)
                     continue
-                u_loo = torch.mean(torch.stack(loo_projs), dim=0)
+                # Sign-aligned: this leave-one-out average decides the
+                # modality weights, and unaligned views cancel here exactly as
+                # they do in the consensus (see `utils.align_column_signs`).
+                u_loo = torch.mean(torch.stack(align_column_signs(loo_projs)), dim=0)
                 u_loo_norm = torch.norm(u_loo, p='fro')
                 if u_loo_norm > 1e-8:
                     u_loo = u_loo / u_loo_norm
@@ -1100,7 +1358,26 @@ class NEDSharedPrivateSiMRModel(nn.Module):
                         if metric == "procrustes_r2" or metric == "procrustes_r2_sharp":
                             omega = u_svd @ vh_svd
                             aligned = Z @ omega
-                            r2 = max(0.0, 1.0 - (torch.norm(aligned - u_loo, p='fro')**2 / (torch.norm(u_loo, p='fro')**2 + 1e-8)).item())
+                            # Scale-profiled Procrustes R^2. With Z and u_loo
+                            # both unit Frobenius norm and Omega orthogonal,
+                            # ||Z@Omega - u_loo||^2 = 2 - 2*sum(s), so the old
+                            # form below reduced to `2*sum(s) - 1` and clamped
+                            # to exactly 0 for every sum(s) < 0.5:
+                            #     max(0, 1 - ||aligned - u_loo||^2/||u_loo||^2)
+                            # At k=3 every view sits under that cliff, so all
+                            # modality scores came back 0, the gate saw no
+                            # spread, and the weights stayed uniform -- MAI was
+                            # inert. Measured with one planted pure-noise view:
+                            # mai = [0.0, 0.0, 0.0] every epoch, decaying only
+                            # because the EMA pulled the buffer toward zero.
+                            #
+                            # Profiling out the scale -- the same fix as
+                            # `similarity.energy_recon_r2` -- gives the squared
+                            # cosine between the optimally rotated-and-scaled Z
+                            # and u_loo, which is sum(s)^2: bounded in [0, 1],
+                            # never clamped, and still 0.989 for signal against
+                            # 0.020 for noise.
+                            r2 = float(s_svd.sum().item()) ** 2
                             if metric == "procrustes_r2_sharp":
                                 # Spectral Sharpness of the modality latent itself
                                 # Isotropic noise has flat singular values; structured signal is top-heavy.
@@ -1115,9 +1392,36 @@ class NEDSharedPrivateSiMRModel(nn.Module):
                             num = torch.norm(cross, p='fro')**2
                             den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
                             mais.append((num / (den + 1e-8)).item())
-                        else: # trace
-                            mais.append(max(0.0, torch.trace(cross).item()))
+                        else:
+                            # Was `trace`, and was also the catch-all for any
+                            # unrecognised name, so a typo silently selected it.
+                            #
+                            # tr(Z' u_loo) is the only one of these computed
+                            # outside the SVD, and it is not invariant to the
+                            # latent gauge: the k latent coordinates carry an
+                            # arbitrary rotation Q, and tr((ZQ)' u) != tr(Z' u).
+                            # Measured on one fixed pair, rotating Q gave
+                            # 0.0348, 0.1319 and 0.0000 for the same data,
+                            # while procrustes / cca / rvcoef were constant to
+                            # four decimals. It therefore scores the accident
+                            # of the coordinate system rather than agreement
+                            # between views -- and on `flow_simr_v` it ranked a
+                            # planted pure-noise view *above* a signal view
+                            # (0.276 against 0.246).
+                            raise ValueError(
+                                f"unknown mai_metric {metric!r}. Choose one of "
+                                f"['procrustes_r2', 'procrustes_r2_sharp', "
+                                f"'cca', 'rvcoef']. 'trace' has been removed: "
+                                f"tr(Z'u) depends on the arbitrary rotation of "
+                                f"the latent coordinates, so it does not "
+                                f"measure agreement between views."
+                            )
+                    except ValueError:
+                        raise
                     except Exception:
+                        # A numerical failure on one view only. Note this
+                        # scores the view as agreeing with nothing, which is a
+                        # real bias if it happens often.
                         mais.append(0.0)
                 else:
                     mais.append(0.0)
@@ -1137,8 +1441,20 @@ class NEDSharedPrivateSiMRModel(nn.Module):
             raw_w = self.mai * gate
             target_w = raw_w / (raw_w.sum() + 1e-8)
             
-            # Temporal transition (from uniform to target) over first 30 epochs
-            rho = max(0.0, min(1.0, (epoch - 10) / 20.0))
+            # Temporal transition from uniform to the MAI target, expressed as
+            # a fraction of the run rather than in absolute epochs.
+            #
+            # This was `(epoch - 10) / 20`, which is exactly 0 for the first
+            # ten epochs, so on any run of 10 epochs or fewer `dynamic_weights`
+            # did nothing whatsoever -- measured, the weights stayed at
+            # [0.333, 0.333, 0.333] at 10 epochs even with one view of pure
+            # noise, while `flow_simr_v`, which schedules this differently,
+            # reached [0.407, 0.409, 0.184] on the same data. The benchmarks
+            # run 8 and 12 epochs, so MAI was inert or nearly so in all of
+            # them, which is why the MAI arm of the design sweep read as
+            # "no effect". `total_epochs` was passed in and ignored.
+            warm = 0.33 * max(1, total_epochs)
+            rho = max(0.0, min(1.0, (epoch - warm) / max(1.0, warm)))
             uniform_w = torch.ones_like(target_w) / len(target_w)
             self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
@@ -1293,6 +1609,45 @@ def calculate_sim_loss(latents: List[torch.Tensor],
     n = u_shared[0].shape[0] if is_loo else u_shared.shape[0]
     sim_loss = torch.tensor(0.0, device=device)
     
+    # Fix the gauge before anything is scored, as the linear path does.
+    #
+    # `acc` is degree-1 homogeneous and unbounded below, so an optimiser
+    # reduces it forever by inflating the representation. `simlr` prevents
+    # that by returning V with unit columns
+    # (`sparsification.energy_needs_unit_columns`); the deep path had no
+    # equivalent for the *latent*, which is what the similarity actually sees.
+    # Measured with `ned_simr` on a planted two-factor signal, 25 -> 400 steps:
+    #
+    #     ||latent||   27.5 -> 73.3 (seed 0),  28.1 -> 125.2 (seed 1)
+    #     condition    11.5 -> 24.0         ,   7.6 ->  52.1
+    #     u -> y R^2   0.795 -> 0.727       , 0.400 ->  0.345
+    #
+    # with the energy improving from -9.9 to -59.4 throughout. The two latent
+    # columns end 98% correlated, so a k=2 representation is effectively rank
+    # 1 and training longer makes the answer worse. Gauged, the same runs give
+    # 0.909 and 0.891 with condition numbers 1.08 and 1.33, and more training
+    # helps again.
+    #
+    # Applied to `latents` as a whole rather than only inside the similarity:
+    # the variance penalty is computed from them too, and gauging just one
+    # term left ned_simr at 0.726 mean / 0.446 worst against 0.902 / 0.891
+    # when every term sees the same gauged latent.
+    #
+    # A no-op for the scale-invariant terms -- `align`, `nc` and the ICA
+    # contrasts standardise internally -- so it is applied only where the
+    # energy is documented as needing a gauge.
+    # Decided from the *resolved* registry name, never the raw argument: the
+    # deep path's 'regression' is the registry's 'align', and keying the gauge
+    # off the alias gauged one and not the other -- the same energy behaving
+    # two ways depending on which name the caller typed.
+    from .similarity import (SimilarityContext, resolve_energy_name,
+                             similarity_energy)
+    from .sparsification import energy_needs_unit_columns
+    sim_name = resolve_energy_name(energy_type, path="deep")
+    if energy_needs_unit_columns(sim_name):
+        latents = [(z - z.mean(dim=0, keepdim=True))
+                   / (z.std(dim=0, keepdim=True) + 1e-6) for z in latents]
+
     var_penalty = sum(_variance_penalty(z) for z in latents)
     
     # Similarity terms come from `pysimlr.similarity`, which is the single
@@ -1305,10 +1660,8 @@ def calculate_sim_loss(latents: List[torch.Tensor],
     # `latents` are already the representation entering the comparison -- the
     # warp output for a flow model, the linear projection otherwise -- so this
     # is exactly the registry's ``s``.
-    from .similarity import (SimilarityContext, resolve_energy_name,
-                             similarity_energy)
-    sim_name = resolve_energy_name(energy_type, path="deep")
     ctx = SimilarityContext()
+
     for i, z in enumerate(latents):
         u_target = u_shared[i].detach() if is_loo else u_shared.detach()
         sim_loss = sim_loss + similarity_energy(sim_name, z, u_target, ctx)
@@ -1359,10 +1712,17 @@ def calculate_sim_loss(latents: List[torch.Tensor],
 
 def _resolve_stabilization_schedule(epochs: int, warmup_epochs: int, stabilization_start_epoch: Optional[int], stabilization_ramp_epochs: Optional[int]) -> Tuple[int, int]:
     if stabilization_start_epoch is None:
-        stabilization_start_epoch = max(warmup_epochs, int(math.floor(0.6 * max(1, epochs))))
-    stabilization_start_epoch = int(max(0, min(stabilization_start_epoch, max(0, epochs - 1))))
+        # Absolute, not a fraction of the budget. As `0.6 * epochs` this made
+        # the epoch cap a hyperparameter in the same way the cosine LR
+        # schedule did: at an 80-epoch cap the projection ramp engaged at 48,
+        # inside the run, while at a 400-epoch cap it engaged at 240 and a run
+        # converging near epoch 60 never reached it at all. Two "generous"
+        # budgets then optimised different problems -- measured, best losses
+        # of 1.01384 and 1.01436 from an identical seed.
+        stabilization_start_epoch = warmup_epochs + 20
     if stabilization_ramp_epochs is None:
-        stabilization_ramp_epochs = max(1, epochs - stabilization_start_epoch)
+        stabilization_ramp_epochs = 20
+    stabilization_start_epoch = int(max(0, min(stabilization_start_epoch, max(0, epochs - 1))))
     stabilization_ramp_epochs = int(max(1, stabilization_ramp_epochs))
     return stabilization_start_epoch, stabilization_ramp_epochs
 
@@ -1379,7 +1739,27 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     loss_history, recon_history, sim_history = [], [], []
     projection_alpha_history, basis_drift_history = [], []
-    best_loss = float('inf'); patience_counter = 0; converged_epoch = epochs
+    # One criterion for every method in the package; see
+    # `utils.ConvergenceMonitor`. The rule this replaces compared
+    # `epoch_loss < best_loss - tol` with an *absolute* tol of 1e-6 against a
+    # loss of order 10, so essentially any decrease reset the counter and the
+    # trainer never stopped early: measured on ADNI it ran its full budget at
+    # 8, 30 and 80 epochs alike, with the loss still falling at -0.37/epoch at
+    # the 8-epoch cap. The monitor's tolerance is relative, so it means the
+    # same thing here as it does in `simlr`.
+    from .utils import ConvergenceMonitor
+    monitor = ConvergenceMonitor(tol=tol, patience=patience, max_steps=epochs)
+    converged_epoch = epochs
+    # Best-iterate tracking, to match `simlr`, which returns `best_v_mats`.
+    # Without it these trainers returned their *last* weights, and the last
+    # is not close to the best: measured on ADNI at a 200-epoch cap, final
+    # minus best was +7.63 for LEND (10.51 against 2.88, more than three
+    # times worse), +2.78 for NED, +1.91 for NEDPP and Flow-V, against -0.001
+    # for simlr. Every deep result was being read off a badly sub-optimal
+    # iterate, and the convergence monitor cannot prevent that -- it stops the
+    # run, it does not choose what the run returns.
+    import copy as _copy
+    best_loss, best_state, best_epoch_idx = float("inf"), None, None
     last_sim_weight = None
     stabilization_start_epoch, stabilization_ramp_epochs = _resolve_stabilization_schedule(
         epochs,
@@ -1466,21 +1846,46 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
             
         epoch_loss /= len(dataloader); epoch_recon /= len(dataloader); epoch_sim /= len(dataloader)
         loss_history.append(epoch_loss); recon_history.append(epoch_recon); sim_history.append(epoch_sim)
-        scheduler.step()
+        # ReduceLROnPlateau is metric-driven, unlike the cosine it replaced.
+        scheduler.step(epoch_loss)
         
-        if epoch_loss < best_loss - tol: 
-            best_loss = epoch_loss; patience_counter = 0
-        else:
-            patience_counter += 1
-            
-        if patience_counter >= patience and epoch > warmup_epochs:
-            if verbose: print(f"Converged at epoch {epoch}: Total Loss {epoch_loss:.4f}")
+        # Monitored only after warmup. During warmup the similarity term is
+        # switched off, so those epochs optimise a *different* objective and
+        # feeding them to the monitor lets the stale counter fill up before
+        # the real objective has been seen at all: measured, every deep model
+        # stopped at exactly warmup + patience = 20 epochs with the relative
+        # range over the last window still 0.56, i.e. nowhere near flat.
+        if epoch >= warmup_epochs and np.isfinite(epoch_loss) and epoch_loss < best_loss:
+            best_loss, best_epoch_idx = epoch_loss, epoch
+            best_state = _copy.deepcopy(model.state_dict())
+        stop = monitor.update(epoch_loss) if epoch >= warmup_epochs else False
+        if stop:
+            if verbose:
+                print(f"Stop at epoch {epoch} ({monitor.report()['stop_reason']}): "
+                      f"Total Loss {epoch_loss:.4f}")
             converged_epoch = epoch + 1; break
         if verbose and epoch % 10 == 0: 
             print(f"Epoch {epoch}: Total={epoch_loss:.4f} (Recon={epoch_recon:.4f}, Sim={epoch_sim:.4f})")
             
     first_layer_training = {"mode": getattr(getattr(model, "encoders", getattr(model, "linear_encoders", [None]))[0], "first_layer_mode", None) if (hasattr(model, "encoders") or hasattr(model, "linear_encoders")) else None, "stabilization_start_epoch": stabilization_start_epoch, "stabilization_ramp_epochs": stabilization_ramp_epochs, "projection_alpha_history": projection_alpha_history, "basis_drift_history": basis_drift_history}
-    return loss_history, recon_history, sim_history, converged_epoch, first_layer_training
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    report = monitor.report()
+    report["returned"] = "best" if best_state is not None else "final"
+    # The epoch of the state actually restored, not the global argmin. Those
+    # differ: the similarity term is off during warmup, so pre-warmup epochs
+    # optimise a different and easier objective and always look best -- on
+    # ADNI the loss goes 2.96 at epoch 19 to 10.49 at epoch 20, the warmup
+    # boundary, and a global argmin would name epoch 19 while the restored
+    # weights are the best of the real objective.
+    report["best_epoch"] = best_epoch_idx
+    # `report["best"]` is the monitor's smoothed criterion value; this is the
+    # raw loss of the iterate actually restored. They are different
+    # quantities and conflating them reads as a reporting bug.
+    report["best_loss"] = best_loss if np.isfinite(best_loss) else float("nan")
+    report["warmup_epochs"] = int(warmup_epochs)
+    return (loss_history, recon_history, sim_history, converged_epoch,
+            first_layer_training, report)
 
 
 def _finalize_bases(v_mats, positivity, nsa_w, energy_type):
@@ -1513,10 +1918,29 @@ def _finalize_bases(v_mats, positivity, nsa_w, energy_type):
     return out, diags
 
 
-def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False, **kwargs) -> Dict[str, Any]:
+def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "either", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
+                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False,
+                 initialization_type: str = 'pca', init_seed: Optional[int] = None,
+                 domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
+                 n_candidates: int = 5, perturbation_scale: float = 0.05, **kwargs) -> Dict[str, Any]:
     """
     Fit a Linear Encoded Nonlinear Decoding (LEND) model.
+
+    Parameters
+    ----------
+    initialization_type : str, default="pca"
+        One of `INITIALIZATION_TYPES` (`pysimlr.simlr`); see `initialize_simlr`
+        for what each does. Previously always PCA regardless of this argument.
+    init_seed : int, optional
+        Seed for initialization types needing a `torch.Generator` (`"random"`,
+        `"perturbed_pca"`, `"best_of_n"`). Same contract as `simlr`'s
+        `init_seed`.
+    domain_matrices : list of torch.Tensor, optional
+        Per-view priors for `initialization_type="domain"`.
+    n_candidates : int, default=5
+        Candidates drawn for `initialization_type="best_of_n"`.
+    perturbation_scale : float, default=0.05
+        Noise scale for `initialization_type="perturbed_pca"`.
 
     Parameters
     ----------
@@ -1543,7 +1967,13 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     sparseness_quantile : Union[float, List[float]] = 0.0
         Sparseness quantile.
     positivity : str, default="either"
-        Positivity constraint.
+        Positivity constraint on the first-layer encoders. Was `"positive"`;
+        changed because that silently forced every encoder non-negative even
+        on standardized (signed, zero-mean) input, the common case for real
+        tabular/omics data after scaling. Not independently re-measured for
+        this function -- see `flow_simr_v`'s docstring for the measured
+        before/after on real data, which shares the same encoder mechanism.
+        Pass `"positive"` explicitly when the input is genuinely non-negative.
     nsa_w : float, default=0.1
         NSA weight.
     energy_type : str, default="regression"
@@ -1575,17 +2005,28 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     TypeError
         If inputs are invalid.
     """
+    # See `simlr`: the budget slot accepts either name so the entry
+    # points are interchangeable.
+    epochs = int(kwargs.pop("iterations", epochs))
+
     if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
     retraction_type = kwargs.pop('retraction_type', 'soft_polar')
     model = LENDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai, retraction_type=retraction_type).to(device)
-    model.initialize_v(torch_mats, k)
+    init_gen = None
+    if initialization_type in ("random", "perturbed_pca", "best_of_n"):
+        init_gen = torch.Generator()
+        if init_seed is not None:
+            init_gen.manual_seed(int(init_seed))
+    model.initialize_v(torch_mats, k, initialization_type=initialization_type,
+                       generator=init_gen, domain_matrices=domain_matrices,
+                       n_candidates=n_candidates, perturbation_scale=perturbation_scale)
     optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
+    scheduler = _plateau_scheduler(optimizer); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
-    loss_h, recon_h, sim_h, conv_ep, first_layer_training = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=kwargs.get('tol', 1e-6), patience=kwargs.get('patience', 10), stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs)
+    loss_h, recon_h, sim_h, conv_ep, first_layer_training, conv_report = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=kwargs.get('tol', 1e-6), patience=kwargs.get('patience', 10), stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs)
     model.eval(); 
     with torch.no_grad():
         eval_mats = [m.to(device) for m in torch_mats]
@@ -1596,7 +2037,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
         v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type)
         first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "lend_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
+    result = {"model": model.cpu(), "model_type": "lend_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, **basis_rank_report(v_mats, k)}
     result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
@@ -1605,12 +2046,28 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
         result["mai"] = model.mai.detach().cpu().numpy()
     return result
 
-def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False, **kwargs) -> Dict[str, Any]:
+def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "either", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
+                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False,
+                 initialization_type: str = 'pca', init_seed: Optional[int] = None,
+                 domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
+                 n_candidates: int = 5, perturbation_scale: float = 0.05, **kwargs) -> Dict[str, Any]:
     """
     Fit a Nonlinear Encoded Decoding (NED) model.
 
     Parameters
+    ----------
+    initialization_type : str, default="pca"
+        One of `INITIALIZATION_TYPES` (`pysimlr.simlr`); see `initialize_simlr`
+        for what each does. Previously always PCA regardless of this argument.
+    init_seed : int, optional
+        Seed for initialization types needing a `torch.Generator` (`"random"`,
+        `"perturbed_pca"`, `"best_of_n"`).
+    domain_matrices : list of torch.Tensor, optional
+        Per-view priors for `initialization_type="domain"`.
+    n_candidates : int, default=5
+        Candidates drawn for `initialization_type="best_of_n"`.
+    perturbation_scale : float, default=0.05
+        Noise scale for `initialization_type="perturbed_pca"`.
     ----------
     data_matrices : List[Union[torch.Tensor, np.ndarray]]
         List of data matrices (one for each modality).
@@ -1635,7 +2092,13 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     sparseness_quantile : Union[float, List[float]] = 0.0
         Sparseness quantile.
     positivity : str, default="either"
-        Positivity constraint.
+        Positivity constraint on the first-layer encoders. Was `"positive"`;
+        changed because that silently forced every encoder non-negative even
+        on standardized (signed, zero-mean) input, the common case for real
+        tabular/omics data after scaling. Not independently re-measured for
+        this function -- see `flow_simr_v`'s docstring for the measured
+        before/after on real data, which shares the same encoder mechanism.
+        Pass `"positive"` explicitly when the input is genuinely non-negative.
     nsa_w : float, default=0.1
         NSA weight.
     energy_type : str, default="regression"
@@ -1667,17 +2130,28 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     TypeError
         If inputs are invalid.
     """
+    # See `simlr`: the budget slot accepts either name so the entry
+    # points are interchangeable.
+    epochs = int(kwargs.pop("iterations", epochs))
+
     if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
     retraction_type = kwargs.pop('retraction_type', 'soft_polar')
     model = NEDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai, retraction_type=retraction_type).to(device)
-    model.initialize_v(torch_mats, k)
+    init_gen = None
+    if initialization_type in ("random", "perturbed_pca", "best_of_n"):
+        init_gen = torch.Generator()
+        if init_seed is not None:
+            init_gen.manual_seed(int(init_seed))
+    model.initialize_v(torch_mats, k, initialization_type=initialization_type,
+                       generator=init_gen, domain_matrices=domain_matrices,
+                       n_candidates=n_candidates, perturbation_scale=perturbation_scale)
     optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
+    scheduler = _plateau_scheduler(optimizer); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
-    loss_h, recon_h, sim_h, conv_ep, first_layer_training = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=kwargs.get('tol', 1e-6), patience=kwargs.get('patience', 10), stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs)
+    loss_h, recon_h, sim_h, conv_ep, first_layer_training, conv_report = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=kwargs.get('tol', 1e-6), patience=kwargs.get('patience', 10), stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs)
     model.eval(); 
     with torch.no_grad():
         eval_mats = [m.to(device) for m in torch_mats]
@@ -1688,7 +2162,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
         v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type)
         first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "ned_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
+    result = {"model": model.cpu(), "model_type": "ned_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, **basis_rank_report(v_mats, k)}
     result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
@@ -1697,13 +2171,28 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
         result["mai"] = model.mai.detach().cpu().numpy()
     return result
 
-def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "positive", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, optimizer_type: str = 'adam', use_rank_mai: bool = False, **kwargs) -> Dict[str, Any]:
+def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "either", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
+                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, optimizer_type: str = 'adam', use_rank_mai: bool = False,
+                 initialization_type: str = 'pca', init_seed: Optional[int] = None,
+                 domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
+                 n_candidates: int = 5, perturbation_scale: float = 0.05, **kwargs) -> Dict[str, Any]:
     """
     Fit a Nonlinear Encoded Decoding model with Shared and Private Latents (NED++).
 
     Parameters
     ----------
+    initialization_type : str, default="pca"
+        One of `INITIALIZATION_TYPES` (`pysimlr.simlr`); see `initialize_simlr`
+        for what each does. Previously always PCA regardless of this argument.
+    init_seed : int, optional
+        Seed for initialization types needing a `torch.Generator` (`"random"`,
+        `"perturbed_pca"`, `"best_of_n"`).
+    domain_matrices : list of torch.Tensor, optional
+        Per-view priors for `initialization_type="domain"`.
+    n_candidates : int, default=5
+        Candidates drawn for `initialization_type="best_of_n"`.
+    perturbation_scale : float, default=0.05
+        Noise scale for `initialization_type="perturbed_pca"`.
     data_matrices : List[Union[torch.Tensor, np.ndarray]]
         List of data matrices (one for each modality).
     k : int
@@ -1725,7 +2214,13 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     sparseness_quantile : Union[float, List[float]] = 0.0
         Sparseness quantile.
     positivity : str, default="either"
-        Positivity constraint.
+        Positivity constraint on the first-layer encoders. Was `"positive"`;
+        changed because that silently forced every encoder non-negative even
+        on standardized (signed, zero-mean) input, the common case for real
+        tabular/omics data after scaling. Not independently re-measured for
+        this function -- see `flow_simr_v`'s docstring for the measured
+        before/after on real data, which shares the same encoder mechanism.
+        Pass `"positive"` explicitly when the input is genuinely non-negative.
     nsa_w : float, default=0.1
         NSA weight.
     hidden_dims : List[int], default=[128, 64]
@@ -1773,6 +2268,10 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     TypeError
         If inputs are invalid.
     """
+    # See `simlr`: the budget slot accepts either name so the entry
+    # points are interchangeable.
+    epochs = int(kwargs.pop("iterations", epochs))
+
     if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
     if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
     if private_k is None: private_k = max(1, k // 2)
@@ -1780,18 +2279,25 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
     retraction_type = kwargs.pop('retraction_type', 'soft_polar')
     model = NEDSharedPrivateSiMRModel(input_dims, k, private_k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai, retraction_type=retraction_type).to(device)
-    model.initialize_v(torch_mats, k)
+    init_gen = None
+    if initialization_type in ("random", "perturbed_pca", "best_of_n"):
+        init_gen = torch.Generator()
+        if init_seed is not None:
+            init_gen.manual_seed(int(init_seed))
+    model.initialize_v(torch_mats, k, initialization_type=initialization_type,
+                       generator=init_gen, domain_matrices=domain_matrices,
+                       n_candidates=n_candidates, perturbation_scale=perturbation_scale)
     
     # Store weights on model for train loop access
     model.private_ortho_w = private_orthogonality_weight
     model.private_var_w = private_variance_weight
     
     optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
+    scheduler = _plateau_scheduler(optimizer); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
     
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     
-    loss_h, recon_h, sim_h, conv_ep, first_layer_training = _train_loop(
+    loss_h, recon_h, sim_h, conv_ep, first_layer_training, conv_report = _train_loop(
         model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, 
         warmup_epochs, verbose, device, tol=tol, patience=patience, 
         stabilization_start_epoch=stabilization_start_epoch, 
@@ -1809,7 +2315,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type)
         first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "ned_shared_private", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_shared], "private_latents": [torch.nan_to_num(p.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for p in final_private], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "scale_list": ["centerAndScale"], "provenance_list": provenance_list}
+    result = {"model": model.cpu(), "model_type": "ned_shared_private", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_shared], "private_latents": [torch.nan_to_num(p.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for p in final_private], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, **basis_rank_report(v_mats, k)}
     result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, final_recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
