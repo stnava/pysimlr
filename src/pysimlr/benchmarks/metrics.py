@@ -73,16 +73,25 @@ def cross_val_metrics(
         model = LinearRegression().fit(u_train_np, y_train)
         train_perf = float(model.score(u_train_np, y_train))
         test_perf = float(model.score(u_test_np, y_test))
+        extra = {}
+        if y_train.ndim == 2 and y_train.shape[1] > 1:
+            y_tr_mean = y_train.mean(axis=0, keepdims=True)
+            _, _, Vt_y = np.linalg.svd(y_train - y_tr_mean, full_matrices=False)
+            pc1_vec = Vt_y[0]
+            y_pc1_tr = (y_train - y_tr_mean) @ pc1_vec
+            y_pc1_te = (y_test - y_tr_mean) @ pc1_vec
+            pc1_model = LinearRegression().fit(u_train_np, y_pc1_tr)
+            extra["pc1_train"] = float(pc1_model.score(u_train_np, y_pc1_tr))
+            extra["pc1_test"] = float(pc1_model.score(u_test_np, y_pc1_te))
     out = {"train": train_perf, "test": test_perf, "gap": train_perf - test_perf}
-    if is_classification:
-        out.update(extra)
+    out.update(extra)
     return out
 
 def axis_sensitive_cross_val_metrics(
     u_train: torch.Tensor, y_train: np.ndarray,
     u_test: torch.Tensor, y_test: np.ndarray,
     is_classification: bool = False,
-    n_estimators: int = 200,
+    n_estimators: int = 50,
     random_state: int = 0,
 ) -> Dict[str, float]:
     """
@@ -129,11 +138,19 @@ def axis_sensitive_cross_val_metrics(
         test_perf = float(model.score(u_test_np, y_test_int))
     else:
         from sklearn.ensemble import RandomForestRegressor
+        y_tr = np.asarray(y_train)
+        y_te = np.asarray(y_test)
+        if y_tr.ndim > 1 and y_tr.shape[1] == 1:
+            y_tr = y_tr.ravel()
+            y_te = y_te.ravel()
+        elif y_tr.ndim == 1:
+            y_tr = y_tr.ravel()
+            y_te = y_te.ravel()
         model = RandomForestRegressor(
             n_estimators=n_estimators, random_state=random_state,
-        ).fit(u_train_np, np.asarray(y_train).ravel())
-        train_perf = float(model.score(u_train_np, np.asarray(y_train).ravel()))
-        test_perf = float(model.score(u_test_np, np.asarray(y_test).ravel()))
+        ).fit(u_train_np, y_tr)
+        train_perf = float(model.score(u_train_np, y_tr))
+        test_perf = float(model.score(u_test_np, y_te))
     return {"train": train_perf, "test": test_perf, "gap": train_perf - test_perf}
 
 
@@ -281,7 +298,7 @@ def calculate_all_metrics(
                 is_classification = bool(declared)
             deep_res = cross_val_metrics(u_train, y_train_np, u_pred, y_true_np, is_classification)
             metrics["test_r2"], metrics["train_r2"], metrics["gen_gap"] = deep_res["test"], deep_res["train"], deep_res["gap"]
-            for _k in ("balanced_train", "balanced_test", "majority_rate"):
+            for _k in ("balanced_train", "balanced_test", "majority_rate", "pc1_train", "pc1_test"):
                 if _k in deep_res:
                     metrics[_k] = deep_res[_k]
             if is_classification: metrics["test_accuracy"], metrics["train_accuracy"] = deep_res["test"], deep_res["train"]
@@ -292,6 +309,9 @@ def calculate_all_metrics(
                 u_lin_test = (u_lin_test - u_lin_test.mean(0)) / (u_lin_test.std(0) + 1e-6)
                 lin_res = cross_val_metrics(u_lin_train, y_train_np, u_lin_test, y_true_np, is_classification)
                 metrics["first_layer_test_r2"], metrics["first_layer_train_r2"], metrics["first_layer_gen_gap"] = lin_res["test"], lin_res["train"], lin_res["gap"]
+                if "pc1_test" in lin_res:
+                    metrics["first_layer_pc1_test_r2"] = lin_res["pc1_test"]
+                    metrics["first_layer_pc1_train_r2"] = lin_res["pc1_train"]
                 if is_classification: metrics["first_layer_test_accuracy"], metrics["first_layer_train_accuracy"] = lin_res["test"], lin_res["train"]
                 # The linear score above is invariant to reparametrising the
                 # basis, so it says nothing about the axes that non-negativity

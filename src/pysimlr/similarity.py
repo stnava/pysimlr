@@ -622,14 +622,17 @@ def similarity_gradient(name: str, s: torch.Tensor, u: torch.Tensor,
     """
     key = resolve_energy_name(name, path)
     fn, _needs, _doc = SIMILARITY[key]
-    if wrt == "v":
-        c = _require(ctx, "x", "v", name=key)
-        v = c.v.detach().clone().requires_grad_(True)
-        local = SimilarityContext(x=c.x, v=v, eps=c.eps)
-        e = fn(s, u, local)
-        (g,) = torch.autograd.grad(e, v)
-        return g
-    t = s.detach().clone().requires_grad_(True)
-    e = fn(t, u, ctx)
-    (g,) = torch.autograd.grad(e, t)
-    return g
+    with torch.enable_grad():
+        u_det = u.detach()
+        if wrt == "v":
+            c = _require(ctx, "x", "v", name=key)
+            v = c.v.detach().clone().requires_grad_(True)
+            local = SimilarityContext(x=c.x.detach(), v=v, eps=c.eps)
+            e = fn(s.detach(), u_det, local)
+            (g,) = torch.autograd.grad(e, v)
+            return g.detach()
+        t = s.detach().clone().requires_grad_(True)
+        e = fn(t, u_det, ctx)
+        (g,) = torch.autograd.grad(e, t)
+        return g.detach()
+

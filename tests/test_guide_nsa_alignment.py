@@ -50,7 +50,7 @@ class TestGuideAlignment:
         assert ext["module"] in ("nsa_flow", "nsa")
         assert ext["has_polar_factor"] is True
         assert ext["has_estimator"] is True
-        assert ext["default_optimizer"] == "torch_lbfgs"
+        assert ext["default_optimizer"] == "lbfgsb"
         assert ext["version"] is not None
 
     def test_polar_factor_retraction_without_svd(self):

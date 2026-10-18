@@ -1,8 +1,21 @@
+import hashlib
+from collections import OrderedDict
 import torch
 import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 from typing import Optional, Union, Any, List, Tuple
+
+
+def _array_fingerprint(arr: np.ndarray) -> Tuple[Any, ...]:
+    """Compact deterministic content fingerprint for an ndarray."""
+    contig = np.ascontiguousarray(arr)
+    return (
+        contig.shape,
+        str(contig.dtype),
+        hashlib.blake2b(contig.tobytes(), digest_size=16).digest(),
+    )
+
 
 def _laplacian_from_weights(W: sp.spmatrix, scale_degree: bool = False) -> sp.csr_matrix:
     """
@@ -285,10 +298,17 @@ class SparseGraphResolvent:
 
         # Precompute sparse factorization (takes ~20 ms, solves in ~0.5 ms)
         self._solve = spla.factorized(A_sp)
+        self._idempotent_outputs: "OrderedDict[Tuple[Any, ...], bool]" = OrderedDict()
+        self._eval_cache: "OrderedDict[Tuple[Any, ...], np.ndarray]" = OrderedDict()
+        self._cache_maxsize = 256
 
     def __matmul__(self, v: Union[torch.Tensor, np.ndarray]) -> Union[torch.Tensor, np.ndarray]:
         """
         Apply the resolvent operator to vector or matrix v via fast sparse solve.
+
+        Idempotent on its own image: if ``v`` is already a smoothed output produced
+        by this operator, ``self @ v`` returns ``v`` unchanged so repeated calls
+        (e.g. inside ``to_feasible`` and post-step projection) never double-smooth.
 
         Parameters
         ----------
@@ -308,10 +328,20 @@ class SparseGraphResolvent:
         if v_np.shape[0] != self.P:
             raise ValueError(f"Dimension mismatch: resolvent operator has shape {self.shape}, but input has {v_np.shape[0]} rows (shape={v_np.shape})")
 
+        in_fp = _array_fingerprint(v_np)
+        if in_fp in self._idempotent_outputs:
+            self._idempotent_outputs.move_to_end(in_fp)
+            return v.clone() if is_torch else v_np.copy()
+        if in_fp in self._eval_cache:
+            self._eval_cache.move_to_end(in_fp)
+            cached = self._eval_cache[in_fp]
+            if is_torch:
+                return torch.as_tensor(cached.copy(), dtype=dtype, device=device)
+            return cached.copy()
+
         orig_dtype = v_np.dtype
-        # Fast sparse solve requires float32 or float64
-        if orig_dtype not in [np.float32, np.float64]:
-            v_np = v_np.astype(np.float32)
+        # Match self._L_sp.dtype so SciPy's splu does not fail safe-casting float64
+        v_np = v_np.astype(self._L_sp.dtype, copy=False)
 
         if v_np.ndim == 1:
             out = self._solve(v_np)
@@ -324,8 +354,24 @@ class SparseGraphResolvent:
             out = out.astype(orig_dtype)
 
         if is_torch:
-            return torch.as_tensor(out, dtype=dtype, device=device)
-        return out
+            res_tensor = torch.as_tensor(out, dtype=dtype, device=device)
+            out_Canonical = res_tensor.detach().cpu().numpy()
+        else:
+            res_tensor = out
+            out_Canonical = out
+
+        out_fp = _array_fingerprint(out_Canonical)
+        self._idempotent_outputs[out_fp] = True
+        self._idempotent_outputs.move_to_end(out_fp)
+        while len(self._idempotent_outputs) > self._cache_maxsize:
+            self._idempotent_outputs.popitem(last=False)
+
+        self._eval_cache[in_fp] = out_Canonical.copy()
+        self._eval_cache.move_to_end(in_fp)
+        while len(self._eval_cache) > self._cache_maxsize:
+            self._eval_cache.popitem(last=False)
+
+        return res_tensor
 
     def to_dense(self) -> torch.Tensor:
         """Evaluate and return the explicit dense P x P tensor."""
@@ -348,7 +394,8 @@ def create_grid_graph_laplacian(
     mask: Union[torch.Tensor, np.ndarray],
     connectivity: Optional[int] = None,
     return_torch: bool = False,
-    scale_degree: bool = False
+    scale_degree: bool = False,
+    normalized: bool = False
 ) -> Union[sp.csr_matrix, torch.Tensor]:
     """
     Construct an adjacency graph Laplacian for a 2D or 3D grid domain mask.
@@ -476,6 +523,14 @@ def create_grid_graph_laplacian(
 
     W_sp = sp.coo_matrix((weights, (rows, cols)), shape=(P, P), dtype=np.float32).tocsr()
     L_sp = _laplacian_from_weights(W_sp, scale_degree=scale_degree)
+
+    if normalized:
+        deg = L_sp.diagonal()
+        d_inv_sqrt = np.zeros_like(deg)
+        pos = (deg > 1e-10)
+        d_inv_sqrt[pos] = 1.0 / np.sqrt(deg[pos])
+        D_inv = sp.diags(d_inv_sqrt)
+        L_sp = (D_inv @ L_sp @ D_inv).tocsr()
 
     if return_torch:
         L_coo = L_sp.tocoo()
@@ -727,7 +782,13 @@ def create_graph_laplacian(
 
     # Dispatch based on source_type
     if source_type == "mask":
-        return create_grid_graph_laplacian(source_np, connectivity=connectivity, return_torch=return_torch)
+        return create_grid_graph_laplacian(
+            source_np,
+            connectivity=connectivity,
+            return_torch=return_torch,
+            scale_degree=scale_degree,
+            normalized=normalized
+        )
 
     elif source_type == "coordinates":
         coords = np.asarray(source_np, dtype=np.float32)

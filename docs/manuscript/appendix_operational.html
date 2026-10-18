@@ -10,7 +10,7 @@
 <meta name="author" content="Nicholas J. Tustison">
 <meta name="author" content="James R. Stone">
 
-<title>Appendix B — Appendix: Operational Implementation and Complexity</title>
+<title>Appendix B — Operational Implementation and Complexity</title>
 <style>
 /* Default styles provided by pandoc.
 ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
@@ -247,32 +247,32 @@ window.Quarto = {
     <h2 id="toc-title">Table of contents</h2>
    
   <ul>
-  <li><a href="#operational-protocol-the-simlr-training-loop" id="toc-operational-protocol-the-simlr-training-loop" class="nav-link active" data-scroll-target="#operational-protocol-the-simlr-training-loop"><span class="header-section-number">B.1</span> 1. Operational Protocol: The SiMLR Training Loop</a>
+  <li><a href="#operational-protocol-the-simlr-training-loop" id="toc-operational-protocol-the-simlr-training-loop" class="nav-link active" data-scroll-target="#operational-protocol-the-simlr-training-loop"><span class="header-section-number">B.1</span> Operational Protocol: The SiMLR Training Loop</a>
   <ul class="collapse">
-  <li><a href="#training-algorithm" id="toc-training-algorithm" class="nav-link" data-scroll-target="#training-algorithm"><span class="header-section-number">B.1.1</span> 1.1 Training Algorithm</a></li>
+  <li><a href="#training-algorithm" id="toc-training-algorithm" class="nav-link" data-scroll-target="#training-algorithm"><span class="header-section-number">B.1.1</span> Training Algorithm</a></li>
   </ul></li>
-  <li><a href="#mathematical-derivations" id="toc-mathematical-derivations" class="nav-link" data-scroll-target="#mathematical-derivations"><span class="header-section-number">B.2</span> 2. Mathematical Derivations</a>
+  <li><a href="#mathematical-derivations" id="toc-mathematical-derivations" class="nav-link" data-scroll-target="#mathematical-derivations"><span class="header-section-number">B.2</span> Mathematical Derivations</a>
   <ul class="collapse">
-  <li><a href="#riemannian-updates" id="toc-riemannian-updates" class="nav-link" data-scroll-target="#riemannian-updates"><span class="header-section-number">B.2.1</span> 2.1 Riemannian Updates</a></li>
-  <li><a href="#newton-schulz-convergence" id="toc-newton-schulz-convergence" class="nav-link" data-scroll-target="#newton-schulz-convergence"><span class="header-section-number">B.2.2</span> 2.2 Newton-Schulz Convergence</a></li>
-  <li><a href="#noise-reduction-law" id="toc-noise-reduction-law" class="nav-link" data-scroll-target="#noise-reduction-law"><span class="header-section-number">B.2.3</span> 2.3 Noise Reduction Law</a></li>
+  <li><a href="#riemannian-updates" id="toc-riemannian-updates" class="nav-link" data-scroll-target="#riemannian-updates"><span class="header-section-number">B.2.1</span> Riemannian Updates</a></li>
+  <li><a href="#newton-schulz-convergence" id="toc-newton-schulz-convergence" class="nav-link" data-scroll-target="#newton-schulz-convergence"><span class="header-section-number">B.2.2</span> Newton-Schulz Convergence</a></li>
+  <li><a href="#noise-reduction-law" id="toc-noise-reduction-law" class="nav-link" data-scroll-target="#noise-reduction-law"><span class="header-section-number">B.2.3</span> Noise Reduction Law</a></li>
   </ul></li>
-  <li><a href="#statistical-sensitivity" id="toc-statistical-sensitivity" class="nav-link" data-scroll-target="#statistical-sensitivity"><span class="header-section-number">B.3</span> 3. Statistical Sensitivity</a>
+  <li><a href="#statistical-sensitivity" id="toc-statistical-sensitivity" class="nav-link" data-scroll-target="#statistical-sensitivity"><span class="header-section-number">B.3</span> Statistical Sensitivity</a>
   <ul class="collapse">
-  <li><a href="#modality-weights-w" id="toc-modality-weights-w" class="nav-link" data-scroll-target="#modality-weights-w"><span class="header-section-number">B.3.1</span> 3.1 Modality Weights (<span class="math inline">\(w\)</span>)</a></li>
-  <li><a href="#alpha-transition" id="toc-alpha-transition" class="nav-link" data-scroll-target="#alpha-transition"><span class="header-section-number">B.3.2</span> 3.2 <span class="math inline">\(\alpha\)</span>-Transition</a></li>
+  <li><a href="#modality-weights-w" id="toc-modality-weights-w" class="nav-link" data-scroll-target="#modality-weights-w"><span class="header-section-number">B.3.1</span> Modality Weights (<span class="math inline">\(w\)</span>)</a></li>
+  <li><a href="#alpha-transition" id="toc-alpha-transition" class="nav-link" data-scroll-target="#alpha-transition"><span class="header-section-number">B.3.2</span> <span class="math inline">\(\alpha\)</span>-Transition</a></li>
   </ul></li>
-  <li><a href="#hyperparameter-guidance" id="toc-hyperparameter-guidance" class="nav-link" data-scroll-target="#hyperparameter-guidance"><span class="header-section-number">B.4</span> 4. Hyperparameter Guidance</a></li>
-  <li><a href="#mai-implementation" id="toc-mai-implementation" class="nav-link" data-scroll-target="#mai-implementation"><span class="header-section-number">B.5</span> 5. MAI Implementation</a></li>
-  <li><a href="#computational-complexity" id="toc-computational-complexity" class="nav-link" data-scroll-target="#computational-complexity"><span class="header-section-number">B.6</span> 6. Computational Complexity</a></li>
-  <li><a href="#pre-processing-protocol" id="toc-pre-processing-protocol" class="nav-link" data-scroll-target="#pre-processing-protocol"><span class="header-section-number">B.7</span> 7. Pre-processing Protocol</a></li>
-  <li><a href="#system-optimizations" id="toc-system-optimizations" class="nav-link" data-scroll-target="#system-optimizations"><span class="header-section-number">B.8</span> 8. System Optimizations</a>
+  <li><a href="#hyperparameter-guidance" id="toc-hyperparameter-guidance" class="nav-link" data-scroll-target="#hyperparameter-guidance"><span class="header-section-number">B.4</span> Hyperparameter Guidance</a></li>
+  <li><a href="#mai-implementation" id="toc-mai-implementation" class="nav-link" data-scroll-target="#mai-implementation"><span class="header-section-number">B.5</span> MAI Implementation</a></li>
+  <li><a href="#computational-complexity" id="toc-computational-complexity" class="nav-link" data-scroll-target="#computational-complexity"><span class="header-section-number">B.6</span> Computational Complexity</a></li>
+  <li><a href="#pre-processing-protocol" id="toc-pre-processing-protocol" class="nav-link" data-scroll-target="#pre-processing-protocol"><span class="header-section-number">B.7</span> Pre-processing Protocol</a></li>
+  <li><a href="#system-optimizations" id="toc-system-optimizations" class="nav-link" data-scroll-target="#system-optimizations"><span class="header-section-number">B.8</span> System Optimizations</a>
   <ul class="collapse">
-  <li><a href="#gradient-stability" id="toc-gradient-stability" class="nav-link" data-scroll-target="#gradient-stability"><span class="header-section-number">B.8.1</span> 8.1 Gradient Stability</a></li>
-  <li><a href="#learning-rate-schedules" id="toc-learning-rate-schedules" class="nav-link" data-scroll-target="#learning-rate-schedules"><span class="header-section-number">B.8.2</span> 8.2 Learning Rate Schedules</a></li>
-  <li><a href="#data-throughput" id="toc-data-throughput" class="nav-link" data-scroll-target="#data-throughput"><span class="header-section-number">B.8.3</span> 8.3 Data Throughput</a></li>
+  <li><a href="#gradient-stability" id="toc-gradient-stability" class="nav-link" data-scroll-target="#gradient-stability"><span class="header-section-number">B.8.1</span> Gradient Stability</a></li>
+  <li><a href="#learning-rate-schedules" id="toc-learning-rate-schedules" class="nav-link" data-scroll-target="#learning-rate-schedules"><span class="header-section-number">B.8.2</span> Learning Rate Schedules</a></li>
+  <li><a href="#data-throughput" id="toc-data-throughput" class="nav-link" data-scroll-target="#data-throughput"><span class="header-section-number">B.8.3</span> Data Throughput</a></li>
   </ul></li>
-  <li><a href="#technical-glossary" id="toc-technical-glossary" class="nav-link" data-scroll-target="#technical-glossary"><span class="header-section-number">B.9</span> 9. Technical Glossary</a></li>
+  <li><a href="#technical-glossary" id="toc-technical-glossary" class="nav-link" data-scroll-target="#technical-glossary"><span class="header-section-number">B.9</span> Technical Glossary</a></li>
   </ul>
 </nav>
     </div>
@@ -281,7 +281,7 @@ window.Quarto = {
 
 <header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./appendix_brca_clinical_validation.html">Appendices</a></li><li class="breadcrumb-item"><a href="./appendix_operational.html"><span class="chapter-number">B</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></a></li></ol></nav>
 <div class="quarto-title">
-<h1 class="title">Appendix B — Appendix: Operational Implementation and Complexity</h1>
+<h1 class="title">Appendix B — Operational Implementation and Complexity</h1>
 </div>
 
 
@@ -329,10 +329,10 @@ window.Quarto = {
 
 <p>This appendix specifies technical details for the SiMLR framework, including hyperparameter definitions, computational complexity bounds, and the optimization protocol.</p>
 <section id="operational-protocol-the-simlr-training-loop" class="level2" data-number="B.1">
-<h2 data-number="B.1" class="anchored" data-anchor-id="operational-protocol-the-simlr-training-loop"><span class="header-section-number">B.1</span> 1. Operational Protocol: The SiMLR Training Loop</h2>
+<h2 data-number="B.1" class="anchored" data-anchor-id="operational-protocol-the-simlr-training-loop"><span class="header-section-number">B.1</span> Operational Protocol: The SiMLR Training Loop</h2>
 <p>The training procedure for SiMLR and its deep extensions (LEND, NED, NEDPP) interleaves neural network backpropagation with manifold projection.</p>
 <section id="training-algorithm" class="level3" data-number="B.1.1">
-<h3 data-number="B.1.1" class="anchored" data-anchor-id="training-algorithm"><span class="header-section-number">B.1.1</span> 1.1 Training Algorithm</h3>
+<h3 data-number="B.1.1" class="anchored" data-anchor-id="training-algorithm"><span class="header-section-number">B.1.1</span> Training Algorithm</h3>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>Initialize {V_m, theta_m, phi_m}</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>For epoch t <span class="kw">in</span> <span class="fl">1.</span>.T:</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="fl">1.</span> Calculate alpha_t (Stiefel mixing coefficient)</span>
@@ -355,34 +355,34 @@ window.Quarto = {
 </section>
 </section>
 <section id="mathematical-derivations" class="level2" data-number="B.2">
-<h2 data-number="B.2" class="anchored" data-anchor-id="mathematical-derivations"><span class="header-section-number">B.2</span> 2. Mathematical Derivations</h2>
+<h2 data-number="B.2" class="anchored" data-anchor-id="mathematical-derivations"><span class="header-section-number">B.2</span> Mathematical Derivations</h2>
 <section id="riemannian-updates" class="level3" data-number="B.2.1">
-<h3 data-number="B.2.1" class="anchored" data-anchor-id="riemannian-updates"><span class="header-section-number">B.2.1</span> 2.1 Riemannian Updates</h3>
+<h3 data-number="B.2.1" class="anchored" data-anchor-id="riemannian-updates"><span class="header-section-number">B.2.1</span> Riemannian Updates</h3>
 <p>We implement Riemannian updates on the Stiefel manifold via projection onto the tangent space <span class="math inline">\(\mathcal{T}_{\mathbf{V}} \mathbb{V}_{k,n}\)</span>. We compute the Riemannian gradient <span class="math inline">\(\text{grad} \mathcal{J}(\mathbf{V})\)</span> from the Euclidean gradient <span class="math inline">\(\nabla \mathcal{J}(\mathbf{V})\)</span>: <span class="math display">\[ \text{grad} \mathcal{J}(\mathbf{V}) = \nabla \mathcal{J}(\mathbf{V}) - \mathbf{V} \text{sym}(\mathbf{V}^\top \nabla \mathcal{J}(\mathbf{V})) \]</span></p>
-<p>The orthogonal penalty <span class="math inline">\(\mathcal{P}(\mathbf{V}) = \frac{1}{4} \| \mathbf{V}^\top \mathbf{V} - \mathbf{I}_k \|_F^2\)</span> permits a Taylor expansion for a perturbation <span class="math inline">\(\mathbf{\Delta}\)</span>: <span class="math display">\[ \mathcal{P}(\mathbf{V} + \mathbf{\Delta}) \approx \frac{1}{4} \text{Tr}\left( (\mathbf{V}^\top \mathbf{\Delta} + \mathbf{\Delta}^\top \mathbf{V})^2 \right) \]</span> This penalty evaluates to zero for any <span class="math inline">\(\mathbf{\Delta}\)</span> strictly within the tangent space.</p>
+<p>The orthogonal penalty <span class="math inline">\(\mathcal{P}(\mathbf{V}) = \frac{1}{4} \| \mathbf{V}^\top \mathbf{V} - \mathbf{I}_k \|_F^2\)</span> permits a Taylor expansion for a perturbation <span class="math inline">\(\Delta\)</span>: <span class="math display">\[ \mathcal{P}(\mathbf{V} + \Delta) \approx \frac{1}{4} \text{Tr}\left( (\mathbf{V}^\top \Delta + \Delta^\top \mathbf{V})^2 \right) \]</span> This penalty evaluates to zero for any <span class="math inline">\(\Delta\)</span> strictly within the tangent space.</p>
 </section>
 <section id="newton-schulz-convergence" class="level3" data-number="B.2.2">
-<h3 data-number="B.2.2" class="anchored" data-anchor-id="newton-schulz-convergence"><span class="header-section-number">B.2.2</span> 2.2 Newton-Schulz Convergence</h3>
+<h3 data-number="B.2.2" class="anchored" data-anchor-id="newton-schulz-convergence"><span class="header-section-number">B.2.2</span> Newton-Schulz Convergence</h3>
 <p>We enforce orthogonality via the iteration sequence: <span class="math display">\[ \mathbf{Y}_{k+1} = \frac{1}{2} \mathbf{Y}_k (3\mathbf{I} - \mathbf{Y}_k^\top \mathbf{Y}_k) \]</span> The residual error <span class="math inline">\(\mathbf{E}_k = \mathbf{I} - \mathbf{Y}_k^\top \mathbf{Y}_k\)</span> obeys the relation <span class="math inline">\(\mathbf{E}_{k+1} = \frac{3}{4} \mathbf{E}_k^2 + \frac{1}{4} \mathbf{E}_k^3\)</span>. This yields quadratic convergence: <span class="math inline">\(\| \mathbf{E}_{k+1} \|_2 &lt; \| \mathbf{E}_k \|_2^2\)</span>.</p>
 </section>
 <section id="noise-reduction-law" class="level3" data-number="B.2.3">
-<h3 data-number="B.2.3" class="anchored" data-anchor-id="noise-reduction-law"><span class="header-section-number">B.2.3</span> 2.3 Noise Reduction Law</h3>
+<h3 data-number="B.2.3" class="anchored" data-anchor-id="noise-reduction-law"><span class="header-section-number">B.2.3</span> Noise Reduction Law</h3>
 <p>Assuming independent noise distributions <span class="math inline">\(\boldsymbol{\epsilon}_m \sim \mathcal{N}(\mathbf{0}, \sigma^2 \mathbf{I})\)</span>, the consensus variance scales as: <span class="math display">\[ \text{Var}\left( \frac{1}{M} \sum_{m=1}^M \boldsymbol{\epsilon}_m \right) = \frac{\sigma^2}{M} \]</span> The corresponding <span class="math inline">\(100(1-\delta)\%\)</span> confidence interval for the underlying signal <span class="math inline">\(\boldsymbol{\mu}\)</span> is bounded by: <span class="math display">\[ \hat{\boldsymbol{\mu}}_{\text{consensus}} \pm z_{\delta/2} \sqrt{\frac{\sigma^2}{M}(1-\rho) + \rho\sigma^2} \]</span> The covariance term <span class="math inline">\(\rho\sigma^2\)</span> provides the strict statistical lower bound for the multi-modal consensus error.</p>
 </section>
 </section>
 <section id="statistical-sensitivity" class="level2" data-number="B.3">
-<h2 data-number="B.3" class="anchored" data-anchor-id="statistical-sensitivity"><span class="header-section-number">B.3</span> 3. Statistical Sensitivity</h2>
+<h2 data-number="B.3" class="anchored" data-anchor-id="statistical-sensitivity"><span class="header-section-number">B.3</span> Statistical Sensitivity</h2>
 <section id="modality-weights-w" class="level3" data-number="B.3.1">
-<h3 data-number="B.3.1" class="anchored" data-anchor-id="modality-weights-w"><span class="header-section-number">B.3.1</span> 3.1 Modality Weights (<span class="math inline">\(w\)</span>)</h3>
-<p>We bound the Statistical Influence Function <span class="math inline">\(\mathcal{I}_m = \frac{\partial \mathbf{U}}{\partial w_m}\)</span> by the spectral gap <span class="math inline">\((\lambda_1 - \lambda_2)^{-1}\)</span> of the input feature covariance <span class="math inline">\(\mathbf{\Sigma}_m\)</span>. Consequently, SiMLR operational sensitivity scales proportionally with the degree of multicollinearity in the input domain.</p>
+<h3 data-number="B.3.1" class="anchored" data-anchor-id="modality-weights-w"><span class="header-section-number">B.3.1</span> Modality Weights (<span class="math inline">\(w\)</span>)</h3>
+<p>We bound the Statistical Influence Function <span class="math inline">\(\mathcal{I}_m = \frac{\partial \mathbf{U}}{\partial w_m}\)</span> by the spectral gap <span class="math inline">\((\lambda_1 - \lambda_2)^{-1}\)</span> of the input feature covariance <span class="math inline">\(\Sigma_m\)</span>. Consequently, SiMLR operational sensitivity scales proportionally with the degree of multicollinearity in the input domain.</p>
 </section>
 <section id="alpha-transition" class="level3" data-number="B.3.2">
-<h3 data-number="B.3.2" class="anchored" data-anchor-id="alpha-transition"><span class="header-section-number">B.3.2</span> 3.2 <span class="math inline">\(\alpha\)</span>-Transition</h3>
+<h3 data-number="B.3.2" class="anchored" data-anchor-id="alpha-transition"><span class="header-section-number">B.3.2</span> <span class="math inline">\(\alpha\)</span>-Transition</h3>
 <p>The mixing parameter <span class="math inline">\(\alpha\)</span> controls the trade-off between independent modality reconstruction and cross-modal consensus alignment. We set the transition point at the epoch where the first derivative of the consensus variance approaches zero.</p>
 </section>
 </section>
 <section id="hyperparameter-guidance" class="level2" data-number="B.4">
-<h2 data-number="B.4" class="anchored" data-anchor-id="hyperparameter-guidance"><span class="header-section-number">B.4</span> 4. Hyperparameter Guidance</h2>
+<h2 data-number="B.4" class="anchored" data-anchor-id="hyperparameter-guidance"><span class="header-section-number">B.4</span> Hyperparameter Guidance</h2>
 <table class="caption-top table">
 <colgroup>
 <col style="width: 25%">
@@ -439,17 +439,23 @@ window.Quarto = {
 </table>
 </section>
 <section id="mai-implementation" class="level2" data-number="B.5">
-<h2 data-number="B.5" class="anchored" data-anchor-id="mai-implementation"><span class="header-section-number">B.5</span> 5. MAI Implementation</h2>
+<h2 data-number="B.5" class="anchored" data-anchor-id="mai-implementation"><span class="header-section-number">B.5</span> MAI Implementation</h2>
 <p>The Modality Alignment Index (MAI) applies automated weighting to modalities via a Sigmoid Gate. We configure the MAI parameters as follows:</p>
 <ul>
 <li><strong>Center:</strong> Mean(MAI).</li>
 <li><strong>Steepness:</strong> 20.0 (annealed).</li>
 <li><strong>Transition_Epochs:</strong> 20.</li>
 </ul>
-<p>The SiMLR framework provides 4 available MAI metrics: - <code>procrustes_r2</code> - <code>procrustes_r2_sharp</code> - <code>cca</code> - <code>rvcoef</code></p>
+<p>The SiMLR framework provides 4 available MAI metrics:</p>
+<ul>
+<li><code>procrustes_r2</code></li>
+<li><code>procrustes_r2_sharp</code></li>
+<li><code>cca</code></li>
+<li><code>rvcoef</code></li>
+</ul>
 </section>
 <section id="computational-complexity" class="level2" data-number="B.6">
-<h2 data-number="B.6" class="anchored" data-anchor-id="computational-complexity"><span class="header-section-number">B.6</span> 6. Computational Complexity</h2>
+<h2 data-number="B.6" class="anchored" data-anchor-id="computational-complexity"><span class="header-section-number">B.6</span> Computational Complexity</h2>
 <table class="caption-top table">
 <colgroup>
 <col style="width: 33%">
@@ -489,26 +495,26 @@ window.Quarto = {
 <p>The Newton-Schulz iteration relies exclusively on dense matrix multiplications, achieving optimal throughput on parallel GPU architectures.</p>
 </section>
 <section id="pre-processing-protocol" class="level2" data-number="B.7">
-<h2 data-number="B.7" class="anchored" data-anchor-id="pre-processing-protocol"><span class="header-section-number">B.7</span> 7. Pre-processing Protocol</h2>
+<h2 data-number="B.7" class="anchored" data-anchor-id="pre-processing-protocol"><span class="header-section-number">B.7</span> Pre-processing Protocol</h2>
 <p>We require mean-centering and unit-scaling (<span class="math inline">\(z\)</span>-score normalization) for all input matrices <span class="math inline">\(\{\mathbf{X}_m\}\)</span>. This normalizes the alignment energy <span class="math inline">\(E_{\text{align}}\)</span> independently of the native measurement scale.</p>
 </section>
 <section id="system-optimizations" class="level2" data-number="B.8">
-<h2 data-number="B.8" class="anchored" data-anchor-id="system-optimizations"><span class="header-section-number">B.8</span> 8. System Optimizations</h2>
+<h2 data-number="B.8" class="anchored" data-anchor-id="system-optimizations"><span class="header-section-number">B.8</span> System Optimizations</h2>
 <section id="gradient-stability" class="level3" data-number="B.8.1">
-<h3 data-number="B.8.1" class="anchored" data-anchor-id="gradient-stability"><span class="header-section-number">B.8.1</span> 8.1 Gradient Stability</h3>
+<h3 data-number="B.8.1" class="anchored" data-anchor-id="gradient-stability"><span class="header-section-number">B.8.1</span> Gradient Stability</h3>
 <p>We employ LeakyReLU or GELU activations coupled with Kaiming He initialization to bound gradient magnitudes and prevent signal decay in high-dimensional domains.</p>
 </section>
 <section id="learning-rate-schedules" class="level3" data-number="B.8.2">
-<h3 data-number="B.8.2" class="anchored" data-anchor-id="learning-rate-schedules"><span class="header-section-number">B.8.2</span> 8.2 Learning Rate Schedules</h3>
+<h3 data-number="B.8.2" class="anchored" data-anchor-id="learning-rate-schedules"><span class="header-section-number">B.8.2</span> Learning Rate Schedules</h3>
 <p>We utilize the OneCycleLR scheduler to fuse the warmup and annealing phases. This accelerates convergence traversing the non-convex joint-variational objective space.</p>
 </section>
 <section id="data-throughput" class="level3" data-number="B.8.3">
-<h3 data-number="B.8.3" class="anchored" data-anchor-id="data-throughput"><span class="header-section-number">B.8.3</span> 8.3 Data Throughput</h3>
+<h3 data-number="B.8.3" class="anchored" data-anchor-id="data-throughput"><span class="header-section-number">B.8.3</span> Data Throughput</h3>
 <p>We specify <code>pin_memory=True</code> and configure <code>num_workers &gt; 0</code> in the PyTorch DataLoader. This implements asynchronous memory transfer to the GPU, mitigating host-device I/O latency.</p>
 </section>
 </section>
 <section id="technical-glossary" class="level2" data-number="B.9">
-<h2 data-number="B.9" class="anchored" data-anchor-id="technical-glossary"><span class="header-section-number">B.9</span> 9. Technical Glossary</h2>
+<h2 data-number="B.9" class="anchored" data-anchor-id="technical-glossary"><span class="header-section-number">B.9</span> Technical Glossary</h2>
 <ul>
 <li><strong>Normalizing Flow</strong>: A family of deep generative models that transforms a simple probability distribution (e.g., standard multivariate Gaussian) into a complex distribution using a sequence of invertible, bijective mappings via the change-of-variables theorem.</li>
 <li><strong>Bijective Mapping</strong>: A mathematically exact, one-to-one and onto function. In Flow-SiMR, bijectivity guarantees that the forward mapping (encoding) and inverse mapping (decoding) preserve information perfectly with zero reconstruction error (<span class="math inline">\(\mathcal{L}_{MSE} = 0\)</span>).</li>

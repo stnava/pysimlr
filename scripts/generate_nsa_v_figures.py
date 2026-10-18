@@ -28,9 +28,13 @@ def generate_v_matrices_plot():
     # ---------------------------------------------------------
     # 1. Load Heart Disease Dataset
     # ---------------------------------------------------------
+    local_heart = "data/heart_cleveland.csv"
     url_heart = "https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data"
     cols_heart = ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal', 'num']
-    df_heart = pd.read_csv(url_heart, names=cols_heart).replace('?', np.nan).dropna()
+    if os.path.exists(local_heart):
+        df_heart = pd.read_csv(local_heart)
+    else:
+        df_heart = pd.read_csv(url_heart, names=cols_heart).replace('?', np.nan).dropna()
     
     # Split features into two views
     heart_v1_cols = ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg']
@@ -78,8 +82,8 @@ def generate_v_matrices_plot():
     # ---------------------------------------------------------
     cmap = sns.color_palette("viridis", as_cmap=True)
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-    plt.suptitle("Hierarchical Interpretation of Learned NSA Layer Weights (V matrices)", fontsize=18, fontweight='bold', y=1.02)
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12.5))
+    plt.suptitle("Hierarchical Interpretation of Learned NSA Layer Weights (V matrices)", fontsize=18, fontweight='bold', y=0.99)
 
     def plot_heatmap(ax, v_matrix, row_labels, title):
         # Calculate Gini for each latent dimension
@@ -106,10 +110,9 @@ def generate_v_matrices_plot():
     plot_heatmap(axes[1, 0], v1_d, diab_v1_cols, "Diabetes: View 1 (Vitals)")
     plot_heatmap(axes[1, 1], v2_d, diab_v2_cols, "Diabetes: View 2 (Biomarkers)")
 
-    plt.figtext(0.5, 0.01, "NSA Layer acts as a 'hard' feature selector. Gini coefficient (G) measures weight sparsity/concentration.", 
+    plt.tight_layout(rect=[0, 0.04, 1, 0.96])
+    plt.figtext(0.5, 0.008, "NSA Layer acts as a 'hard' feature selector. Gini coefficient (G) measures weight sparsity/concentration.", 
                 ha="center", fontsize=12, style='italic')
-
-    plt.tight_layout()
     
     os.makedirs("paper/figures", exist_ok=True)
     plt.savefig("paper/figures/nsa_v_interpretability.png", dpi=300, bbox_inches='tight')

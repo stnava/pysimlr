@@ -27,7 +27,7 @@ For each input modality $\mathbf{X}_m \in \mathbb{R}^{N \times D_m}$:
 
 ## Performance Visualizations
 
-### 1. Conditional Clinical Imputation (True vs. Imputed Serums)
+### Conditional Clinical Imputation (True vs. Imputed Serums)
 
 Because Flow-SiMR-V preserves mathematical bijectivity on the bottleneck space, it enables exact conditional inference. In @fig-flow-imputation, we train Flow-SiMR-V on the Diabetes dataset (split into vitals and blood serums) under a 70/30 split. We then simulate a clinical scenario where the blood serums are entirely missing, and predict them from vitals using the Schur complement solver. The scatter plot below shows the relationship between True and Imputed serum levels for S5 (triglycerides).
 
@@ -88,7 +88,7 @@ plt.show()
 
 ---
 
-### 2. Exact Patient-Level Attribution Waterfall (XAI)
+### Exact Patient-Level Attribution Waterfall (XAI)
 
 Pre-pending the linear encoder matrix $\mathbf{V}_m$ ensures that the normalizing flow decoders do not mask individual feature importance. In @fig-flow-attribution, we visualize the exact local feature contributions for a patient on the Heart Disease dataset, computed analytically as $\delta \mathbf{x} = \mathbf{x} \circ \mathbf{V}_m$.
 
@@ -106,15 +106,20 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from pysimlr.flows import flow_simr_v
+import os
 
+local_heart = '../data/heart_cleveland.csv' if os.path.exists('../data/heart_cleveland.csv') else 'data/heart_cleveland.csv'
 url_heart = 'https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data'
 cols = ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal', 'num']
-try:
-    df_h = pd.read_csv(url_heart, names=cols).replace('?', np.nan).dropna().apply(pd.to_numeric)
-except:
-    X_dummy = np.random.randn(300, 13)
-    df_h = pd.DataFrame(X_dummy)
-    df_h['num'] = np.random.randint(0, 2, 300)
+if os.path.exists(local_heart):
+    df_h = pd.read_csv(local_heart)
+else:
+    try:
+        df_h = pd.read_csv(url_heart, names=cols).replace('?', np.nan).dropna().apply(pd.to_numeric)
+    except Exception:
+        X_dummy = np.random.randn(300, 13)
+        df_h = pd.DataFrame(X_dummy)
+        df_h['num'] = np.random.randint(0, 2, 300)
 
 X_h = StandardScaler().fit_transform(df_h.drop('num', axis=1))
 mats = [X_h[:, :4], X_h[:, 4:8], X_h[:, 8:]]
@@ -144,7 +149,7 @@ plt.show()
 
 ---
 
-### 3. Geodesic Latent Trajectory & Counterfactuals
+### Geodesic Latent Trajectory & Counterfactuals
 
 By tracing a straight-line interpolation in the shared latent space between a low-risk and high-risk patient and decoding it back to the feature space, we construct an exact clinical counterfactual trajectory. In @fig-flow-geodesic, we visualize the smooth progression of Age, BMI, and Blood Pressure (BP) along the latent disease path.
 
@@ -220,12 +225,12 @@ For a set of $M$ data matrices $\mathbf{X}_1, \dots, \mathbf{X}_M$, shared laten
    - For epoch $t < T_{\text{delayed}}$: set modality weights uniformly $w_m = 1/M$.
    - For epoch $t \ge T_{\text{delayed}}$:
      - Compute the Leave-One-Out (LOO) consensus target for each view: $\mathbf{U}_{\neq m} = \sum_{j \neq m} w_j \mathbf{Z}_{j, \text{shared}}$.
-     - Compute the Modality Alignment Index: $\text{MAI}_m = 1 - \frac{\|\mathbf{Z}_{m, \text{shared}}\mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F^2}{\|\mathbf{U}_{\neq m}\|_F^2}$.
+     - Compute the Modality Alignment Index: $\text{MAI}_m = 1 - \frac{\|\mathbf{Z}_{m, \text{shared}}\Omega - \mathbf{U}_{\neq m}\|_F^2}{\|\mathbf{U}_{\neq m}\|_F^2}$.
      - Update gating weights: $w_m = (1 - \rho) \cdot \frac{1}{M} + \rho \cdot \text{softmax}(\tau \cdot \text{MAI}_m)$ (with exponential ramp-up $\rho$).
 
 3. **Loss Computation & Backpropagation**:
    - Compute reconstruction loss: $\mathcal{L}_{\text{MSE}} = \sum_m \|\mathbf{X}_m - \hat{\mathbf{X}}_m\|_F^2$ where $\hat{\mathbf{X}}_m = f_{\text{flow}, m}^{-1}([\mathbf{U}_{\text{consensus}} \parallel \mathbf{0}])\mathbf{V}_m^\top$.
-   - Compute alignment loss: $\mathcal{L}_{\text{align}} = \sum_m \|\mathbf{Z}_{m, \text{shared}}\mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F^2$.
+   - Compute alignment loss: $\mathcal{L}_{\text{align}} = \sum_m \|\mathbf{Z}_{m, \text{shared}}\Omega - \mathbf{U}_{\neq m}\|_F^2$.
    - Backpropagate gradients to update linear projections $\mathbf{V}_m$ and flow parameters.
    - Retract $\mathbf{V}_m$ onto the Stiefel manifold using NSA-Flow Newton-Schulz updates.
 
@@ -233,4 +238,51 @@ For a set of $M$ data matrices $\mathbf{X}_1, \dots, \mathbf{X}_M$, shared laten
 
 ## Orthogonality & Sparsity Diagnostics
 
-We compute the **Orthogonality Defect** ($\|\mathbf{V}^\top\mathbf{V} - \mathbf{I}\|_F$) and **Gini Sparsity** coefficients of the learned Flow-SiMR-V basis matrices across the three clinical datasets to verify structural alignment. The results confirm that the NSA-Flow retraction successfully enforces near-orthogonality (defect $< 0.01$) and high feature sparsity (Gini $> 0.65$), guaranteeing non-redundant and globally explainable latent consensus dimensions.
+@tbl-flow-orth-diagnostics reports the per-view **Stiefel Frame Defect** $D(\mathbf{V}_m)$, **Signed Lobe Crosstalk** $\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1$, and **Strictly Linear Probe Accuracy** ($\mathbf{X}_m \mathbf{V}_m$) across the three real-world clinical cohorts (`Heart`, `Diabetes`, and `MultiOmics`) from `paper/results_cache/deep_ranking_benchmark.csv`, comparing `Flow-SiMR-V` against `LEND`, `SiMLR-LBFGSB`, and `NSAFlow-PCA`.
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-flow-orth-diagnostics
+#| tbl-cap: 'Empirical Orthogonality Defect ($D(\mathbf{V}_m)$), Signed Lobe Crosstalk, and Linear OLEE Basis Performance across the Three Real-World Biomedical Cohorts (3 seeds, `consolidate = False`). Cross-view OLEE architectures (`Flow-SiMR-V`, `LEND`, `SiMLR-LBFGSB`) maintain exact per-view Stiefel orthonormality ($D < 10^{-4}$), whereas `NSAFlow-PCA` enforces joint orthogonality across the concatenated feature matrix with 20–32% disjoint sparsity.'
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+csv_path = "results_cache/deep_ranking_benchmark.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
+
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR", "NSAFlow-Turnkey": "NSAFlow-PCA"})
+
+real_dsets = ["Heart", "Diabetes", "MultiOmics"]
+target_models = ["Flow-SiMR-V", "LEND", "SiMLR-LBFGSB", "NSAFlow-PCA"]
+
+rows = []
+for ds in real_dsets:
+    for m in target_models:
+        sub = df[(df["Dataset"] == ds) & (df["Model"] == m)]
+        if len(sub) == 0:
+            continue
+        lin_m = sub["Strictly_Linear_Metric"].mean()
+        lin_s = sub["Strictly_Linear_Metric"].std()
+        def_m = sub["Frame_Defect_D"].mean()
+        ct_m = sub["Lobe_Crosstalk"].mean()
+        sp_m = sub["Sparsity_Ratio"].mean() * 100.0
+        rows.append([
+            ds,
+            m,
+            f"{lin_m:.3f} ± {lin_s:.3f}",
+            f"{def_m:.5f}",
+            f"{ct_m:.4f}",
+            f"{sp_m:.1f}%"
+        ])
+
+headers = ["Cohort", "Architecture", "Linear OLEE Probe (XV)", "Per-View Frame Defect D", "Lobe Crosstalk", "Sparsity"]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
+
+The empirical diagnostics confirm that the Sylvester polar / Newton-Schulz retraction in `Flow-SiMR-V`, `LEND`, and `SiMLR-LBFGSB` enforces exact per-view Stiefel orthonormality ($D(\mathbf{V}_m) = 0.00000$) and zero signed lobe crosstalk across all three clinical cohorts, while `NSAFlow-PCA` enforces joint orthogonality across the concatenated multi-view matrix with $20.4\%\text{–}32.1\%$ exact zero weights.

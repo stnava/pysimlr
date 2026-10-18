@@ -31,6 +31,9 @@ SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
     'history_size': 10,    # Torch L-BFGS two-loop recursion history size
     'line_search_fn': 'strong_wolfe', # Torch L-BFGS line search strategy
     'reparameterize': True, # Quadratic reparameterization for non-negativity
+    'positivity': 'either', # Positivity constraint type
+    'nonneg': None,         # Explicit nonneg flag for bound-constrained solvers
+    'tol': 1e-9,            # Tolerance for solvers like nsa_lbfgsb
 }
 
 class SimlrOptimizer(ABC):
@@ -212,6 +215,8 @@ def backtracking_linesearch(v_current: torch.Tensor,
         
     step_size = initial_step_size
     slope_term = torch.sum(ascent_gradient * descent_direction)
+    if slope_term >= -1e-12:
+        return 0.0
     
     for _ in range(max_iter):
         if step_size <= min_step:
@@ -355,6 +360,10 @@ class HybridAdam(SimlrOptimizer):
         else:
             denom_sq = state['v']
         search_direction = state['m'] / (torch.sqrt(denom_sq) + epsilon)
+        grad_norm = torch.norm(descent_gradient)
+        if grad_norm > epsilon and torch.sum(-descent_gradient * search_direction) >= 0:
+            state['m'] = descent_gradient.clone()
+            search_direction = state['m'] / (torch.sqrt(denom_sq) + epsilon)
         if full_energy_function is not None:
             optimal_step_size = backtracking_linesearch(
                 v_current=v_current,
@@ -365,7 +374,7 @@ class HybridAdam(SimlrOptimizer):
             )
         else:
             optimal_step_size = self.params['learning_rate']
-        state['last_step_size'] = torch.tensor(optimal_step_size * 1.5 if optimal_step_size > 1e-9 else 1.0)
+        state['last_step_size'] = torch.tensor(optimal_step_size * 1.5 if optimal_step_size > 1e-9 else float(self.params['learning_rate']))
         return v_current + optimal_step_size * search_direction
 
 class Adam(SimlrOptimizer):
@@ -482,6 +491,10 @@ class ArmijoGradient(SimlrOptimizer):
         lr = self.params['learning_rate']
         state['momentum'] = 0.9 * state['momentum'] + 0.1 * descent_gradient
         search_direction = state['momentum']
+        grad_norm = torch.norm(descent_gradient)
+        if grad_norm > epsilon and torch.sum(-descent_gradient * search_direction) >= 0:
+            state['momentum'] = descent_gradient.clone()
+            search_direction = state['momentum']
         dir_norm = torch.norm(search_direction)
         if dir_norm < epsilon:
             return v_current
@@ -496,7 +509,7 @@ class ArmijoGradient(SimlrOptimizer):
                 energy_function=full_energy_function,
                 initial_step_size=initial_step
             )
-            state['last_step_size'] = torch.tensor(optimal_step_size * 1.5 if optimal_step_size > 1e-10 else 1.0)
+            state['last_step_size'] = torch.tensor(optimal_step_size * 1.5 if optimal_step_size > 1e-10 else float(lr))
             return v_current + optimal_step_size * norm_search_direction
         else:
             return v_current + lr * norm_search_direction
@@ -551,7 +564,7 @@ class BidirectionalArmijoGradient(SimlrOptimizer):
                 energy_function=full_energy_function,
                 initial_step_size=initial_step
             )
-            state['last_step_size'] = torch.tensor(optimal_step_size * 1.5 if optimal_step_size > 1e-10 else 1.0)
+            state['last_step_size'] = torch.tensor(optimal_step_size * 1.5 if optimal_step_size > 1e-10 else float(lr))
             return v_current + optimal_step_size * selected_dir
         else:
             return v_current + lr * norm_direction
@@ -777,15 +790,10 @@ class NSAFlowOptimizer(SimlrOptimizer):
         if self.nsa_flow:
             rng_state = torch.get_rng_state()
             try:
-                # The SAME operator family as simlr_sparseness -- the anchored
-                # prox with the entrywise fidelity -- in its sign-free form:
-                # nonneg=False deliberately, because `simlr` applies the
-                # caller's sign constraint afterwards and imposing it twice on
-                # an intermediate iterate is not the returned point.  The
-                # previous call requested optimizer="torch_lbfgs" (deprecated:
-                # never certified convergence, froze the support) with a
-                # max_iter=5 fallback, i.e. an unconverged solve of a different
-                # problem.
+                # Direct call to the unconstrained anchored NSA-Flow prox.
+                # Mode="anchored" matches the definition of the prox, and
+                # fidelity="anchor" retains the target rather than fitting to
+                # an intermediate iterate is not the returned point.
                 res = self.nsa_flow(v_next.double(), w=self.w, mode="anchored",
                                     fidelity="anchor", nonneg=False)
                 # Restore RNG state
@@ -797,11 +805,7 @@ class NSAFlowOptimizer(SimlrOptimizer):
                     candidate = getattr(res, 'V', None) or getattr(res, 'Y', None)
                 if candidate is not None:
                     candidate = candidate.to(v_current.dtype)
-                # Validate before accepting: a zero basis is not None, so a
-                # None-check alone would silently replace the iterate with
-                # nothing. See pysimlr.sparsification._usable_retraction, which
-                # also records why the specific collapse this was written
-                # against no longer reproduces.
+                from .sparsification import _usable_retraction
                 if _usable_retraction(candidate, v_next):
                     return candidate
             except Exception:
@@ -974,7 +978,16 @@ class NSALBFGSB(SimlrOptimizer):
         # once per modality per sweep, so this is an inner budget and is kept
         # small; the outer loop supplies the rest of the iteration.
         self.max_grad = int(self.params.get("max_iter", 20) or 20)
-        self.nonneg = bool(params.get("nonneg", True))
+        if "nonneg" in params and params["nonneg"] is not None:
+            self.nonneg = bool(params["nonneg"])
+        else:
+            positivity = params.get("positivity", None)
+            if positivity == "either":
+                self.nonneg = False
+            elif positivity in {"positive", "hard", "nonnegative"}:
+                self.nonneg = True
+            else:
+                self.nonneg = False
 
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor,
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:

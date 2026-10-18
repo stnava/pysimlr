@@ -261,6 +261,7 @@ def sync_pdf_figures():
 
 
 def extract_and_build():
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     fig_dir = "paper/figures"
     if not os.path.exists(fig_dir):
         os.makedirs(fig_dir)
@@ -271,7 +272,8 @@ def extract_and_build():
         "fig-lend": "paper/02_methods.qmd",
         "fig-ned": "paper/02_methods.qmd",
         "fig-nedpp": "paper/02_methods.qmd",
-        "fig-flow-simr": "paper/02_methods.qmd"
+        "fig-flow-simr": "paper/02_methods.qmd",
+        "fig-flow-simr-v": "paper/02_methods.qmd"
     }
 
     all_success = True

@@ -357,3 +357,39 @@ def test_degradation_tracks_rank_loss():
         f"{r_ok:.2f}); if the projection now keeps the basis full rank at "
         f"w=0, the degradation recorded above should be re-measured")
     assert r_ok > 2.8, f"w=0.5 lost rank ({r_ok:.2f} of 3)"
+
+
+def test_prox_w_and_smoothing_are_idempotent():
+    """Verify that anchored NSA-Flow operator prox_w(V) and smoothing S_i V_i are idempotent."""
+    from pysimlr.sparsification import _nsa_retract, _apply_smoothing, simlr_sparseness
+    from pysimlr.sparse import SparseGraphResolvent, create_grid_graph_laplacian
+
+    torch.manual_seed(17)
+    v = torch.randn(16, 3, dtype=torch.float64)
+
+    # 1. _nsa_retract idempotence (signed and nonneg)
+    for nonneg in (False, True):
+        y1 = _nsa_retract(v, w=0.5, nonneg=nonneg)
+        assert y1 is not None
+        y2 = _nsa_retract(y1.clone(), w=0.5, nonneg=nonneg)
+        assert torch.allclose(y1, y2, atol=1e-12, rtol=1e-12)
+
+    # 2. SparseGraphResolvent and _apply_smoothing idempotence
+    mask = np.ones((4, 4), dtype=bool)
+    lap = create_grid_graph_laplacian(mask, normalized=True)
+    resolvent = SparseGraphResolvent(lap, lambda_val=0.1)
+    sv1 = resolvent @ v
+    sv2 = resolvent @ sv1.clone()
+    assert torch.allclose(sv1, sv2, atol=1e-12, rtol=1e-12)
+
+    sm1 = _apply_smoothing(v, resolvent)
+    sm2 = _apply_smoothing(sm1.clone(), resolvent)
+    assert torch.allclose(sm1, sm2, atol=1e-12, rtol=1e-12)
+
+    # 3. Composed simlr_sparseness idempotence
+    sp1 = simlr_sparseness(v, constraint_type="ortho", smoothing_matrix=resolvent,
+                           positivity="positive", constraint_weight=0.5)
+    sp2 = simlr_sparseness(sp1.clone(), constraint_type="ortho", smoothing_matrix=resolvent,
+                           positivity="positive", constraint_weight=0.5)
+    assert torch.allclose(sp1, sp2, atol=1e-12, rtol=1e-12)
+

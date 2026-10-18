@@ -1053,6 +1053,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           scale_list: List[str] = ["centerAndScale", "np"],
           consolidate: bool = False,
           nsa_w: Optional[float] = None,
+          dynamic_weights: bool = False,
+          mai_metric: str = "procrustes_r2",
+          use_rank_mai: bool = False,
           tol: float = 1e-6,
           verbose: bool = False,
           **opt_params) -> Dict[str, Any]:
@@ -1462,6 +1465,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # sharply over the first few iterations and then drifts slowly upward, so
     # the final iterate is not the best one found. Keep the best.
     best_total_energy = float('inf')
+    best_iteration = None
     best_v_mats = None
     # The solver's self-report for each modality's final projection. Kept
     # alongside the best iterate so the reported diagnostics describe the basis
@@ -1472,19 +1476,123 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     normalizing_weights = [1.0] * n_modalities
     orth_weights = [1.0] * n_modalities
     domain_weights = [1.0] * n_modalities
-    # Calibrated at it=0 like `orth_weights`, so `negentropy_weight` is a
-    # *relative* weight: mu=1 means "as important as the data term on this
-    # dataset". Uncalibrated it is not comparable between datasets and barely
-    # between views -- the contrast is O(1e-4) for a half-normal latent while
-    # `recon_r2` is O(1e-2), so the raw mu that does anything is in the
-    # hundreds, and the same raw mu that helps one view swamps another.
     neg_weights = [1.0] * n_modalities
-    
+
+    from .similarity import similarity_is_self_normalised
+    try:
+        _self_norm = similarity_is_self_normalised(energy_type)
+    except (ValueError, KeyError):
+        _self_norm = False
+
+    def _calibrate_weights(curr_v_mats, curr_u, orth_floor: float = 1e-10):
+        for idx_m in range(n_modalities):
+            u_m = curr_u[idx_m] if isinstance(curr_u, list) else curr_u
+            sim_e = calculate_simlr_energy(curr_v_mats[idx_m], torch_mats[idx_m], u_m, energy_type).item()
+            normalizing_weights[idx_m] = (1.0 / n_modalities if _self_norm
+                                          else 1.0 / (abs(sim_e) * n_modalities + 1e-10))
+            orth_e = orthogonality_defect(curr_v_mats[idx_m]).item()
+            if orth_e > orth_floor:
+                orth_weights[idx_m] = abs(sim_e) * normalizing_weights[idx_m] / orth_e
+            else:
+                orth_weights[idx_m] = 0.0
+            if negentropy_weight != 0.0:
+                neg_e0 = abs(calculate_simlr_energy(
+                    curr_v_mats[idx_m], torch_mats[idx_m], u_m, "negentropy").item())
+                neg_weights[idx_m] = (abs(sim_e) * normalizing_weights[idx_m] / neg_e0
+                                      if neg_e0 > 1e-12 else 0.0)
+            if torch_domains is not None and torch_domains[idx_m] is not None:
+                dom_e_raw = calculate_simlr_energy(curr_v_mats[idx_m], torch_mats[idx_m], u_m, "dat", lambda_val=domain_lambdas[idx_m], prior_matrix=torch_domains[idx_m]).item()
+                if abs(dom_e_raw) > 1e-10:
+                    domain_weights[idx_m] = abs(sim_e * normalizing_weights[idx_m]) / abs(dom_e_raw)
+                else:
+                    domain_weights[idx_m] = 1.0
+
+    init_total_energy = 0.0
+    if iterations == 0:
+        init_projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
+        init_u = compute_shared_consensus(
+            init_projections, mixing_algorithm=mixing_algorithm, k=k,
+            orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
+        if nonneg_u:
+            init_u = _nonneg_consensus(init_u)
+        _calibrate_weights(v_mats, init_u, orth_floor=1e-10)
+        init_total_energy = sum(
+            calculate_simlr_energy(v_mats[idx_m], torch_mats[idx_m],
+                                   init_u[idx_m] if isinstance(init_u, list) else init_u,
+                                   energy_type).item() * normalizing_weights[idx_m]
+            for idx_m in range(n_modalities)
+        )
+
+    mai_ema = torch.ones(n_modalities, dtype=orig_dtype) / n_modalities
+    mai_mod_weights = torch.ones(n_modalities, dtype=orig_dtype) / n_modalities
+
+    def _update_simlr_mai(projs, step_idx, max_steps):
+        if not dynamic_weights:
+            return None
+        from .consensus import align_column_signs
+        from .flows import VALID_MAI_METRICS
+        if mai_metric not in VALID_MAI_METRICS:
+            raise ValueError(f"unknown mai_metric {mai_metric!r}; choose one of {sorted(VALID_MAI_METRICS)}")
+        with torch.no_grad():
+            work_projs = ([torch.argsort(torch.argsort(p, dim=0), dim=0).to(orig_dtype) for p in projs]
+                          if use_rank_mai else projs)
+            norm_projs = []
+            for p in work_projs:
+                p_c = p - p.mean(dim=0, keepdim=True)
+                p_norm = torch.norm(p_c, p='fro')
+                norm_projs.append(p_c / p_norm if p_norm > 1e-8 else torch.zeros_like(p_c))
+            mais = []
+            for idx_p in range(len(norm_projs)):
+                loo_projs = [norm_projs[j] for j in range(len(norm_projs)) if j != idx_p]
+                if not loo_projs:
+                    mais.append(1.0)
+                    continue
+                u_loo = torch.mean(torch.stack(align_column_signs(loo_projs)), dim=0)
+                u_loo_norm = torch.norm(u_loo, p='fro')
+                if u_loo_norm > 1e-8:
+                    u_loo = u_loo / u_loo_norm
+                    Z = norm_projs[idx_p]
+                    cross = Z.t() @ u_loo
+                    try:
+                        _, s_svd, _ = torch.linalg.svd(cross, full_matrices=False)
+                        if mai_metric in ("procrustes_r2", "procrustes_r2_sharp"):
+                            r2 = float(s_svd.sum().item()) ** 2
+                            if mai_metric == "procrustes_r2_sharp":
+                                _, s_lat, _ = torch.linalg.svd(Z, full_matrices=False)
+                                r2 = r2 * float((s_lat[0] / (s_lat.sum() + 1e-8)).item())
+                            mais.append(r2)
+                        elif mai_metric == "cca":
+                            mais.append(float(s_svd.mean().item()))
+                        elif mai_metric == "rvcoef":
+                            num = torch.norm(cross, p='fro') ** 2
+                            den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
+                            mais.append(float((num / (den + 1e-8)).item()))
+                    except Exception:
+                        mais.append(0.0)
+                else:
+                    mais.append(0.0)
+            mai_t = torch.tensor(mais, dtype=orig_dtype)
+            mai_ema.copy_(0.8 * mai_ema + 0.2 * mai_t)
+            center = mai_ema.mean()
+            progress = min(1.0, max(0, step_idx) / max(1.0, float(max_steps) * 0.5))
+            steepness = 5.0 + 10.0 * progress
+            gate = torch.sigmoid(steepness * (mai_ema - center))
+            raw_w = mai_ema * gate
+            target_w = raw_w / (raw_w.sum() + 1e-8)
+            uniform_w = torch.ones_like(target_w) / len(target_w)
+            rho = min(1.0, max(0.0, float(step_idx) / max(1.0, float(max_steps) * 0.5)))
+            mai_mod_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
+            return mai_mod_weights
+
     prev_resid = [None] * n_modalities   # last prox-gradient fixed-point residual per view
-    for it in range(iterations):
+    total_sweeps = (iterations + 1) if iterations > 0 else 0
+    for raw_it in range(total_sweeps):
+        is_warm_start = (raw_it == 0)
+        it = raw_it - 1
         cert_terms = []
         projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
-        u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
+        cur_mod_w = _update_simlr_mai(projections, max(0, it), max(1, iterations))
+        u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph, modality_weights=cur_mod_w)
         if nonneg_u:
             u = _nonneg_consensus(u)
         # Capture the linear map this consensus used, so that
@@ -1542,56 +1650,19 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 if torch_domains is not None and torch_domains[i] is not None:
                     dom_grad = calculate_simlr_gradient(v_feas, torch_mats[i], u_i, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
                 
-                # The energy `smooth_energy_fn` also carries an orthogonality
-                # term, so omitting it here made energy and gradient describe
-                # two different functions. Any line search or curvature
-                # estimate built from the pair was then inconsistent, and the
-                # stationarity certificate certified the wrong objective. The
-                # mismatch was survivable only while the fidelity gradient was
-                # itself ~(n-1) times too small; correcting that (see the
-                # `regression` branch of `calculate_simlr_gradient`) made the
-                # inconsistency dominate and drove `energy_reduction` to zero.
                 orth_grad = 0.0
                 if constraint_type == "ortho" and constraint_weight != 0.0:
                     orth_grad = (gradient_orthogonality_defect(v_feas)
                                  * constraint_weight * orth_weights[i])
 
                 total_grad = sim_grad + dom_grad - orth_grad
-                # Keep the analytic gradient before it is projected onto the
-                # tangent space and retracted. The retraction orthonormalises
-                # the direction and so throws its magnitude away, which is
-                # correct for a search direction and useless for a certificate:
-                # scoring the retracted direction returns a constant (3.0000 on
-                # the 3-view case, independent of how far from stationary the
-                # iterate is). The certificate has to see the real gradient.
                 raw_grad_holder[0] = total_grad.detach().clone()
                 # Project gradient onto tangent space
                 total_grad = project_gradient(total_grad, v_feas, constraint_type)
                 
-                # The search direction is NOT retracted.  Proximal gradient is
-                # `prox(v + eta * g)`: one operator, applied to the point, after
-                # the step.  The direction used to be passed through
-                # simlr_sparseness too (orthonormalising it and discarding its
-                # magnitude); CORRECTNESS_AUDIT.md measured that as changing
-                # latent recovery by < 0.0004, i.e. an extra solve per view per
-                # iteration that bought nothing, and it is not part of any
-                # proximal-gradient method.
                 return total_grad.contiguous()
 
             total_grad = smooth_gradient_fn(v_mats[i])
-            # Stationarity certificate at the iterate entering this sweep,
-            # using the gradient that was going to be computed anyway. See
-            # `nsa_backend.load_gradient_mapping`: energy plateau is not
-            # stationarity, and this loop previously claimed convergence with
-            # nothing measuring the latter.
-            # Stationarity certificate for THE PROBLEM BEING SOLVED.  This loop
-            # is proximal gradient on E + w*Dtilde over the feasible set, whose
-            # fixed points satisfy v = prox(v + eta*d(v)).  The right residual is
-            # therefore the relative fixed-point residual ||v+ - v|| / ||v||,
-            # computed after the step and prox below.  The gradient mapping of
-            # E alone under the sign projection -- what used to be certified --
-            # is NOT zero at that fixed point (it settled at 6.2 on a problem
-            # the iteration had converged on) and is kept only as a diagnostic.
             gm_E = None
             if _grad_mapping is not None and raw_grad_holder[0] is not None:
                 try:
@@ -1600,22 +1671,12 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 except Exception:
                     gm_E = None
             gm_i = prev_resid[i]
-            # A view certified stationary takes no step and is not re-projected.
-            # Proximal gradient has nothing to do at a stationary point, and
-            # doing it anyway is not free: the prox is solved to `tol`, so
-            # re-applying it to its own output moves the basis by O(tol) per
-            # sweep -- measured as a 5e-5 drift in the overall energy over 12
-            # sweeps from an already-optimal initialisation, which the
-            # first-vs-last monotonicity tests caught.  The first sweep always
-            # projects, so a raw initialisation never bypasses the constraint.
-            if gm_i is not None and gm_i <= tol and it > 0:
+            if not is_warm_start and gm_i is not None and gm_i <= tol and it > 0:
                 cert_terms.append(gm_i)
                 retraction_diags[i] = {"skipped": "stationary", "fixed_point_residual": gm_i,
                                        "grad_map_E": gm_E}
                 continue
             v_before = v_mats[i].detach().clone()
-            # Optimizers that re-evaluate along their own line search (LBFGS)
-            # need to recompute the analytic gradient at each trial point.
             if hasattr(optimizer, "gradient_function"):
                 optimizer.gradient_function = smooth_gradient_fn
             v_updated = optimizer.step(i, v_mats[i], total_grad, smooth_energy_fn)
@@ -1630,36 +1691,18 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             retraction_diags[i]["fixed_point_residual"] = resid
             retraction_diags[i]["grad_map_E"] = gm_E
             
-        if it == 0:
-            from .similarity import similarity_is_self_normalised
-            try:
-                self_norm = similarity_is_self_normalised(energy_type)
-            except (ValueError, KeyError):
-                self_norm = False
-            for i in range(n_modalities):
-                u_i = u[i] if isinstance(u, list) else u
-                sim_e = calculate_simlr_energy(v_mats[i], torch_mats[i], u_i, energy_type).item()
-                # A self-normalised term is already on an absolute per-view
-                # scale, so the views are averaged and the total stays in the
-                # term's own range ([0, 1] for `recon_r2`). Dividing by each
-                # view's initial energy, as the general path does, would make
-                # the total 1.0 at iteration 0 by construction and relative
-                # thereafter -- fine for an arbitrarily-scaled term, but it
-                # would throw away an interpretable one.
-                normalizing_weights[i] = (1.0 / n_modalities if self_norm
-                                          else 1.0 / (abs(sim_e) * n_modalities + 1e-10))
-                orth_e = orthogonality_defect(v_mats[i]).item()
-                if orth_e > 1e-10: orth_weights[i] = abs(sim_e) * normalizing_weights[i] / orth_e
-                else: orth_weights[i] = 0.0
-                if negentropy_weight != 0.0:
-                    neg_e0 = abs(calculate_simlr_energy(
-                        v_mats[i], torch_mats[i], u_i, "negentropy").item())
-                    neg_weights[i] = (abs(sim_e) * normalizing_weights[i] / neg_e0
-                                      if neg_e0 > 1e-12 else 0.0)
-                if torch_domains is not None and torch_domains[i] is not None:
-                    dom_e_raw = calculate_simlr_energy(v_mats[i], torch_mats[i], u_i, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]).item()
-                    if abs(dom_e_raw) > 1e-10: domain_weights[i] = abs(sim_e * normalizing_weights[i]) / abs(dom_e_raw)
-                    else: domain_weights[i] = 1.0
+        if is_warm_start:
+            _calibrate_weights(v_mats, u, orth_floor=1e-10)
+            init_total_energy = sum(
+                calculate_simlr_energy(v_mats[idx_m], torch_mats[idx_m],
+                                       u[idx_m] if isinstance(u, list) else u,
+                                       energy_type).item() * normalizing_weights[idx_m]
+                for idx_m in range(n_modalities)
+            )
+            best_v_mats = [v.clone() for v in v_mats]
+            best_retraction_diags = [dict(d) for d in retraction_diags]
+            prev_resid = [None] * n_modalities
+            continue
         
         total_energy = 0.0
         for i in range(n_modalities):
@@ -1668,49 +1711,20 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             
         energy_history.append(total_energy)
 
-        # A modality whose basis is identically zero contributes zero energy,
-        # so the cheapest way to reduce a *sum* of per-view energies is to kill
-        # a view. Selecting the lowest-energy iterate therefore selects the
-        # degenerate one: on the 3-view case the loop returned V with view 0
-        # entirely zero at total energy 2/3 (exactly one of three views
-        # surviving), and reported it as `best_iteration=1`.
-        #
-        # A rank-deficient basis is not a solution to a rank-k problem, so such
-        # an iterate is not eligible to be "best" however low its energy.
         iterate_is_degenerate = any(
             not bool((v.detach().abs() > 1e-12).any(dim=0).all()) for v in v_mats
         )
         if total_energy < best_total_energy and not iterate_is_degenerate:
             best_total_energy = total_energy
+            best_iteration = it
             best_v_mats = [v.clone() for v in v_mats]
             best_retraction_diags = [dict(d) for d in retraction_diags]
         if iterate_is_degenerate:
             n_degenerate_iterates += 1
         
-        # Stopping. An energy plateau is not stationarity: the total energy is
-        # normalised to 1.0 at iteration 0, so a loop that is barely descending
-        # produces relative changes below `tol` within two or three sweeps and
-        # the old test then declared convergence. Measured on the 3-view case
-        # it fired at iteration 3 for every problem and every `iterations`,
-        # so the argument never bound; with the test disabled one seed carried
-        # on improving from R^2 0.300 to 0.366.
-        #
-        # `grad_map` is the certificate: dimensionless, scale invariant, and
-        # zero exactly at a stationary point of the constrained problem. Only
-        # it may claim convergence. A plateau still stops the loop -- there is
-        # no point burning sweeps that do nothing -- but it is certified only
-        # when the certificate is also within a wide band of stationarity,
-        # following nsa_flow's `CERTIFICATES` contract.
         this_grad_map = max(cert_terms) if cert_terms else float("nan")
         grad_map_history.append(this_grad_map)
 
-        # The plateau test is now `utils.ConvergenceMonitor`, the same rule the
-        # deep trainer uses, so `tol` and `patience` mean one thing across the
-        # package. The bespoke test it replaces compared consecutive energies
-        # against `tol` and fired within two or three sweeps on a normalised
-        # energy. The certificate below is unchanged and is still the only
-        # thing allowed to claim *stationarity*, which is strictly stronger
-        # than "stopped improving".
         plateaued = monitor.update(total_energy)
 
         if cert_terms and monitor.certify("grad_map", this_grad_map, tol):
@@ -1720,13 +1734,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             break
 
         if plateaued:
-            # `monitor.update` returns True both for a real plateau and for
-            # the budget running out. Only the first is a plateau; calling an
-            # exhausted budget one claims the fit finished when it was cut off.
             if monitor.stop_reason != "converged":
                 break
             stop_reason = "plateau"
-            # Weaker than stationary, and only claimed near it.
             certificate = ("numerical_floor"
                            if cert_terms and this_grad_map <= 1e3 * tol else None)
             converged_iter = it + 1
@@ -1746,6 +1756,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         v_mats = best_v_mats
         if best_retraction_diags is not None:
             retraction_diags = best_retraction_diags
+    if not np.isfinite(best_total_energy):
+        best_total_energy = min(energy_history) if energy_history else init_total_energy
+    if best_iteration is None:
+        best_iteration = int(np.argmin(energy_history)) if energy_history else 0
 
     if consolidate:
         from .nsa_backend import load_consolidate_supports
@@ -1770,12 +1784,15 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
     # Re-calculate final shared consensus after the last V update
     projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
-    u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
+    u_raw = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
+    u = _nonneg_consensus(u_raw) if nonneg_u else u_raw
     # Capture the linear map this consensus used, so that
     # `predict_shared_latent` can apply it to new data instead of
     # deriving a fresh one. See `_capture_consensus_anchor`.
     consensus_anchor = _capture_consensus_anchor(
         projections, mixing_algorithm, k, orthogonalize_u, topology, path_graph)
+    consensus_stats = _capture_consensus_stats(
+        projections, u_raw, mixing_algorithm, consensus_anchor, topology)
     
     v_summaries = [orthogonality_summary(v) for v in v_mats]
     
@@ -1796,48 +1813,33 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "normalizing_weights": normalizing_weights, 
         "orth_weights": orth_weights, "domain_weights": domain_weights, 
         "converged_iter": converged_iter,
-        # The stopping claim, and what backs it. `converged` is True only with
-        # a certificate; `stop_reason` says why iteration ceased either way,
-        # and `energy_reduction` answers "did this optimise anything at all",
-        # which a bare `converged_iter` never could.
         "stop_reason": stop_reason,
-        # The uniform report; see `utils.ConvergenceMonitor`. `stop_reason`
-        # above keeps its own vocabulary for compatibility.
         "convergence": {**monitor.report(), "stop_reason": stop_reason},
         "certificate": certificate,
         "converged": certificate is not None,
         "grad_map": (grad_map_history[-1] if grad_map_history else None),
         "grad_map_history": grad_map_history,
-        # How many sweeps produced a rank-deficient basis. Nonzero means the
-        # objective is rewarding collapse and the result should be read with
-        # that in mind, even though such iterates can no longer be returned.
         "n_degenerate_iterates": n_degenerate_iterates,
-        "energy_start": (energy_history[0] if energy_history else None),
-        "energy_reduction": ((energy_history[0] - min(energy_history))
-                             if energy_history else None),
+        "energy_start": (energy_history[0] if energy_history else init_total_energy),
+        "energy_reduction": ((energy_history[0] - best_total_energy)
+                             if energy_history else 0.0),
         "v_orthogonality": v_summaries,
         "best_energy": best_total_energy,
-        "best_iteration": (int(np.argmin(energy_history)) if energy_history else None),
-        # What the retraction solver reported for each modality: the stopping
-        # rule, the stationarity certificate, the effective rank, the scale
-        # drift and which fidelity it chose. Empty when no backend ran.
+        "best_iteration": best_iteration,
         "v_retraction": retraction_diags,
-        # The consensus map fitted on the training projections. Required for
-        # out-of-sample prediction: without it `predict_shared_latent`
-        # re-derives the basis on the new data, and for svd/pca/ica that basis
-        # is defined only up to rotation, sign and permutation.
         "consensus_anchor": consensus_anchor,
+        "consensus_stats": consensus_stats,
         "mixing_algorithm": mixing_algorithm,
         "orthogonalize_u": orthogonalize_u,
+        "nonneg_u": bool(nonneg_u),
         "topology": topology,
         "path_graph": path_graph,
         "energy_type": energy_type,
         "scale_list": scale_list,
         "provenance_list": provenance_list,
         "consolidated": consolidate,
-        # How many components actually came back. See `basis_rank_report`:
-        # a weak constraint lets the columns merge, and nothing else in this
-        # dict would show it.
+        "modality_weights": mai_mod_weights.detach().cpu().numpy(),
+        "mai": mai_ema.detach().cpu().numpy(),
         **basis_rank_report(v_mats, k),
     }
 
@@ -2025,6 +2027,84 @@ def _capture_consensus_anchor(projections: List[torch.Tensor],
     return anchor.detach().clone() if isinstance(anchor, torch.Tensor) else None
 
 
+def _capture_consensus_stats(projections: List[torch.Tensor],
+                             u_raw: Union[torch.Tensor, List[torch.Tensor]],
+                             mixing_algorithm: str,
+                             anchor: Optional[torch.Tensor],
+                             topology: str) -> Optional[Dict[str, Any]]:
+    """Capture training moments so out-of-sample prediction is batch-size (N=1) invariant."""
+    if topology != "star" or isinstance(u_raw, list) or not projections:
+        return None
+    try:
+        from .utils import align_column_signs
+        proj_rms = []
+        norm_projs = []
+        for p in projections:
+            p_safe = torch.nan_to_num(p.detach().double(), nan=0.0, posinf=0.0, neginf=0.0)
+            rms = float(torch.norm(p_safe, p="fro") / np.sqrt(max(1, p_safe.shape[0])))
+            proj_rms.append(rms)
+            norm_projs.append(p_safe / (rms + 1e-8) if rms > 1e-6 else torch.zeros_like(p_safe))
+        if mixing_algorithm in ("svd", "pca", "ica"):
+            if anchor is None:
+                return None
+            u_pre = torch.cat(norm_projs, dim=1) @ anchor.detach().double()
+            view_signs = None
+        else:
+            aligned = align_column_signs(norm_projs)
+            view_signs = []
+            for p_orig, p_al in zip(norm_projs, aligned):
+                dots = torch.sum(p_orig * p_al, dim=0, keepdim=True)
+                view_signs.append(torch.where(dots < 0.0, -torch.ones_like(dots), torch.ones_like(dots)))
+            u_pre = torch.mean(torch.stack(aligned), dim=0)
+        mu_k = u_pre.mean(dim=0, keepdim=True)
+        u_pre_c = u_pre - mu_k
+        lstsq_res = torch.linalg.lstsq(u_pre_c, u_raw.detach().double())
+        r_k = lstsq_res.solution
+        sv = torch.linalg.svdvals(u_pre_c)
+        cond = float((sv[0] / sv[-1].clamp_min(1e-15)).item()) if sv.numel() > 0 else 1.0
+        rank = int(lstsq_res.rank.item()) if lstsq_res.rank.numel() else int((sv > 1e-10 * sv[:1]).sum().item())
+        return {
+            "proj_rms": proj_rms,
+            "view_signs": view_signs,
+            "mu_k": mu_k,
+            "r_k": r_k,
+            "rank": rank,
+            "condition_number": cond,
+        }
+    except Exception:
+        return None
+
+
+def _apply_consensus_stats(projections: List[torch.Tensor],
+                           stats: Dict[str, Any],
+                           mixing_algorithm: str,
+                           anchor: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
+    """Apply captured training consensus statistics row-wise (invariant to N_test)."""
+    try:
+        dtype = projections[0].dtype
+        device = projections[0].device
+        proj_rms = stats["proj_rms"]
+        norm_projs = []
+        for p, rms in zip(projections, proj_rms):
+            p_safe = torch.nan_to_num(p.double(), nan=0.0, posinf=0.0, neginf=0.0)
+            norm_projs.append(p_safe / (rms + 1e-8) if rms > 1e-6 else torch.zeros_like(p_safe))
+        if mixing_algorithm in ("svd", "pca", "ica"):
+            if anchor is None:
+                return None
+            u_pre = torch.cat(norm_projs, dim=1) @ anchor.to(device=device, dtype=torch.float64)
+        else:
+            view_signs = stats.get("view_signs")
+            if not view_signs:
+                return None
+            aligned = [p * s.to(device=device, dtype=torch.float64) for p, s in zip(norm_projs, view_signs)]
+            u_pre = torch.mean(torch.stack(aligned), dim=0)
+        mu_k = stats["mu_k"].to(device=device, dtype=torch.float64)
+        r_k = stats["r_k"].to(device=device, dtype=torch.float64)
+        return ((u_pre - mu_k) @ r_k).to(dtype=dtype)
+    except Exception:
+        return None
+
+
 def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
                           simlr_result: Dict[str, Any]) -> Union[torch.Tensor, List[torch.Tensor]]:
     """
@@ -2097,15 +2177,15 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     projections = [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)]
     
     # 3. Compute consensus U using the original mixing settings
-    # Apply the consensus map fitted at training time rather than deriving a
-    # fresh one. For svd/pca/ica the derived basis is arbitrary up to rotation,
-    # sign and permutation, so re-deriving it here placed held-out samples in
-    # different axes than the training latent: on Diabetes a regression fitted
-    # on the training U scored -0.67 out of sample, against +0.40 through the
-    # fixed map X @ V. `compute_shared_consensus` reuses the anchor only when
-    # `training=False` and the algorithm is one of the volatile ones.
     anchor = simlr_result.get('consensus_anchor')
-    u_new = compute_shared_consensus(projections, mixing_algorithm=mixing_alg, k=k, orthogonalize=orthogonalize_u, training=False, anchor=anchor, topology=topology, path_graph=path_graph)
+    stats = simlr_result.get('consensus_stats')
+    u_new = None
+    if stats is not None and (mixing_alg not in ("svd", "pca", "ica") or anchor is not None):
+        u_new = _apply_consensus_stats(projections, stats, mixing_alg, anchor)
+    if u_new is None:
+        u_new = compute_shared_consensus(projections, mixing_algorithm=mixing_alg, k=k, orthogonalize=orthogonalize_u, training=False, anchor=anchor, topology=topology, path_graph=path_graph)
+    if simlr_result.get('nonneg_u', False):
+        u_new = _nonneg_consensus(u_new)
     return u_new
 
 def reconstruct_from_learned_maps(u: Union[torch.Tensor, List[torch.Tensor]], 

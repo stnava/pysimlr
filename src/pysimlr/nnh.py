@@ -153,7 +153,7 @@ def antspymm_predictors(
         
     # 3. t1namesbst
     t1namesbst_all = _get_names_from_dataframe(["T1Hier", "brainstem", "vol"], demog, exclusions=["tissues", "lobes"])
-    t1namesbst = t1namesbst_all[1:] if len(t1namesbst_all) > 0 else []
+    t1namesbst = list(t1namesbst_all)
     
     # 4. Assemble predictor names (testnames)
     testnames = []

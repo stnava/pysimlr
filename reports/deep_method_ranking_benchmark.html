@@ -42,6 +42,23 @@
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
+    .caveats {
+      margin-top: 14px;
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      border-radius: 8px;
+      padding: 12px 16px;
+    }
+    .caveats-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--warning);
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .caveats ul { margin: 0; padding-left: 18px; }
+    .caveats li { font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
     .subtitle {
       color: var(--text-muted);
       font-size: 14px;
@@ -157,97 +174,115 @@
   <header>
     <h1>PySIMLR Deep Method Ranking & Statistical Inference</h1>
     <div class="subtitle">
-      Comprehensive benchmark across 7 model architectures, 7 data regimes (4 synthetic + 3 multimodal), 
-      and N=10 independent seeds (490 total task evaluations).
+      9 architectures over 12 data regimes and 3 seeds
+      (324 task evaluations). Ranked on <code>Strictly_Linear_Metric</code> across
+      12 datasets &mdash; seeds are replicates of a task,
+      not additional tasks.
+    </div>
+    <div class="caveats">
+      <div class="caveats-title">Read the ranking with these in mind</div>
+      <ul>
+      <li>Effect size is marginal: the best-to-worst spread on Strictly_Linear_Metric is only 1.58x the seed-to-seed noise (median across regimes). Treat the ordering as weak evidence regardless of the Friedman p-value.</li>
+      </ul>
     </div>
   </header>
 
   <div class="cards-grid">
     <div class="card">
       <div class="card-label">Friedman Test (&chi;&sup2;)</div>
-      <div class="card-value">75.55 <span style="font-size:14px; color:var(--accent);">(p = 2.954e-14)</span></div>
-      <div class="card-sub">Iman-Davenport F = 15.13 (p = 1.092e-15)</div>
+      <div class="card-value">25.37 <span style="font-size:14px; color:var(--accent);">(p = 0.001347)</span></div>
+      <div class="card-sub">Iman-Davenport F = 3.95 (p = 0.0004954)</div>
     </div>
     <div class="card">
       <div class="card-label">Nemenyi Critical Diff (CD)</div>
-      <div class="card-value">1.077 <span style="font-size:14px; color:var(--text-muted);">rank units</span></div>
-      <div class="card-sub">&alpha; = 0.05, N = 70 paired datasets/folds</div>
+      <div class="card-value">3.468 <span style="font-size:14px; color:var(--text-muted);">rank units</span></div>
+      <div class="card-sub">&alpha; = 0.05, N = 12 datasets (seeds averaged, not counted as blocks)</div>
     </div>
     <div class="card">
       <div class="card-label">Permutation Resolution Floor</div>
-      <div class="card-value">2 / 2<sup>10</sup> = 0.00195</div>
+      <div class="card-value">2 / 2<sup>3</sup> = 0.25000</div>
       <div class="card-sub">Distribution-free exact sign-flip inference</div>
     </div>
     <div class="card">
       <div class="card-label">Top Pareto-Optimal Model</div>
-      <div class="card-value text-success">NSAFlow-Turnkey</div>
-      <div class="card-sub">Mean Rank: 2.85 across all tasks</div>
+      <div class="card-value text-success">SiMLR-LBFGSB</div>
+      <div class="card-sub">Mean Rank: 3.75 across all tasks</div>
     </div>
   </div>
 
   <div class="section-title">1. Critical Difference (CD) Diagram</div>
   <div class="cd-container">
     <svg width="750" height="180" viewBox="0 0 750 180" xmlns="http://www.w3.org/2000/svg" style="background:#0f172a; border-radius:8px;">
-<text x="375" y="25" text-anchor="middle" fill="#94a3b8" font-size="13" font-family="system-ui, sans-serif" font-weight="600">Nemenyi Critical Difference (CD = 1.077, &alpha;=0.05, N=70)</text>
-<line x1="90" y1="40" x2="199.45171577894087" y2="40" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+<text x="375" y="25" text-anchor="middle" fill="#94a3b8" font-size="13" font-family="system-ui, sans-serif" font-weight="600">Nemenyi Critical Difference (CD = 3.468, &alpha;=0.05, N=12 datasets)</text>
+<line x1="90" y1="40" x2="354.42279584544195" y2="40" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
 <line x1="90" y1="36" x2="90" y2="44" stroke="#38bdf8" stroke-width="2"/>
-<line x1="199.45171577894087" y1="36" x2="199.45171577894087" y2="44" stroke="#38bdf8" stroke-width="2"/>
-<text x="144.72585788947043" y="36" text-anchor="middle" fill="#38bdf8" font-size="11" font-family="system-ui, sans-serif">CD = 1.08</text>
+<line x1="354.42279584544195" y1="36" x2="354.42279584544195" y2="44" stroke="#38bdf8" stroke-width="2"/>
+<text x="222.21139792272098" y="36" text-anchor="middle" fill="#38bdf8" font-size="11" font-family="system-ui, sans-serif">CD = 3.47</text>
 <line x1="70" y1="60" x2="680" y2="60" stroke="#475569" stroke-width="2"/>
 <line x1="70.0" y1="55" x2="70.0" y2="65" stroke="#64748b" stroke-width="1.5"/>
 <text x="70.0" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">1</text>
-<line x1="171.66666666666666" y1="55" x2="171.66666666666666" y2="65" stroke="#64748b" stroke-width="1.5"/>
-<text x="171.66666666666666" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">2</text>
-<line x1="273.3333333333333" y1="55" x2="273.3333333333333" y2="65" stroke="#64748b" stroke-width="1.5"/>
-<text x="273.3333333333333" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">3</text>
+<line x1="146.25" y1="55" x2="146.25" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="146.25" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">2</text>
+<line x1="222.5" y1="55" x2="222.5" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="222.5" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">3</text>
+<line x1="298.75" y1="55" x2="298.75" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="298.75" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">4</text>
 <line x1="375.0" y1="55" x2="375.0" y2="65" stroke="#64748b" stroke-width="1.5"/>
-<text x="375.0" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">4</text>
-<line x1="476.66666666666663" y1="55" x2="476.66666666666663" y2="65" stroke="#64748b" stroke-width="1.5"/>
-<text x="476.66666666666663" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">5</text>
-<line x1="578.3333333333334" y1="55" x2="578.3333333333334" y2="65" stroke="#64748b" stroke-width="1.5"/>
-<text x="578.3333333333334" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">6</text>
+<text x="375.0" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">5</text>
+<line x1="451.25" y1="55" x2="451.25" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="451.25" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">6</text>
+<line x1="527.5" y1="55" x2="527.5" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="527.5" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">7</text>
+<line x1="603.75" y1="55" x2="603.75" y2="65" stroke="#64748b" stroke-width="1.5"/>
+<text x="603.75" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">8</text>
 <line x1="680.0" y1="55" x2="680.0" y2="65" stroke="#64748b" stroke-width="1.5"/>
-<text x="680.0" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">7</text>
-<circle cx="258.08333333333337" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
-<line x1="258.08333333333337" y1="60" x2="258.08333333333337" y2="83" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
-<text x="258.08333333333337" y="95" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">NSAFlow-Turnkey (2.85) [Pareto]</text>
-<circle cx="270.42857142857144" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
-<line x1="270.42857142857144" y1="60" x2="270.42857142857144" y2="128" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
-<text x="270.42857142857144" y="140" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">Flow-SiMLR-V (2.97) [Pareto]</text>
-<circle cx="359.0238095238095" cy="60" r="5" fill="#f59e0b" stroke="#0f172a" stroke-width="1.5"/>
-<line x1="359.0238095238095" y1="60" x2="359.0238095238095" y2="83" stroke="#f59e0b" stroke-width="1" stroke-dasharray="2,2"/>
-<text x="359.0238095238095" y="95" text-anchor="middle" fill="#f59e0b" font-size="11" font-family="system-ui, sans-serif" font-weight="600">LEND (3.84)</text>
-<circle cx="375.0" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
-<line x1="375.0" y1="60" x2="375.0" y2="128" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
-<text x="375.0" y="140" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">SiMLR (4.00) [Pareto]</text>
-<circle cx="379.35714285714283" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
-<line x1="379.35714285714283" y1="60" x2="379.35714285714283" y2="83" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
-<text x="379.35714285714283" y="95" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">SiMLR-LBFGS (4.04) [Pareto]</text>
-<circle cx="489.0119047619047" cy="60" r="5" fill="#f59e0b" stroke="#0f172a" stroke-width="1.5"/>
-<line x1="489.0119047619047" y1="60" x2="489.0119047619047" y2="128" stroke="#f59e0b" stroke-width="1" stroke-dasharray="2,2"/>
-<text x="489.0119047619047" y="140" text-anchor="middle" fill="#f59e0b" font-size="11" font-family="system-ui, sans-serif" font-weight="600">NEDPP (5.12)</text>
-<circle cx="494.09523809523813" cy="60" r="5" fill="#f59e0b" stroke="#0f172a" stroke-width="1.5"/>
-<line x1="494.09523809523813" y1="60" x2="494.09523809523813" y2="83" stroke="#f59e0b" stroke-width="1" stroke-dasharray="2,2"/>
-<text x="494.09523809523813" y="95" text-anchor="middle" fill="#f59e0b" font-size="11" font-family="system-ui, sans-serif" font-weight="600">NED (5.17)</text>
+<text x="680.0" y="52" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">9</text>
+<circle cx="279.6875" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="279.6875" y1="60" x2="279.6875" y2="83" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="279.6875" y="95" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">SiMLR-LBFGSB (3.75) [Pareto]</text>
+<circle cx="292.3958333333333" cy="60" r="5" fill="#f59e0b" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="292.3958333333333" y1="60" x2="292.3958333333333" y2="128" stroke="#f59e0b" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="292.3958333333333" y="140" text-anchor="middle" fill="#f59e0b" font-size="11" font-family="system-ui, sans-serif" font-weight="600">NED (3.92)</text>
+<circle cx="305.10416666666663" cy="60" r="5" fill="#f59e0b" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="305.10416666666663" y1="60" x2="305.10416666666663" y2="83" stroke="#f59e0b" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="305.10416666666663" y="95" text-anchor="middle" fill="#f59e0b" font-size="11" font-family="system-ui, sans-serif" font-weight="600">NEDPP (4.08)</text>
+<circle cx="308.28125" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="308.28125" y1="60" x2="308.28125" y2="128" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="308.28125" y="140" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">LEND (4.12) [Pareto]</text>
+<circle cx="320.98958333333337" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="320.98958333333337" y1="60" x2="320.98958333333337" y2="83" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="320.98958333333337" y="95" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">SiMLR-LBFGS (4.29) [Pareto]</text>
+<circle cx="349.58333333333337" cy="60" r="5" fill="#f59e0b" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="349.58333333333337" y1="60" x2="349.58333333333337" y2="128" stroke="#f59e0b" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="349.58333333333337" y="140" text-anchor="middle" fill="#f59e0b" font-size="11" font-family="system-ui, sans-serif" font-weight="600">Flow-SiMLR-V (4.67)</text>
+<circle cx="419.47916666666663" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="419.47916666666663" y1="60" x2="419.47916666666663" y2="83" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="419.47916666666663" y="95" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">SiMLR (5.58) [Pareto]</text>
+<circle cx="537.03125" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="537.03125" y1="60" x2="537.03125" y2="128" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="537.03125" y="140" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">NSAFlow-PCA (7.12) [Pareto]</text>
+<circle cx="562.4479166666666" cy="60" r="5" fill="#10b981" stroke="#0f172a" stroke-width="1.5"/>
+<line x1="562.4479166666666" y1="60" x2="562.4479166666666" y2="83" stroke="#10b981" stroke-width="1" stroke-dasharray="2,2"/>
+<text x="562.4479166666666" y="95" text-anchor="middle" fill="#10b981" font-size="11" font-family="system-ui, sans-serif" font-weight="600">PCA (7.46) [Pareto]</text>
 </svg>
     <div style="font-size:12px; color:var(--text-muted); margin-top:12px; text-align:center; max-width:700px;">
-      Models with mean ranks differing by less than the Critical Difference (CD = 1.077) are statistically indistinguishable at &alpha; = 0.05.
+      Models with mean ranks differing by less than the Critical Difference (CD = 3.468) are statistically indistinguishable at &alpha; = 0.05.
       Green points indicate models on the multi-objective Pareto frontier.
     </div>
   </div>
 
-  <div class="section-title">2. Aggregate Method Rankings & Invariants</div>
+  <div class="section-title">2. Aggregate Method Rankings & Invariants (XV Linear &amp; Axis-Sensitive)</div>
   <div class="table-container">
     <table>
       <thead>
         <tr>
           <th>Model Architecture</th>
-          <th>Mean Rank</th>
-          <th>Predictive Metric (Mean &plusmn; SD)</th>
-          <th>Peak Metric</th>
-          <th>Strictly Linear (XV)</th>
-          <th>Axis-Sensitive (RF)</th>
-          <th>CMC (U)</th>
+          <th>Mean Rank (XV Linear)</th>
+          <th>Strictly Linear XV (Mean &plusmn; SD)</th>
+          <th>Peak XV Linear</th>
+          <th>Axis-Sensitive RF (Mean &plusmn; SD)</th>
+          <th>Support Recovery (V)</th>
+          <th>Feature Recovery (V)</th>
           <th>Frame Defect (D)</th>
           <th>Lobe Crosstalk</th>
           <th>Fit Time</th>
@@ -256,101 +291,127 @@
       </thead>
       <tbody>
         <tr>
-          <td style="font-weight:600;">NSAFlow-Turnkey</td>
-          <td><span style="font-weight:700; color:var(--primary);">2.85</span></td>
-          <td>0.6462 &plusmn; 0.2982</td>
-          <td class="text-success" style="font-weight:600;">0.9894</td>
-          <td>0.6429</td>
-          <td>0.5841</td>
-          <td>0.7598</td>
+          <td style="font-weight:600;">SiMLR-LBFGSB</td>
+          <td><span style="font-weight:700; color:var(--primary);">3.75</span></td>
+          <td>0.7626 &plusmn; 0.2689</td>
+          <td class="text-success" style="font-weight:600;">0.9896</td>
+          <td>0.7426 &plusmn; 0.2845</td>
+          <td style="font-weight:600;">0.9907</td>
+          <td>0.8517</td>
           <td style="font-family:monospace;">0.0000</td>
           <td style="font-family:monospace;">0.0000</td>
-          <td>4.499s</td>
+          <td>3.400s</td>
           <td><span class="badge badge-pareto">Pareto Optimal</span></td>
         </tr>
         <tr>
-          <td style="font-weight:600;">Flow-SiMLR-V</td>
-          <td><span style="font-weight:700; color:var(--primary);">2.97</span></td>
-          <td>0.6203 &plusmn; 0.2745</td>
-          <td class="text-success" style="font-weight:600;">0.9635</td>
-          <td>0.6684</td>
-          <td>0.6352</td>
-          <td>0.6514</td>
+          <td style="font-weight:600;">NED</td>
+          <td><span style="font-weight:700; color:var(--primary);">3.92</span></td>
+          <td>0.7610 &plusmn; 0.2675</td>
+          <td class="text-success" style="font-weight:600;">0.9895</td>
+          <td>0.7403 &plusmn; 0.2921</td>
+          <td style="font-weight:600;">0.8106</td>
+          <td>0.8493</td>
+          <td style="font-family:monospace;">0.0001</td>
           <td style="font-family:monospace;">0.0000</td>
-          <td style="font-family:monospace;">0.0000</td>
-          <td>4.120s</td>
-          <td><span class="badge badge-pareto">Pareto Optimal</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">LEND</td>
-          <td><span style="font-weight:700; color:var(--primary);">3.84</span></td>
-          <td>0.5631 &plusmn; 0.2843</td>
-          <td class="text-success" style="font-weight:600;">0.9476</td>
-          <td>0.6684</td>
-          <td>0.6377</td>
-          <td>0.6520</td>
-          <td style="font-family:monospace;">0.0000</td>
-          <td style="font-family:monospace;">0.0000</td>
-          <td>1.562s</td>
+          <td>2.543s</td>
           <td><span class="badge">Dominated</span></td>
         </tr>
         <tr>
-          <td style="font-weight:600;">SiMLR</td>
-          <td><span style="font-weight:700; color:var(--primary);">4.00</span></td>
-          <td>0.5469 &plusmn; 0.2911</td>
-          <td class="text-success" style="font-weight:600;">0.9270</td>
-          <td>0.6666</td>
-          <td>0.6463</td>
-          <td>0.6166</td>
+          <td style="font-weight:600;">NEDPP</td>
+          <td><span style="font-weight:700; color:var(--primary);">4.08</span></td>
+          <td>0.7617 &plusmn; 0.2688</td>
+          <td class="text-success" style="font-weight:600;">0.9906</td>
+          <td>0.7416 &plusmn; 0.2917</td>
+          <td style="font-weight:600;">0.7957</td>
+          <td>0.8441</td>
+          <td style="font-family:monospace;">0.0001</td>
+          <td style="font-family:monospace;">0.0000</td>
+          <td>2.995s</td>
+          <td><span class="badge">Dominated</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td><span style="font-weight:700; color:var(--primary);">4.12</span></td>
+          <td>0.7643 &plusmn; 0.2682</td>
+          <td class="text-success" style="font-weight:600;">0.9897</td>
+          <td>0.7542 &plusmn; 0.2880</td>
+          <td style="font-weight:600;">0.8987</td>
+          <td>0.8561</td>
           <td style="font-family:monospace;">0.0000</td>
           <td style="font-family:monospace;">0.0000</td>
-          <td>0.104s</td>
+          <td>2.083s</td>
           <td><span class="badge badge-pareto">Pareto Optimal</span></td>
         </tr>
         <tr>
           <td style="font-weight:600;">SiMLR-LBFGS</td>
-          <td><span style="font-weight:700; color:var(--primary);">4.04</span></td>
-          <td>0.5743 &plusmn; 0.3007</td>
-          <td class="text-success" style="font-weight:600;">0.9581</td>
-          <td>0.6700</td>
-          <td>0.6450</td>
-          <td>0.6435</td>
+          <td><span style="font-weight:700; color:var(--primary);">4.29</span></td>
+          <td>0.7619 &plusmn; 0.2702</td>
+          <td class="text-success" style="font-weight:600;">0.9898</td>
+          <td>0.7453 &plusmn; 0.2839</td>
+          <td style="font-weight:600;">0.9664</td>
+          <td>0.8535</td>
+          <td style="font-family:monospace;">0.1021</td>
           <td style="font-family:monospace;">0.0000</td>
-          <td style="font-family:monospace;">0.0000</td>
-          <td>1.465s</td>
+          <td>3.135s</td>
           <td><span class="badge badge-pareto">Pareto Optimal</span></td>
         </tr>
         <tr>
-          <td style="font-weight:600;">NEDPP</td>
-          <td><span style="font-weight:700; color:var(--primary);">5.12</span></td>
-          <td>0.5392 &plusmn; 0.2640</td>
-          <td class="text-success" style="font-weight:600;">0.8685</td>
-          <td>0.6687</td>
-          <td>0.6362</td>
-          <td>0.6431</td>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td><span style="font-weight:700; color:var(--primary);">4.67</span></td>
+          <td>0.7604 &plusmn; 0.2698</td>
+          <td class="text-success" style="font-weight:600;">0.9901</td>
+          <td>0.7454 &plusmn; 0.2902</td>
+          <td style="font-weight:600;">0.8830</td>
+          <td>0.7857</td>
           <td style="font-family:monospace;">0.0000</td>
           <td style="font-family:monospace;">0.0000</td>
-          <td>2.270s</td>
+          <td>7.340s</td>
           <td><span class="badge">Dominated</span></td>
         </tr>
         <tr>
-          <td style="font-weight:600;">NED</td>
-          <td><span style="font-weight:700; color:var(--primary);">5.17</span></td>
-          <td>0.5393 &plusmn; 0.2620</td>
-          <td class="text-success" style="font-weight:600;">0.8533</td>
-          <td>0.6681</td>
-          <td>0.6361</td>
-          <td>0.6396</td>
+          <td style="font-weight:600;">SiMLR</td>
+          <td><span style="font-weight:700; color:var(--primary);">5.58</span></td>
+          <td>0.7588 &plusmn; 0.2706</td>
+          <td class="text-success" style="font-weight:600;">0.9893</td>
+          <td>0.7403 &plusmn; 0.2903</td>
+          <td style="font-weight:600;">0.4947</td>
+          <td>0.8329</td>
+          <td style="font-family:monospace;">0.0599</td>
           <td style="font-family:monospace;">0.0000</td>
+          <td>0.494s</td>
+          <td><span class="badge badge-pareto">Pareto Optimal</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NSAFlow-PCA</td>
+          <td><span style="font-weight:700; color:var(--primary);">7.12</span></td>
+          <td>0.7029 &plusmn; 0.2617</td>
+          <td class="text-success" style="font-weight:600;">0.9886</td>
+          <td>0.6737 &plusmn; 0.2959</td>
+          <td style="font-weight:600;">0.3987</td>
+          <td>0.8469</td>
+          <td style="font-family:monospace;">1.4585</td>
           <td style="font-family:monospace;">0.0000</td>
-          <td>1.923s</td>
-          <td><span class="badge">Dominated</span></td>
+          <td>0.039s</td>
+          <td><span class="badge badge-pareto">Pareto Optimal</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">PCA</td>
+          <td><span style="font-weight:700; color:var(--primary);">7.46</span></td>
+          <td>0.6971 &plusmn; 0.2678</td>
+          <td class="text-success" style="font-weight:600;">0.9894</td>
+          <td>0.6689 &plusmn; 0.3076</td>
+          <td style="font-weight:600;">0.3333</td>
+          <td>0.8601</td>
+          <td style="font-family:monospace;">1.4303</td>
+          <td style="font-family:monospace;">0.0000</td>
+          <td>0.022s</td>
+          <td><span class="badge badge-pareto">Pareto Optimal</span></td>
         </tr>
       </tbody>
     </table>
   </div>
 
-  <div class="section-title">3. Pairwise Bayesian Win-Rate Matrix P(Row &gt; Column)</div>
+  <div class="section-title">3. Pairwise Bayesian Win-Rate Matrix P(Row &gt; Column) on XV Linear</div>
   <div class="table-container">
     <table>
       <thead>
@@ -360,87 +421,127 @@
           <th>LEND</th>
           <th>NED</th>
           <th>NEDPP</th>
-          <th>NSAFlow-Turnkey</th>
+          <th>NSAFlow-PCA</th>
+          <th>PCA</th>
           <th>SiMLR</th>
           <th>SiMLR-LBFGS</th>
+          <th>SiMLR-LBFGSB</th>
         </tr>
       </thead>
       <tbody>
         <tr>
           <td style="font-weight:600;">Flow-SiMLR-V</td>
           <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.69</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.82</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.84</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.37</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.65</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.65</td>
+          <td style="color:var(--text);">0.50</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.33</td>
+          <td style="color:var(--text);">0.46</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.79</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.79</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.67</td>
+          <td style="color:var(--text);">0.42</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.38</td>
         </tr>
         <tr>
           <td style="font-weight:600;">LEND</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.31</td>
+          <td style="color:var(--text);">0.50</td>
           <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.71</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.63</td>
-          <td style="color:var(--text);">0.43</td>
+          <td style="color:var(--text);">0.42</td>
+          <td style="color:var(--text);">0.50</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.83</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.92</td>
           <td style="color:var(--text);">0.54</td>
-          <td style="color:var(--text);">0.54</td>
+          <td style="color:var(--text);">0.58</td>
+          <td style="color:var(--text);">0.58</td>
         </tr>
         <tr>
           <td style="font-weight:600;">NED</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.18</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.29</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.67</td>
+          <td style="color:var(--text);">0.58</td>
           <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
-          <td style="color:var(--text);">0.51</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.21</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.32</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.31</td>
+          <td style="color:var(--text);">0.50</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.83</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.92</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.67</td>
+          <td style="color:var(--text);">0.50</td>
+          <td style="color:var(--text);">0.42</td>
         </tr>
         <tr>
           <td style="font-weight:600;">NEDPP</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.16</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.37</td>
-          <td style="color:var(--text);">0.49</td>
+          <td style="color:var(--text);">0.54</td>
+          <td style="color:var(--text);">0.50</td>
+          <td style="color:var(--text);">0.50</td>
           <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.21</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.33</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.33</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.83</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.92</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.62</td>
+          <td style="color:var(--text);">0.50</td>
+          <td style="color:var(--text);">0.50</td>
         </tr>
         <tr>
-          <td style="font-weight:600;">NSAFlow-Turnkey</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.63</td>
-          <td style="color:var(--text);">0.57</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.79</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.79</td>
+          <td style="font-weight:600;">NSAFlow-PCA</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.21</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.17</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.17</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.17</td>
           <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.61</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.76</td>
+          <td style="color:var(--text);">0.54</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.25</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.17</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.21</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">PCA</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.21</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.08</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.08</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.08</td>
+          <td style="color:var(--text);">0.46</td>
+          <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.25</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.17</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.21</td>
         </tr>
         <tr>
           <td style="font-weight:600;">SiMLR</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.35</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.33</td>
           <td style="color:var(--text);">0.46</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.68</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.67</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.39</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.33</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.38</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.75</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.75</td>
           <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
-          <td style="color:var(--text);">0.46</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.25</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.17</td>
         </tr>
         <tr>
           <td style="font-weight:600;">SiMLR-LBFGS</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.35</td>
-          <td style="color:var(--text);">0.46</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.69</td>
-          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.67</td>
-          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.24</td>
-          <td style="color:var(--text);">0.54</td>
+          <td style="color:var(--text);">0.58</td>
+          <td style="color:var(--text);">0.42</td>
+          <td style="color:var(--text);">0.50</td>
+          <td style="color:var(--text);">0.50</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.83</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.83</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.75</td>
+          <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
+          <td style="color:var(--danger); background:rgba(239,68,68,0.05);">0.25</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">SiMLR-LBFGSB</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.62</td>
+          <td style="color:var(--text);">0.42</td>
+          <td style="color:var(--text);">0.58</td>
+          <td style="color:var(--text);">0.50</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.79</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.79</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.83</td>
+          <td style="color:var(--accent); font-weight:700; background:rgba(16,185,129,0.08);">0.75</td>
           <td style="color:var(--text-muted); background:rgba(255,255,255,0.01);">0.50</td>
         </tr>
       </tbody>
     </table>
   </div>
 
-  <div class="section-title">4. Pairwise Statistical Significance (Wilcoxon-Holm &amp; Exact Permutation)</div>
+  <div class="section-title">4. Pairwise Statistical Significance (Wilcoxon-Holm &amp; Exact Permutation on XV Linear)</div>
   <div class="table-container">
     <table>
       <thead>
@@ -456,282 +557,591 @@
       </thead>
       <tbody>
         <tr>
-          <td style="font-weight:600;">NEDPP</td>
-          <td>NSAFlow-Turnkey</td>
-          <td class="text-danger" style="font-weight:600;">-0.1070</td>
-          <td>8.387e-10</td>
-          <td style="font-weight:600;">1.761e-08</td>
-          <td style="font-family:monospace;">5e-06</td>
-          <td><span class='text-danger' style='font-weight:600;'>B &gt; A (p &lt; 0.05)</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">NED</td>
-          <td>NSAFlow-Turnkey</td>
-          <td class="text-danger" style="font-weight:600;">-0.1069</td>
-          <td>1.931e-09</td>
-          <td style="font-weight:600;">3.862e-08</td>
-          <td style="font-family:monospace;">5e-06</td>
-          <td><span class='text-danger' style='font-weight:600;'>B &gt; A (p &lt; 0.05)</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">Flow-SiMLR-V</td>
-          <td>NEDPP</td>
-          <td class="text-success" style="font-weight:600;">+0.0811</td>
-          <td>2.339e-08</td>
-          <td style="font-weight:600;">4.443e-07</td>
-          <td style="font-family:monospace;">5e-06</td>
-          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">Flow-SiMLR-V</td>
-          <td>NED</td>
-          <td class="text-success" style="font-weight:600;">+0.0810</td>
-          <td>2.783e-08</td>
-          <td style="font-weight:600;">5.009e-07</td>
-          <td style="font-family:monospace;">5e-06</td>
-          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">NSAFlow-Turnkey</td>
+          <td style="font-weight:600;">PCA</td>
           <td>SiMLR-LBFGS</td>
-          <td class="text-success" style="font-weight:600;">+0.0718</td>
-          <td>3.888e-05</td>
-          <td style="font-weight:600;">0.0006609</td>
-          <td style="font-family:monospace;">5e-06</td>
-          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+          <td class="text-danger" style="font-weight:600;">-0.0648</td>
+          <td>0.009277</td>
+          <td style="font-weight:600;">0.334</td>
+          <td style="font-family:monospace;">0.007324</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">PCA</td>
+          <td>SiMLR-LBFGSB</td>
+          <td class="text-danger" style="font-weight:600;">-0.0655</td>
+          <td>0.009766</td>
+          <td style="font-weight:600;">0.3418</td>
+          <td style="font-family:monospace;">0.006836</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
         </tr>
         <tr>
           <td style="font-weight:600;">Flow-SiMLR-V</td>
-          <td>LEND</td>
-          <td class="text-success" style="font-weight:600;">+0.0572</td>
-          <td>0.0003973</td>
-          <td style="font-weight:600;">0.006357</td>
-          <td style="font-family:monospace;">0.00297</td>
-          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">Flow-SiMLR-V</td>
-          <td>SiMLR</td>
-          <td class="text-success" style="font-weight:600;">+0.0734</td>
-          <td>0.0006048</td>
-          <td style="font-weight:600;">0.009072</td>
-          <td style="font-family:monospace;">0.00143</td>
-          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">NED</td>
-          <td>SiMLR-LBFGS</td>
-          <td class="text-danger" style="font-weight:600;">-0.0350</td>
-          <td>0.0008134</td>
-          <td style="font-weight:600;">0.01139</td>
-          <td style="font-family:monospace;">0.1239</td>
-          <td><span class='text-danger' style='font-weight:600;'>B &gt; A (p &lt; 0.05)</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">Flow-SiMLR-V</td>
-          <td>SiMLR-LBFGS</td>
-          <td class="text-success" style="font-weight:600;">+0.0460</td>
-          <td>0.001642</td>
-          <td style="font-weight:600;">0.02135</td>
-          <td style="font-family:monospace;">0.02158</td>
-          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
+          <td>PCA</td>
+          <td class="text-success" style="font-weight:600;">+0.0633</td>
+          <td>0.009766</td>
+          <td style="font-weight:600;">0.3418</td>
+          <td style="font-family:monospace;">0.0127</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
         </tr>
         <tr>
           <td style="font-weight:600;">NEDPP</td>
-          <td>SiMLR-LBFGS</td>
-          <td class="text-danger" style="font-weight:600;">-0.0351</td>
-          <td>0.001725</td>
-          <td style="font-weight:600;">0.02135</td>
-          <td style="font-family:monospace;">0.08492</td>
-          <td><span class='text-danger' style='font-weight:600;'>B &gt; A (p &lt; 0.05)</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">LEND</td>
-          <td>NSAFlow-Turnkey</td>
-          <td class="text-danger" style="font-weight:600;">-0.0831</td>
-          <td>0.002857</td>
-          <td style="font-weight:600;">0.02985</td>
-          <td style="font-family:monospace;">5e-06</td>
-          <td><span class='text-danger' style='font-weight:600;'>B &gt; A (p &lt; 0.05)</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">LEND</td>
-          <td>NED</td>
-          <td class="text-success" style="font-weight:600;">+0.0238</td>
-          <td>0.002714</td>
-          <td style="font-weight:600;">0.02985</td>
-          <td style="font-family:monospace;">0.2576</td>
-          <td><span class='text-success' style='font-weight:600;'>A &gt; B (p &lt; 0.05)</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">NSAFlow-Turnkey</td>
-          <td>SiMLR</td>
-          <td class="text-success" style="font-weight:600;">+0.0993</td>
-          <td>0.005656</td>
-          <td style="font-weight:600;">0.0509</td>
-          <td style="font-family:monospace;">1e-05</td>
+          <td>PCA</td>
+          <td class="text-success" style="font-weight:600;">+0.0646</td>
+          <td>0.01221</td>
+          <td style="font-weight:600;">0.4028</td>
+          <td style="font-family:monospace;">0.008301</td>
           <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
         </tr>
         <tr>
           <td style="font-weight:600;">LEND</td>
-          <td>NEDPP</td>
-          <td class="text-success" style="font-weight:600;">+0.0239</td>
-          <td>0.0132</td>
-          <td style="font-weight:600;">0.1056</td>
-          <td style="font-family:monospace;">0.203</td>
+          <td>PCA</td>
+          <td class="text-success" style="font-weight:600;">+0.0672</td>
+          <td>0.01221</td>
+          <td style="font-weight:600;">0.4028</td>
+          <td style="font-family:monospace;">0.0127</td>
           <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
         </tr>
         <tr>
           <td style="font-weight:600;">NED</td>
+          <td>PCA</td>
+          <td class="text-success" style="font-weight:600;">+0.0639</td>
+          <td>0.01611</td>
+          <td style="font-weight:600;">0.4995</td>
+          <td style="font-family:monospace;">0.01025</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NSAFlow-PCA</td>
+          <td>SiMLR-LBFGSB</td>
+          <td class="text-danger" style="font-weight:600;">-0.0598</td>
+          <td>0.01855</td>
+          <td style="font-weight:600;">0.5566</td>
+          <td style="font-family:monospace;">0.01562</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td>NSAFlow-PCA</td>
+          <td class="text-success" style="font-weight:600;">+0.0614</td>
+          <td>0.021</td>
+          <td style="font-weight:600;">0.6089</td>
+          <td style="font-family:monospace;">0.05322</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NED</td>
+          <td>NSAFlow-PCA</td>
+          <td class="text-success" style="font-weight:600;">+0.0582</td>
+          <td>0.02686</td>
+          <td style="font-weight:600;">0.752</td>
+          <td style="font-family:monospace;">0.03857</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NSAFlow-PCA</td>
+          <td>SiMLR-LBFGS</td>
+          <td class="text-danger" style="font-weight:600;">-0.0590</td>
+          <td>0.02686</td>
+          <td style="font-weight:600;">0.752</td>
+          <td style="font-family:monospace;">0.021</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">PCA</td>
           <td>SiMLR</td>
-          <td class="text-danger" style="font-weight:600;">-0.0076</td>
-          <td>0.01617</td>
-          <td style="font-weight:600;">0.1132</td>
-          <td style="font-family:monospace;">0.7563</td>
+          <td class="text-danger" style="font-weight:600;">-0.0617</td>
+          <td>0.03418</td>
+          <td style="font-weight:600;">0.8887</td>
+          <td style="font-family:monospace;">0.02783</td>
           <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
         </tr>
         <tr>
           <td style="font-weight:600;">NEDPP</td>
           <td>SiMLR</td>
-          <td class="text-danger" style="font-weight:600;">-0.0077</td>
-          <td>0.04082</td>
-          <td style="font-weight:600;">0.2449</td>
-          <td style="font-family:monospace;">0.7331</td>
+          <td class="text-success" style="font-weight:600;">+0.0028</td>
+          <td>0.4131</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.3623</td>
           <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
         </tr>
         <tr>
-          <td style="font-weight:600;">Flow-SiMLR-V</td>
-          <td>NSAFlow-Turnkey</td>
-          <td class="text-danger" style="font-weight:600;">-0.0258</td>
-          <td>0.08271</td>
-          <td style="font-weight:600;">0.4135</td>
-          <td style="font-family:monospace;">0.02082</td>
-          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">LEND</td>
+          <td style="font-weight:600;">NEDPP</td>
           <td>SiMLR-LBFGS</td>
-          <td class="text-danger" style="font-weight:600;">-0.0112</td>
-          <td>0.9062</td>
+          <td class="text-danger" style="font-weight:600;">-0.0002</td>
+          <td>0.9697</td>
           <td style="font-weight:600;">1</td>
-          <td style="font-family:monospace;">0.5017</td>
+          <td style="font-family:monospace;">0.9492</td>
           <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
         </tr>
         <tr>
-          <td style="font-weight:600;">LEND</td>
+          <td style="font-weight:600;">NSAFlow-PCA</td>
+          <td>PCA</td>
+          <td class="text-success" style="font-weight:600;">+0.0058</td>
+          <td>0.5195</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.374</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NEDPP</td>
+          <td>NSAFlow-PCA</td>
+          <td class="text-success" style="font-weight:600;">+0.0588</td>
+          <td>0.05225</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.05518</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NSAFlow-PCA</td>
           <td>SiMLR</td>
-          <td class="text-success" style="font-weight:600;">+0.0162</td>
-          <td>0.8829</td>
+          <td class="text-danger" style="font-weight:600;">-0.0560</td>
+          <td>0.1099</td>
           <td style="font-weight:600;">1</td>
-          <td style="font-family:monospace;">0.16</td>
-          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600;">NED</td>
-          <td>NEDPP</td>
-          <td class="text-success" style="font-weight:600;">+0.0001</td>
-          <td>0.6666</td>
-          <td style="font-weight:600;">1</td>
-          <td style="font-family:monospace;">0.9938</td>
+          <td style="font-family:monospace;">0.09033</td>
           <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
         </tr>
         <tr>
           <td style="font-weight:600;">SiMLR</td>
           <td>SiMLR-LBFGS</td>
-          <td class="text-danger" style="font-weight:600;">-0.0274</td>
-          <td>0.3728</td>
+          <td class="text-danger" style="font-weight:600;">-0.0031</td>
+          <td>0.1294</td>
           <td style="font-weight:600;">1</td>
-          <td style="font-family:monospace;">0.05186</td>
+          <td style="font-family:monospace;">0.2075</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NEDPP</td>
+          <td>SiMLR-LBFGSB</td>
+          <td class="text-danger" style="font-weight:600;">-0.0010</td>
+          <td>0.9697</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.8022</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NED</td>
+          <td>SiMLR-LBFGSB</td>
+          <td class="text-danger" style="font-weight:600;">-0.0016</td>
+          <td>0.791</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.6821</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>LEND</td>
+          <td class="text-danger" style="font-weight:600;">-0.0039</td>
+          <td>0.6772</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.5181</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NED</td>
+          <td>SiMLR</td>
+          <td class="text-success" style="font-weight:600;">+0.0022</td>
+          <td>0.3013</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.604</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">SiMLR</td>
+          <td>SiMLR-LBFGSB</td>
+          <td class="text-danger" style="font-weight:600;">-0.0038</td>
+          <td>0.06396</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.1157</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NED</td>
+          <td>NEDPP</td>
+          <td class="text-danger" style="font-weight:600;">-0.0007</td>
+          <td>0.9697</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.8335</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td>SiMLR-LBFGSB</td>
+          <td class="text-success" style="font-weight:600;">+0.0016</td>
+          <td>0.9697</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.8584</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td>SiMLR-LBFGS</td>
+          <td class="text-success" style="font-weight:600;">+0.0024</td>
+          <td>0.9697</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.8125</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td>SiMLR</td>
+          <td class="text-success" style="font-weight:600;">+0.0054</td>
+          <td>0.4648</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.5498</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td>NEDPP</td>
+          <td class="text-success" style="font-weight:600;">+0.0026</td>
+          <td>1</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.6255</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td>NED</td>
+          <td class="text-success" style="font-weight:600;">+0.0032</td>
+          <td>0.7334</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.8208</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>SiMLR-LBFGSB</td>
+          <td class="text-danger" style="font-weight:600;">-0.0023</td>
+          <td>0.7002</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.6699</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>SiMLR-LBFGS</td>
+          <td class="text-danger" style="font-weight:600;">-0.0015</td>
+          <td>0.9097</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.7471</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>SiMLR</td>
+          <td class="text-success" style="font-weight:600;">+0.0015</td>
+          <td>0.2334</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.7876</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>NSAFlow-PCA</td>
+          <td class="text-success" style="font-weight:600;">+0.0575</td>
+          <td>0.04199</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.05371</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>NEDPP</td>
+          <td class="text-danger" style="font-weight:600;">-0.0013</td>
+          <td>0.9658</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.8701</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>NED</td>
+          <td class="text-danger" style="font-weight:600;">-0.0007</td>
+          <td>0.6221</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.9111</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NED</td>
+          <td>SiMLR-LBFGS</td>
+          <td class="text-danger" style="font-weight:600;">-0.0009</td>
+          <td>0.9097</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.8257</td>
+          <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">SiMLR-LBFGS</td>
+          <td>SiMLR-LBFGSB</td>
+          <td class="text-danger" style="font-weight:600;">-0.0007</td>
+          <td>0.08301</td>
+          <td style="font-weight:600;">1</td>
+          <td style="font-family:monospace;">0.2559</td>
           <td><span style='color:var(--text-muted);'>No Significant Diff</span></td>
         </tr>
       </tbody>
     </table>
   </div>
 
-  <div class="section-title">5. Dataset &amp; Generative Regime Breakdown</div>
+  <div class="section-title">5. Dataset &amp; Generative Regime Breakdown (XV Linear &amp; RF)</div>
   <div class="table-container">
     <table>
       <thead>
         <tr>
           <th>Dataset / Regime</th>
           <th>Type</th>
-          <th>Top Model</th>
-          <th>Top Metric (Mean)</th>
-          <th>Top CMC (Latent U)</th>
+          <th>Top Model (XV Linear)</th>
+          <th>Top XV Linear (Mean)</th>
+          <th>Top XV RF (Mean)</th>
           <th>Top SRE / Procrustes (V)</th>
           <th>Leading Invariant</th>
         </tr>
       </thead>
       <tbody>
         <tr>
+          <td style="font-weight:600;">ADNI-MCI</td>
+          <td><span class="badge">Real</span></td>
+          <td class="text-success" style="font-weight:600;">NEDPP</td>
+          <td style="font-weight:700;">0.0715</td>
+          <td>0.0201</td>
+          <td>n/a</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
+        </tr>
+        <tr>
           <td style="font-weight:600;">Diabetes</td>
           <td><span class="badge">Real</span></td>
-          <td class="text-success" style="font-weight:600;">Flow-SiMLR-V</td>
-          <td style="font-weight:700;">0.4032</td>
-          <td>1.0000</td>
-          <td>0.0000</td>
-          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+          <td class="text-success" style="font-weight:600;">SiMLR-LBFGSB</td>
+          <td style="font-weight:700;">0.3961</td>
+          <td>0.3644</td>
+          <td>n/a</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
         </tr>
         <tr>
           <td style="font-weight:600;">Heart</td>
           <td><span class="badge">Real</span></td>
-          <td class="text-success" style="font-weight:600;">Flow-SiMLR-V</td>
-          <td style="font-weight:700;">0.7856</td>
-          <td>1.0000</td>
-          <td>0.0000</td>
-          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+          <td class="text-success" style="font-weight:600;">NSAFlow-PCA</td>
+          <td style="font-weight:700;">0.8481</td>
+          <td>0.8407</td>
+          <td>n/a</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
         </tr>
         <tr>
           <td style="font-weight:600;">Linear</td>
           <td><span class="badge">Synthetic</span></td>
-          <td class="text-success" style="font-weight:600;">NSAFlow-Turnkey</td>
-          <td style="font-weight:700;">0.8022</td>
-          <td>0.9891</td>
-          <td>0.6012</td>
-          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+          <td class="text-success" style="font-weight:600;">LEND</td>
+          <td style="font-weight:700;">0.9768</td>
+          <td>0.9700</td>
+          <td>0.9075</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
         </tr>
         <tr>
           <td style="font-weight:600;">MultiOmics</td>
           <td><span class="badge">Real</span></td>
-          <td class="text-success" style="font-weight:600;">NSAFlow-Turnkey</td>
-          <td style="font-weight:700;">0.9863</td>
-          <td>0.9905</td>
-          <td>0.6309</td>
-          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+          <td class="text-success" style="font-weight:600;">SiMLR-LBFGS</td>
+          <td style="font-weight:700;">0.9301</td>
+          <td>0.9355</td>
+          <td>n/a</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NonnegParts</td>
+          <td><span class="badge">Synthetic</span></td>
+          <td class="text-success" style="font-weight:600;">SiMLR</td>
+          <td style="font-weight:700;">0.9193</td>
+          <td>0.9058</td>
+          <td>0.9689</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NonnegPartsWeak</td>
+          <td><span class="badge">Synthetic</span></td>
+          <td class="text-success" style="font-weight:600;">Flow-SiMLR-V</td>
+          <td style="font-weight:700;">0.7435</td>
+          <td>0.7158</td>
+          <td>0.9689</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
         </tr>
         <tr>
           <td style="font-weight:600;">Polynomial</td>
           <td><span class="badge">Synthetic</span></td>
-          <td class="text-success" style="font-weight:600;">NSAFlow-Turnkey</td>
-          <td style="font-weight:700;">0.7789</td>
-          <td>0.3789</td>
-          <td>0.3979</td>
-          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+          <td class="text-success" style="font-weight:600;">NED</td>
+          <td style="font-weight:700;">0.8892</td>
+          <td>0.9608</td>
+          <td>0.8975</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
         </tr>
         <tr>
           <td style="font-weight:600;">Shared+Private</td>
           <td><span class="badge">Synthetic</span></td>
-          <td class="text-success" style="font-weight:600;">NSAFlow-Turnkey</td>
-          <td style="font-weight:700;">0.7973</td>
-          <td>0.9018</td>
-          <td>0.5266</td>
-          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+          <td class="text-success" style="font-weight:600;">LEND</td>
+          <td style="font-weight:700;">0.9559</td>
+          <td>0.9395</td>
+          <td>0.5663</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
         </tr>
         <tr>
           <td style="font-weight:600;">Sine</td>
           <td><span class="badge">Synthetic</span></td>
-          <td class="text-success" style="font-weight:600;">NSAFlow-Turnkey</td>
-          <td style="font-weight:700;">0.0803</td>
-          <td>0.0584</td>
-          <td>0.0687</td>
-          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+          <td class="text-success" style="font-weight:600;">NED</td>
+          <td style="font-weight:700;">0.9473</td>
+          <td>0.9396</td>
+          <td>0.9108</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">TCGA-KIRC</td>
+          <td><span class="badge">Real</span></td>
+          <td class="text-success" style="font-weight:600;">NED</td>
+          <td style="font-weight:700;">0.6903</td>
+          <td>0.6761</td>
+          <td>n/a</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">mfeat</td>
+          <td><span class="badge">Real</span></td>
+          <td class="text-success" style="font-weight:600;">NEDPP</td>
+          <td style="font-weight:700;">0.9622</td>
+          <td>0.9617</td>
+          <td>n/a</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="section-title">6. Method Rankings on XV: Synthetic Alone vs. Real Alone vs. Combined</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Synthetic Rank (XV Linear)</th>
+          <th>Synthetic Mean (XV Linear)</th>
+          <th>Real Rank (XV Linear)</th>
+          <th>Real Mean (XV Linear)</th>
+          <th>Combined Rank (XV Linear)</th>
+          <th>Combined Mean (XV Linear)</th>
+          <th>Real Rank (XV RF)</th>
+          <th>Real Mean (XV RF)</th>
+          <th>Combined Rank (XV RF)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="font-weight:600;">SiMLR-LBFGSB</td>
+          <td>3.83</td>
+          <td>0.8840</td>
+          <td style="font-weight:700; color:var(--accent);">3.67</td>
+          <td>0.6412</td>
+          <td style="font-weight:700; color:var(--primary);">3.75</td>
+          <td>0.7626</td>
+          <td style="font-weight:700; color:var(--accent);">5.67</td>
+          <td>0.6148</td>
+          <td>5.25</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NED</td>
+          <td>4.00</td>
+          <td>0.8830</td>
+          <td style="font-weight:700; color:var(--accent);">3.83</td>
+          <td>0.6391</td>
+          <td style="font-weight:700; color:var(--primary);">3.92</td>
+          <td>0.7610</td>
+          <td style="font-weight:700; color:var(--accent);">4.67</td>
+          <td>0.6125</td>
+          <td>4.42</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NEDPP</td>
+          <td>4.33</td>
+          <td>0.8843</td>
+          <td style="font-weight:700; color:var(--accent);">3.83</td>
+          <td>0.6391</td>
+          <td style="font-weight:700; color:var(--primary);">4.08</td>
+          <td>0.7617</td>
+          <td style="font-weight:700; color:var(--accent);">4.17</td>
+          <td>0.6102</td>
+          <td>3.67</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">LEND</td>
+          <td>2.50</td>
+          <td>0.9012</td>
+          <td style="font-weight:700; color:var(--accent);">5.75</td>
+          <td>0.6273</td>
+          <td style="font-weight:700; color:var(--primary);">4.12</td>
+          <td>0.7643</td>
+          <td style="font-weight:700; color:var(--accent);">3.92</td>
+          <td>0.6071</td>
+          <td>3.46</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">SiMLR-LBFGS</td>
+          <td>4.67</td>
+          <td>0.8838</td>
+          <td style="font-weight:700; color:var(--accent);">3.92</td>
+          <td>0.6400</td>
+          <td style="font-weight:700; color:var(--primary);">4.29</td>
+          <td>0.7619</td>
+          <td style="font-weight:700; color:var(--accent);">4.50</td>
+          <td>0.6214</td>
+          <td>4.92</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">Flow-SiMLR-V</td>
+          <td>3.83</td>
+          <td>0.8947</td>
+          <td style="font-weight:700; color:var(--accent);">5.50</td>
+          <td>0.6261</td>
+          <td style="font-weight:700; color:var(--primary);">4.67</td>
+          <td>0.7604</td>
+          <td style="font-weight:700; color:var(--accent);">5.33</td>
+          <td>0.6006</td>
+          <td>3.50</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">SiMLR</td>
+          <td>4.83</td>
+          <td>0.8846</td>
+          <td style="font-weight:700; color:var(--accent);">6.33</td>
+          <td>0.6331</td>
+          <td style="font-weight:700; color:var(--primary);">5.58</td>
+          <td>0.7588</td>
+          <td style="font-weight:700; color:var(--accent);">4.08</td>
+          <td>0.6147</td>
+          <td>5.21</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">NSAFlow-PCA</td>
+          <td>8.67</td>
+          <td>0.8060</td>
+          <td style="font-weight:700; color:var(--accent);">5.58</td>
+          <td>0.5997</td>
+          <td style="font-weight:700; color:var(--primary);">7.12</td>
+          <td>0.7029</td>
+          <td style="font-weight:700; color:var(--accent);">6.50</td>
+          <td>0.5553</td>
+          <td>7.17</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600;">PCA</td>
+          <td>8.33</td>
+          <td>0.7995</td>
+          <td style="font-weight:700; color:var(--accent);">6.58</td>
+          <td>0.5946</td>
+          <td style="font-weight:700; color:var(--primary);">7.46</td>
+          <td>0.6971</td>
+          <td style="font-weight:700; color:var(--accent);">6.17</td>
+          <td>0.5525</td>
+          <td>7.42</td>
         </tr>
       </tbody>
     </table>
   </div>
 
   <div class="footer">
-    PySIMLR Deep Ranking Benchmark &bull; Generated: September 18, 2026 &bull; Engine: PyTorch / Scipy
+    PySIMLR Deep Ranking Benchmark &bull; Generated: October 18, 2026 &bull; Engine: PyTorch / Scipy
   </div>
 </div>
 </body>

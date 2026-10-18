@@ -47,6 +47,7 @@ format:
     number-sections: true
   pdf:
     documentclass: report
+    pdf-engine: xelatex
     toc: true
     number-sections: true
     geometry: margin=1in

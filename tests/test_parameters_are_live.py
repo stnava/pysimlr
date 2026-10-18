@@ -102,6 +102,15 @@ EXEMPT = {
                   "test_the_complete_graph_reproduces_leave_one_out and the "
                   "consensus tests. Supplying it under another topology now "
                   "warns rather than being silently discarded.",
+    "dynamic_weights": "leave-one-out MAI on this module's two-view fixture "
+                       "scores view 0 against view 1 and view 1 against view 0 "
+                       "with symmetric cross-SVD/RV metrics, so mai[0] == mai[1] "
+                       "and the normalised weights stay [0.5, 0.5] identically. "
+                       "Exercised on >=3 views in test_flow_mai.py.",
+    "mai_metric": "only meaningful with dynamic_weights=True on >=3 views, "
+                  "exercised in test_flow_mai.py.",
+    "use_rank_mai": "only meaningful with dynamic_weights=True on >=3 views, "
+                    "exercised in test_flow_mai.py.",
 }
 
 BASE = dict(k=K, iterations=4, positivity="positive", energy_type="recon_r2",

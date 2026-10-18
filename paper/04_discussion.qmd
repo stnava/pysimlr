@@ -2,149 +2,139 @@
 title: "Discussion"
 ---
 
-Integrating heterogeneous, high-dimensional observations remains a fundamental challenge in computational biology and neuroimaging [@stone2020longitudinal; @avants2021]. As modalities diversify—encompassing multi-sequence MRI, molecular PET, biofluid markers, and high-throughput omics—analytical tools must balance non-linear representational capacity with rigorous, auditable interpretability. In this work, we expanded the **SiMLR** framework into an architectural continuum anchored by the **Only Linear Encoder Entrypoint (OLEE)** and stabilized via Riemannian manifold optimization and bijective normalizing flows.
+Integrating heterogeneous, high-dimensional observations remains a fundamental task in computational anatomy, neurodegenerative disease modeling, and translational molecular oncology [@stone2020longitudinal; @avants2021]. As diagnostic and clinical trial cohorts incorporate multi-sequence structural and diffusion MRI, molecular positron emission tomography, biofluid assays, and high-throughput transcriptomics [@ADNI; @jack2008alzheimer; @Marek2011], representation learning methods must balance the capacity to model non-linear manifold geometry against the legal, ethical, and scientific necessity for verifiable physical biomarker attribution [@Holmberg_2022]. In neurotrauma, blast-induced shockwaves produce diffuse microstructural shearing across white matter tracts that demands sparse, signed decomposition without cancellation artifacts [@stone2024blast]. In cancer genomics, resolving functional oncogenic pathways across somatic copy-number alterations, mRNA expression, and targeted protein arrays in breast carcinoma (BRCA) [@tcga2012breast; @cancerdiscovery2016esr1] and clear cell renal cell carcinoma (KIRC) [@tcga2013kirc] requires multi-modal alignment that preserves exact gene-level attribution.
 
-Through systematic evaluation across 70 independent task blocks ($7 \text{ data regimes} \times 10 \text{ random seeds} = 490$ model evaluations), we characterize the operational boundaries of multi-modal consensus learning and establish evidence-based guidelines for biomedical deployment.
+In this work, we formulated multi-view representation learning as a constrained variational problem governed by the Only Linear Encoder Entrypoint (OLEE) contract, coupling an initial linear Stiefel projection with downstream Riemannian optimizers, non-linear decoders, and volume-preserving normalizing flows. Through evaluation across 9 distinct data regimes (3 real clinical/genomic cohorts and 6 synthetic manifolds across 3 random seeds, totaling 243 model evaluations), alongside dedicated investigations of 4-view cognitive mediation in Alzheimer's disease ($N=1,084$), we characterize the operational boundaries of multi-modal integration and establish empirical guidelines for biomedical deployment.
 
 ## Non-Parametric Architectural Ranking and Empirical Synthesis
 
-Evaluating multi-modal representations requires non-parametric statistical inference that respects the structure of repeated task blocks without pooling across seeds [@Demsar2006]. Across all 70 independent task blocks, the non-parametric Friedman test confirms significant performance differences among the seven evaluated architectures ($\chi_F^2 = 69.39, p = 5.44 \times 10^{-13}$), corroborated by the Iman-Davenport extension ($F_F = 13.66, p = 3.63 \times 10^{-14}$) [@Iman1980]. With seven models and 70 tasks, the Nemenyi Critical Difference at $\alpha = 0.05$ is $CD = 1.077$ [@Nemenyi1963].
+Evaluating multi-modal representations requires non-parametric statistical inference that respects dataset-level block structure rather than pooling across replicate seeds [@Demsar2006]. Across the $B = 9$ independent dataset blocks and $k = 9$ evaluated architectures, the non-parametric Friedman test confirms highly significant performance differences ($\chi_F^2 = 32.47, p = 7.68 \times 10^{-5}$), corroborated by the Iman–Davenport extension ($F_F = 6.57, p = 3.13 \times 10^{-6}$, $\text{df}_1 = 8, \text{df}_2 = 64$) [@Iman1980]. With nine models and nine dataset blocks, the two-tailed Nemenyi Critical Difference at $\alpha = 0.05$ is $CD = 4.004$ [@Nemenyi1963], and the median between-model spread-to-noise ratio is $6.15\times$.
 
-The resulting empirical rankings establish three distinct statistical tiers:
+The empirical rankings establish four clear architectural tiers:
 
-1. **Top Global Tier (`Flow-SiMLR-V`):** The normalizing flow model with linear Stiefel bottleneck achieves a mean rank of $2.4714$, significantly outperforming all other architectures ($p < 0.003$ on paired Wilcoxon tests with Holm-Bonferroni correction [@Wilcoxon1945; @Holm1979], and exact sign-flip permutation $p \le 0.00007$). By combining bijective volume-preserving affine coupling layers with an OLEE linear entrypoint, `Flow-SiMLR-V` achieves leading downstream predictive power across synthetic and clinical tasks ($Y = 0.6312$ overall, $0.9055$ on Multi-Omics, $0.7722$ on Heart).
-2. **Competitive Linear and Hybrid Tier (`SiMLR-LBFGS`, `LEND`, `SiMLR`):** Quasi-Newton Riemannian optimization (`SiMLR-LBFGS`, mean rank $3.7000$) matches the deep hybrid architecture (`LEND`, mean rank $3.7000$) and classical linear `SiMLR` (mean rank $3.7143$). Critically, `SiMLR-LBFGS` statistically outperforms fully unconstrained deep autoencoders (`NED`, $p = 0.0148$; `NEDPP`, $p = 0.0274$). This demonstrates that incorporating analytical quasi-Newton curvature steps on the Stiefel manifold closes the performance gap between linear and deep architectures without requiring non-linear decoders.
-3. **Dominated Deep Tier (`NED`, `NEDPP`):** Fully non-linear autoencoders (`NED`, mean rank $4.6786$; `NEDPP`, mean rank $4.6929$) underperform both the flow-based and quasi-Newton linear formulations. While deep decoders facilitate non-linear coordinate mapping, unconstrained MLP layers are susceptible to overfitting on finite biological cohorts, yielding inferior generalization compared to regularized Riemannian formulations.
+1. **Box-Constrained Riemannian & Deep Hybrid Frontier (`SiMLR-LBFGSB`, `LEND`):** `SiMLR-LBFGSB` achieves the best overall predictive rank ($3.28$, mean predictive score $0.795 \pm 0.201$, linear probe $0.830$) and the highest sparse support recovery across the suite ($\text{Support } F_1 = 0.942$) with near-zero per-view Stiefel frame defect ($D = 2 \times 10^{-5}$). `LEND` achieves rank $3.56$ and leads the benchmark in mean predictive accuracy ($0.830 \pm 0.189$), strictly linear probe ($0.836$), axis-aligned Random Forest probe ($0.830$), and latent coordinate recovery ($CMC = 0.907$), excelling on `Shared+Private` ($R^2 = 0.949$ vs $0.639$ for `PCA`) and `NonnegPartsWeak` ($R^2 = 0.732$ vs $0.522$ for `PCA`).
+2. **Ultra-Fast Turnkey SVD & Dense Linear Tier (`NSAFlow-PCA`, `PCA`):** `NSAFlow-PCA` achieves rank $3.61$ ($0.782 \pm 0.200$, $CMC = 0.834$) in $0.029$ seconds per fit—matching `PCA` (rank $3.78$, $0.774 \pm 0.213$, $0.024\text{s}$) in speed while outperforming `PCA` on Diabetes ($R^2 = 0.382$ vs $0.350$) and TCGA-BRCA Multi-Omics ($92.7\%$ vs $91.9\%$) and enforcing $22.4\%$ disjoint sparsity with zero signed crosstalk ($\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}$).
+3. **First-Order, Quasi-Newton & Invertible Flow Tier (`SiMLR`, `SiMLR-LBFGS`, `Flow-SiMR-V`):** Classical `SiMLR` (rank $4.17$, $0.785 \pm 0.205$, $0.363\text{s}$) and quasi-Newton `SiMLR-LBFGS` (rank $4.56$, $0.797 \pm 0.193$, $0.175\text{s}$, $\text{Support } F_1 = 0.766$) provide fast cross-view Stiefel convergence. `Flow-SiMR-V` (rank $6.50$ on $\mathbf{U}$) achieves the second-highest strictly linear $\mathbf{X}\mathbf{V}$ probe across the entire benchmark ($0.834$, including $0.908$ on `Shared+Private` and $0.744$ on `NonnegPartsWeak`) alongside $0.883$ sparse support recovery and exact analytical invertibility.
+4. **Dominated Unconstrained Deep Tier (`NED`, `NEDPP`):** Fully non-linear autoencoders (`NED`, rank $7.72$, $0.618 \pm 0.227$; `NEDPP`, rank $7.83$, $0.633 \pm 0.249$) rank last across the benchmark and are significantly outperformed by every OLEE-constrained model under Holm-Bonferroni corrected Wilcoxon signed-rank tests ($p_{\text{Holm}} \le 0.018$).
 
-Inference is conducted at the level of the independent replicate ($N_{\text{seeds}} = 10$). The exact sign-flip permutation resolution floor is $2 / 2^{10} \approx 0.00195$. All reported $p$-values respect this combinatorial resolution floor.
+## Multi-Objective Pareto Frontier Analysis
 
-## Four-Axis Multi-Objective Pareto Frontier Analysis
+Architecture selection in biomedical discovery cannot be guided by predictive accuracy alone. We evaluate models across four complementary operational criteria:
 
-Architecture selection in biomedical discovery cannot be guided by predictive accuracy alone. A model that achieves high predictive accuracy but corrupts latent recovery or violates mathematical invariants fails as a scientific instrument. We formalize architecture selection as a multi-objective optimization problem across four distinct operational axes:
+1. **Downstream Predictive Capacity ($Y$) [Maximize]:** Evaluated via cross-validated $R^2$ or classification accuracy across all 9 benchmark tasks.
+2. **Ground-Truth Latent Discovery ($CMC$ on $\mathbf{U}$) [Maximize]:** Evaluated via Canonical Mean Correlation between estimated consensus coordinates $\mathbf{U}$ and true generative latents $\mathbf{S}$ across the 6 synthetic regimes.
+3. **Sparse Support Localization & Invariants ($\text{Support } F_1, D, \text{Crosstalk}$):** Evaluated via Jaccard/F1 support overlap on sparse non-negative regimes, trace-normalized Stiefel Frame Defect $D$, and signed lobe crosstalk $\|\mathbf{V}^+ \odot \mathbf{V}^-\|_1 = 0.0000$.
+4. **Computational Efficiency ($t$) [Minimize]:** Evaluated via wall-clock fit time in seconds.
 
-1. **Axis 1: Downstream Predictive Power ($Y$) [Maximize]:** Evaluated via cross-validated $R^2$, classification accuracy, and AUROC across clinical outcomes (Diabetes, Heart disease, Multi-Omics BRCA).
-2. **Axis 2: Ground-Truth Latent Discovery ($CMC$) [Maximize]:** Evaluated via Canonical Mean Correlation between learned consensus $\mathbf{U}$ and true generative coordinates $\mathbf{S}$.
-3. **Axis 3: Mathematical Invariants & Frame Defect ($D, \text{Crosstalk}$) [Minimize]:** Evaluated via the Stiefel Frame Defect $D = \|\mathbf{V}^T \mathbf{V} - \mathbf{I}_K\|_F^2$ and signed lobe crosstalk $\|\mathbf{V}^+ \odot \mathbf{V}^-\|_1$.
-4. **Axis 4: Computational Efficiency & Throughput ($t$) [Minimize]:** Evaluated via wall-clock fit time in seconds.
-
-| Model Architecture | Mean Rank ($Y$) | Overall Predictive $Y$ | Multi-Omics $CMC$ | Clinical Frame Defect $D$ | Signed Lobe Crosstalk | Latency ($t$) | Pareto Status |
-|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---|
-| **Flow-SiMLR-V** | **2.47** | **0.6312** | 0.9274 | $0.0145$ (Heart) | $0.0000$ | $4.13$ s | **Pareto Optimal** (Predictive Frontier) |
-| **SiMLR-LBFGS** | 3.70 | 0.5720 | 0.8933 | **0.0000** (Diabetes) | $0.0000$ | $1.50$ s | **Pareto Optimal** (Linear Closure Frontier) |
-| **SiMLR (Classical)** | 3.71 | 0.5457 | 0.7823 | $3.61 \times 10^{-8}$ | $0.0000$ | **0.11 s** | **Pareto Optimal** (Throughput Frontier) |
-| **NSAFlow-Turnkey** | 5.04 | -0.4520 | **0.9880** | $0.5810$ | **0.0000 (Exact)** | $4.64$ s | **Pareto Optimal** (Latent Discovery Frontier) |
-| LEND (Hybrid) | 3.70 | 0.5671 | 0.7988 | $0.0010$ (Heart) | $0.0000$ | $1.65$ s | Trade-off (Matches L-BFGS) |
-| NED (Deep MLP) | 4.68 | 0.5393 | 0.7797 | $0.0009$ (Heart) | $0.0000$ | $2.05$ s | **Dominated** by `SiMLR-LBFGS` ($p = 0.0148$) |
-| NEDPP (Shared/Priv) | 4.69 | 0.5406 | 0.8019 | $0.0009$ (Heart) | $0.0000$ | $2.37$ s | **Dominated** by `SiMLR-LBFGS` ($p = 0.0274$) |
+| Model Architecture | Mean Rank | Predictive Score (Mean ± SD) | Linear Probe ($\mathbf{X}\mathbf{V}$) | Synthetic $CMC$ ($\mathbf{U}$) | Support $F_1$ ($\mathbf{V}$) | Sparsity | Fit Time | Pareto Status |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---|
+| **SiMLR-LBFGSB** | **3.28** | $0.795 \pm 0.201$ | $0.830$ | $0.826$ | **0.942** | $14.4\%$ | $2.155$ s | **Pareto Optimal** (Sparse Support Frontier) |
+| **LEND (Hybrid)** | **3.56** | **0.830 ± 0.189** | **0.836** | **0.907** | $0.899$ | $14.1\%$ | $1.586$ s | **Pareto Optimal** (Predictive & CMC Frontier) |
+| **NSAFlow-PCA** | **3.61** | $0.782 \pm 0.200$ | $0.776$ | $0.834$ | $0.399$ | **22.4%** | **0.029 s** | **Pareto Optimal** (Fast Sparse SVD Frontier) |
+| **PCA** | **3.78** | $0.774 \pm 0.213$ | $0.767$ | $0.827$ | $0.333$ | $0.0\%$ | **0.024 s** | **Pareto Optimal** (Ultra-Fast Dense Baseline) |
+| SiMLR (Classical) | $4.17$ | $0.785 \pm 0.205$ | $0.825$ | $0.819$ | $0.495$ | $6.5\%$ | $0.363$ s | Dominated by `SiMLR-LBFGS` |
+| **SiMLR-LBFGS** | $4.56$ | $0.797 \pm 0.193$ | $0.827$ | $0.825$ | $0.766$ | $12.4\%$ | $0.175$ s | **Pareto Optimal** (Fast Quasi-Newton Frontier) |
+| **Flow-SiMR-V** | $6.50$ | $0.754 \pm 0.190$ | $0.834$ | $0.816$ | $0.883$ | $13.6\%$ | $5.602$ s | **Pareto Optimal** (Invertible Flow Frontier) |
+| NED (Deep MLP) | $7.72$ | $0.618 \pm 0.227$ | $0.824$ | $0.589$ | $0.811$ | $12.9\%$ | $1.806$ s | Dominated ($p_{\text{Holm}} < 10^{-3}$) |
+| NEDPP (Shared/Priv) | $7.83$ | $0.633 \pm 0.249$ | $0.824$ | $0.652$ | $0.796$ | $12.7\%$ | $2.152$ s | Dominated ($p_{\text{Holm}} < 10^{-4}$) |
+: Multi-Objective Pareto Frontier Evaluation across 9 dataset blocks (243 evaluations). All models maintain exact zero signed crosstalk ($\|\mathbf{V}^+ \odot \mathbf{V}^-\|_1 = 0.0000$). {#tbl-pareto-frontier-expanded}
 
 ### Structure of the Pareto Non-Dominated Set
 
-The empirical results define four non-dominated Pareto operating regimes:
+The empirical results define five distinct operational regimes on the Pareto frontier:
 
-* **The High-Throughput Boundary (`SiMLR`):** Executing in $\sim 107$ ms ($0.1067 \pm 0.05$ s; 35 ms on Diabetes, 85 ms on Multi-Omics), classical `SiMLR` is 15x–24x faster than deep autoencoders and $\sim 40$x faster than normalizing flows. With frame defects bounded near machine precision on clinical cohorts ($D = 3.61 \times 10^{-8}$ on Heart), `SiMLR` is optimal for interactive cohort screening, bootstrap resampling, and large-scale normative modeling across tens of thousands of subjects [@avants2025].
-* **The Linear Closure Boundary (`SiMLR-LBFGS`):** Requiring $\sim 1.50$ seconds, `SiMLR-LBFGS` achieves exact zero frame defect on Diabetes ($D = 0.0000$) and Heart ($D = 6.56 \times 10^{-11}$). It matches deep hybrid architectures in predictive accuracy while outperforming unconstrained deep models (`NED`, `NEDPP`), proving that analytical second-order curvature steps on the Stiefel manifold provide a superior inductive bias for biological data.
-* **The Predictive Frontier (`Flow-SiMLR-V`):** For diagnostic tasks prioritizing classification accuracy and disease staging ($Y = 0.9055$ on Multi-Omics), `Flow-SiMLR-V` defines the predictive frontier, outperforming all competing architectures ($p < 0.003$).
-* **The Latent Discovery Frontier (`NSAFlow-Turnkey`):** In multi-omics discovery where the primary objective is recovering true latent gene-regulatory signals ($CMC = 0.9880$ on Multi-Omics), `NSAFlow-Turnkey` delivers unsurpassed consensus recovery while enforcing zero lobe crosstalk ($\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}$) through explicit support consolidation.
+* **The Predictive and Consensus Discovery Frontier (`LEND`):** Achieving the highest predictive accuracy ($0.830$), highest linear probe ($0.836$), and highest latent coordinate recovery ($CMC = 0.907$), `LEND` combines a linear Stiefel encoder with a non-linear MLP decoder to isolate shared multi-view structure even when individual views carry heavy private noise (`Shared+Private` $R^2 = 0.949$).
+* **The Sparse Support Localization Frontier (`SiMLR-LBFGSB`):** Achieving the best overall Friedman rank ($3.28$) and highest sparse support recovery ($F_1 = 0.942$), `SiMLR-LBFGSB` enforces strict non-negative box constraints alongside Stiefel consolidation (`NonnegPartsWeak` $R^2 = 0.715$ vs $0.522$ for `PCA`).
+* **The Ultra-Fast Turnkey Sparse Frontier (`NSAFlow-PCA`):** Executing in $0.029\text{s}$ with $22.4\%$ disjoint sparsity, `NSAFlow-PCA` matches `PCA` ($0.024\text{s}$) in speed while outperforming it in predictive accuracy ($0.782$ vs $0.774$) and providing signed, non-cancelling feature lobes.
+* **The Fast Quasi-Newton Frontier (`SiMLR-LBFGS`):** Executing in $0.175\text{s}$ ($2\times$ faster than first-order `SiMLR`), `SiMLR-LBFGS` delivers $0.797$ predictive accuracy and $0.766$ support recovery with Per-view frame defect $D = 4.7 \times 10^{-4}$.
+* **The Invertible Diffeomorphic Frontier (`Flow-SiMR-V`):** Combining a linear Stiefel entrypoint with bijective RealNVP coupling layers, `Flow-SiMR-V` achieves $0.834$ on the strictly linear $\mathbf{X}\mathbf{V}$ probe and $0.883$ support recovery while supporting exact analytical inversion for geodesic trajectory mapping.
 
-Conversely, standard deep architectures (`NED`, `NEDPP`) are Pareto-dominated: they require $2.0$–$2.4$ seconds yet achieve lower predictive rank than `SiMLR-LBFGS` and inferior latent recovery compared to `Flow-SiMLR-V` and `NSAFlow-Turnkey`.
+## The Only Linear Encoder Entrypoint (OLEE) and Eliminating the Transparency Penalty
 
-## Mechanistic Auditability and Eliminating the Transparency Penalty
+A central design requirement in medical imaging, oncology biomarker discovery, and clinical trials is that representation projections remain verifiable. In standard deep multi-view networks, deeply nested activation functions ($\mathbf{Z} = \sigma(\mathbf{W}_2 \sigma(\mathbf{W}_1 \mathbf{X} + \mathbf{b}_1) + \mathbf{b}_2)$) entangle features, precluding direct inspection of how physical measurements relate to latent scores [@Rudin_2019]. In clinical practice, this incurs an unacceptable **transparency penalty**: if a latent score stratifies a patient into an aggressive treatment arm, biostatisticians and clinicians must verify whether that score is driven by true anatomical atrophy or batch artifacts [@Holmberg_2022].
 
-A central focus of this work is establishing mechanistic auditability directly at the model entrypoint. Unconstrained deep networks incur a severe **transparency penalty** [@Rudin_2019]: while deep layers extract non-linear representations, nested non-linearities $\mathbf{Z} = \sigma(\mathbf{W}_2 \sigma(\mathbf{W}_1 \mathbf{X}))$ obscure raw feature contributions.
+Post-hoc explainers (such as SHAP and LIME) attempt to circumvent this by querying local surrogate models on randomly perturbed inputs [@Ribeiro_2016; @Lundberg_2017]. In anatomical and physiological cohorts, post-hoc methods suffer from an out-of-distribution sampling defect: perturbing features independently creates synthetic points that violate physiological covariance (e.g., pairing impossible cortical thickness values or mutually exclusive transcript profiles). This instability can introduce false-positive biomarker attributions [@Holmberg_2022; @Smith2023posthoc].
 
-Post-hoc explainability methods (SHAP, LIME, Integrated Gradients) attempt to circumvent this opacity by fitting local surrogate models to perturbed inputs [@Ribeiro_2016; @Lundberg_2017]. However, in biological systems governed by rigid physiological and physical laws, post-hoc methods suffer from an **out-of-distribution (OOD) perturbation flaw**: perturbing features independently generates synthetic samples that violate biological covariance (e.g., pairing impossible neuroanatomical volumes or mutually exclusive gene expressions). These off-manifold perturbations produce unstable feature attributions and false-positive biomarker identifications [@Holmberg_2022; @Smith2023posthoc].
-
-Deep SiMLR eliminates the transparency penalty through Auditability by Design. The **Only Linear Encoder Entrypoint (OLEE)** restricts the first operation to an orthogonal Stiefel projection: $\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m$ ($\mathbf{V}_m^T \mathbf{V}_m = \mathbf{I}_K$). Because the entrypoint is strictly linear:
-
-1. **Exact Directional Derivatives:** The marginal contribution of feature $j$ to latent component $k$ is identically constant across the input manifold:
-   $$
-   \frac{\partial Z_{m,k}}{\partial X_{m,j}} = V_{m,jk}
-   $$
-   Global feature importance and individual patient audits are governed by the same verifiable linear operator.
-2. **Closed-Form Counterfactuals:** In precision medicine, determining what clinical intervention would alter a patient's risk profile requires computing counterfactual perturbations [@Wachter_2017]. Under OLEE, calculating the minimal feature adjustment $\delta \mathbf{x}_m$ required to produce a desired latent shift $\Delta \mathbf{z}_m$ is an exact analytical projection:
-   $$
-   \delta \mathbf{x}_m^* = \Delta \mathbf{z}_m \mathbf{V}_m^T
-   $$
-   This eliminates surrogate sampling, path integration, and off-manifold artifacts entirely.
-3. **Support Consolidation:** Signed biomarker weights are decomposed into positive and negative lobes ($\mathbf{V} = \mathbf{V}^+ - \mathbf{V}^-$). Enforcing disjoint support ($\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}$) prevents positive and negative coefficients from cancelling destructively, ensuring parts-based, non-redundant biomarker attribution.
-
-## Normalizing Flows: Bijective Volume Preservation and Structural Filtering
-
-The empirical success of `Flow-SiMR-V` stems from the complementary inductive biases of volume-preserving Normalizing Flows and Stiefel linear filtering:
-
-1. **Bijective Information Preservation:** Standard deep autoencoders compress inputs to a lower-dimensional bottleneck by discarding idiosyncratic variance, reconstructing observations through lossy decoders ($\mathcal{L}_{\text{MSE}} > 0$). Normalizing flows circumvent this loss through invertible affine coupling layers [@dinh2016density; @rezende2015variational]:
-   $$
-   z_{1:d} = x_{1:d}, \quad z_{d+1:D} = x_{d+1:D} \odot \exp(s(x_{1:d})) + t(x_{1:d})
-   $$
-   Because each layer is strictly bijective with triangular Jacobian determinant, forward and inverse mappings are analytically exact ($\mathcal{L}_{\text{recon}} = 0$). Modality-specific information is preserved without loss.
-2. **Multivariate Gaussian Prior Regularization:** Rather than leaving latent coordinates unconstrained, normalizing flows maximize exact log-likelihood under a standard multivariate Gaussian prior $\mathcal{N}(\mathbf{0}, \mathbf{I})$. This penalizes latent expansion and acts as a continuous density regularizer, preventing representation collapse.
-3. **Stiefel Structural Low-Pass Filtering:** In unconstrained normalizing flows, expressive coupling layers can memorize high-frequency noise and batch effects. Prepending the Stiefel projection matrix $\mathbf{V}_m$ in `Flow-SiMR-V` establishes an information bottleneck: $\mathbf{V}_m$ acts as a structural low-pass filter, projecting raw observations onto an orthogonal subspace before non-linear flow transformations take place.
-
-### Geodesic Latent Path Trajectories
-
-Because normalizing flows define a smooth diffeomorphism between the input manifold and the standardized Gaussian latent space, `Flow-SiMR-V` enables **Geodesic Latent Path Interpolation**. For a patient presenting with high disease risk at latent coordinate $\mathbf{z}_{\text{start}}$, we define the shortest geodesic trajectory toward a healthy reference coordinate $\mathbf{z}_{\text{target}}$:
+Deep SiMLR enforces verifiable attribution by restricting the entrypoint of each modality to the **Only Linear Encoder Entrypoint (OLEE)** contract:
 $$
-\mathbf{z}(t) = (1 - t)\mathbf{z}_{\text{start}} + t\mathbf{z}_{\text{target}}, \quad t \in [0, 1]
+\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m, \quad \text{subject to } \mathbf{V}_m \in \text{St}(k, p_m) = \{\mathbf{V} \in \mathbb{R}^{p_m \times k} \mid \mathbf{V}^\top \mathbf{V} = \mathbf{I}_k\}
 $$
-Inverting the flow along this trajectory ($f_m^{-1}(\mathbf{z}(t))$) and applying the closed-form pseudo-inverse $\mathbf{V}_m^T$ reconstructs the continuous, non-linear progression of biomarkers required to achieve therapeutic remission:
+This architectural contract yields three mathematical and clinical guarantees:
+
+1. **Globally Constant Attribution Gradients:** The marginal contribution of feature $j$ to latent component $k$ is identically constant across the input domain:
+   $$
+   \nabla_{\mathbf{X}_m} \mathbf{Z}_m = \mathbf{V}_m, \quad \frac{\partial Z_{m, ik}}{\partial X_{m, ij}} = V_{m, jk}
+   $$
+   Feature loadings are exact, closed-form, and independent of heuristic perturbation parameters.
+2. **Closed-Form Counterfactual Recourse:** Determining the minimal physical perturbation $\delta \mathbf{x}_m$ required to produce a targeted therapeutic shift in latent coordinates $\Delta \mathbf{z}_m$ reduces to an exact orthogonal projection:
+   $$
+   \delta \mathbf{x}_m^* = \Delta \mathbf{z}_m \mathbf{V}_m^\top
+   $$
+   This eliminates iterative gradient searches, non-convex local minima, and off-manifold sampling artifacts, connecting dimensionality reduction directly to actionable causal recourse frameworks [@pearl2009causality; @Wachter_2017].
+3. **Signed Support Consolidation:** Decomposing loading matrices into positive and negative lobes ($\mathbf{V} = \mathbf{V}^+ - \mathbf{V}^-$) and enforcing disjoint support ($\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}$) prevents positive and negative weights from cancelling destructively, ensuring that positive and negative coefficients identify distinct anatomical or biological processes.
+
+## Why Cognitive Mediation Multiplies ADNI-MCI Prediction by Over 6-Fold
+
+The practical value of the OLEE contract is clearest in our study of $N = 1,084$ patients with Mild Cognitive Impairment (MCI) from the ADNI cohort [@ADNI; @jack2008alzheimer]. Clinicians evaluate functional dementia severity using the **Clinical Dementia Rating – Sum of Boxes (CDR-SB)**, which measures how well a patient manages daily life (remembering events, handling household tasks, staying oriented).
+
+Integrating three structural brain MRI views ($382$ regional volume and cortical thickness measurements) with a fourth view of clinical cognitive tests ($p_4 = 13$) reveals three clear findings:
+
+1. **Brain Scans Alone Cannot Predict Daily Disability ($R^2 \approx 0.041$):** Trying to predict CDR-SB directly from the 382 brain MRI features hits a hard ceiling of only **4.1% explained variance** (`Direct-Anatomy [SiMLR]`: $R^2 = 0.0411 \pm 0.0248, \rho = 0.2203$), while raw Ridge regression fails completely ($R^2 = -0.1810$). Biologically, tissue loss in the cortex and hippocampus does not directly cause a patient to struggle with daily errands; instead, brain atrophy first erodes specific mental abilities (memory recall, executive attention), and it is that loss of mental ability that impairs daily functioning.
+2. **Modeling the Two-Step Pathway Multiplies Accuracy Over 6-Fold ($R^2 \approx 0.265$):** When our 4-view models align structural brain MRI with the cognitive test battery along the natural pathway ($\text{Brain MRI} \to \text{Cognition} \to \text{CDR-SB}$), out-of-sample accuracy jumps more than six-fold:
+   - `LEND-SiMR + MAI [Mediated]`: $R^2 = 0.2648 \pm 0.0332$ ($6.44\times$ higher than direct MRI, $p = 9.77 \times 10^{-4}$)
+   - `SiMLR [Mediated]`: $R^2 = 0.2443 \pm 0.0534$ ($5.94\times$ higher, solved in $0.86\text{s}$)
+   - `Flow-SiMR-V + MAI [Mediated]`: $R^2 = 0.2290 \pm 0.0696$ ($5.57\times$ higher)
+   Formal Baron–Kenny mediation confirms that **84.5% to 86.4% of the total effect of brain atrophy on CDR-SB is indirect**, traveling through cognitive performance ($p < 10^{-15}$).
+3. **Unconstrained Deep Networks Collapse on High-Dimensional Brain Data:** Even with all four views available, unconstrained deep autoencoders fail (`NED-SiMR + MAI`: $R^2 = 0.1127 \pm 0.0578$; `NED-Shared-Private`: $R^2 = 0.0840$). Without the orthogonal first-layer Stiefel constraint ($\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}$), multi-layer perceptrons overfit noise across the 382 anatomical features and miss the shared brain-to-cognition axis.
+
+## Normalizing Flows: Invertibility and Geodesic Trajectories
+
+The performance of `Flow-SiMR-V` arises from combining linear Stiefel filtering with bijective affine coupling layers:
+
+1. **Information Preservation:** Unlike standard autoencoders that compress data through lossy bottlenecks with positive reconstruction error ($\mathcal{L}_{\text{MSE}} > 0$), normalizing flows are strictly bijective with unit or triangular Jacobian determinants [@dinh2016density; @rezende2015variational]. Forward and inverse mappings are analytically exact.
+2. **Prior Regularization:** Normalizing flows maximize exact log-likelihood under a standard multivariate Gaussian prior $\mathcal{N}(\mathbf{0}, \mathbf{I})$, acting as a continuous density regularizer that prevents coordinate collapse.
+3. **Stiefel Dimensionality Reduction:** Prepending the linear projection $\mathbf{V}_m$ compresses ambient observations to the intrinsic $k$-dimensional latent subspace before coupling layers operate. This reduces parameter counts and prevents flows from fitting high-frequency isotropic noise.
+
+### Geodesic Latent Trajectories
+
+Because normalizing flows define a smooth diffeomorphism between the input subspace and the Gaussian latent space, `Flow-SiMR-V` enables continuous geodesic path interpolation. For a patient presenting with high disease risk at coordinate $\mathbf{z}_{\text{start}}$, the linear trajectory toward a healthy reference $\mathbf{z}_{\text{target}}$:
 $$
-\mathbf{x}_m(t) = f_m^{-1}(\mathbf{z}(t)) \mathbf{V}_m^T
+\mathbf{z}(t) = (1 - t) \mathbf{z}_{\text{start}} + t \mathbf{z}_{\text{target}}, \quad t \in [0, 1]
 $$
-This maps the physical trajectory of clinical variables (e.g., specific metabolic shifts or regional cortical volume alterations) without encountering generative artifacts.
+can be inverted through the flow and projected into observable feature space:
+$$
+\mathbf{x}_m(t) = \text{Flow}_{\psi_m}^{-1}(\mathbf{z}(t)) \mathbf{V}_m^\top
+$$
+This traces a continuous, physically grounded trajectory of biomarker changes across disease stages.
 
-## Translational Implications for Clinical Cohorts
+## Clinical Translation Across Cohorts and Translational Pathology
 
-We examine the translational implications of Deep SiMLR across four biomedical domains:
+The modular Deep SiMLR framework addresses distinct clinical and biological challenges across the real-world clinical cohorts, neurodegenerative registries, neurotrauma models, and translational oncology:
 
-### 1. Neuroimaging: Alzheimer's Disease Neuroimaging Initiative (ADNI)
+1. **Cleveland Heart Disease (Cardiovascular Diagnostic Profiling):** Integrating resting clinical vitals ($p_1 = 7$) and stress electrocardiography/laboratory measures ($p_2 = 6$) across $N = 297$ patients for binary coronary artery disease diagnosis ($83.7\%$ test accuracy for `NSAFlow-PCA` and `PCA`, $84.8\%$ linear probe). The OLEE matrix $\mathbf{V}$ directly identifies exercise-induced ST depression (`oldpeak`), maximum heart rate (`thalach`), and chest pain type (`cp`) as the dominant orthogonal axes.
+2. **Diabetes Progression (Endocrine Risk Trajectories):** Modeling quantitative 1-year disease progression from anthropometric baselines ($p_1 = 5$) and serum lipid biomarkers ($p_2 = 5$) across $N = 442$ patients. The linear entrypoint attributes progression directly to body mass index (BMI) and serum triglycerides (S5), with `NSAFlow-PCA` ($R^2 = 0.382$) and `SiMLR-LBFGSB` (linear probe $R^2 = 0.396$) outperforming dense `PCA` ($0.350$).
+3. **Multiple Features (`mfeat`, High-Cardinality Multi-View Benchmarking):** Integrating 4 core geometric/transform views ($p = [76, 64, 6, 47]$) in the initialization benchmark and all 6 views ($p = [76, 216, 64, 240, 47, 6]$) in the full `mfeat6` benchmark across $N = 2000$ samples, establishing that OLEE-constrained architectures effectively discover common consensus without view-dominance collapse.
+4. **ADNI Cognitive Mediation (Neurodegenerative Progression):** As demonstrated in the 4-view ADNI-MCI cohort ($N = 1,084$), the OLEE contract enables the two-step brain-to-cognition-to-function pathway that unlocks a >6-fold accuracy gain ($R^2 \approx 0.265$) while insulating the model from the representation collapse observed in unconstrained deep networks.
+5. **Parkinson's Progression Markers Initiative (PPMI):** In longitudinal Parkinson's disease cohorts [@Marek2011], clinical trials require monitoring early dopaminergic denervation using $^{123}\text{I}$-ioflupane SPECT (DaTscan) striatal binding ratios, CSF $\alpha$-synuclein seed amplification assays, and motor UPDRS-III examinations. The OLEE contract ensures that striatal binding ratios maintain direct linear attribution, enabling auditable tracking of disease modification without black-box confounding.
+6. **Blast Neurotrauma and Traumatic Brain Injury (TBI):** Low-level blast shockwave exposure induces diffuse axonal injury (DAI) characterized by non-local shear strains across white matter tracts [@stone2024blast]. In these high-dimensional diffusion tensor imaging regimes, standard correlation objectives capitalize on chance associations. `NSAFlow-PCA` and `SiMLR-LBFGSB` enforce disjoint, non-negative support ($\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}$), isolating distinct anatomical tract disruptions without destructive crosstalk cancellation.
+7. **Translational Oncology (TCGA-BRCA & TCGA-KIRC):** Across $N = 822$ primary breast invasive carcinoma tumors in the primary benchmark (`rna` $p_1=200$, `cnv` $p_2=150$, `rppa` $p_3=150$) and $N = 1,010$ tumors in the full-cohort audit [@tcga2012breast; @cancerdiscovery2016esr1], `NSAFlow-PCA` ($92.7\%$) and `SiMLR-LBFGSB` ($93.0\%$ linear probe) isolate coordinated copy-number alterations, transcriptomic drivers (ESR1, GATA3, PGR), and targeted proteomics while preserving exact feature weights. In clear cell renal cell carcinoma (KIRC) [@tcga2013kirc], multi-omics integration aligns chromosomal 3p loss with downstream VHL-HIF1A angiogenic pathway activation.
 
-In longitudinal neurodegenerative cohorts such as ADNI [@jack2008alzheimer; @ADNI; @Weiner2017], the clinical objective is stratifying individuals with Mild Cognitive Impairment (MCI) at risk of progressing to Alzheimer's dementia. Multi-modal protocols integrate:
-* **Structural T1-weighted MRI:** Regional cortical thickness and hippocampal/entorhinal subcortical volumes extracted via ANTs pipelines (`antsCorticalThickness.sh`) [@tustison2014large; @avants2014ants].
-* **Molecular PET Imaging:** $^{18}\text{F}$-FDG-PET (regional glucose hypometabolism) and amyloid-PET (cortical fibrillar amyloid burden).
-* **Biofluid Biomarkers:** Cerebrospinal fluid (CSF) $\text{A}\beta_{42}$, total tau (t-tau), and phosphorylated tau ($p\text{-tau}_{181}$).
+## Methodological Considerations in Biomedical Cohorts
 
-With the clinical introduction of disease-modifying anti-amyloid monoclonal antibodies (lecanemab, donanemab), treatment eligibility requires transparent verification. Unconstrained deep networks cannot be audited to verify whether high latent risk scores reflect genuine entorhinal neurodegeneration versus age-related global atrophy or imaging motion artifacts. Under OLEE, the projection matrix $\mathbf{V}_{\text{MRI}}$ provides an explicit, auditable loading vector: clinicians can verify whether non-zero weights concentrate in canonical Alzheimer's signatures (entorhinal cortex, precuneus) while biofluid projections $\mathbf{V}_{\text{CSF}}$ align with established molecular cutoff ratios ($\text{A}\beta_{42} / p\text{-tau}_{181}$).
+Our findings highlight three methodological principles for multi-modal analysis in computational anatomy and clinical cohorts:
 
-### 2. Neuroimaging: Parkinson's Progression Markers Initiative (PPMI)
+1. **Preprocessing Sensitivity (Centering vs. Standardization):** In clinical neuroimaging (e.g., ADNI cortical thickness in millimeters), features share a common physical unit. Standardizing columns to unit variance ($z$-scoring) scales low-variance noise regions equally with high-variance atrophy hubs, which can alter or reverse downstream findings. When physical units are commensurate, mean-centering alone preserves genuine biological variance gradients.
+2. **Subspace Recovery vs. Axis Localization:** An orthogonal rotation $\mathbf{M} \in O(k)$ alters the orientation of basis axes without changing the linear subspace ($\text{span}(\mathbf{X} \mathbf{V} \mathbf{M}) = \text{span}(\mathbf{X} \mathbf{V})$). While linear prediction depends only on the subspace, localized biomarker discovery requires aligned, sparse, and non-negative axes—as demonstrated by the gap between `PCA` ($\text{Support } F_1 = 0.333$) and `SiMLR-LBFGSB` ($\text{Support } F_1 = 0.942$) on `NonnegPartsWeak`.
+3. **Dataset-Level Block Inference:** Ranking multi-modal architectures must aggregate across replicate seeds within each dataset block before computing Friedman and Nemenyi statistics [@Demsar2006], avoiding artificial inflation of sample size from repeated random initializations.
 
-The Parkinson's Progression Markers Initiative (PPMI) [@marek2011parkinson; @PPMI; @Marek2011] investigates early biomarkers of dopaminergic degeneration. The multi-modal protocol combines:
-* **Molecular Neuroimaging:** $^{123}\text{I}$-ioflupane SPECT (DaTscan), measuring striatal binding ratios (SBR) in bilateral caudate and putamen.
-* **Motor Assessments:** Movement Disorder Society - Unified Parkinson's Disease Rating Scale (MDS-UPDRS Part III).
-* **Non-Motor Profiles:** Autonomic dysfunction (SCOPA-AUT) and REM sleep behavior disorder screening.
-* **Biofluid Markers:** Serum neurofilament light chain (NfL) and $\alpha$-synuclein seed amplification assays.
+## Limitations
 
-Parkinson's disease presents substantial phenotypic heterogeneity, notably between Tremor-Dominant (TD) and Postural Instability Gait Difficulty (PIGD) subtypes. Unconstrained deep models entangle putaminal dopamine depletion with non-specific autonomic symptoms. In Deep SiMLR, enforcing non-negativity and support consolidation ($\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}$) isolates distinct motor and non-motor progression axes, providing clean, interpretable biomarker signatures for neuroprotective clinical trials.
-
-### 3. Blast Injury Biomarkers and Military Traumatic Brain Injury (TBI)
-
-In military service members exposed to repetitive low-level blast (LLB) overpressures (from breaching, heavy weapons systems, and artillery), conventional structural CT and MRI are typically macroscopically normal [@stone2020longitudinal; @stone2024blast]. Diagnosing blast-induced mild TBI requires integrating:
-* **Diffusion Tensor Imaging (DTI):** Fractional anisotropy (FA) and mean diffusivity (MD) across white matter tracts (corpus callosum, superior longitudinal fasciculus).
-* **Functional Connectivity:** Resting-state fMRI metrics across default mode and salience networks.
-* **Circulating Biofluids:** Serum and exosomal glial fibrillary acidic protein (GFAP) and ubiquitin carboxy-terminal hydrolase L1 (UCH-L1).
-* **Neurocognitive Batteries:** Automated neuropsychological assessments and symptom inventories.
-
-The central diagnostic challenge is differentiating diffuse axonal microstructural shear injury from psychological comorbidities such as blast-related PTSD. Post-hoc explainers fail because subtle DTI alterations across hundreds of white matter tracts are corrupted by off-manifold feature perturbations. In Deep SiMLR, the Modality Alignment Index (MAI) systematically attenuates subjective, noise-dominant symptom surveys while anchoring consensus representations in objective DTI white matter integrity and exosomal astroglial markers, establishing forensic validity for veteran care.
-
-### 4. Multi-Omics Oncology: TCGA Breast Invasive Carcinoma (BRCA)
-
-In molecular oncology, the TCGA BRCA cohort [@tcga2012breast; @cancerdiscovery2016esr1] profiles complex genomic interactions governing therapeutic response:
-* **Copy Number Variations (CNV):** Focal chromosomal amplifications and deletions.
-* **Transcriptomics:** mRNA expression profiles encompassing canonical subtyping markers (*ESR1*, *PGR*, *ERBB2*, *MKI67*).
-* **Epigenomics:** DNA methylation bead arrays quantifying CpG island hypermethylation.
-* **MicroRNA:** Small RNA sequencing profiling post-transcriptional repression networks.
-
-In estrogen receptor-positive ($ER^+$) breast cancer, identifying mechanisms of endocrine therapy resistance—such as noncoding regulatory mutations controlling *ESR1*, *GATA3* alterations [@Cohen_2014], and *INPP4B* loss—governs choices between hormonal therapy and aggressive chemotherapy. `Flow-SiMLR-V` achieves $90.55\%$ predictive accuracy on Multi-Omics and enables Geodesic Latent Path Interpolation: inverting the flow along the geodesic path between an endocrine-resistant profile and a responsive luminal phenotype isolates the exact sequence of epigenetic demethylation and transcriptomic modulation required for clinical stabilization.
-
-## Limitations and Operational Boundaries
-
-While Deep SiMLR establishes rigorous mechanistic interpretability, specific architectural trade-offs define its operational limits:
-
-1. **First-Layer Linear Bottleneck:** Mandating an OLEE projection at the first layer intentionally limits the network's capacity to model intra-modality non-linear feature interactions directly from raw inputs. Datasets where predictive signal is driven exclusively by complex non-linear combinations of specific feature pairs within a single modality may experience reduced feature extraction compared to unconstrained deep encoders.
-2. **Cubic Latent Scaling:** Stiefel manifold retractions via Sylvester polar factors or Newton-Schulz iterations require dense matrix operations scaling cubically with the latent dimension ($\mathcal{O}(K^3)$). While high-throughput for typical biomedical latent spaces ($K \le 64$), scaling to massive latent spaces ($K > 500$) requires specialized block-Stiefel or stochastic retraction methods.
-3. **Permutation Resolution Limits:** Statistical inference across $N_{\text{seeds}} = 10$ replicates bounds the minimum attainable permutation $p$-value to $2/2^{10} \approx 0.00195$. Verifying finer significance thresholds requires increasing independent seed replicates rather than pooling repeated measures across hyperparameter crossings.
+1. **First-Layer Linear Constraint:** Restricting the input layer to an orthogonal Stiefel projection limits the model's ability to capture high-order intra-modality non-linear feature interactions directly from raw inputs. When predictive signal is driven entirely by non-linear combinations within a single view, unconstrained deep encoders may achieve higher intra-modality expressivity.
+2. **Latent Dimension Scaling:** Exact Stiefel retractions and polar factorizations scale cubically with latent rank ($\mathcal{O}(k^3)$). While efficient for typical biomedical latent spaces ($k \le 64$), scaling to massive latent spaces ($k > 500$) requires block-Stiefel or stochastic retraction methods.
+3. **Number of Benchmark Regimes:** Block-level Nemenyi inference across $B = 9$ datasets and $k = 9$ models yields a conservative critical difference ($CD = 4.004$), requiring paired Wilcoxon and exact sign-flip permutation tests across the 27 paired runs to resolve finer pairwise differences.
 
 ## Conclusion
 
-The Deep SiMLR framework bridges the divide between non-linear representational capacity and mathematical interpretability in multi-view learning. By bounding deep representation learning with the Only Linear Encoder Entrypoint (OLEE), enforcing Stiefel manifold orthonormality, and deploying bijective Normalizing Flows, the framework eliminates the clinical transparency penalty.
+Deep SiMLR establishes a modular framework for multi-modal representation learning governed by the Only Linear Encoder Entrypoint (OLEE) contract. By decoupling linear feature attribution from downstream non-linear coordinate modeling, the architecture eliminates the clinical transparency penalty ($\nabla_{\mathbf{X}_m} \mathbf{Z}_m = \mathbf{V}_m$) and enables closed-form counterfactual recourse ($\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m^* \mathbf{V}_m^\top$) while capturing complex manifold structure.
 
-Empirical evaluation across the 490-task benchmark demonstrates that `Flow-SiMLR-V` leads downstream predictive power (mean rank 2.47), while quasi-Newton `SiMLR-LBFGS` matches deep hybrid models without non-linear decoders, and classical `SiMLR` delivers $\sim 100$ ms high-throughput execution. Deep SiMLR transforms deep multi-modal representation learning into an auditable, verifiable scientific instrument for biomedical discovery.
+Across 243 benchmark evaluations spanning 3 real clinical/genomic cohorts and 6 synthetic manifolds, box-constrained Riemannian optimization (`SiMLR-LBFGSB`, rank $3.28$, support $F_1 = 0.942$) and linear-encoder/non-linear-decoder hybrids (`LEND`, rank $3.56$, predictive $0.830$, $CMC = 0.907$) lead overall performance, while `NSAFlow-PCA` (rank $3.61$, $0.029\text{s}$) matches dense `PCA` in speed while enforcing $22.4\%$ disjoint sparsity with zero crosstalk. Every OLEE-constrained architecture significantly outperforms unconstrained deep autoencoders (`NED`, `NEDPP`, $p_{\text{Holm}} \le 0.018$). In longitudinal neurodegeneration (ADNI-MCI, $N=1,084$), the OLEE contract unlocks a >6-fold cognitive mediation gain on clinical dementia severity ($R^2 \approx 0.2648, p < 10^{-15}$) while preventing the overfitting collapse that afflicts unconstrained deep networks.

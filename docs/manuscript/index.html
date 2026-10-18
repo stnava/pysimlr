@@ -9,7 +9,7 @@
 <meta name="author" content="Brian B. Avants">
 <meta name="author" content="Nicholas J. Tustison">
 <meta name="author" content="James R. Stone">
-<meta name="dcterms.date" content="2026-09-18">
+<meta name="dcterms.date" content="2026-10-18">
 
 <title>Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</title>
 <style>
@@ -27,26 +27,7 @@ ul.task-list li input[type="checkbox"] {
   margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
   vertical-align: middle;
 }
-/* CSS for citations */
-div.csl-bib-body { }
-div.csl-entry {
-  clear: both;
-}
-.hanging-indent div.csl-entry {
-  margin-left:2em;
-  text-indent:-2em;
-}
-div.csl-left-margin {
-  min-width:2em;
-  float:left;
-}
-div.csl-right-inline {
-  margin-left:2em;
-  padding-left:1em;
-}
-div.csl-indent {
-  margin-left: 2em;
-}</style>
+</style>
 
 
 <script src="site_libs/quarto-nav/quarto-nav.js"></script>
@@ -280,7 +261,7 @@ window.Quarto = {
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">September 18, 2026</p>
+      <p class="date">October 18, 2026</p>
     </div>
   </div>
   
@@ -294,15 +275,11 @@ window.Quarto = {
 
 <section id="abstract" class="level1 unnumbered">
 <h1 class="unnumbered">Abstract</h1>
-<p>Deep multi-modal representation learning—exemplified by Deep Canonical Correlation Analysis (Deep CCA), Multi-Omics Factor Analysis extensions (MOFA+), and Multimodal Variational Autoencoders (MVAEs)—captures complex non-linear covariance structures across heterogeneous biological observations. However, in high-stakes scientific and clinical decision-making, unconstrained deep architectures impose a severe “transparency penalty”: deeply nested non-linear transformations irrevocably entangle biological inputs, precluding the exact, auditable feature attribution required for regulatory verification and biomarker discovery. To eliminate this transparency penalty without sacrificing non-linear representational capacity, we formulate Deep SiMLR (Similarity-driven Multi-view Reconstruction). We enforce Auditability by Design through an Information Bottleneck termed the Only Linear Encoder Entrypoint (OLEE)—a mandatory projection onto the compact Stiefel manifold (<span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_K\)</span>) yielding initial latent coordinates <span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span>. OLEE guarantees that downstream representation learning operates on an orthogonal linear basis, preserving closed-form feature attribution (<span class="math inline">\(\nabla_{\mathbf{X}_m} \mathbf{Z}_m = \mathbf{V}_m\)</span>) and exact counterfactual prescriptions. To prevent high-dimensional isotropic noise from corrupting consensus formation, we derive a Spectral Triage mechanism that weights modalities via a Modality Alignment Index (MAI) based on Spectral Sharpness (<span class="math inline">\(\sigma_1 / \sum \sigma_i\)</span>).</p>
-<p>We evaluate the framework across a rigorous 490-task statistical benchmark encompassing 70 independent task blocks (<span class="math inline">\(7 \text{ generative and clinical data regimes} \times 10 \text{ random seeds}\)</span>) evaluated under distribution-free non-parametric inference (<span class="citation" data-cites="Demsar2006">Demšar (<a href="#ref-Demsar2006" role="doc-biblioref">2006</a>)</span>). The non-parametric Friedman test (<span class="math inline">\(\chi_F^2 = 69.39, p = 5.44 \times 10^{-13}\)</span>) and Iman-Davenport extension (<span class="math inline">\(F_F = 13.66, p = 3.63 \times 10^{-14}\)</span>) confirm statistically significant differences among architectures. Across a Nemenyi Critical Difference of <span class="math inline">\(CD = 1.077\)</span> (<span class="math inline">\(\alpha = 0.05\)</span>), the invertible normalizing flow model with linear bottleneck (<code>Flow-SiMLR-V</code>) achieves the top global rank (mean rank 2.47), outperforming all baseline architectures (<span class="math inline">\(p &lt; 0.003\)</span> on paired Wilcoxon-Holm and exact sign-flip permutation tests at the <span class="math inline">\(2 / 2^{10} \approx 0.00195\)</span> resolution floor). A quasi-Newton Riemannian formulation (<code>SiMLR-LBFGS</code>) matches deep hybrid architectures (mean rank 3.70) while statistically outperforming unconstrained deep autoencoders (<code>NED</code>, <span class="math inline">\(p = 0.0148\)</span>; <code>NEDPP</code>, <span class="math inline">\(p = 0.0274\)</span>). Multi-objective Pareto analysis demonstrates that classical <code>SiMLR</code> establishes the ultra-low latency boundary (<span class="math inline">\(\sim 100\)</span> ms wall-clock time), while <code>NSAFlow-Turnkey</code> provides leading ground-truth latent recovery (Canonical Mean Correlation <span class="math inline">\(CMC = 0.9880\)</span> on Multi-Omics) with guaranteed mathematical zero frame defect (<span class="math inline">\(D = 0.0000\)</span>) and zero signed lobe crosstalk (<span class="math inline">\(\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}\)</span>). Deep SiMLR bridges the gap between deep representational capacity and exact mathematical transparency, establishing an auditable instrument for multi-modal biomedical discovery.</p>
+<p>Multi-modal biomedical datasets—such as co-registered neuroimaging, high-throughput omics, and clinical assessments—provide complementary views of shared pathological processes. Integrating these heterogeneous matrices requires dimensionality reduction that isolates cross-view covariance while maintaining interpretable feature attribution. Standard deep multi-view networks and variational autoencoders capture non-linear interactions, but their nested compositions obscure the physical relationship between raw biological measurements and latent coordinates, imposing a severe “transparency penalty” that precludes regulatory adoption in high-stakes clinical decision-making. Conversely, classical linear methods like Canonical Correlation Analysis (CCA) and Principal Component Analysis (PCA) provide auditable projections, but fail to capture non-linear manifold geometry and produce dense, mixed-sign loadings that lack anatomical specificity.</p>
+<p>To eliminate this transparency penalty without sacrificing representation capacity, we formulate Deep SiMLR (Similarity-driven Multi-view Reconstruction) governed by the Only Linear Encoder Entrypoint (OLEE) contract. OLEE mandates that the initial entrypoint for every modality is restricted to a linear projection on the compact Stiefel manifold (<span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span>, subject to <span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k\)</span>). This structural contract guarantees globally constant attribution derivatives (<span class="math inline">\(\nabla_{\mathbf{X}_m} \mathbf{Z}_m = \mathbf{V}_m\)</span>) and enables closed-form counterfactual auditability (<span class="math inline">\(\Delta \mathbf{Z}_m = \Delta \mathbf{X}_m \mathbf{V}_m\)</span> and <span class="math inline">\(\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m \mathbf{V}_m^\top\)</span>), connecting mathematical dimensionality reduction directly to causal recourse principles. Downstream transformations—including volume-preserving normalizing flows (<code>Flow-SiMR-V</code>), bound-constrained quasi-Newton Riemannian solvers (<code>SiMLR-LBFGSB</code>, <code>SiMLR-LBFGS</code>), and non-linear decoders (<code>LEND</code>)—model non-linear geometry while preserving exact first-order input auditability. Spectral Modality Alignment Index (MAI) dynamic weighting down-weights uninformative modalities, preventing isotropic noise from corrupting consensus discovery.</p>
+<p>We benchmark nine architectures across 243 task evaluations spanning nine multi-modal data regimes (six synthetic manifolds with known ground truth and three public clinical/multi-omics cohorts: UCI Cleveland Heart Disease, Efron Diabetes Progression, and 3-assay TCGA-BRCA multi-omics) across three independent seeds (<code>private_scale = 0.5</code>, <code>consolidate = False</code>, default <code>"pca"</code> initialization), alongside a dedicated 4-view study of Mild Cognitive Impairment in the Alzheimer’s Disease Neuroimaging Initiative (ADNI-MCI, <span class="math inline">\(N=1,084\)</span>). Following Demšar’s block-level ranking protocol across the nine datasets, non-parametric inference confirms significant architectural separation (Friedman <span class="math inline">\(\chi_F^2 = 32.47, p = 7.68 \times 10^{-5}\)</span>; Iman–Davenport <span class="math inline">\(F_F = 6.57, p = 3.13 \times 10^{-6}\)</span>; Nemenyi Critical Difference <span class="math inline">\(CD = 4.004\)</span> at <span class="math inline">\(\alpha = 0.05\)</span>). Across global consensus predictions, bound-constrained quasi-Newton <code>SiMLR-LBFGSB</code> achieves the top overall rank (mean rank <span class="math inline">\(3.28\)</span>, predictive score <span class="math inline">\(0.795 \pm 0.201\)</span>, support recovery <span class="math inline">\(0.942\)</span>), closely followed by hybrid <code>LEND</code> (mean rank <span class="math inline">\(3.56\)</span>, highest mean predictive score <span class="math inline">\(0.830 \pm 0.189\)</span>, highest linear probe <span class="math inline">\(0.836\)</span>, highest axis-sensitive probe <span class="math inline">\(0.830\)</span>, and highest ground-truth latent recovery <span class="math inline">\(CMC = 0.907\)</span>), single-matrix <code>NSAFlow-PCA</code> (mean rank <span class="math inline">\(3.61\)</span>, <span class="math inline">\(0.782 \pm 0.200\)</span> in <span class="math inline">\(0.029\text{s}\)</span>, leading Diabetes <span class="math inline">\(R^2 = 0.382\)</span>, Heart accuracy <span class="math inline">\(83.7\%\)</span>, and TCGA-BRCA accuracy <span class="math inline">\(92.7\%\)</span>), and <code>PCA</code> (mean rank <span class="math inline">\(3.78\)</span>, <span class="math inline">\(0.774 \pm 0.213\)</span> in <span class="math inline">\(0.024\text{s}\)</span>, <span class="math inline">\(0.0\%\)</span> sparsity, chance support recovery <span class="math inline">\(0.333\)</span>). On regimes with asymmetric view-private variance (<code>Shared+Private</code>) or weak sparse parts (<code>NonnegPartsWeak</code>), cross-view OLEE consensus (<code>LEND</code> <span class="math inline">\(R^2 = 0.949\)</span> and <span class="math inline">\(0.732\)</span>; <code>SiMLR-LBFGSB</code> <span class="math inline">\(R^2 = 0.715\)</span>) substantially outperforms single-matrix concatenation (<code>PCA</code> <span class="math inline">\(R^2 = 0.639\)</span> and <span class="math inline">\(0.522\)</span>). In ADNI-MCI (<span class="math inline">\(N=1,084\)</span>), we show in plain clinical terms why predicting daily functional disability (Clinical Dementia Rating Sum of Boxes, CDR-SB) directly from 382 structural brain MRI features explains only <span class="math inline">\(4.1\%\)</span> of test-set variance (<span class="math inline">\(R^2 = 0.0411\)</span>): brain tissue loss does not directly cause difficulties with daily chores, but instead first impairs cognitive abilities (memory and executive function), which in turn drive daily disability. Modeling this two-step pathway by aligning three brain MRI views (<span class="math inline">\(382\)</span> features) with a 13-item cognitive test view increases out-of-sample CDR-SB prediction over six-fold (<span class="math inline">\(R^2 = 0.2648\)</span> for <code>LEND-SiMR + MAI</code>; <span class="math inline">\(R^2 = 0.2443\)</span> in <span class="math inline">\(0.86\text{s}\)</span> for <code>SiMLR</code>), with <span class="math inline">\(85\text{–}86\%\)</span> of the brain-structure effect acting indirectly through cognition (<span class="math inline">\(p &lt; 10^{-15}\)</span>). On this cohort, unconstrained deep encoders without a linear first layer overfit the 382 MRI features and collapse on held-out patients (<code>NED-SiMR</code> <span class="math inline">\(R^2 = 0.1127\)</span>), demonstrating that the OLEE linear entrypoint provides an essential safeguard against high-dimensional overfitting while preserving direct biomarker auditability.</p>
 
 
-<div id="refs" class="references csl-bib-body hanging-indent" role="list">
-<div id="ref-Demsar2006" class="csl-entry" role="listitem">
-Demšar, Janez. 2006. <span>“Statistical Comparisons of Classifiers over Multiple Data Sets.”</span> <em>Journal of Machine Learning Research</em> 7: 1–30.
-</div>
-</div>
 </section>
 
 </main> <!-- /main -->

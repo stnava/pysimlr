@@ -40,13 +40,9 @@ def fit_structural_models(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         res = fit_fn(data_matrices, k, topology="graph", path_graph=graph, **kwargs)
         results[name] = res
         
-        # Calculate some metrics for comparison
-        # 1. Reconstruction Error
-        avg_recon_loss = np.mean(res["recon_history"][-5:])
-        # 2. Similarity (Alignment) Loss
-        avg_sim_loss = np.mean(res["sim_history"][-5:])
-        # 3. Total Loss
-        avg_total_loss = np.mean(res["loss_history"][-5:])
+        avg_recon_loss = float(np.mean(res["recon_history"][-5:]))
+        avg_sim_loss = float(np.mean(res["sim_history"][-5:]))
+        avg_total_loss = float(np.mean(res["loss_history"][-5:]))
         
         comparison.append({
             "model": name,

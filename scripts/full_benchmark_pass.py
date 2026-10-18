@@ -1,7 +1,7 @@
 """Full benchmark re-establishment across every dataset this session found
-genuinely useful: Heart Disease, Diabetes, mfeat, ADNI-DX, ADNI-CDRSB
-(full cohort), TCGA-KIRC. TCGA-BRCA is excluded (nothing beat baseline
-there); the ADNI tau/amyloid attempts are excluded (N too small to count).
+genuinely useful: Heart Disease, Diabetes, mfeat, ADNI-DX, ADNI-MCI-Mediation
+(4-view mediated), TCGA-KIRC. TCGA-BRCA and ADNI-CDRSB (full cohort imaging-only)
+are excluded; the ADNI tau/amyloid attempts are excluded (N too small to count).
 
 For each dataset, in order (one fully finishes before the next starts):
   1. Standalone: pca-raw, gcca-raw.
@@ -37,15 +37,16 @@ import real_data_method_comparison as rmc
 import real_data_init_x_method as rim
 from real_data_init_comparison import (load_heart, load_diabetes, load_mfeat,
                                        load_adni, load_kirc, BENCHMARK_INITIALIZATION_TYPES)
-from adni_loader import get_adni_cdrsb_case
+from adni_loader import get_adni_mci_cognitive_case
 
 LABELS = {"PCA": "pca-raw", "GCCA": "gcca-raw", "SiMLR": "SiMLR[pca]",
-         "LEND": "LEND[pca]", "NED": "NED[pca]", "Flow-SiMR": "Flow-SiMR",
-         "Flow-SiMR-V": "Flow-SiMR-V[pca]"}
+         "LEND": "LEND[pca]", "LEND+MAI": "LEND+MAI[pca]", "NED": "NED[pca]",
+         "Flow-SiMR": "Flow-SiMR", "Flow-SiMR-V": "Flow-SiMR-V[pca]",
+         "Flow-SiMR-V+MAI": "Flow-SiMR-V+MAI[pca]"}
 
 
-def load_adni_cdrsb_full():
-    case = get_adni_cdrsb_case()
+def load_adni_mci_mediation():
+    case = get_adni_mci_cognitive_case(cohort="4view", target="CDRSB")
     views = [torch.tensor(StandardScaler().fit_transform(v.numpy())).float() for v in case["views"]]
     return views, case["y"], "regression_with_covariates", case["covariates"]
 
@@ -137,8 +138,8 @@ def main():
     views, y, task = load_adni()
     run_dataset("ADNI-DX", views, y, task, seed)
 
-    views, y, task, cov = load_adni_cdrsb_full()
-    run_dataset("ADNI-CDRSB", views, y, task, seed, cov=cov)
+    views, y, task, cov = load_adni_mci_mediation()
+    run_dataset("ADNI-MCI-Mediation", views, y, task, seed, cov=cov)
 
     views, y, task = load_kirc()
     run_dataset("TCGA-KIRC", views, y, task, seed)

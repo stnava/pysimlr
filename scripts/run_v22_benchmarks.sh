@@ -53,8 +53,13 @@ echo "Starting real benchmark in background..."
     --workers "$WORKERS" > "real_${VERSION}.log" 2>&1 &
 REAL_PID=$!
 
-echo "PIDs: synthetic=${SYNTH_PID}, real=${REAL_PID}"
-wait $SYNTH_PID $REAL_PID
+echo "Starting ADNI-MCI 4-view mediation benchmark in background..."
+"$PY" scripts/benchmark_adni_mci_4view_mediation.py > "adni_mci_mediation_${VERSION}.log" 2>&1 &
+MCI_PID=$!
+
+echo "PIDs: synthetic=${SYNTH_PID}, real=${REAL_PID}, mci_mediation=${MCI_PID}"
+wait $SYNTH_PID $REAL_PID $MCI_PID
 echo "=== ${VERSION} benchmarks complete ==="
 wc -l "paper/results_cache/unified_synthetic_${VERSION}.csv" \
-      "paper/results_cache/unified_real_${VERSION}.csv"
+      "paper/results_cache/unified_real_${VERSION}.csv" \
+      "paper/results_cache/adni_mci_4view_mediation_all_seeds.csv"

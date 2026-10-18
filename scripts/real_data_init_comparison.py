@@ -101,6 +101,15 @@ def load_kirc():
     return views, y, "classification"
 
 
+def load_adni_mci_mediation():
+    sys.path.insert(0, "scripts")
+    from adni_loader import get_adni_mci_cognitive_case
+    case = get_adni_mci_cognitive_case(cohort="4view", target="CDRSB")
+    views = [StandardScaler().fit_transform(v.numpy()) for v in case["views"]]
+    views = [torch.tensor(v).float() for v in views]
+    return views, case["y"], "regression"
+
+
 DATASETS = [
     ("Heart Disease", load_heart),
     ("Diabetes", load_diabetes),

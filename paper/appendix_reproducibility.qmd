@@ -9,7 +9,8 @@ The manuscript is authored in Quarto and compiles to HTML and PDF formats. All b
 ```bash
 git clone https://github.com/stnava/pysimlr.git
 cd pysimlr
-pip install -e ".[dev]"      # add ".[dev,nsa]" for optional ANTsTorch normalizing flow backends
+# Use ".[dev,nsa]" for optional ANTsTorch normalizing flow backends
+pip install -e ".[dev]"
 quarto render paper
 ```
 
@@ -18,6 +19,7 @@ Every figure and table in the manuscript is generated at render time from `paper
 ## Single Analysis Path and Benchmark Engine
 
 All statistical hypothesis tests, ranking matrices, and permutation null distributions are executed via a unified module: `src/pysimlr/benchmarks/deep_ranking.py`. This engine implements:
+
 - Non-parametric Friedman test and Iman-Davenport $F$ extension (@Demsar2006; @Iman1980).
 - Two-tailed Nemenyi Critical Difference ($CD$) computation at $\alpha = 0.05$ (@Nemenyi1963).
 - Pairwise Wilcoxon signed-rank tests (@Wilcoxon1945) with family-wise Holm-Bonferroni step-down adjustments (@Holm1979).
@@ -32,11 +34,11 @@ pytest tests/test_deep_ranking_stats.py -v
 
 ## Replication Structure and the Permutation Resolution Floor
 
-The deep ranking benchmark evaluates seven distinct architectures across 70 independent task blocks (4 synthetic generative manifolds + 3 real-world clinical/multi-omics cohorts $\times$ 10 independent random seeds):
+The deep ranking benchmark evaluates nine distinct architectures across nine multi-modal data regimes (six synthetic generative manifolds with known ground truth + three public clinical/multi-omics cohorts: UCI Cleveland Heart Disease, Efron Diabetes Progression, and 3-assay TCGA-BRCA multi-omics) across $N_{\text{seeds}} = 3$ independent random seeds ($243$ total model fits):
 
 ```{python}
 #| label: tbl-replication-design
-#| tbl-cap: 'Replication Structure of the Deep Ranking Benchmark. Each task block corresponds to an independent random seed controlling data partitioning, train/test split, and torch weight initialization. Multiplicity across loss functions or consensus methods on the same data split is strictly avoided.'
+#| tbl-cap: 'Replication Structure of the Deep Ranking Benchmark. Each task block corresponds to an independent dataset evaluated across three random seeds controlling data partitioning, train/test split, and torch weight initialization. Multiplicity across loss functions or consensus methods on the same data split is strictly avoided.'
 #| echo: false
 #| output: asis
 import os
@@ -60,32 +62,33 @@ for dataset, grp in df.groupby("Dataset"):
     summary_rows.append({
         "Dataset / Regime": dataset,
         "Type": case_type.capitalize(),
-        "Independent Seeds (N)": n_seeds,
-        "Architectures (k)": n_models,
+        "Seeds (N)": n_seeds,
+        "Models (k)": n_models,
         "Total Runs": total_evals,
-        "Permutation Floor": f"{perm_floor:.6f}"
+        "Per-Dataset Seed Floor": f"{perm_floor:.4f}"
     })
 
 df_summary = pd.DataFrame(summary_rows)
 print(tabulate(df_summary, headers="keys", tablefmt="pipe", showindex=False))
 ```
 
-### The Permutation Floor ($2 / 2^{10} \approx 0.00195$)
+### Block-Level Sign-Flip Permutation Floor
 
-In statistical hypothesis testing between paired models, inference must be conducted at the level of the independent replicate ($N$). For a paired difference vector $\boldsymbol{\Delta} = \mathbf{y}_A - \mathbf{y}_B$ across $N$ independent seeds, the exact distribution-free sign-flip null distribution consists of $2^N$ equally probable sign assignments:
+In statistical hypothesis testing between paired models across $B = 9$ independent dataset blocks (where each block cell is the mean across $N_{\text{seeds}} = 3$ replicates, following @Demsar2006), the exact distribution-free sign-flip null distribution across the $B = 9$ blocks consists of $2^B = 512$ equally probable sign assignments:
 $$
-p_{\text{perm}} = \frac{1}{2^N} \sum_{\mathbf{s} \in \{-1, +1\}^N} \mathbb{I}\left(\left|\frac{1}{N} \sum_{i=1}^N s_i \Delta_i\right| \ge |\bar{\Delta}|\right)
+p_{\text{perm}} = \frac{1}{2^B} \sum_{\mathbf{s} \in \{-1, +1\}^B} \mathbb{I}\left(\left|\frac{1}{B} \sum_{i=1}^B s_i \Delta_i\right| \ge |\bar{\Delta}|\right)
 $$
 
-For $N = 10$ independent seeds, the minimal attainable two-sided permutation $p$-value occurs when every replicate favours the same model:
+For $B = 9$ independent dataset blocks (or $N = 10$ independent seeds in the ADNI-MCI 4-view mediation benchmark), the minimal attainable two-sided permutation $p$-value occurs when every block favours the same model:
 $$
-p_{\min} = \frac{2}{2^{10}} = \frac{2}{1024} \approx 0.001953
+p_{\min, B=9} = \frac{2}{2^9} = \frac{2}{512} \approx 0.003906, \qquad p_{\min, N=10} = \frac{2}{2^{10}} = \frac{2}{1024} \approx 0.001953
 $$
 
 We enforce the following statistical standards throughout the manuscript:
-1. **Zero Unadjusted Pooled $p$-values**: We completely eliminate pooled repeated-measures $t$-tests. Crossing multiple hyperparameters on the same seed does not increase statistical degrees of freedom.
-2. **Floor Truncation**: No distribution-free permutation test can report a value below $0.001953$. Cells at the floor represent instances where all 10 independent replicates unanimously favor the same architecture.
-3. **Dual Metric Reporting**: Strictly Linear accuracy ($\mathbf{X}\mathbf{V}$) and full non-linear predictive capacity ($Y$) are reported as distinct metrics. A deep architecture must demonstrate an improvement on the first-layer linear projection to justify the claim that it discovers a superior auditable basis.
+
+1. **Zero Unadjusted Pooled $p$-values**: We completely eliminate pooled repeated-measures $t$-tests and unaggregated seed-rows in global Friedman/Wilcoxon tests (`build_ranking_blocks`). Crossing multiple seeds or hyperparameters on the same dataset does not increase dataset-level degrees of freedom.
+2. **Floor Truncation**: No distribution-free permutation test can report a value below $2/2^B$.
+3. **Triple Metric Reporting**: Global consensus prediction ($Y$ on $\mathbf{U}$), strictly linear first-layer accuracy ($\mathbf{X}\mathbf{V}$), and axis-sensitive random forest probe accuracy on $\mathbf{X}\mathbf{V}$ are reported alongside ground-truth latent ($CMC$) and sparse support Jaccard recovery.
 
 ## Software Environment
 
@@ -120,5 +123,6 @@ print(tabulate.tabulate(pd.DataFrame(env_info), headers="keys", tablefmt="pipe",
 ## Determinism and RNG Isolation
 
 To ensure absolute determinism across all benchmark runs:
+
 1. **Process RNG Isolation**: Invocations of normalizing flow retractions and torch optimization loops restore CPU and CUDA generator states upon completion. No model fitting operation mutates the caller's global random state.
-2. **Fixed Random Seeds**: The benchmark explicitly iterates over seeds $42, 43, 44, 45, 46, 47, 48, 49, 50, 51$. Data synthesis, train/test splitting ($70/30$), and neural network parameter initialization are strictly controlled by these seed parameters.
+2. **Fixed Random Seeds**: The primary deep ranking benchmark iterates over seeds $42, 43, 44$ ($N_{\text{seeds}} = 3$, with `--seeds 10` configurable for extended runs up to seed $51$), while the ADNI-MCI 4-view mediation benchmark evaluates across 10 seeds ($42, \dots, 51$). Data synthesis, train/test splitting ($70/30$), and neural network parameter initialization are strictly controlled by these seed parameters.

@@ -100,6 +100,8 @@ def safe_pca(x: torch.Tensor, nc: int = 2) -> Dict[str, torch.Tensor]:
     """
     x = torch.as_tensor(x).float()
     x = torch.nan_to_num(x, nan=0.0)
+    if x.ndim == 1:
+        x = x.unsqueeze(1)
     
     if x.shape[0] > 1:
         std = torch.std(x, dim=0)
@@ -293,20 +295,22 @@ def multiscale_svd(x: torch.Tensor,
     if actual_nev == 0 or len(locn_indices) == 0:
         return {"evals_vs_scale": m_response}
 
+    if knn > 0:
+        dist = torch.cdist(x[locn_indices], x)
+        _, indices = torch.topk(dist, k=k_eff, largest=False)
+
     for scl_idx, my_r in enumerate(r):
         denom = my_r if torch.abs(my_r) > 1e-12 else 1.0
         if knn > 0:
-            dist = torch.cdist(x[locn_indices], x)
-            _, indices = torch.topk(dist, k=k_eff, largest=False)
             subset = x[indices]
             subset_c = (subset - subset.mean(dim=-2, keepdim=True)) / denom
             _, s_all, _ = safe_svd(subset_c, full_matrices=False)
             s = s_all.mean(dim=0)
-            m_response[scl_idx, :] = s[:actual_nev]
+            m_response[scl_idx, :len(s[:actual_nev])] = s[:actual_nev]
         else:
             subset = x[locn_indices]
             subset_c = (subset - torch.mean(subset, dim=0)) / denom
             _, s, _ = safe_svd(subset_c, full_matrices=False)
-            m_response[scl_idx, :actual_nev] = s[:actual_nev]
+            m_response[scl_idx, :len(s[:actual_nev])] = s[:actual_nev]
             
     return {"evals_vs_scale": m_response}

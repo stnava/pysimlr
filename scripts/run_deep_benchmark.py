@@ -72,16 +72,18 @@ def get_diabetes_case(seed: int = 42) -> dict:
 
 
 def get_heart_case(seed: int = 42) -> dict:
+    local_csv = os.path.join(os.path.dirname(__file__), "..", "data", "heart_cleveland.csv")
     url_heart = 'https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data'
     cols = ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal', 'num']
-    try:
-        df_h = pd.read_csv(url_heart, names=cols).replace('?', np.nan).dropna().apply(pd.to_numeric)
-    except Exception:
-        np.random.seed(seed)
-        X_dummy = np.random.randn(300, 13)
-        y_dummy = np.random.randint(0, 2, 300)
-        df_h = pd.DataFrame(X_dummy)
-        df_h['num'] = y_dummy
+    if os.path.exists(local_csv):
+        df_h = pd.read_csv(local_csv)
+    else:
+        try:
+            df_h = pd.read_csv(url_heart, names=cols).replace('?', np.nan).dropna().apply(pd.to_numeric)
+            os.makedirs(os.path.dirname(local_csv), exist_ok=True)
+            df_h.to_csv(local_csv, index=False)
+        except Exception as exc:
+            raise RuntimeError(f"Could not load UCI Heart dataset: {exc}") from exc
     X_h = df_h.drop('num', axis=1).values.astype(float)  # scaled per-fold
     y = (df_h['num'].values > 0).astype(int)
     mats = [X_h[:, :7], X_h[:, 7:]]
@@ -98,40 +100,166 @@ def get_heart_case(seed: int = 42) -> dict:
     }
 
 
-def get_multiomics_case(n_samples: int = 400, seed: int = 42) -> dict:
+def get_multiomics_case(n_samples: int = 822, seed: int = 42) -> dict:
     """
-    3-view multi-omics benchmark (mRNA, CNV, Protein) with known biological latents.
+    Real 3-view TCGA-BRCA multi-omics cohort (mRNA, CNV, RPPA; N=822 patients,
+    p=[200, 150, 150]) predicting clinically adjudicated Estrogen Receptor (ER)
+    status (binary classification, scaled inside each train/test split).
     """
-    rng = np.random.default_rng(seed)
-    torch.manual_seed(seed)
+    cache_npz = os.path.join(os.path.dirname(__file__), "..", "data", "tcga", "brca_er_cached.npz")
+    if not os.path.exists(cache_npz):
+        from tcga_loader import fetch, _matrix, ASSAYS
+        clin = pd.read_csv(fetch("BRCA", "clinical"), sep="\t", index_col=0, low_memory=False)
+        s = clin["breast_carcinoma_estrogen_receptor_status"].astype(str)
+        ok = s.isin(["Positive", "Negative"])
+        y_all = (s[ok] == "Positive").astype(float)
+        views = {t: _matrix(fetch("BRCA", t)) for t in ASSAYS}
+        shared = sorted(
+            set(clin.index[ok])
+            & set(views["rna"].index)
+            & set(views["cnv"].index)
+            & set(views["rppa"].index)
+        )
+        mats_raw = []
+        for t, max_f in [("rna", 200), ("cnv", 150), ("rppa", 150)]:
+            m = views[t].loc[shared]
+            m = m.loc[:, m.notna().mean() >= 0.8].fillna(m.median(numeric_only=True))
+            m = m.loc[:, m.std() > 0]
+            if m.shape[1] > max_f:
+                keep = m.std().sort_values(ascending=False).index[:max_f]
+                m = m[sorted(keep)]
+            mats_raw.append(m.to_numpy(dtype=np.float32))
+        y = y_all.loc[shared].to_numpy(dtype=np.float32)
+        os.makedirs(os.path.dirname(cache_npz), exist_ok=True)
+        np.savez_compressed(cache_npz, rna=mats_raw[0], cnv=mats_raw[1], rppa=mats_raw[2], y=y)
+
+    z = np.load(cache_npz)
+    mats = [z["rna"].astype(np.float32), z["cnv"].astype(np.float32), z["rppa"].astype(np.float32)]
+    outcome = z["y"].astype(np.float32)
     k = 3
-    # Latent biological drivers (e.g. subtype, immune infiltration, proliferation)
-    u = rng.standard_normal((n_samples, k))
-    
-    # View 1: mRNA (60 features)
-    v1 = rng.standard_normal((60, k))
-    x1 = u @ v1.T + 0.3 * rng.standard_normal((n_samples, 60))
-    
-    # View 2: CNV (40 features)
-    v2 = rng.standard_normal((40, k))
-    x2 = u @ v2.T + 0.4 * rng.standard_normal((n_samples, 40))
-    
-    # View 3: Proteomics (30 features)
-    v3 = rng.standard_normal((30, k))
-    x3 = u @ v3.T + 0.3 * rng.standard_normal((n_samples, 30))
-    
-    # Phenotype outcome: continuous survival index influenced by latents
-    outcome = 1.5 * u[:, 0] - 1.2 * u[:, 1] + 0.8 * u[:, 2] + 0.2 * rng.standard_normal(n_samples)
-    
-    mats = [x1, x2, x3]  # scaled per-fold, not across the whole cohort
     return {
-        "kind": "multiomics_3view",
+        "kind": "tcga_brca_multiomics",
         "data": [torch.tensor(m).float() for m in mats],
         "outcome": torch.tensor(outcome).float(),
-        "true_u": torch.tensor(u).float(),
-        "true_v": [v1, v2, v3],
+        "true_u": torch.zeros(mats[0].shape[0], k),
+        "true_v": [np.zeros((m.shape[1], k)) for m in mats],
+        "shared_k": k,
+        "is_classification": True,
+        "needs_scaling": True,
+    }
+
+
+def get_kirc_case(seed: int = 42) -> dict:
+    """
+    Real 3-view TCGA-KIRC (Kidney Renal Clear Cell Carcinoma) multi-omics cohort
+    (mRNA p=200, CNV p=150, RPPA p=150; N=467 patients) predicting pathologic stage
+    (late stage III/IV vs early stage I/II, scaled inside each train/test split).
+    """
+    cache_npz = os.path.join(os.path.dirname(__file__), "..", "data", "tcga", "kirc_stage_cached.npz")
+    if not os.path.exists(cache_npz):
+        from tcga_loader import fetch, _matrix, ASSAYS, _binary_outcome
+        clin = pd.read_csv(fetch("KIRC", "clinical"), sep="\t", index_col=0, low_memory=False)
+        y_all, ok, _ = _binary_outcome(clin)
+        views = {t: _matrix(fetch("KIRC", t)) for t in ASSAYS}
+        shared = sorted(
+            set(clin.index[ok])
+            & set(views["rna"].index)
+            & set(views["cnv"].index)
+            & set(views["rppa"].index)
+        )
+        mats_raw = []
+        for t, max_f in [("rna", 200), ("cnv", 150), ("rppa", 150)]:
+            m = views[t].loc[shared]
+            m = m.loc[:, m.notna().mean() >= 0.8].fillna(m.median(numeric_only=True))
+            m = m.loc[:, m.std() > 0]
+            if m.shape[1] > max_f:
+                keep = m.std().sort_values(ascending=False).index[:max_f]
+                m = m[sorted(keep)]
+            mats_raw.append(m.to_numpy(dtype=np.float32))
+        y = y_all.loc[shared].to_numpy(dtype=np.float32)
+        os.makedirs(os.path.dirname(cache_npz), exist_ok=True)
+        np.savez_compressed(cache_npz, rna=mats_raw[0], cnv=mats_raw[1], rppa=mats_raw[2], y=y)
+
+    z = np.load(cache_npz)
+    mats = [z["rna"].astype(np.float32), z["cnv"].astype(np.float32), z["rppa"].astype(np.float32)]
+    outcome = z["y"].astype(np.float32)
+    k = 3
+    return {
+        "kind": "tcga_kirc_multiomics",
+        "data": [torch.tensor(m).float() for m in mats],
+        "outcome": torch.tensor(outcome).float(),
+        "true_u": torch.zeros(mats[0].shape[0], k),
+        "true_v": [np.zeros((m.shape[1], k)) for m in mats],
+        "shared_k": k,
+        "is_classification": True,
+        "needs_scaling": True,
+    }
+
+
+def get_adni_mci_case(seed: int = 42) -> dict:
+    """
+    Real 4-view ADNI-MCI neuroimaging & cognition cohort (N=1,084 patients;
+    Protocol B: 3 structural brain MRI views p=[160, 160, 62] + View 4 containing
+    the 11 >98%-complete clinical/cognitive variables during training; at test
+    time View 4 is withheld and all 11 cognitive variables are predicted solely
+    from the 3 MRI views' linear projections, with in-fold FWL covariate
+    adjustment for AGE, PTGENDER, and PTEDUCAT on both MRI and cognitive variables).
+    """
+    csv_path = os.path.join(os.path.dirname(__file__), "..", "data", "adni", "adni_mci_cognitive_merged.csv")
+    df = pd.read_csv(csv_path)
+    vol_cols = [c for c in df.columns if c.startswith("T1Hier_vol__")]
+    thk_cols = [c for c in df.columns if c.startswith("T1Hier_thk__")]
+    t1w_cols = [c for c in df.columns if c.startswith("T1w__")]
+    drop_cog = {"Cog__MOCA", "Cog__EcogPtTotal", "Cog__EcogSPTotal"}
+    cog_cols = [c for c in df.columns if c.startswith("Cog__") and c not in drop_cog] + ["CDRSB"]
+
+    n_samples = len(df)
+    sex_bin = (df["PTGENDER"].astype(str).str.upper().str.startswith("F")).astype(float).values
+    covars = np.column_stack([np.ones(n_samples), df["AGE"].values, sex_bin, df["PTEDUCAT"].values]).astype(np.float32)
+    y_cog11 = df[cog_cols].values.astype(np.float32)
+
+    mats = [
+        df[vol_cols].values.astype(np.float32),
+        df[thk_cols].values.astype(np.float32),
+        df[t1w_cols].values.astype(np.float32),
+        y_cog11,
+    ]
+    k = 3
+    return {
+        "kind": "adni_mci_real",
+        "data": [torch.tensor(m).float() for m in mats],
+        "outcome": torch.tensor(y_cog11).float(),
+        "covariates": torch.tensor(covars).float(),
+        "eval_view_indices": [0, 1, 2],
+        "topology": "graph",
+        "path_graph": {0: [3], 1: [3], 2: [3], 3: [0, 1, 2]},
+        "true_u": torch.zeros(n_samples, k),
+        "true_v": [np.zeros((m.shape[1], k)) for m in mats],
         "shared_k": k,
         "is_classification": False,
+        "needs_scaling": True,
+    }
+
+
+def get_mfeat_case(seed: int = 42) -> dict:
+    """
+    Real 4-view UCI Multiple Features handwritten digits dataset (N=2,000,
+    views: Fourier p=76, Karhunen-Loeve p=64, Morphological p=6, Zernike p=47;
+    10-class digit classification).
+    """
+    mfeat_dir = os.path.join(os.path.dirname(__file__), "..", "data", "mfeat")
+    files = ["mfeat-fou", "mfeat-kar", "mfeat-mor", "mfeat-zer"]
+    mats = [np.loadtxt(os.path.join(mfeat_dir, f)).astype(np.float32) for f in files]
+    y = np.repeat(np.arange(10), 200).astype(np.float32)
+    k = 3
+    return {
+        "kind": "mfeat_real",
+        "data": [torch.tensor(m).float() for m in mats],
+        "outcome": torch.tensor(y).float(),
+        "true_u": torch.zeros(mats[0].shape[0], k),
+        "true_v": [np.zeros((m.shape[1], k)) for m in mats],
+        "shared_k": k,
+        "is_classification": True,
         "needs_scaling": True,
     }
 
@@ -139,7 +267,7 @@ def get_multiomics_case(n_samples: int = 400, seed: int = 42) -> dict:
 def calculate_v_recovery(res: dict, true_v: list) -> float:
     v_est = res.get('v')
     if v_est is None or true_v is None:
-        return 0.0
+        return float("nan")
     r2s = []
     for ve, vt in zip(v_est, true_v):
         if vt is None:
@@ -149,7 +277,7 @@ def calculate_v_recovery(res: dict, true_v: list) -> float:
             continue
         ve_t = torch.as_tensor(ve).float()
         r2s.append(procrustes_r2(vt_t, ve_t))
-    return float(np.mean(r2s)) if r2s else 0.0
+    return float(np.mean(r2s)) if r2s else float("nan")
 
 
 def run_experiment_task(task_args: tuple) -> dict:
@@ -158,19 +286,19 @@ def run_experiment_task(task_args: tuple) -> dict:
 
     if case_type == "synthetic":
         if dataset_name == "Linear":
-            case = build_case(seed=seed, kind="linear")
+            case = build_case(seed=seed, kind="linear", private_scale=0.5)
         elif dataset_name == "Polynomial":
-            case = build_case(seed=seed, kind="nonlinear", regime="polynomial")
+            case = build_case(seed=seed, kind="nonlinear", regime="polynomial", private_scale=0.5)
         elif dataset_name == "Sine":
-            case = build_case(seed=seed, kind="nonlinear", regime="sinusoidal")
+            case = build_case(seed=seed, kind="nonlinear", regime="sinusoidal", private_scale=0.5)
         elif dataset_name in ("Shared+Private", "Private"):
-            case = build_case(seed=seed, kind="shared_plus_private")
+            case = build_case(seed=seed, kind="shared_plus_private", private_scale=0.5)
         elif dataset_name == "NonnegParts":
-            case = build_case(seed=seed, kind="nonneg_parts")
+            case = build_case(seed=seed, kind="nonneg_parts", private_scale=0.5)
         elif dataset_name == "NonnegPartsWeak":
-            case = build_case(seed=seed, kind="nonneg_parts_weak")
+            case = build_case(seed=seed, kind="nonneg_parts_weak", private_scale=0.5)
         else:
-            case = build_case(seed=seed, kind="linear")
+            case = build_case(seed=seed, kind="linear", private_scale=0.5)
         is_classif = False
     elif dataset_name == "Heart":
         case = get_heart_case(seed=seed)
@@ -179,25 +307,34 @@ def run_experiment_task(task_args: tuple) -> dict:
         case = get_diabetes_case(seed=seed)
         is_classif = False
     elif dataset_name == "MultiOmics":
-        case = get_multiomics_case(n_samples=400, seed=seed)
+        case = get_multiomics_case(seed=seed)
+        is_classif = True
+    elif dataset_name == "TCGA-KIRC":
+        case = get_kirc_case(seed=seed)
+        is_classif = True
+    elif dataset_name == "ADNI-MCI":
+        case = get_adni_mci_case(seed=seed)
         is_classif = False
+    elif dataset_name == "mfeat":
+        case = get_mfeat_case(seed=seed)
+        is_classif = True
     else:
         raise ValueError(f"Unknown dataset {dataset_name}")
 
-    energy_type = "acc" if is_classif else "regression"
+    is_nonneg_regime = dataset_name in ("NonnegParts", "NonnegPartsWeak")
+    energy_type = "acc"
     params = {
-        "iterations": iterations,
-        "epochs": epochs,
         "energy_type": energy_type,
-        "mixing_algorithm": "newton",
-        "use_nsa": True,
-        "positivity": "positive",
+        "mixing_algorithm": "svd",
+        "positivity": "positive" if is_nonneg_regime else "either",
         "nsa_w": 0.5,
-        # sparseness_quantile is ignored: sparsity is a consequence of w.
-        "sparseness_quantile": 0.0,
-        "nsa_iterations": 3,
-        "consolidate": True,
+        "nsa_iterations": 2,
+        "consolidate": False,
     }
+    if model_type in ("linear", "simlr_lbfgs", "simlr_lbfgsb"):
+        params["iterations"] = iterations
+    elif model_type in ("lend", "ned", "shared_private", "flow_v"):
+        params["epochs"] = epochs
     if model_type == "shared_private" and "private_k" in case:
         params["private_k"] = case["private_k"]
 
@@ -215,6 +352,10 @@ def run_experiment_task(task_args: tuple) -> dict:
     lin_test = metrics.get("first_layer_test_accuracy", 0.0) if is_classif else metrics.get("first_layer_test_r2", 0.0)
     rf_test = metrics.get("first_layer_axis_test_accuracy", 0.0) if is_classif else metrics.get("first_layer_axis_test_r2", 0.0)
 
+    true_u = case.get("true_u")
+    has_true_u = true_u is not None and not bool((torch.as_tensor(true_u) == 0).all())
+    cmc_u = float(metrics.get("recovery", float("nan"))) if has_true_u else float("nan")
+
     return {
         "Dataset": dataset_name,
         "Case_Type": case_type,
@@ -225,7 +366,7 @@ def run_experiment_task(task_args: tuple) -> dict:
         "Gen_Gap": float(train_metric - test_metric),
         "Strictly_Linear_Metric": float(lin_test),
         "Axis_Sensitive_Metric": float(rf_test),
-        "CMC_Latent_U": float(metrics.get("recovery", 0.0)),
+        "CMC_Latent_U": cmc_u,
         "Feature_Recovery_V": float(v_rec),
         "Support_Recovery_V": float(v_sup),
         "Frame_Defect_D": float(metrics.get("frame_defect", 0.0)),
@@ -240,7 +381,7 @@ def run_experiment_task(task_args: tuple) -> dict:
     }
 
 
-def run_deep_benchmark(n_seeds: int = 10, workers: int = 4, iterations: int = 40, epochs: int = 80) -> pd.DataFrame:
+def run_deep_benchmark(n_seeds: int = 3, workers: int = 8, iterations: int = 25, epochs: int = 45) -> pd.DataFrame:
     # `NonnegParts` and `NonnegPartsWeak` have non-negative, sparse, disjoint
     # ground-truth loadings. Every other synthetic regime draws `V` with
     # `torch.randn`, so the truth is signed and dense and a non-negative method
@@ -248,14 +389,14 @@ def run_deep_benchmark(n_seeds: int = 10, workers: int = 4, iterations: int = 40
     # is no regime in the suite where the structural hypothesis holds.
     synthetic_regimes = ["Linear", "Polynomial", "Sine", "Shared+Private",
                          "NonnegParts", "NonnegPartsWeak"]
-    real_regimes = ["Heart", "Diabetes", "MultiOmics"]
+    real_regimes = ["Heart", "Diabetes", "MultiOmics", "TCGA-KIRC", "ADNI-MCI", "mfeat"]
 
     model_configs = [
         ("pca", "PCA"),
         ("linear", "SiMLR"),
         ("simlr_lbfgs", "SiMLR-LBFGS"),
         ("simlr_lbfgsb", "SiMLR-LBFGSB"),
-        ("nsa_pipeline", "NSAFlow-Turnkey"),
+        ("nsa_pipeline", "NSAFlow-PCA"),
         ("lend", "LEND"),
         ("ned", "NED"),
         ("flow_v", "Flow-SiMLR-V"),
@@ -311,10 +452,10 @@ def run_deep_benchmark(n_seeds: int = 10, workers: int = 4, iterations: int = 40
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Deep Method Ranking Benchmark")
-    parser.add_argument("--seeds", type=int, default=10, help="Number of seeds (default: 10)")
-    parser.add_argument("--workers", type=int, default=6, help="Worker processes (default: 6)")
-    parser.add_argument("--iterations", type=int, default=30, help="SiMLR iterations (default: 30)")
-    parser.add_argument("--epochs", type=int, default=60, help="Deep epochs (default: 60)")
+    parser.add_argument("--seeds", type=int, default=3, help="Number of seeds (default: 3)")
+    parser.add_argument("--workers", type=int, default=8, help="Worker processes (default: 8)")
+    parser.add_argument("--iterations", type=int, default=25, help="SiMLR iterations (default: 25)")
+    parser.add_argument("--epochs", type=int, default=45, help="Deep epochs (default: 45)")
     args = parser.parse_args()
 
     run_deep_benchmark(

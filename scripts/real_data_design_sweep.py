@@ -15,6 +15,7 @@ paper/results_cache/real_design_sweep.csv.
 from __future__ import annotations
 
 import os
+import re
 import multiprocessing
 
 for _v in ("OMP", "MKL", "OPENBLAS", "VECLIB_MAXIMUM", "NUMEXPR"):
@@ -145,7 +146,8 @@ def get_ppmi_case(seed: int = 42) -> dict:
             "shared_k": k, "needs_scaling": True, "is_classification": True}
 
 
-def get_adni_case(seed: int = 42, views: str = "t1_dti",
+def get_adni_case(seed: int = 42, views: str = "t1_dti", drop_lravg: bool = False,
+                  lravg_only: bool = True, k: int = 3,
                   min_complete_rows: int = 150) -> dict:
     """ADNI at **baseline**, predicting **CDRSB** -- a regression, not a class.
 
@@ -181,8 +183,15 @@ def get_adni_case(seed: int = 42, views: str = "t1_dti",
     df = pd.read_csv(THK, low_memory=False)
     df = df[(df.studyName == "ADNI") & (df.yearsbl == 0)]
 
+    # Surface area dropped: it is largely redundant with volume (area and
+    # thickness multiply to it regionally) and carries the least independent
+    # signal of the three T1 families.
+    # FA and MD are different diffusion scalars measured on the same voxels --
+    # anisotropy versus overall diffusivity. They answer different questions
+    # about tissue microstructure and belong in separate views; pooling them
+    # into one "DTI" block asserts they are one modality, which they are not.
     fams = [("T1Hier_vol_", "vol"), ("T1Hier_thk_", "thk"),
-            ("T1Hier_area_", "area"), ("DTI_mean_", "dti")]
+            ("DTI_mean_fa", "fa"), ("DTI_mean_md", "md")]
     if views == "all":
         fams.append(("rsfMRI_", "rsfmri"))
 
@@ -190,10 +199,51 @@ def get_adni_case(seed: int = 42, views: str = "t1_dti",
     for pre, _name in fams:
         cols = [c for c in df.columns if pre in c
                 and not any(x in c for x in ("Asym", "reference", "adjusted"))]
+        if lravg_only:
+            # Keep the left-right averages and the unlateralised regions;
+            # drop the per-hemisphere columns the averages summarise. Two
+            # reasons. Efficiency: it removes 164 of 336 T1 and 160 of 247
+            # DTI columns per scalar. And correctness: `*_LRAVG_*` is exactly
+            # (left + right) / 2 of two columns in the same view -- verified
+            # on all 162 checkable DTI pairs to 1e-6 -- so keeping all three
+            # makes the view's covariance singular by construction and
+            # weights every lateralised region three times.
+            keep = [c for c in cols if "LRAVG" in c
+                    or not re.search(r"(^|[._])(left|right)([._]|$)", c)]
+            cols = keep
+        elif drop_lravg:
+            # `*_LRAVG_*` columns are exactly (left + right) / 2 of two columns
+            # already in the same view -- verified on all 162 checkable DTI
+            # pairs, to 1e-6. They are 158 of the DTI view's 494 columns, so
+            # roughly a third of that view is an exact linear combination of
+            # the rest: the covariance is singular by construction and every
+            # region carrying an LRAVG twin is weighted three times.
+            cols = [c for c in cols if "LRAVG" not in c]
         blocks.append(df[cols].apply(pd.to_numeric, errors="coerce"))
 
+    # Age, sex and education are the minimum adjustment set for CDRSB: it is a
+    # clinical severity score and all three move it independently of imaging.
+    # Predicting it from imaging alone asks the latent to carry demographic
+    # variance it has no way to represent, which is why the unadjusted fit sat
+    # at R^2 ~ 0.09 for every method, deep and shallow alike.
+    # Age, sex and education: the clinical adjustment set for CDRSB. They are
+    # returned under `covariates`, NOT as a view. A covariate block is not a
+    # modality -- making it one asks the shared latent to carry demographic
+    # variance, and lets a method score well by rediscovering age. The test
+    # they exist for is incremental value:
+    #     RF(y ~ covariates)  vs  RF(y ~ covariates + embedding)
+    # which is what `covariates` in the returned dict is for.
+    #
+    # APOE4 was here briefly and is dropped: it is missing for 67 of the 366
+    # complete-case rows, and an 18% sample-size cut is too high a price for
+    # one predictor when the comparison is already n-limited.
+    cov = pd.DataFrame({
+        "age": pd.to_numeric(df["age"], errors="coerce"),
+        "educ": pd.to_numeric(df["PTEDUCAT"], errors="coerce"),
+        "sex": (df["PTGENDER"].astype(str) == "Male").astype(float),
+    })
     y = pd.to_numeric(df["CDRSB"], errors="coerce")
-    ok = y.notna()
+    ok = y.notna() & cov.notna().all(axis=1)
     for b in blocks:
         ok &= b.notna().all(axis=1)
     if int(ok.sum()) < min_complete_rows:
@@ -202,10 +252,14 @@ def get_adni_case(seed: int = 42, views: str = "t1_dti",
             f"raise min_complete_rows to accept that or drop rsfMRI.")
 
     mats = [b[ok].to_numpy(float) for b in blocks]
+    covariates = torch.tensor(cov[ok].to_numpy(float)).float()
+    # Covariates do NOT enter as a view; they are returned separately for the
+    # incremental-value comparison described above.
     mats = [m[:, m.std(axis=0) > 0] for m in mats]     # constant cols carry nothing
     y = y[ok].to_numpy(float)
-    k = 3
-    return {"kind": "adni_cdrsb", "data": [torch.tensor(m).float() for m in mats],
+    return {"kind": "adni_cdrsb", "covariates": covariates,
+            "covariate_names": list(cov.columns),
+            "data": [torch.tensor(m).float() for m in mats],
             "outcome": torch.tensor(y).float(),
             "true_u": torch.zeros(mats[0].shape[0], k),
             "true_v": [np.zeros((m.shape[1], k)) for m in mats],
@@ -374,6 +428,16 @@ CASES = {
     "mfeat2": lambda seed=42: get_mfeat_case(seed=seed, views=2),
     "mfeat4": lambda seed=42: get_mfeat_case(seed=seed, views=4),
     "mfeat6": lambda seed=42: get_mfeat_case(seed=seed, views=6),
+    # Six more TCGA tumour types, same three assays as BRCA (RNA-Seq, copy
+    # number, RPPA). BRCA was the only cohort here whose views are genuinely
+    # separate assays rather than one feature table cut in half, so every
+    # multi-view claim rested on a single dataset and could not distinguish
+    # "the method works" from "that dataset suits it". Each has min p/k >= 60,
+    # well clear of the regime where the projection is forced to disjoint
+    # supports regardless of the constraint. Fetched from the Xena TCGA hub
+    # and cached; see `scripts/tcga_loader.py`.
+    **{f"TCGA-{c}": (lambda c=c: (lambda seed=42: _tcga(c, seed=seed)))()
+       for c in ("LUAD", "KIRC", "OV", "HNSC", "UCEC", "COAD")},
 }
 
 SIMLR_FAMILY = [("linear", "SiMLR"), ("simlr_lbfgs", "SiMLR-LBFGS"),
@@ -385,7 +449,18 @@ ALL_MODELS = SIMLR_FAMILY + [
 ENERGIES = ["regression", "acc", "logcosh", "nc"]
 MIXINGS = ["newton", "svd", "pca", "ica"]
 WS = [0.1, 0.3, 0.5, 0.7, 0.9]
-MAIS = ["procrustes_r2", "procrustes_r2_sharp", "cca", "rvcoef", "trace"]
+# 'trace' removed: tr(Z'u) is the only MAI metric not computed through the
+# SVD and is not invariant to the arbitrary rotation of the latent
+# coordinates (same data under three rotations: 0.0348, 0.1319, 0.0000). It
+# ranked a planted pure-noise view above a signal view. Any sweep row that
+# used it was scoring a coordinate accident.
+def _tcga(cancer: str, seed: int = 42) -> dict:
+    """One TCGA cohort; see `scripts/tcga_loader.get_tcga_case`."""
+    from tcga_loader import get_tcga_case
+    return get_tcga_case(cancer, seed=seed)
+
+
+MAIS = ["procrustes_r2", "procrustes_r2_sharp", "cca", "rvcoef"]
 
 
 def run_one(task: tuple) -> dict:

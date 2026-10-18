@@ -269,7 +269,7 @@ window.Quarto = {
   <li><a href="#single-analysis-path-and-benchmark-engine" id="toc-single-analysis-path-and-benchmark-engine" class="nav-link" data-scroll-target="#single-analysis-path-and-benchmark-engine"><span class="header-section-number">D.2</span> Single Analysis Path and Benchmark Engine</a></li>
   <li><a href="#replication-structure-and-the-permutation-resolution-floor" id="toc-replication-structure-and-the-permutation-resolution-floor" class="nav-link" data-scroll-target="#replication-structure-and-the-permutation-resolution-floor"><span class="header-section-number">D.3</span> Replication Structure and the Permutation Resolution Floor</a>
   <ul class="collapse">
-  <li><a href="#the-permutation-floor-2-210-approx-0.00195" id="toc-the-permutation-floor-2-210-approx-0.00195" class="nav-link" data-scroll-target="#the-permutation-floor-2-210-approx-0.00195"><span class="header-section-number">D.3.1</span> The Permutation Floor (<span class="math inline">\(2 / 2^{10} \approx 0.00195\)</span>)</a></li>
+  <li><a href="#block-level-sign-flip-permutation-floor" id="toc-block-level-sign-flip-permutation-floor" class="nav-link" data-scroll-target="#block-level-sign-flip-permutation-floor"><span class="header-section-number">D.3.1</span> Block-Level Sign-Flip Permutation Floor</a></li>
   </ul></li>
   <li><a href="#software-environment" id="toc-software-environment" class="nav-link" data-scroll-target="#software-environment"><span class="header-section-number">D.4</span> Software Environment</a></li>
   <li><a href="#determinism-and-rng-isolation" id="toc-determinism-and-rng-isolation" class="nav-link" data-scroll-target="#determinism-and-rng-isolation"><span class="header-section-number">D.5</span> Determinism and RNG Isolation</a></li>
@@ -333,115 +333,144 @@ window.Quarto = {
 <p>The manuscript is authored in Quarto and compiles to HTML and PDF formats. All benchmark result caches are vendored directly under <code>paper/results_cache/</code>, permitting a completely offline build with zero external network access:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/stnava/pysimlr.git</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> pysimlr</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="at">-e</span> <span class="st">".[dev]"</span>      <span class="co"># add ".[dev,nsa]" for optional ANTsTorch normalizing flow backends</span></span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">quarto</span> render paper</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Use ".[dev,nsa]" for optional ANTsTorch normalizing flow backends</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="at">-e</span> <span class="st">".[dev]"</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ex">quarto</span> render paper</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Every figure and table in the manuscript is generated at render time from <code>paper/results_cache/deep_ranking_benchmark.csv</code>. There are no hardcoded statistical figures in the manuscript source.</p>
 </section>
 <section id="single-analysis-path-and-benchmark-engine" class="level2" data-number="D.2">
 <h2 data-number="D.2" class="anchored" data-anchor-id="single-analysis-path-and-benchmark-engine"><span class="header-section-number">D.2</span> Single Analysis Path and Benchmark Engine</h2>
-<p>All statistical hypothesis tests, ranking matrices, and permutation null distributions are executed via a unified module: <code>src/pysimlr/benchmarks/deep_ranking.py</code>. This engine implements: - Non-parametric Friedman test and Iman-Davenport <span class="math inline">\(F\)</span> extension (<span class="citation" data-cites="Demsar2006">Demšar (<a href="#ref-Demsar2006" role="doc-biblioref">2006</a>)</span>; <span class="citation" data-cites="Iman1980">Iman and Davenport (<a href="#ref-Iman1980" role="doc-biblioref">1980</a>)</span>). - Two-tailed Nemenyi Critical Difference (<span class="math inline">\(CD\)</span>) computation at <span class="math inline">\(\alpha = 0.05\)</span> (<span class="citation" data-cites="Nemenyi1963">Nemenyi (<a href="#ref-Nemenyi1963" role="doc-biblioref">1963</a>)</span>). - Pairwise Wilcoxon signed-rank tests (<span class="citation" data-cites="Wilcoxon1945">Wilcoxon (<a href="#ref-Wilcoxon1945" role="doc-biblioref">1945</a>)</span>) with family-wise Holm-Bonferroni step-down adjustments (<span class="citation" data-cites="Holm1979">Holm (<a href="#ref-Holm1979" role="doc-biblioref">1979</a>)</span>). - Exact sign-flip permutation tests bounded by the distribution-free resolution floor. - Multi-objective Pareto frontier identification.</p>
+<p>All statistical hypothesis tests, ranking matrices, and permutation null distributions are executed via a unified module: <code>src/pysimlr/benchmarks/deep_ranking.py</code>. This engine implements:</p>
+<ul>
+<li>Non-parametric Friedman test and Iman-Davenport <span class="math inline">\(F\)</span> extension (<span class="citation" data-cites="Demsar2006">Demšar (<a href="#ref-Demsar2006" role="doc-biblioref">2006</a>)</span>; <span class="citation" data-cites="Iman1980">Iman and Davenport (<a href="#ref-Iman1980" role="doc-biblioref">1980</a>)</span>).</li>
+<li>Two-tailed Nemenyi Critical Difference (<span class="math inline">\(CD\)</span>) computation at <span class="math inline">\(\alpha = 0.05\)</span> (<span class="citation" data-cites="Nemenyi1963">Nemenyi (<a href="#ref-Nemenyi1963" role="doc-biblioref">1963</a>)</span>).</li>
+<li>Pairwise Wilcoxon signed-rank tests (<span class="citation" data-cites="Wilcoxon1945">Wilcoxon (<a href="#ref-Wilcoxon1945" role="doc-biblioref">1945</a>)</span>) with family-wise Holm-Bonferroni step-down adjustments (<span class="citation" data-cites="Holm1979">Holm (<a href="#ref-Holm1979" role="doc-biblioref">1979</a>)</span>).</li>
+<li>Exact sign-flip permutation tests bounded by the distribution-free resolution floor.</li>
+<li>Multi-objective Pareto frontier identification.</li>
+</ul>
 <p>Consolidating all inference into <code>deep_ranking.py</code> ensures that the manuscript tables, figures, and text never diverge. The test suite <code>tests/test_deep_ranking_stats.py</code> validates the statistical calculations:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> tests/test_deep_ranking_stats.py <span class="at">-v</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="replication-structure-and-the-permutation-resolution-floor" class="level2" data-number="D.3">
 <h2 data-number="D.3" class="anchored" data-anchor-id="replication-structure-and-the-permutation-resolution-floor"><span class="header-section-number">D.3</span> Replication Structure and the Permutation Resolution Floor</h2>
-<p>The deep ranking benchmark evaluates seven distinct architectures across 70 independent task blocks (4 synthetic generative manifolds + 3 real-world clinical/multi-omics cohorts <span class="math inline">\(\times\)</span> 10 independent random seeds):</p>
+<p>The deep ranking benchmark evaluates nine distinct architectures across nine multi-modal data regimes (six synthetic generative manifolds with known ground truth + three public clinical/multi-omics cohorts: UCI Cleveland Heart Disease, Efron Diabetes Progression, and 3-assay TCGA-BRCA multi-omics) across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> independent random seeds (<span class="math inline">\(243\)</span> total model fits):</p>
 <div id="tbl-replication-design" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="1">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-replication-design-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task block corresponds to an independent random seed controlling data partitioning, train/test split, and torch weight initialization. Multiplicity across loss functions or consensus methods on the same data split is strictly avoided.
+Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task block corresponds to an independent dataset evaluated across three random seeds controlling data partitioning, train/test split, and torch weight initialization. Multiplicity across loss functions or consensus methods on the same data split is strictly avoided.
 </figcaption>
 <div aria-describedby="tbl-replication-design-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="cell caption-top table table-sm table-striped small">
 <colgroup>
-<col style="width: 17%">
-<col style="width: 9%">
-<col style="width: 22%">
-<col style="width: 18%">
-<col style="width: 12%">
-<col style="width: 18%">
+<col style="width: 20%">
+<col style="width: 11%">
+<col style="width: 13%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 26%">
 </colgroup>
 <thead>
 <tr class="header">
 <th style="text-align: left;">Dataset / Regime</th>
 <th style="text-align: left;">Type</th>
-<th style="text-align: right;">Independent Seeds (N)</th>
-<th style="text-align: right;">Architectures (k)</th>
+<th style="text-align: right;">Seeds (N)</th>
+<th style="text-align: right;">Models (k)</th>
 <th style="text-align: right;">Total Runs</th>
-<th style="text-align: right;">Permutation Floor</th>
+<th style="text-align: right;">Per-Dataset Seed Floor</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
 <td style="text-align: left;">Diabetes</td>
 <td style="text-align: left;">Real</td>
-<td style="text-align: right;">10</td>
-<td style="text-align: right;">7</td>
-<td style="text-align: right;">70</td>
-<td style="text-align: right;">0.001953</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">0.25</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Heart</td>
 <td style="text-align: left;">Real</td>
-<td style="text-align: right;">10</td>
-<td style="text-align: right;">7</td>
-<td style="text-align: right;">70</td>
-<td style="text-align: right;">0.001953</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">0.25</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Linear</td>
 <td style="text-align: left;">Synthetic</td>
-<td style="text-align: right;">10</td>
-<td style="text-align: right;">7</td>
-<td style="text-align: right;">70</td>
-<td style="text-align: right;">0.001953</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">0.25</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">MultiOmics</td>
 <td style="text-align: left;">Real</td>
-<td style="text-align: right;">10</td>
-<td style="text-align: right;">7</td>
-<td style="text-align: right;">70</td>
-<td style="text-align: right;">0.001953</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">0.25</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">NonnegParts</td>
+<td style="text-align: left;">Synthetic</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">0.25</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">NonnegPartsWeak</td>
+<td style="text-align: left;">Synthetic</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">0.25</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Polynomial</td>
 <td style="text-align: left;">Synthetic</td>
-<td style="text-align: right;">10</td>
-<td style="text-align: right;">7</td>
-<td style="text-align: right;">70</td>
-<td style="text-align: right;">0.001953</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">0.25</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Shared+Private</td>
 <td style="text-align: left;">Synthetic</td>
-<td style="text-align: right;">10</td>
-<td style="text-align: right;">7</td>
-<td style="text-align: right;">70</td>
-<td style="text-align: right;">0.001953</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">0.25</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Sine</td>
 <td style="text-align: left;">Synthetic</td>
-<td style="text-align: right;">10</td>
-<td style="text-align: right;">7</td>
-<td style="text-align: right;">70</td>
-<td style="text-align: right;">0.001953</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">0.25</td>
 </tr>
 </tbody>
 </table>
 </div>
 </figure>
 </div>
-<section id="the-permutation-floor-2-210-approx-0.00195" class="level3" data-number="D.3.1">
-<h3 data-number="D.3.1" class="anchored" data-anchor-id="the-permutation-floor-2-210-approx-0.00195"><span class="header-section-number">D.3.1</span> The Permutation Floor (<span class="math inline">\(2 / 2^{10} \approx 0.00195\)</span>)</h3>
-<p>In statistical hypothesis testing between paired models, inference must be conducted at the level of the independent replicate (<span class="math inline">\(N\)</span>). For a paired difference vector <span class="math inline">\(\boldsymbol{\Delta} = \mathbf{y}_A - \mathbf{y}_B\)</span> across <span class="math inline">\(N\)</span> independent seeds, the exact distribution-free sign-flip null distribution consists of <span class="math inline">\(2^N\)</span> equally probable sign assignments: <span class="math display">\[
-p_{\text{perm}} = \frac{1}{2^N} \sum_{\mathbf{s} \in \{-1, +1\}^N} \mathbb{I}\left(\left|\frac{1}{N} \sum_{i=1}^N s_i \Delta_i\right| \ge |\bar{\Delta}|\right)
+<section id="block-level-sign-flip-permutation-floor" class="level3" data-number="D.3.1">
+<h3 data-number="D.3.1" class="anchored" data-anchor-id="block-level-sign-flip-permutation-floor"><span class="header-section-number">D.3.1</span> Block-Level Sign-Flip Permutation Floor</h3>
+<p>In statistical hypothesis testing between paired models across <span class="math inline">\(B = 9\)</span> independent dataset blocks (where each block cell is the mean across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> replicates, following <span class="citation" data-cites="Demsar2006">Demšar (<a href="#ref-Demsar2006" role="doc-biblioref">2006</a>)</span>), the exact distribution-free sign-flip null distribution across the <span class="math inline">\(B = 9\)</span> blocks consists of <span class="math inline">\(2^B = 512\)</span> equally probable sign assignments: <span class="math display">\[
+p_{\text{perm}} = \frac{1}{2^B} \sum_{\mathbf{s} \in \{-1, +1\}^B} \mathbb{I}\left(\left|\frac{1}{B} \sum_{i=1}^B s_i \Delta_i\right| \ge |\bar{\Delta}|\right)
 \]</span></p>
-<p>For <span class="math inline">\(N = 10\)</span> independent seeds, the minimal attainable two-sided permutation <span class="math inline">\(p\)</span>-value occurs when every replicate favours the same model: <span class="math display">\[
-p_{\min} = \frac{2}{2^{10}} = \frac{2}{1024} \approx 0.001953
+<p>For <span class="math inline">\(B = 9\)</span> independent dataset blocks (or <span class="math inline">\(N = 10\)</span> independent seeds in the ADNI-MCI 4-view mediation benchmark), the minimal attainable two-sided permutation <span class="math inline">\(p\)</span>-value occurs when every block favours the same model: <span class="math display">\[
+p_{\min, B=9} = \frac{2}{2^9} = \frac{2}{512} \approx 0.003906, \qquad p_{\min, N=10} = \frac{2}{2^{10}} = \frac{2}{1024} \approx 0.001953
 \]</span></p>
-<p>We enforce the following statistical standards throughout the manuscript: 1. <strong>Zero Unadjusted Pooled <span class="math inline">\(p\)</span>-values</strong>: We completely eliminate pooled repeated-measures <span class="math inline">\(t\)</span>-tests. Crossing multiple hyperparameters on the same seed does not increase statistical degrees of freedom. 2. <strong>Floor Truncation</strong>: No distribution-free permutation test can report a value below <span class="math inline">\(0.001953\)</span>. Cells at the floor represent instances where all 10 independent replicates unanimously favor the same architecture. 3. <strong>Dual Metric Reporting</strong>: Strictly Linear accuracy (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>) and full non-linear predictive capacity (<span class="math inline">\(Y\)</span>) are reported as distinct metrics. A deep architecture must demonstrate an improvement on the first-layer linear projection to justify the claim that it discovers a superior auditable basis.</p>
+<p>We enforce the following statistical standards throughout the manuscript:</p>
+<ol type="1">
+<li><strong>Zero Unadjusted Pooled <span class="math inline">\(p\)</span>-values</strong>: We completely eliminate pooled repeated-measures <span class="math inline">\(t\)</span>-tests and unaggregated seed-rows in global Friedman/Wilcoxon tests (<code>build_ranking_blocks</code>). Crossing multiple seeds or hyperparameters on the same dataset does not increase dataset-level degrees of freedom.</li>
+<li><strong>Floor Truncation</strong>: No distribution-free permutation test can report a value below <span class="math inline">\(2/2^B\)</span>.</li>
+<li><strong>Triple Metric Reporting</strong>: Global consensus prediction (<span class="math inline">\(Y\)</span> on <span class="math inline">\(\mathbf{U}\)</span>), strictly linear first-layer accuracy (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>), and axis-sensitive random forest probe accuracy on <span class="math inline">\(\mathbf{X}\mathbf{V}\)</span> are reported alongside ground-truth latent (<span class="math inline">\(CMC\)</span>) and sparse support Jaccard recovery.</li>
+</ol>
 </section>
 </section>
 <section id="software-environment" class="level2" data-number="D.4">
@@ -500,7 +529,11 @@ Table&nbsp;D.2: Software environment and runtime dependencies under which the be
 </section>
 <section id="determinism-and-rng-isolation" class="level2" data-number="D.5">
 <h2 data-number="D.5" class="anchored" data-anchor-id="determinism-and-rng-isolation"><span class="header-section-number">D.5</span> Determinism and RNG Isolation</h2>
-<p>To ensure absolute determinism across all benchmark runs: 1. <strong>Process RNG Isolation</strong>: Invocations of normalizing flow retractions and torch optimization loops restore CPU and CUDA generator states upon completion. No model fitting operation mutates the caller’s global random state. 2. <strong>Fixed Random Seeds</strong>: The benchmark explicitly iterates over seeds <span class="math inline">\(42, 43, 44, 45, 46, 47, 48, 49, 50, 51\)</span>. Data synthesis, train/test splitting (<span class="math inline">\(70/30\)</span>), and neural network parameter initialization are strictly controlled by these seed parameters.</p>
+<p>To ensure absolute determinism across all benchmark runs:</p>
+<ol type="1">
+<li><strong>Process RNG Isolation</strong>: Invocations of normalizing flow retractions and torch optimization loops restore CPU and CUDA generator states upon completion. No model fitting operation mutates the caller’s global random state.</li>
+<li><strong>Fixed Random Seeds</strong>: The primary deep ranking benchmark iterates over seeds <span class="math inline">\(42, 43, 44\)</span> (<span class="math inline">\(N_{\text{seeds}} = 3\)</span>, with <code>--seeds 10</code> configurable for extended runs up to seed <span class="math inline">\(51\)</span>), while the ADNI-MCI 4-view mediation benchmark evaluates across 10 seeds (<span class="math inline">\(42, \dots, 51\)</span>). Data synthesis, train/test splitting (<span class="math inline">\(70/30\)</span>), and neural network parameter initialization are strictly controlled by these seed parameters.</li>
+</ol>
 
 
 <div id="refs" class="references csl-bib-body hanging-indent" role="list">
@@ -511,7 +544,7 @@ Demšar, Janez. 2006. <span>“Statistical Comparisons of Classifiers over Multi
 Holm, Sture. 1979. <span>“A Simple Sequentially Rejective Multiple Test Procedure.”</span> <em>Scandinavian Journal of Statistics</em> 6 (2): 65–70.
 </div>
 <div id="ref-Iman1980" class="csl-entry" role="listitem">
-Iman, Ronald L., and James M. Davenport. 1980. <span>“Approximations of the Critical Region of the Fbietkan Statistic.”</span> <em>Communications in Statistics - Theory and Methods</em> 9 (6): 571–95. <a href="https://doi.org/10.1080/03610928008827904">https://doi.org/10.1080/03610928008827904</a>.
+Iman, Ronald L., and James M. Davenport. 1980. <span>“Approximations of the Critical Region of the Friedman Statistic.”</span> <em>Communications in Statistics - Theory and Methods</em> 9 (6): 571–95. <a href="https://doi.org/10.1080/03610928008827904">https://doi.org/10.1080/03610928008827904</a>.
 </div>
 <div id="ref-Nemenyi1963" class="csl-entry" role="listitem">
 Nemenyi, Peter B. 1963. <span>“Distribution-Free Multiple Comparisons.”</span> PhD thesis, Princeton University.

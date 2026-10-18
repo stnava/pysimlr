@@ -501,6 +501,8 @@ class LENDNSAEncoder(nn.Module):
 
     @property
     def v(self):
+        if not self.training and getattr(self, "_finalized_v", None) is not None:
+            return self._finalized_v.to(device=self.v_raw.device, dtype=self.v_raw.dtype)
         if getattr(self, 'is_low_dim', False):
             # p <= k. A basis cannot be near-orthogonal with more columns than
             # rows, so the retraction backend is bypassed here (see __init__).
@@ -1888,7 +1890,7 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
             first_layer_training, report)
 
 
-def _finalize_bases(v_mats, positivity, nsa_w, energy_type):
+def _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=None):
     """Project the returned bases with the SAME operator the linear method uses.
 
     During training the deep encoders hold their basis on the
@@ -1915,6 +1917,9 @@ def _finalize_bases(v_mats, positivity, nsa_w, energy_type):
         except (ImportError, RuntimeError) as exc:
             v_f, d = v, {"error": repr(exc)[:200]}
         out.append(torch.nan_to_num(v_f, nan=0.0, posinf=0.0, neginf=0.0)); diags.append(d)
+    if encoders is not None:
+        for enc, v_f in zip(encoders, out):
+            enc.register_buffer("_finalized_v", v_f.detach().clone().to(device=enc.v_raw.device, dtype=enc.v_raw.dtype))
     return out, diags
 
 
@@ -2030,11 +2035,11 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
     model.eval(); 
     with torch.no_grad():
         eval_mats = [m.to(device) for m in torch_mats]
+        v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.encoders]
+        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=model.encoders)
         final_latents, recons, u_final = model(eval_mats)
         u_aggregate = (_aggregate_shared_consensus(model, final_latents)
                        if isinstance(u_final, list) else u_final)
-        v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.encoders]
-        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type)
         first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
     result = {"model": model.cpu(), "model_type": "lend_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, **basis_rank_report(v_mats, k)}
@@ -2155,11 +2160,11 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
     model.eval(); 
     with torch.no_grad():
         eval_mats = [m.to(device) for m in torch_mats]
+        v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.linear_encoders]
+        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=model.linear_encoders)
         final_latents, recons, u_final = model(eval_mats)
         u_aggregate = (_aggregate_shared_consensus(model, final_latents)
                        if isinstance(u_final, list) else u_final)
-        v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.linear_encoders]
-        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type)
         first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
     result = {"model": model.cpu(), "model_type": "ned_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, **basis_rank_report(v_mats, k)}
@@ -2308,11 +2313,11 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
     model.eval(); 
     with torch.no_grad():
         eval_mats = [m.to(device) for m in torch_mats]
+        v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.linear_encoders]
+        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=model.linear_encoders)
         final_shared, final_recons, u_final, final_private = model(eval_mats)
         u_aggregate = (_aggregate_shared_consensus(model, final_shared)
                        if isinstance(u_final, list) else u_final)
-        v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.linear_encoders]
-        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type)
         first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
     result = {"model": model.cpu(), "model_type": "ned_shared_private", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_shared], "private_latents": [torch.nan_to_num(p.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for p in final_private], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, **basis_rank_report(v_mats, k)}

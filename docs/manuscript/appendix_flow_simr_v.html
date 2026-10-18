@@ -218,9 +218,9 @@ window.Quarto = {
   </ul></li>
   <li><a href="#performance-visualizations" id="toc-performance-visualizations" class="nav-link" data-scroll-target="#performance-visualizations"><span class="header-section-number">C.2</span> Performance Visualizations</a>
   <ul class="collapse">
-  <li><a href="#conditional-clinical-imputation-true-vs.-imputed-serums" id="toc-conditional-clinical-imputation-true-vs.-imputed-serums" class="nav-link" data-scroll-target="#conditional-clinical-imputation-true-vs.-imputed-serums"><span class="header-section-number">C.2.1</span> 1. Conditional Clinical Imputation (True vs.&nbsp;Imputed Serums)</a></li>
-  <li><a href="#exact-patient-level-attribution-waterfall-xai" id="toc-exact-patient-level-attribution-waterfall-xai" class="nav-link" data-scroll-target="#exact-patient-level-attribution-waterfall-xai"><span class="header-section-number">C.2.2</span> 2. Exact Patient-Level Attribution Waterfall (XAI)</a></li>
-  <li><a href="#geodesic-latent-trajectory-counterfactuals" id="toc-geodesic-latent-trajectory-counterfactuals" class="nav-link" data-scroll-target="#geodesic-latent-trajectory-counterfactuals"><span class="header-section-number">C.2.3</span> 3. Geodesic Latent Trajectory &amp; Counterfactuals</a></li>
+  <li><a href="#conditional-clinical-imputation-true-vs.-imputed-serums" id="toc-conditional-clinical-imputation-true-vs.-imputed-serums" class="nav-link" data-scroll-target="#conditional-clinical-imputation-true-vs.-imputed-serums"><span class="header-section-number">C.2.1</span> Conditional Clinical Imputation (True vs.&nbsp;Imputed Serums)</a></li>
+  <li><a href="#exact-patient-level-attribution-waterfall-xai" id="toc-exact-patient-level-attribution-waterfall-xai" class="nav-link" data-scroll-target="#exact-patient-level-attribution-waterfall-xai"><span class="header-section-number">C.2.2</span> Exact Patient-Level Attribution Waterfall (XAI)</a></li>
+  <li><a href="#geodesic-latent-trajectory-counterfactuals" id="toc-geodesic-latent-trajectory-counterfactuals" class="nav-link" data-scroll-target="#geodesic-latent-trajectory-counterfactuals"><span class="header-section-number">C.2.3</span> Geodesic Latent Trajectory &amp; Counterfactuals</a></li>
   </ul></li>
   <li><a href="#algorithm-for-flow-simr-v-with-delayed-gating-warmup" id="toc-algorithm-for-flow-simr-v-with-delayed-gating-warmup" class="nav-link" data-scroll-target="#algorithm-for-flow-simr-v-with-delayed-gating-warmup"><span class="header-section-number">C.3</span> Algorithm for Flow-SiMR-V with Delayed Gating Warmup</a>
   <ul class="collapse">
@@ -298,7 +298,7 @@ window.Quarto = {
 <section id="performance-visualizations" class="level2" data-number="C.2">
 <h2 data-number="C.2" class="anchored" data-anchor-id="performance-visualizations"><span class="header-section-number">C.2</span> Performance Visualizations</h2>
 <section id="conditional-clinical-imputation-true-vs.-imputed-serums" class="level3" data-number="C.2.1">
-<h3 data-number="C.2.1" class="anchored" data-anchor-id="conditional-clinical-imputation-true-vs.-imputed-serums"><span class="header-section-number">C.2.1</span> 1. Conditional Clinical Imputation (True vs.&nbsp;Imputed Serums)</h3>
+<h3 data-number="C.2.1" class="anchored" data-anchor-id="conditional-clinical-imputation-true-vs.-imputed-serums"><span class="header-section-number">C.2.1</span> Conditional Clinical Imputation (True vs.&nbsp;Imputed Serums)</h3>
 <p>Because Flow-SiMR-V preserves mathematical bijectivity on the bottleneck space, it enables exact conditional inference. In <a href="#fig-flow-imputation" class="quarto-xref">Figure&nbsp;<span>C.1</span></a>, we train Flow-SiMR-V on the Diabetes dataset (split into vitals and blood serums) under a 70/30 split. We then simulate a clinical scenario where the blood serums are entirely missing, and predict them from vitals using the Schur complement solver. The scatter plot below shows the relationship between True and Imputed serum levels for S5 (triglycerides).</p>
 <div id="cell-fig-flow-imputation" class="cell" data-message="false" data-execution_count="1">
 <div class="cell-output cell-output-display">
@@ -317,7 +317,7 @@ Figure&nbsp;C.1: Conditional Cross-View Imputation (Diabetes). Scatter plot comp
 <hr>
 </section>
 <section id="exact-patient-level-attribution-waterfall-xai" class="level3" data-number="C.2.2">
-<h3 data-number="C.2.2" class="anchored" data-anchor-id="exact-patient-level-attribution-waterfall-xai"><span class="header-section-number">C.2.2</span> 2. Exact Patient-Level Attribution Waterfall (XAI)</h3>
+<h3 data-number="C.2.2" class="anchored" data-anchor-id="exact-patient-level-attribution-waterfall-xai"><span class="header-section-number">C.2.2</span> Exact Patient-Level Attribution Waterfall (XAI)</h3>
 <p>Pre-pending the linear encoder matrix <span class="math inline">\(\mathbf{V}_m\)</span> ensures that the normalizing flow decoders do not mask individual feature importance. In <a href="#fig-flow-attribution" class="quarto-xref">Figure&nbsp;<span>C.2</span></a>, we visualize the exact local feature contributions for a patient on the Heart Disease dataset, computed analytically as <span class="math inline">\(\delta \mathbf{x} = \mathbf{x} \circ \mathbf{V}_m\)</span>.</p>
 <div id="cell-fig-flow-attribution" class="cell" data-message="false" data-execution_count="2">
 <div class="cell-output cell-output-display">
@@ -336,7 +336,7 @@ Figure&nbsp;C.2: Patient-Level Attribution Auditing. Individualized waterfall-st
 <hr>
 </section>
 <section id="geodesic-latent-trajectory-counterfactuals" class="level3" data-number="C.2.3">
-<h3 data-number="C.2.3" class="anchored" data-anchor-id="geodesic-latent-trajectory-counterfactuals"><span class="header-section-number">C.2.3</span> 3. Geodesic Latent Trajectory &amp; Counterfactuals</h3>
+<h3 data-number="C.2.3" class="anchored" data-anchor-id="geodesic-latent-trajectory-counterfactuals"><span class="header-section-number">C.2.3</span> Geodesic Latent Trajectory &amp; Counterfactuals</h3>
 <p>By tracing a straight-line interpolation in the shared latent space between a low-risk and high-risk patient and decoding it back to the feature space, we construct an exact clinical counterfactual trajectory. In <a href="#fig-flow-geodesic" class="quarto-xref">Figure&nbsp;<span>C.3</span></a>, we visualize the smooth progression of Age, BMI, and Blood Pressure (BP) along the latent disease path.</p>
 <div id="cell-fig-flow-geodesic" class="cell" data-message="false" data-execution_count="3">
 <div class="cell-output cell-output-display">
@@ -374,14 +374,14 @@ Figure&nbsp;C.3: Clinical Counterfactual Trajectory. Biomarker evolution curves 
 <li>For epoch <span class="math inline">\(t \ge T_{\text{delayed}}\)</span>:
 <ul>
 <li>Compute the Leave-One-Out (LOO) consensus target for each view: <span class="math inline">\(\mathbf{U}_{\neq m} = \sum_{j \neq m} w_j \mathbf{Z}_{j, \text{shared}}\)</span>.</li>
-<li>Compute the Modality Alignment Index: <span class="math inline">\(\text{MAI}_m = 1 - \frac{\|\mathbf{Z}_{m, \text{shared}}\mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F^2}{\|\mathbf{U}_{\neq m}\|_F^2}\)</span>.</li>
+<li>Compute the Modality Alignment Index: <span class="math inline">\(\text{MAI}_m = 1 - \frac{\|\mathbf{Z}_{m, \text{shared}}\Omega - \mathbf{U}_{\neq m}\|_F^2}{\|\mathbf{U}_{\neq m}\|_F^2}\)</span>.</li>
 <li>Update gating weights: <span class="math inline">\(w_m = (1 - \rho) \cdot \frac{1}{M} + \rho \cdot \text{softmax}(\tau \cdot \text{MAI}_m)\)</span> (with exponential ramp-up <span class="math inline">\(\rho\)</span>).</li>
 </ul></li>
 </ul></li>
 <li><strong>Loss Computation &amp; Backpropagation</strong>:
 <ul>
 <li>Compute reconstruction loss: <span class="math inline">\(\mathcal{L}_{\text{MSE}} = \sum_m \|\mathbf{X}_m - \hat{\mathbf{X}}_m\|_F^2\)</span> where <span class="math inline">\(\hat{\mathbf{X}}_m = f_{\text{flow}, m}^{-1}([\mathbf{U}_{\text{consensus}} \parallel \mathbf{0}])\mathbf{V}_m^\top\)</span>.</li>
-<li>Compute alignment loss: <span class="math inline">\(\mathcal{L}_{\text{align}} = \sum_m \|\mathbf{Z}_{m, \text{shared}}\mathbf{\Omega} - \mathbf{U}_{\neq m}\|_F^2\)</span>.</li>
+<li>Compute alignment loss: <span class="math inline">\(\mathcal{L}_{\text{align}} = \sum_m \|\mathbf{Z}_{m, \text{shared}}\Omega - \mathbf{U}_{\neq m}\|_F^2\)</span>.</li>
 <li>Backpropagate gradients to update linear projections <span class="math inline">\(\mathbf{V}_m\)</span> and flow parameters.</li>
 <li>Retract <span class="math inline">\(\mathbf{V}_m\)</span> onto the Stiefel manifold using NSA-Flow Newton-Schulz updates.</li>
 </ul></li>
@@ -391,7 +391,135 @@ Figure&nbsp;C.3: Clinical Counterfactual Trajectory. Biomarker evolution curves 
 </section>
 <section id="orthogonality-sparsity-diagnostics" class="level2" data-number="C.4">
 <h2 data-number="C.4" class="anchored" data-anchor-id="orthogonality-sparsity-diagnostics"><span class="header-section-number">C.4</span> Orthogonality &amp; Sparsity Diagnostics</h2>
-<p>We compute the <strong>Orthogonality Defect</strong> (<span class="math inline">\(\|\mathbf{V}^\top\mathbf{V} - \mathbf{I}\|_F\)</span>) and <strong>Gini Sparsity</strong> coefficients of the learned Flow-SiMR-V basis matrices across the three clinical datasets to verify structural alignment. The results confirm that the NSA-Flow retraction successfully enforces near-orthogonality (defect <span class="math inline">\(&lt; 0.01\)</span>) and high feature sparsity (Gini <span class="math inline">\(&gt; 0.65\)</span>), guaranteeing non-redundant and globally explainable latent consensus dimensions.</p>
+<p><a href="#tbl-flow-orth-diagnostics" class="quarto-xref">Table&nbsp;<span>C.1</span></a> reports the per-view <strong>Stiefel Frame Defect</strong> <span class="math inline">\(D(\mathbf{V}_m)\)</span>, <strong>Signed Lobe Crosstalk</strong> <span class="math inline">\(\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1\)</span>, and <strong>Strictly Linear Probe Accuracy</strong> (<span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span>) across the three real-world clinical cohorts (<code>Heart</code>, <code>Diabetes</code>, and <code>MultiOmics</code>) from <code>paper/results_cache/deep_ranking_benchmark.csv</code>, comparing <code>Flow-SiMR-V</code> against <code>LEND</code>, <code>SiMLR-LBFGSB</code>, and <code>NSAFlow-PCA</code>.</p>
+<div id="tbl-flow-orth-diagnostics" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="4">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-flow-orth-diagnostics-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\mathbf{V}_m)\)</span>), Signed Lobe Crosstalk, and Linear OLEE Basis Performance across the Three Real-World Biomedical Cohorts (3 seeds, <code>consolidate = False</code>). Cross-view OLEE architectures (<code>Flow-SiMR-V</code>, <code>LEND</code>, <code>SiMLR-LBFGSB</code>) maintain exact per-view Stiefel orthonormality (<span class="math inline">\(D &lt; 10^{-4}\)</span>), whereas <code>NSAFlow-PCA</code> enforces joint orthogonality across the concatenated feature matrix with 20–32% disjoint sparsity.
+</figcaption>
+<div aria-describedby="tbl-flow-orth-diagnostics-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<table class="cell caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 10%">
+<col style="width: 14%">
+<col style="width: 23%">
+<col style="width: 24%">
+<col style="width: 16%">
+<col style="width: 10%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Cohort</th>
+<th style="text-align: left;">Architecture</th>
+<th style="text-align: left;">Linear OLEE Probe (XV)</th>
+<th style="text-align: right;">Per-View Frame Defect D</th>
+<th style="text-align: right;">Lobe Crosstalk</th>
+<th style="text-align: left;">Sparsity</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Heart</td>
+<td style="text-align: left;">Flow-SiMR-V</td>
+<td style="text-align: left;">0.826 ± 0.017</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Heart</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">0.815 ± 0.023</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Heart</td>
+<td style="text-align: left;">SiMLR-LBFGSB</td>
+<td style="text-align: left;">0.837 ± 0.032</td>
+<td style="text-align: right;">4e-05</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Heart</td>
+<td style="text-align: left;">NSAFlow-PCA</td>
+<td style="text-align: left;">0.848 ± 0.006</td>
+<td style="text-align: right;">0.81916</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">32.1%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Diabetes</td>
+<td style="text-align: left;">Flow-SiMR-V</td>
+<td style="text-align: left;">0.382 ± 0.079</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Diabetes</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">0.380 ± 0.082</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Diabetes</td>
+<td style="text-align: left;">SiMLR-LBFGSB</td>
+<td style="text-align: left;">0.396 ± 0.110</td>
+<td style="text-align: right;">2e-05</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Diabetes</td>
+<td style="text-align: left;">NSAFlow-PCA</td>
+<td style="text-align: left;">0.381 ± 0.051</td>
+<td style="text-align: right;">0.50699</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">28.3%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">MultiOmics</td>
+<td style="text-align: left;">Flow-SiMR-V</td>
+<td style="text-align: left;">0.926 ± 0.021</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">MultiOmics</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">0.925 ± 0.012</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">MultiOmics</td>
+<td style="text-align: left;">SiMLR-LBFGSB</td>
+<td style="text-align: left;">0.930 ± 0.016</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">MultiOmics</td>
+<td style="text-align: left;">NSAFlow-PCA</td>
+<td style="text-align: left;">0.922 ± 0.020</td>
+<td style="text-align: right;">1.73323</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">20.4%</td>
+</tr>
+</tbody>
+</table>
+</div>
+</figure>
+</div>
+<p>The empirical diagnostics confirm that the Sylvester polar / Newton-Schulz retraction in <code>Flow-SiMR-V</code>, <code>LEND</code>, and <code>SiMLR-LBFGSB</code> enforces exact per-view Stiefel orthonormality (<span class="math inline">\(D(\mathbf{V}_m) = 0.00000\)</span>) and zero signed lobe crosstalk across all three clinical cohorts, while <code>NSAFlow-PCA</code> enforces joint orthogonality across the concatenated multi-view matrix with <span class="math inline">\(20.4\%\text{–}32.1\%\)</span> exact zero weights.</p>
 
 
 </section>

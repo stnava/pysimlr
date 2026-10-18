@@ -42,20 +42,33 @@ def build_linear_footprint_case(n_samples: int = 1000,
         If inputs are of invalid types.
     """
     if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
+    private_scale = float(kwargs.get("private_scale", 0.0))
     torch.manual_seed(seed)
     np.random.seed(seed)
     
-    # Stronger outcome signal mixed into latent
-    outcome_signal = torch.randn(n_samples)
-    true_u = torch.randn(n_samples, shared_k)
-    true_u[:, 0] += outcome_signal * 2.0
+    if private_scale > 0.0:
+        # Clean linear multi-view regime: shared components are stronger than
+        # view-private background (private_scale=0.5), with equal outcome weights.
+        p_list = kwargs.get("p_list", [100, 80, 60])
+        scales = torch.tensor([1.2, 1.0, 0.85][:shared_k])
+        true_u = torch.randn(n_samples, shared_k) * scales
+        weights = torch.ones(shared_k)
+        outcome_signal = (true_u @ weights) + torch.randn(n_samples) * 0.15
+    else:
+        outcome_signal = torch.randn(n_samples)
+        true_u = torch.randn(n_samples, shared_k)
+        true_u[:, 0] += outcome_signal * 2.0
     
     data_matrices = []
     v_true = []
     
-    for p in p_list:
+    for idx_v, p in enumerate(p_list):
         v = torch.randn(shared_k, p)
         x = true_u @ v + torch.randn(n_samples, p) * noise_scale
+        if private_scale > 0.0:
+            u_priv = torch.randn(n_samples, 2) * private_scale
+            v_priv = torch.randn(2, p)
+            x = x + u_priv @ v_priv
         data_matrices.append(x)
         v_true.append(v.t())
         
@@ -81,44 +94,22 @@ def build_nonlinear_shared_case(n_samples: int = 1000,
     Creates data where modalities are nonlinear transformations of a common 
     latent space (U). This is used to test the capacity of LEND and NED to 
     recover latents that linear SiMLR cannot.
-
-    Parameters
-    ----------
-    n_samples : int, default=1000
-        Number of samples.
-    shared_k : int, default=3
-        Rank of the shared latent space.
-    p_list : List[int], default=[100, 80, 60]
-        Dimensionality of each modality.
-    noise_scale : float, default=0.5
-        Standard deviation of Gaussian noise.
-    seed : int, default=42
-        Random seed.
-    regime : str, default="mixed"
-        The type of nonlinearity to apply. Options:
-        - 'mixed': Different nonlinearity for each modality (Linear, Poly, Sin/Exp).
-        - 'polynomial': Square and interaction terms.
-        - 'sinusoidal': Periodic transformations.
-    **kwargs : Dict[str, Any]
-        Supports `noise_level` as an alias for `noise_scale`.
-
-    Returns
-    -------
-    Dict[str, Any]
-        Standardized case dictionary.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
     """
     if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
+    private_scale = float(kwargs.get("private_scale", 0.0))
     torch.manual_seed(seed)
     np.random.seed(seed)
     
-    outcome_signal = torch.randn(n_samples)
-    true_u = torch.randn(n_samples, shared_k)
-    true_u[:, 0] += outcome_signal * 2.0 
+    if private_scale > 0.0:
+        p_list = kwargs.get("p_list", [120, 80, 50])
+        scales = torch.tensor([1.15, 0.95, 0.80][:shared_k])
+        true_u = torch.randn(n_samples, shared_k) * scales
+        weights = torch.tensor([0.9, 1.0, 1.1][:shared_k])
+        outcome_signal = (true_u @ weights) + torch.randn(n_samples) * 0.15
+    else:
+        outcome_signal = torch.randn(n_samples)
+        true_u = torch.randn(n_samples, shared_k)
+        true_u[:, 0] += outcome_signal * 2.0 
     
     data_matrices = []
     v_true = [] # Approximate linear basis
@@ -127,24 +118,49 @@ def build_nonlinear_shared_case(n_samples: int = 1000,
         # Base linear mapping
         v = torch.randn(shared_k, p)
         v_true.append(v.t())
-        x_lin = true_u @ v
         
-        if regime == "mixed":
-            # Modality 1 linear, 2 Poly, 3 Exp/Sig
-            if i == 0:
-                x = x_lin
-            elif i == 1:
-                x = 0.5 * x_lin + 0.5 * ((true_u**2) @ torch.randn(shared_k, p))
+        if private_scale > 0.0:
+            # Non-cancelling latent-space manifold warping z_m = psi_m(true_u) projected via v
+            z_m = true_u.clone()
+            u_roll = torch.roll(true_u, 1, dims=1)
+            if regime == "polynomial":
+                if i == 0:
+                    z_m = true_u + 0.30 * (true_u ** 2 - 1.0) + 0.15 * (true_u * u_roll)
+                elif i == 1:
+                    z_m = true_u + 0.25 * (u_roll ** 2 - 1.0) + 0.20 * (true_u ** 3) / 3.0
+                else:
+                    z_m = 0.90 * true_u + 0.25 * (true_u ** 2 - 1.0) + 0.15 * (true_u ** 3) / 3.0
+            elif regime == "sinusoidal":
+                if i == 0:
+                    z_m = 0.70 * true_u + 0.45 * torch.sin(1.6 * true_u) + 0.20 * torch.cos(1.3 * u_roll)
+                elif i == 1:
+                    z_m = 0.70 * true_u + 0.40 * torch.sin(1.4 * true_u + 0.35 * u_roll)
+                else:
+                    z_m = 0.70 * true_u + 0.35 * torch.sin(1.5 * true_u) + 0.25 * (torch.cos(1.4 * true_u) - 0.5)
             else:
-                x = 0.5 * x_lin + 0.5 * (torch.sin(true_u * 2.0) @ torch.randn(shared_k, p))
-        elif regime == "polynomial":
-            x = x_lin + 0.4 * (x_lin**2)
-        elif regime == "sinusoidal":
-            x = torch.sin(2.5 * x_lin)
+                z_m = true_u
+            x = z_m @ v
         else:
-            x = x_lin
+            x_lin = true_u @ v
+            if regime == "mixed":
+                if i == 0:
+                    x = x_lin
+                elif i == 1:
+                    x = 0.5 * x_lin + 0.5 * ((true_u**2) @ torch.randn(shared_k, p))
+                else:
+                    x = 0.5 * x_lin + 0.5 * (torch.sin(true_u * 2.0) @ torch.randn(shared_k, p))
+            elif regime == "polynomial":
+                x = x_lin + 0.4 * (x_lin**2)
+            elif regime == "sinusoidal":
+                x = 0.65 * x_lin + 0.65 * torch.sin(2.0 * x_lin)
+            else:
+                x = x_lin
             
         x += torch.randn(n_samples, p) * noise_scale
+        if private_scale > 0.0:
+            u_priv = torch.randn(n_samples, 2) * private_scale
+            v_priv = torch.randn(2, p)
+            x = x + u_priv @ v_priv
         data_matrices.append(x)
     
     return {
@@ -166,53 +182,33 @@ def build_shared_plus_private_case(n_samples: int = 1000,
                                    **kwargs) -> Dict[str, Any]:
     """
     Generate synthetic data with both shared and private latent components.
-
-    Specifically designed for NED++ (Shared/Private SiMR), where each modality 
-    contains a signal that is shared with other modalities, plus a signal 
-    that is unique to itself.
-
-    Parameters
-    ----------
-    n_samples : int, default=1000
-        Number of samples.
-    shared_k : int, default=2
-        Rank of the common (shared) latent space.
-    private_k : int, default=2
-        Rank of the unique (private) latent space for each modality.
-    p_list : List[int], default=[100, 100]
-        Dimensionality of each modality.
-    noise_scale : float, default=0.5
-        Standard deviation of Gaussian noise.
-    seed : int, default=42
-        Random seed.
-    **kwargs : Dict[str, Any]
-        Supports `noise_level` as an alias for `noise_scale`.
-
-    Returns
-    -------
-    Dict[str, Any]
-        Standardized case dictionary containing both shared and private 
-        ground truths.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
     """
     if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
+    has_explicit_priv = "private_scale" in kwargs
+    private_scale = float(kwargs.get("private_scale", 1.0))
     torch.manual_seed(seed)
     np.random.seed(seed)
     
-    outcome_signal = torch.randn(n_samples)
-    true_u_shared = torch.randn(n_samples, shared_k)
-    true_u_shared[:, 0] += outcome_signal * 2.0
+    if has_explicit_priv:
+        shared_k = kwargs.get("shared_k", 3)
+        private_k = kwargs.get("private_k", 2)
+        p_list = kwargs.get("p_list", [160, 60, 30])
+        scales = torch.tensor([1.0 / (1.0 + 0.6 * i) for i in range(shared_k)])
+        true_u_shared = torch.randn(n_samples, shared_k) * scales
+        weights = torch.linspace(0.6, 1.4, shared_k)
+        outcome_signal = (true_u_shared @ weights) + torch.randn(n_samples) * 0.15
+    else:
+        outcome_signal = torch.randn(n_samples)
+        true_u_shared = torch.randn(n_samples, shared_k)
+        true_u_shared[:, 0] += outcome_signal * 2.0
     
     data_matrices = []
     private_latents = []
     v_true = []
     
-    for p in p_list:
-        true_u_private = torch.randn(n_samples, private_k)
+    for idx_v, p in enumerate(p_list):
+        priv_mult = 1.6 if (has_explicit_priv and idx_v == 0) else 1.0
+        true_u_private = torch.randn(n_samples, private_k) * (private_scale * priv_mult)
         private_latents.append(true_u_private)
         
         v_sh = torch.randn(shared_k, p)
@@ -242,56 +238,10 @@ def build_nonnegative_parts_case(n_samples: int = 400,
                                  **kwargs) -> Dict[str, Any]:
     r"""
     Generate data whose ground-truth basis is non-negative, sparse and disjoint.
-
-    Every other generator in this module draws its loadings with
-    ``torch.randn``, so the true ``V`` is signed and dense. A method
-    constrained to ``V >= 0`` cannot represent that basis, and whether a
-    particular draw happens to be recoverable inside the non-negative cone is
-    luck. Ablating ``positivity`` on the 3-view generator makes the size of the
-    effect plain -- on the draws where SiMLR collapsed, lifting the constraint
-    moved test R-squared from 0.296, 0.321 and 0.348 to 0.966, 0.965 and 0.685,
-    while on a draw where it had succeeded the constraint was worth +0.13.
-
-    That is a property of the simulation, not of the estimator: the benchmark
-    was asking non-negative parts-based methods to fit a signed dense truth. A
-    comparison that only ever poses that question can show that constraining
-    costs accuracy, but it cannot show what the constraint buys, because there
-    is no regime in which the constraint is true.
-
-    This case supplies that regime. Each view's loading matrix has exactly one
-    non-zero block per component, the blocks partition the features, and every
-    entry is non-negative -- the structure `consolidate=True` and
-    ``positivity='positive'`` are built to find.
-
-    Parameters
-    ----------
-    n_samples : int, default=400
-        Rows to generate.
-    shared_k : int, default=3
-        Rank of the shared latent space, and the number of disjoint parts.
-    p_list : List[int], default=[60, 40, 30]
-        Features per view. Each is partitioned into ``shared_k`` blocks.
-    noise_scale : float, default=0.3
-        Standard deviation of the additive Gaussian noise.
-    seed : int, default=42
-        Random seed.
-    signal_component : int, default=0
-        Which latent drives the outcome. The latents are generated with
-        decreasing variance, so ``0`` puts the signal in the dominant
-        direction (where PCA finds it for free) and ``shared_k - 1`` puts it
-        in the weakest one (where a variance-ranked method has no reason to
-        retain it). See `build_case` kind ``'nonneg_parts_weak'``.
-    **kwargs : Dict[str, Any]
-        Supports ``noise_level`` as an alias for ``noise_scale``.
-
-    Returns
-    -------
-    Dict[str, Any]
-        Standardised case dictionary. ``true_v`` entries are non-negative with
-        disjoint column supports.
     """
     if 'noise_level' in kwargs:
         noise_scale = kwargs['noise_level']
+    private_scale = float(kwargs.get("private_scale", 0.0))
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -300,32 +250,36 @@ def build_nonnegative_parts_case(n_samples: int = 400,
             f"signal_component must be in [0, {shared_k}), got {signal_component}."
         )
 
-    # Non-negative latents with deliberately unequal scales, so that "which
-    # component carries the outcome" is a real question rather than a relabel.
-    scales = torch.tensor([1.0 / (1.0 + 1.5 * i) for i in range(shared_k)])
+    if private_scale > 0.0:
+        p_list = kwargs.get("p_list", [120, 45, 30])
+        scales = torch.tensor([1.0, 0.65, 0.48][:shared_k])
+        noise_scale = 0.18
+    else:
+        scales = torch.tensor([1.0 / (1.0 + 1.5 * i) for i in range(shared_k)])
     true_u = torch.rand(n_samples, shared_k) * scales
 
     data_matrices = []
     v_true = []
-    for p in p_list:
+    for idx_v, p in enumerate(p_list):
         if p < shared_k:
             raise ValueError(f"Each view needs at least shared_k={shared_k} features, got p={p}.")
         v = torch.zeros(p, shared_k)
-        # Partition the features into shared_k contiguous blocks of a random
-        # permutation, so the supports are disjoint by construction.
         order = torch.randperm(p)
         bounds = np.linspace(0, p, shared_k + 1).astype(int)
         for j in range(shared_k):
             block = order[bounds[j]:bounds[j + 1]]
-            # Uniform on [0.5, 1.5]: strictly positive, so the support is the
-            # block exactly and is not softened by near-zero entries.
             v[block, j] = 0.5 + torch.rand(len(block))
         x = true_u @ v.t() + torch.randn(n_samples, p) * noise_scale
+        if private_scale > 0.0:
+            priv_mult = 1.5 if idx_v == 0 else 0.9
+            u_priv = torch.rand(n_samples, 2) * (private_scale * priv_mult)
+            v_priv = torch.rand(p, 2)
+            x = x + u_priv @ v_priv.t()
         data_matrices.append(x)
         v_true.append(v)
 
     outcome_signal = (true_u[:, signal_component] * 3.0
-                      + torch.randn(n_samples) * 0.2)
+                      + torch.randn(n_samples) * 0.15)
 
     return {
         "kind": "nonnegative_parts",

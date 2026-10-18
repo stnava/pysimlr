@@ -3,7 +3,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.2.14"
+__version__ = "0.2.15"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -203,6 +203,7 @@ __all__ = [
     'SiMLREstimator',
     'SiMLRTransformer',
     'SiMLR',
+    'MultiViewPCA',
     'LENDTransformer',
     'NEDTransformer',
     'FlowSiMLRTransformer',
@@ -336,4 +337,4 @@ def __dir__():
     return sorted(set(globals()) | set(__all__))
 
 
-_LAZY_SKLEARN = ('FlowSiMLRTransformer', 'LENDTransformer', 'NEDTransformer', 'SiMLR', 'SiMLREstimator', 'SiMLRTransformer', 'build_simlr_pipeline')
+_LAZY_SKLEARN = ('FlowSiMLRTransformer', 'LENDTransformer', 'MultiViewPCA', 'NEDTransformer', 'SiMLR', 'SiMLREstimator', 'SiMLRTransformer', 'build_simlr_pipeline')

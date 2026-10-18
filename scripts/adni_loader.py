@@ -25,6 +25,7 @@ comparable features.
 """
 import os
 import re
+from typing import Optional, List, Dict, Union, Any
 import numpy as np
 import pandas as pd
 import torch
@@ -303,6 +304,208 @@ def get_adni_t1_dti_biomarker_case(target: str = "tau_abeta_ratio"):
     }
 
 
+MCI_COGNITIVE_CACHE_PATH = os.path.join(CACHE_DIR, "adni_mci_cognitive_merged.csv")
+
+
+def get_adni_mci_cognitive_case(cohort: str = "t1_cog", target: str = "CDRSB",
+                                max_t1_features: int = 300) -> dict:
+    """Real ADNI baseline Mild Cognitive Impairment (MCI) cohort with dense
+    cognitive batteries and neuroimaging, predicting CDRSB and MMSE.
+
+    Parameters
+    ----------
+    cohort : {"t1_cog", "multimodal"}, default="t1_cog"
+        - "t1_cog": Structural T1 MRI (regional volumes + cortical thickness)
+          and dense Cognitive Battery view across N=1084 baseline MCI subjects.
+        - "multimodal": Structural T1 MRI, DTI FA white matter microstructure,
+          and dense Cognitive Battery view across N=229 baseline MCI subjects with DTI.
+    target : {"CDRSB", "MMSE"}, default="CDRSB"
+        Primary target outcome returned under key 'y'. Both targets are always
+        available under 'y_cdrsb' and 'y_mmse'.
+    max_t1_features : int, default=300
+        Maximum number of high-variance T1 features to include.
+
+    Returns
+    -------
+    dict with keys:
+        'views': list of torch.FloatTensor
+        'y': target array specified by `target`
+        'y_cdrsb': CDRSB continuous score
+        'y_mmse': MMSE continuous score
+        'covariates': age, sex (1=Male, 0=Female), education
+        'covariate_names': ["AGE", "PTGENDER", "PTEDUCAT"]
+        'view_names': list of str
+        'view_dims': list of int
+        'ptid': subject IDs
+    """
+    if not os.path.exists(MCI_COGNITIVE_CACHE_PATH):
+        raise FileNotFoundError(
+            f"{MCI_COGNITIVE_CACHE_PATH} not found. Run "
+            f"`python scripts/build_adni_mci_cognitive_cache.py` first."
+        )
+    df = pd.read_csv(MCI_COGNITIVE_CACHE_PATH)
+    if cohort == "multimodal":
+        df = df[df["has_dti"] == 1].copy()
+
+    if cohort == "4view":
+        vol_cols = [c for c in df.columns if c.startswith("T1Hier_vol__")]
+        thk_cols = [c for c in df.columns if c.startswith("T1Hier_thk__")]
+        t1w_cols = [c for c in df.columns if c.startswith("T1w__")]
+        cog_cols = [c for c in df.columns if c.startswith("Cog__")]
+        mats = [
+            df[vol_cols].to_numpy(dtype=float),
+            df[thk_cols].to_numpy(dtype=float),
+            df[t1w_cols].to_numpy(dtype=float),
+            df[cog_cols].to_numpy(dtype=float),
+        ]
+        view_names = ["T1Hier_Volume", "T1Hier_Thickness", "T1w_Thickness", "Cognitive_Battery"]
+    elif cohort == "multimodal":
+        t1_cols = [c for c in df.columns if c.startswith("T1Hier__")][:max_t1_features]
+        dti_cols = [c for c in df.columns if c.startswith("DTI_fa__")]
+        cog_cols = [c for c in df.columns if c.startswith("Cog__")]
+        mats = [
+            df[t1_cols].to_numpy(dtype=float),
+            df[dti_cols].to_numpy(dtype=float),
+            df[cog_cols].to_numpy(dtype=float),
+        ]
+        view_names = ["T1Hier", "DTI_fa", "Cognitive_Battery"]
+    else:
+        t1_cols = [c for c in df.columns if c.startswith("T1Hier__")][:max_t1_features]
+        cog_cols = [c for c in df.columns if c.startswith("Cog__")]
+        mats = [
+            df[t1_cols].to_numpy(dtype=float),
+            df[cog_cols].to_numpy(dtype=float),
+        ]
+        view_names = ["T1Hier", "Cognitive_Battery"]
+
+    cov = df[COVARIATES[:3]].to_numpy(dtype=float)
+    y_cdrsb = df["CDRSB"].to_numpy(dtype=float)
+    y_mmse = df["MMSE"].to_numpy(dtype=float)
+    y_target = y_cdrsb if target.upper() == "CDRSB" else y_mmse
+
+    return {
+        "views": [torch.tensor(m).float() for m in mats],
+        "y": y_target,
+        "y_cdrsb": y_cdrsb,
+        "y_mmse": y_mmse,
+        "target": target,
+        "covariates": cov,
+        "covariate_names": ["AGE", "PTGENDER", "PTEDUCAT"],
+        "view_names": view_names,
+        "view_dims": [m.shape[1] for m in mats],
+        "ptid": df["PTID"].to_numpy(),
+    }
+
+
+ALL_BL_COGNITIVE_CACHE_PATH = os.path.join(CACHE_DIR, "adni_all_bl_cognitive_merged.csv")
+
+
+def get_adni_all_bl_cognitive_case(cohort: str = "4view", target: str = "CDRSB",
+                                   min_amyloid_pet_suvr: Optional[float] = None,
+                                   amyloid_tracer: str = "any",
+                                   dx_filter: Optional[str] = None):
+    """Complete ADNI Year 0 baseline cohort across all diagnostic groups.
+
+    cohort : str, default="4view"
+        "4view" uses T1Hier_Volume (160), T1Hier_Thickness (160),
+        T1w_Thickness (62), and Cognitive_Battery (13).
+        "multimodal" uses T1Hier_Volume, T1Hier_Thickness, DTI_fa, and Cognitive_Battery.
+    target : str, default="CDRSB"
+        "CDRSB" or "MMSE"
+    min_amyloid_pet_suvr : float, optional
+        If set (e.g. 1.0), filters for subjects with amyloid PET SUVR > threshold.
+    amyloid_tracer : str, default="any"
+        "any" uses composite AMYLOID_PET_SUVR (AV45 Florbetapir or FBB Florbetaben).
+        "av45" strictly requires Florbetapir PET (AV45 > threshold).
+    dx_filter : str, optional
+        If set (e.g. "MCI", "CN", "Dementia"), filters for subjects with specific diagnosis.
+
+    Returns
+    -------
+    dict with:
+        'views': list of torch.Tensors
+        'y': continuous target array
+        'y_cdrsb': CDRSB array
+        'y_mmse': MMSE array
+        'dx': categorical diagnosis string array (CN, MCI, Dementia)
+        'covariates': age, sex, education
+        'covariate_names': ["AGE", "PTGENDER", "PTEDUCAT"]
+        'view_names': list of str
+        'view_dims': list of int
+        'ptid': subject IDs
+        'amyloid_pet_suvr': PET SUVR array
+    """
+    if not os.path.exists(ALL_BL_COGNITIVE_CACHE_PATH):
+        raise FileNotFoundError(
+            f"{ALL_BL_COGNITIVE_CACHE_PATH} not found. Run "
+            f"`python scripts/build_adni_all_bl_cognitive_cache.py` first."
+        )
+    df = pd.read_csv(ALL_BL_COGNITIVE_CACHE_PATH)
+    if cohort == "multimodal":
+        df = df[df["has_dti"] == 1].copy()
+
+    if dx_filter is not None:
+        if isinstance(dx_filter, (list, tuple, set)):
+            df = df[df["DX"].isin(dx_filter)].copy()
+        else:
+            df = df[df["DX"] == dx_filter].copy()
+
+    if min_amyloid_pet_suvr is not None:
+        if amyloid_tracer.lower() == "av45":
+            df = df[df["AV45"] > min_amyloid_pet_suvr].copy()
+        else:
+            df = df[df["AMYLOID_PET_SUVR"] > min_amyloid_pet_suvr].copy()
+
+
+    # Strictly exclude any macro-aggregate lobe or tissue predictors
+    vol_cols = [c for c in df.columns if c.startswith("T1Hier_vol__") and
+                "lobe" not in c.lower() and "tissue" not in c.lower()]
+    thk_cols = [c for c in df.columns if c.startswith("T1Hier_thk__") and
+                "lobe" not in c.lower() and "tissue" not in c.lower()]
+    t1w_cols = [c for c in df.columns if c.startswith("T1w__") and
+                "lobe" not in c.lower() and "tissue" not in c.lower()]
+    cog_cols = [c for c in df.columns if c.startswith("Cog__")]
+
+    if cohort == "multimodal":
+        dti_cols = [c for c in df.columns if c.startswith("DTI_fa__")]
+        mats = [
+            df[vol_cols].to_numpy(dtype=float),
+            df[thk_cols].to_numpy(dtype=float),
+            df[dti_cols].to_numpy(dtype=float),
+            df[cog_cols].to_numpy(dtype=float),
+        ]
+        view_names = ["T1Hier_Volume", "T1Hier_Thickness", "DTI_fa", "Cognitive_Battery"]
+    else:
+        mats = [
+            df[vol_cols].to_numpy(dtype=float),
+            df[thk_cols].to_numpy(dtype=float),
+            df[t1w_cols].to_numpy(dtype=float),
+            df[cog_cols].to_numpy(dtype=float),
+        ]
+        view_names = ["T1Hier_Volume", "T1Hier_Thickness", "T1w_Thickness", "Cognitive_Battery"]
+
+    cov = df[COVARIATES[:3]].to_numpy(dtype=float)
+    y_cdrsb = df["CDRSB"].to_numpy(dtype=float)
+    y_mmse = df["MMSE"].to_numpy(dtype=float)
+    y_target = y_cdrsb if target.upper() == "CDRSB" else y_mmse
+
+    return {
+        "views": [torch.tensor(m).float() for m in mats],
+        "y": y_target,
+        "y_cdrsb": y_cdrsb,
+        "y_mmse": y_mmse,
+        "dx": df["DX"].to_numpy(),
+        "target": target,
+        "covariates": cov,
+        "covariate_names": ["AGE", "PTGENDER", "PTEDUCAT"],
+        "view_names": view_names,
+        "view_dims": [m.shape[1] for m in mats],
+        "ptid": df["PTID"].to_numpy(),
+        "amyloid_pet_suvr": df["AMYLOID_PET_SUVR"].to_numpy() if "AMYLOID_PET_SUVR" in df.columns else None,
+        "av45": df["AV45"].to_numpy() if "AV45" in df.columns else None,
+    }
+
+
 if __name__ == "__main__":
     case = get_adni_case()
     print("DX case: N =", len(case["y"]))
@@ -313,3 +516,8 @@ if __name__ == "__main__":
     print("\nCDRSB case: N =", len(cdrsb["y"]))
     print("view dims:", dict(zip(cdrsb["view_names"], cdrsb["view_dims"])))
     print("CDRSB stats:", pd.Series(cdrsb["y"]).describe().to_dict())
+
+    all_bl = get_adni_all_bl_cognitive_case()
+    print("\nAll baseline cohort: N =", len(all_bl["y"]))
+    print("view dims:", dict(zip(all_bl["view_names"], all_bl["view_dims"])))
+    print("DX breakdown:", pd.Series(all_bl["dx"]).value_counts().to_dict())

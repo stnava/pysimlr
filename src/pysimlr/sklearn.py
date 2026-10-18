@@ -582,3 +582,194 @@ def build_simlr_pipeline(
         steps.append((step_name, model))
 
     return Pipeline(steps)
+
+
+class MultiViewPCA(BaseEstimator, TransformerMixin):
+    """
+    Multi-View Principal Component Analysis (Multi-View PCA).
+
+    Extracts independent, orthonormal principal components per modality view.
+    Unlike standard concatenated PCA (where large-scale or high-variance modalities
+    can dominate the top eigenvectors), Multi-View PCA guarantees balanced representation
+    by decomposing each view into its own orthogonal subspace:
+
+        Z_m = (X_m - mu_m) @ V_m,   where V_m^T V_m = I_k
+
+    Parameters
+    ----------
+    n_components : int or List[int], default=6
+        Number of principal components to extract per view. If an integer, the same
+        number of components (k) is extracted from every view. If a list of integers,
+        specifies per-view component counts [k_1, k_2, ...].
+    scale : bool, default=True
+        Whether to center and standardize features per view prior to SVD.
+    whiten : bool, default=False
+        Whether to scale projections to unit variance.
+    concat : bool, default=True
+        Whether transform() returns a single concatenated 2D numpy array [Z_1, Z_2, ...]
+        (shape: [N, sum(k_m)]) or a list of 2D numpy arrays.
+    random_state : int, optional
+        Seed for reproducible SVD / sign convention.
+
+    Attributes
+    ----------
+    loadings_ : List[np.ndarray]
+        List of orthogonal loading matrices V_m of shape (p_m, k_m) per view.
+    components_ : List[np.ndarray]
+        List of component row vectors V_m.T of shape (k_m, p_m) per view.
+    explained_variance_ : List[np.ndarray]
+        Variance explained by each principal component per view.
+    explained_variance_ratio_ : List[np.ndarray]
+        Percentage of variance explained by each component per view.
+    mean_ : List[np.ndarray]
+        Per-feature empirical mean per view.
+    scale_ : List[np.ndarray]
+        Per-feature empirical standard deviation per view.
+    """
+
+    def __init__(
+        self,
+        n_components: Union[int, List[int]] = 6,
+        scale: bool = True,
+        whiten: bool = False,
+        concat: bool = True,
+        random_state: Optional[int] = None,
+    ) -> None:
+        self.n_components = n_components
+        self.scale = scale
+        self.whiten = whiten
+        self.concat = concat
+        self.random_state = random_state
+
+    def fit(self, X: Any, y: Optional[Any] = None) -> "MultiViewPCA":
+        """
+        Fit Multi-View PCA on the input views.
+
+        Parameters
+        ----------
+        X : list of array-like, or array-like
+            If a list/tuple of arrays, each element is a view matrix of shape (n_samples, n_features_m).
+            If a single 2D array, treated as a single view.
+        y : ignored
+
+        Returns
+        -------
+        self : MultiViewPCA
+            Fitted estimator.
+        """
+        from sklearn.decomposition import PCA
+        from sklearn.preprocessing import StandardScaler
+
+        tensors, is_single, feature_counts = _parse_input_views(X)
+        self.is_single_view_ = is_single
+        self.n_views_ = len(tensors)
+        self.feature_counts_ = feature_counts
+
+        if isinstance(self.n_components, (int, np.integer)):
+            k_list = [int(self.n_components)] * self.n_views_
+        else:
+            k_list = [int(k) for k in self.n_components]
+            if len(k_list) != self.n_views_:
+                raise ValueError(
+                    f"n_components list length ({len(k_list)}) must match number of views ({self.n_views_})."
+                )
+        self.k_list_ = k_list
+
+        self.scalers_: List[Optional[StandardScaler]] = []
+        self.pca_models_: List[PCA] = []
+        self.loadings_: List[np.ndarray] = []
+        self.components_: List[np.ndarray] = []
+        self.explained_variance_: List[np.ndarray] = []
+        self.explained_variance_ratio_: List[np.ndarray] = []
+        self.mean_: List[np.ndarray] = []
+        self.scale_: List[np.ndarray] = []
+
+        for m_idx, (t_view, k) in enumerate(zip(tensors, k_list)):
+            X_m = t_view.numpy()
+            n_samples, n_features = X_m.shape
+            k_eff = min(k, n_samples, n_features)
+
+            if self.scale:
+                scaler = StandardScaler()
+                X_m_proc = scaler.fit_transform(X_m)
+                self.scalers_.append(scaler)
+                self.mean_.append(scaler.mean_)
+                self.scale_.append(scaler.scale_)
+            else:
+                self.scalers_.append(None)
+                self.mean_.append(np.mean(X_m, axis=0))
+                self.scale_.append(np.std(X_m, axis=0))
+                X_m_proc = X_m - self.mean_[-1]
+
+            pca = PCA(
+                n_components=k_eff,
+                whiten=self.whiten,
+                random_state=self.random_state,
+            )
+            pca.fit(X_m_proc)
+            self.pca_models_.append(pca)
+
+            # Resolve sign ambiguity deterministically: positive column sum
+            v = pca.components_.T
+            for col in range(v.shape[1]):
+                if np.sum(v[:, col]) < 0:
+                    v[:, col] = -v[:, col]
+            
+            self.loadings_.append(v)
+            self.components_.append(v.T)
+            self.explained_variance_.append(pca.explained_variance_)
+            self.explained_variance_ratio_.append(pca.explained_variance_ratio_)
+
+        return self
+
+    def transform(self, X: Any) -> Union[np.ndarray, List[np.ndarray]]:
+        """
+        Apply dimensionality reduction to X across all views.
+
+        Parameters
+        ----------
+        X : list of array-like, or array-like
+            Views to transform.
+
+        Returns
+        -------
+        Z : np.ndarray or List[np.ndarray]
+            If concat=True, concatenated latent matrix of shape (n_samples, sum(k_m)).
+            If concat=False, list of projection matrices [Z_1, Z_2, ...].
+        """
+        if not hasattr(self, "pca_models_"):
+            raise ValueError("MultiViewPCA instance is not fitted yet.")
+
+        tensors, _, _ = _parse_input_views(X)
+        if len(tensors) != self.n_views_:
+            raise ValueError(
+                f"Expected {self.n_views_} views, got {len(tensors)}."
+            )
+
+        projections = []
+        for m_idx, (t_view, scaler, pca, v) in enumerate(
+            zip(tensors, self.scalers_, self.pca_models_, self.loadings_)
+        ):
+            X_m = t_view.numpy()
+            if scaler is not None:
+                X_m_proc = scaler.transform(X_m)
+            else:
+                X_m_proc = X_m - self.mean_[m_idx]
+            
+            # Use deterministic sign-resolved loadings
+            z_m = X_m_proc @ v
+            if self.whiten:
+                # Divide by singular value std
+                std = np.std(z_m, axis=0, keepdims=True)
+                std[std < 1e-10] = 1.0
+                z_m = z_m / std
+            projections.append(z_m)
+
+        if self.concat:
+            return np.hstack(projections)
+        return projections
+
+    def fit_transform(self, X: Any, y: Optional[Any] = None) -> Union[np.ndarray, List[np.ndarray]]:
+        """Fit the model with X and apply the dimensionality reduction on X."""
+        return self.fit(X, y).transform(X)
+

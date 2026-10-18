@@ -144,11 +144,25 @@ def permutation_test(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         If inputs are of invalid types.
     """
     from .simlr import simlr
+    from .utils import preprocess_data
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
+
+    def _score_against_u(mats, fit):
+        scale_list = fit.get("scale_list") or []
+        prov_list = fit.get("provenance_list") or []
+        if scale_list and scale_list[0] != "none" and len(prov_list) == len(mats):
+            scored = [preprocess_data(m, scale_list, provenance=pv) for m, pv in zip(mats, prov_list)]
+        else:
+            scored = mats
+        u_res = fit["u"]
+        sims = []
+        for idx, (m, v) in enumerate(zip(scored, fit["v"])):
+            u_target = u_res[idx] if isinstance(u_res, list) else u_res
+            sims.append(float(adjusted_rvcoef(m @ v, u_target)))
+        return float(np.mean(sims))
     
     # 1. Observed similarity
     obs_res = simlr(torch_mats, k=k, verbose=verbose, **kwargs)
-    obs_u = obs_res['u']
     
     # 2. Null distribution
     null_sims = []
@@ -157,18 +171,9 @@ def permutation_test(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # Shuffle rows of each matrix independently
         perm_mats = [m[torch.randperm(m.shape[0])] for m in torch_mats]
         perm_res = simlr(perm_mats, k=k, verbose=False, **kwargs)
-        # Compute average similarity between views and consensus
-        sims = []
-        for idx, (m, v) in enumerate(zip(perm_mats, perm_res['v'])):
-            u_target = perm_res['u'][idx] if isinstance(perm_res['u'], list) else perm_res['u']
-            sims.append(float(adjusted_rvcoef(m @ v, u_target)))
-        null_sims.append(float(np.mean(sims)))
+        null_sims.append(_score_against_u(perm_mats, perm_res))
         
-    obs_sims = []
-    for idx, (m, v) in enumerate(zip(torch_mats, obs_res['v'])):
-        u_target = obs_u[idx] if isinstance(obs_u, list) else obs_u
-        obs_sims.append(float(adjusted_rvcoef(m @ v, u_target)))
-    obs_sim = float(np.mean(obs_sims))
+    obs_sim = _score_against_u(torch_mats, obs_res)
 
     if len(null_sims) == 0:
         p_value = float('nan')

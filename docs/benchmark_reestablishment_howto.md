@@ -51,22 +51,30 @@ new evidence.
 | Diabetes | `load_diabetes` | regression | 442 | [5, 5] |
 | mfeat | `load_mfeat` | classification | 2000 | [76, 64, 6, 47] |
 | ADNI-DX | `load_adni` | classification | 685 | [300, 145, 36] |
-| ADNI-CDRSB | `get_adni_cdrsb_case` (`adni_loader.py`) | regression w/ covariates | 691 | [300, 145, 36] |
+| ADNI-MCI-Mediation | `get_adni_mci_cognitive_case(cohort="4view")` | 4-view mediated regression w/ MAI | 1084 | [160, 160, 62, 13] |
 | TCGA-KIRC | `load_kirc` | classification | 467 | [300, 300, 232] |
 
 Loaders for the first three and KIRC live in
 `scripts/real_data_init_comparison.py`; ADNI loaders live in
 `scripts/adni_loader.py`.
 
-**Rejected -- do not use without a new reason:**
+**Benchmark Status on MCI / MMSE**:
+- Historical unsupervised or imaging-only MCI predicting CDRSB/MMSE failed to clear covariates.
+- **Resolved & Systematically Integrated**: Formulated as a 4-view mediated architecture (Volume + Hierarchical Thickness + Native T1w Thickness + Cognitive Battery) predicting continuous CDR-SB and MMSE, `LEND-SiMR + MAI` achieves out-of-sample $R^2 = 0.2648 \pm 0.033$ ($\Delta R^2 = +0.2663$ over covariates, paired Wilcoxon $p = 9.77 \times 10^{-4}$), and `SiMLR [Mediated]` achieves $R^2 = 0.2443 \pm 0.053$ in 0.86s. The problem is systematically wired into:
+  - `scripts/benchmark_adni_mci_4view_mediation.py` (dedicated 10-seed paired replication runner)
+  - `scripts/full_benchmark_pass.py` (executed in sequence with Heart, Diabetes, mfeat, ADNI-DX, ADNI-MCI-Mediation, TCGA-KIRC)
+  - `scripts/run_v22_benchmarks.sh` (triggered automatically as part of the overall repository benchmark suite)
+  - `scripts/real_data_method_comparison.py` (includes `LEND+MAI` and `Flow-SiMR-V+MAI`)
+
+**Rejected / Superseded -- do not use without a new reason:**
+- ADNI-CDRSB (Full Cohort 3-view imaging, N=691): Superseded by `ADNI-MCI-Mediation` (N=1,084). Imaging-alone hits an empirical ceiling (~4% R2) because functional disability is mediated through domain cognitive deficits.
 - TCGA-BRCA: every method sat at/below majority-class baseline; cannot
   currently distinguish initialization or method quality from noise.
 - ADNI tau/amyloid cohorts (PPMI-only N=241, or the merged N=47 biomarker
   cache): too small to draw any conclusion from; N=47 in particular was
   investigated and confirmed to be a real ceiling of co-acquired
   tau+amy+imaging subjects, not a loader bug.
-- ADNI-CDRSB restricted to MCI-only subjects, or MMSE as target: tried,
-  no method beat the covariates-only baseline -- not informative.
+- Unsupervised single-view imaging-only MCI without cognitive mediation.
 
 If you find a new candidate dataset, vet it the same way before adding it to
 this table: run the method comparison once, and only keep it if at least one
@@ -144,8 +152,8 @@ called on the path that's failing before treating it as a new bug.
   internal RNG state (`torch.manual_seed(seed)` before deep methods,
   `init_seed=seed` for `random`/`perturbed_pca` init, and a
   `np.random.default_rng(seed)` for constructing `domain_matrices`).
-- For ADNI-CDRSB specifically: it's `"regression_with_covariates"` -- the
-  latent `u` gets concatenated with clinical covariates before the RF, and
+- For regression with covariates (ADNI-MCI-Mediation specifically):
+  the latent `u` gets concatenated with clinical covariates before the RF, and
   you must also print a `covariates-only` baseline (covariates alone, no
   latent) so you can tell whether the learned representation adds anything
   over demographics/clinical variables alone.

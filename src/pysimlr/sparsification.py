@@ -106,6 +106,29 @@ def _assignment_indicator(m: torch.Tensor) -> torch.Tensor:
     return indicator
 
 
+_NSA_RETRACT_CACHE: Dict[tuple, list] = {}
+_SMOOTHING_CACHE: Dict[tuple, list] = {}
+_CACHE_MAXSIZE: int = 128
+
+
+def _apply_smoothing(v: torch.Tensor, smoothing_matrix: Any) -> torch.Tensor:
+    """Apply spatial/graph smoothing operator ``S @ V`` idempotently."""
+    if smoothing_matrix is None:
+        return v
+    key = (id(smoothing_matrix), v.shape, v.dtype, v.device)
+    v_det = v.detach()
+    for prev_in, prev_out in _SMOOTHING_CACHE.get(key, ()):
+        if torch.equal(prev_in, v_det) or torch.equal(prev_out, v_det):
+            return prev_out.clone()
+    out = smoothing_matrix @ v
+    if isinstance(out, torch.Tensor):
+        bucket = _SMOOTHING_CACHE.setdefault(key, [])
+        bucket.append((v_det.clone(), out.detach().clone()))
+        if len(bucket) > _CACHE_MAXSIZE:
+            bucket.pop(0)
+    return out
+
+
 def _nsa_retract(v: torch.Tensor,
                  w: float,
                  nonneg: bool,
@@ -144,32 +167,6 @@ def _nsa_retract(v: torch.Tensor,
     torch.Tensor or None
         The retracted basis in `v`'s dtype, or None if no backend is available
         or the result fails :func:`_usable_retraction`.
-
-    Notes
-    -----
-    Solved in float64 regardless of `v`'s dtype and cast back. The tolerance
-    floor scales with precision -- float32 bottoms out near 1e-6 rather than
-    1e-9 -- and the solve is a few milliseconds either way at these sizes, so
-    there is no reason to accept the coarser answer.
-
-    `align` is left at its default of False: its justification rested on a
-    functional the solver no longer uses, and the gain measured under the old
-    one has not been re-established.
-
-    The candidate is rescaled to unit RMS column norm before the solve and the
-    scale is restored afterwards. The solver's fidelity term is not
-    scale-invariant, so without this the answer depends on the caller's
-    arbitrary column scale. On one 10x3 candidate whose column norms differed
-    by 50x, the Stiefel defect measured 0.828 at unit scale but 2.449 at both
-    1e+6 and 1e+8, converging to a visibly different solution (``||Y||`` 95.4
-    rather than 71.3); on a better-conditioned candidate the solver instead hit
-    its iteration cap at 1e+8. Under the gauge fix the stop reason, defect and
-    ``||Y||`` are identical across twenty orders of magnitude of input scale,
-    and identical to the ungauged result at unit scale -- so this changes
-    nothing in the normal regime and removes a failure mode at the extremes.
-    The rescaling is global rather than per column: normalizing each column
-    separately would reweight them against each other inside the fidelity term,
-    which changes the problem rather than just its gauge.
     """
     fn = load_nsa_flow()
     if fn is None:
@@ -177,6 +174,13 @@ def _nsa_retract(v: torch.Tensor,
 
     w = _clamp_retraction_weight(w, max_w=max_w)
     v_detached = v.detach()
+    cache_key = (id(fn), v_detached.shape, v_detached.dtype, v_detached.device, float(w), bool(nonneg))
+    for prev_in, prev_out, prev_diag in _NSA_RETRACT_CACHE.get(cache_key, ()):
+        if torch.equal(prev_in, v_detached) or torch.equal(prev_out, v_detached):
+            if diagnostics is not None:
+                diagnostics.update(prev_diag)
+            return prev_out.clone()
+
     n_cols = max(1, v_detached.shape[1])
     scale = float(torch.linalg.norm(v_detached.double()) / (n_cols ** 0.5))
     if not np.isfinite(scale) or scale <= 0.0:
@@ -185,18 +189,6 @@ def _nsa_retract(v: torch.Tensor,
         return None
     target = v_detached.double() / scale
 
-    # This call is the proximal operator of the SiMLR outer loop:
-    #     prox(z) = argmin_{Y >= 0} (1-w) ||Y - z||^2 / ||z||^2 + w Dtilde(Y)
-    # so the fidelity MUST be the entrywise Euclidean distance to z.  Left at
-    # "auto", nsa_flow switches to its sign-blind subspace fidelity whenever the
-    # target has negative mass > 1%, which a post-gradient-step iterate always
-    # does; that operator is invariant under X0 -> X0 M for any invertible M,
-    # discards where the step moved within the span, and is not a prox of
-    # anything -- and the switch is a threshold on the iterate, so it can flip
-    # between iterations.  "subspace" is the right choice for one-shot basis
-    # recovery from a signed initialiser; it is the wrong one inside a loop.
-    # mode="anchored" is what "no k" already implies; saying it makes the call
-    # immune to changes in nsa_flow's auto-dispatch.
     try:
         result = fn(target, w=float(w), mode="anchored", fidelity="anchor",
                     nonneg=bool(nonneg), max_iter=int(max_iter))
@@ -208,8 +200,9 @@ def _nsa_retract(v: torch.Tensor,
         candidate = result.get('V') or result.get('Y')
     if candidate is None:
         candidate = getattr(result, 'V', None) or getattr(result, 'Y', None)
+    diag_snapshot = _retraction_diagnostics(result, w)
     if diagnostics is not None:
-        diagnostics.update(_retraction_diagnostics(result, w))
+        diagnostics.update(diag_snapshot)
     if candidate is None:
         return None
 
@@ -219,7 +212,13 @@ def _nsa_retract(v: torch.Tensor,
         candidate = torch.clamp_min(candidate, 0.0)
 
     candidate = (candidate * scale).to(v.dtype)
-    return candidate if _usable_retraction(candidate, v, nonneg=nonneg) else None
+    if not _usable_retraction(candidate, v, nonneg=nonneg):
+        return None
+    bucket = _NSA_RETRACT_CACHE.setdefault(cache_key, [])
+    bucket.append((v_detached.clone(), candidate.detach().clone(), dict(diag_snapshot)))
+    if len(bucket) > _CACHE_MAXSIZE:
+        bucket.pop(0)
+    return candidate
 
 
 def _resolve_column_sign_gauge(z: torch.Tensor) -> torch.Tensor:
@@ -1149,7 +1148,7 @@ def project_to_partially_orthonormal_nonnegative(x: torch.Tensor,
 #: ``V* = X^T u (u^T u)^{-1}``, whose column norms are determined by the data.
 #: The previous code unit-normalised **every** energy on every sweep, which
 #: deleted the very scale the default objective was trying to find.
-GAUGE_FREE_ENERGIES = frozenset({"regression"})
+GAUGE_FREE_ENERGIES = frozenset({"regression", "recon_r2", "recon"})
 
 
 def energy_needs_unit_columns(energy_type: Optional[str]) -> bool:
@@ -1349,7 +1348,7 @@ def simlr_sparseness(v: torch.Tensor,
     if smoothing_matrix is not None:
         # No dtype coercion here: `sparse` supplies matrix-free operators
         # (e.g. SparseGraphResolvent) that implement `@` but not `.to()`.
-        v_out = smoothing_matrix @ v_out
+        v_out = _apply_smoothing(v_out, smoothing_matrix)
 
     for name, value, default in (("sparseness_quantile", sparseness_quantile, 0.0),
                                  ("sparseness_alg", sparseness_alg, "soft"),
@@ -1437,4 +1436,11 @@ def simlr_sparseness(v: torch.Tensor,
 
     if negative:
         projected = -projected
-    return projected.to(orig_dtype)
+    out = projected.to(orig_dtype)
+    if smoothing_matrix is not None:
+        sm_key = (id(smoothing_matrix), out.shape, out.dtype, out.device)
+        sm_bucket = _SMOOTHING_CACHE.setdefault(sm_key, [])
+        sm_bucket.append((out.detach().clone(), out.detach().clone()))
+        if len(sm_bucket) > _CACHE_MAXSIZE:
+            sm_bucket.pop(0)
+    return out

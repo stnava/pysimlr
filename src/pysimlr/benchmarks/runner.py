@@ -222,6 +222,27 @@ def run_single_experiment(model_type: str,
 
     train_mats = [m[train_idx] for m in data_all]
     test_mats = [m[test_idx] for m in data_all]
+    u_true_test = u_all[test_idx]
+    y_test = y_all[test_idx]
+    y_train = y_all[train_idx]
+
+    if case.get("covariates") is not None:
+        cov_all = torch.as_tensor(case["covariates"]).double().numpy()
+        cov_tr, cov_te = cov_all[train_idx.numpy()], cov_all[test_idx.numpy()]
+        adj_train, adj_test = [], []
+        for tr_m, te_m in zip(train_mats, test_mats):
+            tr_np = tr_m.double().numpy()
+            te_np = te_m.double().numpy()
+            beta_x, _, _, _ = np.linalg.lstsq(cov_tr, tr_np, rcond=None)
+            adj_train.append(torch.tensor(tr_np - cov_tr @ beta_x, dtype=torch.float32))
+            adj_test.append(torch.tensor(te_np - cov_te @ beta_x, dtype=torch.float32))
+        train_mats, test_mats = adj_train, adj_test
+        if not case.get("is_classification"):
+            y_tr_np = y_train.double().numpy()
+            y_te_np = y_test.double().numpy()
+            beta_y, _, _, _ = np.linalg.lstsq(cov_tr, y_tr_np, rcond=None)
+            y_train = torch.tensor(y_tr_np - cov_tr @ beta_y, dtype=torch.float32)
+            y_test = torch.tensor(y_te_np - cov_te @ beta_y, dtype=torch.float32)
 
     # Standardise with statistics from the training split only. Cases that
     # carry `needs_scaling` deliberately hand over unscaled features: fitting a
@@ -237,9 +258,15 @@ def run_single_experiment(model_type: str,
             scaled_train.append(torch.tensor(sc.transform(tr_m.numpy())).float())
             scaled_test.append(torch.tensor(sc.transform(te_m.numpy())).float())
         train_mats, test_mats = scaled_train, scaled_test
-    u_true_test = u_all[test_idx]
-    y_test = y_all[test_idx]
-    y_train = y_all[train_idx]
+        if not case.get("is_classification") and y_train.ndim == 2 and y_train.shape[1] > 1:
+            sc_y = _SS().fit(y_train.numpy())
+            y_train = torch.tensor(sc_y.transform(y_train.numpy())).float()
+            y_test = torch.tensor(sc_y.transform(y_test.numpy())).float()
+
+    if case.get("topology") is not None:
+        params.setdefault("topology", case["topology"])
+    if case.get("path_graph") is not None:
+        params.setdefault("path_graph", case["path_graph"])
     
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -265,7 +292,7 @@ def run_single_experiment(model_type: str,
         f_params = filter_kwargs(simlr, params)
         if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
         f_params['optimizer_type'] = 'torch_lbfgs'
-        f_params['consolidate'] = True
+        f_params['consolidate'] = params.get('consolidate', False)
         res = simlr(train_mats, k=k, **f_params)
     elif model_type == "simlr_lbfgsb":
         # Bound-constrained L-BFGS-B from the NSA-Flow backend. `torch_lbfgs`
@@ -274,7 +301,7 @@ def run_single_experiment(model_type: str,
         f_params = filter_kwargs(simlr, params)
         if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
         f_params['optimizer_type'] = 'nsa_lbfgsb'
-        f_params['consolidate'] = True
+        f_params['consolidate'] = params.get('consolidate', False)
         res = simlr(train_mats, k=k, **f_params)
     elif model_type == "flow_v":
         from pysimlr.flows import flow_simr_v
@@ -287,9 +314,14 @@ def run_single_experiment(model_type: str,
         X_te = torch.cat(test_mats, dim=1).numpy()
         y_tr_np = y_train.numpy()
         y_te_np = y_test.numpy()
-        is_classif = (len(torch.unique(y_train)) <= 5 and (y_train == y_train.round()).all())
+        is_classif = bool(case.get("is_classification")) if "is_classification" in case else bool(len(torch.unique(y_train)) <= 5 and (y_train == y_train.round()).all())
         task_type = "classification" if is_classif else "regression"
-        pipe = build_nsa_pipeline(n_components=k, w=params.get("nsa_w", 0.5), task=task_type)
+        pipe = build_nsa_pipeline(
+            n_components=k,
+            w=params.get("nsa_w", 0.5),
+            task=task_type,
+            consolidate=params.get("consolidate", False),
+        )
         pipe.fit(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np)
         
         scaler = pipe.named_steps.get("scaler")
@@ -342,7 +374,7 @@ def run_single_experiment(model_type: str,
         X_te = torch.cat(test_mats, dim=1).numpy()
         y_tr_np = y_train.numpy()
         y_te_np = y_test.numpy()
-        is_classif = (len(torch.unique(y_train)) <= 5 and (y_train == y_train.round()).all())
+        is_classif = bool(case.get("is_classification")) if "is_classification" in case else bool(len(torch.unique(y_train)) <= 5 and (y_train == y_train.round()).all())
         
         scaler = StandardScaler()
         pca = PCA(n_components=k, random_state=seed)
@@ -414,6 +446,16 @@ def run_single_experiment(model_type: str,
     if fl_scores_train is None and pred_train.get("latents") is not None:
         fl_scores_train = pred_train.get("latents")
         fl_scores_test = pred_test.get("latents")
+
+    eval_view_indices = case.get("eval_view_indices")
+    if eval_view_indices is not None and res.get("v") is not None:
+        v_eval_all = [torch.as_tensor(v).detach().cpu().float() for v in res["v"]]
+        fl_scores_train = [train_mats[i].detach().cpu().float() @ v_eval_all[i] for i in eval_view_indices]
+        fl_scores_test = [test_mats[i].detach().cpu().float() @ v_eval_all[i] for i in eval_view_indices]
+        pred_train = dict(pred_train)
+        pred_test = dict(pred_test)
+        pred_train["u"] = torch.stack(fl_scores_train, dim=0).mean(dim=0)
+        pred_test["u"] = torch.stack(fl_scores_test, dim=0).mean(dim=0)
 
     # Rank reporting for every model, filled in here rather than in each
     # branch. `simlr` and the four deep entry points compute it themselves;

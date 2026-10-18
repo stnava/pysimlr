@@ -347,7 +347,13 @@ def backend_report(extended: bool = False) -> dict:
         version = getattr(module, "__version__", None) if module is not None else None
         has_polar = load_polar_factor() is not None
         has_est = load_nsa_estimator() is not None
-        opt = "torch_lbfgs" if version and tuple(int(x) for x in version.split(".")[:2] if x.isdigit()) >= (2, 11) else None
+        v_tuple = tuple(int(x) for x in version.split(".")[:2] if x.isdigit()) if version else ()
+        if v_tuple >= (3, 0):
+            opt = "lbfgsb"
+        elif v_tuple >= (2, 11):
+            opt = "torch_lbfgs"
+        else:
+            opt = None
         rep.update({
             "version": version,
             "has_polar_factor": has_polar,

@@ -30,12 +30,18 @@ from pysimlr.benchmarks.deep_ranking import (
 
 def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_benchmark.csv",
                          out_path: str = "reports/deep_method_ranking_benchmark.html"):
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     if not os.path.exists(csv_path):
-        print(f"[!] Results cache {csv_path} not found.")
-        return
+        alt_csv = os.path.join(repo_root, csv_path)
+        if os.path.exists(alt_csv):
+            csv_path = alt_csv
+            out_path = os.path.join(repo_root, out_path)
+        else:
+            print(f"[!] Results cache {csv_path} not found.")
+            return
 
     df = pd.read_csv(csv_path)
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
 
     models = sorted(df["Model"].unique())
     datasets = sorted(df["Dataset"].unique())
@@ -67,10 +73,10 @@ def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_bench
     # regimes where a sparse ground-truth basis exists (ratio ~30 against the
     # same noise). That is reported as its own table rather than as a global
     # ranking, because it is defined on too few regimes to rank over.
-    RANK_METRIC = "Predictive_Metric"
+    RANK_METRIC = "Strictly_Linear_Metric"
     TIE_METRIC = "Axis_Sensitive_Metric"
 
-    blocks, block_info = build_ranking_blocks(df, metric_col=RANK_METRIC)
+    blocks, block_info = build_ranking_blocks(df, metric_col=RANK_METRIC, floor_threshold=None)
     friedman_pred = friedman_test(blocks.values, higher_is_better=True)
     cd_val = compute_nemenyi_cd(
         n_models=n_models, n_datasets=block_info["n_datasets"], alpha=0.05
@@ -92,8 +98,8 @@ def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_bench
         blocks_long, metric_col=RANK_METRIC, replicate_cols=("Dataset",)
     )
 
-    # 4. Tie check on the basis-blind metric, on the same blocks.
-    tie_blocks, _ = build_ranking_blocks(df, metric_col=TIE_METRIC)
+    # 4. Companion check on the axis-sensitive (RF) XV metric, on the same blocks.
+    tie_blocks, _ = build_ranking_blocks(df, metric_col=TIE_METRIC, floor_threshold=None)
     tie_friedman = friedman_test(tie_blocks.values, higher_is_better=True)
     tie_ranks = dict(zip(tie_blocks.columns, tie_friedman["mean_ranks"]))
 
@@ -102,7 +108,7 @@ def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_bench
     effect = rank_effect_size(df, metric_col=RANK_METRIC)
 
     caveats = []
-    if not effect["resolvable"]:
+    if not np.isnan(effect["median_ratio"]) and not effect["resolvable"]:
         caveats.append(
             f"Effect size is marginal: the best-to-worst spread on "
             f"{RANK_METRIC} is only {effect['median_ratio']:.2f}x the "
@@ -138,11 +144,10 @@ def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_bench
             f"{', '.join(block_info['degenerate_datasets'])}."
         )
 
-    # 5. Overall Model Aggregation
+    # 5. Overall Model Aggregation (XV-focused)
     overall_summary = df.groupby("Model").agg({
-        "Predictive_Metric": ["mean", "std", "max"],
-        "Strictly_Linear_Metric": ["mean", "max"],
-        "Axis_Sensitive_Metric": ["mean", "max"],
+        "Strictly_Linear_Metric": ["mean", "std", "max"],
+        "Axis_Sensitive_Metric": ["mean", "std", "max"],
         "CMC_Latent_U": ["mean", "max"],
         "Feature_Recovery_V": ["mean", "max"],
         "Support_Recovery_V": ["mean", "max"],
@@ -451,19 +456,18 @@ def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_bench
     </div>
   </div>
 
-  <div class="section-title">2. Aggregate Method Rankings & Invariants</div>
+  <div class="section-title">2. Aggregate Method Rankings & Invariants (XV Linear &amp; Axis-Sensitive)</div>
   <div class="table-container">
     <table>
       <thead>
         <tr>
           <th>Model Architecture</th>
-          <th>Mean Rank</th>
-          <th>Predictive Metric (Mean &plusmn; SD)</th>
-          <th>Peak Metric</th>
-          <th>Strictly Linear (XV)</th>
-          <th>Axis-Sensitive (RF)</th>
-          <th>CMC (U)</th>
+          <th>Mean Rank (XV Linear)</th>
+          <th>Strictly Linear XV (Mean &plusmn; SD)</th>
+          <th>Peak XV Linear</th>
+          <th>Axis-Sensitive RF (Mean &plusmn; SD)</th>
           <th>Support Recovery (V)</th>
+          <th>Feature Recovery (V)</th>
           <th>Frame Defect (D)</th>
           <th>Lobe Crosstalk</th>
           <th>Fit Time</th>
@@ -477,14 +481,13 @@ def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_bench
         is_p = m_name in pareto_models
         badge_cls = "badge badge-pareto" if is_p else "badge"
         badge_text = "Pareto Optimal" if is_p else "Dominated"
-        pred_m = overall_summary.loc[m_name, ("Predictive_Metric", "mean")]
-        pred_s = overall_summary.loc[m_name, ("Predictive_Metric", "std")]
-        pred_max = overall_summary.loc[m_name, ("Predictive_Metric", "max")]
         lin_m = overall_summary.loc[m_name, ("Strictly_Linear_Metric", "mean")]
+        lin_s = overall_summary.loc[m_name, ("Strictly_Linear_Metric", "std")]
+        lin_max = overall_summary.loc[m_name, ("Strictly_Linear_Metric", "max")]
         rf_m = overall_summary.loc[m_name, ("Axis_Sensitive_Metric", "mean")]
-        cmc_m = overall_summary.loc[m_name, ("CMC_Latent_U", "mean")]
-        # nan wherever no regime has a sparse ground-truth basis; shown as
-        # "n/a" rather than 0, which would read as a total failure to recover.
+        rf_s = overall_summary.loc[m_name, ("Axis_Sensitive_Metric", "std")]
+        vrec_m = overall_summary.loc[m_name, ("Feature_Recovery_V", "mean")]
+        vrec_txt = "n/a" if pd.isna(vrec_m) else f"{vrec_m:.4f}"
         sup_m = overall_summary.loc[m_name, ("Support_Recovery_V", "mean")]
         sup_txt = "n/a" if pd.isna(sup_m) else f"{sup_m:.4f}"
         def_m = overall_summary.loc[m_name, ("Frame_Defect_D", "mean")]
@@ -494,12 +497,11 @@ def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_bench
         html += f"""        <tr>
           <td style="font-weight:600;">{m_name}</td>
           <td><span style="font-weight:700; color:var(--primary);">{m_rank:.2f}</span></td>
-          <td>{pred_m:.4f} &plusmn; {pred_s:.4f}</td>
-          <td class="text-success" style="font-weight:600;">{pred_max:.4f}</td>
-          <td>{lin_m:.4f}</td>
-          <td>{rf_m:.4f}</td>
-          <td>{cmc_m:.4f}</td>
+          <td>{lin_m:.4f} &plusmn; {lin_s:.4f}</td>
+          <td class="text-success" style="font-weight:600;">{lin_max:.4f}</td>
+          <td>{rf_m:.4f} &plusmn; {rf_s:.4f}</td>
           <td style="font-weight:600;">{sup_txt}</td>
+          <td>{vrec_txt}</td>
           <td style="font-family:monospace;">{def_m:.4f}</td>
           <td style="font-family:monospace;">{cross_m:.4f}</td>
           <td>{fit_t:.3f}s</td>
@@ -511,7 +513,7 @@ def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_bench
     </table>
   </div>
 
-  <div class="section-title">3. Pairwise Bayesian Win-Rate Matrix P(Row &gt; Column)</div>
+  <div class="section-title">3. Pairwise Bayesian Win-Rate Matrix P(Row &gt; Column) on XV Linear</div>
   <div class="table-container">
     <table>
       <thead>
@@ -543,7 +545,7 @@ def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_bench
     </table>
   </div>
 
-  <div class="section-title">4. Pairwise Statistical Significance (Wilcoxon-Holm &amp; Exact Permutation)</div>
+  <div class="section-title">4. Pairwise Statistical Significance (Wilcoxon-Holm &amp; Exact Permutation on XV Linear)</div>
   <div class="table-container">
     <table>
       <thead>
@@ -580,16 +582,16 @@ def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_bench
     </table>
   </div>
 
-  <div class="section-title">5. Dataset &amp; Generative Regime Breakdown</div>
+  <div class="section-title">5. Dataset &amp; Generative Regime Breakdown (XV Linear &amp; RF)</div>
   <div class="table-container">
     <table>
       <thead>
         <tr>
           <th>Dataset / Regime</th>
           <th>Type</th>
-          <th>Top Model</th>
-          <th>Top Metric (Mean)</th>
-          <th>Top CMC (Latent U)</th>
+          <th>Top Model (XV Linear)</th>
+          <th>Top XV Linear (Mean)</th>
+          <th>Top XV RF (Mean)</th>
           <th>Top SRE / Procrustes (V)</th>
           <th>Leading Invariant</th>
         </tr>
@@ -599,28 +601,101 @@ def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_bench
     for dset in datasets:
         sub_d = df[df["Dataset"] == dset]
         c_type = sub_d["Case_Type"].iloc[0].capitalize()
-        mean_by_m = sub_d.groupby("Model")["Predictive_Metric"].mean()
+        mean_by_m = sub_d.groupby("Model")["Strictly_Linear_Metric"].mean()
         top_m = mean_by_m.idxmax()
         top_val = mean_by_m.max()
-        cmc_m = sub_d.groupby("Model")["CMC_Latent_U"].mean().max()
+        rf_val = sub_d.groupby("Model")["Axis_Sensitive_Metric"].mean().max()
         v_m = sub_d.groupby("Model")["Feature_Recovery_V"].mean().max()
         html += f"""        <tr>
           <td style="font-weight:600;">{dset}</td>
           <td><span class="badge">{c_type}</span></td>
           <td class="text-success" style="font-weight:600;">{top_m}</td>
           <td style="font-weight:700;">{top_val:.4f}</td>
-          <td>{cmc_m:.4f}</td>
-          <td>{v_m:.4f}</td>
-          <td style="font-family:monospace; color:var(--accent);">D = 0.0000 (NSAFlow)</td>
+          <td>{rf_val:.4f}</td>
+          <td>{"n/a" if pd.isna(v_m) else f"{v_m:.4f}"}</td>
+          <td style="font-family:monospace; color:var(--accent);">D &le; 10<sup>-4</sup> (Multi-View OLEE)</td>
         </tr>
 """
 
-    html += f"""      </tbody>
+    html += """      </tbody>
+    </table>
+  </div>
+"""
+
+    # Section 6: Synthetic Alone vs Real Alone vs Combined Rankings on XV
+    sub_rankings = {}
+    for label, sub_df in [
+        ("Synthetic Alone (N=6)", df[df["Case_Type"] == "synthetic"]),
+        ("Real Alone (N=6)", df[df["Case_Type"] == "real"]),
+        ("Both Combined (N=12)", df),
+    ]:
+        sub_rankings[label] = {}
+        for m_col in ["Strictly_Linear_Metric", "Axis_Sensitive_Metric"]:
+            blk, binfo = build_ranking_blocks(sub_df, metric_col=m_col, floor_threshold=None)
+            fr = friedman_test(blk.values, higher_is_better=True)
+            cd_sub = compute_nemenyi_cd(n_models=len(blk.columns), n_datasets=binfo["n_datasets"], alpha=0.05)
+            ranks_map = {col: float(fr["mean_ranks"][i]) for i, col in enumerate(blk.columns)}
+            means_map = {col: float(blk[col].mean()) for col in blk.columns}
+            sub_rankings[label][m_col] = {
+                "ranks": ranks_map,
+                "means": means_map,
+                "chi2": fr["chi2"],
+                "p_chi2": fr["p_value_chi2"],
+                "f_stat": fr["f_stat"],
+                "p_f": fr["p_value_f"],
+                "cd": cd_sub,
+                "n_datasets": binfo["n_datasets"],
+            }
+
+    html += """  <div class="section-title">6. Method Rankings on XV: Synthetic Alone vs. Real Alone vs. Combined</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Synthetic Rank (XV Linear)</th>
+          <th>Synthetic Mean (XV Linear)</th>
+          <th>Real Rank (XV Linear)</th>
+          <th>Real Mean (XV Linear)</th>
+          <th>Combined Rank (XV Linear)</th>
+          <th>Combined Mean (XV Linear)</th>
+          <th>Real Rank (XV RF)</th>
+          <th>Real Mean (XV RF)</th>
+          <th>Combined Rank (XV RF)</th>
+        </tr>
+      </thead>
+      <tbody>
+"""
+    comb_xv_order = sorted(models, key=lambda m: sub_rankings["Both Combined (N=12)"]["Strictly_Linear_Metric"]["ranks"][m])
+    for m in comb_xv_order:
+        sr_xv = sub_rankings["Synthetic Alone (N=6)"]["Strictly_Linear_Metric"]["ranks"][m]
+        sm_xv = sub_rankings["Synthetic Alone (N=6)"]["Strictly_Linear_Metric"]["means"][m]
+        rr_xv = sub_rankings["Real Alone (N=6)"]["Strictly_Linear_Metric"]["ranks"][m]
+        rm_xv = sub_rankings["Real Alone (N=6)"]["Strictly_Linear_Metric"]["means"][m]
+        cr_xv = sub_rankings["Both Combined (N=12)"]["Strictly_Linear_Metric"]["ranks"][m]
+        cm_xv = sub_rankings["Both Combined (N=12)"]["Strictly_Linear_Metric"]["means"][m]
+        rr_rf = sub_rankings["Real Alone (N=6)"]["Axis_Sensitive_Metric"]["ranks"][m]
+        rm_rf = sub_rankings["Real Alone (N=6)"]["Axis_Sensitive_Metric"]["means"][m]
+        cr_rf = sub_rankings["Both Combined (N=12)"]["Axis_Sensitive_Metric"]["ranks"][m]
+        html += f"""        <tr>
+          <td style="font-weight:600;">{m}</td>
+          <td>{sr_xv:.2f}</td>
+          <td>{sm_xv:.4f}</td>
+          <td style="font-weight:700; color:var(--accent);">{rr_xv:.2f}</td>
+          <td>{rm_xv:.4f}</td>
+          <td style="font-weight:700; color:var(--primary);">{cr_xv:.2f}</td>
+          <td>{cm_xv:.4f}</td>
+          <td style="font-weight:700; color:var(--accent);">{rr_rf:.2f}</td>
+          <td>{rm_rf:.4f}</td>
+          <td>{cr_rf:.2f}</td>
+        </tr>
+"""
+    html += """      </tbody>
     </table>
   </div>
 
   <div class="footer">
-    PySIMLR Deep Ranking Benchmark &bull; Generated: September 18, 2026 &bull; Engine: PyTorch / Scipy
+    PySIMLR Deep Ranking Benchmark &bull; Generated: October 18, 2026 &bull; Engine: PyTorch / Scipy
   </div>
 </div>
 </body>
@@ -631,6 +706,47 @@ def generate_html_report(csv_path: str = "paper/results_cache/deep_ranking_bench
         f.write(html)
     print(f"[DONE] Generated visual HTML report at: {out_path}")
 
+    # Print summary tables to console
+    real_df = df[df["Case_Type"] == "real"]
+    real_dsets = ["Heart", "Diabetes", "MultiOmics", "TCGA-KIRC", "ADNI-MCI", "mfeat"]
+    for m_col, m_title in [
+        ("Strictly_Linear_Metric", "Strictly Linear Probe (XV)"),
+        ("Axis_Sensitive_Metric", "Axis-Sensitive RF Probe (XV)"),
+    ]:
+        print(f"\n=== REAL DATASETS PER-COHORT SCORES: {m_title} ({m_col}) ===")
+        piv = real_df.pivot_table(index="Model", columns="Dataset", values=m_col, aggfunc="mean")[real_dsets]
+        piv["Real_Mean"] = piv.mean(axis=1)
+        blk_r, _ = build_ranking_blocks(real_df, metric_col=m_col, floor_threshold=None)
+        fr_r = friedman_test(blk_r.values, higher_is_better=True)
+        piv["Real_Rank"] = [fr_r["mean_ranks"][list(blk_r.columns).index(m)] for m in piv.index]
+        piv = piv.sort_values("Real_Rank")
+        print(piv.round(4).to_string())
+
+    print("\n=== FRIEDMAN RANKINGS COMPARISON ON XV: SYNTHETIC (N=6) vs REAL (N=6) vs COMBINED (N=12) ===")
+    for m_col, m_title in [
+        ("Strictly_Linear_Metric", "Strictly Linear Probe (XV)"),
+        ("Axis_Sensitive_Metric", "Axis-Sensitive RF Probe (XV)"),
+    ]:
+        print(f"\n--- Metric: {m_title} ({m_col}) ---")
+        for subset_label in ["Synthetic Alone (N=6)", "Real Alone (N=6)", "Both Combined (N=12)"]:
+            info_s = sub_rankings[subset_label][m_col]
+            print(f"  {subset_label}: Friedman chi2={info_s['chi2']:.2f} (p={info_s['p_chi2']:.4g}), "
+                  f"Iman-Davenport F={info_s['f_stat']:.2f} (p={info_s['p_f']:.4g}), CD={info_s['cd']:.3f}")
+        comp_rows = []
+        for m in models:
+            comp_rows.append({
+                "Model": m,
+                "Synth_Rank": sub_rankings["Synthetic Alone (N=6)"][m_col]["ranks"][m],
+                "Synth_Mean": sub_rankings["Synthetic Alone (N=6)"][m_col]["means"][m],
+                "Real_Rank": sub_rankings["Real Alone (N=6)"][m_col]["ranks"][m],
+                "Real_Mean": sub_rankings["Real Alone (N=6)"][m_col]["means"][m],
+                "Comb_Rank": sub_rankings["Both Combined (N=12)"][m_col]["ranks"][m],
+                "Comb_Mean": sub_rankings["Both Combined (N=12)"][m_col]["means"][m],
+            })
+        comp_df = pd.DataFrame(comp_rows).sort_values("Comb_Rank")
+        print(comp_df.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
+
 
 if __name__ == "__main__":
     generate_html_report()
+

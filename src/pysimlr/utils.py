@@ -1451,6 +1451,17 @@ def write_simlr(simlr_object: Dict[str, Any], file_prefix: str, clear_dir: bool 
         
     os.makedirs(outdir, exist_ok=True)
     
+    def _json_default(x):
+        if torch.is_tensor(x):
+            return x.detach().cpu().tolist()
+        if isinstance(x, np.ndarray):
+            return x.tolist()
+        if isinstance(x, np.floating):
+            return float(x)
+        if isinstance(x, np.integer):
+            return int(x)
+        return str(x)
+
     manifest = {}
     
     # Iterate and write contents
@@ -1522,7 +1533,7 @@ def write_simlr(simlr_object: Dict[str, Any], file_prefix: str, clear_dir: bool 
                     json_file_name = f"{subk}.json"
                     subfile = os.path.join(subdir, json_file_name)
                     with open(subfile, "w") as f:
-                        json.dump(subobj, f)
+                        json.dump(subobj, f, default=_json_default)
                     submanifest[subk] = {
                         "file": f"{n}/{json_file_name}",
                         "type": "rds",
@@ -1565,7 +1576,7 @@ def write_simlr(simlr_object: Dict[str, Any], file_prefix: str, clear_dir: bool 
                     json_file_name = f"{subname}.json"
                     subfile = os.path.join(subdir, json_file_name)
                     with open(subfile, "w") as f:
-                        json.dump(subobj, f)
+                        json.dump(subobj, f, default=_json_default)
                     submanifest[subname] = {
                         "file": f"{n}/{json_file_name}",
                         "type": "rds",
@@ -1576,7 +1587,7 @@ def write_simlr(simlr_object: Dict[str, Any], file_prefix: str, clear_dir: bool 
             fname = f"{n}.json"
             abs_fname = os.path.join(outdir, fname)
             with open(abs_fname, "w") as f:
-                json.dump(obj, f)
+                json.dump(obj, f, default=_json_default)
             manifest[n] = {
                 "type": "rds",
                 "file": fname
@@ -1585,7 +1596,7 @@ def write_simlr(simlr_object: Dict[str, Any], file_prefix: str, clear_dir: bool 
     # Write Python manifest
     manifest_json_path = os.path.join(outdir, "manifest.json")
     with open(manifest_json_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+        json.dump(manifest, f, indent=2, default=_json_default)
         
     # If use_r is True, try to compile to RDS using R
     if use_r:

@@ -63,7 +63,10 @@ class AffineCouplingLayer(nn.Module):
     Affine Coupling Layer for Normalizing Flows.
     
     Splits the input features, processes one half to predict scale (s)
-    and translation (t), and applies them to the other half.
+    and translation (t), and applies them to the other half. When ``dim == 1``
+    (``split_dim == 0``), the empty partition acts as a bias-only conditioner
+    so the layer reduces to a global learnable 1D affine bijection
+    ``z = x * exp(s) + t``; use ``dim >= 2`` for conditional feature coupling.
     """
     def __init__(self, dim: int, hidden_dim: int = 64, mask_type: str = "block", index: int = 0, scale_bound: float = 2.0):
         super().__init__()
@@ -295,12 +298,15 @@ class FlowSiMRModel(nn.Module):
     """
     Normalizing Flow SiMR Model.
     """
-    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, hidden_dim: int = 64, mixing_algorithm: str = "newton", scale_bound: float = 2.0, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False, force_fallback: bool = False):
+    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, hidden_dim: int = 64, mixing_algorithm: str = "newton", scale_bound: float = 2.0, topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False, force_fallback: bool = False):
         super().__init__()
         self.input_dims = input_dims
         self.latent_dim = latent_dim
         self.is_flow = True
         self.mixing_algorithm = mixing_algorithm
+        self.topology = topology
+        self.path_graph = path_graph
+        self.prune_threshold = prune_threshold
         self.dynamic_weights = dynamic_weights
         self.mai_metric = mai_metric
         self.dynamic_weights_start = dynamic_weights_start
@@ -378,25 +384,9 @@ class FlowSiMRModel(nn.Module):
                         if metric == "procrustes_r2" or metric == "procrustes_r2_sharp":
                             omega = u_svd @ vh_svd
                             aligned = Z @ omega
-                            # Scale-profiled Procrustes R^2. With Z and u_loo
-                            # both unit Frobenius norm and Omega orthogonal,
-                            # ||Z@Omega - u_loo||^2 = 2 - 2*sum(s), so the old
-                            # form below reduced to `2*sum(s) - 1` and clamped
-                            # to exactly 0 for every sum(s) < 0.5:
-                            #     max(0, 1 - ||aligned - u_loo||^2/||u_loo||^2)
-                            # At k=3 every view sits under that cliff, so all
-                            # modality scores came back 0, the gate saw no
-                            # spread, and the weights stayed uniform -- MAI was
-                            # inert. Measured with one planted pure-noise view:
-                            # mai = [0.0, 0.0, 0.0] every epoch, decaying only
-                            # because the EMA pulled the buffer toward zero.
-                            #
-                            # Profiling out the scale -- the same fix as
-                            # `similarity.energy_recon_r2` -- gives the squared
-                            # cosine between the optimally rotated-and-scaled Z
-                            # and u_loo, which is sum(s)^2: bounded in [0, 1],
-                            # never clamped, and still 0.989 for signal against
-                            # 0.020 for noise.
+                            # Scale-profiled Procrustes R^2 (see FlowSiMRVModel.update_mai
+                            # for the full derivation; the un-profiled form clamped to 0
+                            # whenever sum(s) < 0.5).
                             r2 = float(s_svd.sum().item()) ** 2
                             if metric == "procrustes_r2_sharp":
                                 _, s_latent, _ = torch.linalg.svd(Z, full_matrices=False)
@@ -411,21 +401,8 @@ class FlowSiMRModel(nn.Module):
                             den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
                             mais.append((num / (den + 1e-8)).item())
                         else:
-                            # Was `trace`, and was also the catch-all for any
-                            # unrecognised name, so a typo silently selected it.
-                            #
-                            # tr(Z' u_loo) is the only one of these computed
-                            # outside the SVD, and it is not invariant to the
-                            # latent gauge: the k latent coordinates carry an
-                            # arbitrary rotation Q, and tr((ZQ)' u) != tr(Z' u).
-                            # Measured on one fixed pair, rotating Q gave
-                            # 0.0348, 0.1319 and 0.0000 for the same data,
-                            # while procrustes / cca / rvcoef were constant to
-                            # four decimals. It therefore scores the accident
-                            # of the coordinate system rather than agreement
-                            # between views -- and on `flow_simr_v` it ranked a
-                            # planted pure-noise view *above* a signal view
-                            # (0.276 against 0.246).
+                            # See FlowSiMRVModel.update_mai for why `trace` was
+                            # removed and why the catch-all now raises.
                             raise ValueError(
                                 f"unknown mai_metric {metric!r}. Choose one of "
                                 f"['procrustes_r2', 'procrustes_r2_sharp', "
@@ -462,13 +439,24 @@ class FlowSiMRModel(nn.Module):
             if dynamic_weights_start is not None:
                 rho = max(0.0, min(1.0, (epoch - dynamic_weights_start) / 20.0))
             else:
-                rho = max(0.0, min(1.0, (epoch - 10) / 20.0))
+                warm = 0.33 * max(1, total_epochs)
+                rho = max(0.0, min(1.0, (epoch - warm) / max(1.0, warm)))
             uniform_w = torch.ones_like(target_w) / len(target_w)
             self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
 
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         latents = [enc(x) for enc, x in zip(self.encoders, x_list)]
-        res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None)
+        res_u = compute_shared_consensus(
+            latents,
+            mixing_algorithm=self.mixing_algorithm,
+            k=self.latent_dim,
+            training=self.training,
+            anchor=self.consensus_anchor,
+            topology=getattr(self, "topology", "loo"),
+            path_graph=getattr(self, "path_graph", None),
+            prune_threshold=getattr(self, "prune_threshold", None),
+            modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None,
+        )
         if self.training:
             u_shared, new_anchor = res_u
             if new_anchor is not None: 
@@ -547,9 +535,6 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
     )
     
     has_stepped = False
-    # Same convergence rule and best-iterate policy as `simlr` and the deep
-    # trainers; see `utils.ConvergenceMonitor` and `deep._train_loop`. This
-    # loop is written out separately from `_train_loop`, so it had neither.
     import copy as _copy
     from .utils import ConvergenceMonitor
     _monitor = ConvergenceMonitor(tol=float(tol), patience=int(patience),
@@ -559,6 +544,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
     for epoch in range(epochs):
         model.train()
         epoch_loss, epoch_recon, epoch_sim = 0.0, 0.0, 0.0
+        valid_batches = 0
         
         # Update first-layer projection schedule (straight-through estimation)
         _update_first_layer_schedule(model, epoch, epochs, stabilization_start_epoch, stabilization_ramp_epochs)
@@ -572,30 +558,6 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             
             latents, reconstructions, u_shared = model(batch_mats)
             
-            # Flow negative log-likelihood. RETAINED, after an attempt to
-            # remove it was falsified.
-            #
-            # The objection to it stands on its own terms: it maximises
-            # log N(f(XV); 0, I) + log|det J|, so it drives the representation
-            # toward a unimodal Gaussian -- and the Gaussianised variable is
-            # what reaches the consensus and the downstream task. Measured on
-            # mfeat6, post/pre-warp class separability falls as its weight
-            # rises: 1.042 at beta=0.05, 0.953 at 0, 0.762 at 0.5.
-            #
-            # But it cannot simply be deleted. The decoder is
-            # ``flow.inverse(u) @ V.t()``, and the prior is what holds z near
-            # unit scale so that the inverse is evaluated in a bounded region.
-            # With the term removed the reconstruction MSE drove the inverse
-            # outward and V reached NaN within two epochs; a log-det volume
-            # penalty alone (1e-3 * mean(log|det J|^2)) did not save it either,
-            # because the instability is in the decoder path, not the warp's
-            # volume.
-            #
-            # Removing the Gaussianising prior therefore requires the decoder
-            # redesign -- tying reconstruction to s = XV rather than routing it
-            # through the inverse -- not a change to one loss term. That is a
-            # larger change than this pass, and is recorded in
-            # docs/theory/SIMLR_THEORY.md rather than half-done here.
             recon_loss = 0.0
             for enc in model.encoders:
                 z = enc.last_z
@@ -613,27 +575,14 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             
             # Add orthogonality penalty for encoder basis V (both actual enc.v and raw enc.v_raw)
             if hasattr(model, 'linear_encoders'):
-                total_loss += 0.5 * sum(orthogonality_defect(enc.v) for enc in model.linear_encoders)
-                total_loss += 0.5 * sum(orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
+                total_loss += 0.05 * sum(orthogonality_defect(enc.v) for enc in model.linear_encoders)
+                total_loss += 0.05 * sum(orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
                 
             if torch.isnan(total_loss): 
                 continue
                 
             total_loss.backward()
 
-            # The loss guard above is not enough: a *finite* loss can still
-            # produce a non-finite gradient, and `clip_grad_norm_` propagates
-            # NaN rather than removing it (the norm of a NaN vector is NaN, so
-            # every parameter is scaled by NaN). Measured on mfeat6: at step 1
-            # the loss was 6.366 while max|grad| was NaN, and the optimizer
-            # wrote NaN into `linear_encoders.*.nsa_linear.weight`; from there
-            # every subsequent forward was NaN and the fit was silently ruined
-            # while still reporting a loss history.
-            #
-            # A non-finite gradient is not information, so the step is skipped
-            # and counted. A run that skips many steps has a real problem and
-            # `n_nonfinite_grad_steps` says so, rather than returning a basis
-            # of NaN with no indication anything went wrong.
             if not all(torch.isfinite(p.grad).all()
                        for p in model.parameters() if p.grad is not None):
                 nonfinite_grad_steps += 1
@@ -642,10 +591,8 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             has_stepped = True
+            valid_batches += 1
             
-            if hasattr(model, 'retract_linear_encoders'):
-                model.retract_linear_encoders()
-                
             if hasattr(model, 'update_mai'):
                 model.update_mai(latents, epoch, epochs, dynamic_weights_start=dynamic_weights_start)
             
@@ -653,9 +600,10 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             epoch_recon += recon_loss.item()
             epoch_sim += diagnostics["sim_loss"]
             
-        epoch_loss /= len(dataloader)
-        epoch_recon /= len(dataloader)
-        epoch_sim /= len(dataloader)
+        denom = max(1, valid_batches)
+        epoch_loss /= denom
+        epoch_recon /= denom
+        epoch_sim /= denom
         loss_history.append(epoch_loss)
         if epoch >= _warm and np.isfinite(epoch_loss) and epoch_loss < _best_loss:
             _best_loss, _best_epoch = epoch_loss, epoch
@@ -663,7 +611,6 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         recon_history.append(epoch_recon)
         sim_history.append(epoch_sim)
         if has_stepped and scheduler is not None:
-            # Metric-driven now; see `deep._plateau_scheduler`.
             scheduler.step(epoch_loss)
         
         if hasattr(model, 'modality_weights'):
@@ -709,6 +656,10 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               hidden_dim: int = 64, 
               energy_type: str = "regression", 
               mixing_algorithm: str = "newton",
+              topology: str = "loo",
+              path_graph: Optional[Dict[int, List[int]]] = None,
+              prune_threshold: Optional[float] = None,
+              optimizer_type: str = "adam",
               device: Optional[str] = None,
               verbose: bool = False,
               beta: float = 0.05,
@@ -721,70 +672,27 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               force_fallback: bool = False) -> Dict[str, Any]:
     """
     Perform Flow-based Similarity-driven Multi-view Representation (Flow-SiMR).
-
-    Unlike `flow_simr_v`, there is no prepended linear encoder `V_m` here --
-    `FlowSiMRModel` feeds each view directly into its normalizing flow -- so
-    there is no basis for a `positivity` or `initialization_type` parameter
-    to constrain or seed, and neither is accepted. Use `flow_simr_v` if a
-    sign-constrained or specifically-initialized linear entry point is
-    wanted.
-
-    Parameters
-    ----------
-    data_matrices : List[Union[torch.Tensor, np.ndarray]]
-        List of data matrices (one for each modality).
-    k : int
-        The dimensionality of the shared latent space.
-    epochs : int, default=150
-        Number of training epochs.
-    batch_size : int, default=64
-        Batch size.
-    learning_rate : float, default=5e-4
-        Learning rate.
-    weight_decay : float, default=1e-4
-        Weight decay.
-    sim_weight : float, default=1.0
-        Weight for similarity loss.
-    warmup_epochs : int, default=20
-        Warmup epochs before similarity loss.
-    num_layers : int, default=4
-        Number of flow coupling layers.
-    hidden_dim : int, default=64
-        Hidden size for coupling layer neural networks.
-    energy_type : str, default="regression"
-        Similarity objective type.
-    mixing_algorithm : str, default="newton"
-        Consensus mixing algorithm.
-    device : Optional[str]
-        PyTorch device.
-    verbose : bool
-        Print progress.
-    beta : float, default=0.05
-        Weight scaling factor for NLL reconstruction loss.
-    scale_bound : float, default=2.0
-        Bounded scaling coefficient for flow coupling transformations.
-    gamma : float, default=2.0
-        Weight scaling factor for zero-padded MSE reconstruction loss.
-        
-    Returns
-    -------
-    Dict[str, Any]
-        Model results.
     """
     if device is None: 
         device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device)
     
     from .deep import (_standardize_deep, _get_optimizer,
-                       resolve_warmup_epochs, _drop_last)
+                       resolve_warmup_epochs, _drop_last, _aggregate_shared_consensus)
     from torch.utils.data import TensorDataset, DataLoader
-    from torch.optim.lr_scheduler import CosineAnnealingLR
     
     torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"])
     input_dims = [m.shape[1] for m in torch_mats]
     
-    model = FlowSiMRModel(input_dims, k, num_layers=num_layers, hidden_dim=hidden_dim, mixing_algorithm=mixing_algorithm, scale_bound=scale_bound, dynamic_weights=dynamic_weights, mai_metric=mai_metric, dynamic_weights_start=dynamic_weights_start, use_rank_mai=use_rank_mai, force_fallback=force_fallback).to(device)
-    optimizer = _get_optimizer(model, "adam", learning_rate, weight_decay)
+    model = FlowSiMRModel(
+        input_dims, k, num_layers=num_layers, hidden_dim=hidden_dim,
+        mixing_algorithm=mixing_algorithm, scale_bound=scale_bound,
+        topology=topology, path_graph=path_graph, prune_threshold=prune_threshold,
+        dynamic_weights=dynamic_weights, mai_metric=mai_metric,
+        dynamic_weights_start=dynamic_weights_start, use_rank_mai=use_rank_mai,
+        force_fallback=force_fallback,
+    ).to(device)
+    optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
     from .deep import _plateau_scheduler
     scheduler = _plateau_scheduler(optimizer)
     
@@ -801,6 +709,8 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     with torch.no_grad():
         eval_mats = [m.to(device) for m in torch_mats]
         final_latents, recons, u_final = model(eval_mats)
+        u_aggregate = (_aggregate_shared_consensus(model, final_latents)
+                       if isinstance(u_final, list) else u_final)
         
     cond_inference = FlowConditionalInference(len(input_dims), k)
     cond_inference.fit(final_latents)
@@ -808,7 +718,8 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     result = {
         "model": model.cpu(),
         "model_type": "flow_simr",
-        "u": u_final.cpu() if not isinstance(u_final, list) else [ui.cpu() for ui in u_final],
+        "u": u_aggregate.cpu(),
+        "u_per_modality": ([ui.cpu() for ui in u_final] if isinstance(u_final, list) else None),
         "latents": [l.cpu() for l in final_latents],
         "reconstructions": [r.cpu() for r in recons],
         "loss_history": loss_h,
@@ -838,8 +749,11 @@ class FlowSiMRVModel(nn.Module):
                  hidden_dim: int = 64, mixing_algorithm: str = 'newton', scale_bound: float = 2.0,
                  nsa_w: float = 0.1, positivity: str = 'either', 
                  sparseness_quantile: Union[float, List[float]] = 0.0, use_nsa: bool = True,
+                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None,
+                 prune_threshold: Optional[float] = None,
                  dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False,
+                 first_layer_mode: str = "scheduled", nsa_iterations: int = 1,
                  retraction_type: str = "soft_polar",
                  force_fallback: bool = False):
         super().__init__()
@@ -851,10 +765,15 @@ class FlowSiMRVModel(nn.Module):
         self.latent_dim = latent_dim
         self.is_flow = True
         self.mixing_algorithm = mixing_algorithm
+        self.topology = topology
+        self.path_graph = path_graph
+        self.prune_threshold = prune_threshold
         self.dynamic_weights = dynamic_weights
         self.mai_metric = mai_metric
         self.dynamic_weights_start = dynamic_weights_start
         self.use_rank_mai = use_rank_mai
+        self.first_layer_mode = first_layer_mode
+        self.nsa_iterations = nsa_iterations
         self.retraction_type = retraction_type
         self.force_fallback = force_fallback
         
@@ -865,7 +784,9 @@ class FlowSiMRVModel(nn.Module):
             sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
             
         self.linear_encoders = nn.ModuleList([
-            LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, retraction_type=retraction_type) 
+            LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa,
+                           first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations,
+                           retraction_type=retraction_type) 
             for dim, sq in zip(input_dims, sparseness_quantile)
         ])
         
@@ -1034,7 +955,8 @@ class FlowSiMRVModel(nn.Module):
             if dynamic_weights_start is not None:
                 rho = max(0.0, min(1.0, (epoch - dynamic_weights_start) / 20.0))
             else:
-                rho = max(0.0, min(1.0, (epoch - 10) / 20.0))
+                warm = 0.33 * max(1, total_epochs)
+                rho = max(0.0, min(1.0, (epoch - warm) / max(1.0, warm)))
             uniform_w = torch.ones_like(target_w) / len(target_w)
             self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
 
@@ -1090,9 +1012,28 @@ class FlowSiMRVModel(nn.Module):
         
         # 2. Flow encoders wrapper on projected zs
         latents = [enc(z) for enc, z in zip(self.encoders, projected_zs)]
+        if self.training:
+            # Evaluate the flow NLL term on detached first-layer projections so
+            # that the Gaussian prior + log|det J_flow| regularizes the flow
+            # bijection without driving unit-column V_m (which has no log|det|
+            # term) into low-variance noise directions.
+            for enc, z in zip(self.encoders, projected_zs):
+                z_det, ld_det = enc.flow(z.detach())
+                enc.last_z = z_det
+                enc.last_log_det = ld_det
         
         # 3. Consensus mixing
-        res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None)
+        res_u = compute_shared_consensus(
+            latents,
+            mixing_algorithm=self.mixing_algorithm,
+            k=self.latent_dim,
+            training=self.training,
+            anchor=self.consensus_anchor,
+            topology=getattr(self, "topology", "loo"),
+            path_graph=getattr(self, "path_graph", None),
+            prune_threshold=getattr(self, "prune_threshold", None),
+            modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None,
+        )
         if self.training:
             u_shared, new_anchor = res_u
             if new_anchor is not None: 
@@ -1105,7 +1046,7 @@ class FlowSiMRVModel(nn.Module):
         for i, (flow, enc) in enumerate(zip(self.flows, self.linear_encoders)):
             ui = u_shared[i] if isinstance(u_shared, list) else u_shared
             z_recon = flow.inverse(ui)
-            v = enc.v
+            v = enc.active_training_basis() if self.training else enc.v
             x_recon = z_recon @ v.t()
             reconstructions.append(x_recon)
             
@@ -1125,7 +1066,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 k: int, 
                 epochs: int = 150, 
                 batch_size: int = 64, 
-                learning_rate: float = 1e-3, 
+                learning_rate: float = 5e-4, 
                 weight_decay: float = 1e-4, 
                 sim_weight: float = 1.0, 
                 warmup_epochs: Optional[int] = None, 
@@ -1133,6 +1074,10 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 hidden_dim: int = 64, 
                 energy_type: str = 'regression', 
                 mixing_algorithm: str = 'newton',
+                topology: str = 'loo',
+                path_graph: Optional[Dict[int, List[int]]] = None,
+                prune_threshold: Optional[float] = None,
+                optimizer_type: str = 'adam',
                 device: Optional[str] = None,
                 verbose: bool = False,
                 beta: float = 0.05,
@@ -1146,6 +1091,8 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 mai_metric: str = 'procrustes_r2',
                 dynamic_weights_start: Optional[int] = None,
                 use_rank_mai: bool = False,
+                first_layer_mode: str = 'scheduled',
+                nsa_iterations: int = 1,
                 stabilization_start_epoch: Optional[int] = None,
                 stabilization_ramp_epochs: Optional[int] = None,
                 retraction_type: str = 'soft_polar',
@@ -1201,7 +1148,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     device = torch.device(device)
     
     from .deep import (_standardize_deep, _get_optimizer,
-                       resolve_warmup_epochs, _drop_last)
+                       resolve_warmup_epochs, _drop_last, _aggregate_shared_consensus)
     from torch.utils.data import TensorDataset, DataLoader
     from torch.optim.lr_scheduler import CosineAnnealingLR
     
@@ -1213,9 +1160,11 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         mixing_algorithm=mixing_algorithm, scale_bound=scale_bound,
         nsa_w=nsa_w, positivity=positivity, 
         sparseness_quantile=sparseness_quantile, use_nsa=use_nsa,
+        topology=topology, path_graph=path_graph, prune_threshold=prune_threshold,
         dynamic_weights=dynamic_weights, mai_metric=mai_metric,
         dynamic_weights_start=dynamic_weights_start,
         use_rank_mai=use_rank_mai,
+        first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations,
         retraction_type=retraction_type,
         force_fallback=force_fallback
     ).to(device)
@@ -1230,7 +1179,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                              generator=init_gen, domain_matrices=domain_matrices,
                              n_candidates=n_candidates, perturbation_scale=perturbation_scale)
     
-    optimizer = _get_optimizer(model, 'adam', learning_rate, weight_decay)
+    optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
     from .deep import _plateau_scheduler
     scheduler = _plateau_scheduler(optimizer)
     
@@ -1246,22 +1195,23 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     )
     
     model.eval()
+    from .deep import _finalize_bases
     with torch.no_grad():
+        v_mats = [enc.v.detach().cpu() for enc in model.linear_encoders]
+        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=model.linear_encoders)
         eval_mats = [m.to(device) for m in torch_mats]
         final_latents, recons, u_final = model(eval_mats)
+        u_aggregate = (_aggregate_shared_consensus(model, final_latents)
+                       if isinstance(u_final, list) else u_final)
         
     cond_inference = FlowConditionalInference(len(input_dims), k)
     cond_inference.fit(final_latents)
     
-    # Extract linear projection matrices V
-    v_mats = [enc.v.detach().cpu() for enc in model.linear_encoders]
-    from .deep import _finalize_bases
-    v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type)
-    
     result = {
         'model': model.cpu(),
         'model_type': 'flow_simr_v',
-        'u': u_final.cpu() if not isinstance(u_final, list) else [ui.cpu() for ui in u_final],
+        'u': u_aggregate.cpu(),
+        'u_per_modality': ([ui.cpu() for ui in u_final] if isinstance(u_final, list) else None),
         'latents': [l.cpu() for l in final_latents],
         'reconstructions': [r.cpu() for r in recons],
         'v': v_mats,
