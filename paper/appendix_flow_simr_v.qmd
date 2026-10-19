@@ -6,22 +6,49 @@ aliases:
 
 ## Model Formulation
 
-To resolve the "Information Masking" problem inherent in deep multi-modal normalizing flows, we introduce **Flow-SiMR-V**, which pre-pends a Stiefel-constrained linear encoder matrix $\mathbf{V}_m$ to each view's Normalizing Flow. This architecture establishes a strict globally interpretable information bottleneck at the input entry point while retaining bijective density mapping and conditional inference on the consensus latent space. The underlying normalizing flows are implemented natively in PyTorch, adapting structures from the Latent-Aligned Multiview Normalizing Flows (LAMNr Flows) open-source framework ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)).
+`Flow-SiMR-V` prepends a linear OLEE projection matrix $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ to each view's volume-preserving Normalizing Flow. This architecture provides a linear bottleneck at the input boundary while retaining bijective density mapping, conditional cross-view inference, and latent trajectory interpolation on the $k$-dimensional subspace. The normalizing flows are implemented in PyTorch, adapting coupling structures from the Latent-Aligned Multiview Normalizing Flows (`LAMNrFlows`) framework ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)).
 
 ### Mathematical Formulation
-For each input modality $\mathbf{X}_m \in \mathbb{R}^{N \times D_m}$:
 
-1. **Only Linear Encoder Entry (OLEE) Bottleneck**:
-   $$\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m, \quad \text{subject to } \mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_K$$
-   where $\mathbf{V}_m \in \mathbb{R}^{D_m \times K}$ is regularized via Non-negative Stiefel Approximating Flow (NSA-Flow) and sparsity quantile thresholding.
+For each input modality $\mathbf{X}_m \in \mathbb{R}^{n \times p_m}$ ($m = 1, \dots, M$):
 
-2. **Low-Dimensional Bijective Normalizing Flow**:
-   $$\mathbf{U}_m = f_{\text{flow}, m}(\mathbf{Z}_m)$$
-   where $f_{\text{flow}, m}: \mathbb{R}^K \to \mathbb{R}^K$ is a bijective transform mapping the projected coordinate to the shared latent coordinate.
+1. **Linear OLEE bottleneck:**
+   $$
+   \mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m, \qquad \mathbf{V}_m \in \mathbb{R}^{p_m \times k},
+   $$
+   where $\mathbf{V}_m$ is regularized via `nsa_flow` ($w \in [0, 1]$, default $w = 0.5$) or polar retraction.
+2. **Low-dimensional bijective normalizing flow:**
+   $$
+   \mathbf{Z}_m = f_{\text{flow}, m}(\mathbf{Z}_{m,\text{lin}}),
+   $$
+   where $f_{\text{flow}, m}: \mathbb{R}^k \to \mathbb{R}^k$ is a composition of RealNVP affine coupling layers with exact inverse $f_{\text{flow}, m}^{-1}$ and tractable log-determinant $\log |\det J_{f_{\text{flow}, m}}(\mathbf{Z}_{m,\text{lin}})|$.
+3. **Consensus mixing and inverse reconstruction:**
+   $$
+   \mathbf{U}_m = \operatorname{Consensus}\big(\{\mathbf{Z}_j\}_{j \in \mathcal{N}(m)}\big), \qquad \hat{\mathbf{X}}_m = f_{\text{flow}, m}^{-1}(\mathbf{U}_m) \mathbf{V}_m^\top.
+   $$
 
-3. **Consensus and Inverse Reconstruction**:
-   $$\mathbf{U}_{\text{consensus}} = \text{mixing}(\mathbf{U}_1, \dots, \mathbf{U}_M)$$
-   $$\mathbf{X}_m^{\text{recon}} = f_{\text{flow}, m}^{-1}(\mathbf{U}_{\text{consensus}}) \mathbf{V}_m^\top$$
+---
+
+## Rectangular OLEE Prior Collapse and Detached-Prior Optimization
+
+A structural distinction separates square ambient-space normalizing flows (`Flow-SiMR`, where $f_{\text{flow},m}: \mathbb{R}^{p_m} \to \mathbb{R}^{p_m}$) from rectangular OLEE-bottlenecked flows (`Flow-SiMR-V`, where $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ with $k \ll p_m$ precedes $f_{\text{flow},m}: \mathbb{R}^k \to \mathbb{R}^k$).
+
+### Why End-to-End Gaussian Prior Gradients Collapse $\mathbf{V}_m$
+
+In standard normalizing flows, maximum likelihood training minimizes the negative log-likelihood under a standard isotropic Gaussian prior $p(\mathbf{z}) = \mathcal{N}(\mathbf{0}, \mathbf{I}_k)$:
+$$
+\mathcal{L}_{\text{NLL}}(\mathbf{Z}_{m,\text{lin}}; f_{\text{flow},m}) = \frac{1}{2n}\sum_{i=1}^n \|f_{\text{flow},m}(\mathbf{z}_{m,\text{lin},i})\|_2^2 - \frac{1}{n}\sum_{i=1}^n \log \left|\det \frac{\partial f_{\text{flow},m}}{\partial \mathbf{z}_{m,\text{lin}}}(\mathbf{z}_{m,\text{lin},i})\right|.
+$$
+When the rectangular projection $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ ($k \ll p_m$) precedes the flow, the change-of-variables determinant $\log |\det J_{f_{\text{flow},m}}|$ accounts only for volume changes inside the $k$-dimensional subspace and contains no log-determinant term for the rectangular projection $\mathbf{V}_m$. If $\nabla_{\mathbf{V}_m} \mathcal{L}_{\text{NLL}}$ is backpropagated into $\mathbf{V}_m$, the quadratic penalty $\frac{1}{2}\|\mathbf{Z}_m\|_2^2 = \frac{1}{2}\operatorname{tr}(\mathbf{V}_m^\top \mathbf{X}_m^\top \mathbf{X}_m \mathbf{V}_m) + \mathcal{O}(\|f_{\text{flow},m} - \mathrm{id}\|)$ is minimized by rotating $\mathbf{V}_m$ onto the trailing eigenvectors of $\mathbf{X}_m^\top \mathbf{X}_m$ with the smallest eigenvalues $\lambda_{p_m-k+1}, \dots, \lambda_{p_m}$.
+
+### Detached-Prior Subspace-Decoupled Optimization
+
+To prevent rectangular prior collapse, `Flow-SiMR-V` detaches $\mathbf{Z}_{m,\text{lin}}$ at the input to the Gaussian prior penalty:
+
+1. **OLEE basis update ($\mathbf{V}_m$):** Updated exclusively by the cross-view alignment energy $\mathcal{L}_{\text{align}}$ and within-view relative reconstruction loss $\mathcal{L}_{\text{recon}}$, while detaching $\mathbf{Z}_{m,\text{lin}}$ in the prior term ($\operatorname{sg}(\mathbf{Z}_{m,\text{lin}}) = \mathbf{Z}_{m,\text{lin}}.\text{detach}()$).
+2. **Bijective flow update ($f_{\text{flow},m}$):** Trained via $\mathcal{L}_{\text{NLL}}(f_{\text{flow},m}(\operatorname{sg}(\mathbf{Z}_{m,\text{lin}}))) + \mathcal{L}_{\text{align}} + \mathcal{L}_{\text{recon}}$, initialized with zero scale and translation weights ($s_\ell = 0, t_\ell = 0$) at epoch $0$ so $f_{\text{flow},m}^{(0)}(\mathbf{Z}_{m,\text{lin}}) = \mathbf{Z}_{m,\text{lin}}$.
+
+In the `ADNI-MCI` 1,214-configuration sweep ($N = 1,084$, $k = 3$, `Protocol B`), `Flow-SiMR-V` with detached-prior optimization reaches an out-of-sample `CogPC1` $R^2$ of $0.2341$ (`Mean11_RidgeCV` $= 0.1054$, and $0.1930 \pm 0.0048$ across the 3-seed benchmark), ranking third overall across all 12 benchmark datasets.
 
 ---
 
@@ -29,13 +56,13 @@ For each input modality $\mathbf{X}_m \in \mathbb{R}^{N \times D_m}$:
 
 ### Conditional Clinical Imputation (True vs. Imputed Serums)
 
-Because Flow-SiMR-V preserves mathematical bijectivity on the bottleneck space, it enables exact conditional inference. In @fig-flow-imputation, we train Flow-SiMR-V on the Diabetes dataset (split into vitals and blood serums) under a 70/30 split. We then simulate a clinical scenario where the blood serums are entirely missing, and predict them from vitals using the Schur complement solver. The scatter plot below shows the relationship between True and Imputed serum levels for S5 (triglycerides).
+Because `Flow-SiMR-V` preserves invertibility on the $k$-dimensional bottleneck space, it supports conditional cross-view inference via the Gaussian Schur complement in latent space. In @fig-flow-imputation, we train `Flow-SiMR-V` on the Diabetes dataset under a 70/30 split, withhold the blood serum view on test patients, and impute serum triglycerides (`s5`) from vitals alone.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-flow-imputation
-#| fig-cap: 'Conditional Cross-View Imputation (Diabetes). Scatter plot comparing True vs. Imputed Serum levels (S5) generated via the Flow-SiMR-V Schur complement solver on the test set.'
+#| fig-cap: 'Invertible normalizing flows enable accurate conditional cross-view imputation from vitals to blood serum via latent Gaussian conditioning. Scatter plot compares True vs. Imputed Serum triglyceride levels (`s5`) for $N_{\text{test}} = 133$ held-out test patients in the Diabetes dataset (70/30 train/test split, $k = 2$). The horizontal axis plots true standardized serum levels; the vertical axis plots imputed levels decoded through the `Flow-SiMR-V` Schur complement solver. Red dashed line indicates the identity reference ($y = x$). Preserving latent invertibility allows unobserved biological views to be recovered from observed physical measurements.'
 #| out-width: 100%
 #| echo: false
 import matplotlib
@@ -76,9 +103,9 @@ plt.figure(figsize=(6, 5))
 plt.scatter(true_s5, imputed_s5, alpha=0.6, color='#1f77b4', edgecolor='k')
 min_val = min(true_s5.min(), imputed_s5.min())
 max_val = max(true_s5.max(), imputed_s5.max())
-plt.plot([min_val, max_val], [min_val, max_val], 'r--', lw=1.5, label='Perfect Imputation')
-plt.xlabel('True Serum Levels (S5)')
-plt.ylabel('Imputed Serum Levels (S5)')
+plt.plot([min_val, max_val], [min_val, max_val], 'r--', lw=1.5, label='Identity Reference')
+plt.xlabel('True Serum Levels (s5)')
+plt.ylabel('Imputed Serum Levels (s5)')
 plt.title('Conditional Cross-View Imputation (Diabetes Serums)')
 plt.legend()
 plt.grid(True, linestyle=':', alpha=0.6)
@@ -86,17 +113,15 @@ plt.tight_layout()
 plt.show()
 ```
 
----
+### Patient-Level Linear Attribution
 
-### Exact Patient-Level Attribution Waterfall (XAI)
-
-Pre-pending the linear encoder matrix $\mathbf{V}_m$ ensures that the normalizing flow decoders do not mask individual feature importance. In @fig-flow-attribution, we visualize the exact local feature contributions for a patient on the Heart Disease dataset, computed analytically as $\delta \mathbf{x} = \mathbf{x} \circ \mathbf{V}_m$.
+Prepending the linear encoder matrix $\mathbf{V}_m$ ensures that the normalizing flow coupling layers do not obscure feature importance at the input boundary. @fig-flow-attribution displays the local feature contributions $\mathbf{x}_{m,i} \odot \mathbf{v}_{m,l}$ for a patient in the Heart Disease cohort.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-flow-attribution
-#| fig-cap: 'Patient-Level Attribution Auditing. Individualized waterfall-style bar chart showing exact additive feature attributions for a selected patient on the Heart Disease dataset using the Flow-SiMR-V basis.'
+#| fig-cap: 'Normalizing flow architectures retain direct input-boundary feature attribution by restricting non-linearity to downstream latent transforms. Horizontal bar chart shows elementwise linear attributions $\mathbf{x}_{m,i} \odot \mathbf{v}_{m,l}$ for Patient #1 on View 1 of the Heart Disease cohort ($N = 303$, features `age`, `sex`, `cp`, `trestbps`). The horizontal axis plots linear contribution values; the vertical axis lists features. Red bars denote positive risk contributions (`cp` chest pain); blue bars denote negative contributions. Prepending the linear dictionary $\mathbf{V}_m$ guarantees that normalizing flow coupling layers do not obscure input-boundary transparency.'
 #| out-width: 100%
 #| echo: false
 import matplotlib
@@ -109,17 +134,8 @@ from pysimlr.flows import flow_simr_v
 import os
 
 local_heart = '../data/heart_cleveland.csv' if os.path.exists('../data/heart_cleveland.csv') else 'data/heart_cleveland.csv'
-url_heart = 'https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data'
 cols = ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal', 'num']
-if os.path.exists(local_heart):
-    df_h = pd.read_csv(local_heart)
-else:
-    try:
-        df_h = pd.read_csv(url_heart, names=cols).replace('?', np.nan).dropna().apply(pd.to_numeric)
-    except Exception:
-        X_dummy = np.random.randn(300, 13)
-        df_h = pd.DataFrame(X_dummy)
-        df_h['num'] = np.random.randint(0, 2, 300)
+df_h = pd.read_csv(local_heart)
 
 X_h = StandardScaler().fit_transform(df_h.drop('num', axis=1))
 mats = [X_h[:, :4], X_h[:, 4:8], X_h[:, 8:]]
@@ -141,23 +157,21 @@ colors = ['#d62728' if imp > 0 else '#1f77b4' for imp in impact[idx]]
 plt.barh([feat_names[i] for i in idx], impact[idx], color=colors)
 plt.axvline(0, color='black', lw=0.8)
 plt.title(f'Patient #1 (Flow-SiMR-V): Cardiovascular Attributions (Latent #{latent_idx+1})')
-plt.xlabel('Exact Feature Contribution (Feature * Weight)')
+plt.xlabel('Linear Feature Contribution (x_ij * V_jl)')
 plt.grid(True, linestyle=':', alpha=0.6)
 plt.tight_layout()
 plt.show()
 ```
 
----
+### Latent Trajectory Interpolation
 
-### Geodesic Latent Trajectory & Counterfactuals
-
-By tracing a straight-line interpolation in the shared latent space between a low-risk and high-risk patient and decoding it back to the feature space, we construct an exact clinical counterfactual trajectory. In @fig-flow-geodesic, we visualize the smooth progression of Age, BMI, and Blood Pressure (BP) along the latent disease path.
+Tracing a straight-line interpolation in the shared latent space between a low-risk and high-risk patient and inverting it through $f_{\text{flow},m}^{-1}$ and $\mathbf{V}_m^\top$ defines a smooth trajectory in feature space (@fig-flow-geodesic).
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-flow-geodesic
-#| fig-cap: 'Clinical Counterfactual Trajectory. Biomarker evolution curves decoded along a straight latent geodesic path between a low-risk patient (coordinate 0.0) and high-risk patient (coordinate 1.0) on the Diabetes dataset.'
+#| fig-cap: 'Invertible flow geodesics trace continuous biomarker evolution curves between low-risk and high-risk clinical phenotypes. Decoded biomarker trajectories along a straight-line latent interpolation path between Patient #0 (low-risk, $\alpha = 0.0$) and Patient #10 (high-risk, $\alpha = 1.0$) on the Diabetes cohort ($k = 2$). The horizontal axis plots the latent trajectory coordinate $\alpha \in [0, 1]$; the vertical axis plots standardized feature levels. Colored trajectories track Body Mass Index (`bmi`, red circles), Blood Pressure (`bp`, blue squares), and Age (`age`, green triangles) decoded through $f_{\text{flow},0}^{-1}$ and $\mathbf{V}_0^\top$.'
 #| out-width: 100%
 #| echo: false
 import matplotlib
@@ -199,7 +213,7 @@ plt.plot(alphas, bp_curve, 's-', color='#1f77b4', lw=2, label='Blood Pressure')
 plt.plot(alphas, age_curve, '^-', color='#2ca02c', lw=2, label='Age')
 plt.xlabel('Latent Trajectory Coordinate (Low-Risk -> High-Risk)')
 plt.ylabel('Attributed Feature Level (Standardized)')
-plt.title('Clinical Counterfactual Trajectory (Flow-SiMR-V)')
+plt.title('Latent Trajectory Interpolation (Flow-SiMR-V)')
 plt.legend()
 plt.grid(True, linestyle=':', alpha=0.6)
 plt.tight_layout()
@@ -208,43 +222,15 @@ plt.show()
 
 ---
 
-## Algorithm for Flow-SiMR-V with Delayed Gating Warmup
+## Orthogonality and Sparsity Diagnostics Across Real-World Cohorts
 
-To stably optimize the joint-variational objective under dynamic modality weighting without triggering weight collapse, we train the linear encoders, normalizing flows, and dynamic weights using the Block-Coordinate Descent (BCD) procedure detailed below.
-
-### Algorithmic Flow
-
-For a set of $M$ data matrices $\mathbf{X}_1, \dots, \mathbf{X}_M$, shared latent rank $K$, and max training epochs $E$:
-
-1. **Forward Pass**:
-   - Project features to low-dimensional space: $\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m$ for $m=1, \dots, M$.
-   - Apply normalizing flows: $\mathbf{U}_m = f_{\text{flow}, m}(\mathbf{Z}_m)$ and extract shared consensus latents $\mathbf{Z}_{m, \text{shared}} = \mathbf{U}_{m, 1:K}$.
-   - Compute shared consensus coordinates using Newton-Schulz or ICA mixing: $\mathbf{U}_{\text{consensus}} = \text{mixing}(\mathbf{Z}_{1, \text{shared}}, \dots, \mathbf{Z}_{M, \text{shared}})$.
-
-2. **Delayed Gating (Modality Gating Schedule)**:
-   - For epoch $t < T_{\text{delayed}}$: set modality weights uniformly $w_m = 1/M$.
-   - For epoch $t \ge T_{\text{delayed}}$:
-     - Compute the Leave-One-Out (LOO) consensus target for each view: $\mathbf{U}_{\neq m} = \sum_{j \neq m} w_j \mathbf{Z}_{j, \text{shared}}$.
-     - Compute the Modality Alignment Index: $\text{MAI}_m = 1 - \frac{\|\mathbf{Z}_{m, \text{shared}}\Omega - \mathbf{U}_{\neq m}\|_F^2}{\|\mathbf{U}_{\neq m}\|_F^2}$.
-     - Update gating weights: $w_m = (1 - \rho) \cdot \frac{1}{M} + \rho \cdot \text{softmax}(\tau \cdot \text{MAI}_m)$ (with exponential ramp-up $\rho$).
-
-3. **Loss Computation & Backpropagation**:
-   - Compute reconstruction loss: $\mathcal{L}_{\text{MSE}} = \sum_m \|\mathbf{X}_m - \hat{\mathbf{X}}_m\|_F^2$ where $\hat{\mathbf{X}}_m = f_{\text{flow}, m}^{-1}([\mathbf{U}_{\text{consensus}} \parallel \mathbf{0}])\mathbf{V}_m^\top$.
-   - Compute alignment loss: $\mathcal{L}_{\text{align}} = \sum_m \|\mathbf{Z}_{m, \text{shared}}\Omega - \mathbf{U}_{\neq m}\|_F^2$.
-   - Backpropagate gradients to update linear projections $\mathbf{V}_m$ and flow parameters.
-   - Retract $\mathbf{V}_m$ onto the Stiefel manifold using NSA-Flow Newton-Schulz updates.
-
----
-
-## Orthogonality & Sparsity Diagnostics
-
-@tbl-flow-orth-diagnostics reports the per-view **Stiefel Frame Defect** $D(\mathbf{V}_m)$, **Signed Lobe Crosstalk** $\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1$, and **Strictly Linear Probe Accuracy** ($\mathbf{X}_m \mathbf{V}_m$) across the three real-world clinical cohorts (`Heart`, `Diabetes`, and `MultiOmics`) from `paper/results_cache/deep_ranking_benchmark.csv`, comparing `Flow-SiMR-V` against `LEND`, `SiMLR-LBFGSB`, and `NSAFlow-PCA`.
+@tbl-flow-orth-diagnostics reports the per-view Stiefel Frame Defect $D(\mathbf{V}_m)$, Signed Lobe Crosstalk $\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1$, and Strictly Linear Probe Accuracy ($\mathbf{X}_m \mathbf{V}_m$) across the six real-world cohorts from `paper/results_cache/deep_ranking_benchmark.csv`.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: tbl-flow-orth-diagnostics
-#| tbl-cap: 'Empirical Orthogonality Defect ($D(\mathbf{V}_m)$), Signed Lobe Crosstalk, and Linear OLEE Basis Performance across the Three Real-World Biomedical Cohorts (3 seeds, `consolidate = False`). Cross-view OLEE architectures (`Flow-SiMR-V`, `LEND`, `SiMLR-LBFGSB`) maintain exact per-view Stiefel orthonormality ($D < 10^{-4}$), whereas `NSAFlow-PCA` enforces joint orthogonality across the concatenated feature matrix with 20–32% disjoint sparsity.'
+#| tbl-cap: 'Empirical Orthogonality Defect ($D(\mathbf{V}_m)$), Signed Lobe Crosstalk, and Linear OLEE Basis Performance across the Real-World Biomedical Cohorts (3 seeds) computed from `deep_ranking_benchmark.csv`.'
 #| echo: false
 #| output: asis
 import os
@@ -258,7 +244,7 @@ if not os.path.exists(csv_path):
 df = pd.read_csv(csv_path)
 df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR", "NSAFlow-Turnkey": "NSAFlow-PCA"})
 
-real_dsets = ["Heart", "Diabetes", "MultiOmics"]
+real_dsets = ["Heart", "Diabetes", "MultiOmics", "TCGA-KIRC", "ADNI-MCI", "mfeat"]
 target_models = ["Flow-SiMR-V", "LEND", "SiMLR-LBFGSB", "NSAFlow-PCA"]
 
 rows = []
@@ -281,8 +267,6 @@ for ds in real_dsets:
             f"{sp_m:.1f}%"
         ])
 
-headers = ["Cohort", "Architecture", "Linear OLEE Probe (XV)", "Per-View Frame Defect D", "Lobe Crosstalk", "Sparsity"]
+headers = ["Cohort", "Architecture", "Linear OLEE Probe (XV)", "Frame Defect D", "Lobe Crosstalk", "Sparsity"]
 print(tabulate(rows, headers=headers, tablefmt="pipe"))
 ```
-
-The empirical diagnostics confirm that the Sylvester polar / Newton-Schulz retraction in `Flow-SiMR-V`, `LEND`, and `SiMLR-LBFGSB` enforces exact per-view Stiefel orthonormality ($D(\mathbf{V}_m) = 0.00000$) and zero signed lobe crosstalk across all three clinical cohorts, while `NSAFlow-PCA` enforces joint orthogonality across the concatenated multi-view matrix with $20.4\%\text{–}32.1\%$ exact zero weights.

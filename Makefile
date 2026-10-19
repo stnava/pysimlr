@@ -8,7 +8,7 @@ TEST_DIR := tests
 DOCS_DIR := docs
 
 # Get the absolute path of the current directory, properly quoted for shell
-SRC_PATH := "$(shell pwd)/$(SRC_DIR)"
+SRC_PATH := "$(CURDIR)/$(SRC_DIR)"
 
 # Default target
 .PHONY: all
@@ -34,10 +34,10 @@ docs:
 	@echo "Rendering Quarto docs using python: $(shell which $(PYTHON))"
 	export QUARTO_PYTHON=$(shell which $(PYTHON)); \
 	export PYTHONPATH=$(SRC_PATH):$$PYTHONPATH; \
-	quarto render $(DOCS_DIR)/tutorial_domain_knowledge.qmd
-	quarto render $(DOCS_DIR)/lend_simr_tutorial.qmd
-	quarto render $(DOCS_DIR)/deep_simr_tutorial.qmd
-	quarto render $(DOCS_DIR)/comparison_simlr_lend.qmd
+	quarto render $(DOCS_DIR)/tutorial_domain_knowledge.qmd --execute-daemon-restart && \
+	quarto render $(DOCS_DIR)/lend_simr_tutorial.qmd --execute-daemon-restart && \
+	quarto render $(DOCS_DIR)/deep_simr_tutorial.qmd --execute-daemon-restart && \
+	quarto render $(DOCS_DIR)/comparison_simlr_lend.qmd --execute-daemon-restart
 
 .PHONY: clean
 clean:

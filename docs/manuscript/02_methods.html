@@ -26,41 +26,6 @@ ul.task-list li input[type="checkbox"] {
   margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
   vertical-align: middle;
 }
-/* CSS for syntax highlighting */
-html { -webkit-text-size-adjust: 100%; }
-pre > code.sourceCode { white-space: pre; position: relative; }
-pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
-pre > code.sourceCode > span:empty { height: 1.2em; }
-.sourceCode { overflow: visible; }
-code.sourceCode > span { color: inherit; text-decoration: inherit; }
-div.sourceCode { margin: 1em 0; }
-pre.sourceCode { margin: 0; }
-@media screen {
-div.sourceCode { overflow: auto; }
-}
-@media print {
-pre > code.sourceCode { white-space: pre-wrap; }
-pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
-}
-pre.numberSource code
-  { counter-reset: source-line 0; }
-pre.numberSource code > span
-  { position: relative; left: -4em; counter-increment: source-line; }
-pre.numberSource code > span > a:first-child::before
-  { content: counter(source-line);
-    position: relative; left: -1em; text-align: right; vertical-align: baseline;
-    border: none; display: inline-block;
-    -webkit-touch-callout: none; -webkit-user-select: none;
-    -khtml-user-select: none; -moz-user-select: none;
-    -ms-user-select: none; user-select: none;
-    padding: 0 4px; width: 4em;
-  }
-pre.numberSource { margin-left: 3em;  padding-left: 4px; }
-div.sourceCode
-  {   }
-@media screen {
-pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
-}
 /* CSS for citations */
 div.csl-bib-body { }
 div.csl-entry {
@@ -269,39 +234,40 @@ window.Quarto = {
     <h2 id="toc-title">Table of contents</h2>
    
   <ul>
-  <li><a href="#theoretical-foundation" id="toc-theoretical-foundation" class="nav-link active" data-scroll-target="#theoretical-foundation"><span class="header-section-number">2.1</span> Theoretical Foundation</a>
+  <li><a href="#stage-1-the-input-boundary-olee-and-nsa-flow-manifold-geometry" id="toc-stage-1-the-input-boundary-olee-and-nsa-flow-manifold-geometry" class="nav-link active" data-scroll-target="#stage-1-the-input-boundary-olee-and-nsa-flow-manifold-geometry"><span class="header-section-number">2.1</span> Stage 1: The Input Boundary — OLEE and NSA-Flow Manifold Geometry</a>
   <ul class="collapse">
   <li><a href="#the-multi-modal-inverse-problem" id="toc-the-multi-modal-inverse-problem" class="nav-link" data-scroll-target="#the-multi-modal-inverse-problem"><span class="header-section-number">2.1.1</span> The Multi-Modal Inverse Problem</a></li>
-  <li><a href="#olee-as-a-structural-information-bottleneck" id="toc-olee-as-a-structural-information-bottleneck" class="nav-link" data-scroll-target="#olee-as-a-structural-information-bottleneck"><span class="header-section-number">2.1.2</span> OLEE as a Structural Information Bottleneck</a></li>
-  <li><a href="#joint-variational-optimization-framework" id="toc-joint-variational-optimization-framework" class="nav-link" data-scroll-target="#joint-variational-optimization-framework"><span class="header-section-number">2.1.3</span> Joint-Variational Optimization Framework</a></li>
+  <li><a href="#the-only-linear-encoder-entrypoint-olee-as-a-structural-information-bottleneck" id="toc-the-only-linear-encoder-entrypoint-olee-as-a-structural-information-bottleneck" class="nav-link" data-scroll-target="#the-only-linear-encoder-entrypoint-olee-as-a-structural-information-bottleneck"><span class="header-section-number">2.1.2</span> The Only Linear Encoder Entrypoint (OLEE) as a Structural Information Bottleneck</a></li>
+  <li><a href="#scale-invariant-frame-defect-angle-defect-and-signed-support-consolidation" id="toc-scale-invariant-frame-defect-angle-defect-and-signed-support-consolidation" class="nav-link" data-scroll-target="#scale-invariant-frame-defect-angle-defect-and-signed-support-consolidation"><span class="header-section-number">2.1.3</span> Scale-Invariant Frame Defect, Angle Defect, and Signed Support Consolidation</a></li>
+  <li><a href="#subspace-invariance-vs.-sparse-basis-localization" id="toc-subspace-invariance-vs.-sparse-basis-localization" class="nav-link" data-scroll-target="#subspace-invariance-vs.-sparse-basis-localization"><span class="header-section-number">2.1.4</span> Subspace Invariance vs.&nbsp;Sparse Basis Localization</a></li>
   </ul></li>
-  <li><a href="#architectural-taxonomy" id="toc-architectural-taxonomy" class="nav-link" data-scroll-target="#architectural-taxonomy"><span class="header-section-number">2.2</span> Architectural Taxonomy</a>
+  <li><a href="#stage-2-cross-view-consensus-mixing-graph-topologies-and-spectral-triage" id="toc-stage-2-cross-view-consensus-mixing-graph-topologies-and-spectral-triage" class="nav-link" data-scroll-target="#stage-2-cross-view-consensus-mixing-graph-topologies-and-spectral-triage"><span class="header-section-number">2.2</span> Stage 2: Cross-View Consensus — Mixing, Graph Topologies, and Spectral Triage</a>
   <ul class="collapse">
-  <li><a href="#classical-simlr-linear-baseline" id="toc-classical-simlr-linear-baseline" class="nav-link" data-scroll-target="#classical-simlr-linear-baseline"><span class="header-section-number">2.2.1</span> Classical SiMLR (Linear Baseline)</a></li>
-  <li><a href="#simlr-lbfgs-and-simlr-lbfgsb-quasi-newton-riemannian-linear-solvers" id="toc-simlr-lbfgs-and-simlr-lbfgsb-quasi-newton-riemannian-linear-solvers" class="nav-link" data-scroll-target="#simlr-lbfgs-and-simlr-lbfgsb-quasi-newton-riemannian-linear-solvers"><span class="header-section-number">2.2.2</span> SiMLR-LBFGS and SiMLR-LBFGSB (Quasi-Newton Riemannian Linear Solvers)</a></li>
-  <li><a href="#lend-linear-encoder-deep-decoder" id="toc-lend-linear-encoder-deep-decoder" class="nav-link" data-scroll-target="#lend-linear-encoder-deep-decoder"><span class="header-section-number">2.2.3</span> LEND (Linear Encoder, Deep Decoder)</a></li>
-  <li><a href="#fully-deep-ned-non-linear-encoder-decoder" id="toc-fully-deep-ned-non-linear-encoder-decoder" class="nav-link" data-scroll-target="#fully-deep-ned-non-linear-encoder-decoder"><span class="header-section-number">2.2.4</span> Fully Deep NED (Non-linear Encoder Decoder)</a></li>
-  <li><a href="#shared-private-nedpp-disentangled-discovery" id="toc-shared-private-nedpp-disentangled-discovery" class="nav-link" data-scroll-target="#shared-private-nedpp-disentangled-discovery"><span class="header-section-number">2.2.5</span> Shared-Private NEDPP (Disentangled Discovery)</a></li>
-  <li><a href="#flow-simr-and-flow-simr-v-bijective-multimodal-architectures" id="toc-flow-simr-and-flow-simr-v-bijective-multimodal-architectures" class="nav-link" data-scroll-target="#flow-simr-and-flow-simr-v-bijective-multimodal-architectures"><span class="header-section-number">2.2.6</span> Flow-SiMR and Flow-SiMR-V: Bijective Multimodal Architectures</a></li>
+  <li><a href="#consensus-topologies-star-loo-and-directedbipartite-graph" id="toc-consensus-topologies-star-loo-and-directedbipartite-graph" class="nav-link" data-scroll-target="#consensus-topologies-star-loo-and-directedbipartite-graph"><span class="header-section-number">2.2.1</span> Consensus Topologies: <code>star</code>, <code>loo</code>, and Directed/Bipartite <code>graph</code></a></li>
+  <li><a href="#scale-profiled-alignment-energies-procrustes-recon_r2-align-acc-logcosh" id="toc-scale-profiled-alignment-energies-procrustes-recon_r2-align-acc-logcosh" class="nav-link" data-scroll-target="#scale-profiled-alignment-energies-procrustes-recon_r2-align-acc-logcosh"><span class="header-section-number">2.2.2</span> Scale-Profiled Alignment Energies (<code>procrustes</code>, <code>recon_r2</code>, <code>align</code>, <code>acc</code>, <code>logcosh</code>)</a></li>
+  <li><a href="#sign-aligned-consensus-mixing-pca-svd-ica-newton" id="toc-sign-aligned-consensus-mixing-pca-svd-ica-newton" class="nav-link" data-scroll-target="#sign-aligned-consensus-mixing-pca-svd-ica-newton"><span class="header-section-number">2.2.3</span> Sign-Aligned Consensus Mixing (<code>pca</code>, <code>svd</code>, <code>ica</code>, <code>newton</code>)</a></li>
+  <li><a href="#spectral-triage-and-the-modality-alignment-index-mai" id="toc-spectral-triage-and-the-modality-alignment-index-mai" class="nav-link" data-scroll-target="#spectral-triage-and-the-modality-alignment-index-mai"><span class="header-section-number">2.2.4</span> Spectral Triage and the Modality Alignment Index (MAI)</a></li>
   </ul></li>
-  <li><a href="#manifold-optimization-and-algorithmic-mechanics" id="toc-manifold-optimization-and-algorithmic-mechanics" class="nav-link" data-scroll-target="#manifold-optimization-and-algorithmic-mechanics"><span class="header-section-number">2.3</span> Manifold Optimization and Algorithmic Mechanics</a>
+  <li><a href="#stage-3-linear-multi-view-manifold-solvers-simlr-simlr-lbfgs-simlr-lbfgsb" id="toc-stage-3-linear-multi-view-manifold-solvers-simlr-simlr-lbfgs-simlr-lbfgsb" class="nav-link" data-scroll-target="#stage-3-linear-multi-view-manifold-solvers-simlr-simlr-lbfgs-simlr-lbfgsb"><span class="header-section-number">2.3</span> Stage 3: Linear Multi-View Manifold Solvers (<code>SiMLR</code>, <code>SiMLR-LBFGS</code>, <code>SiMLR-LBFGSB</code>)</a>
   <ul class="collapse">
-  <li><a href="#stiefel-manifold-optimization-and-svd-elimination" id="toc-stiefel-manifold-optimization-and-svd-elimination" class="nav-link" data-scroll-target="#stiefel-manifold-optimization-and-svd-elimination"><span class="header-section-number">2.3.1</span> Stiefel Manifold Optimization and SVD Elimination</a></li>
-  <li><a href="#quasi-newton-curvature-steps-via-torch_lbfgs" id="toc-quasi-newton-curvature-steps-via-torch_lbfgs" class="nav-link" data-scroll-target="#quasi-newton-curvature-steps-via-torch_lbfgs"><span class="header-section-number">2.3.2</span> Quasi-Newton Curvature Steps via <code>torch_lbfgs</code></a></li>
-  <li><a href="#scale-invariant-frame-defect-and-squared-cosine-angle-defect" id="toc-scale-invariant-frame-defect-and-squared-cosine-angle-defect" class="nav-link" data-scroll-target="#scale-invariant-frame-defect-and-squared-cosine-angle-defect"><span class="header-section-number">2.3.3</span> Scale-Invariant Frame Defect and Squared-Cosine Angle Defect</a></li>
-  <li><a href="#support-consolidation-and-direct-svd-contrast-splitting" id="toc-support-consolidation-and-direct-svd-contrast-splitting" class="nav-link" data-scroll-target="#support-consolidation-and-direct-svd-contrast-splitting"><span class="header-section-number">2.3.4</span> Support Consolidation and Direct SVD Contrast Splitting</a></li>
-  <li><a href="#consensus-spectral-triage-and-gating-warmup" id="toc-consensus-spectral-triage-and-gating-warmup" class="nav-link" data-scroll-target="#consensus-spectral-triage-and-gating-warmup"><span class="header-section-number">2.3.5</span> Consensus, Spectral Triage, and Gating Warmup</a></li>
+  <li><a href="#iteration-0-warm-start-calibration" id="toc-iteration-0-warm-start-calibration" class="nav-link" data-scroll-target="#iteration-0-warm-start-calibration"><span class="header-section-number">2.3.1</span> Iteration-0 Warm-Start Calibration</a></li>
+  <li><a href="#riemannian-tangent-projection-sylvester-polar-factor-and-newtonschulz-retraction" id="toc-riemannian-tangent-projection-sylvester-polar-factor-and-newtonschulz-retraction" class="nav-link" data-scroll-target="#riemannian-tangent-projection-sylvester-polar-factor-and-newtonschulz-retraction"><span class="header-section-number">2.3.2</span> Riemannian Tangent Projection, Sylvester Polar Factor, and Newton–Schulz Retraction</a></li>
+  <li><a href="#quasi-newton-curvature-steps-simlr-lbfgs-and-bound-constrained-simlr-lbfgsb" id="toc-quasi-newton-curvature-steps-simlr-lbfgs-and-bound-constrained-simlr-lbfgsb" class="nav-link" data-scroll-target="#quasi-newton-curvature-steps-simlr-lbfgs-and-bound-constrained-simlr-lbfgsb"><span class="header-section-number">2.3.3</span> Quasi-Newton Curvature Steps (<code>SiMLR-LBFGS</code> and Bound-Constrained <code>SiMLR-LBFGSB</code>)</a></li>
   </ul></li>
-  <li><a href="#theoretical-properties-and-diagnostic-invariants" id="toc-theoretical-properties-and-diagnostic-invariants" class="nav-link" data-scroll-target="#theoretical-properties-and-diagnostic-invariants"><span class="header-section-number">2.4</span> Theoretical Properties and Diagnostic Invariants</a>
+  <li><a href="#stage-4-non-linear-decoding-downstream-of-olee-lend-vs.-ned-and-nedpp" id="toc-stage-4-non-linear-decoding-downstream-of-olee-lend-vs.-ned-and-nedpp" class="nav-link" data-scroll-target="#stage-4-non-linear-decoding-downstream-of-olee-lend-vs.-ned-and-nedpp"><span class="header-section-number">2.4</span> Stage 4: Non-Linear Decoding Downstream of OLEE (<code>LEND</code> vs.&nbsp;<code>NED</code> and <code>NEDPP</code>)</a>
   <ul class="collapse">
-  <li><a href="#mechanistic-auditability-via-olee-and-closed-form-counterfactuals" id="toc-mechanistic-auditability-via-olee-and-closed-form-counterfactuals" class="nav-link" data-scroll-target="#mechanistic-auditability-via-olee-and-closed-form-counterfactuals"><span class="header-section-number">2.4.1</span> Mechanistic Auditability via OLEE and Closed-Form Counterfactuals</a></li>
-  <li><a href="#subspace-vs.-basis-axis-disentanglement" id="toc-subspace-vs.-basis-axis-disentanglement" class="nav-link" data-scroll-target="#subspace-vs.-basis-axis-disentanglement"><span class="header-section-number">2.4.2</span> Subspace vs.&nbsp;Basis Axis Disentanglement</a></li>
-  <li><a href="#theoretical-bounds-the-1m-law" id="toc-theoretical-bounds-the-1m-law" class="nav-link" data-scroll-target="#theoretical-bounds-the-1m-law"><span class="header-section-number">2.4.3</span> Theoretical Bounds: The 1/M Law</a></li>
+  <li><a href="#lend-linear-encoder-non-linear-decoder" id="toc-lend-linear-encoder-non-linear-decoder" class="nav-link" data-scroll-target="#lend-linear-encoder-non-linear-decoder"><span class="header-section-number">2.4.1</span> <code>LEND</code> (Linear Encoder, Non-Linear Decoder)</a></li>
+  <li><a href="#ned-and-nedpp-post-bottleneck-non-linear-encoders-and-sharedprivate-disentanglement" id="toc-ned-and-nedpp-post-bottleneck-non-linear-encoders-and-sharedprivate-disentanglement" class="nav-link" data-scroll-target="#ned-and-nedpp-post-bottleneck-non-linear-encoders-and-sharedprivate-disentanglement"><span class="header-section-number">2.4.2</span> <code>NED</code> and <code>NEDPP</code> (Post-Bottleneck Non-Linear Encoders and Shared–Private Disentanglement)</a></li>
   </ul></li>
-  <li><a href="#evaluation-strategies" id="toc-evaluation-strategies" class="nav-link" data-scroll-target="#evaluation-strategies"><span class="header-section-number">2.5</span> Evaluation Strategies</a>
+  <li><a href="#stage-5-bijective-normalizing-flows-downstream-of-olee-flow-simr-v-vs.-flow-simr" id="toc-stage-5-bijective-normalizing-flows-downstream-of-olee-flow-simr-v-vs.-flow-simr" class="nav-link" data-scroll-target="#stage-5-bijective-normalizing-flows-downstream-of-olee-flow-simr-v-vs.-flow-simr"><span class="header-section-number">2.5</span> Stage 5: Bijective Normalizing Flows Downstream of OLEE (<code>Flow-SiMR-V</code> vs.&nbsp;<code>Flow-SiMR</code>)</a>
   <ul class="collapse">
-  <li><a href="#technical-glossary-of-performance-metrics" id="toc-technical-glossary-of-performance-metrics" class="nav-link" data-scroll-target="#technical-glossary-of-performance-metrics"><span class="header-section-number">2.5.1</span> Technical Glossary of Performance Metrics</a></li>
-  <li><a href="#statistical-determination-of-intrinsic-dimensionality-k" id="toc-statistical-determination-of-intrinsic-dimensionality-k" class="nav-link" data-scroll-target="#statistical-determination-of-intrinsic-dimensionality-k"><span class="header-section-number">2.5.2</span> Statistical Determination of Intrinsic Dimensionality (<span class="math inline">\(k\)</span>)</a></li>
+  <li><a href="#full-space-flow-simr-vs.-olee-projected-flow-simr-v" id="toc-full-space-flow-simr-vs.-olee-projected-flow-simr-v" class="nav-link" data-scroll-target="#full-space-flow-simr-vs.-olee-projected-flow-simr-v"><span class="header-section-number">2.5.1</span> Full-Space <code>Flow-SiMR</code> vs.&nbsp;OLEE-Projected <code>Flow-SiMR-V</code></a></li>
+  <li><a href="#proposition-rectangular-olee-prior-collapse-and-the-detached-prior-solution" id="toc-proposition-rectangular-olee-prior-collapse-and-the-detached-prior-solution" class="nav-link" data-scroll-target="#proposition-rectangular-olee-prior-collapse-and-the-detached-prior-solution"><span class="header-section-number">2.5.2</span> Proposition: Rectangular OLEE Prior Collapse and the Detached-Prior Solution</a></li>
+  <li><a href="#invertible-affine-coupling-schur-complement-conditional-inference-and-geodesics" id="toc-invertible-affine-coupling-schur-complement-conditional-inference-and-geodesics" class="nav-link" data-scroll-target="#invertible-affine-coupling-schur-complement-conditional-inference-and-geodesics"><span class="header-section-number">2.5.3</span> Invertible Affine Coupling, Schur-Complement Conditional Inference, and Geodesics</a></li>
+  </ul></li>
+  <li><a href="#unified-architectural-synthesis-and-diagnostic-glossary" id="toc-unified-architectural-synthesis-and-diagnostic-glossary" class="nav-link" data-scroll-target="#unified-architectural-synthesis-and-diagnostic-glossary"><span class="header-section-number">2.6</span> Unified Architectural Synthesis and Diagnostic Glossary</a>
+  <ul class="collapse">
+  <li><a href="#technical-glossary-of-evaluation-metrics" id="toc-technical-glossary-of-evaluation-metrics" class="nav-link" data-scroll-target="#technical-glossary-of-evaluation-metrics"><span class="header-section-number">2.6.1</span> Technical Glossary of Evaluation Metrics</a></li>
   </ul></li>
   </ul>
 </nav>
@@ -357,144 +323,190 @@ window.Quarto = {
 </header>
 
 
-<section id="theoretical-foundation" class="level2" data-number="2.1">
-<h2 data-number="2.1" class="anchored" data-anchor-id="theoretical-foundation"><span class="header-section-number">2.1</span> Theoretical Foundation</h2>
+<p>We develop the Deep SiMLR framework deductively in five progressive stages. Each stage addresses a structural limitation of the preceding one while preserving exact physical auditability at the input boundary:</p>
+<ol type="1">
+<li><strong>Stage 1 (The Input Boundary — OLEE &amp; NSA-Flow Geometry):</strong> Why every modality must enter through a linear projection <span class="math inline">\(\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m\)</span> on the Stiefel or Non-negative Stiefel Approximating (NSA) manifold, and why evaluating basis recovery requires both linear subspace probes (<span class="math inline">\(\mathbf{X}\mathbf{V}, \mathbf{U}\)</span>) and direct sparse support localization (<span class="math inline">\(\text{Support } F_1\)</span>).</li>
+<li><strong>Stage 2 (Cross-View Consensus, Graph Topologies &amp; Spectral Triage):</strong> How <span class="math inline">\(M\)</span> views form a shared consensus without antipodal sign cancellation, self-memorization (<code>loo</code>), or nuisance-view dominance (<code>graph</code> bipartite target alignment and Leave-One-Out Modality Alignment Index <code>MAI</code>).</li>
+<li><strong>Stage 3 (Linear Multi-View Manifold Solvers — <code>SiMLR</code>, <code>SiMLR-LBFGS</code>, <code>SiMLR-LBFGSB</code>):</strong> How iteration-0 warm-start calibration, Sylvester/Newton–Schulz polar retractions, and bound-constrained quasi-Newton steps solve the linear multi-view problem in milliseconds.</li>
+<li><strong>Stage 4 (Non-Linear Decoding Downstream of OLEE — <code>LEND</code> vs.&nbsp;<code>NED</code> and <code>NEDPP</code>):</strong> How pairing a linear Stiefel encoder with a non-linear multilayer perceptron decoder captures curved observational manifolds without sacrificing constant input attribution or overfitting high-dimensional views.</li>
+<li><strong>Stage 5 (Bijective Normalizing Flows Downstream of OLEE — <code>Flow-SiMR-V</code>):</strong> How composing the rectangular OLEE projection with invertible affine coupling layers in <span class="math inline">\(\mathbb{R}^k\)</span> enables exact density estimation, conditional cross-view inference, and geodesic trajectory mapping—provided the rectangular encoder is insulated from prior-induced variance collapse via a detached-prior objective.</li>
+</ol>
+<hr>
+<section id="stage-1-the-input-boundary-olee-and-nsa-flow-manifold-geometry" class="level2" data-number="2.1">
+<h2 data-number="2.1" class="anchored" data-anchor-id="stage-1-the-input-boundary-olee-and-nsa-flow-manifold-geometry"><span class="header-section-number">2.1</span> Stage 1: The Input Boundary — OLEE and NSA-Flow Manifold Geometry</h2>
 <section id="the-multi-modal-inverse-problem" class="level3" data-number="2.1.1">
 <h3 data-number="2.1.1" class="anchored" data-anchor-id="the-multi-modal-inverse-problem"><span class="header-section-number">2.1.1</span> The Multi-Modal Inverse Problem</h3>
 <p>We frame multi-modal representation learning as a structured inverse problem over <span class="math inline">\(M\)</span> distinct observational domains. Let <span class="math inline">\(\mathbf{X}_m \in \mathbb{R}^{n \times p_m}\)</span> denote the centered observation matrix for modality <span class="math inline">\(m \in \{1, \dots, M\}\)</span>, where <span class="math inline">\(n\)</span> is the number of co-registered subjects and <span class="math inline">\(p_m\)</span> is the ambient feature dimensionality. Each modality provides a partial, noisy observation of an underlying shared latent biological state <span class="math inline">\(\mathbf{S} \in \mathbb{R}^{n \times k}\)</span> governed by modality-specific forward generative processes: <span id="eq-generative-model"><span class="math display">\[
 \mathbf{X}_m = g_m(\mathbf{S}) + \mathbf{E}_m
-\tag{2.1}\]</span></span> where <span class="math inline">\(g_m: \mathbb{R}^k \to \mathbb{R}^{p_m}\)</span> is a smooth generative map applied row-wise across observations, and <span class="math inline">\(\mathbf{E}_m\)</span> represents domain-specific observational noise and idiosyncratic variance. The objective is to estimate an auditable coordinate representation of <span class="math inline">\(\mathbf{S}\)</span> while isolating cross-modal consensus from noise.</p>
+\tag{2.1}\]</span></span> where <span class="math inline">\(g_m: \mathbb{R}^k \to \mathbb{R}^{p_m}\)</span> is a smooth generative map applied row-wise across observations, and <span class="math inline">\(\mathbf{E}_m\)</span> represents domain-specific observational noise and idiosyncratic view-private variance. The objective is to estimate an auditable coordinate representation of <span class="math inline">\(\mathbf{S}\)</span> while isolating cross-modal consensus from view-private noise.</p>
 </section>
-<section id="olee-as-a-structural-information-bottleneck" class="level3" data-number="2.1.2">
-<h3 data-number="2.1.2" class="anchored" data-anchor-id="olee-as-a-structural-information-bottleneck"><span class="header-section-number">2.1.2</span> OLEE as a Structural Information Bottleneck</h3>
-<p>Standard deep autoencoders and multi-layer perceptrons process inputs via unconstrained mappings <span class="math inline">\(\mathbf{Z} = \text{MLP}(\mathbf{X})\)</span>. Following Tishby’s Information Bottleneck principle <span class="citation" data-cites="tishby2000information">(<a href="#ref-tishby2000information" role="doc-biblioref">Tishby et al. 2000</a>)</span>, deep networks entangle mutual information across successive layers, readily memorizing high-dimensional noise and structured nuisance variables. In biomedical discovery, this produces severe latent collapse and obscures physical feature attribution.</p>
-<p>We resolve this entanglement by enforcing the <strong>Only Linear Encoder Entrypoint (OLEE)</strong>. OLEE mandates that the initial transformation of any modality <span class="math inline">\(\mathbf{X}_m\)</span> is an orthogonal linear projection onto the compact Stiefel manifold <span class="math inline">\(\text{St}(k, p_m) = \{ \mathbf{V}_m \in \mathbb{R}^{p_m \times k} \mid \mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k \}\)</span> <span class="citation" data-cites="edelman1998geometry boumal2023introduction">(<a href="#ref-edelman1998geometry" role="doc-biblioref">Edelman et al. 1998</a>; <a href="#ref-boumal2023introduction" role="doc-biblioref">Boumal 2023</a>)</span>: <span id="eq-olee-projection"><span class="math display">\[
-\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m \in \mathbb{R}^{n \times k}
-\tag{2.2}\]</span></span> Because the intrinsic dimension is strictly bounded (<span class="math inline">\(k \ll p_m\)</span>) and <span class="math inline">\(\mathbf{V}_m\)</span> acts as a partial isometry, OLEE imposes a structural information bottleneck at the input layer. All subsequent non-linear operations (decoders, prediction heads, or normalizing flows) consume <span class="math inline">\(\mathbf{Z}_{m,\text{lin}}\)</span>, never raw features <span class="math inline">\(\mathbf{X}_m\)</span>. This guarantees that downstream transformations operate on an auditable coordinate system with closed-form directional derivatives <span class="math inline">\(\nabla_{\mathbf{X}_m} \mathbf{Z}_{m,\text{lin}} = \mathbf{V}_m\)</span>.</p>
-</section>
-<section id="joint-variational-optimization-framework" class="level3" data-number="2.1.3">
-<h3 data-number="2.1.3" class="anchored" data-anchor-id="joint-variational-optimization-framework"><span class="header-section-number">2.1.3</span> Joint-Variational Optimization Framework</h3>
-<p>We unify the Similarity-driven Multimodal Linear Representation (SiMLR) taxonomy under a joint-variational functional. For each modality <span class="math inline">\(m \in \{1, \dots, M\}\)</span>, we optimize an encoder <span class="math inline">\(f_m: \mathbb{R}^{p_m} \to \mathbb{R}^k\)</span> and a decoder <span class="math inline">\(g_m: \mathbb{R}^k \to \mathbb{R}^{p_m}\)</span>, yielding latent representations <span class="math inline">\(\mathbf{Z}_m = f_m(\mathbf{X}_m) \in \mathbb{R}^{n \times k}\)</span> and reconstructions <span class="math inline">\(\hat{\mathbf{X}}_m = g_m(\mathbf{Z}_m)\)</span>. The global variational functional balances within-modality reconstruction fidelity, cross-modal consensus alignment, and Stiefel manifold regularization:</p>
-<p><span id="eq-joint-variational-objective"><span class="math display">\[
-\min_{\{f_m, g_m\}_{m=1}^M} \sum_{m=1}^M \left[ \mathcal{L}_{\text{recon}}(\mathbf{X}_m, g_m(\mathbf{Z}_m)) + \lambda_{\text{sim}} \mathcal{L}_{\text{align}}(\mathbf{Z}_m, \mathbf{U}_{\neq m}) + \gamma D(\mathbf{V}_m) \right] + \mathcal{R}(\mathbf{Z})
-\tag{2.3}\]</span></span></p>
-<p>where:</p>
+<section id="the-only-linear-encoder-entrypoint-olee-as-a-structural-information-bottleneck" class="level3" data-number="2.1.2">
+<h3 data-number="2.1.2" class="anchored" data-anchor-id="the-only-linear-encoder-entrypoint-olee-as-a-structural-information-bottleneck"><span class="header-section-number">2.1.2</span> The Only Linear Encoder Entrypoint (OLEE) as a Structural Information Bottleneck</h3>
+<p>Standard deep autoencoders and multi-layer perceptrons process inputs via unconstrained compositions <span class="math inline">\(\mathbf{Z} = \text{MLP}(\mathbf{X})\)</span>. Following Tishby’s Information Bottleneck principle <span class="citation" data-cites="tishby2000information">(<a href="#ref-tishby2000information" role="doc-biblioref">Tishby et al. 2000</a>)</span>, unconstrained deep encoders entangle features across successive layers, readily memorizing high-dimensional noise and structured nuisance variables when <span class="math inline">\(p_m \sim n\)</span>. In biomedical discovery, this produces representation collapse on held-out subjects and obscures physical feature attribution <span class="citation" data-cites="Rudin_2019">(<a href="#ref-Rudin_2019" role="doc-biblioref">Rudin 2019</a>)</span>.</p>
+<p>We resolve this entanglement at the architectural boundary by enforcing the <strong>Only Linear Encoder Entrypoint (OLEE)</strong> contract. OLEE mandates that the initial transformation of any modality <span class="math inline">\(\mathbf{X}_m\)</span> is a linear projection onto the compact Stiefel manifold <span class="math inline">\(\text{St}(k, p_m) = \{ \mathbf{V}_m \in \mathbb{R}^{p_m \times k} \mid \mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k \}\)</span> <span class="citation" data-cites="edelman1998geometry boumal2023introduction">(<a href="#ref-edelman1998geometry" role="doc-biblioref">Edelman et al. 1998</a>; <a href="#ref-boumal2023introduction" role="doc-biblioref">Boumal 2023</a>)</span>: <span id="eq-olee-projection"><span class="math display">\[
+\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m \in \mathbb{R}^{n \times k}, \quad \mathbf{V}_m \in \text{St}(k, p_m), \quad \mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k
+\tag{2.2}\]</span></span> Because the intrinsic dimension is strictly bounded (<span class="math inline">\(k \ll p_m\)</span>) and <span class="math inline">\(\mathbf{V}_m\)</span> acts as a partial isometry, OLEE imposes a geometric information bottleneck at the input boundary: <span id="eq-olee-entrypoint"><span class="math display">\[
+\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m, \quad \mathbf{V}_m \in \text{St}(k, p_m), \quad \mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k
+\tag{2.3}\]</span></span> All subsequent non-linear operations (decoders, prediction heads, or normalizing flows) consume <span class="math inline">\(\mathbf{Z}_{m,\text{lin}}\)</span>, never raw features <span class="math inline">\(\mathbf{X}_m\)</span>. This structural contract yields three exact mathematical guarantees:</p>
 <ol type="1">
-<li><span class="math inline">\(\mathbf{U}_{\neq m} \in \mathbb{R}^{n \times k}\)</span> is the <strong>Leave-One-Out (LOO)</strong> consensus target derived from all modalities excluding modality <span class="math inline">\(m\)</span>: <span id="eq-loo-consensus"><span class="math display">\[
-\mathbf{U}_{\neq m} = \text{Consensus}\left( \{\mathbf{Z}_j\}_{j \neq m} \right)
-\tag{2.4}\]</span></span> By strictly quarantining modality <span class="math inline">\(m\)</span> from contributing to its own target, the optimization landscape precludes trivial self-reconstruction loops and identity memorization.</li>
-<li><span class="math inline">\(D(\mathbf{V}_m)\)</span> is the scale-invariant Stiefel frame defect penalizing departures from column orthonormality.</li>
-<li><span class="math inline">\(\mathcal{R}(\mathbf{Z})\)</span> defines joint regularization terms, such as cross-covariance penalties between shared and private partitions.</li>
+<li><strong>Exact Feature Attribution &amp; Constant Input Gradient:</strong> The latent score <span class="math inline">\(z_{i, l}\)</span> for subject <span class="math inline">\(i\)</span> on component <span class="math inline">\(l\)</span> is strictly the linear inner product <span class="math inline">\(\sum_{j=1}^{p_m} X_{i, j} V_{j, l}\)</span>. The directional derivative of the first-layer representation with respect to input observations is globally constant across the entire domain: <span id="eq-olee-constant-gradient"><span class="math display">\[
+\nabla_{\mathbf{X}_m} \mathbf{Z}_{m,\text{lin}} = \mathbf{V}_m
+\tag{2.4}\]</span></span> Because this input Jacobian is independent of <span class="math inline">\(\mathbf{X}_m\)</span>, the attribution profile is invariant across subjects, eliminating gradient saturation and post-hoc surrogate sampling artifacts <span class="citation" data-cites="Lundberg_2017 Smith2023posthoc">(<a href="#ref-Lundberg_2017" role="doc-biblioref">Lundberg and Lee 2017</a>; <a href="#ref-Smith2023posthoc" role="doc-biblioref">Radulovic 2023</a>)</span>.</li>
+<li><strong>Global Variance Partitioning:</strong> Because <span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k\)</span>, the projection is an isometry on <span class="math inline">\(\mathbb{R}^k\)</span>, and projected variance decomposes additively across orthogonal axes: <span class="math inline">\(\text{Var}(\mathbf{Z}_{m,\text{lin}}) = \sum_{l=1}^k \text{Var}(\mathbf{z}_{m, l})\)</span>.</li>
+<li><strong>Closed-Form Minimum-Norm Counterfactuals:</strong> Targeted counterfactual state transitions can be evaluated analytically in closed form without iterative gradient search, as established by the following theorem.</li>
 </ol>
-<section id="robust-log-cosh-negentropy-alignment-functional" class="level4" data-number="2.1.3.1">
-<h4 data-number="2.1.3.1" class="anchored" data-anchor-id="robust-log-cosh-negentropy-alignment-functional"><span class="header-section-number">2.1.3.1</span> Robust Log-Cosh Negentropy Alignment Functional</h4>
-<p>The choice of alignment functional <span class="math inline">\(\mathcal{L}_{\text{align}}\)</span> determines the geometry of cross-modal consensus. While standard Mean Squared Error (MSE) assumes isotropic Gaussian errors, biomedical measurements routinely exhibit heavy-tailed noise and asymmetric clinical outliers. To ensure robust consensus formation, we implement the log-cosh negentropy contrast functional (<code>calculate_ica_energy</code> in <code>src/pysimlr/simlr.py</code>):</p>
-<p><span id="eq-log-cosh-energy"><span class="math display">\[
-\mathcal{L}_{\text{log-cosh}}(\mathbf{Z}_m, \mathbf{U}_{\neq m}) = - \frac{1}{n} \sum_{i=1}^k \sum_{j=1}^k \left( |C_{ji}| - \log 2 + \log\left(1 + e^{-2|C_{ji}|}\right) \right)
+<section id="theorem-closed-form-minimum-norm-counterfactuals" class="level4" data-number="2.1.2.1">
+<h4 data-number="2.1.2.1" class="anchored" data-anchor-id="theorem-closed-form-minimum-norm-counterfactuals"><span class="header-section-number">2.1.2.1</span> Theorem: Closed-Form Minimum-Norm Counterfactuals</h4>
+<p><strong>Theorem:</strong><br>
+Let a subject have latent representation <span class="math inline">\(\mathbf{z} = \mathbf{x} \mathbf{V} \in \mathbb{R}^k\)</span> under the OLEE basis <span class="math inline">\(\mathbf{V} \in \text{St}(k, p)\)</span>. To transition the subject to a targeted counterfactual latent state <span class="math inline">\(\mathbf{z}^* = \mathbf{z} + \Delta \mathbf{z}\)</span>, the unique perturbation <span class="math inline">\(\delta \mathbf{x}^* \in \mathbb{R}^p\)</span> that minimizes the Euclidean intervention effort <span class="math inline">\(\|\delta \mathbf{x}\|_2^2\)</span> while satisfying <span class="math inline">\((\mathbf{x} + \delta \mathbf{x}) \mathbf{V} = \mathbf{z}^*\)</span> is given analytically by: <span id="eq-counterfactual-solution"><span class="math display">\[
+\delta \mathbf{x}^* = \Delta \mathbf{z} \mathbf{V}^\top
 \tag{2.5}\]</span></span></p>
-<p>where <span class="math inline">\(\mathbf{C} = \mathbf{U}_{\neq m}^\top \mathbf{X}_m \mathbf{V}_m \in \mathbb{R}^{k \times k}\)</span> represents the cross-modal projection matrix with entries <span class="math inline">\(C_{ji}\)</span>, distinct from the underlying biological state <span class="math inline">\(\mathbf{S}\)</span>, and the outer factor <span class="math inline">\(1/n\)</span> normalizes the sum over latent components by the sample size <span class="math inline">\(n\)</span> (<code>calculate_ica_energy</code> in <code>src/pysimlr/simlr.py:844-848</code>).</p>
-<p>The first-order variational gradient of the loss with respect to the projection basis <span class="math inline">\(\mathbf{V}_m\)</span> evaluates to (with <code>calculate_ica_gradient</code> returning the corresponding ascent direction <span class="math inline">\(-\nabla_{\mathbf{V}_m} \mathcal{L}_{\text{log-cosh}}\)</span>):</p>
-<p><span id="eq-log-cosh-gradient"><span class="math display">\[
-\nabla_{\mathbf{V}_m} \mathcal{L}_{\text{log-cosh}} = - \frac{1}{n} \mathbf{X}_m^\top \mathbf{U}_{\neq m} \tanh(\mathbf{C})
-\tag{2.6}\]</span></span></p>
-<p>Because the hyperbolic tangent is strictly bounded, <span class="math inline">\(|\tanh(c)| &lt; 1\)</span> for all <span class="math inline">\(c \in \mathbb{R}\)</span>, the maximum gradient contribution from any single observation or corrupted feature is bounded. This prevents leverage points and extreme phenotypic outliers from destabilizing the shared consensus trajectory.</p>
+<p><strong>Proof:</strong><br>
+The counterfactual perturbation problem is formulated as the constrained optimization: <span id="eq-counterfactual-objective"><span class="math display">\[
+\min_{\delta \mathbf{x} \in \mathbb{R}^p} \frac{1}{2} \|\delta \mathbf{x}\|_2^2 \quad \text{subject to} \quad \delta \mathbf{x} \mathbf{V} = \Delta \mathbf{z}
+\tag{2.6}\]</span></span> Introducing Lagrange multipliers <span class="math inline">\(\boldsymbol{\lambda} \in \mathbb{R}^k\)</span>, the Lagrangian is: <span class="math display">\[
+\mathcal{L}(\delta \mathbf{x}, \boldsymbol{\lambda}) = \frac{1}{2} \delta \mathbf{x} \delta \mathbf{x}^\top - (\delta \mathbf{x} \mathbf{V} - \Delta \mathbf{z}) \boldsymbol{\lambda}
+\]</span> Setting the gradient with respect to <span class="math inline">\(\delta \mathbf{x}\)</span> to zero gives <span class="math inline">\(\nabla_{\delta \mathbf{x}} \mathcal{L} = \delta \mathbf{x} - \boldsymbol{\lambda}^\top \mathbf{V}^\top = \mathbf{0} \implies \delta \mathbf{x} = \boldsymbol{\lambda}^\top \mathbf{V}^\top\)</span>. Multiplying on the right by <span class="math inline">\(\mathbf{V}\)</span> and using <span class="math inline">\(\mathbf{V}^\top \mathbf{V} = \mathbf{I}_k\)</span> yields <span class="math inline">\(\delta \mathbf{x} \mathbf{V} = \boldsymbol{\lambda}^\top \mathbf{I}_k = \Delta \mathbf{z}\)</span>, whence <span class="math inline">\(\delta \mathbf{x}^* = \Delta \mathbf{z} \mathbf{V}^\top\)</span>. <span class="math inline">\(\square\)</span></p>
+</section>
+</section>
+<section id="scale-invariant-frame-defect-angle-defect-and-signed-support-consolidation" class="level3" data-number="2.1.3">
+<h3 data-number="2.1.3" class="anchored" data-anchor-id="scale-invariant-frame-defect-angle-defect-and-signed-support-consolidation"><span class="header-section-number">2.1.3</span> Scale-Invariant Frame Defect, Angle Defect, and Signed Support Consolidation</h3>
+<p>An unconstrained orthonormal basis on <span class="math inline">\(\text{St}(k, p_m)\)</span> is still dense and mixed-sign: every feature loads on every component, and positive and negative weights cancel within each column. To interpolate smoothly between dense orthogonal projections and sparse, disjoint, non-negative feature clusters, we regularize <span class="math inline">\(\mathbf{V}_m\)</span> via Non-negative Stiefel Approximating Flow (<code>nsa_flow</code>) <span class="citation" data-cites="avants2025">(<a href="#ref-avants2025" role="doc-biblioref"><span class="nocase">Avants et al.</span> 2025</a>)</span>.</p>
+<section id="trace-normalized-stiefel-frame-defect-d" class="level4" data-number="2.1.3.1">
+<h4 data-number="2.1.3.1" class="anchored" data-anchor-id="trace-normalized-stiefel-frame-defect-d"><span class="header-section-number">2.1.3.1</span> Trace-Normalized Stiefel Frame Defect (<span class="math inline">\(D\)</span>)</h4>
+<p>The trace-normalized frame defect (<code>src/pysimlr/utils.py:504-630</code>) measures departure from equal-norm column orthonormality: <span id="eq-frame-defect"><span class="math display">\[
+D(\mathbf{V}) = \frac{1}{1 - 1/k} \left\| \frac{\mathbf{V}^\top \mathbf{V}}{\text{tr}(\mathbf{V}^\top \mathbf{V})} - \frac{1}{k} \mathbf{I}_k \right\|_F^2
+\tag{2.7}\]</span></span> Let <span class="math inline">\(\mathbf{G} = \mathbf{V}^\top \mathbf{V} \in \mathbb{R}^{k \times k}\)</span> and <span class="math inline">\(t = \text{tr}(\mathbf{G}) = \|\mathbf{V}\|_F^2\)</span>. Writing <span class="math inline">\(\tilde{\mathbf{G}} = \mathbf{G} / t\)</span>, the Frobenius norm expands into off-diagonal column decorrelation plus diagonal norm balance: <span class="math display">\[
+\left\|\tilde{\mathbf{G}} - \frac{1}{k} \mathbf{I}_k\right\|_F^2 = \sum_{i \ne j} \tilde{G}_{ij}^2 + \sum_{i=1}^k \left( \tilde{G}_{ii} - \frac{1}{k} \right)^2
+\]</span> Because the participation ratio is <span class="math inline">\(\text{EffRank}(\mathbf{V}) = t^2 / \|\mathbf{G}\|_F^2\)</span>, the defect connects directly to effective rank: <span class="math inline">\(D(\mathbf{V}) = \frac{1}{1 - 1/k} \left( \frac{1}{\text{EffRank}(\mathbf{V})} - \frac{1}{k} \right)\)</span>. Differentiating with respect to <span class="math inline">\(\mathbf{V}\)</span> yields: <span id="eq-frame-defect-gradient"><span class="math display">\[
+\nabla_{\mathbf{V}} D(\mathbf{V}) = \frac{4}{t^2 (1 - 1/k)} \left[ \mathbf{V} \mathbf{G} - \frac{\|\mathbf{G}\|_F^2}{t} \mathbf{V} \right]
+\tag{2.8}\]</span></span> By Euler’s theorem for degree-0 homogeneous functions, <span class="math inline">\(\langle \nabla_{\mathbf{V}} D(\mathbf{V}), \mathbf{V} \rangle \equiv 0\)</span>, so <span class="math inline">\(D(\mathbf{V})\)</span> exerts zero radial force on matrix scale.</p>
+</section>
+<section id="squared-cosine-angle-defect-c" class="level4" data-number="2.1.3.2">
+<h4 data-number="2.1.3.2" class="anchored" data-anchor-id="squared-cosine-angle-defect-c"><span class="header-section-number">2.1.3.2</span> Squared-Cosine Angle Defect (<span class="math inline">\(C\)</span>)</h4>
+<p>When biological components have unequal norms, we also evaluate the column-scale-invariant squared-cosine angle defect (<code>angle_defect</code> in <code>src/pysimlr/utils.py:633-724</code>), with <span class="math inline">\(\mathbf{U} = \mathbf{V} \text{diag}(\|\mathbf{v}_1\|_2^{-1}, \dots, \|\mathbf{v}_k\|_2^{-1})\)</span>: <span id="eq-angle-defect"><span class="math display">\[
+C(\mathbf{V}) = \frac{\|\mathbf{U}^\top \mathbf{U} - \mathbf{I}_k\|_F^2}{k(k - 1)}
+\tag{2.9}\]</span></span> with gradient: <span id="eq-angle-defect-gradient"><span class="math display">\[
+\nabla_{\mathbf{V}} C(\mathbf{V}) = \frac{4}{k(k - 1)} \left[ \mathbf{U} \mathbf{H} - \mathbf{U} \, \text{diag}\left(\text{rowsum}(\mathbf{H}^{\odot 2})\right) \right] \text{diag}(\|\mathbf{v}_1\|_2^{-1}, \dots, \|\mathbf{v}_k\|_2^{-1}), \quad \mathbf{H} = \mathbf{U}^\top \mathbf{U} - \mathbf{I}_k
+\tag{2.10}\]</span></span> For non-negative matrices <span class="math inline">\(\mathbf{V} \ge \mathbf{0}\)</span> with non-zero columns, <span class="math inline">\(C(\mathbf{V}) = 0\)</span> if and only if the columns have pairwise disjoint supports.</p>
+</section>
+<section id="direct-svd-contrast-splitting-and-support-consolidation" class="level4" data-number="2.1.3.3">
+<h4 data-number="2.1.3.3" class="anchored" data-anchor-id="direct-svd-contrast-splitting-and-support-consolidation"><span class="header-section-number">2.1.3.3</span> Direct SVD Contrast Splitting and Support Consolidation</h4>
+<p>To represent bidirectional biological responses (e.g., cortical atrophy vs.&nbsp;ventricular expansion) without sign cancellation, we lift each basis <span class="math inline">\(\mathbf{V} \in \mathbb{R}^{p \times k}\)</span> into paired non-negative lobes: <span id="eq-paired-lobes"><span class="math display">\[
+\mathbf{V} = \mathbf{V}^+ - \mathbf{V}^-, \quad \mathbf{V}^+ = \max(\mathbf{V}, \mathbf{0}), \quad \mathbf{V}^- = \max(-\mathbf{V}, \mathbf{0})
+\tag{2.11}\]</span></span> forming <span class="math inline">\(\mathbf{W} = [\mathbf{V}^+ \mid \mathbf{V}^-] \in \mathbb{R}_{\ge 0}^{p \times 2k}\)</span>, initialized via <strong>Direct SVD Contrast Splitting</strong>: <span id="eq-svd-contrast-splitting"><span class="math display">\[
+\mathbf{E} = \text{SVD}_k(\mathbf{X}), \quad \mathbf{W}_0 = [\max(\mathbf{E}, \mathbf{0}) \mid \max(-\mathbf{E}, \mathbf{0})]
+\tag{2.12}\]</span></span> When strict disjoint assignment is requested (<code>consolidate=True</code>), the deterministic support consolidation operator assigns each feature <span class="math inline">\(j\)</span> to its winning lobe: <span id="eq-support-consolidation"><span class="math display">\[
+\text{win}(j) = \arg\max_{l \in \{1, \dots, 2k\}} W_{j, l}
+\tag{2.13}\]</span></span> guaranteeing exact zero lobe crosstalk (<span class="math inline">\(\|\mathbf{V}^+ \odot \mathbf{V}^-\|_1 = 0\)</span>).</p>
+</section>
+</section>
+<section id="subspace-invariance-vs.-sparse-basis-localization" class="level3" data-number="2.1.4">
+<h3 data-number="2.1.4" class="anchored" data-anchor-id="subspace-invariance-vs.-sparse-basis-localization"><span class="header-section-number">2.1.4</span> Subspace Invariance vs.&nbsp;Sparse Basis Localization</h3>
+<p>Evaluating whether a method recovered the right basis requires distinguishing the <em>linear subspace</em> <span class="math inline">\(\text{span}(\mathbf{X}\mathbf{V})\)</span> from the <em>individual columns</em> of <span class="math inline">\(\mathbf{V}\)</span>.</p>
+<section id="theorem-rotation-invariance-of-linear-subspace-probes" class="level4" data-number="2.1.4.1">
+<h4 data-number="2.1.4.1" class="anchored" data-anchor-id="theorem-rotation-invariance-of-linear-subspace-probes"><span class="header-section-number">2.1.4.1</span> Theorem: Rotation Invariance of Linear Subspace Probes</h4>
+<p><strong>Theorem:</strong><br>
+Let <span class="math inline">\(\mathbf{Z}_1 = \mathbf{X} \mathbf{V} \in \mathbb{R}^{n \times k}\)</span> and let <span class="math inline">\(\mathbf{M} \in \text{GL}(k, \mathbb{R})\)</span> be any invertible <span class="math inline">\(k \times k\)</span> matrix defining an alternative basis <span class="math inline">\(\mathbf{Z}_2 = \mathbf{X} \mathbf{V} \mathbf{M} = \mathbf{Z}_1 \mathbf{M}\)</span>. For any regression target <span class="math inline">\(\mathbf{y} \in \mathbb{R}^{n}\)</span>:</p>
+<ol type="1">
+<li>The Ordinary Least Squares (OLS) projection hat matrices are identical: <span class="math inline">\(\mathbf{H}_{\mathbf{Z}_2} \equiv \mathbf{H}_{\mathbf{Z}_1}\)</span>.</li>
+<li>The fitted values and regression <span class="math inline">\(R^2\)</span> are strictly invariant: <span class="math inline">\(\hat{\mathbf{y}}_2 \equiv \hat{\mathbf{y}}_1\)</span> and <span class="math inline">\(R^2(\mathbf{Z}_2, \mathbf{y}) \equiv R^2(\mathbf{Z}_1, \mathbf{y})\)</span>.</li>
+</ol>
+<p><strong>Proof:</strong><br>
+The OLS hat matrix projecting <span class="math inline">\(\mathbf{y}\)</span> onto the column space of <span class="math inline">\(\mathbf{Z}_2\)</span> is: <span id="eq-ols-hat-matrix"><span class="math display">\[
+\mathbf{H}_{\mathbf{Z}_2} = \mathbf{Z}_2 \left( \mathbf{Z}_2^\top \mathbf{Z}_2 \right)^{-1} \mathbf{Z}_2^\top
+\tag{2.14}\]</span></span> Substituting <span class="math inline">\(\mathbf{Z}_2 = \mathbf{Z}_1 \mathbf{M}\)</span> and using <span class="math inline">\((\mathbf{A} \mathbf{B} \mathbf{C})^{-1} = \mathbf{C}^{-1} \mathbf{B}^{-1} \mathbf{A}^{-1}\)</span> for invertible <span class="math inline">\(\mathbf{M}\)</span> yields <span class="math inline">\(\mathbf{H}_{\mathbf{Z}_2} = \mathbf{Z}_1 \mathbf{M} \mathbf{M}^{-1} (\mathbf{Z}_1^\top \mathbf{Z}_1)^{-1} (\mathbf{M}^\top)^{-1} \mathbf{M}^\top \mathbf{Z}_1^\top = \mathbf{H}_{\mathbf{Z}_1}\)</span>. <span class="math inline">\(\square\)</span></p>
+<p>Consequently, we evaluate representations across both linear probes—the <strong>Strictly Linear OLEE Basis Probe</strong> (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>) and the <strong>Global Consensus Probe</strong> (<span class="math inline">\(\mathbf{U}\)</span>)—together with <strong>Ground-Truth Support Recovery</strong> (<span class="math inline">\(\text{Support } F_1\)</span> on <span class="math inline">\(\mathbf{V}\)</span>) and <strong>Canonical Mean Correlation</strong> (<span class="math inline">\(CMC\)</span> on <span class="math inline">\(\mathbf{U}\)</span>), which directly measure whether <span class="math inline">\(\mathbf{V}_m\)</span> localizes true disjoint feature clusters and whether <span class="math inline">\(\mathbf{U}\)</span> recovers the underlying latent coordinates.</p>
+<hr>
 </section>
 </section>
 </section>
-<section id="architectural-taxonomy" class="level2" data-number="2.2">
-<h2 data-number="2.2" class="anchored" data-anchor-id="architectural-taxonomy"><span class="header-section-number">2.2</span> Architectural Taxonomy</h2>
-<p>The joint-variational objective establishes a unified foundation for evaluating linear baselines, manifold-regularized linear methods, hybrid autoencoders, and normalizing flows:</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 20%">
-<col style="width: 20%">
-<col style="width: 20%">
-<col style="width: 20%">
-<col style="width: 20%">
-</colgroup>
-<thead>
-<tr class="header">
-<th style="text-align: left;">Architecture</th>
-<th style="text-align: left;">Encoder Entrypoint <span class="math inline">\(f_m(\mathbf{X}_m)\)</span></th>
-<th style="text-align: left;">Decoder <span class="math inline">\(g_m(\mathbf{Z}_m)\)</span></th>
-<th style="text-align: left;">Manifold Invariant</th>
-<th style="text-align: left;">Structural Characterization</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td style="text-align: left;"><strong>PCA</strong></td>
-<td style="text-align: left;">SVD on <span class="math inline">\([\mathbf{X}_1 \dots \mathbf{X}_M]\)</span></td>
-<td style="text-align: left;">Linear projection</td>
-<td style="text-align: left;"><span class="math inline">\(\mathbf{V}^\top \mathbf{V} = \mathbf{I}\)</span></td>
-<td style="text-align: left;">Dense unconstrained baseline; maximal linear throughput</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;"><strong>SiMLR</strong></td>
-<td style="text-align: left;"><span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> (Linear)</td>
-<td style="text-align: left;"><span class="math inline">\(\mathbf{Z}_m \mathbf{W}_m\)</span> (Linear)</td>
-<td style="text-align: left;"><span class="math inline">\(D(\mathbf{V}_m) = 0\)</span></td>
-<td style="text-align: left;">Riemannian gradient descent on Stiefel manifold</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;"><strong>SiMLR-LBFGS</strong></td>
-<td style="text-align: left;"><span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> (Linear)</td>
-<td style="text-align: left;"><span class="math inline">\(\mathbf{Z}_m \mathbf{W}_m\)</span> (Linear)</td>
-<td style="text-align: left;"><span class="math inline">\(D(\mathbf{V}_m) = 0\)</span></td>
-<td style="text-align: left;">Riemannian quasi-Newton curvature estimation</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;"><strong>SiMLR-LBFGSB</strong></td>
-<td style="text-align: left;"><span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> (Linear, <span class="math inline">\(\mathbf{V}_m \ge \mathbf{0}\)</span>)</td>
-<td style="text-align: left;"><span class="math inline">\(\mathbf{Z}_m \mathbf{W}_m\)</span> (Linear)</td>
-<td style="text-align: left;"><span class="math inline">\(D(\mathbf{V}_m) = 0, \mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}\)</span></td>
-<td style="text-align: left;">Box-constrained L-BFGS-B with Stiefel consolidation</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;"><strong>LEND</strong></td>
-<td style="text-align: left;"><span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> (Linear Stiefel)</td>
-<td style="text-align: left;"><span class="math inline">\(\text{MLP}_{\theta_m}(\mathbf{Z}_m)\)</span></td>
-<td style="text-align: left;"><span class="math inline">\(D(\mathbf{V}_m) = 0\)</span></td>
-<td style="text-align: left;">Linear feature attribution with non-linear decoder</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;"><strong>NED</strong></td>
-<td style="text-align: left;"><span class="math inline">\(\text{MLP}_{\phi_m}(\mathbf{X}_m \mathbf{V}_m)\)</span></td>
-<td style="text-align: left;"><span class="math inline">\(\text{MLP}_{\theta_m}(\mathbf{Z}_m)\)</span></td>
-<td style="text-align: left;"><span class="math inline">\(D(\mathbf{V}_m) = 0\)</span></td>
-<td style="text-align: left;">Non-linear latent mapping post-Stiefel projection</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;"><strong>NEDPP</strong></td>
-<td style="text-align: left;"><span class="math inline">\([\mathbf{Z}_{m,\text{shared}} \parallel \mathbf{Z}_{m,\text{private}}]\)</span> via Stiefel</td>
-<td style="text-align: left;"><span class="math inline">\(\text{MLP}_{\theta_m}([\mathbf{Z}_{m,\text{shared}} \parallel \mathbf{Z}_{m,\text{private}}])\)</span></td>
-<td style="text-align: left;"><span class="math inline">\(\text{Cov}(\mathbf{Z}_{\text{shared}}, \mathbf{Z}_{\text{private}}) = \mathbf{0}\)</span></td>
-<td style="text-align: left;">Shared-private latent subspace partitioning</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;"><strong>NSAFlow-PCA</strong></td>
-<td style="text-align: left;"><span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> (Manifold Flow)</td>
-<td style="text-align: left;"><span class="math inline">\(\mathbf{Z}_m \mathbf{W}_m\)</span></td>
-<td style="text-align: left;"><span class="math inline">\(\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}, D_{\text{joint}} \approx 0\)</span></td>
-<td style="text-align: left;">Direct SVD initialization + NSA-Flow retraction (<span class="math inline">\(0.029\text{s}\)</span>)</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;"><strong>Flow-SiMR-V</strong></td>
-<td style="text-align: left;"><span class="math inline">\(\text{Flow}_{\psi_m}(\mathbf{X}_m \mathbf{V}_m)\)</span></td>
-<td style="text-align: left;"><span class="math inline">\(\text{Flow}_{\psi_m}^{-1}(\mathbf{Z}_m) \mathbf{V}_m^\top\)</span></td>
-<td style="text-align: left;"><span class="math inline">\(D(\mathbf{V}_m) = 0\)</span></td>
-<td style="text-align: left;">Bijective affine coupling layers with Stiefel bottleneck</td>
-</tr>
-</tbody>
-</table>
-<section id="classical-simlr-linear-baseline" class="level3" data-number="2.2.1">
-<h3 data-number="2.2.1" class="anchored" data-anchor-id="classical-simlr-linear-baseline"><span class="header-section-number">2.2.1</span> Classical SiMLR (Linear Baseline)</h3>
-<p>The classical formulation provides a strictly linear baseline, assuming the underlying manifold can be mapped via Euclidean projections.</p>
+<section id="stage-2-cross-view-consensus-mixing-graph-topologies-and-spectral-triage" class="level2" data-number="2.2">
+<h2 data-number="2.2" class="anchored" data-anchor-id="stage-2-cross-view-consensus-mixing-graph-topologies-and-spectral-triage"><span class="header-section-number">2.2</span> Stage 2: Cross-View Consensus — Mixing, Graph Topologies, and Spectral Triage</h2>
+<p>Given per-modality latent representations <span class="math inline">\(\mathbf{Z}_m = f_m(\mathbf{X}_m) \in \mathbb{R}^{n \times k}\)</span> and decoders <span class="math inline">\(g_m: \mathbb{R}^k \to \mathbb{R}^{p_m}\)</span>, the global joint-variational functional couples within-modality reconstruction fidelity, cross-modal alignment against a modality-specific consensus target <span class="math inline">\(\mathbf{U}_m\)</span>, and manifold regularization: <span id="eq-joint-variational-objective"><span class="math display">\[
+\min_{\{f_m, g_m\}_{m=1}^M} \sum_{m=1}^M \left[ \mathcal{L}_{\text{recon}}(\mathbf{X}_m, g_m(\mathbf{Z}_m)) + \lambda_{\text{sim}} w_m \mathcal{L}_{\text{align}}(\mathbf{Z}_m, \mathbf{U}_m) + \gamma D(\mathbf{V}_m) \right] + \mathcal{R}(\mathbf{Z})
+\tag{2.15}\]</span></span></p>
+<section id="consensus-topologies-star-loo-and-directedbipartite-graph" class="level3" data-number="2.2.1">
+<h3 data-number="2.2.1" class="anchored" data-anchor-id="consensus-topologies-star-loo-and-directedbipartite-graph"><span class="header-section-number">2.2.1</span> Consensus Topologies: <code>star</code>, <code>loo</code>, and Directed/Bipartite <code>graph</code></h3>
+<p>How the target <span class="math inline">\(\mathbf{U}_m\)</span> is constructed from the set of modality projections <span class="math inline">\(\{\mathbf{Z}_j\}_{j=1}^M\)</span> governs what shared structure the bases <span class="math inline">\(\mathbf{V}_m\)</span> learn:</p>
+<ol type="1">
+<li><strong>Global Star Topology (<code>topology="star"</code>):</strong> Every modality aligns to a single pooled consensus <span class="math inline">\(\mathbf{U} = \text{Consensus}(\{\mathbf{Z}_j\}_{j=1}^M)\)</span>. In high-capacity models, including <span class="math inline">\(\mathbf{Z}_m\)</span> inside its own target allows modality <span class="math inline">\(m\)</span> to partially satisfy the alignment objective through self-correlation.</li>
+<li><strong>Leave-One-Out Topology (<code>topology="loo"</code>):</strong> Modality <span class="math inline">\(m\)</span> aligns strictly against the consensus of all <em>other</em> modalities: <span id="eq-loo-consensus"><span class="math display">\[
+\mathbf{U}_{\neq m} = \text{Consensus}\left( \{\mathbf{Z}_j\}_{j \neq m} \right)
+\tag{2.16}\]</span></span> quarantining modality <span class="math inline">\(m\)</span> from contributing to its own target and preventing self-memorization.</li>
+<li><strong>Directed / Bipartite Graph Topology (<code>topology="graph"</code>, <code>path_graph</code>) and Partial-View Test Inference:</strong><br>
+In many clinical and biological studies, <span class="math inline">\(M-1\)</span> <strong>predictor views</strong> <span class="math inline">\(\{\mathbf{X}_1, \dots, \mathbf{X}_{M-1}\}\)</span> (such as three structural brain MRI views or three multi-omics assays) are available both during training and at deployment, whereas a <span class="math inline">\(M\)</span>-th <strong>clinical or phenotypic target view</strong> <span class="math inline">\(\mathbf{X}_M = \mathbf{Y}_{\text{clin}}\)</span> (such as a multi-domain cognitive battery) is observed during training but withheld at test time.<br>
+When the predictor views are aligned only with each other (<code>Protocol A</code>), their cross-view covariance is dominated by high-variance background anatomy or housekeeping biology rather than the clinical phenotype. By specifying a <strong>bipartite adjacency graph</strong> <span class="math inline">\(\mathcal{G}\)</span> connecting each predictor view <span class="math inline">\(m \in \{1, \dots, M-1\}\)</span> exclusively to the target view <span class="math inline">\(M\)</span>: <span id="eq-bipartite-consensus"><span class="math display">\[
+\mathbf{U}_m = \text{Consensus}(\{\mathbf{Z}_M\}) \quad (m = 1, \dots, M-1), \qquad \mathbf{U}_M = \text{Consensus}\left(\{\mathbf{Z}_1, \dots, \mathbf{Z}_{M-1}\}\right)
+\tag{2.17}\]</span></span> every predictor basis <span class="math inline">\(\mathbf{V}_m\)</span> is steered directly toward the clinical subspace during training. At test time, View <span class="math inline">\(M\)</span> is withheld (<code>eval_view_indices</code> <span class="math inline">\(= \{1, \dots, M-1\}\)</span>) and out-of-sample latent coordinates are computed strictly from the predictor views’ OLEE projections: <span id="eq-partial-view-inference"><span class="math display">\[
+\hat{\mathbf{U}}_{\text{test}} = \frac{1}{M - 1} \sum_{m=1}^{M-1} \mathbf{X}_{m,\text{test}} \mathbf{V}_m
+\tag{2.18}\]</span></span> This bipartite training / partial-view testing protocol requires zero test labels while preventing healthy anatomical covariance among the predictor views from swamping the disease-relevant subspace.</li>
+</ol>
+</section>
+<section id="scale-profiled-alignment-energies-procrustes-recon_r2-align-acc-logcosh" class="level3" data-number="2.2.2">
+<h3 data-number="2.2.2" class="anchored" data-anchor-id="scale-profiled-alignment-energies-procrustes-recon_r2-align-acc-logcosh"><span class="header-section-number">2.2.2</span> Scale-Profiled Alignment Energies (<code>procrustes</code>, <code>recon_r2</code>, <code>align</code>, <code>acc</code>, <code>logcosh</code>)</h3>
+<p>The alignment functional <span class="math inline">\(\mathcal{L}_{\text{align}}(\mathbf{Z}_m, \mathbf{U}_m)\)</span> must be scale-well-posed so it cannot be trivially minimized by shrinking <span class="math inline">\(\|\mathbf{V}_m\|_F \to 0\)</span>:</p>
 <ul>
-<li><strong>Encoder:</strong> <span class="math inline">\(f_m(\mathbf{X}_m) = \mathbf{X}_m \mathbf{V}_m\)</span></li>
-<li><strong>Decoder:</strong> <span class="math inline">\(g_m(\mathbf{Z}_m) = \mathbf{Z}_m \mathbf{W}_m\)</span></li>
+<li><strong>Scale-Profiled Procrustes &amp; Cosine Alignment (<code>procrustes</code>, <code>align</code>, <code>acc</code>):</strong> Measures orthogonal Procrustes similarity <span class="math inline">\(-\sum_{i=1}^k \sigma_i(\tilde{\mathbf{Z}}_m^\top \tilde{\mathbf{U}}_m)\)</span> or normalized trace correlation <span class="math inline">\(-\text{tr}(\tilde{\mathbf{Z}}_m^\top \tilde{\mathbf{U}}_m)\)</span> on Frobenius-normalized projections.</li>
+<li><strong>Scale-Profiled Reconstruction <span class="math inline">\(R^2\)</span> (<code>recon_r2</code>):</strong> Profiles out optimal linear scaling before measuring residual variance, eliminating the zero-basis trap of unnormalized regression MSE.</li>
+<li><strong>Robust Log-Cosh Negentropy (<code>logcosh</code>):</strong> To bound the influence of heavy-tailed clinical outliers (<code>calculate_ica_energy</code> in <code>src/pysimlr/simlr.py:844-848</code>), we evaluate: <span id="eq-log-cosh-energy"><span class="math display">\[
+\mathcal{L}_{\text{log-cosh}}(\mathbf{Z}_m, \mathbf{U}_{m}) = - \frac{1}{n} \sum_{i=1}^k \sum_{j=1}^k \left( |C_{ji}| - \log 2 + \log\left(1 + e^{-2|C_{ji}|}\right) \right), \quad \mathbf{C} = \mathbf{U}_m^\top \mathbf{Z}_m
+\tag{2.19}\]</span></span> whose first-order variational gradient with respect to <span class="math inline">\(\mathbf{V}_m\)</span> has strictly bounded leverage (<span class="math inline">\(|\tanh(C_{ji})| &lt; 1\)</span>): <span id="eq-log-cosh-gradient"><span class="math display">\[
+\nabla_{\mathbf{V}_m} \mathcal{L}_{\text{log-cosh}} = - \frac{1}{n} \mathbf{X}_m^\top \mathbf{U}_{m} \tanh(\mathbf{C})
+\tag{2.20}\]</span></span></li>
 </ul>
-<p>The linear basis <span class="math inline">\(\mathbf{V}_m\)</span> is regularized to the Stiefel manifold. This enforces orthogonal feature discovery and provides a fully interpretable baseline with wall-clock execution under <span class="math inline">\(\sim 100\)</span> ms, as schematized in <a href="#fig-simlr" class="quarto-xref">Figure&nbsp;<span>2.1</span></a>.</p>
+</section>
+<section id="sign-aligned-consensus-mixing-pca-svd-ica-newton" class="level3" data-number="2.2.3">
+<h3 data-number="2.2.3" class="anchored" data-anchor-id="sign-aligned-consensus-mixing-pca-svd-ica-newton"><span class="header-section-number">2.2.3</span> Sign-Aligned Consensus Mixing (<code>pca</code>, <code>svd</code>, <code>ica</code>, <code>newton</code>)</h3>
+<p>Latent factorizations are invariant under coordinate sign reflections (<span class="math inline">\(\mathbf{z}_j \leftrightarrow -\mathbf{z}_j\)</span>). When two views recover the same biological factor with opposite signs, naive cross-modal averaging suffers <strong>destructive cancellation</strong>: <span id="eq-destructive-cancellation"><span class="math display">\[
+\bar{\mathbf{u}}_l = \frac{1}{M-1} \sum_{j \ne m} \mathbf{z}_{j, l} \approx \frac{1}{2}(\mathbf{u}_l - \mathbf{u}_l) = \mathbf{0}
+\tag{2.21}\]</span></span> Prior to mixing (<code>align_column_signs</code> in <code>src/pysimlr/utils.py:2003-2064</code>), we synchronize column signs greedily against the running coordinate sum <span class="math inline">\(\mathbf{R}\)</span>: <span id="eq-greedy-sign-alignment"><span class="math display">\[
+s_{j, l} = \text{sign}\left( \sum_{i=1}^n Z_{j, il} R_{il} \right), \quad \tilde{\mathbf{Z}}_j = \mathbf{Z}_j \, \text{diag}(s_{j, 1}, \dots, s_{j, k}), \quad \mathbf{R} \leftarrow \mathbf{R} + \tilde{\mathbf{Z}}_j
+\tag{2.22}\]</span></span> From the sign-aligned projections <span class="math inline">\(\tilde{\mathbf{Z}}_j\)</span>, <code>pysimlr</code> supports two families of consensus mixing: 1. <strong>Sign-Aligned Mean + Gram–Schmidt (<code>mixing_algorithm="pca"</code>) and Spectral Concatenation (<code>"svd"</code>, <code>"ica"</code>):</strong> Particularly effective for linear manifold solvers where exact block coordinate updates are taken at each iteration. 2. <strong>Differentiable Newton–Schulz Polar Mixing (<code>mixing_algorithm="newton"</code>):</strong> Computes the closest column-orthogonal consensus via 10 cubic Newton–Schulz iterations without GPU-serializing SVD calls or discontinuous singular-vector sign flips across mini-batches: <span id="eq-ns-consensus"><span class="math display">\[
+   \bar{\mathbf{U}}_{m} = \frac{1}{|\mathcal{N}(m)|} \sum_{j \in \mathcal{N}(m)} \tilde{\mathbf{Z}}_j, \qquad \mathbf{U}_{m} = \text{NewtonSchulz}\left( \bar{\mathbf{U}}_{m}, \text{iterations}=10 \right)
+    \tag{2.23}\]</span></span> with exponential moving-average anchor sign synchronization across mini-batch epochs: <span id="eq-anchor-update"><span class="math display">\[
+   \mathbf{A}^{(t)} = 0.9 \, \mathbf{A}^{(t-1)} + 0.1 \left( \mathbf{A}_{\text{new}} \odot \text{signs} \right)
+    \tag{2.24}\]</span></span></p>
+</section>
+<section id="spectral-triage-and-the-modality-alignment-index-mai" class="level3" data-number="2.2.4">
+<h3 data-number="2.2.4" class="anchored" data-anchor-id="spectral-triage-and-the-modality-alignment-index-mai"><span class="header-section-number">2.2.4</span> Spectral Triage and the Modality Alignment Index (MAI)</h3>
+<p>When integrating <span class="math inline">\(M \ge 3\)</span> heterogeneous views, an uninformative or corrupted modality can pull the consensus toward isotropic noise. Under the Baik–Ben Arous–Péché (BBP) phase transition <span class="citation" data-cites="baik2005phase">(<a href="#ref-baik2005phase" role="doc-biblioref">Baik et al. 2005</a>)</span>, informative modalities exhibit leading singular values that escape the Marchenko–Pastur bulk, whereas pure noise views remain flat (<a href="#fig-spectral-sharpness" class="quarto-xref">Figure&nbsp;<span>2.1</span></a>).</p>
+<div id="cell-fig-spectral-sharpness" class="cell" data-message="false" data-execution_count="1">
+<div class="cell-output cell-output-display">
+<div id="fig-spectral-sharpness" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-spectral-sharpness-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="02_methods_files/figure-html/fig-spectral-sharpness-output-1.png" width="759" height="423" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-spectral-sharpness-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2.1: Spectral Sharpness as a Discriminant of Modality Fidelity. Informative modalities (green) exhibit leading singular values that escape the Marchenko-Pastur bulk (gray span), whereas isotropic noise modalities (orange) remain trapped within the bulk limit.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>In both linear (<code>simlr</code>) and deep/flow models (<code>lend_simr</code>, <code>ned_simr</code>, <code>flow_simr</code>, <code>flow_simr_v</code>), we score each modality <span class="math inline">\(m\)</span> against its Leave-One-Out consensus <span class="math inline">\(\mathbf{U}_{\neq m}\)</span> via Scale-Profiled Procrustes <span class="math inline">\(R^2\)</span> (or canonical correlation <code>cca</code> / RV-coefficient <code>rvcoef</code>): <span id="eq-procrustes-r2"><span class="math display">\[
+R_m^2 = \left( \sum_{i=1}^k \sigma_i(\tilde{\mathbf{Z}}_m^\top \tilde{\mathbf{U}}_{\neq m}) \right)^2 \in [0, 1]
+\tag{2.25}\]</span></span> optionally modulated by spectral sharpness <span class="math inline">\(\mathcal{S}_m = \sigma_1(\mathbf{Z}_m) / \sum_{j=1}^k \sigma_j(\mathbf{Z}_m)\)</span> (<code>mai_metric="procrustes_r2_sharp"</code>): <span id="eq-mai-formulation"><span class="math display">\[
+\text{MAI}_m = R_m^2 \cdot \mathcal{S}_m
+\tag{2.26}\]</span></span> <em>(Note: When <span class="math inline">\(M = 2\)</span>, Leave-One-Out compares View 1 to View 2 and View 2 to View 1 with a symmetric spectrum, so <span class="math inline">\(\text{MAI}_1 \equiv \text{MAI}_2\)</span> and weights remain uniform <span class="math inline">\([0.5, 0.5]\)</span>; MAI triage is therefore specifically a property of <span class="math inline">\(M \ge 3\)</span> views.)</em></p>
+<p>The raw alignment indices are smoothed via EMA and passed through a mean-centered sigmoid gate with linear warmup: <span id="eq-mai-ema"><span class="math display">\[
+\mathbf{mai}^{(t)} = 0.9 \, \mathbf{mai}^{(t-1)} + 0.1 \, \mathbf{mai}_{\text{raw}}^{(t)}
+\tag{2.27}\]</span></span> <span id="eq-mai-sigmoid-gate"><span class="math display">\[
+\omega_m^{\text{gate}} = \sigma\left( \kappa \cdot (\text{mai}_m^{(t)} - \mu_{\text{mai}}) \right) = \frac{1}{1 + \exp\left(-\kappa (\text{mai}_m^{(t)} - \mu_{\text{mai}})\right)}
+\tag{2.28}\]</span></span> <span id="eq-mai-target-weights"><span class="math display">\[
+\tilde{w}_m = \text{mai}_m^{(t)} \cdot \omega_m^{\text{gate}}, \quad w_m^{\text{target}} = \frac{\tilde{w}_m}{\sum_{j=1}^M \tilde{w}_j + 10^{-8}}
+\tag{2.29}\]</span></span> <span id="eq-mai-warmup"><span class="math display">\[
+\mathbf{w}^{(t)} = (1 - \rho) \mathbf{w}_{\text{uniform}} + \rho \mathbf{w}^{\text{target}}
+\tag{2.30}\]</span></span> While simple averaging across <span class="math inline">\(M\)</span> views reduces independent noise at rate <span class="math inline">\(1/M\)</span>, correlated cross-modal artifacts leave an irreducible floor bounded by the cross-view noise correlation <span class="math inline">\(\rho_{\text{noise}}\)</span>: <span id="eq-one-over-m-law"><span class="math display">\[
+\text{Var}(\mathbf{U}) = \frac{\sigma^2}{M} (1 - \rho_{\text{noise}}) + \rho_{\text{noise}} \sigma^2
+\tag{2.31}\]</span></span> which LOO/bipartite topologies and MAI actively suppress.</p>
+<hr>
+</section>
+</section>
+<section id="stage-3-linear-multi-view-manifold-solvers-simlr-simlr-lbfgs-simlr-lbfgsb" class="level2" data-number="2.3">
+<h2 data-number="2.3" class="anchored" data-anchor-id="stage-3-linear-multi-view-manifold-solvers-simlr-simlr-lbfgs-simlr-lbfgsb"><span class="header-section-number">2.3</span> Stage 3: Linear Multi-View Manifold Solvers (<code>SiMLR</code>, <code>SiMLR-LBFGS</code>, <code>SiMLR-LBFGSB</code>)</h2>
+<p>When both the encoder and decoder are linear (<span class="math inline">\(f_m(\mathbf{X}_m) = \mathbf{X}_m \mathbf{V}_m\)</span>, <span class="math inline">\(g_m(\mathbf{Z}_m) = \mathbf{U}_m \mathbf{W}_m\)</span> with <span class="math inline">\(\mathbf{W}_m = \mathbf{U}_m^\dagger \mathbf{X}_m\)</span>), the joint-variational problem reduces to optimizing <span class="math inline">\(\{\mathbf{V}_m\}_{m=1}^M\)</span> directly on the Stiefel/NSA-Flow manifold (<a href="#fig-simlr" class="quarto-xref">Figure&nbsp;<span>2.2</span></a>).</p>
 <div id="fig-simlr" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-simlr-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -511,8 +523,8 @@ graph LR
     V -.-&gt;|NSA Retraction| Stiefel[Stiefel Manifold]
     Z --&gt;|Linear Weights W_m| R[Recon X'_m]
     
-    Other[Other Latents] --&gt; MAI[MAI Weighting]
-    MAI --&gt; U["Target U_{≠m}^{(t)}"]
+    Other[Other Latents] --&gt; MAI[MAI / Graph Consensus]
+    MAI --&gt; U["Target U_m^{(t)}"]
     Z -.-&gt;|Alignment Loss| U
     
     style Z fill:#e3f2fd,stroke:#1565c0,color:#000
@@ -526,23 +538,68 @@ graph LR
 </div>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-simlr-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;2.1: Classical SiMLR: Information flow for a linear encoder and decoder. The basis <span class="math inline">\(\mathbf{V}_m\)</span> acts as a structural information bottleneck.
+Figure&nbsp;2.2: Classical and Quasi-Newton Linear SiMLR: Information flow for a linear encoder and linear decoder with Stiefel/NSA-Flow retraction and consensus alignment.
 </figcaption>
 </figure>
 </div>
+<section id="iteration-0-warm-start-calibration" class="level3" data-number="2.3.1">
+<h3 data-number="2.3.1" class="anchored" data-anchor-id="iteration-0-warm-start-calibration"><span class="header-section-number">2.3.1</span> Iteration-0 Warm-Start Calibration</h3>
+<p>A critical numerical invariant in alternating manifold optimization is <strong>Iteration-0 Warm-Start Calibration</strong> (<code>src/pysimlr/simlr.py:1512-1606</code>). When bases <span class="math inline">\(\{\mathbf{V}_m^{(0)}\}\)</span> are initialized via per-view SVD/PCA or GCCA, the initial projections <span class="math inline">\(\mathbf{Z}_m^{(0)} = \mathbf{X}_m \mathbf{V}_m^{(0)}\)</span> already span a high-variance subspace. Evaluating the initial consensus <span class="math inline">\(\mathbf{U}^{(0)}\)</span>, calibrating the relative modality normalization weights <code>normalizing_weights</code> and <code>orth_weights</code>, and recording <code>init_total_energy</code> at iteration <span class="math inline">\(t = 0\)</span> <em>prior</em> to the first gradient step ensures that the initial step size is properly scaled and that <code>best_v_mats</code> can never degrade below the warm-start initialization.</p>
 </section>
-<section id="simlr-lbfgs-and-simlr-lbfgsb-quasi-newton-riemannian-linear-solvers" class="level3" data-number="2.2.2">
-<h3 data-number="2.2.2" class="anchored" data-anchor-id="simlr-lbfgs-and-simlr-lbfgsb-quasi-newton-riemannian-linear-solvers"><span class="header-section-number">2.2.2</span> SiMLR-LBFGS and SiMLR-LBFGSB (Quasi-Newton Riemannian Linear Solvers)</h3>
-<p>Standard first-order gradient descent oscillates across narrow ravines induced by orthogonality constraints and cross-modal consensus. <code>SiMLR-LBFGS</code> integrates second-order quasi-Newton curvature steps directly on the parameter space using PyTorch’s native <code>optim.LBFGS</code> (<code>src/pysimlr/optimizers.py:841-894</code>), while <code>SiMLR-LBFGSB</code> pairs L-BFGS-B non-negative box constraints (<code>nsa_lbfgsb</code>) with NSA-Flow retraction. By maintaining a history of displacement vectors and gradient differences, <code>SiMLR-LBFGSB</code> achieves the top overall rank (<span class="math inline">\(3.28\)</span>) and highest sparse support recovery (<span class="math inline">\(0.942\)</span>) across the 9-dataset (243-evaluation) benchmark, while <code>SiMLR-LBFGS</code> converges in <span class="math inline">\(0.175\text{s}\)</span> (<span class="math inline">\(2\times\)</span> faster than first-order <code>SiMLR</code>).</p>
+<section id="riemannian-tangent-projection-sylvester-polar-factor-and-newtonschulz-retraction" class="level3" data-number="2.3.2">
+<h3 data-number="2.3.2" class="anchored" data-anchor-id="riemannian-tangent-projection-sylvester-polar-factor-and-newtonschulz-retraction"><span class="header-section-number">2.3.2</span> Riemannian Tangent Projection, Sylvester Polar Factor, and Newton–Schulz Retraction</h3>
+<p>For each basis <span class="math inline">\(\mathbf{V} \in \text{St}(k, p_m)\)</span>: <span id="eq-stiefel-manifold"><span class="math display">\[
+\text{St}(k, p_m) = \{ \mathbf{V} \in \mathbb{R}^{p_m \times k} \mid \mathbf{V}^\top \mathbf{V} = \mathbf{I}_k \}
+\tag{2.32}\]</span></span> the tangent space and Riemannian gradient projection (<code>project_gradient</code> in <code>src/pysimlr/simlr.py:111-146</code>) are: <span id="eq-stiefel-tangent-space"><span class="math display">\[
+T_{\mathbf{V}} \text{St}(k, p_m) = \{ \Delta \in \mathbb{R}^{p_m \times k} \mid \mathbf{V}^\top \Delta + \Delta^\top \mathbf{V} = \mathbf{0} \}
+\tag{2.33}\]</span></span> <span id="eq-stiefel-tangent-proj"><span class="math display">\[
+\Pi_{T_{\mathbf{V}}}(\mathbf{G}) = \mathbf{G} - \mathbf{V} \, \text{sym}(\mathbf{V}^\top \mathbf{G}) = \mathbf{G} - \frac{1}{2} \mathbf{V} (\mathbf{V}^\top \mathbf{G} + \mathbf{G}^\top \mathbf{V})
+\tag{2.34}\]</span></span> To map an updated iterate <span class="math inline">\(\mathbf{Y}\)</span> back to <span class="math inline">\(\text{St}(k, p_m)\)</span> via the polar factor: <span id="eq-polar-factor"><span class="math display">\[
+R(\mathbf{Y}) = \mathbf{Y} (\mathbf{Y}^\top \mathbf{Y})^{-1/2}
+\tag{2.35}\]</span></span> without differentiating through <code>torch.linalg.svd</code> (whose backward pass divides by <span class="math inline">\(\sigma_i^2 - \sigma_j^2\)</span> and produces <code>NaN</code> at repeated singular values <span class="math inline">\(\sigma_i = 1\)</span>), <code>pysimlr</code> uses <code>nsa_flow.polar_factor</code>, which differentiates <span class="math inline">\(\mathbf{H} = (\mathbf{Y}^\top \mathbf{Y})^{1/2}\)</span> via the continuous Lyapunov/Sylvester equation: <span id="eq-lyapunov-sylvester"><span class="math display">\[
+\mathbf{H} (d\mathbf{H}) + (d\mathbf{H}) \mathbf{H} = (d\mathbf{Y})^\top \mathbf{Y} + \mathbf{Y}^\top (d\mathbf{Y})
+\tag{2.36}\]</span></span> or applies the matrix-multiplication-only cubic <strong>Newton–Schulz recurrence</strong>: <span id="eq-newton-schulz"><span class="math display">\[
+\mathbf{Y}_0 = \frac{\mathbf{Y}}{\|\mathbf{Y}\|_F}, \quad \mathbf{Y}_{\tau+1} = \frac{1}{2} \mathbf{Y}_\tau \left( 3 \mathbf{I}_k - \mathbf{Y}_\tau^\top \mathbf{Y}_\tau \right)
+\tag{2.37}\]</span></span> whose singular value errors <span class="math inline">\(\epsilon_{\tau, i} = 1 - \sigma_{\tau, i}\)</span> contract quadratically for <span class="math inline">\(\sigma_{0, i} \in (0, \sqrt{3})\)</span>: <span id="eq-newton-schulz-rate"><span class="math display">\[
+\|\mathbf{Y}_{\tau+1}^\top \mathbf{Y}_{\tau+1} - \mathbf{I}_k\| = \mathcal{O}\left(\|\mathbf{Y}_\tau^\top \mathbf{Y}_\tau - \mathbf{I}_k\|^2\right)
+\tag{2.38}\]</span></span> <span id="eq-newton-schulz-error"><span class="math display">\[
+\epsilon_{\tau+1, i} = 1 - \sigma_{\tau+1, i} = \frac{3}{2}\epsilon_{\tau, i}^2 - \frac{1}{2}\epsilon_{\tau, i}^3 = \epsilon_{\tau, i}^2 \left( \frac{3 - \epsilon_{\tau, i}}{2} \right)
+\tag{2.39}\]</span></span> as illustrated geometrically in <a href="#fig-stiefel-intuition" class="quarto-xref">Figure&nbsp;<span>2.3</span></a>.</p>
+<div id="cell-fig-stiefel-intuition" class="cell" data-message="false" data-execution_count="2">
+<div class="cell-output cell-output-display">
+<div id="fig-stiefel-intuition" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-stiefel-intuition-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="02_methods_files/figure-html/fig-stiefel-intuition-output-1.png" width="913" height="486" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-stiefel-intuition-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2.3: Geometrical Intuition of Orthogonal Discovery via Stiefel Retraction. Unconstrained optimization allows latent components to collapse onto the dominant variance direction (left, red vectors), whereas Stiefel/NSA-Flow retractions maintain orthogonal, non-redundant axes (right, green vectors).
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
 </section>
-<section id="lend-linear-encoder-deep-decoder" class="level3" data-number="2.2.3">
-<h3 data-number="2.2.3" class="anchored" data-anchor-id="lend-linear-encoder-deep-decoder"><span class="header-section-number">2.2.3</span> LEND (Linear Encoder, Deep Decoder)</h3>
-<p>While Classical SiMLR guarantees interpretability, a linear decoder cannot reconstruct complex non-linear observational manifolds. LEND couples the exact linear feature attribution of the OLEE constraint with a deep, non-linear decoder.</p>
-<ul>
-<li><strong>Encoder:</strong> <span class="math inline">\(f_m(\mathbf{X}_m) = \mathbf{X}_m \mathbf{V}_m\)</span> (OLEE)</li>
-<li><strong>Decoder:</strong> <span class="math inline">\(g_m(\mathbf{Z}_m) = \text{MLP}_{\theta_m}(\mathbf{Z}_m)\)</span></li>
-</ul>
-<p>LEND provides non-linear reconstruction without sacrificing the strict mathematical auditability of the input features, as illustrated in <a href="#fig-lend" class="quarto-xref">Figure&nbsp;<span>2.2</span></a>.</p>
+<section id="quasi-newton-curvature-steps-simlr-lbfgs-and-bound-constrained-simlr-lbfgsb" class="level3" data-number="2.3.3">
+<h3 data-number="2.3.3" class="anchored" data-anchor-id="quasi-newton-curvature-steps-simlr-lbfgs-and-bound-constrained-simlr-lbfgsb"><span class="header-section-number">2.3.3</span> Quasi-Newton Curvature Steps (<code>SiMLR-LBFGS</code> and Bound-Constrained <code>SiMLR-LBFGSB</code>)</h3>
+<p>First-order optimizers (<code>armijo_gradient</code>, <code>lars</code>, <code>adam</code>, <code>hybrid_adam</code>) canzig-zag across narrow ravines formed by cross-view alignment and orthogonality penalties. We provide two second-order quasi-Newton linear solvers:</p>
+<ol type="1">
+<li><strong><code>SiMLR-LBFGS</code> (<code>optimizer_type="torch_lbfgs"</code>):</strong> Uses two-loop inverse-Hessian recursion with Strong Wolfe line search and an analytical gradient closure (<code>src/pysimlr/optimizers.py:841-894</code>): <span id="eq-lbfgs-descent"><span class="math display">\[
+\mathcal{L}(\mathbf{V}_t + \alpha_t \mathbf{p}_t) \le \mathcal{L}(\mathbf{V}_t) + c_1 \alpha_t \text{tr}(\nabla \mathcal{L}(\mathbf{V}_t)^\top \mathbf{p}_t)
+\tag{2.40}\]</span></span></li>
+<li><strong><code>SiMLR-LBFGSB</code> (<code>optimizer_type="nsa_lbfgsb"</code>):</strong> Uses the bound-constrained L-BFGS-B solver from <code>nsa_flow</code>, enforcing non-negativity (<span class="math inline">\(\mathbf{V}_m \ge \mathbf{0}\)</span>) directly inside the active-set quasi-Newton subspace step rather than by post-hoc clipping.</li>
+</ol>
+<hr>
+</section>
+</section>
+<section id="stage-4-non-linear-decoding-downstream-of-olee-lend-vs.-ned-and-nedpp" class="level2" data-number="2.4">
+<h2 data-number="2.4" class="anchored" data-anchor-id="stage-4-non-linear-decoding-downstream-of-olee-lend-vs.-ned-and-nedpp"><span class="header-section-number">2.4</span> Stage 4: Non-Linear Decoding Downstream of OLEE (<code>LEND</code> vs.&nbsp;<code>NED</code> and <code>NEDPP</code>)</h2>
+<p>When the generative mapping <span class="math inline">\(\mathbf{X}_m = g_m(\mathbf{S}) + \mathbf{E}_m\)</span> is non-linear, a linear decoder <span class="math inline">\(g_m(\mathbf{Z}_m) = \mathbf{Z}_m \mathbf{W}_m\)</span> cannot reconstruct curved manifold trajectories. However, replacing the <em>encoder</em> with an unconstrained MLP destroys the constant attribution guarantee <span class="math inline">\(\nabla_{\mathbf{X}_m}\mathbf{Z}_m = \mathbf{V}_m\)</span> and risks memorizing high-dimensional noise when <span class="math inline">\(p_m \sim n\)</span>.</p>
+<section id="lend-linear-encoder-non-linear-decoder" class="level3" data-number="2.4.1">
+<h3 data-number="2.4.1" class="anchored" data-anchor-id="lend-linear-encoder-non-linear-decoder"><span class="header-section-number">2.4.1</span> <code>LEND</code> (Linear Encoder, Non-Linear Decoder)</h3>
+<p><code>LEND</code> resolves this asymmetry by keeping the encoder strictly linear on the Stiefel/NSA-Flow manifold while parameterizing the decoder as a multi-layer perceptron (<a href="#fig-lend" class="quarto-xref">Figure&nbsp;<span>2.4</span></a>): <span class="math display">\[
+\text{Encoder (OLEE): } \mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m, \qquad \text{Decoder: } \hat{\mathbf{X}}_m = \text{MLP}_{\theta_m}(\mathbf{Z}_m)
+\]</span> Because <span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span>, <code>LEND</code> retains <strong>exact first-layer attribution and closed-form counterfactuals</strong> at test time while allowing <span class="math inline">\(\text{MLP}_{\theta_m}\)</span> to absorb non-linear observational curvature during training.</p>
 <div id="fig-lend" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-lend-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -559,8 +616,8 @@ graph LR
     V -.-&gt;|NSA Retraction| S[Stiefel Manifold]
     V -.-&gt;|Exact Mapping| A[Feature Attribution]
     
-    Other[Other Latents] --&gt; MAI[MAI Weighting]
-    MAI --&gt; U["Target U_{≠m}^{(t)}"]
+    Other[Other Latents] --&gt; MAI[MAI / Graph Consensus]
+    MAI --&gt; U["Target U_m^{(t)}"]
     Z -.-&gt;|Alignment Loss| U
     
     Z --&gt;|Deep MLP g_m| H1[Hidden L1]
@@ -578,19 +635,18 @@ graph LR
 </div>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-lend-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;2.2: LEND: OLEE-constrained linear encoder coupled with a deep MLP decoder for non-linear manifold reconstruction.
+Figure&nbsp;2.4: LEND: OLEE-constrained linear encoder coupled with a deep MLP decoder for non-linear manifold reconstruction.
 </figcaption>
 </figure>
 </div>
 </section>
-<section id="fully-deep-ned-non-linear-encoder-decoder" class="level3" data-number="2.2.4">
-<h3 data-number="2.2.4" class="anchored" data-anchor-id="fully-deep-ned-non-linear-encoder-decoder"><span class="header-section-number">2.2.4</span> Fully Deep NED (Non-linear Encoder Decoder)</h3>
-<p>If cross-modal interactions require non-linear coordinate warping, NED applies a non-linear network to the latent space strictly <em>subsequent</em> to the initial OLEE constraint.</p>
+<section id="ned-and-nedpp-post-bottleneck-non-linear-encoders-and-sharedprivate-disentanglement" class="level3" data-number="2.4.2">
+<h3 data-number="2.4.2" class="anchored" data-anchor-id="ned-and-nedpp-post-bottleneck-non-linear-encoders-and-sharedprivate-disentanglement"><span class="header-section-number">2.4.2</span> <code>NED</code> and <code>NEDPP</code> (Post-Bottleneck Non-Linear Encoders and Shared–Private Disentanglement)</h3>
+<p>To test when post-bottleneck encoder non-linearity or explicit private subspaces help or hurt, we also formulate:</p>
 <ul>
-<li><strong>Encoder:</strong> <span class="math inline">\(f_m(\mathbf{X}_m) = \text{MLP}_{\phi_m}(\mathbf{X}_m \mathbf{V}_m)\)</span></li>
-<li><strong>Decoder:</strong> <span class="math inline">\(g_m(\mathbf{Z}_m) = \text{MLP}_{\theta_m}(\mathbf{Z}_m)\)</span></li>
+<li><strong><code>NED</code> (Non-linear Encoder–Decoder, <a href="#fig-ned" class="quarto-xref">Figure&nbsp;<span>2.5</span></a>):</strong> Applies an MLP encoder head <em>after</em> the initial <span class="math inline">\(k\)</span>-dimensional Stiefel bottleneck: <span class="math inline">\(f_m(\mathbf{X}_m) = \text{MLP}_{\phi_m}(\mathbf{X}_m \mathbf{V}_m)\)</span>, <span class="math inline">\(g_m(\mathbf{Z}_m) = \text{MLP}_{\theta_m}(\mathbf{Z}_m)\)</span>.</li>
+<li><strong><code>NEDPP</code> (Shared–Private Disentangled NED, <a href="#fig-nedpp" class="quarto-xref">Figure&nbsp;<span>2.6</span></a>):</strong> Splits each view into shared and view-private branches <span class="math inline">\([\mathbf{Z}_{m,\text{shared}} \parallel \mathbf{Z}_{m,\text{private}}]\)</span> initialized with orthogonal Stiefel bases <span class="math inline">\([\mathbf{V}_{m,\text{sh}}, \mathbf{V}_{m,\text{pr}}]\)</span> and regularized by a cross-covariance disentanglement penalty <span class="math inline">\(\|\text{Cov}(\mathbf{Z}_{m,\text{shared}}, \mathbf{Z}_{m,\text{private}})\|_F^2 \to 0\)</span>.</li>
 </ul>
-<p>The initial projection <span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> preserves the formal Information Bottleneck, guaranteeing that all downstream non-linear transformations are grounded in an identifiable linear subspace (see <a href="#fig-ned" class="quarto-xref">Figure&nbsp;<span>2.3</span></a>).</p>
 <div id="fig-ned" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-ned-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -607,8 +663,8 @@ graph LR
     V --&gt; H_enc[Hidden Head]
     H_enc --&gt;|Activation| Z[Latent Z_m]
     
-    Other[Other Latents] --&gt; MAI[MAI Weighting]
-    MAI --&gt; U["Target U_{≠m}^{(t)}"]
+    Other[Other Latents] --&gt; MAI[MAI / Graph Consensus]
+    MAI --&gt; U["Target U_m^{(t)}"]
     Z -.-&gt;|Alignment Loss| U
     
     Z --&gt;|Deep MLP Decoder g_m| R[Recon X'_m]
@@ -624,19 +680,10 @@ graph LR
 </div>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-ned-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;2.3: NED: Multi-layer encoder subject to the initial OLEE information bottleneck constraint, coupled with a deep MLP decoder.
+Figure&nbsp;2.5: NED: Post-bottleneck MLP encoder coupled with an MLP decoder.
 </figcaption>
 </figure>
 </div>
-</section>
-<section id="shared-private-nedpp-disentangled-discovery" class="level3" data-number="2.2.5">
-<h3 data-number="2.2.5" class="anchored" data-anchor-id="shared-private-nedpp-disentangled-discovery"><span class="header-section-number">2.2.5</span> Shared-Private NEDPP (Disentangled Discovery)</h3>
-<p>Despite LOO consensus, modality-specific idiosyncratic noise can dominate the optimization landscape. NEDPP resolves this by explicitly partitioning the latent space:</p>
-<ul>
-<li><strong>Encoder:</strong> <span class="math inline">\(f_m(\mathbf{X}_m) = [\text{MLP}_{\phi_{m,\text{shared}}}(\mathbf{X}_m \mathbf{V}_{m,\text{shared}}) \parallel \text{MLP}_{\phi_{m,\text{private}}}(\mathbf{X}_m \mathbf{V}_{m,\text{private}})] = [\mathbf{Z}_{m,\text{shared}} \parallel \mathbf{Z}_{m,\text{private}}]\)</span></li>
-<li><strong>Decoder:</strong> <span class="math inline">\(g_m(\mathbf{Z}_{m,\text{shared}} \parallel \mathbf{Z}_{m,\text{private}}) = \text{MLP}_{\theta_m}([\mathbf{Z}_{m,\text{shared}} \parallel \mathbf{Z}_{m,\text{private}}])\)</span></li>
-</ul>
-<p>We enforce disentanglement via a cross-covariance penalty <span class="math inline">\(\text{Cov}(\mathbf{Z}_{m,\text{shared}}, \mathbf{Z}_{m,\text{private}}) \to \mathbf{0}\)</span>, orthogonalizing the shared and private representations (schematized in <a href="#fig-nedpp" class="quarto-xref">Figure&nbsp;<span>2.4</span></a>).</p>
 <div id="fig-nedpp" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-nedpp-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -655,8 +702,8 @@ graph TD
     Vs --&gt; S_enc[Shared Head] --&gt; S[Shared Z_m]
     Vp --&gt; P_enc[Private Head] --&gt; P[Private P_m]
     
-    Other[Other Latents] --&gt; MAI[MAI Weighting]
-    MAI --&gt; U["Target U_{≠m}^{(t)}"]
+    Other[Other Latents] --&gt; MAI[MAI / Graph Consensus]
+    MAI --&gt; U["Target U_m^{(t)}"]
     S -.-&gt;|Alignment Loss| U
     
     subgraph Disentanglement
@@ -682,19 +729,27 @@ graph TD
 </div>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-nedpp-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;2.4: NEDPP (Non-linear Encoder Decoder with Private Partitions): Disentangled architecture utilizing OLEE constraints for both shared and private subspaces. Incorporates cross-covariance penalization for statistical independence.
+Figure&nbsp;2.6: NEDPP: Shared–private disentangled architecture with cross-covariance orthogonalization.
 </figcaption>
 </figure>
 </div>
+<hr>
 </section>
-<section id="flow-simr-and-flow-simr-v-bijective-multimodal-architectures" class="level3" data-number="2.2.6">
-<h3 data-number="2.2.6" class="anchored" data-anchor-id="flow-simr-and-flow-simr-v-bijective-multimodal-architectures"><span class="header-section-number">2.2.6</span> Flow-SiMR and Flow-SiMR-V: Bijective Multimodal Architectures</h3>
-<p>In accordance with mathematical precision, we eliminate the historical ‘L’ (Linear) designation from normalizing flow models, as affine coupling architectures are non-linear transformations. We distinguish between two distinct flow architectures implemented in <code>src/pysimlr/flows.py</code>:</p>
-<section id="full-space-normalizing-flow-flow-simr" class="level4" data-number="2.2.6.1">
-<h4 data-number="2.2.6.1" class="anchored" data-anchor-id="full-space-normalizing-flow-flow-simr"><span class="header-section-number">2.2.6.1</span> Full-Space Normalizing Flow (Flow-SiMR)</h4>
-<p>In <code>FlowSiMRModel</code>, each modality is mapped through an invertible sequence of RealNVP affine coupling layers operating directly on the ambient observation space <span class="math inline">\(\mathbb{R}^{p_m} \to \mathbb{R}^{p_m}\)</span> (see <a href="#fig-flow-simr" class="quarto-xref">Figure&nbsp;<span>2.5</span></a>): <span id="eq-flow-simr-full"><span class="math display">\[
-\mathbf{Z}_m = \text{Flow}_{\psi_m}(\mathbf{X}_m)
-\tag{2.7}\]</span></span> Latent coordinates are partitioned into shared consensus dimensions <span class="math inline">\(\mathbf{Z}_{m,\text{shared}} = \mathbf{Z}_{m, 1:k}\)</span> and modality-specific private dimensions <span class="math inline">\(\mathbf{Z}_{m,\text{private}} = \mathbf{Z}_{m, k+1:p_m}\)</span>. Decoding is achieved by zero-padding the private partition: <span class="math inline">\(\hat{\mathbf{X}}_m = \text{Flow}_{\psi_m}^{-1}([\mathbf{Z}_{m,\text{shared}} \parallel \mathbf{0}])\)</span>.</p>
+</section>
+<section id="stage-5-bijective-normalizing-flows-downstream-of-olee-flow-simr-v-vs.-flow-simr" class="level2" data-number="2.5">
+<h2 data-number="2.5" class="anchored" data-anchor-id="stage-5-bijective-normalizing-flows-downstream-of-olee-flow-simr-v-vs.-flow-simr"><span class="header-section-number">2.5</span> Stage 5: Bijective Normalizing Flows Downstream of OLEE (<code>Flow-SiMR-V</code> vs.&nbsp;<code>Flow-SiMR</code>)</h2>
+<p>Although <code>LEND</code> provides non-linear decoding, an MLP decoder <span class="math inline">\(g_{\theta_m}: \mathbb{R}^k \to \mathbb{R}^{p_m}\)</span> is not analytically invertible and does not endow the latent space with an exact probability density for closed-form conditional inference across missing views or geodesic path integration.</p>
+<section id="full-space-flow-simr-vs.-olee-projected-flow-simr-v" class="level3" data-number="2.5.1">
+<h3 data-number="2.5.1" class="anchored" data-anchor-id="full-space-flow-simr-vs.-olee-projected-flow-simr-v"><span class="header-section-number">2.5.1</span> Full-Space <code>Flow-SiMR</code> vs.&nbsp;OLEE-Projected <code>Flow-SiMR-V</code></h3>
+<p>We distinguish two normalizing flow architectures in <code>src/pysimlr/flows.py</code>:</p>
+<ol type="1">
+<li><strong>Full-Space Normalizing Flow (<code>Flow-SiMR</code>, <a href="#fig-flow-simr" class="quarto-xref">Figure&nbsp;<span>2.7</span></a>):</strong> Applies an invertible sequence of RealNVP affine coupling layers directly on the ambient feature space <span class="math inline">\(\mathbb{R}^{p_m} \to \mathbb{R}^{p_m}\)</span>: <span id="eq-flow-simr-full"><span class="math display">\[
+\mathbf{Z}_m = \text{Flow}_{\psi_m}(\mathbf{X}_m) \in \mathbb{R}^{n \times p_m}
+\tag{2.41}\]</span></span> partitioning the output into shared coordinates <span class="math inline">\(\mathbf{Z}_{m, 1:k}\)</span> and private coordinates <span class="math inline">\(\mathbf{Z}_{m, k+1:p_m}\)</span>. While exact on low-dimensional views, <code>Flow-SiMR</code> scales as <span class="math inline">\(\mathcal{O}(p_m^2)\)</span> per coupling layer and sacrifices input linearity.</li>
+<li><strong>OLEE-Projected Latent Normalizing Flow (<code>Flow-SiMR-V</code>, <a href="#fig-flow-simr-v" class="quarto-xref">Figure&nbsp;<span>2.8</span></a>):</strong> Projects each modality onto the <span class="math inline">\(k\)</span>-dimensional Stiefel/NSA-Flow manifold first, then applies an invertible RealNVP + <code>ActNorm</code> flow strictly within <span class="math inline">\(\mathbb{R}^k\)</span>: <span id="eq-flow-simr-v-latent"><span class="math display">\[
+\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m \in \mathbb{R}^{n \times k}, \quad \mathbf{Z}_m = \text{Flow}_{\psi_m}(\mathbf{Z}_{m,\text{lin}}) \in \mathbb{R}^{n \times k}
+\tag{2.42}\]</span></span></li>
+</ol>
 <div id="fig-flow-simr" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-flow-simr-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -741,20 +796,10 @@ graph TD
 </div>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-flow-simr-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;2.5: Flow-SiMR: Normalizing flow architecture. The bijective flow maps inputs to a joint Gaussian latent space. The first <span class="math inline">\(k\)</span> dimensions are aligned with the shared cross-view consensus, while the remaining dimensions act as an implicit private partition. Padded decoding and Gaussian conditioning enable exact reconstruction and cross-view synthesis.
+Figure&nbsp;2.7: Flow-SiMR: Ambient-space normalizing flow partitioning <span class="math inline">\(\mathbb{R}^{p_m}\)</span> into <span class="math inline">\(k\)</span> shared and <span class="math inline">\(p_m - k\)</span> private coordinates.
 </figcaption>
 </figure>
 </div>
-</section>
-<section id="linear-projected-latent-normalizing-flow-flow-simr-v" class="level4" data-number="2.2.6.2">
-<h4 data-number="2.2.6.2" class="anchored" data-anchor-id="linear-projected-latent-normalizing-flow-flow-simr-v"><span class="header-section-number">2.2.6.2</span> Linear-Projected Latent Normalizing Flow (Flow-SiMR-V)</h4>
-<p>In <code>FlowSiMRVModel</code>, high-dimensional ambient data is first compressed via the linear OLEE basis <span class="math inline">\(\mathbf{V}_m \in \text{St}(k, p_m)\)</span>, regularized to the Stiefel manifold. The normalizing flow operates strictly within the intrinsic <span class="math inline">\(k\)</span>-dimensional latent subspace (see <a href="#fig-flow-simr-v" class="quarto-xref">Figure&nbsp;<span>2.6</span></a>): <span id="eq-flow-simr-v-latent"><span class="math display">\[
-\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m \in \mathbb{R}^{n \times k}, \quad \mathbf{Z}_m = \text{Flow}_{\psi_m}(\mathbf{Z}_{m,\text{lin}}) \in \mathbb{R}^{n \times k}
-\tag{2.8}\]</span></span> This design achieves dual optimality:</p>
-<ol type="1">
-<li><strong>Computational Scalability</strong>: Coupling layers operate on <span class="math inline">\(k \ll p_m\)</span> dimensions, reducing parameter counts and memory footprints by orders of magnitude.</li>
-<li><strong>Auditable Attribution</strong>: The mapping begins with the linear isometry <span class="math inline">\(\mathbf{V}_m\)</span>, preserving exact minimum-norm counterfactual calculations while permitting non-Gaussian density alignment in the latent space.</li>
-</ol>
 <div id="fig-flow-simr-v" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-flow-simr-v-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -772,9 +817,9 @@ graph TD
     Z_lin --&gt; Flow[Normalizing Flow in R^k]
     Flow --&gt; Z_final[Warped Latent Z_m in R^k]
     
-    Other[Other Modalities] --&gt; LOO[LOO Consensus]
-    LOO --&gt; U["Target U_{≠m}"]
-    Z_final -.-&gt;|Log-Cosh Alignment| U
+    Other[Other Modalities] --&gt; LOO[Graph / LOO Consensus]
+    LOO --&gt; U["Target U_m"]
+    Z_final -.-&gt;|Alignment Loss| U
     
     Z_final --&gt; InvFlow[Inverse Flow]
     InvFlow --&gt; Z_rec[Recovered Z_lin]
@@ -793,342 +838,138 @@ graph TD
 </div>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-flow-simr-v-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;2.6: Flow-SiMR-V Architecture: Prepending the OLEE linear basis <span class="math inline">\(\mathbf{V}_m\)</span> projects ambient observations into <span class="math inline">\(\mathbb{R}^k\)</span> prior to bijective flow alignment, maintaining auditability while providing non-linear consensus capacity.
+Figure&nbsp;2.8: Flow-SiMR-V: Prepending the OLEE linear basis <span class="math inline">\(\mathbf{V}_m\)</span> projects ambient observations into <span class="math inline">\(\mathbb{R}^k\)</span> prior to bijective flow alignment.
 </figcaption>
 </figure>
 </div>
 </section>
-<section id="invertible-affine-coupling-and-joint-gaussian-inference" class="level4" data-number="2.2.6.3">
-<h4 data-number="2.2.6.3" class="anchored" data-anchor-id="invertible-affine-coupling-and-joint-gaussian-inference"><span class="header-section-number">2.2.6.3</span> Invertible Affine Coupling and Joint Gaussian Inference</h4>
-<p>Each view is modeled via an invertible mapping composed of RealNVP affine coupling layers <span class="citation" data-cites="dinh2016density rezende2015variational">(<a href="#ref-dinh2016density" role="doc-biblioref">Dinh et al. 2016</a>; <a href="#ref-rezende2015variational" role="doc-biblioref">Rezende and Mohamed 2015</a>)</span>. For coordinate vector <span class="math inline">\(\mathbf{z} \in \mathbb{R}^k\)</span>, a coupling layer splits coordinates using a binary mask <span class="math inline">\(\mathbf{b} \in \{0, 1\}^k\)</span>: <span id="eq-realnvp-forward"><span class="math display">\[
+<section id="proposition-rectangular-olee-prior-collapse-and-the-detached-prior-solution" class="level3" data-number="2.5.2">
+<h3 data-number="2.5.2" class="anchored" data-anchor-id="proposition-rectangular-olee-prior-collapse-and-the-detached-prior-solution"><span class="header-section-number">2.5.2</span> Proposition: Rectangular OLEE Prior Collapse and the Detached-Prior Solution</h3>
+<p>Combining a rectangular Stiefel projection <span class="math inline">\(\mathbf{V}_m \in \text{St}(k, p_m)\)</span> (<span class="math inline">\(p_m &gt; k\)</span>) with a normalizing flow introduces a subtle variational pathology if the Gaussian prior negative log-likelihood (NLL) is backpropagated naively into <span class="math inline">\(\mathbf{V}_m\)</span>.</p>
+<p><strong>Proposition (Rectangular OLEE Variance Collapse under Unconstrained Flow Prior Gradients):</strong><br>
+Let <span class="math inline">\(\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m \in \mathbb{R}^{n \times k}\)</span> with <span class="math inline">\(\mathbf{V}_m \in \text{St}(k, p_m)\)</span> (<span class="math inline">\(p_m &gt; k\)</span>), and let <span class="math inline">\(\mathbf{Z}_m = f_{\psi_m}(\mathbf{Z}_{m,\text{lin}})\)</span> be a diffeomorphism on <span class="math inline">\(\mathbb{R}^k\)</span> regularized by the standard normal prior negative log-likelihood: <span class="math display">\[
+\mathcal{L}_{\text{NLL}}(\mathbf{V}_m, \psi_m) = \frac{1}{2n} \left\| f_{\psi_m}(\mathbf{X}_m \mathbf{V}_m) \right\|_F^2 - \frac{1}{n} \sum_{i=1}^n \log \left| \det J_{f_{\psi_m}}\left(\mathbf{x}_{m, i} \mathbf{V}_m\right) \right|
+\]</span> While the square bijection <span class="math inline">\(f_{\psi_m}: \mathbb{R}^k \to \mathbb{R}^k\)</span> is prevented from trivially contracting its output by its own log-Jacobian barrier <span class="math inline">\(-\log |\det J_{f_{\psi_m}}|\)</span>, the rectangular projection <span class="math inline">\(\mathbf{V}_m: \mathbb{R}^{p_m} \to \mathbb{R}^k\)</span> has <strong>no log-determinant term</strong> in <span class="math inline">\(\mathcal{L}_{\text{NLL}}\)</span>. Consequently, for any fixed flow with bounded Lipschitz constant, minimizing <span class="math inline">\(\mathcal{L}_{\text{NLL}}\)</span> with respect to <span class="math inline">\(\mathbf{V}_m \in \text{St}(k, p_m)\)</span> drives <span class="math inline">\(\mathbf{V}_m\)</span> toward the <strong>minimum-variance eigenvectors</strong> of the sample covariance <span class="math inline">\(\frac{1}{n}\mathbf{X}_m^\top \mathbf{X}_m\)</span>: <span class="math display">\[
+\arg\min_{\mathbf{V}_m \in \text{St}(k, p_m)} \frac{1}{2n} \|\mathbf{X}_m \mathbf{V}_m\|_F^2 = \text{span}\{ \mathbf{e}_{p_m - k + 1}, \dots, \mathbf{e}_{p_m} \}
+\]</span> rotating <span class="math inline">\(\mathbf{V}_m\)</span> out of the biological signal subspace and into the lowest-variance noise directions (empirically collapsing <span class="math inline">\(\text{Var}(\mathbf{X}_1 \mathbf{V}_1)\)</span> on ADNI-MCI from <span class="math inline">\(29.53\)</span> at initialization to <span class="math inline">\(1.79\)</span>).</p>
+<p><strong>Solution (Detached-Prior Variational Objective with <code>ActNorm</code> Scale Preservation):</strong><br>
+In <code>FlowSiMRVModel.forward</code> (<code>src/pysimlr/flows.py:920-934</code>), we evaluate the normalizing flow prior NLL on the <strong>stop-gradient (detached)</strong> first-layer coordinates <span class="math inline">\(\text{sg}(\mathbf{Z}_{m,\text{lin}})\)</span> while keeping the full computational graph active for cross-view alignment and feature reconstruction: <span id="eq-detached-prior-nll"><span class="math display">\[
+\mathcal{L}_{\text{Flow-SiMR-V}}(\mathbf{V}_m, \psi_m) = \mathcal{L}_{\text{recon}}\left(\mathbf{X}_m, f_{\psi_m}^{-1}(\mathbf{U}_m) \mathbf{V}_m^\top\right) + \lambda_{\text{sim}} w_m \mathcal{L}_{\text{align}}\left(f_{\psi_m}(\mathbf{X}_m \mathbf{V}_m), \mathbf{U}_m\right) + \beta_{\text{prior}} \mathcal{L}_{\text{NLL}}\left(f_{\psi_m}(\text{sg}(\mathbf{X}_m \mathbf{V}_m))\right) + \gamma D(\mathbf{V}_m)
+\tag{2.43}\]</span></span> In this factored objective: 1. The first-layer basis <span class="math inline">\(\mathbf{V}_m\)</span> is updated strictly by cross-view alignment <span class="math inline">\(\mathcal{L}_{\text{align}}\)</span>, ambient reconstruction <span class="math inline">\(\mathcal{L}_{\text{recon}}\)</span>, and Stiefel regularization <span class="math inline">\(D(\mathbf{V}_m)\)</span>—never by the variance-shrinking prior norm. 2. The first layer of <span class="math inline">\(f_{\psi_m}\)</span> is an invertible <code>ActNorm</code> layer initialized to <span class="math inline">\(s = -\log \text{std}(\mathbf{X}_m \mathbf{V}_m^{(0)})\)</span>, which maps <span class="math inline">\(\mathbf{Z}_{m,\text{lin}}\)</span> to unit scale in the forward pass and automatically restores the true physical scale of <span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> during the inverse pass <span class="math inline">\(f_{\psi_m}^{-1}(\mathbf{U}_m) \mathbf{V}_m^\top\)</span>.</p>
+</section>
+<section id="invertible-affine-coupling-schur-complement-conditional-inference-and-geodesics" class="level3" data-number="2.5.3">
+<h3 data-number="2.5.3" class="anchored" data-anchor-id="invertible-affine-coupling-schur-complement-conditional-inference-and-geodesics"><span class="header-section-number">2.5.3</span> Invertible Affine Coupling, Schur-Complement Conditional Inference, and Geodesics</h3>
+<p>Each flow <span class="math inline">\(f_{\psi_m}\)</span> is a composition of RealNVP affine coupling layers <span class="citation" data-cites="dinh2016density rezende2015variational">(<a href="#ref-dinh2016density" role="doc-biblioref">Dinh et al. 2016</a>; <a href="#ref-rezende2015variational" role="doc-biblioref">Rezende and Mohamed 2015</a>)</span> with binary mask <span class="math inline">\(\mathbf{b} \in \{0, 1\}^k\)</span>: <span id="eq-realnvp-forward"><span class="math display">\[
 \mathbf{z}_1 = \mathbf{b} \odot \mathbf{z}, \quad \mathbf{z}_2 = (1 - \mathbf{b}) \odot \left( \mathbf{z} \odot e^{s(\mathbf{z}_1)} + t(\mathbf{z}_1) \right), \quad \mathbf{z}' = \mathbf{z}_1 + \mathbf{z}_2
-\tag{2.9}\]</span></span> where <span class="math inline">\(s\)</span> and <span class="math inline">\(t\)</span> are scaling and translation networks. Scale outputs are bounded via <span class="math inline">\(s(\mathbf{z}_1) = \text{scale\_bound} \times \tanh(s_{\text{net}}(\mathbf{z}_1))\)</span> to ensure numerical stability. The inverse transformation is analytically exact: <span id="eq-realnvp-inverse"><span class="math display">\[
+\tag{2.44}\]</span></span> with exact analytical inverse: <span id="eq-realnvp-inverse"><span class="math display">\[
 \mathbf{z}_1 = \mathbf{b} \odot \mathbf{z}', \quad \mathbf{z}_2 = (1 - \mathbf{b}) \odot \left( (\mathbf{z}' - t(\mathbf{z}_1)) \odot e^{-s(\mathbf{z}_1)} \right), \quad \mathbf{z} = \mathbf{z}_1 + \mathbf{z}_2
-\tag{2.10}\]</span></span> with log-Jacobian determinant <span class="math inline">\(\log |\det J| = \sum_{j: b_j = 0} s_j(\mathbf{z}_1)\)</span>.</p>
-<p>Because normalizing flows map empirical data to standard Gaussian latents, the concatenated shared latent space across all views is parameterized as a joint Gaussian: <span id="eq-joint-gaussian-latent"><span class="math display">\[
+\tag{2.45}\]</span></span> Modeling the concatenated shared latent coordinates across views as a joint Gaussian: <span id="eq-joint-gaussian-latent"><span class="math display">\[
 \mathbf{Z}_{\text{joint}} = [\mathbf{Z}_{1,\text{shared}} \parallel \dots \parallel \mathbf{Z}_{M,\text{shared}}] \sim \mathcal{N}(\boldsymbol{\mu}, \Sigma)
-\tag{2.11}\]</span></span> Partitioning into observed view <span class="math inline">\(A\)</span> and unobserved view <span class="math inline">\(B\)</span>, the conditional latent mean given observed view <span class="math inline">\(A\)</span> evaluates via the Schur complement: <span id="eq-conditional-mean-schur"><span class="math display">\[
-\boldsymbol{\mu}_{B|A} = \boldsymbol{\mu}_B + \Sigma_{BA} \Sigma_{AA}^{-1} (\mathbf{Z}_{A,\text{shared}} - \boldsymbol{\mu}_A)
-\tag{2.12}\]</span></span> Solved via Cholesky factorization, the conditional coordinates are decoded into ambient space. For Full-Space Flow-SiMR, decoding is evaluated via <span class="math inline">\(\hat{\mathbf{X}}_B = \text{Flow}_{\psi_B}^{-1}([\boldsymbol{\mu}_{B|A} \parallel \mathbf{0}])\)</span>, whereas for Flow-SiMR-V, decoding projects back through the OLEE basis: <span class="math inline">\(\hat{\mathbf{X}}_B = \text{Flow}_{\psi_B}^{-1}(\boldsymbol{\mu}_{B|A}) \mathbf{V}_B^\top\)</span>.</p>
+\tag{2.46}\]</span></span> yields closed-form conditional cross-view inference for an unobserved view <span class="math inline">\(B\)</span> given observed view(s) <span class="math inline">\(A\)</span> via the Schur complement: <span id="eq-conditional-mean-schur"><span class="math display">\[
+\boldsymbol{\mu}_{B|A} = \boldsymbol{\mu}_B + \Sigma_{BA} \Sigma_{AA}^{-1} (\mathbf{Z}_{A,\text{shared}} - \boldsymbol{\mu}_A), \qquad \hat{\mathbf{X}}_B = f_{\psi_B}^{-1}(\boldsymbol{\mu}_{B|A}) \mathbf{V}_B^\top
+\tag{2.47}\]</span></span></p>
+<hr>
 </section>
 </section>
-</section>
-<section id="manifold-optimization-and-algorithmic-mechanics" class="level2" data-number="2.3">
-<h2 data-number="2.3" class="anchored" data-anchor-id="manifold-optimization-and-algorithmic-mechanics"><span class="header-section-number">2.3</span> Manifold Optimization and Algorithmic Mechanics</h2>
-<section id="stiefel-manifold-optimization-and-svd-elimination" class="level3" data-number="2.3.1">
-<h3 data-number="2.3.1" class="anchored" data-anchor-id="stiefel-manifold-optimization-and-svd-elimination"><span class="header-section-number">2.3.1</span> Stiefel Manifold Optimization and SVD Elimination</h3>
-<p>The parameter space for each projection basis <span class="math inline">\(\mathbf{V}_m \in \mathbb{R}^{p_m \times k}\)</span> is the compact Stiefel manifold: <span id="eq-stiefel-manifold"><span class="math display">\[
-\text{St}(k, p_m) = \{ \mathbf{V} \in \mathbb{R}^{p_m \times k} \mid \mathbf{V}^\top \mathbf{V} = \mathbf{I}_k \}
-\tag{2.13}\]</span></span> In Euclidean gradient descent, unconstrained parameter updates displace iterates off the manifold. Mapping tangent iterates <span class="math inline">\(\mathbf{Y} \in \mathbb{R}^{p_m \times k}\)</span> back to <span class="math inline">\(\text{St}(k, p_m)\)</span> requires a retraction mapping <span class="math inline">\(R: T \text{St}(k, p_m) \to \text{St}(k, p_m)\)</span>.</p>
-<section id="riemannian-tangent-space-and-metric-projections" class="level4" data-number="2.3.1.1">
-<h4 data-number="2.3.1.1" class="anchored" data-anchor-id="riemannian-tangent-space-and-metric-projections"><span class="header-section-number">2.3.1.1</span> Riemannian Tangent Space and Metric Projections</h4>
-<p>For an iterate <span class="math inline">\(\mathbf{V} \in \text{St}(k, p_m)\)</span>, the tangent space <span class="math inline">\(T_{\mathbf{V}} \text{St}(k, p_m)\)</span> comprises all displacement matrices <span class="math inline">\(\Delta \in \mathbb{R}^{p_m \times k}\)</span> satisfying the linearized orthonormality constraint: <span id="eq-stiefel-tangent-space"><span class="math display">\[
-T_{\mathbf{V}} \text{St}(k, p_m) = \{ \Delta \in \mathbb{R}^{p_m \times k} \mid \mathbf{V}^\top \Delta + \Delta^\top \mathbf{V} = \mathbf{0} \}
-\tag{2.14}\]</span></span> Under the standard Euclidean metric <span class="math inline">\(\langle \mathbf{A}, \mathbf{B} \rangle = \text{tr}(\mathbf{A}^\top \mathbf{B})\)</span> inherited from the ambient embedding space <span class="math inline">\(\mathbb{R}^{p_m \times k}\)</span>, the orthogonal projection of an unconstrained ambient gradient <span class="math inline">\(\mathbf{G} = \nabla_{\mathbf{V}} \mathcal{L}\)</span> onto the tangent space <span class="math inline">\(T_{\mathbf{V}} \text{St}(k, p_m)\)</span> evaluates in closed form (<code>project_gradient</code> in <code>src/pysimlr/simlr.py:111-146</code>, following <span class="citation" data-cites="edelman1998geometry">Edelman et al. (<a href="#ref-edelman1998geometry" role="doc-biblioref">1998</a>)</span>): <span id="eq-stiefel-tangent-proj"><span class="math display">\[
-\Pi_{T_{\mathbf{V}}}(\mathbf{G}) = \mathbf{G} - \mathbf{V} \, \text{sym}(\mathbf{V}^\top \mathbf{G}) = \mathbf{G} - \frac{1}{2} \mathbf{V} (\mathbf{V}^\top \mathbf{G} + \mathbf{G}^\top \mathbf{V})
-\tag{2.15}\]</span></span> where <span class="math inline">\(\text{sym}(\mathbf{M}) = \frac{1}{2}(\mathbf{M} + \mathbf{M}^\top)\)</span>. (In Grassmann mode, the horizontal tangent projection eliminates the full column space: <span class="math inline">\(\Pi_{T_{\mathbf{V}}}^{\text{Gr}}(\mathbf{G}) = \mathbf{G} - \mathbf{V}(\mathbf{V}^\top \mathbf{G})\)</span>.)</p>
-<p>The Riemannian gradient is thus given by <span class="math inline">\(\text{grad}_{\text{St}} \mathcal{L} = \Pi_{T_{\mathbf{V}}}(\nabla_{\mathbf{V}} \mathcal{L})\)</span>. Moving along the tangent direction yields an ambient search candidate <span class="math inline">\(\mathbf{Y} = \mathbf{V} - \eta \, \text{grad}_{\text{St}} \mathcal{L}\)</span>, which is subsequently mapped back to the manifold via a metric retraction <span class="math inline">\(R(\mathbf{Y}) \in \text{St}(k, p_m)\)</span>.</p>
-</section>
-<section id="sylvester-polar-factor-retraction" class="level4" data-number="2.3.1.2">
-<h4 data-number="2.3.1.2" class="anchored" data-anchor-id="sylvester-polar-factor-retraction"><span class="header-section-number">2.3.1.2</span> Sylvester Polar Factor Retraction</h4>
-<p>The canonical metric retraction is the polar factor projection: <span id="eq-polar-factor"><span class="math display">\[
-R(\mathbf{Y}) = \mathbf{Y} (\mathbf{Y}^\top \mathbf{Y})^{-1/2}
-\tag{2.16}\]</span></span> Standard implementations compute <span class="math inline">\(R(\mathbf{Y}) = \mathbf{U} \mathbf{W}^\top\)</span> via Singular Value Decomposition (SVD), <span class="math inline">\(\mathbf{Y} = \mathbf{U} \Sigma \mathbf{W}^\top\)</span>. However, explicit SVD incurs severe computational and numerical pathology:</p>
-<ol type="1">
-<li><strong>Branch Divergence &amp; Kernel Serialization</strong>: SVD algorithms (e.g.&nbsp;Jacobi or divide-and-conquer) cannot be fully vectorized on GPU SIMD tensor cores.</li>
-<li><strong>Singular Value Multiplicity Singularity</strong>: The backpropagation derivative of an SVD contains terms proportional to <span class="math inline">\((\sigma_i^2 - \sigma_j^2)^{-1}\)</span>. When singular values cluster or cross (<span class="math inline">\(\sigma_i \approx \sigma_j\)</span>), gradients explode, introducing fatal NaNs into the optimization path.</li>
-</ol>
-<p>To circumvent this, we express the polar factor <span class="math inline">\(\mathbf{H} = (\mathbf{Y}^\top \mathbf{Y})^{1/2}\)</span> via the continuous Lyapunov/Sylvester system (<code>src/pysimlr/nsa_backend.py:236-254</code>, with SVD fallback in <code>src/pysimlr/sparsification.py:494-510</code>): <span id="eq-lyapunov-sylvester"><span class="math display">\[
-\mathbf{H} (d\mathbf{H}) + (d\mathbf{H}) \mathbf{H} = d(\mathbf{Y}^\top \mathbf{Y}) = (d\mathbf{Y})^\top \mathbf{Y} + \mathbf{Y}^\top (d\mathbf{Y})
-\tag{2.17}\]</span></span> Because <span class="math inline">\(\mathbf{H}\)</span> is symmetric positive definite (<span class="math inline">\(\mathbf{H} \succ 0\)</span>), this Sylvester equation has a provably unique solution <span class="math inline">\(d\mathbf{H}\)</span>. Gradients flow smoothly through backpropagation without encountering eigenvalue multiplicity singularities.</p>
-</section>
-<section id="newton-schulz-cubic-matrix-recurrence-and-convergence-proof" class="level4" data-number="2.3.1.3">
-<h4 data-number="2.3.1.3" class="anchored" data-anchor-id="newton-schulz-cubic-matrix-recurrence-and-convergence-proof"><span class="header-section-number">2.3.1.3</span> Newton-Schulz Cubic Matrix Recurrence and Convergence Proof</h4>
-<p>To eliminate SVD factorizations entirely from the forward execution loop, we approximate the inverse square root <span class="math inline">\((\mathbf{Y}^\top \mathbf{Y})^{-1/2}\)</span> via the cubic Newton-Schulz matrix polynomial (<code>src/pysimlr/utils.py:1324-1380</code>): <span id="eq-newton-schulz"><span class="math display">\[
-\mathbf{Y}_0 = \frac{\mathbf{Y}}{\|\mathbf{Y}\|_F}, \quad \mathbf{Y}_{\tau+1} = \frac{1}{2} \mathbf{Y}_\tau \left( 3 \mathbf{I}_k - \mathbf{Y}_\tau^\top \mathbf{Y}_\tau \right)
-\tag{2.18}\]</span></span></p>
-<p><strong>Theorem (Quadratic Convergence to the Stiefel Manifold):</strong><br>
-Let <span class="math inline">\(\mathbf{Y}_0 \in \mathbb{R}^{p \times k}\)</span> have singular values <span class="math inline">\(\sigma_{0, i} \in (0, \sqrt{3})\)</span> for all <span class="math inline">\(i \in \{1, \dots, k\}\)</span>. The sequence of iterates <span class="math inline">\(\mathbf{Y}_\tau\)</span> converges quadratically to the nearest point on the Stiefel manifold <span class="math inline">\(\text{St}(k, p)\)</span>: <span id="eq-newton-schulz-rate"><span class="math display">\[
-\|\mathbf{Y}_{\tau+1}^\top \mathbf{Y}_{\tau+1} - \mathbf{I}_k\| = \mathcal{O}\left(\|\mathbf{Y}_\tau^\top \mathbf{Y}_\tau - \mathbf{I}_k\|^2\right)
-\tag{2.19}\]</span></span></p>
-<p><strong>Proof:</strong><br>
-Let the singular value decomposition of iterate <span class="math inline">\(\tau\)</span> be <span class="math inline">\(\mathbf{Y}_\tau = \mathbf{P} \Sigma_\tau \mathbf{Q}^\top\)</span>, where <span class="math inline">\(\mathbf{P} \in \text{St}(k, p)\)</span>, <span class="math inline">\(\mathbf{Q} \in \mathbb{O}(k)\)</span>, and <span class="math inline">\(\Sigma_\tau = \text{diag}(\sigma_{\tau, 1}, \dots, \sigma_{\tau, k})\)</span>. Substituting this decomposition into the Newton-Schulz recurrence: <span class="math display">\[
-\mathbf{Y}_{\tau+1} = \frac{1}{2} \left(\mathbf{P} \Sigma_\tau \mathbf{Q}^\top\right) \left( 3 \mathbf{I}_k - \mathbf{Q} \Sigma_\tau^2 \mathbf{Q}^\top \right) = \mathbf{P} \left[ \frac{1}{2} \Sigma_\tau \left( 3 \mathbf{I}_k - \Sigma_\tau^2 \right) \right] \mathbf{Q}^\top
-\]</span> Because the singular vectors <span class="math inline">\(\mathbf{P}\)</span> and <span class="math inline">\(\mathbf{Q}\)</span> are stationary under the iteration, the matrix recurrence decouples into <span class="math inline">\(k\)</span> independent scalar recurrences for each singular value <span class="math inline">\(\sigma_{\tau, i}\)</span>: <span class="math display">\[
-\sigma_{\tau+1, i} = \frac{1}{2} \sigma_{\tau, i} \left( 3 - \sigma_{\tau, i}^2 \right)
-\]</span> Define the relative distance to the Stiefel manifold for singular value <span class="math inline">\(i\)</span> as <span class="math inline">\(\epsilon_{\tau, i} = 1 - \sigma_{\tau, i}\)</span>. Expressing <span class="math inline">\(\sigma_{\tau, i} = 1 - \epsilon_{\tau, i}\)</span> and expanding: <span class="math display">\[
-\sigma_{\tau+1, i} = \frac{1}{2}(1 - \epsilon_{\tau, i}) \left( 3 - (1 - \epsilon_{\tau, i})^2 \right)
-\]</span> <span class="math display">\[
-= \frac{1}{2}(1 - \epsilon_{\tau, i}) \left( 3 - (1 - 2\epsilon_{\tau, i} + \epsilon_{\tau, i}^2) \right) = \frac{1}{2}(1 - \epsilon_{\tau, i}) \left( 2 + 2\epsilon_{\tau, i} - \epsilon_{\tau, i}^2 \right)
-\]</span> <span class="math display">\[
-= \frac{1}{2} \left( 2 + 2\epsilon_{\tau, i} - \epsilon_{\tau, i}^2 - 2\epsilon_{\tau, i} - 2\epsilon_{\tau, i}^2 + \epsilon_{\tau, i}^3 \right) = 1 - \frac{3}{2}\epsilon_{\tau, i}^2 + \frac{1}{2}\epsilon_{\tau, i}^3
-\]</span> Subtracting both sides from 1 yields the exact recurrence for the error metric: <span id="eq-newton-schulz-error"><span class="math display">\[
-\epsilon_{\tau+1, i} = 1 - \sigma_{\tau+1, i} = \frac{3}{2}\epsilon_{\tau, i}^2 - \frac{1}{2}\epsilon_{\tau, i}^3 = \epsilon_{\tau, i}^2 \left( \frac{3 - \epsilon_{\tau, i}}{2} \right)
-\tag{2.20}\]</span></span> For any <span class="math inline">\(\sigma_{0, i} \in (0, \sqrt{3})\)</span>, <span class="math inline">\(|\epsilon_{0, i}| &lt; 1\)</span>, ensuring monotonic error contraction. As <span class="math inline">\(\epsilon \to 0\)</span>, the cubic term is negligible: <span class="math display">\[
-\epsilon_{\tau+1} = \frac{3}{2}\epsilon_\tau^2 + \mathcal{O}(\epsilon_\tau^3)
-\]</span> Thus, the recurrence converges with quadratic order <span class="math inline">\(\mathcal{O}(\epsilon^2)\)</span>. Because the update requires only matrix multiplications and additions (<span class="math inline">\(\mathbf{Y}^\top \mathbf{Y}\)</span> and <span class="math inline">\(\mathbf{Y} \mathbf{M}\)</span>), it compiles directly to hardware tensor cores, achieving zero CPU-GPU transfer bottlenecks. For high-dimensional embeddings (<span class="math inline">\(k \ge 30\)</span>), where singular values scale as <span class="math inline">\(\mathcal{O}(1/\sqrt{k})\)</span>, 20 iterations or a spectral norm pre-scaler <span class="math inline">\(\mathbf{Y}_0 = \mathbf{Y}/\sqrt{\|\mathbf{Y}^\top \mathbf{Y}\|_\infty}\)</span> ensure complete convergence. Geometrical intuition for this orthogonal discovery process is illustrated in <a href="#fig-stiefel-intuition" class="quarto-xref">Figure&nbsp;<span>2.7</span></a>.</p>
-<div id="cell-fig-stiefel-intuition" class="cell" data-message="false" data-execution_count="1">
-<div class="cell-output cell-output-display">
-<div id="fig-stiefel-intuition" class="quarto-float quarto-figure quarto-figure-center anchored">
-<figure class="quarto-float quarto-float-fig figure">
-<div aria-describedby="fig-stiefel-intuition-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="02_methods_files/figure-html/fig-stiefel-intuition-output-1.png" width="913" height="486" class="figure-img">
-</div>
-<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-stiefel-intuition-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;2.7: Geometrical Intuition of Orthogonal Discovery via Stiefel Retraction. Unconstrained deep architectures succumb to latent collapse by entangling redundant variance components (red vectors). Stiefel manifold retractions constrain feature discovery to the orthonormal manifold (wireframe sphere), distilling distinct, statistically independent generative factors (green orthogonal vectors).
-</figcaption>
-</figure>
-</div>
-</div>
-</div>
-</section>
-</section>
-<section id="quasi-newton-curvature-steps-via-torch_lbfgs" class="level3" data-number="2.3.2">
-<h3 data-number="2.3.2" class="anchored" data-anchor-id="quasi-newton-curvature-steps-via-torch_lbfgs"><span class="header-section-number">2.3.2</span> Quasi-Newton Curvature Steps via <code>torch_lbfgs</code></h3>
-<p>Joint-variational alignment produces an ill-conditioned optimization landscape, characterized by narrow parabolic ravines formed by cross-modal consensus constraints and Stiefel manifold boundaries. Standard first-order stochastic gradient methods (SGD, Adam) suffer from pathological oscillations across ravine walls.</p>
-<p>We accelerate convergence by deploying quasi-Newton second-order curvature estimation via <code>torch_lbfgs</code> (<code>src/pysimlr/optimizers.py:841-894</code>). Let <span class="math inline">\(\mathbf{s}_t = \mathbf{V}_{t+1} - \mathbf{V}_t\)</span> denote the parameter displacement and <span class="math inline">\(\mathbf{y}_t = \nabla \mathcal{L}(\mathbf{V}_{t+1}) - \nabla \mathcal{L}(\mathbf{V}_t)\)</span> denote the gradient variation. Over a rolling history of size <span class="math inline">\(h=10\)</span>, the inverse Hessian approximation <span class="math inline">\(\mathbf{H}_t \approx \nabla^2 \mathcal{L}(\mathbf{V}_t)^{-1}\)</span> is computed via the two-loop recursion:</p>
-<ol type="1">
-<li><strong>Backward History Loop</strong>: Initialize <span class="math inline">\(\mathbf{q} = \nabla \mathcal{L}(\mathbf{V}_t)\)</span>. For <span class="math inline">\(i = t-1\)</span> down to <span class="math inline">\(t-h\)</span>: <span class="math display">\[
-\alpha_i = \rho_i \text{tr}(\mathbf{s}_i^\top \mathbf{q}), \quad \mathbf{q} \leftarrow \mathbf{q} - \alpha_i \mathbf{y}_i, \quad \text{where } \rho_i = \frac{1}{\text{tr}(\mathbf{y}_i^\top \mathbf{s}_i)}
-\]</span></li>
-<li><strong>Initial Scaling</strong>: <span class="math inline">\(\mathbf{r} = \gamma_t \mathbf{q}\)</span>, with <span class="math inline">\(\gamma_t = \frac{\text{tr}(\mathbf{s}_{t-1}^\top \mathbf{y}_{t-1})}{\text{tr}(\mathbf{y}_{t-1}^\top \mathbf{y}_{t-1})}\)</span>.</li>
-<li><strong>Forward History Loop</strong>: For <span class="math inline">\(i = t-h\)</span> up to <span class="math inline">\(t-1\)</span>: <span class="math display">\[
-\beta = \rho_i \text{tr}(\mathbf{y}_i^\top \mathbf{r}), \quad \mathbf{r} \leftarrow \mathbf{r} + \mathbf{s}_i (\alpha_i - \beta)
-\]</span></li>
-<li><strong>Descent Direction</strong>: The update step is <span class="math inline">\(\mathbf{p}_t = -\mathbf{r}\)</span>, accepted under Strong Wolfe line search conditions: <span id="eq-lbfgs-descent"><span class="math display">\[
-\mathcal{L}(\mathbf{V}_t + \alpha_t \mathbf{p}_t) \le \mathcal{L}(\mathbf{V}_t) + c_1 \alpha_t \text{tr}(\nabla \mathcal{L}(\mathbf{V}_t)^\top \mathbf{p}_t)
-\tag{2.21}\]</span></span> <span class="math display">\[
-|\text{tr}(\nabla \mathcal{L}(\mathbf{V}_t + \alpha_t \mathbf{p}_t)^\top \mathbf{p}_t)| \le c_2 |\text{tr}(\nabla \mathcal{L}(\mathbf{V}_t)^\top \mathbf{p}_t)|
-\]</span></li>
-</ol>
-<section id="analytical-gradient-closures" class="level4" data-number="2.3.2.1">
-<h4 data-number="2.3.2.1" class="anchored" data-anchor-id="analytical-gradient-closures"><span class="header-section-number">2.3.2.1</span> Analytical Gradient Closures</h4>
-<p>In PyTorch’s native <code>optim.LBFGS</code>, the Strong Wolfe line search evaluates trial objective values along candidate steps <span class="math inline">\(\mathbf{V}_t + \alpha \mathbf{p}_t\)</span>. Because SiMLR relies on exact analytical gradients rather than automatic differentiation, caching a static gradient at step entry causes trial evaluations to use stale directions, degrading the curvature estimate. We implement an analytical callback closure:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> closure():</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    optimizer.zero_grad()</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> torch.no_grad():</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>        v_param.grad <span class="op">=</span> <span class="op">-</span>grad_fn(v_param.detach()).contiguous()</span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>        loss <span class="op">=</span> full_energy_function(v_param.detach())</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> torch.as_tensor(<span class="bu">float</span>(loss), device<span class="op">=</span>v_param.device)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p>This guarantees that second-order curvature approximations remain mathematically exact throughout the line search, enabling <code>SiMLR-LBFGSB</code> to achieve the best overall Friedman rank (<span class="math inline">\(3.28\)</span>) and highest sparse support recovery (<span class="math inline">\(0.942\)</span>) across the 9-dataset (243-evaluation) benchmark while <code>SiMLR-LBFGS</code> converges in <span class="math inline">\(0.175\text{s}\)</span>.</p>
-</section>
-</section>
-<section id="scale-invariant-frame-defect-and-squared-cosine-angle-defect" class="level3" data-number="2.3.3">
-<h3 data-number="2.3.3" class="anchored" data-anchor-id="scale-invariant-frame-defect-and-squared-cosine-angle-defect"><span class="header-section-number">2.3.3</span> Scale-Invariant Frame Defect and Squared-Cosine Angle Defect</h3>
-<p>To regularize the projection basis toward mutual orthogonality without distorting data variance, we evaluate two complementary geometric metrics: the trace-normalized Stiefel frame defect <span class="math inline">\(D(\mathbf{V})\)</span> and the squared-cosine angle defect <span class="math inline">\(C(\mathbf{V})\)</span>.</p>
-<section id="trace-normalized-stiefel-frame-defect-d" class="level4" data-number="2.3.3.1">
-<h4 data-number="2.3.3.1" class="anchored" data-anchor-id="trace-normalized-stiefel-frame-defect-d"><span class="header-section-number">2.3.3.1</span> Trace-Normalized Stiefel Frame Defect (<span class="math inline">\(D\)</span>)</h4>
-<p>The trace-normalized frame defect (<code>src/pysimlr/utils.py:504-630</code>) measures departure from uniform Stiefel projection: <span id="eq-frame-defect"><span class="math display">\[
-D(\mathbf{V}) = \frac{1}{1 - 1/k} \left\| \frac{\mathbf{V}^\top \mathbf{V}}{\text{tr}(\mathbf{V}^\top \mathbf{V})} - \frac{1}{k} \mathbf{I}_k \right\|_F^2
-\tag{2.22}\]</span></span> Let <span class="math inline">\(\mathbf{G} = \mathbf{V}^\top \mathbf{V} \in \mathbb{R}^{k \times k}\)</span> denote the unnormalized Gram matrix and let <span class="math inline">\(t = \text{tr}(\mathbf{G}) = \|\mathbf{V}\|_F^2\)</span>. The normalized Gram matrix is <span class="math inline">\(\tilde{\mathbf{G}} = \frac{\mathbf{G}}{t}\)</span>. Expanding the Frobenius norm: <span class="math display">\[
-\|\tilde{\mathbf{G}} - \frac{1}{k} \mathbf{I}_k\|_F^2 = \sum_{i \ne j} \tilde{G}_{ij}^2 + \sum_{i=1}^k \left( \tilde{G}_{ii} - \frac{1}{k} \right)^2
-\]</span> The first summation measures column decorrelation, while the second summation penalizes departures from <strong>norm balance</strong> (<span class="math inline">\(\tilde{G}_{ii} = 1/k\)</span>). Because the participation ratio is <span class="math inline">\(\text{EffRank}(\mathbf{V}) = \frac{t^2}{\|\mathbf{G}\|_F^2}\)</span>, the frame defect connects directly to effective rank: <span class="math display">\[
-D(\mathbf{V}) = \frac{1}{1 - 1/k} \left( \frac{1}{\text{EffRank}(\mathbf{V})} - \frac{1}{k} \right)
-\]</span> Differentiating with respect to <span class="math inline">\(\mathbf{V}\)</span> gives the closed-form gradient: <span id="eq-frame-defect-gradient"><span class="math display">\[
-\nabla_{\mathbf{V}} D(\mathbf{V}) = \frac{4}{t^2 (1 - 1/k)} \left[ \mathbf{V} \mathbf{G} - \frac{\|\mathbf{G}\|_F^2}{t} \mathbf{V} \right]
-\tag{2.23}\]</span></span> Because <span class="math inline">\(D(\mathbf{V})\)</span> is degree-0 homogeneous, <span class="math inline">\(\langle \nabla_{\mathbf{V}} D(\mathbf{V}), \mathbf{V} \rangle \equiv 0\)</span> (Euler’s theorem). The defect gradient exerts zero radial force on matrix scale, acting purely as a shape-conforming projection.</p>
-</section>
-<section id="squared-cosine-angle-defect-c" class="level4" data-number="2.3.3.2">
-<h4 data-number="2.3.3.2" class="anchored" data-anchor-id="squared-cosine-angle-defect-c"><span class="header-section-number">2.3.3.2</span> Squared-Cosine Angle Defect (<span class="math inline">\(C\)</span>)</h4>
-<p>While <span class="math inline">\(D(\mathbf{V})\)</span> enforces strict orthonormality (decorrelation plus equal column norms), biological signals frequently exhibit heterogeneous variance hierarchies across components. Demanding equal column lengths (<span class="math inline">\(\tilde{G}_{ii} = 1/k\)</span>) penalizes true non-negative components: a perfectly disjoint non-negative basis whose parts differ in magnitude scores <span class="math inline">\(D &gt; 0.20\)</span> rather than zero.</p>
-<p>To penalize departures from mutual orthogonality invariant to per-column scaling, we implement the squared-cosine angle defect (<code>angle_defect</code> in <code>src/pysimlr/utils.py:633-724</code>), with <span class="math inline">\(\mathbf{U} = \mathbf{V} \text{diag}(\|\mathbf{v}_1\|_2^{-1}, \dots, \|\mathbf{v}_k\|_2^{-1})\)</span> (norms floored at <span class="math inline">\(\epsilon = 10^{-12}\)</span>): <span id="eq-angle-defect"><span class="math display">\[
-C(\mathbf{V}) = \frac{\|\mathbf{U}^\top \mathbf{U} - \mathbf{I}_k\|_F^2}{k(k - 1)}
-\tag{2.24}\]</span></span> Unlike globally trace-normalized off-diagonal defects—which score a rank-collapsed matrix with <span class="math inline">\(k-1\)</span> zero columns at <span class="math inline">\(0.0\)</span>—comparing <span class="math inline">\(\mathbf{U}^\top \mathbf{U}\)</span> against <span class="math inline">\(\mathbf{I}_k\)</span> charges any floored dead column <span class="math inline">\(1/(k(k-1))\)</span> while remaining invariant to arbitrary positive column rescalings: <span id="eq-angle-defect-gradient"><span class="math display">\[
-\nabla_{\mathbf{V}} C(\mathbf{V}) = \frac{4}{k(k - 1)} \left[ \mathbf{U} \mathbf{H} - \mathbf{U} \, \text{diag}\left(\text{rowsum}(\mathbf{H}^{\odot 2})\right) \right] \text{diag}(\|\mathbf{v}_1\|_2^{-1}, \dots, \|\mathbf{v}_k\|_2^{-1}), \quad \mathbf{H} = \mathbf{U}^\top \mathbf{U} - \mathbf{I}_k
-\tag{2.25}\]</span></span> For non-negative representations <span class="math inline">\(\mathbf{V} \ge 0\)</span> with non-zero columns, <span class="math inline">\(C(\mathbf{V}) = 0\)</span> if and only if the columns have pairwise disjoint supports, providing a column-scale-invariant variational diagnostic for non-negative feature clustering.</p>
-</section>
-</section>
-<section id="support-consolidation-and-direct-svd-contrast-splitting" class="level3" data-number="2.3.4">
-<h3 data-number="2.3.4" class="anchored" data-anchor-id="support-consolidation-and-direct-svd-contrast-splitting"><span class="header-section-number">2.3.4</span> Support Consolidation and Direct SVD Contrast Splitting</h3>
-<p>In biological systems, features exhibit bidirectional responses (e.g., regional atrophy versus ventricular expansion). To discover signed components while preserving non-negative interpretability, we lift each basis <span class="math inline">\(\mathbf{V} \in \mathbb{R}^{p \times k}\)</span> into paired non-negative lobes: <span id="eq-paired-lobes"><span class="math display">\[
-\mathbf{V} = \mathbf{V}^+ - \mathbf{V}^-, \quad \mathbf{V}^+ = \max(\mathbf{V}, \mathbf{0}), \quad \mathbf{V}^- = \max(-\mathbf{V}, \mathbf{0})
-\tag{2.26}\]</span></span> forming the non-negative matrix <span class="math inline">\(\mathbf{W} = [\mathbf{V}^+ \mid \mathbf{V}^-] \in \mathbb{R}^{p \times 2k}\)</span>.</p>
-<section id="direct-svd-contrast-initialization" class="level4" data-number="2.3.4.1">
-<h4 data-number="2.3.4.1" class="anchored" data-anchor-id="direct-svd-contrast-initialization"><span class="header-section-number">2.3.4.1</span> Direct SVD Contrast Initialization</h4>
-<p>Legacy implementations initialized non-negative signed flows via a 9-stage penalty continuation homotopy (<span class="math inline">\(\mu \in [0, 10^4]\)</span>), requiring hundreds of iterations and causing execution bottlenecks. On zero-mean centered or signed data, we replace this homotopy with <strong>Direct SVD Contrast Splitting</strong>: <span id="eq-svd-contrast-splitting"><span class="math display">\[
-\mathbf{E} = \text{SVD}_k(\mathbf{X}), \quad \mathbf{W}_0 = [\max(\mathbf{E}, \mathbf{0}) \mid \max(-\mathbf{E}, \mathbf{0})]
-\tag{2.27}\]</span></span> Because the data is centered, the leading eigenvectors <span class="math inline">\(\mathbf{E}\)</span> possess zero column sums and symmetric positive/negative mass. The lifted lobes <span class="math inline">\(\mathbf{W}_0\)</span> provide an exact subspace initialization (<span class="math inline">\(\mathbf{V}_0^+ - \mathbf{V}_0^- = \mathbf{E}\)</span>) with zero initial crosstalk (<span class="math inline">\(\mathbf{V}_0^+ \odot \mathbf{V}_0^- = \mathbf{0}\)</span>). For uncentered non-negative data (<span class="math inline">\(\mathbf{X} \ge 0\)</span>), an adaptive two-stage continuation seeds both lobes, preventing boundary stalls. This direct splitting yields a 157.7× wall-clock acceleration (from 5.33s to 0.034s per fit).</p>
-</section>
-<section id="the-support-consolidation-operator" class="level4" data-number="2.3.4.2">
-<h4 data-number="2.3.4.2" class="anchored" data-anchor-id="the-support-consolidation-operator"><span class="header-section-number">2.3.4.2</span> The Support Consolidation Operator</h4>
-<p>Following continuous optimization at <span class="math inline">\(w=0.5\)</span>, we apply the deterministic support consolidation operator <span class="math inline">\(\mathcal{C}(\mathbf{V}^+, \mathbf{V}^-)\)</span> to eliminate trailing numerical tails: <span id="eq-support-consolidation"><span class="math display">\[
-\text{win}(j) = \arg\max_{l \in \{1, \dots, 2k\}} W_{j, l}
-\tag{2.28}\]</span></span> Each feature <span class="math inline">\(j\)</span> is assigned strictly to its dominant component lobe and zeroed in all other channels, followed by a brief constrained polish with supports fixed. This guarantees:</p>
-<ol type="1">
-<li><strong>Zero Lobe Crosstalk</strong>: <span class="math inline">\(\|\mathbf{V}^+ \odot \mathbf{V}^-\|_1 = 0.0000\)</span>.</li>
-<li><strong>Exact Disjoint Sparsity</strong>: Features map unambiguously to positive or negative axes without attribution leakage.</li>
-<li><strong>Exact Manifold Invariance</strong>: <span class="math inline">\(D(\mathbf{V}) = 0.0000\)</span> and <span class="math inline">\(C(\mathbf{V}) = 0.0000\)</span>.</li>
-</ol>
-</section>
-</section>
-<section id="consensus-spectral-triage-and-gating-warmup" class="level3" data-number="2.3.5">
-<h3 data-number="2.3.5" class="anchored" data-anchor-id="consensus-spectral-triage-and-gating-warmup"><span class="header-section-number">2.3.5</span> Consensus, Spectral Triage, and Gating Warmup</h3>
-<section id="block-coordinate-descent-and-loo-topology" class="level4" data-number="2.3.5.1">
-<h4 data-number="2.3.5.1" class="anchored" data-anchor-id="block-coordinate-descent-and-loo-topology"><span class="header-section-number">2.3.5.1</span> Block-Coordinate Descent and LOO Topology</h4>
-<p>We formalize optimization through Block-Coordinate Descent (BCD). At each iteration <span class="math inline">\(t\)</span>:</p>
-<ol type="1">
-<li><strong>Consensus Formation (LOO Topology):</strong> Fixing network parameters <span class="math inline">\(\{f_m, g_m\}\)</span>, consensus targets <span class="math inline">\(\mathbf{U}_{\neq m}\)</span> are computed strictly excluding modality <span class="math inline">\(m\)</span>: <span class="math display">\[
-\mathbf{U}_{\neq m}^{(t)} = \text{Consensus}(\{\mathbf{Z}_j^{(t-1)}\}_{j \neq m})
-\]</span> This prevents high-capacity encoders from memorizing trivial self-mappings.</li>
-<li><strong>Parameter Update:</strong> Fixing <span class="math inline">\(\mathbf{U}_{\neq m}^{(t)}\)</span>, each modality minimizes its local variational loss: <span class="math display">\[
-\{f_m^{(t)}, g_m^{(t)}\} = \arg\min_{f_m, g_m} \mathcal{L}(\{f_m, g_m\}, \mathbf{U}_{\neq m}^{(t)})
-\]</span></li>
-</ol>
-</section>
-<section id="sign-aligned-newton-schulz-polar-consensus-mixing" class="level4" data-number="2.3.5.2">
-<h4 data-number="2.3.5.2" class="anchored" data-anchor-id="sign-aligned-newton-schulz-polar-consensus-mixing"><span class="header-section-number">2.3.5.2</span> Sign-Aligned Newton-Schulz Polar Consensus Mixing</h4>
-<p>In multi-view representation learning, latent factorizations are mathematically invariant under coordinate sign reflections (<span class="math inline">\(\mathbf{z}_j \leftrightarrow -\mathbf{z}_j\)</span>): if latent vector <span class="math inline">\(\mathbf{u}_l\)</span> explains a modality, then <span class="math inline">\(-\mathbf{u}_l\)</span> with negated loadings <span class="math inline">\(\mathbf{v}_l\)</span> provides an identical physical reconstruction. When integrating multiple observational domains, two views can recover identical underlying biological factors with diametrically opposite signs (e.g., empirical inner-product correlations of <span class="math inline">\(r = -0.927\)</span> and <span class="math inline">\(-0.959\)</span>).</p>
-<section id="the-destructive-cancellation-failure-mode" class="level5" data-number="2.3.5.2.1">
-<h5 data-number="2.3.5.2.1" class="anchored" data-anchor-id="the-destructive-cancellation-failure-mode"><span class="header-section-number">2.3.5.2.1</span> The Destructive Cancellation Failure Mode</h5>
-<p>Under antipodal sign alignment, naive cross-modal averaging induces catastrophic destructive cancellation: <span id="eq-destructive-cancellation"><span class="math display">\[
-\bar{\mathbf{u}}_l = \frac{1}{M-1} \sum_{j \ne m} \mathbf{z}_{j, l} \approx \frac{1}{2}(\mathbf{u}_l - \mathbf{u}_l) = \mathbf{0}
-\tag{2.29}\]</span></span> As quantified in <code>src/pysimlr/utils.py:2003-2064</code> on planted multi-view benchmarks, unaligned averaging collapses latent column standard deviations from <span class="math inline">\(\sim 1.0\)</span> down to <span class="math inline">\(0.121\)</span>, precipitating a catastrophic collapse in downstream consensus predictive fidelity from <span class="math inline">\(R^2 = 0.795\)</span> to <span class="math inline">\(R^2 = 0.023\)</span>. This pathology is silent, intermittent, and seed-dependent, masquerading as model instability rather than an elementary arithmetic cancellation.</p>
-</section>
-<section id="greedy-column-sign-alignment" class="level5" data-number="2.3.5.2.2">
-<h5 data-number="2.3.5.2.2" class="anchored" data-anchor-id="greedy-column-sign-alignment"><span class="header-section-number">2.3.5.2.2</span> Greedy Column Sign Alignment</h5>
-<p>To resolve sign indeterminacy prior to consensus mixing, we implement greedy column-wise sign alignment (<code>align_column_signs</code> in <code>src/pysimlr/utils.py:2003-2064</code>). Taking the first view as an initial reference <span class="math inline">\(\mathbf{R} = \mathbf{Z}_1\)</span>, each subsequent view’s columns are sequentially synchronized against the running coordinate sum: <span id="eq-greedy-sign-alignment"><span class="math display">\[
-s_{j, l} = \text{sign}\left( \sum_{i=1}^n Z_{j, il} R_{il} \right), \quad \tilde{\mathbf{Z}}_j = \mathbf{Z}_j \, \text{diag}(s_{j, 1}, \dots, s_{j, k})
-\tag{2.30}\]</span></span> <span class="math display">\[
-\mathbf{R} \leftarrow \mathbf{R} + \tilde{\mathbf{Z}}_j
-\]</span> Because the sign operators <span class="math inline">\(s_{j, l}\)</span> are detached from the computational graph, this alignment constitutes a coordinate relabeling that leaves gradient magnitudes intact while eliminating destructive cancellation.</p>
-</section>
-<section id="newton-schulz-polar-orthogonalization" class="level5" data-number="2.3.5.2.3">
-<h5 data-number="2.3.5.2.3" class="anchored" data-anchor-id="newton-schulz-polar-orthogonalization"><span class="header-section-number">2.3.5.2.3</span> Newton-Schulz Polar Orthogonalization</h5>
-<p>Following greedy sign alignment, PySIMLR computes the Leave-One-Out consensus <span class="math inline">\(\mathbf{U}_{\neq m}\)</span> using sign-aligned Newton-Schulz polar orthogonalization as its default mixing mechanism (<code>mixing_algorithm="newton"</code> in <code>src/pysimlr/consensus.py:121-124</code>): <span class="math display">\[
-\bar{\mathbf{U}}_{\neq m} = \frac{1}{M-1} \sum_{j \ne m} \tilde{\mathbf{Z}}_j
-\]</span> <span id="eq-ns-consensus"><span class="math display">\[
-\mathbf{U}_{\neq m} = \text{NewtonSchulz}\left( \bar{\mathbf{U}}_{\neq m}, \text{iterations}=10 \right)
-\tag{2.31}\]</span></span> followed by per-column centering and unit variance standardization (<span class="math inline">\(\text{std}(\mathbf{U}_{\neq m}) = \mathbf{1}\)</span>). Ten iterations of the cubic Newton-Schulz recurrence ensure exact polar factor orthonormality without invoking GPU-serializing SVD kernels. Furthermore, in online deep consensus training with an exponential running anchor buffer <span class="math inline">\(\mathbf{A}\)</span>, <code>align_anchor_columns</code> (<code>src/pysimlr/consensus.py:9-45</code>) synchronizes the signs of freshly computed consensus batches against <span class="math inline">\(\mathbf{A}\)</span> prior to EMA accumulation: <span id="eq-anchor-update"><span class="math display">\[
-\mathbf{A}^{(t)} = 0.9 \, \mathbf{A}^{(t-1)} + 0.1 \left( \mathbf{A}_{\text{new}} \odot \text{signs} \right)
-\tag{2.32}\]</span></span> preventing destructive anchor decay across training epochs.</p>
-</section>
-</section>
-<section id="spectral-triage-and-modality-alignment-index-mai" class="level4" data-number="2.3.5.3">
-<h4 data-number="2.3.5.3" class="anchored" data-anchor-id="spectral-triage-and-modality-alignment-index-mai"><span class="header-section-number">2.3.5.3</span> Spectral Triage and Modality Alignment Index (MAI)</h4>
-<p>The mathematical foundation for distinguishing informative biological signal from unstructured bulk noise via spectral sharpness is illustrated in <a href="#fig-spectral-sharpness" class="quarto-xref">Figure&nbsp;<span>2.8</span></a>.</p>
-<div id="cell-fig-spectral-sharpness" class="cell" data-message="false" data-execution_count="2">
-<div class="cell-output cell-output-display">
-<div id="fig-spectral-sharpness" class="quarto-float quarto-figure quarto-figure-center anchored">
-<figure class="quarto-float quarto-float-fig figure">
-<div aria-describedby="fig-spectral-sharpness-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="02_methods_files/figure-html/fig-spectral-sharpness-output-1.png" width="759" height="423" class="figure-img">
-</div>
-<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-spectral-sharpness-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;2.8: Spectral Sharpness as an Exact Discriminant of Modality Fidelity. True generative signal manifests as rank-1 perturbations that break the Marchenko-Pastur bulk distribution limit (gray span). Informative modalities (green) exhibit significant spectral sharpness, escaping the bulk limit to dominate the leading singular values. Conversely, structureless isotropic noise modalities (orange) remain entirely trapped within the analytically derived Marchenko-Pastur threshold, guaranteeing their rigorous mathematical exclusion via the Modality Alignment Index (MAI).
-</figcaption>
-</figure>
-</div>
-</div>
-</div>
-<p>In high-dimensional multi-modal integration, unconstrained cross-covariance yields spurious alignments between unstructured noise views and the shared consensus. Rather than unnormalized Euclidean residual distances—which, when <span class="math inline">\(\mathbf{Z}_m\)</span> and <span class="math inline">\(\mathbf{U}_{\neq m}\)</span> are normalized to unit Frobenius norm, expand to <span class="math inline">\(2 - 2 \sum_{i=1}^k \sigma_i\)</span> and clamp to exactly zero whenever <span class="math inline">\(\sum \sigma_i &lt; 0.5\)</span> (rendering dynamic weighting inert across typical benchmarks)—we quantify modality fidelity via the <strong>Scale-Profiled Procrustes <span class="math inline">\(R^2\)</span></strong> (<code>src/pysimlr/deep.py:839-869</code> and <code>src/pysimlr/flows.py:376-407</code>): <span id="eq-procrustes-r2"><span class="math display">\[
-R_m^2 = \left( \sum_{i=1}^k \sigma_i(\mathbf{Z}_m^\top \mathbf{U}_{\neq m}) \right)^2 \in [0, 1]
-\tag{2.33}\]</span></span> This represents the squared cosine between the optimally rotated and scaled latent representations <span class="math inline">\(\mathbf{Z}_m\)</span> and <span class="math inline">\(\mathbf{U}_{\neq m}\)</span>. It is smoothly bounded in <span class="math inline">\([0, 1]\)</span> and strictly non-zero (<span class="math inline">\(0.989\)</span> for informative biological signal versus <span class="math inline">\(0.020\)</span> for pure noise).</p>
-<p>To rigorously penalize isotropic noise views that lack internal coordinate structure, we modulate <span class="math inline">\(R_m^2\)</span> by the <strong>Spectral Sharpness</strong> <span class="math inline">\(\mathcal{S}_m = \sigma_1(\mathbf{Z}_m) / \sum_{j=1}^k \sigma_j(\mathbf{Z}_m)\)</span>: <span id="eq-mai-formulation"><span class="math display">\[
-\text{MAI}_m = R_m^2 \cdot \mathcal{S}_m
-\tag{2.34}\]</span></span> Under the Baik-Ben Arous-Péché (BBP) phase transition theorem <span class="citation" data-cites="baik2005phase">(<a href="#ref-baik2005phase" role="doc-biblioref">Baik et al. 2005</a>)</span>, isotropic noise remains trapped within the Marchenko-Pastur bulk (<span class="math inline">\(\mathcal{S}_m \approx 1/k\)</span>), driving <span class="math inline">\(\text{MAI}_m \to 0\)</span>, whereas structured biological signal spikes (<span class="math inline">\(\mathcal{S}_m \to 1\)</span>).</p>
-</section>
-<section id="exponential-moving-average-sigmoid-outlier-gating-and-continuous-warmup" class="level4" data-number="2.3.5.4">
-<h4 data-number="2.3.5.4" class="anchored" data-anchor-id="exponential-moving-average-sigmoid-outlier-gating-and-continuous-warmup"><span class="header-section-number">2.3.5.4</span> Exponential Moving Average, Sigmoid Outlier Gating, and Continuous Warmup</h4>
-<p>Raw alignment indices are stabilized across training epochs via Exponential Moving Average (EMA): <span id="eq-mai-ema"><span class="math display">\[
-\mathbf{mai}^{(t)} = 0.9 \, \mathbf{mai}^{(t-1)} + 0.1 \, \mathbf{mai}_{\text{raw}}^{(t)}
-\tag{2.35}\]</span></span> To prevent premature view suppression (Weight Collapse) during early exploration while squashing severe noise outliers, modality weights are modulated by an adaptive sigmoid outlier gate <span class="math inline">\(\omega_m^{\text{gate}}\)</span> centered at the modality mean: <span class="math display">\[
-\mu_{\text{mai}} = \frac{1}{M} \sum_{j=1}^M \text{mai}_j^{(t)}, \quad \kappa = 5.0 + 10.0 \cdot \min\left(1.0, \frac{t}{30}\right)
-\]</span> <span id="eq-mai-sigmoid-gate"><span class="math display">\[
-\omega_m^{\text{gate}} = \sigma\left( \kappa \cdot (\text{mai}_m^{(t)} - \mu_{\text{mai}}) \right) = \frac{1}{1 + \exp\left(-\kappa (\text{mai}_m^{(t)} - \mu_{\text{mai}})\right)}
-\tag{2.36}\]</span></span> Target weights proportional to the gated alignment are normalized: <span id="eq-mai-target-weights"><span class="math display">\[
-\tilde{w}_m = \text{mai}_m^{(t)} \cdot \omega_m^{\text{gate}}, \quad w_m^{\text{target}} = \frac{\tilde{w}_m}{\sum_{j=1}^M \tilde{w}_j + 10^{-8}}
-\tag{2.37}\]</span></span> Rather than an abrupt discontinuous step at a fixed epoch threshold, the architecture transitions continuously from uniform weighting <span class="math inline">\(\mathbf{w}_{\text{uniform}} = [1/M, \dots, 1/M]^\top\)</span> to the target weights via a continuous linear ramp schedule: <span class="math display">\[
-T_{\text{warm}} = 0.33 \times T_{\text{total}}, \quad \rho = \text{clip}\left( \frac{t - T_{\text{warm}}}{T_{\text{warm}}}, 0.0, 1.0 \right)
-\]</span> <span id="eq-mai-warmup"><span class="math display">\[
-\mathbf{w}^{(t)} = (1 - \rho) \mathbf{w}_{\text{uniform}} + \rho \mathbf{w}^{\text{target}}
-\tag{2.38}\]</span></span> This guarantees that all modalities contribute equally during initial manifold representation learning, activating dynamic modality triage only once the shared consensus geometry has stabilized.</p>
-</section>
-</section>
-</section>
-<section id="theoretical-properties-and-diagnostic-invariants" class="level2" data-number="2.4">
-<h2 data-number="2.4" class="anchored" data-anchor-id="theoretical-properties-and-diagnostic-invariants"><span class="header-section-number">2.4</span> Theoretical Properties and Diagnostic Invariants</h2>
-<section id="mechanistic-auditability-via-olee-and-closed-form-counterfactuals" class="level3" data-number="2.4.1">
-<h3 data-number="2.4.1" class="anchored" data-anchor-id="mechanistic-auditability-via-olee-and-closed-form-counterfactuals"><span class="header-section-number">2.4.1</span> Mechanistic Auditability via OLEE and Closed-Form Counterfactuals</h3>
-<p>Standard post-hoc explainability techniques (SHAP, LIME, Integrated Gradients) construct local linear approximations around non-linear neural networks. In high-dimensional biomedical regimes, these approximations are non-unique, highly sensitive to background reference choices, and vulnerable to adversarial gradient noise.</p>
-<p>We resolve the “transparency penalty” at the architectural entrypoint via the Only Linear Encoder Entrypoint (OLEE) constraint: <span id="eq-olee-entrypoint"><span class="math display">\[
-\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m, \quad \mathbf{V}_m \in \text{St}(k, p_m), \quad \mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k
-\tag{2.39}\]</span></span> All non-linear operations are strictly delegated downstream to decoders (LEND) or latent normalizing flows (Flow-SiMR-V). This structural information bottleneck establishes three exact mathematical auditability guarantees:</p>
-<ol type="1">
-<li><strong>Exact Feature Attribution &amp; Constant Input Gradient</strong>: The latent score <span class="math inline">\(z_{i, l}\)</span> for subject <span class="math inline">\(i\)</span> on component <span class="math inline">\(l\)</span> is strictly the linear dot product <span class="math inline">\(\sum_{j=1}^{p_m} X_{i, j} V_{j, l}\)</span>. Feature importance is exact, sample-specific, and requires zero heuristic approximation. Furthermore, the directional derivative of representations with respect to input observations is strictly constant: <span id="eq-olee-constant-gradient"><span class="math display">\[
-\nabla_{\mathbf{X}_m} \mathbf{Z}_m = \mathbf{V}_m
-\tag{2.40}\]</span></span> Because this input gradient is independent of the input <span class="math inline">\(\mathbf{X}_m\)</span>, the sensitivity profile is invariant across subjects, preventing gradient saturation, adversarial perturbations, and vanishing attribution artifacts that plague deep non-linear encoders.</li>
-<li><strong>Global Variance Partitioning</strong>: Because <span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k\)</span>, the projection is an isometry on <span class="math inline">\(\mathbb{R}^k\)</span>. The total explained variance decomposes additively across orthogonal axes: <span class="math inline">\(\text{Var}(\mathbf{Z}_m) = \sum_{l=1}^k \text{Var}(\mathbf{z}_{m, l})\)</span>.</li>
-<li><strong>Closed-Form Minimum-Norm Counterfactuals</strong>: Targeted counterfactual state transitions can be evaluated analytically in closed form without iterative gradient search or surrogate sampling, as established by the following theorem.</li>
-</ol>
-<section id="theorem-closed-form-minimum-norm-counterfactuals" class="level4" data-number="2.4.1.1">
-<h4 data-number="2.4.1.1" class="anchored" data-anchor-id="theorem-closed-form-minimum-norm-counterfactuals"><span class="header-section-number">2.4.1.1</span> Theorem: Closed-Form Minimum-Norm Counterfactuals</h4>
-<p><strong>Theorem:</strong><br>
-Let a subject have latent representation <span class="math inline">\(\mathbf{z} = \mathbf{x} \mathbf{V} \in \mathbb{R}^k\)</span> under the OLEE basis <span class="math inline">\(\mathbf{V} \in \text{St}(k, p)\)</span>. To transition the subject to a targeted counterfactual latent state <span class="math inline">\(\mathbf{z}^* = \mathbf{z} + \Delta \mathbf{z}\)</span>, the unique perturbation <span class="math inline">\(\delta \mathbf{x}^* \in \mathbb{R}^p\)</span> that minimizes the Euclidean intervention effort <span class="math inline">\(\|\delta \mathbf{x}\|_2^2\)</span> while satisfying <span class="math inline">\((\mathbf{x} + \delta \mathbf{x}) \mathbf{V} = \mathbf{z}^*\)</span> is given analytically by: <span id="eq-counterfactual-solution"><span class="math display">\[
-\delta \mathbf{x}^* = \Delta \mathbf{z} \mathbf{V}^\top
-\tag{2.41}\]</span></span></p>
-<p><strong>Proof:</strong><br>
-The counterfactual perturbation problem is formulated as the constrained optimization: <span id="eq-counterfactual-objective"><span class="math display">\[
-\min_{\delta \mathbf{x} \in \mathbb{R}^p} \frac{1}{2} \|\delta \mathbf{x}\|_2^2 \quad \text{subject to} \quad \delta \mathbf{x} \mathbf{V} = \Delta \mathbf{z}
-\tag{2.42}\]</span></span> Introducing Lagrange multipliers <span class="math inline">\(\boldsymbol{\lambda} \in \mathbb{R}^k\)</span>, the Lagrangian is: <span class="math display">\[
-\mathcal{L}(\delta \mathbf{x}, \boldsymbol{\lambda}) = \frac{1}{2} \delta \mathbf{x} \delta \mathbf{x}^\top - (\delta \mathbf{x} \mathbf{V} - \Delta \mathbf{z}) \boldsymbol{\lambda}
-\]</span> Setting the gradient with respect to <span class="math inline">\(\delta \mathbf{x}\)</span> to zero: <span class="math display">\[
-\nabla_{\delta \mathbf{x}} \mathcal{L} = \delta \mathbf{x} - \boldsymbol{\lambda}^\top \mathbf{V}^\top = \mathbf{0} \implies \delta \mathbf{x} = \boldsymbol{\lambda}^\top \mathbf{V}^\top
-\]</span> Multiplying both sides on the right by <span class="math inline">\(\mathbf{V}\)</span> and enforcing the constraint: <span class="math display">\[
-\delta \mathbf{x} \mathbf{V} = \boldsymbol{\lambda}^\top \mathbf{V}^\top \mathbf{V} = \Delta \mathbf{z}
-\]</span> Because <span class="math inline">\(\mathbf{V}\)</span> lies on the Stiefel manifold, <span class="math inline">\(\mathbf{V}^\top \mathbf{V} = \mathbf{I}_k\)</span>. Thus: <span class="math display">\[
-\boldsymbol{\lambda}^\top \mathbf{I}_k = \Delta \mathbf{z} \implies \boldsymbol{\lambda} = \Delta \mathbf{z}^\top
-\]</span> Substituting <span class="math inline">\(\boldsymbol{\lambda}^\top = \Delta \mathbf{z}\)</span> back into the stationarity equation yields: <span class="math display">\[
-\delta \mathbf{x}^* = \Delta \mathbf{z} \mathbf{V}^\top
-\]</span> The minimum-norm perturbation is closed-form, unique, and requires no iterative gradient search or surrogate sampling.</p>
-</section>
-</section>
-<section id="subspace-vs.-basis-axis-disentanglement" class="level3" data-number="2.4.2">
-<h3 data-number="2.4.2" class="anchored" data-anchor-id="subspace-vs.-basis-axis-disentanglement"><span class="header-section-number">2.4.2</span> Subspace vs.&nbsp;Basis Axis Disentanglement</h3>
-<p>A fundamental methodological challenge in representation learning is separating <strong>subspace quality</strong> from <strong>basis axis interpretability</strong>. Downstream evaluations frequently conflate these two concepts:</p>
-<section id="theorem-rotation-invariance-of-linear-probes" class="level4" data-number="2.4.2.1">
-<h4 data-number="2.4.2.1" class="anchored" data-anchor-id="theorem-rotation-invariance-of-linear-probes"><span class="header-section-number">2.4.2.1</span> Theorem: Rotation Invariance of Linear Probes</h4>
-<p><strong>Theorem:</strong><br>
-Let <span class="math inline">\(\mathbf{Z}_1 = \mathbf{X} \mathbf{V} \in \mathbb{R}^{n \times k}\)</span> and let <span class="math inline">\(\mathbf{M} \in \text{GL}(k, \mathbb{R})\)</span> be an arbitrary invertible <span class="math inline">\(k \times k\)</span> matrix defining an alternative basis <span class="math inline">\(\mathbf{Z}_2 = \mathbf{X} \mathbf{V} \mathbf{M} = \mathbf{Z}_1 \mathbf{M}\)</span>. For any regression target <span class="math inline">\(\mathbf{y} \in \mathbb{R}^{n}\)</span>:</p>
-<ol type="1">
-<li>The Ordinary Least Squares (OLS) projection hat matrices are identical: <span class="math inline">\(\mathbf{H}_{\mathbf{Z}_2} \equiv \mathbf{H}_{\mathbf{Z}_1}\)</span>.</li>
-<li>The fitted values and regression <span class="math inline">\(R^2\)</span> are strictly invariant: <span class="math inline">\(\hat{\mathbf{y}}_2 \equiv \hat{\mathbf{y}}_1\)</span> and <span class="math inline">\(R^2(\mathbf{Z}_2, \mathbf{y}) \equiv R^2(\mathbf{Z}_1, \mathbf{y})\)</span>.</li>
-</ol>
-<p><strong>Proof:</strong><br>
-The OLS hat matrix projecting <span class="math inline">\(\mathbf{y}\)</span> onto the column space of <span class="math inline">\(\mathbf{Z}_2\)</span> is: <span id="eq-ols-hat-matrix"><span class="math display">\[
-\mathbf{H}_{\mathbf{Z}_2} = \mathbf{Z}_2 \left( \mathbf{Z}_2^\top \mathbf{Z}_2 \right)^{-1} \mathbf{Z}_2^\top
-\tag{2.43}\]</span></span> Substituting <span class="math inline">\(\mathbf{Z}_2 = \mathbf{Z}_1 \mathbf{M}\)</span>: <span class="math display">\[
-\mathbf{H}_{\mathbf{Z}_2} = (\mathbf{Z}_1 \mathbf{M}) \left( (\mathbf{Z}_1 \mathbf{M})^\top (\mathbf{Z}_1 \mathbf{M}) \right)^{-1} (\mathbf{Z}_1 \mathbf{M})^\top = \mathbf{Z}_1 \mathbf{M} \left( \mathbf{M}^\top (\mathbf{Z}_1^\top \mathbf{Z}_1) \mathbf{M} \right)^{-1} \mathbf{M}^\top \mathbf{Z}_1^\top
-\]</span> Because <span class="math inline">\(\mathbf{M}\)</span> is invertible, <span class="math inline">\((\mathbf{A} \mathbf{B} \mathbf{C})^{-1} = \mathbf{C}^{-1} \mathbf{B}^{-1} \mathbf{A}^{-1}\)</span>: <span class="math display">\[
-\mathbf{H}_{\mathbf{Z}_2} = \mathbf{Z}_1 \mathbf{M} \mathbf{M}^{-1} \left( \mathbf{Z}_1^\top \mathbf{Z}_1 \right)^{-1} (\mathbf{M}^\top)^{-1} \mathbf{M}^\top \mathbf{Z}_1^\top = \mathbf{Z}_1 \mathbf{I}_k \left( \mathbf{Z}_1^\top \mathbf{Z}_1 \right)^{-1} \mathbf{I}_k \mathbf{Z}_1^\top = \mathbf{Z}_1 \left( \mathbf{Z}_1^\top \mathbf{Z}_1 \right)^{-1} \mathbf{Z}_1^\top = \mathbf{H}_{\mathbf{Z}_1}
-\]</span> The predicted values are <span class="math inline">\(\hat{\mathbf{y}}_2 = \mathbf{H}_{\mathbf{Z}_2} \mathbf{y} = \mathbf{H}_{\mathbf{Z}_1} \mathbf{y} = \hat{\mathbf{y}}_1\)</span>. The regression coefficients simply absorb the transformation: <span class="math inline">\(\boldsymbol{\beta}_2 = \mathbf{M}^{-1} \boldsymbol{\beta}_1\)</span>.</p>
-</section>
-<section id="coordinate-sensitivity-of-tree-ensembles" class="level4" data-number="2.4.2.2">
-<h4 data-number="2.4.2.2" class="anchored" data-anchor-id="coordinate-sensitivity-of-tree-ensembles"><span class="header-section-number">2.4.2.2</span> Coordinate Sensitivity of Tree Ensembles</h4>
-<p>In sharp contrast to linear probes, decision trees in a Random Forest recursively split data along coordinate-aligned hyperplanes: <span id="eq-tree-hyperplane"><span class="math display">\[
-\mathcal{H}_{l, \theta} = \{ \mathbf{z} \in \mathbb{R}^k \mid z_l \le \theta \}
-\tag{2.44}\]</span></span> Under a generic rotation <span class="math inline">\(\mathbf{M}\)</span>, each coordinate becomes an oblique linear combination <span class="math inline">\(z_l' = \sum_{j=1}^k M_{jl} z_j\)</span>. To isolate rotated patterns, axis-aligned trees require an exponential cascade of staircase splits, degrading generalization performance.</p>
-</section>
-<section id="the-dual-probe-diagnostic" class="level4" data-number="2.4.2.3">
-<h4 data-number="2.4.2.3" class="anchored" data-anchor-id="the-dual-probe-diagnostic"><span class="header-section-number">2.4.2.3</span> The Dual-Probe Diagnostic</h4>
-<p>Consequently, downstream evaluations must deploy a dual-probe protocol:</p>
-<ol type="1">
-<li><strong>Linear Probe (OLS / Logistic Regression)</strong>: Quantifies <strong>subspace recovery</strong>. Performance is completely invariant to basis rotation (<span class="math inline">\(\Delta R^2 = 0.0000\)</span>).</li>
-<li><strong>Tree Probe (Random Forest)</strong>: Quantifies <strong>coordinate axis alignment, non-negativity, and sparsity</strong>.</li>
-</ol>
-<p>A performance difference observed in tree probes accompanied by a tie in linear probes localizes the effect specifically to coordinate axis disentanglement rather than subspace capture.</p>
-</section>
-</section>
-<section id="theoretical-bounds-the-1m-law" class="level3" data-number="2.4.3">
-<h3 data-number="2.4.3" class="anchored" data-anchor-id="theoretical-bounds-the-1m-law"><span class="header-section-number">2.4.3</span> Theoretical Bounds: The 1/M Law</h3>
-<p>Let each modality observation <span class="math inline">\(\mathbf{X}_m\)</span> be generated by a shared true manifold embedded in additive Gaussian noise with noise variance <span class="math inline">\(\sigma^2\)</span> and cross-modal correlation <span class="math inline">\(\rho\)</span>. Aggregating observations across <span class="math inline">\(M\)</span> modalities yields the consensus estimator variance: <span id="eq-one-over-m-law"><span class="math display">\[
-\text{Var}(\mathbf{U}) = \frac{\sigma^2}{M} (1 - \rho) + \rho \sigma^2
-\tag{2.45}\]</span></span> As <span class="math inline">\(M \to \infty\)</span>, the independent noise term <span class="math inline">\(\frac{\sigma^2}{M}(1-\rho)\)</span> vanishes. Consequently, the irreducible error floor is strictly bounded by <span class="math inline">\(\rho \sigma^2\)</span>. While expanding <span class="math inline">\(M\)</span> mitigates independent noise, it cannot resolve correlated cross-modal artifacts, necessitating the LOO topology and Spectral Triage to actively suppress correlated noise components.</p>
-</section>
-</section>
-<section id="evaluation-strategies" class="level2" data-number="2.5">
-<h2 data-number="2.5" class="anchored" data-anchor-id="evaluation-strategies"><span class="header-section-number">2.5</span> Evaluation Strategies</h2>
-<section id="technical-glossary-of-performance-metrics" class="level3" data-number="2.5.1">
-<h3 data-number="2.5.1" class="anchored" data-anchor-id="technical-glossary-of-performance-metrics"><span class="header-section-number">2.5.1</span> Technical Glossary of Performance Metrics</h3>
+<section id="unified-architectural-synthesis-and-diagnostic-glossary" class="level2" data-number="2.6">
+<h2 data-number="2.6" class="anchored" data-anchor-id="unified-architectural-synthesis-and-diagnostic-glossary"><span class="header-section-number">2.6</span> Unified Architectural Synthesis and Diagnostic Glossary</h2>
+<p>Having developed all five stages deductively, the nine evaluated architectures in <code>pysimlr</code> form a single nested hierarchy summarized below:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: center;">Stage</th>
+<th style="text-align: left;">Architecture</th>
+<th style="text-align: left;">Encoder <span class="math inline">\(f_m(\mathbf{X}_m)\)</span></th>
+<th style="text-align: left;">Decoder / Inverse <span class="math inline">\(g_m(\mathbf{Z}_m)\)</span></th>
+<th style="text-align: left;">Manifold &amp; Structural Invariants</th>
+<th style="text-align: left;">Primary Role</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: center;"><strong>Baseline</strong></td>
+<td style="text-align: left;"><strong>PCA</strong></td>
+<td style="text-align: left;">SVD on <span class="math inline">\([\mathbf{X}_1 \dots \mathbf{X}_M]\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(\mathbf{Z} \mathbf{V}^\top\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(\mathbf{V}_{\text{joint}}^\top \mathbf{V}_{\text{joint}} = \mathbf{I}_k\)</span></td>
+<td style="text-align: left;">Dense single-matrix baseline</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;"><strong>Stage 1</strong></td>
+<td style="text-align: left;"><strong>NSAFlow-PCA</strong></td>
+<td style="text-align: left;">NSA-Flow on <span class="math inline">\([\mathbf{X}_1 \dots \mathbf{X}_M]\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(\mathbf{Z} \mathbf{W}\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}, D_{\text{joint}} \approx 0\)</span></td>
+<td style="text-align: left;">Fast (<span class="math inline">\(0.03\text{s}\)</span>) sparse single-matrix SVD + NSA-Flow</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;"><strong>Stage 3</strong></td>
+<td style="text-align: left;"><strong>SiMLR</strong></td>
+<td style="text-align: left;"><span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> (OLEE)</td>
+<td style="text-align: left;"><span class="math inline">\(\mathbf{U}_m \mathbf{W}_m\)</span> (Linear)</td>
+<td style="text-align: left;"><span class="math inline">\(D(\mathbf{V}_m) \approx 0\)</span></td>
+<td style="text-align: left;">First-order Riemannian/Armijo/LARS multi-view solver</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;"><strong>Stage 3</strong></td>
+<td style="text-align: left;"><strong>SiMLR-LBFGS</strong></td>
+<td style="text-align: left;"><span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> (OLEE)</td>
+<td style="text-align: left;"><span class="math inline">\(\mathbf{U}_m \mathbf{W}_m\)</span> (Linear)</td>
+<td style="text-align: left;"><span class="math inline">\(D(\mathbf{V}_m) \approx 0\)</span></td>
+<td style="text-align: left;">Quasi-Newton L-BFGS multi-view Stiefel solver</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;"><strong>Stage 3</strong></td>
+<td style="text-align: left;"><strong>SiMLR-LBFGSB</strong></td>
+<td style="text-align: left;"><span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> (OLEE, <span class="math inline">\(\mathbf{V}_m \ge \mathbf{0}\)</span>)</td>
+<td style="text-align: left;"><span class="math inline">\(\mathbf{U}_m \mathbf{W}_m\)</span> (Linear)</td>
+<td style="text-align: left;"><span class="math inline">\(D(\mathbf{V}_m) \approx 0, \mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}\)</span></td>
+<td style="text-align: left;">Bound-constrained L-BFGS-B (<code>nsa_lbfgsb</code>) sparse solver</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;"><strong>Stage 4</strong></td>
+<td style="text-align: left;"><strong>LEND</strong></td>
+<td style="text-align: left;"><span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> (OLEE)</td>
+<td style="text-align: left;"><span class="math inline">\(\text{MLP}_{\theta_m}(\mathbf{Z}_m)\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(D(\mathbf{V}_m) \approx 0, \nabla_{\mathbf{X}_m}\mathbf{Z}_m = \mathbf{V}_m\)</span></td>
+<td style="text-align: left;">Linear Stiefel encoder + non-linear MLP decoder</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;"><strong>Stage 4</strong></td>
+<td style="text-align: left;"><strong>NED</strong></td>
+<td style="text-align: left;"><span class="math inline">\(\text{MLP}_{\phi_m}(\mathbf{X}_m \mathbf{V}_m)\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(\text{MLP}_{\theta_m}(\mathbf{Z}_m)\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(D(\mathbf{V}_m) \approx 0\)</span></td>
+<td style="text-align: left;">Post-bottleneck MLP encoder + MLP decoder</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;"><strong>Stage 4</strong></td>
+<td style="text-align: left;"><strong>NEDPP</strong></td>
+<td style="text-align: left;"><span class="math inline">\([\mathbf{Z}_{m,\text{sh}} \parallel \mathbf{Z}_{m,\text{pr}}]\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(\text{MLP}_{\theta_m}([\mathbf{Z}_{m,\text{sh}} \parallel \mathbf{Z}_{m,\text{pr}}])\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(\text{Cov}(\mathbf{Z}_{\text{sh}}, \mathbf{Z}_{\text{pr}}) \to \mathbf{0}\)</span></td>
+<td style="text-align: left;">Shared–private disentangled autoencoder</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;"><strong>Stage 5</strong></td>
+<td style="text-align: left;"><strong>Flow-SiMR-V</strong></td>
+<td style="text-align: left;"><span class="math inline">\(f_{\psi_m}(\mathbf{X}_m \mathbf{V}_m)\)</span> (OLEE + Flow)</td>
+<td style="text-align: left;"><span class="math inline">\(f_{\psi_m}^{-1}(\mathbf{Z}_m) \mathbf{V}_m^\top\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(D(\mathbf{V}_m) \approx 0\)</span>, Detached Prior NLL</td>
+<td style="text-align: left;">Bijective normalizing flow in <span class="math inline">\(\mathbb{R}^k\)</span> with OLEE basis</td>
+</tr>
+</tbody>
+</table>
+<section id="technical-glossary-of-evaluation-metrics" class="level3" data-number="2.6.1">
+<h3 data-number="2.6.1" class="anchored" data-anchor-id="technical-glossary-of-evaluation-metrics"><span class="header-section-number">2.6.1</span> Technical Glossary of Evaluation Metrics</h3>
 <table class="caption-top table">
 <colgroup>
 <col style="width: 25%">
@@ -1141,7 +982,7 @@ The OLS hat matrix projecting <span class="math inline">\(\mathbf{y}\)</span> on
 <th style="text-align: left;">Metric</th>
 <th style="text-align: left;">Mathematical Definition</th>
 <th style="text-align: left;">Invariant Properties</th>
-<th style="text-align: left;">Interpretation</th>
+<th style="text-align: left;">What It Tests</th>
 </tr>
 </thead>
 <tbody>
@@ -1149,52 +990,40 @@ The OLS hat matrix projecting <span class="math inline">\(\mathbf{y}\)</span> on
 <td style="text-align: left;"><strong>Normalized Frame Defect</strong> (<span class="math inline">\(D\)</span>)</td>
 <td style="text-align: left;"><span class="math inline">\(\frac{1}{1 - 1/k} \left\| \frac{\mathbf{V}^\top \mathbf{V}}{\text{tr}(\mathbf{V}^\top \mathbf{V})} - \frac{1}{k} \mathbf{I}_k \right\|_F^2\)</span></td>
 <td style="text-align: left;"><span class="math inline">\(\langle \nabla D, \mathbf{V} \rangle \equiv 0\)</span>, Scale-invariant</td>
-<td style="text-align: left;">Stiefel orthonormality deficit; <span class="math inline">\(D=0\)</span> at equal-norm orthogonality.</td>
+<td style="text-align: left;">Stage 1 Stiefel orthonormality &amp; norm balance.</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;"><strong>Lobe Crosstalk</strong></td>
 <td style="text-align: left;"><span class="math inline">\(\| \mathbf{V}^+ \odot \mathbf{V}^- \|_1\)</span></td>
-<td style="text-align: left;">Vanishes under consolidation</td>
-<td style="text-align: left;">Degree of feature overlap between signed response lobes.</td>
+<td style="text-align: left;">Vanishes under contrast splitting</td>
+<td style="text-align: left;">Stage 1 signed lobe disjointness.</td>
 </tr>
 <tr class="odd">
+<td style="text-align: left;"><strong>Support Recovery</strong> (<span class="math inline">\(\text{Support } F_1\)</span>)</td>
+<td style="text-align: left;">Hungarian-matched mean Jaccard overlap of <span class="math inline">\(\text{supp}(\mathbf{V}_m)\)</span> vs.&nbsp;<span class="math inline">\(\text{supp}(\mathbf{V}_m^*)\)</span></td>
+<td style="text-align: left;">Permutation-invariant, <strong>axis-sensitive</strong></td>
+<td style="text-align: left;">Stage 1 sparse feature support identification.</td>
+</tr>
+<tr class="even">
 <td style="text-align: left;"><strong>Canonical Mean Correlation</strong> (<span class="math inline">\(CMC\)</span>)</td>
 <td style="text-align: left;"><span class="math inline">\(\frac{1}{k} \sum_{i=1}^k \rho_i(\mathbf{U}_{\text{est}}, \mathbf{U}_{\text{true}})\)</span></td>
 <td style="text-align: left;">Affine-invariant</td>
-<td style="text-align: left;">Ground-truth shared consensus latent recovery.</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;"><strong>Subspace Recovery Error</strong> (<span class="math inline">\(SRE\)</span>)</td>
-<td style="text-align: left;"><span class="math inline">\(1 - \frac{1}{M} \sum_{m=1}^M R^2_P(\mathbf{V}_m, \mathbf{V}_m^*)\)</span></td>
-<td style="text-align: left;">Orthogonal Procrustes invariant</td>
-<td style="text-align: left;">True feature basis subspace recovery error.</td>
+<td style="text-align: left;">Stage 2–4 ground-truth shared latent recovery.</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;"><strong>Linear Outcome Probe</strong> (<span class="math inline">\(R^2_{\text{lin}}\)</span>)</td>
-<td style="text-align: left;"><span class="math inline">\(R^2(\mathbf{X} \mathbf{V}, \mathbf{y})\)</span> via OLS</td>
+<td style="text-align: left;"><strong>Linear Outcome Probe</strong> (<span class="math inline">\(R^2_{\text{lin}}\)</span> / Acc)</td>
+<td style="text-align: left;">OLS / Ridge / Logistic score on <span class="math inline">\(\mathbf{U}\)</span> or <span class="math inline">\(\mathbf{X}\mathbf{V}\)</span> (<code>CogPC1 R^2</code> on ADNI-MCI)</td>
 <td style="text-align: left;">Invariant under <span class="math inline">\(\mathbf{V} \to \mathbf{V} \mathbf{M}\)</span></td>
-<td style="text-align: left;">Subspace predictive fidelity; blind to basis orientation.</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;"><strong>Axis-Sensitive Probe</strong> (<span class="math inline">\(R^2_{\text{rf}}\)</span>)</td>
-<td style="text-align: left;"><span class="math inline">\(R^2(\mathbf{X} \mathbf{V}, \mathbf{y})\)</span> via Random Forest</td>
-<td style="text-align: left;">Dependent on coordinate basis</td>
-<td style="text-align: left;">Tests canonical axis alignment, sparsity, and modularity.</td>
+<td style="text-align: left;">Stage 1–5 out-of-sample subspace predictive capacity.</td>
 </tr>
 </tbody>
 </table>
-</section>
-<section id="statistical-determination-of-intrinsic-dimensionality-k" class="level3" data-number="2.5.2">
-<h3 data-number="2.5.2" class="anchored" data-anchor-id="statistical-determination-of-intrinsic-dimensionality-k"><span class="header-section-number">2.5.2</span> Statistical Determination of Intrinsic Dimensionality (<span class="math inline">\(k\)</span>)</h3>
-<p>We implement three statistical strategies to establish the optimal latent dimensionality <span class="math inline">\(k\)</span>:</p>
-<ol type="1">
-<li><strong>Information Criteria (BIC):</strong> Evaluates the Bayesian Information Criterion to penalize excessive model parameterization.</li>
-<li><strong>Spectral Truncation (Tracy-Widom):</strong> Computes the statistical significance of singular values against the null hypothesis of purely unstructured noise.</li>
-<li><strong>V-fold Cross-Validation:</strong> Selects <span class="math inline">\(k\)</span> by applying the One-Standard-Error Rule to out-of-sample prediction performance.</li>
-</ol>
 
 
 <div id="refs" class="references csl-bib-body hanging-indent" role="list">
+<div id="ref-avants2025" class="csl-entry" role="listitem">
+<span class="nocase">Avants, Brian B., Nicholas J. Tustison, et al.</span> 2025. <span>“Normative Neurological Health.”</span> <em>medRxiv</em>, ahead of print. <a href="https://doi.org/10.1101/2025.09.27.25336706v2">https://doi.org/10.1101/2025.09.27.25336706v2</a>.
+</div>
 <div id="ref-baik2005phase" class="csl-entry" role="listitem">
 Baik, Jinho, Gérard Ben Arous, and Sandrine Péché. 2005. <span>“Phase Transition of the Largest Eigenvalue for Nonnull Complex Sample Covariance Matrices.”</span> <em>The Annals of Probability</em> 33 (5): 1643–97.
 </div>
@@ -1207,8 +1036,17 @@ Dinh, Laurent, Jascha Sohl-Dickstein, and Samy Bengio. 2016. <span>“Density Es
 <div id="ref-edelman1998geometry" class="csl-entry" role="listitem">
 Edelman, Alan, Tomés A Arias, and Steven T Smith. 1998. <span>“The Geometry of Algorithms with Orthogonality Constraints.”</span> <em>SIAM Journal on Matrix Analysis and Applications</em> 20 (2): 303–53.
 </div>
+<div id="ref-Lundberg_2017" class="csl-entry" role="listitem">
+Lundberg, Scott M, and Su-In Lee. 2017. <span>“A Unified Approach to Interpreting Model Predictions.”</span> <em>Advances in Neural Information Processing Systems</em> 30.
+</div>
+<div id="ref-Smith2023posthoc" class="csl-entry" role="listitem">
+Radulovic, Nedeljko. 2023. <span>“Post-Hoc Explainable AI for Black Box Models on Tabular Data.”</span> PhD thesis, Institut Polytechnique de Paris. <a href="https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5">https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5</a>.
+</div>
 <div id="ref-rezende2015variational" class="csl-entry" role="listitem">
 Rezende, Danilo, and Shakir Mohamed. 2015. <span>“Variational Inference with Normalizing Flows.”</span> <em>International Conference on Machine Learning</em>, 1530–38.
+</div>
+<div id="ref-Rudin_2019" class="csl-entry" role="listitem">
+Rudin, Cynthia. 2019. <span>“Stop Explaining Black Box Machine Learning Models for High Stakes Decisions and Use Interpretable Models Instead.”</span> <em>Nature Machine Intelligence</em> 1 (5): 206–15. <a href="https://doi.org/10.1038/s42256-019-0048-x">https://doi.org/10.1038/s42256-019-0048-x</a>.
 </div>
 <div id="ref-tishby2000information" class="csl-entry" role="listitem">
 Tishby, Naftali, Fernando C Pereira, and William Bialek. 2000. <span>“The Information Bottleneck Method.”</span> <em>arXiv Preprint Physics/0004057</em>.

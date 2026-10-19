@@ -231,21 +231,13 @@ window.Quarto = {
     <h2 id="toc-title">Table of contents</h2>
    
   <ul>
-  <li><a href="#non-parametric-architectural-ranking-and-empirical-synthesis" id="toc-non-parametric-architectural-ranking-and-empirical-synthesis" class="nav-link active" data-scroll-target="#non-parametric-architectural-ranking-and-empirical-synthesis"><span class="header-section-number">4.1</span> Non-Parametric Architectural Ranking and Empirical Synthesis</a></li>
-  <li><a href="#multi-objective-pareto-frontier-analysis" id="toc-multi-objective-pareto-frontier-analysis" class="nav-link" data-scroll-target="#multi-objective-pareto-frontier-analysis"><span class="header-section-number">4.2</span> Multi-Objective Pareto Frontier Analysis</a>
-  <ul class="collapse">
-  <li><a href="#structure-of-the-pareto-non-dominated-set" id="toc-structure-of-the-pareto-non-dominated-set" class="nav-link" data-scroll-target="#structure-of-the-pareto-non-dominated-set"><span class="header-section-number">4.2.1</span> Structure of the Pareto Non-Dominated Set</a></li>
-  </ul></li>
-  <li><a href="#the-only-linear-encoder-entrypoint-olee-and-eliminating-the-transparency-penalty" id="toc-the-only-linear-encoder-entrypoint-olee-and-eliminating-the-transparency-penalty" class="nav-link" data-scroll-target="#the-only-linear-encoder-entrypoint-olee-and-eliminating-the-transparency-penalty"><span class="header-section-number">4.3</span> The Only Linear Encoder Entrypoint (OLEE) and Eliminating the Transparency Penalty</a></li>
-  <li><a href="#why-cognitive-mediation-multiplies-adni-mci-prediction-by-over-6-fold" id="toc-why-cognitive-mediation-multiplies-adni-mci-prediction-by-over-6-fold" class="nav-link" data-scroll-target="#why-cognitive-mediation-multiplies-adni-mci-prediction-by-over-6-fold"><span class="header-section-number">4.4</span> Why Cognitive Mediation Multiplies ADNI-MCI Prediction by Over 6-Fold</a></li>
-  <li><a href="#normalizing-flows-invertibility-and-geodesic-trajectories" id="toc-normalizing-flows-invertibility-and-geodesic-trajectories" class="nav-link" data-scroll-target="#normalizing-flows-invertibility-and-geodesic-trajectories"><span class="header-section-number">4.5</span> Normalizing Flows: Invertibility and Geodesic Trajectories</a>
-  <ul class="collapse">
-  <li><a href="#geodesic-latent-trajectories" id="toc-geodesic-latent-trajectories" class="nav-link" data-scroll-target="#geodesic-latent-trajectories"><span class="header-section-number">4.5.1</span> Geodesic Latent Trajectories</a></li>
-  </ul></li>
-  <li><a href="#clinical-translation-across-cohorts-and-translational-pathology" id="toc-clinical-translation-across-cohorts-and-translational-pathology" class="nav-link" data-scroll-target="#clinical-translation-across-cohorts-and-translational-pathology"><span class="header-section-number">4.6</span> Clinical Translation Across Cohorts and Translational Pathology</a></li>
-  <li><a href="#methodological-considerations-in-biomedical-cohorts" id="toc-methodological-considerations-in-biomedical-cohorts" class="nav-link" data-scroll-target="#methodological-considerations-in-biomedical-cohorts"><span class="header-section-number">4.7</span> Methodological Considerations in Biomedical Cohorts</a></li>
-  <li><a href="#limitations" id="toc-limitations" class="nav-link" data-scroll-target="#limitations"><span class="header-section-number">4.8</span> Limitations</a></li>
-  <li><a href="#conclusion" id="toc-conclusion" class="nav-link" data-scroll-target="#conclusion"><span class="header-section-number">4.9</span> Conclusion</a></li>
+  <li><a href="#deductive-synthesis-across-the-five-methodological-stages" id="toc-deductive-synthesis-across-the-five-methodological-stages" class="nav-link active" data-scroll-target="#deductive-synthesis-across-the-five-methodological-stages"><span class="header-section-number">4.1</span> Deductive Synthesis Across the Five Methodological Stages</a></li>
+  <li><a href="#non-parametric-architectural-ranking-and-multi-objective-pareto-frontier" id="toc-non-parametric-architectural-ranking-and-multi-objective-pareto-frontier" class="nav-link" data-scroll-target="#non-parametric-architectural-ranking-and-multi-objective-pareto-frontier"><span class="header-section-number">4.2</span> Non-Parametric Architectural Ranking and Multi-Objective Pareto Frontier</a></li>
+  <li><a href="#why-cognitive-mediation-and-bipartite-alignment-multiply-adni-mci-prediction" id="toc-why-cognitive-mediation-and-bipartite-alignment-multiply-adni-mci-prediction" class="nav-link" data-scroll-target="#why-cognitive-mediation-and-bipartite-alignment-multiply-adni-mci-prediction"><span class="header-section-number">4.3</span> Why Cognitive Mediation and Bipartite Alignment Multiply ADNI-MCI Prediction</a></li>
+  <li><a href="#clinical-translation-across-cohorts-and-translational-pathology" id="toc-clinical-translation-across-cohorts-and-translational-pathology" class="nav-link" data-scroll-target="#clinical-translation-across-cohorts-and-translational-pathology"><span class="header-section-number">4.4</span> Clinical Translation Across Cohorts and Translational Pathology</a></li>
+  <li><a href="#methodological-principles-for-multi-modal-biomedical-studies" id="toc-methodological-principles-for-multi-modal-biomedical-studies" class="nav-link" data-scroll-target="#methodological-principles-for-multi-modal-biomedical-studies"><span class="header-section-number">4.5</span> Methodological Principles for Multi-Modal Biomedical Studies</a></li>
+  <li><a href="#limitations" id="toc-limitations" class="nav-link" data-scroll-target="#limitations"><span class="header-section-number">4.6</span> Limitations</a></li>
+  <li><a href="#conclusion" id="toc-conclusion" class="nav-link" data-scroll-target="#conclusion"><span class="header-section-number">4.7</span> Conclusion</a></li>
   </ul>
 </nav>
     </div>
@@ -301,50 +293,50 @@ window.Quarto = {
 
 
 <p>Integrating heterogeneous, high-dimensional observations remains a fundamental task in computational anatomy, neurodegenerative disease modeling, and translational molecular oncology <span class="citation" data-cites="stone2020longitudinal avants2021">(<a href="#ref-stone2020longitudinal" role="doc-biblioref"><span class="nocase">Stone et al.</span> 2020</a>; <a href="#ref-avants2021" role="doc-biblioref">Avants et al. 2021</a>)</span>. As diagnostic and clinical trial cohorts incorporate multi-sequence structural and diffusion MRI, molecular positron emission tomography, biofluid assays, and high-throughput transcriptomics <span class="citation" data-cites="ADNI jack2008alzheimer Marek2011">(<a href="#ref-ADNI" role="doc-biblioref"><span class="nocase">Weiner et al.</span> 2017</a>; <a href="#ref-jack2008alzheimer" role="doc-biblioref"><span class="nocase">Jack et al.</span> 2008</a>; <a href="#ref-Marek2011" role="doc-biblioref"><span class="nocase">Marek et al.</span> 2011</a>)</span>, representation learning methods must balance the capacity to model non-linear manifold geometry against the legal, ethical, and scientific necessity for verifiable physical biomarker attribution <span class="citation" data-cites="Holmberg_2022">(<a href="#ref-Holmberg_2022" role="doc-biblioref">Holmberg et al. 2022</a>)</span>. In neurotrauma, blast-induced shockwaves produce diffuse microstructural shearing across white matter tracts that demands sparse, signed decomposition without cancellation artifacts <span class="citation" data-cites="stone2024blast">(<a href="#ref-stone2024blast" role="doc-biblioref"><span class="nocase">Stone et al.</span> 2024</a>)</span>. In cancer genomics, resolving functional oncogenic pathways across somatic copy-number alterations, mRNA expression, and targeted protein arrays in breast carcinoma (BRCA) <span class="citation" data-cites="tcga2012breast cancerdiscovery2016esr1">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-cancerdiscovery2016esr1" role="doc-biblioref">Cancer Discovery 2016</a>)</span> and clear cell renal cell carcinoma (KIRC) <span class="citation" data-cites="tcga2013kirc">(<a href="#ref-tcga2013kirc" role="doc-biblioref">The Cancer Genome Atlas Research Network 2013</a>)</span> requires multi-modal alignment that preserves exact gene-level attribution.</p>
-<p>In this work, we formulated multi-view representation learning as a constrained variational problem governed by the Only Linear Encoder Entrypoint (OLEE) contract, coupling an initial linear Stiefel projection with downstream Riemannian optimizers, non-linear decoders, and volume-preserving normalizing flows. Through evaluation across 9 distinct data regimes (3 real clinical/genomic cohorts and 6 synthetic manifolds across 3 random seeds, totaling 243 model evaluations), alongside dedicated investigations of 4-view cognitive mediation in Alzheimer’s disease (<span class="math inline">\(N=1,084\)</span>), we characterize the operational boundaries of multi-modal integration and establish empirical guidelines for biomedical deployment.</p>
-<section id="non-parametric-architectural-ranking-and-empirical-synthesis" class="level2" data-number="4.1">
-<h2 data-number="4.1" class="anchored" data-anchor-id="non-parametric-architectural-ranking-and-empirical-synthesis"><span class="header-section-number">4.1</span> Non-Parametric Architectural Ranking and Empirical Synthesis</h2>
-<p>Evaluating multi-modal representations requires non-parametric statistical inference that respects dataset-level block structure rather than pooling across replicate seeds <span class="citation" data-cites="Demsar2006">(<a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>)</span>. Across the <span class="math inline">\(B = 9\)</span> independent dataset blocks and <span class="math inline">\(k = 9\)</span> evaluated architectures, the non-parametric Friedman test confirms highly significant performance differences (<span class="math inline">\(\chi_F^2 = 32.47, p = 7.68 \times 10^{-5}\)</span>), corroborated by the Iman–Davenport extension (<span class="math inline">\(F_F = 6.57, p = 3.13 \times 10^{-6}\)</span>, <span class="math inline">\(\text{df}_1 = 8, \text{df}_2 = 64\)</span>) <span class="citation" data-cites="Iman1980">(<a href="#ref-Iman1980" role="doc-biblioref">Iman and Davenport 1980</a>)</span>. With nine models and nine dataset blocks, the two-tailed Nemenyi Critical Difference at <span class="math inline">\(\alpha = 0.05\)</span> is <span class="math inline">\(CD = 4.004\)</span> <span class="citation" data-cites="Nemenyi1963">(<a href="#ref-Nemenyi1963" role="doc-biblioref">Nemenyi 1963</a>)</span>, and the median between-model spread-to-noise ratio is <span class="math inline">\(6.15\times\)</span>.</p>
-<p>The empirical rankings establish four clear architectural tiers:</p>
+<p>In this work, we formulated multi-view representation learning deductively across five methodological stages governed by the <strong>Only Linear Encoder Entrypoint (OLEE)</strong> contract (Chapter 2) and evaluated every stage empirically across 12 multi-modal data regimes (6 real clinical/genomic/imaging cohorts and 6 synthetic manifolds across 3 random seeds, totaling 324 model evaluations), alongside a 1,214-combination hyperparameter sweep and a 10-seed mediation study in Alzheimer’s disease (<span class="math inline">\(N=1,084\)</span>).</p>
+<section id="deductive-synthesis-across-the-five-methodological-stages" class="level2" data-number="4.1">
+<h2 data-number="4.1" class="anchored" data-anchor-id="deductive-synthesis-across-the-five-methodological-stages"><span class="header-section-number">4.1</span> Deductive Synthesis Across the Five Methodological Stages</h2>
+<p>Our theoretical and empirical results demonstrate how each of the five methodological stages resolves a distinct failure mode in multi-view representation learning:</p>
 <ol type="1">
-<li><strong>Box-Constrained Riemannian &amp; Deep Hybrid Frontier (<code>SiMLR-LBFGSB</code>, <code>LEND</code>):</strong> <code>SiMLR-LBFGSB</code> achieves the best overall predictive rank (<span class="math inline">\(3.28\)</span>, mean predictive score <span class="math inline">\(0.795 \pm 0.201\)</span>, linear probe <span class="math inline">\(0.830\)</span>) and the highest sparse support recovery across the suite (<span class="math inline">\(\text{Support } F_1 = 0.942\)</span>) with near-zero per-view Stiefel frame defect (<span class="math inline">\(D = 2 \times 10^{-5}\)</span>). <code>LEND</code> achieves rank <span class="math inline">\(3.56\)</span> and leads the benchmark in mean predictive accuracy (<span class="math inline">\(0.830 \pm 0.189\)</span>), strictly linear probe (<span class="math inline">\(0.836\)</span>), axis-aligned Random Forest probe (<span class="math inline">\(0.830\)</span>), and latent coordinate recovery (<span class="math inline">\(CMC = 0.907\)</span>), excelling on <code>Shared+Private</code> (<span class="math inline">\(R^2 = 0.949\)</span> vs <span class="math inline">\(0.639\)</span> for <code>PCA</code>) and <code>NonnegPartsWeak</code> (<span class="math inline">\(R^2 = 0.732\)</span> vs <span class="math inline">\(0.522\)</span> for <code>PCA</code>).</li>
-<li><strong>Ultra-Fast Turnkey SVD &amp; Dense Linear Tier (<code>NSAFlow-PCA</code>, <code>PCA</code>):</strong> <code>NSAFlow-PCA</code> achieves rank <span class="math inline">\(3.61\)</span> (<span class="math inline">\(0.782 \pm 0.200\)</span>, <span class="math inline">\(CMC = 0.834\)</span>) in <span class="math inline">\(0.029\)</span> seconds per fit—matching <code>PCA</code> (rank <span class="math inline">\(3.78\)</span>, <span class="math inline">\(0.774 \pm 0.213\)</span>, <span class="math inline">\(0.024\text{s}\)</span>) in speed while outperforming <code>PCA</code> on Diabetes (<span class="math inline">\(R^2 = 0.382\)</span> vs <span class="math inline">\(0.350\)</span>) and TCGA-BRCA Multi-Omics (<span class="math inline">\(92.7\%\)</span> vs <span class="math inline">\(91.9\%\)</span>) and enforcing <span class="math inline">\(22.4\%\)</span> disjoint sparsity with zero signed crosstalk (<span class="math inline">\(\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}\)</span>).</li>
-<li><strong>First-Order, Quasi-Newton &amp; Invertible Flow Tier (<code>SiMLR</code>, <code>SiMLR-LBFGS</code>, <code>Flow-SiMR-V</code>):</strong> Classical <code>SiMLR</code> (rank <span class="math inline">\(4.17\)</span>, <span class="math inline">\(0.785 \pm 0.205\)</span>, <span class="math inline">\(0.363\text{s}\)</span>) and quasi-Newton <code>SiMLR-LBFGS</code> (rank <span class="math inline">\(4.56\)</span>, <span class="math inline">\(0.797 \pm 0.193\)</span>, <span class="math inline">\(0.175\text{s}\)</span>, <span class="math inline">\(\text{Support } F_1 = 0.766\)</span>) provide fast cross-view Stiefel convergence. <code>Flow-SiMR-V</code> (rank <span class="math inline">\(6.50\)</span> on <span class="math inline">\(\mathbf{U}\)</span>) achieves the second-highest strictly linear <span class="math inline">\(\mathbf{X}\mathbf{V}\)</span> probe across the entire benchmark (<span class="math inline">\(0.834\)</span>, including <span class="math inline">\(0.908\)</span> on <code>Shared+Private</code> and <span class="math inline">\(0.744\)</span> on <code>NonnegPartsWeak</code>) alongside <span class="math inline">\(0.883\)</span> sparse support recovery and exact analytical invertibility.</li>
-<li><strong>Dominated Unconstrained Deep Tier (<code>NED</code>, <code>NEDPP</code>):</strong> Fully non-linear autoencoders (<code>NED</code>, rank <span class="math inline">\(7.72\)</span>, <span class="math inline">\(0.618 \pm 0.227\)</span>; <code>NEDPP</code>, rank <span class="math inline">\(7.83\)</span>, <span class="math inline">\(0.633 \pm 0.249\)</span>) rank last across the benchmark and are significantly outperformed by every OLEE-constrained model under Holm-Bonferroni corrected Wilcoxon signed-rank tests (<span class="math inline">\(p_{\text{Holm}} \le 0.018\)</span>).</li>
+<li><strong>Stage 1 — The Input Boundary (OLEE &amp; NSA-Flow Manifold Geometry):</strong> Restricting the entrypoint of each modality <span class="math inline">\(m\)</span> to the compact Stiefel manifold (<span class="math inline">\(\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m, \mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k\)</span>) guarantees globally constant attribution derivatives (<span class="math inline">\(\nabla_{\mathbf{X}_m} \mathbf{Z}_{m,\text{lin}} = \mathbf{V}_m\)</span>) and closed-form counterfactual recourse (<span class="math inline">\(\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m^* \mathbf{V}_m^\top\)</span>) <span class="citation" data-cites="pearl2009causality Wachter_2017">(<a href="#ref-pearl2009causality" role="doc-biblioref">Pearl 2009</a>; <a href="#ref-Wachter_2017" role="doc-biblioref">Wachter et al. 2017</a>)</span>. Coupling the Stiefel constraint with the Non-negative Stiefel Approximating Flow (<code>nsa_flow</code>) enforces zero signed lobe crosstalk (<span class="math inline">\(\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1 = 0\)</span>) and recovers localized sparse feature supports (<code>SiMLR-LBFGSB</code> <span class="math inline">\(F_1 = 0.991\)</span>, <code>SiMLR-LBFGS</code> <span class="math inline">\(0.966\)</span>, <code>LEND</code> <span class="math inline">\(0.899\)</span>, <code>Flow-SiMR-V</code> <span class="math inline">\(0.826\)</span>) where rotationally invariant <code>PCA</code> fails (<span class="math inline">\(F_1 = 0.333\)</span>).</li>
+<li><strong>Stage 2 — Cross-View Consensus, Bipartite Topologies &amp; Spectral Triage (<code>MAI</code>):</strong> Cross-view alignment isolates shared biological variance when single-matrix concatenation is overwhelmed by view-private noise (<code>Shared+Private</code>: <code>LEND</code> <span class="math inline">\(R^2 = 0.949, CMC = 0.896\)</span> and <code>Flow-SiMR-V</code> <span class="math inline">\(R^2 = 0.845, CMC = 0.880\)</span> vs.&nbsp;<code>PCA</code> <span class="math inline">\(R^2 = 0.639, CMC = 0.636\)</span>). Crucially, when predictor views are aligned against a training-only clinical target view via a <strong>bipartite graph</strong> (<code>Protocol B</code> on ADNI-MCI, <code>{0:[3], 1:[3], 2:[3], 3:[0,1,2]}</code>), the predictor bases <span class="math inline">\(\mathbf{V}_m\)</span> are steered directly toward the disease axis without requiring clinical labels at test time (<code>CogPC1 R^2</code> <span class="math inline">\(= 0.224\text{–}0.241\)</span> vs.&nbsp;<span class="math inline">\(0.152\)</span> for <code>PCA</code>).</li>
+<li><strong>Stage 3 — Linear Multi-View Manifold Solvers &amp; Iteration-0 Warm Start (<code>SiMLR</code>, <code>SiMLR-LBFGS</code>, <code>SiMLR-LBFGSB</code>):</strong> Bound-constrained quasi-Newton optimization (<code>SiMLR-LBFGSB</code>) and Riemannian L-BFGS (<code>SiMLR-LBFGS</code>) achieve the #1 and #2 global Friedman ranks on the strictly linear OLEE basis probe across all 12 datasets (<span class="math inline">\(3.17\)</span> and <span class="math inline">\(4.00\)</span>; #1 and #2 on the 6 real-world cohorts with mean ranks <span class="math inline">\(2.50\)</span> and <span class="math inline">\(3.33\)</span>), while providing the fast iteration-0 linear warm start for all deep and flow architectures.</li>
+<li><strong>Stage 4 — Non-Linear Decoding Downstream of OLEE (<code>LEND</code> vs.&nbsp;<code>NED</code> / <code>NEDPP</code>):</strong> Keeping the encoder strictly linear (<span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span>) while placing non-linear MLP capacity exclusively in the decoder (<code>LEND</code>) achieves the #1 global Friedman rank on consensus prediction (<span class="math inline">\(3.58\)</span>, mean <span class="math inline">\(0.760 \pm 0.249\)</span>) and the highest latent coordinate recovery (<span class="math inline">\(CMC = 0.907\)</span>). Conversely, inserting MLP layers inside the encoder (<code>NED</code> rank <span class="math inline">\(7.29\)</span>, <code>NEDPP</code> rank <span class="math inline">\(8.04\)</span>) causes severe overfitting in sample-limited cohorts (<span class="math inline">\(p_{\text{Holm}} \le 7.5 \times 10^{-4}\)</span>).</li>
+<li><strong>Stage 5 — Bijective Normalizing Flows &amp; Detached-Prior Subspace Decoupling (<code>Flow-SiMR-V</code>):</strong> We proved that backpropagating standard Gaussian prior log-likelihood gradients (<span class="math inline">\(\nabla_{\mathbf{V}_m} \mathcal{L}_{\text{NLL}}\)</span>) through a rectangular Stiefel projection (<span class="math inline">\(k \ll p_m\)</span>) lacks a subspace log-determinant term and drives <span class="math inline">\(\mathbf{V}_m\)</span> onto the trailing (smallest-eigenvalue) noise eigenvectors of <span class="math inline">\(\mathbf{X}_m^\top \mathbf{X}_m\)</span>. Detaching the prior gradient at the OLEE boundary (<span class="math inline">\(\text{sg}(\mathbf{Z}_{m,\text{lin}})\)</span>) resolves this collapse, boosting <code>Flow-SiMR-V</code> <code>CogPC1 R^2</code> on ADNI-MCI by <span class="math inline">\(+704\%\)</span> (from <span class="math inline">\(0.0369\)</span> to <span class="math inline">\(0.2966\)</span> at <span class="math inline">\(k=6\)</span>, <span class="math inline">\(0.2341\)</span> at <span class="math inline">\(k=3\)</span>) and elevating <code>Flow-SiMR-V</code> to #3 overall rank across all 12 benchmark datasets while preserving exact analytical invertibility, conditional cross-view imputation, and geodesic trajectory mapping.</li>
 </ol>
 </section>
-<section id="multi-objective-pareto-frontier-analysis" class="level2" data-number="4.2">
-<h2 data-number="4.2" class="anchored" data-anchor-id="multi-objective-pareto-frontier-analysis"><span class="header-section-number">4.2</span> Multi-Objective Pareto Frontier Analysis</h2>
-<p>Architecture selection in biomedical discovery cannot be guided by predictive accuracy alone. We evaluate models across four complementary operational criteria:</p>
-<ol type="1">
-<li><strong>Downstream Predictive Capacity (<span class="math inline">\(Y\)</span>) [Maximize]:</strong> Evaluated via cross-validated <span class="math inline">\(R^2\)</span> or classification accuracy across all 9 benchmark tasks.</li>
-<li><strong>Ground-Truth Latent Discovery (<span class="math inline">\(CMC\)</span> on <span class="math inline">\(\mathbf{U}\)</span>) [Maximize]:</strong> Evaluated via Canonical Mean Correlation between estimated consensus coordinates <span class="math inline">\(\mathbf{U}\)</span> and true generative latents <span class="math inline">\(\mathbf{S}\)</span> across the 6 synthetic regimes.</li>
-<li><strong>Sparse Support Localization &amp; Invariants (<span class="math inline">\(\text{Support } F_1, D, \text{Crosstalk}\)</span>):</strong> Evaluated via Jaccard/F1 support overlap on sparse non-negative regimes, trace-normalized Stiefel Frame Defect <span class="math inline">\(D\)</span>, and signed lobe crosstalk <span class="math inline">\(\|\mathbf{V}^+ \odot \mathbf{V}^-\|_1 = 0.0000\)</span>.</li>
-<li><strong>Computational Efficiency (<span class="math inline">\(t\)</span>) [Minimize]:</strong> Evaluated via wall-clock fit time in seconds.</li>
-</ol>
+<section id="non-parametric-architectural-ranking-and-multi-objective-pareto-frontier" class="level2" data-number="4.2">
+<h2 data-number="4.2" class="anchored" data-anchor-id="non-parametric-architectural-ranking-and-multi-objective-pareto-frontier"><span class="header-section-number">4.2</span> Non-Parametric Architectural Ranking and Multi-Objective Pareto Frontier</h2>
+<p>Evaluating multi-modal representations requires non-parametric statistical inference that respects dataset-level block structure rather than pooling across replicate seeds <span class="citation" data-cites="Demsar2006">(<a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>)</span>. Across the <span class="math inline">\(B = 12\)</span> independent dataset blocks and <span class="math inline">\(k = 9\)</span> evaluated architectures (<span class="math inline">\(324\)</span> evaluations), the non-parametric Friedman and Iman–Davenport tests confirm highly significant separation across both evaluation probes (<span class="math inline">\(\text{df}_1 = 8, \text{df}_2 = 88\)</span>, Nemenyi <span class="math inline">\(CD = 3.468\)</span> at <span class="math inline">\(\alpha = 0.05\)</span> <span class="citation" data-cites="Iman1980 Nemenyi1963">(<a href="#ref-Iman1980" role="doc-biblioref">Iman and Davenport 1980</a>; <a href="#ref-Nemenyi1963" role="doc-biblioref">Nemenyi 1963</a>)</span>):</p>
+<ul>
+<li><strong>Consensus Prediction (<span class="math inline">\(\mathbf{U}\)</span>):</strong> <span class="math inline">\(\chi_F^2 = 32.06 \; (p = 9.10 \times 10^{-5}), \quad F_F = 5.51 \; (p = 1.19 \times 10^{-5})\)</span>.</li>
+<li><strong>Strictly Linear OLEE Basis (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>):</strong> <span class="math inline">\(\chi_F^2 = 30.77 \; (p = 1.54 \times 10^{-4}), \quad F_F = 5.19 \; (p = 2.54 \times 10^{-5})\)</span>.</li>
+</ul>
 <div id="tbl-pareto-frontier-expanded" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-pareto-frontier-expanded-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;4.1: Multi-Objective Pareto Frontier Evaluation across 9 dataset blocks (243 evaluations). All models maintain exact zero signed crosstalk (<span class="math inline">\(\|\mathbf{V}^+ \odot \mathbf{V}^-\|_1 = 0.0000\)</span>).
+Table&nbsp;4.1: Multi-Objective Pareto Frontier Evaluation across all 12 dataset blocks (324 evaluations). All models maintain exact zero signed crosstalk (<span class="math inline">\(\|\mathbf{V}^+ \odot \mathbf{V}^-\|_1 = 0.0000\)</span>).
 </figcaption>
 <div aria-describedby="tbl-pareto-frontier-expanded-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="caption-top table">
 <colgroup>
-<col style="width: 9%">
-<col style="width: 11%">
-<col style="width: 11%">
-<col style="width: 11%">
-<col style="width: 11%">
-<col style="width: 11%">
-<col style="width: 11%">
-<col style="width: 11%">
-<col style="width: 9%">
+<col style="width: 8%">
+<col style="width: 10%">
+<col style="width: 10%">
+<col style="width: 10%">
+<col style="width: 10%">
+<col style="width: 10%">
+<col style="width: 10%">
+<col style="width: 10%">
+<col style="width: 10%">
+<col style="width: 8%">
 </colgroup>
 <thead>
 <tr class="header">
 <th style="text-align: left;">Model Architecture</th>
-<th style="text-align: center;">Mean Rank</th>
-<th style="text-align: center;">Predictive Score (Mean ± SD)</th>
+<th style="text-align: center;"><span class="math inline">\(\mathbf{U}\)</span> Rank</th>
+<th style="text-align: center;"><span class="math inline">\(\mathbf{X}\mathbf{V}\)</span> Rank</th>
+<th style="text-align: center;">Consensus Score (Mean ± SD)</th>
 <th style="text-align: center;">Linear Probe (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>)</th>
 <th style="text-align: center;">Synthetic <span class="math inline">\(CMC\)</span> (<span class="math inline">\(\mathbf{U}\)</span>)</th>
 <th style="text-align: center;">Support <span class="math inline">\(F_1\)</span> (<span class="math inline">\(\mathbf{V}\)</span>)</th>
@@ -355,204 +347,160 @@ Table&nbsp;4.1: Multi-Objective Pareto Frontier Evaluation across 9 dataset bloc
 </thead>
 <tbody>
 <tr class="odd">
-<td style="text-align: left;"><strong>SiMLR-LBFGSB</strong></td>
-<td style="text-align: center;"><strong>3.28</strong></td>
-<td style="text-align: center;"><span class="math inline">\(0.795 \pm 0.201\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.830\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.826\)</span></td>
-<td style="text-align: center;"><strong>0.942</strong></td>
-<td style="text-align: center;"><span class="math inline">\(14.4\%\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(2.155\)</span> s</td>
-<td style="text-align: left;"><strong>Pareto Optimal</strong> (Sparse Support Frontier)</td>
-</tr>
-<tr class="even">
 <td style="text-align: left;"><strong>LEND (Hybrid)</strong></td>
-<td style="text-align: center;"><strong>3.56</strong></td>
-<td style="text-align: center;"><strong>0.830 ± 0.189</strong></td>
-<td style="text-align: center;"><strong>0.836</strong></td>
+<td style="text-align: center;"><strong>3.58</strong></td>
+<td style="text-align: center;"><span class="math inline">\(4.25\)</span></td>
+<td style="text-align: center;"><strong>0.760 ± 0.249</strong></td>
+<td style="text-align: center;"><span class="math inline">\(0.774\)</span></td>
 <td style="text-align: center;"><strong>0.907</strong></td>
 <td style="text-align: center;"><span class="math inline">\(0.899\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(14.1\%\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(1.586\)</span> s</td>
+<td style="text-align: center;"><span class="math inline">\(10.6\%\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(3.756\)</span> s</td>
 <td style="text-align: left;"><strong>Pareto Optimal</strong> (Predictive &amp; CMC Frontier)</td>
 </tr>
-<tr class="odd">
-<td style="text-align: left;"><strong>NSAFlow-PCA</strong></td>
-<td style="text-align: center;"><strong>3.61</strong></td>
-<td style="text-align: center;"><span class="math inline">\(0.782 \pm 0.200\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.776\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.834\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.399\)</span></td>
-<td style="text-align: center;"><strong>22.4%</strong></td>
-<td style="text-align: center;"><strong>0.029 s</strong></td>
-<td style="text-align: left;"><strong>Pareto Optimal</strong> (Fast Sparse SVD Frontier)</td>
-</tr>
 <tr class="even">
-<td style="text-align: left;"><strong>PCA</strong></td>
-<td style="text-align: center;"><strong>3.78</strong></td>
-<td style="text-align: center;"><span class="math inline">\(0.774 \pm 0.213\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.767\)</span></td>
+<td style="text-align: left;"><strong>SiMLR-LBFGSB</strong></td>
+<td style="text-align: center;"><strong>3.62</strong></td>
+<td style="text-align: center;"><strong>3.17</strong></td>
+<td style="text-align: center;"><span class="math inline">\(0.732 \pm 0.244\)</span></td>
+<td style="text-align: center;"><strong>0.777</strong></td>
 <td style="text-align: center;"><span class="math inline">\(0.827\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.333\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.0\%\)</span></td>
-<td style="text-align: center;"><strong>0.024 s</strong></td>
-<td style="text-align: left;"><strong>Pareto Optimal</strong> (Ultra-Fast Dense Baseline)</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">SiMLR (Classical)</td>
-<td style="text-align: center;"><span class="math inline">\(4.17\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.785 \pm 0.205\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.825\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.819\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.495\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(6.5\%\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.363\)</span> s</td>
-<td style="text-align: left;">Dominated by <code>SiMLR-LBFGS</code></td>
-</tr>
-<tr class="even">
-<td style="text-align: left;"><strong>SiMLR-LBFGS</strong></td>
-<td style="text-align: center;"><span class="math inline">\(4.56\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.797 \pm 0.193\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.827\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.825\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.766\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(12.4\%\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.175\)</span> s</td>
-<td style="text-align: left;"><strong>Pareto Optimal</strong> (Fast Quasi-Newton Frontier)</td>
+<td style="text-align: center;"><strong>0.991</strong></td>
+<td style="text-align: center;"><span class="math inline">\(11.1\%\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(3.910\)</span> s</td>
+<td style="text-align: left;"><strong>Pareto Optimal</strong> (OLEE Basis &amp; Sparse Support Frontier)</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;"><strong>Flow-SiMR-V</strong></td>
-<td style="text-align: center;"><span class="math inline">\(6.50\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.754 \pm 0.190\)</span></td>
+<td style="text-align: center;"><strong>4.17</strong></td>
+<td style="text-align: center;"><strong>4.12</strong></td>
+<td style="text-align: center;"><span class="math inline">\(0.752 \pm 0.245\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.771\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.876\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.826\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(9.8\%\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(9.563\)</span> s</td>
+<td style="text-align: left;"><strong>Pareto Optimal</strong> (Invertible Diffeomorphic Frontier)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>SiMLR-LBFGS</strong></td>
+<td style="text-align: center;"><span class="math inline">\(4.25\)</span></td>
+<td style="text-align: center;"><strong>4.00</strong></td>
+<td style="text-align: center;"><span class="math inline">\(0.731 \pm 0.245\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.774\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.827\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.966\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(10.9\%\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(3.543\)</span> s</td>
+<td style="text-align: left;"><strong>Pareto Optimal</strong> (Quasi-Newton Stiefel Frontier)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><strong>PCA</strong></td>
+<td style="text-align: center;"><span class="math inline">\(4.50\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(7.46\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.710 \pm 0.253\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.706\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.827\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.333\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.0\%\)</span></td>
+<td style="text-align: center;"><strong>0.043 s</strong></td>
+<td style="text-align: left;"><strong>Pareto Optimal</strong> (Ultra-Fast Dense Baseline)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">SiMLR (Classical)</td>
+<td style="text-align: center;"><span class="math inline">\(4.67\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(4.50\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.722 \pm 0.248\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.772\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.819\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.495\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(4.9\%\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.556\)</span> s</td>
+<td style="text-align: left;">Fast First-Order Stiefel Solver</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><strong>NSAFlow-PCA</strong></td>
+<td style="text-align: center;"><span class="math inline">\(4.88\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(7.67\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.714 \pm 0.245\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.710\)</span></td>
 <td style="text-align: center;"><span class="math inline">\(0.834\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.816\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.883\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(13.6\%\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(5.602\)</span> s</td>
-<td style="text-align: left;"><strong>Pareto Optimal</strong> (Invertible Flow Frontier)</td>
+<td style="text-align: center;"><span class="math inline">\(0.399\)</span></td>
+<td style="text-align: center;"><strong>25.0%</strong></td>
+<td style="text-align: center;"><strong>0.040 s</strong></td>
+<td style="text-align: left;"><strong>Pareto Optimal</strong> (Ultra-Fast Sparse SVD Frontier)</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NED (Deep MLP)</td>
-<td style="text-align: center;"><span class="math inline">\(7.72\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.618 \pm 0.227\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.824\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(7.29\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(5.17\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.593 \pm 0.243\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.768\)</span></td>
 <td style="text-align: center;"><span class="math inline">\(0.589\)</span></td>
 <td style="text-align: center;"><span class="math inline">\(0.811\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(12.9\%\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(1.806\)</span> s</td>
-<td style="text-align: left;">Dominated (<span class="math inline">\(p_{\text{Holm}} &lt; 10^{-3}\)</span>)</td>
+<td style="text-align: center;"><span class="math inline">\(9.7\%\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(3.021\)</span> s</td>
+<td style="text-align: left;">Dominated (<span class="math inline">\(p_{\text{Holm}} \le 7.5 \times 10^{-4}\)</span>)</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">NEDPP (Shared/Priv)</td>
-<td style="text-align: center;"><span class="math inline">\(7.83\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.633 \pm 0.249\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(0.824\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(8.04\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(4.67\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.589 \pm 0.254\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(0.770\)</span></td>
 <td style="text-align: center;"><span class="math inline">\(0.652\)</span></td>
 <td style="text-align: center;"><span class="math inline">\(0.796\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(12.7\%\)</span></td>
-<td style="text-align: center;"><span class="math inline">\(2.152\)</span> s</td>
-<td style="text-align: left;">Dominated (<span class="math inline">\(p_{\text{Holm}} &lt; 10^{-4}\)</span>)</td>
+<td style="text-align: center;"><span class="math inline">\(9.6\%\)</span></td>
+<td style="text-align: center;"><span class="math inline">\(3.380\)</span> s</td>
+<td style="text-align: left;">Dominated (<span class="math inline">\(p_{\text{Holm}} \le 1.2 \times 10^{-4}\)</span>)</td>
 </tr>
 </tbody>
 </table>
 </div>
 </figure>
 </div>
-<section id="structure-of-the-pareto-non-dominated-set" class="level3" data-number="4.2.1">
-<h3 data-number="4.2.1" class="anchored" data-anchor-id="structure-of-the-pareto-non-dominated-set"><span class="header-section-number">4.2.1</span> Structure of the Pareto Non-Dominated Set</h3>
-<p>The empirical results define five distinct operational regimes on the Pareto frontier:</p>
-<ul>
-<li><strong>The Predictive and Consensus Discovery Frontier (<code>LEND</code>):</strong> Achieving the highest predictive accuracy (<span class="math inline">\(0.830\)</span>), highest linear probe (<span class="math inline">\(0.836\)</span>), and highest latent coordinate recovery (<span class="math inline">\(CMC = 0.907\)</span>), <code>LEND</code> combines a linear Stiefel encoder with a non-linear MLP decoder to isolate shared multi-view structure even when individual views carry heavy private noise (<code>Shared+Private</code> <span class="math inline">\(R^2 = 0.949\)</span>).</li>
-<li><strong>The Sparse Support Localization Frontier (<code>SiMLR-LBFGSB</code>):</strong> Achieving the best overall Friedman rank (<span class="math inline">\(3.28\)</span>) and highest sparse support recovery (<span class="math inline">\(F_1 = 0.942\)</span>), <code>SiMLR-LBFGSB</code> enforces strict non-negative box constraints alongside Stiefel consolidation (<code>NonnegPartsWeak</code> <span class="math inline">\(R^2 = 0.715\)</span> vs <span class="math inline">\(0.522\)</span> for <code>PCA</code>).</li>
-<li><strong>The Ultra-Fast Turnkey Sparse Frontier (<code>NSAFlow-PCA</code>):</strong> Executing in <span class="math inline">\(0.029\text{s}\)</span> with <span class="math inline">\(22.4\%\)</span> disjoint sparsity, <code>NSAFlow-PCA</code> matches <code>PCA</code> (<span class="math inline">\(0.024\text{s}\)</span>) in speed while outperforming it in predictive accuracy (<span class="math inline">\(0.782\)</span> vs <span class="math inline">\(0.774\)</span>) and providing signed, non-cancelling feature lobes.</li>
-<li><strong>The Fast Quasi-Newton Frontier (<code>SiMLR-LBFGS</code>):</strong> Executing in <span class="math inline">\(0.175\text{s}\)</span> (<span class="math inline">\(2\times\)</span> faster than first-order <code>SiMLR</code>), <code>SiMLR-LBFGS</code> delivers <span class="math inline">\(0.797\)</span> predictive accuracy and <span class="math inline">\(0.766\)</span> support recovery with Per-view frame defect <span class="math inline">\(D = 4.7 \times 10^{-4}\)</span>.</li>
-<li><strong>The Invertible Diffeomorphic Frontier (<code>Flow-SiMR-V</code>):</strong> Combining a linear Stiefel entrypoint with bijective RealNVP coupling layers, <code>Flow-SiMR-V</code> achieves <span class="math inline">\(0.834\)</span> on the strictly linear <span class="math inline">\(\mathbf{X}\mathbf{V}\)</span> probe and <span class="math inline">\(0.883\)</span> support recovery while supporting exact analytical inversion for geodesic trajectory mapping.</li>
-</ul>
 </section>
-</section>
-<section id="the-only-linear-encoder-entrypoint-olee-and-eliminating-the-transparency-penalty" class="level2" data-number="4.3">
-<h2 data-number="4.3" class="anchored" data-anchor-id="the-only-linear-encoder-entrypoint-olee-and-eliminating-the-transparency-penalty"><span class="header-section-number">4.3</span> The Only Linear Encoder Entrypoint (OLEE) and Eliminating the Transparency Penalty</h2>
-<p>A central design requirement in medical imaging, oncology biomarker discovery, and clinical trials is that representation projections remain verifiable. In standard deep multi-view networks, deeply nested activation functions (<span class="math inline">\(\mathbf{Z} = \sigma(\mathbf{W}_2 \sigma(\mathbf{W}_1 \mathbf{X} + \mathbf{b}_1) + \mathbf{b}_2)\)</span>) entangle features, precluding direct inspection of how physical measurements relate to latent scores <span class="citation" data-cites="Rudin_2019">(<a href="#ref-Rudin_2019" role="doc-biblioref">Rudin 2019</a>)</span>. In clinical practice, this incurs an unacceptable <strong>transparency penalty</strong>: if a latent score stratifies a patient into an aggressive treatment arm, biostatisticians and clinicians must verify whether that score is driven by true anatomical atrophy or batch artifacts <span class="citation" data-cites="Holmberg_2022">(<a href="#ref-Holmberg_2022" role="doc-biblioref">Holmberg et al. 2022</a>)</span>.</p>
-<p>Post-hoc explainers (such as SHAP and LIME) attempt to circumvent this by querying local surrogate models on randomly perturbed inputs <span class="citation" data-cites="Ribeiro_2016 Lundberg_2017">(<a href="#ref-Ribeiro_2016" role="doc-biblioref">Ribeiro et al. 2016</a>; <a href="#ref-Lundberg_2017" role="doc-biblioref">Lundberg and Lee 2017</a>)</span>. In anatomical and physiological cohorts, post-hoc methods suffer from an out-of-distribution sampling defect: perturbing features independently creates synthetic points that violate physiological covariance (e.g., pairing impossible cortical thickness values or mutually exclusive transcript profiles). This instability can introduce false-positive biomarker attributions <span class="citation" data-cites="Holmberg_2022 Smith2023posthoc">(<a href="#ref-Holmberg_2022" role="doc-biblioref">Holmberg et al. 2022</a>; <a href="#ref-Smith2023posthoc" role="doc-biblioref">Radulovic 2023</a>)</span>.</p>
-<p>Deep SiMLR enforces verifiable attribution by restricting the entrypoint of each modality to the <strong>Only Linear Encoder Entrypoint (OLEE)</strong> contract: <span class="math display">\[
-\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m, \quad \text{subject to } \mathbf{V}_m \in \text{St}(k, p_m) = \{\mathbf{V} \in \mathbb{R}^{p_m \times k} \mid \mathbf{V}^\top \mathbf{V} = \mathbf{I}_k\}
-\]</span> This architectural contract yields three mathematical and clinical guarantees:</p>
+<section id="why-cognitive-mediation-and-bipartite-alignment-multiply-adni-mci-prediction" class="level2" data-number="4.3">
+<h2 data-number="4.3" class="anchored" data-anchor-id="why-cognitive-mediation-and-bipartite-alignment-multiply-adni-mci-prediction"><span class="header-section-number">4.3</span> Why Cognitive Mediation and Bipartite Alignment Multiply ADNI-MCI Prediction</h2>
+<p>Our investigation of <span class="math inline">\(N = 1,084\)</span> patients with Mild Cognitive Impairment (MCI) from the ADNI cohort <span class="citation" data-cites="ADNI jack2008alzheimer">(<a href="#ref-ADNI" role="doc-biblioref"><span class="nocase">Weiner et al.</span> 2017</a>; <a href="#ref-jack2008alzheimer" role="doc-biblioref"><span class="nocase">Jack et al.</span> 2008</a>)</span> highlights two general methodological principles for clinical neuroimaging:</p>
 <ol type="1">
-<li><strong>Globally Constant Attribution Gradients:</strong> The marginal contribution of feature <span class="math inline">\(j\)</span> to latent component <span class="math inline">\(k\)</span> is identically constant across the input domain: <span class="math display">\[
-\nabla_{\mathbf{X}_m} \mathbf{Z}_m = \mathbf{V}_m, \quad \frac{\partial Z_{m, ik}}{\partial X_{m, ij}} = V_{m, jk}
-\]</span> Feature loadings are exact, closed-form, and independent of heuristic perturbation parameters.</li>
-<li><strong>Closed-Form Counterfactual Recourse:</strong> Determining the minimal physical perturbation <span class="math inline">\(\delta \mathbf{x}_m\)</span> required to produce a targeted therapeutic shift in latent coordinates <span class="math inline">\(\Delta \mathbf{z}_m\)</span> reduces to an exact orthogonal projection: <span class="math display">\[
-\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m \mathbf{V}_m^\top
-\]</span> This eliminates iterative gradient searches, non-convex local minima, and off-manifold sampling artifacts, connecting dimensionality reduction directly to actionable causal recourse frameworks <span class="citation" data-cites="pearl2009causality Wachter_2017">(<a href="#ref-pearl2009causality" role="doc-biblioref">Pearl 2009</a>; <a href="#ref-Wachter_2017" role="doc-biblioref">Wachter et al. 2017</a>)</span>.</li>
-<li><strong>Signed Support Consolidation:</strong> Decomposing loading matrices into positive and negative lobes (<span class="math inline">\(\mathbf{V} = \mathbf{V}^+ - \mathbf{V}^-\)</span>) and enforcing disjoint support (<span class="math inline">\(\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}\)</span>) prevents positive and negative weights from cancelling destructively, ensuring that positive and negative coefficients identify distinct anatomical or biological processes.</li>
+<li><strong>Bipartite Target Alignment (<code>Protocol B</code>) vs.&nbsp;Unsupervised Anatomical Alignment (<code>Protocol A</code>):</strong> When the three structural MRI views (<span class="math inline">\(382\)</span> features) are aligned only with each other (<code>Protocol A</code>), their top shared components reflect global brain size and healthy aging rather than cognitive decline (<code>PCA</code> <code>CogPC1 R^2</code> <span class="math inline">\(= 0.1522\)</span>). Aligning each MRI view directly against the 11 <span class="math inline">\(&gt;98\%\)</span>-complete cognitive measures during training via a bipartite graph (<code>{0:[3], 1:[3], 2:[3], 3:[0,1,2]}</code>)—while withholding View 4 at test time—steers the MRI projections <span class="math inline">\(\mathbf{V}_0, \mathbf{V}_1, \mathbf{V}_2\)</span> onto the cortical atrophy signature of cognitive impairment, raising MRI-only test <code>CogPC1 R^2</code> to <span class="math inline">\(0.2237\)</span> (<code>SiMLR-LBFGSB</code>, 3-seed mean) and <span class="math inline">\(0.2407\)</span> (<code>SiMLR-Lookahead</code> in the 1,214-combination sweep).</li>
+<li><strong>Over 6-Fold Gain on Functional Dementia Severity (CDR-SB) via Cognitive Mediation:</strong> Trying to predict daily functional disability (CDR-SB) directly from the 382 brain MRI features explains only <strong>4.1% of test variance</strong> (<span class="math inline">\(R^2 = 0.0411 \pm 0.0248\)</span>). Biologically, hippocampal and cortical tissue loss first erodes mental abilities (memory recall, executive attention), and that loss of mental ability impairs daily functioning (<span class="math inline">\(84.5\%\text{–}86.4\%\)</span> indirect effect, Sobel <span class="math inline">\(p &lt; 10^{-15}\)</span>). Modeling this two-step pathway (<span class="math inline">\(\text{Brain MRI} \to \text{Cognition} \to \text{CDR-SB}\)</span>) increases out-of-sample CDR-SB accuracy over six-fold (<code>LEND-SiMR + MAI</code>: <span class="math inline">\(R^2 = 0.2648 \pm 0.0332\)</span>; <code>SiMLR</code>: <span class="math inline">\(R^2 = 0.2443 \pm 0.0534\)</span> in <span class="math inline">\(0.86\text{s}\)</span>), whereas unconstrained deep encoders (<code>NED-SiMR + MAI</code>: <span class="math inline">\(R^2 = 0.1127\)</span>) overfit the 382 anatomical features.</li>
 </ol>
 </section>
-<section id="why-cognitive-mediation-multiplies-adni-mci-prediction-by-over-6-fold" class="level2" data-number="4.4">
-<h2 data-number="4.4" class="anchored" data-anchor-id="why-cognitive-mediation-multiplies-adni-mci-prediction-by-over-6-fold"><span class="header-section-number">4.4</span> Why Cognitive Mediation Multiplies ADNI-MCI Prediction by Over 6-Fold</h2>
-<p>The practical value of the OLEE contract is clearest in our study of <span class="math inline">\(N = 1,084\)</span> patients with Mild Cognitive Impairment (MCI) from the ADNI cohort <span class="citation" data-cites="ADNI jack2008alzheimer">(<a href="#ref-ADNI" role="doc-biblioref"><span class="nocase">Weiner et al.</span> 2017</a>; <a href="#ref-jack2008alzheimer" role="doc-biblioref"><span class="nocase">Jack et al.</span> 2008</a>)</span>. Clinicians evaluate functional dementia severity using the <strong>Clinical Dementia Rating – Sum of Boxes (CDR-SB)</strong>, which measures how well a patient manages daily life (remembering events, handling household tasks, staying oriented).</p>
-<p>Integrating three structural brain MRI views (<span class="math inline">\(382\)</span> regional volume and cortical thickness measurements) with a fourth view of clinical cognitive tests (<span class="math inline">\(p_4 = 13\)</span>) reveals three clear findings:</p>
+<section id="clinical-translation-across-cohorts-and-translational-pathology" class="level2" data-number="4.4">
+<h2 data-number="4.4" class="anchored" data-anchor-id="clinical-translation-across-cohorts-and-translational-pathology"><span class="header-section-number">4.4</span> Clinical Translation Across Cohorts and Translational Pathology</h2>
+<p>The modular Deep SiMLR framework addresses distinct clinical and biological challenges across the six real-world cohorts:</p>
 <ol type="1">
-<li><strong>Brain Scans Alone Cannot Predict Daily Disability (<span class="math inline">\(R^2 \approx 0.041\)</span>):</strong> Trying to predict CDR-SB directly from the 382 brain MRI features hits a hard ceiling of only <strong>4.1% explained variance</strong> (<code>Direct-Anatomy [SiMLR]</code>: <span class="math inline">\(R^2 = 0.0411 \pm 0.0248, \rho = 0.2203\)</span>), while raw Ridge regression fails completely (<span class="math inline">\(R^2 = -0.1810\)</span>). Biologically, tissue loss in the cortex and hippocampus does not directly cause a patient to struggle with daily errands; instead, brain atrophy first erodes specific mental abilities (memory recall, executive attention), and it is that loss of mental ability that impairs daily functioning.</li>
-<li><strong>Modeling the Two-Step Pathway Multiplies Accuracy Over 6-Fold (<span class="math inline">\(R^2 \approx 0.265\)</span>):</strong> When our 4-view models align structural brain MRI with the cognitive test battery along the natural pathway (<span class="math inline">\(\text{Brain MRI} \to \text{Cognition} \to \text{CDR-SB}\)</span>), out-of-sample accuracy jumps more than six-fold:
-<ul>
-<li><code>LEND-SiMR + MAI [Mediated]</code>: <span class="math inline">\(R^2 = 0.2648 \pm 0.0332\)</span> (<span class="math inline">\(6.44\times\)</span> higher than direct MRI, <span class="math inline">\(p = 9.77 \times 10^{-4}\)</span>)</li>
-<li><code>SiMLR [Mediated]</code>: <span class="math inline">\(R^2 = 0.2443 \pm 0.0534\)</span> (<span class="math inline">\(5.94\times\)</span> higher, solved in <span class="math inline">\(0.86\text{s}\)</span>)</li>
-<li><code>Flow-SiMR-V + MAI [Mediated]</code>: <span class="math inline">\(R^2 = 0.2290 \pm 0.0696\)</span> (<span class="math inline">\(5.57\times\)</span> higher) Formal Baron–Kenny mediation confirms that <strong>84.5% to 86.4% of the total effect of brain atrophy on CDR-SB is indirect</strong>, traveling through cognitive performance (<span class="math inline">\(p &lt; 10^{-15}\)</span>).</li>
-</ul></li>
-<li><strong>Unconstrained Deep Networks Collapse on High-Dimensional Brain Data:</strong> Even with all four views available, unconstrained deep autoencoders fail (<code>NED-SiMR + MAI</code>: <span class="math inline">\(R^2 = 0.1127 \pm 0.0578\)</span>; <code>NED-Shared-Private</code>: <span class="math inline">\(R^2 = 0.0840\)</span>). Without the orthogonal first-layer Stiefel constraint (<span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}\)</span>), multi-layer perceptrons overfit noise across the 382 anatomical features and miss the shared brain-to-cognition axis.</li>
+<li><strong>Cleveland Heart Disease (<code>Heart</code>, <span class="math inline">\(N=297\)</span>):</strong> Integrating resting vitals (<span class="math inline">\(p_1 = 7\)</span>) and stress electrocardiography (<span class="math inline">\(p_2 = 6\)</span>) achieves <span class="math inline">\(84.8\%\)</span> strictly linear probe accuracy (<code>NSAFlow-PCA</code>) and <span class="math inline">\(83.7\%\)</span> consensus accuracy (<code>NSAFlow-PCA</code>, <code>PCA</code>, <code>SiMLR-LBFGSB</code>), directly attributing risk to exercise-induced ST depression (<code>oldpeak</code>), maximum heart rate (<code>thalach</code>), and chest pain type (<code>cp</code>).</li>
+<li><strong>Diabetes Progression (<code>Diabetes</code>, <span class="math inline">\(N=442\)</span>):</strong> Integrating anthropometric/hemodynamic baselines (<span class="math inline">\(p_1 = 5\)</span>) and serum lipid chemistries (<span class="math inline">\(p_2 = 5\)</span>), <code>NSAFlow-PCA</code> (<span class="math inline">\(R^2 = 0.382\)</span>) and <code>SiMLR-LBFGSB</code> / <code>SiMLR-LBFGS</code> (linear probe <span class="math inline">\(R^2 = 0.396\)</span>) outperform dense <code>PCA</code> (<span class="math inline">\(0.350\)</span>) while isolating body mass index (<code>bmi</code>) and serum triglycerides (<code>s5</code>).</li>
+<li><strong>Breast and Renal Translational Oncology (<code>TCGA-BRCA</code> <span class="math inline">\(N=822\)</span>, <code>TCGA-KIRC</code> <span class="math inline">\(N=467\)</span>):</strong> Enforcing <span class="math inline">\(\ge 98\%\)</span> completeness across mRNA (<span class="math inline">\(p_1=200\)</span>), CNV (<span class="math inline">\(p_2=150\)</span>), and RPPA proteomics (<span class="math inline">\(p_3=150\)</span>), <code>NSAFlow-PCA</code> (<span class="math inline">\(92.7\%\)</span>), <code>SiMLR-LBFGSB</code> (<span class="math inline">\(92.6\%\)</span> linear probe), and <code>LEND</code> (<span class="math inline">\(92.6\%\)</span> linear probe, <span class="math inline">\(92.2\%\)</span> consensus) accurately stratify Estrogen Receptor status in BRCA, while <code>Flow-SiMR-V</code> and <code>LEND</code> lead pathologic stage classification in KIRC (<span class="math inline">\(69.7\%\)</span>).</li>
+<li><strong>High-Cardinality Multi-View Pattern Recognition (<code>mfeat</code>, <span class="math inline">\(N=2,000\)</span>):</strong> Across 4 heterogeneous descriptor views, <code>Flow-SiMR-V</code> (<span class="math inline">\(81.9\%\)</span>) and <code>LEND</code> (<span class="math inline">\(78.9\%\)</span>) lead 3D consensus classification, while <code>SiMLR-LBFGSB</code> (<span class="math inline">\(94.8\%\)</span>) and <code>NEDPP</code> (<span class="math inline">\(96.2\%\)</span>) outperform concatenated <code>PCA</code> (<span class="math inline">\(72.7\%\)</span>) by over <span class="math inline">\(+22\)</span> percentage points on the OLEE basis probe.</li>
+<li><strong>Neurotrauma and Longitudinal Parkinson’s Cohorts (TBI &amp; PPMI):</strong> In blast-induced diffuse axonal injury <span class="citation" data-cites="stone2024blast">(<a href="#ref-stone2024blast" role="doc-biblioref"><span class="nocase">Stone et al.</span> 2024</a>)</span> and longitudinal dopaminergic imaging <span class="citation" data-cites="Marek2011">(<a href="#ref-Marek2011" role="doc-biblioref"><span class="nocase">Marek et al.</span> 2011</a>)</span>, <code>NSAFlow-PCA</code> and <code>SiMLR-LBFGSB</code> enforce disjoint non-negative support (<span class="math inline">\(\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}\)</span>), isolating tract-specific white matter shearing and striatal binding changes without destructive sign cancellation.</li>
 </ol>
 </section>
-<section id="normalizing-flows-invertibility-and-geodesic-trajectories" class="level2" data-number="4.5">
-<h2 data-number="4.5" class="anchored" data-anchor-id="normalizing-flows-invertibility-and-geodesic-trajectories"><span class="header-section-number">4.5</span> Normalizing Flows: Invertibility and Geodesic Trajectories</h2>
-<p>The performance of <code>Flow-SiMR-V</code> arises from combining linear Stiefel filtering with bijective affine coupling layers:</p>
+<section id="methodological-principles-for-multi-modal-biomedical-studies" class="level2" data-number="4.5">
+<h2 data-number="4.5" class="anchored" data-anchor-id="methodological-principles-for-multi-modal-biomedical-studies"><span class="header-section-number">4.5</span> Methodological Principles for Multi-Modal Biomedical Studies</h2>
+<p>Our experiments establish four general methodological rules for multi-modal biomedical benchmarks:</p>
 <ol type="1">
-<li><strong>Information Preservation:</strong> Unlike standard autoencoders that compress data through lossy bottlenecks with positive reconstruction error (<span class="math inline">\(\mathcal{L}_{\text{MSE}} &gt; 0\)</span>), normalizing flows are strictly bijective with unit or triangular Jacobian determinants <span class="citation" data-cites="dinh2016density rezende2015variational">(<a href="#ref-dinh2016density" role="doc-biblioref">Dinh et al. 2016</a>; <a href="#ref-rezende2015variational" role="doc-biblioref">Rezende and Mohamed 2015</a>)</span>. Forward and inverse mappings are analytically exact.</li>
-<li><strong>Prior Regularization:</strong> Normalizing flows maximize exact log-likelihood under a standard multivariate Gaussian prior <span class="math inline">\(\mathcal{N}(\mathbf{0}, \mathbf{I})\)</span>, acting as a continuous density regularizer that prevents coordinate collapse.</li>
-<li><strong>Stiefel Dimensionality Reduction:</strong> Prepending the linear projection <span class="math inline">\(\mathbf{V}_m\)</span> compresses ambient observations to the intrinsic <span class="math inline">\(k\)</span>-dimensional latent subspace before coupling layers operate. This reduces parameter counts and prevents flows from fitting high-frequency isotropic noise.</li>
-</ol>
-<section id="geodesic-latent-trajectories" class="level3" data-number="4.5.1">
-<h3 data-number="4.5.1" class="anchored" data-anchor-id="geodesic-latent-trajectories"><span class="header-section-number">4.5.1</span> Geodesic Latent Trajectories</h3>
-<p>Because normalizing flows define a smooth diffeomorphism between the input subspace and the Gaussian latent space, <code>Flow-SiMR-V</code> enables continuous geodesic path interpolation. For a patient presenting with high disease risk at coordinate <span class="math inline">\(\mathbf{z}_{\text{start}}\)</span>, the linear trajectory toward a healthy reference <span class="math inline">\(\mathbf{z}_{\text{target}}\)</span>: <span class="math display">\[
-\mathbf{z}(t) = (1 - t) \mathbf{z}_{\text{start}} + t \mathbf{z}_{\text{target}}, \quad t \in [0, 1]
-\]</span> can be inverted through the flow and projected into observable feature space: <span class="math display">\[
-\mathbf{x}_m(t) = \text{Flow}_{\psi_m}^{-1}(\mathbf{z}(t)) \mathbf{V}_m^\top
-\]</span> This traces a continuous, physically grounded trajectory of biomarker changes across disease stages.</p>
-</section>
-</section>
-<section id="clinical-translation-across-cohorts-and-translational-pathology" class="level2" data-number="4.6">
-<h2 data-number="4.6" class="anchored" data-anchor-id="clinical-translation-across-cohorts-and-translational-pathology"><span class="header-section-number">4.6</span> Clinical Translation Across Cohorts and Translational Pathology</h2>
-<p>The modular Deep SiMLR framework addresses distinct clinical and biological challenges across the real-world clinical cohorts, neurodegenerative registries, neurotrauma models, and translational oncology:</p>
-<ol type="1">
-<li><strong>Cleveland Heart Disease (Cardiovascular Diagnostic Profiling):</strong> Integrating resting clinical vitals (<span class="math inline">\(p_1 = 7\)</span>) and stress electrocardiography/laboratory measures (<span class="math inline">\(p_2 = 6\)</span>) across <span class="math inline">\(N = 297\)</span> patients for binary coronary artery disease diagnosis (<span class="math inline">\(83.7\%\)</span> test accuracy for <code>NSAFlow-PCA</code> and <code>PCA</code>, <span class="math inline">\(84.8\%\)</span> linear probe). The OLEE matrix <span class="math inline">\(\mathbf{V}\)</span> directly identifies exercise-induced ST depression (<code>oldpeak</code>), maximum heart rate (<code>thalach</code>), and chest pain type (<code>cp</code>) as the dominant orthogonal axes.</li>
-<li><strong>Diabetes Progression (Endocrine Risk Trajectories):</strong> Modeling quantitative 1-year disease progression from anthropometric baselines (<span class="math inline">\(p_1 = 5\)</span>) and serum lipid biomarkers (<span class="math inline">\(p_2 = 5\)</span>) across <span class="math inline">\(N = 442\)</span> patients. The linear entrypoint attributes progression directly to body mass index (BMI) and serum triglycerides (S5), with <code>NSAFlow-PCA</code> (<span class="math inline">\(R^2 = 0.382\)</span>) and <code>SiMLR-LBFGSB</code> (linear probe <span class="math inline">\(R^2 = 0.396\)</span>) outperforming dense <code>PCA</code> (<span class="math inline">\(0.350\)</span>).</li>
-<li><strong>Multiple Features (<code>mfeat</code>, High-Cardinality Multi-View Benchmarking):</strong> Integrating 4 core geometric/transform views (<span class="math inline">\(p = [76, 64, 6, 47]\)</span>) in the initialization benchmark and all 6 views (<span class="math inline">\(p = [76, 216, 64, 240, 47, 6]\)</span>) in the full <code>mfeat6</code> benchmark across <span class="math inline">\(N = 2000\)</span> samples, establishing that OLEE-constrained architectures effectively discover common consensus without view-dominance collapse.</li>
-<li><strong>ADNI Cognitive Mediation (Neurodegenerative Progression):</strong> As demonstrated in the 4-view ADNI-MCI cohort (<span class="math inline">\(N = 1,084\)</span>), the OLEE contract enables the two-step brain-to-cognition-to-function pathway that unlocks a &gt;6-fold accuracy gain (<span class="math inline">\(R^2 \approx 0.265\)</span>) while insulating the model from the representation collapse observed in unconstrained deep networks.</li>
-<li><strong>Parkinson’s Progression Markers Initiative (PPMI):</strong> In longitudinal Parkinson’s disease cohorts <span class="citation" data-cites="Marek2011">(<a href="#ref-Marek2011" role="doc-biblioref"><span class="nocase">Marek et al.</span> 2011</a>)</span>, clinical trials require monitoring early dopaminergic denervation using <span class="math inline">\(^{123}\text{I}\)</span>-ioflupane SPECT (DaTscan) striatal binding ratios, CSF <span class="math inline">\(\alpha\)</span>-synuclein seed amplification assays, and motor UPDRS-III examinations. The OLEE contract ensures that striatal binding ratios maintain direct linear attribution, enabling auditable tracking of disease modification without black-box confounding.</li>
-<li><strong>Blast Neurotrauma and Traumatic Brain Injury (TBI):</strong> Low-level blast shockwave exposure induces diffuse axonal injury (DAI) characterized by non-local shear strains across white matter tracts <span class="citation" data-cites="stone2024blast">(<a href="#ref-stone2024blast" role="doc-biblioref"><span class="nocase">Stone et al.</span> 2024</a>)</span>. In these high-dimensional diffusion tensor imaging regimes, standard correlation objectives capitalize on chance associations. <code>NSAFlow-PCA</code> and <code>SiMLR-LBFGSB</code> enforce disjoint, non-negative support (<span class="math inline">\(\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}\)</span>), isolating distinct anatomical tract disruptions without destructive crosstalk cancellation.</li>
-<li><strong>Translational Oncology (TCGA-BRCA &amp; TCGA-KIRC):</strong> Across <span class="math inline">\(N = 822\)</span> primary breast invasive carcinoma tumors in the primary benchmark (<code>rna</code> <span class="math inline">\(p_1=200\)</span>, <code>cnv</code> <span class="math inline">\(p_2=150\)</span>, <code>rppa</code> <span class="math inline">\(p_3=150\)</span>) and <span class="math inline">\(N = 1,010\)</span> tumors in the full-cohort audit <span class="citation" data-cites="tcga2012breast cancerdiscovery2016esr1">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-cancerdiscovery2016esr1" role="doc-biblioref">Cancer Discovery 2016</a>)</span>, <code>NSAFlow-PCA</code> (<span class="math inline">\(92.7\%\)</span>) and <code>SiMLR-LBFGSB</code> (<span class="math inline">\(93.0\%\)</span> linear probe) isolate coordinated copy-number alterations, transcriptomic drivers (ESR1, GATA3, PGR), and targeted proteomics while preserving exact feature weights. In clear cell renal cell carcinoma (KIRC) <span class="citation" data-cites="tcga2013kirc">(<a href="#ref-tcga2013kirc" role="doc-biblioref">The Cancer Genome Atlas Research Network 2013</a>)</span>, multi-omics integration aligns chromosomal 3p loss with downstream VHL-HIF1A angiogenic pathway activation.</li>
+<li><strong>In-Fold Preprocessing &amp; Covariate Residualization:</strong> Scaling, feature selection, and Frisch–Waugh–Lovell covariate residualization must be fitted strictly on the training fold and projected onto the test fold.</li>
+<li><strong>Completeness Hygiene (<span class="math inline">\(\ge 98\%\)</span>) Before Multi-View Alignment:</strong> Sparse clinical or genomic variables with high missingness must be filtered before median imputation so constant-imputed columns cannot corrupt cross-view covariance matrices.</li>
+<li><strong>Bipartite Target Topologies for Partial-View Clinical Deployment:</strong> When a target view is present during training but absent at deployment, aligning predictor views exclusively to the target view via a bipartite <code>graph</code> topology prevents background inter-predictor covariance from dominating the learned basis.</li>
+<li><strong>Detached-Prior Subspace Decoupling for Bottlenecked Normalizing Flows:</strong> Whenever a normalizing flow operates downstream of a rectangular Stiefel projection (<span class="math inline">\(k \ll p_m\)</span>), the Gaussian prior log-likelihood must be detached at the linear boundary (<span class="math inline">\(\text{sg}(\mathbf{Z}_{m,\text{lin}})\)</span>) so prior gradients cannot drive <span class="math inline">\(\mathbf{V}_m\)</span> onto trailing noise eigenvectors.</li>
 </ol>
 </section>
-<section id="methodological-considerations-in-biomedical-cohorts" class="level2" data-number="4.7">
-<h2 data-number="4.7" class="anchored" data-anchor-id="methodological-considerations-in-biomedical-cohorts"><span class="header-section-number">4.7</span> Methodological Considerations in Biomedical Cohorts</h2>
-<p>Our findings highlight three methodological principles for multi-modal analysis in computational anatomy and clinical cohorts:</p>
+<section id="limitations" class="level2" data-number="4.6">
+<h2 data-number="4.6" class="anchored" data-anchor-id="limitations"><span class="header-section-number">4.6</span> Limitations</h2>
 <ol type="1">
-<li><strong>Preprocessing Sensitivity (Centering vs.&nbsp;Standardization):</strong> In clinical neuroimaging (e.g., ADNI cortical thickness in millimeters), features share a common physical unit. Standardizing columns to unit variance (<span class="math inline">\(z\)</span>-scoring) scales low-variance noise regions equally with high-variance atrophy hubs, which can alter or reverse downstream findings. When physical units are commensurate, mean-centering alone preserves genuine biological variance gradients.</li>
-<li><strong>Subspace Recovery vs.&nbsp;Axis Localization:</strong> An orthogonal rotation <span class="math inline">\(\mathbf{M} \in O(k)\)</span> alters the orientation of basis axes without changing the linear subspace (<span class="math inline">\(\text{span}(\mathbf{X} \mathbf{V} \mathbf{M}) = \text{span}(\mathbf{X} \mathbf{V})\)</span>). While linear prediction depends only on the subspace, localized biomarker discovery requires aligned, sparse, and non-negative axes—as demonstrated by the gap between <code>PCA</code> (<span class="math inline">\(\text{Support } F_1 = 0.333\)</span>) and <code>SiMLR-LBFGSB</code> (<span class="math inline">\(\text{Support } F_1 = 0.942\)</span>) on <code>NonnegPartsWeak</code>.</li>
-<li><strong>Dataset-Level Block Inference:</strong> Ranking multi-modal architectures must aggregate across replicate seeds within each dataset block before computing Friedman and Nemenyi statistics <span class="citation" data-cites="Demsar2006">(<a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>)</span>, avoiding artificial inflation of sample size from repeated random initializations.</li>
+<li><strong>First-Layer Linear Constraint:</strong> Restricting the input layer to an orthogonal Stiefel projection limits the model’s ability to capture high-order intra-modality non-linear feature interactions directly at the raw pixel or token level.</li>
+<li><strong>Latent Dimension Scaling:</strong> Exact Stiefel retractions and polar factorizations scale cubically with latent rank (<span class="math inline">\(\mathcal{O}(k^3)\)</span>). While fast for typical biomedical latent ranks (<span class="math inline">\(k \le 64\)</span>), scaling to <span class="math inline">\(k &gt; 500\)</span> requires block-Stiefel approximations.</li>
+<li><strong>Sample Size in Clinical Sub-Cohorts:</strong> While <span class="math inline">\(B = 12\)</span> dataset blocks (<span class="math inline">\(324\)</span> evaluations) provide strong non-parametric power (<span class="math inline">\(\chi_F^2 = 30.77\text{–}32.06, p \le 1.54 \times 10^{-4}\)</span>), fine-grained differences among top OLEE variants on small single-center cohorts benefit from paired permutation and multi-seed cross-validation.</li>
 </ol>
 </section>
-<section id="limitations" class="level2" data-number="4.8">
-<h2 data-number="4.8" class="anchored" data-anchor-id="limitations"><span class="header-section-number">4.8</span> Limitations</h2>
-<ol type="1">
-<li><strong>First-Layer Linear Constraint:</strong> Restricting the input layer to an orthogonal Stiefel projection limits the model’s ability to capture high-order intra-modality non-linear feature interactions directly from raw inputs. When predictive signal is driven entirely by non-linear combinations within a single view, unconstrained deep encoders may achieve higher intra-modality expressivity.</li>
-<li><strong>Latent Dimension Scaling:</strong> Exact Stiefel retractions and polar factorizations scale cubically with latent rank (<span class="math inline">\(\mathcal{O}(k^3)\)</span>). While efficient for typical biomedical latent spaces (<span class="math inline">\(k \le 64\)</span>), scaling to massive latent spaces (<span class="math inline">\(k &gt; 500\)</span>) requires block-Stiefel or stochastic retraction methods.</li>
-<li><strong>Number of Benchmark Regimes:</strong> Block-level Nemenyi inference across <span class="math inline">\(B = 9\)</span> datasets and <span class="math inline">\(k = 9\)</span> models yields a conservative critical difference (<span class="math inline">\(CD = 4.004\)</span>), requiring paired Wilcoxon and exact sign-flip permutation tests across the 27 paired runs to resolve finer pairwise differences.</li>
-</ol>
-</section>
-<section id="conclusion" class="level2" data-number="4.9">
-<h2 data-number="4.9" class="anchored" data-anchor-id="conclusion"><span class="header-section-number">4.9</span> Conclusion</h2>
-<p>Deep SiMLR establishes a modular framework for multi-modal representation learning governed by the Only Linear Encoder Entrypoint (OLEE) contract. By decoupling linear feature attribution from downstream non-linear coordinate modeling, the architecture eliminates the clinical transparency penalty (<span class="math inline">\(\nabla_{\mathbf{X}_m} \mathbf{Z}_m = \mathbf{V}_m\)</span>) and enables closed-form counterfactual recourse (<span class="math inline">\(\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m^* \mathbf{V}_m^\top\)</span>) while capturing complex manifold structure.</p>
-<p>Across 243 benchmark evaluations spanning 3 real clinical/genomic cohorts and 6 synthetic manifolds, box-constrained Riemannian optimization (<code>SiMLR-LBFGSB</code>, rank <span class="math inline">\(3.28\)</span>, support <span class="math inline">\(F_1 = 0.942\)</span>) and linear-encoder/non-linear-decoder hybrids (<code>LEND</code>, rank <span class="math inline">\(3.56\)</span>, predictive <span class="math inline">\(0.830\)</span>, <span class="math inline">\(CMC = 0.907\)</span>) lead overall performance, while <code>NSAFlow-PCA</code> (rank <span class="math inline">\(3.61\)</span>, <span class="math inline">\(0.029\text{s}\)</span>) matches dense <code>PCA</code> in speed while enforcing <span class="math inline">\(22.4\%\)</span> disjoint sparsity with zero crosstalk. Every OLEE-constrained architecture significantly outperforms unconstrained deep autoencoders (<code>NED</code>, <code>NEDPP</code>, <span class="math inline">\(p_{\text{Holm}} \le 0.018\)</span>). In longitudinal neurodegeneration (ADNI-MCI, <span class="math inline">\(N=1,084\)</span>), the OLEE contract unlocks a &gt;6-fold cognitive mediation gain on clinical dementia severity (<span class="math inline">\(R^2 \approx 0.2648, p &lt; 10^{-15}\)</span>) while preventing the overfitting collapse that afflicts unconstrained deep networks.</p>
+<section id="conclusion" class="level2" data-number="4.7">
+<h2 data-number="4.7" class="anchored" data-anchor-id="conclusion"><span class="header-section-number">4.7</span> Conclusion</h2>
+<p>Deep SiMLR establishes a deductive, modular framework for multi-modal representation learning governed by the Only Linear Encoder Entrypoint (OLEE) contract. By decoupling linear Stiefel feature attribution (<span class="math inline">\(\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m\)</span>) from downstream cross-view consensus topologies, Riemannian quasi-Newton solvers (<code>SiMLR-LBFGSB</code>, <code>SiMLR-LBFGS</code>), non-linear decoders (<code>LEND</code>), and detached-prior normalizing flows (<code>Flow-SiMR-V</code>), the architecture eliminates the clinical transparency penalty (<span class="math inline">\(\nabla_{\mathbf{X}_m} \mathbf{Z}_{m,\text{lin}} = \mathbf{V}_m\)</span>) and enables closed-form counterfactual recourse (<span class="math inline">\(\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m^* \mathbf{V}_m^\top\)</span>).</p>
+<p>Across 324 benchmark evaluations spanning 6 real clinical/genomic/imaging cohorts and 6 synthetic manifolds, hybrid <code>LEND</code> (#1 consensus rank <span class="math inline">\(3.58\)</span>, <span class="math inline">\(CMC = 0.907\)</span>), bound-constrained <code>SiMLR-LBFGSB</code> (#1 OLEE basis rank <span class="math inline">\(3.17\)</span>, #1 real-cohort rank <span class="math inline">\(2.50\)</span>, support <span class="math inline">\(F_1 = 0.991\)</span>), and detached-prior <code>Flow-SiMR-V</code> (#3 consensus rank <span class="math inline">\(4.17\)</span>, #3 basis rank <span class="math inline">\(4.12\)</span>, #1 real-cohort consensus mean <span class="math inline">\(0.627\)</span>) lead overall performance, while <code>NSAFlow-PCA</code> (<span class="math inline">\(0.040\text{s}\)</span>) matches dense <code>PCA</code> in speed while enforcing <span class="math inline">\(25.0\%\)</span> disjoint sparsity with zero crosstalk. Every OLEE-constrained architecture significantly outperforms unconstrained deep autoencoders (<code>NED</code>, <code>NEDPP</code>, <span class="math inline">\(p_{\text{Holm}} \le 7.5 \times 10^{-4}\)</span>). In ADNI-MCI (<span class="math inline">\(N=1,084\)</span>), bipartite target alignment and cognitive mediation unlock a <span class="math inline">\(+47\%\text{–}58\%\)</span> gain in MRI-only cognitive factor prediction (<code>CogPC1 R^2</code> <span class="math inline">\(= 0.224\text{–}0.241\)</span>) and a <span class="math inline">\(&gt;6\)</span>-fold gain in predicting clinical dementia severity (<span class="math inline">\(R^2 = 0.2648, p &lt; 10^{-15}\)</span>).</p>
 
 
 <div id="refs" class="references csl-bib-body hanging-indent" role="list">
@@ -565,9 +513,6 @@ Cancer Discovery. 2016. <span>“Multiple Noncoding Mutations Regulate <span>ESR
 <div id="ref-Demsar2006" class="csl-entry" role="listitem">
 Demšar, Janez. 2006. <span>“Statistical Comparisons of Classifiers over Multiple Data Sets.”</span> <em>Journal of Machine Learning Research</em> 7: 1–30.
 </div>
-<div id="ref-dinh2016density" class="csl-entry" role="listitem">
-Dinh, Laurent, Jascha Sohl-Dickstein, and Samy Bengio. 2016. <span>“Density Estimation Using Real NVP.”</span> <em>arXiv Preprint arXiv:1605.08803</em>.
-</div>
 <div id="ref-Holmberg_2022" class="csl-entry" role="listitem">
 Holmberg, Lars, Carl Johan Helgstrand, and Niklas Hultin. 2022. <span>“More Sanity Checks for&nbsp;Saliency Maps.”</span> In <em>Foundations of Intelligent Systems</em>. Springer International Publishing. <a href="https://doi.org/10.1007/978-3-031-16564-1_17">https://doi.org/10.1007/978-3-031-16564-1_17</a>.
 </div>
@@ -577,9 +522,6 @@ Iman, Ronald L., and James M. Davenport. 1980. <span>“Approximations of the Cr
 <div id="ref-jack2008alzheimer" class="csl-entry" role="listitem">
 <span class="nocase">Jack, Clifford R., Matt A. Bernstein, Nick C. Fox, et al.</span> 2008. <span>“The <span class="nocase">Alzheimer’s Disease Neuroimaging Initiative</span> (<span>ADNI</span>): <span>MRI</span> Methods.”</span> <em>Journal of Magnetic Resonance Imaging</em> 27 (4): 685–91. <a href="https://doi.org/10.1002/jmri.21049">https://doi.org/10.1002/jmri.21049</a>.
 </div>
-<div id="ref-Lundberg_2017" class="csl-entry" role="listitem">
-Lundberg, Scott M, and Su-In Lee. 2017. <span>“A Unified Approach to Interpreting Model Predictions.”</span> <em>Advances in Neural Information Processing Systems</em> 30.
-</div>
 <div id="ref-Marek2011" class="csl-entry" role="listitem">
 <span class="nocase">Marek, Kenneth, Danna Jennings, Shirley Lasch, et al.</span> 2011. <span>“The <span class="nocase">Parkinson’s Progression Markers Initiative</span> (<span>PPMI</span>).”</span> <em>Progress in Neurobiology</em> 95 (4): 629–35. <a href="https://doi.org/10.1016/j.pneurobio.2011.09.005">https://doi.org/10.1016/j.pneurobio.2011.09.005</a>.
 </div>
@@ -588,18 +530,6 @@ Nemenyi, Peter B. 1963. <span>“Distribution-Free Multiple Comparisons.”</spa
 </div>
 <div id="ref-pearl2009causality" class="csl-entry" role="listitem">
 Pearl, Judea. 2009. <em>Causality</em>. Cambridge university press.
-</div>
-<div id="ref-Smith2023posthoc" class="csl-entry" role="listitem">
-Radulovic, Nedeljko. 2023. <span>“Post-Hoc Explainable AI for Black Box Models on Tabular Data.”</span> PhD thesis, Institut Polytechnique de Paris. <a href="https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5">https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5</a>.
-</div>
-<div id="ref-rezende2015variational" class="csl-entry" role="listitem">
-Rezende, Danilo, and Shakir Mohamed. 2015. <span>“Variational Inference with Normalizing Flows.”</span> <em>International Conference on Machine Learning</em>, 1530–38.
-</div>
-<div id="ref-Ribeiro_2016" class="csl-entry" role="listitem">
-Ribeiro, Marco, Sameer Singh, and Carlos Guestrin. 2016. <span>“<span>‘Why Should i Trust You?’</span>: Explaining the Predictions of Any Classifier.”</span> <em>Proceedings of the 2016 Conference of the North American Chapter of the Association for Computational Linguistics: Demonstrations</em>, 97–101. <a href="https://doi.org/10.18653/v1/n16-3020">https://doi.org/10.18653/v1/n16-3020</a>.
-</div>
-<div id="ref-Rudin_2019" class="csl-entry" role="listitem">
-Rudin, Cynthia. 2019. <span>“Stop Explaining Black Box Machine Learning Models for High Stakes Decisions and Use Interpretable Models Instead.”</span> <em>Nature Machine Intelligence</em> 1 (5): 206–15. <a href="https://doi.org/10.1038/s42256-019-0048-x">https://doi.org/10.1038/s42256-019-0048-x</a>.
 </div>
 <div id="ref-stone2024blast" class="csl-entry" role="listitem">
 <span class="nocase">Stone, James R., Brian B. Avants, et al.</span> 2024. <span>“Effects of Low-Level Blast Exposure on Structural Brain Networks Analyzed via SiMLR.”</span> <em>Frontiers in Neurology</em> 15: 123456.

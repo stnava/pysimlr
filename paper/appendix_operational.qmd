@@ -114,7 +114,7 @@ We employ LeakyReLU or GELU activations coupled with Kaiming He initialization t
 
 ### Learning Rate Schedules
 
-We utilize the OneCycleLR scheduler to fuse the warmup and annealing phases. This accelerates convergence traversing the non-convex joint-variational objective space.
+We use the OneCycleLR scheduler to fuse the warmup and annealing phases. This accelerates convergence traversing the non-convex joint-variational objective space.
 
 ### Data Throughput
 
@@ -126,8 +126,8 @@ We specify `pin_memory=True` and configure `num_workers > 0` in the PyTorch Data
 - **Bijective Mapping**: A mathematically exact, one-to-one and onto function. In Flow-SiMR, bijectivity guarantees that the forward mapping (encoding) and inverse mapping (decoding) preserve information perfectly with zero reconstruction error ($\mathcal{L}_{MSE} = 0$).
 - **Affine Coupling Layer**: The core building block of RealNVP normalizing flows. It splits the input features into two halves, copying one partition directly while scaling and translating the other half using arbitrary non-linear neural networks (which do not need to be invertible themselves).
 - **OLEE (Only Linear Encoder Entry-point)**: An architectural constraint that restricts the entry layer of a deep neural network to be an orthogonal linear projection. This forms a structural information bottleneck that prevents deep layers from memorizing noise.
-- **NSA-Flow (Non-negative Stiefel Approximating Flow)**: A smooth, fully differentiable optimization penalty used to constrain the linear encoder basis matrix $\mathbf{V}_m$ to the Stiefel manifold ($\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_K$) during backpropagation, replacing hard SVD projections.
-- **Schur Complement**: A matrix operation used to compute the conditional mean and covariance of a partitioned multivariate Gaussian distribution in closed form, enabling mathematically valid cross-view imputation.
+- **NSA-Flow (Non-negative Stiefel Approximating Flow)**: A calibration-free composite energy $E_w(\mathbf{V}_m; \mathbf{V}_{m,0}) = (1-w)\mathcal{L}_{\text{fid}} + w D(\mathbf{V}_m)$ parameterized by $w \in [0, 1]$ (default $w = 0.5$, capped at $w_{\max} = 0.95$) that approximates Stiefel manifold retraction under optional non-negativity ($\mathbf{V}_m \ge 0$) without SVD or QR factorization inside the solver loop.
+- **Schur Complement**: A matrix operation used to compute the conditional mean and covariance of a partitioned multivariate Gaussian distribution in closed form for cross-view imputation.
 - **Leave-One-Out (LOO) Topology**: An optimization pathway where each view's latent representation is aligned against a consensus target computed exclusively from all *other* views, preventing the model from learning trivial identity mappings.
 - **Modality Alignment Index (MAI)**: A metric (typically based on Procrustes $R^2$) that quantifies the alignment fidelity between an individual view's latent space and the global consensus.
 - **Spectral Sharpness**: A random-matrix-theory-based metric evaluating singular value concentrations to identify and suppress isotropic high-dimensional noise, preventing it from corrupting the consensus representation.

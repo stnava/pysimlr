@@ -34,7 +34,7 @@ Instead of manually generating data, we'll leverage `pysimlr`'s benchmark suite.
 import sys, os
 # Ensure local src is in path for kernel
 root = os.path.abspath(os.path.join(os.getcwd(), ".."))
-sys.path.append(os.path.join(root, "src"))
+sys.path.insert(0, os.path.join(root, "src"))
 
 import torch
 import numpy as np

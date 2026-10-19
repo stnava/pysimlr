@@ -183,6 +183,7 @@ def latent_variance_diagnostics(u: torch.Tensor) -> Dict[str, float]:
         "collapsed_dims": float(collapsed)
     }
     res["u_std_mean"] = res["latent_mean_std"]
+    res["u_norm_sd"] = (torch.std(stds, unbiased=False) / (torch.mean(stds) + 1e-8)).item()
     return res
 
 def shared_private_diagnostics(

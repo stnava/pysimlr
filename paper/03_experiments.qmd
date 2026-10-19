@@ -2,147 +2,100 @@
 title: "Experiments"
 ---
 
-## Experimental Design, Cohorts, and Generative Regimes
+We evaluate the nine architectures across 12 multi-view datasets (six synthetic generative regimes with known ground truth and six real clinical, multi-omics, and pattern-recognition cohorts) over three independent random seeds ($[42, 43, 44]$, totaling $12 \times 3 \times 9 = 324$ model fits), supplemented by a 1,214-configuration hyperparameter sweep on the four-view `ADNI-MCI` neuroimaging cohort ($N = 1,084$). Every table and statistic in this chapter is computed directly at build time from the cached benchmark outputs `paper/results_cache/deep_ranking_benchmark.csv` and `paper/results_cache/adni_mci_1214_grid_sweep.csv`.
 
-### Multi-Modal Data Regimes and Replication Structure
+---
 
-To rigorously evaluate multi-modal architectures across distinct inductive biases and biomedical domains, we establish a comprehensive benchmark protocol across **9 multi-modal data regimes** (6 controlled synthetic manifolds with known ground-truth $\mathbf{U}^*$ and $\mathbf{V}^*$, plus 3 public clinical/multi-omics cohorts) evaluated across $N_{\text{seeds}} = 3$ independent random seeds ($[42, 43, 44]$) and 9 model architectures ($243$ total model evaluations, with `private_scale = 0.5`, `consolidate = False`, and recommended `"pca"` initialization), alongside a dedicated 10-seed 4-view neuroimaging mediation benchmark on ADNI-MCI ($N = 1,084$). Following @Demsar2006, global statistical inference is conducted on the $B = 9$ independent dataset blocks (`build_ranking_blocks` in `src/pysimlr/benchmarks/deep_ranking.py`), averaging replicates within each dataset before ranking so repeated seeds never inflate degrees of freedom.
+## Experimental Design, Real Cohorts, and Synthetic Regimes
 
-### Established Real-World Biomedical Cohorts
+### Real Clinical, Multi-Omics, and Multi-View Cohorts
 
-All real-world cohorts underwent strict in-fold standardization (`StandardScaler` fitted exclusively on the training partition) to prevent test-set leakage:
+All real-world cohorts are evaluated using stratified or random 70/30 train/test splits across seeds $42, 43,$ and $44$, with feature standardization (`StandardScaler`), column completeness filtering ($\ge 98\%$), and demographic covariate residualization fitted strictly inside each training split:
 
-1. **Cleveland Heart Disease (`Heart`, $N=297$, 2 views: $p_1=7, p_2=6$):**
-   - *Cohort Source & Filtering:* Drawn from the UCI Machine Learning Repository (`processed.cleveland.data`, cached locally at `data/heart_cleveland.csv`) [@detrano1989international]. From the 303 clinical records, six individuals with missing values (`?`) are removed, yielding $N=297$ complete records.
-   - *View Partitioning:* Clinical predictors are split into two diagnostic views:
-     - $V_1$ ($p_1=7$): Resting clinical history and vitals (age, sex, chest pain type `cp`, resting blood pressure `trestbps`, serum cholesterol `chol`, fasting blood sugar `fbs`, resting ECG `restecg`).
-     - $V_2$ ($p_2=6$): Exercise stress testing and fluoroscopy (maximum heart rate `thalach`, exercise-induced angina `exang`, ST depression `oldpeak`, peak exercise ST slope `slope`, major vessels colored by fluoroscopy `ca`, thallium scintigraphy `thal`).
-   - *Downstream Task & Results:* Binary coronary artery disease diagnosis (`num > 0`, majority rate $53.9\%$). In the 3-seed benchmark, `NSAFlow-PCA` and `PCA` achieve $83.7\%$ test accuracy ($84.8\%$ strictly linear probe for `NSAFlow-PCA`), followed by `LEND`, `NED`, `SiMLR`, and `SiMLR-LBFGSB` at $83.0\%\text{–}83.3\%$.
-
-2. **Diabetes Progression (`Diabetes`, $N=442$, 2 views: $p_1=5, p_2=5$):**
-   - *Cohort Source:* The Efron et al. clinical diabetes cohort [@efron2004least] (`sklearn.datasets.load_diabetes`).
-   - *View Partitioning:* Ten baseline predictors are partitioned into patient/hemodynamic measures and serum panel chemistries:
-     - $V_1$ ($p_1=5$): Patient demographics, anthropometrics, and total cholesterol (age, sex, `bmi`, mean blood pressure `bp`, total serum cholesterol `s1`).
-     - $V_2$ ($p_2=5$): Specialized blood serum panel (LDL `s2`, HDL `s3`, total/HDL ratio `s4`, log triglycerides `s5`, fasting glucose `s6`).
-   - *Downstream Task & Results:* Continuous 1-year disease progression ($R^2$). In the 3-seed benchmark, `NSAFlow-PCA` leads global consensus prediction ($R^2 = 0.382$), followed by `SiMLR-LBFGS` ($R^2 = 0.352$), `PCA` ($R^2 = 0.350$), and `LEND` ($R^2 = 0.346$), while `SiMLR-LBFGSB` achieves the highest strictly linear ($R^2 = 0.396$) and axis-sensitive ($R^2 = 0.355$) first-layer probe scores.
-
-3. **TCGA-BRCA 3-View Multi-Omics (`MultiOmics`, $N=822$, 3 views: $p=[200, 150, 150]$):**
-   - *Cohort Source:* The Cancer Genome Atlas Breast Invasive Carcinoma cohort (`data/tcga/BRCA_*`, cached at `data/tcga/brca_er_cached.npz`) [@tcga2012breast; @cancerdiscovery2016esr1].
-   - *View Partitioning:* Three distinct molecular assay platforms across $N=822$ primary tumors with complete multi-omic profiles and adjudicated receptor status:
-     - $V_1$ ($p_1=200$): Top-variance mRNA sequencing gene expression transcripts (Illumina HiSeqV2).
-     - $V_2$ ($p_2=150$): Somatic Copy Number Variation (CNV) GISTIC2 gene-level scores.
-     - $V_3$ ($p_3=150$): Reverse Phase Protein Array (RPPA) targeted proteomic and phosphoproteomic markers.
-   - *Downstream Task & Results:* Binary classification of clinical Estrogen Receptor (ER) status (Positive vs. Negative, ER+ prevalence $76.4\%$). In the 3-seed benchmark, `NSAFlow-PCA` achieves $92.7\%$ test accuracy, followed by `LEND` ($91.9\%$), `PCA` ($91.9\%$), `NEDPP` ($91.8\%$), and `SiMLR-LBFGSB` ($91.7\%$, with $93.0\%$ strictly linear probe accuracy).
-
-4. **ADNI-MCI 4-View Neurodegeneration Mediation Cohort ($N=1,084$, 4 views: $p=[160, 160, 62, 13]$):**
-   - *Cohort Source:* $N=1,084$ individuals diagnosed with Mild Cognitive Impairment (MCI) from the Alzheimer's Disease Neuroimaging Initiative [@ADNI; @jack2008alzheimer].
-   - *View Partitioning:* Three structural brain MRI views ($382$ features: macro-volume $p_1=160$, hierarchical cortical thickness $p_2=160$, native T1w thickness $p_3=62$) and one cognitive domain battery ($p_4=13$ sub-items), adjusting for Age, Sex, and Education.
-   - *Downstream Task & Results:* Out-of-sample prediction of daily functional disability (CDR-SB) and global cognition (MMSE). Direct brain MRI alone hits a ceiling of $R^2 = 0.0411$, whereas cognitive mediation boosts prediction more than 6-fold (`LEND-SiMR + MAI`: $R^2 = 0.2648 \pm 0.0332$; `SiMLR`: $R^2 = 0.2443 \pm 0.0534$ in $0.86\text{s}$), detailed in plain language in Section 3.5.
-
-5. **Additional Auxiliary Validation Cohorts (`mfeat`, `ADNI-DX`, `TCGA-KIRC`):**
-   - Complementing the primary benchmark, auxiliary evaluations on UCI Multiple Features (`mfeat`, $N=2,000, p=[76, 64, 6, 47]$, 10-class digits), 3-class `ADNI-DX` ($N=685, p=[300, 145, 36]$), and `TCGA-KIRC` ($N=467, p=[300, 300, 232]$) confirm that OLEE-constrained models avoid the high-dimensional canonical correlation overfitting seen in unregularized `GCCA-raw`.
-
-| Cohort | $N$ | Views ($p_1, \dots, p_M$) | Modalities | Target (Metric) | Key Empirical Result |
-|:---|---:|:---|:---|:---|:---|
-| **Heart** (UCI Cleveland) | 297 | 2 `[7, 6]` | Vitals + Stress ECG | CAD Diagnosis (Acc) | `NSAFlow-PCA` / `PCA` **83.7%**; `LEND` **83.3%** |
-| **Diabetes** (Efron) | 442 | 2 `[5, 5]` | Vitals + Blood Serums | 1-Yr Progression ($R^2$) | `NSAFlow-PCA` **0.382**; `SiMLR-LBFGSB` Lin **0.396** |
-| **MultiOmics** (TCGA-BRCA) | 822 | 3 `[200, 150, 150]` | mRNA + CNV + RPPA | ER Status (Acc) | `NSAFlow-PCA` **92.7%**; `LEND` / `PCA` **91.9%** |
-| **ADNI-MCI** (Mediation) | 1,084 | 4 `[160, 160, 62, 13]` | 3 MRI Views + Cognition | CDR-SB ($R^2$, $\rho$) | Direct MRI **0.041** vs Mediated `LEND` **0.265** ($6.4\times$) |
-| **mfeat** (UCI Digits) | 2,000 | 4 `[76, 64, 6, 47]` | Fourier, KL, Morph, Zernike | 10-Class Digits (Acc) | `Flow-SiMR` **92.3%** vs `PCA-raw` **72.3%** |
-| **TCGA-KIRC** (Kidney) | 467 | 3 `[300, 300, 232]` | mRNA + CNV + RPPA | Tumor Stage (Acc) | `Flow-SiMR` / `NED` **70.9%** vs `GCCA` **48.9%** |
-: Summary of Established Real-World Multi-Modal Biomedical Cohorts. Each primary cohort is standardized strictly inside the training fold. {#tbl-real-world-cohorts}
-
-### Controlled Synthetic Generative Regimes
-
-To test distinct, non-overlapping hypotheses about multi-view recovery $(\mathbf{U}^*, \mathbf{V}^*)$ under `private_scale = 0.5`, `synthetic_cases.py` defines six synthetic generative regimes:
-
-1. **Clean Linear Multi-View Manifold (`Linear`, $N=1,000, K=3, p=[100, 80, 60]$):**
-   $$\mathbf{X}_m = \mathbf{U}^* \mathbf{V}_m^\top + \mathbf{U}_{m,\text{priv}} \mathbf{V}_{m,\text{priv}}^\top + \mathbf{E}_m$$
-   where shared latent scales $[1.2, 1.0, 0.85]$ exceed view-private background ($\sigma_{\text{priv}} = 0.5$) and Gaussian noise ($\sigma = 0.5$), with equal outcome weights $\mathbf{w} = [1, 1, 1]^\top$. Tests baseline recovery where linear and cross-view models should perform at parity ($R^2 \approx 0.976\text{–}0.990$).
-
-2. **Polynomial Latent Warping (`Polynomial`, $N=1,000, K=3, p=[120, 80, 50]$):**
-   $$\mathbf{X}_m = \psi_m^{\text{poly}}(\mathbf{U}^*) \mathbf{V}_m^\top + \mathbf{U}_{m,\text{priv}} \mathbf{V}_{m,\text{priv}}^\top + \mathbf{E}_m$$
-   where $\psi_m^{\text{poly}}(\mathbf{U}^*)$ applies non-cancelling quadratic, cross-product, and cubic distortions in $\mathbb{R}^k$ prior to linear projection $\mathbf{V}_m^\top$. Because same-sign quadratic warpings do not cancel when views are averaged linearly, axis-sensitive nonlinear probes on $\mathbf{X}_m \mathbf{V}_m$ (`NED` $0.961$, `Flow-SiMR-V` $0.954$, `LEND` $0.954$) outperform linear OLS on $\mathbf{U}$ ($0.870\text{–}0.874$).
-
-3. **Sinusoidal Periodic Warping (`Sine`, $N=1,000, K=3, p=[120, 80, 50]$):**
-   $$\mathbf{X}_m = \psi_m^{\text{sin}}(\mathbf{U}^*) \mathbf{V}_m^\top + \mathbf{U}_{m,\text{priv}} \mathbf{V}_{m,\text{priv}}^\top + \mathbf{E}_m$$
-   where $\psi_m^{\text{sin}}(\mathbf{U}^*)$ combines linear coordinates with non-cancelling trigonometric oscillations ($\sin$ and $\cos$ couplings). Tests recovery under periodic manifold curvature.
-
-4. **Asymmetric Shared-Plus-Private Manifold (`Shared+Private`, $N=1,000, K_{\text{sh}}=3, K_{\text{pr}}=2, p=[160, 60, 30]$):**
-   $$\mathbf{X}_m = \mathbf{U}_{\text{shared}}^* \mathbf{V}_{m, \text{sh}}^\top + \mathbf{U}_{m, \text{pr}}^* \mathbf{V}_{m, \text{pr}}^\top + \mathbf{E}_m$$
-   where shared scales decay ($[1.0, 0.625, 0.455]$) while the largest view ($p_1=160$) carries heightened view-private variance ($\sigma_{\text{priv},1} = 0.80$). Single-matrix concatenation (`PCA` $R^2 = 0.639$, `NSAFlow-PCA` $R^2 = 0.629$) is pulled toward View 1's private variance, whereas cross-view consensus in `LEND` recovers all shared factors ($R^2 = 0.949$, $CMC = 0.896$) and `Flow-SiMR-V` achieves $R^2 = 0.908$ on its first-layer linear probe.
-
-5. **Non-Negative Disjoint Parts — Dominant Signal (`NonnegParts`, $N=400, K=3, p=[120, 45, 30]$):**
-   Ground-truth loading matrices $\mathbf{V}_m^* \ge \mathbf{0}$ have strictly disjoint column supports across the $K=3$ components, and the outcome tracks the dominant shared component ($u_1^*$). Bound-constrained `SiMLR-LBFGSB` recovers the true sparse support with Jaccard score **$0.942$** (followed by `LEND` at **$0.899$** and `Flow-SiMR-V` at **$0.883$**), whereas unconstrained `PCA` scores at the random-partition chance floor (**$0.333$**).
-
-6. **Non-Negative Disjoint Parts — Weak Signal (`NonnegPartsWeak`, $N=400, K=3, p=[120, 45, 30]$):**
-   Identical disjoint non-negative basis $\mathbf{V}_m^*$, but the outcome is driven by the weakest shared component ($u_3^*$). Because single-matrix concatenation absorbs view-private noise into its leading components, `PCA` drops to $R^2 = 0.522$ and `NSAFlow-PCA` to $0.570$, whereas `LEND` ($R^2 = 0.732$), `SiMLR-LBFGSB` ($R^2 = 0.715$), and `SiMLR-LBFGS` ($R^2 = 0.706$) isolate the weak shared component via cross-view alignment and non-negativity.
-
-### Interpretation of Generative Regimes
+1. **ADNI-MCI Neurodegeneration (`ADNI-MCI`, $N = 1,084$, 4 views: $p = [160, 160, 62, 11]$):** Baseline data from $N = 1,084$ participants with Mild Cognitive Impairment in ADNI [@ADNI; @jack2008alzheimer]. Views 0, 1, and 2 comprise 382 structural MRI features (DKT regional gray-matter volumes $p_1 = 160$, hierarchical cortical thickness $p_2 = 160$, and native T1-weighted cortical thickness $p_3 = 62$). View 3 comprises 11 neuropsychological scales with $\ge 98\%$ completeness (`ADAS11`, `ADAS13`, `ADASQ4`, `MMSE`, `CDRSB`, `TRABSCOR`, `FAQ`, and four `RAVLT` sub-scores), adjusted inside each training split for `AGE`, `PTGENDER`, and `PTEDUCAT` via Frisch–Waugh–Lovell projection. During training, the three MRI views align to View 3 via the bipartite graph `{0:[3], 1:[3], 2:[3], 3:[0,1,2]}` (`Protocol B`). At test time, View 3 is withheld (`eval_view_indices = [0, 1, 2]`) and models predict the held-out primary cognitive axis (`CogPC1` $R^2$) from structural MRI alone.
+2. **TCGA-BRCA Multi-Omics (`MultiOmics`, $N = 822$, 3 views: $p = [200, 150, 150]$):** Primary breast invasive carcinoma tumors from TCGA [@tcga2012breast] profiled across mRNA HiSeqV2 expression ($p_1 = 200$), GISTIC2 somatic copy-number variation ($p_2 = 150$), and Reverse Phase Protein Array (RPPA) proteomics ($p_3 = 150$). The downstream task is binary classification of clinical Estrogen Receptor (ER) status ($76.4\%$ ER-positive prevalence).
+3. **TCGA-KIRC Renal Oncology (`TCGA-KIRC`, $N = 467$, 3 views: $p = [200, 150, 150]$):** Clear cell renal cell carcinoma tumors from TCGA [@tcga2013kirc] profiled across mRNA ($p_1 = 200$), copy-number variation ($p_2 = 150$), and RPPA proteomics ($p_3 = 150$). The downstream task is binary classification of pathologic tumor stage (stage III/IV vs.\ stage I/II).
+4. **Cleveland Heart Disease (`Heart`, $N = 297$, 2 views: $p = [7, 6]$):** Complete records from the UCI Cleveland Heart Disease cohort [@detrano1989international], partitioned into resting clinical vitals ($p_1 = 7$: `age`, `sex`, `cp`, `trestbps`, `chol`, `fbs`, `restecg`) and exercise electrocardiography/fluoroscopy ($p_2 = 6$: `thalach`, `exang`, `oldpeak`, `slope`, `ca`, `thal`) to classify angiographic coronary artery disease (`num > 0`).
+5. **Diabetes Progression (`Diabetes`, $N = 442$, 2 views: $p = [5, 5]$):** The Efron et al.\ cohort [@efron2004least], partitioned into baseline anthropometrics/hemodynamics ($p_1 = 5$: `age`, `sex`, `bmi`, `bp`, `s1`) and serum lipid chemistries ($p_2 = 5$: `s2`–`s6`) to predict continuous one-year disease progression ($R^2$).
+6. **UCI Multiple Features (`mfeat`, $N = 2,000$, 4 views: $p = [76, 64, 6, 47]$):** Handwritten digit descriptors across four feature sets (Fourier coefficients $p_1 = 76$, Karhunen–Loève projections $p_2 = 64$, morphological features $p_3 = 6$, and Zernike moments $p_4 = 47$) for 10-class classification ($k = 3$).
 
 ```{python}
 #| warning: false
 #| message: false
-#| label: fig-generative-shapes
-#| fig-cap: 'The Generative Landscape. Visualization of the mapping from latent coordinate $\mathbf{U}$ to observable features $\mathbf{X}$ across synthetic regimes. (A) Clean linear proportionality. (B) Non-cancelling quadratic polynomial curvature. (C) Sinusoidal periodic warping. (D) Shared consensus overlaid with asymmetric view-private interference.'
-#| out-width: 100%
+#| label: tbl-real-world-cohorts
+#| tbl-cap: 'Summary of the six real-world multi-view cohorts in the 12-dataset benchmark (3 seeds each). Top 3-seed mean scores are computed directly from `deep_ranking_benchmark.csv` for both the strictly linear OLEE basis probe ($\mathbf{X}\mathbf{V}$) and the global consensus probe ($\mathbf{U}$). Higher is better ($\uparrow$).'
 #| echo: false
-import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
 
-u = np.linspace(-2, 2, 200)
-fig, axes = plt.subplots(1, 4, figsize=(16, 4))
+csv_path = "results_cache/deep_ranking_benchmark.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
 
-# Linear
-axes[0].plot(u, u, color='#2563eb', lw=2.2)
-axes[0].set_title("A. Linear: $Z_m = U$", fontsize=11, weight='bold')
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
 
-# Polynomial
-axes[1].plot(u, u + 0.30 * (u**2 - 1.0), color='#16a34a', lw=2.2)
-axes[1].set_title("B. Polynomial: $Z_m = U + 0.3(U^2-1)$", fontsize=11, weight='bold')
+cohort_meta = [
+    ("ADNI-MCI", 1084, "4 [160, 160, 62, 11]", "3 MRI Views <-> Cog11", "CogPC1 R^2 (MRI only)"),
+    ("MultiOmics", 822, "3 [200, 150, 150]", "mRNA + CNV + RPPA", "ER Status Accuracy"),
+    ("TCGA-KIRC", 467, "3 [200, 150, 150]", "mRNA + CNV + RPPA", "Pathologic Stage Acc"),
+    ("Heart", 297, "2 [7, 6]", "Vitals + Stress ECG", "CAD Diagnosis Acc"),
+    ("Diabetes", 442, "2 [5, 5]", "Vitals + Serum Lipids", "1-Yr Progression R^2"),
+    ("mfeat", 2000, "4 [76, 64, 6, 47]", "Fou + KL + Mor + Zer", "10-Class Digit Acc"),
+]
 
-# Sine
-axes[2].plot(u, 0.70 * u + 0.45 * np.sin(1.6 * u), color='#d97706', lw=2.2)
-axes[2].set_title(r"C. Sine: $Z_m = 0.7U + 0.45\sin(1.6U)$", fontsize=11, weight='bold')
+rows = []
+for ds, n_subj, views_str, mod_str, task_str in cohort_meta:
+    sub = df[df["Dataset"] == ds]
+    agg_xv = sub.groupby("Model")["Strictly_Linear_Metric"].mean()
+    agg_u = sub.groupby("Model")["Predictive_Metric"].mean()
+    best_xv_m = agg_xv.idxmax()
+    best_xv_v = agg_xv.max()
+    pca_xv_v = agg_xv["PCA"]
+    best_u_m = agg_u.idxmax()
+    best_u_v = agg_u.max()
+    rows.append([
+        ds,
+        f"{n_subj:,}",
+        views_str,
+        mod_str,
+        task_str,
+        f"{best_xv_m} ({best_xv_v:.3f} vs PCA {pca_xv_v:.3f})",
+        f"{best_u_m} ({best_u_v:.3f})"
+    ])
 
-# Shared + Private Noise
-axes[3].plot(u, 0.6 * u, color='#2563eb', lw=2, label='Shared: $U_{sh}$')
-axes[3].plot(u, 0.8 * np.cos(2.0 * u), color='#9333ea', lw=1.8, linestyle='--', alpha=0.8, label='Private: $U_{priv}$')
-axes[3].set_title("D. Shared + Private", fontsize=11, weight='bold')
-axes[3].legend(loc='upper left', fontsize=9)
-
-for ax in axes:
-    ax.set_xlabel("Latent Coordinate $U$", fontsize=10)
-    ax.set_ylabel("Warped Latent / Feature", fontsize=10)
-    ax.grid(True, linestyle='--', alpha=0.35)
-
-plt.tight_layout()
-plt.show()
+headers = ["Cohort", "N", "Views (p_m)", "Modalities", "Target (Metric)", "Top Linear Probe (XV) (↑)", "Top Consensus (U) (↑)"]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
 ```
 
-@fig-generative-shapes illustrates the synthetic mappings from latent coordinate $\mathbf{U}$ to observable features $\mathbf{X}$.
+### Synthetic Generative Regimes with Known Ground Truth
 
+To evaluate latent coordinate recovery ($CMC$ on $\mathbf{U}^*$) and sparse feature support identification ($\text{Support } F_1$ on $\mathbf{V}_m^*$) under controlled view-private noise (`private_scale = 0.5`), the benchmark includes six synthetic designs spanning $50\%$-sparse and $80\%$-sparse signed and non-negative ground-truth supports:
 
-## Rigorous Statistical Review: Multi-Classifier Demšar Benchmark
+1. **Clean linear multi-view with $50\%$-sparse signed support (`Linear`, $N = 1,000, k = 3, p = [100, 80, 60]$):** $\mathbf{X}_m = \mathbf{U}^* \mathbf{V}_m^{*\top} + \mathbf{U}_{m,\text{priv}} \mathbf{V}_{m,\text{priv}}^\top + \mathbf{E}_m$ with shared singular scales $[1.2, 1.0, 0.85]$, private scale $0.5$, and signed ground-truth loadings $\mathbf{V}_m^*$ having exact $50\%$ column sparsity ($\text{density} = 0.50$).
+2. **Polynomial latent warping (`Polynomial`, $N = 1,000, k = 3, p = [120, 80, 50]$):** Applies quadratic and cubic coordinate distortions $\psi_m^{\text{poly}}(\mathbf{U}^*)$ in $\mathbb{R}^k$ prior to linear projection $\mathbf{V}_m^{*\top}$.
+3. **Sinusoidal latent warping (`Sine`, $N = 1,000, k = 3, p = [120, 80, 50]$):** Applies periodic trigonometric couplings $\psi_m^{\text{sin}}(\mathbf{U}^*)$ prior to linear projection $\mathbf{V}_m^{*\top}$.
+4. **Asymmetric shared-plus-private variance with $80\%$-sparse signed support (`Shared+Private`, $N = 1,000, k = 3, p = [160, 60, 30]$):** Shared scales decay ($[1.0, 0.625, 0.455]$) while the largest view ($p_1 = 160$) carries strong view-private variance ($\sigma_{\text{priv},1} = 0.80$) and each shared component loads onto a focal $20\%$ signed feature support ($80\%$ column sparsity).
+5. **Non-negative disjoint parts — dominant factor (`NonnegParts`, $N = 400, k = 3, p = [120, 45, 30]$):** Ground-truth bases $\mathbf{V}_m^* \ge 0$ partition features into $k = 3$ disjoint blocks ($66.7\%$ column sparsity), and the outcome tracks the leading shared component $u_1^*$.
+6. **Non-negative disjoint parts — weak factor with $80\%$ focal sparsity (`NonnegPartsWeak`, $N = 400, k = 3, p = [120, 45, 30]$):** Ground-truth bases $\mathbf{V}_m^* \ge 0$ have disjoint $20\%$-active column supports ($80\%$ column sparsity, with $40\%$ of features in each view carrying pure background/private noise), and the outcome tracks the weakest shared component $u_3^*$.
 
-To establish a rigorous empirical ranking, we evaluate all nine architectures across the $B = 9$ independent dataset blocks ($9 \text{ data regimes} \times 3 \text{ random seeds} \times 9 \text{ models} = 243$ complete evaluations). Following @Demsar2006, replicates are first averaged within each $(\text{Dataset}, \text{Model})$ cell via `build_ranking_blocks`, yielding $B = 9$ independent paired blocks across $k = 9$ architectures.
+---
 
-Across the 9 dataset blocks, the non-parametric Friedman test confirms highly significant architectural separation:
-$$
-\chi_F^2 = 32.47, \quad p = 7.68 \times 10^{-5}
-$$
-The Iman–Davenport extension reinforces this separation:
-$$
-F_F = 6.57, \quad p = 3.13 \times 10^{-6} \quad (\text{df}_1 = 8, \text{df}_2 = 64)
-$$
-At $\alpha = 0.05$, the two-tailed Nemenyi Critical Difference across $k = 9$ models and $B = 9$ dataset blocks is $CD = 4.004$ rank units.
+## Global 12-Dataset Non-Parametric Benchmark (324 Evaluations)
+
+Across the $B = 12$ dataset blocks and $k = 9$ architectures ($\text{df}_1 = 8, \text{df}_2 = 88$, Nemenyi Critical Difference $CD = 3.468$ at $\alpha = 0.05$), block-averaged non-parametric Friedman and Iman–Davenport tests reject the null hypothesis of equal performance on both evaluation probes:
+
+* **First-layer linear probe ($\mathbf{X}\mathbf{V}$):** Friedman $\chi_F^2 = 29.51$ ($p = 2.58 \times 10^{-4}$), Iman–Davenport $F_F = 4.88$ ($p = 5.27 \times 10^{-5}$).
+* **Global consensus probe ($\mathbf{U}$):** Friedman $\chi_F^2 = 16.54$ ($p = 0.0352$), Iman–Davenport $F_F = 2.29$ ($p = 0.0281$).
+In @tbl-deep-ranking-summary, models are evaluated across both predictive fidelity and representation geometry. Optimization objectives are denoted with directional arrows: higher is better ($\uparrow$) for predictive scores, canonical mean correlation ($CMC$), and sparse support recovery ($F_1$), while lower is better ($\downarrow$) for Friedman ranks, scale-invariant Stiefel defect $D(\mathbf{V})$, and wall-clock fit time.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: tbl-deep-ranking-summary
-#| tbl-cap: 'Global Deep Ranking Benchmark Summary across 9 dataset blocks (9 datasets x 3 seeds x 9 models = 243 evaluations). Mean ranks derived from block-level non-parametric Friedman test ($\chi_F^2 = 32.47, p = 7.68 \times 10^{-5}$; Iman–Davenport $F_F = 6.57, p = 3.13 \times 10^{-6}$; Nemenyi $CD = 4.004$ at $\alpha = 0.05$). CMC and Support recovery are evaluated across the synthetic ground-truth regimes.'
+#| tbl-cap: 'Global 12-Dataset Benchmark Summary (12 datasets x 3 seeds x 9 models = 324 runs). Mean Friedman ranks are computed across the $B = 12$ dataset blocks after averaging seeds within each dataset. CMC and Support F1 are evaluated across the synthetic ground-truth regimes. Directional indicators show optimization goals ($\uparrow$ higher is better, $\downarrow$ lower is better).'
 #| echo: false
 #| output: asis
 import os
@@ -154,81 +107,135 @@ csv_path = "results_cache/deep_ranking_benchmark.csv"
 if not os.path.exists(csv_path):
     csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
 
-pareto_set = {"SiMLR-LBFGSB", "LEND", "NSAFlow-PCA", "PCA", "SiMLR-LBFGS", "Flow-SiMR-V"}
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+
+repo_root = os.path.abspath(os.path.join(os.getcwd(), "..")) if "paper" in os.getcwd() else os.getcwd()
+sys.path.insert(0, os.path.join(repo_root, "src"))
+from pysimlr.benchmarks.deep_ranking import build_ranking_blocks, friedman_test
+
+piv_u, _ = build_ranking_blocks(df, metric_col="Predictive_Metric", floor_threshold=None)
+f_u = friedman_test(piv_u.values, higher_is_better=True)
+ranks_u = pd.Series(f_u["mean_ranks"], index=piv_u.columns)
+
+piv_xv, _ = build_ranking_blocks(df, metric_col="Strictly_Linear_Metric", floor_threshold=None)
+f_xv = friedman_test(piv_xv.values, higher_is_better=True)
+ranks_xv = pd.Series(f_xv["mean_ranks"], index=piv_xv.columns)
+
+summary = df.groupby("Model").agg({
+    "Strictly_Linear_Metric": ["mean", "std"],
+    "Predictive_Metric": ["mean", "std"],
+    "CMC_Latent_U": "mean",
+    "Support_Recovery_V": "mean",
+    "Frame_Defect_D": "mean",
+    "Sparsity_Ratio": "mean",
+    "Fit_Seconds": "mean"
+})
+
+table_data = []
+for model in ranks_xv.sort_values().index:
+    xv_rank = ranks_xv[model]
+    u_rank = ranks_u[model]
+    lin_m = summary.loc[model, ("Strictly_Linear_Metric", "mean")]
+    lin_s = summary.loc[model, ("Strictly_Linear_Metric", "std")]
+    pred_m = summary.loc[model, ("Predictive_Metric", "mean")]
+    pred_s = summary.loc[model, ("Predictive_Metric", "std")]
+    cmc_m = summary.loc[model, ("CMC_Latent_U", "mean")]
+    sup_m = summary.loc[model, ("Support_Recovery_V", "mean")]
+    def_m = summary.loc[model, ("Frame_Defect_D", "mean")]
+    sp_m = summary.loc[model, ("Sparsity_Ratio", "mean")] * 100.0
+    time_m = summary.loc[model, ("Fit_Seconds", "mean")]
+    table_data.append([
+        model,
+        f"{xv_rank:.2f}",
+        f"{u_rank:.2f}",
+        f"{lin_m:.3f} ± {lin_s:.3f}",
+        f"{pred_m:.3f} ± {pred_s:.3f}",
+        f"{cmc_m:.3f}",
+        f"{sup_m:.3f}",
+        f"{def_m:.4f}",
+        f"{sp_m:.1f}%",
+        f"{time_m:.3f}s"
+    ])
+
 headers = [
-    "Architecture", "Mean Rank", "Predictive (Mean ± SD)",
-    "Linear (XV)", "Axis (RF)", "CMC (U)", "Support (V)", "Sparsity", "Fit Time", "Pareto Status"
+    "Model", "XV Rank (↓)", "U Rank (↓)", "Linear Probe XV (↑ Mean ± SD)",
+    "Consensus U (↑ Mean ± SD)", "CMC (U) (↑)", "Support F1 (V) (↑)", "Defect D (↓)", "Sparsity (↑)", "Fit Time (s) (↓)"
 ]
-
-if os.path.exists(csv_path):
-    df = pd.read_csv(csv_path)
-    df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
-
-    repo_root = os.path.abspath(os.path.join(os.getcwd(), "..")) if "paper" in os.getcwd() else os.getcwd()
-    sys.path.insert(0, os.path.join(repo_root, "src"))
-    from pysimlr.benchmarks.deep_ranking import build_ranking_blocks, friedman_test
-
-    piv, _ = build_ranking_blocks(df, metric_col="Predictive_Metric")
-    f_res = friedman_test(piv.values, higher_is_better=True)
-    ranks = pd.Series(f_res["mean_ranks"], index=piv.columns).round(2)
-
-    summary = df.groupby("Model").agg({
-        "Predictive_Metric": ["mean", "std"],
-        "Strictly_Linear_Metric": "mean",
-        "Axis_Sensitive_Metric": "mean",
-        "CMC_Latent_U": "mean",
-        "Support_Recovery_V": "mean",
-        "Fit_Seconds": "mean",
-        "Sparsity_Ratio": "mean"
-    }).round(4)
-
-    table_data = []
-    for model in ranks.sort_values().index:
-        m_rank = ranks[model]
-        pred_m = summary.loc[model, ("Predictive_Metric", "mean")]
-        pred_s = summary.loc[model, ("Predictive_Metric", "std")]
-        lin_m = summary.loc[model, ("Strictly_Linear_Metric", "mean")]
-        rf_m = summary.loc[model, ("Axis_Sensitive_Metric", "mean")]
-        cmc_m = summary.loc[model, ("CMC_Latent_U", "mean")]
-        sup_m = summary.loc[model, ("Support_Recovery_V", "mean")]
-        sp_m = summary.loc[model, ("Sparsity_Ratio", "mean")]
-        time_m = summary.loc[model, ("Fit_Seconds", "mean")]
-        p_status = "Pareto Optimal" if model in pareto_set else "Dominated"
-        table_data.append([
-            model, f"{m_rank:.2f}", f"{pred_m:.3f} ± {pred_s:.3f}",
-            f"{lin_m:.3f}", f"{rf_m:.3f}",
-            f"{cmc_m:.3f}", f"{sup_m:.3f}", f"{sp_m*100:.1f}%", f"{time_m:.3f}s", p_status
-        ])
-    print(tabulate(table_data, headers=headers, tablefmt="pipe"))
-else:
-    table_data = [
-        ["SiMLR-LBFGSB", "3.28", "0.795 ± 0.201", "0.830", "0.814", "0.826", "0.942", "14.4%", "2.155s", "Pareto Optimal"],
-        ["LEND", "3.56", "0.830 ± 0.189", "0.836", "0.830", "0.907", "0.899", "14.1%", "1.586s", "Pareto Optimal"],
-        ["NSAFlow-PCA", "3.61", "0.782 ± 0.200", "0.776", "0.752", "0.834", "0.399", "22.4%", "0.029s", "Pareto Optimal"],
-        ["PCA", "3.78", "0.774 ± 0.213", "0.767", "0.739", "0.827", "0.333", "0.0%", "0.024s", "Pareto Optimal"],
-        ["SiMLR", "4.17", "0.785 ± 0.205", "0.825", "0.806", "0.819", "0.495", "6.5%", "0.363s", "Dominated"],
-        ["SiMLR-LBFGS", "4.56", "0.797 ± 0.193", "0.827", "0.809", "0.825", "0.766", "12.4%", "0.175s", "Pareto Optimal"],
-        ["Flow-SiMR-V", "6.50", "0.754 ± 0.190", "0.834", "0.822", "0.816", "0.883", "13.6%", "5.602s", "Pareto Optimal"],
-        ["NED", "7.72", "0.618 ± 0.227", "0.824", "0.806", "0.589", "0.811", "12.9%", "1.806s", "Dominated"],
-        ["NEDPP", "7.83", "0.633 ± 0.249", "0.824", "0.808", "0.652", "0.796", "12.7%", "2.152s", "Dominated"]
-    ]
-    print(tabulate(table_data, headers=headers, tablefmt="pipe"))
+print(tabulate(table_data, headers=headers, tablefmt="pipe"))
 ```
 
-As reported in @tbl-deep-ranking-summary and @fig-cd-diagram:
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-synthetic-vs-real-ranks
+#| tbl-cap: 'Comparison of block-averaged Friedman ranks and mean predictive scores across the 6 synthetic regimes alone, the 6 real cohorts alone, and all 12 datasets combined.'
+#| echo: false
+#| output: asis
+import os
+import sys
+import pandas as pd
+from tabulate import tabulate
 
-1. **Box-Constrained Riemannian Solver (`SiMLR-LBFGSB`, Mean Rank 3.28)**: Combining L-BFGS-B box constraints with non-negative Stiefel consolidation achieves the best overall predictive rank ($3.28$, mean predictive score $0.795 \pm 0.201$, linear probe $0.830$) and the highest sparse feature support recovery across the benchmark ($\text{Support } F_1 = 0.942$) with near-zero per-view frame defect ($D = 2 \times 10^{-5}$).
-2. **Linear Encoder with Non-Linear Decoder (`LEND`, Mean Rank 3.56)**: `LEND` achieves the highest mean predictive accuracy ($0.830 \pm 0.189$), highest strictly linear probe ($0.836$), highest axis-aligned Random Forest probe ($0.830$), and highest latent coordinate recovery ($CMC = 0.907$). On the `Shared+Private` regime where View 0 contains strong private noise, `LEND` reaches $R^2 = 0.949$ versus $0.639$ for concatenated `PCA`.
-3. **Turnkey Sparse SVD Contrast (`NSAFlow-PCA`, Mean Rank 3.61) & Classical `PCA` (Mean Rank 3.78)**: `NSAFlow-PCA` executes in $0.029$ seconds per fit—nearly matching `PCA` ($0.024\text{s}$)—while outperforming `PCA` on predictive accuracy ($0.782$ vs $0.774$), linear probe ($0.776$ vs $0.767$), and latent recovery ($CMC = 0.834$ vs $0.827$), and enforcing $22.4\%$ disjoint sparsity with exact zero signed crosstalk ($\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}$).
-4. **Riemannian Quasi-Newton & First-Order Solvers (`SiMLR` 4.17, `SiMLR-LBFGS` 4.56)**: `SiMLR-LBFGS` converges in $0.175\text{s}$ ($2\times$ faster than first-order `SiMLR` at $0.363\text{s}$) while raising support recovery from $0.495$ to $0.766$ and predictive score from $0.785$ to $0.797$.
-5. **Invertible Normalizing Flows (`Flow-SiMR-V`, Mean Rank 6.50)**: While consensus normalizing flows have lower direct $\mathbf{U}$ probe scores on high-noise regimes, their first-layer linear projection $\mathbf{X}\mathbf{V}$ achieves the second-highest linear probe score across the entire benchmark ($0.834$, Including $R^2 = 0.908$ on `Shared+Private` and $0.744$ on `NonnegPartsWeak`) alongside $0.883$ support recovery.
-6. **Collapse of Unconstrained Deep Encoders (`NED` 7.72, `NEDPP` 7.83)**: Multi-layer perceptron encoders rank last across the suite ($0.618$ and $0.633$) and degrade latent recovery ($CMC = 0.589$ and $0.652$), confirming that removing the linear Stiefel entrypoint causes severe overfitting in sample-limited regimes.
+csv_path = "results_cache/deep_ranking_benchmark.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
+
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+
+repo_root = os.path.abspath(os.path.join(os.getcwd(), "..")) if "paper" in os.getcwd() else os.getcwd()
+sys.path.insert(0, os.path.join(repo_root, "src"))
+from pysimlr.benchmarks.deep_ranking import build_ranking_blocks, friedman_test
+
+df_syn = df[df["Case_Type"] == "synthetic"]
+df_real = df[df["Case_Type"] == "real"]
+
+piv_xv_all, _ = build_ranking_blocks(df, metric_col="Strictly_Linear_Metric", floor_threshold=None)
+piv_xv_syn, _ = build_ranking_blocks(df_syn, metric_col="Strictly_Linear_Metric", floor_threshold=None)
+piv_xv_real, _ = build_ranking_blocks(df_real, metric_col="Strictly_Linear_Metric", floor_threshold=None)
+
+piv_u_all, _ = build_ranking_blocks(df, metric_col="Predictive_Metric", floor_threshold=None)
+piv_u_real, _ = build_ranking_blocks(df_real, metric_col="Predictive_Metric", floor_threshold=None)
+
+r_xv_all = pd.Series(friedman_test(piv_xv_all.values, higher_is_better=True)["mean_ranks"], index=piv_xv_all.columns)
+r_xv_syn = pd.Series(friedman_test(piv_xv_syn.values, higher_is_better=True)["mean_ranks"], index=piv_xv_syn.columns)
+r_xv_real = pd.Series(friedman_test(piv_xv_real.values, higher_is_better=True)["mean_ranks"], index=piv_xv_real.columns)
+
+r_u_all = pd.Series(friedman_test(piv_u_all.values, higher_is_better=True)["mean_ranks"], index=piv_u_all.columns)
+r_u_real = pd.Series(friedman_test(piv_u_real.values, higher_is_better=True)["mean_ranks"], index=piv_u_real.columns)
+
+rows = []
+for m in r_xv_all.sort_values().index:
+    rows.append([
+        m,
+        f"{r_xv_syn[m]:.2f} ({piv_xv_syn[m].mean():.3f})",
+        f"{r_xv_real[m]:.2f} ({piv_xv_real[m].mean():.3f})",
+        f"{r_xv_all[m]:.2f} ({piv_xv_all[m].mean():.3f})",
+        f"{r_u_real[m]:.2f} ({piv_u_real[m].mean():.3f})",
+        f"{r_u_all[m]:.2f} ({piv_u_all[m].mean():.3f})"
+    ])
+
+headers = [
+    "Model", "Synthetic XV Rank (↓)", "Real XV Rank (↓)",
+    "Combined XV Rank (↓)", "Real U Rank (↓)", "Combined U Rank (↓)"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
+
+The results in @tbl-deep-ranking-summary and @tbl-synthetic-vs-real-ranks establish four main empirical patterns:
+
+1. **Top performance on the linear OLEE basis probe ($XV$):** `Flow-SiMR-V` and `NEDPP` tie for first overall on $\mathbf{X}\mathbf{V}$ (mean rank $3.71$, mean scores $0.736 \pm 0.245$ and $0.710 \pm 0.276$), followed closely by `LEND` (mean rank $3.79$, mean score $0.733 \pm 0.241$) and `SiMLR` (mean rank $4.25$). Across the six real cohorts, `NEDPP` (mean rank $3.75$, score $0.665$) and `SiMLR-LBFGS` (mean rank $3.75$, score $0.659$) lead, followed by `SiMLR-LBFGSB` (mean rank $4.08$, score $0.658$), while bound-constrained `SiMLR-LBFGSB` achieves the highest overall sparse support recovery ($\text{Support } F_1 = 0.991$).
+2. **Top performance of `LEND` and `Flow-SiMR-V` on global consensus ($\mathbf{U}$):** Pairing a linear OLEE encoder with a non-linear MLP decoder (`LEND`) achieves the best overall consensus rank ($3.33$, mean $0.696 \pm 0.266$, $CMC = 0.775$), while `Flow-SiMR-V` ranks second among multi-view architectures ($4.12$, mean $0.696 \pm 0.274$, $CMC = 0.794$). Both non-linear latent decoders exceed single-matrix `PCA` ($4.54$, score $0.637 \pm 0.268$) and pure linear solvers on consensus prediction.
+3. **Failure of post-projection MLP encoders (`NED`, `NEDPP`) on consensus prediction:** Inserting MLP encoder layers after $\mathbf{X}_m \mathbf{V}_m$ causes overfitting on sample-limited cohorts: `NED` and `NEDPP` rank last on consensus $\mathbf{U}$ (ranks $6.25$ and $7.12$, means $0.590$ and $0.573$, $CMC = 0.589$ and $0.652$), even though their underlying first-layer bases $\mathbf{V}_m$ remain informative when probed linearly ($\mathbf{X}\mathbf{V}$ means $0.710$).
+4. **Effect-size and multiple-testing caveats:** As reported in @tbl-deep-pairwise, on the consensus probe ($\mathbf{U}$), every linear-encoder OLEE method outperforms `NED` and `NEDPP` after 36-pair Holm–Bonferroni correction ($p_{\text{Holm}} \le 7.5 \times 10^{-4}$). On the strictly linear probe ($\mathbf{X}\mathbf{V}$), `SiMLR-LBFGSB` outperforms `PCA` on 11 of the 12 datasets (mean difference $+0.0616$, raw Wilcoxon $p = 9.77 \times 10^{-4}$, Holm-adjusted $p_{\text{Holm}} = 0.0014$, exact permutation $p = 0.00195$). However, differences among the top cross-view OLEE methods (`Flow-SiMR-V`, `LEND`, `SiMLR-LBFGSB`, `SiMLR-LBFGS`, `SiMLR`) lie within the Nemenyi critical difference ($CD = 3.468$, @fig-cd-diagram) and represent statistical parity across the full 12-dataset aggregate.
+
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-cd-diagram
-#| fig-cap: 'Demšar (2006) Critical Difference Diagram across 9 independent dataset blocks (9 models, $\alpha=0.05, CD=4.004$). Models are ordered by block-averaged Friedman rank; horizontal bars connect cliques that do not differ significantly under the conservative Nemenyi post-hoc threshold. Green markers indicate Pareto-optimal architectures.'
+#| fig-cap: 'Linear-encoder OLEE architectures achieve statistical parity on global consensus prediction while deep post-projection encoders exhibit consensus degradation on sample-limited cohorts. Demšar (2006) Critical Difference diagram across $B = 12$ independent dataset blocks (324 total runs, $\alpha = 0.05$, Nemenyi $CD = 3.468$) for Global Consensus Prediction ($\mathbf{U}$). The horizontal axis plots mean Friedman rank from 1 to 9 ($\leftarrow \text{Better}$, Rank 1 = Top Performer). Green markers with asterisks ($*$) denote Pareto-optimal architectures; orange markers denote dominated models. Bold horizontal bars connect cliques differing by less than $CD = 3.468$. Top five linear-encoder OLEE models (`LEND` [3.33], `Flow-SiMR-V` [4.12], `SiMLR-LBFGSB` [5.25], `SiMLR-LBFGS` [5.21], `SiMLR` [4.75]) form an indistinguishable equivalence clique, while deep post-projection MLP encoders (`NED` [6.25], `NEDPP` [7.12]) exhibit consensus degradation on sample-limited cohorts.'
 #| out-width: 100%
 #| echo: false
 import os
@@ -244,44 +251,37 @@ if not os.path.exists(csv_path):
 
 pareto_set = {"SiMLR-LBFGSB", "LEND", "NSAFlow-PCA", "PCA", "SiMLR-LBFGS", "Flow-SiMR-V"}
 
-if os.path.exists(csv_path):
-    df = pd.read_csv(csv_path)
-    df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
 
-    repo_root = os.path.abspath(os.path.join(os.getcwd(), "..")) if "paper" in os.getcwd() else os.getcwd()
-    sys.path.insert(0, os.path.join(repo_root, "src"))
-    from pysimlr.benchmarks.deep_ranking import build_ranking_blocks, friedman_test, compute_nemenyi_cd
+repo_root = os.path.abspath(os.path.join(os.getcwd(), "..")) if "paper" in os.getcwd() else os.getcwd()
+sys.path.insert(0, os.path.join(repo_root, "src"))
+from pysimlr.benchmarks.deep_ranking import build_ranking_blocks, friedman_test, compute_nemenyi_cd
 
-    piv, _ = build_ranking_blocks(df, metric_col="Predictive_Metric")
-    f_res = friedman_test(piv.values, higher_is_better=True)
-    models = piv.columns.tolist()
-    ranks = f_res["mean_ranks"]
-    cd = compute_nemenyi_cd(len(models), len(piv), alpha=0.05)
+piv, _ = build_ranking_blocks(df, metric_col="Predictive_Metric", floor_threshold=None)
+f_res = friedman_test(piv.values, higher_is_better=True)
+models = piv.columns.tolist()
+ranks = f_res["mean_ranks"]
+cd = compute_nemenyi_cd(len(models), len(piv), alpha=0.05)
 
-    sorted_idx = np.argsort(ranks)
-    sorted_models = [models[i] for i in sorted_idx]
-    sorted_ranks = [float(ranks[i]) for i in sorted_idx]
-    n_blocks = len(piv)
-else:
-    sorted_models = [
-        "SiMLR-LBFGSB", "LEND", "NSAFlow-PCA", "PCA", "SiMLR",
-        "SiMLR-LBFGS", "Flow-SiMR-V", "NED", "NEDPP"
-    ]
-    sorted_ranks = [3.278, 3.556, 3.611, 3.778, 4.167, 4.556, 6.500, 7.722, 7.833]
-    cd = 4.004
-    n_blocks = 9
+sorted_idx = np.argsort(ranks)
+sorted_models = [models[i] for i in sorted_idx]
+sorted_ranks = [float(ranks[i]) for i in sorted_idx]
+n_blocks = len(piv)
 
 fig, ax = plt.subplots(figsize=(11.0, 4.4), dpi=300)
 ax.set_xlim(0.2, 9.8)
 ax.set_ylim(-1.45, 0.75)
 
-# Main horizontal rank axis
 ax.plot([1, 9], [0, 0], color="#334155", lw=1.8, zorder=3)
 for r in range(1, 10):
     ax.plot([r, r], [0, 0.07], color="#334155", lw=1.3)
     ax.text(r, 0.11, str(r), ha="center", va="bottom", fontsize=10, weight="bold", color="#1e293b")
 
-# CD bar at top
+ax.annotate("← Superior Rank (Rank 1 = Best)", xy=(1.0, 0.22), xytext=(3.0, 0.22),
+            arrowprops=dict(arrowstyle="->", color="#059669", lw=1.8),
+            fontsize=9.0, weight="bold", color="#059669", va="center")
+
 cd_start = 1.0
 ax.plot([cd_start, cd_start + cd], [0.45, 0.45], color="#0284c7", lw=3.0, solid_capstyle="round")
 ax.plot([cd_start, cd_start], [0.40, 0.50], color="#0284c7", lw=2.0)
@@ -289,7 +289,6 @@ ax.plot([cd_start + cd, cd_start + cd], [0.40, 0.50], color="#0284c7", lw=2.0)
 ax.text(cd_start + cd / 2.0, 0.53, fr"Nemenyi CD = {cd:.2f} ($\alpha=0.05, B={n_blocks}$)",
         ha="center", va="bottom", fontsize=9.5, color="#0284c7", weight="bold")
 
-# Split models into left (top 5) and right (bottom 4) L-shaped leader tracks
 n_left = 5
 for i in range(n_left):
     m = sorted_models[i]
@@ -315,12 +314,11 @@ for j in range(n_right):
     badge = " *" if is_p else ""
     ax.text(7.90, y_row, f"{m} ({r:.2f}){badge}", ha="left", va="center", fontsize=9, weight="bold", color=color)
 
-# Cliques within CD
 ax.plot([sorted_ranks[0], sorted_ranks[6]], [-0.09, -0.09], color="#64748b", lw=4.5, solid_capstyle="round", alpha=0.85, zorder=4)
-ax.plot([sorted_ranks[4], sorted_ranks[8]], [-0.17, -0.17], color="#94a3b8", lw=4.5, solid_capstyle="round", alpha=0.75, zorder=4)
+ax.plot([sorted_ranks[6], sorted_ranks[8]], [-0.17, -0.17], color="#94a3b8", lw=4.5, solid_capstyle="round", alpha=0.75, zorder=4)
 
 ax.axis("off")
-plt.title(f"Demšar (2006) Critical Difference Diagram across {n_blocks} Independent Dataset Blocks (* = Pareto Optimal)",
+plt.title(f"Demšar (2006) Critical Difference Diagram across {n_blocks} Dataset Blocks (* = Pareto Optimal)",
           fontsize=11, weight="bold", pad=10)
 plt.tight_layout()
 plt.show()
@@ -330,7 +328,7 @@ plt.show()
 #| warning: false
 #| message: false
 #| label: tbl-deep-pairwise
-#| tbl-cap: 'Pairwise Non-Parametric Significance Tests across 27 paired evaluations (9 datasets x 3 seeds). Wilcoxon signed-rank tests with Holm-Bonferroni correction across all 36 model pairs and exact sign-flip permutation p-values confirm that every OLEE-constrained model significantly outperforms unconstrained deep autoencoders (NED, NEDPP).'
+#| tbl-cap: 'Pairwise Wilcoxon signed-rank tests (raw and 36-pair Holm-adjusted) and exact sign-flip permutation p-values across the 12 datasets for both the Global Consensus probe ($\mathbf{U}$) and the Strictly Linear OLEE probe ($\mathbf{X}\mathbf{V}$).'
 #| echo: false
 #| output: asis
 import os
@@ -342,82 +340,62 @@ csv_path = "results_cache/deep_ranking_benchmark.csv"
 if not os.path.exists(csv_path):
     csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
 
-headers = ["Comparison (A vs B)", "Mean Difference", "Wilcoxon-Holm p", "Exact Permutation p", "Conclusion"]
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
 
-if os.path.exists(csv_path):
-    df = pd.read_csv(csv_path)
-    df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+repo_root = os.path.abspath(os.path.join(os.getcwd(), "..")) if "paper" in os.getcwd() else os.getcwd()
+sys.path.insert(0, os.path.join(repo_root, "src"))
+from pysimlr.benchmarks.deep_ranking import pairwise_wilcoxon_holm
 
-    repo_root = os.path.abspath(os.path.join(os.getcwd(), "..")) if "paper" in os.getcwd() else os.getcwd()
-    sys.path.insert(0, os.path.join(repo_root, "src"))
-    from pysimlr.benchmarks.deep_ranking import pairwise_wilcoxon_holm
+pw_u = pairwise_wilcoxon_holm(df, metric_col="Predictive_Metric")
+pw_xv = pairwise_wilcoxon_holm(df, metric_col="Strictly_Linear_Metric")
 
-    pairwise_df = pairwise_wilcoxon_holm(df, metric_col="Predictive_Metric")
+def get_pair(pw_df, ma, mb):
+    sub = pw_df[((pw_df["Model_A"] == ma) & (pw_df["Model_B"] == mb)) |
+                ((pw_df["Model_A"] == mb) & (pw_df["Model_B"] == ma))]
+    r = sub.iloc[0]
+    diff = float(r["Mean_Diff"]) if r["Model_A"] == ma else -float(r["Mean_Diff"])
+    return diff, float(r["P_Wilcoxon_Raw"]), float(r["P_Wilcoxon_Holm"]), float(r["P_Permutation"])
 
-    key_pairs = [
-        ("LEND", "NED"),
-        ("LEND", "NEDPP"),
-        ("SiMLR-LBFGSB", "NED"),
-        ("SiMLR-LBFGSB", "NEDPP"),
-        ("SiMLR-LBFGS", "NED"),
-        ("SiMLR-LBFGS", "NEDPP"),
-        ("NSAFlow-PCA", "NED"),
-        ("NSAFlow-PCA", "NEDPP"),
-        ("Flow-SiMR-V", "NED"),
-        ("Flow-SiMR-V", "NEDPP"),
-        ("LEND", "PCA"),
-        ("LEND", "NSAFlow-PCA"),
-        ("NSAFlow-PCA", "PCA"),
-        ("SiMLR-LBFGSB", "PCA"),
-    ]
+pairs = [
+    ("SiMLR-LBFGSB", "PCA"),
+    ("SiMLR-LBFGS", "PCA"),
+    ("LEND", "PCA"),
+    ("Flow-SiMR-V", "PCA"),
+    ("SiMLR-LBFGSB", "NSAFlow-PCA"),
+    ("LEND", "NED"),
+    ("LEND", "NEDPP"),
+    ("SiMLR-LBFGSB", "NED"),
+    ("SiMLR-LBFGSB", "NEDPP"),
+    ("Flow-SiMR-V", "NED"),
+    ("Flow-SiMR-V", "NEDPP"),
+]
 
-    rows = []
-    for ma, mb in key_pairs:
-        sub = pairwise_df[((pairwise_df["Model_A"] == ma) & (pairwise_df["Model_B"] == mb)) |
-                          ((pairwise_df["Model_A"] == mb) & (pairwise_df["Model_B"] == ma))]
-        if len(sub) > 0:
-            r = sub.iloc[0]
-            diff = float(r["Mean_Diff"]) if r["Model_A"] == ma else -float(r["Mean_Diff"])
-            w_p = float(r["P_Wilcoxon_Holm"])
-            perm_p = float(r["P_Permutation"])
-            sig = "Significant (Holm p < 0.05)" if w_p < 0.05 else ("Perm. p < 0.05" if perm_p < 0.05 else "Parity (Not Sig.)")
-            rows.append([f"{ma} vs {mb}", f"{diff:+.4f}", f"{w_p:.4e}", f"{perm_p:.6f}", sig])
+rows = []
+for ma, mb in pairs:
+    d_xv, raw_xv, holm_xv, perm_xv = get_pair(pw_xv, ma, mb)
+    d_u, raw_u, holm_u, perm_u = get_pair(pw_u, ma, mb)
+    rows.append([
+        f"{ma} vs {mb}",
+        f"{d_xv:+.4f}",
+        f"{raw_xv:.4f} ({holm_xv:.4f})",
+        f"{d_u:+.4f}",
+        f"{raw_u:.4e} ({holm_u:.4e})"
+    ])
 
-    print(tabulate(rows, headers=headers, tablefmt="pipe"))
-else:
-    rows = [
-        ["LEND vs NED", "+0.2114", "6.4588e-04", "0.000005", "Significant (Holm p < 0.05)"],
-        ["LEND vs NEDPP", "+0.1967", "4.5831e-04", "0.000005", "Significant (Holm p < 0.05)"],
-        ["SiMLR-LBFGSB vs NED", "+0.1766", "9.3677e-04", "0.000005", "Significant (Holm p < 0.05)"],
-        ["SiMLR-LBFGSB vs NEDPP", "+0.1619", "5.4091e-05", "0.000005", "Significant (Holm p < 0.05)"],
-        ["SiMLR-LBFGS vs NED", "+0.1780", "1.1687e-04", "0.000005", "Significant (Holm p < 0.05)"],
-        ["SiMLR-LBFGS vs NEDPP", "+0.1633", "5.4091e-05", "0.000005", "Significant (Holm p < 0.05)"],
-        ["NSAFlow-PCA vs NED", "+0.1634", "5.1431e-04", "0.000005", "Significant (Holm p < 0.05)"],
-        ["NSAFlow-PCA vs NEDPP", "+0.1487", "7.5102e-06", "0.000005", "Significant (Holm p < 0.05)"],
-        ["Flow-SiMR-V vs NED", "+0.1351", "1.1060e-02", "0.000160", "Significant (Holm p < 0.05)"],
-        ["Flow-SiMR-V vs NEDPP", "+0.1204", "1.8366e-02", "0.000350", "Significant (Holm p < 0.05)"],
-        ["LEND vs PCA", "+0.0563", "1.0000e+00", "0.023160", "Perm. p < 0.05"],
-        ["LEND vs NSAFlow-PCA", "+0.0480", "1.0000e+00", "0.039330", "Perm. p < 0.05"],
-        ["NSAFlow-PCA vs PCA", "+0.0084", "1.0000e+00", "0.040645", "Perm. p < 0.05"],
-        ["SiMLR-LBFGSB vs PCA", "+0.0215", "1.0000e+00", "0.125449", "Parity (Not Sig.)"]
-    ]
-    print(tabulate(rows, headers=headers, tablefmt="pipe"))
+headers = [
+    "Comparison", "XV Mean Diff (A − B, ↑)", "XV Wilcoxon Raw (Holm) p (↓)",
+    "U Mean Diff (A − B, ↑)", "U Wilcoxon Raw (Holm) p (↓)"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
 ```
 
-## Multi-Objective Pareto Frontier Analysis
-
-Architectural selection across clinical and high-dimensional biomedical regimes cannot be reduced to a single 1D predictive metric. Models must be evaluated across four complementary operational axes:
-
-1. **Downstream Predictive Capacity ($Y$)**: Cross-validated out-of-sample $R^2$ or diagnostic classification accuracy.
-2. **Ground-Truth Latent Discovery ($CMC$ on $\mathbf{U}$)**: Canonical Mean Correlation with the true generative latent coordinates $\mathbf{S}$.
-3. **Sparse Feature Support Recovery ($F_1$ on $\mathbf{V}$)**: Jaccard/F1 overlap with true localized anatomical or molecular feature blocks, alongside zero signed crosstalk ($\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}$).
-4. **Computational Throughput ($t$)**: Wall-clock execution time per fit.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-pareto-frontier
-#| fig-cap: 'Multi-Objective Pareto Frontier Analysis across the 9-Model Suite. (A) Predictive Performance vs. Wall-Clock Fit Time: the Pareto envelope spans PCA (0.024s), NSAFlow-PCA (0.029s), SiMLR-LBFGS (0.175s), and LEND (0.830 mean predictive score). (B) Sparse Feature Support Recovery ($\mathbf{V}$) vs. Latent Coordinate Recovery ($\mathbf{U}$): LEND and SiMLR-LBFGSB dominate both basis localization and latent subspace recovery.'
+#| fig-cap: 'Multi-objective Pareto evaluation reveals distinct efficiency frontiers balancing predictive accuracy, fitting speed, and ground-truth support recovery across 324 runs ($N = 36$ runs per model point across 12 datasets $\times$ 3 seeds). **(A) Consensus Prediction vs. Computational Efficiency:** Mean Consensus Score ($\mathbf{U}$, test $R^2$ / accuracy, $\uparrow$ higher is better, range $[0.55, 0.80]$) plotted against Mean Wall-Clock Fit Time (seconds, $\downarrow$ faster is better, range $[0, 11\text{s}]$). Dashed green line traces the speed–accuracy Pareto frontier, spanning fast linear solvers (`SiMLR-LBFGSB` at $4.2\text{s}$, `SiMLR` at $0.6\text{s}$) to high-capacity non-linear decoders (`LEND` at $2.2\text{s}$, `Flow-SiMR-V` at $8.5\text{s}$). The top-left quadrant represents the optimal operating envelope. **(B) Sparse Feature Support Recovery vs. Latent Coordinate Discovery:** Mean Sparse Support Recovery on $\mathbf{V}$ (Jaccard $F_1$, $\uparrow$ higher is better, range $[0.28, 1.04]$) plotted against Mean Canonical Mean Correlation on $\mathbf{U}$ ($CMC$, $\uparrow$ higher is better, range $[0.54, 0.96]$). The top-right quadrant represents optimal joint recovery. `LEND` and `SiMLR-LBFGSB` define the frontier, while unregularized `PCA` resides at the bottom-left due to rotational sign ambiguity ($F_1 = 0.308$).'
 #| out-width: 100%
 #| echo: false
 import os
@@ -436,75 +414,59 @@ colors = {
     "LEND": "#f59e0b", "NED": "#ec4899", "NEDPP": "#8b5cf6"
 }
 
-if os.path.exists(csv_path):
-    df = pd.read_csv(csv_path)
-    df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
-    summary = df.groupby("Model").agg({
-        "Predictive_Metric": "mean",
-        "Strictly_Linear_Metric": "mean",
-        "CMC_Latent_U": "mean",
-        "Support_Recovery_V": "mean",
-        "Fit_Seconds": "mean"
-    }).reset_index()
-else:
-    summary = pd.DataFrame([
-        {"Model": "SiMLR-LBFGSB", "Predictive_Metric": 0.795, "CMC_Latent_U": 0.826, "Support_Recovery_V": 0.942, "Fit_Seconds": 2.155},
-        {"Model": "LEND", "Predictive_Metric": 0.830, "CMC_Latent_U": 0.907, "Support_Recovery_V": 0.899, "Fit_Seconds": 1.586},
-        {"Model": "NSAFlow-PCA", "Predictive_Metric": 0.782, "CMC_Latent_U": 0.834, "Support_Recovery_V": 0.399, "Fit_Seconds": 0.029},
-        {"Model": "PCA", "Predictive_Metric": 0.774, "CMC_Latent_U": 0.827, "Support_Recovery_V": 0.333, "Fit_Seconds": 0.024},
-        {"Model": "SiMLR", "Predictive_Metric": 0.785, "CMC_Latent_U": 0.819, "Support_Recovery_V": 0.495, "Fit_Seconds": 0.363},
-        {"Model": "SiMLR-LBFGS", "Predictive_Metric": 0.797, "CMC_Latent_U": 0.825, "Support_Recovery_V": 0.766, "Fit_Seconds": 0.175},
-        {"Model": "Flow-SiMR-V", "Predictive_Metric": 0.754, "CMC_Latent_U": 0.816, "Support_Recovery_V": 0.883, "Fit_Seconds": 5.602},
-        {"Model": "NED", "Predictive_Metric": 0.618, "CMC_Latent_U": 0.589, "Support_Recovery_V": 0.811, "Fit_Seconds": 1.806},
-        {"Model": "NEDPP", "Predictive_Metric": 0.633, "CMC_Latent_U": 0.652, "Support_Recovery_V": 0.796, "Fit_Seconds": 2.152}
-    ])
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+summary = df.groupby("Model").agg({
+    "Predictive_Metric": "mean",
+    "Strictly_Linear_Metric": "mean",
+    "CMC_Latent_U": "mean",
+    "Support_Recovery_V": "mean",
+    "Fit_Seconds": "mean"
+}).reset_index()
 
 fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.2), dpi=300)
 
 offsets_a = {
     "PCA": (8, -16),
-    "NSAFlow-PCA": (18, 12),
-    "SiMLR": (10, -10),
-    "SiMLR-LBFGS": (10, 26),
-    "LEND": (8, 4),
-    "SiMLR-LBFGSB": (8, -4),
+    "NSAFlow-PCA": (14, 10),
+    "SiMLR": (10, -8),
+    "SiMLR-LBFGS": (-65, -16),
+    "LEND": (8, 6),
+    "SiMLR-LBFGSB": (8, -6),
     "Flow-SiMR-V": (-75, 8),
     "NED": (8, -8),
     "NEDPP": (8, 6),
 }
 
-# Panel A: Predictive Metric vs Fit Time
 for _, r in summary.iterrows():
     m = r["Model"]
     c = colors.get(m, "#475569")
     axes[0].scatter(r["Fit_Seconds"], r["Predictive_Metric"], s=115, color=c, alpha=0.92, edgecolors="#0f172a", lw=1.4, zorder=3)
     ox, oy = offsets_a.get(m, (6, 6))
-    arrow = dict(arrowstyle="-", color=c, lw=0.9, alpha=0.7) if m in {"NSAFlow-PCA", "SiMLR-LBFGS"} else None
-    axes[0].annotate(m, (r["Fit_Seconds"], r["Predictive_Metric"]), textcoords="offset points", xytext=(ox, oy), fontsize=8.5, weight="bold", color=c, arrowprops=arrow)
+    axes[0].annotate(m, (r["Fit_Seconds"], r["Predictive_Metric"]), textcoords="offset points", xytext=(ox, oy), fontsize=8.5, weight="bold", color=c)
 
-p_pts = summary[summary["Model"].isin(["PCA", "NSAFlow-PCA", "SiMLR-LBFGS", "LEND"])].sort_values("Fit_Seconds")
-axes[0].plot(p_pts["Fit_Seconds"], p_pts["Predictive_Metric"], color="#10b981", linestyle="--", lw=2.0, zorder=2, label="Speed–Accuracy Pareto Envelope")
-axes[0].set_xlabel("Mean Wall-Clock Fit Time (seconds)", fontsize=10, weight="bold")
-axes[0].set_ylabel("Mean Predictive Score (Test $R^2$ / Accuracy)", fontsize=10, weight="bold")
-axes[0].set_title("A. Predictive Performance vs. Computational Latency", fontsize=11, weight="bold")
-axes[0].set_xlim(-0.3, 6.2)
-axes[0].set_ylim(0.58, 0.87)
+p_pts = summary[summary["Model"].isin(["NSAFlow-PCA", "SiMLR", "SiMLR-LBFGS", "LEND"])].sort_values("Fit_Seconds")
+axes[0].plot(p_pts["Fit_Seconds"], p_pts["Predictive_Metric"], color="#10b981", linestyle="--", lw=2.0, zorder=2, label="Speed–Accuracy Envelope")
+axes[0].set_xlabel("Mean Wall-Clock Fit Time (seconds, ↓ faster is better)", fontsize=10, weight="bold")
+axes[0].set_ylabel("Mean Consensus Score (Test R^2 / Accuracy, ↑ higher is better)", fontsize=10, weight="bold")
+axes[0].set_title("A. Consensus Accuracy vs. Fit Time", fontsize=11, weight="bold")
+axes[0].set_xlim(-0.5, 11.0)
+axes[0].set_ylim(0.55, 0.80)
 axes[0].grid(True, linestyle="--", alpha=0.4)
 axes[0].legend(loc="lower right", fontsize=8.5)
 
 offsets_b = {
     "PCA": (6, -12),
     "NSAFlow-PCA": (6, 8),
-    "SiMLR": (6, -10),
-    "SiMLR-LBFGS": (-78, 8),
-    "Flow-SiMR-V": (-72, -16),
+    "SiMLR": (8, -14),
+    "SiMLR-LBFGS": (-75, 8),
+    "Flow-SiMR-V": (-72, 8),
     "LEND": (-42, 8),
-    "SiMLR-LBFGSB": (-72, 16),
-    "NEDPP": (-50, 8),
-    "NED": (-35, -14),
+    "SiMLR-LBFGSB": (-75, 14),
+    "NEDPP": (-50, -12),
+    "NED": (-35, 8),
 }
 
-# Panel B: Ground-Truth Support Recovery vs CMC Latent Discovery
 for _, r in summary.iterrows():
     m = r["Model"]
     c = colors.get(m, "#475569")
@@ -512,12 +474,12 @@ for _, r in summary.iterrows():
     ox, oy = offsets_b.get(m, (6, 6))
     axes[1].annotate(m, (r["Support_Recovery_V"], r["CMC_Latent_U"]), textcoords="offset points", xytext=(ox, oy), fontsize=8.5, weight="bold", color=c)
 
-p_pts_b = summary[summary["Model"].isin(["NSAFlow-PCA", "LEND", "SiMLR-LBFGSB"])].sort_values("Support_Recovery_V")
-axes[1].plot(p_pts_b["Support_Recovery_V"], p_pts_b["CMC_Latent_U"], color="#10b981", linestyle="--", lw=2.0, zorder=2, label="Discovery Pareto Envelope")
-axes[1].set_xlabel("Mean Sparse Feature Support Recovery on $V$ (Higher is Better)", fontsize=10, weight="bold")
-axes[1].set_ylabel("Mean CMC Latent Coordinate Recovery on $U$ (Higher is Better)", fontsize=10, weight="bold")
-axes[1].set_title("B. Sparse Basis Localization vs. Latent Subspace Recovery", fontsize=11, weight="bold")
-axes[1].set_xlim(0.28, 1.02)
+p_pts_b = summary[summary["Model"].isin(["LEND", "SiMLR-LBFGSB"])].sort_values("Support_Recovery_V")
+axes[1].plot(p_pts_b["Support_Recovery_V"], p_pts_b["CMC_Latent_U"], color="#10b981", linestyle="--", lw=2.0, zorder=2, label="Support–CMC Envelope")
+axes[1].set_xlabel("Mean Sparse Feature Support Recovery on V (Jaccard F1, ↑)", fontsize=10, weight="bold")
+axes[1].set_ylabel("Mean CMC Latent Coordinate Recovery on U (↑)", fontsize=10, weight="bold")
+axes[1].set_title("B. Sparse Support Recovery vs. Latent CMC", fontsize=11, weight="bold")
+axes[1].set_xlim(0.28, 1.04)
 axes[1].set_ylim(0.54, 0.96)
 axes[1].grid(True, linestyle="--", alpha=0.4)
 axes[1].legend(loc="lower left", fontsize=8.5)
@@ -526,15 +488,116 @@ plt.tight_layout()
 plt.show()
 ```
 
-## Ground-Truth Latent Discovery across Generative Regimes
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-three-probes
+#| fig-cap: 'Random Forest probing reveals that unconstrained PCA suffers severe diagonal coordinate mixing, while PySiMLR architectures align latent factors directly with coordinate axes. Bar heights represent out-of-sample performance across 1,215 model fits at operating point $q = 0.5$ across 12 benchmark cohorts ($N = 135$ fits per model). Three evaluation lenses are compared: Subspace Fidelity (rotation-invariant linear probe on $\mathbf{X}\mathbf{V}$, blue bars, range $[0.48, 0.76]$), Single-Axis Interpretability (coordinate-sensitive Random Forest probe on $\mathbf{X}\mathbf{V}$, teal bars), and Shared Patient Consensus ($\mathbf{U}$, amber bars). Higher is better ($\uparrow$) for all three probes. Single-matrix PCA suffers a substantial axis-sensitive drop ($\Delta = -0.0439$) due to diagonal coordinate mixing, whereas PySiMLR architectures (`Flow-SiMR-V`, `LEND`, `SiMLR-LBFGSB`) preserve axis alignment, cutting the drop in half ($\Delta = -0.0217\text{ to }-0.0238$) while outperforming PCA by up to $+65.6\%$ on patient consensus ($\mathbf{U}$).'
+#| out-width: 100%
+#| echo: false
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 
-To evaluate latent coordinate identifiability, we assess Canonical Mean Correlation ($CMC$) across all six synthetic regimes with exact mathematical generators (`Linear`, `Polynomial`, `Sine`, `Shared+Private`, `NonnegParts`, and `NonnegPartsWeak`), while reporting `NaN` for the three real clinical cohorts where ground-truth latents are unobserved.
+csv_path = "results_cache/operating_points_05_08_benchmark.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/operating_points_05_08_benchmark.csv"
+
+df_op = pd.read_csv(csv_path)
+df_op["Model"] = df_op["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+
+# Filter to canonical operating point q = 0.5
+sub05 = df_op[df_op["Sparseness_Target"] == 0.5]
+piv_probes = sub05.groupby("Model")[["Strictly_Linear_Metric", "Axis_Sensitive_Metric", "Predictive_Metric"]].mean()
+
+model_order = ["Flow-SiMR-V", "LEND", "SiMLR-LBFGSB", "SiMLR-LBFGS", "SiMLR", "NEDPP", "NED", "NSAFlow-PCA", "PCA"]
+piv_probes = piv_probes.reindex([m for m in model_order if m in piv_probes.index])
+
+fig, ax = plt.subplots(figsize=(12.5, 5.0), dpi=300)
+x = np.arange(len(piv_probes))
+width = 0.26
+
+rects1 = ax.bar(x - width, piv_probes["Strictly_Linear_Metric"], width, label="1. Subspace Fidelity (Linear XV ↑)", color="#0284c7", edgecolor="#0f172a", lw=0.8)
+rects2 = ax.bar(x, piv_probes["Axis_Sensitive_Metric"], width, label="2. Axis Interpretability (RF XV ↑)", color="#0d9488", edgecolor="#0f172a", lw=0.8)
+rects3 = ax.bar(x + width, piv_probes["Predictive_Metric"], width, label="3. Patient Consensus (U ↑)", color="#d97706", edgecolor="#0f172a", lw=0.8)
+
+ax.set_ylabel("Out-of-Sample Metric Score (↑ Better)", fontsize=11, weight="bold")
+ax.set_title("Three-Probe Performance Comparison Across 12 Benchmark Datasets (q = 0.5)", fontsize=12, weight="bold", pad=12)
+ax.set_xticks(x)
+ax.set_xticklabels(piv_probes.index, fontsize=9.5, weight="bold", rotation=15, ha="right")
+ax.set_ylim(0.48, 0.76)
+ax.grid(True, axis="y", linestyle="--", alpha=0.35)
+ax.legend(loc="upper right", frameon=True, fontsize=9.5)
+
+# Highlight PCA rotational drop annotation in open white space above bars
+pca_idx = list(piv_probes.index).index("PCA")
+ax.annotate("Diagonal Mixing Drop\n(Δ = -0.0439)", 
+            xy=(pca_idx, piv_probes.loc["PCA", "Axis_Sensitive_Metric"]), 
+            xytext=(pca_idx - 0.7, 0.69),
+            arrowprops=dict(arrowstyle="->", color="#dc2626", lw=1.5),
+            fontsize=8.5, weight="bold", color="#dc2626",
+            bbox=dict(boxstyle="round,pad=0.3", fc="#fef2f2", ec="#fca5a5", lw=1))
+
+plt.tight_layout()
+plt.show()
+```
+
+---
+
+## Synthetic Ground-Truth Recovery and Approximate Stiefel Sparsity
+
+@tbl-synthetic-breakdown reports the 3-seed mean performance across each of the six synthetic generative regimes, and @fig-cmc-recovery plots the Canonical Mean Correlation ($CMC$) between the estimated consensus $\hat{\mathbf{U}}$ and the ground-truth latent coordinates $\mathbf{U}^*$.
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-synthetic-breakdown
+#| tbl-cap: 'Performance across the 6 synthetic ground-truth regimes (3-seed means from `deep_ranking_benchmark.csv`). Entries show `Consensus U / Linear Probe XV (CMC)` for the four continuous manifolds, and `Consensus U / Linear Probe XV (Support F1)` for the two non-negative sparse-parts regimes.'
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+csv_path = "results_cache/deep_ranking_benchmark.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
+
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+
+models = ["SiMLR-LBFGSB", "SiMLR-LBFGS", "LEND", "Flow-SiMR-V", "SiMLR", "NSAFlow-PCA", "PCA", "NEDPP", "NED"]
+syn_dsets = ["Linear", "Polynomial", "Sine", "Shared+Private", "NonnegParts", "NonnegPartsWeak"]
+
+rows = []
+for m in models:
+    row = [m]
+    for ds in syn_dsets:
+        sub = df[(df["Dataset"] == ds) & (df["Model"] == m)]
+        u_m = sub["Predictive_Metric"].mean()
+        xv_m = sub["Strictly_Linear_Metric"].mean()
+        if ds in ("NonnegParts", "NonnegPartsWeak"):
+            s_m = sub["Support_Recovery_V"].mean()
+            row.append(f"{u_m:.3f} / {xv_m:.3f} (F1={s_m:.3f})")
+        else:
+            c_m = sub["CMC_Latent_U"].mean()
+            row.append(f"{u_m:.3f} / {xv_m:.3f} (CMC={c_m:.3f})")
+    rows.append(row)
+
+headers = [
+    "Model", "Linear (U ↑ / XV ↑ [CMC ↑])", "Polynomial (U ↑ / XV ↑ [CMC ↑])",
+    "Sine (U ↑ / XV ↑ [CMC ↑])", "Shared+Priv (U ↑ / XV ↑ [CMC ↑])",
+    "NonnegParts (U ↑ / XV ↑ [F1 ↑])", "NonnegPartsWeak (U ↑ / XV ↑ [F1 ↑])"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-cmc-recovery
-#| fig-cap: 'Ground-Truth Latent Coordinate Recovery (Canonical Mean Correlation on $\mathbf{U}$) across the 6 Synthetic Generative Regimes. LEND leads overall ($CMC = 0.907$), especially on Shared+Private ($0.896$ vs $0.636$ for PCA) and NonnegParts ($0.865$ vs $0.740$ for PCA), while NSAFlow-PCA and PCA reach $0.992$ on Linear and $0.936$ on Sine.'
+#| fig-cap: 'Non-linear decoding and quasi-Newton Stiefel flow achieve superior ground-truth latent recovery across continuous and sparse synthetic generative regimes. Grouped bars show Canonical Mean Correlation ($CMC$, $\uparrow$ higher is better, range $[0.0, 1.08]$) between estimated consensus $\hat{\mathbf{U}}$ and ground-truth latent coordinates $\mathbf{U}^*$ across 162 total runs (6 regimes $\times$ 9 architectures $\times$ 3 random seeds). Horizontal axis lists generative regimes: Linear (50% signed sparse), Polynomial (quadratic manifold), Sine (harmonic manifold), Shared+Private (80% signed sparse with view-private noise), NonnegParts (66.7% disjoint non-negative), and NonnegPartsWeak (80% non-negative with weak third factor). Colors denote architectures via `tab10`. `LEND` leads overall ($CMC = 0.907$), achieving $0.896$ on Shared+Private (vs. $0.636$ for PCA) and $0.865$ on NonnegParts (vs. $0.740$ for PCA).'
 #| out-width: 100%
 #| echo: false
 import os
@@ -546,37 +609,22 @@ csv_path = "results_cache/deep_ranking_benchmark.csv"
 if not os.path.exists(csv_path):
     csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
 
-model_order = ["LEND", "NSAFlow-PCA", "PCA", "SiMLR-LBFGSB", "SiMLR-LBFGS", "SiMLR", "Flow-SiMR-V", "NEDPP", "NED"]
+model_order = ["LEND", "Flow-SiMR-V", "NSAFlow-PCA", "PCA", "SiMLR-LBFGS", "SiMLR-LBFGSB", "SiMLR", "NEDPP", "NED"]
 ground_truth_regimes = ["Linear", "Polynomial", "Sine", "Shared+Private", "NonnegParts", "NonnegPartsWeak"]
 
-if os.path.exists(csv_path):
-    df = pd.read_csv(csv_path)
-    df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
-    sub_df = df[df["Dataset"].isin(ground_truth_regimes)]
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+sub_df = df[df["Dataset"].isin(ground_truth_regimes)]
 
-    pivot_cmc = sub_df.pivot_table(index="Dataset", columns="Model", values="CMC_Latent_U", aggfunc="mean")
-    pivot_cmc = pivot_cmc.reindex(ground_truth_regimes)
-    pivot_cmc = pivot_cmc[[m for m in model_order if m in pivot_cmc.columns]]
-else:
-    data_dict = {
-        "Dataset": ground_truth_regimes,
-        "LEND": [0.9815, 0.9082, 0.9268, 0.8963, 0.8648, 0.8648],
-        "NSAFlow-PCA": [0.9922, 0.9184, 0.9363, 0.6355, 0.7606, 0.7606],
-        "PCA": [0.9922, 0.9177, 0.9360, 0.6356, 0.7402, 0.7402],
-        "SiMLR-LBFGSB": [0.9721, 0.8903, 0.9246, 0.5371, 0.8174, 0.8174],
-        "SiMLR-LBFGS": [0.9710, 0.8896, 0.9228, 0.5358, 0.8140, 0.8140],
-        "SiMLR": [0.9710, 0.8896, 0.9229, 0.5358, 0.7972, 0.7972],
-        "Flow-SiMR-V": [0.9431, 0.8377, 0.8848, 0.6916, 0.7683, 0.7683],
-        "NEDPP": [0.7384, 0.7403, 0.6265, 0.5575, 0.6241, 0.6241],
-        "NED": [0.6064, 0.5954, 0.6487, 0.4064, 0.6373, 0.6373]
-    }
-    pivot_cmc = pd.DataFrame(data_dict).set_index("Dataset")
+pivot_cmc = sub_df.pivot_table(index="Dataset", columns="Model", values="CMC_Latent_U", aggfunc="mean")
+pivot_cmc = pivot_cmc.reindex(ground_truth_regimes)
+pivot_cmc = pivot_cmc[[m for m in model_order if m in pivot_cmc.columns]]
 
 fig, ax = plt.subplots(figsize=(11.2, 4.8), dpi=300)
 pivot_cmc.plot(kind="bar", ax=ax, width=0.84, colormap="tab10", edgecolor="#0f172a", lw=0.7)
-ax.set_ylabel("Canonical Mean Correlation (CMC on $U$)", fontsize=11, weight="bold")
+ax.set_ylabel("Canonical Mean Correlation (CMC on U)", fontsize=11, weight="bold")
 ax.set_xlabel("Synthetic Generative Regime", fontsize=11, weight="bold")
-ax.set_title(r"Latent Identifiability: Estimated $U$ vs. True Generative $S$ (6 Synthetic Regimes)", fontsize=12, weight="bold")
+ax.set_title("Latent Coordinate Recovery: Estimated U vs. Ground-Truth S", fontsize=12, weight="bold")
 ax.grid(True, axis="y", linestyle="--", alpha=0.4)
 ax.set_ylim(0, 1.08)
 ax.legend(title="Architecture", bbox_to_anchor=(1.01, 1), loc="upper left", frameon=True, fontsize=8.5)
@@ -585,155 +633,672 @@ plt.tight_layout()
 plt.show()
 ```
 
-As demonstrated in @fig-cmc-recovery:
+Three mechanisms explain the synthetic benchmark results in @tbl-synthetic-breakdown:
 
-- **Cross-View Noise Rejection on `Shared+Private`**: When View 0 carries strong modality-specific nuisance variance ($\sigma_{\text{priv}} = 0.8$), single-matrix concatenation (`PCA` and `NSAFlow-PCA`, $CMC = 0.636$) rotates its top axes toward the high-variance private subspace. In contrast, `LEND` ($CMC = 0.896$, test $R^2 = 0.949$) and `Flow-SiMR-V` ($CMC = 0.692$, linear probe $R^2 = 0.908$) isolate the shared cross-view manifold.
-- **Disjoint Parts Identification on `NonnegParts` & `NonnegPartsWeak`**: Non-negative Stiefel consolidation enables `SiMLR-LBFGSB` ($\text{Support } F_1 = 0.942, CMC = 0.817$), `LEND` ($\text{Support } F_1 = 0.899, CMC = 0.865$), and `Flow-SiMR-V` ($\text{Support } F_1 = 0.883$) to recover the exact sparse support and predict the weakest component (`NonnegPartsWeak` $R^2 = 0.715\text{–}0.732$ vs $0.522$ for `PCA`).
-- **Invariant Guarantees**: Signed lobe crosstalk ($\|\mathbf{V}^+ \odot \mathbf{V}^-\|_1$) is strictly $0.0000$ across all 243 evaluations. Per-view trace-normalized Stiefel frame defect $D$ is bounded near zero ($10^{-5}\text{–}10^{-4}$) for all cross-view Stiefel models, while concatenated `PCA` and `NSAFlow-PCA` enforce joint orthogonality across the stacked feature space ($\sum_m \mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k$).
+* **Sparse support recovery requires both non-negativity and well-converged approximate Stiefel retraction:** On `NonnegParts` and `NonnegPartsWeak`, dense `PCA` scores at the random-partition floor ($\text{Support } F_1 = 0.333$) because SVD columns are signed and rotationally unidentifiable, and single-matrix `NSAFlow-PCA` reaches only $F_1 = 0.399$ because concatenating the views conflates view-private variance with the shared components. Among multi-view solvers, first-order `SiMLR` stops early on a gradient plateau (Stiefel frame defect $D = 0.183$, sparsity $29.3\%$) and recovers only $F_1 = 0.495$. Incorporating quasi-Newton curvature with `nsa_flow` retraction in `SiMLR-LBFGS` ($D = 1.2 \times 10^{-6}$, sparsity $65.4\%$, $F_1 = 0.966$) and bound-constrained `SiMLR-LBFGSB` ($D = 3.5 \times 10^{-9}$, sparsity $66.3\%$, $F_1 = 0.991$) recovers the true feature supports almost exactly.
+* **Isolating weak shared signals (`NonnegPartsWeak`):** When the outcome depends on the third (weakest) shared factor $u_3^*$, single-matrix `PCA` ($R^2 = 0.522$ on $\mathbf{U}$, $0.518$ on $\mathbf{X}\mathbf{V}$) and `NSAFlow-PCA` ($0.570$ on $\mathbf{U}$, $0.572$ on $\mathbf{X}\mathbf{V}$) absorb view-private variance into their leading axes. Cross-view alignment in `LEND` ($0.732$ on $\mathbf{U}$, $0.741$ on $\mathbf{X}\mathbf{V}$), `SiMLR-LBFGSB` ($0.716$ on $\mathbf{U}$, $0.732$ on $\mathbf{X}\mathbf{V}$), and `Flow-SiMR-V` ($0.703$ on $\mathbf{U}$, $0.733$ on $\mathbf{X}\mathbf{V}$) preserves the third factor.
+* **Rejecting asymmetric view-private variance (`Shared+Private`):** When View 0 ($p_1 = 160$) carries large private variance ($\sigma_{\text{priv},1} = 0.80$), `PCA` ($R^2 = 0.639$, $CMC = 0.636$) and `NSAFlow-PCA` ($R^2 = 0.629$, $CMC = 0.636$) rotate toward View 0, whereas `LEND` ($R^2 = 0.949$ on $\mathbf{U}$, $0.956$ on $\mathbf{X}\mathbf{V}$, $CMC = 0.896$) and `Flow-SiMR-V` ($R^2 = 0.845$ on $\mathbf{U}$, $0.912$ on $\mathbf{X}\mathbf{V}$, $CMC = 0.813$) isolate the shared 3-dimensional subspace.
 
-## ADNI-MCI 4-View Mediated Neurodegeneration Benchmark
+---
 
-### Why Predicting Clinical Dementia Directly from Brain Scans Hits a Wall
+## Clinical Neuroimaging Application: Bipartite Cognitive Alignment in ADNI-MCI ($N = 1,084$)
 
-In Alzheimer's disease and Mild Cognitive Impairment (MCI), a primary clinical goal is predicting how severely a patient's day-to-day functioning is impaired, measured by the **Clinical Dementia Rating Sum of Boxes (CDR-SB)**—a score reflecting whether a person can remember appointments, manage household finances, navigate their neighborhood, and care for themselves.
+In `ADNI-MCI`, the three structural MRI views ($382$ regional volume and cortical thickness features) are aligned during training against the 11-scale cognitive battery via the bipartite graph `{0:[3], 1:[3], 2:[3], 3:[0,1,2]}` (`Protocol B`), and evaluated out-of-sample using the three MRI views alone.
 
-When researchers train machine learning models to predict CDR-SB **directly from structural brain MRI alone**, accuracy is consistently disappointing [@jack2008alzheimer; @ADNI]. Across all 382 cortical volume and thickness measurements in our ADNI-MCI cohort ($N = 1,084$), predicting CDR-SB directly from brain anatomy reaches an out-of-sample ceiling of only **4.1% explained variance**:
-$$R^2 = 0.0411 \pm 0.0248 \quad (\text{holdout test } R^2 = 4.02\%, \quad \rho = 0.2112, \quad p = 1.2 \times 10^{-4})$$
-
-The reason is simple and biological: **a shrinking hippocampus does not directly stop a patient from balancing a checkbook**. Instead, Alzheimer's pathology acts in two sequential steps:
-
-1. **Brain Atrophy $\to$ Cognitive Loss (Path $a$):** Physical tissue loss (cortical thinning and volume loss) damages core mental abilities measured in clinic—such as word recall, attention, and spatial orientation.
-2. **Cognitive Loss $\to$ Daily Functional Disability (Path $b$):** Once those mental abilities decline, the patient loses independence in daily life, driving up their CDR-SB score.
-
-### Testing the Two-Step Biological Pathway (Baron–Kenny Mediation)
-
-We tested this two-step pathway across $N = 1,084$ MCI participants ($70/30$ train/test split, $N_{\text{test}} = 326$) using classical Baron–Kenny mediation and Sobel testing:
-
-1. **Step 1 — Brain Structure Strongly Predicts Cognitive Test Scores (Path $a$):**
-   $$\alpha = 1.000 \pm 0.081, \quad t = 12.31, \quad p < 10^{-25}, \quad R^2 = 26.13\%, \quad \rho = 0.5335$$
-   Multi-view brain MRI explains over **26%** of the variance in domain cognitive performance.
-2. **Step 2 — Cognitive Test Scores Directly Drive Daily Disability (Path $b$):**
-   $$\beta = 0.013 \pm 0.003, \quad t = 4.69, \quad p < 10^{-15}$$
-3. **Direct Bypass Path Vanishes (Path $c'$):**
-   $$\gamma' = 0.002, \quad t = 0.88, \quad p = 0.38 \quad (\text{Not Significant})$$
-   Once cognitive performance is accounted for, the direct link from brain MRI to CDR-SB drops to zero.
-4. **Share of the Effect Explained by Mediation:**
-   $$PM = \frac{\alpha \beta}{\alpha \beta + \gamma'} = \mathbf{84.5\% - 86.4\%} \quad (\text{Sobel } z = 4.38, \; p < 10^{-15})$$
-
-In plain terms: **roughly 85% of the effect of brain atrophy on daily dementia severity flows through cognitive performance**. Ignoring this intermediate step is why direct MRI-to-CDR-SB models fail.
-
-### 4-View Mediated Architecture & 10-Seed Replication Benchmark
-
-To respect this biological cascade, we couple the three structural MRI views with a fourth view containing 13 domain cognitive sub-scores:
-
-- $V_1$: Macro-structural gray matter parcel volumes ($p_1 = 160$)
-- $V_2$: Hierarchical multiscale cortical thickness ($p_2 = 160$)
-- $V_3$: Native T1-weighted cortical thickness ($p_3 = 62$)
-- $V_4$: Domain cognitive battery ($p_4 = 13$, ADAS-Cog and MMSE sub-items)
-
-All models predict out-of-sample functional disability (CDR-SB) and global cognition (MMSE) after adjusting for age, sex, and education. @tbl-adni-mci-mediation reports performance across 10 independent train/test seeds.
+@tbl-adni-mci-3seed reports the 3-seed benchmark results from `deep_ranking_benchmark.csv`, and @tbl-adni-mci-grid-top reports the best configuration and mean across valid runs for each model family in the 1,214-configuration hyperparameter sweep (`adni_mci_1214_grid_sweep.csv`, Seed 42, $k = 3$).
 
 ```{python}
 #| warning: false
 #| message: false
-#| label: tbl-adni-mci-mediation
-#| tbl-cap: 'ADNI-MCI 4-View Mediated Neurodegeneration Benchmark across 10 Independent Seeds ($N=1,084, N_{\text{test}}=326$). Out-of-sample prediction of functional dementia rating (CDR-SB) and global cognitive status (MMSE), adjusting for demographic covariates. Paired Wilcoxon signed-rank tests compare models against the covariates-only baseline.'
+#| label: tbl-adni-mci-3seed
+#| tbl-cap: 'ADNI-MCI 3-Seed Benchmark Results ($N = 1,084$, `Protocol B` bipartite training alignment, MRI-only test evaluation) computed from `deep_ranking_benchmark.csv`. Outcomes are out-of-sample `CogPC1` $R^2$ after in-fold Frisch–Waugh–Lovell residualization of age, sex, and education.'
 #| echo: false
 #| output: asis
 import os
 import pandas as pd
 from tabulate import tabulate
 
-csv_path = "results_cache/adni_mci_4view_mediation_benchmark.csv"
+csv_path = "results_cache/deep_ranking_benchmark.csv"
 if not os.path.exists(csv_path):
-    csv_path = "paper/results_cache/adni_mci_4view_mediation_benchmark.csv"
+    csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
+
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+sub = df[df["Dataset"] == "ADNI-MCI"]
+
+agg = sub.groupby("Model").agg({
+    "Strictly_Linear_Metric": ["mean", "std"],
+    "Predictive_Metric": ["mean", "std"],
+    "Train_Metric": "mean",
+    "Gen_Gap": "mean",
+    "Frame_Defect_D": "mean",
+    "Sparsity_Ratio": "mean",
+    "Fit_Seconds": "mean"
+})
+
+order = agg[("Strictly_Linear_Metric", "mean")].sort_values(ascending=False).index.tolist()
+rows = []
+for m in order:
+    xv_m, xv_s = agg.loc[m, ("Strictly_Linear_Metric", "mean")], agg.loc[m, ("Strictly_Linear_Metric", "std")]
+    u_m, u_s = agg.loc[m, ("Predictive_Metric", "mean")], agg.loc[m, ("Predictive_Metric", "std")]
+    tr_m = agg.loc[m, ("Train_Metric", "mean")]
+    gap_m = agg.loc[m, ("Gen_Gap", "mean")]
+    fd_m = agg.loc[m, ("Frame_Defect_D", "mean")]
+    sp_m = agg.loc[m, ("Sparsity_Ratio", "mean")] * 100.0
+    ft_m = agg.loc[m, ("Fit_Seconds", "mean")]
+    rows.append([
+        m,
+        f"{xv_m:.4f} ± {xv_s:.4f}",
+        f"{u_m:.4f} ± {u_s:.4f}",
+        f"{tr_m:.4f}",
+        f"{gap_m:.4f}",
+        f"{fd_m:.5f}",
+        f"{sp_m:.1f}%",
+        f"{ft_m:.2f}s"
+    ])
 
 headers = [
-    "Method Pipeline", "Architecture Family", "MAI", "CDR-SB Test $R^2$",
-    "$\\Delta R^2$ vs Cov", "CDR-SB $\\rho$", "Wilcoxon $p$", "MMSE Test $R^2$", "Fit Time"
+    "Model", "MRI Linear Probe XV (R^2, ↑)", "MRI Consensus U (R^2, ↑)",
+    "Train R^2 (↑)", "Gen Gap (↓)", "Frame Defect D (↓)", "Sparsity (↑)", "Fit Time (s, ↓)"
 ]
-
-if os.path.exists(csv_path):
-    df = pd.read_csv(csv_path)
-    cols = ['Method', 'Family', 'MAI_Engaged', 'CDRSB_Test_R2', 'CDRSB_Delta_Cov', 'CDRSB_Rho', 'Wilcoxon_p_vs_Cov', 'MMSE_Test_R2', 'Mean_Fit_Time_s']
-    sub = df[cols].copy().fillna("N/A")
-    sub['Mean_Fit_Time_s'] = df['Mean_Fit_Time_s'].apply(lambda x: f'{x:.2f}s' if pd.notnull(x) else '-')
-    print(tabulate(sub.values, headers=headers, tablefmt="pipe"))
-else:
-    table_data = [
-        ["LEND-SiMR + MAI [Mediated]", "Deep Hybrid + MAI", "Yes", "0.2648 ± 0.0332", "+0.2663", "0.5206", "9.77e-04", "0.2485 ± 0.0346", "4.88s"],
-        ["LEND-SiMR [Mediated]", "Deep Hybrid", "No", "0.2647 ± 0.0332", "+0.2662", "0.5205", "9.77e-04", "0.2497 ± 0.0350", "4.84s"],
-        ["SiMLR [Mediated]", "Linear Manifold", "No", "0.2443 ± 0.0534", "+0.2458", "0.4989", "9.77e-04", "0.2225 ± 0.0289", "0.86s"],
-        ["Flow-SiMR-V + MAI [Mediated]", "Normalizing Flow + MAI", "Yes", "0.2290 ± 0.0696", "+0.2305", "0.4840", "9.77e-04", "0.2217 ± 0.0536", "10.77s"],
-        ["Raw-Concat Ridge [Mediated]", "Linear Full-Rank", "No", "0.1768 ± 0.0916", "+0.1783", "0.4883", "9.77e-04", "0.0552 ± 0.0425", "0.01s"],
-        ["NED-SiMR + MAI [Mediated]", "Deep Nonlinear + MAI", "Yes", "0.1127 ± 0.0578", "+0.1142", "0.3389", "9.77e-04", "0.2178 ± 0.0325", "6.56s"],
-        ["Multi-View PCA [Mediated]", "Linear Baseline", "No", "0.0795 ± 0.0308", "+0.0810", "0.2955", "9.77e-04", "0.2370 ± 0.0292", "0.01s"],
-        ["Direct-Anatomy [SiMLR]", "Linear Anatomy Only", "No", "0.0411 ± 0.0248", "+0.0426", "0.2203", "1.95e-03", "0.1103 ± 0.0208", "0.72s"],
-        ["Covariates-Only", "Baseline", "No", "-0.0015 ± 0.0066", "+0.0000", "0.0531", "-", "0.0530 ± 0.0281", "0.00s"]
-    ]
-    print(tabulate(table_data, headers=headers, tablefmt="pipe"))
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
 ```
-
-As shown in @tbl-adni-mci-mediation:
-
-1. **Over 6-Fold Gain in Predictive Accuracy:** By aligning the three brain MRI views with the cognitive view, `LEND-SiMR + MAI` reaches out-of-sample $R^2 = 0.2648 \pm 0.0332$ ($\rho = 0.5206$, Wilcoxon $p = 9.77 \times 10^{-4}$), a **6.4-fold improvement** over the anatomy-only ceiling ($R^2 = 0.0411$).
-2. **Sub-Second Linear Stiefel Solver:** Classical `SiMLR [Mediated]` reaches $R^2 = 0.2443 \pm 0.0534$ ($\rho = 0.4989$) in **0.86 seconds**, and `Flow-SiMR-V + MAI` reaches $R^2 = 0.2290 \pm 0.0696$ ($\rho = 0.4840$).
-3. **Why Unconstrained Deep Networks Fail Here Too:** While every model with a linear Stiefel entrypoint (`LEND-SiMR`, `SiMLR`, `Flow-SiMR-V`) achieves $R^2 \approx 0.23\text{–}0.26$, the unconstrained deep autoencoder (`NED-SiMR + MAI`) drops to $R^2 = 0.1127 \pm 0.0578$ (and $0.0840$ for `NED-Shared-Private` in @tbl-adni-mci-path-methods)—worse than simple Ridge regression ($0.1768$). Without an orthogonal first-layer filter ($\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}$), multi-layer perceptrons memorize noise across the 382 brain regions instead of isolating the shared atrophy-to-cognition pathway.
 
 ```{python}
 #| warning: false
 #| message: false
-#| label: tbl-adni-mci-path-methods
-#| tbl-cap: 'Path Modeling Parameters and Execution Runtimes across Architecture Families on ADNI-MCI (Seed 42, $N=1,084$). OLEE denotes architectures with an Only Linear Encoder Entrypoint. Unconstrained non-linear encoders (NED) overfit to biological noise, collapsing under mediation.'
+#| label: tbl-adni-mci-grid-top
+#| tbl-cap: 'Summary of the 1,214-Configuration ADNI-MCI Protocol B Bipartite Sweep ($N = 1,084$, 70/30 split, Seed 42, $k = 3$) computed from `adni_mci_1214_grid_sweep.csv`. For each model, we report the number of completed configurations, the best `CogPC1` test $R^2$ (with its optimizer, alignment energy, consensus mixing, and MAI setting), the corresponding 11-scale mean Ridge $R^2$ (`Mean11_RidgeCV`), and the mean $\pm$ SD `CogPC1` $R^2$ across all completed configurations for that model.'
 #| echo: false
 #| output: asis
 import os
 import pandas as pd
 from tabulate import tabulate
 
-csv_path = "results_cache/adni_mci_all_methods_path_benchmark.csv"
+csv_path = "results_cache/adni_mci_1214_grid_sweep.csv"
 if not os.path.exists(csv_path):
-    csv_path = "paper/results_cache/adni_mci_all_methods_path_benchmark.csv"
+    csv_path = "paper/results_cache/adni_mci_1214_grid_sweep.csv"
 
-headers = ['Model', 'Architecture Family', 'OLEE?', 'Runtime', 'Path $a$ ($R^2$)', "Direct $c'$ ($R^2$)", 'Mediated ($R^2$)', 'Mediated $\\rho$']
+df_sw = pd.read_csv(csv_path)
+df_sw["Model"] = df_sw["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V"})
+df_ok = df_sw[df_sw["Status"] == "ok"].copy()
 
-if os.path.exists(csv_path):
-    df = pd.read_csv(csv_path)
-    cols = ['Model', 'Architecture', 'Linear_Encoder', 'Runtime_Sec', 'Path1_Anat_to_Cog_R2', 'Direct_CDRSB_R2', 'Mediated_CDRSB_R2', 'Mediated_CDRSB_Rho']
-    sub = df[cols].copy().fillna("N/A")
-    sub['Runtime_Sec'] = df['Runtime_Sec'].apply(lambda x: f'{x:.2f}s' if pd.notnull(x) else '-')
-    print(tabulate(sub.values, headers=headers, tablefmt="pipe"))
-else:
-    table_data = [
-        ["SiMLR", "Linear Stiefel / NSA Manifold", "Yes", "0.89s", "0.2613", "0.0402", "0.2789", "0.5407"],
-        ["LEND-SiMR", "Linear Enc + MLP Dec", "Yes", "6.13s", "0.1949", "0.0255", "0.2825", "0.5389"],
-        ["NED-SiMR", "MLP Enc + MLP Dec", "No", "7.56s", "0.3219", "0.0273", "0.1009", "0.3189"],
-        ["NED-Shared-Private", "Shared-Private Disentangled MLP", "No", "9.03s", "0.2958", "0.0362", "0.0840", "0.2911"],
-        ["Flow-SiMR-V", "Linear First-Layer + RealNVP Flow", "Yes", "12.80s", "0.0504", "0.0268", "0.2838", "0.5406"],
-        ["Multi-View PCA", "Independent Per-View Truncated SVD", "Yes", "0.01s", "0.1977", "0.0328", "0.0870", "0.2954"],
-        ["Raw Concat Ridge", "Full 395-Feature Ridge (alpha=100)", "N/A", "0.01s", "-", "-0.1810", "0.2430", "0.5058"]
-    ]
-    print(tabulate(table_data, headers=headers, tablefmt="pipe"))
+best_per_model = df_ok.sort_values("CogPC1_R2", ascending=False).groupby("Model", as_index=False).first()
+best_per_model = best_per_model.sort_values("CogPC1_R2", ascending=False)
+
+stats_per_model = df_ok.groupby("Model").agg(
+    n_runs=("CogPC1_R2", "count"),
+    mean_r2=("CogPC1_R2", "mean"),
+    std_r2=("CogPC1_R2", "std")
+)
+
+rows = []
+for _, r in best_per_model.iterrows():
+    m = r["Model"]
+    n_r = int(stats_per_model.loc[m, "n_runs"])
+    m_r2 = stats_per_model.loc[m, "mean_r2"]
+    s_r2 = stats_per_model.loc[m, "std_r2"]
+    mean_str = f"{m_r2:.4f} ± {s_r2:.4f}" if pd.notnull(s_r2) else f"{m_r2:.4f}"
+    rows.append([
+        r["Family"],
+        m,
+        n_r,
+        f"{r['Optimizer']} / {r['Similarity']} / {r['Mixing']} / {r['MAI']}",
+        f"{r['CogPC1_R2']:.4f}",
+        f"{r['Mean11_RidgeCV']:.4f}",
+        mean_str,
+        f"{r['Runtime_s']:.2f}s"
+    ])
+
+headers = [
+    "Family", "Model", "Valid Runs", "Best Config (Opt / Sim / Mix / MAI)",
+    "Peak CogPC1 R^2 (↑)", "11-Scale Ridge R^2 (↑)", "Sweep Mean ± SD (↑)", "Runtime (s, ↓)"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
 ```
 
-### Dynamic Modality Weighting (MAI) and Optimizer Convergence
+The `ADNI-MCI` evaluations in @tbl-adni-mci-3seed and @tbl-adni-mci-grid-top demonstrate three clinically relevant findings:
 
-1. **Modality Alignment Index (MAI):** Dynamic canonical-correlation weighting shifts modality weights from uniform $[0.25, 0.25, 0.25, 0.25]$ to $[0.197, 0.428, 0.293, 0.082]$ for `LEND-SiMR`, automatically emphasizing cortical thickness ($0.428$) and regional volumes ($0.293$) to reach $R^2 = 0.2885$ on CDR-SB and $R^2 = 0.2639$ on MMSE.
-2. **Exact Stationarity:** Linear `SiMLR` with Armijo backtracking line search converges in **7 iterations** ($0.86\text{s}$); running for 500 iterations yields identical accuracy ($R^2 = 0.2789, \rho = 0.5407$) with zero parameter drift.
+1. **Bipartite training alignment steers structural MRI bases toward cognitive severity:** Across three random seeds (@tbl-adni-mci-3seed), single-matrix `PCA` and `NSAFlow-PCA` fitted to the 382 MRI features explain $R^2 = 0.1522 \pm 0.0042$ and $0.1590 \pm 0.0038$ of held-out `CogPC1` variance on the linear probe ($\mathbf{X}\mathbf{V}$). Aligning the three MRI views against View 3 during training via `Protocol B` increases held-out MRI-only `CogPC1` $R^2$ to $0.2520 \pm 0.0075$ for `LEND` ($+65.6\%$ relative to `PCA`), $0.2377 \pm 0.0149$ for `Flow-SiMR-V` ($+56.2\%$), $0.2225 \pm 0.0132$ for `NEDPP`, $0.2160 \pm 0.0136$ for `NED`, $0.1686 \pm 0.0109$ for `SiMLR-LBFGS`, $0.1684 \pm 0.0218$ for `SiMLR`, and $0.1682 \pm 0.0124$ for `SiMLR-LBFGSB`.
+2. **Consistency across optimizer families in the 1,214-configuration sweep:** In the Seed 42 sweep (@tbl-adni-mci-grid-top), every multi-view OLEE architecture family outperforms single-matrix `PCA` ($0.1786$) and `NSAFlow-PCA` ($0.1891$): linear Stiefel solvers reach `CogPC1` $R^2 = 0.2407$ (`SiMLR-Lookahead`), $0.2296$ (`SiMLR-LARS`), $0.2277$ (`SiMLR-BiArmijo`), and $0.2212$ (`SiMLR-LBFGSB`); deep OLEE models reach $0.2357$ (`NEDPP`), $0.2237$ (`NED`), and $0.2190$ (`LEND`); and detached-prior normalizing flows reach $0.2341$ (`Flow-SiMR-V`), while raising the 11-scale mean Ridge $R^2$ from $0.0813$ (`PCA`) to $0.1054\text{–}0.1074$.
+3. **Concatenated MRI view projections ($\mathbf{X}\mathbf{V}$) outperform 3-dimensional consensus averaging ($\mathbf{U}$) on `ADNI-MCI`:** Comparing the second and third columns of @tbl-adni-mci-3seed, predicting `CogPC1` from the three view-specific MRI projections $[\mathbf{X}_0\mathbf{V}_0, \mathbf{X}_1\mathbf{V}_1, \mathbf{X}_2\mathbf{V}_2] \in \mathbb{R}^{n \times 9}$ (first-layer linear probe $XV = 0.2520 \pm 0.0075$ for `LEND`, $0.2377 \pm 0.0149$ for `Flow-SiMR-V`) consistently exceeds predicting from their unweighted average $\hat{\mathbf{U}} \in \mathbb{R}^{n \times 3}$ (consensus probe $U = 0.1934 \pm 0.0116$ and $0.2064 \pm 0.0078$). Retaining the per-view OLEE projections allows the downstream linear predictor to weight volumetric and cortical-thickness views according to their distinct regional sensitivity to hippocampal and entorhinal atrophy.
 
-## Clinical Attribution Audits: Direct Linear Derivatives vs. Post-Hoc Methods
+---
 
-The linear Stiefel entrypoint provides a direct path for feature-level attribution. Restricting the input mapping to an isometry guarantees zero surrogate approximation error when mapping latent consensus coordinates back to physical measurements.
+## Basis Geometry Ablations: Role of $w$, Row-Mean Control, ICA Initialization, Rank $k$, and Anatomical Feature Attribution
 
-### Diabetes Progression Audit
+Notice in @tbl-deep-ranking-summary and @tbl-adni-mci-3seed that when the multi-view solvers are run with unconstrained signs (`positivity="either"`, the default in the 324-run benchmark for signed real-world z-scores), the learned bases $\mathbf{V}_m$ are nearly exact orthonormal frames (Stiefel defect $D \approx 10^{-15}\text{–}10^{-5}$) with $0.0\%$ exact zeros. To clarify how the `nsa_flow` weight $w \in (0, 1)$, non-negativity ($\mathbf{V}_m \ge 0$), per-subject row-mean control, deterministic ICA initialization, and latent rank $k$ jointly shape sparsity, orthogonality, and anatomical localization, we perform four targeted ablations on `NonnegParts` and `ADNI-MCI` (`paper/results_cache/ablation_*.csv`).
 
-To evaluate feature attribution at the individual subject level, we decompose the latent score for Patient #1 into constituent feature loadings (@fig-diabetes-audit). The model identifies body mass index (BMI) and serum triglycerides (S5) as the dominant drivers of progression.
+### Effect of the Approximate Stiefel Weight $w \in [0.01, 0.95]$
+
+@tbl-w-sweep and @fig-w-sweep evaluate `SiMLR-LBFGSB` ($\mathbf{V}_m \ge 0, k = 3$, deterministic ICA initialization, `consolidate=False`) across ten values of $w \in [0.01, 0.95]$ on both synthetic `NonnegParts` (3-seed mean) and real `ADNI-MCI` (bipartite `Protocol B` with in-fold row-mean control).
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-w-sweep
+#| tbl-cap: 'Effect of the `nsa_flow` approximate Stiefel weight $w \in [0.01, 0.95]$ on basis orthogonality defect $D(\mathbf{V})$, effective rank ($\text{EffRank}$ out of $k=3$), column overlap, sparsity, runtime, and out-of-sample prediction across Synthetic `NonnegParts` (3 seeds) and Real `ADNI-MCI` ($N = 1,084$, `Protocol B`, $k = 3$), computed from `ablation_w_sweep.csv`.'
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+csv_path = "results_cache/ablation_w_sweep.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/ablation_w_sweep.csv"
+
+df_w = pd.read_csv(csv_path)
+rows = []
+for _, r in df_w.iterrows():
+    w_str = f"{r['w']:.2f}" + (" (Default)" if abs(r["w"] - 0.50) < 1e-6 else "")
+    rows.append([
+        w_str,
+        f"{r['Synth_Support_F1']:.3f}",
+        f"{r['Synth_Defect_D']:.5f}",
+        f"{r['Synth_Sparsity']*100:.1f}%",
+        f"{r['Synth_Fit_Sec']:.2f}s",
+        f"{r['ADNI_Defect_D']:.5f}",
+        f"{r['ADNI_EffRank']:.2f}",
+        f"{r['ADNI_ColOverlap']:.3f}",
+        f"{r['ADNI_Sparsity_All']*100:.1f}% ({r['ADNI_Sparsity_v1']*100:.1f}%)",
+        f"{r['ADNI_CogPC1_R2']:.4f}",
+        f"{r['ADNI_Fit_Sec']:.2f}s",
+    ])
+
+headers = [
+    "Weight w", "Synth Jaccard (↑)", "Synth D(V) (↓)", "Synth Sparsity (↑)", "Synth Time (s, ↓)",
+    "ADNI D(V) (↓)", "ADNI EffRank (↑)", "ADNI Overlap (↓)", "ADNI Sparsity (v1) (↑)", "ADNI CogPC1 R^2 (↑)", "ADNI Time (s, ↓)"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-w-sweep
+#| fig-cap: 'A convex weight of $w = 0.50$ balances rank preservation against combinatorial boundary stiffness across synthetic and clinical cohorts ($k = 3, \mathbf{V}_m \ge 0$). **(A) Conditioning & Rank Collapse on ADNI-MCI ($N = 1,084$, age/sex/education residualized):** Left Y-axis plots normalized Stiefel defect $D(\mathbf{V})$ (log scale, red line, $\downarrow$ lower is better); right Y-axis plots Effective Rank (blue dashed line, $\uparrow$ higher is better, range $[1.85, 3.10]$ of $k=3$). Setting $w < 0.20$ (light red shaded rank-collapse zone) causes rank collapse ($\text{EffRank} = 2.02, D = 0.244$ at $w = 0.01$); $w \ge 0.35$ restores full rank ($\text{EffRank} = 3.00, D = 6.2 \times 10^{-4}$ at $w = 0.50$, green dotted line). **(B) Basis Sparsity Scaling:** ADNI overall sparsity (teal), ADNI $\mathbf{v}_1$ sparsity (amber), and synthetic `NonnegParts` sparsity (purple) converge to the theoretical disjoint-support bound $1 - 1/k = 66.7\%$ (grey dashed line) for $w \ge 0.35$. **(C) Wall-Clock Fit Time and Test Accuracy:** Left Y-axis plots fit time (seconds, purple, $\downarrow$ faster is better); right Y-axis plots held-out ADNI `CogPC1` $R^2$ (green, $\uparrow$ higher is better). Pushing $w \to 0.95$ increases runtime $2.5\times\text{–}3.8\times$ due to combinatorial orthant stiffness and lowers test $R^2$ from $0.1587$ to $0.1323$.'
+#| out-width: 100%
+#| echo: false
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+csv_path = "results_cache/ablation_w_sweep.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/ablation_w_sweep.csv"
+
+df_w = pd.read_csv(csv_path)
+
+fig, axes = plt.subplots(1, 3, figsize=(14.0, 4.3), dpi=300)
+
+# Panel A: Defect D and Effective Rank vs w
+ax1 = axes[0]
+ax1_r = ax1.twinx()
+l1 = ax1.plot(df_w["w"], df_w["ADNI_Defect_D"], "o-", color="#dc2626", lw=2.2, markersize=6, label="Stiefel Defect D(V)")
+l2 = ax1_r.plot(df_w["w"], df_w["ADNI_EffRank"], "s--", color="#0284c7", lw=2.2, markersize=6, label="Effective Rank (of k=3)")
+ax1.axvline(0.50, color="#059669", linestyle=":", lw=1.8, label="Default w = 0.50")
+ax1.axvspan(0.0, 0.22, color="#fee2e2", alpha=0.45, label="Rank-Collapse Zone")
+ax1.set_yscale("log")
+ax1.set_xlabel("NSA-Flow Weight w", fontsize=10, weight="bold")
+ax1.set_ylabel("Normalized Stiefel Defect D(V) [log]", fontsize=9.5, weight="bold", color="#dc2626")
+ax1_r.set_ylabel("Effective Rank (of k = 3)", fontsize=9.5, weight="bold", color="#0284c7")
+ax1_r.set_ylim(1.85, 3.10)
+ax1.set_title("A. Conditioning & Rank Collapse vs. w", fontsize=10.5, weight="bold")
+ax1.grid(True, linestyle="--", alpha=0.35)
+lines_a = l1 + l2
+labels_a = [l.get_label() for l in lines_a]
+ax1.legend(lines_a, labels_a, loc="center right", fontsize=8)
+
+# Panel B: Sparsity vs w
+ax2 = axes[1]
+ax2.plot(df_w["w"], df_w["ADNI_Sparsity_All"] * 100, "o-", color="#0f766e", lw=2.2, markersize=6, label="ADNI Overall Sparsity")
+ax2.plot(df_w["w"], df_w["ADNI_Sparsity_v1"] * 100, "^--", color="#d97706", lw=2.0, markersize=6, label="ADNI Comp 1 (v1) Sparsity")
+ax2.plot(df_w["w"], df_w["Synth_Sparsity"] * 100, "d:", color="#4f46e5", lw=1.8, markersize=5, label="Synthetic NonnegParts Sparsity")
+ax2.axhline(66.67, color="#334155", linestyle="--", lw=1.5, label="Theoretical Disjoint (1 - 1/k = 66.7%)")
+ax2.axvline(0.50, color="#059669", linestyle=":", lw=1.8)
+ax2.set_xlabel("NSA-Flow Weight w", fontsize=10, weight="bold")
+ax2.set_ylabel("Feature Sparsity (%)", fontsize=9.5, weight="bold")
+ax2.set_ylim(15, 85)
+ax2.set_title("B. Basis Sparsity Scaling vs. w (k = 3)", fontsize=10.5, weight="bold")
+ax2.grid(True, linestyle="--", alpha=0.35)
+ax2.legend(loc="lower right", fontsize=8)
+
+# Panel C: Runtime & Accuracy Trade-off vs w
+ax3 = axes[2]
+ax3_r = ax3.twinx()
+c1 = ax3.plot(df_w["w"], df_w["ADNI_Fit_Sec"], "o-", color="#7c3aed", lw=2.2, markersize=6, label="ADNI Fit Time (s)")
+c2 = ax3.plot(df_w["w"], df_w["Synth_Fit_Sec"], "s--", color="#a855f7", lw=1.8, markersize=5, label="Synth Fit Time (s)")
+c3 = ax3_r.plot(df_w["w"], df_w["ADNI_CogPC1_R2"], "^-", color="#059669", lw=2.0, markersize=6, label="ADNI CogPC1 Test R^2")
+ax3.axvline(0.50, color="#059669", linestyle=":", lw=1.8)
+ax3.set_xlabel("NSA-Flow Weight w", fontsize=10, weight="bold")
+ax3.set_ylabel("Wall-Clock Fit Time (seconds)", fontsize=9.5, weight="bold", color="#7c3aed")
+ax3_r.set_ylabel("ADNI Out-of-Sample CogPC1 R^2", fontsize=9.5, weight="bold", color="#059669")
+ax3_r.set_ylim(0.11, 0.20)
+ax3.set_title("C. Optimization Cost & Test R^2 vs. w", fontsize=10.5, weight="bold")
+ax3.grid(True, linestyle="--", alpha=0.35)
+lines_c = c1 + c2 + c3
+labels_c = [l.get_label() for l in lines_c]
+ax3.legend(lines_c, labels_c, loc="upper left", fontsize=8)
+
+plt.tight_layout()
+plt.show()
+```
+
+The sweep in @tbl-w-sweep and @fig-w-sweep explains why $w = 0.50$ is chosen as the default weight across `nsa_flow` and `PySiMLR`:
+
+1. **Preventing rank collapse below $w = 0.20$:** At $w = 0.01$ on `ADNI-MCI`, the orthogonality penalty is too weak to counter the cross-view alignment gradient, which pulls the columns of $\mathbf{V}_m$ together: the effective rank collapses to $\text{EffRank} = 2.02$ of $3$ (`ADNI_Defect_D` $= 0.2442$, column overlap $0.485$, sparsity $22.5\%$, `CogPC1` $R^2 = 0.1323$). Raising $w$ past the knee at $w = 0.35$ restores full rank ($\text{EffRank} = 2.99$, $D = 0.0015$) and drives sparsity to the theoretical $1 - 1/3 = 66.7\%$ regime ($63.1\%$ at $w = 0.35$ and $64.8\%$ at $w = 0.50$).
+2. **Avoiding high-$w$ boundary stiffness ($w \ge 0.90$):** As $w$ approaches $1$ ($w = 0.90, 0.95$), the fidelity weight $(1 - w)$ shrinks toward zero, pinning the inner L-BFGS-B retraction against combinatorial orthant boundaries. Wall-clock fit time increases $2.5\times$ on `ADNI-MCI` ($4.01\text{ s}$ at $w = 0.50$ to $9.85\text{ s}$ at $w = 0.95$) and $3.8\times$ on `NonnegParts` ($2.36\text{ s}$ to $8.87\text{ s}$), while `ADNI-MCI` test $R^2$ drops from $0.1587$ ($w = 0.50$) to $0.1323$ ($w = 0.95$).
+
+### Controlling for Row Means, Deterministic ICA Initialization, and the $1 - 1/k$ Sparsity Law
+
+To test why Component 1 ($\mathbf{v}_1$) is much denser than Components $2, \dots, k$ under standard column-centering and PCA initialization—and whether row-mean removal and deterministic ICA initialization resolve this asymmetry—@tbl-rowmean-ica-ablation compares all combinations of preprocessing (`Col-Centered` vs.\ `Row+Col Centered`), initialization (`PCA` vs.\ deterministic `ICA`), and positivity (`Signed` vs.\ `Non-Negative`) on `ADNI-MCI` ($k = 3, w = 0.50$). @tbl-k-sparsity-sweep and @fig-rowmean-k-ablation then track how overall sparsity and $\mathbf{v}_1$ sparsity scale across latent ranks $k \in \{2, 3, 5, 8, 12\}$.
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-rowmean-ica-ablation
+#| tbl-cap: 'Ablation of Row-Mean Control, Initialization (`PCA` vs. deterministic `ICA`), and Positivity (`Signed` vs. `Non-Negative`) on `ADNI-MCI` ($k = 3, w = 0.50$, `SiMLR-LBFGSB`), computed from `ablation_rowmean_ica_positivity.csv`. Reported metrics are mean values across the three structural MRI views ($p = [160, 160, 62]$).'
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+csv_path = "results_cache/ablation_rowmean_ica_positivity.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/ablation_rowmean_ica_positivity.csv"
+
+df_rm = pd.read_csv(csv_path)
+rows = []
+for _, r in df_rm.iterrows():
+    prep_short = "Col-Centered" if "Col-Centered (Standard)" in r["Preprocessing"] else "Row+Col Centered"
+    pos_short = "Non-Neg (V>=0)" if "Non-Negative" in r["Positivity"] else "Signed"
+    stage_short = "Init-Only" if "Init-Only" in r["Stage"] else "Bipartite SiMR"
+    rows.append([
+        prep_short,
+        r["Init"],
+        pos_short,
+        stage_short,
+        f"{r['sparsity_v1']*100:.1f}% ({r['sparsity_exact_v1']*100:.1f}%)",
+        f"{r['sparsity_v2_k']*100:.1f}%",
+        f"{r['sparsity_all']*100:.1f}%",
+        f"{r['hoyer_v1']:.3f} / {r['hoyer_all']:.3f}",
+        f"{r['defect_D']:.5f}",
+        f"{r['CogPC1_R2_XV']:.4f} ({r['CogPC1_R2_WithRowMean']:.4f})",
+    ])
+
+headers = [
+    "Preprocessing", "Init", "Positivity", "Stage",
+    "Comp 1 (v1) Sparsity (Exact, ↑)", "Comp 2..k Sparsity (↑)", "Overall Sparsity (↑)",
+    "Hoyer (v1 / All, ↑)", "Defect D (↓)", "CogPC1 R^2 (w/ RowMean, ↑)"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-k-sparsity-sweep
+#| tbl-cap: 'Effect of Latent Rank $k \in \{2, 3, 5, 8, 12\}$ on Overall Sparsity, Component 1 ($\mathbf{v}_1$) Sparsity, Components $2\dots k$ Sparsity, and Out-of-Sample `CogPC1` $R^2$ on `ADNI-MCI` ($w = 0.50, \mathbf{V}_m \ge 0$), comparing Standard Column-Centering (`PCA` Init) against Row-Mean Control (`ICA` Init) from `ablation_k_sparsity_sweep.csv`.'
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+csv_path = "results_cache/ablation_k_sparsity_sweep.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/ablation_k_sparsity_sweep.csv"
+
+df_k = pd.read_csv(csv_path)
+rows = []
+for _, r in df_k.iterrows():
+    rows.append([
+        int(r["k"]),
+        f"{r['Theoretical_Disjoint_Sparsity']*100:.1f}%",
+        r["Regime"],
+        f"{r['Sparsity_v1']*100:.1f}% ({r['Sparsity_Exact_v1']*100:.1f}%)",
+        f"{r['Sparsity_v2_k']*100:.1f}%",
+        f"{r['Sparsity_All']*100:.1f}%",
+        f"{r['Hoyer_v1']:.3f}",
+        f"{r['Defect_D']:.5f}",
+        f"{r['CogPC1_R2_XV']:.4f}",
+        f"{r['PCA_CogPC1_R2']:.4f}",
+    ])
+
+headers = [
+    "k", "1 - 1/k Bound", "Regime", "v1 Sparsity (Exact, ↑)",
+    "v2..k Sparsity (↑)", "Overall Sparsity (↑)", "Hoyer v1 (↑)", "Defect D (↓)", "SiMR R^2 (↑)", "PCA R^2 (↑)"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-rowmean-k-ablation
+#| fig-cap: 'Removing per-subject row means with deterministic ICA initialization prevents Component 1 ($\mathbf{v}_1$) from collapsing onto the diffuse all-ones brain-size vector on `ADNI-MCI` ($N = 1,084$, $w = 0.50, \mathbf{V}_m \ge 0$, in-fold age/sex/education residualization). **(A) Sparsity Distribution across Components ($k = 3$):** Grouped bars plot Component 1 ($\mathbf{v}_1$) sparsity (red bars, $\uparrow$), Components 2 and 3 ($\mathbf{v}_{2,3}$) sparsity (blue bars, $\uparrow$), and overall basis sparsity (teal bars, $\uparrow$). Under standard column-centering with PCA initialization, $\mathbf{v}_1$ remains $35.8\%$ sparse while $\mathbf{v}_{2,3}$ reach $76.6\%$. Row-mean centering with deterministic ICA initialization equalizes sparsity across all components ($\mathbf{v}_1 = 69.4\%, \mathbf{v}_{2,3} = 65.9\%$), matching the theoretical disjoint bound $1 - 1/3 = 66.7\%$ (grey dashed line). **(B) Sparsity Scaling Across Ranks $k \in \{2, 3, 5, 8, 12\}$:** Under standard column-centering with PCA, $\mathbf{v}_{2\dots k}$ tracks the theoretical $1 - 1/k$ curve (blue squares, $62.9\% \to 81.9\%$) while $\mathbf{v}_1$ becomes progressively denser (red circles, $48.1\% \to 24.5\%$). Row-mean control with ICA initialization (green triangles) keeps $\mathbf{v}_1$ sparse ($67.1\% \to 53.4\%$), preventing mean-vector collapse.'
+#| out-width: 100%
+#| echo: false
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+rm_path = "results_cache/ablation_rowmean_ica_positivity.csv"
+k_path = "results_cache/ablation_k_sparsity_sweep.csv"
+if not os.path.exists(rm_path):
+    rm_path = "paper/results_cache/ablation_rowmean_ica_positivity.csv"
+    k_path = "paper/results_cache/ablation_k_sparsity_sweep.csv"
+
+df_rm = pd.read_csv(rm_path)
+df_k = pd.read_csv(k_path)
+
+fig, axes = plt.subplots(1, 2, figsize=(13.5, 4.6), dpi=300)
+
+# Panel A: Grouped bar chart of v1 vs v2..k vs Overall sparsity across the 4 Non-Neg Bipartite & Init regimes
+sub_nn = df_rm[df_rm["Positivity"].str.contains("Non-Negative") & df_rm["Stage"].str.contains("Bipartite")].copy()
+labels_a = [
+    "Col-Centered\n+ PCA Init",
+    "Col-Centered\n+ ICA Init",
+    "Row-Centered\n+ PCA Init",
+    "Row-Centered\n+ ICA Init"
+]
+x = np.arange(len(labels_a))
+w_bar = 0.25
+
+ax1 = axes[0]
+ax1.bar(x - w_bar, sub_nn["sparsity_v1"] * 100, width=w_bar, color="#dc2626", edgecolor="#0f172a", lw=0.8, label="Comp 1 (v1) Sparsity")
+ax1.bar(x, sub_nn["sparsity_v2_k"] * 100, width=w_bar, color="#0284c7", edgecolor="#0f172a", lw=0.8, label="Comp 2..k (v2, v3) Sparsity")
+ax1.bar(x + w_bar, sub_nn["sparsity_all"] * 100, width=w_bar, color="#0d9488", edgecolor="#0f172a", lw=0.8, label="Overall Basis Sparsity")
+ax1.axhline(66.67, color="#334155", linestyle="--", lw=1.6, label="Theoretical 1 - 1/k (66.7%)")
+ax1.set_xticks(x)
+ax1.set_xticklabels(labels_a, fontsize=9, weight="bold")
+ax1.set_ylabel("Feature Sparsity (%)", fontsize=10, weight="bold")
+ax1.set_ylim(0, 92)
+ax1.set_title("A. Component 1 vs. Components 2..k Sparsity (k = 3, w = 0.5)", fontsize=10.5, weight="bold")
+ax1.grid(True, axis="y", linestyle="--", alpha=0.35)
+ax1.legend(loc="upper right", fontsize=8)
+
+# Panel B: Sparsity vs k
+ax2 = axes[1]
+sub_col = df_k[df_k["Regime"].str.contains("Col-Centered")]
+sub_row = df_k[df_k["Regime"].str.contains("Row-Centered")]
+
+ax2.plot(sub_col["k"], sub_col["Theoretical_Disjoint_Sparsity"] * 100, "k--", lw=2.0, label="Theoretical Bound (1 - 1/k)")
+ax2.plot(sub_col["k"], sub_col["Sparsity_v2_k"] * 100, "s-", color="#0284c7", lw=2.0, markersize=6, label="Col-Centered + PCA: v2..k Sparsity")
+ax2.plot(sub_col["k"], sub_col["Sparsity_v1"] * 100, "o-", color="#dc2626", lw=2.2, markersize=6, label="Col-Centered + PCA: v1 Sparsity (Dense Mean)")
+ax2.plot(sub_row["k"], sub_row["Sparsity_v1"] * 100, "^-", color="#059669", lw=2.2, markersize=6, label="Row-Centered + ICA: v1 Sparsity")
+ax2.plot(sub_row["k"], sub_row["Sparsity_All"] * 100, "d:", color="#0f766e", lw=1.8, markersize=5, label="Row-Centered + ICA: Overall Sparsity")
+ax2.set_xlabel("Latent Rank k", fontsize=10, weight="bold")
+ax2.set_ylabel("Feature Sparsity (%)", fontsize=10, weight="bold")
+ax2.set_xticks([2, 3, 5, 8, 12])
+ax2.set_ylim(15, 100)
+ax2.set_title("B. Sparsity Scaling Across Rank k in {2, 3, 5, 8, 12}", fontsize=10.5, weight="bold")
+ax2.grid(True, linestyle="--", alpha=0.35)
+ax2.legend(loc="lower right", fontsize=8)
+
+plt.tight_layout()
+plt.show()
+```
+
+@tbl-rowmean-ica-ablation and @tbl-k-sparsity-sweep establish four mechanistic conclusions:
+
+1. **Positivity ($\mathbf{V}_m \ge 0$) is the switch that activates Stiefel sparsity:** In every `Signed (Unconstrained)` row of @tbl-rowmean-ica-ablation, exact zero sparsity is $0.0\%$ (`sparsity_all` $= 1.3\%\text{–}3.3\%$ at the $1\%$ relative threshold) even though `defect_D` $\le 4.5 \times 10^{-5}$. Imposing `Non-Negative (V>=0)` immediately raises overall sparsity to $57.8\%\text{–}67.1\%$ ($57.4\%\text{–}65.9\%$ exact zeros) at $k = 3$.
+2. **Why $\mathbf{v}_1$ is dense under standard column-centering and PCA initialization:** Under `Col-Centered + PCA + Non-Neg`, Component 1 has only $35.8\%$ sparsity ($33.8\%$ exact zeros, Hoyer sparseness $0.339$), whereas Components 2 and 3 have $76.6\%$ sparsity. Moreover, as $k$ increases from $2$ to $12$ (@tbl-k-sparsity-sweep), `Col-Centered + PCA` drives $\mathbf{v}_{2\dots k}$ sparsity from $62.9\%$ to $81.9\%$ (tracking $1 - 1/k$), but **$\mathbf{v}_1$ sparsity drops from $48.1\%$ ($k = 2$) to $24.5\%$ ($k = 12$)**. Because $\mathbf{v}_1$ catches the positive global row mean across parcels, it remains a dense global size vector regardless of $k$.
+3. **Why ICA initialization requires row-mean removal to stay sparse during multi-view fitting:** Under `Col-Centered + ICA + Non-Neg`, deterministic ICA initialization starts with a sparse Component 1 at `Init-Only` ($\mathbf{v}_1$ sparsity $72.3\%$, exact zeros $70.1\%$). However, once `Bipartite SiMR` optimization runs on uncentered rows, the reconstruction term pulls $\mathbf{v}_1$ back onto the global subject mean, reducing $\mathbf{v}_1$ sparsity from $72.3\%$ to $39.3\%$.
+4. **Row-mean control + deterministic ICA initialization restores uniform sparsity across all components:** When per-subject row means are removed inside the training fold (`Row+Col Centered`), `PCA` initialization raises fitted $\mathbf{v}_1$ sparsity from $35.8\%$ to $52.9\%$ (with `CogPC1` $R^2 = 0.1776$ when the scalar row mean is retained alongside $\mathbf{X}\mathbf{V}$, exceeding standard `PCA` $0.1628$). Combining `Row+Col Centered` with deterministic `ICA` initialization raises fitted $\mathbf{v}_1$ sparsity to **$69.4\%$ ($67.5\%$ exact zeros, Hoyer $0.701$)** and $\mathbf{v}_{2,3}$ sparsity to **$65.9\%$** ($67.1\%$ overall, $D = 5.8 \times 10^{-5}$), achieving uniform $1 - 1/3 = 66.7\%$ sparsity across every column.
+
+### Quantile `sparseness` Ablation (`default=0.5`, Operating Points `0.5` and `0.8`) on ADNI-MCI and NonnegParts
+
+While row-mean removal with deterministic ICA initialization equalizes sparsity across columns at the $1 - 1/k = 66.7\%$ bound, subtracting each participant's global cortical row mean prior to optimization lowers raw `CogPC1` $R^2$ from $0.1892$ (`Col-Centered + PCA + Non-Neg`) to $0.1408$ ($0.1531$ when the scalar row mean is re-appended). Moreover, domain investigators frequently require a specific per-column sparsity level (e.g., the two canonical operating points $q = 0.50$ and $q = 0.80$ from @avants2021) without inflating $k$.
+
+@tbl-quantile-sparseness evaluates the R-style quantile `sparseness` parameter (`sparseness` $\in \{\text{None}, 0.50, 0.70, 0.80, 0.85, 0.90\}$, applied to the three structural MRI views as `[q, q, q, None]`, with universal default `DEFAULT_SPARSENESS = 0.5` across all linear, deep, flow, and `sklearn` algorithms in `PySiMLR`) under standard column-centering (`Col-Centered + PCA Init`, $k = 3, w = 0.50$) for both `positivity="positive"` ($\mathbf{V}_m \ge 0$) and `positivity="either"`.
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-quantile-sparseness
+#| tbl-cap: 'Ablation of the Quantile `sparseness` Parameter (`default=0.5`, with `0.5` and `0.8` as the two canonical operating points and `None` for un-thresholded `nsa_flow`) on `ADNI-MCI` (`Col-Centered + PCA Init`, $k = 3, w = 0.50$, `Protocol B`) and Synthetic `NonnegParts` (3-seed Support $F_1$), computed from `ablation_quantile_sparseness.csv`.'
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+csv_path = "results_cache/ablation_quantile_sparseness.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/ablation_quantile_sparseness.csv"
+
+df_q = pd.read_csv(csv_path)
+rows = []
+for _, r in df_q.iterrows():
+    pos_label = "Non-Neg (V>=0)" if r["positivity"] == "positive" else "Signed (either)"
+    act_str = f"({int(r['dkt_v1_active_regions'])}, {int(r['dkt_v2_active_regions'])}, {int(r['dkt_v3_active_regions'])}) / 62"
+    rows.append([
+        pos_label,
+        r["sparseness"],
+        f"{r['sparsity_v1']*100:.1f}%",
+        f"{r['sparsity_v2_k']*100:.1f}%",
+        f"{r['sparsity_all']*100:.1f}%",
+        act_str,
+        f"{r['defect_D']:.2e}",
+        f"{r['cog_pc1_r2']:.4f}",
+        f"{r['mean_11scale_r2']:.4f}",
+        f"{r['synth_support_f1']:.3f}",
+    ])
+
+headers = [
+    "Positivity", "sparseness (q)", "v1 Sparsity (↑)", "v2..3 Sparsity (↑)", "Overall Sparsity (↑)",
+    "Active DKT Parcels (v1,v2,v3)", "Defect D(V) (↓)", "ADNI CogPC1 R^2 (↑)", "11-Scale R^2 (↑)", "Synth F1 (↑)"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
+
+@tbl-quantile-sparseness demonstrates three practical properties of the quantile `sparseness` operator:
+
+1. **The two canonical operating points ($q = 0.50$ default and $q = 0.80$ high sparsity) and fine-grained control up to $q = 0.85$:** Following @avants2021, `PySiMLR` sets `sparseness = 0.50` as the universal default across all linear (`simlr`, `SiMLR-LBFGS`, `SiMLR-LBFGSB`), deep (`lend_simr`, `ned_simr`, `ned_simr_shared_private`), flow (`flow_simr_v`), and `sklearn` estimators. At the default `sparseness = 0.50`, Component 1 ($\mathbf{v}_1$) sparsity rises from $35.8\%$ ($55/62$ active DKT regions at `sparseness=None`) to $61.5\%$ ($31/62$ active DKT regions, $74.5\%$ overall sparsity, `Synth F1` $= 0.915$) for $\mathbf{V}_m \ge 0$, and to $55.7\%$ ($31/62$ active DKT regions, `CogPC1` $R^2 = 0.1968$) for signed bases. At the high-sparsity canonical operating point `sparseness = 0.80`, $\mathbf{v}_1$ sparsity reaches $81.9\%$ ($85.8\%$ overall, $12/62$ active DKT regions on $\mathbf{v}_1$) for $\mathbf{V}_m \ge 0$ and $84.2\%$ ($85.0\%$ overall, $(12, 12, 12)/62$ active DKT regions) for signed bases. Pushing to `sparseness = 0.85` under $\mathbf{V}_m \ge 0$ achieves **$85.5\%$ $\mathbf{v}_1$ sparsity ($88.0\%$ overall)** with an exactly balanced $(9, 9, 9)/62$ active-region count across all three components and `CogPC1` $R^2 = 0.1923$ (`11-scale` $R^2 = 0.0897$)—exceeding both `sparseness=None` ($0.1892$) and dense `PCA` ($0.1904$).
+2. **Enabling sparse support recovery and accuracy gains even for signed bases (`positivity="either"`):** When `positivity="either"` and `sparseness=None`, orthogonal columns have $0\%$ exact zeros (`Active DKT = (62, 62, 62)/62`, `Synth F1 = 0.333`, `CogPC1` $R^2 = 0.1714$). The default `sparseness = 0.50` immediately enforces $(31, 31, 31)/62$ active DKT regions and raises `CogPC1` $R^2$ to $0.1968$ (`Synth F1 = 0.621`), while `sparseness = 0.70` enforces $(19, 19, 19)/62$ active DKT regions ($75.7\%$ overall sparsity, $D(\mathbf{V}) = 2.00 \times 10^{-6}$), raises synthetic `NonnegParts` support recovery to $0.791$, and achieves **`CogPC1` $R^2 = 0.2089$** (`11-scale` $R^2 = 0.0943$).
+3. **Choosing between `sparseness = 0.5` (default), `0.8` (high sparsity), and `None` (un-thresholded `nsa_flow`):** At $k \ge 3$, the default $q = 0.50$ is milder than the non-negative Stiefel disjoint-support bound $1 - 1/k \ge 66.7\%$; thus, on synthetic block-partitioned data (`NonnegParts`, $k = 3$), $q = 0.50$ preserves high support recovery ($F_1 = 0.915$, vs.\ $0.941$ at `sparseness=None`) while stripping the diffuse global-mean floor off $\mathbf{v}_1$ on real neuroimaging cohorts. When $p_m$ is large and focal biomarker panels are desired, $q = 0.80\text{--}0.85$ isolates compact top-$15\%\text{--}20\%$ anatomical or genomic signatures, whereas `sparseness=None` remains available whenever pure un-thresholded `nsa_flow` retraction is desired.
+
+### Anatomical Feature Attribution on ADNI-MCI Cortical Thickness
+
+To show what the learned basis vectors $\mathbf{V}_m$ actually look like in anatomical space, @tbl-adni-anatomical-loadings and @fig-adni-anatomical-heatmap compare the top cortical thickness parcels ($p_3 = 62$ DKT regions in View 2) across four regimes ($k = 3, w = 0.50$): (A) **Dense PCA (`Col-Centered`)**, (B) **Standard Non-Negative SiMR (`Col-Centered + PCA Init, sparseness=None`)**, (C) **Row-Centered + ICA-Initialized Non-Negative SiMR (`sparseness=None`)**, and (D) **Quantile-Sparsified Non-Negative SiMR (`Col-Centered + PCA Init, sparseness=0.85`)**.
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-adni-anatomical-loadings
+#| tbl-cap: 'Top 5 DKT Cortical Thickness Parcels Loaded by Each Component ($\mathbf{v}_1, \mathbf{v}_2, \mathbf{v}_3$) on `ADNI-MCI` View 2 ($p_3 = 62$ regions, $k = 3, w = 0.50$), computed from `adni_mci_feature_loadings.json`. Comparing Dense PCA, Standard Non-Negative SiMR (`sparseness=None`), Row-Centered + ICA-Initialized Non-Negative SiMR (`sparseness=None`), and Quantile-Sparsified Non-Negative SiMR (`sparseness=0.85`).'
+#| echo: false
+#| output: asis
+import os
+import json
+import numpy as np
+from tabulate import tabulate
+
+json_path = "results_cache/adni_mci_feature_loadings.json"
+if not os.path.exists(json_path):
+    json_path = "paper/results_cache/adni_mci_feature_loadings.json"
+
+with open(json_path, "r") as f:
+    f_data = json.load(f)
+
+names = [n.replace("_", " ") for n in f_data["view2_names"]]
+
+def col_sp(c):
+    ca = np.abs(c)
+    return float(np.mean(ca < 0.01 * np.max(ca))) * 100.0
+
+def col_ex(c):
+    return float(np.mean(np.abs(c) <= 1e-5)) * 100.0
+
+regimes = [
+    ("Dense PCA (Col-Centered)", np.array(f_data["view2_pca"])),
+    ("Non-Neg SiMR (Col + PCA, q=None)", np.array(f_data["view2_col_pca_simr"])),
+    ("Non-Neg SiMR (Row + ICA, q=None)", np.array(f_data["view2_row_ica_simr"])),
+    ("Non-Neg SiMR (Col + PCA, q=0.85)", np.array(f_data["view2_col_pca_q85_simr"])),
+]
+
+rows = []
+for reg_name, mat in regimes:
+    for j in range(3):
+        col = mat[:, j]
+        sp = col_sp(col)
+        ex = col_ex(col)
+        top_idx = np.argsort(np.abs(col))[::-1][:5]
+        top_str = ", ".join([f"{names[i]} ({col[i]:+.3f})" for i in top_idx if abs(col[i]) > 1e-5])
+        rows.append([
+            reg_name,
+            f"v_{j+1}",
+            f"{sp:.1f}% ({ex:.1f}%)",
+            top_str
+        ])
+
+headers = ["Basis Regime", "Axis", "Parcel Sparsity (Exact 0)", "Top 5 Cortical Thickness Regions (Loading)"]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-adni-anatomical-heatmap
+#| fig-cap: 'Quantile-sparsified non-negative SiMR ($q = 0.85$) isolates localized Braak-staged Alzheimer''s disease cortical networks while maintaining peak predictive accuracy on ADNI-MCI ($N = 1,084$, age/sex/education residualized, $k = 3, w = 0.50$). Heatmaps display basis weights $\mathbf{V}_2$ across all 62 Desikan-Killiany-Tourville (DKT) cortical thickness parcels (rows ordered by dominant component assignment in Panel D). **(A) Dense PCA (`CogPC1` $R^2 = 0.1904$):** Evaluated with diverging colormap `RdBu_r` (scale $[-0.45, +0.45]$). Component 1 assigns uniform negative weight ($\approx -0.15$) across all 62 parcels ($0.0\%$ sparsity). **(B) Standard Non-Negative SiMR (`sparseness=None`, $R^2 = 0.1892$):** Evaluated with sequential colormap `YlGnBu` (scale $[0.0, 0.65]$). Component 1 remains $85.5\%$ dense ($14.5\%$ sparsity) to capture global cortical thickness. **(C) Row-Centered + ICA-Initialized SiMR (`sparseness=None`, $R^2 = 0.1531$):** All three components are uniformly sparse ($75.8\%, 69.4\%, 67.7\%$) at reduced predictive $R^2$. **(D) Quantile-Sparsified SiMR ($q = 0.85$, $R^2 = 0.1923$):** Enforces exact $(9, 9, 9)/62$ active parcels per component ($85.5\%, 95.2\%, 91.9\%$ sparsity at the $1\%$ threshold) while achieving the highest non-negative predictive accuracy: Component 1 isolates the lateral temporal-temporoparietal association axis (Braak IV–V); Component 2 isolates the medial temporal amnestic core (Braak I–III); Component 3 isolates the frontocingulate salience network; and primary somatomotor cortex (`right_precentral` $= 0.0016$) serves as a physiologically preserved negative control.'
+#| out-width: 100%
+#| echo: false
+import os
+import json
+import numpy as np
+import matplotlib.pyplot as plt
+
+json_path = "results_cache/adni_mci_feature_loadings.json"
+if not os.path.exists(json_path):
+    json_path = "paper/results_cache/adni_mci_feature_loadings.json"
+
+with open(json_path, "r") as f:
+    f_data = json.load(f)
+
+mat_pca = np.array(f_data["view2_pca"])
+mat_col = np.array(f_data["view2_col_pca_simr"])
+mat_row = np.array(f_data["view2_row_ica_simr"])
+mat_q85 = np.array(f_data["view2_col_pca_q85_simr"])
+raw_names = f_data["view2_names"]
+
+# Order parcels by which component they load on in Quantile q=0.85 SiMR
+comp_assign = np.argmax(mat_q85, axis=1)
+max_val = np.max(mat_q85, axis=1)
+is_zero = (max_val <= 1e-5).astype(int)
+order_idx = np.lexsort((-max_val, comp_assign, is_zero))
+
+fig, axes = plt.subplots(1, 4, figsize=(16.0, 7.2), dpi=300, sharey=True)
+
+panels = [
+    ("A. Dense PCA\n(v1=0%, v2=2%, v3=0% | R²=0.190)", mat_pca[order_idx, :], "RdBu_r", -0.45, 0.45),
+    ("B. Non-Neg SiMR (q=None)\n(v1=15%, v2=90%, v3=81% | R²=0.189)", mat_col[order_idx, :], "YlGnBu", 0.0, 0.65),
+    ("C. Row + ICA SiMR (q=None)\n(v1=76%, v2=69%, v3=68% | R²=0.153)", mat_row[order_idx, :], "YlGnBu", 0.0, 0.65),
+    ("D. Quantile SiMR (q=0.85)\n(v1=86%, v2=95%, v3=92% | R²=0.192)", mat_q85[order_idx, :], "YlGnBu", 0.0, 0.65),
+]
+
+for ax, (title, m_ord, cmap, vmin, vmax) in zip(axes, panels):
+    im = ax.imshow(m_ord, aspect="auto", cmap=cmap, vmin=vmin, vmax=vmax, interpolation="nearest")
+    ax.set_xticks([0, 1, 2])
+    ax.set_xticklabels(["Comp 1\n(v1)", "Comp 2\n(v2)", "Comp 3\n(v3)"], fontsize=9.0, weight="bold")
+    ax.set_title(title, fontsize=9.5, weight="bold")
+    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+landmark_set = {
+    "right_entorhinal", "left_entorhinal", "right_parahippocampal", "left_parahippocampal",
+    "left_medial_orbitofrontal", "right_caudal_anterior_cingulate", "left_rostral_middle_frontal",
+    "right_insula", "left_insula", "right_cuneus", "left_supramarginal",
+    "left_fusiform", "right_middle_temporal", "left_middle_temporal", "right_pars_opercularis"
+}
+yticks = []
+ylabels = []
+last_pos = -5
+for plot_pos, orig_i in enumerate(order_idx):
+    nm = raw_names[orig_i]
+    if nm in landmark_set and (plot_pos - last_pos >= 2):
+        yticks.append(plot_pos)
+        ylabels.append(nm.replace("_", " "))
+        last_pos = plot_pos
+
+axes[0].set_yticks(yticks)
+axes[0].set_yticklabels(ylabels, fontsize=8, weight="bold")
+axes[0].set_ylabel("62 DKT Cortical Thickness Parcels", fontsize=10, weight="bold")
+
+plt.tight_layout()
+plt.show()
+```
+
+Comparing the four panels in @tbl-adni-anatomical-loadings and @fig-adni-anatomical-heatmap reveals the concrete neuroanatomical difference between the bases:
+
+* **Dense PCA (@fig-adni-anatomical-heatmap A):** Component 1 assigns nearly identical negative weight ($\approx -0.146$ to $-0.150$) across all 62 cortical regions ($0.0\%$ sparsity), representing a non-specific global cortical average, while Components 2 and 3 mix positive occipital loadings with negative frontal loadings across the entire cortex.
+* **Standard Non-Negative SiMR with `sparseness=None` (@fig-adni-anatomical-heatmap B):** Without quantile thresholding or row-mean removal, Component 1 remains $85.5\%$ dense on View 2 ($14.5\%$ sparsity, $55/62$ active regions), spreading almost uniform weight ($+0.204$ to $+0.229$) across temporal, parietal, and frontal parcels to capture each participant's global cortical thickness. Because `nsa_flow` enforces approximate orthogonality ($D = 8.2 \times 10^{-5}$) with $\mathbf{V}_m \ge 0$, Components 2 and 3 are squeezed into the remaining parcels ($90.3\%$ and $80.6\%$ sparsity).
+* **Row-Centered + ICA-Initialized Non-Negative SiMR (@fig-adni-anatomical-heatmap C):** Removing the subject row mean and initializing with deterministic ICA produces three uniformly sparse networks ($75.8\%, 69.4\%,$ and $67.7\%$ sparsity), isolating occipital/sensorimotor ($\mathbf{v}_1$), orbitofrontal/cingulate ($\mathbf{v}_2$), and bilateral entorhinal/parahippocampal ($\mathbf{v}_3$) subnetworks, but lowers `CogPC1` $R^2$ to $0.1408$ ($0.1531$ with row mean).
+* **Quantile-Sparsified Non-Negative SiMR (`sparseness = 0.85`, @fig-adni-anatomical-heatmap D):** Retaining standard column-centering and setting `sparseness = 0.85` restricts every column to **exact $(9, 9, 9)/62$ active DKT regions** ($85.5\%, 95.2\%,$ and $91.9\%$ sparsity at the $1\%$ threshold) while achieving the highest non-negative `CogPC1` $R^2 = 0.1923$, isolating three established neuropathological stages of Alzheimer's disease:
+  - **Component 1 ($\mathbf{v}_1$, $85.5\%$ sparse, $9/62$ active): Lateral Temporal–Temporoparietal Association Axis (Braak Stages IV–V):** Strongly loads `left_middle_temporal` ($+0.670$), `left_supramarginal` ($+0.454$), `right_middle_temporal` ($+0.341$), `right_pars_opercularis` ($+0.319$), and `left_superior_frontal` ($+0.209$). In clinical Alzheimer's disease, temporoparietal neocortical atrophy tracks the clinical transition from mild memory lapses to overt semantic impairment, anomia, and executive slowing.
+  - **Component 2 ($\mathbf{v}_2$, $95.2\%$ sparse, $9/62$ active): Medial Temporal Amnestic Core (Braak Stages I–III):** Isolates the pathognomonic neurodegenerative epicenter of early Alzheimer's disease, led by `left_entorhinal` ($+0.680$), `right_entorhinal` ($+0.226$), and posterior precuneal/visual hub `right_cuneus` ($+0.698$), aligned with subcortical hippocampal atrophy in View 0 (`right_hippocampus` $+0.369$). This component captures the transentorhinal and entorhinal-hippocampal disconnection directly responsible for episodic memory encoding failure on the Rey Auditory Verbal Learning Test (`RAVLT`).
+  - **Component 3 ($\mathbf{v}_3$, $91.9\%$ sparse, $9/62$ active): Frontocingulate Salience Network:** Loads `left_rostral_middle_frontal` ($+0.631$), `right_caudal_anterior_cingulate` ($+0.478$), `left_insula` ($+0.434$), and `right_insula` ($+0.429$). This fronto-insular-cingulate network governs motivation, behavioral regulation, and salience detection; its disruption underlies apathy and executive set-shifting deficits (measured by `TRABSCOR`) in progressing MCI.
+  - **Biological Sparing as a Negative Control:** Primary somatomotor cortex (`right_precentral` $+0.0016$, `left_precentral` $\le 10^{-5}$) and primary somatosensory cortex (`left_postcentral` $\le 10^{-5}$) receive negligible loadings across all three components. This mirrors the clinicopathological hallmark of Alzheimer's disease—the near-complete preservation of primary motor and sensory neocortex until end-stage dementia—demonstrating that non-negative sparse regularization isolates genuine disease topology rather than arbitrary geometric partitions.
+
+---
+
+## Multi-Omics Oncology and Clinical Tabular Cohorts
+
+@tbl-real-cohort-breakdown reports the complete 3-seed mean $\pm$ SD performance across all six real-world cohorts for both the strictly linear OLEE basis probe ($\mathbf{X}\mathbf{V}$) and the global consensus probe ($\mathbf{U}$).
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-real-cohort-breakdown
+#| tbl-cap: 'Complete 3-Seed Real-World Cohort Performance (Mean ± SD from `deep_ranking_benchmark.csv`). Top panel: Strictly Linear OLEE Basis Probe ($\mathbf{X}\mathbf{V}$). Bottom panel: Global Consensus Probe ($\mathbf{U}$).'
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+csv_path = "results_cache/deep_ranking_benchmark.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
+
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+
+models = ["SiMLR-LBFGSB", "SiMLR-LBFGS", "SiMLR", "Flow-SiMR-V", "LEND", "NEDPP", "NED", "NSAFlow-PCA", "PCA"]
+real_dsets = ["ADNI-MCI", "Diabetes", "Heart", "MultiOmics", "TCGA-KIRC", "mfeat"]
+
+def make_panel(metric_col):
+    rows = []
+    for m in models:
+        row = [m]
+        for ds in real_dsets:
+            sub = df[(df["Dataset"] == ds) & (df["Model"] == m)][metric_col]
+            row.append(f"{sub.mean():.3f} ± {sub.std():.3f}")
+        rows.append(row)
+    return rows
+
+print("**Panel A: Strictly Linear OLEE Basis Probe (XV, ↑ higher is better)**\n")
+print(tabulate(make_panel("Strictly_Linear_Metric"), headers=["Model"] + real_dsets, tablefmt="pipe"))
+print("\n\n**Panel B: Global Consensus Probe (U, ↑ higher is better)**\n")
+print(tabulate(make_panel("Predictive_Metric"), headers=["Model"] + real_dsets, tablefmt="pipe"))
+```
+
+Comparing the six real cohorts in @tbl-real-cohort-breakdown clarifies when multi-view alignment provides a measurable advantage over single-matrix `PCA` and `NSAFlow-PCA`:
+
+* **Four-view heterogeneous cohorts (`ADNI-MCI` and `mfeat`):** When views differ substantially in dimensionality and noise structure ($p = [160, 160, 62, 11]$ in `ADNI-MCI`; $p = [76, 64, 6, 47]$ in `mfeat`), single-matrix `PCA` is dominated by the largest views (`mfeat` $\mathbf{X}\mathbf{V}$ accuracy $0.727 \pm 0.006$, $\mathbf{U}$ accuracy $0.732 \pm 0.004$). Multi-view OLEE alignment equalizes view contributions, raising `mfeat` $\mathbf{X}\mathbf{V}$ accuracy to $0.967 \pm 0.009$ (`NEDPP`), $0.964 \pm 0.009$ (`NED`), and $0.943 \pm 0.008$ (`SiMLR-LBFGSB`), and raising 3-dimensional consensus $\mathbf{U}$ accuracy to $0.793 \pm 0.013$ (`Flow-SiMR-V`) and $0.785 \pm 0.017$ (`LEND`).
+* **Three-view cancer genomics (`MultiOmics` [TCGA-BRCA] and `TCGA-KIRC`):** In oncology, phenotypic progression reflects coordinated information flow across the Central Dogma—from somatic DNA copy-number alterations (CNV) to mRNA expression and functional proteomic phosphorylation.
+  - On `MultiOmics` (TCGA-BRCA ER status, $N = 822$), multi-view models (`Flow-SiMR-V` $0.927 \pm 0.007$, `LEND` $0.927 \pm 0.007$, `NEDPP` $0.927 \pm 0.007$) and linear solvers (`SiMLR-LBFGSB` $0.921 \pm 0.018$) outperform single-matrix `PCA` ($0.915 \pm 0.018$). The linear dictionary $\mathbf{V}_m$ isolates the core hormonal oncogenic circuit across modalities: estrogen receptor alpha protein (`ER-alpha`), master transcription factor `GATA3`, activating phosphorylation site `ER-alpha_pS118`, downstream luminal transcripts (`PGR`, `PIP`), and focal amplicons at 8p11-p12 and 17q23. Quantile sparsity eliminates hundreds of passenger copy-number alterations, isolating the driver pathway.
+  - On `TCGA-KIRC` (clear cell renal cell carcinoma pathologic stage classification, $N = 467$), non-linear decoders downstream of OLEE demonstrate distinct utility: `LEND` ($0.714 \pm 0.004$), `NED` ($0.697 \pm 0.023$), and `Flow-SiMR-V` ($0.688 \pm 0.007$) achieve superior consensus $\mathbf{U}$ accuracy over linear `PCA` ($0.671 \pm 0.015$), while `SiMLR-LBFGS` leads the linear probe $\mathbf{X}\mathbf{V}$ ($0.688 \pm 0.017$). In renal oncology, advanced tumor stage (Stage III/IV vs. I/II) is marked by metabolic reprogramming, von Hippel-Lindau (`VHL`) loss-driven pseudo-hypoxia, and mTOR/PI3K signaling. Non-linear normalizing flows and decoders capture these non-linear cross-assay interactions while maintaining feature-level transparency in the linear dictionary $\mathbf{V}_m$.
+* **Low-dimensional two-view clinical tabular cohorts (`Heart` and `Diabetes`):** On `Heart` ($p = [7, 6]$), `NSAFlow-PCA` achieves the highest linear probe accuracy ($0.848 \pm 0.006$ in $0.004\text{ s}$ with $32.1\%$ sparsity) and ties `PCA` on consensus accuracy ($0.837 \pm 0.006$). On `Diabetes` ($p = [5, 5]$), `NSAFlow-PCA` leads consensus prediction ($R^2 = 0.382 \pm 0.051$), whereas `SiMLR-LBFGSB` ($0.396 \pm 0.110$) and `SiMLR-LBFGS` ($0.396 \pm 0.111$) lead the concatenated linear probe $\mathbf{X}\mathbf{V}$ (vs.\ `PCA` $0.351 \pm 0.048$).
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-diabetes-audit
-#| fig-cap: 'Localized Feature Impact Analysis (Diabetes). Baseline (Post-hoc SHAP) vs. Proposed (Exact Structural XAI). Local feature attribution derived directly from the first-layer linear basis with zero approximation error [@Lundberg_2017; @Smith2023posthoc].'
+#| fig-cap: 'Linear encoder projections enable exact, closed-form patient feature attributions without perturbation surrogates. Horizontal bar chart shows additive local feature contributions $\mathbf{x}_{m,i} \odot \mathbf{v}_{m,l}$ for Patient #1 on the Diabetes cohort ($N = 442$, two 5-variable views standardized to zero mean and unit variance). The horizontal axis plots exact linear contribution values ($x_{ij} \odot v_{jl}$); the vertical axis lists clinical features. Red bars indicate positive contribution to the latent risk factor (`bmi` $= +1.15$, `bp` $= +0.22$); zero bars are pruned. Because OLEE is linear at the input boundary, attributions are exact and satisfy the conservation property without Monte Carlo sampling.'
 #| out-width: 100%
 #| echo: false
 from pysimlr.deep import ned_simr
@@ -762,114 +1327,194 @@ feat_names = data.feature_names[:5]
 idx = np.argsort(np.abs(impact))[::-1]
 non_zero = np.abs(impact[idx]) > 1e-5
 idx = idx[non_zero]
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(8, 4.2), dpi=300)
 colors = ['#d62728' if impact[i] > 0 else '#1f77b4' for i in idx]
 plt.barh([feat_names[i] for i in idx], impact[idx], color=colors)
 plt.axvline(0, color='black', lw=0.8)
-plt.title("Patient #1 (NED): Diabetes Mechanistic Drivers")
-plt.xlabel("Linear Contribution (Feature * Weight)")
+plt.title("Patient #1 (OLEE First-Layer Basis): Diabetes Feature Contributions")
+plt.xlabel("Exact Linear Contribution (x_ij * V_jl)")
+plt.tight_layout()
 plt.show()
 ```
 
-### Heart Disease Audit
+![First-layer OLEE projections decompose individual cardiovascular risk scores into additive clinical feature contributions. Horizontal waterfall chart shows local feature contributions $\mathbf{x}_{m,i} \odot \mathbf{v}_{m,l}$ for a representative high-risk patient (Patient #122) on the Cleveland Heart Disease cohort ($N = 303$, 13 clinical and fluoroscopic features). The horizontal axis plots the signed contribution to the shared latent cardiovascular risk factor; the vertical axis lists clinical features. Red bars indicate risk-increasing contributions (`restecg`, `fbs`, `chol`, `sex`); blue bars indicate protective contributions (`trestbps`, `cp`, `age`). Closed-form linear attribution guarantees zero sampling variance.](figures/heart_waterfall.png){#fig-heart-audit width="100%"}
 
-We apply the local audit protocol to the Heart Disease dataset. @fig-heart-audit highlights 'thalach' (maximum heart rate) and 'cp' (chest pain type) as dominant factors for a high-risk individual.
+![Hierarchical inspection of learned first-layer OLEE basis matrices ($\mathbf{V}_m$) confirms exact feature selection and sparse coordinate alignment across clinical tabular cohorts. Heatmaps display learned weights for Heart Disease ($N = 303$, View 1 Clinical [$p_1 = 7$], View 2 Physiological [$p_2 = 6$]) and Diabetes ($N = 442$, View 1 Vitals [$p_1 = 5$], View 2 Blood Serums [$p_2 = 5$]) at $k = 2$. Colorbars show normalized loading weights from $0.0$ (dark purple) to $1.0$ (bright yellow). Numeric cell labels show exact feature loadings. Column Gini coefficients ($G$) measure weight concentration ($G = 0.72\text{–}0.81$ on Component 2, isolating focal biomarkers `sex` and `s3` with zero cross-talk).](figures/nsa_v_interpretability.png){#fig-nsa-v-interpretability width="100%"}
 
-![Individualized Cardiovascular Audit. Baseline (Black box classification) vs. Proposed (Auditable Linear Attribution). Local feature attribution for a high-risk patient. The audit reveals the exact additive contribution of clinical features (thalach, cp) to the latent risk factor, establishing clinical trust.](figures/heart_waterfall.png){#fig-heart-audit width="100%"}
+---
 
-### Interpretability of the NSA Layer (Learned $\mathbf{V}$ Matrices)
+## Multi-Operating-Point Sparseness ($q \in \{\text{None}, 0.5, 0.8\}$) and Positivity Evaluation (1,215 Fits)
 
-The learned $\mathbf{V}$ matrices map feature contributions directly to the latent consensus space. We visualize these weights using importance heatmaps in @fig-nsa-v-interpretability.
-
-![Interpretability of Learned NSA Layer Weights. Baseline (Black Box Importance) vs. Proposed (Exact $\mathbf{V}$ Matrix Weights). Heatmaps of learned $\mathbf{V}$ matrices for Heart Disease and Diabetes datasets. The visualization provides exact magnitude and direction of feature contributions, demonstrating strict global interpretability.](figures/nsa_v_interpretability.png){#fig-nsa-v-interpretability width="100%"}
-
-### Topological Regularization: LOO vs. STAR Consensus Pathways
-
-To evaluate architectural constraints, we compare the baseline **Star topology** with the proposed strict **Leave-One-Out (LOO) topology**. In Star topology, modality $m$ aligns to a consensus $\mathbf{U}$ that includes its own information. In LOO topology, modality $m$ aligns against a consensus $\mathbf{U}_{\neq m}$ built exclusively from other modalities.
-
-![Topological Regularization Benefit. Baseline (Star Topology) vs. Proposed (LOO Topology). Strictly Linear Accuracy on the Diabetes dataset. The LOO topology acts as a regularizer for high-capacity models, forcing the discovery of robust shared features rather than memorizing modality-specific noise.](figures/fig_v21_loo_vs_star.png){#fig-v21-loo-vs-star width="100%"}
-
-![Generalization Gap by Topology. Baseline (Star Topology) vs. Proposed (LOO Topology). Train-test accuracy gap. The LOO consensus pathway narrows the generalization gap for deep architectures, proving that strict cross-modal prediction prevents self-prediction leaks.](figures/fig_v21_loo_vs_star_gap.png){#fig-v21-loo-vs-star-gap width="100%"}
-
-## Complexity and Scaling Benchmarks
-
-We analyze wall-time complexity as a function of sample size $N$ and latent dimension $K$. @fig-scaling (Left) shows execution time scales linearly with $N$ ($\mathcal{O}(N)$), confirming optimized deep forward and backward passes. @fig-scaling (Right) details non-linear growth concerning $K$, specifically $\mathcal{O}(K^3)$ for the Newton-Schulz consensus. For typical biomedical ranks ($K < 100$), the overhead remains negligible.
+To evaluate how the 3-stage support-masked `nsa_flow(sparseness=q)` polish interacts with the underlying ground-truth density and sign constraints across the full benchmark suite, we execute $1,215$ model fits (`paper/results_cache/operating_points_05_08_benchmark.csv`) spanning three canonical operating points—unsparsified ($q = \text{None}$), moderate feature selection ($q = 0.5$, $50\%$ zeros), and focal biomarker selection ($q = 0.8$, $80\%$ zeros)—as well as paired `positivity="either"` vs.\ `positivity="positive"` evaluations on the high-dimensional real biomedical cohorts (`ADNI-MCI`, `MultiOmics`, `TCGA-KIRC`).
 
 ```{python}
 #| warning: false
 #| message: false
-#| label: fig-scaling
-#| fig-cap: 'Algorithmic Efficiency. Baseline (Linear Scaling) vs. Proposed (NSA Overhead). Execution Wall-time Scaling. (Left) Sample size $N$ scaling is linear. (Right) Latent dimension $K$ scaling reflects Newton-Schulz and covariance overhead ($\mathcal{O}(K^3)$). The proposed architectures maintain scalable execution times for typical biomedical dataset dimensions.'
+#| label: tbl-operating-points-support
+#| tbl-cap: 'Ground-Truth Sparse Support Recovery (Jaccard F1) Across Operating Points $q \in \{\text{None}, 0.5, 0.8\}$ on the Four Sparse Synthetic Regimes (`Linear` 50%-sparse signed, `Shared+Private` 80%-sparse signed, `NonnegParts` 66.7%-sparse non-negative, `NonnegPartsWeak` 80%-sparse non-negative).'
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+p_none = "results_cache/deep_ranking_benchmark_q_none.csv"
+if not os.path.exists(p_none):
+    p_none = "paper/results_cache/deep_ranking_benchmark_q_none.csv"
+p_05 = p_none.replace("_q_none.csv", "_q05.csv")
+p_08 = p_none.replace("_q_none.csv", "_q08.csv")
+
+d0 = pd.read_csv(p_none)
+d5 = pd.read_csv(p_05)
+d8 = pd.read_csv(p_08)
+for d in (d0, d5, d8):
+    d["Model"] = d["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+
+models = ["SiMLR-LBFGSB", "SiMLR", "SiMLR-LBFGS", "LEND", "NED", "NEDPP", "Flow-SiMR-V", "NSAFlow-PCA", "PCA"]
+regimes = ["Linear", "Shared+Private", "NonnegParts", "NonnegPartsWeak"]
+
+rows = []
+for m in models:
+    row = [m]
+    for rg in regimes:
+        s0 = d0[(d0["Dataset"] == rg) & (d0["Model"] == m)]["Support_Recovery_V"].mean()
+        s5 = d5[(d5["Dataset"] == rg) & (d5["Model"] == m)]["Support_Recovery_V"].mean()
+        s8 = d8[(d8["Dataset"] == rg) & (d8["Model"] == m)]["Support_Recovery_V"].mean()
+        row.append(f"{s0:.3f} / {s5:.3f} / {s8:.3f}")
+    rows.append(row)
+
+headers = [
+    "Model", "Linear (50% Signed, Jaccard F1 ↑)\nNone / 0.5 / 0.8",
+    "Shared+Priv (80% Signed, F1 ↑)\nNone / 0.5 / 0.8",
+    "NonnegParts (66.7% NonNeg, F1 ↑)\nNone / 0.5 / 0.8",
+    "NonnegPartsWeak (80% NonNeg, F1 ↑)\nNone / 0.5 / 0.8"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-operating-points-axis-linear
+#| tbl-cap: 'Subspace Fidelity (Linear Probe XV) vs. Single-Axis Interpretability (Random Forest Axis-Sensitive XV) Across Operating Points $q \in \{\text{None}, 0.5, 0.8\}$ (1,215 fits from `operating_points_05_08_benchmark.csv`). Directional indicators show optimization goals ($\uparrow$ higher score is better, $\downarrow$ smaller axis drop is better).'
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+csv_path = "results_cache/operating_points_05_08_benchmark.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/operating_points_05_08_benchmark.csv"
+
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+df["Sparseness_Target"] = df["Sparseness_Target"].fillna("None")
+
+models = ["Flow-SiMR-V", "LEND", "SiMLR-LBFGSB", "SiMLR-LBFGS", "SiMLR", "NEDPP", "NED", "NSAFlow-PCA", "PCA"]
+rows = []
+for m in models:
+    sub_m = df[df["Model"] == m]
+    lin_none = sub_m[sub_m["Sparseness_Target"] == "None"]["Strictly_Linear_Metric"].mean()
+    lin_05 = sub_m[sub_m["Sparseness_Target"] == 0.5]["Strictly_Linear_Metric"].mean()
+    lin_08 = sub_m[sub_m["Sparseness_Target"] == 0.8]["Strictly_Linear_Metric"].mean()
+    
+    rf_none = sub_m[sub_m["Sparseness_Target"] == "None"]["Axis_Sensitive_Metric"].mean()
+    rf_05 = sub_m[sub_m["Sparseness_Target"] == 0.5]["Axis_Sensitive_Metric"].mean()
+    rf_08 = sub_m[sub_m["Sparseness_Target"] == 0.8]["Axis_Sensitive_Metric"].mean()
+    
+    drop_05 = rf_05 - lin_05
+    rows.append([
+        m,
+        f"{lin_none:.4f}", f"{lin_05:.4f}", f"{lin_08:.4f}",
+        f"{rf_none:.4f}", f"{rf_05:.4f}", f"{rf_08:.4f}",
+        f"{drop_05:+.4f}"
+    ])
+
+headers = [
+    "Model", "Linear (q=None, ↑)", "Linear (q=0.5, ↑)", "Linear (q=0.8, ↑)",
+    "RF Axis (q=None, ↑)", "RF Axis (q=0.5, ↑)", "RF Axis (q=0.8, ↑)", "RF Drop at q=0.5 (↓)"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-operating-points-tradeoff
+#| fig-cap: 'Tunable quantile sparsification establishes an empirical Pareto trade-off between broad exploratory discovery ($q = 0.5$) and compact biomarker isolation ($q = 0.8$) across 1,215 model fits in 12 cohorts. **(A) Subspace & Axis Fidelity vs. Basis Sparsity:** Left Y-axis plots out-of-sample score ($\uparrow$ higher is better, range $[0.63, 0.69]$); right Y-axis plots achieved basis sparsity % ($\uparrow$ more compact, green dash-dot line, range $[10\%, 75\%]$). Moderate thresholding ($q = 0.5$) achieves peak linear fidelity ($0.6793$, solid blue) and peak Random Forest axis interpretability ($0.6505$, dashed violet), outperforming unsparsified models ($q = \text{None}$). Focal selection ($q = 0.8$) preserves $99.1\%$ of linear fidelity while raising sparsity to $61.9\%$. **(B) Sparse Ground-Truth Support Recovery ($F_1$):** Y-axis plots Jaccard $F_1$ ($\uparrow$ higher is better, range $[0.15, 0.85]$). On 50%-sparse ground truth (`Linear`, blue circles), $q = 0.5$ peaks at $F_1 = 0.727$ (vs. $0.534$ at $q = \text{None}$). On 80%-sparse ground truth (`NonnegPartsWeak`, amber triangles), $q = 0.8$ peaks at $F_1 = 0.710$ (vs. $0.482$ at $q = \text{None}$). Operating points align with intrinsic feature densities.'
 #| out-width: 100%
 #| echo: false
-import pandas as pd
-import matplotlib
-import matplotlib.pyplot as plt
 import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 
-cache_scaling = "results_cache/scaling_benchmark.csv"
-if not os.path.exists(cache_scaling):
-    cache_scaling = "paper/results_cache/scaling_benchmark.csv"
+csv_path = "results_cache/operating_points_05_08_benchmark.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/operating_points_05_08_benchmark.csv"
 
-if os.path.exists(cache_scaling):
-    df_scaling = pd.read_csv(cache_scaling)
-    n_scaling = df_scaling.groupby('n')['TimePerEpoch'].mean().reset_index()
-    k_scaling = df_scaling.groupby('k')['TimePerEpoch'].mean().reset_index()
-    n_vals = n_scaling['n']
-    n_times = n_scaling['TimePerEpoch']
-    k_vals = k_scaling['k']
-    k_times = k_scaling['TimePerEpoch']
-else:
-    n_vals = [100, 250, 500, 1000, 2500, 5000]
-    n_times = [0.008, 0.019, 0.038, 0.075, 0.185, 0.370]
-    k_vals = [2, 5, 10, 20, 40, 80]
-    k_times = [0.012, 0.015, 0.022, 0.045, 0.115, 0.380]
+df = pd.read_csv(csv_path)
+df["Sparseness_Target"] = df["Sparseness_Target"].fillna("None")
 
-fig, axes = plt.subplots(1, 2, figsize=(12, 5), dpi=300)
-axes[0].plot(n_vals, n_times, 'o-', color='#2563eb', lw=2)
-axes[0].set_title("Scaling with Sample Size N", fontsize=11, weight='bold')
-axes[0].set_xlabel("Number of Samples", fontsize=10)
-axes[0].set_ylabel("Time Per Epoch (s)", fontsize=10)
-axes[0].grid(True, linestyle='--', alpha=0.35)
+fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.0), dpi=300)
 
-axes[1].plot(k_vals, k_times, 's-', color='#dc2626', lw=2)
-axes[1].set_title("Scaling with Latent Rank K", fontsize=11, weight='bold')
-axes[1].set_xlabel("Latent Dimension", fontsize=10)
-axes[1].set_ylabel("Time Per Epoch (s)", fontsize=10)
-axes[1].grid(True, linestyle='--', alpha=0.35)
+# Panel A: Overall trade-off across operating points
+q_order = ["None", 0.5, 0.8]
+q_labels = ["q = None\n(Unsparsified)", "q = 0.5\n(Moderate)", "q = 0.8\n(Focal Biomarker)"]
+agg_q = df.groupby("Sparseness_Target")[["Sparsity_Ratio", "Strictly_Linear_Metric", "Axis_Sensitive_Metric", "Support_Recovery_V"]].mean().reindex(q_order)
+
+ax1 = axes[0]
+ax1_twin = ax1.twinx()
+
+p1 = ax1.plot(range(3), agg_q["Strictly_Linear_Metric"], "o-", color="#0284c7", lw=2.4, markersize=7, label="Subspace Fidelity (Linear XV ↑)")
+p2 = ax1.plot(range(3), agg_q["Axis_Sensitive_Metric"], "s--", color="#4f46e5", lw=2.2, markersize=7, label="Axis Interpretability (RF XV ↑)")
+p3 = ax1_twin.plot(range(3), agg_q["Sparsity_Ratio"] * 100, "^-.", color="#059669", lw=2.2, markersize=7, label="Achieved Sparsity % (↑)")
+
+ax1.set_xticks(range(3))
+ax1.set_xticklabels(q_labels, fontsize=9.5, weight="bold")
+ax1.set_ylabel("Out-of-Sample Score (↑ Better)", fontsize=10.5, weight="bold", color="#0f172a")
+ax1_twin.set_ylabel("Basis Sparsity % (↑ More Compact)", fontsize=10.5, weight="bold", color="#059669")
+ax1.set_ylim(0.63, 0.69)
+ax1_twin.set_ylim(10, 75)
+ax1.set_title("A. Predictive Fidelity vs. Sparsity Scaling", fontsize=11, weight="bold")
+ax1.grid(True, linestyle="--", alpha=0.35)
+
+lines_1 = p1 + p2 + p3
+labels_1 = [l.get_label() for l in lines_1]
+ax1.legend(lines_1, labels_1, loc="lower center", fontsize=8.5, frameon=True)
+
+# Panel B: Synthetic Support Recovery F1 across operating points
+ax2 = axes[1]
+syn_df = df[df["Case_Type"] == "synthetic"]
+syn_agg = syn_df.groupby(["Dataset", "Sparseness_Target"])["Support_Recovery_V"].mean().unstack()[q_order]
+
+styles = {
+    "Linear": ("#0284c7", "o-", "Linear (50% Signed Sparse)"),
+    "NonnegParts": ("#0d9488", "s-", "NonnegParts (66.7% Disjoint NonNeg)"),
+    "NonnegPartsWeak": ("#d97706", "^-", "NonnegPartsWeak (80% Disjoint NonNeg)"),
+    "Shared+Private": ("#e11d48", "d-", "Shared+Private (80% Signed Sparse)")
+}
+
+for ds, (col, sty, lbl) in styles.items():
+    if ds in syn_agg.index:
+        ax2.plot(range(3), syn_agg.loc[ds], sty, color=col, lw=2.2, markersize=7, label=lbl)
+
+ax2.set_xticks(range(3))
+ax2.set_xticklabels(q_labels, fontsize=9.5, weight="bold")
+ax2.set_ylabel("Sparse Support Recovery (Jaccard F1 ↑)", fontsize=10.5, weight="bold")
+ax2.set_title("B. Support Recovery F1 Matches Ground-Truth Density", fontsize=11, weight="bold")
+ax2.set_ylim(0.15, 0.90)
+ax2.grid(True, linestyle="--", alpha=0.35)
+ax2.legend(loc="center left", fontsize=8.5, frameon=True)
 
 plt.tight_layout()
 plt.show()
 ```
 
-## Flow-SiMR-V Gating Stability and Clinical Robustness
+The operating points and axis-sensitivity evaluations in @tbl-operating-points-axis-linear and @fig-operating-points-tradeoff establish three practical conclusions:
 
-We evaluate the Modality Alignment Index (MAI) dynamic weight gating on normalizing flow architectures under two challenging scenarios: a mixed non-linear synthetic benchmark containing a structured periodic signal and a completely random rogue noise view, and the TCGA-BRCA multi-omics classification task.
+1. **Random Forest reveals rotational diagonal mixing:** Ordinary least squares linear regression on $\mathbf{X}\mathbf{V}$ is rotationally invariant under orthogonal basis changes ($\mathbf{X}\mathbf{V}\mathbf{R}$ spans the same subspace for any $\mathbf{R} \in \mathrm{O}(k)$), which conceals coordinate-mixing defects. Decision trees and Random Forests evaluate axis-orthogonal splits ($z_j \le \theta$). When true biological factors are diagonally mixed across coordinates—as in unconstrained PCA—Random Forest prediction drops significantly. On `NonnegPartsWeak`, PCA linear score is $0.1246$, but its Random Forest score collapses to $-0.000053$ (effectively $0.0\%$), and on `ADNI-MCI`, PCA drops from $0.1522$ to $0.0441$ ($>70\%$ drop). In contrast, `Flow-SiMR-V` ($0.2311 \to 0.1969$ on ADNI-MCI) and `LEND` ($0.5140 \to 0.3855$ on `NonnegPartsWeak`) maintain single-axis alignment, cutting the average axis drop in half relative to PCA across all 12 benchmark cohorts ($-0.0226$ vs. $-0.0439$).
+2. **Tunable operating points match empirical feature densities:** Selecting $q = 0.5$ provides a robust operating point for broad exploratory discovery, maximizing linear fidelity ($0.6793$) and Random Forest axis interpretability ($0.6505$) while recovering $F_1 = 0.727$ on 50%-sparse ground truth (`Linear`). For targeted diagnostic biomarker panels where physical assay footprint must be minimized, $q = 0.8$ isolates focal feature sets (61.9% mean sparsity) while recovering $F_1 = 0.710$ on 80%-sparse ground truth (`NonnegPartsWeak`) and $F_1 = 0.797$ on `Shared+Private`, retaining $99.1\%$ of unsparsified subspace predictive power.
+3. **Paired positivity resolves reflection gauge degeneracies:** Enforcing non-negativity ($\mathbf{V}_m \ge 0$) with per-column sign-gauge resolution restricts basis columns to the positive orthant. On disjoint synthetic benchmarks (`NonnegParts`), non-negative constraints raise ground-truth support recovery to $F_1 = 0.861$ (`SiMLR-LBFGSB`) and $0.811$ (`LEND`), eliminating sign indeterminacies and establishing coordinate identifiability.
 
-### Mixed Non-linear Sinusoidal Benchmark
-
-As shown in @tbl-mixed-synthetic-results, purely static weights fail to suppress rogue noise, yielding a lower latent recovery ($R^2 = 0.1288$). Activating MAI gating immediately (epoch 0) on Flow-SiMR-V causes weight collapse on the low-dimensional space. Implementing **Delayed Gating Warmup** (uniform weights for the first 60 epochs) allows the projection layers to stabilize. When gating is activated at epoch 60, the model successfully quarantines the rogue view (noise weight driven to absolute zero) and achieves stable consensus alignment ($R^2 = 0.3073$), while the unconstrained Flow-SiMR model achieves $R^2 = 0.8193$.
-
-| Model Configuration | Dynamic (MAI)? | Delayed Start? | Latent Recovery $R^2$ | Modality Weights ($V_1, V_2, V_3, \text{Rogue}$) |
-|:---|:---:|:---:|:---:|:---|
-| **Flow-SiMR-V (Static)** | No | N/A | $0.1288$ | $[0.250, 0.250, 0.250, 0.250]$ |
-| **Flow-SiMR-V (Immediate)** | Yes | Epoch 0 | $0.7236$ | $[0.526, 0.001, 0.473, 0.000]$ (Collapsed $V_2$) |
-| **Flow-SiMR-V (Delayed)** | Yes | Epoch 60 | **$0.3073$** | $[0.445, 0.149, 0.406, 0.000]$ (Stable Gating) |
-| **Flow-SiMR (Static)** | No | N/A | $0.8257$ | $[0.250, 0.250, 0.250, 0.250]$ |
-| **Flow-SiMR (Dynamic)** | Yes | Epoch 0 | **$0.8193$** | $[0.341, 0.306, 0.332, 0.021]$ (Stable Gating) |
-: Mixed Non-linear Synthetic Benchmark Results. Flow-SiMR-V with Delayed Gating achieves stable consensus recovery and successfully quarantines rogue noise views without suffering weight collapse. {#tbl-mixed-synthetic-results}
-
-### BRCA Clinical Multi-omics Evaluation
-
-We validate the stability of Flow-SiMR-V gating on the high-dimensional TCGA-BRCA multi-omics clinical dataset ($N = 1010$ samples). The views consist of RNA expression, copy number variations, protein expression, and an injected Gaussian noise view. We train models to learn a joint consensus representation, and predict patient Estrogen Receptor (ER) binary status using downstream logistic regression.
-
-As shown in @tbl-brca-gating-results, under **Delayed Gating (warmup = 75 epochs)**, Flow-SiMR-V achieves the highest downstream ER status prediction accuracy of **87.27%**, outperforming both the static baseline (79.09%) and unconstrained Flow-SiMR (74.55%) by successfully quarantining the noise modality (weight reduced to $0.0593$) while maintaining representation capacity across all biological views.
-
-| Model Configuration | Dynamic (MAI)? | Delayed Start? | ER Status Accuracy | Modality Weights ($\text{RNA}, \text{DNA}_{\text{CN}}, \text{Protein}, \text{Noise}$) |
-|:---|:---:|:---:|:---:|:---|
-| **Flow-SiMR-V (Static)** | No | N/A | $79.09\%$ | $[0.2500, 0.2500, 0.2500, 0.2500]$ |
-| **Flow-SiMR-V (Immediate)** | Yes | Epoch 0 | $82.73\%$ | $[0.3640, 0.3288, 0.3042, 0.0029]$ |
-| **Flow-SiMR-V (Delayed)** | Yes | Epoch 75 | **$87.27\%$** | $[0.3353, 0.3364, 0.2690, 0.0593]$ (Optimal Gating) |
-| **Flow-SiMR (Static)** | No | N/A | $70.00\%$ | $[0.2500, 0.2500, 0.2500, 0.2500]$ |
-| **Flow-SiMR (Dynamic)** | Yes | Epoch 0 | $74.55\%$ | $[0.3102, 0.2502, 0.3167, 0.1229]$ |
-: BRCA Clinical Multi-omics Gating Results. Flow-SiMR-V with Delayed Gating achieves the highest classification accuracy by isolating genomic noise and balancing biological views. {#tbl-brca-gating-results}

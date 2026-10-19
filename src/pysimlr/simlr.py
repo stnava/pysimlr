@@ -738,14 +738,16 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
     if want_nonneg and x.shape[1] > k:
         fit_from_data = load_nsa_flow_data()
         if fit_from_data is not None:
+            q_data = (q_init if (q_init is not None and k > 1 and q_init > 1.0 - 1.0 / k)
+                      else None)
             fitted = _nonnegative_basis_from_data(
                 fit_from_data, x, k, NSA_DEFAULT_W, _usable_retraction,
-                sparseness=q_init)
+                sparseness=q_data)
             if fitted is not None:
-                if q_init is not None:
+                if q_data is not None:
                     from .sparsification import _apply_quantile_sparseness
                     fitted = _apply_quantile_sparseness(
-                        fitted, q_init, nonneg=True, only_if_denser=True)
+                        fitted, q_data, nonneg=True, only_if_denser=True)
                 return fitted.to(x.dtype)
 
     u, s, v = ba_svd(x, nu=0, nv=k)
@@ -760,10 +762,6 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
         for j in range(v.shape[1]):
             if v[:, j].sum() < 0:
                 v[:, j] *= -1
-    if q_init is not None and x.shape[1] > k:
-        return simlr_sparseness(v.to(x.dtype), constraint_type="ortho",
-                                positivity=positivity,
-                                sparseness_quantile=q_init).to(x.dtype)
     return v.to(x.dtype)
 
 
@@ -1718,12 +1716,18 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             # while the gradient was taken at the raw iterate, which left every
             # Armijo/backtracking optimizer testing a sufficient-decrease
             # condition against the slope of a different function.
+            from .sparsification import _resolve_quantile
+            _q_mod = _resolve_quantile(sparseness, modality_index=i)
+            _loop_sp = (None if (_want_nonneg and k > 1 and _q_mod is not None
+                                 and _q_mod < 1.0 - 1.0 / k)
+                        else sparseness)
+
             def to_feasible(v_cand):
                 return simlr_sparseness(
                     v_cand.to(orig_dtype), constraint_type=constraint_type,
                     smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None,
                     positivity=positivity,
-                    sparseness_quantile=sparseness,
+                    sparseness_quantile=_loop_sp,
                     constraint_weight=constraint_weight, constraint_iterations=constraint_iterations,
                     energy_type=energy_type, modality_index=i)
 
@@ -1793,7 +1797,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             
             # Apply final projection
             retraction_diags[i] = {}
-            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness_quantile=sparseness, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type, modality_index=i, retraction_diagnostics=retraction_diags[i])
+            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness_quantile=_loop_sp, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type, modality_index=i, retraction_diagnostics=retraction_diags[i])
             resid = float(torch.linalg.norm(v_mats[i] - v_before)
                           / torch.linalg.norm(v_before).clamp_min(1e-300))
             prev_resid[i] = resid
@@ -1866,6 +1870,15 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         v_mats = best_v_mats
         if best_retraction_diags is not None:
             retraction_diags = best_retraction_diags
+    if sparseness is not None and (constraint_type == "none" or float(constraint_weight) > 0.0):
+        from .sparsification import _apply_quantile_sparseness, _resolve_quantile, _unit_normalize_columns, energy_needs_unit_columns
+        for idx_m in range(n_modalities):
+            q_m = _resolve_quantile(sparseness, modality_index=idx_m)
+            if q_m is not None and _want_nonneg and k > 1 and q_m < 1.0 - 1.0 / k:
+                v_sp = _apply_quantile_sparseness(v_mats[idx_m], q_m, nonneg=True, only_if_denser=True)
+                if energy_needs_unit_columns(energy_type):
+                    v_sp = _unit_normalize_columns(v_sp)
+                v_mats[idx_m] = v_sp.to(orig_dtype)
     if not np.isfinite(best_total_energy):
         best_total_energy = min(energy_history) if energy_history else init_total_energy
     if best_iteration is None:

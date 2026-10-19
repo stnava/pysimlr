@@ -1429,6 +1429,8 @@ def simlr_sparseness(v: torch.Tensor,
     w = constraint_weight
     if isinstance(w, (list, tuple, np.ndarray)) and modality_index is not None:
         w = w[modality_index]
+    if w is not None and float(w) <= 0.0:
+        q_val = None
     w = NSA_DEFAULT_W if w is None else float(w)
 
     v_out = enforce_column_floor(v_out)

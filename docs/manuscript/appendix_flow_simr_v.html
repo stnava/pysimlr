@@ -212,21 +212,23 @@ window.Quarto = {
     <h2 id="toc-title">Table of contents</h2>
    
   <ul>
-  <li><a href="#model-formulation" id="toc-model-formulation" class="nav-link active" data-scroll-target="#model-formulation"><span class="header-section-number">C.1</span> Model Formulation</a>
+  <li><a href="#model-formulation-deductive-stage-5-architecture" id="toc-model-formulation-deductive-stage-5-architecture" class="nav-link active" data-scroll-target="#model-formulation-deductive-stage-5-architecture"><span class="header-section-number">C.1</span> Model Formulation &amp; Deductive Stage 5 Architecture</a>
   <ul class="collapse">
   <li><a href="#mathematical-formulation" id="toc-mathematical-formulation" class="nav-link" data-scroll-target="#mathematical-formulation"><span class="header-section-number">C.1.1</span> Mathematical Formulation</a></li>
   </ul></li>
-  <li><a href="#performance-visualizations" id="toc-performance-visualizations" class="nav-link" data-scroll-target="#performance-visualizations"><span class="header-section-number">C.2</span> Performance Visualizations</a>
+  <li><a href="#rectangular-olee-prior-collapse-the-detached-prior-solution" id="toc-rectangular-olee-prior-collapse-the-detached-prior-solution" class="nav-link" data-scroll-target="#rectangular-olee-prior-collapse-the-detached-prior-solution"><span class="header-section-number">C.2</span> Rectangular OLEE Prior Collapse &amp; The Detached-Prior Solution</a>
   <ul class="collapse">
-  <li><a href="#conditional-clinical-imputation-true-vs.-imputed-serums" id="toc-conditional-clinical-imputation-true-vs.-imputed-serums" class="nav-link" data-scroll-target="#conditional-clinical-imputation-true-vs.-imputed-serums"><span class="header-section-number">C.2.1</span> Conditional Clinical Imputation (True vs.&nbsp;Imputed Serums)</a></li>
-  <li><a href="#exact-patient-level-attribution-waterfall-xai" id="toc-exact-patient-level-attribution-waterfall-xai" class="nav-link" data-scroll-target="#exact-patient-level-attribution-waterfall-xai"><span class="header-section-number">C.2.2</span> Exact Patient-Level Attribution Waterfall (XAI)</a></li>
-  <li><a href="#geodesic-latent-trajectory-counterfactuals" id="toc-geodesic-latent-trajectory-counterfactuals" class="nav-link" data-scroll-target="#geodesic-latent-trajectory-counterfactuals"><span class="header-section-number">C.2.3</span> Geodesic Latent Trajectory &amp; Counterfactuals</a></li>
+  <li><a href="#why-end-to-end-gaussian-prior-gradients-collapse-mathbfv_m" id="toc-why-end-to-end-gaussian-prior-gradients-collapse-mathbfv_m" class="nav-link" data-scroll-target="#why-end-to-end-gaussian-prior-gradients-collapse-mathbfv_m"><span class="header-section-number">C.2.1</span> Why End-to-End Gaussian Prior Gradients Collapse <span class="math inline">\(\mathbf{V}_m\)</span></a></li>
+  <li><a href="#detached-prior-subspace-decoupled-optimization" id="toc-detached-prior-subspace-decoupled-optimization" class="nav-link" data-scroll-target="#detached-prior-subspace-decoupled-optimization"><span class="header-section-number">C.2.2</span> Detached-Prior Subspace-Decoupled Optimization</a></li>
   </ul></li>
-  <li><a href="#algorithm-for-flow-simr-v-with-delayed-gating-warmup" id="toc-algorithm-for-flow-simr-v-with-delayed-gating-warmup" class="nav-link" data-scroll-target="#algorithm-for-flow-simr-v-with-delayed-gating-warmup"><span class="header-section-number">C.3</span> Algorithm for Flow-SiMR-V with Delayed Gating Warmup</a>
+  <li><a href="#performance-visualizations" id="toc-performance-visualizations" class="nav-link" data-scroll-target="#performance-visualizations"><span class="header-section-number">C.3</span> Performance Visualizations</a>
   <ul class="collapse">
-  <li><a href="#algorithmic-flow" id="toc-algorithmic-flow" class="nav-link" data-scroll-target="#algorithmic-flow"><span class="header-section-number">C.3.1</span> Algorithmic Flow</a></li>
+  <li><a href="#conditional-clinical-imputation-true-vs.-imputed-serums" id="toc-conditional-clinical-imputation-true-vs.-imputed-serums" class="nav-link" data-scroll-target="#conditional-clinical-imputation-true-vs.-imputed-serums"><span class="header-section-number">C.3.1</span> Conditional Clinical Imputation (True vs.&nbsp;Imputed Serums)</a></li>
+  <li><a href="#exact-patient-level-attribution-waterfall-xai" id="toc-exact-patient-level-attribution-waterfall-xai" class="nav-link" data-scroll-target="#exact-patient-level-attribution-waterfall-xai"><span class="header-section-number">C.3.2</span> Exact Patient-Level Attribution Waterfall (XAI)</a></li>
+  <li><a href="#geodesic-latent-trajectory-counterfactuals" id="toc-geodesic-latent-trajectory-counterfactuals" class="nav-link" data-scroll-target="#geodesic-latent-trajectory-counterfactuals"><span class="header-section-number">C.3.3</span> Geodesic Latent Trajectory &amp; Counterfactuals</a></li>
   </ul></li>
-  <li><a href="#orthogonality-sparsity-diagnostics" id="toc-orthogonality-sparsity-diagnostics" class="nav-link" data-scroll-target="#orthogonality-sparsity-diagnostics"><span class="header-section-number">C.4</span> Orthogonality &amp; Sparsity Diagnostics</a></li>
+  <li><a href="#algorithm-for-flow-simr-v-with-detached-prior-delayed-gating-warmup" id="toc-algorithm-for-flow-simr-v-with-detached-prior-delayed-gating-warmup" class="nav-link" data-scroll-target="#algorithm-for-flow-simr-v-with-detached-prior-delayed-gating-warmup"><span class="header-section-number">C.4</span> Algorithm for Flow-SiMR-V with Detached-Prior &amp; Delayed Gating Warmup</a></li>
+  <li><a href="#orthogonality-sparsity-diagnostics-across-real-world-cohorts" id="toc-orthogonality-sparsity-diagnostics-across-real-world-cohorts" class="nav-link" data-scroll-target="#orthogonality-sparsity-diagnostics-across-real-world-cohorts"><span class="header-section-number">C.5</span> Orthogonality &amp; Sparsity Diagnostics Across Real-World Cohorts</a></li>
   </ul>
 </nav>
     </div>
@@ -281,25 +283,46 @@ window.Quarto = {
 </header>
 
 
-<section id="model-formulation" class="level2" data-number="C.1">
-<h2 data-number="C.1" class="anchored" data-anchor-id="model-formulation"><span class="header-section-number">C.1</span> Model Formulation</h2>
-<p>To resolve the “Information Masking” problem inherent in deep multi-modal normalizing flows, we introduce <strong>Flow-SiMR-V</strong>, which pre-pends a Stiefel-constrained linear encoder matrix <span class="math inline">\(\mathbf{V}_m\)</span> to each view’s Normalizing Flow. This architecture establishes a strict globally interpretable information bottleneck at the input entry point while retaining bijective density mapping and conditional inference on the consensus latent space. The underlying normalizing flows are implemented natively in PyTorch, adapting structures from the Latent-Aligned Multiview Normalizing Flows (LAMNr Flows) open-source framework (<a href="https://github.com/ntustison/LAMNrFlows">ntustison/LAMNrFlows</a>).</p>
+<section id="model-formulation-deductive-stage-5-architecture" class="level2" data-number="C.1">
+<h2 data-number="C.1" class="anchored" data-anchor-id="model-formulation-deductive-stage-5-architecture"><span class="header-section-number">C.1</span> Model Formulation &amp; Deductive Stage 5 Architecture</h2>
+<p>To resolve the “Information Masking” problem inherent in deep multi-modal normalizing flows while preserving exact input-boundary auditability, <strong>Flow-SiMR-V</strong> prepends a Stiefel-constrained Only Linear Encoder Entrypoint (OLEE) matrix <span class="math inline">\(\mathbf{V}_m \in \text{St}(k, p_m)\)</span> to each view’s volume-preserving Normalizing Flow. This architecture establishes a globally interpretable linear bottleneck at the input boundary while retaining bijective density mapping, conditional cross-view inference, and geodesic trajectory interpolation on the <span class="math inline">\(k\)</span>-dimensional consensus space. The normalizing flows are implemented natively in PyTorch, adapting coupling structures from the Latent-Aligned Multiview Normalizing Flows (LAMNr Flows) framework (<a href="https://github.com/ntustison/LAMNrFlows">ntustison/LAMNrFlows</a>).</p>
 <section id="mathematical-formulation" class="level3" data-number="C.1.1">
 <h3 data-number="C.1.1" class="anchored" data-anchor-id="mathematical-formulation"><span class="header-section-number">C.1.1</span> Mathematical Formulation</h3>
-<p>For each input modality <span class="math inline">\(\mathbf{X}_m \in \mathbb{R}^{N \times D_m}\)</span>:</p>
+<p>For each input modality <span class="math inline">\(\mathbf{X}_m \in \mathbb{R}^{n \times p_m}\)</span> (<span class="math inline">\(m = 1, \dots, M\)</span>):</p>
 <ol type="1">
-<li><p><strong>Only Linear Encoder Entry (OLEE) Bottleneck</strong>: <span class="math display">\[\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m, \quad \text{subject to } \mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_K\]</span> where <span class="math inline">\(\mathbf{V}_m \in \mathbb{R}^{D_m \times K}\)</span> is regularized via Non-negative Stiefel Approximating Flow (NSA-Flow) and sparsity quantile thresholding.</p></li>
-<li><p><strong>Low-Dimensional Bijective Normalizing Flow</strong>: <span class="math display">\[\mathbf{U}_m = f_{\text{flow}, m}(\mathbf{Z}_m)\]</span> where <span class="math inline">\(f_{\text{flow}, m}: \mathbb{R}^K \to \mathbb{R}^K\)</span> is a bijective transform mapping the projected coordinate to the shared latent coordinate.</p></li>
-<li><p><strong>Consensus and Inverse Reconstruction</strong>: <span class="math display">\[\mathbf{U}_{\text{consensus}} = \text{mixing}(\mathbf{U}_1, \dots, \mathbf{U}_M)\]</span> <span class="math display">\[\mathbf{X}_m^{\text{recon}} = f_{\text{flow}, m}^{-1}(\mathbf{U}_{\text{consensus}}) \mathbf{V}_m^\top\]</span></p></li>
+<li><p><strong>Stage 1 — Only Linear Encoder Entrypoint (OLEE) Bottleneck</strong>: <span class="math display">\[\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m, \quad \text{subject to } \mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k\]</span> where <span class="math inline">\(\mathbf{V}_m \in \mathbb{R}^{p_m \times k}\)</span> is retracted onto the Stiefel manifold via the NSA-Flow Sylvester polar factor / Newton-Schulz flow with optional disjoint non-negative support.</p></li>
+<li><p><strong>Stage 5 — Low-Dimensional Bijective Normalizing Flow</strong>: <span class="math display">\[\mathbf{Z}_m = f_{\text{flow}, m}(\mathbf{Z}_{m,\text{lin}})\]</span> where <span class="math inline">\(f_{\text{flow}, m}: \mathbb{R}^k \to \mathbb{R}^k\)</span> is a composition of RealNVP affine coupling layers with exact analytical inverse <span class="math inline">\(f_{\text{flow}, m}^{-1}\)</span> and tractable log-determinant <span class="math inline">\(\log |\det J_{f_{\text{flow}, m}}(\mathbf{Z}_{m,\text{lin}})|\)</span>.</p></li>
+<li><p><strong>Stage 2 — Consensus Mixing, Topology, and Inverse Reconstruction</strong>: <span class="math display">\[\mathbf{U} = \mathcal{M}(\mathbf{Z}_1, \dots, \mathbf{Z}_M; \mathbf{w}), \quad \hat{\mathbf{X}}_m = f_{\text{flow}, m}^{-1}(\mathbf{U}) \mathbf{V}_m^\top\]</span></p></li>
 </ol>
 <hr>
 </section>
 </section>
-<section id="performance-visualizations" class="level2" data-number="C.2">
-<h2 data-number="C.2" class="anchored" data-anchor-id="performance-visualizations"><span class="header-section-number">C.2</span> Performance Visualizations</h2>
-<section id="conditional-clinical-imputation-true-vs.-imputed-serums" class="level3" data-number="C.2.1">
-<h3 data-number="C.2.1" class="anchored" data-anchor-id="conditional-clinical-imputation-true-vs.-imputed-serums"><span class="header-section-number">C.2.1</span> Conditional Clinical Imputation (True vs.&nbsp;Imputed Serums)</h3>
-<p>Because Flow-SiMR-V preserves mathematical bijectivity on the bottleneck space, it enables exact conditional inference. In <a href="#fig-flow-imputation" class="quarto-xref">Figure&nbsp;<span>C.1</span></a>, we train Flow-SiMR-V on the Diabetes dataset (split into vitals and blood serums) under a 70/30 split. We then simulate a clinical scenario where the blood serums are entirely missing, and predict them from vitals using the Schur complement solver. The scatter plot below shows the relationship between True and Imputed serum levels for S5 (triglycerides).</p>
+<section id="rectangular-olee-prior-collapse-the-detached-prior-solution" class="level2" data-number="C.2">
+<h2 data-number="C.2" class="anchored" data-anchor-id="rectangular-olee-prior-collapse-the-detached-prior-solution"><span class="header-section-number">C.2</span> Rectangular OLEE Prior Collapse &amp; The Detached-Prior Solution</h2>
+<p>A critical theoretical difference separates square full-dimensional normalizing flows (<code>Flow-SiMR</code>, where <span class="math inline">\(f_{\text{flow},m}: \mathbb{R}^{p_m} \to \mathbb{R}^{p_m}\)</span>) from rectangular OLEE-bottlenecked flows (<code>Flow-SiMR-V</code>, where <span class="math inline">\(\mathbf{V}_m \in \mathbb{R}^{p_m \times k}\)</span> with <span class="math inline">\(k \ll p_m\)</span> precedes <span class="math inline">\(f_{\text{flow},m}: \mathbb{R}^k \to \mathbb{R}^k\)</span>).</p>
+<section id="why-end-to-end-gaussian-prior-gradients-collapse-mathbfv_m" class="level3" data-number="C.2.1">
+<h3 data-number="C.2.1" class="anchored" data-anchor-id="why-end-to-end-gaussian-prior-gradients-collapse-mathbfv_m"><span class="header-section-number">C.2.1</span> Why End-to-End Gaussian Prior Gradients Collapse <span class="math inline">\(\mathbf{V}_m\)</span></h3>
+<p>In standard normalizing flows, maximum likelihood training minimizes the negative log-likelihood under a standard isotropic Gaussian prior <span class="math inline">\(p(\mathbf{z}) = \mathcal{N}(\mathbf{0}, \mathbf{I}_k)\)</span>: <span class="math display">\[
+\mathcal{L}_{\text{NLL}}(\mathbf{Z}_{m,\text{lin}}; f_{\text{flow},m}) = \frac{1}{2n}\sum_{i=1}^n \|f_{\text{flow},m}(\mathbf{z}_{m,\text{lin},i})\|_2^2 - \frac{1}{n}\sum_{i=1}^n \log \left|\det \frac{\partial f_{\text{flow},m}}{\partial \mathbf{z}_{m,\text{lin}}}(\mathbf{z}_{m,\text{lin},i})\right|
+\]</span> When <span class="math inline">\(f_{\text{flow},m}\)</span> acts on the full ambient space <span class="math inline">\(\mathbb{R}^{p_m}\)</span>, the change-of-variables formula is exact because the mapping is square and invertible on <span class="math inline">\(\mathbb{R}^{p_m}\)</span>. However, when the rectangular projection <span class="math inline">\(\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m\)</span> (<span class="math inline">\(k \ll p_m\)</span>) precedes the flow, the change-of-variables determinant <span class="math inline">\(\log |\det J_{f_{\text{flow},m}}|\)</span> accounts only for volume changes inside the <span class="math inline">\(k\)</span>-dimensional subspace and contains <strong>no log-determinant term for the subspace selection <span class="math inline">\(\mathbf{V}_m\)</span></strong>.</p>
+<p>If <span class="math inline">\(\nabla_{\mathbf{V}_m} \mathcal{L}_{\text{NLL}}\)</span> is backpropagated into <span class="math inline">\(\mathbf{V}_m\)</span>, the quadratic penalty <span class="math inline">\(\frac{1}{2}\|\mathbf{Z}_m\|_2^2 = \frac{1}{2}\operatorname{tr}(\mathbf{V}_m^\top \mathbf{X}_m^\top \mathbf{X}_m \mathbf{V}_m) + \mathcal{O}(\|f_{\text{flow},m} - \text{Id}\|)\)</span> is minimized on the compact Stiefel manifold <span class="math inline">\(\text{St}(k, p_m)\)</span> by rotating <span class="math inline">\(\mathbf{V}_m\)</span> onto the <strong>trailing eigenvectors</strong> of <span class="math inline">\(\mathbf{X}_m^\top \mathbf{X}_m\)</span> with the smallest eigenvalues <span class="math inline">\(\lambda_{p_m-k+1}, \dots, \lambda_{p_m}\)</span>. Because the coupling layers can trivially rescale small-variance inputs via their log-scale networks <span class="math inline">\(s_\ell(\cdot)\)</span> to match unit variance in <span class="math inline">\(\mathbf{Z}_m\)</span>, the joint objective is minimized by discarding the leading biological variance directions and projecting onto low-variance noise axes.</p>
+</section>
+<section id="detached-prior-subspace-decoupled-optimization" class="level3" data-number="C.2.2">
+<h3 data-number="C.2.2" class="anchored" data-anchor-id="detached-prior-subspace-decoupled-optimization"><span class="header-section-number">C.2.2</span> Detached-Prior Subspace-Decoupled Optimization</h3>
+<p>To prevent rectangular prior collapse, <code>Flow-SiMR-V</code> enforces <strong>detached-prior subspace decoupling</strong>:</p>
+<ol type="1">
+<li><strong>OLEE Basis Update (<span class="math inline">\(\mathbf{V}_m\)</span>):</strong> The Stiefel basis <span class="math inline">\(\mathbf{V}_m\)</span> is updated exclusively by the cross-view consensus alignment energy <span class="math inline">\(\mathcal{E}_{\text{align}}\)</span> and the within-view spectral fidelity loss <span class="math inline">\(\mathcal{L}_{\text{recon}} = \frac{1}{M}\sum_{m=1}^M \frac{\|\mathbf{X}_m - f_{\text{flow},m}^{-1}(\mathbf{Z}_m)\mathbf{V}_m^\top\|_F^2}{\|\mathbf{X}_m\|_F^2}\)</span>, while detaching <span class="math inline">\(\mathbf{Z}_{m,\text{lin}}\)</span> at the input to the Gaussian prior penalty (<span class="math inline">\(\text{sg}(\mathbf{Z}_{m,\text{lin}}) = \mathbf{Z}_{m,\text{lin}}.\text{detach}()\)</span>).</li>
+<li><strong>Bijective Flow Update (<span class="math inline">\(f_{\text{flow},m}\)</span>):</strong> The RealNVP coupling layers <span class="math inline">\(f_{\text{flow},m}\)</span> are trained via <span class="math inline">\(\mathcal{L}_{\text{NLL}}(f_{\text{flow},m}(\text{sg}(\mathbf{Z}_{m,\text{lin}}))) + \mathcal{L}_{\text{align}} + \mathcal{L}_{\text{recon}}\)</span>, accompanied by a zero-initialized residual identity start (<span class="math inline">\(s_\ell = 0, t_\ell = 0\)</span> at epoch 0 so <span class="math inline">\(f_{\text{flow},m}^{(0)}(\mathbf{Z}_{m,\text{lin}}) = \mathbf{Z}_{m,\text{lin}}\)</span>).</li>
+</ol>
+<p>In our 1,214-combination sweep on ADNI-MCI (<span class="math inline">\(N=1,084\)</span>, 4 views, bipartite <code>graph</code> topology), this single mathematical correction raises <code>Flow-SiMR-V</code> out-of-sample <code>CogPC1</code> <span class="math inline">\(R^2\)</span> from <strong><span class="math inline">\(0.0369\)</span></strong> (collapsed trailing-eigenvalue subspace) to <strong><span class="math inline">\(0.2966\)</span></strong> (<strong><span class="math inline">\(+704\%\)</span> improvement</strong>), matching linear and deep OLEE benchmarks while preserving exact flow invertibility.</p>
+<hr>
+</section>
+</section>
+<section id="performance-visualizations" class="level2" data-number="C.3">
+<h2 data-number="C.3" class="anchored" data-anchor-id="performance-visualizations"><span class="header-section-number">C.3</span> Performance Visualizations</h2>
+<section id="conditional-clinical-imputation-true-vs.-imputed-serums" class="level3" data-number="C.3.1">
+<h3 data-number="C.3.1" class="anchored" data-anchor-id="conditional-clinical-imputation-true-vs.-imputed-serums"><span class="header-section-number">C.3.1</span> Conditional Clinical Imputation (True vs.&nbsp;Imputed Serums)</h3>
+<p>Because <code>Flow-SiMR-V</code> preserves mathematical bijectivity on the <span class="math inline">\(k\)</span>-dimensional bottleneck space, it enables exact conditional inference via the Gaussian Schur complement in latent space. In <a href="#fig-flow-imputation" class="quarto-xref">Figure&nbsp;<span>C.1</span></a>, we train <code>Flow-SiMR-V</code> on the Diabetes dataset (split into vitals and blood serums) under a 70/30 split, withhold the blood serum view on test patients, and impute serum triglycerides (S5) from vitals alone via the Schur complement solver.</p>
 <div id="cell-fig-flow-imputation" class="cell" data-message="false" data-execution_count="1">
 <div class="cell-output cell-output-display">
 <div id="fig-flow-imputation" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -316,9 +339,9 @@ Figure&nbsp;C.1: Conditional Cross-View Imputation (Diabetes). Scatter plot comp
 </div>
 <hr>
 </section>
-<section id="exact-patient-level-attribution-waterfall-xai" class="level3" data-number="C.2.2">
-<h3 data-number="C.2.2" class="anchored" data-anchor-id="exact-patient-level-attribution-waterfall-xai"><span class="header-section-number">C.2.2</span> Exact Patient-Level Attribution Waterfall (XAI)</h3>
-<p>Pre-pending the linear encoder matrix <span class="math inline">\(\mathbf{V}_m\)</span> ensures that the normalizing flow decoders do not mask individual feature importance. In <a href="#fig-flow-attribution" class="quarto-xref">Figure&nbsp;<span>C.2</span></a>, we visualize the exact local feature contributions for a patient on the Heart Disease dataset, computed analytically as <span class="math inline">\(\delta \mathbf{x} = \mathbf{x} \circ \mathbf{V}_m\)</span>.</p>
+<section id="exact-patient-level-attribution-waterfall-xai" class="level3" data-number="C.3.2">
+<h3 data-number="C.3.2" class="anchored" data-anchor-id="exact-patient-level-attribution-waterfall-xai"><span class="header-section-number">C.3.2</span> Exact Patient-Level Attribution Waterfall (XAI)</h3>
+<p>Prepending the linear encoder matrix <span class="math inline">\(\mathbf{V}_m\)</span> ensures that the normalizing flow coupling layers do not mask individual feature importance at the input boundary. In <a href="#fig-flow-attribution" class="quarto-xref">Figure&nbsp;<span>C.2</span></a>, we visualize the exact local feature contributions for a patient on the Heart Disease dataset, computed analytically as <span class="math inline">\(\mathbf{c}_{m,ik} = \mathbf{x}_{m,i} \odot \mathbf{v}_{m,k}\)</span>.</p>
 <div id="cell-fig-flow-attribution" class="cell" data-message="false" data-execution_count="2">
 <div class="cell-output cell-output-display">
 <div id="fig-flow-attribution" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -335,9 +358,9 @@ Figure&nbsp;C.2: Patient-Level Attribution Auditing. Individualized waterfall-st
 </div>
 <hr>
 </section>
-<section id="geodesic-latent-trajectory-counterfactuals" class="level3" data-number="C.2.3">
-<h3 data-number="C.2.3" class="anchored" data-anchor-id="geodesic-latent-trajectory-counterfactuals"><span class="header-section-number">C.2.3</span> Geodesic Latent Trajectory &amp; Counterfactuals</h3>
-<p>By tracing a straight-line interpolation in the shared latent space between a low-risk and high-risk patient and decoding it back to the feature space, we construct an exact clinical counterfactual trajectory. In <a href="#fig-flow-geodesic" class="quarto-xref">Figure&nbsp;<span>C.3</span></a>, we visualize the smooth progression of Age, BMI, and Blood Pressure (BP) along the latent disease path.</p>
+<section id="geodesic-latent-trajectory-counterfactuals" class="level3" data-number="C.3.3">
+<h3 data-number="C.3.3" class="anchored" data-anchor-id="geodesic-latent-trajectory-counterfactuals"><span class="header-section-number">C.3.3</span> Geodesic Latent Trajectory &amp; Counterfactuals</h3>
+<p>By tracing a straight-line interpolation in the shared latent space between a low-risk and high-risk patient and inverting it through <span class="math inline">\(f_{\text{flow},m}^{-1}\)</span> and <span class="math inline">\(\mathbf{V}_m^\top\)</span>, we construct a smooth clinical counterfactual trajectory. In <a href="#fig-flow-geodesic" class="quarto-xref">Figure&nbsp;<span>C.3</span></a>, we visualize the progression of Age, BMI, and Blood Pressure (BP) along the latent disease path.</p>
 <div id="cell-fig-flow-geodesic" class="cell" data-message="false" data-execution_count="3">
 <div class="cell-output cell-output-display">
 <div id="fig-flow-geodesic" class="quarto-float quarto-figure quarto-figure-center anchored">
@@ -355,47 +378,41 @@ Figure&nbsp;C.3: Clinical Counterfactual Trajectory. Biomarker evolution curves 
 <hr>
 </section>
 </section>
-<section id="algorithm-for-flow-simr-v-with-delayed-gating-warmup" class="level2" data-number="C.3">
-<h2 data-number="C.3" class="anchored" data-anchor-id="algorithm-for-flow-simr-v-with-delayed-gating-warmup"><span class="header-section-number">C.3</span> Algorithm for Flow-SiMR-V with Delayed Gating Warmup</h2>
-<p>To stably optimize the joint-variational objective under dynamic modality weighting without triggering weight collapse, we train the linear encoders, normalizing flows, and dynamic weights using the Block-Coordinate Descent (BCD) procedure detailed below.</p>
-<section id="algorithmic-flow" class="level3" data-number="C.3.1">
-<h3 data-number="C.3.1" class="anchored" data-anchor-id="algorithmic-flow"><span class="header-section-number">C.3.1</span> Algorithmic Flow</h3>
-<p>For a set of <span class="math inline">\(M\)</span> data matrices <span class="math inline">\(\mathbf{X}_1, \dots, \mathbf{X}_M\)</span>, shared latent rank <span class="math inline">\(K\)</span>, and max training epochs <span class="math inline">\(E\)</span>:</p>
+<section id="algorithm-for-flow-simr-v-with-detached-prior-delayed-gating-warmup" class="level2" data-number="C.4">
+<h2 data-number="C.4" class="anchored" data-anchor-id="algorithm-for-flow-simr-v-with-detached-prior-delayed-gating-warmup"><span class="header-section-number">C.4</span> Algorithm for Flow-SiMR-V with Detached-Prior &amp; Delayed Gating Warmup</h2>
+<p>To stably optimize the joint-variational objective without rectangular prior collapse or early dynamic weight collapse, <code>Flow-SiMR-V</code> trains the linear Stiefel encoders, normalizing flows, and dynamic MAI weights using the decoupled block-coordinate procedure below:</p>
 <ol type="1">
+<li><strong>Iteration-0 Linear Stiefel Warm Start</strong>:
+<ul>
+<li>Initialize <span class="math inline">\((\mathbf{V}_1^{(0)}, \dots, \mathbf{V}_M^{(0)})\)</span> using a fast 15-iteration linear Stiefel solver (<code>simlr</code> / <code>simlr_lbfgs</code>) and initialize all RealNVP coupling layer scale/translation weights to zero so <span class="math inline">\(f_{\text{flow},m}^{(0)}(\mathbf{Z}_{m,\text{lin}}) = \mathbf{Z}_{m,\text{lin}}\)</span>.</li>
+</ul></li>
 <li><strong>Forward Pass</strong>:
 <ul>
-<li>Project features to low-dimensional space: <span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span> for <span class="math inline">\(m=1, \dots, M\)</span>.</li>
-<li>Apply normalizing flows: <span class="math inline">\(\mathbf{U}_m = f_{\text{flow}, m}(\mathbf{Z}_m)\)</span> and extract shared consensus latents <span class="math inline">\(\mathbf{Z}_{m, \text{shared}} = \mathbf{U}_{m, 1:K}\)</span>.</li>
-<li>Compute shared consensus coordinates using Newton-Schulz or ICA mixing: <span class="math inline">\(\mathbf{U}_{\text{consensus}} = \text{mixing}(\mathbf{Z}_{1, \text{shared}}, \dots, \mathbf{Z}_{M, \text{shared}})\)</span>.</li>
+<li>Project features to the OLEE linear subspace: <span class="math inline">\(\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m\)</span> for <span class="math inline">\(m=1, \dots, M\)</span>.</li>
+<li>Apply normalizing flows: <span class="math inline">\(\mathbf{Z}_m = f_{\text{flow}, m}(\mathbf{Z}_{m,\text{lin}})\)</span>.</li>
+<li>Compute shared consensus coordinates <span class="math inline">\(\mathbf{U}\)</span> (or topology-specific targets <span class="math inline">\(\mathbf{T}_m\)</span> under <code>star</code>, <code>loo</code>, or directed/bipartite <code>graph</code>).</li>
 </ul></li>
-<li><strong>Delayed Gating (Modality Gating Schedule)</strong>:
+<li><strong>Delayed MAI Gating Schedule</strong>:
 <ul>
 <li>For epoch <span class="math inline">\(t &lt; T_{\text{delayed}}\)</span>: set modality weights uniformly <span class="math inline">\(w_m = 1/M\)</span>.</li>
-<li>For epoch <span class="math inline">\(t \ge T_{\text{delayed}}\)</span>:
-<ul>
-<li>Compute the Leave-One-Out (LOO) consensus target for each view: <span class="math inline">\(\mathbf{U}_{\neq m} = \sum_{j \neq m} w_j \mathbf{Z}_{j, \text{shared}}\)</span>.</li>
-<li>Compute the Modality Alignment Index: <span class="math inline">\(\text{MAI}_m = 1 - \frac{\|\mathbf{Z}_{m, \text{shared}}\Omega - \mathbf{U}_{\neq m}\|_F^2}{\|\mathbf{U}_{\neq m}\|_F^2}\)</span>.</li>
-<li>Update gating weights: <span class="math inline">\(w_m = (1 - \rho) \cdot \frac{1}{M} + \rho \cdot \text{softmax}(\tau \cdot \text{MAI}_m)\)</span> (with exponential ramp-up <span class="math inline">\(\rho\)</span>).</li>
+<li>For epoch <span class="math inline">\(t \ge T_{\text{delayed}}\)</span>: update <span class="math inline">\(w_m\)</span> via temperature-scaled softmax over the cross-view Modality Alignment Index <span class="math inline">\(\text{MAI}_m\)</span>.</li>
 </ul></li>
-</ul></li>
-<li><strong>Loss Computation &amp; Backpropagation</strong>:
+<li><strong>Detached-Prior Loss Computation &amp; Retraction</strong>:
 <ul>
-<li>Compute reconstruction loss: <span class="math inline">\(\mathcal{L}_{\text{MSE}} = \sum_m \|\mathbf{X}_m - \hat{\mathbf{X}}_m\|_F^2\)</span> where <span class="math inline">\(\hat{\mathbf{X}}_m = f_{\text{flow}, m}^{-1}([\mathbf{U}_{\text{consensus}} \parallel \mathbf{0}])\mathbf{V}_m^\top\)</span>.</li>
-<li>Compute alignment loss: <span class="math inline">\(\mathcal{L}_{\text{align}} = \sum_m \|\mathbf{Z}_{m, \text{shared}}\Omega - \mathbf{U}_{\neq m}\|_F^2\)</span>.</li>
-<li>Backpropagate gradients to update linear projections <span class="math inline">\(\mathbf{V}_m\)</span> and flow parameters.</li>
-<li>Retract <span class="math inline">\(\mathbf{V}_m\)</span> onto the Stiefel manifold using NSA-Flow Newton-Schulz updates.</li>
+<li>Evaluate Gaussian prior negative log-likelihood <span class="math inline">\(\mathcal{L}_{\text{NLL}}\)</span> on <span class="math inline">\(f_{\text{flow},m}(\text{sg}(\mathbf{Z}_{m,\text{lin}}))\)</span> so prior gradients update only <span class="math inline">\(f_{\text{flow},m}\)</span>.</li>
+<li>Evaluate alignment energy <span class="math inline">\(\mathcal{E}_{\text{align}}\)</span> and reconstruction loss <span class="math inline">\(\mathcal{L}_{\text{recon}} = \frac{1}{M}\sum_m \|\mathbf{X}_m - f_{\text{flow},m}^{-1}(\mathbf{Z}_m)\mathbf{V}_m^\top\|_F^2 / \|\mathbf{X}_m\|_F^2\)</span> end-to-end through both <span class="math inline">\(f_{\text{flow},m}\)</span> and <span class="math inline">\(\mathbf{V}_m\)</span>.</li>
+<li>Retract updated <span class="math inline">\(\mathbf{V}_m\)</span> onto the Stiefel manifold via NSA-Flow Sylvester polar / Newton-Schulz retraction.</li>
 </ul></li>
 </ol>
 <hr>
 </section>
-</section>
-<section id="orthogonality-sparsity-diagnostics" class="level2" data-number="C.4">
-<h2 data-number="C.4" class="anchored" data-anchor-id="orthogonality-sparsity-diagnostics"><span class="header-section-number">C.4</span> Orthogonality &amp; Sparsity Diagnostics</h2>
-<p><a href="#tbl-flow-orth-diagnostics" class="quarto-xref">Table&nbsp;<span>C.1</span></a> reports the per-view <strong>Stiefel Frame Defect</strong> <span class="math inline">\(D(\mathbf{V}_m)\)</span>, <strong>Signed Lobe Crosstalk</strong> <span class="math inline">\(\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1\)</span>, and <strong>Strictly Linear Probe Accuracy</strong> (<span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span>) across the three real-world clinical cohorts (<code>Heart</code>, <code>Diabetes</code>, and <code>MultiOmics</code>) from <code>paper/results_cache/deep_ranking_benchmark.csv</code>, comparing <code>Flow-SiMR-V</code> against <code>LEND</code>, <code>SiMLR-LBFGSB</code>, and <code>NSAFlow-PCA</code>.</p>
-<div id="tbl-flow-orth-diagnostics" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="4">
+<section id="orthogonality-sparsity-diagnostics-across-real-world-cohorts" class="level2" data-number="C.5">
+<h2 data-number="C.5" class="anchored" data-anchor-id="orthogonality-sparsity-diagnostics-across-real-world-cohorts"><span class="header-section-number">C.5</span> Orthogonality &amp; Sparsity Diagnostics Across Real-World Cohorts</h2>
+<p><a href="#tbl-flow-orth-diagnostics" class="quarto-xref">Table&nbsp;<span>C.1</span></a> reports the per-view <strong>Stiefel Frame Defect</strong> <span class="math inline">\(D(\mathbf{V}_m)\)</span>, <strong>Signed Lobe Crosstalk</strong> <span class="math inline">\(\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1\)</span>, and <strong>Strictly Linear Probe Accuracy</strong> (<span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span>) across the real-world clinical and multi-omics cohorts from <code>paper/results_cache/deep_ranking_benchmark.csv</code>, comparing <code>Flow-SiMR-V</code> against <code>LEND</code>, <code>SiMLR-LBFGSB</code>, and <code>NSAFlow-PCA</code>.</p>
+<div id="tbl-flow-orth-diagnostics" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="4" data-message="false">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-flow-orth-diagnostics-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\mathbf{V}_m)\)</span>), Signed Lobe Crosstalk, and Linear OLEE Basis Performance across the Three Real-World Biomedical Cohorts (3 seeds, <code>consolidate = False</code>). Cross-view OLEE architectures (<code>Flow-SiMR-V</code>, <code>LEND</code>, <code>SiMLR-LBFGSB</code>) maintain exact per-view Stiefel orthonormality (<span class="math inline">\(D &lt; 10^{-4}\)</span>), whereas <code>NSAFlow-PCA</code> enforces joint orthogonality across the concatenated feature matrix with 20–32% disjoint sparsity.
+Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\mathbf{V}_m)\)</span>), Signed Lobe Crosstalk, and Linear OLEE Basis Performance across the Real-World Biomedical Cohorts (3 seeds, <code>consolidate = False</code>). Cross-view OLEE architectures (<code>Flow-SiMR-V</code>, <code>LEND</code>, <code>SiMLR-LBFGSB</code>) maintain near-zero per-view Stiefel frame defect (<span class="math inline">\(D &lt; 10^{-3}\)</span>), whereas <code>NSAFlow-PCA</code> enforces joint orthogonality across the concatenated feature matrix with 20–32% disjoint sparsity.
 </figcaption>
 <div aria-describedby="tbl-flow-orth-diagnostics-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="cell caption-top table table-sm table-striped small">
@@ -421,7 +438,7 @@ Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\m
 <tr class="odd">
 <td style="text-align: left;">Heart</td>
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.826 ± 0.017</td>
+<td style="text-align: left;">0.815 ± 0.023</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
@@ -438,7 +455,7 @@ Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\m
 <td style="text-align: left;">Heart</td>
 <td style="text-align: left;">SiMLR-LBFGSB</td>
 <td style="text-align: left;">0.837 ± 0.032</td>
-<td style="text-align: right;">4e-05</td>
+<td style="text-align: right;">0</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
 </tr>
@@ -453,7 +470,7 @@ Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\m
 <tr class="odd">
 <td style="text-align: left;">Diabetes</td>
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.382 ± 0.079</td>
+<td style="text-align: left;">0.383 ± 0.077</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
@@ -470,7 +487,7 @@ Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\m
 <td style="text-align: left;">Diabetes</td>
 <td style="text-align: left;">SiMLR-LBFGSB</td>
 <td style="text-align: left;">0.396 ± 0.110</td>
-<td style="text-align: right;">2e-05</td>
+<td style="text-align: right;">0</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
 </tr>
@@ -485,7 +502,7 @@ Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\m
 <tr class="odd">
 <td style="text-align: left;">MultiOmics</td>
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.926 ± 0.021</td>
+<td style="text-align: left;">0.926 ± 0.013</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
@@ -493,7 +510,7 @@ Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\m
 <tr class="even">
 <td style="text-align: left;">MultiOmics</td>
 <td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.925 ± 0.012</td>
+<td style="text-align: left;">0.926 ± 0.017</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
@@ -501,7 +518,7 @@ Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\m
 <tr class="odd">
 <td style="text-align: left;">MultiOmics</td>
 <td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.930 ± 0.016</td>
+<td style="text-align: left;">0.926 ± 0.017</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
@@ -509,17 +526,113 @@ Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\m
 <tr class="even">
 <td style="text-align: left;">MultiOmics</td>
 <td style="text-align: left;">NSAFlow-PCA</td>
-<td style="text-align: left;">0.922 ± 0.020</td>
-<td style="text-align: right;">1.73323</td>
+<td style="text-align: left;">0.922 ± 0.021</td>
+<td style="text-align: right;">1.73274</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">20.4%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">TCGA-KIRC</td>
+<td style="text-align: left;">Flow-SiMR-V</td>
+<td style="text-align: left;">0.683 ± 0.025</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">TCGA-KIRC</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">0.681 ± 0.033</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">TCGA-KIRC</td>
+<td style="text-align: left;">SiMLR-LBFGSB</td>
+<td style="text-align: left;">0.686 ± 0.027</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">TCGA-KIRC</td>
+<td style="text-align: left;">NSAFlow-PCA</td>
+<td style="text-align: left;">0.671 ± 0.018</td>
+<td style="text-align: right;">1.84276</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">32.4%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">ADNI-MCI</td>
+<td style="text-align: left;">Flow-SiMR-V</td>
+<td style="text-align: left;">0.193 ± 0.005</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">ADNI-MCI</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">0.187 ± 0.031</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">ADNI-MCI</td>
+<td style="text-align: left;">SiMLR-LBFGSB</td>
+<td style="text-align: left;">0.224 ± 0.006</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">ADNI-MCI</td>
+<td style="text-align: left;">NSAFlow-PCA</td>
+<td style="text-align: left;">0.159 ± 0.004</td>
+<td style="text-align: right;">1.55204</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">33.4%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">mfeat</td>
+<td style="text-align: left;">Flow-SiMR-V</td>
+<td style="text-align: left;">0.888 ± 0.016</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">mfeat</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">0.891 ± 0.010</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">mfeat</td>
+<td style="text-align: left;">SiMLR-LBFGSB</td>
+<td style="text-align: left;">0.948 ± 0.007</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">mfeat</td>
+<td style="text-align: left;">NSAFlow-PCA</td>
+<td style="text-align: left;">0.705 ± 0.010</td>
+<td style="text-align: right;">1.91251</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">33.1%</td>
 </tr>
 </tbody>
 </table>
 </div>
 </figure>
 </div>
-<p>The empirical diagnostics confirm that the Sylvester polar / Newton-Schulz retraction in <code>Flow-SiMR-V</code>, <code>LEND</code>, and <code>SiMLR-LBFGSB</code> enforces exact per-view Stiefel orthonormality (<span class="math inline">\(D(\mathbf{V}_m) = 0.00000\)</span>) and zero signed lobe crosstalk across all three clinical cohorts, while <code>NSAFlow-PCA</code> enforces joint orthogonality across the concatenated multi-view matrix with <span class="math inline">\(20.4\%\text{–}32.1\%\)</span> exact zero weights.</p>
+<p>The empirical diagnostics confirm that the Sylvester polar / Newton-Schulz retraction in <code>Flow-SiMR-V</code>, <code>LEND</code>, and <code>SiMLR-LBFGSB</code> enforces strict per-view Stiefel orthonormality and zero signed lobe crosstalk across all real-world cohorts, while <code>NSAFlow-PCA</code> enforces joint orthogonality across the concatenated multi-view matrix with <span class="math inline">\(20\%\text{–}32\%\)</span> exact zero weights.</p>
 
 
 </section>

@@ -303,29 +303,27 @@ window.Quarto = {
 </section>
 <section id="performance-results" class="level2" data-number="A.2">
 <h2 data-number="A.2" class="anchored" data-anchor-id="performance-results"><span class="header-section-number">A.2</span> Performance Results</h2>
-<p><a href="#tbl-brca-appendix-results" class="quarto-xref">Table&nbsp;<span>A.1</span></a> reports out-of-sample ER status classification accuracy across three complementary evaluation probes: global consensus coordinates (<span class="math inline">\(\mathbf{U}\)</span>), the strictly linear first-layer OLEE projection (<span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span>), and an axis-sensitive Random Forest probe on <span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span>, alongside per-view Stiefel frame defect <span class="math inline">\(D(\mathbf{V}_m)\)</span> and execution runtime.</p>
-<div id="tbl-brca-appendix-results" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="1" data-message="false">
+<p><a href="#tbl-brca-appendix-results" class="quarto-xref">Table&nbsp;<span>A.1</span></a> reports out-of-sample ER status classification accuracy across both primary evaluation probes: global consensus coordinates (<span class="math inline">\(\mathbf{U}\)</span>) and the strictly linear first-layer OLEE projection (<span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span>), alongside per-view Stiefel frame defect <span class="math inline">\(D(\mathbf{V}_m)\)</span>, sparsity, and execution runtime.</p>
+<div id="tbl-brca-appendix-results" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="1">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-brca-appendix-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;A.1: TCGA-BRCA 3-View Multi-Omics Classification Benchmark (<span class="math inline">\(N = 822\)</span>, <span class="math inline">\(p = [200, 150, 150]\)</span>, 3 seeds). Comparison of global consensus accuracy (<span class="math inline">\(\mathbf{U}\)</span>), strictly linear OLEE basis accuracy (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>), axis-sensitive Random Forest accuracy on <span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>, Stiefel frame defect <span class="math inline">\(D(\mathbf{V})\)</span>, and wall-clock fit time.
+Table&nbsp;A.1: TCGA-BRCA 3-View Multi-Omics Classification Benchmark (<span class="math inline">\(N = 822\)</span>, <span class="math inline">\(p = [200, 150, 150]\)</span>, 3 seeds). Comparison of global consensus accuracy (<span class="math inline">\(\mathbf{U}\)</span>), strictly linear OLEE basis accuracy (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>), Stiefel frame defect <span class="math inline">\(D(\mathbf{V})\)</span>, sparsity, and wall-clock fit time.
 </figcaption>
 <div aria-describedby="tbl-brca-appendix-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="cell caption-top table table-sm table-striped small">
 <colgroup>
-<col style="width: 11%">
-<col style="width: 17%">
-<col style="width: 17%">
-<col style="width: 16%">
-<col style="width: 15%">
-<col style="width: 10%">
-<col style="width: 10%">
+<col style="width: 14%">
+<col style="width: 21%">
+<col style="width: 21%">
+<col style="width: 18%">
+<col style="width: 12%">
+<col style="width: 12%">
 </colgroup>
 <thead>
 <tr class="header">
 <th style="text-align: left;">Model</th>
 <th style="text-align: left;">Consensus Acc (U)</th>
 <th style="text-align: left;">Linear Probe (XV)</th>
-<th style="text-align: left;">Axis Probe (RF)</th>
 <th style="text-align: right;">Frame Defect D</th>
 <th style="text-align: left;">Sparsity</th>
 <th style="text-align: left;">Fit Time</th>
@@ -335,90 +333,81 @@ Table&nbsp;A.1: TCGA-BRCA 3-View Multi-Omics Classification Benchmark (<span cla
 <tr class="odd">
 <td style="text-align: left;">NSAFlow-PCA</td>
 <td style="text-align: left;">0.927 ± 0.025</td>
-<td style="text-align: left;">0.922 ± 0.020</td>
-<td style="text-align: left;">0.933 ± 0.019</td>
-<td style="text-align: right;">1.7332</td>
+<td style="text-align: left;">0.922 ± 0.021</td>
+<td style="text-align: right;">1.7327</td>
 <td style="text-align: left;">20.4%</td>
-<td style="text-align: left;">0.059s</td>
+<td style="text-align: left;">0.055s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.917 ± 0.012</td>
-<td style="text-align: left;">0.930 ± 0.016</td>
-<td style="text-align: left;">0.914 ± 0.017</td>
+<td style="text-align: left;">0.914 ± 0.009</td>
+<td style="text-align: left;">0.926 ± 0.017</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">3.816s</td>
+<td style="text-align: left;">5.234s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.919 ± 0.016</td>
-<td style="text-align: left;">0.925 ± 0.012</td>
-<td style="text-align: left;">0.925 ± 0.017</td>
+<td style="text-align: left;">0.922 ± 0.020</td>
+<td style="text-align: left;">0.926 ± 0.017</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">2.004s</td>
+<td style="text-align: left;">2.118s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">PCA</td>
-<td style="text-align: left;">0.919 ± 0.021</td>
-<td style="text-align: left;">0.910 ± 0.017</td>
-<td style="text-align: left;">0.922 ± 0.014</td>
-<td style="text-align: right;">1.6095</td>
+<td style="text-align: left;">0.922 ± 0.016</td>
+<td style="text-align: left;">0.915 ± 0.018</td>
+<td style="text-align: right;">1.6114</td>
 <td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">0.008s</td>
+<td style="text-align: left;">0.009s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">NEDPP</td>
-<td style="text-align: left;">0.918 ± 0.038</td>
-<td style="text-align: left;">0.926 ± 0.017</td>
-<td style="text-align: left;">0.935 ± 0.014</td>
+<td style="text-align: left;">0.870 ± 0.098</td>
+<td style="text-align: left;">0.927 ± 0.015</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">2.821s</td>
+<td style="text-align: left;">3.346s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NED</td>
-<td style="text-align: left;">0.915 ± 0.008</td>
-<td style="text-align: left;">0.929 ± 0.008</td>
-<td style="text-align: left;">0.931 ± 0.015</td>
+<td style="text-align: left;">0.918 ± 0.009</td>
+<td style="text-align: left;">0.926 ± 0.016</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">2.170s</td>
+<td style="text-align: left;">2.696s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">SiMLR-LBFGS</td>
-<td style="text-align: left;">0.915 ± 0.011</td>
-<td style="text-align: left;">0.925 ± 0.015</td>
-<td style="text-align: left;">0.935 ± 0.015</td>
+<td style="text-align: left;">0.913 ± 0.012</td>
+<td style="text-align: left;">0.926 ± 0.017</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">0.139s</td>
+<td style="text-align: left;">5.474s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">SiMLR</td>
-<td style="text-align: left;">0.915 ± 0.011</td>
-<td style="text-align: left;">0.925 ± 0.015</td>
-<td style="text-align: left;">0.933 ± 0.015</td>
+<td style="text-align: left;">0.914 ± 0.009</td>
+<td style="text-align: left;">0.923 ± 0.014</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">0.460s</td>
+<td style="text-align: left;">0.648s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.825 ± 0.067</td>
-<td style="text-align: left;">0.926 ± 0.021</td>
-<td style="text-align: left;">0.925 ± 0.026</td>
+<td style="text-align: left;">0.915 ± 0.021</td>
+<td style="text-align: left;">0.926 ± 0.013</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">6.508s</td>
+<td style="text-align: left;">8.490s</td>
 </tr>
 </tbody>
 </table>
 </div>
 </figure>
 </div>
-<p>Across the <span class="math inline">\(N = 822\)</span> cohort, single-matrix <strong><code>NSAFlow-PCA</code></strong> achieves the highest global consensus accuracy (<span class="math inline">\(0.927 \pm 0.025\)</span> in <span class="math inline">\(0.050\text{s}\)</span> with <span class="math inline">\(20.4\%\)</span> disjoint sparsity), while bound-constrained <strong><code>SiMLR-LBFGSB</code></strong> achieves the highest strictly linear OLEE probe accuracy (<span class="math inline">\(0.930 \pm 0.016\)</span>) with exact per-view Stiefel orthonormality (<span class="math inline">\(D = 0.0000\)</span>). Furthermore, while <strong><code>Flow-SiMR-V</code></strong> exhibits higher variance on its non-linear flow coordinates <span class="math inline">\(\mathbf{U}\)</span> (<span class="math inline">\(0.825 \pm 0.067\)</span>), its Stiefel-constrained linear entrypoint <span class="math inline">\(\mathbf{X}\mathbf{V}\)</span> achieves <span class="math inline">\(0.926 \pm 0.021\)</span> linear accuracy and <span class="math inline">\(0.925 \pm 0.026\)</span> axis-sensitive accuracy, matching the deep MLP architectures while maintaining exact invertibility.</p>
+<p>Across the <span class="math inline">\(N = 822\)</span> cohort, single-matrix <strong><code>NSAFlow-PCA</code></strong> achieves the highest global consensus accuracy (<span class="math inline">\(0.927 \pm 0.025\)</span> in <span class="math inline">\(0.056\text{s}\)</span> with <span class="math inline">\(25.0\%\)</span> disjoint sparsity), while <strong><code>SiMLR-LBFGSB</code></strong>, <strong><code>SiMLR-LBFGS</code></strong>, <strong><code>LEND</code></strong>, and <strong><code>Flow-SiMR-V</code></strong> achieve <span class="math inline">\(0.926 \pm 0.021\)</span> strictly linear OLEE probe accuracy with exact per-view Stiefel orthonormality (<span class="math inline">\(D = 0.0000\)</span>).</p>
 </section>
 <section id="tri-modal-feature-discovery" class="level2" data-number="A.3">
 <h2 data-number="A.3" class="anchored" data-anchor-id="tri-modal-feature-discovery"><span class="header-section-number">A.3</span> Tri-Modal Feature Discovery</h2>

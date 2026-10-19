@@ -4,140 +4,91 @@ title: "Introduction and Background"
 
 ## Introduction
 
-High-throughput biomedical studies routinely collect multiple distinct measurements from each subject. In neurodegenerative disease research, cohorts such as the Alzheimer's Disease Neuroimaging Initiative (ADNI) [@ADNI; @jack2008alzheimer] and the Parkinson's Progression Markers Initiative (PPMI) [@Marek2011] acquire structural MRI regional morphometry, diffusion tensor white matter fractional anisotropy, molecular PET, biofluid assays, and comprehensive psychometric batteries [@avants2014ants; @stone2020longitudinal; @avants2021]. In traumatic brain injury (TBI) and neurotrauma, blast-induced shockwave exposure produces diffuse axonal injury and non-local microstructural shearing that alter structural connectivity networks [@stone2024blast]. In translational oncology, the Cancer Genome Atlas (TCGA) profiles patient tumors across somatic copy-number alterations, transcriptomic expression, DNA methylation, and targeted reverse-phase protein arrays in breast invasive carcinoma (BRCA) [@tcga2012breast; @cancerdiscovery2016esr1] and clear cell renal cell carcinoma (KIRC) [@tcga2013kirc]. Integrating these observations—formalized as $M$ data matrices $\mathbf{X}_m \in \mathbb{R}^{n \times p_m}$ for $m = 1, \dots, M$ across $n$ co-registered subjects—is essential for resolving phenotypic heterogeneity, identifying molecular subtypes, and mapping progression trajectories.
+Clinical neuroimaging and multi-omics studies collect multiple high-dimensional views from each patient, such as regional cortical volumes, cortical thicknesses, and neuropsychological batteries in the Alzheimer's Disease Neuroimaging Initiative (ADNI) [@ADNI; @jack2008alzheimer], or transcriptomic, copy-number, and proteomic assays in The Cancer Genome Atlas (TCGA) [@tcga2012breast; @tcga2013kirc]. Integrating $M$ data matrices $\mathbf{X}_m \in \mathbb{R}^{n \times p_m}$ ($m = 1, \dots, M$) across $n$ subjects requires a representation that captures cross-view disease signal while keeping every latent coordinate directly attributable to specific anatomical regions, genes, or clinical scales [@avants2021; @stone2020longitudinal; @stone2024blast].
 
-Deep representation learning methods, including Deep Canonical Correlation Analysis (Deep CCA) [@andrew2013deep] and Multimodal Variational Autoencoders (MVAEs) [@wu2018multimodal], capture non-linear cross-modal dependencies. However, standard deep encoders map inputs through deeply nested affine transformations interleaved with non-linear activations ($\mathbf{Z} = \sigma(\mathbf{W}_2 \sigma(\mathbf{W}_1 \mathbf{X} + \mathbf{b}_1) + \mathbf{b}_2)$). This composition creates complex feature entanglement, obscuring the physical attribution between observable biological measurements and latent coordinates [@Rudin_2019]. In clinical diagnostics, oncology biomarker discovery, and neurotrauma assessment, this opacity imposes a severe **transparency penalty**: clinicians, regulatory agencies, and trial biostatisticians cannot determine whether a diagnostic score reflects authentic pathophysiology (such as entorhinal cortical atrophy or targeted kinase dysregulation) or idiosyncratic scanner noise and batch artifacts [@Holmberg_2022].
+Standard deep multi-view networks—including Deep Canonical Correlation Analysis (Deep CCA) [@andrew2013deep] and Multimodal Variational Autoencoders [@wu2018multimodal]—pass raw inputs through stacked affine layers and non-linear activations. Because every hidden unit mixes all input features with sample-dependent derivatives, clinicians cannot read off which brain regions or transcripts drive a patient's latent score without relying on post-hoc perturbation surrogates such as LIME [@Ribeiro_2016] or SHAP [@Lundberg_2017]. Perturbing correlated biological features independently evaluates off-manifold combinations that violate anatomical or genomic covariance [@Rudin_2019; @Smith2023posthoc]. Conversely, classical linear methods such as Principal Component Analysis (PCA) and Canonical Correlation Analysis (CCA) [@hotelling1936relations] provide constant linear loadings, but dense singular vectors spread weight across every variable with mixed signs, and single-matrix concatenation conflates shared disease signal with view-private variance (@fig-scientific-overview).
 
-Post-hoc explainability techniques, such as LIME [@Ribeiro_2016] and SHAP [@Lundberg_2017], attempt to infer feature importance by querying black-box models on randomly perturbed inputs. As demonstrated by Rudin [-@Rudin_2019], post-hoc surrogates exhibit fundamental failure modes in biological domains. By perturbing features independently, they evaluate synthetic samples that violate physiological covariance—pairing, for example, incompatible regional brain volumes or mutually exclusive oncogenic mutations. Consequently, post-hoc explanations can be unstable, sensitive to hyperparameter tuning, and biologically deceptive [@Smith2023posthoc].
+![The Only Linear Encoder Entrypoint (OLEE) preserves single-feature attribution and eliminates the black-box transparency penalty while aligning heterogeneous biomedical views. **(1) Multi-Modal Clinical Views:** Heterogeneous measurements $\mathbf{X}_1, \dots, \mathbf{X}_M$ (structural MRI cortical thickness, neuropsychological tests, transcriptomic assays; $N = 303\text{–}1,084$ across cohorts) are standardized within each cross-validation training fold. **(2) Sparse Orthogonal Entrypoint:** Each view enters strictly through a linear dictionary $\mathbf{U}_m = \mathbf{X}_m \mathbf{V}_m$, where $\mathbf{V}_m \ge 0$ is constrained to the approximate non-negative Stiefel manifold ($\mathcal{S}_{p,k}^+$) via `nsa_flow` at default weight $w = 0.50$ and quantile sparsity $q = 0.50$. **(3) Shared Patient Consensus:** View projections align around a shared patient representation via linear consensus ($\mathbf{U}$), non-linear decoding (`LEND`), or invertible normalizing flows (`Flow-SiMR-V`). **(4) Direct Anatomical & Biomarker Attribution:** Because the input boundary is strictly linear, individual patient risk factors map directly to localized cortical parcels or gene modules via $x_{ij} \odot v_{jl}$ without perturbation surrogates.](figures/fig-scientific-overview.jpg){#fig-scientific-overview width="100%"}
 
-Conversely, classical linear dimensionality reduction methods—including Principal Component Analysis (PCA) and Canonical Correlation Analysis (CCA) [@hotelling1936relations]—provide exact linear loadings ($Z_{jk} = \sum_i X_{ji} V_{ik}$). Similarity-driven Multimodal Linear Reconstruction (SiMLR) [@avants2021] extended CCA to multiple modalities with sparsity and non-negativity constraints, solving a joint-variational problem on the Stiefel manifold. While linear SiMLR guarantees interpretability, complex disease processes can involve non-linear manifold geometry that linear projections cannot span. Furthermore, unconstrained PCA yields dense, mixed-sign loadings that lack anatomical specificity and fail to isolate shared cross-modal signals from modality-specific noise.
+### From Classical SiMLR to Non-Linear SiMR and the Linear Entrypoint
 
-### The Only Linear Encoder Entrypoint (OLEE) Contract
+Classical **SiMLR** (*Similarity-driven Multi-view Linear Reconstruction*) [@avants2021] was introduced to bridge multi-view alignment and sparse linear matrix factorization. Given $M$ standardized data matrices $\mathbf{X}_m \in \mathbb{R}^{n \times p_m}$, classical SiMLR estimates a view-specific linear basis $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ ($k \ll p_m$) for each modality such that the low-dimensional projections $\mathbf{X}_m \mathbf{V}_m$ align across views around a shared $n \times k$ patient consensus $\mathbf{U}$ while reconstructing each view linearly.
 
-To resolve the tension between non-linear expressivity and auditable feature attribution, we formulate Deep SiMLR governed by the **Only Linear Encoder Entrypoint (OLEE)** contract. OLEE mandates that the initial entrypoint for every modality is restricted to a linear projection on the compact Stiefel manifold:
+In this work, we generalize classical SiMLR to **SiMR** (*Similarity-driven Multi-view Representation*)—dropping the "Linear" restriction from the global framework name because the downstream latent alignment, decoding, or density estimation may be non-linear, while keeping the input entrypoint strictly linear. Specifically, every model in the SiMR family enforces an **Only Linear Encoder Entrypoint (OLEE)**:
 $$
-\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m, \quad \text{subject to } \mathbf{V}_m \in \text{St}(k, p_m) = \{\mathbf{V} \in \mathbb{R}^{p_m \times k} \mid \mathbf{V}^\top \mathbf{V} = \mathbf{I}_k\}
+\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m, \qquad \mathbf{V}_m \in \mathbb{R}^{p_m \times k}, \quad k \ll p_m.
 $$
-All downstream non-linear transformations—including volume-preserving normalizing flows, Riemannian quasi-Newton solvers, and non-linear decoders—operate exclusively on the low-dimensional latent coordinates $\mathbf{Z}_m \in \mathbb{R}^{n \times k}$.
+All subsequent operations—whether classical linear consensus projections (`SiMLR`, `SiMLR-LBFGS`, `SiMLR-LBFGSB`), multi-layer perceptron decoders (`LEND`), post-projection encoders (`NED`, `NEDPP`), or invertible normalizing flows (`Flow-SiMR-V`)—operate strictly on the $k$-dimensional linear scores $\mathbf{Z}_{m,\text{lin}}$ rather than raw inputs $\mathbf{X}_m$. Because the entrypoint is linear, the input Jacobian of the first-layer scores is constant across all subjects ($\nabla_{\mathbf{X}_m}\mathbf{Z}_{m,\text{lin}} = \mathbf{V}_m$), and minimum-norm counterfactual shifts in feature space follow directly from $\mathbf{V}_m^\top$ [@pearl2009causality; @Wachter_2017].
 
-Enforcing the OLEE contract yields three fundamental mathematical and clinical guarantees:
+### Approximate Stiefel Retraction (`nsa_flow`), Positivity, and the Weight $w \in (0, 1)$
 
-1. **Elimination of the Transparency Penalty:** Because the input mapping is strictly linear, the directional attribution gradient with respect to raw physical features is globally constant and analytically exact:
-   $$
-   \nabla_{\mathbf{X}_m} \mathbf{Z}_m = \mathbf{V}_m, \quad \frac{\partial Z_{m, ik}}{\partial X_{m, ij}} = V_{m, jk}
-   $$
-   Unlike black-box encoders where local gradients vary wildly across the input manifold, the OLEE loading matrix $\mathbf{V}_m$ directly encodes the physical contribution of every biological feature.
-2. **Closed-Form Counterfactual Recourse:** In causal recourse and actionable intervention frameworks [@pearl2009causality; @Wachter_2017], a critical objective is determining what observable biomarker intervention $\Delta \mathbf{x}$ will produce a desired therapeutic shift $\Delta \mathbf{z}^*$ in disease state. Under standard deep encoders, calculating recourse requires non-convex gradient descent through non-linear latents, regularly synthesizing physically impossible biological states. Under the OLEE contract, forward latent shifts are instantaneous:
-   $$
-   \Delta \mathbf{Z}_m = \Delta \mathbf{X}_m \mathbf{V}_m
-   $$
-   while the minimal $L_2$-norm physical intervention required to achieve a target shift $\Delta \mathbf{z}_m^*$ is an exact orthogonal projection:
-   $$
-   \delta \mathbf{x}_m^* = \Delta \mathbf{z}_m^* \mathbf{V}_m^\top
-   $$
-   This delivers immediate, closed-form causal auditability without heuristic sampling.
-3. **Spectral Noise Insulation:** To prevent high-dimensional isotropic noise from distorting consensus coordinates, we incorporate dynamic Modality Alignment Index (MAI) weighting based on singular value decay, down-weighting uninformative modalities during consensus optimization.
-
-### Multimodal Consensus as Latent Signal Recovery
-
-We formalize multi-view integration as the estimation of a shared latent signal $\mathbf{S} \in \mathbb{R}^{n \times k}$ from $M$ observations:
+To make the columns of $\mathbf{V}_m$ interpretable as distinct anatomical networks or gene modules without rank collapse, we regularize $\mathbf{V}_m$ using Non-negative Stiefel Approximating Flow (`nsa_flow`) [@avants2025]. Rather than projecting $\mathbf{V}_m$ onto the exact Stiefel manifold $\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k$, `nsa_flow` minimizes a dimensionless composite energy controlled by a single convex weight $w \in [0, 1]$:
 $$
-\mathbf{X}_m = g_m(\mathbf{S}) + \mathbf{E}_m, \quad m = 1, \dots, M
+E_w(\mathbf{V}_m; \mathbf{V}_{m,0}) = (1 - w)\,\mathcal{L}_{\text{fid}}(\mathbf{V}_m, \mathbf{V}_{m,0}) + w\,D(\mathbf{V}_m),
 $$
-where $g_m: \mathbb{R}^{n \times k} \to \mathbb{R}^{n \times p_m}$ is a modality-specific generative mapping and $\mathbf{E}_m$ represents domain-specific noise and private variance. Multi-modal consensus seeks mappings $f_m(\mathbf{X}_m)$ that project each observation to a unified consensus representation $\mathbf{U} \in \mathbb{R}^{n \times k}$ approximating $\mathbf{S}$.
+where $\mathcal{L}_{\text{fid}}$ measures relative distance to the candidate basis update $\mathbf{V}_{m,0}$ and $D(\mathbf{V}_m)$ is the scale-invariant **Stiefel defect**:
+$$
+D(\mathbf{V}_m) = \frac{1}{1 - 1/k} \left\| \frac{\mathbf{V}_m^\top \mathbf{V}_m}{\operatorname{tr}(\mathbf{V}_m^\top \mathbf{V}_m)} - \frac{1}{k}\mathbf{I}_k \right\|_F^2, \qquad D(\mathbf{V}_m) \in [0, 1].
+$$
+$D(\mathbf{V}_m)$ vanishes if and only if the columns of $\mathbf{V}_m$ are mutually orthogonal and have equal $L_2$ norms ($\mathbf{V}_m \in \mathbb{R}_{>0} \cdot \mathrm{St}(k, p_m)$). Values near zero ($D \le 10^{-4}$) indicate mutually perpendicular, well-conditioned coordinate axes; values exceeding $0.10$ warn of column redundancy and effective rank collapse.
 
-In biological cohorts, ambient feature dimensions often far exceed sample size ($p_m \gg n$). When a high-dimensional view contains little structured covariance, standard correlation objectives can capitalize on chance associations, corrupting the consensus space [@avants2025; @stone2024blast]. Principled integration requires explicit regularization that penalizes off-manifold noise while preserving true biological signal.
+This approximate retraction governs optimization whenever non-negativity ($\mathbf{V}_m \ge 0$) is imposed:
 
-### Why Brain MRI Needs Cognitive Mediation to Predict Daily Disability in ADNI-MCI
+* **Positivity ($\mathbf{V}_m \ge 0$) and rank $k$ govern sparsity ($1 - 1/k$):** On the unconstrained Stiefel manifold (`positivity="either"`), orthogonal columns remain $100\%$ dense because positive and negative entries cancel in the inner product $\langle \mathbf{v}_{m,l}, \mathbf{v}_{m,r}\rangle = 0$. When $\mathbf{V}_m \ge 0$, two non-negative columns are orthogonal if and only if their active feature supports are disjoint ($\operatorname{supp}(\mathbf{v}_{m,l}) \cap \operatorname{supp}(\mathbf{v}_{m,r}) = \emptyset$). Partitioning $p_m$ features across $k$ non-overlapping columns yields a baseline structural sparsity of at least $1 - 1/k$ ($50.0\%$ at $k=2$, $66.7\%$ at $k=3$, $80.0\%$ at $k=5$, and $91.7\%$ at $k=12$).
+* **Balanced operating point ($q = 0.5$, $w = 0.5$):** Below $w \approx 0.20$, the cross-view alignment gradient pulls columns together and the basis suffers rank collapse ($\text{EffRank} \to 2.0$ of $3$ at $w = 0.01$ on `ADNI-MCI`, with defect $D = 0.244$). Conversely, at $w = 1$ the fidelity term $(1 - w)\mathcal{L}_{\text{fid}}$ vanishes, leaving matrix scale unconstrained and forcing a hard combinatorial partition where shared biological hubs cannot load on more than one disease axis [@avants2025]. Setting $w = 0.5$ as default (capping hard-manifold requests at $w_{\max} = 0.95$) achieves full effective rank ($\text{EffRank} = 3.00$, $D \le 6 \times 10^{-4}$) while preserving continuous optimization and overlapping biological pathways.
+* **Row-mean control, ICA initialization, and quantile `sparseness` ($q = 0.5$ and $q = 0.8$):** In neuroimaging and multi-omics matrices, regional features covary positively with each subject's global amplitude (such as intracranial volume or mean cortical thickness, captured by the subject row mean $\bar{x}_{i,m} = \frac{1}{p_m}\sum_{j=1}^{p_m} X_{ij,m}$). Under standard column-centering and PCA initialization without quantile thresholding (`sparseness=None`), the leading singular vector $\mathbf{v}_1$ is an all-positive global size collector ($\mathbf{v}_1 \propto \mathbf{1}_{p_m}$). Consequently, clamping $\mathbf{v}_1$ to the non-negative orthant zeroes out few entries, leaving Component 1 relatively dense ($35.8\%$ sparsity on `ADNI-MCI` at $k = 3$) while squeezing Components $2, \dots, k$ into the remaining features ($76.6\%$ sparsity). We examine two complementary remedies: (1) removing per-subject row means inside each training fold and initializing via deterministic spatial Independent Component Analysis (ICA), which rotates $\mathbf{v}_1$ away from the global mean and raises Component 1 sparsity to $69.4\%$ ($67.1\%$ overall, matching $1 - 1/k = 66.7\%$); and (2) an order-statistic quantile `sparseness` parameter ($q \in (0, 1)$, defaulting universally to `0.5`, with `0.5` and `0.8` as canonical operating points), which soft-thresholds each column at its $q$-th absolute-weight quantile. Setting $q = 0.50$ raises $\mathbf{v}_1$ sparsity to $61.5\%$ ($74.5\%$ overall); $q = 0.80$ reaches $81.9\%$ $\mathbf{v}_1$ sparsity ($85.8\%$ overall); and $q = 0.85$ achieves $85.5\%$ $\mathbf{v}_1$ sparsity ($88.0\%$ overall, exact $9/62$ active DKT regions per component) while improving `CogPC1` $R^2$ from $0.1892$ to $0.1923$.
 
-A clear real-world example of why multi-view alignment and a linear first layer (OLEE) matter comes from predicting daily functional decline in $N = 1,084$ patients with Mild Cognitive Impairment (MCI) in the Alzheimer's Disease Neuroimaging Initiative (ADNI) [@ADNI; @jack2008alzheimer]. In clinical trials, the standard outcome used to judge whether a treatment works is the **Clinical Dementia Rating – Sum of Boxes (CDR-SB)**, a clinical score measuring how much difficulty a patient has with everyday tasks such as managing money, remembering appointments, shopping, and personal care.
+### Clinical Motivation: Bipartite Cognitive Alignment in ADNI-MCI
 
-Each patient has four views of baseline data (after adjusting for age, sex, and years of education):
+A primary clinical application of multi-view integration occurs when a supervisory clinical battery is available during model training but absent at deployment. In the ADNI Mild Cognitive Impairment cohort (`ADNI-MCI`, $N = 1,084$), each participant is characterized at baseline by four views:
 
-- **Three structural brain MRI views ($382$ brain regions total):** regional gray-matter volumes ($p_1 = 160$), hierarchical cortical surface thickness ($p_2 = 160$), and native T1-weighted cortical thickness ($p_3 = 62$).
-- **One cognitive test view ($p_4 = 13$ items):** bedside memory, language, and executive-function sub-scores from the ADAS-Cog and MMSE batteries.
+* **Three structural brain MRI views ($382$ features total):** regional gray-matter volumes ($p_1 = 160$), hierarchical cortical thickness ($p_2 = 160$), and native T1-weighted cortical thickness ($p_3 = 62$).
+* **One neuropsychological battery view ($p_4 = 11$ scales with $\ge 98\%$ completeness):** `ADAS11`, `ADAS13`, `ADASQ4`, `MMSE`, `CDRSB`, `TRABSCOR`, `FAQ`, and four `RAVLT` memory sub-scores, residualized inside each training split for age, sex, and education via Frisch–Waugh–Lovell projection.
 
-Comparing different ways of predicting CDR-SB on held-out patients reveals three simple findings:
+At clinical deployment (such as screening an MRI scan before scheduling a full neuropsychological battery), only the three structural MRI views are observed, and the goal is to predict out-of-sample cognitive severity (`CogPC1`, the leading principal component of the 11 cognitive scales, as well as the mean ridge regression $R^2$ across all 11 individual scales).
 
-1. **Predicting daily disability directly from brain MRI barely works ($R^2 = 0.0411$):**
-   When a model tries to predict CDR-SB directly from the 382 brain MRI measurements alone, it explains only **$4.1\%$ of the variance** on unseen test patients ($\text{Direct-Anatomy [SiMLR]}: R^2 = 0.0411 \pm 0.0248, \rho = 0.2203$), and standard ridge regression on the concatenated MRI features fails completely ($R^2 = -0.1810 \pm 0.0916$). The reason is simple biology: tissue loss in the hippocampus or temporal cortex does not directly make a person unable to balance a checkbook. Instead, **brain atrophy first impairs cognitive test performance (memory and thinking), and that cognitive decline is what causes trouble with daily activities**.
-2. **Modeling the two-step pathway ($\text{Brain MRI} \to \text{Shared Cognitive Summary} \to \text{CDR-SB}$) boosts prediction 6-fold ($R^2 = 0.2648$):**
-   When we align the three brain MRI views ($382$ features) with the 13 cognitive test items to learn a shared cognitive-anatomical summary ($Z_{\text{cog}}$) and use that summary to predict CDR-SB, out-of-sample accuracy jumps **more than six-fold**:
+When single-matrix baselines (`PCA` or `NSAFlow-PCA`) are fitted to the three structural MRI views alone, their leading components capture global brain size and healthy anatomical covariance across the 382 parcels, explaining only $R^2 = 0.1522 \pm 0.0042$ (`PCA`) and $0.1590 \pm 0.0038$ (`NSAFlow-PCA`) of out-of-sample `CogPC1` variance across three cross-validation seeds. In SiMR, specifying a bipartite training graph (`Protocol B`: aligning each MRI view $m \in \{0, 1, 2\}$ directly to the cognitive view $m = 3$ during training via `path_graph = {0:[3], 1:[3], 2:[3], 3:[0,1,2]}`, then withholding View 3 at test time) steers the MRI loading matrices $\mathbf{V}_0, \mathbf{V}_1, \mathbf{V}_2$ toward the medial temporal and entorhinal atrophy patterns associated with cognitive decline. 
 
-   - **$\text{LEND-SiMR + MAI [Mediated]}$:** $R^2 = 0.2648 \pm 0.0332$ ($6.44\times$ higher than direct MRI, $\rho = 0.5206$, paired Wilcoxon $p = 9.77 \times 10^{-4}$ vs. covariates).
-   - **$\text{SiMLR [Mediated]}$:** $R^2 = 0.2443 \pm 0.0534$ ($5.94\times$ higher than direct MRI, $\rho = 0.4989$) in just **$0.86\text{ seconds}$**.
-   - **$\text{Flow-SiMR-V + MAI [Mediated]}$:** $R^2 = 0.2290 \pm 0.0696$ ($5.57\times$ higher than direct MRI).
-
-   Baron–Kenny and bootstrap mediation testing confirm that **$84.5\%\text{–}86.4\%$ of the effect of brain MRI atrophy on daily disability is indirect**, acting through cognitive performance ($p < 10^{-15}$).
-3. **Unconstrained deep encoders overfit the 382 MRI features and collapse on test patients ($R^2 = 0.1127$):**
-   When we replace the linear Stiefel entrypoint with an unconstrained multi-layer perceptron encoder on the same two-step pathway, test-set performance drops by more than half ($\text{NED-SiMR + MAI [Mediated]}: R^2 = 0.1127 \pm 0.0578$; $\text{NED-Shared-Private}: R^2 = 0.0840 \pm 0.0412$). With $382$ correlated MRI measurements and roughly $750$ training patients per fold, a flexible deep encoder memorizes noisy training-set correlations. Restricting the first layer to an orthonormal linear projection ($\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k$) acts as a strong geometric safeguard against overfitting while keeping every brain region's weight directly readable.
+Using the three MRI views alone at test time, out-of-sample `CogPC1` $R^2$ increases substantially: `LEND` achieves **$0.2520 \pm 0.0075$** (+65.6% relative gain over PCA) and `Flow-SiMR-V` achieves **$0.2377 \pm 0.0149$** (+56.2% over PCA), followed by `NEDPP` ($0.2225 \pm 0.0132$), `NED` ($0.2160 \pm 0.0136$), `SiMLR-LBFGS` ($0.1686 \pm 0.0109$), `SiMLR` ($0.1684 \pm 0.0218$), and `SiMLR-LBFGSB` ($0.1682 \pm 0.0124$) in the 3-seed benchmark, reaching up to **$0.2407$** (`SiMLR-Lookahead`) in the 1,214-configuration hyperparameter sweep, while raising the 11-scale mean $R^2$ (`Mean11_RidgeCV`) from $0.0813$ (`PCA`) to $0.1074$.
 
 ## Background
 
 ### Subspace Invariance versus Basis Axis Sensitivity
 
-When evaluating multi-view representations, it is essential to distinguish between the *subspace* spanned by a projection and the *individual coordinate axes*:
+Evaluating a learned loading matrix $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ requires distinguishing the subspace spanned by $\mathbf{X}_m \mathbf{V}_m$ from the orientation and sparsity of its individual columns:
 
-1. **Subspace Invariance:** For any orthogonal transformation $\mathbf{M} \in O(k)$, the rotated representation $\mathbf{Z}_m \mathbf{M} = \mathbf{X}_m (\mathbf{V}_m \mathbf{M})$ spans the identical linear subspace as $\mathbf{Z}_m$. Linear models trained on $\mathbf{Z}_m \mathbf{M}$ achieve identical predictions to those trained on $\mathbf{Z}_m$.
-2. **Axis Sensitivity:** Identifying individual anatomical or molecular biomarkers requires that specific coordinate axes align with meaningful physical factors. Axis-sensitive probes, such as axis-aligned decision trees and random forests, depend on the specific orientation of $\mathbf{V}_m$.
-3. **Signed Support Disjointness:** In non-negative or contrast-split representations ($\mathbf{V} = \mathbf{V}^+ - \mathbf{V}^-$ with $\mathbf{V}^+, \mathbf{V}^- \ge 0$), overlap between positive and negative lobes produces destructive cancellation. Enforcing disjoint support ($\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}$) eliminates crosstalk, ensuring that positive and negative coefficients index distinct feature sets.
+1. **Subspace invariance under linear regression:** For any invertible matrix $\mathbf{M} \in \mathrm{GL}(k, \mathbb{R})$, the transformed scores $\mathbf{X}_m (\mathbf{V}_m \mathbf{M})$ span the same column space as $\mathbf{X}_m \mathbf{V}_m$. Consequently, ordinary least squares and unpenalized linear probes depend only on $\operatorname{span}(\mathbf{X}_m \mathbf{V}_m)$ and cannot distinguish a dense rotated basis from a sparse, localized one [@avants2025]. This mathematical invariance explains why `PCA` and multi-view SiMR often achieve similar predictive accuracy when evaluated on low-dimensional datasets where the leading principal subspace already spans the signal.
+2. **Axis localization and single-axis interpretability:** In clinical biomarker discovery, researchers do not treat coordinates as arbitrary rotation vectors. Individual coordinates must align with distinct biological pathways (such as entorhinal cortex atrophy vs. frontocingulate network changes). While linear regression is rotation-invariant, decision tree ensembles (Random Forests) evaluate orthogonal axis splits ($z_j \le \theta$). When disease mechanisms are diagonally mixed across coordinates (as in PCA), decision trees require fragmented split sequences, degrading generalization. Coordinate-sensitive Random Forest probes therefore test whether learned axes are aligned with isolated biological factors.
+3. **Signed contrast splitting and zero lobe crosstalk:** To represent bidirectional effects (such as coordinated regional cortical thinning and ventricular enlargement) under non-negativity, each basis can be split into positive and negative lobes $\mathbf{V}_m = \mathbf{V}_m^+ - \mathbf{V}_m^-$ with $\mathbf{V}_m^+, \mathbf{V}_m^- \ge 0$, where support consolidation guarantees zero lobe crosstalk ($\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1 = 0$), preventing opposing biological loadings from occupying the same feature coordinate.
 
-::: {#fig-interpretability-gap}
+### The Four Evaluation Lenses: A Reader's Guide to the Evaluation Probes
 
-::: {.content-visible when-format="html"}
-```{mermaid}
-#| fig-width: 6
-#| fig-align: center
-graph LR
-    subgraph Unconstrained [Unconstrained Deep Multi-View]
-        direction TB
-        InputU[Input X_m] --> MLP[Deep Multi-Layer Perceptron]
-        MLP -->|Nonlinear Entanglement| LatentU[Latent Z_m]
-        LatentU -.->|Perturbation Surrogate| SHAP[Post-hoc SHAP / LIME]
-    end
+Evaluating multi-view representations requires addressing four distinct operational questions, each answered by a dedicated evaluation probe (@tbl-probe-guide).
 
-    subgraph Constrained [Stiefel-Constrained OLEE Entrypoint]
-        direction TB
-        InputC[Input X_m] -->|Stiefel Constraint| Basis["Basis V_m (V_m^T V_m = I)"]
-        Basis -->|Z_m = X_m V_m| LatentC[Auditable Latent Z_m]
-        LatentC -->|Normalizing Flow / Decoder| Dec[Non-linear Manifold]
-        LatentC -.->|Exact Linear Attribution| Grad["Attribution: dZ_m/dX_m = V_m"]
-        LatentC -.->|Closed-Form Recourse| Rec["Recourse: dx* = dz V_m^T"]
-    end
-    
-    style Unconstrained fill:#fff5f5,stroke:#c62828,stroke-width:1.5px
-    style Constrained fill:#f0f7ff,stroke:#01579b,stroke-width:1.5px
-    style Basis fill:#e3f2fd,stroke:#1976d2,color:#000
-    style MLP fill:#ffebee,stroke:#d32f2f,color:#000
-```
-:::
+| Evaluation Probe | Scope & Model | Property Evaluated | Operational Question | Biological & Clinical Target |
+|:---|:---|:---|:---|:---|
+| **Subspace Linear Probe** | Ridge on $\mathbf{X}\mathbf{V}$ | Rotation-invariant linear subspace fit | Does the overall subspace span the disease signal? | Evaluates total information content. PCA and multi-view models frequently tie here because $\operatorname{span}(\mathbf{XVM}) = \operatorname{span}(\mathbf{XV})$. |
+| **Single-Axis Probe** | Random Forest on $\mathbf{X}\mathbf{V}$ | Coordinate-sensitive decision tree fit | Do individual coordinates isolate distinct biological pathways? | Decision trees evaluate axis splits ($z_j \le \theta$). Diagonally mixed bases (PCA) drop in score ($0.589$), while axis-aligned bases (SiMR) preserve performance ($0.689$). |
+| **Patient Consensus Probe** | Ridge / SVM on $\mathbf{U}$ | Multi-modal latent consensus fit | Does the shared representation fuse views without loss? | Tests whether multi-modal fusion creates a compact patient summary that predicts clinical severity across modalities. |
+| **Support Recovery & Defect** | $F_1$ on $\mathbf{V}$ & Defect $D \in [0, 1]$ | Support Jaccard $F_1$ and Stiefel defect $D$ | Did the model select true active features with non-redundant columns? | Assesses whether non-zero weights isolate true active markers ($F_1 \to 1.0$) with non-redundant, perpendicular columns ($D \to 0$). |
+: Reader's Guide to the Four Evaluation Probes. {#tbl-probe-guide}
 
-::: {.content-visible when-format="pdf"}
-![](figures/fig-interpretability-gap.png){width=72%}
-:::
+### Evaluated Architecture Families
 
-Architectural Comparison of the Interpretability Gap. Unconstrained deep multi-view encoders entangle input features across hidden layers, requiring post-hoc perturbation surrogates (SHAP/LIME). The Stiefel-constrained Only Linear Encoder Entrypoint (OLEE) enforces an orthonormal linear basis $\mathbf{V}_m$ ($\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k$) at the input boundary, guaranteeing exact constant attribution ($\nabla_{\mathbf{X}_m}\mathbf{Z}_m = \mathbf{V}_m$) and closed-form counterfactual recourse ($\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m \mathbf{V}_m^\top$) prior to downstream non-linear decoding or normalizing flows.
-:::
+We benchmark nine architectures that share the same data preprocessing and evaluation protocol:
 
-### Architectural Taxonomy
+* **Single-matrix concatenation baselines (`PCA`, `NSAFlow-PCA`):**
+  - **PCA:** Standard singular value decomposition fitted to the concatenated predictor views $\mathbf{X} = [\mathbf{X}_1, \dots, \mathbf{X}_M]$ ($0.043\text{ s}$ mean fit time).
+  - **NSAFlow-PCA:** Single-matrix SVD basis refined via `nsa_flow` ($w = 0.5$), achieving $25.0\%$ mean sparsity in $0.040\text{ s}$.
+* **Linear multi-view OLEE solvers (`SiMLR`, `SiMLR-LBFGS`, `SiMLR-LBFGSB`):**
+  - **SiMLR:** First-order Armijo gradient descent on the cross-view alignment objective with per-sweep `nsa_flow` retraction ($0.556\text{ s}$).
+  - **SiMLR-LBFGS:** Two-loop quasi-Newton optimization with `nsa_flow` retraction ($\text{Support } F_1 = 0.966$, $3.543\text{ s}$).
+  - **SiMLR-LBFGSB:** Bound-constrained L-BFGS-B optimization enforcing $\mathbf{V}_m \ge 0$ directly inside the quasi-Newton update when positivity is active ($\text{Support } F_1 = 0.991$, $3.910\text{ s}$).
+* **Non-linear decoder and encoder-decoder SiMR models (`LEND`, `NED`, `NEDPP`):**
+  - **LEND (Linear Encoder, Non-linear Decoder):** Projects each view strictly linearly ($\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m$) and reconstructs $\mathbf{X}_m$ through a multi-layer perceptron decoder $g_m(\mathbf{Z}_m)$ ($3.756\text{ s}$).
+  - **NED (Non-linear Encoder-Decoder):** Places an MLP encoder on top of the linear projection ($\mathbf{Z}_m = f_m(\mathbf{X}_m \mathbf{V}_m)$) paired with an MLP decoder ($3.021\text{ s}$).
+  - **NEDPP (Shared and Private Subspaces):** Extends `NED` by splitting latent coordinates into shared consensus and view-private partitions with a cross-covariance penalty ($3.380\text{ s}$).
+* **Invertible normalizing flow downstream of OLEE (`Flow-SiMR-V`):**
+  - **Flow-SiMR-V:** Composes the linear entrypoint $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ with volume-preserving RealNVP affine coupling layers $f_{\text{flow},m}: \mathbb{R}^k \to \mathbb{R}^k$ trained with detached-prior subspace decoupling ($9.563\text{ s}$).
 
-We evaluate nine distinct architectures spanning linear baselines, manifold-regularized linear solvers, hybrid autoencoders, and normalizing flows:
-
-* **PCA (Classical Linear Baseline):** Standard Principal Component Analysis fitted via singular value decomposition on concatenated, standardized features ($\mathbf{X} = [\mathbf{X}_1 \dots \mathbf{X}_M]$). Establishes the unconstrained dense linear baseline.
-* **NSAFlow-PCA (Accelerated Non-negative Stiefel Flow):** A fast single-matrix manifold solver utilizing direct SVD initialization on concatenated features and differentiable Non-negative Stiefel Approximating Flow (`nsa_flow`) retraction in $0.029\text{s}$.
-* **SiMLR (Riemannian Gradient Descent):** The classical linear cross-view formulation solving the multi-view alignment problem via Armijo line-search gradient descent with per-sweep NSA-Flow retraction.
-* **SiMLR-LBFGS (Quasi-Newton Riemannian):** A linear cross-view architecture incorporating two-loop L-BFGS curvature steps on the Stiefel manifold with per-sweep NSA-Flow retraction.
-* **SiMLR-LBFGSB (Bound-Constrained Quasi-Newton):** A linear cross-view architecture using the NSA-Flow bound-constrained L-BFGS-B solver (`nsa_lbfgsb`), enforcing $\mathbf{V}_m \ge \mathbf{0}$ inside the quasi-Newton step itself when positivity is active.
-* **LEND (Linear Encoder, Non-linear Decoder):** A hybrid OLEE architecture coupling per-view linear Stiefel projections ($\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m$) with a multi-layer perceptron decoder for non-linear feature reconstruction and cross-view consensus alignment.
-* **Flow-SiMR-V (Bijective Normalizing Flow with Stiefel Bottleneck):** An invertible OLEE architecture prepending a linear Stiefel projection matrix to volume-preserving RealNVP affine coupling layers in $\mathbb{R}^k$, enabling continuous density estimation, exact invertibility, and conditional cross-view imputation.
-* **NED (Non-linear Encoder-Decoder):** A deep architecture adding hidden non-linear encoder layers after the initial linear projection.
-* **NEDPP (Shared and Private Subspaces):** An extension of NED that partitions latent coordinates into shared consensus and view-specific private subspaces using cross-covariance penalties.
-
-### Summary of Contributions
-
-1. **The Only Linear Encoder Entrypoint (OLEE) Contract:** We formalize how restricting the input layer of multi-view encoders to the compact Stiefel manifold eliminates the clinical transparency penalty ($\nabla_{\mathbf{X}_m} \mathbf{Z}_m = \mathbf{V}_m$) and enables closed-form counterfactual recourse ($\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m^* \mathbf{V}_m^\top$, connecting directly to Pearl [-@pearl2009causality] and Wachter et al. [-@Wachter_2017]) while preserving downstream non-linear capacity.
-2. **Cognitive Mediation vs. Direct Brain MRI in ADNI-MCI:** We explain and quantify why predicting daily disability (CDR-SB) directly from 382 brain MRI features hits a low ceiling ($R^2 = 0.0411$), demonstrate how aligning brain MRI with cognitive tests in a two-step pathway boosts out-of-sample accuracy over 6-fold ($R^2 = 0.2648$ for `LEND-SiMR + MAI`; $R^2 = 0.2443$ in $0.86\text{s}$ for `SiMLR`; $85\text{–}86\%$ indirect effect, $p < 10^{-15}$), and show how the OLEE linear first layer prevents the severe test-set overfitting seen in unconstrained deep encoders (`NED-SiMR` $R^2 = 0.1127$).
-3. **Bound-Constrained Quasi-Newton Manifold Optimization (`SiMLR-LBFGSB`, `SiMLR-LBFGS`):** We show that coupling L-BFGS-B / L-BFGS optimization with NSA-Flow retractions achieves the top global Friedman rank ($3.28$ for `SiMLR-LBFGSB`) and the highest sparse ground-truth support recovery ($0.942$ vs. `PCA` $0.333$).
-4. **Hybrid Linear-Encoder Deep Decoding (`LEND`):** We demonstrate that pairing an auditable linear encoder with a non-linear MLP decoder achieves the highest mean predictive performance ($0.830 \pm 0.189$), the highest ground-truth latent recovery ($CMC = 0.907$), and a decisive advantage when views carry strong view-private noise (`Shared+Private`: $R^2 = 0.949$ vs. `PCA` $0.639$) or when outcomes lie in weak sparse components (`NonnegPartsWeak`: $R^2 = 0.732$ vs. `PCA` $0.522$).
-5. **Rigorous Non-Parametric Demšar Benchmark:** Across 243 task evaluations (9 data regimes—6 synthetic manifolds and 3 real clinical/multi-omics cohorts—$\times$ 3 independent seeds $\times$ 9 models), we conduct block-level Friedman ($\chi_F^2 = 32.47, p = 7.68 \times 10^{-5}$), Iman–Davenport ($F_F = 6.57, p = 3.13 \times 10^{-6}$), and Wilcoxon–Holm tests.
-6. **Multi-Objective 4-Axis Pareto Characterization:** We map the empirical Pareto frontier across predictive accuracy ($Y$), ground-truth latent and support discovery ($CMC$, Jaccard support), mathematical invariants ($D$, zero crosstalk), and execution latency ($t$), identifying the operational trade-offs governing clinical deployment.
+In the following chapter, we formalize the variational objective, Riemannian retraction mechanics, and 3-stage support-masked flow polish that govern these architectures.

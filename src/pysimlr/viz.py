@@ -54,7 +54,9 @@ def plot_view_correlations(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
 def plot_latent_consensus(u_shared: torch.Tensor, 
                           latents: List[torch.Tensor], 
-                          title: str = "Latent Alignment to Consensus") -> plt.Figure:
+                          title: str = "Latent Alignment to Consensus",
+                          dim_idx: Optional[int] = None,
+                          **kwargs) -> plt.Figure:
     """
     Visualize how well each modality's latent space aligns with the shared consensus.
 
@@ -71,6 +73,8 @@ def plot_latent_consensus(u_shared: torch.Tensor,
         A list of modality-specific latent matrices (Z_m).
     title : str, default="Latent Alignment to Consensus"
         The title for the bar plot.
+    dim_idx : Optional[int], default=None
+        Optional specific latent dimension index to evaluate alignment on.
 
     Returns
     -------
@@ -83,7 +87,13 @@ def plot_latent_consensus(u_shared: torch.Tensor,
         If inputs are of invalid types.
     """
     n_mods = len(latents)
-    corrs = [adjusted_rvcoef(u_shared, l) for l in latents]
+    if dim_idx is not None:
+        u_target = u_shared[:, dim_idx : dim_idx + 1]
+        latents_target = [l[:, dim_idx : dim_idx + 1] for l in latents]
+    else:
+        u_target = u_shared
+        latents_target = latents
+    corrs = [adjusted_rvcoef(u_target, l) for l in latents_target]
     
     fig, ax = plt.subplots(figsize=(10, 5))
     x_labels = [f"Mod {i+1}" for i in range(n_mods)]

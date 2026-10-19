@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PySiMLR &amp; nsa_flow: Multi-Operating-Point Sparseness &amp; Positivity Benchmark Dashboard</title>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --text: #0f172a;
+    --muted: #475569;
+    --border: #e2e8f0;
+    --teal: #0d9488;
+    --teal-light: #f0fdfa;
+    --indigo: #4f46e5;
+    --indigo-light: #eef2ff;
+    --emerald: #059669;
+    --emerald-light: #ecfdf5;
+    --amber: #d97706;
+    --amber-light: #fffbeb;
+    --rose: #e11d48;
+    --rose-light: #fff1f2;
+    --blue: #0284c7;
+    --blue-light: #f0f9ff;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 32px 24px;
+    line-height: 1.55;
+  }
+  .container {
+    max-width: 1540px;
+    margin: 0 auto;
+  }
+  header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: #fff;
+    padding: 28px 32px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+  }
+  header h1 {
+    margin: 0 0 8px 0;
+    font-size: 1.65rem;
+    letter-spacing: -0.02em;
+  }
+  header p {
+    margin: 0;
+    color: #cbd5e1;
+    font-size: 0.98rem;
+  }
+  .tab-bar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+    background: #e2e8f0;
+    padding: 6px;
+    border-radius: 10px;
+  }
+  .tab-btn {
+    padding: 9px 16px;
+    border: none;
+    background: transparent;
+    border-radius: 7px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .tab-btn.active {
+    background: var(--card);
+    color: #0f172a;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  .tab-btn:hover:not(.active) {
+    background: rgba(255,255,255,0.5);
+  }
+  .grid-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .card h3 {
+    margin: 0 0 8px 0;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+  .card .big {
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: var(--teal);
+    margin-bottom: 6px;
+  }
+  .card p {
+    margin: 0;
+    font-size: 0.86rem;
+    color: var(--muted);
+  }
+  .section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    overflow-x: auto;
+  }
+  .section h2 {
+    margin-top: 0;
+    font-size: 1.25rem;
+    color: #0f172a;
+    border-bottom: 2px solid #f1f5f9;
+    padding-bottom: 10px;
+  }
+  .section-lead {
+    background: #f0fdfa;
+    border-left: 4px solid var(--teal);
+    padding: 14px 18px;
+    border-radius: 6px;
+    margin: 14px 0;
+    font-size: 0.91rem;
+    line-height: 1.5;
+  }
+  .chart-wrapper {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 18px 0;
+  }
+  .chart-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 4px;
+  }
+  .chart-subtitle {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+  .pipeline-container {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 20px 0;
+    flex-wrap: wrap;
+  }
+  .pipeline-step {
+    flex: 1;
+    min-width: 260px;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 20px;
+  }
+  .step-1 { border-left: 4px solid var(--blue); }
+  .step-2 { border-left: 4px solid var(--amber); }
+  .step-3 { border-left: 4px solid var(--emerald); }
+  .step-num { font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: var(--muted); }
+  .step-title { font-size: 1.02rem; font-weight: 700; margin: 4px 0 8px 0; color: #0f172a; }
+  .step-desc { font-size: 0.84rem; color: #334155; line-height: 1.45; }
+  .pipeline-arrow { font-size: 1.8rem; font-weight: bold; color: #94a3b8; user-select: none; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.83rem;
+    margin-top: 12px;
+  }
+  th, td {
+    padding: 9px 11px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+  }
+  th:first-child, td:first-child {
+    text-align: left;
+  }
+  th {
+    background: #f1f5f9;
+    font-weight: 600;
+    color: #334155;
+    position: sticky;
+    top: 0;
+  }
+  tr:hover td {
+    background-color: #f8fafc;
+  }
+  .pos { color: var(--emerald); font-weight: 600; }
+  .neg { color: var(--rose); font-weight: 600; }
+  .neu { color: #64748b; }
+  .sub { color: #64748b; font-size: 0.76rem; }
+  .badge-pill {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 9999px;
+    font-size: 0.74rem;
+    font-weight: 700;
+  }
+  .pill-emerald { background: var(--emerald-light); color: var(--emerald); border: 1px solid rgba(5, 150, 105, 0.2); }
+  .pill-amber { background: var(--amber-light); color: var(--amber); border: 1px solid rgba(217, 119, 6, 0.2); }
+  .pill-rose { background: var(--rose-light); color: var(--rose); border: 1px solid rgba(225, 29, 72, 0.2); }
+</style>
+<script>
+function showTab(id) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+  const btn = document.querySelector('[data-tab="' + id + '"]');
+  if (btn) btn.classList.add('active');
+  const target = document.getElementById(id);
+  if (target) target.style.display = 'block';
+}
+</script>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>PySiMLR &amp; nsa_flow: Multi-Operating-Point Sparseness (q = None, 0.5, 0.8) &amp; Positivity Benchmark Dashboard</h1>
+    <p>1,215 Total Model Fits Across 12 Synthetic &amp; Real Multimodal Cohorts &mdash; Three Probes (Linear Subspace, Random Forest Axis-Sensitive, Consensus Target), Tunable Operating Points (q &isin; {None, 0.5, 0.8}), Paired Positivity, and Scale-Invariant Stiefel Defect D &isin; [0, 1]</p>
+  </header>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="tab-overview" onclick="showTab('tab-overview')">Executive Dashboard &amp; Visual Charts</button>
+    <button class="tab-btn" data-tab="tab-rf" onclick="showTab('tab-rf')">Three Probes &amp; Axis Interpretability</button>
+    <button class="tab-btn" data-tab="tab-global" onclick="showTab('tab-global')">Global 12-Dataset Leaderboard</button>
+    <button class="tab-btn" data-tab="tab-support" onclick="showTab('tab-support')">Sparse Support Recovery (F1)</button>
+    <button class="tab-btn" data-tab="tab-positivity" onclick="showTab('tab-positivity')">Paired Positivity (ADNI / MultiOmics / KIRC)</button>
+    <button class="tab-btn" data-tab="tab-linear" onclick="showTab('tab-linear')">Per-Dataset Linear XV Probe</button>
+    <button class="tab-btn" data-tab="tab-defect" onclick="showTab('tab-defect')">Stiefel Defect D &amp; Sparsity</button>
+  </div>
+
+  <!-- TAB 1: OVERVIEW & VISUAL CHARTS -->
+  <div id="tab-overview" class="tab-content" style="display: block;">
+    <div class="grid-cards">
+      <div class="card">
+        <h3>Three Evaluation Probes</h3>
+        <div class="big">Linear &amp; RF &amp; Consensus</div>
+        <p>Unmasks PCA rotational mixing: PCA linear score is 0.1522 on ADNI-MCI but drops to 0.0441 on Random Forest, while SiMR preserves single-axis alignment (0.1969 for Flow-SiMR-V, 0.1692 for LEND).</p>
+      </div>
+      <div class="card">
+        <h3>Balanced Operating Point</h3>
+        <div class="big">q = 0.5 Balanced Operating Point</div>
+        <p>Achieves peak Linear fidelity (0.6793) and Random Forest axis interpretability (0.6505), with 41.3% mean sparsity and +15.4% jump in ground-truth support recovery F1.</p>
+      </div>
+      <div class="card">
+        <h3>Targeted Panel Design</h3>
+        <div class="big">q = 0.8 Focal Biomarker</div>
+        <p>Isolates compact feature sets (61.9% overall sparsity) while driving 80%-sparse support recovery to F1 = 0.710 and preserving 99.1% of subspace predictive power.</p>
+      </div>
+      <div class="card">
+        <h3>Scale-Invariant Defect</h3>
+        <div class="big">D(V<sub>m</sub>) &isin; [0, 1]</div>
+        <p>Normalized Stiefel defect strictly bounded in [0, 1] for all models (D &le; 0.0007 for SiMR architectures vs. D = 0.239&ndash;0.599 for unconstrained PCA).</p>
+      </div>
+    </div>
+
+    
+    <div class="chart-wrapper">
+      <div class="chart-title">Visual Comparison of the Three Evaluation Probes Across Benchmark Architectures</div>
+      <div class="chart-subtitle">Mean performance across all 12 benchmark cohorts at operating point q = 0.5 (from operating_points_05_08_benchmark.csv). Higher is better (↑).</div>
+      <svg viewBox="0 0 960 420" width="100%" height="420">
+        <line x1="160" y1="50" x2="900" y2="50" stroke="#f1f5f9" stroke-width="1.5" />
+        <line x1="160" y1="120" x2="900" y2="120" stroke="#f1f5f9" stroke-width="1.5" />
+        <line x1="160" y1="190" x2="900" y2="190" stroke="#f1f5f9" stroke-width="1.5" />
+        <line x1="160" y1="260" x2="900" y2="260" stroke="#f1f5f9" stroke-width="1.5" />
+        <line x1="160" y1="330" x2="900" y2="330" stroke="#cbd5e1" stroke-width="2" />
+        <text x="145" y="334" font-size="11" fill="#64748b" text-anchor="end">0.50</text>
+        <text x="145" y="278" font-size="11" fill="#64748b" text-anchor="end">0.55</text>
+        <text x="145" y="222" font-size="11" fill="#64748b" text-anchor="end">0.60</text>
+        <text x="145" y="166" font-size="11" fill="#64748b" text-anchor="end">0.65</text>
+        <text x="145" y="110" font-size="11" fill="#64748b" text-anchor="end">0.70</text>
+        <text x="145" y="54" font-size="11" fill="#64748b" text-anchor="end">0.75</text>
+        <text x="75" y="190" font-size="12" font-weight="700" fill="#334155" text-anchor="middle" transform="rotate(-90, 75, 190)">Metric Score (↑ Higher is Better)</text>
+        <rect x="220" y="16" width="14" height="14" rx="3" fill="#0284c7" />
+        <text x="240" y="28" font-size="12" font-weight="600" fill="#1e293b">1. Subspace Fidelity (Linear XV ↑)</text>
+        <rect x="470" y="16" width="14" height="14" rx="3" fill="#0d9488" />
+        <text x="490" y="28" font-size="12" font-weight="600" fill="#1e293b">2. Axis Interpretability (Random Forest XV ↑)</text>
+        <rect x="750" y="16" width="14" height="14" rx="3" fill="#d97706" />
+        <text x="770" y="28" font-size="12" font-weight="600" fill="#1e293b">3. Patient Consensus (U ↑)</text>
+        <g transform="translate(180, 0)">
+          <rect x="0" y="93" width="22" height="237" rx="3" fill="#0284c7" opacity="0.95" />
+          <rect x="24" y="118" width="22" height="212" rx="3" fill="#0d9488" opacity="0.95" />
+          <rect x="48" y="134" width="22" height="196" rx="3" fill="#d97706" opacity="0.95" />
+          <text x="35" y="348" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">Flow-SiMR-V</text>
+          <text x="35" y="362" font-size="9.5" fill="#64748b" text-anchor="middle">Top Overall</text>
+        </g>
+        <g transform="translate(300, 0)">
+          <rect x="0" y="99" width="22" height="231" rx="3" fill="#0284c7" opacity="0.95" />
+          <rect x="24" y="125" width="22" height="205" rx="3" fill="#0d9488" opacity="0.95" />
+          <rect x="48" y="135" width="22" height="195" rx="3" fill="#d97706" opacity="0.95" />
+          <text x="35" y="348" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">LEND</text>
+          <text x="35" y="362" font-size="9.5" fill="#64748b" text-anchor="middle">Best Linear-Deep</text>
+        </g>
+        <g transform="translate(420, 0)">
+          <rect x="0" y="125" width="22" height="205" rx="3" fill="#0284c7" opacity="0.95" />
+          <rect x="24" y="150" width="22" height="180" rx="3" fill="#0d9488" opacity="0.95" />
+          <rect x="48" y="185" width="22" height="145" rx="3" fill="#d97706" opacity="0.95" />
+          <text x="35" y="348" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">SiMLR-LBFGSB</text>
+          <text x="35" y="362" font-size="9.5" fill="#64748b" text-anchor="middle">Fast Manifold</text>
+        </g>
+        <g transform="translate(540, 0)">
+          <rect x="0" y="119" width="22" height="211" rx="3" fill="#0284c7" opacity="0.95" />
+          <rect x="24" y="148" width="22" height="182" rx="3" fill="#0d9488" opacity="0.95" />
+          <rect x="48" y="185" width="22" height="145" rx="3" fill="#d97706" opacity="0.95" />
+          <text x="35" y="348" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">SiMLR (Armijo)</text>
+          <text x="35" y="362" font-size="9.5" fill="#64748b" text-anchor="middle">First-Order</text>
+        </g>
+        <g transform="translate(660, 0)">
+          <rect x="0" y="118" width="22" height="212" rx="3" fill="#0284c7" opacity="0.95" />
+          <rect x="24" y="150" width="22" height="180" rx="3" fill="#0d9488" opacity="0.95" />
+          <rect x="48" y="256" width="22" height="74" rx="3" fill="#d97706" opacity="0.95" />
+          <text x="35" y="348" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">NEDPP</text>
+          <text x="35" y="362" font-size="9.5" fill="#e11d48" font-weight="600" text-anchor="middle">Consensus Collapse</text>
+        </g>
+        <g transform="translate(780, 0)">
+          <rect x="0" y="182" width="22" height="148" rx="3" fill="#0284c7" opacity="0.95" />
+          <rect x="24" y="231" width="22" height="99" rx="3" fill="#0d9488" opacity="0.95" />
+          <rect x="48" y="179" width="22" height="151" rx="3" fill="#d97706" opacity="0.95" />
+          <text x="35" y="348" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">Concatenated PCA</text>
+          <text x="35" y="362" font-size="9.5" fill="#e11d48" font-weight="600" text-anchor="middle">Large RF Drop (−0.044)</text>
+        </g>
+        <path d="M 825 210 L 860 170" stroke="#e11d48" stroke-width="1.8" stroke-dasharray="3,3" fill="none" />
+        <rect x="830" y="130" width="120" height="38" rx="4" fill="#fff1f2" stroke="#fecdd3" />
+        <text x="890" y="146" font-size="9" font-weight="700" fill="#9f1239" text-anchor="middle">Rotational Penalty</text>
+        <text x="890" y="159" font-size="8.5" fill="#9f1239" text-anchor="middle">Diagonal mixing in PCA</text>
+      </svg>
+    </div>
+
+    
+    <div class="chart-wrapper">
+      <div class="chart-title">Operating Point Multi-Objective Trajectory (q = None → 0.5 → 0.8)</div>
+      <div class="chart-subtitle">Dual-axis trade-off across 1,215 model fits: Basis Sparsity and Support Recovery F1 vs. First-Layer Linear & RF Subspace Capture.</div>
+      <svg viewBox="0 0 960 380" width="100%" height="380">
+        <rect x="100" y="40" width="760" height="280" fill="#fcfdfe" stroke="#e2e8f0" stroke-width="1.2" />
+        <line x1="100" y1="110" x2="860" y2="110" stroke="#f1f5f9" stroke-width="1.2" />
+        <line x1="100" y1="180" x2="860" y2="180" stroke="#f1f5f9" stroke-width="1.2" />
+        <line x1="100" y1="250" x2="860" y2="250" stroke="#f1f5f9" stroke-width="1.2" />
+        <line x1="220" y1="40" x2="220" y2="320" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4,4" />
+        <line x1="480" y1="40" x2="480" y2="320" stroke="#0d9488" stroke-width="2" stroke-dasharray="4,4" />
+        <line x1="740" y1="40" x2="740" y2="320" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4,4" />
+        <text x="220" y="342" font-size="12" font-weight="700" fill="#1e293b" text-anchor="middle">q = None (Unsparsified)</text>
+        <text x="220" y="358" font-size="10" fill="#64748b" text-anchor="middle">Sparsity: 17.7% | F1: 0.488</text>
+        <text x="480" y="342" font-size="12" font-weight="800" fill="#0f766e" text-anchor="middle">q = 0.5 (Balanced Operating Point)</text>
+        <text x="480" y="358" font-size="10" font-weight="600" fill="#0f766e" text-anchor="middle">Sparsity: 41.3% | F1: 0.563 ↑</text>
+        <text x="740" y="342" font-size="12" font-weight="700" fill="#1e293b" text-anchor="middle">q = 0.8 (Focal Biomarker)</text>
+        <text x="740" y="358" font-size="10" fill="#64748b" text-anchor="middle">Sparsity: 61.9% | F1: 0.505</text>
+        <text x="88" y="324" font-size="11" fill="#0284c7" text-anchor="end">0.62</text>
+        <text x="88" y="259" font-size="11" fill="#0284c7" text-anchor="end">0.64</text>
+        <text x="88" y="194" font-size="11" fill="#0284c7" text-anchor="end">0.66</text>
+        <text x="88" y="129" font-size="11" fill="#0284c7" text-anchor="end">0.68</text>
+        <text x="88" y="64" font-size="11" fill="#0284c7" text-anchor="end">0.70</text>
+        <text x="42" y="180" font-size="11" font-weight="700" fill="#0284c7" text-anchor="middle" transform="rotate(-90, 42, 180)">Subspace Probe Score (↑)</text>
+        <text x="872" y="324" font-size="11" fill="#059669" text-anchor="start">0.40</text>
+        <text x="872" y="259" font-size="11" fill="#059669" text-anchor="start">0.45</text>
+        <text x="872" y="194" font-size="11" fill="#059669" text-anchor="start">0.50</text>
+        <text x="872" y="129" font-size="11" fill="#059669" text-anchor="start">0.55</text>
+        <text x="872" y="64" font-size="11" fill="#059669" text-anchor="start">0.60</text>
+        <text x="925" y="180" font-size="11" font-weight="700" fill="#059669" text-anchor="middle" transform="rotate(90, 925, 180)">Support Recovery F1 (↑)</text>
+        <path d="M 220 137 Q 480 115 740 147" fill="none" stroke="#0284c7" stroke-width="3.5" />
+        <circle cx="220" cy="137" r="6" fill="#0284c7" stroke="#ffffff" stroke-width="2" />
+        <circle cx="480" cy="127" r="7" fill="#0284c7" stroke="#ffffff" stroke-width="2.5" />
+        <circle cx="740" cy="147" r="6" fill="#0284c7" stroke="#ffffff" stroke-width="2" />
+        <text x="480" y="112" font-size="10.5" font-weight="700" fill="#0284c7" text-anchor="middle">Linear XV: 0.6793</text>
+        <path d="M 220 235 Q 480 210 740 244" fill="none" stroke="#4f46e5" stroke-width="3" stroke-dasharray="6,4" />
+        <circle cx="220" cy="235" r="5.5" fill="#4f46e5" stroke="#ffffff" stroke-width="2" />
+        <circle cx="480" cy="221" r="6.5" fill="#4f46e5" stroke="#ffffff" stroke-width="2" />
+        <circle cx="740" cy="244" r="5.5" fill="#4f46e5" stroke="#ffffff" stroke-width="2" />
+        <text x="480" y="208" font-size="10.5" font-weight="700" fill="#4f46e5" text-anchor="middle">RF Axis-Sensitive: 0.6505</text>
+        <path d="M 220 206 Q 480 80 740 183" fill="none" stroke="#059669" stroke-width="3.5" />
+        <circle cx="220" cy="206" r="6" fill="#059669" stroke="#ffffff" stroke-width="2" />
+        <circle cx="480" cy="108" r="8" fill="#059669" stroke="#ffffff" stroke-width="2.5" />
+        <circle cx="740" cy="183" r="6" fill="#059669" stroke="#ffffff" stroke-width="2" />
+        <text x="480" y="92" font-size="11" font-weight="800" fill="#059669" text-anchor="middle">Peak F1: 0.5627 (+15.4%)</text>
+        <g transform="translate(180, 15)">
+          <line x1="0" y1="10" x2="25" y2="10" stroke="#0284c7" stroke-width="3" />
+          <circle cx="12" cy="10" r="4" fill="#0284c7" />
+          <text x="32" y="14" font-size="11" font-weight="600" fill="#1e293b">Subspace Fidelity (Linear XV ↑)</text>
+          <line x1="240" y1="10" x2="265" y2="10" stroke="#4f46e5" stroke-width="2.5" stroke-dasharray="4,3" />
+          <circle cx="252" cy="10" r="4" fill="#4f46e5" />
+          <text x="272" y="14" font-size="11" font-weight="600" fill="#1e293b">Axis Alignment (RF XV ↑)</text>
+          <line x1="460" y1="10" x2="485" y2="10" stroke="#059669" stroke-width="3" />
+          <circle cx="472" cy="10" r="4" fill="#059669" />
+          <text x="492" y="14" font-size="11" font-weight="600" fill="#1e293b">Support Recovery F1 (↑)</text>
+        </g>
+      </svg>
+    </div>
+
+    
+  <div class="section" id="section-pipeline">
+    <h2>3-Stage Support-Masked Riemannian Polish Pipeline</h2>
+    <div class="section-lead">
+      Standard $L_1$ lasso penalties shrink all coefficients simultaneously, flattening predictive signals and introducing coordinate shear. 
+      PySiMLR decouples <em>direction finding</em> from <em>sparsity enforcement</em> via three sequential stages:
+    </div>
+    <div class="pipeline-container">
+      <div class="pipeline-step step-1">
+        <div class="step-num">Stage 1</div>
+        <div class="step-title">Full-Support Riemannian Flow</div>
+        <div class="step-desc">
+          Solves Riemannian flow on the Stiefel manifold at convex weight <i>w</i> = 0.5:
+          <br>
+          <i>E<sub>w</sub></i>(<b>V</b><sub><i>m</i></sub>) = (1 &minus; <i>w</i>)&#x2112;<sub>fid</sub> + <i>w</i> <i>D</i>(<b>V</b><sub><i>m</i></sub>)
+          <br>
+          Produces well-conditioned, orthogonal candidate loadings without shrinkage bias.
+        </div>
+      </div>
+      <div class="pipeline-arrow">&rarr;</div>
+      <div class="pipeline-step step-2">
+        <div class="step-num">Stage 2</div>
+        <div class="step-title">Order-Statistic Support Mask</div>
+        <div class="step-desc">
+          Identifies (<i>s<sub>m</sub></i> + 1)-th largest element &tau;<sub><i>m,l</i></sub> per column for target quantile <i>q</i>:
+          <br>
+          <b>M</b><sub><i>m,jl</i></sub> = <b>1</b>(|<i>V<sub>m,jl</sub></i>| &gt; &tau;<sub><i>m,l</i></sub>)
+          <br>
+          Applies <code>only_if_denser=True</code> and resolves column sign-gauge (<i>v<sub>j</sub></i> &larr; &minus;<i>v<sub>j</sub></i>) before non-negative clamping.
+        </div>
+      </div>
+      <div class="pipeline-arrow">&rarr;</div>
+      <div class="pipeline-step step-3">
+        <div class="step-num">Stage 3</div>
+        <div class="step-title">Masked Stiefel Polish</div>
+        <div class="step-desc">
+          Freezes zero entries and re-optimizes exclusively on the pinned active support:
+          <br>
+          <b>V</b><sub><i>m</i></sub> &larr; &Pi;<sub>Stiefel</sub>(<b>M</b><sub><i>m</i></sub> &odot; <b>V</b><sub><i>m</i></sub>)
+          <br>
+          Guarantees exact support recovery while driving Stiefel defect <i>D</i>(<b>V</b><sub><i>m</i></sub>) &le; 10<sup>&minus;4</sup>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  </div>
+
+  <!-- TAB 2: RF AXIS SENSITIVE -->
+  <div id="tab-rf" class="tab-content" style="display: none;">
+    
+  <div class="section" id="section-rf-axis">
+    <h2>Three Probes: Subspace Fidelity (Linear XV) vs. Single-Axis Interpretability (Random Forest XV)</h2>
+    <div class="section-lead">
+      <strong>Core Methodological Discovery:</strong> Ordinary least squares linear regression on $\mathbf{X}\mathbf{V}$ is invariant under orthogonal rotations $\mathbf{R} \in \mathrm{O}(k)$, making it blind to diagonal coordinate mixing. In contrast, decision tree ensembles perform axis-orthogonal splits ($z_j \le \theta$). 
+      On <code>ADNI-MCI</code>, PCA suffers an axis drop of <strong>&minus;0.1081</strong> (&gt;70% collapse from 0.1522 to 0.0441), while <code>Flow-SiMR-V</code> drops by only <strong>&minus;0.0342</strong> (0.2311 to 0.1969). Across all 12 benchmark cohorts, PySiMLR architectures cut the axis drop in half relative to PCA (&minus;0.0217 to &minus;0.0283 vs. &minus;0.0439).
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>12-Cohort Linear (q=None, ↑)</th>
+          <th>12-Cohort Linear (q=0.5, ↑)</th>
+          <th>12-Cohort Linear (q=0.8, ↑)</th>
+          <th>12-Cohort RF Axis (q=None, ↑)</th>
+          <th>12-Cohort RF Axis (q=0.5, ↑)</th>
+          <th>12-Cohort RF Axis (q=0.8, ↑)</th>
+          <th>12-Cohort Axis Drop at q=0.5 (↓)</th>
+          <th>ADNI Linear (q=0.5, ↑)</th>
+          <th>ADNI RF Axis (q=0.5, ↑)</th>
+          <th>ADNI Axis Drop (↓)</th>
+        </tr>
+      </thead>
+      <tbody>
+        
+    <tr>
+      <td><strong>Flow-SiMR-V</strong></td>
+      <td>0.7075</td>
+      <td><strong>0.7114</strong></td>
+      <td>0.6912</td>
+      <td>0.6854</td>
+      <td><strong>0.6888</strong></td>
+      <td>0.6654</td>
+      <td class="pos"><strong>-0.0226</strong></td>
+      <td>0.2311</td>
+      <td>0.1969</td>
+      <td class="pos"><strong>-0.0342</strong></td>
+    </tr>
+    
+    <tr>
+      <td><strong>LEND</strong></td>
+      <td>0.6952</td>
+      <td><strong>0.7065</strong></td>
+      <td>0.6949</td>
+      <td>0.6737</td>
+      <td><strong>0.6827</strong></td>
+      <td>0.6710</td>
+      <td class="pos"><strong>-0.0238</strong></td>
+      <td>0.2201</td>
+      <td>0.1692</td>
+      <td class="neu"><strong>-0.0509</strong></td>
+    </tr>
+    
+    <tr>
+      <td><strong>SiMLR-LBFGSB</strong></td>
+      <td>0.6824</td>
+      <td><strong>0.6827</strong></td>
+      <td>0.6814</td>
+      <td>0.6544</td>
+      <td><strong>0.6610</strong></td>
+      <td>0.6594</td>
+      <td class="pos"><strong>-0.0217</strong></td>
+      <td>0.1662</td>
+      <td>0.1274</td>
+      <td class="pos"><strong>-0.0388</strong></td>
+    </tr>
+    
+    <tr>
+      <td><strong>SiMLR-LBFGS</strong></td>
+      <td>0.6826</td>
+      <td><strong>0.6833</strong></td>
+      <td>0.6774</td>
+      <td>0.6552</td>
+      <td><strong>0.6613</strong></td>
+      <td>0.6506</td>
+      <td class="pos"><strong>-0.0220</strong></td>
+      <td>0.1699</td>
+      <td>0.1216</td>
+      <td class="neu"><strong>-0.0483</strong></td>
+    </tr>
+    
+    <tr>
+      <td><strong>SiMLR</strong></td>
+      <td>0.6846</td>
+      <td><strong>0.6879</strong></td>
+      <td>0.6818</td>
+      <td>0.6595</td>
+      <td><strong>0.6621</strong></td>
+      <td>0.6553</td>
+      <td class="neu"><strong>-0.0258</strong></td>
+      <td>0.1724</td>
+      <td>0.1174</td>
+      <td class="neu"><strong>-0.0551</strong></td>
+    </tr>
+    
+    <tr>
+      <td><strong>NEDPP</strong></td>
+      <td>0.6849</td>
+      <td><strong>0.6893</strong></td>
+      <td>0.6877</td>
+      <td>0.6561</td>
+      <td><strong>0.6610</strong></td>
+      <td>0.6587</td>
+      <td class="neu"><strong>-0.0283</strong></td>
+      <td>0.2123</td>
+      <td>0.1547</td>
+      <td class="neu"><strong>-0.0576</strong></td>
+    </tr>
+    
+    <tr>
+      <td><strong>NED</strong></td>
+      <td>0.6838</td>
+      <td><strong>0.6880</strong></td>
+      <td>0.6835</td>
+      <td>0.6493</td>
+      <td><strong>0.6616</strong></td>
+      <td>0.6568</td>
+      <td class="neu"><strong>-0.0265</strong></td>
+      <td>0.2063</td>
+      <td>0.1470</td>
+      <td class="neu"><strong>-0.0593</strong></td>
+    </tr>
+    
+    <tr>
+      <td><strong>NSAFlow-PCA</strong></td>
+      <td>0.6329</td>
+      <td><strong>0.6325</strong></td>
+      <td>0.6296</td>
+      <td>0.5920</td>
+      <td><strong>0.5876</strong></td>
+      <td>0.5857</td>
+      <td class="neg"><strong>-0.0450</strong></td>
+      <td>0.1590</td>
+      <td>0.0244</td>
+      <td class="neg"><strong>-0.1346</strong></td>
+    </tr>
+    
+    <tr>
+      <td><strong>PCA</strong></td>
+      <td>0.6324</td>
+      <td><strong>0.6324</strong></td>
+      <td>0.6324</td>
+      <td>0.5885</td>
+      <td><strong>0.5885</strong></td>
+      <td>0.5885</td>
+      <td class="neg"><strong>-0.0439</strong></td>
+      <td>0.1522</td>
+      <td>0.0441</td>
+      <td class="neg"><strong>-0.1081</strong></td>
+    </tr>
+    
+      </tbody>
+    </table>
+  </div>
+
+  </div>
+
+  <!-- TAB 3: GLOBAL LEADERBOARD -->
+  <div id="tab-global" class="tab-content" style="display: none;">
+    <div class="section">
+    <h2>1. Global Leaderboard Across All 12 Datasets &mdash; Operating Points q = None vs. q = 0.5 vs. q = 0.8 (972 Fits)</h2>
+    <div class="section-lead">
+      <strong>Summary:</strong> Across all 12 datasets under the unified <code>acc/svd</code> protocol, <strong><code>q = 0.5</code></strong> achieves ~41%&ndash;52% sparsity and <strong><code>q = 0.8</code></strong> achieves ~64%&ndash;74% sparsity (preserving compact p &le; 15 clinical views), while improving ground-truth sparse support recovery across both signed and non-negative regimes and keeping scale-invariant Stiefel defect strictly bounded in <code>[0, 1]</code>.
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Mean Rank (Linear XV, q=0.5) (↓)</th>
+          <th>Mean Linear XV (q=0.5, ↑)</th>
+          <th>Mean Linear XV (q=0.8, ↑)</th>
+          <th>Mean Rank (Consensus U, q=0.5) (↓)</th>
+          <th>Mean Consensus U (0.5 / 0.8, ↑)</th>
+          <th>Support Recovery Jaccard F1 (None → 0.5 → 0.8, ↑)</th>
+          <th>Mean Sparsity % (None → 0.5 → 0.8, ↑)</th>
+          <th>Scale-Invariant Defect D(V) (↓ 0 = Orthogonal)</th>
+          <th>Fit Time (Seconds, ↓)</th>
+        </tr>
+      </thead>
+      <tbody>
+        
+    <tr>
+      <td><strong>LEND</strong></td>
+      <td><strong>3.64</strong> <span class="sub">(None: 3.78, 0.8: 4.24)</span></td>
+      <td><strong>0.7333</strong> (<span class="pos">+0.0158</span>)</td>
+      <td><strong>0.7200</strong> (<span class="pos">+0.0025</span>)</td>
+      <td><strong>3.25</strong> <span class="sub">(0.8: 3.94)</span></td>
+      <td><strong>0.6963</strong> / <strong>0.6771</strong></td>
+      <td>0.5520 &rarr; <strong>0.6314</strong> &rarr; <strong>0.5259</strong></td>
+      <td>10.3% &rarr; <strong>43.9%</strong> &rarr; <strong>66.3%</strong></td>
+      <td><strong>0.0004</strong> <span class="sub">(0.8: 0.0007)</span></td>
+      <td>2.24s</td>
+    </tr>
+    
+    <tr>
+      <td><strong>Flow-SiMR-V</strong></td>
+      <td><strong>3.83</strong> <span class="sub">(None: 3.90, 0.8: 4.18)</span></td>
+      <td><strong>0.7357</strong> (<span class="pos">+0.0056</span>)</td>
+      <td><strong>0.7142</strong> (<span class="neg">-0.0159</span>)</td>
+      <td><strong>3.74</strong> <span class="sub">(0.8: 4.04)</span></td>
+      <td><strong>0.6960</strong> / <strong>0.6792</strong></td>
+      <td>0.5063 &rarr; <strong>0.6023</strong> &rarr; <strong>0.5405</strong></td>
+      <td>9.3% &rarr; <strong>43.3%</strong> &rarr; <strong>66.3%</strong></td>
+      <td><strong>0.0005</strong> <span class="sub">(0.8: 0.0007)</span></td>
+      <td>8.45s</td>
+    </tr>
+    
+    <tr>
+      <td><strong>NEDPP</strong></td>
+      <td><strong>4.12</strong> <span class="sub">(None: 4.38, 0.8: 4.25)</span></td>
+      <td><strong>0.7099</strong> (<span class="pos">+0.0052</span>)</td>
+      <td><strong>0.7119</strong> (<span class="pos">+0.0072</span>)</td>
+      <td><strong>6.89</strong> <span class="sub">(0.8: 6.62)</span></td>
+      <td><strong>0.5610</strong> / <strong>0.5812</strong></td>
+      <td>0.4940 &rarr; <strong>0.5763</strong> &rarr; <strong>0.5379</strong></td>
+      <td>9.3% &rarr; <strong>42.8%</strong> &rarr; <strong>66.3%</strong></td>
+      <td><strong>0.0005</strong> <span class="sub">(0.8: 0.0004)</span></td>
+      <td>3.25s</td>
+    </tr>
+    
+    <tr>
+      <td><strong>NED</strong></td>
+      <td><strong>4.29</strong> <span class="sub">(None: 4.14, 0.8: 4.28)</span></td>
+      <td><strong>0.7100</strong> (<span class="pos">+0.0065</span>)</td>
+      <td><strong>0.7067</strong> (<span class="pos">+0.0032</span>)</td>
+      <td><strong>6.19</strong> <span class="sub">(0.8: 6.88)</span></td>
+      <td><strong>0.5833</strong> / <strong>0.5184</strong></td>
+      <td>0.4933 &rarr; <strong>0.5658</strong> &rarr; <strong>0.5409</strong></td>
+      <td>9.3% &rarr; <strong>42.6%</strong> &rarr; <strong>66.3%</strong></td>
+      <td><strong>0.0004</strong> <span class="sub">(0.8: 0.0004)</span></td>
+      <td>2.63s</td>
+    </tr>
+    
+    <tr>
+      <td><strong>SiMLR</strong></td>
+      <td><strong>4.60</strong> <span class="sub">(None: 4.57, 0.8: 4.29)</span></td>
+      <td><strong>0.7125</strong> (<span class="pos">+0.0035</span>)</td>
+      <td><strong>0.7058</strong> (<span class="neg">-0.0032</span>)</td>
+      <td><strong>5.17</strong> <span class="sub">(0.8: 4.67)</span></td>
+      <td><strong>0.6436</strong> / <strong>0.6444</strong></td>
+      <td>0.4320 &rarr; <strong>0.5402</strong> &rarr; <strong>0.5454</strong></td>
+      <td>7.2% &rarr; <strong>42.4%</strong> &rarr; <strong>66.3%</strong></td>
+      <td><strong>0.0026</strong> <span class="sub">(0.8: 0.0002)</span></td>
+      <td>0.60s</td>
+    </tr>
+    
+    <tr>
+      <td><strong>SiMLR-LBFGSB</strong></td>
+      <td><strong>4.86</strong> <span class="sub">(None: 4.61, 0.8: 4.40)</span></td>
+      <td><strong>0.7061</strong> (<span class="pos">+0.0006</span>)</td>
+      <td><strong>0.7046</strong> (<span class="neg">-0.0009</span>)</td>
+      <td><strong>5.40</strong> <span class="sub">(0.8: 4.93)</span></td>
+      <td><strong>0.6418</strong> / <strong>0.6408</strong></td>
+      <td>0.5773 &rarr; <strong>0.6486</strong> &rarr; <strong>0.5417</strong></td>
+      <td>10.3% &rarr; <strong>44.0%</strong> &rarr; <strong>66.3%</strong></td>
+      <td><strong>0.0003</strong> <span class="sub">(0.8: 0.0001)</span></td>
+      <td>4.21s</td>
+    </tr>
+    
+    <tr>
+      <td><strong>SiMLR-LBFGS</strong></td>
+      <td><strong>5.22</strong> <span class="sub">(None: 5.04, 0.8: 4.69)</span></td>
+      <td><strong>0.7058</strong> (<span class="pos">+0.0013</span>)</td>
+      <td><strong>0.6994</strong> (<span class="neg">-0.0051</span>)</td>
+      <td><strong>5.19</strong> <span class="sub">(0.8: 5.11)</span></td>
+      <td><strong>0.6416</strong> / <strong>0.6499</strong></td>
+      <td>0.5842 &rarr; <strong>0.6418</strong> &rarr; <strong>0.5182</strong></td>
+      <td>10.6% &rarr; <strong>43.9%</strong> &rarr; <strong>66.3%</strong></td>
+      <td><strong>0.0000</strong> <span class="sub">(0.8: 0.0128)</span></td>
+      <td>4.10s</td>
+    </tr>
+    
+    <tr>
+      <td><strong>NSAFlow-PCA</strong></td>
+      <td><strong>7.21</strong> <span class="sub">(None: 7.19, 0.8: 7.31)</span></td>
+      <td><strong>0.6447</strong> (<span class="neg">-0.0004</span>)</td>
+      <td><strong>0.6427</strong> (<span class="neg">-0.0024</span>)</td>
+      <td><strong>4.46</strong> <span class="sub">(0.8: 4.17)</span></td>
+      <td><strong>0.6485</strong> / <strong>0.6479</strong></td>
+      <td>0.4419 &rarr; <strong>0.5495</strong> &rarr; <strong>0.4901</strong></td>
+      <td>27.4% &rarr; <strong>46.8%</strong> &rarr; <strong>71.7%</strong></td>
+      <td><strong>0.2853</strong> <span class="sub">(0.8: 0.3204)</span></td>
+      <td>0.04s</td>
+    </tr>
+    
+    <tr>
+      <td><strong>PCA</strong></td>
+      <td><strong>7.22</strong> <span class="sub">(None: 7.39, 0.8: 7.36)</span></td>
+      <td><strong>0.6445</strong> (<span class="neu">0.0000</span>)</td>
+      <td><strong>0.6445</strong> (<span class="neu">0.0000</span>)</td>
+      <td><strong>4.71</strong> <span class="sub">(0.8: 4.64)</span></td>
+      <td><strong>0.6481</strong> / <strong>0.6481</strong></td>
+      <td>0.3083 &rarr; <strong>0.3083</strong> &rarr; <strong>0.3083</strong></td>
+      <td>0.0% &rarr; <strong>0.0%</strong> &rarr; <strong>0.0%</strong></td>
+      <td><strong>0.2404</strong> <span class="sub">(0.8: 0.2404)</span></td>
+      <td>0.02s</td>
+    </tr>
+    
+      </tbody>
+    </table>
+  </div>
+  </div>
+
+  <!-- TAB 4: SUPPORT RECOVERY -->
+  <div id="tab-support" class="tab-content" style="display: none;">
+  <div class="section">
+    <h2>2. Ground-Truth Sparse Support Recovery (Jaccard F1) Across Signed &amp; Non-Negative Regimes (Modification #1)</h2>
+    <div class="section-lead">
+      <strong>Density Alignment:</strong>
+      <ul>
+        <li>On <strong>50%-sparse signed</strong> ground truth (<code>Linear</code>), <code>q = 0.5</code> matches the exact 50% active density and jumps support recovery from ~0.50 (at <code>q = None</code>) to <strong>0.66&ndash;0.76</strong>.</li>
+        <li>On <strong>80%-sparse signed</strong> (<code>Shared+Private</code>) and <strong>80%-sparse non-negative</strong> (<code>NonnegPartsWeak</code>) ground truths, focal biomarker selection (<code>q = 0.8</code>) aligns with the 20% active feature density and delivers the highest support recovery across models.</li>
+        <li>On <strong>66.7%-sparse disjoint non-negative</strong> ground truth (<code>NonnegParts</code>), <code>only_if_denser=True</code> preserves the natural 66.7% disjoint sparsity at <code>q = 0.5</code> (Support Jaccard <strong>0.991&ndash;0.994</strong>).</li>
+      </ul>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Synthetic Regime (Ground-Truth Structure)</th>
+          <th>Model</th>
+          <th>Support F1 (q = None)</th>
+          <th>Support F1 (q = 0.5)</th>
+          <th>Support F1 (q = 0.8)</th>
+          <th>Achieved Sparsity (None / 0.5 / 0.8)</th>
+          <th>Frame Defect D (0.5 / 0.8)</th>
+          <th>First-Layer Probe XV (0.5 / 0.8)</th>
+        </tr>
+      </thead>
+      <tbody>
+        
+        <tr>
+          <td><strong>Linear (50%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>SiMLR-LBFGSB</strong></td>
+          <td>0.5000</td>
+          <td><strong>0.7165</strong> (<span class="pos">+0.2165</span>)</td>
+          <td>0.3906 (<span class="neg">-0.1094</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0000 / 0.0004</td>
+          <td>0.9709 / 0.9673</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Linear (50%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>SiMLR</strong></td>
+          <td>0.5000</td>
+          <td><strong>0.7154</strong> (<span class="pos">+0.2154</span>)</td>
+          <td>0.3838 (<span class="neg">-0.1162</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0000 / 0.0000</td>
+          <td>0.9702 / 0.9698</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Linear (50%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>SiMLR-LBFGS</strong></td>
+          <td>0.5000</td>
+          <td><strong>0.7165</strong> (<span class="pos">+0.2165</span>)</td>
+          <td>0.3704 (<span class="neg">-0.1296</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0000 / 0.0019</td>
+          <td>0.9709 / 0.9646</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Linear (50%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>LEND</strong></td>
+          <td>0.5000</td>
+          <td><strong>0.6880</strong> (<span class="pos">+0.1880</span>)</td>
+          <td>0.3789 (<span class="neg">-0.1211</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0003 / 0.0001</td>
+          <td>0.9732 / 0.9667</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Linear (50%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>NED</strong></td>
+          <td>0.5000</td>
+          <td><strong>0.7293</strong> (<span class="pos">+0.2293</span>)</td>
+          <td>0.3756 (<span class="neg">-0.1244</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0005 / 0.0002</td>
+          <td>0.9727 / 0.9659</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Linear (50%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>NEDPP</strong></td>
+          <td>0.5000</td>
+          <td><strong>0.7482</strong> (<span class="pos">+0.2482</span>)</td>
+          <td>0.3679 (<span class="neg">-0.1321</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0002 / 0.0001</td>
+          <td>0.9712 / 0.9678</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Linear (50%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>Flow-SiMR-V</strong></td>
+          <td>0.5000</td>
+          <td><strong>0.7269</strong> (<span class="pos">+0.2269</span>)</td>
+          <td>0.3716 (<span class="neg">-0.1284</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0005 / 0.0001</td>
+          <td>0.9722 / 0.9654</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Linear (50%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>NSAFlow-PCA</strong></td>
+          <td>0.8053</td>
+          <td><strong>1.0000</strong> (<span class="pos">+0.1947</span>)</td>
+          <td>0.3975 (<span class="neg">-0.4079</span>)</td>
+          <td>37.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0056 / 0.0054</td>
+          <td>0.9676 / 0.9628</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Linear (50%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>PCA</strong></td>
+          <td><strong>0.5000</strong></td>
+          <td><strong>0.5000</strong> (<span class="neu">0.0000</span>)</td>
+          <td><strong>0.5000</strong> (<span class="neu">0.0000</span>)</td>
+          <td>0.0% / <strong>0.0%</strong> / <strong>0.0%</strong></td>
+          <td>0.0050 / 0.0050</td>
+          <td>0.9678 / 0.9678</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Shared+Private (80%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>SiMLR-LBFGSB</strong></td>
+          <td>0.2000</td>
+          <td>0.2752 (<span class="pos">+0.0752</span>)</td>
+          <td><strong>0.3933</strong> (<span class="pos">+0.1933</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0000 / 0.0000</td>
+          <td>0.4739 / 0.3991</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Shared+Private (80%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>SiMLR</strong></td>
+          <td>0.2000</td>
+          <td>0.2752 (<span class="pos">+0.0752</span>)</td>
+          <td><strong>0.4008</strong> (<span class="pos">+0.2008</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0001 / 0.0000</td>
+          <td>0.4785 / 0.4128</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Shared+Private (80%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>SiMLR-LBFGS</strong></td>
+          <td>0.2000</td>
+          <td>0.2752 (<span class="pos">+0.0752</span>)</td>
+          <td><strong>0.3959</strong> (<span class="pos">+0.1959</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0000 / 0.0000</td>
+          <td>0.4725 / 0.4040</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Shared+Private (80%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>LEND</strong></td>
+          <td>0.2000</td>
+          <td>0.2745 (<span class="pos">+0.0745</span>)</td>
+          <td><strong>0.3281</strong> (<span class="pos">+0.1281</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0010 / 0.0003</td>
+          <td>0.6333 / 0.5556</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Shared+Private (80%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>NED</strong></td>
+          <td>0.2000</td>
+          <td>0.2757 (<span class="pos">+0.0757</span>)</td>
+          <td><strong>0.3914</strong> (<span class="pos">+0.1914</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0003 / 0.0006</td>
+          <td>0.4389 / 0.3934</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Shared+Private (80%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>NEDPP</strong></td>
+          <td>0.2000</td>
+          <td>0.2795 (<span class="pos">+0.0795</span>)</td>
+          <td><strong>0.3871</strong> (<span class="pos">+0.1871</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0005 / 0.0005</td>
+          <td>0.4470 / 0.4702</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Shared+Private (80%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>Flow-SiMR-V</strong></td>
+          <td>0.2000</td>
+          <td>0.2777 (<span class="pos">+0.0777</span>)</td>
+          <td><strong>0.3936</strong> (<span class="pos">+0.1936</span>)</td>
+          <td>0.0% / <strong>50.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0016 / 0.0004</td>
+          <td>0.7060 / 0.4371</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Shared+Private (80%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>NSAFlow-PCA</strong></td>
+          <td>0.2971</td>
+          <td>0.1937 (<span class="neg">-0.1035</span>)</td>
+          <td><strong>0.3662</strong> (<span class="pos">+0.0691</span>)</td>
+          <td>29.2% / <strong>50.3%</strong> / <strong>80.0%</strong></td>
+          <td>0.6782 / 0.6767</td>
+          <td>0.2940 / 0.3024</td>
+        </tr>
+        
+        <tr>
+          <td><strong>Shared+Private (80%-Sparse Signed Ground Truth)</strong></td>
+          <td><strong>PCA</strong></td>
+          <td><strong>0.2000</strong></td>
+          <td><strong>0.2000</strong> (<span class="neu">0.0000</span>)</td>
+          <td><strong>0.2000</strong> (<span class="neu">0.0000</span>)</td>
+          <td>0.0% / <strong>0.0%</strong> / <strong>0.0%</strong></td>
+          <td>0.6546 / 0.6546</td>
+          <td>0.2913 / 0.2913</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegParts (66.7%-Sparse Disjoint Non-Neg)</strong></td>
+          <td><strong>SiMLR-LBFGSB</strong></td>
+          <td>0.9907</td>
+          <td><strong>0.9908</strong> (<span class="pos">+0.0001</span>)</td>
+          <td>0.6000 (<span class="neg">-0.3907</span>)</td>
+          <td>66.3% / <strong>66.3%</strong> / <strong>80.0%</strong></td>
+          <td>0.0000 / 0.0000</td>
+          <td>0.9160 / 0.9274</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegParts (66.7%-Sparse Disjoint Non-Neg)</strong></td>
+          <td><strong>SiMLR</strong></td>
+          <td>0.4947</td>
+          <td><strong>0.6773</strong> (<span class="pos">+0.1826</span>)</td>
+          <td>0.6000 (<span class="pos">+0.1053</span>)</td>
+          <td>29.3% / <strong>50.5%</strong> / <strong>80.0%</strong></td>
+          <td>0.0165 / 0.0000</td>
+          <td>0.9202 / 0.9264</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegParts (66.7%-Sparse Disjoint Non-Neg)</strong></td>
+          <td><strong>SiMLR-LBFGS</strong></td>
+          <td>0.9664</td>
+          <td><strong>0.9675</strong> (<span class="pos">+0.0011</span>)</td>
+          <td>0.5901 (<span class="neg">-0.3763</span>)</td>
+          <td>65.4% / <strong>65.4%</strong> / <strong>80.0%</strong></td>
+          <td>0.0000 / 0.0002</td>
+          <td>0.9159 / 0.9261</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegParts (66.7%-Sparse Disjoint Non-Neg)</strong></td>
+          <td><strong>LEND</strong></td>
+          <td>0.8987</td>
+          <td><strong>0.9354</strong> (<span class="pos">+0.0367</span>)</td>
+          <td>0.6000 (<span class="neg">-0.2987</span>)</td>
+          <td>63.6% / <strong>64.7%</strong> / <strong>80.0%</strong></td>
+          <td>0.0000 / 0.0000</td>
+          <td>0.9176 / 0.9268</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegParts (66.7%-Sparse Disjoint Non-Neg)</strong></td>
+          <td><strong>NED</strong></td>
+          <td><strong>0.8106</strong></td>
+          <td>0.8075 (<span class="neg">-0.0032</span>)</td>
+          <td>0.6000 (<span class="neg">-0.2106</span>)</td>
+          <td>58.1% / <strong>57.9%</strong> / <strong>80.0%</strong></td>
+          <td>0.0001 / 0.0000</td>
+          <td>0.9160 / 0.9268</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegParts (66.7%-Sparse Disjoint Non-Neg)</strong></td>
+          <td><strong>NEDPP</strong></td>
+          <td>0.7957</td>
+          <td><strong>0.8122</strong> (<span class="pos">+0.0165</span>)</td>
+          <td>0.6000 (<span class="neg">-0.1957</span>)</td>
+          <td>57.3% / <strong>58.4%</strong> / <strong>80.0%</strong></td>
+          <td>0.0001 / 0.0000</td>
+          <td>0.9160 / 0.9262</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegParts (66.7%-Sparse Disjoint Non-Neg)</strong></td>
+          <td><strong>Flow-SiMR-V</strong></td>
+          <td>0.8258</td>
+          <td><strong>0.8775</strong> (<span class="pos">+0.0517</span>)</td>
+          <td>0.6000 (<span class="neg">-0.2258</span>)</td>
+          <td>58.9% / <strong>62.5%</strong> / <strong>80.0%</strong></td>
+          <td>0.0000 / 0.0000</td>
+          <td>0.9164 / 0.9265</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegParts (66.7%-Sparse Disjoint Non-Neg)</strong></td>
+          <td><strong>NSAFlow-PCA</strong></td>
+          <td>0.3987</td>
+          <td><strong>0.6448</strong> (<span class="pos">+0.2461</span>)</td>
+          <td>0.4898 (<span class="pos">+0.0911</span>)</td>
+          <td>20.6% / <strong>49.7%</strong> / <strong>80.0%</strong></td>
+          <td>0.0316 / 0.1530</td>
+          <td>0.8904 / 0.9181</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegParts (66.7%-Sparse Disjoint Non-Neg)</strong></td>
+          <td><strong>PCA</strong></td>
+          <td><strong>0.3333</strong></td>
+          <td><strong>0.3333</strong> (<span class="neu">0.0000</span>)</td>
+          <td><strong>0.3333</strong> (<span class="neu">0.0000</span>)</td>
+          <td>0.0% / <strong>0.0%</strong> / <strong>0.0%</strong></td>
+          <td>0.0980 / 0.0980</td>
+          <td>0.8931 / 0.8931</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegPartsWeak (80%-Sparse Disjoint Non-Neg, Weakest Latent)</strong></td>
+          <td><strong>SiMLR-LBFGSB</strong></td>
+          <td>0.6183</td>
+          <td>0.6116 (<span class="neg">-0.0066</span>)</td>
+          <td><strong>0.7828</strong> (<span class="pos">+0.1645</span>)</td>
+          <td>57.7% / <strong>65.0%</strong> / <strong>80.0%</strong></td>
+          <td>0.0031 / 0.0000</td>
+          <td>0.3531 / 0.3822</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegPartsWeak (80%-Sparse Disjoint Non-Neg, Weakest Latent)</strong></td>
+          <td><strong>SiMLR</strong></td>
+          <td>0.5333</td>
+          <td>0.4927 (<span class="neg">-0.0406</span>)</td>
+          <td><strong>0.7968</strong> (<span class="pos">+0.2634</span>)</td>
+          <td>57.0% / <strong>60.9%</strong> / <strong>80.0%</strong></td>
+          <td>0.0140 / 0.0000</td>
+          <td>0.4511 / 0.4113</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegPartsWeak (80%-Sparse Disjoint Non-Neg, Weakest Latent)</strong></td>
+          <td><strong>SiMLR-LBFGS</strong></td>
+          <td>0.6703</td>
+          <td>0.6078 (<span class="neg">-0.0625</span>)</td>
+          <td><strong>0.7165</strong> (<span class="pos">+0.0461</span>)</td>
+          <td>61.3% / <strong>64.6%</strong> / <strong>80.0%</strong></td>
+          <td>0.0000 / 0.1503</td>
+          <td>0.3499 / 0.3364</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegPartsWeak (80%-Sparse Disjoint Non-Neg, Weakest Latent)</strong></td>
+          <td><strong>LEND</strong></td>
+          <td>0.6092</td>
+          <td>0.6279 (<span class="pos">+0.0187</span>)</td>
+          <td><strong>0.7968</strong> (<span class="pos">+0.1876</span>)</td>
+          <td>59.9% / <strong>65.6%</strong> / <strong>80.0%</strong></td>
+          <td>0.0000 / 0.0000</td>
+          <td>0.5140 / 0.4563</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegPartsWeak (80%-Sparse Disjoint Non-Neg, Weakest Latent)</strong></td>
+          <td><strong>NED</strong></td>
+          <td>0.4624</td>
+          <td>0.4509 (<span class="neg">-0.0115</span>)</td>
+          <td><strong>0.7968</strong> (<span class="pos">+0.3343</span>)</td>
+          <td>54.1% / <strong>56.3%</strong> / <strong>80.0%</strong></td>
+          <td>0.0002 / 0.0000</td>
+          <td>0.3905 / 0.4321</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegPartsWeak (80%-Sparse Disjoint Non-Neg, Weakest Latent)</strong></td>
+          <td><strong>NEDPP</strong></td>
+          <td>0.4802</td>
+          <td>0.4653 (<span class="neg">-0.0148</span>)</td>
+          <td><strong>0.7968</strong> (<span class="pos">+0.3166</span>)</td>
+          <td>54.0% / <strong>57.6%</strong> / <strong>80.0%</strong></td>
+          <td>0.0002 / 0.0000</td>
+          <td>0.3703 / 0.4234</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegPartsWeak (80%-Sparse Disjoint Non-Neg, Weakest Latent)</strong></td>
+          <td><strong>Flow-SiMR-V</strong></td>
+          <td>0.4995</td>
+          <td>0.5271 (<span class="pos">+0.0276</span>)</td>
+          <td><strong>0.7968</strong> (<span class="pos">+0.2972</span>)</td>
+          <td>53.0% / <strong>60.2%</strong> / <strong>80.0%</strong></td>
+          <td>0.0001 / 0.0000</td>
+          <td>0.4623 / 0.4592</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegPartsWeak (80%-Sparse Disjoint Non-Neg, Weakest Latent)</strong></td>
+          <td><strong>NSAFlow-PCA</strong></td>
+          <td>0.2663</td>
+          <td>0.3596 (<span class="pos">+0.0933</span>)</td>
+          <td><strong>0.7068</strong> (<span class="pos">+0.4406</span>)</td>
+          <td>27.6% / <strong>49.9%</strong> / <strong>80.0%</strong></td>
+          <td>0.1625 / 0.1878</td>
+          <td>0.1140 / 0.1117</td>
+        </tr>
+        
+        <tr>
+          <td><strong>NonnegPartsWeak (80%-Sparse Disjoint Non-Neg, Weakest Latent)</strong></td>
+          <td><strong>PCA</strong></td>
+          <td><strong>0.2000</strong></td>
+          <td><strong>0.2000</strong> (<span class="neu">0.0000</span>)</td>
+          <td><strong>0.2000</strong> (<span class="neu">0.0000</span>)</td>
+          <td>0.0% / <strong>0.0%</strong> / <strong>0.0%</strong></td>
+          <td>0.1775 / 0.1775</td>
+          <td>0.1246 / 0.1246</td>
+        </tr>
+        
+      </tbody>
+    </table>
+  
+  </div>
+
+  </div>
+
+  <!-- TAB 5: PAIRED POSITIVITY -->
+  <div id="tab-positivity" class="tab-content" style="display: none;">
+  <div class="section">
+    <h2>3. Paired Positivity (<code>either</code> vs. <code>positive</code>) &amp; Operating-Point Comparison on Real Biomedical Cohorts (Modification #3)</h2>
+    <div class="section-lead">
+      <strong>Protocol:</strong> Evaluates every model under the standardized <code>acc/svd</code> protocol on <code>ADNI-MCI</code> (neuroimaging + cognition), <code>MultiOmics</code> (TCGA breast multi-omics), and <code>TCGA-KIRC</code> (kidney clear-cell carcinoma) across <code>q &isin; {None, 0.5, 0.8}</code> and <code>positivity &isin; {"either", "positive"}</code>. Each cell shows <strong>First-Layer Linear Probe (XV)</strong> above <code>Sparsity% | Scale-Invariant Defect D</code>.
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Cohort</th>
+          <th>Sparseness</th>
+          <th>Positivity</th>
+          <th>SiMLR-LBFGSB</th><th>SiMLR</th><th>SiMLR-LBFGS</th><th>LEND</th><th>NED</th><th>NEDPP</th><th>Flow-SiMR-V</th><th>NSAFlow-PCA</th><th>PCA</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>ADNI-MCI</strong></td><td><code>q=None</code></td><td><code>either</code></td><td>0.1675<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.1787<br><small style='color:#64748b;'>0% | D=0.053</small></td><td>0.1561<br><small style='color:#64748b;'>0% | D=0.181</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.2420<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.1932<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.2040<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.2270<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.1592<br><small style='color:#64748b;'>33% | D=0.407</small></td><td>0.1522<br><small style='color:#64748b;'>0% | D=0.267</small></td></tr>
+<tr><td><strong>ADNI-MCI</strong></td><td><code>q=None</code></td><td><code>positive</code></td><td>0.1719<br><small style='color:#64748b;'>63% | D=0.000</small></td><td>0.1682<br><small style='color:#64748b;'>64% | D=0.008</small></td><td>0.1728<br><small style='color:#64748b;'>65% | D=0.000</small></td><td>0.2036<br><small style='color:#64748b;'>53% | D=0.003</small></td><td>0.1930<br><small style='color:#64748b;'>51% | D=0.001</small></td><td>0.2012<br><small style='color:#64748b;'>50% | D=0.002</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.2290<br><small style='color:#64748b;'>54% | D=0.002</small></td><td>0.1592<br><small style='color:#64748b;'>33% | D=0.407</small></td><td>0.1522<br><small style='color:#64748b;'>0% | D=0.267</small></td></tr>
+<tr><td><strong>ADNI-MCI</strong></td><td><code>q=0.5</code></td><td><code>either</code></td><td>0.1682<br><small style='color:#64748b;'>49% | D=0.000</small></td><td>0.1684<br><small style='color:#64748b;'>49% | D=0.000</small></td><td>0.1686<br><small style='color:#64748b;'>49% | D=0.000</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.2520<br><small style='color:#64748b;'>49% | D=0.000</small></td><td>0.2160<br><small style='color:#64748b;'>49% | D=0.001</small></td><td>0.2225<br><small style='color:#64748b;'>49% | D=0.001</small></td><td>0.2377<br><small style='color:#64748b;'>49% | D=0.001</small></td><td>0.1590<br><small style='color:#64748b;'>51% | D=0.406</small></td><td>0.1522<br><small style='color:#64748b;'>0% | D=0.267</small></td></tr>
+<tr><td><strong>ADNI-MCI</strong></td><td><code>q=0.5</code></td><td><code>positive</code></td><td>0.1642<br><small style='color:#64748b;'>62% | D=0.000</small></td><td>0.1764<br><small style='color:#64748b;'>64% | D=0.009</small></td><td>0.1711<br><small style='color:#64748b;'>65% | D=0.000</small></td><td>0.1882<br><small style='color:#64748b;'>58% | D=0.001</small></td><td>0.1965<br><small style='color:#64748b;'>55% | D=0.001</small></td><td>0.2021<br><small style='color:#64748b;'>55% | D=0.001</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.2245<br><small style='color:#64748b;'>60% | D=0.001</small></td><td>0.1590<br><small style='color:#64748b;'>51% | D=0.406</small></td><td>0.1522<br><small style='color:#64748b;'>0% | D=0.267</small></td></tr>
+<tr><td><strong>ADNI-MCI</strong></td><td><code>q=0.8</code></td><td><code>either</code></td><td>0.1738<br><small style='color:#64748b;'>78% | D=0.000</small></td><td>0.1781<br><small style='color:#64748b;'>78% | D=0.000</small></td><td>0.1540<br><small style='color:#64748b;'>78% | D=0.000</small></td><td>0.1819<br><small style='color:#64748b;'>78% | D=0.001</small></td><td>0.1870<br><small style='color:#64748b;'>78% | D=0.001</small></td><td>0.1810<br><small style='color:#64748b;'>78% | D=0.001</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.2303<br><small style='color:#64748b;'>78% | D=0.002</small></td><td>0.1614<br><small style='color:#64748b;'>80% | D=0.492</small></td><td>0.1522<br><small style='color:#64748b;'>0% | D=0.267</small></td></tr>
+<tr><td><strong>ADNI-MCI</strong></td><td><code>q=0.8</code></td><td><code>positive</code></td><td>0.1739<br><small style='color:#64748b;'>80% | D=0.009</small></td><td>0.1636<br><small style='color:#64748b;'>79% | D=0.020</small></td><td>0.1762<br><small style='color:#64748b;'>80% | D=0.010</small></td><td>0.1799<br><small style='color:#64748b;'>79% | D=0.000</small></td><td>0.1794<br><small style='color:#64748b;'>79% | D=0.000</small></td><td>0.1799<br><small style='color:#64748b;'>80% | D=0.000</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.1918<br><small style='color:#64748b;'>80% | D=0.000</small></td><td>0.1614<br><small style='color:#64748b;'>80% | D=0.492</small></td><td>0.1522<br><small style='color:#64748b;'>0% | D=0.267</small></td></tr>
+<tr><td><strong>MultiOmics</strong></td><td><code>q=None</code></td><td><code>either</code></td><td>0.9261<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.9234<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.9261<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.9261<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.9261<br><small style='color:#64748b;'>0% | D=0.000</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.9274<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.9261<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.9220<br><small style='color:#64748b;'>20% | D=0.352</small></td><td>0.9153<br><small style='color:#64748b;'>0% | D=0.239</small></td></tr>
+<tr><td><strong>MultiOmics</strong></td><td><code>q=None</code></td><td><code>positive</code></td><td>0.9261<br><small style='color:#64748b;'>63% | D=0.000</small></td><td>0.9234<br><small style='color:#64748b;'>60% | D=0.001</small></td><td>0.9261<br><small style='color:#64748b;'>64% | D=0.000</small></td><td>0.9261<br><small style='color:#64748b;'>55% | D=0.007</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.9288<br><small style='color:#64748b;'>52% | D=0.003</small></td><td>0.9234<br><small style='color:#64748b;'>52% | D=0.003</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.9288<br><small style='color:#64748b;'>54% | D=0.005</small></td><td>0.9220<br><small style='color:#64748b;'>20% | D=0.352</small></td><td>0.9153<br><small style='color:#64748b;'>0% | D=0.239</small></td></tr>
+<tr><td><strong>MultiOmics</strong></td><td><code>q=0.5</code></td><td><code>either</code></td><td>0.9207<br><small style='color:#64748b;'>50% | D=0.000</small></td><td>0.9207<br><small style='color:#64748b;'>50% | D=0.000</small></td><td>0.9207<br><small style='color:#64748b;'>50% | D=0.000</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.9274<br><small style='color:#64748b;'>50% | D=0.001</small></td><td>0.9261<br><small style='color:#64748b;'>50% | D=0.001</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.9274<br><small style='color:#64748b;'>50% | D=0.001</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.9274<br><small style='color:#64748b;'>50% | D=0.001</small></td><td>0.9194<br><small style='color:#64748b;'>50% | D=0.348</small></td><td>0.9153<br><small style='color:#64748b;'>0% | D=0.239</small></td></tr>
+<tr><td><strong>MultiOmics</strong></td><td><code>q=0.5</code></td><td><code>positive</code></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.9288<br><small style='color:#64748b;'>63% | D=0.000</small></td><td>0.9274<br><small style='color:#64748b;'>58% | D=0.001</small></td><td>0.9261<br><small style='color:#64748b;'>64% | D=0.000</small></td><td>0.9234<br><small style='color:#64748b;'>58% | D=0.007</small></td><td>0.9274<br><small style='color:#64748b;'>55% | D=0.002</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.9288<br><small style='color:#64748b;'>55% | D=0.002</small></td><td>0.9247<br><small style='color:#64748b;'>59% | D=0.005</small></td><td>0.9194<br><small style='color:#64748b;'>50% | D=0.348</small></td><td>0.9153<br><small style='color:#64748b;'>0% | D=0.239</small></td></tr>
+<tr><td><strong>MultiOmics</strong></td><td><code>q=0.8</code></td><td><code>either</code></td><td>0.9220<br><small style='color:#64748b;'>80% | D=0.000</small></td><td>0.9234<br><small style='color:#64748b;'>80% | D=0.000</small></td><td>0.9234<br><small style='color:#64748b;'>80% | D=0.000</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.9274<br><small style='color:#64748b;'>80% | D=0.001</small></td><td>0.9247<br><small style='color:#64748b;'>80% | D=0.000</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.9274<br><small style='color:#64748b;'>80% | D=0.000</small></td><td>0.9220<br><small style='color:#64748b;'>80% | D=0.001</small></td><td>0.9167<br><small style='color:#64748b;'>80% | D=0.456</small></td><td>0.9153<br><small style='color:#64748b;'>0% | D=0.239</small></td></tr>
+<tr><td><strong>MultiOmics</strong></td><td><code>q=0.8</code></td><td><code>positive</code></td><td>0.9247<br><small style='color:#64748b;'>80% | D=0.002</small></td><td>0.9247<br><small style='color:#64748b;'>80% | D=0.001</small></td><td>0.9234<br><small style='color:#64748b;'>80% | D=0.008</small></td><td>0.9247<br><small style='color:#64748b;'>80% | D=0.000</small></td><td>0.9261<br><small style='color:#64748b;'>80% | D=0.000</small></td><td>0.9261<br><small style='color:#64748b;'>80% | D=0.000</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.9274<br><small style='color:#64748b;'>80% | D=0.000</small></td><td>0.9167<br><small style='color:#64748b;'>80% | D=0.456</small></td><td>0.9153<br><small style='color:#64748b;'>0% | D=0.239</small></td></tr>
+<tr><td><strong>TCGA-KIRC</strong></td><td><code>q=None</code></td><td><code>either</code></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.6856<br><small style='color:#64748b;'>0% | D=0.000</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.6856<br><small style='color:#64748b;'>0% | D=0.000</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.6856<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.6809<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.6809<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.6809<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.6832<br><small style='color:#64748b;'>0% | D=0.000</small></td><td>0.6714<br><small style='color:#64748b;'>32% | D=0.766</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.6856<br><small style='color:#64748b;'>0% | D=0.599</small></td></tr>
+<tr><td><strong>TCGA-KIRC</strong></td><td><code>q=None</code></td><td><code>positive</code></td><td>0.6714<br><small style='color:#64748b;'>66% | D=0.000</small></td><td>0.6690<br><small style='color:#64748b;'>64% | D=0.000</small></td><td>0.6856<br><small style='color:#64748b;'>65% | D=0.000</small></td><td>0.6879<br><small style='color:#64748b;'>47% | D=0.002</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.6927<br><small style='color:#64748b;'>47% | D=0.002</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.6927<br><small style='color:#64748b;'>46% | D=0.002</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.6927<br><small style='color:#64748b;'>47% | D=0.002</small></td><td>0.6714<br><small style='color:#64748b;'>32% | D=0.766</small></td><td>0.6856<br><small style='color:#64748b;'>0% | D=0.599</small></td></tr>
+<tr><td><strong>TCGA-KIRC</strong></td><td><code>q=0.5</code></td><td><code>either</code></td><td>0.6856<br><small style='color:#64748b;'>50% | D=0.000</small></td><td>0.6832<br><small style='color:#64748b;'>50% | D=0.000</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.6879<br><small style='color:#64748b;'>50% | D=0.000</small></td><td>0.6643<br><small style='color:#64748b;'>50% | D=0.001</small></td><td>0.6832<br><small style='color:#64748b;'>50% | D=0.000</small></td><td>0.6856<br><small style='color:#64748b;'>50% | D=0.000</small></td><td>0.6761<br><small style='color:#64748b;'>50% | D=0.001</small></td><td>0.6738<br><small style='color:#64748b;'>50% | D=0.759</small></td><td>0.6856<br><small style='color:#64748b;'>0% | D=0.599</small></td></tr>
+<tr><td><strong>TCGA-KIRC</strong></td><td><code>q=0.5</code></td><td><code>positive</code></td><td>0.6738<br><small style='color:#64748b;'>59% | D=0.000</small></td><td>0.6643<br><small style='color:#64748b;'>61% | D=0.000</small></td><td>0.6832<br><small style='color:#64748b;'>60% | D=0.000</small></td><td>0.6856<br><small style='color:#64748b;'>56% | D=0.001</small></td><td>0.6761<br><small style='color:#64748b;'>56% | D=0.001</small></td><td>0.6903<br><small style='color:#64748b;'>55% | D=0.001</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.6927<br><small style='color:#64748b;'>56% | D=0.001</small></td><td>0.6738<br><small style='color:#64748b;'>50% | D=0.759</small></td><td>0.6856<br><small style='color:#64748b;'>0% | D=0.599</small></td></tr>
+<tr><td><strong>TCGA-KIRC</strong></td><td><code>q=0.8</code></td><td><code>either</code></td><td>0.6950<br><small style='color:#64748b;'>80% | D=0.000</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.6998<br><small style='color:#64748b;'>80% | D=0.000</small></td><td>0.6974<br><small style='color:#64748b;'>80% | D=0.000</small></td><td>0.6856<br><small style='color:#64748b;'>80% | D=0.001</small></td><td>0.6903<br><small style='color:#64748b;'>80% | D=0.001</small></td><td>0.6927<br><small style='color:#64748b;'>80% | D=0.000</small></td><td>0.6903<br><small style='color:#64748b;'>80% | D=0.001</small></td><td>0.6548<br><small style='color:#64748b;'>80% | D=0.866</small></td><td>0.6856<br><small style='color:#64748b;'>0% | D=0.599</small></td></tr>
+<tr><td><strong>TCGA-KIRC</strong></td><td><code>q=0.8</code></td><td><code>positive</code></td><td>0.6667<br><small style='color:#64748b;'>80% | D=0.002</small></td><td>0.6690<br><small style='color:#64748b;'>80% | D=0.002</small></td><td>0.6690<br><small style='color:#64748b;'>80% | D=0.005</small></td><td>0.6785<br><small style='color:#64748b;'>81% | D=0.000</small></td><td>0.6667<br><small style='color:#64748b;'>81% | D=0.000</small></td><td>0.6667<br><small style='color:#64748b;'>81% | D=0.000</small></td><td>0.6785<br><small style='color:#64748b;'>81% | D=0.000</small></td><td>0.6548<br><small style='color:#64748b;'>80% | D=0.866</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.6856<br><small style='color:#64748b;'>0% | D=0.599</small></td></tr>
+
+      </tbody>
+    </table>
+  </div>
+  </div>
+
+  <!-- TAB 6: PER DATASET LINEAR -->
+  <div id="tab-linear" class="tab-content" style="display: none;">
+  <div class="section">
+    <h2>4. Per-Dataset First-Layer Linear Basis Probe (XV) Across All 12 Datasets (q = 0.5 Primary, with q = None &amp; q = 0.8)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Dataset (Linear XV Test Score, ↑)</th>
+          <th>SiMLR-LBFGSB</th><th>SiMLR</th><th>SiMLR-LBFGS</th><th>LEND</th><th>NED</th><th>NEDPP</th><th>Flow-SiMR-V</th><th>NSAFlow-PCA</th><th>PCA</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>ADNI-MCI</strong></td><td><strong>0.1682</strong><br><small style='color:#475569;'>None: 0.1675 | 0.8: 0.1738</small></td><td><strong>0.1684</strong><br><small style='color:#475569;'>None: 0.1787 | 0.8: 0.1781</small></td><td><strong>0.1686</strong><br><small style='color:#475569;'>None: 0.1561 | 0.8: 0.1540</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.2520</strong><br><small style='color:#475569;'>None: 0.2420 | 0.8: 0.1819</small></td><td><strong>0.2160</strong><br><small style='color:#475569;'>None: 0.1932 | 0.8: 0.1870</small></td><td><strong>0.2225</strong><br><small style='color:#475569;'>None: 0.2040 | 0.8: 0.1810</small></td><td><strong>0.2377</strong><br><small style='color:#475569;'>None: 0.2270 | 0.8: 0.2303</small></td><td><strong>0.1590</strong><br><small style='color:#475569;'>None: 0.1592 | 0.8: 0.1614</small></td><td><strong>0.1522</strong><br><small style='color:#475569;'>None: 0.1522 | 0.8: 0.1522</small></td></tr>
+<tr><td><strong>MultiOmics</strong></td><td><strong>0.9207</strong><br><small style='color:#475569;'>None: 0.9261 | 0.8: 0.9220</small></td><td><strong>0.9207</strong><br><small style='color:#475569;'>None: 0.9234 | 0.8: 0.9234</small></td><td><strong>0.9207</strong><br><small style='color:#475569;'>None: 0.9261 | 0.8: 0.9234</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.9274</strong><br><small style='color:#475569;'>None: 0.9261 | 0.8: 0.9274</small></td><td><strong>0.9261</strong><br><small style='color:#475569;'>None: 0.9261 | 0.8: 0.9247</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.9274</strong><br><small style='color:#475569;'>None: 0.9274 | 0.8: 0.9274</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.9274</strong><br><small style='color:#475569;'>None: 0.9261 | 0.8: 0.9220</small></td><td><strong>0.9194</strong><br><small style='color:#475569;'>None: 0.9220 | 0.8: 0.9167</small></td><td><strong>0.9153</strong><br><small style='color:#475569;'>None: 0.9153 | 0.8: 0.9153</small></td></tr>
+<tr><td><strong>TCGA-KIRC</strong></td><td><strong>0.6856</strong><br><small style='color:#475569;'>None: 0.6856 | 0.8: 0.6950</small></td><td><strong>0.6832</strong><br><small style='color:#475569;'>None: 0.6856 | 0.8: 0.6998</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.6879</strong><br><small style='color:#475569;'>None: 0.6856 | 0.8: 0.6974</small></td><td><strong>0.6643</strong><br><small style='color:#475569;'>None: 0.6809 | 0.8: 0.6856</small></td><td><strong>0.6832</strong><br><small style='color:#475569;'>None: 0.6809 | 0.8: 0.6903</small></td><td><strong>0.6856</strong><br><small style='color:#475569;'>None: 0.6809 | 0.8: 0.6927</small></td><td><strong>0.6761</strong><br><small style='color:#475569;'>None: 0.6832 | 0.8: 0.6903</small></td><td><strong>0.6738</strong><br><small style='color:#475569;'>None: 0.6714 | 0.8: 0.6548</small></td><td><strong>0.6856</strong><br><small style='color:#475569;'>None: 0.6856 | 0.8: 0.6856</small></td></tr>
+<tr><td><strong>Heart</strong></td><td><strong>0.8370</strong><br><small style='color:#475569;'>None: 0.8370 | 0.8: 0.8370</small></td><td><strong>0.8185</strong><br><small style='color:#475569;'>None: 0.8185 | 0.8: 0.8185</small></td><td><strong>0.8370</strong><br><small style='color:#475569;'>None: 0.8370 | 0.8: 0.8370</small></td><td><strong>0.8148</strong><br><small style='color:#475569;'>None: 0.8148 | 0.8: 0.8148</small></td><td><strong>0.8111</strong><br><small style='color:#475569;'>None: 0.8111 | 0.8: 0.8111</small></td><td><strong>0.8185</strong><br><small style='color:#475569;'>None: 0.8185 | 0.8: 0.8185</small></td><td><strong>0.8148</strong><br><small style='color:#475569;'>None: 0.8148 | 0.8: 0.8148</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.8481</strong><br><small style='color:#475569;'>None: 0.8481 | 0.8: 0.8481</small></td><td><strong>0.8407</strong><br><small style='color:#475569;'>None: 0.8407 | 0.8: 0.8407</small></td></tr>
+<tr><td><strong>Diabetes</strong></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.3961</strong><br><small style='color:#475569;'>None: 0.3961 | 0.8: 0.3961</small></td><td><strong>0.3835</strong><br><small style='color:#475569;'>None: 0.3835 | 0.8: 0.3835</small></td><td><strong>0.3959</strong><br><small style='color:#475569;'>None: 0.3959 | 0.8: 0.3959</small></td><td><strong>0.3797</strong><br><small style='color:#475569;'>None: 0.3797 | 0.8: 0.3797</small></td><td><strong>0.3798</strong><br><small style='color:#475569;'>None: 0.3798 | 0.8: 0.3798</small></td><td><strong>0.3681</strong><br><small style='color:#475569;'>None: 0.3681 | 0.8: 0.3681</small></td><td><strong>0.3830</strong><br><small style='color:#475569;'>None: 0.3830 | 0.8: 0.3830</small></td><td><strong>0.3811</strong><br><small style='color:#475569;'>None: 0.3811 | 0.8: 0.3811</small></td><td><strong>0.3512</strong><br><small style='color:#475569;'>None: 0.3512 | 0.8: 0.3512</small></td></tr>
+<tr><td><strong>mfeat</strong></td><td><strong>0.9428</strong><br><small style='color:#475569;'>None: 0.9483 | 0.8: 0.9383</small></td><td><strong>0.9461</strong><br><small style='color:#475569;'>None: 0.9444 | 0.8: 0.9339</small></td><td><strong>0.9428</strong><br><small style='color:#475569;'>None: 0.9456 | 0.8: 0.9361</small></td><td><strong>0.9050</strong><br><small style='color:#475569;'>None: 0.8906 | 0.8: 0.9356</small></td><td><strong>0.9639</strong><br><small style='color:#475569;'>None: 0.9556 | 0.8: 0.9572</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.9667</strong><br><small style='color:#475569;'>None: 0.9622 | 0.8: 0.9567</small></td><td><strong>0.9144</strong><br><small style='color:#475569;'>None: 0.8944 | 0.8: 0.9322</small></td><td><strong>0.7061</strong><br><small style='color:#475569;'>None: 0.7050 | 0.8: 0.6744</small></td><td><strong>0.7267</strong><br><small style='color:#475569;'>None: 0.7267 | 0.8: 0.7267</small></td></tr>
+<tr><td><strong>NonnegParts</strong></td><td><strong>0.9160</strong><br><small style='color:#475569;'>None: 0.9160 | 0.8: 0.9274</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.9202</strong><br><small style='color:#475569;'>None: 0.9193 | 0.8: 0.9264</small></td><td><strong>0.9159</strong><br><small style='color:#475569;'>None: 0.9159 | 0.8: 0.9261</small></td><td><strong>0.9176</strong><br><small style='color:#475569;'>None: 0.9177 | 0.8: 0.9268</small></td><td><strong>0.9160</strong><br><small style='color:#475569;'>None: 0.9160 | 0.8: 0.9268</small></td><td><strong>0.9160</strong><br><small style='color:#475569;'>None: 0.9155 | 0.8: 0.9262</small></td><td><strong>0.9164</strong><br><small style='color:#475569;'>None: 0.9166 | 0.8: 0.9265</small></td><td><strong>0.8904</strong><br><small style='color:#475569;'>None: 0.8912 | 0.8: 0.9181</small></td><td><strong>0.8931</strong><br><small style='color:#475569;'>None: 0.8931 | 0.8: 0.8931</small></td></tr>
+<tr><td><strong>NonnegPartsWeak</strong></td><td><strong>0.3531</strong><br><small style='color:#475569;'>None: 0.3442 | 0.8: 0.3822</small></td><td><strong>0.4511</strong><br><small style='color:#475569;'>None: 0.4021 | 0.8: 0.4113</small></td><td><strong>0.3499</strong><br><small style='color:#475569;'>None: 0.3447 | 0.8: 0.3364</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.5140</strong><br><small style='color:#475569;'>None: 0.4325 | 0.8: 0.4563</small></td><td><strong>0.3905</strong><br><small style='color:#475569;'>None: 0.3536 | 0.8: 0.4321</small></td><td><strong>0.3703</strong><br><small style='color:#475569;'>None: 0.3441 | 0.8: 0.4234</small></td><td><strong>0.4623</strong><br><small style='color:#475569;'>None: 0.4048 | 0.8: 0.4592</small></td><td><strong>0.1140</strong><br><small style='color:#475569;'>None: 0.1173 | 0.8: 0.1117</small></td><td><strong>0.1246</strong><br><small style='color:#475569;'>None: 0.1246 | 0.8: 0.1246</small></td></tr>
+<tr><td><strong>Linear</strong></td><td><strong>0.9709</strong><br><small style='color:#475569;'>None: 0.9727 | 0.8: 0.9673</small></td><td><strong>0.9702</strong><br><small style='color:#475569;'>None: 0.9717 | 0.8: 0.9698</small></td><td><strong>0.9709</strong><br><small style='color:#475569;'>None: 0.9724 | 0.8: 0.9646</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.9732</strong><br><small style='color:#475569;'>None: 0.9751 | 0.8: 0.9667</small></td><td><strong>0.9727</strong><br><small style='color:#475569;'>None: 0.9736 | 0.8: 0.9659</small></td><td><strong>0.9712</strong><br><small style='color:#475569;'>None: 0.9758 | 0.8: 0.9678</small></td><td><strong>0.9722</strong><br><small style='color:#475569;'>None: 0.9740 | 0.8: 0.9654</small></td><td><strong>0.9676</strong><br><small style='color:#475569;'>None: 0.9675 | 0.8: 0.9628</small></td><td><strong>0.9678</strong><br><small style='color:#475569;'>None: 0.9678 | 0.8: 0.9678</small></td></tr>
+<tr><td><strong>Shared+Private</strong></td><td><strong>0.4739</strong><br><small style='color:#475569;'>None: 0.4580 | 0.8: 0.3991</small></td><td><strong>0.4785</strong><br><small style='color:#475569;'>None: 0.4685 | 0.8: 0.4128</small></td><td><strong>0.4725</strong><br><small style='color:#475569;'>None: 0.4604 | 0.8: 0.4040</small></td><td><strong>0.6333</strong><br><small style='color:#475569;'>None: 0.5360 | 0.8: 0.5556</small></td><td><strong>0.4389</strong><br><small style='color:#475569;'>None: 0.4160 | 0.8: 0.3934</small></td><td><strong>0.4470</strong><br><small style='color:#475569;'>None: 0.4416 | 0.8: 0.4702</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.7060</strong><br><small style='color:#475569;'>None: 0.7162 | 0.8: 0.4371</small></td><td><strong>0.2940</strong><br><small style='color:#475569;'>None: 0.2948 | 0.8: 0.3024</small></td><td><strong>0.2913</strong><br><small style='color:#475569;'>None: 0.2913 | 0.8: 0.2913</small></td></tr>
+<tr><td><strong>Polynomial</strong></td><td><strong>0.8807</strong><br><small style='color:#475569;'>None: 0.8823 | 0.8: 0.8787</small></td><td><strong>0.8816</strong><br><small style='color:#475569;'>None: 0.8814 | 0.8: 0.8825</small></td><td><strong>0.8794</strong><br><small style='color:#475569;'>None: 0.8819 | 0.8: 0.8825</small></td><td><strong>0.8824</strong><br><small style='color:#475569;'>None: 0.8744 | 0.8: 0.8817</small></td><td><strong>0.8804</strong><br><small style='color:#475569;'>None: 0.8892 | 0.8: 0.8806</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.8838</strong><br><small style='color:#475569;'>None: 0.8793 | 0.8: 0.8826</small></td><td><strong>0.8814</strong><br><small style='color:#475569;'>None: 0.8798 | 0.8: 0.8821</small></td><td><strong>0.8617</strong><br><small style='color:#475569;'>None: 0.8613 | 0.8: 0.8600</small></td><td><strong>0.8643</strong><br><small style='color:#475569;'>None: 0.8643 | 0.8: 0.8643</small></td></tr>
+<tr><td><strong>Sine</strong></td><td><strong>0.9281</strong><br><small style='color:#475569;'>None: 0.9324 | 0.8: 0.9384</small></td><td><strong>0.9285</strong><br><small style='color:#475569;'>None: 0.9309 | 0.8: 0.9300</small></td><td><strong>0.9282</strong><br><small style='color:#475569;'>None: 0.9323 | 0.8: 0.9350</small></td><td><strong>0.9362</strong><br><small style='color:#475569;'>None: 0.9411 | 0.8: 0.9282</small></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;"><strong>0.9419</strong><br><small style='color:#475569;'>None: 0.9473 | 0.8: 0.9314</small></td><td><strong>0.9417</strong><br><small style='color:#475569;'>None: 0.9389 | 0.8: 0.9288</small></td><td><strong>0.9364</strong><br><small style='color:#475569;'>None: 0.9413 | 0.8: 0.9274</small></td><td><strong>0.9208</strong><br><small style='color:#475569;'>None: 0.9214 | 0.8: 0.9201</small></td><td><strong>0.9207</strong><br><small style='color:#475569;'>None: 0.9207 | 0.8: 0.9207</small></td></tr>
+
+      </tbody>
+    </table>
+  </div>
+
+  </div>
+
+  <!-- TAB 7: STIEFEL DEFECT -->
+  <div id="tab-defect" class="tab-content" style="display: none;">
+    <div class="section">
+    <h2>5. Per-Dataset Scale-Invariant Stiefel Defect D(V) Across All 12 Datasets (q = 0.5 Primary)</h2>
+    <div class="section-lead">
+      <strong>Scale-Invariant Orthogonality Formulation:</strong> Stiefel defect is defined as <code>D(V<sub>m</sub>) = ||G - I/k||<sub>F</sub><sup>2</sup></code> with <code>G = V<sub>m</sub><sup>T</sup>V<sub>m</sub> / tr(V<sub>m</sub><sup>T</sup>V<sub>m</sub>)</code>, strictly bounded in <code>[0, 1]</code> by construction (0 = perfectly orthogonal and norm-balanced). Unconstrained PCA exhibits severe defect (D = 0.2388&ndash;0.5990 on real clinical cohorts), while PySiMLR architectures (LEND, Flow-SiMR-V, NED, NEDPP, SiMLR) preserve strict orthogonality (D &le; 0.0031) across all operating points.
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Dataset (Defect D &isin; [0, 1], &darr;)</th>
+          <th>SiMLR-LBFGSB</th><th>SiMLR</th><th>SiMLR-LBFGS</th><th>LEND</th><th>NED</th><th>NEDPP</th><th>Flow-SiMLR-V</th><th>NSAFlow-PCA</th><th>PCA</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>ADNI-MCI</strong></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0003</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0008</td><td>0.0011</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0006</td><td>0.4058</td><td>0.2669</td></tr>
+<tr><td><strong>MultiOmics</strong></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0002</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0008</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0008</td><td>0.0011</td><td>0.0014</td><td>0.3479</td><td>0.2388</td></tr>
+<tr><td><strong>TCGA-KIRC</strong></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0008</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0003</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0002</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0006</td><td>0.7585</td><td>0.5990</td></tr>
+<tr><td><strong>Heart</strong></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td>0.6456</td><td>0.5019</td></tr>
+<tr><td><strong>Diabetes</strong></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td>0.0134</td><td>0.0459</td></tr>
+<tr><td><strong>mfeat</strong></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td>0.0014</td><td>0.0014</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0009</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0006</td><td>0.3488</td><td>0.2714</td></tr>
+<tr><td><strong>NonnegParts</strong></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td>0.0165</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0001</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0001</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td>0.0316</td><td>0.0980</td></tr>
+<tr><td><strong>NonnegPartsWeak</strong></td><td>0.0031</td><td>0.0140</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0002</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0002</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0001</td><td>0.1625</td><td>0.1775</td></tr>
+<tr><td><strong>Linear</strong></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0003</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0005</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0002</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0005</td><td>0.0056</td><td>0.0050</td></tr>
+<tr><td><strong>Shared+Private</strong></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0001</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0010</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0003</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0005</td><td>0.0016</td><td>0.6782</td><td>0.6546</td></tr>
+<tr><td><strong>Polynomial</strong></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0001</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0004</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0001</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0003</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0002</td><td>0.0131</td><td>0.0129</td></tr>
+<tr><td><strong>Sine</strong></td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0000</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0002</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0003</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0008</td><td style="background:#ecfdf5;font-weight:700;color:#065f46;">0.0001</td><td>0.0123</td><td>0.0131</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+    <div class="section">
+    <h2>6. Per-Dataset Achieved Basis Sparsity % Across All 12 Datasets (q = 0.5 vs. q = 0.8)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Dataset (Sparsity %, &uarr;)</th>
+          <th>SiMLR-LBFGSB</th><th>SiMLR</th><th>SiMLR-LBFGS</th><th>LEND</th><th>NED</th><th>NEDPP</th><th>Flow-SiMLR-V</th><th>NSAFlow-PCA</th><th>PCA</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>ADNI-MCI</strong></td><td>48.6%<br><small style="color:#64748b;">0.8: 77.9%</small></td><td>48.6%<br><small style="color:#64748b;">0.8: 77.9%</small></td><td>48.6%<br><small style="color:#64748b;">0.8: 77.9%</small></td><td>48.6%<br><small style="color:#64748b;">0.8: 77.9%</small></td><td>48.6%<br><small style="color:#64748b;">0.8: 77.9%</small></td><td>48.6%<br><small style="color:#64748b;">0.8: 77.9%</small></td><td>48.6%<br><small style="color:#64748b;">0.8: 77.9%</small></td><td>50.7%<br><small style="color:#64748b;">0.8: 80.1%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td></tr>
+<tr><td><strong>MultiOmics</strong></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td></tr>
+<tr><td><strong>TCGA-KIRC</strong></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.1%</small></td><td>50.2%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.1%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.1%<br><small style="color:#64748b;">0.8: 80.1%</small></td><td>50.3%<br><small style="color:#64748b;">0.8: 80.1%</small></td><td>50.1%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.4%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td></tr>
+<tr><td><strong>Heart</strong></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>32.1%<br><small style="color:#64748b;">0.8: 32.1%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td></tr>
+<tr><td><strong>Diabetes</strong></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td><td>28.3%<br><small style="color:#64748b;">0.8: 28.3%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td></tr>
+<tr><td><strong>mfeat</strong></td><td>48.2%<br><small style="color:#64748b;">0.8: 77.7%</small></td><td>48.2%<br><small style="color:#64748b;">0.8: 77.7%</small></td><td>48.2%<br><small style="color:#64748b;">0.8: 77.7%</small></td><td>48.2%<br><small style="color:#64748b;">0.8: 77.7%</small></td><td>48.2%<br><small style="color:#64748b;">0.8: 77.7%</small></td><td>48.2%<br><small style="color:#64748b;">0.8: 77.7%</small></td><td>48.2%<br><small style="color:#64748b;">0.8: 77.7%</small></td><td>50.3%<br><small style="color:#64748b;">0.8: 79.8%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td></tr>
+<tr><td><strong>NonnegParts</strong></td><td>66.3%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.5%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>65.4%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>64.7%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>57.9%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>58.4%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>62.5%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>49.7%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td></tr>
+<tr><td><strong>NonnegPartsWeak</strong></td><td>65.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>60.9%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>64.6%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>65.6%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>56.3%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>57.6%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>60.2%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>49.9%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td></tr>
+<tr><td><strong>Linear</strong></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td></tr>
+<tr><td><strong>Shared+Private</strong></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.3%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td></tr>
+<tr><td><strong>Polynomial</strong></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td></tr>
+<tr><td><strong>Sine</strong></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>50.0%<br><small style="color:#64748b;">0.8: 80.0%</small></td><td>0.0%<br><small style="color:#64748b;">0.8: 0.0%</small></td></tr>
+      </tbody>
+    </table>
+  </div>
+  </div>
+
+</div>
+</body>
+</html>

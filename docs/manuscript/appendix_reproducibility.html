@@ -353,7 +353,7 @@ window.Quarto = {
 </section>
 <section id="replication-structure-and-the-permutation-resolution-floor" class="level2" data-number="D.3">
 <h2 data-number="D.3" class="anchored" data-anchor-id="replication-structure-and-the-permutation-resolution-floor"><span class="header-section-number">D.3</span> Replication Structure and the Permutation Resolution Floor</h2>
-<p>The deep ranking benchmark evaluates nine distinct architectures across nine multi-modal data regimes (six synthetic generative manifolds with known ground truth + three public clinical/multi-omics cohorts: UCI Cleveland Heart Disease, Efron Diabetes Progression, and 3-assay TCGA-BRCA multi-omics) across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> independent random seeds (<span class="math inline">\(243\)</span> total model fits):</p>
+<p>The deep ranking benchmark evaluates nine distinct architectures across twelve multi-modal data regimes (six synthetic generative manifolds with known ground truth + six public clinical, multi-omics, and neuroimaging cohorts: UCI Cleveland Heart Disease, Efron Diabetes Progression, 3-assay TCGA-BRCA, 3-assay TCGA-KIRC, 4-view ADNI-MCI, and 4-view UCI Multiple Features <code>mfeat</code>) across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> independent random seeds (<span class="math inline">\(324\)</span> total model fits):</p>
 <div id="tbl-replication-design" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="1">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-replication-design-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -381,6 +381,14 @@ Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task b
 </thead>
 <tbody>
 <tr class="odd">
+<td style="text-align: left;">ADNI-MCI</td>
+<td style="text-align: left;">Real</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">0.25</td>
+</tr>
+<tr class="even">
 <td style="text-align: left;">Diabetes</td>
 <td style="text-align: left;">Real</td>
 <td style="text-align: right;">3</td>
@@ -388,7 +396,7 @@ Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task b
 <td style="text-align: right;">27</td>
 <td style="text-align: right;">0.25</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td style="text-align: left;">Heart</td>
 <td style="text-align: left;">Real</td>
 <td style="text-align: right;">3</td>
@@ -396,7 +404,7 @@ Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task b
 <td style="text-align: right;">27</td>
 <td style="text-align: right;">0.25</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td style="text-align: left;">Linear</td>
 <td style="text-align: left;">Synthetic</td>
 <td style="text-align: right;">3</td>
@@ -404,7 +412,7 @@ Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task b
 <td style="text-align: right;">27</td>
 <td style="text-align: right;">0.25</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td style="text-align: left;">MultiOmics</td>
 <td style="text-align: left;">Real</td>
 <td style="text-align: right;">3</td>
@@ -412,7 +420,7 @@ Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task b
 <td style="text-align: right;">27</td>
 <td style="text-align: right;">0.25</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td style="text-align: left;">NonnegParts</td>
 <td style="text-align: left;">Synthetic</td>
 <td style="text-align: right;">3</td>
@@ -420,7 +428,7 @@ Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task b
 <td style="text-align: right;">27</td>
 <td style="text-align: right;">0.25</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td style="text-align: left;">NonnegPartsWeak</td>
 <td style="text-align: left;">Synthetic</td>
 <td style="text-align: right;">3</td>
@@ -428,7 +436,7 @@ Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task b
 <td style="text-align: right;">27</td>
 <td style="text-align: right;">0.25</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td style="text-align: left;">Polynomial</td>
 <td style="text-align: left;">Synthetic</td>
 <td style="text-align: right;">3</td>
@@ -436,7 +444,7 @@ Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task b
 <td style="text-align: right;">27</td>
 <td style="text-align: right;">0.25</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td style="text-align: left;">Shared+Private</td>
 <td style="text-align: left;">Synthetic</td>
 <td style="text-align: right;">3</td>
@@ -444,9 +452,25 @@ Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task b
 <td style="text-align: right;">27</td>
 <td style="text-align: right;">0.25</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td style="text-align: left;">Sine</td>
 <td style="text-align: left;">Synthetic</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">0.25</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">TCGA-KIRC</td>
+<td style="text-align: left;">Real</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">0.25</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">mfeat</td>
+<td style="text-align: left;">Real</td>
 <td style="text-align: right;">3</td>
 <td style="text-align: right;">9</td>
 <td style="text-align: right;">27</td>
@@ -459,17 +483,17 @@ Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task b
 </div>
 <section id="block-level-sign-flip-permutation-floor" class="level3" data-number="D.3.1">
 <h3 data-number="D.3.1" class="anchored" data-anchor-id="block-level-sign-flip-permutation-floor"><span class="header-section-number">D.3.1</span> Block-Level Sign-Flip Permutation Floor</h3>
-<p>In statistical hypothesis testing between paired models across <span class="math inline">\(B = 9\)</span> independent dataset blocks (where each block cell is the mean across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> replicates, following <span class="citation" data-cites="Demsar2006">Demšar (<a href="#ref-Demsar2006" role="doc-biblioref">2006</a>)</span>), the exact distribution-free sign-flip null distribution across the <span class="math inline">\(B = 9\)</span> blocks consists of <span class="math inline">\(2^B = 512\)</span> equally probable sign assignments: <span class="math display">\[
+<p>In statistical hypothesis testing between paired models across <span class="math inline">\(B = 12\)</span> independent dataset blocks (where each block cell is the mean across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> replicates, following <span class="citation" data-cites="Demsar2006">Demšar (<a href="#ref-Demsar2006" role="doc-biblioref">2006</a>)</span>), the exact distribution-free sign-flip null distribution across the <span class="math inline">\(B = 12\)</span> blocks consists of <span class="math inline">\(2^B = 4,096\)</span> equally probable sign assignments: <span class="math display">\[
 p_{\text{perm}} = \frac{1}{2^B} \sum_{\mathbf{s} \in \{-1, +1\}^B} \mathbb{I}\left(\left|\frac{1}{B} \sum_{i=1}^B s_i \Delta_i\right| \ge |\bar{\Delta}|\right)
 \]</span></p>
-<p>For <span class="math inline">\(B = 9\)</span> independent dataset blocks (or <span class="math inline">\(N = 10\)</span> independent seeds in the ADNI-MCI 4-view mediation benchmark), the minimal attainable two-sided permutation <span class="math inline">\(p\)</span>-value occurs when every block favours the same model: <span class="math display">\[
-p_{\min, B=9} = \frac{2}{2^9} = \frac{2}{512} \approx 0.003906, \qquad p_{\min, N=10} = \frac{2}{2^{10}} = \frac{2}{1024} \approx 0.001953
+<p>For <span class="math inline">\(B = 12\)</span> independent dataset blocks (or <span class="math inline">\(N = 10\)</span> independent seeds in the ADNI-MCI 4-view mediation benchmark), the minimal attainable two-sided permutation <span class="math inline">\(p\)</span>-value occurs when every block favours the same model: <span class="math display">\[
+p_{\min, B=12} = \frac{2}{2^{12}} = \frac{2}{4096} \approx 0.000488, \qquad p_{\min, N=10} = \frac{2}{2^{10}} = \frac{2}{1024} \approx 0.001953
 \]</span></p>
 <p>We enforce the following statistical standards throughout the manuscript:</p>
 <ol type="1">
 <li><strong>Zero Unadjusted Pooled <span class="math inline">\(p\)</span>-values</strong>: We completely eliminate pooled repeated-measures <span class="math inline">\(t\)</span>-tests and unaggregated seed-rows in global Friedman/Wilcoxon tests (<code>build_ranking_blocks</code>). Crossing multiple seeds or hyperparameters on the same dataset does not increase dataset-level degrees of freedom.</li>
 <li><strong>Floor Truncation</strong>: No distribution-free permutation test can report a value below <span class="math inline">\(2/2^B\)</span>.</li>
-<li><strong>Triple Metric Reporting</strong>: Global consensus prediction (<span class="math inline">\(Y\)</span> on <span class="math inline">\(\mathbf{U}\)</span>), strictly linear first-layer accuracy (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>), and axis-sensitive random forest probe accuracy on <span class="math inline">\(\mathbf{X}\mathbf{V}\)</span> are reported alongside ground-truth latent (<span class="math inline">\(CMC\)</span>) and sparse support Jaccard recovery.</li>
+<li><strong>Dual Subspace &amp; Localization Reporting</strong>: Global consensus prediction (<span class="math inline">\(Y\)</span> on <span class="math inline">\(\mathbf{U}\)</span>) and strictly linear first-layer accuracy (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>) are reported alongside ground-truth latent (<span class="math inline">\(CMC\)</span>) and sparse support Jaccard recovery (<span class="math inline">\(\text{Support } F_1\)</span>).</li>
 </ol>
 </section>
 </section>

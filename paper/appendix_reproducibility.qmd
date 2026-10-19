@@ -1,32 +1,30 @@
 # Reproducibility {#sec-reproducibility}
 
-This appendix documents the computational environment, replication structure, and exact mathematical procedures required to reproduce all benchmark tables, figures, and statistical hypothesis tests reported in the manuscript.
+This appendix documents the computational environment, replication structure, and statistical procedures used to generate all tables, figures, and hypothesis tests in the manuscript.
 
 ## Building the Manuscript
 
-The manuscript is authored in Quarto and compiles to HTML and PDF formats. All benchmark result caches are vendored directly under `paper/results_cache/`, permitting a completely offline build with zero external network access:
+The manuscript is written in Quarto and compiles to HTML and PDF formats. All benchmark result caches are stored in `paper/results_cache/` (`deep_ranking_benchmark.csv` and `adni_mci_1214_grid_sweep.csv`), permitting an offline build with zero hardcoded fallback arrays:
 
 ```bash
 git clone https://github.com/stnava/pysimlr.git
 cd pysimlr
-# Use ".[dev,nsa]" for optional ANTsTorch normalizing flow backends
 pip install -e ".[dev]"
 quarto render paper
 ```
 
-Every figure and table in the manuscript is generated at render time from `paper/results_cache/deep_ranking_benchmark.csv`. There are no hardcoded statistical figures in the manuscript source.
+Every table and statistic in the manuscript is computed at render time from `paper/results_cache/deep_ranking_benchmark.csv` and `paper/results_cache/adni_mci_1214_grid_sweep.csv`.
 
 ## Single Analysis Path and Benchmark Engine
 
-All statistical hypothesis tests, ranking matrices, and permutation null distributions are executed via a unified module: `src/pysimlr/benchmarks/deep_ranking.py`. This engine implements:
+All statistical hypothesis tests, ranking matrices, and permutation null distributions are computed by `src/pysimlr/benchmarks/deep_ranking.py`:
 
-- Non-parametric Friedman test and Iman-Davenport $F$ extension (@Demsar2006; @Iman1980).
-- Two-tailed Nemenyi Critical Difference ($CD$) computation at $\alpha = 0.05$ (@Nemenyi1963).
-- Pairwise Wilcoxon signed-rank tests (@Wilcoxon1945) with family-wise Holm-Bonferroni step-down adjustments (@Holm1979).
-- Exact sign-flip permutation tests bounded by the distribution-free resolution floor.
-- Multi-objective Pareto frontier identification.
+* Non-parametric Friedman test and Iman–Davenport $F$ extension (@Demsar2006; @Iman1980).
+* Two-tailed Nemenyi Critical Difference ($CD = 3.468$ at $\alpha = 0.05$ for $k = 9, B = 12$) (@Nemenyi1963).
+* Pairwise Wilcoxon signed-rank tests (@Wilcoxon1945) with 36-pair Holm–Bonferroni step-down adjustments (@Holm1979).
+* Exact sign-flip permutation tests bounded by the distribution-free resolution floor.
 
-Consolidating all inference into `deep_ranking.py` ensures that the manuscript tables, figures, and text never diverge. The test suite `tests/test_deep_ranking_stats.py` validates the statistical calculations:
+The test suite `tests/test_deep_ranking_stats.py` verifies the statistical calculations:
 
 ```bash
 pytest tests/test_deep_ranking_stats.py -v
@@ -34,11 +32,11 @@ pytest tests/test_deep_ranking_stats.py -v
 
 ## Replication Structure and the Permutation Resolution Floor
 
-The deep ranking benchmark evaluates nine distinct architectures across nine multi-modal data regimes (six synthetic generative manifolds with known ground truth + three public clinical/multi-omics cohorts: UCI Cleveland Heart Disease, Efron Diabetes Progression, and 3-assay TCGA-BRCA multi-omics) across $N_{\text{seeds}} = 3$ independent random seeds ($243$ total model fits):
+The deep ranking benchmark evaluates nine architectures across 12 multi-view datasets (six synthetic generative regimes with known ground truth and six real clinical, multi-omics, and pattern-recognition cohorts) across $N_{\text{seeds}} = 3$ independent random seeds ($324$ total model fits):
 
 ```{python}
 #| label: tbl-replication-design
-#| tbl-cap: 'Replication Structure of the Deep Ranking Benchmark. Each task block corresponds to an independent dataset evaluated across three random seeds controlling data partitioning, train/test split, and torch weight initialization. Multiplicity across loss functions or consensus methods on the same data split is strictly avoided.'
+#| tbl-cap: 'Replication Structure of the 12-Dataset Benchmark (`deep_ranking_benchmark.csv`). Each block corresponds to an independent dataset evaluated across three random seeds controlling train/test partitioning and parameter initialization.'
 #| echo: false
 #| output: asis
 import os
@@ -74,21 +72,10 @@ print(tabulate(df_summary, headers="keys", tablefmt="pipe", showindex=False))
 
 ### Block-Level Sign-Flip Permutation Floor
 
-In statistical hypothesis testing between paired models across $B = 9$ independent dataset blocks (where each block cell is the mean across $N_{\text{seeds}} = 3$ replicates, following @Demsar2006), the exact distribution-free sign-flip null distribution across the $B = 9$ blocks consists of $2^B = 512$ equally probable sign assignments:
+In paired comparisons across $B = 12$ independent dataset blocks (where each block cell is the mean across $N_{\text{seeds}} = 3$ replicates, following @Demsar2006), the exact distribution-free sign-flip null distribution across the $B = 12$ blocks consists of $2^B = 4,096$ sign assignments:
 $$
-p_{\text{perm}} = \frac{1}{2^B} \sum_{\mathbf{s} \in \{-1, +1\}^B} \mathbb{I}\left(\left|\frac{1}{B} \sum_{i=1}^B s_i \Delta_i\right| \ge |\bar{\Delta}|\right)
+p_{\text{perm}} = \frac{1}{2^B} \sum_{\mathbf{s} \in \{-1, +1\}^B} \mathbb{I}\left(\left|\frac{1}{B} \sum_{i=1}^B s_i \Delta_i\right| \ge |\bar{\Delta}|\right), \qquad p_{\min, B=12} = \frac{2}{2^{12}} = \frac{2}{4096} \approx 0.000488.
 $$
-
-For $B = 9$ independent dataset blocks (or $N = 10$ independent seeds in the ADNI-MCI 4-view mediation benchmark), the minimal attainable two-sided permutation $p$-value occurs when every block favours the same model:
-$$
-p_{\min, B=9} = \frac{2}{2^9} = \frac{2}{512} \approx 0.003906, \qquad p_{\min, N=10} = \frac{2}{2^{10}} = \frac{2}{1024} \approx 0.001953
-$$
-
-We enforce the following statistical standards throughout the manuscript:
-
-1. **Zero Unadjusted Pooled $p$-values**: We completely eliminate pooled repeated-measures $t$-tests and unaggregated seed-rows in global Friedman/Wilcoxon tests (`build_ranking_blocks`). Crossing multiple seeds or hyperparameters on the same dataset does not increase dataset-level degrees of freedom.
-2. **Floor Truncation**: No distribution-free permutation test can report a value below $2/2^B$.
-3. **Triple Metric Reporting**: Global consensus prediction ($Y$ on $\mathbf{U}$), strictly linear first-layer accuracy ($\mathbf{X}\mathbf{V}$), and axis-sensitive random forest probe accuracy on $\mathbf{X}\mathbf{V}$ are reported alongside ground-truth latent ($CMC$) and sparse support Jaccard recovery.
 
 ## Software Environment
 
@@ -114,15 +101,7 @@ env_info = [
     {"Component": "Scikit-Learn", "Version": sklearn.__version__},
     {"Component": "Pandas", "Version": pandas.__version__},
     {"Component": "Matplotlib", "Version": matplotlib.__version__},
-    {"Component": "ANTsTorch Integration", "Version": "Bypassed / Native Fallback Active"}
 ]
 
 print(tabulate.tabulate(pd.DataFrame(env_info), headers="keys", tablefmt="pipe", showindex=False))
 ```
-
-## Determinism and RNG Isolation
-
-To ensure absolute determinism across all benchmark runs:
-
-1. **Process RNG Isolation**: Invocations of normalizing flow retractions and torch optimization loops restore CPU and CUDA generator states upon completion. No model fitting operation mutates the caller's global random state.
-2. **Fixed Random Seeds**: The primary deep ranking benchmark iterates over seeds $42, 43, 44$ ($N_{\text{seeds}} = 3$, with `--seeds 10` configurable for extended runs up to seed $51$), while the ADNI-MCI 4-view mediation benchmark evaluates across 10 seeds ($42, \dots, 51$). Data synthesis, train/test splitting ($70/30$), and neural network parameter initialization are strictly controlled by these seed parameters.

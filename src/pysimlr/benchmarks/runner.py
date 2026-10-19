@@ -639,7 +639,7 @@ def aggregate_results(results_df: pd.DataFrame) -> pd.DataFrame:
     for col in agg.columns:
         if isinstance(col, tuple):
             base, stat = col
-            if stat == 'mean': new_cols.append(base)
+            if stat == 'mean' or stat == '': new_cols.append(base)
             elif stat == 'std': new_cols.append(f"{base}_sd")
             else: new_cols.append(f"{base}_{stat}")
         else:
@@ -657,8 +657,10 @@ def aggregate_results(results_df: pd.DataFrame) -> pd.DataFrame:
     return agg
 
 def get_best_per_model(results_df: pd.DataFrame, metric: str = "recovery") -> pd.DataFrame:
-    means = results_df.groupby(["model", "sparsity"]).agg({metric: "mean"}).reset_index()
-    idx = means.groupby("model")[metric].transform(max) == means[metric]
+    numeric_cols = [c for c in results_df.select_dtypes(include=[np.number]).columns
+                    if c not in ("model", "sparsity", "seed")]
+    means = results_df.groupby(["model", "sparsity"], dropna=False)[numeric_cols].mean().reset_index()
+    idx = means.groupby("model")[metric].transform("max") == means[metric]
     return means[idx]
 
 def sweep_benchmark(model_types: List[str] = ["linear", "lend", "ned"],

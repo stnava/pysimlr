@@ -128,7 +128,7 @@ This `global_r2` summarizes how much of the deeper modality representation can s
 ```{python}
 corr = alignment["modalities"][0]["component_correlation"].detach().cpu().numpy()
 plt.figure(figsize=(5, 4))
-plt.imshow(corr, aspect="auto", cmap="vlag")
+plt.imshow(corr, aspect="auto", cmap="coolwarm")
 plt.colorbar(label="Correlation")
 plt.xlabel("Deep component")
 plt.ylabel("First-layer component")
