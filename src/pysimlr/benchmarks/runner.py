@@ -197,9 +197,12 @@ def convergence_report(model_type: str, res: Dict[str, Any],
             "solver_iters": res.get("converged_iter") or (len(loss) or None)}
 
 
+from pysimlr.sparsification import DEFAULT_SPARSENESS
+
+
 def run_single_experiment(model_type: str, 
                           case: Dict[str, Any], 
-                          sparsity: float = 0.0, 
+                          sparsity: Optional[float] = DEFAULT_SPARSENESS, 
                           seed: int = 42,
                           **params) -> Dict[str, Any]:
     data_all = case["data"]
@@ -270,27 +273,35 @@ def run_single_experiment(model_type: str,
     
     torch.manual_seed(seed)
     np.random.seed(seed)
+
+    # Dimension-aware per-view sparseness: apply scalar quantile sparsity to
+    # high-dimensional / anatomical / omics views (p_i > 15) while preserving
+    # compact clinical or cognitive summary views (p_i <= 15).
+    if isinstance(sparsity, (int, float)) and sparsity is not None and float(sparsity) > 0.0:
+        eff_sparsity = [float(sparsity) if m.shape[1] > 15 else None for m in train_mats]
+    else:
+        eff_sparsity = sparsity
     
     t0 = time.perf_counter()
     if model_type == "linear":
         f_params = filter_kwargs(simlr, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
+        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
         res = simlr(train_mats, k=k, **f_params)
     elif model_type == "lend":
         f_params = filter_kwargs(lend_simr, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
+        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
         res = lend_simr(train_mats, k=k, **f_params)
     elif model_type == "ned":
         f_params = filter_kwargs(ned_simr, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
+        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
         res = ned_simr(train_mats, k=k, **f_params)
     elif model_type == "shared_private":
         f_params = filter_kwargs(ned_simr_shared_private, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
+        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
         res = ned_simr_shared_private(train_mats, k=k, **f_params)
     elif model_type == "simlr_lbfgs":
         f_params = filter_kwargs(simlr, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
+        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
         f_params['optimizer_type'] = 'torch_lbfgs'
         f_params['consolidate'] = params.get('consolidate', False)
         res = simlr(train_mats, k=k, **f_params)
@@ -299,28 +310,33 @@ def run_single_experiment(model_type: str,
         # is unconstrained and restores feasibility by clipping after the step;
         # this builds V >= 0 into the step itself.
         f_params = filter_kwargs(simlr, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
+        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
         f_params['optimizer_type'] = 'nsa_lbfgsb'
         f_params['consolidate'] = params.get('consolidate', False)
         res = simlr(train_mats, k=k, **f_params)
     elif model_type == "flow_v":
         from pysimlr.flows import flow_simr_v
         f_params = filter_kwargs(flow_simr_v, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = sparsity
+        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
         res = flow_simr_v(train_mats, k=k, **f_params)
     elif model_type == "nsa_pipeline":
         from pysimlr import build_nsa_pipeline
-        X_tr = torch.cat(train_mats, dim=1).numpy()
-        X_te = torch.cat(test_mats, dim=1).numpy()
+        eval_idx = case.get("eval_view_indices")
+        fit_tr_mats = [train_mats[i] for i in eval_idx] if eval_idx is not None else train_mats
+        fit_te_mats = [test_mats[i] for i in eval_idx] if eval_idx is not None else test_mats
+        X_tr = torch.cat(fit_tr_mats, dim=1).numpy()
+        X_te = torch.cat(fit_te_mats, dim=1).numpy()
         y_tr_np = y_train.numpy()
         y_te_np = y_test.numpy()
         is_classif = bool(case.get("is_classification")) if "is_classification" in case else bool(len(torch.unique(y_train)) <= 5 and (y_train == y_train.round()).all())
         task_type = "classification" if is_classif else "regression"
+        nsa_q = float(sparsity) if (isinstance(sparsity, (int, float)) and sparsity is not None and float(sparsity) > 0.0 and X_tr.shape[1] > 15) else None
         pipe = build_nsa_pipeline(
             n_components=k,
             w=params.get("nsa_w", 0.5),
             task=task_type,
             consolidate=params.get("consolidate", False),
+            sparseness=nsa_q,
         )
         pipe.fit(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np)
         
@@ -334,17 +350,17 @@ def run_single_experiment(model_type: str,
         u_te = torch.from_numpy(dim_red.transform(X_te_sc)).float()
         
         V_tot = torch.from_numpy(dim_red.components_.T).float()
-        p_offsets = [0] + list(np.cumsum([m.shape[1] for m in train_mats]))
-        v_mats = [V_tot[p_offsets[i]:p_offsets[i+1]] for i in range(len(train_mats))]
+        p_offsets = [0] + list(np.cumsum([m.shape[1] for m in fit_tr_mats]))
+        v_mats = [V_tot[p_offsets[i]:p_offsets[i+1]] for i in range(len(fit_tr_mats))]
         
         # Exact orthogonal adjoint reconstruction
         x_rec_sc = u_te.numpy() @ V_tot.numpy().T
         x_rec_te = scaler.inverse_transform(x_rec_sc) if scaler else x_rec_sc
-        recons_te = [torch.from_numpy(x_rec_te[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(test_mats))]
+        recons_te = [torch.from_numpy(x_rec_te[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(fit_te_mats))]
         
         x_rec_sc_tr = u_tr.numpy() @ V_tot.numpy().T
         x_rec_tr = scaler.inverse_transform(x_rec_sc_tr) if scaler else x_rec_sc_tr
-        recons_tr = [torch.from_numpy(x_rec_tr[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(train_mats))]
+        recons_tr = [torch.from_numpy(x_rec_tr[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(fit_tr_mats))]
         
         pred_test_score = float(pipe.score(X_te, y_te_np.astype(int) if is_classif else y_te_np))
         pred_train_score = float(pipe.score(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np))
@@ -370,8 +386,11 @@ def run_single_experiment(model_type: str,
         from sklearn.pipeline import Pipeline
         from sklearn.linear_model import Ridge, LogisticRegression
         
-        X_tr = torch.cat(train_mats, dim=1).numpy()
-        X_te = torch.cat(test_mats, dim=1).numpy()
+        eval_idx = case.get("eval_view_indices")
+        fit_tr_mats = [train_mats[i] for i in eval_idx] if eval_idx is not None else train_mats
+        fit_te_mats = [test_mats[i] for i in eval_idx] if eval_idx is not None else test_mats
+        X_tr = torch.cat(fit_tr_mats, dim=1).numpy()
+        X_te = torch.cat(fit_te_mats, dim=1).numpy()
         y_tr_np = y_train.numpy()
         y_te_np = y_test.numpy()
         is_classif = bool(case.get("is_classification")) if "is_classification" in case else bool(len(torch.unique(y_train)) <= 5 and (y_train == y_train.round()).all())
@@ -389,16 +408,16 @@ def run_single_experiment(model_type: str,
         u_te = torch.from_numpy(pca.transform(X_te_sc)).float()
         
         V_tot = torch.from_numpy(pca.components_.T).float()
-        p_offsets = [0] + list(np.cumsum([m.shape[1] for m in train_mats]))
-        v_mats = [V_tot[p_offsets[i]:p_offsets[i+1]] for i in range(len(train_mats))]
+        p_offsets = [0] + list(np.cumsum([m.shape[1] for m in fit_tr_mats]))
+        v_mats = [V_tot[p_offsets[i]:p_offsets[i+1]] for i in range(len(fit_tr_mats))]
         
         x_rec_sc = u_te.numpy() @ V_tot.numpy().T
         x_rec_te = scaler.inverse_transform(x_rec_sc)
-        recons_te = [torch.from_numpy(x_rec_te[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(test_mats))]
+        recons_te = [torch.from_numpy(x_rec_te[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(fit_te_mats))]
         
         x_rec_sc_tr = u_tr.numpy() @ V_tot.numpy().T
         x_rec_tr = scaler.inverse_transform(x_rec_sc_tr)
-        recons_tr = [torch.from_numpy(x_rec_tr[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(train_mats))]
+        recons_tr = [torch.from_numpy(x_rec_tr[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(fit_tr_mats))]
         
         pred_test_score = float(pipe.score(X_te, y_te_np.astype(int) if is_classif else y_te_np))
         pred_train_score = float(pipe.score(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np))
@@ -448,14 +467,34 @@ def run_single_experiment(model_type: str,
         fl_scores_test = pred_test.get("latents")
 
     eval_view_indices = case.get("eval_view_indices")
-    if eval_view_indices is not None and res.get("v") is not None:
+    if eval_view_indices is not None and res.get("v") is not None and res.get("v_tot") is None:
         v_eval_all = [torch.as_tensor(v).detach().cpu().float() for v in res["v"]]
         fl_scores_train = [train_mats[i].detach().cpu().float() @ v_eval_all[i] for i in eval_view_indices]
         fl_scores_test = [test_mats[i].detach().cpu().float() @ v_eval_all[i] for i in eval_view_indices]
+        lat_tr = pred_train.get("latents")
+        lat_te = pred_test.get("latents")
+        src_tr = [lat_tr[i].detach().cpu().float() for i in eval_view_indices] if lat_tr is not None else fl_scores_train
+        src_te = [lat_te[i].detach().cpu().float() for i in eval_view_indices] if lat_te is not None else fl_scores_test
+        u_raw = pred_train.get("u")
+        if isinstance(u_raw, (list, tuple)):
+            u_ref = torch.as_tensor(u_raw[0]).detach().cpu().float()
+        elif u_raw is not None:
+            u_ref = torch.as_tensor(u_raw).detach().cpu().float()
+        else:
+            u_ref = src_tr[0]
+        u_ref_c = u_ref - u_ref.mean(dim=0, keepdim=True)
+        aligned_tr, aligned_te = [], []
+        for z_tr, z_te in zip(src_tr, src_te):
+            z_tr_c = z_tr - z_tr.mean(dim=0, keepdim=True)
+            z_te_c = z_te - z_tr.mean(dim=0, keepdim=True)
+            u_svd, _, vt_svd = torch.linalg.svd(z_tr_c.T @ u_ref_c, full_matrices=False)
+            omega = u_svd @ vt_svd
+            aligned_tr.append(z_tr_c @ omega)
+            aligned_te.append(z_te_c @ omega)
         pred_train = dict(pred_train)
         pred_test = dict(pred_test)
-        pred_train["u"] = torch.stack(fl_scores_train, dim=0).mean(dim=0)
-        pred_test["u"] = torch.stack(fl_scores_test, dim=0).mean(dim=0)
+        pred_train["u"] = torch.stack(aligned_tr, dim=0).mean(dim=0)
+        pred_test["u"] = torch.stack(aligned_te, dim=0).mean(dim=0)
 
     # Rank reporting for every model, filled in here rather than in each
     # branch. `simlr` and the four deep entry points compute it themselves;
@@ -531,15 +570,14 @@ def run_single_experiment(model_type: str,
     # and its place on the Pareto frontier were artefacts of that asymmetry.
     v_eval = res.get("v")
     if v_eval is not None and len(v_eval) > 0:
+        from ..utils import orthogonality_defect
         defects = []
         crosstalks = []
         zeros = 0
         total = 0
         for vm in v_eval:
             vm_t = torch.as_tensor(vm).float()
-            eye = torch.eye(vm_t.shape[1], device=vm_t.device)
-            gram = vm_t.T @ vm_t
-            defects.append(torch.norm(gram - eye, p='fro').item() ** 2)
+            defects.append(float(orthogonality_defect(vm_t, normalized=True).item()))
             pos = torch.clamp(vm_t, min=0.0)
             neg = torch.clamp(-vm_t, min=0.0)
             crosstalks.append(torch.norm(pos * neg, p='fro').item())
@@ -571,7 +609,7 @@ def run_seeded_benchmark(model_type: str,
                          case_kind: str = "nonlinear_shared",
                          n_samples: int = 1000,
                          n_seeds: int = 3,
-                         sparsity: float = 0.0,
+                         sparsity: Optional[float] = DEFAULT_SPARSENESS,
                          noise_level: float = 0.1,
                          **model_params) -> pd.DataFrame:
     all_metrics = []
@@ -626,7 +664,7 @@ def get_best_per_model(results_df: pd.DataFrame, metric: str = "recovery") -> pd
 def sweep_benchmark(model_types: List[str] = ["linear", "lend", "ned"],
                     case_kind: str = "nonlinear_shared",
                     n_samples: int = 1000,
-                    sparsities: List[float] = [0.0],
+                    sparsities: List[Optional[float]] = [DEFAULT_SPARSENESS],
                     n_seeds: int = 3,
                     save_prefix: str = "benchmark",
                     noise_level: float = 0.1,

@@ -14,6 +14,12 @@ from .nsa_backend import load_nsa_flow, load_polar_factor
 #: small data changes flip which vertex is selected.
 NSA_DEFAULT_W = 0.5
 
+#: Default column-wise quantile sparseness applied across all SiMR entry points.
+#: Following the original SiMLR manuscript, 0.5 (retaining the top 50% of
+#: feature weights per column) and 0.8 (retaining the top 20%) are the two
+#: canonical operating points, with 0.5 serving as the default.
+DEFAULT_SPARSENESS = 0.5
+
 #: Largest retraction weight handed to the backend, for every constraint family.
 #: At w=1 the fidelity term drops out entirely: the solver no longer stays near
 #: the candidate, the scale of the returned Y is unconstrained, and -- the
@@ -134,6 +140,7 @@ def _nsa_retract(v: torch.Tensor,
                  nonneg: bool,
                  max_iter: int = 5000,
                  max_w: float = None,
+                 sparseness: Optional[float] = None,
                  diagnostics: Optional[dict] = None) -> Optional[torch.Tensor]:
     """
     Retract `v` toward a non-negative, near-orthogonal basis via NSA-Flow.
@@ -155,6 +162,8 @@ def _nsa_retract(v: torch.Tensor,
         Upper bound applied to `w`, defaulting to `NSA_MAX_W`. Every constraint
         family uses that default; the parameter exists so a caller can bound a
         single solve more tightly, not so the cap can be lifted.
+    sparseness : float, optional
+        Column-wise quantile sparseness target in (0, 1).
     diagnostics : dict, optional
         If given, updated in place with what the solver reported: the stopping
         rule, the stationarity certificate, the effective rank, the scale
@@ -174,7 +183,8 @@ def _nsa_retract(v: torch.Tensor,
 
     w = _clamp_retraction_weight(w, max_w=max_w)
     v_detached = v.detach()
-    cache_key = (id(fn), v_detached.shape, v_detached.dtype, v_detached.device, float(w), bool(nonneg))
+    sp_key = None if sparseness is None else float(sparseness)
+    cache_key = (id(fn), v_detached.shape, v_detached.dtype, v_detached.device, float(w), bool(nonneg), sp_key)
     for prev_in, prev_out, prev_diag in _NSA_RETRACT_CACHE.get(cache_key, ()):
         if torch.equal(prev_in, v_detached) or torch.equal(prev_out, v_detached):
             if diagnostics is not None:
@@ -190,8 +200,13 @@ def _nsa_retract(v: torch.Tensor,
     target = v_detached.double() / scale
 
     try:
-        result = fn(target, w=float(w), mode="anchored", fidelity="anchor",
-                    nonneg=bool(nonneg), max_iter=int(max_iter))
+        try:
+            result = fn(target, w=float(w), mode="anchored", fidelity="anchor",
+                        nonneg=bool(nonneg), max_iter=int(max_iter),
+                        sparseness=sp_key)
+        except TypeError:
+            result = fn(target, w=float(w), mode="anchored", fidelity="anchor",
+                        nonneg=bool(nonneg), max_iter=int(max_iter))
     except Exception:
         return None
 
@@ -873,9 +888,11 @@ def rank_based_matrix_segmentation(v: torch.Tensor,
         # negative; `sparseness_quantile` has no meaning here because the
         # assignment already fixes how many entries survive.
         if positivity == "positive":
-            candidate = torch.clamp(v, min=0.0)
+            v_resolved = _resolve_column_sign_gauge(v.t()).t() if v.ndim == 2 else v
+            candidate = torch.clamp(v_resolved, min=0.0)
         elif positivity == "negative":
-            candidate = torch.clamp(v, max=0.0)
+            v_resolved = -_resolve_column_sign_gauge(v.t()).t() if v.ndim == 2 else v
+            candidate = torch.clamp(v_resolved, max=0.0)
         else:
             candidate = v
         outmat = indicator_opt_both_ways(candidate)
@@ -893,10 +910,18 @@ def rank_based_matrix_segmentation(v: torch.Tensor,
             continue
 
         if positivity == "positive":
-            # honour the requested sign: drop negatives, rank the rest
+            # Resolve per-component sign gauge by dominant L2 mass before clamping
+            pos_norm = torch.linalg.vector_norm(torch.clamp(row_values, min=0.0))
+            neg_norm = torch.linalg.vector_norm(torch.clamp(-row_values, min=0.0))
+            if neg_norm > pos_norm:
+                row_values = -row_values
             row_values = torch.clamp(row_values, min=0.0)
             _, loc_ord = torch.topk(row_values, k=n_to_keep)
         elif positivity == "negative":
+            pos_norm = torch.linalg.vector_norm(torch.clamp(row_values, min=0.0))
+            neg_norm = torch.linalg.vector_norm(torch.clamp(-row_values, min=0.0))
+            if pos_norm > neg_norm:
+                row_values = -row_values
             row_values = torch.clamp(row_values, max=0.0)
             _, loc_ord = torch.topk(-row_values, k=n_to_keep)
         else:
@@ -985,8 +1010,16 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
         for vv in range(k):
             local_v = v_out[:, vv]
             if positivity == "positive":
+                pos_norm = torch.linalg.vector_norm(torch.clamp(local_v, min=0.0))
+                neg_norm = torch.linalg.vector_norm(torch.clamp(-local_v, min=0.0))
+                if neg_norm > pos_norm:
+                    local_v = -local_v
                 local_v = torch.clamp(local_v, min=0.0)
             elif positivity == "negative":
+                pos_norm = torch.linalg.vector_norm(torch.clamp(local_v, min=0.0))
+                neg_norm = torch.linalg.vector_norm(torch.clamp(-local_v, min=0.0))
+                if pos_norm > neg_norm:
+                    local_v = -local_v
                 local_v = torch.clamp(local_v, max=0.0)
             
             sq = sparseness_quantile[vv] if isinstance(sparseness_quantile, (list, torch.Tensor, np.ndarray)) else sparseness_quantile
@@ -1244,11 +1277,96 @@ def enforce_column_floor(v: torch.Tensor,
     return out
 
 
+def _resolve_quantile(
+    sparseness_quantile: Optional[Union[float, List[Optional[float]], tuple, np.ndarray]],
+    modality_index: Optional[int] = None,
+) -> Optional[float]:
+    """Resolve a scalar or per-view quantile in (0, 1); returns None when unset or <= 0."""
+    if sparseness_quantile is None:
+        return None
+    q = sparseness_quantile
+    if isinstance(q, (list, tuple, np.ndarray)):
+        if len(q) == 0:
+            return None
+        idx = 0 if modality_index is None else min(max(0, int(modality_index)), len(q) - 1)
+        q = q[idx]
+    if q is None:
+        return None
+    qf = float(q)
+    if not np.isfinite(qf) or qf <= 0.0:
+        return None
+    return float(min(qf, 0.999))
+
+
+def _apply_quantile_sparseness(
+    v: torch.Tensor,
+    q: Optional[float],
+    nonneg: bool = False,
+    alg: str = "soft",
+    only_if_denser: bool = False,
+) -> torch.Tensor:
+    """Apply R-style column-wise quantile soft (or hard) thresholding to a basis matrix.
+
+    For each column ``j`` of ``v`` (shape ``[p, k]``), retains at most the top
+    ``n_keep = max(1, round(p * (1 - q)))`` entries by magnitude and shrinks
+    surviving entries by the ``(1 - q)`` order-statistic threshold ``tau_q``
+    when ``alg == 'soft'``. Guarantees at least fraction ``q`` of exact zeros
+    in every column while keeping every column non-trivial.
+    """
+    if nonneg and v.numel() > 0 and v.ndim == 2:
+        v = _resolve_column_sign_gauge(v).clamp_min(0.0)
+    if q is None or q <= 0.0 or v.numel() == 0:
+        return v
+    p, k = v.shape
+    if p <= 1 or k == 0:
+        return v
+    n_keep = max(1, int(round(p * (1.0 - float(q)))))
+    if n_keep >= p:
+        return v
+
+    cols_out = []
+    use_soft = (str(alg).lower() != "hard")
+    for j in range(k):
+        col = v[:, j]
+        mag = col.abs()
+        max_mag = float(mag.detach().max())
+        if max_mag <= 0.0:
+            cols_out.append(torch.zeros_like(col))
+            continue
+        if only_if_denser:
+            nnz_j = int((mag.detach() > 1e-12 * max_mag).sum())
+            if nnz_j <= n_keep:
+                clean_mask = mag > 1e-12 * max_mag
+                cols_out.append(torch.where(clean_mask, col, torch.zeros_like(col)))
+                continue
+        vals, idx_sort = torch.sort(mag, descending=True)
+        thresh = vals[n_keep].detach()
+        if use_soft and float((vals[0] - thresh).detach()) > 1e-12:
+            shrunk = torch.sign(col) * torch.clamp(mag - thresh, min=0.0)
+            # If ties at the threshold kept more than n_keep entries, mask strictly to top n_keep
+            if int((shrunk.detach().abs() > 0).sum()) > n_keep:
+                keep_mask = torch.zeros(p, dtype=torch.bool, device=v.device)
+                keep_mask[idx_sort[:n_keep]] = True
+                shrunk = torch.where(keep_mask, shrunk, torch.zeros_like(shrunk))
+            # Guard against a tie where vals[n_keep - 1] == thresh zeroed all entries
+            if float(shrunk.detach().abs().max()) <= 0.0:
+                keep_mask = torch.zeros(p, dtype=torch.bool, device=v.device)
+                keep_mask[idx_sort[:n_keep]] = True
+                cols_out.append(torch.where(keep_mask, col, torch.zeros_like(col)))
+            else:
+                cols_out.append(shrunk)
+        else:
+            keep_mask = torch.zeros(p, dtype=torch.bool, device=v.device)
+            keep_mask[idx_sort[:n_keep]] = True
+            cols_out.append(torch.where(keep_mask, col, torch.zeros_like(col)))
+    return torch.stack(cols_out, dim=1)
+
+
 def simlr_sparseness(v: torch.Tensor,
                      constraint_type: str = "none",
                      smoothing_matrix: Optional[torch.Tensor] = None,
                      positivity: str = 'either',
-                     sparseness_quantile: float = 0.0,
+                     sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = None,
                      constraint_weight: Optional[float] = None,
                      constraint_iterations: int = 1,
                      sparseness_alg: str = 'soft',
@@ -1257,88 +1375,15 @@ def simlr_sparseness(v: torch.Tensor,
                      unit_columns: Optional[bool] = None,
                      retraction_diagnostics: Optional[dict] = None) -> torch.Tensor:
     """
-    Project a basis onto the NSA-Flow feasible set.
+    Project a basis onto the NSA-Flow feasible set with optional column-wise quantile sparsification.
 
-    This is the single projection operator for SiMLR. It applies the optional
-    smoothing prior, resolves the sign convention, and calls NSA-Flow. There is
-    nothing else: the non-negativity, the near-orthogonality and the sparsity
-    are all properties of the set NSA-Flow solves onto, controlled by one
-    weight ``w``.
-
-    Why it is only a call
-    ---------------------
-    This function used to be a five-branch dispatch that applied
-    ``apply_positivity``, then a manifold retraction (NSA-Flow, or an SVD polar
-    factor when the backend was missing, which its own docstring admitted
-    "changes numerical results"), then quantile soft-thresholding, then a
-    column renormalisation. Four operators, each with its own notion of what
-    the feasible set is, composed in an order nothing verified.
-
-    NSA-Flow already solves for that set in one step. ``w`` is a genuine convex
-    weight: ``w = 0`` returns ``max(0, V)`` and ``w = 1`` gives orthogonal
-    columns, which under non-negativity means *disjoint supports* -- a hard
-    clustering of the features. Sparsity is therefore a consequence of ``w``,
-    not a separate quantile applied afterwards, and the two cannot disagree
-    because there is only one of them.
-
-    Parameters
-    ----------
-    v : torch.Tensor
-        Candidate basis, shape (features, components).
-    constraint_type : str, default="none"
-        Retained for call compatibility. ``"none"`` returns the (optionally
-        smoothed, sign-resolved) input unprojected; anything else projects.
-    smoothing_matrix : torch.Tensor, optional
-        Spatial/graph prior applied as ``S @ V`` before projection. This is a
-        prior on the basis, not part of the feasible set, so it stays outside
-        the solver. Used by `nnh_embed` and by the operators in `sparse`.
-    positivity : str, default='either'
-        ``'positive'``/``'hard'``/``'nonnegative'`` constrain ``V >= 0``;
-        ``'negative'`` solves the reflected problem and negates the result;
-        anything else leaves the sign free.
-    sparseness_quantile, sparseness_alg, constraint_iterations : deprecated
-        Sparsity is set by ``w``. Passing a non-default value warns rather than
-        being silently dropped, because a parameter that looks respected and is
-        not is how a benchmark ends up reporting a setting it never ran.
-    constraint_weight : float, optional
-        The NSA-Flow weight ``w``, in ``[0, 1]``. ``w -> 1`` gives disjoint
-        supports; ``w = 0`` is the unconstrained endpoint and is honoured as
-        such, reaching the backend as `NSA_MIN_W` via the usual clamp rather
-        than being re-read as "unset". ``None`` -- not ``0`` -- means "use
-        `NSA_DEFAULT_W`".
-
-        This used to read ``0`` means "use `NSA_DEFAULT_W`", implemented as
-        ``w if w and w > 0 else NSA_DEFAULT_W``. That made the unconstrained
-        endpoint unreachable: ``constraint_weight=0.0`` returned output
-        bit-identical to ``0.5``, so any sweep that included ``w=0`` as its
-        baseline silently measured ``w=0.5`` twice and read flat at the low
-        end. `parse_constraint` already supplies the type-dependent default,
-        and documents that an explicit ``"orthox0"`` selects no constraint, so
-        the substitution here also contradicted the layer above it.
-    energy_type, modality_index : optional
-        ``modality_index`` indexes a per-view ``constraint_weight`` list.
-        ``energy_type`` selects the gauge: see `GAUGE_FREE_ENERGIES`.
-    unit_columns : bool, optional
-        Rescale the projected columns to unit norm. ``None`` derives it from
-        ``energy_type`` via `energy_needs_unit_columns`, which is the only
-        correct default: the covariance and negentropy energies are unbounded
-        below under rescaling and need the gauge fixed, while ``regression``
-        has a finite minimiser whose scale carries information and must not be
-        renormalised.
-    retraction_diagnostics : dict, optional
-        Updated in place with the solver's self-report.
-
-    Returns
-    -------
-    torch.Tensor
-        The projected basis, in the input dtype.
-
-    Raises
-    ------
-    ImportError
-        If the NSA-Flow backend is unavailable and a projection was requested.
-        There is deliberately no fallback: substituting a different operator
-        silently changes the feasible set.
+    When ``sparseness_quantile`` is ``None`` (the default), sparsity is governed
+    solely by the NSA-Flow weight ``w`` and sign constraint. When
+    ``sparseness_quantile`` is set to a quantile ``q in (0, 1)`` (or a per-view
+    list of quantiles, as in R ``ANTsR::simlr``), column-wise quantile
+    soft-thresholding strips the diffuse background off each column before
+    NSA-Flow retraction and re-optimises the NSA-Flow energy restricted to the
+    selected quantile support mask.
     """
     orig_dtype = v.dtype
     v_out = v.clone()
@@ -1350,17 +1395,13 @@ def simlr_sparseness(v: torch.Tensor,
         # (e.g. SparseGraphResolvent) that implement `@` but not `.to()`.
         v_out = _apply_smoothing(v_out, smoothing_matrix)
 
-    for name, value, default in (("sparseness_quantile", sparseness_quantile, 0.0),
-                                 ("sparseness_alg", sparseness_alg, "soft"),
-                                 ("constraint_iterations", constraint_iterations, 1)):
-        if isinstance(value, (list, tuple, np.ndarray)) or value != default:
-            warnings.warn(
-                f"simlr_sparseness: {name}={value!r} is ignored. Sparsity is "
-                f"now a consequence of the NSA-Flow weight w "
-                f"(constraint_weight); w -> 1 gives disjoint supports. "
-                f"Set w rather than {name}.",
-                DeprecationWarning, stacklevel=2,
-            )
+    if constraint_iterations != 1:
+        warnings.warn(
+            f"simlr_sparseness: constraint_iterations={constraint_iterations!r} is ignored.",
+            DeprecationWarning, stacklevel=2,
+        )
+
+    q_val = _resolve_quantile(sparseness_quantile, modality_index=modality_index)
 
     nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg', 'softplus')
     negative = (positivity == 'negative')
@@ -1368,9 +1409,17 @@ def simlr_sparseness(v: torch.Tensor,
     if constraint_type == "none":
         # The sign constraint is part of the feasible set whether or not the
         # orthogonality projection runs, so it is applied on this path too.
-        # Returning `v` untouched here made `positivity='positive'` silently
-        # inert for the default `constraint_type`.
-        return apply_positivity(v_out, positivity).to(orig_dtype)
+        out_none = apply_positivity(v_out, positivity)
+        if q_val is not None:
+            if negative:
+                out_none = -_apply_quantile_sparseness(-out_none, q_val, nonneg=True, alg=sparseness_alg)
+            else:
+                out_none = _apply_quantile_sparseness(out_none, q_val, nonneg=nonneg, alg=sparseness_alg)
+            if unit_columns is None:
+                unit_columns = energy_needs_unit_columns(energy_type)
+            if unit_columns:
+                out_none = _unit_normalize_columns(out_none)
+        return out_none.to(orig_dtype)
 
     if negative:
         # The solver only knows V >= 0; solve the reflected problem.
@@ -1380,30 +1429,15 @@ def simlr_sparseness(v: torch.Tensor,
     w = constraint_weight
     if isinstance(w, (list, tuple, np.ndarray)) and modality_index is not None:
         w = w[modality_index]
-    # `None`, not `0`, means "unset". Range is not policed here: `_clamp_w`
-    # one layer down is the single place that bounds w, mapping 0 to NSA_MIN_W,
-    # capping at NSA_MAX_W and sending non-finite values to the default.
     w = NSA_DEFAULT_W if w is None else float(w)
 
-    # The solver receives the SIGNED iterate.  With nonneg=True the feasible
-    # set Y >= 0 is enforced by the solver's projection; rectifying first
-    # computes prox(clamp(z)) rather than prox(z), which is not the proximal
-    # operator and breaks the descent argument for the outer loop.  (The
-    # rectified path had in fact been the live one on nsa_flow 3.0.x, because
-    # the backend moved `fidelity` into **kwargs and the signature probe that
-    # gated the signed path went False.)  Without nonneg there is nothing to
-    # choose: the sign is whatever the caller asked for.
-    # Keep the iterate rank-k on the way in. A column that reached zero
-    # upstream cannot be revived by a projection -- the solver returns the dead
-    # column faithfully and the usability check then rejects the whole solve,
-    # so the caller sees a failed projection for a problem that is perfectly
-    # feasible. Captured inputs at the point of failure were rank 1 with
-    # `colnorms=[0.00e+00, 1.02e+00]`. See `enforce_column_floor`.
     v_out = enforce_column_floor(v_out)
 
     candidate = (_resolve_column_sign_gauge(v_out) if nonneg
                  else apply_positivity(v_out.clone(), positivity))
+
     projected = _nsa_retract(candidate, w=w, nonneg=nonneg,
+                             sparseness=q_val,
                              diagnostics=retraction_diagnostics)
     if projected is None and load_nsa_flow() is None:
         raise ImportError(
@@ -1413,10 +1447,6 @@ def simlr_sparseness(v: torch.Tensor,
             "fallback projected onto a different set and was applied silently."
         )
     if projected is None:
-        # The backend is installed but returned something unusable (all-zero,
-        # NaN, wrong shape, or it raised). That is a runtime failure of the
-        # projection, not a missing install, and it must not be papered over
-        # with a different operator -- a zero basis used to propagate silently.
         raise RuntimeError(
             f"NSA-Flow returned an unusable projection for a "
             f"{tuple(v_out.shape)} basis at w={w:.3g}, nonneg={nonneg}. "
@@ -1424,9 +1454,14 @@ def simlr_sparseness(v: torch.Tensor,
             f"different feasible set. Inspect retraction_diagnostics, or pass "
             f"constraint_type='none'."
         )
-    # ...and on the way out, so a caller that inspects the returned basis never
-    # sees a rank-deficient one either. Applied before the gauge so a revived
-    # column is normalised along with the rest when the energy fixes the scale.
+
+    if q_val is not None:
+        # Ensure exact quantile sparsity >= q_val (a no-op when nsa_flow's
+        # support-masked polish already satisfied the quantile target).
+        projected = _apply_quantile_sparseness(
+            projected, q_val, nonneg=nonneg, alg=sparseness_alg,
+            only_if_denser=(str(sparseness_alg).lower() != "hard"))
+
     projected = enforce_column_floor(projected)
 
     if unit_columns is None:

@@ -27,6 +27,7 @@ import os
 import sys
 import time
 import argparse
+from typing import Optional
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 import pandas as pd
@@ -123,7 +124,7 @@ def get_multiomics_case(n_samples: int = 822, seed: int = 42) -> dict:
         mats_raw = []
         for t, max_f in [("rna", 200), ("cnv", 150), ("rppa", 150)]:
             m = views[t].loc[shared]
-            m = m.loc[:, m.notna().mean() >= 0.8].fillna(m.median(numeric_only=True))
+            m = m.loc[:, m.notna().mean() >= 0.98].fillna(m.median(numeric_only=True))
             m = m.loc[:, m.std() > 0]
             if m.shape[1] > max_f:
                 keep = m.std().sort_values(ascending=False).index[:max_f]
@@ -170,7 +171,7 @@ def get_kirc_case(seed: int = 42) -> dict:
         mats_raw = []
         for t, max_f in [("rna", 200), ("cnv", 150), ("rppa", 150)]:
             m = views[t].loc[shared]
-            m = m.loc[:, m.notna().mean() >= 0.8].fillna(m.median(numeric_only=True))
+            m = m.loc[:, m.notna().mean() >= 0.98].fillna(m.median(numeric_only=True))
             m = m.loc[:, m.std() > 0]
             if m.shape[1] > max_f:
                 keep = m.std().sort_values(ascending=False).index[:max_f]
@@ -282,7 +283,13 @@ def calculate_v_recovery(res: dict, true_v: list) -> float:
 
 def run_experiment_task(task_args: tuple) -> dict:
     torch.set_num_threads(1)
-    dataset_name, case_type, model_type, model_label, seed, iterations, epochs = task_args
+    if len(task_args) == 7:
+        dataset_name, case_type, model_type, model_label, seed, iterations, epochs = task_args
+        from pysimlr.sparsification import DEFAULT_SPARSENESS
+        sparsity = DEFAULT_SPARSENESS
+        positivity_mode = "default"
+    else:
+        dataset_name, case_type, model_type, model_label, seed, iterations, epochs, sparsity, positivity_mode = task_args
 
     if case_type == "synthetic":
         if dataset_name == "Linear":
@@ -322,11 +329,18 @@ def run_experiment_task(task_args: tuple) -> dict:
         raise ValueError(f"Unknown dataset {dataset_name}")
 
     is_nonneg_regime = dataset_name in ("NonnegParts", "NonnegPartsWeak")
+    if positivity_mode in ("positive", "either"):
+        positivity = positivity_mode
+    else:
+        positivity = "positive" if is_nonneg_regime else "either"
+
+    # Standardized protocol across all cohorts and models (no per-model special-casing)
     energy_type = "acc"
+    mixing_alg = "svd"
     params = {
         "energy_type": energy_type,
-        "mixing_algorithm": "svd",
-        "positivity": "positive" if is_nonneg_regime else "either",
+        "mixing_algorithm": mixing_alg,
+        "positivity": positivity,
         "nsa_w": 0.5,
         "nsa_iterations": 2,
         "consolidate": False,
@@ -338,7 +352,7 @@ def run_experiment_task(task_args: tuple) -> dict:
     if model_type == "shared_private" and "private_k" in case:
         params["private_k"] = case["private_k"]
 
-    exp_res = run_single_experiment(model_type, case, seed=seed, **params)
+    exp_res = run_single_experiment(model_type, case, sparsity=sparsity, seed=seed, **params)
     metrics = exp_res["metrics"]
     res = exp_res["result"]
 
@@ -347,10 +361,16 @@ def run_experiment_task(task_args: tuple) -> dict:
     # the subspace, not the axes. `v_sup` scores which features load on which
     # component, which is what sparsity and disjoint support actually claim.
     v_sup = support_recovery_score(res.get("v") or [], case.get("true_v") or [])
-    test_metric = metrics.get("test_accuracy", 0.0) if is_classif else metrics.get("test_r2", 0.0)
-    train_metric = metrics.get("train_accuracy", 0.0) if is_classif else metrics.get("train_r2", 0.0)
-    lin_test = metrics.get("first_layer_test_accuracy", 0.0) if is_classif else metrics.get("first_layer_test_r2", 0.0)
-    rf_test = metrics.get("first_layer_axis_test_accuracy", 0.0) if is_classif else metrics.get("first_layer_axis_test_r2", 0.0)
+    if dataset_name == "ADNI-MCI":
+        test_metric = metrics.get("pc1_test", metrics.get("test_r2", 0.0))
+        train_metric = metrics.get("pc1_train", metrics.get("train_r2", 0.0))
+        lin_test = metrics.get("first_layer_pc1_test_r2", metrics.get("first_layer_test_r2", 0.0))
+        rf_test = metrics.get("first_layer_axis_pc1_test_r2", metrics.get("first_layer_axis_test_r2", 0.0))
+    else:
+        test_metric = metrics.get("test_accuracy", 0.0) if is_classif else metrics.get("test_r2", 0.0)
+        train_metric = metrics.get("train_accuracy", 0.0) if is_classif else metrics.get("train_r2", 0.0)
+        lin_test = metrics.get("first_layer_test_accuracy", 0.0) if is_classif else metrics.get("first_layer_test_r2", 0.0)
+        rf_test = metrics.get("first_layer_axis_test_accuracy", 0.0) if is_classif else metrics.get("first_layer_axis_test_r2", 0.0)
 
     true_u = case.get("true_u")
     has_true_u = true_u is not None and not bool((torch.as_tensor(true_u) == 0).all())
@@ -361,6 +381,8 @@ def run_experiment_task(task_args: tuple) -> dict:
         "Case_Type": case_type,
         "Model": model_label,
         "Seed": seed,
+        "Sparseness_Target": float("nan") if sparsity is None else float(sparsity),
+        "Positivity": positivity,
         "Predictive_Metric": float(test_metric),
         "Train_Metric": float(train_metric),
         "Gen_Gap": float(train_metric - test_metric),
@@ -381,43 +403,9 @@ def run_experiment_task(task_args: tuple) -> dict:
     }
 
 
-def run_deep_benchmark(n_seeds: int = 3, workers: int = 8, iterations: int = 25, epochs: int = 45) -> pd.DataFrame:
-    # `NonnegParts` and `NonnegPartsWeak` have non-negative, sparse, disjoint
-    # ground-truth loadings. Every other synthetic regime draws `V` with
-    # `torch.randn`, so the truth is signed and dense and a non-negative method
-    # is being scored on a basis it cannot represent. Without these two there
-    # is no regime in the suite where the structural hypothesis holds.
-    synthetic_regimes = ["Linear", "Polynomial", "Sine", "Shared+Private",
-                         "NonnegParts", "NonnegPartsWeak"]
-    real_regimes = ["Heart", "Diabetes", "MultiOmics", "TCGA-KIRC", "ADNI-MCI", "mfeat"]
-
-    model_configs = [
-        ("pca", "PCA"),
-        ("linear", "SiMLR"),
-        ("simlr_lbfgs", "SiMLR-LBFGS"),
-        ("simlr_lbfgsb", "SiMLR-LBFGSB"),
-        ("nsa_pipeline", "NSAFlow-PCA"),
-        ("lend", "LEND"),
-        ("ned", "NED"),
-        ("flow_v", "Flow-SiMLR-V"),
-        ("shared_private", "NEDPP"),
-    ]
-
-    tasks = []
-    # Synthetic regimes
-    for reg in synthetic_regimes:
-        for model_type, model_label in model_configs:
-            for seed in range(42, 42 + n_seeds):
-                tasks.append((reg, "synthetic", model_type, model_label, seed, iterations, epochs))
-
-    # Real / Multimodal regimes
-    for dset in real_regimes:
-        for model_type, model_label in model_configs:
-            for seed in range(42, 42 + n_seeds):
-                tasks.append((dset, "real", model_type, model_label, seed, iterations, epochs))
-
+def _execute_tasks(tasks: list, workers: int = 8, label: str = "Deep Benchmark") -> pd.DataFrame:
     total_tasks = len(tasks)
-    print(f"Starting Deep Benchmark with {total_tasks} tasks across {n_seeds} seeds and {len(model_configs)} models...")
+    print(f"Starting {label} with {total_tasks} tasks...")
     print(f"Workers: {workers} parallel processes (single-threaded PyTorch).")
 
     results = []
@@ -441,13 +429,104 @@ def run_deep_benchmark(n_seeds: int = 3, workers: int = 8, iterations: int = 25,
                 print(f"[{completed}/{total_tasks}] ({completed/total_tasks*100:.1f}%) | "
                       f"Elapsed: {elapsed:.1f}s | ETA: {rem:.1f}s | Rate: {rate:.2f} tasks/s")
 
-    df = pd.DataFrame(results)
+    return pd.DataFrame(results)
+
+
+def run_deep_benchmark(
+    n_seeds: int = 3,
+    workers: int = 8,
+    iterations: int = 25,
+    epochs: int = 45,
+    sparsity: Optional[float] = 0.5,
+    out_filename: str = "deep_ranking_benchmark.csv",
+) -> pd.DataFrame:
+    synthetic_regimes = ["Linear", "Polynomial", "Sine", "Shared+Private",
+                         "NonnegParts", "NonnegPartsWeak"]
+    real_regimes = ["Heart", "Diabetes", "MultiOmics", "TCGA-KIRC", "ADNI-MCI", "mfeat"]
+
+    model_configs = [
+        ("pca", "PCA"),
+        ("linear", "SiMLR"),
+        ("simlr_lbfgs", "SiMLR-LBFGS"),
+        ("simlr_lbfgsb", "SiMLR-LBFGSB"),
+        ("nsa_pipeline", "NSAFlow-PCA"),
+        ("lend", "LEND"),
+        ("ned", "NED"),
+        ("flow_v", "Flow-SiMLR-V"),
+        ("shared_private", "NEDPP"),
+    ]
+
+    tasks = []
+    for reg in synthetic_regimes:
+        for model_type, model_label in model_configs:
+            for seed in range(42, 42 + n_seeds):
+                tasks.append((reg, "synthetic", model_type, model_label, seed, iterations, epochs, sparsity, "default"))
+
+    for dset in real_regimes:
+        for model_type, model_label in model_configs:
+            for seed in range(42, 42 + n_seeds):
+                tasks.append((dset, "real", model_type, model_label, seed, iterations, epochs, sparsity, "default"))
+
+    df = _execute_tasks(tasks, workers=workers, label=f"Deep Benchmark (sparseness={sparsity})")
     out_dir = os.path.join(os.path.dirname(__file__), "..", "paper", "results_cache")
     os.makedirs(out_dir, exist_ok=True)
-    out_csv = os.path.join(out_dir, "deep_ranking_benchmark.csv")
+    out_csv = os.path.join(out_dir, out_filename)
     df.to_csv(out_csv, index=False)
     print(f"\n[DONE] Saved {len(df)} records to {out_csv}")
     return df
+
+
+def run_operating_point_suite(
+    n_seeds: int = 3,
+    workers: int = 8,
+    iterations: int = 25,
+    epochs: int = 45,
+) -> pd.DataFrame:
+    """Run all three operating points (None, 0.5, 0.8) across all 12 cohorts
+    plus paired positivity='positive' vs 'either' on real biomedical cohorts."""
+    out_dir = os.path.join(os.path.dirname(__file__), "..", "paper", "results_cache")
+    os.makedirs(out_dir, exist_ok=True)
+
+    df_none = run_deep_benchmark(
+        n_seeds=n_seeds, workers=workers, iterations=iterations, epochs=epochs,
+        sparsity=None, out_filename="deep_ranking_benchmark_q_none.csv",
+    )
+    df_05 = run_deep_benchmark(
+        n_seeds=n_seeds, workers=workers, iterations=iterations, epochs=epochs,
+        sparsity=0.5, out_filename="deep_ranking_benchmark.csv",
+    )
+    df_05.to_csv(os.path.join(out_dir, "deep_ranking_benchmark_q05.csv"), index=False)
+    df_08 = run_deep_benchmark(
+        n_seeds=n_seeds, workers=workers, iterations=iterations, epochs=epochs,
+        sparsity=0.8, out_filename="deep_ranking_benchmark_q08.csv",
+    )
+
+    # Paired positivity="positive" evaluation on high-dimensional real biomedical cohorts
+    real_bio_cohorts = ["ADNI-MCI", "MultiOmics", "TCGA-KIRC"]
+    model_configs = [
+        ("pca", "PCA"),
+        ("linear", "SiMLR"),
+        ("simlr_lbfgs", "SiMLR-LBFGS"),
+        ("simlr_lbfgsb", "SiMLR-LBFGSB"),
+        ("nsa_pipeline", "NSAFlow-PCA"),
+        ("lend", "LEND"),
+        ("ned", "NED"),
+        ("flow_v", "Flow-SiMLR-V"),
+        ("shared_private", "NEDPP"),
+    ]
+    pos_tasks = []
+    for sp in (None, 0.5, 0.8):
+        for dset in real_bio_cohorts:
+            for model_type, model_label in model_configs:
+                for seed in range(42, 42 + n_seeds):
+                    pos_tasks.append((dset, "real", model_type, model_label, seed, iterations, epochs, sp, "positive"))
+
+    df_pos = _execute_tasks(pos_tasks, workers=workers, label="Real Biomedical Positivity='positive' Suite")
+    df_all = pd.concat([df_none, df_05, df_08, df_pos], ignore_index=True)
+    suite_csv = os.path.join(out_dir, "operating_points_05_08_benchmark.csv")
+    df_all.to_csv(suite_csv, index=False)
+    print(f"\n[DONE] Saved {len(df_all)} combined operating-point & positivity records to {suite_csv}")
+    return df_all
 
 
 if __name__ == "__main__":
@@ -456,11 +535,20 @@ if __name__ == "__main__":
     parser.add_argument("--workers", type=int, default=8, help="Worker processes (default: 8)")
     parser.add_argument("--iterations", type=int, default=25, help="SiMLR iterations (default: 25)")
     parser.add_argument("--epochs", type=int, default=45, help="Deep epochs (default: 45)")
+    parser.add_argument("--suite", action="store_true", help="Run full operating-point (None, 0.5, 0.8) and positivity suite")
     args = parser.parse_args()
 
-    run_deep_benchmark(
-        n_seeds=args.seeds,
-        workers=args.workers,
-        iterations=args.iterations,
-        epochs=args.epochs
-    )
+    if args.suite:
+        run_operating_point_suite(
+            n_seeds=args.seeds,
+            workers=args.workers,
+            iterations=args.iterations,
+            epochs=args.epochs,
+        )
+    else:
+        run_deep_benchmark(
+            n_seeds=args.seeds,
+            workers=args.workers,
+            iterations=args.iterations,
+            epochs=args.epochs,
+        )

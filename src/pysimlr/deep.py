@@ -376,7 +376,7 @@ class LENDNSAEncoder(nn.Module):
         If inputs are of invalid types.
     """
     def __init__(self, input_dim: int, latent_dim: int, nsa_w: float = 0.1, 
-                 positivity: str = "either", sparseness_quantile: float = 0.0,
+                 positivity: str = "either", sparseness_quantile: Optional[float] = 0.5,
                  soft_thresholding: bool = False, use_nsa: bool = True,
                  first_layer_mode: str = "scheduled", nsa_iterations: int = 1,
                  retraction_type: str = "soft_polar"):
@@ -559,51 +559,23 @@ class LENDNSAEncoder(nn.Module):
             else:
                 try: v_out = _svd_project_columns(self.v_raw)
                 except Exception: v_out = torch.nn.functional.normalize(self.v_raw, p=2, dim=0)
+        from .sparsification import _resolve_quantile, _apply_quantile_sparseness
+        q_enc = _resolve_quantile(self.sparseness_quantile)
         if self.positivity in {'positive', 'hard'}:
             # `consolidate_supports` used to run here, unconditionally, and it
             # is why `nsa_w` did nothing to any deep model. It forces strictly
             # disjoint supports, so whatever the constrained layer produced was
-            # overwritten by a hard partition before anyone saw it. Measured on
-            # a 60-feature view with k=3, the layer's own output responds to w
-            # exactly as intended -- column overlap 0.0300, 0.0164, 0.0033 at
-            # w = 0.1, 0.5, 0.9 -- while the basis this property returned was
-            # 0.0000 overlap and 0.67 zeros at *every* w. The constraint the
-            # user selected never reached the result, and because the forward
-            # pass reads this property, it never reached the gradient either:
-            # the trained parameter came out bit-identical across w.
-            #
-            # The clamp and the column normalisation stay. The clamp is not
-            # redundant: NSAFlowLinear enforces non-negativity itself, but the
-            # `nsa_layer` and `_svd_project_columns` fallbacks above do not, so
-            # without it `positivity='positive'` would be silently unenforced
-            # whenever the backend is absent. The normalisation is the column
-            # gauge, which the energies are even in.
-            #
-            # Consolidation remains available where it is an explicit choice:
-            # `simlr(consolidate=True)` on the linear path, or
-            # `nsa_backend.load_consolidate_supports()` applied to a returned
-            # basis. It is not something a model should do to itself on every
-            # forward pass.
+            # overwritten by a hard partition before anyone saw it.
             v_out = torch.clamp(v_out, min=0.0)
+            if q_enc is not None and not getattr(self, 'is_low_dim', False):
+                v_out = _apply_quantile_sparseness(v_out, q_enc, nonneg=True, alg="soft")
             v_out = torch.nn.functional.normalize(v_out, p=2, dim=0, eps=1e-8)
         elif self.positivity == 'softplus':
+            if q_enc is not None and not getattr(self, 'is_low_dim', False):
+                v_out = _apply_quantile_sparseness(v_out, q_enc, nonneg=True, alg="soft")
             v_out = torch.nn.functional.normalize(v_out, p=2, dim=0, eps=1e-8)
         elif self.positivity == 'either':
-            if self.sparseness_quantile > 0:
-                from .nsa_backend import load_consolidate_supports
-                cons_fn = load_consolidate_supports()
-                if cons_fn is not None:
-                    try:
-                        k_v = v_out.shape[1]
-                        v_p = torch.clamp_min(v_out, 0.0)
-                        v_n = torch.clamp_min(-v_out, 0.0)
-                        W = torch.cat([v_p, v_n], dim=1)
-                        W_c = cons_fn(W.double()).to(v_out.dtype)
-                        v_out = W_c[:, :k_v] - W_c[:, k_v:]
-                    except Exception:
-                        pass
-                v_out = torch.nn.functional.normalize(v_out, p=2, dim=0, eps=1e-8)
-            else:
+            if self.nsa_linear is None and self.nsa_layer is None:
                 from .nsa_backend import load_polar_factor
                 pf = load_polar_factor()
                 if pf is not None:
@@ -613,6 +585,9 @@ class LENDNSAEncoder(nn.Module):
                         v_out = _svd_project_columns(v_out)
                 else:
                     v_out = _svd_project_columns(v_out)
+            if q_enc is not None and not getattr(self, 'is_low_dim', False):
+                v_out = _apply_quantile_sparseness(v_out, q_enc, nonneg=False, alg="soft")
+            v_out = torch.nn.functional.normalize(v_out, p=2, dim=0, eps=1e-8)
         return v_out
 
     def set_projection_schedule(self, epoch: int, total_epochs: int, stabilization_start_epoch: int, stabilization_ramp_epochs: int) -> None:
@@ -743,13 +718,13 @@ class LENDSiMRModel(nn.Module):
     """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
                  dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "either", 
-                 sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
+                 sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
                  retraction_type: str = "soft_polar"):
         super().__init__()
-        if isinstance(sparseness_quantile, (float, int)):
-            sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
+        if sparseness_quantile is None or isinstance(sparseness_quantile, (float, int)):
+            sparseness_quantile = [None if sparseness_quantile is None else float(sparseness_quantile)] * len(input_dims)
         self.encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, retraction_type=retraction_type) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.mixing_algorithm, self.latent_dim = mixing_algorithm, latent_dim
@@ -993,13 +968,13 @@ class NEDSiMRModel(nn.Module):
     """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
                  dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "either", 
-                 sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
+                 sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
                  retraction_type: str = "soft_polar"):
         super().__init__()
-        if isinstance(sparseness_quantile, (float, int)):
-            sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
+        if sparseness_quantile is None or isinstance(sparseness_quantile, (float, int)):
+            sparseness_quantile = [None if sparseness_quantile is None else float(sparseness_quantile)] * len(input_dims)
         self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, retraction_type=retraction_type) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.nonlinear_heads = nn.ModuleList([ModalityDecoder(latent_dim, latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
@@ -1260,13 +1235,13 @@ class NEDSharedPrivateSiMRModel(nn.Module):
     """
     def __init__(self, input_dims: List[int], shared_latent_dim: int, private_latent_dim: int,
                  hidden_dims: List[int] = [128, 64], dropout: float = 0.1, nsa_w: float = 0.1,
-                 positivity: str = "either", sparseness_quantile: Union[float, List[float]] = 0.0, mixing_algorithm: str = "newton",
+                 positivity: str = "either", sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
                  retraction_type: str = "soft_polar"):
         super().__init__()
-        if isinstance(sparseness_quantile, (float, int)):
-            sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
+        if sparseness_quantile is None or isinstance(sparseness_quantile, (float, int)):
+            sparseness_quantile = [None if sparseness_quantile is None else float(sparseness_quantile)] * len(input_dims)
         self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, shared_latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, retraction_type=retraction_type) for dim, sq in zip(input_dims, sparseness_quantile)])
         self.shared_heads = nn.ModuleList([ModalityDecoder(shared_latent_dim, shared_latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * shared_latent_dim, shared_latent_dim))
@@ -1905,14 +1880,21 @@ def _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=None):
     Returns ``(bases, diagnostics)``; on a missing backend the inputs pass
     through and the diagnostics say so.
     """
-    from .sparsification import simlr_sparseness
+    from .sparsification import simlr_sparseness, DEFAULT_SPARSENESS
     out, diags = [], []
-    for v in v_mats:
+    for idx, v in enumerate(v_mats):
         d = {}
+        sq = (getattr(encoders[idx], "sparseness_quantile", DEFAULT_SPARSENESS)
+              if encoders is not None and idx < len(encoders)
+              else DEFAULT_SPARSENESS)
         try:
             v_f = simlr_sparseness(v.double(), constraint_type="orth",
-                                   positivity=positivity, constraint_weight=nsa_w,
-                                   energy_type=energy_type, unit_columns=True,
+                                   positivity=positivity,
+                                   sparseness_quantile=sq,
+                                   constraint_weight=nsa_w,
+                                   energy_type=energy_type,
+                                   modality_index=idx,
+                                   unit_columns=True,
                                    retraction_diagnostics=d).to(v.dtype)
         except (ImportError, RuntimeError) as exc:
             v_f, d = v, {"error": repr(exc)[:200]}
@@ -1923,7 +1905,7 @@ def _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=None):
     return out, diags
 
 
-def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "either", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
+def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, positivity: str = "either", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False,
                  initialization_type: str = 'pca', init_seed: Optional[int] = None,
                  domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
@@ -1969,7 +1951,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
         Decoder hidden dimensions.
     dropout : float, default=0.1
         Dropout probability.
-    sparseness_quantile : Union[float, List[float]] = 0.0
+    sparseness_quantile : Union[float, List[float]], default=0.5
         Sparseness quantile.
     positivity : str, default="either"
         Positivity constraint on the first-layer encoders. Was `"positive"`;
@@ -2042,7 +2024,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
                        if isinstance(u_final, list) else u_final)
         first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "lend_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, **basis_rank_report(v_mats, k)}
+    result = {"model": model.cpu(), "model_type": "lend_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, "sparseness": sparseness_quantile, **basis_rank_report(v_mats, k)}
     result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
@@ -2051,7 +2033,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
         result["mai"] = model.mai.detach().cpu().numpy()
     return result
 
-def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "either", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
+def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, positivity: str = "either", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False,
                  initialization_type: str = 'pca', init_seed: Optional[int] = None,
                  domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
@@ -2094,7 +2076,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
         Decoder hidden dimensions.
     dropout : float, default=0.1
         Dropout probability.
-    sparseness_quantile : Union[float, List[float]] = 0.0
+    sparseness_quantile : Union[float, List[float]], default=0.5
         Sparseness quantile.
     positivity : str, default="either"
         Positivity constraint on the first-layer encoders. Was `"positive"`;
@@ -2167,7 +2149,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
                        if isinstance(u_final, list) else u_final)
         first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "ned_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, **basis_rank_report(v_mats, k)}
+    result = {"model": model.cpu(), "model_type": "ned_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, "sparseness": sparseness_quantile, **basis_rank_report(v_mats, k)}
     result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
@@ -2176,7 +2158,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoch
         result["mai"] = model.mai.detach().cpu().numpy()
     return result
 
-def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, sparseness_quantile: Union[float, List[float]] = 0.0, positivity: str = "either", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
+def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, positivity: str = "either", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, optimizer_type: str = 'adam', use_rank_mai: bool = False,
                  initialization_type: str = 'pca', init_seed: Optional[int] = None,
                  domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
@@ -2216,7 +2198,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         Weight for similarity loss.
     warmup_epochs : int, default=20
         Warmup epochs before sim loss.
-    sparseness_quantile : Union[float, List[float]] = 0.0
+    sparseness_quantile : Union[float, List[float]], default=0.5
         Sparseness quantile.
     positivity : str, default="either"
         Positivity constraint on the first-layer encoders. Was `"positive"`;
@@ -2320,7 +2302,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
                        if isinstance(u_final, list) else u_final)
         first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
         first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "ned_shared_private", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_shared], "private_latents": [torch.nan_to_num(p.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for p in final_private], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, **basis_rank_report(v_mats, k)}
+    result = {"model": model.cpu(), "model_type": "ned_shared_private", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_shared], "private_latents": [torch.nan_to_num(p.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for p in final_private], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, "sparseness": sparseness_quantile, **basis_rank_report(v_mats, k)}
     result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, final_recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}

@@ -180,3 +180,28 @@ def test_the_shared_contract_has_not_shrunk():
     missing = sorted(REQUIRED_KEYS - shared)
     assert not missing, (
         f"these keys are no longer returned by every algorithm: {missing}")
+
+
+@pytest.mark.parametrize("alg", ALGORITHMS, ids=lambda f: f.__name__)
+def test_every_algorithm_inherits_sparseness_default_and_operating_points(alg):
+    """Every algorithm defaults to sparseness=0.5 and honors the two canonical
+    SiMLR operating points (0.5 and 0.8) on every column of every view."""
+    views, _ = _planted(n=48, dims=(20, 16))
+    torch.manual_seed(0); np.random.seed(0)
+    res_default = alg(views, iterations=6, **COMMON_PARAMS)
+    assert res_default.get("sparseness") == 0.5
+    for v in res_default["v"]:
+        col_zero_frac = (v.abs() <= 1e-12).float().mean(dim=0)
+        assert bool((col_zero_frac >= 0.45).all()), (
+            f"{alg.__name__} default sparseness=0.5 returned column zero fractions {col_zero_frac.tolist()}"
+        )
+
+    torch.manual_seed(0); np.random.seed(0)
+    res_08 = alg(views, iterations=6, sparseness=0.8, **COMMON_PARAMS)
+    assert res_08.get("sparseness") == 0.8
+    for v in res_08["v"]:
+        col_zero_frac = (v.abs() <= 1e-12).float().mean(dim=0)
+        assert bool((col_zero_frac >= 0.75).all()), (
+            f"{alg.__name__} sparseness=0.8 returned column zero fractions {col_zero_frac.tolist()}"
+        )
+

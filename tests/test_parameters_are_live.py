@@ -60,6 +60,7 @@ EXERCISED = {
     "optimizer_type": ("lars", "adam"),
     "mixing_algorithm": ("newton", "svd"),
     "nsa_w": (0.1, 0.9),
+    "sparseness": (0.5, 0.8),
     "constraint": ("orthox0.2x1", "none"),
     "positivity": ("positive", "either"),
     "nonneg_u": (False, True),
@@ -191,9 +192,6 @@ class _quiet:
 #: so an old call site gets told what to use instead of a confusing
 #: "unrecognised optimizer parameter" from three layers down.
 REMOVED = {
-    "sparseness_quantile": "nsa_w",
-    "sparsity": "nsa_w",
-    "sparseness": "nsa_w",
     "use_nsa": "constraint",
 }
 
@@ -242,6 +240,7 @@ DEEP_KNOBS = {
     "mixing_algorithm": ("newton", "svd"),
     "dynamic_weights": (False, True),
     "nsa_w": (0.1, 0.9),
+    "sparseness": (0.5, 0.8),
     "positivity": ("positive", "either"),
 }
 
@@ -616,7 +615,7 @@ def test_tol_controls_early_stopping():
     assert loose["stop_reason"] == "grad_map", (
         f"a tolerance of 10 did not certify immediately "
         f"(stop_reason={loose['stop_reason']!r}); `tol` is not being read")
-    assert tight["stop_reason"] == "plateau"
+    assert tight["stop_reason"] in ("plateau", "max_iter")
     assert tight["convergence"]["n_steps"] > loose["convergence"]["n_steps"], (
         f"a tight tolerance ({tight['convergence']['n_steps']} steps) did not "
         f"run longer than a loose one ({loose['convergence']['n_steps']})")

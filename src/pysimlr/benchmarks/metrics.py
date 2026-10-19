@@ -127,6 +127,7 @@ def axis_sensitive_cross_val_metrics(
     """
     u_train_np = u_train.detach().cpu().numpy()
     u_test_np = u_test.detach().cpu().numpy()
+    extra = {}
     if is_classification:
         from sklearn.ensemble import RandomForestClassifier
         y_train_int = y_train.astype(int).ravel()
@@ -151,7 +152,20 @@ def axis_sensitive_cross_val_metrics(
         ).fit(u_train_np, y_tr)
         train_perf = float(model.score(u_train_np, y_tr))
         test_perf = float(model.score(u_test_np, y_te))
-    return {"train": train_perf, "test": test_perf, "gap": train_perf - test_perf}
+        if y_tr.ndim == 2 and y_tr.shape[1] > 1:
+            y_tr_mean = y_tr.mean(axis=0, keepdims=True)
+            _, _, Vt_y = np.linalg.svd(y_tr - y_tr_mean, full_matrices=False)
+            pc1_vec = Vt_y[0]
+            y_pc1_tr = (y_tr - y_tr_mean) @ pc1_vec
+            y_pc1_te = (y_te - y_tr_mean) @ pc1_vec
+            pc1_rf = RandomForestRegressor(
+                n_estimators=n_estimators, random_state=random_state,
+            ).fit(u_train_np, y_pc1_tr)
+            extra["pc1_train"] = float(pc1_rf.score(u_train_np, y_pc1_tr))
+            extra["pc1_test"] = float(pc1_rf.score(u_test_np, y_pc1_te))
+    out = {"train": train_perf, "test": test_perf, "gap": train_perf - test_perf}
+    out.update(extra)
+    return out
 
 
 def reconstruction_mse(data: List[torch.Tensor], recons: List[torch.Tensor]) -> float:
@@ -320,6 +334,9 @@ def calculate_all_metrics(
                 # effect to the parametrisation.
                 axis_res = axis_sensitive_cross_val_metrics(u_lin_train, y_train_np, u_lin_test, y_true_np, is_classification)
                 metrics["first_layer_axis_test_r2"], metrics["first_layer_axis_train_r2"], metrics["first_layer_axis_gen_gap"] = axis_res["test"], axis_res["train"], axis_res["gap"]
+                if "pc1_test" in axis_res:
+                    metrics["first_layer_axis_pc1_test_r2"] = axis_res["pc1_test"]
+                    metrics["first_layer_axis_pc1_train_r2"] = axis_res["pc1_train"]
                 if is_classification: metrics["first_layer_axis_test_accuracy"], metrics["first_layer_axis_train_accuracy"] = axis_res["test"], axis_res["train"]
         else:
             # Fallback for simple R2 if u_train is missing but y_true is present

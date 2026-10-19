@@ -4,6 +4,24 @@ from typing import List, Dict, Any, Optional, Tuple, Union
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+def _sparse_signed_basis(shared_k: int, p: int, true_sparsity: float) -> torch.Tensor:
+    """Construct a (shared_k, p) signed basis with exact per-component sparsity."""
+    if true_sparsity <= 0.0:
+        return torch.randn(shared_k, p)
+    active_frac = max(1.0 / p, min(1.0, 1.0 - float(true_sparsity)))
+    m = max(1, min(p, int(round(active_frac * p))))
+    v = torch.zeros(shared_k, p)
+    order = torch.randperm(p)
+    stride = max(1, p // shared_k)
+    for j in range(shared_k):
+        idx = torch.arange(j * stride, j * stride + m) % p
+        cols = order[idx]
+        mag = 0.5 + torch.rand(len(cols))
+        signs = torch.where(torch.rand(len(cols)) > 0.5, 1.0, -1.0)
+        v[j, cols] = mag * signs
+    return v
+
+
 def build_linear_footprint_case(n_samples: int = 1000, 
                                 shared_k: int = 3, 
                                 p_list: List[int] = [100, 80, 60],
@@ -43,6 +61,7 @@ def build_linear_footprint_case(n_samples: int = 1000,
     """
     if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     private_scale = float(kwargs.get("private_scale", 0.0))
+    true_sparsity = float(kwargs.get("true_sparsity", 0.5 if private_scale > 0.0 else 0.0))
     torch.manual_seed(seed)
     np.random.seed(seed)
     
@@ -63,7 +82,7 @@ def build_linear_footprint_case(n_samples: int = 1000,
     v_true = []
     
     for idx_v, p in enumerate(p_list):
-        v = torch.randn(shared_k, p)
+        v = _sparse_signed_basis(shared_k, p, true_sparsity)
         x = true_u @ v + torch.randn(n_samples, p) * noise_scale
         if private_scale > 0.0:
             u_priv = torch.randn(n_samples, 2) * private_scale
@@ -186,6 +205,7 @@ def build_shared_plus_private_case(n_samples: int = 1000,
     if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     has_explicit_priv = "private_scale" in kwargs
     private_scale = float(kwargs.get("private_scale", 1.0))
+    true_sparsity = float(kwargs.get("true_sparsity", 0.8 if has_explicit_priv else 0.0))
     torch.manual_seed(seed)
     np.random.seed(seed)
     
@@ -211,7 +231,7 @@ def build_shared_plus_private_case(n_samples: int = 1000,
         true_u_private = torch.randn(n_samples, private_k) * (private_scale * priv_mult)
         private_latents.append(true_u_private)
         
-        v_sh = torch.randn(shared_k, p)
+        v_sh = _sparse_signed_basis(shared_k, p, true_sparsity)
         v_pr = torch.randn(private_k, p)
         v_true.append(v_sh.t())
         
@@ -242,6 +262,7 @@ def build_nonnegative_parts_case(n_samples: int = 400,
     if 'noise_level' in kwargs:
         noise_scale = kwargs['noise_level']
     private_scale = float(kwargs.get("private_scale", 0.0))
+    active_frac = kwargs.get("active_frac", None)
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -265,10 +286,16 @@ def build_nonnegative_parts_case(n_samples: int = 400,
             raise ValueError(f"Each view needs at least shared_k={shared_k} features, got p={p}.")
         v = torch.zeros(p, shared_k)
         order = torch.randperm(p)
-        bounds = np.linspace(0, p, shared_k + 1).astype(int)
-        for j in range(shared_k):
-            block = order[bounds[j]:bounds[j + 1]]
-            v[block, j] = 0.5 + torch.rand(len(block))
+        if active_frac is not None:
+            m = max(1, min(p // shared_k, int(round(float(active_frac) * p))))
+            for j in range(shared_k):
+                block = order[j * m:(j + 1) * m]
+                v[block, j] = 0.5 + torch.rand(len(block))
+        else:
+            bounds = np.linspace(0, p, shared_k + 1).astype(int)
+            for j in range(shared_k):
+                block = order[bounds[j]:bounds[j + 1]]
+                v[block, j] = 0.5 + torch.rand(len(block))
         x = true_u @ v.t() + torch.randn(n_samples, p) * noise_scale
         if private_scale > 0.0:
             priv_mult = 1.5 if idx_v == 0 else 0.9
@@ -333,10 +360,15 @@ def build_case(kind: str = "nonlinear_shared", **kwargs) -> Dict[str, Any]:
         # Non-negative, sparse, disjoint ground truth -- the regime in which
         # the structural constraints are true rather than violated.
         "nonneg_parts": build_nonnegative_parts_case,
-        # Same basis, but the outcome is carried by the weakest latent, so the
-        # top-variance subspace is no longer the right answer by construction.
+        # Same basis family, with focal 20%-active (80%-sparse) columns and the
+        # outcome carried by the weakest latent, so top-variance is no longer
+        # the right answer by construction and focal sparsity is tested.
         "nonneg_parts_weak": lambda **kw: build_nonnegative_parts_case(
-            **{**kw, "signal_component": kw.get("shared_k", 3) - 1}),
+            **{
+                "active_frac": 0.20 if float(kw.get("private_scale", 0.0)) > 0.0 else None,
+                **kw,
+                "signal_component": kw.get("shared_k", 3) - 1,
+            }),
     }
     # Backward compat
     if kind == "nonlinear_shared": kind = "nonlinear"

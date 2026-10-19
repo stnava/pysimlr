@@ -748,7 +748,7 @@ class FlowSiMRVModel(nn.Module):
     def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, 
                  hidden_dim: int = 64, mixing_algorithm: str = 'newton', scale_bound: float = 2.0,
                  nsa_w: float = 0.1, positivity: str = 'either', 
-                 sparseness_quantile: Union[float, List[float]] = 0.0, use_nsa: bool = True,
+                 sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, use_nsa: bool = True,
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None,
                  prune_threshold: Optional[float] = None,
                  dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
@@ -780,8 +780,8 @@ class FlowSiMRVModel(nn.Module):
         # Local import to prevent circular dependency
         from .deep import LENDNSAEncoder
         
-        if isinstance(sparseness_quantile, (float, int)):
-            sparseness_quantile = [float(sparseness_quantile)] * len(input_dims)
+        if sparseness_quantile is None or isinstance(sparseness_quantile, (float, int)):
+            sparseness_quantile = [None if sparseness_quantile is None else float(sparseness_quantile)] * len(input_dims)
             
         self.linear_encoders = nn.ModuleList([
             LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa,
@@ -1085,7 +1085,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 gamma: float = 2.0,
                 nsa_w: float = 0.1,
                 positivity: str = 'either',
-                sparseness_quantile: Union[float, List[float]] = 0.0,
+                sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5,
                 use_nsa: bool = True,
                 dynamic_weights: bool = False,
                 mai_metric: str = 'procrustes_r2',
@@ -1101,7 +1101,8 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 init_seed: Optional[int] = None,
                 domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
                 n_candidates: int = 5,
-                perturbation_scale: float = 0.05) -> Dict[str, Any]:
+                perturbation_scale: float = 0.05,
+                **kwargs) -> Dict[str, Any]:
     """
     Perform Flow-based Similarity-driven Multi-view Representation with Linear Encoder (Flow-SiMR-V).
 
@@ -1137,6 +1138,11 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # points are interchangeable.
     if iterations is not None:
         epochs = int(iterations)
+
+    if 'sparsity' in kwargs:
+        sparseness_quantile = kwargs.pop('sparsity')
+    if 'sparseness' in kwargs:
+        sparseness_quantile = kwargs.pop('sparseness')
 
     if positivity is True or (isinstance(positivity, str) and positivity.lower() == 'true'):
         positivity = 'positive'
@@ -1221,6 +1227,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         'sim_history': sim_h,
         'scale_list': ['centerAndScale'],
         'provenance_list': provenance_list,
+        'sparseness': sparseness_quantile,
         'cond_inference': cond_inference,
         "modality_weights": model.modality_weights.detach().cpu().numpy(),
         "mai": model.mai.detach().cpu().numpy(),

@@ -109,7 +109,7 @@ class SiMLREstimator(BaseEstimator, TransformerMixin):
         energy_type: str = "acc",
         mixing_algorithm: str = "newton",
         constraint: str = "orthox0.1x1",
-        sparseness_quantile: float = 0.0,
+        sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5,
         positivity: str = "either",
         consolidate: bool = True,
         use_nsa: bool = True,
@@ -176,12 +176,8 @@ class SiMLREstimator(BaseEstimator, TransformerMixin):
             tol=self.tol,
             verbose=self.verbose,
             nsa_w=self.nsa_w,
+            sparseness=self.sparseness_quantile,
         )
-        # `sparseness_quantile` and `use_nsa` are kept as constructor
-        # arguments for scikit-learn API stability (get_params/set_params and
-        # any pickled estimator), but are no longer forwarded: `simlr` removed
-        # them because neither had any effect. Sparsity follows from `nsa_w`,
-        # and the projection is not optional on the linear path.
         self.result_ = res
 
         # Convert learned loadings to numpy
@@ -302,6 +298,8 @@ class LENDTransformer(BaseEstimator, TransformerMixin):
         Whether to enforce Stiefel manifold constraints via NSA-Flow.
     nsa_w : float, default=0.1 (the wrapped function's default)
         NSA-Flow trade-off parameter.
+    sparseness_quantile : float, default=0.5
+        Quantile threshold for sparsifying loading weights.
     consolidate : bool, default=True
         Whether to consolidate supports for strictly disjoint modules.
     verbose : bool, default=False
@@ -319,6 +317,7 @@ class LENDTransformer(BaseEstimator, TransformerMixin):
         mixing_algorithm: str = "newton",
         use_nsa: bool = True,
         nsa_w: float = 0.1,
+        sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5,
         consolidate: bool = True,
         verbose: bool = False,
         random_state: Optional[int] = None,
@@ -330,6 +329,7 @@ class LENDTransformer(BaseEstimator, TransformerMixin):
         self.mixing_algorithm = mixing_algorithm
         self.use_nsa = use_nsa
         self.nsa_w = nsa_w
+        self.sparseness_quantile = sparseness_quantile
         self.consolidate = consolidate
         self.verbose = verbose
         self.random_state = random_state
@@ -353,6 +353,7 @@ class LENDTransformer(BaseEstimator, TransformerMixin):
             mixing_algorithm=self.mixing_algorithm,
             use_nsa=self.use_nsa,
             nsa_w=self.nsa_w,
+            sparseness_quantile=self.sparseness_quantile,
             verbose=self.verbose,
         )
         self.result_ = res
@@ -392,6 +393,7 @@ class NEDTransformer(BaseEstimator, TransformerMixin):
         mixing_algorithm: str = "newton",
         use_nsa: bool = True,
         nsa_w: float = 0.1,
+        sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5,
         verbose: bool = False,
         random_state: Optional[int] = None,
     ):
@@ -402,6 +404,7 @@ class NEDTransformer(BaseEstimator, TransformerMixin):
         self.mixing_algorithm = mixing_algorithm
         self.use_nsa = use_nsa
         self.nsa_w = nsa_w
+        self.sparseness_quantile = sparseness_quantile
         self.verbose = verbose
         self.random_state = random_state
 
@@ -424,6 +427,7 @@ class NEDTransformer(BaseEstimator, TransformerMixin):
             mixing_algorithm=self.mixing_algorithm,
             use_nsa=self.use_nsa,
             nsa_w=self.nsa_w,
+            sparseness_quantile=self.sparseness_quantile,
             verbose=self.verbose,
         )
         self.result_ = res
@@ -462,6 +466,7 @@ class FlowSiMLRTransformer(BaseEstimator, TransformerMixin):
         mixing_algorithm: str = "newton",
         use_nsa: bool = True,
         nsa_w: float = 0.1,
+        sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5,
         verbose: bool = False,
         random_state: Optional[int] = None,
     ):
@@ -471,6 +476,7 @@ class FlowSiMLRTransformer(BaseEstimator, TransformerMixin):
         self.mixing_algorithm = mixing_algorithm
         self.use_nsa = use_nsa
         self.nsa_w = nsa_w
+        self.sparseness_quantile = sparseness_quantile
         self.verbose = verbose
         self.random_state = random_state
 
@@ -492,6 +498,7 @@ class FlowSiMLRTransformer(BaseEstimator, TransformerMixin):
             mixing_algorithm=self.mixing_algorithm,
             use_nsa=self.use_nsa,
             nsa_w=self.nsa_w,
+            sparseness_quantile=self.sparseness_quantile,
             verbose=self.verbose,
         )
         self.result_ = res

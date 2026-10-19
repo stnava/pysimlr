@@ -6,7 +6,7 @@ from typing import List, Optional, Union, Dict, Any, Tuple, Callable
 from .svd import ba_svd, safe_pca
 from .utils import basis_rank_report
 from .optimizers import create_optimizer
-from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness, NSA_DEFAULT_W
+from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness, NSA_DEFAULT_W, DEFAULT_SPARSENESS
 from .utils import (set_seed_based_on_time, adjusted_rvcoef, safe_svd,
                     invariant_orthogonality_defect, l1_normalize_features, orthogonality_defect,
                     gradient_orthogonality_defect,
@@ -179,7 +179,7 @@ def calculate_u(projections: List[torch.Tensor],
 #: Every strategy `initialize_simlr` implements. Kept as one tuple so the
 #: error message and the dispatcher can't drift apart.
 INITIALIZATION_TYPES = ("pca", "random", "gcca", "nndsvd", "perturbed_pca",
-                        "domain", "best_of_n")
+                        "domain", "best_of_n", "ica")
 
 
 def initialize_simlr(data_matrices: List[torch.Tensor],
@@ -190,7 +190,8 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
                      generator: Optional[torch.Generator] = None,
                      domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
                      n_candidates: int = 5,
-                     perturbation_scale: float = 0.05) -> List[torch.Tensor]:
+                     perturbation_scale: float = 0.05,
+                     sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS) -> List[torch.Tensor]:
     """
     Initialize the basis matrices (V) for SiMLR.
 
@@ -372,31 +373,107 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
                 "initialization_type='domain' needs `domain_matrices`, one "
                 "entry per view."
             )
-        return _domain_informed_basis(data_matrices, domain_matrices, k, positivity)
+        return _domain_informed_basis(data_matrices, domain_matrices, k, positivity, sparseness=sparseness)
     if initialization_type == "gcca":
-        return _gcca_basis(data_matrices, k, positivity)
+        return _gcca_basis(data_matrices, k, positivity, sparseness=sparseness)
     if initialization_type == "nndsvd":
-        return [_nndsvd_basis_for_view(x, k) for x in data_matrices]
+        return [
+            simlr_sparseness(_nndsvd_basis_for_view(x, k), constraint_type="ortho",
+                             positivity=positivity, sparseness_quantile=sparseness,
+                             modality_index=idx_m).to(x.dtype)
+            if sparseness is not None and x.shape[1] > k
+            else _nndsvd_basis_for_view(x, k)
+            for idx_m, x in enumerate(data_matrices)
+        ]
+    if initialization_type == "ica":
+        return [_ica_basis_for_view(x, k, positivity=positivity, sparseness_quantile=sparseness, modality_index=idx_m)
+                for idx_m, x in enumerate(data_matrices)]
     if initialization_type == "perturbed_pca":
         base = [initial_basis_for_view(x, k, positivity=positivity,
-                                       initialization_type="pca")
-                for x in data_matrices]
+                                       initialization_type="pca",
+                                       sparseness_quantile=sparseness,
+                                       modality_index=idx_m)
+                for idx_m, x in enumerate(data_matrices)]
         out = []
-        for v in base:
+        for idx_m, v in enumerate(base):
             noise = torch.randn(v.shape, generator=generator, dtype=v.dtype)
             raw = v + perturbation_scale * v.norm() * noise / (noise.norm() + 1e-12)
-            out.append(simlr_sparseness(raw, constraint_type="ortho", positivity=positivity))
+            out.append(simlr_sparseness(raw, constraint_type="ortho", positivity=positivity,
+                                        sparseness_quantile=sparseness, modality_index=idx_m))
         return out
     if initialization_type == "best_of_n":
-        return _best_of_n_basis(data_matrices, k, positivity, generator, n_candidates)
+        return _best_of_n_basis(data_matrices, k, positivity, generator, n_candidates, sparseness=sparseness)
     return [initial_basis_for_view(x, k, positivity=positivity,
                                    initialization_type=initialization_type,
-                                   generator=generator)
-            for x in data_matrices]
+                                   generator=generator,
+                                   sparseness_quantile=sparseness,
+                                   modality_index=idx_m)
+            for idx_m, x in enumerate(data_matrices)]
+
+
+def _ica_basis_for_view(x: torch.Tensor, k: int, positivity: str = "either",
+                        sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
+                        modality_index: Optional[int] = None) -> torch.Tensor:
+    """Deterministic spatial ICA initialization on the top-``k`` singular vectors.
+
+    Rotates the leading ``k`` right singular vectors of ``x`` via FastICA
+    (seeded deterministically with ``w_init = I_k``) to maximize spatial
+    non-Gaussianity across features before applying `simlr_sparseness`.
+    Columns are sign-canonicalized by third-moment skewness and ordered by
+    descending explained variance ``||x @ v_j||_2^2``.
+    """
+    xd = x.detach().cpu().double().numpy()
+    _, s, vt = np.linalg.svd(xd, full_matrices=False)
+    k_eff = min(k, vt.shape[0])
+    v_svd = vt[:k_eff, :].T.copy()
+    for j in range(k_eff):
+        idx_max = int(np.argmax(np.abs(v_svd[:, j])))
+        if v_svd[idx_max, j] < 0:
+            v_svd[:, j] *= -1.0
+
+    if k_eff > 1 and v_svd.shape[0] > k_eff:
+        try:
+            from sklearn.decomposition import FastICA
+            ica = FastICA(
+                n_components=k_eff,
+                algorithm="parallel",
+                whiten="unit-variance",
+                fun="logcosh",
+                w_init=np.eye(k_eff, dtype=np.float64),
+                max_iter=500,
+                tol=1e-5,
+                random_state=0,
+            )
+            v_ica = ica.fit_transform(v_svd)
+        except Exception:
+            v_ica = v_svd
+    else:
+        v_ica = v_svd
+
+    for j in range(k_eff):
+        col = v_ica[:, j]
+        if np.sum(col ** 3) < 0:
+            v_ica[:, j] *= -1.0
+        nrm = np.linalg.norm(v_ica[:, j])
+        if nrm > 1e-12:
+            v_ica[:, j] /= nrm
+
+    var_scores = [np.sum((xd @ v_ica[:, j]) ** 2) for j in range(k_eff)]
+    order = np.argsort(var_scores)[::-1]
+    v_ica = v_ica[:, order]
+
+    if k_eff < k:
+        pad = 1e-4 * np.ones((x.shape[1], k - k_eff), dtype=np.float64)
+        v_ica = np.hstack([v_ica, pad])
+
+    v_t = torch.tensor(v_ica, dtype=x.dtype, device=x.device)
+    return simlr_sparseness(v_t, constraint_type="ortho", positivity=positivity,
+                            sparseness_quantile=sparseness_quantile, modality_index=modality_index)
 
 
 def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
-                positivity: str) -> List[torch.Tensor]:
+                positivity: str,
+                sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS) -> List[torch.Tensor]:
     """Joint (generalized-CCA, MAXVAR) initialization.
 
     Finds the top-``k`` eigenvectors of ``sum_i P_i``, where ``P_i`` projects
@@ -420,7 +497,7 @@ def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
     # the last k columns, largest first.
     shared_u = eigvecs[:, -k:].flip(dims=[1]).contiguous()
     out = []
-    for x in data_matrices:
+    for idx_m, x in enumerate(data_matrices):
         xd = x.detach().double()
         v = torch.linalg.lstsq(xd, shared_u).solution
         # The regression solution's scale reflects how well this view
@@ -431,7 +508,9 @@ def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
         # corrects.
         v = v / (v.norm(dim=0, keepdim=True) + 1e-12)
         out.append(simlr_sparseness(v.to(x.dtype), constraint_type="ortho",
-                                    positivity=positivity))
+                                    positivity=positivity,
+                                    sparseness_quantile=sparseness,
+                                    modality_index=idx_m))
     return out
 
 
@@ -476,7 +555,8 @@ def _nndsvd_basis_for_view(x: torch.Tensor, k: int) -> torch.Tensor:
 
 def _domain_informed_basis(data_matrices: List[torch.Tensor],
                            domain_matrices: List[Optional[torch.Tensor]],
-                           k: int, positivity: str) -> List[torch.Tensor]:
+                           k: int, positivity: str,
+                           sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS) -> List[torch.Tensor]:
     """Seed each view's basis from its domain prior's own leading directions.
 
     ``domain_matrices[i]`` must share view ``i``'s feature dimension, the same
@@ -488,10 +568,12 @@ def _domain_informed_basis(data_matrices: List[torch.Tensor],
             f"are {len(data_matrices)} views."
         )
     out = []
-    for x, dm in zip(data_matrices, domain_matrices):
+    for idx_m, (x, dm) in enumerate(zip(data_matrices, domain_matrices)):
         if dm is None:
             out.append(initial_basis_for_view(x, k, positivity=positivity,
-                                              initialization_type="pca"))
+                                              initialization_type="pca",
+                                              sparseness_quantile=sparseness,
+                                              modality_index=idx_m))
             continue
         dm_t = torch.as_tensor(dm)
         if dm_t.shape[-1] != x.shape[1]:
@@ -508,7 +590,9 @@ def _domain_informed_basis(data_matrices: List[torch.Tensor],
             pad = 1e-4 * torch.randn(x.shape[1], k - k_eff, dtype=torch.float64)
             v = torch.cat([v, pad], dim=1)
         out.append(simlr_sparseness(v.to(x.dtype), constraint_type="ortho",
-                                    positivity=positivity))
+                                    positivity=positivity,
+                                    sparseness_quantile=sparseness,
+                                    modality_index=idx_m))
     return out
 
 
@@ -540,14 +624,16 @@ def _score_joint_basis(data_matrices: List[torch.Tensor],
 
 
 def _best_of_n_basis(data_matrices: List[torch.Tensor], k: int, positivity: str,
-                     generator: torch.Generator, n_candidates: int) -> List[torch.Tensor]:
+                     generator: torch.Generator, n_candidates: int,
+                     sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS) -> List[torch.Tensor]:
     """Draw `n_candidates` feasible starts (PCA plus random draws) and keep
     the one `_score_joint_basis` ranks highest."""
     candidates = [initialize_simlr(data_matrices, k, initialization_type="pca",
-                                   positivity=positivity)]
+                                   positivity=positivity, sparseness=sparseness)]
     for _ in range(max(0, n_candidates - 1)):
         candidates.append(initialize_simlr(data_matrices, k, initialization_type="random",
-                                           positivity=positivity, generator=generator))
+                                           positivity=positivity, generator=generator,
+                                           sparseness=sparseness))
     scores = [_score_joint_basis(data_matrices, c) for c in candidates]
     return candidates[int(np.argmax(scores))]
 
@@ -581,10 +667,12 @@ def initialize_deep_encoders(encoders, data_matrices: List[torch.Tensor], k: int
     n_candidates, perturbation_scale : see `initialize_simlr`.
     """
     positivity = encoders[0].positivity
+    enc_sparseness = [getattr(enc, "sparseness_quantile", DEFAULT_SPARSENESS) for enc in encoders]
     v_mats = initialize_simlr(data_matrices, k, initialization_type=initialization_type,
                               positivity=positivity, generator=generator,
                               domain_matrices=domain_matrices, n_candidates=n_candidates,
-                              perturbation_scale=perturbation_scale)
+                              perturbation_scale=perturbation_scale,
+                              sparseness=enc_sparseness)
     with torch.no_grad():
         for enc, x, v in zip(encoders, data_matrices, v_mats):
             enc.v_raw.copy_(v.to(x.dtype))
@@ -593,7 +681,9 @@ def initialize_deep_encoders(encoders, data_matrices: List[torch.Tensor], k: int
 def initial_basis_for_view(x: torch.Tensor, k: int,
                            positivity: str = "either",
                            initialization_type: str = "pca",
-                           generator: Optional[torch.Generator] = None) -> torch.Tensor:
+                           generator: Optional[torch.Generator] = None,
+                           sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
+                           modality_index: Optional[int] = None) -> torch.Tensor:
     """
     Build the initial ``(features, k)`` basis for one view.
 
@@ -626,10 +716,11 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
         Basis of shape (features, k) in `x`'s dtype.
     """
     from .nsa_backend import load_nsa_flow_data
-    from .sparsification import NSA_DEFAULT_W, _usable_retraction
+    from .sparsification import NSA_DEFAULT_W, _resolve_quantile, _usable_retraction, simlr_sparseness
 
     want_nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg',
                                  'softplus')
+    q_init = _resolve_quantile(sparseness_quantile, modality_index=modality_index)
 
     if initialization_type == "random":
         if generator is None:
@@ -638,18 +729,23 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
         # near-orthogonal nor sparse, so the first retraction would move it
         # much further than any subsequent sweep and the "start" recorded by
         # the caller would not be the point the optimiser actually began from.
-        from .sparsification import simlr_sparseness
         raw = (torch.rand(x.shape[1], k, generator=generator, dtype=x.dtype)
                if want_nonneg else
                torch.randn(x.shape[1], k, generator=generator, dtype=x.dtype))
         return simlr_sparseness(raw, constraint_type="ortho",
-                                positivity=positivity).to(x.dtype)
+                                positivity=positivity,
+                                sparseness_quantile=q_init).to(x.dtype)
     if want_nonneg and x.shape[1] > k:
         fit_from_data = load_nsa_flow_data()
         if fit_from_data is not None:
             fitted = _nonnegative_basis_from_data(
-                fit_from_data, x, k, NSA_DEFAULT_W, _usable_retraction)
+                fit_from_data, x, k, NSA_DEFAULT_W, _usable_retraction,
+                sparseness=q_init)
             if fitted is not None:
+                if q_init is not None:
+                    from .sparsification import _apply_quantile_sparseness
+                    fitted = _apply_quantile_sparseness(
+                        fitted, q_init, nonneg=True, only_if_denser=True)
                 return fitted.to(x.dtype)
 
     u, s, v = ba_svd(x, nu=0, nv=k)
@@ -664,11 +760,16 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
         for j in range(v.shape[1]):
             if v[:, j].sum() < 0:
                 v[:, j] *= -1
+    if q_init is not None and x.shape[1] > k:
+        return simlr_sparseness(v.to(x.dtype), constraint_type="ortho",
+                                positivity=positivity,
+                                sparseness_quantile=q_init).to(x.dtype)
     return v.to(x.dtype)
 
 
 def _nonnegative_basis_from_data(fit_from_data, x: torch.Tensor, k: int,
-                                 w: float, usable) -> Optional[torch.Tensor]:
+                                 w: float, usable,
+                                 sparseness: Optional[float] = None) -> Optional[torch.Tensor]:
     """
     Fit a non-negative, near-orthogonal basis for `x` directly from the data.
 
@@ -679,7 +780,11 @@ def _nonnegative_basis_from_data(fit_from_data, x: torch.Tensor, k: int,
     """
     reference = torch.ones(x.shape[1], k, dtype=torch.float64)
     try:
-        result = fit_from_data(x.detach().double(), k=k, w=float(w))
+        try:
+            result = fit_from_data(x.detach().double(), k=k, w=float(w),
+                                   sparseness=sparseness)
+        except TypeError:
+            result = fit_from_data(x.detach().double(), k=k, w=float(w))
     except Exception:
         return None
     candidate = None
@@ -1053,6 +1158,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           scale_list: List[str] = ["centerAndScale", "np"],
           consolidate: bool = False,
           nsa_w: Optional[float] = None,
+          sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
           dynamic_weights: bool = False,
           mai_metric: str = "procrustes_r2",
           use_rank_mai: bool = False,
@@ -1268,9 +1374,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # They are intercepted rather than left to fall into `**opt_params`, where
     # they would reach `create_optimizer` and draw a misleading "unrecognised
     # optimizer parameter" warning instead of naming the real replacement.
-    for _gone, _use in (("sparseness_quantile", "nsa_w (w -> 1 gives disjoint supports)"),
-                        ("sparsity", "nsa_w"), ("sparseness", "nsa_w"),
-                        ("use_nsa", "constraint='none' to fit without a projection")):
+    for _alias in ("sparseness_quantile", "sparsity"):
+        if _alias in opt_params:
+            sparseness = opt_params.pop(_alias)
+
+    for _gone, _use in (("use_nsa", "constraint='none' to fit without a projection"),):
         if _gone in opt_params:
             opt_params.pop(_gone)
             warnings.warn(
@@ -1379,7 +1487,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     v_mats = initialize_simlr(torch_mats, k, positivity=positivity,
                               initialization_type=initialization_type,
                               generator=init_gen,
-                              domain_matrices=domain_matrices)
+                              domain_matrices=domain_matrices,
+                              sparseness=sparseness)
     # One weight.  `constraint` sets the prox weight; the "nsa_flow" optimizer's
     # intermediate soft retraction used to default to a DIFFERENT weight (0.5
     # against 0.1), so one call applied two different operators.  Unless the
@@ -1614,6 +1723,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                     v_cand.to(orig_dtype), constraint_type=constraint_type,
                     smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None,
                     positivity=positivity,
+                    sparseness_quantile=sparseness,
                     constraint_weight=constraint_weight, constraint_iterations=constraint_iterations,
                     energy_type=energy_type, modality_index=i)
 
@@ -1683,7 +1793,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             
             # Apply final projection
             retraction_diags[i] = {}
-            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type, modality_index=i, retraction_diagnostics=retraction_diags[i])
+            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness_quantile=sparseness, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type, modality_index=i, retraction_diagnostics=retraction_diags[i])
             resid = float(torch.linalg.norm(v_mats[i] - v_before)
                           / torch.linalg.norm(v_before).clamp_min(1e-300))
             prev_resid[i] = resid
@@ -1838,6 +1948,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "scale_list": scale_list,
         "provenance_list": provenance_list,
         "consolidated": consolidate,
+        "sparseness": sparseness,
         "modality_weights": mai_mod_weights.detach().cpu().numpy(),
         "mai": mai_ema.detach().cpu().numpy(),
         **basis_rank_report(v_mats, k),
