@@ -147,14 +147,14 @@ Following gradient polish, `sparseness=q` zeros out weights below the $q$-th qua
 
 ---
 
-## Known Technical Behavior & Current Limitations (As of v0.2.16)
+## Technical Design Notes (v0.2.17)
 
-1. **Global Mean Absorption on Component 1 ("First Component Is the Mean")**:
-   * **Mechanism**: Under the current default initialization (`initialization_type="pca"`) and entrywise anchored retraction (`fidelity="anchor"` in `_nsa_retract`), columns of $\mathbf{V}_m$ are anchored directly to variance-ordered SVD directions without prior within-subspace rotation (such as Varimax). When input features share a positive correlation floor (e.g., regional cortical thickness in `ADNI-MCI` or clinical vitals in `Heart`/`Diabetes`), the Perron–Frobenius leading eigenvector $\mathbf{v}_{m,1}$ is dense and single-signed, whereas $\mathbf{v}_{m,2}, \dots, \mathbf{v}_{m,k}$ are sign-alternating contrast vectors. Clamping to $\mathbf{V}_m \ge 0$ under entrywise anchoring leaves $\mathbf{v}_{m,1}$ dense across most features (absorbing the global mean) and forces $\mathbf{v}_{m,2}, \dots, \mathbf{v}_{m,k}$ into smaller residual supports to satisfy non-negative orthogonality ($D(\mathbf{V}_m) \to 0$).
-   * **Current Mitigations**:
-     1. Use column-wise quantile thresholding (`sparseness=0.5` or `sparseness=0.85`), which enforces equal support cardinality $(1-q)p_m$ across all columns $\mathbf{v}_{m,1}, \dots, \mathbf{v}_{m,k}$.
-     2. Use `initialization_type="ica"` or `"nndsvd"` to break the variance-ordered Perron–Frobenius alignment at initialization.
-     3. Apply in-fold subject row-mean centering when global per-subject amplitude is a nuisance factor rather than a predictive clinical signal.
+1. **Orthogonal Varimax Subspace Rotation & Cross-View Column Alignment (`varimax`, `varimax_rotation`)**:
+   * **Problem ("First Component Is the Mean")**: When input features share a positive correlation floor (e.g., regional cortical volumes in `ADNI-MCI` or clinical vitals in `Heart`/`Diabetes`), the Perron–Frobenius leading PCA eigenvector $\mathbf{v}_{m,1}$ is dense and single-signed, whereas $\mathbf{v}_{m,2}, \dots, \mathbf{v}_{m,k}$ are sign-alternating contrast vectors. Clamping raw PCA loadings directly ($\max(0, \mathbf{E}_m)$) traps $\mathbf{v}_{m,1}$ in a dense global-mean mode and forces the remaining columns into residual supports.
+   * **Solution in `v0.2.17`**:
+     1. **Exact $O(k)$ Subspace Rotation**: Both `nsa_flow_data` (used automatically under `positivity="positive"`) and `initialization_type="varimax"` (for signed or non-negative bases) rotate the leading $k$-dimensional SVD subspace $\mathbf{E}_m \leftarrow \operatorname{varimax}(\mathbf{E}_m) = \mathbf{E}_m \mathbf{R}_m$ ($\mathbf{R}_m \in O(k)$) before non-negative clamping or signed splitting. Because $(\mathbf{E}_m \mathbf{R}_m)(\mathbf{E}_m \mathbf{R}_m)^\top = \mathbf{E}_m \mathbf{E}_m^\top$, the $k$-dimensional subspace projector is preserved to machine precision while the dense Perron–Frobenius mean direction is redistributed across localized, simple-structure anatomical/molecular subnetworks.
+     2. **Cross-View Hungarian Column Alignment**: Because per-view Varimax and `nsa_flow_data` are $O(k)$ permutation-invariant, `initialize_simlr` automatically aligns the column permutations and signs of views $m \ge 2$ to view $1$ in sample space ($\mathbf{P}_1^\top \mathbf{P}_m$, where $\mathbf{P}_m = \mathbf{X}_m \mathbf{V}_m$) via linear sum assignment before iteration 0.
+     3. **Additional Controls**: Combine with column-wise quantile thresholding (`sparseness=0.5` or `sparseness=0.85`) for exact per-column cardinality control, or in-fold subject row-mean centering when global per-subject amplitude is a nuisance factor.
 2. **Subspace Capacity vs. Coordinate-Axis Disentanglement**:
    * Multi-variable linear probes (`Ridge(X_m V_m)`) are invariant to invertible right-mixing $\mathbf{V}_m \leftarrow \mathbf{V}_m \mathbf{M}$ ($\operatorname{span}(\mathbf{X}_m \mathbf{V}_m \mathbf{M}) = \operatorname{span}(\mathbf{X}_m \mathbf{V}_m)$). Always pair linear subspace probes with axis-sensitive tree probes (`RandomForest(X_m V_m)`), Gram defect $D(\mathbf{V}_m)$, and support recovery ($F_1$) when evaluating coordinate interpretability.
 3. **Rectangular Normalizing Flow Prior Detachment**:

@@ -425,3 +425,24 @@ without quantile thresholding ($q = \text{None}$):
    column-wise quantile support selection ($q \in \{0.5, 0.8\}$) or subspace
    rotation is applied.
 
+### 9.3 Orthogonal Varimax Subspace Rotation and Cross-View Alignment (`pysimlr 0.2.17`)
+
+To systematically eliminate the Perron–Frobenius global-mean artifact without
+altering the $k$-dimensional principal subspace:
+
+1. **Exact $O(k)$ Gauge Rotation (`varimax`, `varimax_rotation`)**: Given the
+   leading $k$ right singular vectors $E_m \in \operatorname{St}(p_m, k)$,
+   `varimax(E_m)` computes the Kaiser (1958) Orthogonal Varimax rotation
+   $R_m \in O(k)$ maximising column-wise variance of squared row-normalised
+   loadings and returns $V_m^{(0)} = E_m R_m$ with third-moment skewness sign
+   canonicalisation. Because $(E_m R_m)(E_m R_m)^\top = E_m E_m^\top$, the
+   subspace projector is preserved to machine precision while the dense
+   Perron–Frobenius direction is rotated into $k$ localised simple-structure
+   factors before clamping or signed splitting.
+2. **Cross-View Hungarian Column Matching (`_align_multiview_basis_columns`)**:
+   Because per-view Varimax and `nsa_flow_data` are $O(k)$ permutation-invariant,
+   `initialize_simlr` aligns the column permutations and signs of views $m \ge 2$
+   to view $1$ in sample space ($P_1^\top P_m$, where $P_m = X_m V_m^{(0)}$) via
+   linear sum assignment before iteration 0.
+
+
