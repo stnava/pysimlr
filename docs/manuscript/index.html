@@ -9,7 +9,7 @@
 <meta name="author" content="Brian B. Avants">
 <meta name="author" content="Nicholas J. Tustison">
 <meta name="author" content="James R. Stone">
-<meta name="dcterms.date" content="2026-10-18">
+<meta name="dcterms.date" content="2026-10-19">
 
 <title>Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</title>
 <style>
@@ -146,25 +146,25 @@ window.Quarto = {
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./01_intro_background.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Background</span></span></a>
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./02_methods.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Methods</span></span></a>
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./03_experiments.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Experiments</span></span></a>
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./04_discussion.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Discussion</span></span></a>
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item sidebar-item-section">
@@ -179,7 +179,7 @@ window.Quarto = {
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./appendix_brca_clinical_validation.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-omics Clinical Validation (TCGA-BRCA)</span></span></a>
+ <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-Omics Clinical Validation (TCGA-BRCA)</span></span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -261,7 +261,7 @@ window.Quarto = {
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">October 18, 2026</p>
+      <p class="date">October 19, 2026</p>
     </div>
   </div>
   
@@ -275,9 +275,7 @@ window.Quarto = {
 
 <section id="abstract" class="level1 unnumbered">
 <h1 class="unnumbered">Abstract</h1>
-<p>Multi-modal biomedical datasets—such as co-registered neuroimaging, high-throughput omics, and clinical assessments—provide complementary views of shared pathological processes. Integrating these heterogeneous matrices requires dimensionality reduction that isolates cross-view covariance while maintaining interpretable feature attribution. Standard deep multi-view networks and variational autoencoders capture non-linear interactions, but their nested compositions obscure the physical relationship between raw biological measurements and latent coordinates, imposing a severe “transparency penalty” that precludes regulatory adoption in high-stakes clinical decision-making. Conversely, classical linear methods like Canonical Correlation Analysis (CCA) and Principal Component Analysis (PCA) provide auditable projections, but fail to capture non-linear manifold geometry and produce dense, mixed-sign loadings that lack anatomical specificity.</p>
-<p>To eliminate this transparency penalty without sacrificing representation capacity, we formulate Deep SiMLR (Similarity-driven Multi-view Reconstruction) deductively across five methodological stages governed by the Only Linear Encoder Entrypoint (OLEE) contract: (1) restricting the input boundary of every modality to a linear projection on the compact Stiefel manifold (<span class="math inline">\(\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m\)</span>, <span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k\)</span>) with Non-negative Stiefel Approximating Flow (<code>nsa_flow</code>) retraction, guaranteeing globally constant attribution derivatives (<span class="math inline">\(\nabla_{\mathbf{X}_m} \mathbf{Z}_{m,\text{lin}} = \mathbf{V}_m\)</span>), closed-form counterfactual recourse (<span class="math inline">\(\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m^* \mathbf{V}_m^\top\)</span>), and zero signed lobe crosstalk (<span class="math inline">\(\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1 = 0\)</span>); (2) coupling views via scale-profiled alignment energies, directed/bipartite consensus topologies (<code>topology="graph"</code>), and spectral Modality Alignment Index (MAI) triage; (3) optimizing linear multi-view Stiefel bases via first-order (<code>SiMLR</code>) and quasi-Newton (<code>SiMLR-LBFGS</code>, bound-constrained <code>SiMLR-LBFGSB</code>) Riemannian solvers that provide iteration-0 warm starts; (4) adding non-linear multi-layer perceptron decoding downstream of the linear encoder (<code>LEND</code>) without high-dimensional encoder overfitting (<code>NED</code>, <code>NEDPP</code>); and (5) composing <span class="math inline">\(\mathbf{V}_m\)</span> with bijective RealNVP normalizing flows (<code>Flow-SiMR-V</code>) trained via detached-prior subspace decoupling (<span class="math inline">\(\text{sg}(\mathbf{Z}_{m,\text{lin}})\)</span>), which we prove resolves rectangular Stiefel prior collapse onto trailing noise eigenvectors.</p>
-<p>We benchmark nine architectures across 324 task evaluations spanning 12 multi-modal data regimes (six synthetic manifolds with known ground truth and six real-world clinical, multi-omics, and imaging cohorts: UCI Cleveland Heart Disease, Efron Diabetes Progression, 3-assay TCGA-BRCA, 3-assay TCGA-KIRC, 4-view ADNI-MCI, and 4-view UCI Multiple Features <code>mfeat</code>) across three independent seeds, alongside a 1,214-combination hyperparameter sweep and a 10-seed mediation benchmark on ADNI-MCI (<span class="math inline">\(N=1,084\)</span>). Following Demšar’s block-level ranking protocol across the <span class="math inline">\(B = 12\)</span> datasets, non-parametric inference confirms highly significant architectural separation across both consensus prediction (<span class="math inline">\(\chi_F^2 = 32.06, p = 9.10 \times 10^{-5}\)</span>; Iman–Davenport <span class="math inline">\(F_F = 5.51, p = 1.19 \times 10^{-5}\)</span>; Nemenyi <span class="math inline">\(CD = 3.468\)</span>) and strictly linear OLEE basis probing (<span class="math inline">\(\chi_F^2 = 30.77, p = 1.54 \times 10^{-4}\)</span>; <span class="math inline">\(F_F = 5.19, p = 2.54 \times 10^{-5}\)</span>). Hybrid <code>LEND</code> achieves the #1 global rank on consensus prediction (mean rank <span class="math inline">\(3.58\)</span>, mean score <span class="math inline">\(0.760 \pm 0.249\)</span>) and the highest ground-truth latent recovery (<span class="math inline">\(CMC = 0.907\)</span>). Bound-constrained quasi-Newton <code>SiMLR-LBFGSB</code> achieves the #1 global rank on the strictly linear OLEE basis probe (mean rank <span class="math inline">\(3.17\)</span>, #1 real-cohort rank <span class="math inline">\(2.50\)</span>, mean <span class="math inline">\(0.777\)</span>) and the highest sparse support recovery (<span class="math inline">\(F_1 = 0.991\)</span> vs.&nbsp;<code>PCA</code> <span class="math inline">\(0.333\)</span>), while detached-prior <code>Flow-SiMR-V</code> ranks #3 overall (<span class="math inline">\(4.17\)</span> consensus rank, <span class="math inline">\(4.12\)</span> linear probe rank, #1 real-cohort consensus mean <span class="math inline">\(0.627\)</span>) and <code>NSAFlow-PCA</code> executes in <span class="math inline">\(0.040\text{s}\)</span> with <span class="math inline">\(25.0\%\)</span> disjoint sparsity. Every OLEE-constrained model significantly outperforms unconstrained deep autoencoders (<code>NED</code>, <code>NEDPP</code>, <span class="math inline">\(p_{\text{Holm}} \le 7.5 \times 10^{-4}\)</span>). In ADNI-MCI (<span class="math inline">\(N=1,084\)</span>), aligning the three structural brain MRI views (<span class="math inline">\(382\)</span> features) against the 11 <span class="math inline">\(&gt;98\%\)</span>-complete cognitive measures via a bipartite training graph (<code>Protocol B</code>) raises MRI-only out-of-sample cognitive factor prediction (<code>CogPC1 R^2</code>) to <span class="math inline">\(0.2237\)</span> (<code>SiMLR-LBFGSB</code> 3-seed mean) and <span class="math inline">\(0.2407\)</span> (<code>SiMLR-Lookahead</code> in our 1,214-combination sweep, with detached-prior <code>Flow-SiMR-V</code> reaching <span class="math inline">\(0.2341\)</span> at <span class="math inline">\(k=3\)</span> and <span class="math inline">\(0.2966\)</span> at <span class="math inline">\(k=6\)</span>) versus <span class="math inline">\(0.1522\)</span> for <code>PCA</code>, while modeling the two-step cognitive mediation pathway (<span class="math inline">\(\text{Brain MRI} \to \text{Cognition} \to \text{CDR-SB}\)</span>) boosts out-of-sample prediction of clinical dementia severity over six-fold (<span class="math inline">\(R^2 = 0.2648\)</span> for <code>LEND-SiMR + MAI</code>; <span class="math inline">\(R^2 = 0.2443\)</span> in <span class="math inline">\(0.86\text{s}\)</span> for <code>SiMLR</code>; <span class="math inline">\(85\text{–}86\%\)</span> indirect effect, <span class="math inline">\(p &lt; 10^{-15}\)</span>) vs.&nbsp;<span class="math inline">\(R^2 = 0.0411\)</span> for direct MRI alone.</p>
+<p>Integrating structural neuroimaging, cognitive assessments, and multi-omic profiles requires latent representations that remain both clinically predictive and anatomically or molecularly localizable. Classical linear factorizations such as principal component analysis and canonical correlation analysis disperse biological variance across dense, sign-mixed combinations of features, whereas end-to-end deep neural networks obscure how individual brain regions or genes drive patient-level predictions. We introduce the Similarity-driven Multi-view Representation (SiMR) framework, which couples a sparse, non-negative, approximately orthogonal linear input projection (<code>nsa_flow</code>) with interchangeable linear (<code>SiMLR</code>), non-linear decoder (<code>LEND</code>), and invertible normalizing-flow (<code>Flow-SiMR-V</code>) alignment modules. Across <span class="math inline">\(1,084\)</span> participants with Mild Cognitive Impairment from the Alzheimer’s Disease Neuroimaging Initiative (<code>ADNI-MCI</code>) and eleven additional multi-omic, clinical, and synthetic benchmarks, aligning baseline cortical thickness and subcortical volumes with eleven neuropsychological scales during training improves out-of-sample cognitive prediction from structural magnetic resonance imaging alone from <span class="math inline">\(R^2 = 0.152\)</span> to <span class="math inline">\(R^2 = 0.252\)</span> while isolating focal temporoparietal, medial temporal, and frontocingulate networks that recapitulate Braak neurofibrillary staging and spare primary sensorimotor cortex. Crucially, evaluating learned representations across both multi-variable linear probes and single-axis decision trees demonstrates that while linear regression is algebraically invariant to post-hoc column mixing, coordinate-aligned SiMR projections preserve more than fourfold higher single-factor predictive utility (<span class="math inline">\(R^2 = 0.197\)</span> versus <span class="math inline">\(0.044\)</span>) and recover up to <span class="math inline">\(84.7\%\)</span> of ground-truth biological pathways under moderate (<span class="math inline">\(50\%\)</span>) feature sparsity.</p>
 
 
 </section>
@@ -687,8 +685,8 @@ window.Quarto = {
   <div class="nav-page nav-page-previous">
   </div>
   <div class="nav-page nav-page-next">
-      <a href="./01_intro_background.html" class="pagination-link" aria-label="Introduction and Background">
-        <span class="nav-page-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Background</span></span> <i class="bi bi-arrow-right-short"></i>
+      <a href="./01_intro_background.html" class="pagination-link" aria-label="Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery">
+        <span class="nav-page-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span> <i class="bi bi-arrow-right-short"></i>
       </a>
   </div>
 </nav>

@@ -385,3 +385,43 @@ sklearn wrappers
 : `nsa_w` defaults match the wrapped functions (`None` -> prox weight for
   `SiMLREstimator`; `0.1` for LEND/NED/Flow, which had silently been `0.5`);
   `sparseness_quantile` defaults to `0.0`.
+
+---
+
+## 9. Operating points and the unthresholded Component 1 mean mode (`pysimlr 0.2.16`)
+
+### 9.1 Three canonical operating points ($w = 0.5$, $q \in \{\text{None}, 0.5, 0.8\}$)
+
+At the balanced convex trade-off weight $w = 0.5$, `pysimlr` supports three
+canonical operating points controlled by the optional column-wise quantile
+support operator $q$ (`sparseness_quantile` in `simlr`, `quantile_q` in
+`orthogonalize_and_q_sparsify`):
+
+| Operating point | Parameters | Effective support $k_{\text{eff}}$ | Role |
+|---|---|---|---|
+| **Unthresholded** | $w=0.5,\; q=\text{None}$ (or $0.0$) | $\sim 55\text{--}73\%$ of $p_m$ | Dense baseline / maximum out-of-fold variance retention |
+| **Moderate** | $w=0.5,\; q=0.5$ | $= 0.5\,p_m$ per column | **Recommended default**: near-zero predictive tax with $2\times$ support compression |
+| **Sparse** | $w=0.5,\; q=0.8$ | $= 0.2\,p_m$ per column | Focal biomarker discovery ($5\times$ support compression) |
+
+### 9.2 Why Component 1 captures the global mean under unthresholded `pca` + `anchor`
+
+When `simlr` is initialised via variance-ordered SVD/PCA (`initial_u="pca"`,
+`initialize_simlr`) and retracted with `fidelity="anchor"` and `nonneg=True`
+without quantile thresholding ($q = \text{None}$):
+
+1. **Perron–Frobenius alignment of $v_{m,1}^{(0)}$**: On positively correlated
+   biological matrices (e.g., 62 bilateral DKT cortical volumes in ADNI-MCI or
+   correlated multi-block profiles), the leading right singular vector
+   $v_{m,1}^{(0)}$ has strictly co-signed entries after column sign-gauge
+   resolution (`_resolve_column_sign_gauge`), while $v_{m,2\dots k}^{(0)}$ are
+   signed contrast vectors ($\sum_i v_{m,j,i}^{(0)} \approx 0$).
+2. **Entrywise anchor attraction**: Because `fidelity="anchor"` penalises
+   $\lVert Y - V^{(0)}\rVert_F^2 / \lVert V^{(0)}\rVert_F^2$ entrywise, column 1
+   inherits positive mass across nearly all features ($p_m$), whereas columns
+   $j \ge 2$ lose roughly half their support on the initial non-negative clamp.
+3. **Disjoint-support exclusion on $\mathbb{R}_+^{p_m \times k}$**: Under the
+   cross-column orthogonality penalty $\sum_{i \neq j} (y_i^\top y_j)^2$, column
+   1 acts as a dense global size/severity mode or background sink unless explicit
+   column-wise quantile support selection ($q \in \{0.5, 0.8\}$) or subspace
+   rotation is applied.
+

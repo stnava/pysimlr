@@ -10,7 +10,7 @@
 <meta name="author" content="Nicholas J. Tustison">
 <meta name="author" content="James R. Stone">
 
-<title>Appendix A — Multi-omics Clinical Validation (TCGA-BRCA)</title>
+<title>Appendix A — Multi-Omics Clinical Validation (TCGA-BRCA)</title>
 <style>
 /* Default styles provided by pandoc.
 ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
@@ -136,7 +136,7 @@ window.Quarto = {
       <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
-        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./appendix_brca_clinical_validation.html">Appendices</a></li><li class="breadcrumb-item"><a href="./appendix_brca_clinical_validation.html"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-omics Clinical Validation (TCGA-BRCA)</span></a></li></ol></nav>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./appendix_brca_clinical_validation.html">Appendices</a></li><li class="breadcrumb-item"><a href="./appendix_brca_clinical_validation.html"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-Omics Clinical Validation (TCGA-BRCA)</span></a></li></ol></nav>
         <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
         </a>
       <button type="button" class="btn quarto-search-button" aria-label="Search" onclick="window.quartoOpenSearch();">
@@ -165,25 +165,25 @@ window.Quarto = {
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./01_intro_background.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Background</span></span></a>
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./02_methods.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Methods</span></span></a>
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./03_experiments.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Experiments</span></span></a>
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./04_discussion.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Discussion</span></span></a>
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item sidebar-item-section">
@@ -198,7 +198,7 @@ window.Quarto = {
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./appendix_brca_clinical_validation.html" class="sidebar-item-text sidebar-link active">
- <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-omics Clinical Validation (TCGA-BRCA)</span></span></a>
+ <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-Omics Clinical Validation (TCGA-BRCA)</span></span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -233,19 +233,16 @@ window.Quarto = {
   <ul>
   <li><a href="#multi-omic-integration-strategy" id="toc-multi-omic-integration-strategy" class="nav-link active" data-scroll-target="#multi-omic-integration-strategy"><span class="header-section-number">A.1</span> Multi-Omic Integration Strategy</a></li>
   <li><a href="#performance-results" id="toc-performance-results" class="nav-link" data-scroll-target="#performance-results"><span class="header-section-number">A.2</span> Performance Results</a></li>
-  <li><a href="#tri-modal-feature-discovery" id="toc-tri-modal-feature-discovery" class="nav-link" data-scroll-target="#tri-modal-feature-discovery"><span class="header-section-number">A.3</span> Tri-Modal Feature Discovery</a>
-  <ul class="collapse">
-  <li><a href="#mechanistic-alignment" id="toc-mechanistic-alignment" class="nav-link" data-scroll-target="#mechanistic-alignment"><span class="header-section-number">A.3.1</span> Mechanistic Alignment</a></li>
-  </ul></li>
+  <li><a href="#tri-modal-molecular-driver-recovery" id="toc-tri-modal-molecular-driver-recovery" class="nav-link" data-scroll-target="#tri-modal-molecular-driver-recovery"><span class="header-section-number">A.3</span> Tri-Modal Molecular Driver Recovery</a></li>
   </ul>
 </nav>
     </div>
 <!-- main -->
 <main class="content" id="quarto-document-content">
 
-<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./appendix_brca_clinical_validation.html">Appendices</a></li><li class="breadcrumb-item"><a href="./appendix_brca_clinical_validation.html"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-omics Clinical Validation (TCGA-BRCA)</span></a></li></ol></nav>
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./appendix_brca_clinical_validation.html">Appendices</a></li><li class="breadcrumb-item"><a href="./appendix_brca_clinical_validation.html"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-Omics Clinical Validation (TCGA-BRCA)</span></a></li></ol></nav>
 <div class="quarto-title">
-<h1 class="title">Appendix A — Multi-omics Clinical Validation (TCGA-BRCA)</h1>
+<h1 class="title">Appendix A — Multi-Omics Clinical Validation (TCGA-BRCA)</h1>
 </div>
 
 
@@ -293,26 +290,26 @@ window.Quarto = {
 
 <section id="multi-omic-integration-strategy" class="level2" data-number="A.1">
 <h2 data-number="A.1" class="anchored" data-anchor-id="multi-omic-integration-strategy"><span class="header-section-number">A.1</span> Multi-Omic Integration Strategy</h2>
-<p>We evaluated the Only Linear Encoder Entrypoint (OLEE) across all nine benchmark architectures using the three-view TCGA-BRCA breast invasive carcinoma cohort (<span class="math inline">\(N = 822\)</span> primary tumors with complete multi-omic profiles and adjudicated clinical receptor status, cached at <code>data/tcga/brca_er_cached.npz</code>) <span class="citation" data-cites="tcga2012breast cancerdiscovery2016esr1">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-cancerdiscovery2016esr1" role="doc-biblioref">Cancer Discovery 2016</a>)</span>. The dataset integrates three distinct molecular assay platforms:</p>
+<p>We evaluate the nine benchmark architectures on the three-view <code>TCGA-BRCA</code> breast invasive carcinoma cohort (<span class="math inline">\(N = 822\)</span> primary tumors with complete multi-omic profiles and clinical receptor status) <span class="citation" data-cites="tcga2012breast perou2000 parker2009supervised curtis2012 weinstein2013">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-perou2000" role="doc-biblioref"><span class="nocase">Perou et al.</span> 2000</a>; <a href="#ref-parker2009supervised" role="doc-biblioref"><span class="nocase">Parker et al.</span> 2009</a>; <a href="#ref-curtis2012" role="doc-biblioref"><span class="nocase">Curtis et al.</span> 2012</a>; <a href="#ref-weinstein2013" role="doc-biblioref">Weinstein et al. 2013</a>)</span>. The dataset integrates three molecular assay platforms filtered at <span class="math inline">\(\ge 98\%\)</span> completeness:</p>
 <ul>
 <li><strong>RNA-Seq (<code>rna</code>):</strong> <span class="math inline">\(p_1 = 200\)</span> top-variance mRNA sequencing gene expression transcripts (Illumina HiSeqV2).</li>
 <li><strong>Copy Number Variation (<code>cnv</code>):</strong> <span class="math inline">\(p_2 = 150\)</span> somatic GISTIC2 gene-level copy-number scores.</li>
 <li><strong>Proteomics (<code>rppa</code>):</strong> <span class="math inline">\(p_3 = 150\)</span> Reverse Phase Protein Array targeted proteomic and phosphoproteomic markers.</li>
 </ul>
-<p>The downstream clinical target is binary Estrogen Receptor (ER) status (Positive vs.&nbsp;Negative, <span class="math inline">\(76.4\%\)</span> ER+ prevalence), evaluated across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> independent <span class="math inline">\(70/30\)</span> stratified train/test splits (<code>Seeds 42, 43, 44</code>, standardized strictly inside the training fold, with <code>consolidate = False</code> and default <code>"pca"</code> initialization).</p>
+<p>The downstream clinical target is binary Estrogen Receptor (ER) status (Positive vs.&nbsp;Negative, <span class="math inline">\(76.4\%\)</span> ER+ prevalence), evaluated across three independent <span class="math inline">\(70/30\)</span> stratified train/test splits (<code>Seeds 42, 43, 44</code>, standardized strictly inside each training fold).</p>
 </section>
 <section id="performance-results" class="level2" data-number="A.2">
 <h2 data-number="A.2" class="anchored" data-anchor-id="performance-results"><span class="header-section-number">A.2</span> Performance Results</h2>
-<p><a href="#tbl-brca-appendix-results" class="quarto-xref">Table&nbsp;<span>A.1</span></a> reports out-of-sample ER status classification accuracy across both primary evaluation probes: global consensus coordinates (<span class="math inline">\(\mathbf{U}\)</span>) and the strictly linear first-layer OLEE projection (<span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span>), alongside per-view Stiefel frame defect <span class="math inline">\(D(\mathbf{V}_m)\)</span>, sparsity, and execution runtime.</p>
-<div id="tbl-brca-appendix-results" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="1">
+<p><a href="#tbl-brca-appendix-results" class="quarto-xref">Table&nbsp;<span>A.1</span></a> reports out-of-sample ER status classification accuracy across both primary evaluation probes: global consensus coordinates (<span class="math inline">\(\mathbf{U}\)</span>) and the linear entrypoint projection (<span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span>), alongside Stiefel frame defect <span class="math inline">\(D(\mathbf{V}_m)\)</span>, sparsity, and execution runtime computed directly from <code>paper/results_cache/deep_ranking_benchmark.csv</code>.</p>
+<div id="tbl-brca-appendix-results" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="1" data-message="false">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-brca-appendix-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;A.1: TCGA-BRCA 3-View Multi-Omics Classification Benchmark (<span class="math inline">\(N = 822\)</span>, <span class="math inline">\(p = [200, 150, 150]\)</span>, 3 seeds). Comparison of global consensus accuracy (<span class="math inline">\(\mathbf{U}\)</span>), strictly linear OLEE basis accuracy (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>), Stiefel frame defect <span class="math inline">\(D(\mathbf{V})\)</span>, sparsity, and wall-clock fit time.
+Table&nbsp;A.1: TCGA-BRCA 3-view multi-omics classification benchmark (<span class="math inline">\(N = 822\)</span>, <span class="math inline">\(p = [200, 150, 150]\)</span>, 3 seeds) computed from <code>deep_ranking_benchmark.csv</code>.
 </figcaption>
 <div aria-describedby="tbl-brca-appendix-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="cell caption-top table table-sm table-striped small">
 <colgroup>
-<col style="width: 14%">
+<col style="width: 12%">
 <col style="width: 21%">
 <col style="width: 21%">
 <col style="width: 18%">
@@ -322,132 +319,129 @@ Table&nbsp;A.1: TCGA-BRCA 3-View Multi-Omics Classification Benchmark (<span cla
 <thead>
 <tr class="header">
 <th style="text-align: left;">Model</th>
-<th style="text-align: left;">Consensus Acc (U)</th>
-<th style="text-align: left;">Linear Probe (XV)</th>
-<th style="text-align: right;">Frame Defect D</th>
-<th style="text-align: left;">Sparsity</th>
-<th style="text-align: left;">Fit Time</th>
+<th style="text-align: left;">Consensus Acc (U) ↑</th>
+<th style="text-align: left;">Linear Probe (XV) ↑</th>
+<th style="text-align: right;">Frame Defect D ↓</th>
+<th style="text-align: left;">Sparsity ↑</th>
+<th style="text-align: left;">Fit Time ↓</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
 <td style="text-align: left;">NSAFlow-PCA</td>
-<td style="text-align: left;">0.927 ± 0.025</td>
-<td style="text-align: left;">0.922 ± 0.021</td>
-<td style="text-align: right;">1.7327</td>
-<td style="text-align: left;">20.4%</td>
-<td style="text-align: left;">0.055s</td>
+<td style="text-align: left;">0.929 ± 0.022</td>
+<td style="text-align: left;">0.919 ± 0.021</td>
+<td style="text-align: right;">0.3479</td>
+<td style="text-align: left;">50.0%</td>
+<td style="text-align: left;">0.059s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.914 ± 0.009</td>
-<td style="text-align: left;">0.926 ± 0.017</td>
+<td style="text-align: left;">0.915 ± 0.018</td>
+<td style="text-align: left;">0.921 ± 0.015</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">5.234s</td>
+<td style="text-align: left;">50.0%</td>
+<td style="text-align: left;">5.800s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.922 ± 0.020</td>
-<td style="text-align: left;">0.926 ± 0.017</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">2.118s</td>
+<td style="text-align: left;">0.917 ± 0.013</td>
+<td style="text-align: left;">0.927 ± 0.022</td>
+<td style="text-align: right;">0.0008</td>
+<td style="text-align: left;">50.0%</td>
+<td style="text-align: left;">2.168s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">PCA</td>
 <td style="text-align: left;">0.922 ± 0.016</td>
 <td style="text-align: left;">0.915 ± 0.018</td>
-<td style="text-align: right;">1.6114</td>
+<td style="text-align: right;">0.2388</td>
 <td style="text-align: left;">0.0%</td>
 <td style="text-align: left;">0.009s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">NEDPP</td>
-<td style="text-align: left;">0.870 ± 0.098</td>
-<td style="text-align: left;">0.927 ± 0.015</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">3.346s</td>
+<td style="text-align: left;">0.934 ± 0.010</td>
+<td style="text-align: left;">0.927 ± 0.011</td>
+<td style="text-align: right;">0.0011</td>
+<td style="text-align: left;">50.0%</td>
+<td style="text-align: left;">3.160s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NED</td>
-<td style="text-align: left;">0.918 ± 0.009</td>
-<td style="text-align: left;">0.926 ± 0.016</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">2.696s</td>
+<td style="text-align: left;">0.929 ± 0.015</td>
+<td style="text-align: left;">0.926 ± 0.013</td>
+<td style="text-align: right;">0.0008</td>
+<td style="text-align: left;">50.0%</td>
+<td style="text-align: left;">2.294s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">SiMLR-LBFGS</td>
-<td style="text-align: left;">0.913 ± 0.012</td>
-<td style="text-align: left;">0.926 ± 0.017</td>
+<td style="text-align: left;">0.917 ± 0.019</td>
+<td style="text-align: left;">0.921 ± 0.015</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">5.474s</td>
+<td style="text-align: left;">50.0%</td>
+<td style="text-align: left;">6.489s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">SiMLR</td>
-<td style="text-align: left;">0.914 ± 0.009</td>
-<td style="text-align: left;">0.923 ± 0.014</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">0.648s</td>
+<td style="text-align: left;">0.915 ± 0.015</td>
+<td style="text-align: left;">0.921 ± 0.015</td>
+<td style="text-align: right;">0.0002</td>
+<td style="text-align: left;">50.0%</td>
+<td style="text-align: left;">0.650s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.915 ± 0.021</td>
-<td style="text-align: left;">0.926 ± 0.013</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">8.490s</td>
+<td style="text-align: left;">0.914 ± 0.012</td>
+<td style="text-align: left;">0.927 ± 0.007</td>
+<td style="text-align: right;">0.0014</td>
+<td style="text-align: left;">50.0%</td>
+<td style="text-align: left;">7.889s</td>
 </tr>
 </tbody>
 </table>
 </div>
 </figure>
 </div>
-<p>Across the <span class="math inline">\(N = 822\)</span> cohort, single-matrix <strong><code>NSAFlow-PCA</code></strong> achieves the highest global consensus accuracy (<span class="math inline">\(0.927 \pm 0.025\)</span> in <span class="math inline">\(0.056\text{s}\)</span> with <span class="math inline">\(25.0\%\)</span> disjoint sparsity), while <strong><code>SiMLR-LBFGSB</code></strong>, <strong><code>SiMLR-LBFGS</code></strong>, <strong><code>LEND</code></strong>, and <strong><code>Flow-SiMR-V</code></strong> achieve <span class="math inline">\(0.926 \pm 0.021\)</span> strictly linear OLEE probe accuracy with exact per-view Stiefel orthonormality (<span class="math inline">\(D = 0.0000\)</span>).</p>
 </section>
-<section id="tri-modal-feature-discovery" class="level2" data-number="A.3">
-<h2 data-number="A.3" class="anchored" data-anchor-id="tri-modal-feature-discovery"><span class="header-section-number">A.3</span> Tri-Modal Feature Discovery</h2>
-<p>The OLEE contract preserves the exact physical mapping between the 500 ambient multi-omic features and the low-dimensional latent bottleneck. We extract feature weights directly from the learned Stiefel basis matrices <span class="math inline">\(\mathbf{V}_m\)</span>. <a href="#fig-brca-trimodal-waterfall" class="quarto-xref">Figure&nbsp;<span>A.1</span></a> reports the top 15 weights <span class="math inline">\(|\mathbf{V}_m|\)</span> on the ER-aligned component computed by the <code>LEND</code> architecture across the three molecular modalities.</p>
+<section id="tri-modal-molecular-driver-recovery" class="level2" data-number="A.3">
+<h2 data-number="A.3" class="anchored" data-anchor-id="tri-modal-molecular-driver-recovery"><span class="header-section-number">A.3</span> Tri-Modal Molecular Driver Recovery</h2>
+<p>The linear entrypoint maps the 500 multi-omic features directly onto the low-dimensional latent coordinates via <span class="math inline">\(\mathbf{V}_m\)</span>. <a href="#fig-brca-trimodal-waterfall" class="quarto-xref">Figure&nbsp;<span>A.1</span></a> displays the top 15 feature weights <span class="math inline">\(|\mathbf{V}_m|\)</span> on the ER-aligned component learned by <code>LEND</code> across the three molecular modalities.</p>
 <div id="fig-brca-trimodal-waterfall" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-brca-trimodal-waterfall-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <img src="figures/fig_brca_trimodal_waterfall.png" class="img-fluid figure-img" style="width:100.0%">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-brca-trimodal-waterfall-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;A.1: <strong>Tri-Modal Feature Weights for ER-Status (TCGA-BRCA, <span class="math inline">\(N=822\)</span>).</strong> <code>LEND</code> identifies coordinated molecular drivers across modalities on the ER-aligned basis component. (Left) RNA-Seq weights isolating luminal hormone-receptor transcripts (<code>PGR</code>, <code>PIP</code>, <code>GRPR</code>, <code>ELOVL2</code>, <code>LTF</code>, <code>S100A8/A9</code>). (Center) CNV regional weights isolating the 17q23 (<code>RPS6KB1</code>, <code>PTRH2</code>, <code>VMP1</code>, <code>MIR21</code>) and 8p11-p12 (<code>ZNF703</code>, <code>ERLIN2</code>, <code>BRF2</code>, <code>RAB11FIP1</code>, <code>GPR124</code>) breast cancer amplicons. (Right) Proteomics (RPPA) weights led directly by <code>ER-alpha-R-V</code>, <code>GATA3-M-V</code>, <code>HER2-M-V</code>, <code>AR-R-V</code>, <code>PR-R-V</code>, and <code>ER-alpha_pS118-R-V</code>.
+Figure&nbsp;A.1: Tri-Modal Feature Weights for ER-Status (<code>TCGA-BRCA</code>, <span class="math inline">\(N=822\)</span>). <code>LEND</code> identifies coordinated molecular drivers across modalities on the ER-aligned basis component. (Left) RNA-Seq weights isolating luminal hormone-receptor transcripts (<code>PGR</code>, <code>PIP</code>, <code>GRPR</code>, <code>ELOVL2</code>, <code>LTF</code>, <code>S100A8/A9</code>). (Center) CNV regional weights isolating the 17q23 (<code>RPS6KB1</code>, <code>PTRH2</code>, <code>VMP1</code>, <code>MIR21</code>) and 8p11-p12 (<code>ZNF703</code>, <code>ERLIN2</code>, <code>BRF2</code>, <code>RAB11FIP1</code>, <code>GPR124</code>) breast cancer amplicons. (Right) Proteomics (RPPA) weights led by <code>ER-alpha-R-V</code>, <code>GATA3-M-V</code>, <code>HER2-M-V</code>, <code>AR-R-V</code>, <code>PR-R-V</code>, and <code>ER-alpha_pS118-R-V</code>.
 </figcaption>
 </figure>
 </div>
-<section id="mechanistic-alignment" class="level3" data-number="A.3.1">
-<h3 data-number="A.3.1" class="anchored" data-anchor-id="mechanistic-alignment"><span class="header-section-number">A.3.1</span> Mechanistic Alignment</h3>
-<p><code>LEND</code> yields an explicit orthonormal weight matrix <span class="math inline">\(\mathbf{V}_m\)</span> mapping input features to the latent subspace:</p>
 <ol type="1">
-<li><strong>Proteomics (<code>rppa</code>, <span class="math inline">\(|r| = 0.69\)</span> with ER status):</strong> Within the proteomics modality, <strong><code>ER-alpha-R-V</code></strong> (<span class="math inline">\(|V| = 0.290\)</span>) and <strong><code>GATA3-M-V</code></strong> (<span class="math inline">\(|V| = 0.268\)</span>) possess the two largest weight magnitudes, followed directly by <strong><code>HER2-M-V</code></strong> (<span class="math inline">\(0.205\)</span>), androgen receptor <strong><code>AR-R-V</code></strong> (<span class="math inline">\(0.203\)</span>), <strong><code>Cyclin_E1-M-V</code></strong> (<span class="math inline">\(0.200\)</span>), progesterone receptor <strong><code>PR-R-V</code></strong> (<span class="math inline">\(0.164\)</span>), and phosphorylated <strong><code>ER-alpha_pS118-R-V</code></strong> (<span class="math inline">\(0.131\)</span>).</li>
-<li><strong>Transcriptomics (<code>rna</code>, <span class="math inline">\(|r| = 0.77\)</span> with ER status):</strong> In the mRNA view, the ER-aligned component isolates progesterone receptor <strong><code>PGR</code></strong>, prolactin-induced protein <strong><code>PIP</code></strong>, gastrin-releasing peptide receptor <strong><code>GRPR</code></strong>, <strong><code>ELOVL2</code></strong>, and basal/luminal discriminators <strong><code>LTF</code></strong> and <strong><code>S100A8</code>/<code>S100A9</code></strong>.</li>
-<li><strong>Copy Number Variation (<code>cnv</code>, <span class="math inline">\(|r| = 0.20\)</span> with ER status):</strong> In the somatic copy-number view, the basis isolates the canonical <strong>8p11-p12 luminal amplicon</strong> (<strong><code>ZNF703</code></strong>, <strong><code>ERLIN2</code></strong>, <strong><code>BRF2</code></strong>, <strong><code>RAB11FIP1</code></strong>, <strong><code>GPR124</code></strong>) alongside the <strong>17q23 amplicon</strong> (<strong><code>RPS6KB1</code></strong>, <strong><code>PTRH2</code></strong>, <strong><code>VMP1</code></strong>, <strong><code>MIR21</code></strong>, <strong><code>TUBD1</code></strong>).</li>
+<li><strong>Proteomics (<code>rppa</code>):</strong> <code>ER-alpha-R-V</code> (<span class="math inline">\(|V| = 0.290\)</span>) and <code>GATA3-M-V</code> (<span class="math inline">\(|V| = 0.268\)</span>) carry the two largest loading magnitudes, followed by <code>HER2-M-V</code> (<span class="math inline">\(0.205\)</span>), androgen receptor <code>AR-R-V</code> (<span class="math inline">\(0.203\)</span>), <code>Cyclin_E1-M-V</code> (<span class="math inline">\(0.200\)</span>), progesterone receptor <code>PR-R-V</code> (<span class="math inline">\(0.164\)</span>), and phosphorylated <code>ER-alpha_pS118-R-V</code> (<span class="math inline">\(0.131\)</span>) <span class="citation" data-cites="tcga2012breast">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>)</span>.</li>
+<li><strong>Transcriptomics (<code>rna</code>):</strong> In the mRNA view, the ER-aligned component highlights progesterone receptor <code>PGR</code>, prolactin-induced protein <code>PIP</code>, gastrin-releasing peptide receptor <code>GRPR</code>, <code>ELOVL2</code>, and luminal/basal discriminators <code>LTF</code> and <code>S100A8</code>/<code>S100A9</code> <span class="citation" data-cites="perou2000 parker2009supervised">(<a href="#ref-perou2000" role="doc-biblioref"><span class="nocase">Perou et al.</span> 2000</a>; <a href="#ref-parker2009supervised" role="doc-biblioref"><span class="nocase">Parker et al.</span> 2009</a>)</span>.</li>
+<li><strong>Copy Number Variation (<code>cnv</code>):</strong> In the somatic copy-number view, the basis isolates the 8p11-p12 luminal amplicon (<code>ZNF703</code>, <code>ERLIN2</code>, <code>BRF2</code>, <code>RAB11FIP1</code>, <code>GPR124</code>) alongside the 17q23 amplicon (<code>RPS6KB1</code>, <code>PTRH2</code>, <code>VMP1</code>, <code>MIR21</code>, <code>TUBD1</code>) <span class="citation" data-cites="tcga2012breast curtis2012">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-curtis2012" role="doc-biblioref"><span class="nocase">Curtis et al.</span> 2012</a>)</span>.</li>
 </ol>
-<p>GATA3 is co-expressed with ER-alpha as the master transcriptional regulator of luminal breast cancer differentiation <span class="citation" data-cites="tcga2012breast Cohen_2014 Prat_2019">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-Cohen_2014" role="doc-biblioref">Cohen et al. 2014</a>; <a href="#ref-Prat_2019" role="doc-biblioref">Prat and Parker 2019</a>)</span>, while 8p11-p12 (<code>ZNF703</code>/<code>ERLIN2</code>/<code>BRF2</code>) and 17q23 (<code>RPS6KB1</code>) amplifications are well-established somatic drivers in ER-positive luminal tumors <span class="citation" data-cites="tcga2012breast cancerdiscovery2016esr1">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-cancerdiscovery2016esr1" role="doc-biblioref">Cancer Discovery 2016</a>)</span>. By compressing mRNA, CNV, and RPPA features through a Stiefel-constrained OLEE bottleneck, the architecture recovers these coordinated biological pathways directly from the first-layer parameter weights.</p>
 
 
 <div id="refs" class="references csl-bib-body hanging-indent" role="list">
-<div id="ref-cancerdiscovery2016esr1" class="csl-entry" role="listitem">
-Cancer Discovery. 2016. <span>“Multiple Noncoding Mutations Regulate <span>ESR1</span> Expression in Breast Cancer.”</span> <em>Cancer Discovery</em> 6 (11): OF5–5. <a href="https://doi.org/10.1158/2159-8290.cd-rw2016-170">https://doi.org/10.1158/2159-8290.cd-rw2016-170</a>.
+<div id="ref-curtis2012" class="csl-entry" role="listitem">
+<span class="nocase">Curtis, Christina, Sohrab P. Shah, Suet-Feung Chin, et al.</span> 2012. <span>“The Genomic and Transcriptomic Architecture of 2,000 Breast Tumours Reveals Novel Subgroups.”</span> <em>Nature</em> 486 (7403): 346–52. <a href="https://doi.org/10.1038/nature10983">https://doi.org/10.1038/nature10983</a>.
 </div>
-<div id="ref-Cohen_2014" class="csl-entry" role="listitem">
-Cohen, Helit, Rotem Ben-Hamo, Moriah Gidoni, et al. 2014. <span>“Shift in GATA3 Functions, and GATA3 Mutations, Control Progression and Clinical Presentation in Breast Cancer.”</span> <em>Breast Cancer Research</em> 16 (6). <a href="https://doi.org/10.1186/s13058-014-0464-0">https://doi.org/10.1186/s13058-014-0464-0</a>.
+<div id="ref-parker2009supervised" class="csl-entry" role="listitem">
+<span class="nocase">Parker, Joel S., Michael Mullins, Maggie C. U. Cheang, et al.</span> 2009. <span>“Supervised Risk Predictor of Breast Cancer Based on Intrinsic Subtypes.”</span> <em>Journal of Clinical Oncology</em> 27 (8): 1160–67. <a href="https://doi.org/10.1200/JCO.2008.18.1370">https://doi.org/10.1200/JCO.2008.18.1370</a>.
 </div>
-<div id="ref-Prat_2019" class="csl-entry" role="listitem">
-Prat, A., and J. S. Parker. 2019. <span>“Standardized Versus Research-Based PAM50 Intrinsic Subtyping of Breast Cancer.”</span> <em>Clinical and Translational Oncology</em> 22 (6): 953–55. <a href="https://doi.org/10.1007/s12094-019-02203-x">https://doi.org/10.1007/s12094-019-02203-x</a>.
+<div id="ref-perou2000" class="csl-entry" role="listitem">
+<span class="nocase">Perou, Charles M., Therese Sørlie, Michael B. Eisen, et al.</span> 2000. <span>“Molecular Portraits of Human Breast Tumours.”</span> <em>Nature</em> 406 (6797): 747–52. <a href="https://doi.org/10.1038/35021093">https://doi.org/10.1038/35021093</a>.
 </div>
 <div id="ref-tcga2012breast" class="csl-entry" role="listitem">
 The Cancer Genome Atlas Network. 2012. <span>“Comprehensive Molecular Portraits of Human Breast Tumours.”</span> <em>Nature</em> 490 (7418): 61–70. <a href="https://doi.org/10.1038/nature11412">https://doi.org/10.1038/nature11412</a>.
 </div>
+<div id="ref-weinstein2013" class="csl-entry" role="listitem">
+Weinstein, John N., Eric A. Collisson, Gordon B. Mills, et al. 2013. <span>“The <span>Cancer Genome Atlas Pan-Cancer</span> Analysis Project.”</span> <em>Nature Genetics</em> 45 (10): 1113–20. <a href="https://doi.org/10.1038/ng.2764">https://doi.org/10.1038/ng.2764</a>.
 </div>
-</section>
+</div>
 </section>
 
 </main> <!-- /main -->
@@ -853,8 +847,8 @@ The Cancer Genome Atlas Network. 2012. <span>“Comprehensive Molecular Portrait
   </script>
 <nav class="page-navigation">
   <div class="nav-page nav-page-previous">
-      <a href="./04_discussion.html" class="pagination-link" aria-label="Discussion">
-        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Discussion</span></span>
+      <a href="./04_discussion.html" class="pagination-link" aria-label="Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span>
       </a>          
   </div>
   <div class="nav-page nav-page-next">

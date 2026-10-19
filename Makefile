@@ -19,6 +19,7 @@ help:
 	@echo "Available targets:"
 	@echo "  test       : Run all tests with code coverage (default)"
 	@echo "  docs       : Render Quarto tutorials using the active virtual environment"
+	@echo "  paper      : Render Quarto manuscript (HTML + PDF) and sync to docs/manuscript"
 	@echo "  clean      : Remove build artifacts and temporary files"
 	@echo "  install    : Install the package in editable mode"
 	@echo "  lint       : Check code style (requires ruff or flake8)"
@@ -39,15 +40,29 @@ docs:
 	quarto render $(DOCS_DIR)/deep_simr_tutorial.qmd --execute-daemon-restart && \
 	quarto render $(DOCS_DIR)/comparison_simlr_lend.qmd --execute-daemon-restart
 
+.PHONY: paper
+paper:
+	@echo "Rendering Quarto manuscript (HTML + PDF) using python: $(shell which $(PYTHON))"
+	export QUARTO_PYTHON=$(shell which $(PYTHON)); \
+	export PYTHONPATH=$(SRC_PATH):$$PYTHONPATH; \
+	quarto render paper && \
+	mkdir -p $(DOCS_DIR)/manuscript && \
+	cp -R paper/_book/* $(DOCS_DIR)/manuscript/
+
 .PHONY: clean
 clean:
 	rm -rf build/
 	rm -rf dist/
 	rm -rf *.egg-info
+	rm -rf src/*.egg-info
 	rm -rf .pytest_cache
 	rm -rf .coverage
 	rm -rf htmlcov/
+	rm -rf tmp_matplotlib_cache/
+	rm -f *.log index.pdf ORIGINAL_REQUEST.md
 	rm -rf $(DOCS_DIR)/*_files
+	rm -rf paper/*_files paper/site_libs paper/site_libs_files paper/.quarto
+	rm -f paper/*.quarto_ipynb*
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 

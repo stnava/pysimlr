@@ -94,9 +94,6 @@ div.csl-indent {
     "search-label": "Search"
   }
 }</script>
-<script src="site_libs/quarto-diagram/mermaid.min.js"></script>
-<script src="site_libs/quarto-diagram/mermaid-init.js"></script>
-<link href="site_libs/quarto-diagram/mermaid.css" rel="stylesheet">
 
   <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
   <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
@@ -139,7 +136,7 @@ window.Quarto = {
       <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
-        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./01_intro_background.html"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Background</span></a></li></ol></nav>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./01_intro_background.html"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></a></li></ol></nav>
         <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
         </a>
       <button type="button" class="btn quarto-search-button" aria-label="Search" onclick="window.quartoOpenSearch();">
@@ -168,25 +165,25 @@ window.Quarto = {
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./01_intro_background.html" class="sidebar-item-text sidebar-link active">
- <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Background</span></span></a>
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./02_methods.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Methods</span></span></a>
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./03_experiments.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Experiments</span></span></a>
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./04_discussion.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Discussion</span></span></a>
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item sidebar-item-section">
@@ -201,7 +198,7 @@ window.Quarto = {
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./appendix_brca_clinical_validation.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-omics Clinical Validation (TCGA-BRCA)</span></span></a>
+ <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-Omics Clinical Validation (TCGA-BRCA)</span></span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -234,18 +231,10 @@ window.Quarto = {
     <h2 id="toc-title">Table of contents</h2>
    
   <ul>
-  <li><a href="#introduction" id="toc-introduction" class="nav-link active" data-scroll-target="#introduction"><span class="header-section-number">1.1</span> Introduction</a>
-  <ul class="collapse">
-  <li><a href="#a-deductive-progression-for-auditable-multi-view-integration" id="toc-a-deductive-progression-for-auditable-multi-view-integration" class="nav-link" data-scroll-target="#a-deductive-progression-for-auditable-multi-view-integration"><span class="header-section-number">1.1.1</span> A Deductive Progression for Auditable Multi-View Integration</a></li>
-  <li><a href="#multimodal-consensus-as-latent-signal-recovery" id="toc-multimodal-consensus-as-latent-signal-recovery" class="nav-link" data-scroll-target="#multimodal-consensus-as-latent-signal-recovery"><span class="header-section-number">1.1.2</span> Multimodal Consensus as Latent Signal Recovery</a></li>
-  <li><a href="#why-brain-mri-needs-bipartite-cognitive-alignment-mediation-in-adni-mci" id="toc-why-brain-mri-needs-bipartite-cognitive-alignment-mediation-in-adni-mci" class="nav-link" data-scroll-target="#why-brain-mri-needs-bipartite-cognitive-alignment-mediation-in-adni-mci"><span class="header-section-number">1.1.3</span> Why Brain MRI Needs Bipartite Cognitive Alignment &amp; Mediation in ADNI-MCI</a></li>
-  </ul></li>
-  <li><a href="#background" id="toc-background" class="nav-link" data-scroll-target="#background"><span class="header-section-number">1.2</span> Background</a>
-  <ul class="collapse">
-  <li><a href="#subspace-invariance-versus-basis-axis-sensitivity" id="toc-subspace-invariance-versus-basis-axis-sensitivity" class="nav-link" data-scroll-target="#subspace-invariance-versus-basis-axis-sensitivity"><span class="header-section-number">1.2.1</span> Subspace Invariance versus Basis Axis Sensitivity</a></li>
-  <li><a href="#architectural-taxonomy-organized-by-deductive-stage" id="toc-architectural-taxonomy-organized-by-deductive-stage" class="nav-link" data-scroll-target="#architectural-taxonomy-organized-by-deductive-stage"><span class="header-section-number">1.2.2</span> Architectural Taxonomy Organized by Deductive Stage</a></li>
-  <li><a href="#summary-of-contributions" id="toc-summary-of-contributions" class="nav-link" data-scroll-target="#summary-of-contributions"><span class="header-section-number">1.2.3</span> Summary of Contributions</a></li>
-  </ul></li>
+  <li><a href="#clinical-and-scientific-motivation-why-multi-view-integration-must-be-auditable" id="toc-clinical-and-scientific-motivation-why-multi-view-integration-must-be-auditable" class="nav-link active" data-scroll-target="#clinical-and-scientific-motivation-why-multi-view-integration-must-be-auditable"><span class="header-section-number">1.1</span> Clinical and Scientific Motivation: Why Multi-View Integration Must Be Auditable</a></li>
+  <li><a href="#the-simr-framework-a-linear-entrypoint-paired-with-flexible-multi-view-alignment" id="toc-the-simr-framework-a-linear-entrypoint-paired-with-flexible-multi-view-alignment" class="nav-link" data-scroll-target="#the-simr-framework-a-linear-entrypoint-paired-with-flexible-multi-view-alignment"><span class="header-section-number">1.2</span> The SiMR Framework: A Linear Entrypoint Paired with Flexible Multi-View Alignment</a></li>
+  <li><a href="#subspace-preservation-vs.-coordinate-axis-disentanglement" id="toc-subspace-preservation-vs.-coordinate-axis-disentanglement" class="nav-link" data-scroll-target="#subspace-preservation-vs.-coordinate-axis-disentanglement"><span class="header-section-number">1.3</span> Subspace Preservation vs.&nbsp;Coordinate Axis Disentanglement</a></li>
+  <li><a href="#summary-of-contributions" id="toc-summary-of-contributions" class="nav-link" data-scroll-target="#summary-of-contributions"><span class="header-section-number">1.4</span> Summary of Contributions</a></li>
   </ul>
 </nav>
     </div>
@@ -300,200 +289,334 @@ window.Quarto = {
 </header>
 
 
-<section id="introduction" class="level2" data-number="1.1">
-<h2 data-number="1.1" class="anchored" data-anchor-id="introduction"><span class="header-section-number">1.1</span> Introduction</h2>
-<p>High-throughput biomedical studies routinely collect multiple distinct measurements from each subject. In neurodegenerative disease research, cohorts such as the Alzheimer’s Disease Neuroimaging Initiative (ADNI) <span class="citation" data-cites="ADNI jack2008alzheimer">(<a href="#ref-ADNI" role="doc-biblioref"><span class="nocase">Weiner et al.</span> 2017</a>; <a href="#ref-jack2008alzheimer" role="doc-biblioref"><span class="nocase">Jack et al.</span> 2008</a>)</span> and the Parkinson’s Progression Markers Initiative (PPMI) <span class="citation" data-cites="Marek2011">(<a href="#ref-Marek2011" role="doc-biblioref"><span class="nocase">Marek et al.</span> 2011</a>)</span> acquire structural MRI regional morphometry, diffusion tensor white matter fractional anisotropy, molecular PET, biofluid assays, and comprehensive psychometric batteries <span class="citation" data-cites="avants2014ants stone2020longitudinal avants2021">(<a href="#ref-avants2014ants" role="doc-biblioref">Avants et al. 2014</a>; <a href="#ref-stone2020longitudinal" role="doc-biblioref"><span class="nocase">Stone et al.</span> 2020</a>; <a href="#ref-avants2021" role="doc-biblioref">Avants et al. 2021</a>)</span>. In traumatic brain injury (TBI) and neurotrauma, blast-induced shockwave exposure produces diffuse axonal injury and non-local microstructural shearing that alter structural connectivity networks <span class="citation" data-cites="stone2024blast">(<a href="#ref-stone2024blast" role="doc-biblioref"><span class="nocase">Stone et al.</span> 2024</a>)</span>. In translational oncology, the Cancer Genome Atlas (TCGA) profiles patient tumors across somatic copy-number alterations, transcriptomic expression, DNA methylation, and targeted reverse-phase protein arrays in breast invasive carcinoma (BRCA) <span class="citation" data-cites="tcga2012breast cancerdiscovery2016esr1">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-cancerdiscovery2016esr1" role="doc-biblioref">Cancer Discovery 2016</a>)</span> and clear cell renal cell carcinoma (KIRC) <span class="citation" data-cites="tcga2013kirc">(<a href="#ref-tcga2013kirc" role="doc-biblioref">The Cancer Genome Atlas Research Network 2013</a>)</span>. Integrating these observations—formalized as <span class="math inline">\(M\)</span> data matrices <span class="math inline">\(\mathbf{X}_m \in \mathbb{R}^{n \times p_m}\)</span> for <span class="math inline">\(m = 1, \dots, M\)</span> across <span class="math inline">\(n\)</span> co-registered subjects—is essential for resolving phenotypic heterogeneity, identifying molecular subtypes, and mapping progression trajectories.</p>
-<p>Deep representation learning methods, including Deep Canonical Correlation Analysis (Deep CCA) <span class="citation" data-cites="andrew2013deep">(<a href="#ref-andrew2013deep" role="doc-biblioref">Andrew et al. 2013</a>)</span> and Multimodal Variational Autoencoders (MVAEs) <span class="citation" data-cites="wu2018multimodal">(<a href="#ref-wu2018multimodal" role="doc-biblioref">Wu and Goodman 2018</a>)</span>, capture non-linear cross-modal dependencies. However, standard deep encoders map inputs through deeply nested affine transformations interleaved with non-linear activations (<span class="math inline">\(\mathbf{Z} = \sigma(\mathbf{W}_2 \sigma(\mathbf{W}_1 \mathbf{X} + \mathbf{b}_1) + \mathbf{b}_2)\)</span>). This composition creates complex feature entanglement, obscuring the physical attribution between observable biological measurements and latent coordinates <span class="citation" data-cites="Rudin_2019">(<a href="#ref-Rudin_2019" role="doc-biblioref">Rudin 2019</a>)</span>. In clinical diagnostics, oncology biomarker discovery, and neurotrauma assessment, this opacity imposes a severe <strong>transparency penalty</strong>: clinicians, regulatory agencies, and trial biostatisticians cannot determine whether a diagnostic score reflects authentic pathophysiology (such as entorhinal cortical atrophy or targeted kinase dysregulation) or idiosyncratic scanner noise and batch artifacts <span class="citation" data-cites="Holmberg_2022">(<a href="#ref-Holmberg_2022" role="doc-biblioref">Holmberg et al. 2022</a>)</span>.</p>
-<p>Post-hoc explainability techniques, such as LIME <span class="citation" data-cites="Ribeiro_2016">(<a href="#ref-Ribeiro_2016" role="doc-biblioref">Ribeiro et al. 2016</a>)</span> and SHAP <span class="citation" data-cites="Lundberg_2017">(<a href="#ref-Lundberg_2017" role="doc-biblioref">Lundberg and Lee 2017</a>)</span>, attempt to infer feature importance by querying black-box models on randomly perturbed inputs. As demonstrated by Rudin <span class="citation" data-cites="Rudin_2019">(<a href="#ref-Rudin_2019" role="doc-biblioref">2019</a>)</span>, post-hoc surrogates exhibit fundamental failure modes in biological domains. By perturbing features independently, they evaluate synthetic samples that violate physiological covariance—pairing, for example, incompatible regional brain volumes or mutually exclusive oncogenic mutations. Consequently, post-hoc explanations can be unstable, sensitive to hyperparameter tuning, and biologically deceptive <span class="citation" data-cites="Smith2023posthoc">(<a href="#ref-Smith2023posthoc" role="doc-biblioref">Radulovic 2023</a>)</span>.</p>
-<p>Conversely, classical linear dimensionality reduction methods—including Principal Component Analysis (PCA) and Canonical Correlation Analysis (CCA) <span class="citation" data-cites="hotelling1936relations">(<a href="#ref-hotelling1936relations" role="doc-biblioref">Hotelling 1936</a>)</span>—provide exact linear loadings (<span class="math inline">\(Z_{jk} = \sum_i X_{ji} V_{ik}\)</span>). Similarity-driven Multimodal Linear Reconstruction (SiMLR) <span class="citation" data-cites="avants2021">(<a href="#ref-avants2021" role="doc-biblioref">Avants et al. 2021</a>)</span> extended CCA to multiple modalities with sparsity and non-negativity constraints, solving a joint-variational problem on the Stiefel manifold. While linear SiMLR guarantees interpretability, complex disease processes can involve non-linear manifold geometry that linear projections cannot span. Furthermore, unconstrained PCA yields dense, mixed-sign loadings that lack anatomical specificity and fail to isolate shared cross-modal signals from modality-specific noise.</p>
-<section id="a-deductive-progression-for-auditable-multi-view-integration" class="level3" data-number="1.1.1">
-<h3 data-number="1.1.1" class="anchored" data-anchor-id="a-deductive-progression-for-auditable-multi-view-integration"><span class="header-section-number">1.1.1</span> A Deductive Progression for Auditable Multi-View Integration</h3>
-<p>To resolve the tension between non-linear expressivity and auditable feature attribution, we construct <strong>Deep SiMLR</strong> deductively in five methodological stages (developed formally in Chapter 2 and evaluated stage-by-stage in Chapter 3):</p>
+<section id="clinical-and-scientific-motivation-why-multi-view-integration-must-be-auditable" class="level2" data-number="1.1">
+<h2 data-number="1.1" class="anchored" data-anchor-id="clinical-and-scientific-motivation-why-multi-view-integration-must-be-auditable"><span class="header-section-number">1.1</span> Clinical and Scientific Motivation: Why Multi-View Integration Must Be Auditable</h2>
+<p>Modern biomedical cohorts characterize disease across distinct physical, physiological, and behavioral scales. In neurodegenerative disorders such as Alzheimer’s disease, structural magnetic resonance imaging (MRI) quantifies millimeter-scale regional cortical thinning and subcortical volume loss <span class="citation" data-cites="jack2018nia dickerson2009cortical fischl2000 tustison2014large avants2011reproducible das2009direct tustison2021antsx">(<a href="#ref-jack2018nia" role="doc-biblioref"><span class="nocase">Jack et al.</span> 2018</a>; <a href="#ref-dickerson2009cortical" role="doc-biblioref"><span class="nocase">Dickerson et al.</span> 2009</a>; <a href="#ref-fischl2000" role="doc-biblioref">Fischl and Dale 2000</a>; <a href="#ref-tustison2014large" role="doc-biblioref">Tustison et al. 2014</a>, <a href="#ref-tustison2021antsx" role="doc-biblioref">2021</a>; <a href="#ref-avants2011reproducible" role="doc-biblioref">Avants et al. 2011</a>; <a href="#ref-das2009direct" role="doc-biblioref">Das et al. 2009</a>)</span>, whereas clinical diagnosis and trial monitoring rely on multi-domain neuropsychological batteries measuring episodic memory, executive function, language, and daily functional independence <span class="citation" data-cites="rosen1984new folstein1975mini morris1993clinical pfeffer1982measurement reitan1958validity rey1964examen">(<a href="#ref-rosen1984new" role="doc-biblioref">Rosen et al. 1984</a>; <a href="#ref-folstein1975mini" role="doc-biblioref">Folstein et al. 1975</a>; <a href="#ref-morris1993clinical" role="doc-biblioref">Morris 1993</a>; <a href="#ref-pfeffer1982measurement" role="doc-biblioref">Pfeffer et al. 1982</a>; <a href="#ref-reitan1958validity" role="doc-biblioref">Reitan 1958</a>; <a href="#ref-rey1964examen" role="doc-biblioref">Rey 1964</a>)</span>. In clinical oncology, projects such as The Cancer Genome Atlas (TCGA) profile primary tumors simultaneously across messenger RNA (mRNA) transcriptomics, somatic DNA copy-number variation (CNV), reverse-phase protein arrays (RPPA), and DNA methylation <span class="citation" data-cites="weinstein2013 tcga2012breast tcga2013kirc hoadley2018">(<a href="#ref-weinstein2013" role="doc-biblioref">Weinstein et al. 2013</a>; <a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-tcga2013kirc" role="doc-biblioref">The Cancer Genome Atlas Research Network 2013</a>; <a href="#ref-hoadley2018" role="doc-biblioref"><span class="nocase">Hoadley et al.</span> 2018</a>)</span>. Across both settings, clinicians and translational scientists require analytical methods that connect structural or molecular vulnerability to clinical phenotype without sacrificing anatomical or biological localization <span class="citation" data-cites="avants2010sccan avants2014sccan avants2021 seeley2009neurodegenerative Rudin_2019">(<a href="#ref-avants2010sccan" role="doc-biblioref">Avants et al. 2010</a>, <a href="#ref-avants2014sccan" role="doc-biblioref">2014</a>, <a href="#ref-avants2021" role="doc-biblioref">2021</a>; <a href="#ref-seeley2009neurodegenerative" role="doc-biblioref">Seeley et al. 2009</a>; <a href="#ref-Rudin_2019" role="doc-biblioref">Rudin 2019</a>)</span>.</p>
+<p>A recurring tension in multi-modal data integration separates predictive accuracy from mechanistic interpretability. For a neurologist evaluating a patient with Mild Cognitive Impairment (MCI), predicting an aggregate cognitive decline score from a black-box neural network is insufficient for clinical decision-making or clinical trial stratification <span class="citation" data-cites="Rudin_2019 doshivelez2017 Lipton_2018">(<a href="#ref-Rudin_2019" role="doc-biblioref">Rudin 2019</a>; <a href="#ref-doshivelez2017" role="doc-biblioref">Doshi-Velez and Kim 2017</a>; <a href="#ref-Lipton_2018" role="doc-biblioref">Lipton 2018</a>)</span>. The clinician must verify whether the predictive signal arises from established disease-vulnerable substrates—such as the entorhinal-hippocampal memory circuit of early Braak stages I–III <span class="citation" data-cites="braak1991neuropathological jack2018nia racine2018personalized">(<a href="#ref-braak1991neuropathological" role="doc-biblioref">Braak and Braak 1991</a>; <a href="#ref-jack2018nia" role="doc-biblioref"><span class="nocase">Jack et al.</span> 2018</a>; <a href="#ref-racine2018personalized" role="doc-biblioref">Racine et al. 2018</a>)</span> or the temporoparietal and posterior cingulate association hubs of Braak stages IV–V <span class="citation" data-cites="dickerson2009cortical buckner2005 seeley2009neurodegenerative Cuingnet2011">(<a href="#ref-dickerson2009cortical" role="doc-biblioref"><span class="nocase">Dickerson et al.</span> 2009</a>; <a href="#ref-buckner2005" role="doc-biblioref">Buckner et al. 2005</a>; <a href="#ref-seeley2009neurodegenerative" role="doc-biblioref">Seeley et al. 2009</a>; <a href="#ref-Cuingnet2011" role="doc-biblioref">Cuingnet et al. 2011</a>)</span>—rather than from scanner artifacts, ventricular enlargement, or global brain atrophy. Similarly, a molecular tumor board cannot design a targeted assay from a dense principal component combining <span class="math inline">\(20,000\)</span> transcripts; actionable translation requires isolating compact, non-redundant driver pathways such as estrogen-receptor transcriptional networks (<code>ESR1</code>, <code>GATA3</code>, <code>PGR</code>) or focal chromosomal amplifications (<code>17q23</code>, <code>8p11-p12</code>) <span class="citation" data-cites="perou2000 parker2009supervised tcga2012breast curtis2012 Prat_2019 Cohen_2014">(<a href="#ref-perou2000" role="doc-biblioref"><span class="nocase">Perou et al.</span> 2000</a>; <a href="#ref-parker2009supervised" role="doc-biblioref"><span class="nocase">Parker et al.</span> 2009</a>; <a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-curtis2012" role="doc-biblioref"><span class="nocase">Curtis et al.</span> 2012</a>; <a href="#ref-Prat_2019" role="doc-biblioref">Prat and Parker 2020</a>; <a href="#ref-Cohen_2014" role="doc-biblioref">Cohen et al. 2014</a>)</span>.</p>
+<p>Existing multi-view factorizations force an uncomfortable compromise between these clinical and computational goals:</p>
 <ol type="1">
-<li><strong>Stage 1 — The Input Boundary (OLEE &amp; NSA-Flow Manifold Geometry):</strong> Every modality enters through an <strong>Only Linear Encoder Entrypoint (OLEE)</strong> restricted to the compact Stiefel manifold: <span class="math display">\[
-\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m, \quad \text{subject to } \mathbf{V}_m \in \text{St}(k, p_m) = \{\mathbf{V} \in \mathbb{R}^{p_m \times k} \mid \mathbf{V}^\top \mathbf{V} = \mathbf{I}_k\}
-\]</span> Enforcing OLEE at the input boundary guarantees:
-<ul>
-<li><strong>Globally Constant Attribution:</strong> <span class="math inline">\(\nabla_{\mathbf{X}_m} \mathbf{Z}_{m,\text{lin}} = \mathbf{V}_m\)</span> (<span class="math inline">\(\partial Z_{m,ik} / \partial X_{m,ij} = V_{m,jk}\)</span>), eliminating the black-box transparency penalty.</li>
-<li><strong>Closed-Form Counterfactual Recourse:</strong> Forward shifts (<span class="math inline">\(\Delta \mathbf{Z}_{m,\text{lin}} = \Delta \mathbf{X}_m \mathbf{V}_m\)</span>) and minimal <span class="math inline">\(L_2\)</span>-norm physical recourse (<span class="math inline">\(\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m^* \mathbf{V}_m^\top\)</span>) are exact orthogonal projections <span class="citation" data-cites="pearl2009causality Wachter_2017">(<a href="#ref-pearl2009causality" role="doc-biblioref">Pearl 2009</a>; <a href="#ref-Wachter_2017" role="doc-biblioref">Wachter et al. 2017</a>)</span>.</li>
-<li><strong>Disjoint Non-Negative Support (<code>nsa_flow</code>):</strong> Retraction via the Non-negative Stiefel Approximating Flow (<code>NSAFlow-PCA</code>, <code>SiMLR-LBFGSB</code>) minimizes the scale-invariant frame defect <span class="math inline">\(D(\mathbf{V}_m) = \|\mathbf{G}_m - \mathbf{I}_k / k\|_F^2\)</span> while enforcing zero signed lobe crosstalk (<span class="math inline">\(\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1 = 0\)</span>).</li>
-</ul></li>
-<li><strong>Stage 2 — Cross-View Consensus, Bipartite Graph Topologies, and Spectral Triage (MAI):</strong> Per-view latents are fused via scale-profiled alignment energies (<code>procrustes</code>, <code>nc</code>, <code>align</code>, <code>acc</code>, <code>logcosh</code>), consensus mixing (<code>pca</code>, <code>svd</code>, <code>ica</code>, <code>newton</code>), and directed/bipartite consensus graphs (<code>topology="graph"</code>). When predictor views (<span class="math inline">\(m=1,\dots,M-1\)</span>) are aligned to a training-only clinical target view (<span class="math inline">\(M\)</span>) via a bipartite graph (<code>{0:[3], 1:[3], 2:[3], 3:[0,1,2]}</code>), the predictor bases <span class="math inline">\(\mathbf{V}_m\)</span> are steered directly toward the clinical subspace without requiring clinical labels at test time. Dynamic <strong>Modality Alignment Index (MAI)</strong> gating down-weights uninformative views.</li>
-<li><strong>Stage 3 — Linear Multi-View Manifold Solvers &amp; Iteration-0 Warm Start:</strong> We introduce first-order (<code>SiMLR</code>) and quasi-Newton (<code>SiMLR-LBFGS</code>, bound-constrained <code>SiMLR-LBFGSB</code>) Riemannian solvers on <span class="math inline">\(\prod_m \text{St}(k, p_m)\)</span>, which also serve as the <strong>Iteration-0 linear warm start</strong> for all downstream deep and flow architectures.</li>
-<li><strong>Stage 4 — Non-Linear Decoding Downstream of OLEE (<code>LEND</code> vs.&nbsp;<code>NED</code> / <code>NEDPP</code>):</strong> Keeping the encoder strictly linear (<span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span>) while placing multi-layer perceptron capacity exclusively in the decoder (<code>LEND</code>) captures curved generative manifolds (<span class="math inline">\(g_m(\mathbf{U})\)</span>) without suffering the high-dimensional encoder overfitting that collapses unconstrained deep encoders (<code>NED</code>, <code>NEDPP</code>) when <span class="math inline">\(p_m \gg n\)</span>.</li>
-<li><strong>Stage 5 — Bijective Normalizing Flows Downstream of OLEE (<code>Flow-SiMR-V</code>):</strong> Prepending <span class="math inline">\(\mathbf{V}_m\)</span> to volume-preserving RealNVP coupling layers in <span class="math inline">\(\mathbb{R}^k\)</span> provides exact analytical invertibility, conditional cross-view imputation, and geodesic trajectory mapping. Crucially, we prove that backpropagating standard Gaussian prior log-likelihood gradients (<span class="math inline">\(\nabla_{\mathbf{V}_m} \mathcal{L}_{\text{NLL}}\)</span>) through a rectangular Stiefel projection (<span class="math inline">\(k \ll p_m\)</span>) drives <span class="math inline">\(\mathbf{V}_m\)</span> onto the <strong>trailing (minimum-variance) eigenvectors</strong> of <span class="math inline">\(\mathbf{X}_m^\top \mathbf{X}_m\)</span>, and we resolve this collapse via <strong>detached-prior subspace decoupling</strong> (<span class="math inline">\(\text{sg}(\mathbf{Z}_{m,\text{lin}})\)</span>).</li>
+<li><strong>Dense Linear Factorizations Disperse Anatomical Signal</strong>: Principal Component Analysis (PCA) <span class="citation" data-cites="hotelling1933">(<a href="#ref-hotelling1933" role="doc-biblioref">Hotelling 1933</a>)</span>, Canonical Correlation Analysis (CCA) <span class="citation" data-cites="hotelling1936relations hardoon2004canonical Chaudhuri_2009">(<a href="#ref-hotelling1936relations" role="doc-biblioref">Hotelling 1936</a>; <a href="#ref-hardoon2004canonical" role="doc-biblioref">Hardoon et al. 2004</a>; <a href="#ref-Chaudhuri_2009" role="doc-biblioref">Chaudhuri et al. 2009</a>)</span>, Partial Least Squares (PLS) <span class="citation" data-cites="krishnan2011 tenenhaus2011 tenenhaus2014">(<a href="#ref-krishnan2011" role="doc-biblioref">Krishnan et al. 2011</a>; <a href="#ref-tenenhaus2011" role="doc-biblioref">Tenenhaus and Tenenhaus 2011</a>; <a href="#ref-tenenhaus2014" role="doc-biblioref">Tenenhaus et al. 2014</a>)</span>, Joint and Individual Variation Explained (JIVE) <span class="citation" data-cites="lock2013">(<a href="#ref-lock2013" role="doc-biblioref">Lock et al. 2013</a>)</span>, and Multi-Omics Factor Analysis (MOFA) <span class="citation" data-cites="argelaguet2020mofa cantini2021 abdi2013">(<a href="#ref-argelaguet2020mofa" role="doc-biblioref">Argelaguet et al. 2020</a>; <a href="#ref-cantini2021" role="doc-biblioref">Cantini et al. 2021</a>; <a href="#ref-abdi2013" role="doc-biblioref">Abdi et al. 2013</a>)</span> estimate dense loading matrices in which every brain region or gene receives a non-zero weight of mixed positive and negative sign. In neuroimaging, the dominant principal component captures global brain size and diffuse cross-cortical covariance, obscuring focal disease networks behind sign cancellations <span class="citation" data-cites="zou2006sparse witten2009penalized kandel2015">(<a href="#ref-zou2006sparse" role="doc-biblioref">Zou et al. 2006</a>; <a href="#ref-witten2009penalized" role="doc-biblioref">Witten et al. 2009</a>; <a href="#ref-kandel2015" role="doc-biblioref">Kandel et al. 2015</a>)</span>.</li>
+<li><strong>Rigid Orthogonality vs.&nbsp;Rank Collapse in Sparse Matrix Decompositions</strong>: Non-negative Matrix Factorization (NMF) <span class="citation" data-cites="Lee_1999 lee2001algorithms hoyer2004non ding2006orthogonal cichocki2009">(<a href="#ref-Lee_1999" role="doc-biblioref">Lee and Seung 1999</a>, <a href="#ref-lee2001algorithms" role="doc-biblioref">2001</a>; <a href="#ref-hoyer2004non" role="doc-biblioref">Hoyer 2004</a>; <a href="#ref-ding2006orthogonal" role="doc-biblioref">Ding et al. 2006</a>; <a href="#ref-cichocki2009" role="doc-biblioref">Cichocki et al. 2009</a>)</span> and Sparse PCA / Sparse CCA <span class="citation" data-cites="zou2006sparse witten2009penalized parkhomenko2009">(<a href="#ref-zou2006sparse" role="doc-biblioref">Zou et al. 2006</a>; <a href="#ref-witten2009penalized" role="doc-biblioref">Witten et al. 2009</a>; <a href="#ref-parkhomenko2009" role="doc-biblioref">Parkhomenko et al. 2009</a>)</span> promote parts-based or localized weights. However, without explicit cross-column orthogonality control, sparse non-negative projections frequently suffer from rank collapse—where multiple latent components converge onto the same high-variance hub—whereas enforcing strict Stiefel manifold orthogonality (<span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k\)</span>) <span class="citation" data-cites="edelman1998geometry absil2009optimization Wen_2012 boumal2023introduction">(<a href="#ref-edelman1998geometry" role="doc-biblioref">Edelman et al. 1998</a>; <a href="#ref-absil2009optimization" role="doc-biblioref">Absil et al. 2008</a>; <a href="#ref-Wen_2012" role="doc-biblioref">Wen and Yin 2013</a>; <a href="#ref-boumal2023introduction" role="doc-biblioref">Boumal 2023</a>)</span> forbids overlapping biological pathways from sharing pleiotropic hub genes or transmodal cortical hubs <span class="citation" data-cites="buckner2009 menon2010saliency avants2021 avants2025">(<a href="#ref-buckner2009" role="doc-biblioref">Buckner et al. 2009</a>; <a href="#ref-menon2010saliency" role="doc-biblioref">Menon and Uddin 2010</a>; <a href="#ref-avants2021" role="doc-biblioref">Avants et al. 2021</a>, <a href="#ref-avants2025" role="doc-biblioref">2025</a>)</span>.</li>
+<li><strong>Opaque Deep Multi-Modal Encoders</strong>: Deep Canonical Correlation Analysis (DCCA) <span class="citation" data-cites="andrew2013deep wang2015deep">(<a href="#ref-andrew2013deep" role="doc-biblioref">Andrew et al. 2013</a>; <a href="#ref-wang2015deep" role="doc-biblioref">Wang et al. 2015</a>)</span>, multi-modal Variational Autoencoders <span class="citation" data-cites="wu2018multimodal shi2019 higgins2017 hinton2006reducing vincent2008extracting bengio2013representation">(<a href="#ref-wu2018multimodal" role="doc-biblioref">Wu and Goodman 2018</a>; <a href="#ref-shi2019" role="doc-biblioref">Shi et al. 2019</a>; <a href="#ref-higgins2017" role="doc-biblioref">Higgins et al. 2017</a>; <a href="#ref-hinton2006reducing" role="doc-biblioref">Hinton and Salakhutdinov 2006</a>; <a href="#ref-vincent2008extracting" role="doc-biblioref">Vincent et al. 2008</a>; <a href="#ref-bengio2013representation" role="doc-biblioref">Bengio et al. 2013</a>)</span>, and contrastive multi-view transformers <span class="citation" data-cites="radford2021 baltrusaitis2019">(<a href="#ref-radford2021" role="doc-biblioref"><span class="nocase">Radford et al.</span> 2021</a>; <a href="#ref-baltrusaitis2019" role="doc-biblioref">Baltrušaitis et al. 2019</a>)</span> route raw measurements through multilayer non-linear encoders before aligning modalities. This composition destroys the direct linear mapping between input features and latent axes, forcing investigators to rely on post-hoc attribution approximations (<code>SHAP</code>, <code>LIME</code>, <code>Integrated Gradients</code>) <span class="citation" data-cites="Lundberg_2017 Ribeiro_2016 sundararajan2017 alvarez2018towards">(<a href="#ref-Lundberg_2017" role="doc-biblioref">Lundberg and Lee 2017</a>; <a href="#ref-Ribeiro_2016" role="doc-biblioref">Ribeiro et al. 2016</a>; <a href="#ref-sundararajan2017" role="doc-biblioref">Sundararajan et al. 2017</a>; <a href="#ref-alvarez2018towards" role="doc-biblioref">Alvarez-Melis and Jaakkola 2018</a>)</span> that can be unstable across correlated anatomical or genomic features <span class="citation" data-cites="Rudin_2019 hooker2019benchmark">(<a href="#ref-Rudin_2019" role="doc-biblioref">Rudin 2019</a>; <a href="#ref-hooker2019benchmark" role="doc-biblioref">Hooker et al. 2019</a>)</span>.</li>
 </ol>
-</section>
-<section id="multimodal-consensus-as-latent-signal-recovery" class="level3" data-number="1.1.2">
-<h3 data-number="1.1.2" class="anchored" data-anchor-id="multimodal-consensus-as-latent-signal-recovery"><span class="header-section-number">1.1.2</span> Multimodal Consensus as Latent Signal Recovery</h3>
-<p>We formalize multi-view integration as the estimation of a shared latent signal <span class="math inline">\(\mathbf{S} \in \mathbb{R}^{n \times k}\)</span> from <span class="math inline">\(M\)</span> observations: <span class="math display">\[
-\mathbf{X}_m = g_m(\mathbf{S}) + \mathbf{E}_m, \quad m = 1, \dots, M
-\]</span> where <span class="math inline">\(g_m: \mathbb{R}^{n \times k} \to \mathbb{R}^{n \times p_m}\)</span> is a modality-specific generative mapping and <span class="math inline">\(\mathbf{E}_m\)</span> represents domain-specific noise and private variance. Multi-modal consensus seeks mappings <span class="math inline">\(f_m(\mathbf{X}_m)\)</span> that project each observation to a unified consensus representation <span class="math inline">\(\mathbf{U} \in \mathbb{R}^{n \times k}\)</span> approximating <span class="math inline">\(\mathbf{S}\)</span>.</p>
-<p>In biological cohorts, ambient feature dimensions often far exceed sample size (<span class="math inline">\(p_m \gg n\)</span>). When a high-dimensional view contains little structured covariance, standard correlation objectives can capitalize on chance associations, corrupting the consensus space <span class="citation" data-cites="avants2025 stone2024blast">(<a href="#ref-avants2025" role="doc-biblioref"><span class="nocase">Avants et al.</span> 2025</a>; <a href="#ref-stone2024blast" role="doc-biblioref"><span class="nocase">Stone et al.</span> 2024</a>)</span>. Principled integration requires explicit regularization that penalizes off-manifold noise while preserving true biological signal.</p>
-</section>
-<section id="why-brain-mri-needs-bipartite-cognitive-alignment-mediation-in-adni-mci" class="level3" data-number="1.1.3">
-<h3 data-number="1.1.3" class="anchored" data-anchor-id="why-brain-mri-needs-bipartite-cognitive-alignment-mediation-in-adni-mci"><span class="header-section-number">1.1.3</span> Why Brain MRI Needs Bipartite Cognitive Alignment &amp; Mediation in ADNI-MCI</h3>
-<p>A clear real-world example of why multi-view consensus topology (Stage 2) and a linear Stiefel entrypoint (Stage 1) matter comes from studying <span class="math inline">\(N = 1,084\)</span> patients with Mild Cognitive Impairment (MCI) in the Alzheimer’s Disease Neuroimaging Initiative (ADNI) <span class="citation" data-cites="ADNI jack2008alzheimer">(<a href="#ref-ADNI" role="doc-biblioref"><span class="nocase">Weiner et al.</span> 2017</a>; <a href="#ref-jack2008alzheimer" role="doc-biblioref"><span class="nocase">Jack et al.</span> 2008</a>)</span>. In clinical trials, the standard outcome used to judge whether a treatment works is the <strong>Clinical Dementia Rating – Sum of Boxes (CDR-SB)</strong>, alongside composite multi-domain cognitive performance (<code>CogPC1</code>, the primary latent axis across 11 <span class="math inline">\(&gt;98\%\)</span>-complete clinical and cognitive sub-scores from the ADAS-Cog, MMSE, Trails, FAQ, and RAVLT batteries after in-fold Frisch–Waugh–Lovell adjustment for age, sex, and education).</p>
-<p>Each patient has four views of baseline data:</p>
-<ul>
-<li><strong>Three structural brain MRI views (<span class="math inline">\(382\)</span> brain regions total):</strong> regional gray-matter volumes (<span class="math inline">\(p_1 = 160\)</span>), hierarchical cortical surface thickness (<span class="math inline">\(p_2 = 160\)</span>), and native T1-weighted cortical thickness (<span class="math inline">\(p_3 = 62\)</span>).</li>
-<li><strong>One clinical/cognitive battery view (<span class="math inline">\(p_4 = 11\)</span> items at <span class="math inline">\(&gt;98\%\)</span> completeness, or <span class="math inline">\(13\)</span> items with MMSE/ADAS sub-items).</strong></li>
-</ul>
-<p>Evaluating how brain structure relates to cognition and daily disability on held-out test patients reveals four fundamental findings:</p>
-<ol type="1">
-<li><strong>Predicting daily disability directly from brain MRI hits a biological ceiling (<span class="math inline">\(R^2 = 0.0411\)</span>):</strong> When a model tries to predict CDR-SB directly from the 382 brain MRI measurements alone (<code>Protocol A</code>), it explains only <strong><span class="math inline">\(4.1\%\)</span> of the variance</strong> on unseen test patients (<span class="math inline">\(\text{Direct-Anatomy [SiMLR]}: R^2 = 0.0411 \pm 0.0248, \rho = 0.2203\)</span>), and standard ridge regression on the concatenated MRI features fails (<span class="math inline">\(R^2 = -0.1810 \pm 0.0916\)</span>). Even when predicting <code>CogPC1</code> across the 11 complete cognitive tests, aligning the 3 MRI views only with each other (<code>Protocol A</code>, unsupervised 3-view star/LOO) reaches only <span class="math inline">\(R^2 \approx 0.15\text{–}0.17\)</span> (<code>PCA</code> <span class="math inline">\(R^2 = 0.1522\)</span>; <code>NSAFlow-PCA</code> <span class="math inline">\(R^2 = 0.1592\)</span>) because high-variance healthy anatomical covariance across the 382 MRI regions dominates the leading components.</li>
-<li><strong>Bipartite Graph Alignment (<code>Protocol B</code>: MRI Views <span class="math inline">\(\leftrightarrow\)</span> Cognitive View During Training) Steers MRI Projections Toward the Disease Axis (<span class="math inline">\(R^2 = 0.224\text{–}0.241\)</span> from MRI Alone):</strong> When the three MRI views (<span class="math inline">\(m \in \{0,1,2\}\)</span>) are aligned directly against the cognitive view (<span class="math inline">\(m=3\)</span>) during training via a <strong>bipartite graph</strong> (<code>path_graph = {0:[3], 1:[3], 2:[3], 3:[0,1,2]}</code>)—and View 3 is completely withheld at test time so predictions use only the 3 MRI views’ linear projections <span class="math inline">\(\mathbf{X}_{m,\text{test}}\mathbf{V}_m\)</span>—out-of-sample <code>CogPC1</code> <span class="math inline">\(R^2\)</span> rises to <strong><span class="math inline">\(0.2237\)</span></strong> (<code>SiMLR-LBFGSB</code>, 3-seed mean in the global benchmark) and <strong><span class="math inline">\(0.2407\)</span></strong> (<code>SiMLR-Lookahead</code> in our 1,214-combination hyperparameter sweep), outperforming single-matrix <code>PCA</code> (<span class="math inline">\(0.1522\)</span>) by <strong><span class="math inline">\(+47\%\)</span> to <span class="math inline">\(+58\%\)</span></strong>.</li>
-<li><strong>Modeling the Two-Step Mediation Pathway (<span class="math inline">\(\text{Brain MRI} \to \text{Shared Cognitive Summary} \to \text{CDR-SB}\)</span>) Boosts Disability Prediction Over 6-Fold (<span class="math inline">\(R^2 = 0.2648\)</span>):</strong> Tissue loss in the hippocampus or temporal cortex does not directly make a person unable to balance a checkbook; rather, <strong>brain atrophy first impairs cognitive test performance, and that cognitive decline drives trouble with daily activities</strong>. Aligning the three MRI views with the cognitive battery to form a mediated cognitive-anatomical summary increases out-of-sample CDR-SB accuracy <strong>more than six-fold</strong>:
-<ul>
-<li><strong><span class="math inline">\(\text{LEND-SiMR + MAI [Mediated]}\)</span>:</strong> <span class="math inline">\(R^2 = 0.2648 \pm 0.0332\)</span> (<span class="math inline">\(6.44\times\)</span> higher than direct MRI, <span class="math inline">\(\rho = 0.5206\)</span>, paired Wilcoxon <span class="math inline">\(p = 9.77 \times 10^{-4}\)</span> vs.&nbsp;covariates).</li>
-<li><strong><span class="math inline">\(\text{SiMLR [Mediated]}\)</span>:</strong> <span class="math inline">\(R^2 = 0.2443 \pm 0.0534\)</span> (<span class="math inline">\(5.94\times\)</span> higher than direct MRI, <span class="math inline">\(\rho = 0.4989\)</span>) in just <strong><span class="math inline">\(0.86\text{ seconds}\)</span></strong>.</li>
-<li><strong><span class="math inline">\(\text{Flow-SiMR-V + MAI [Mediated]}\)</span>:</strong> <span class="math inline">\(R^2 = 0.2290 \pm 0.0696\)</span> (<span class="math inline">\(5.57\times\)</span> higher than direct MRI). Baron–Kenny and bootstrap mediation testing confirm that <strong><span class="math inline">\(84.5\%\text{–}86.4\%\)</span> of the effect of brain MRI atrophy on daily disability is indirect</strong>, acting through cognitive performance (<span class="math inline">\(p &lt; 10^{-15}\)</span>).</li>
-</ul></li>
-<li><strong>Unconstrained Deep Encoders Overfit the 382 MRI Features and Collapse on Test Patients (<span class="math inline">\(R^2 = 0.1127\)</span>):</strong> Replacing the linear Stiefel entrypoint with an unconstrained multi-layer perceptron encoder on the mediated pathway cuts test-set accuracy by more than half (<span class="math inline">\(\text{NED-SiMR + MAI [Mediated]}: R^2 = 0.1127 \pm 0.0578\)</span>; <span class="math inline">\(\text{NED-Shared-Private}: R^2 = 0.0840 \pm 0.0412\)</span>). Restricting the first layer to an orthonormal linear projection (<span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k\)</span>) acts as an essential geometric safeguard against high-dimensional overfitting while keeping every brain region’s weight directly readable.</li>
-</ol>
-</section>
-</section>
-<section id="background" class="level2" data-number="1.2">
-<h2 data-number="1.2" class="anchored" data-anchor-id="background"><span class="header-section-number">1.2</span> Background</h2>
-<section id="subspace-invariance-versus-basis-axis-sensitivity" class="level3" data-number="1.2.1">
-<h3 data-number="1.2.1" class="anchored" data-anchor-id="subspace-invariance-versus-basis-axis-sensitivity"><span class="header-section-number">1.2.1</span> Subspace Invariance versus Basis Axis Sensitivity</h3>
-<p>When evaluating multi-view representations, it is essential to distinguish between the <em>subspace</em> spanned by a projection and the <em>individual coordinate axes</em>:</p>
-<ol type="1">
-<li><strong>Subspace Invariance:</strong> For any orthogonal transformation <span class="math inline">\(\mathbf{M} \in O(k)\)</span>, the rotated representation <span class="math inline">\(\mathbf{Z}_m \mathbf{M} = \mathbf{X}_m (\mathbf{V}_m \mathbf{M})\)</span> spans the identical linear subspace as <span class="math inline">\(\mathbf{Z}_m\)</span>. Unregularized linear regression models trained on <span class="math inline">\(\mathbf{Z}_m \mathbf{M}\)</span> achieve identical predictions to those trained on <span class="math inline">\(\mathbf{Z}_m\)</span>.</li>
-<li><strong>Basis Localization &amp; Sparse Support Recovery:</strong> Identifying individual anatomical or molecular biomarkers requires that specific coordinate axes localize onto distinct biological feature blocks rather than mixing them across arbitrary orthogonal rotations. Whereas unregularized linear probes depend only on <span class="math inline">\(\text{span}(\mathbf{V}_m)\)</span>, direct sparse support overlap (<span class="math inline">\(F_1\)</span> / Jaccard recovery) and sparsity metrics depend directly on the coordinate orientation and sparsity of <span class="math inline">\(\mathbf{V}_m\)</span>.</li>
-<li><strong>Signed Support Disjointness:</strong> In non-negative or contrast-split representations (<span class="math inline">\(\mathbf{V} = \mathbf{V}^+ - \mathbf{V}^-\)</span> with <span class="math inline">\(\mathbf{V}^+, \mathbf{V}^- \ge 0\)</span>), overlap between positive and negative lobes produces destructive cancellation. Enforcing disjoint support (<span class="math inline">\(\mathbf{V}^+ \odot \mathbf{V}^- = \mathbf{0}\)</span>) eliminates crosstalk, ensuring that positive and negative coefficients index distinct feature sets.</li>
-</ol>
-<div id="fig-interpretability-gap" class="quarto-float quarto-figure quarto-figure-center anchored">
+<div id="fig-scientific-overview" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
-<div aria-describedby="fig-interpretability-gap-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<div class="cell" data-layout-align="default">
-<div class="cell-output-display">
-<div>
-<p></p><figure class="figure"><p></p>
-<div>
-<pre class="mermaid mermaid-js">#| fig-width: 6
-#| fig-align: center
-graph LR
-    subgraph Unconstrained [Unconstrained Deep Multi-View]
-        direction TB
-        InputU[Input X_m] --&gt; MLP[Deep Multi-Layer Perceptron]
-        MLP --&gt;|Nonlinear Entanglement| LatentU[Latent Z_m]
-        LatentU -.-&gt;|Perturbation Surrogate| SHAP[Post-hoc SHAP / LIME]
-    end
-
-    subgraph Constrained [Stiefel-Constrained OLEE Entrypoint]
-        direction TB
-        InputC[Input X_m] --&gt;|Stiefel Constraint| Basis["Basis V_m (V_m^T V_m = I)"]
-        Basis --&gt;|Z_m = X_m V_m| LatentC[Auditable Latent Z_m]
-        LatentC --&gt;|Normalizing Flow / Decoder| Dec[Non-linear Manifold]
-        LatentC -.-&gt;|Exact Linear Attribution| Grad["Attribution: dZ_m/dX_m = V_m"]
-        LatentC -.-&gt;|Closed-Form Recourse| Rec["Recourse: dx* = dz V_m^T"]
-    end
-    
-    style Unconstrained fill:#fff5f5,stroke:#c62828,stroke-width:1.5px
-    style Constrained fill:#f0f7ff,stroke:#01579b,stroke-width:1.5px
-    style Basis fill:#e3f2fd,stroke:#1976d2,color:#000
-    style MLP fill:#ffebee,stroke:#d32f2f,color:#000
-</pre>
+<div aria-describedby="fig-scientific-overview-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="figures/fig-scientific-overview.jpg" class="img-fluid figure-img" style="width:100.0%">
 </div>
-<p></p></figure><p></p>
-</div>
-</div>
-</div>
-</div>
-<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-interpretability-gap-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;1.1: Architectural Comparison of the Interpretability Gap. Unconstrained deep multi-view encoders entangle input features across hidden layers, requiring post-hoc perturbation surrogates (SHAP/LIME). The Stiefel-constrained Only Linear Encoder Entrypoint (OLEE) enforces an orthonormal linear basis <span class="math inline">\(\mathbf{V}_m\)</span> (<span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_k\)</span>) at the input boundary, guaranteeing exact constant attribution (<span class="math inline">\(\nabla_{\mathbf{X}_m}\mathbf{Z}_m = \mathbf{V}_m\)</span>) and closed-form counterfactual recourse (<span class="math inline">\(\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m \mathbf{V}_m^\top\)</span>) prior to downstream non-linear decoding or normalizing flows.
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-scientific-overview-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;1.1: <strong>Visual overview of interpretable multi-view representation learning with PySiMLR.</strong> <strong>(1) Multi-Modal Clinical Views:</strong> Heterogeneous biomedical cohorts—such as cortical thickness MRI paired with neuropsychological batteries in Alzheimer’s disease (<code>ADNI-MCI</code>), or mRNA, copy-number variation, and proteomics in oncology (<code>TCGA-BRCA</code>)—are observed across shared subjects. <strong>(2) Sparse Orthogonal Entrypoint (<span class="math inline">\(\mathbf{V}_m \ge 0\)</span>, <code>nsa_flow</code>):</strong> Every modality enters exclusively through an auditable linear projection <span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span> regularized by Non-Negative Stiefel Approximating Flow (<code>nsa_flow</code>), yielding localized, parts-based feature dictionaries with controlled column overlap (<span class="math inline">\(D(\mathbf{V}_m) \to 0\)</span>). <strong>(3) Shared SiMR Patient Manifold:</strong> Modality projections align onto a shared patient embedding (<span class="math inline">\(\mathbf{U}\)</span>) via linear consensus (<code>SiMLR</code>), non-linear decoding (<code>LEND</code>), or invertible normalizing flows (<code>Flow-SiMR-V</code>). <strong>(4) Direct Anatomical &amp; Biomarker Attribution:</strong> Because the input boundary remains strictly linear and non-negative, latent axes map directly back to anatomical circuits (e.g., Braak stages) and patient-level feature contributions (<span class="math inline">\(c_{ij} = x_{ij} v_{jl}\)</span>) without post-hoc black-box approximations.
 </figcaption>
 </figure>
 </div>
 </section>
-<section id="architectural-taxonomy-organized-by-deductive-stage" class="level3" data-number="1.2.2">
-<h3 data-number="1.2.2" class="anchored" data-anchor-id="architectural-taxonomy-organized-by-deductive-stage"><span class="header-section-number">1.2.2</span> Architectural Taxonomy Organized by Deductive Stage</h3>
-<p>We evaluate nine distinct architectures spanning single-matrix baselines, linear multi-view Stiefel solvers, hybrid OLEE autoencoders, unconstrained deep autoencoders, and bijective normalizing flows:</p>
-<ul>
-<li><strong>Stage 1 Single-Matrix Baselines (<code>PCA</code>, <code>NSAFlow-PCA</code>):</strong>
-<ul>
-<li><strong>PCA (Classical Linear Baseline):</strong> Standard Principal Component Analysis fitted via singular value decomposition on concatenated, standardized predictor views (<span class="math inline">\(\mathbf{X} = [\mathbf{X}_1 \dots \mathbf{X}_M]\)</span>). Establishes the unconstrained dense linear baseline (<span class="math inline">\(0.043\text{s}\)</span>).</li>
-<li><strong>NSAFlow-PCA (Accelerated Non-negative Stiefel Flow):</strong> A fast single-matrix manifold solver utilizing direct SVD initialization on concatenated features and differentiable Non-negative Stiefel Approximating Flow (<code>nsa_flow</code>) retraction in <span class="math inline">\(0.040\text{s}\)</span> with <span class="math inline">\(25.0\%\)</span> disjoint sparsity.</li>
-</ul></li>
-<li><strong>Stage 3 Linear Multi-View Manifold Solvers (<code>SiMLR</code>, <code>SiMLR-LBFGS</code>, <code>SiMLR-LBFGSB</code>):</strong>
-<ul>
-<li><strong>SiMLR (Riemannian Gradient Descent):</strong> The classical linear cross-view formulation solving the multi-view alignment problem via Armijo line-search gradient descent with per-sweep NSA-Flow retraction (<span class="math inline">\(0.556\text{s}\)</span>).</li>
-<li><strong>SiMLR-LBFGS (Quasi-Newton Riemannian):</strong> A linear cross-view architecture incorporating two-loop L-BFGS curvature steps on the Stiefel manifold with per-sweep NSA-Flow retraction (<span class="math inline">\(\text{Support } F_1 = 0.966\)</span>).</li>
-<li><strong>SiMLR-LBFGSB (Bound-Constrained Quasi-Newton):</strong> A linear cross-view architecture using the NSA-Flow bound-constrained L-BFGS-B solver (<code>nsa_lbfgsb</code>), enforcing <span class="math inline">\(\mathbf{V}_m \ge \mathbf{0}\)</span> inside the quasi-Newton step when positivity is active (<span class="math inline">\(\text{Support } F_1 = 0.991\)</span>).</li>
-</ul></li>
-<li><strong>Stage 4 Non-Linear Decoding vs.&nbsp;Deep Encoding (<code>LEND</code>, <code>NED</code>, <code>NEDPP</code>):</strong>
-<ul>
-<li><strong>LEND (Linear Encoder, Non-linear Decoder):</strong> A hybrid OLEE architecture coupling per-view linear Stiefel projections (<span class="math inline">\(\mathbf{Z}_m = \mathbf{X}_m \mathbf{V}_m\)</span>) with a multi-layer perceptron decoder for non-linear feature reconstruction and cross-view consensus alignment.</li>
-<li><strong>NED (Non-linear Encoder-Decoder):</strong> A deep architecture adding hidden non-linear encoder layers after the initial linear projection (<span class="math inline">\(\mathbf{Z}_m = f_{\text{enc},m}(\mathbf{X}_m \mathbf{V}_m)\)</span>).</li>
-<li><strong>NEDPP (Shared and Private Subspaces):</strong> An extension of NED that partitions latent coordinates into shared consensus and view-specific private subspaces using cross-covariance penalties.</li>
-</ul></li>
-<li><strong>Stage 5 Bijective Normalizing Flows (<code>Flow-SiMR-V</code>):</strong>
-<ul>
-<li><strong>Flow-SiMR-V (Bijective Normalizing Flow with Stiefel Bottleneck):</strong> An invertible OLEE architecture prepending a linear Stiefel projection matrix <span class="math inline">\(\mathbf{V}_m\)</span> to volume-preserving RealNVP affine coupling layers in <span class="math inline">\(\mathbb{R}^k\)</span> trained with detached-prior subspace decoupling, enabling continuous density estimation, exact invertibility, and conditional cross-view imputation.</li>
-</ul></li>
-</ul>
-</section>
-<section id="summary-of-contributions" class="level3" data-number="1.2.3">
-<h3 data-number="1.2.3" class="anchored" data-anchor-id="summary-of-contributions"><span class="header-section-number">1.2.3</span> Summary of Contributions</h3>
+<section id="the-simr-framework-a-linear-entrypoint-paired-with-flexible-multi-view-alignment" class="level2" data-number="1.2">
+<h2 data-number="1.2" class="anchored" data-anchor-id="the-simr-framework-a-linear-entrypoint-paired-with-flexible-multi-view-alignment"><span class="header-section-number">1.2</span> The SiMR Framework: A Linear Entrypoint Paired with Flexible Multi-View Alignment</h2>
+<p>To satisfy both statistical learning requirements and clinical auditability, we formulate the Similarity-driven Multi-view Representation (SiMR) framework around a strict architectural boundary: the Linear Entrypoint Principle (<a href="#fig-scientific-overview" class="quarto-xref">Figure&nbsp;<span>1.1</span></a>). Regardless of how complex the downstream cross-modal alignment or generative modeling becomes, every modality <span class="math inline">\(m \in \{1, \dots, M\}\)</span> enters the model exclusively through an explicit, non-negative, sparse, and approximately orthogonal linear projection matrix <span class="math inline">\(\mathbf{V}_m \in \mathbb{R}_{\ge 0}^{p_m \times k}\)</span>:</p>
+<p><span id="eq-linear-entrypoint"><span class="math display">\[
+\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m
+\tag{1.1}\]</span></span></p>
+<p>This architectural separation provides three foundational properties that appeal simultaneously to machine learning researchers and clinical domain specialists:</p>
 <ol type="1">
-<li><strong>The Only Linear Encoder Entrypoint (OLEE) Contract &amp; NSA-Flow Geometry (Stage 1):</strong> We formalize how restricting the input layer of multi-view encoders to the compact Stiefel manifold eliminates the clinical transparency penalty (<span class="math inline">\(\nabla_{\mathbf{X}_m} \mathbf{Z}_{m,\text{lin}} = \mathbf{V}_m\)</span>) and enables closed-form counterfactual recourse (<span class="math inline">\(\delta \mathbf{x}_m^* = \Delta \mathbf{z}_m^* \mathbf{V}_m^\top\)</span>, connecting directly to Pearl <span class="citation" data-cites="pearl2009causality">(<a href="#ref-pearl2009causality" role="doc-biblioref">2009</a>)</span> and Wachter et al. <span class="citation" data-cites="Wachter_2017">(<a href="#ref-Wachter_2017" role="doc-biblioref">2017</a>)</span>) while enforcing exact zero signed lobe crosstalk (<span class="math inline">\(\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1 = 0\)</span>).</li>
-<li><strong>Bipartite Consensus Topologies &amp; ADNI-MCI Cognitive Mediation (Stage 2):</strong> Across a 1,214-combination sweep on ADNI-MCI (<span class="math inline">\(N = 1,084\)</span>), we demonstrate why aligning structural MRI views with a training-only cognitive battery via a bipartite graph (<code>Protocol B</code>) boosts out-of-sample cognitive factor prediction (<code>CogPC1 R^2</code> <span class="math inline">\(= 0.224\text{–}0.241\)</span> vs.&nbsp;<code>PCA</code> <span class="math inline">\(0.152\)</span>), and how modeling the two-step mediation pathway (<span class="math inline">\(\text{Brain MRI} \to \text{Cognition} \to \text{CDR-SB}\)</span>) increases daily disability prediction over 6-fold (<span class="math inline">\(R^2 = 0.2648\)</span> for <code>LEND-SiMR + MAI</code>; <span class="math inline">\(R^2 = 0.2443\)</span> in <span class="math inline">\(0.86\text{s}\)</span> for <code>SiMLR</code>; <span class="math inline">\(85\text{–}86\%\)</span> indirect effect, <span class="math inline">\(p &lt; 10^{-15}\)</span>).</li>
-<li><strong>Bound-Constrained Quasi-Newton Manifold Optimization (<code>SiMLR-LBFGSB</code>, <code>SiMLR-LBFGS</code>, Stage 3):</strong> We show that coupling L-BFGS-B / L-BFGS optimization with NSA-Flow retractions achieves the top global Friedman rank on the strictly linear OLEE basis probe (<span class="math inline">\(3.17\)</span> for <code>SiMLR-LBFGSB</code>, <span class="math inline">\(4.00\)</span> for <code>SiMLR-LBFGS</code>; real-cohort ranks <span class="math inline">\(2.50\)</span> and <span class="math inline">\(3.33\)</span>) and near-exact sparse ground-truth support recovery (<span class="math inline">\(0.991\)</span> and <span class="math inline">\(0.966\)</span> vs.&nbsp;<code>PCA</code> <span class="math inline">\(0.333\)</span>).</li>
-<li><strong>Hybrid Linear-Encoder Deep Decoding (<code>LEND</code>, Stage 4):</strong> We demonstrate that pairing an auditable linear encoder with a non-linear MLP decoder achieves the #1 global Friedman rank on consensus prediction (<span class="math inline">\(3.58\)</span>, mean <span class="math inline">\(0.760 \pm 0.249\)</span>), the highest ground-truth latent recovery (<span class="math inline">\(CMC = 0.907\)</span>), and a decisive advantage when views carry strong view-private noise (<code>Shared+Private</code>: <span class="math inline">\(R^2 = 0.949\)</span> vs.&nbsp;<code>PCA</code> <span class="math inline">\(0.639\)</span>) or weak sparse parts (<code>NonnegPartsWeak</code>: <span class="math inline">\(R^2 = 0.732\)</span> vs.&nbsp;<code>PCA</code> <span class="math inline">\(0.522\)</span>).</li>
-<li><strong>Resolution of Rectangular OLEE Prior Collapse in <code>Flow-SiMR-V</code> (Stage 5):</strong> We prove why backpropagating Gaussian prior log-likelihood gradients into a rectangular Stiefel basis (<span class="math inline">\(k \ll p_m\)</span>) collapses <span class="math inline">\(\mathbf{V}_m\)</span> onto trailing noise eigenvectors, and show that detached-prior subspace decoupling raises <code>Flow-SiMR-V</code> performance by <span class="math inline">\(+704\%\)</span> on ADNI-MCI (<code>CogPC1 R^2</code> from <span class="math inline">\(0.0369\)</span> to <span class="math inline">\(0.2966\)</span> / <span class="math inline">\(0.2341\)</span>) and to #3 overall rank across all 12 benchmark datasets.</li>
-<li><strong>Rigorous 12-Dataset Non-Parametric Demšar Benchmark &amp; 4-Axis Pareto Frontier:</strong> Across 324 task evaluations (12 data regimes—6 synthetic manifolds and 6 real clinical/multi-omics/imaging cohorts—<span class="math inline">\(\times\)</span> 3 independent seeds <span class="math inline">\(\times\)</span> 9 models), we conduct block-level Friedman (<span class="math inline">\(\chi_F^2 = 30.77\text{–}32.06, p \le 1.54 \times 10^{-4}\)</span>), Iman–Davenport (<span class="math inline">\(F_F = 5.19\text{–}5.51, p \le 2.54 \times 10^{-5}\)</span>), and Wilcoxon–Holm tests, mapping the 4-axis Pareto frontier across predictive accuracy, latent/support recovery, geometric invariants, and wall-clock latency.</li>
+<li><strong>Exact Feature-to-Factor and Patient-Level Attribution</strong>: Because each latent coordinate <span class="math inline">\(l \in \{1, \dots, k\}\)</span> is an additive linear combination of non-negative weights (<span class="math inline">\(\mathbf{V}_m \ge 0\)</span>), every column <span class="math inline">\(\mathbf{v}_{m,l}\)</span> represents an immediately inspectable anatomical map or molecular module without sign-cancellation ambiguity <span class="citation" data-cites="Lee_1999 avants2021">(<a href="#ref-Lee_1999" role="doc-biblioref">Lee and Seung 1999</a>; <a href="#ref-avants2021" role="doc-biblioref">Avants et al. 2021</a>)</span>. At the individual patient level <span class="math inline">\(i\)</span>, the exact contribution of feature <span class="math inline">\(j\)</span> to component <span class="math inline">\(l\)</span> is the simple elementwise product <span class="math inline">\(c_{m,i,j,l} = x_{m,i,j} v_{m,j,l}\)</span>.</li>
+<li><strong>Continuous Balance Between Pathway Overlap and Factor Redundancy (<code>nsa_flow</code>)</strong>: Rather than choosing between unconstrained sparsity (which permits duplicate components) and exact Stiefel manifold projection (which prohibits shared biological hubs), we constrain <span class="math inline">\(\mathbf{V}_m\)</span> via Non-Negative Stiefel Approximating Flow (<code>nsa_flow</code>) <span class="citation" data-cites="edelman1998geometry absil2009optimization avants2021 avants2025">(<a href="#ref-edelman1998geometry" role="doc-biblioref">Edelman et al. 1998</a>; <a href="#ref-absil2009optimization" role="doc-biblioref">Absil et al. 2008</a>; <a href="#ref-avants2021" role="doc-biblioref">Avants et al. 2021</a>, <a href="#ref-avants2025" role="doc-biblioref">2025</a>)</span>. A single trade-off weight <span class="math inline">\(w \in (0,1)\)</span> continuously balances cross-modal alignment fidelity against scale-invariant column decorrelation and norm balance, while post-optimization quantile thresholding (<span class="math inline">\(q \in [0, 1)\)</span>) allows investigators to dial continuously between pathway-wide discovery (<span class="math inline">\(q = 0.5\)</span>) and ultra-compact diagnostic panels (<span class="math inline">\(q = 0.8\)</span>).</li>
+<li><strong>Interchangeable Downstream Alignment Topologies</strong>: Holding the linear entrypoint <span class="math inline">\(\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m\)</span> fixed, SiMR supports three modular alignment paradigms: (i) classical linear consensus optimization (<code>SiMLR</code>) <span class="citation" data-cites="avants2021">(<a href="#ref-avants2021" role="doc-biblioref">Avants et al. 2021</a>)</span>, (ii) non-linear multilayer perceptron decoding (<code>LEND</code>, alongside shared-private variants <code>NED</code> and <code>NEDPP</code> <span class="citation" data-cites="bousmalis2016domain salzmann2010factorized">(<a href="#ref-bousmalis2016domain" role="doc-biblioref">Bousmalis et al. 2016</a>; <a href="#ref-salzmann2010factorized" role="doc-biblioref">Salzmann et al. 2010</a>)</span>) that accommodates curved manifold structure in the decoders while keeping the encoder strictly linear, and (iii) invertible RealNVP normalizing flows (<code>Flow-SiMR-V</code>) <span class="citation" data-cites="dinh2016density rezende2015variational papamakarios2021">(<a href="#ref-dinh2016density" role="doc-biblioref">Dinh et al. 2017</a>; <a href="#ref-rezende2015variational" role="doc-biblioref">Rezende and Mohamed 2015</a>; <a href="#ref-papamakarios2021" role="doc-biblioref">Papamakarios et al. 2021</a>)</span> that align non-Gaussian biological distributions in an exact bijective latent space.</li>
+</ol>
+</section>
+<section id="subspace-preservation-vs.-coordinate-axis-disentanglement" class="level2" data-number="1.3">
+<h2 data-number="1.3" class="anchored" data-anchor-id="subspace-preservation-vs.-coordinate-axis-disentanglement"><span class="header-section-number">1.3</span> Subspace Preservation vs.&nbsp;Coordinate Axis Disentanglement</h2>
+<p>A central contribution of this work is resolving a widespread methodological confusion in representation learning benchmarks: why post-hoc rotation or mixing of latent variables often leaves multi-variable linear regression unchanged while destroying clinical interpretability and single-factor utility.</p>
+<p>Suppose an algorithm learns a sparse, neuroanatomically localized projection <span class="math inline">\(\mathbf{V}_m \in \mathbb{R}^{p_m \times k}\)</span>, and a post-processing step multiplies <span class="math inline">\(\mathbf{V}_m\)</span> on the right by any invertible <span class="math inline">\(k \times k\)</span> mixing matrix <span class="math inline">\(\mathbf{M} \in \mathrm{GL}(k)\)</span> (for example, an orthogonal Procrustes rotation <span class="citation" data-cites="schonemann1966generalized davis1970rotation">(<a href="#ref-schonemann1966generalized" role="doc-biblioref">Schönemann 1966</a>; <a href="#ref-davis1970rotation" role="doc-biblioref">Davis and Kahan 1970</a>)</span> or independent component unmixing matrix <span class="citation" data-cites="hyvarinen2000independent">(<a href="#ref-hyvarinen2000independent" role="doc-biblioref">Hyvärinen and Oja 2000</a>)</span>). For any downstream model that depends only on the column space of the projected features—such as ordinary least squares or lightly penalized ridge regression <span class="citation" data-cites="hoerl1970ridge hastie2009elements">(<a href="#ref-hoerl1970ridge" role="doc-biblioref">Hoerl and Kennard 1970</a>; <a href="#ref-hastie2009elements" role="doc-biblioref">Hastie et al. 2009</a>)</span>—the column space is mathematically invariant to <span class="math inline">\(\mathbf{M}\)</span>:</p>
+<p><span id="eq-subspace-invariance"><span class="math display">\[
+\operatorname{span}(\mathbf{X}_m \mathbf{V}_m \mathbf{M}) = \operatorname{span}(\mathbf{X}_m \mathbf{V}_m) \quad \forall \, \mathbf{M} \in \mathrm{GL}(k)
+\tag{1.2}\]</span></span></p>
+<p>Consequently, evaluating learned representations solely with multi-variable linear probes measures only overall subspace capacity, masking whether individual columns <span class="math inline">\(\mathbf{v}_{m,l}\)</span> correspond to coherent biological systems or arbitrary diagonal mixtures. In contrast, coordinate-wise evaluations—such as axis-aligned decision trees (<code>RandomForest</code> <span class="citation" data-cites="breiman2001random">(<a href="#ref-breiman2001random" role="doc-biblioref">Breiman 2001</a>)</span>), single-biomarker clinical thresholds, and anatomical loading maps—depend directly on the orientation and sparsity of the individual coordinate axes. To separate these properties rigorously, our benchmark evaluates all nine candidate architectures across four complementary probes (<a href="#tbl-evaluation-probes" class="quarto-xref">Table&nbsp;<span>1.1</span></a>).</p>
+<div id="tbl-evaluation-probes" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-evaluation-probes-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;1.1: The four complementary evaluation probes used throughout this study to separate subspace capacity from coordinate-axis interpretability.
+</figcaption>
+<div aria-describedby="tbl-evaluation-probes-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Evaluation Probe</th>
+<th style="text-align: left;">Mathematical Target</th>
+<th style="text-align: left;">Invariant to Right-Mixing <span class="math inline">\(\mathbf{V}_m \leftarrow \mathbf{V}_m \mathbf{M}\)</span>?</th>
+<th style="text-align: left;">What It Measures Clinically and Computationally</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><strong>Multi-Variable Linear Probe</strong></td>
+<td style="text-align: left;"><span class="math inline">\(\text{Ridge}(\mathbf{X}_m \mathbf{V}_m) \to \mathbf{y}\)</span></td>
+<td style="text-align: left;">Yes (as <span class="math inline">\(\alpha \to 0\)</span>)</td>
+<td style="text-align: left;">Total predictive information retained in the <span class="math inline">\(k\)</span>-dimensional linear subspace <span class="math inline">\(\operatorname{span}(\mathbf{X}_m \mathbf{V}_m)\)</span>.</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>Axis-Aligned Tree Probe</strong></td>
+<td style="text-align: left;"><span class="math inline">\(\text{RandomForest}(\mathbf{X}_m \mathbf{V}_m) \to \mathbf{y}\)</span></td>
+<td style="text-align: left;">No</td>
+<td style="text-align: left;">Single-axis disentanglement: whether individual coordinates <span class="math inline">\(\mathbf{z}_{m,l}\)</span> act as standalone clinical predictors under coordinate threshold splits.</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><strong>Multi-Modal Consensus Probe</strong></td>
+<td style="text-align: left;"><span class="math inline">\(\text{Ridge}(\mathbf{U}_{\text{test}}) \to \mathbf{y}\)</span></td>
+<td style="text-align: left;">Depends on fusion rule</td>
+<td style="text-align: left;">Joint cross-modal variance captured when all views are simultaneously available at test time.</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><strong>Feature Support &amp; Orthogonality</strong></td>
+<td style="text-align: left;"><span class="math inline">\(F_1(\text{supp}(\mathbf{V}_m), \text{supp}(\mathbf{V}_m^*))\)</span>, <span class="math inline">\(D(\mathbf{V}_m)\)</span></td>
+<td style="text-align: left;">No</td>
+<td style="text-align: left;">Anatomical/molecular localization accuracy, sparsity percentage, and avoidance of duplicate or collapsed components.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</figure>
+</div>
+</section>
+<section id="summary-of-contributions" class="level2" data-number="1.4">
+<h2 data-number="1.4" class="anchored" data-anchor-id="summary-of-contributions"><span class="header-section-number">1.4</span> Summary of Contributions</h2>
+<ol type="1">
+<li><strong>Unified SiMR Architecture and Open-Source Implementation</strong>: We present a self-contained mathematical and software formulation (<code>pysimlr</code> + <code>nsa_flow</code>) uniting linear similarity-driven representation learning (<code>SiMLR</code>), non-linear decoding with a linear entrypoint (<code>LEND</code>), and detached-prior normalizing-flow alignment (<code>Flow-SiMR-V</code>).</li>
+<li><strong>Clinical Neuroimaging Translation in <code>ADNI-MCI</code> (<span class="math inline">\(N = 1,084\)</span>)</strong>: Under a strict clinical deployment protocol where multimodal alignment is learned from structural MRI and cognitive scales during training but evaluated using structural MRI alone at test time, <code>SiMLR</code> improves out-of-sample composite cognitive prediction by <span class="math inline">\(+65.8\%\)</span> over raw anatomical ridge regression (<span class="math inline">\(R^2 = 0.252\)</span> vs.&nbsp;<span class="math inline">\(0.152\)</span>) and isolates three distinct neuroanatomical circuits matching Braak neurofibrillary staging <span class="citation" data-cites="braak1991neuropathological dickerson2009cortical">(<a href="#ref-braak1991neuropathological" role="doc-biblioref">Braak and Braak 1991</a>; <a href="#ref-dickerson2009cortical" role="doc-biblioref"><span class="nocase">Dickerson et al.</span> 2009</a>)</span> while assigning zero weight to spared primary sensorimotor cortex.</li>
+<li><strong>Actionable Operating-Point Characterization Across 12 Benchmarks</strong>: Through a 9-method comparison across six real biomedical cohorts and six synthetic ground-truth regimes (<span class="math inline">\(1,215\)</span> operating-point cross-validation folds plus a <span class="math inline">\(1,214\)</span>-configuration hyperparameter sweep), we establish two practical operating regimes for <code>nsa_flow</code> quantile thresholding: moderate sparsity (<span class="math inline">\(q = 0.5\)</span>) for maximum pathway recovery (<span class="math inline">\(F_1 = 0.847\)</span>) and predictive accuracy, and aggressive sparsity (<span class="math inline">\(q = 0.8\)</span>–<span class="math inline">\(0.85\)</span>) for ultra-compact biomarker panels retaining over <span class="math inline">\(99\%\)</span> of peak linear predictive performance.</li>
 </ol>
 
 
 <div id="refs" class="references csl-bib-body hanging-indent" role="list">
-<div id="ref-andrew2013deep" class="csl-entry" role="listitem">
-Andrew, Galen, Raman Arora, Jeff Bilmes, and Karen Livescu. 2013. <span>“Deep Canonical Correlation Analysis.”</span> <em>International Conference on Machine Learning</em>, 1247–55.
+<div id="ref-abdi2013" class="csl-entry" role="listitem">
+Abdi, Hervé, Lynne J. Williams, and Dominique Valentin. 2013. <span>“Multiple Factor Analysis: Principal Component Analysis for Multitable and Multiblock Data Sets.”</span> <em>WIREs Computational Statistics</em> 5 (2): 149–79. <a href="https://doi.org/10.1002/wics.1246">https://doi.org/10.1002/wics.1246</a>.
 </div>
-<div id="ref-avants2025" class="csl-entry" role="listitem">
-<span class="nocase">Avants, Brian B., Nicholas J. Tustison, et al.</span> 2025. <span>“Normative Neurological Health.”</span> <em>medRxiv</em>, ahead of print. <a href="https://doi.org/10.1101/2025.09.27.25336706v2">https://doi.org/10.1101/2025.09.27.25336706v2</a>.
+<div id="ref-absil2009optimization" class="csl-entry" role="listitem">
+Absil, P.-A., Robert Mahony, and Rodolphe Sepulchre. 2008. <em>Optimization Algorithms on Matrix Manifolds</em>. Princeton University Press.
+</div>
+<div id="ref-alvarez2018towards" class="csl-entry" role="listitem">
+Alvarez-Melis, David, and Tommi S. Jaakkola. 2018. <span>“Towards Robust Interpretability with Self-Explaining Neural Networks.”</span> <em>Advances in Neural Information Processing Systems</em> 31: 7775–84.
+</div>
+<div id="ref-andrew2013deep" class="csl-entry" role="listitem">
+Andrew, Galen, Raman Arora, Jeff Bilmes, and Karen Livescu. 2013. <span>“Deep Canonical Correlation Analysis.”</span> <em>Proceedings of the 30th International Conference on Machine Learning</em> 28: 1247–55.
+</div>
+<div id="ref-argelaguet2020mofa" class="csl-entry" role="listitem">
+Argelaguet, Ricard, Damien Arnol, Danila Bredikhin, Olivier Delaneau, John C. Marioni, and Oliver Stegle. 2020. <span>“<span>MOFA+</span>: A Statistical Framework for Comprehensive Integration of Multi-Modal Single-Cell Data.”</span> <em>Genome Biology</em> 21 (1): 111. <a href="https://doi.org/10.1186/s13059-020-02015-1">https://doi.org/10.1186/s13059-020-02015-1</a>.
+</div>
+<div id="ref-avants2010sccan" class="csl-entry" role="listitem">
+Avants, Brian B., Philip A. Cook, Lyle Ungar, James C. Gee, and Murray Grossman. 2010. <span>“Dementia Induces Correlated Reductions in White Matter Integrity and Cortical Thickness: A Multivariate Neuroimaging Study with Sparse Canonical Correlation Analysis.”</span> <em>NeuroImage</em> 50 (3): 1004–16. <a href="https://doi.org/10.1016/j.neuroimage.2010.01.041">https://doi.org/10.1016/j.neuroimage.2010.01.041</a>.
+</div>
+<div id="ref-avants2014sccan" class="csl-entry" role="listitem">
+Avants, Brian B., David J. Libon, Katya Rascovsky, et al. 2014. <span>“Sparse Canonical Correlation Analysis Relates Network-Level Atrophy to Multivariate Cognitive Measures in a Neurodegenerative Population.”</span> <em>NeuroImage</em> 84: 698–711. <a href="https://doi.org/10.1016/j.neuroimage.2013.09.048">https://doi.org/10.1016/j.neuroimage.2013.09.048</a>.
+</div>
+<div id="ref-avants2011reproducible" class="csl-entry" role="listitem">
+Avants, Brian B., Nicholas J. Tustison, Gang Song, Philip A. Cook, Arno Klein, and James C. Gee. 2011. <span>“A Reproducible Evaluation of <span>ANTs</span> Similarity Metric Performance in Brain Image Registration.”</span> <em>NeuroImage</em> 54 (3): 2033–44. <a href="https://doi.org/10.1016/j.neuroimage.2010.09.025">https://doi.org/10.1016/j.neuroimage.2010.09.025</a>.
 </div>
 <div id="ref-avants2021" class="csl-entry" role="listitem">
-Avants, Brian B., Nicholas J. Tustison, and James R. Stone. 2021. <span>“SiMLR: Robust Metric Learning for Multi-View Datasets.”</span> <em>Machine Learning in Medicine</em> 1: 100–115.
+Avants, Brian B., Nicholas J. Tustison, and James R. Stone. 2021. <span>“Similarity-Driven Multi-View Embeddings from High-Dimensional Biomedical Data.”</span> <em>Nature Computational Science</em> 1 (2): 143–52. <a href="https://doi.org/10.1038/s43588-021-00029-8">https://doi.org/10.1038/s43588-021-00029-8</a>.
 </div>
-<div id="ref-avants2014ants" class="csl-entry" role="listitem">
-Avants, Brian B, Nicholas J Tustison, Michael Stauffer, Gang Song, Baohua Wu, and James C Gee. 2014. <span>“The Insight ToolKit Image Registration Framework.”</span> <em>Frontiers in Neuroinformatics</em> 8: 44.
+<div id="ref-avants2025" class="csl-entry" role="listitem">
+Avants, Brian B., Nicholas J. Tustison, and James R. Stone. 2025. <span>“Non-Negative <span>Stiefel</span> Approximating Flow: Orthogonalish Matrix Optimization for Interpretable Embeddings.”</span> <em>arXiv Preprint arXiv:2511.06425</em>. <a href="https://arxiv.org/abs/2511.06425">https://arxiv.org/abs/2511.06425</a>.
 </div>
-<div id="ref-cancerdiscovery2016esr1" class="csl-entry" role="listitem">
-Cancer Discovery. 2016. <span>“Multiple Noncoding Mutations Regulate <span>ESR1</span> Expression in Breast Cancer.”</span> <em>Cancer Discovery</em> 6 (11): OF5–5. <a href="https://doi.org/10.1158/2159-8290.cd-rw2016-170">https://doi.org/10.1158/2159-8290.cd-rw2016-170</a>.
+<div id="ref-baltrusaitis2019" class="csl-entry" role="listitem">
+Baltrušaitis, Tadas, Chaitanya Ahuja, and Louis-Philippe Morency. 2019. <span>“Multimodal Machine Learning: A Survey and Taxonomy.”</span> <em>IEEE Transactions on Pattern Analysis and Machine Intelligence</em> 41 (2): 423–43. <a href="https://doi.org/10.1109/TPAMI.2018.2798607">https://doi.org/10.1109/TPAMI.2018.2798607</a>.
 </div>
-<div id="ref-Holmberg_2022" class="csl-entry" role="listitem">
-Holmberg, Lars, Carl Johan Helgstrand, and Niklas Hultin. 2022. <span>“More Sanity Checks for&nbsp;Saliency Maps.”</span> In <em>Foundations of Intelligent Systems</em>. Springer International Publishing. <a href="https://doi.org/10.1007/978-3-031-16564-1_17">https://doi.org/10.1007/978-3-031-16564-1_17</a>.
+<div id="ref-bengio2013representation" class="csl-entry" role="listitem">
+Bengio, Yoshua, Aaron Courville, and Pascal Vincent. 2013. <span>“Representation Learning: A Review and New Perspectives.”</span> <em>IEEE Transactions on Pattern Analysis and Machine Intelligence</em> 35 (8): 1798–828. <a href="https://doi.org/10.1109/TPAMI.2013.50">https://doi.org/10.1109/TPAMI.2013.50</a>.
+</div>
+<div id="ref-boumal2023introduction" class="csl-entry" role="listitem">
+Boumal, Nicolas. 2023. <em>An Introduction to Optimization on Smooth Manifolds</em>. Cambridge University Press. <a href="https://doi.org/10.1017/9781009166164">https://doi.org/10.1017/9781009166164</a>.
+</div>
+<div id="ref-bousmalis2016domain" class="csl-entry" role="listitem">
+Bousmalis, Konstantinos, George Trigeorgis, Nathan Silberman, Dilip Krishnan, and Dumitru Erhan. 2016. <span>“Domain Separation Networks.”</span> <em>Advances in Neural Information Processing Systems</em> 29: 343–51.
+</div>
+<div id="ref-braak1991neuropathological" class="csl-entry" role="listitem">
+Braak, Heiko, and Eva Braak. 1991. <span>“Neuropathological Stageing of <span>Alzheimer</span>-Related Changes.”</span> <em>Acta Neuropathologica</em> 82 (4): 239–59. <a href="https://doi.org/10.1007/BF00308809">https://doi.org/10.1007/BF00308809</a>.
+</div>
+<div id="ref-breiman2001random" class="csl-entry" role="listitem">
+Breiman, Leo. 2001. <span>“Random Forests.”</span> <em>Machine Learning</em> 45 (1): 5–32. <a href="https://doi.org/10.1023/A:1010933404324">https://doi.org/10.1023/A:1010933404324</a>.
+</div>
+<div id="ref-buckner2009" class="csl-entry" role="listitem">
+Buckner, Randy L., Jorge Sepulcre, Tanveer Talukdar, et al. 2009. <span>“Cortical Hubs Revealed by Intrinsic Functional Connectivity: Mapping, Assessment of Stability, and Relation to <span class="nocase">Alzheimer’s</span> Disease.”</span> <em>Journal of Neuroscience</em> 29 (6): 1860–73. <a href="https://doi.org/10.1523/JNEUROSCI.5062-08.2009">https://doi.org/10.1523/JNEUROSCI.5062-08.2009</a>.
+</div>
+<div id="ref-buckner2005" class="csl-entry" role="listitem">
+Buckner, Randy L., Abraham Z. Snyder, Benjamin J. Shannon, et al. 2005. <span>“Molecular, Structural, and Functional Characterization of <span class="nocase">Alzheimer’s</span> Disease: Evidence for a Relationship Between Default Activity, Amyloid, and Memory.”</span> <em>Journal of Neuroscience</em> 25 (34): 7709–17. <a href="https://doi.org/10.1523/JNEUROSCI.2177-05.2005">https://doi.org/10.1523/JNEUROSCI.2177-05.2005</a>.
+</div>
+<div id="ref-cantini2021" class="csl-entry" role="listitem">
+Cantini, Laura, Pooya Zakeri, Celine Hernandez, et al. 2021. <span>“Benchmarking Joint Multi-Omics Dimensionality Reduction Approaches for the Study of Cancer.”</span> <em>Nature Communications</em> 12 (1): 124. <a href="https://doi.org/10.1038/s41467-020-20430-7">https://doi.org/10.1038/s41467-020-20430-7</a>.
+</div>
+<div id="ref-Chaudhuri_2009" class="csl-entry" role="listitem">
+Chaudhuri, Kamalika, Sham M. Kakade, Karen Livescu, and Karthik Sridharan. 2009. <span>“Multi-View Clustering via Canonical Correlation Analysis.”</span> <em>Proceedings of the 26th Annual International Conference on Machine Learning</em>, 129–36. <a href="https://doi.org/10.1145/1553374.1553391">https://doi.org/10.1145/1553374.1553391</a>.
+</div>
+<div id="ref-cichocki2009" class="csl-entry" role="listitem">
+Cichocki, Andrzej, Rafał Zdunek, Anh Huy Phan, and Shun-ichi Amari. 2009. <em>Nonnegative Matrix and Tensor Factorizations: Applications to Exploratory Multi-Way Data Analysis and Blind Source Separation</em>. John Wiley &amp; Sons. <a href="https://doi.org/10.1002/9780470747278">https://doi.org/10.1002/9780470747278</a>.
+</div>
+<div id="ref-Cohen_2014" class="csl-entry" role="listitem">
+Cohen, Helit, Rotem Ben-Hamo, Moriah Gidoni, et al. 2014. <span>“Shift in <span>GATA3</span> Functions, and <span>GATA3</span> Mutations, Control Progression and Clinical Presentation in Breast Cancer.”</span> <em>Breast Cancer Research</em> 16 (6): 464. <a href="https://doi.org/10.1186/s13058-014-0464-0">https://doi.org/10.1186/s13058-014-0464-0</a>.
+</div>
+<div id="ref-Cuingnet2011" class="csl-entry" role="listitem">
+Cuingnet, Rémi, Emilie Gerardin, Jérôme Tessieras, et al. 2011. <span>“Automatic Classification of Patients with <span class="nocase">Alzheimer’s</span> Disease from Structural <span>MRI</span>: A Comparison of Ten Methods Using the <span>ADNI</span> Database.”</span> <em>NeuroImage</em> 56 (2): 766–81. <a href="https://doi.org/10.1016/j.neuroimage.2010.06.013">https://doi.org/10.1016/j.neuroimage.2010.06.013</a>.
+</div>
+<div id="ref-curtis2012" class="csl-entry" role="listitem">
+<span class="nocase">Curtis, Christina, Sohrab P. Shah, Suet-Feung Chin, et al.</span> 2012. <span>“The Genomic and Transcriptomic Architecture of 2,000 Breast Tumours Reveals Novel Subgroups.”</span> <em>Nature</em> 486 (7403): 346–52. <a href="https://doi.org/10.1038/nature10983">https://doi.org/10.1038/nature10983</a>.
+</div>
+<div id="ref-das2009direct" class="csl-entry" role="listitem">
+Das, Sandhitsu R., Brian B. Avants, Murray Grossman, and James C. Gee. 2009. <span>“Registration Based Cortical Thickness Measurement.”</span> <em>NeuroImage</em> 45 (3): 867–79. <a href="https://doi.org/10.1016/j.neuroimage.2008.12.016">https://doi.org/10.1016/j.neuroimage.2008.12.016</a>.
+</div>
+<div id="ref-davis1970rotation" class="csl-entry" role="listitem">
+Davis, Chandler, and W. M. Kahan. 1970. <span>“The Rotation of Eigenvectors by a Perturbation. <span>III</span>.”</span> <em>SIAM Journal on Numerical Analysis</em> 7 (1): 1–46. <a href="https://doi.org/10.1137/0707001">https://doi.org/10.1137/0707001</a>.
+</div>
+<div id="ref-dickerson2009cortical" class="csl-entry" role="listitem">
+<span class="nocase">Dickerson, Bradford C., Akram Bakkour, David H. Salat, et al.</span> 2009. <span>“The Cortical Signature of <span class="nocase">Alzheimer’s</span> Disease: Regionally Specific Cortical Thinning Relates to Symptom Severity in Very Mild to Mild <span>AD</span> Dementia and Is Detectable in Asymptomatic Amyloid-Positive Individuals.”</span> <em>Cerebral Cortex</em> 19 (3): 497–510. <a href="https://doi.org/10.1093/cercor/bhn113">https://doi.org/10.1093/cercor/bhn113</a>.
+</div>
+<div id="ref-ding2006orthogonal" class="csl-entry" role="listitem">
+Ding, Chris, Tao Li, Wei Peng, and Haesun Park. 2006. <span>“Orthogonal Nonnegative Matrix t-Factorizations for Clustering.”</span> <em>Proceedings of the 12th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining</em>, 126–35. <a href="https://doi.org/10.1145/1150402.1150420">https://doi.org/10.1145/1150402.1150420</a>.
+</div>
+<div id="ref-dinh2016density" class="csl-entry" role="listitem">
+Dinh, Laurent, Jascha Sohl-Dickstein, and Samy Bengio. 2017. <span>“Density Estimation Using <span>Real NVP</span>.”</span> <em>International Conference on Learning Representations</em>.
+</div>
+<div id="ref-doshivelez2017" class="csl-entry" role="listitem">
+Doshi-Velez, Finale, and Been Kim. 2017. <span>“Towards a Rigorous Science of Interpretable Machine Learning.”</span> <em>arXiv Preprint arXiv:1702.08608</em>.
+</div>
+<div id="ref-edelman1998geometry" class="csl-entry" role="listitem">
+Edelman, Alan, Tomás A. Arias, and Steven T. Smith. 1998. <span>“The Geometry of Algorithms with Orthogonality Constraints.”</span> <em>SIAM Journal on Matrix Analysis and Applications</em> 20 (2): 303–53. <a href="https://doi.org/10.1137/S0895479895290954">https://doi.org/10.1137/S0895479895290954</a>.
+</div>
+<div id="ref-fischl2000" class="csl-entry" role="listitem">
+Fischl, Bruce, and Anders M. Dale. 2000. <span>“Measuring the Thickness of the Human Cerebral Cortex from Magnetic Resonance Images.”</span> <em>Proceedings of the National Academy of Sciences</em> 97 (20): 11050–55. <a href="https://doi.org/10.1073/pnas.200033797">https://doi.org/10.1073/pnas.200033797</a>.
+</div>
+<div id="ref-folstein1975mini" class="csl-entry" role="listitem">
+Folstein, Marshal F., Susan E. Folstein, and Paul R. McHugh. 1975. <span>“<span>‘Mini-Mental State’</span>: A Practical Method for Grading the Cognitive State of Patients for the Clinician.”</span> <em>Journal of Psychiatric Research</em> 12 (3): 189–98. <a href="https://doi.org/10.1016/0022-3956(75)90026-6">https://doi.org/10.1016/0022-3956(75)90026-6</a>.
+</div>
+<div id="ref-hardoon2004canonical" class="csl-entry" role="listitem">
+Hardoon, David R., Sandor Szedmak, and John Shawe-Taylor. 2004. <span>“Canonical Correlation Analysis: An Overview with Application to Learning Methods.”</span> <em>Neural Computation</em> 16 (12): 2639–64. <a href="https://doi.org/10.1162/0899766042321814">https://doi.org/10.1162/0899766042321814</a>.
+</div>
+<div id="ref-hastie2009elements" class="csl-entry" role="listitem">
+Hastie, Trevor, Robert Tibshirani, and Jerome Friedman. 2009. <em>The Elements of Statistical Learning: Data Mining, Inference, and Prediction</em>. 2nd ed. Springer. <a href="https://doi.org/10.1007/978-0-387-84858-7">https://doi.org/10.1007/978-0-387-84858-7</a>.
+</div>
+<div id="ref-higgins2017" class="csl-entry" role="listitem">
+Higgins, Irina, Loic Matthey, Arka Pal, et al. 2017. <span>“Beta-<span>VAE</span>: Learning Basic Visual Concepts with a Constrained Variational Framework.”</span> <em>International Conference on Learning Representations</em>.
+</div>
+<div id="ref-hinton2006reducing" class="csl-entry" role="listitem">
+Hinton, Geoffrey E., and Ruslan R. Salakhutdinov. 2006. <span>“Reducing the Dimensionality of Data with Neural Networks.”</span> <em>Science</em> 313 (5786): 504–7. <a href="https://doi.org/10.1126/science.1127647">https://doi.org/10.1126/science.1127647</a>.
+</div>
+<div id="ref-hoadley2018" class="csl-entry" role="listitem">
+<span class="nocase">Hoadley, Katherine A., Christina Yau, Toshinori Hinoue, et al.</span> 2018. <span>“Cell-of-Origin Patterns Dominate the Molecular Classification of 10,000 Tumors from 33 Types of Cancer.”</span> <em>Cell</em> 173 (2): 291–304. <a href="https://doi.org/10.1016/j.cell.2018.03.022">https://doi.org/10.1016/j.cell.2018.03.022</a>.
+</div>
+<div id="ref-hoerl1970ridge" class="csl-entry" role="listitem">
+Hoerl, Arthur E., and Robert W. Kennard. 1970. <span>“Ridge Regression: Biased Estimation for Nonorthogonal Problems.”</span> <em>Technometrics</em> 12 (1): 55–67. <a href="https://doi.org/10.1080/00401706.1970.10488634">https://doi.org/10.1080/00401706.1970.10488634</a>.
+</div>
+<div id="ref-hooker2019benchmark" class="csl-entry" role="listitem">
+Hooker, Sara, Dumitru Erhan, Pieter-Jan Kindermans, and Been Kim. 2019. <span>“A Benchmark for Interpretability Methods in Deep Neural Networks.”</span> <em>Advances in Neural Information Processing Systems</em> 32: 9737–48.
+</div>
+<div id="ref-hotelling1933" class="csl-entry" role="listitem">
+Hotelling, Harold. 1933. <span>“Analysis of a Complex of Statistical Variables into Principal Components.”</span> <em>Journal of Educational Psychology</em> 24 (6): 417–41. <a href="https://doi.org/10.1037/h0071325">https://doi.org/10.1037/h0071325</a>.
 </div>
 <div id="ref-hotelling1936relations" class="csl-entry" role="listitem">
-Hotelling, Harold. 1936. <span>“Relations Between Two Sets of Variates.”</span> <em>Biometrika</em> 28 (3/4): 321. <a href="https://doi.org/10.2307/2333955">https://doi.org/10.2307/2333955</a>.
+Hotelling, Harold. 1936. <span>“Relations Between Two Sets of Variates.”</span> <em>Biometrika</em> 28 (3/4): 321–77. <a href="https://doi.org/10.2307/2333955">https://doi.org/10.2307/2333955</a>.
 </div>
-<div id="ref-jack2008alzheimer" class="csl-entry" role="listitem">
-<span class="nocase">Jack, Clifford R., Matt A. Bernstein, Nick C. Fox, et al.</span> 2008. <span>“The <span class="nocase">Alzheimer’s Disease Neuroimaging Initiative</span> (<span>ADNI</span>): <span>MRI</span> Methods.”</span> <em>Journal of Magnetic Resonance Imaging</em> 27 (4): 685–91. <a href="https://doi.org/10.1002/jmri.21049">https://doi.org/10.1002/jmri.21049</a>.
+<div id="ref-hoyer2004non" class="csl-entry" role="listitem">
+Hoyer, Patrik O. 2004. <span>“Non-Negative Matrix Factorization with Sparseness Constraints.”</span> <em>Journal of Machine Learning Research</em> 5: 1457–69.
+</div>
+<div id="ref-hyvarinen2000independent" class="csl-entry" role="listitem">
+Hyvärinen, Aapo, and Erkki Oja. 2000. <span>“Independent Component Analysis: Algorithms and Applications.”</span> <em>Neural Networks</em> 13 (4-5): 411–30. <a href="https://doi.org/10.1016/S0893-6080(00)00026-5">https://doi.org/10.1016/S0893-6080(00)00026-5</a>.
+</div>
+<div id="ref-jack2018nia" class="csl-entry" role="listitem">
+<span class="nocase">Jack, Clifford R., David A. Bennett, Kaj Blennow, et al.</span> 2018. <span>“<span>NIA-AA</span> Research Framework: Toward a Biological Definition of <span class="nocase">Alzheimer’s</span> Disease.”</span> <em>Alzheimer’s &amp; Dementia</em> 14 (4): 535–62. <a href="https://doi.org/10.1016/j.jalz.2018.02.018">https://doi.org/10.1016/j.jalz.2018.02.018</a>.
+</div>
+<div id="ref-kandel2015" class="csl-entry" role="listitem">
+Kandel, Benjamin M., Danny J. J. Wang, James C. Gee, and Brian B. Avants. 2015. <span>“Decomposing Cerebral Cortex into Anatomically, Functionally, Andba-Driven Regions Using Sparse Eigenanatomy.”</span> <em>NeuroImage</em> 105: 156–70. <a href="https://doi.org/10.1016/j.neuroimage.2014.10.052">https://doi.org/10.1016/j.neuroimage.2014.10.052</a>.
+</div>
+<div id="ref-krishnan2011" class="csl-entry" role="listitem">
+Krishnan, Anjali, Lynne J. Williams, Anthony Randal McIntosh, and Hervé Abdi. 2011. <span>“Partial <span>Least Squares</span> (<span>PLS</span>) Methods for Neuroimaging: A Tutorial and Review.”</span> <em>NeuroImage</em> 56 (2): 455–75. <a href="https://doi.org/10.1016/j.neuroimage.2010.07.034">https://doi.org/10.1016/j.neuroimage.2010.07.034</a>.
+</div>
+<div id="ref-Lee_1999" class="csl-entry" role="listitem">
+Lee, Daniel D., and H. Sebastian Seung. 1999. <span>“Learning the Parts of Objects by Non-Negative Matrix Factorization.”</span> <em>Nature</em> 401 (6755): 788–91. <a href="https://doi.org/10.1038/44565">https://doi.org/10.1038/44565</a>.
+</div>
+<div id="ref-lee2001algorithms" class="csl-entry" role="listitem">
+Lee, Daniel D., and H. Sebastian Seung. 2001. <span>“Algorithms for Non-Negative Matrix Factorization.”</span> <em>Advances in Neural Information Processing Systems</em> 13: 556–62.
+</div>
+<div id="ref-Lipton_2018" class="csl-entry" role="listitem">
+Lipton, Zachary C. 2018. <span>“The Mythos of Model Interpretability.”</span> <em>Queue</em> 16 (3): 31–57. <a href="https://doi.org/10.1145/3236386.3241340">https://doi.org/10.1145/3236386.3241340</a>.
+</div>
+<div id="ref-lock2013" class="csl-entry" role="listitem">
+Lock, Eric F., Katherine A. Hoadley, J. Stephen Marron, and Andrew B. Nobel. 2013. <span>“Joint and Individual Variation Explained (<span>JIVE</span>) for Integrated Analysis of Multiple Data Types.”</span> <em>The Annals of Applied Statistics</em> 7 (1): 523–42. <a href="https://doi.org/10.1214/12-AOAS597">https://doi.org/10.1214/12-AOAS597</a>.
 </div>
 <div id="ref-Lundberg_2017" class="csl-entry" role="listitem">
-Lundberg, Scott M, and Su-In Lee. 2017. <span>“A Unified Approach to Interpreting Model Predictions.”</span> <em>Advances in Neural Information Processing Systems</em> 30.
+Lundberg, Scott M., and Su-In Lee. 2017. <span>“A Unified Approach to Interpreting Model Predictions.”</span> <em>Advances in Neural Information Processing Systems</em> 30: 4765–74.
 </div>
-<div id="ref-Marek2011" class="csl-entry" role="listitem">
-<span class="nocase">Marek, Kenneth, Danna Jennings, Shirley Lasch, et al.</span> 2011. <span>“The <span class="nocase">Parkinson’s Progression Markers Initiative</span> (<span>PPMI</span>).”</span> <em>Progress in Neurobiology</em> 95 (4): 629–35. <a href="https://doi.org/10.1016/j.pneurobio.2011.09.005">https://doi.org/10.1016/j.pneurobio.2011.09.005</a>.
+<div id="ref-menon2010saliency" class="csl-entry" role="listitem">
+Menon, Vinod, and Lucina Q. Uddin. 2010. <span>“Saliency, Switching, Attention and Control: A Network Model of Insula Function.”</span> <em>Brain Structure and Function</em> 214 (5-6): 655–67. <a href="https://doi.org/10.1007/s00429-010-0262-0">https://doi.org/10.1007/s00429-010-0262-0</a>.
 </div>
-<div id="ref-pearl2009causality" class="csl-entry" role="listitem">
-Pearl, Judea. 2009. <em>Causality</em>. Cambridge university press.
+<div id="ref-morris1993clinical" class="csl-entry" role="listitem">
+Morris, John C. 1993. <span>“The <span>Clinical Dementia Rating</span> (<span>CDR</span>): Current Version and Scoring Rules.”</span> <em>Neurology</em> 43 (11): 2412–14. <a href="https://doi.org/10.1212/WNL.43.11.2412-a">https://doi.org/10.1212/WNL.43.11.2412-a</a>.
 </div>
-<div id="ref-Smith2023posthoc" class="csl-entry" role="listitem">
-Radulovic, Nedeljko. 2023. <span>“Post-Hoc Explainable AI for Black Box Models on Tabular Data.”</span> PhD thesis, Institut Polytechnique de Paris. <a href="https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5">https://doi.org/10.70675/622ba75cz4386z48e4z934ez365c407c74d5</a>.
+<div id="ref-papamakarios2021" class="csl-entry" role="listitem">
+Papamakarios, George, Eric Nalisnick, Danilo Jimenez Rezende, Shakir Mohamed, and Balaji Lakshminarayanan. 2021. <span>“Normalizing Flows for Probabilistic Modeling and Inference.”</span> <em>Journal of Machine Learning Research</em> 22 (57): 1–64.
+</div>
+<div id="ref-parker2009supervised" class="csl-entry" role="listitem">
+<span class="nocase">Parker, Joel S., Michael Mullins, Maggie C. U. Cheang, et al.</span> 2009. <span>“Supervised Risk Predictor of Breast Cancer Based on Intrinsic Subtypes.”</span> <em>Journal of Clinical Oncology</em> 27 (8): 1160–67. <a href="https://doi.org/10.1200/JCO.2008.18.1370">https://doi.org/10.1200/JCO.2008.18.1370</a>.
+</div>
+<div id="ref-parkhomenko2009" class="csl-entry" role="listitem">
+Parkhomenko, Elena, David Tritchler, and Joseph Beyene. 2009. <span>“Sparse Canonical Correlation Analysis with Application to Genomic Data Integration.”</span> <em>Statistical Applications in Genetics and Molecular Biology</em> 8 (1): 1–34. <a href="https://doi.org/10.2202/1544-6115.1406">https://doi.org/10.2202/1544-6115.1406</a>.
+</div>
+<div id="ref-perou2000" class="csl-entry" role="listitem">
+<span class="nocase">Perou, Charles M., Therese Sørlie, Michael B. Eisen, et al.</span> 2000. <span>“Molecular Portraits of Human Breast Tumours.”</span> <em>Nature</em> 406 (6797): 747–52. <a href="https://doi.org/10.1038/35021093">https://doi.org/10.1038/35021093</a>.
+</div>
+<div id="ref-pfeffer1982measurement" class="csl-entry" role="listitem">
+Pfeffer, Robert I., Tom T. Kurosaki, C. H. Harrah, J. M. Chance, and S. Filos. 1982. <span>“Measurement of Functional Activities in Older Adults in the Community.”</span> <em>Journal of Gerontology</em> 37 (3): 323–29. <a href="https://doi.org/10.1093/geronj/37.3.323">https://doi.org/10.1093/geronj/37.3.323</a>.
+</div>
+<div id="ref-Prat_2019" class="csl-entry" role="listitem">
+Prat, Aleix, and Joel S. Parker. 2020. <span>“Standardized Versus Research-Based <span>PAM50</span> Intrinsic Subtyping of Breast Cancer.”</span> <em>Clinical and Translational Oncology</em> 22 (6): 953–55. <a href="https://doi.org/10.1007/s12094-019-02203-x">https://doi.org/10.1007/s12094-019-02203-x</a>.
+</div>
+<div id="ref-racine2018personalized" class="csl-entry" role="listitem">
+Racine, Annie M., Michael Brickhouse, David A. Wolk, and Bradford C. Dickerson. 2018. <span>“The Personalized <span class="nocase">Alzheimer’s</span> Disease Cortical Thickness Index Predicts Likely Pathology and Clinical Progression in Mild Cognitive Impairment.”</span> <em>Alzheimer’s &amp; Dementia: Diagnosis, Assessment &amp; Disease Monitoring</em> 10: 301–10. <a href="https://doi.org/10.1016/j.dadm.2018.02.007">https://doi.org/10.1016/j.dadm.2018.02.007</a>.
+</div>
+<div id="ref-radford2021" class="csl-entry" role="listitem">
+<span class="nocase">Radford, Alec, Jong Wook Kim, Chris Hallacy, et al.</span> 2021. <span>“Learning Transferable Visual Models from Natural Language Supervision.”</span> <em>Proceedings of the 38th International Conference on Machine Learning</em> 139: 8748–63.
+</div>
+<div id="ref-reitan1958validity" class="csl-entry" role="listitem">
+Reitan, Ralph M. 1958. <span>“Validity of the <span>Trail Making Test</span> as an Indicator of Organic Brain Damage.”</span> <em>Perceptual and Motor Skills</em> 8 (3): 271–76. <a href="https://doi.org/10.2466/pms.1958.8.3.271">https://doi.org/10.2466/pms.1958.8.3.271</a>.
+</div>
+<div id="ref-rey1964examen" class="csl-entry" role="listitem">
+Rey, André. 1964. <span>“L’examen Clinique En Psychologie.”</span> <em>Presses Universitaires de France</em>.
+</div>
+<div id="ref-rezende2015variational" class="csl-entry" role="listitem">
+Rezende, Danilo, and Shakir Mohamed. 2015. <span>“Variational Inference with Normalizing Flows.”</span> <em>Proceedings of the 32nd International Conference on Machine Learning</em> 37: 1530–38.
 </div>
 <div id="ref-Ribeiro_2016" class="csl-entry" role="listitem">
-Ribeiro, Marco, Sameer Singh, and Carlos Guestrin. 2016. <span>“<span>‘Why Should i Trust You?’</span>: Explaining the Predictions of Any Classifier.”</span> <em>Proceedings of the 2016 Conference of the North American Chapter of the Association for Computational Linguistics: Demonstrations</em>, 97–101. <a href="https://doi.org/10.18653/v1/n16-3020">https://doi.org/10.18653/v1/n16-3020</a>.
+Ribeiro, Marco Tulio, Sameer Singh, and Carlos Guestrin. 2016. <span>“<span>‘Why Should <span>I</span> Trust You?’</span>: Explaining the Predictions of Any Classifier.”</span> <em>Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining</em>, 1135–44. <a href="https://doi.org/10.1145/2939672.2939778">https://doi.org/10.1145/2939672.2939778</a>.
+</div>
+<div id="ref-rosen1984new" class="csl-entry" role="listitem">
+Rosen, Wilma G., Richard C. Mohs, and Kenneth L. Davis. 1984. <span>“A New Rating Scale for <span class="nocase">Alzheimer’s</span> Disease.”</span> <em>American Journal of Psychiatry</em> 141 (11): 1356–64. <a href="https://doi.org/10.1176/ajp.141.11.1356">https://doi.org/10.1176/ajp.141.11.1356</a>.
 </div>
 <div id="ref-Rudin_2019" class="csl-entry" role="listitem">
 Rudin, Cynthia. 2019. <span>“Stop Explaining Black Box Machine Learning Models for High Stakes Decisions and Use Interpretable Models Instead.”</span> <em>Nature Machine Intelligence</em> 1 (5): 206–15. <a href="https://doi.org/10.1038/s42256-019-0048-x">https://doi.org/10.1038/s42256-019-0048-x</a>.
 </div>
-<div id="ref-stone2024blast" class="csl-entry" role="listitem">
-<span class="nocase">Stone, James R., Brian B. Avants, et al.</span> 2024. <span>“Effects of Low-Level Blast Exposure on Structural Brain Networks Analyzed via SiMLR.”</span> <em>Frontiers in Neurology</em> 15: 123456.
+<div id="ref-salzmann2010factorized" class="csl-entry" role="listitem">
+Salzmann, Mathieu, Carl Henrik Ek, Raquel Urtasun, and Trevor Darrell. 2010. <span>“Factorized Orthogonal Latent Spaces.”</span> <em>Proceedings of the Thirteenth International Conference on Artificial Intelligence and Statistics</em> 9: 701–8.
 </div>
-<div id="ref-stone2020longitudinal" class="csl-entry" role="listitem">
-<span class="nocase">Stone, James R, Brian B Avants, et al.</span> 2020. <span>“Longitudinal Structural Magnetic Resonance Imaging of Blast-Induced Mild Traumatic Brain Injury.”</span> <em>Journal of Neurotrauma</em> 37 (21): 2343–54.
+<div id="ref-schonemann1966generalized" class="csl-entry" role="listitem">
+Schönemann, Peter H. 1966. <span>“A Generalized Solution of the Orthogonal <span>Procrustes</span> Problem.”</span> <em>Psychometrika</em> 31 (1): 1–10. <a href="https://doi.org/10.1007/BF02289451">https://doi.org/10.1007/BF02289451</a>.
+</div>
+<div id="ref-seeley2009neurodegenerative" class="csl-entry" role="listitem">
+Seeley, William W., Richard K. Crawford, Juan Zhou, Bruce L. Miller, and Michael D. Greicius. 2009. <span>“Neurodegenerative Diseases Target Large-Scale Human Brain Networks.”</span> <em>Neuron</em> 62 (1): 42–52. <a href="https://doi.org/10.1016/j.neuron.2009.03.024">https://doi.org/10.1016/j.neuron.2009.03.024</a>.
+</div>
+<div id="ref-shi2019" class="csl-entry" role="listitem">
+Shi, Yuge, N. Siddharth, Brooks Paige, and Philip H. S. Torr. 2019. <span>“Variational Mixture-of-Experts Autoencoders for Multi-Modal Deep Generative Models.”</span> <em>Advances in Neural Information Processing Systems</em> 32: 15718–29.
+</div>
+<div id="ref-sundararajan2017" class="csl-entry" role="listitem">
+Sundararajan, Mukund, Ankur Taly, and Qiqi Yan. 2017. <span>“Axiomatic Attribution for Deep Networks.”</span> <em>Proceedings of the 34th International Conference on Machine Learning</em> 70: 3319–28.
+</div>
+<div id="ref-tenenhaus2014" class="csl-entry" role="listitem">
+Tenenhaus, Arthur, Cathy Philippe, Vincent Guillemot, Kim-Anh Le Cao, Jacques Grill, and Vincent Frouin. 2014. <span>“Variable Selection for Generalized Canonical Correlation Analysis.”</span> <em>Biostatistics</em> 15 (3): 569–83. <a href="https://doi.org/10.1093/biostatistics/kxu001">https://doi.org/10.1093/biostatistics/kxu001</a>.
+</div>
+<div id="ref-tenenhaus2011" class="csl-entry" role="listitem">
+Tenenhaus, Arthur, and Michel Tenenhaus. 2011. <span>“Regularized Generalized Canonical Correlation Analysis.”</span> <em>Psychometrika</em> 76 (2): 257–84. <a href="https://doi.org/10.1007/s11336-011-9206-8">https://doi.org/10.1007/s11336-011-9206-8</a>.
 </div>
 <div id="ref-tcga2012breast" class="csl-entry" role="listitem">
 The Cancer Genome Atlas Network. 2012. <span>“Comprehensive Molecular Portraits of Human Breast Tumours.”</span> <em>Nature</em> 490 (7418): 61–70. <a href="https://doi.org/10.1038/nature11412">https://doi.org/10.1038/nature11412</a>.
@@ -501,17 +624,34 @@ The Cancer Genome Atlas Network. 2012. <span>“Comprehensive Molecular Portrait
 <div id="ref-tcga2013kirc" class="csl-entry" role="listitem">
 The Cancer Genome Atlas Research Network. 2013. <span>“Comprehensive Molecular Characterization of Clear Cell Renal Cell Carcinoma.”</span> <em>Nature</em> 499 (7456): 43–49. <a href="https://doi.org/10.1038/nature12222">https://doi.org/10.1038/nature12222</a>.
 </div>
-<div id="ref-Wachter_2017" class="csl-entry" role="listitem">
-Wachter, Sandra, Brent Mittelstadt, and Chris Russell. 2017. <span>“Counterfactual Explanations Without Opening the Black Box: Automated Decisions and the GDPR.”</span> <em>SSRN Electronic Journal</em>, ahead of print. <a href="https://doi.org/10.2139/ssrn.3063289">https://doi.org/10.2139/ssrn.3063289</a>.
+<div id="ref-tustison2021antsx" class="csl-entry" role="listitem">
+Tustison, Nicholas J., Philip A. Cook, Andrew J. Holbrook, et al. 2021. <span>“The <span>ANTsX</span> Ecosystem for Quantitative Biological and Medical Imaging.”</span> <em>Scientific Reports</em> 11 (1): 9068. <a href="https://doi.org/10.1038/s41598-021-87564-6">https://doi.org/10.1038/s41598-021-87564-6</a>.
 </div>
-<div id="ref-ADNI" class="csl-entry" role="listitem">
-<span class="nocase">Weiner, Michael W., Dallas P. Veitch, Paul S. Aisen, et al.</span> 2017. <span>“The <span class="nocase">Alzheimer’s Disease Neuroimaging Initiative</span> 3: Continued Innovation for Clinical Trial Design and Biomarker Verification.”</span> <em>Alzheimer’s &amp; Dementia</em> 13 (5): 561–71. <a href="https://doi.org/10.1016/j.jalz.2016.10.006">https://doi.org/10.1016/j.jalz.2016.10.006</a>.
+<div id="ref-tustison2014large" class="csl-entry" role="listitem">
+Tustison, Nicholas J., Philip A. Cook, Arno Klein, et al. 2014. <span>“Large-Scale Evaluation of <span>ANTs</span> and <span>FreeSurfer</span> Cortical Thickness Measurements.”</span> <em>NeuroImage</em> 99: 166–79. <a href="https://doi.org/10.1016/j.neuroimage.2014.05.044">https://doi.org/10.1016/j.neuroimage.2014.05.044</a>.
+</div>
+<div id="ref-vincent2008extracting" class="csl-entry" role="listitem">
+Vincent, Pascal, Hugo Larochelle, Yoshua Bengio, and Pierre-Antoine Manzagol. 2008. <span>“Extracting and Composing Robust Features with Denoising Autoencoders.”</span> <em>Proceedings of the 25th International Conference on Machine Learning</em>, 1096–103. <a href="https://doi.org/10.1145/1390156.1390294">https://doi.org/10.1145/1390156.1390294</a>.
+</div>
+<div id="ref-wang2015deep" class="csl-entry" role="listitem">
+Wang, Weiran, Raman Arora, Karen Livescu, and Jeff Bilmes. 2015. <span>“On Deep Multi-View Representation Learning.”</span> <em>Proceedings of the 32nd International Conference on Machine Learning</em> 37: 1083–92.
+</div>
+<div id="ref-weinstein2013" class="csl-entry" role="listitem">
+Weinstein, John N., Eric A. Collisson, Gordon B. Mills, et al. 2013. <span>“The <span>Cancer Genome Atlas Pan-Cancer</span> Analysis Project.”</span> <em>Nature Genetics</em> 45 (10): 1113–20. <a href="https://doi.org/10.1038/ng.2764">https://doi.org/10.1038/ng.2764</a>.
+</div>
+<div id="ref-Wen_2012" class="csl-entry" role="listitem">
+Wen, Zaiwen, and Wotao Yin. 2013. <span>“A Feasible Method for Optimization with Orthogonality Constraints.”</span> <em>Mathematical Programming</em> 142 (1-2): 397–434. <a href="https://doi.org/10.1007/s10107-012-0584-1">https://doi.org/10.1007/s10107-012-0584-1</a>.
+</div>
+<div id="ref-witten2009penalized" class="csl-entry" role="listitem">
+Witten, Daniela M., Robert Tibshirani, and Trevor Hastie. 2009. <span>“A Penalized Matrix Decomposition, with Applications to Sparse Principal Components and Canonical Correlation Analysis.”</span> <em>Biostatistics</em> 10 (3): 515–34. <a href="https://doi.org/10.1093/biostatistics/kxp008">https://doi.org/10.1093/biostatistics/kxp008</a>.
 </div>
 <div id="ref-wu2018multimodal" class="csl-entry" role="listitem">
-Wu, Mike, and Noah Goodman. 2018. <span>“Multimodal Generative Models for Scalable Weakly-Supervised Learning.”</span> <em>Advances in Neural Information Processing Systems</em> 31.
+Wu, Mike, and Noah Goodman. 2018. <span>“Multimodal Generative Models for Scalable Weakly-Supervised Learning.”</span> <em>Advances in Neural Information Processing Systems</em> 31: 5575–85.
+</div>
+<div id="ref-zou2006sparse" class="csl-entry" role="listitem">
+Zou, Hui, Trevor Hastie, and Robert Tibshirani. 2006. <span>“Sparse Principal Component Analysis.”</span> <em>Journal of Computational and Graphical Statistics</em> 15 (2): 265–86. <a href="https://doi.org/10.1198/106186006X113430">https://doi.org/10.1198/106186006X113430</a>.
 </div>
 </div>
-</section>
 </section>
 
 </main> <!-- /main -->
@@ -922,8 +1062,8 @@ Wu, Mike, and Noah Goodman. 2018. <span>“Multimodal Generative Models for Scal
       </a>          
   </div>
   <div class="nav-page nav-page-next">
-      <a href="./02_methods.html" class="pagination-link" aria-label="Methods">
-        <span class="nav-page-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Methods</span></span> <i class="bi bi-arrow-right-short"></i>
+      <a href="./02_methods.html" class="pagination-link" aria-label="Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery">
+        <span class="nav-page-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span> <i class="bi bi-arrow-right-short"></i>
       </a>
   </div>
 </nav>

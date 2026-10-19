@@ -44,13 +44,25 @@ format:
   html:
     theme: cosmo
     toc: true
+    toc-depth: 3
     number-sections: true
   pdf:
     documentclass: report
     pdf-engine: xelatex
+    fontsize: 10pt
     toc: true
+    toc-depth: 2
     number-sections: true
-    geometry: margin=1in
+    geometry: margin=0.85in
     keep-tex: true
-    mermaid-format: png
-    fig-pos: H
+    fig-pos: htbp
+    include-in-header:
+      text: |
+        \usepackage{titlesec}
+        \titleformat{\chapter}[block]{\normalfont\LARGE\bfseries}{\thechapter.\quad}{0pt}{}
+        \titlespacing*{\chapter}{0pt}{-15pt}{10pt}
+        \titlespacing*{\section}{0pt}{10pt}{4pt}
+        \titlespacing*{\subsection}{0pt}{8pt}{3pt}
+        \setlength{\tabcolsep}{4pt}
+        \renewcommand{\arraystretch}{1.08}
+        \AtBeginEnvironment{longtable}{\small}

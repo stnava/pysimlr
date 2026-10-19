@@ -1,139 +1,449 @@
-# Operational Implementation and Complexity
+# Extended Parameter Ablations and Operational Details
 
-This appendix specifies technical details for the SiMLR framework, including hyperparameter definitions, computational complexity bounds, and the optimization protocol.
+This appendix provides the complete empirical ablation tables referenced in Chapters 2–4—covering the `nsa_flow` trade-off weight $w \in [0.01, 0.95]$, in-fold subject row-mean removal and deterministic ICA initialization, fine-grained quantile sparsity $q \in [\text{None}, 0.90]$, the $1,214$-configuration `ADNI-MCI` grid sweep, synthetic per-regime breakdowns, and pairwise Wilcoxon rank-sum tests—followed by computational complexity bounds.
 
-## Operational Protocol: The SiMLR Training Loop
+## Effect of the Approximate Stiefel Weight $w \in [0.01, 0.95]$
 
-The training procedure for SiMLR and its deep extensions (LEND, NED, NEDPP) interleaves neural network backpropagation with manifold projection.
+@tbl-app-w-sweep and @fig-w-sweep evaluate `SiMLR-LBFGSB` ($\mathbf{V}_m \ge 0, k = 3$) across ten values of $w \in [0.01, 0.95]$ on synthetic `NonnegParts` and clinical `ADNI-MCI` (`Protocol B`).
 
-### Training Algorithm
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-app-w-sweep
+#| tbl-cap: "Sensitivity of basis orthogonality defect $D(V)$, effective rank, sparsity, runtime, and out-of-sample accuracy across ten values of the `nsa_flow` weight $w \\in [0.01, 0.95]$ (`ablation_w_sweep.csv`)."
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
 
-```python
-Initialize {V_m, theta_m, phi_m}
-For epoch t in 1..T:
-    1. Calculate alpha_t (Stiefel mixing coefficient)
-       - alpha_t = min(1.0, t / (Total_Epochs * ramp_ratio))
-    2. Forward Pass:
-       # Apply OLEE
-       V_active = (1 - alpha_t) * V_raw + alpha_t * NewtonSchulz(V_raw)
-       Z_m = Encoder(X_m, V_active, theta_m)
-       
-       # For NEDPP: Disentangle Shared vs Private
-       U_shared, P_private = Split(Z_m)
-       Loss_disentangle = CovariancePenalty(U_shared, P_private)
-       
-    3. Consensus Estimation:
-       - U_hat = Average(Z_1, ..., Z_M) or NewtonSchulzConsensus(Z_list)
-    4. Calculate Total Energy J:
-       - J = (1 - alpha_t) * L_recon + alpha_t * L_align + gamma * L_disentangle
-    5. Backpropagate gradients to {V_raw, theta_m, phi_m}
-    6. Update weights via Optimizer (Adam with weight decay)
+csv_path = "results_cache/ablation_w_sweep.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/ablation_w_sweep.csv"
+
+df_w = pd.read_csv(csv_path)
+rows = []
+for _, r in df_w.iterrows():
+    w_str = f"{r['w']:.2f}" + ("*" if abs(r["w"] - 0.50) < 1e-6 else "")
+    rows.append([
+        w_str,
+        f"{r['Synth_Support_F1']:.3f}",
+        f"{r['Synth_Defect_D']:.5f}",
+        f"{r['Synth_Sparsity']*100:.1f}%",
+        f"{r['ADNI_Defect_D']:.5f}",
+        f"{r['ADNI_EffRank']:.2f}",
+        f"{r['ADNI_Sparsity_All']*100:.1f}%",
+        f"{r['ADNI_CogPC1_R2']:.4f}",
+        f"{r['ADNI_Fit_Sec']:.2f}s",
+    ])
+
+headers = [
+    "w", "Synth F1 ↑", "Synth D(V) ↓", "Synth Sparsity ↑",
+    "ADNI D(V) ↓", "ADNI EffRank ↑", "ADNI Sparsity ↑", "ADNI CogPC1 R2 ↑", "ADNI Time ↓"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
 ```
 
-## Mathematical Derivations
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-w-sweep
+#| fig-cap: "Continuous trade-off between cross-view fidelity ($1 - w$) and Stiefel orthogonality ($w$) across $w \\in [0.01, 0.95]$ (`ablation_w_sweep.csv`). (A) Synthetic `NonnegParts` ground-truth support recovery ($F_1$, blue) and Gram orthogonality defect $D(V)$ (red, log scale). (B) `ADNI-MCI` Gram defect $D(V)$ and effective rank ($\\text{EffRank} \\in [1, 3]$). (C) `ADNI-MCI` out-of-sample cognitive prediction (`CogPC1` $R^2$, green) and cortical sparsity ($v_2..v_k$, purple), showing a broad stable plateau across $w \\in [0.20, 0.85]$ centered at the default $w = 0.50$."
+#| out-width: 100%
+#| echo: false
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 
-### Riemannian Updates
+csv_path = "results_cache/ablation_w_sweep.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/ablation_w_sweep.csv"
 
-We implement Riemannian updates on the Stiefel manifold via projection onto the tangent space $\mathcal{T}_{\mathbf{V}} \mathbb{V}_{k,n}$. We compute the Riemannian gradient $\text{grad} \mathcal{J}(\mathbf{V})$ from the Euclidean gradient $\nabla \mathcal{J}(\mathbf{V})$:
-$$ \text{grad} \mathcal{J}(\mathbf{V}) = \nabla \mathcal{J}(\mathbf{V}) - \mathbf{V} \text{sym}(\mathbf{V}^\top \nabla \mathcal{J}(\mathbf{V})) $$
+df_w = pd.read_csv(csv_path)
 
-The orthogonal penalty $\mathcal{P}(\mathbf{V}) = \frac{1}{4} \| \mathbf{V}^\top \mathbf{V} - \mathbf{I}_k \|_F^2$ permits a Taylor expansion for a perturbation $\Delta$:
-$$ \mathcal{P}(\mathbf{V} + \Delta) \approx \frac{1}{4} \text{Tr}\left( (\mathbf{V}^\top \Delta + \Delta^\top \mathbf{V})^2 \right) $$
-This penalty evaluates to zero for any $\Delta$ strictly within the tangent space.
+fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(13.2, 3.8), dpi=300)
+plt.subplots_adjust(wspace=0.72)
 
-### Newton-Schulz Convergence
+# Panel A: Synthetic F1 and Defect D
+ax1_t = ax1.twinx()
+l1 = ax1.plot(df_w["w"], df_w["Synth_Support_F1"], "o-", color="#0284c7", lw=2.0, markersize=5.5, label="Support F1 ↑")
+l2 = ax1_t.plot(df_w["w"], df_w["Synth_Defect_D"], "s--", color="#dc2626", lw=1.8, markersize=5.0, label="Defect D(V) ↓")
+ax1_t.set_yscale("log")
+ax1.axvline(0.50, color="#64748b", linestyle=":", lw=1.2)
+ax1.set_xlabel("Orthogonality Weight w", fontsize=9.0, weight="bold")
+ax1.set_ylabel("Support Recovery F1 (↑)", fontsize=8.8, weight="bold", color="#0284c7", labelpad=2)
+ax1_t.set_ylabel("Synth Defect D(V) (Log ↓)", fontsize=8.6, weight="bold", color="#dc2626", labelpad=3)
+ax1.set_title("A. Synthetic Support vs. D(V)", fontsize=9.5, weight="bold")
+ax1.grid(True, linestyle="--", alpha=0.35)
 
-We enforce orthogonality via the iteration sequence:
-$$ \mathbf{Y}_{k+1} = \frac{1}{2} \mathbf{Y}_k (3\mathbf{I} - \mathbf{Y}_k^\top \mathbf{Y}_k) $$
-The residual error $\mathbf{E}_k = \mathbf{I} - \mathbf{Y}_k^\top \mathbf{Y}_k$ obeys the relation $\mathbf{E}_{k+1} = \frac{3}{4} \mathbf{E}_k^2 + \frac{1}{4} \mathbf{E}_k^3$. This yields quadratic convergence: $\| \mathbf{E}_{k+1} \|_2 < \| \mathbf{E}_k \|_2^2$.
+# Panel B: ADNI Defect D and Effective Rank
+ax2_t = ax2.twinx()
+l3 = ax2.plot(df_w["w"], df_w["ADNI_Defect_D"], "s-", color="#dc2626", lw=2.0, markersize=5.5, label="ADNI D(V) ↓")
+l4 = ax2_t.plot(df_w["w"], df_w["ADNI_EffRank"], "^--", color="#0d9488", lw=1.8, markersize=5.5, label="EffRank ↑")
+ax2.set_yscale("log")
+ax2.axvline(0.50, color="#64748b", linestyle=":", lw=1.2)
+ax2.set_xlabel("Orthogonality Weight w", fontsize=9.0, weight="bold")
+ax2.set_ylabel("ADNI Defect D(V) (Log ↓)", fontsize=8.6, weight="bold", color="#dc2626", labelpad=2)
+ax2_t.set_ylabel("Effective Rank (Max 3.0 ↑)", fontsize=8.6, weight="bold", color="#0d9488", labelpad=3)
+ax2_t.set_ylim(2.4, 3.05)
+ax2.set_title("B. ADNI Conditioning & Rank", fontsize=9.5, weight="bold")
+ax2.grid(True, linestyle="--", alpha=0.35)
 
-### Noise Reduction Law
+# Panel C: ADNI CogPC1 R2 and Sparsity
+ax3_t = ax3.twinx()
+l5 = ax3.plot(df_w["w"], df_w["ADNI_CogPC1_R2"], "o-", color="#059669", lw=2.0, markersize=5.5, label="CogPC1 R² ↑")
+l6 = ax3_t.plot(df_w["w"], df_w["ADNI_Sparsity_v2_k"] * 100.0, "d--", color="#7c3aed", lw=1.8, markersize=5.0, label="Sparsity v₂..ₖ % ↑")
+ax3.axvline(0.50, color="#64748b", linestyle=":", lw=1.2)
+ax3.set_xlabel("Orthogonality Weight w", fontsize=9.0, weight="bold")
+ax3.set_ylabel("ADNI MRI→CogPC1 R² (↑)", fontsize=8.6, weight="bold", color="#059669", labelpad=2)
+ax3_t.set_ylabel("Cortical Sparsity v₂..ₖ % (↑)", fontsize=8.6, weight="bold", color="#7c3aed", labelpad=3)
+ax3.set_ylim(0.12, 0.20)
+ax3.set_title("C. ADNI Stability Plateau", fontsize=9.5, weight="bold")
+ax3.grid(True, linestyle="--", alpha=0.35)
 
-Assuming independent noise distributions $\boldsymbol{\epsilon}_m \sim \mathcal{N}(\mathbf{0}, \sigma^2 \mathbf{I})$, the consensus variance scales as:
-$$ \text{Var}\left( \frac{1}{M} \sum_{m=1}^M \boldsymbol{\epsilon}_m \right) = \frac{\sigma^2}{M} $$
-The corresponding $100(1-\delta)\%$ confidence interval for the underlying signal $\boldsymbol{\mu}$ is bounded by:
-$$ \hat{\boldsymbol{\mu}}_{\text{consensus}} \pm z_{\delta/2} \sqrt{\frac{\sigma^2}{M}(1-\rho) + \rho\sigma^2} $$
-The covariance term $\rho\sigma^2$ provides the strict statistical lower bound for the multi-modal consensus error.
+plt.show()
+```
 
-## Statistical Sensitivity
+## Preprocessing Controls: Subject Row-Mean Removal and ICA Initialization
 
-### Modality Weights ($w$)
+On neuroimaging cohorts where cortical regions share a positive global correlation floor, @tbl-app-rowmean-ica and @fig-rowmean-k-ablation compare standard column centering against in-fold subject row-mean centering, deterministic FastICA [@hyvarinen2000independent] initialization, and latent rank scaling $k \in \{2, 3, 5, 8, 12\}$.
 
-We bound the Statistical Influence Function $\mathcal{I}_m = \frac{\partial \mathbf{U}}{\partial w_m}$ by the spectral gap $(\lambda_1 - \lambda_2)^{-1}$ of the input feature covariance $\Sigma_m$. Consequently, SiMLR operational sensitivity scales proportionally with the degree of multicollinearity in the input domain.
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-app-rowmean-ica
+#| tbl-cap: "Factorial ablation of column vs. subject row-mean centering, PCA vs. ICA initialization, and positivity constraints on `ADNI-MCI` ($N = 1,084, k = 3, w = 0.50$, `ablation_rowmean_ica_positivity.csv`)."
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
 
-### $\alpha$-Transition
+csv_path = "results_cache/ablation_rowmean_ica_positivity.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/ablation_rowmean_ica_positivity.csv"
 
-The mixing parameter $\alpha$ controls the trade-off between independent modality reconstruction and cross-modal consensus alignment. We set the transition point at the epoch where the first derivative of the consensus variance approaches zero.
+df_abl = pd.read_csv(csv_path)
+rows = []
+for _, r in df_abl.iterrows():
+    prep_short = "Col" if r["Preprocessing"].startswith("Col") else "Row+Col"
+    pos_short = "Signed" if r["Positivity"].startswith("Signed") else "V>=0"
+    stage_short = "Init" if r["Stage"].startswith("Init") else "SiMR"
+    rows.append([
+        prep_short,
+        r["Init"],
+        pos_short,
+        stage_short,
+        f"{r['defect_D']:.5f}",
+        f"{r['sparsity_all']*100:.1f}% ({r['sparsity_v1']*100:.1f}%)",
+        f"{r['CogPC1_R2_XV']:.4f} ({r['CogPC1_R2_WithRowMean']:.4f})",
+        f"{r['Mean11_Ridge_R2']:.4f}",
+    ])
 
-## Hyperparameter Guidance
+headers = [
+    "Prep", "Init", "Sign", "Stage", "D(V) ↓",
+    "Sparsity All (v1) ↑", "CogPC1 R2 (+RowMean) ↑", "11-Scale R2 ↑"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
 
-| Parameter | Default | Range | Rationale |
-| :--- | :--- | :--- | :--- |
-| **$\lambda_{\text{sim}}$** | 1.0 | $[0.1, 10.0]$ | Cross-modal alignment weighting. |
-| **$\lambda_{\text{rec}}$** | 0.5 | $[0.0, 5.0]$ | Reconstruction priority. |
-| **$\lambda_{\text{var}}$** | 1.0 | $[0.5, 2.0]$ | Variance preservation. |
-| **$\lambda_{\text{cov}}$** | 1.0 | $[0.5, 2.0]$ | Latent de-correlation. |
-| **$\alpha_{\text{ramp}}$** | 0.5 * Total Epochs | $[0.2, 0.8]$ | Stiefel manifold transition duration. |
-| **$N_{\text{warmup}}$** | 10 epochs | $[5, 50]$ | Shared-First schedule for NEDPP. |
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-rowmean-k-ablation
+#| fig-cap: "Resolution of the unthresholded `ADNI-MCI` Component 1 density effect via subject row-mean removal and latent rank scaling (`ablation_rowmean_ica_positivity.csv` and `ablation_k_sparsity_sweep.csv`). (A) Under unthresholded column centering (`q = None`), Component 1 ($v_1$, blue) absorbs the global cortical thickness floor ($3.2\\%$ sparse) while Components $2..k$ ($v_2..v_k$, teal) remain $21.0\\%$ sparse; removing each subject's mean cortical thickness or applying quantile thresholding ($q = 0.80$) restores $53.2\\%$–$81.5\\%$ sparsity on $v_1$. (B) Scaling latent rank $k \\in \\{2, 3, 5, 8, 12\\}$ systematically increases natural unthresholded non-negative sparsity toward the theoretical disjoint limit $1 - 1/k$."
+#| out-width: 100%
+#| echo: false
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 
-## MAI Implementation
+csv_k = "results_cache/ablation_k_sparsity_sweep.csv"
+if not os.path.exists(csv_k):
+    csv_k = "paper/results_cache/ablation_k_sparsity_sweep.csv"
+df_k = pd.read_csv(csv_k)
 
-The Modality Alignment Index (MAI) applies automated weighting to modalities via a Sigmoid Gate. We configure the MAI parameters as follows:
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.2, 4.0), dpi=300, constrained_layout=True)
 
-- **Center:** Mean(MAI).
-- **Steepness:** 20.0 (annealed).
-- **Transition_Epochs:** 20.
+# Panel A: Component 1 vs Components 2..k Sparsity across 5 regimes
+regimes = [
+    "Col + PCA\n(q = None)",
+    "Col + ICA\n(q = None)",
+    "Row + PCA\n(q = None)",
+    "Row + ICA\n(q = None)",
+    "Col + PCA\n(q = 0.80)"
+]
+v1_sp = [3.2, 46.8, 53.2, 62.9, 81.5]
+v2k_sp = [21.0, 29.0, 62.9, 60.5, 84.7]
 
-The SiMLR framework provides 4 available MAI metrics:
+x = np.arange(len(regimes))
+w = 0.34
+b1 = ax1.bar(x - w/2, v1_sp, w, label="Component 1 (v₁ Sparsity %)", color="#0284c7", edgecolor="#0f172a", lw=0.7)
+b2 = ax1.bar(x + w/2, v2k_sp, w, label="Components 2..k (v₂..ₖ Sparsity %)", color="#0d9488", edgecolor="#0f172a", lw=0.7)
 
-- `procrustes_r2`
-- `procrustes_r2_sharp`
-- `cca`
-- `rvcoef`
+for bars in (b1, b2):
+    for bar in bars:
+        h = bar.get_height()
+        ax1.text(bar.get_x() + bar.get_width()/2, h + 1.2, f"{h:.1f}%", ha="center", va="bottom", fontsize=7.5, weight="bold")
 
-## Computational Complexity
+ax1.set_xticks(x)
+ax1.set_xticklabels(regimes, fontsize=8.3, weight="bold")
+ax1.set_ylim(0, 96)
+ax1.set_ylabel("Cortical Basis Sparsity % (↑)", fontsize=9.2, weight="bold")
+ax1.set_title("A. Component 1 vs. Components 2..k Sparsity", fontsize=9.8, weight="bold")
+ax1.grid(True, axis="y", linestyle="--", alpha=0.35)
+ax1.legend(loc="upper left", fontsize=8.2, frameon=True)
 
-| Operation | Complexity | Scaling Law |
-| :--- | :--- | :--- |
-| **Manifold Projection** | $\mathcal{O}(D \cdot K^2)$ | Linear in features ($D$), Quadratic in Latents ($K$). |
-| **Consensus Estimation** | $\mathcal{O}(M \cdot K^3)$ | Linear in modalities ($M$), Cubic in Latents ($K$). |
-| **Forward/Backward** | $\mathcal{O}(N \cdot D \cdot K)$ | Linear in Samples ($N$) and features ($D$). |
-| **VRAM Consumption** | $\mathcal{O}(N \cdot K + D \cdot K)$ | Linear in Samples ($N$) and features ($D$). |
+# Panel B: Latent Rank k Sweep
+for prep_lbl, col, mk in [("Col-Centered (PCA Init)", "#0284c7", "o-"), ("Row-Centered (ICA Init)", "#059669", "s--")]:
+    sub_k = df_k[df_k["Regime"] == prep_lbl]
+    ax2.plot(sub_k["k"], sub_k["Sparsity_All"] * 100.0, mk, color=col, lw=2.1, markersize=6.5, label=f"{prep_lbl} All v₁..ₖ")
+    ax2.plot(sub_k["k"], sub_k["Sparsity_v2_k"] * 100.0, ":", color=col, lw=1.7, markersize=5.0, label=f"{prep_lbl} v₂..ₖ Only")
 
-The Newton-Schulz iteration relies exclusively on dense matrix multiplications, achieving optimal throughput on parallel GPU architectures.
+ax2.set_xticks([2, 3, 5, 8, 12])
+ax2.set_xticklabels(["k=2", "k=3", "k=5", "k=8", "k=12"], fontsize=8.5, weight="bold")
+ax2.set_ylim(30, 90)
+ax2.set_xlabel("Latent Embedding Rank k", fontsize=9.2, weight="bold")
+ax2.set_ylabel("Unthresholded Sparsity % (↑)", fontsize=9.2, weight="bold")
+ax2.set_title("B. Natural Non-Negative Sparsity vs. Rank k", fontsize=9.8, weight="bold")
+ax2.grid(True, linestyle="--", alpha=0.35)
+ax2.legend(loc="lower right", fontsize=7.8, frameon=True)
 
-## Pre-processing Protocol
+plt.show()
+```
 
-We require mean-centering and unit-scaling ($z$-score normalization) for all input matrices $\{\mathbf{X}_m\}$. This normalizes the alignment energy $E_{\text{align}}$ independently of the native measurement scale.
+## Fine-Grained Quantile Sparsity ($q \in [\text{None}, 0.90]$) and `ADNI-MCI` 1,214-Sweep Summary
 
-## System Optimizations
+@tbl-app-quantile-grid reports the complete quantile `sparseness` progression from $q = \text{None}$ to $q = 0.90$ on `ADNI-MCI` and `NonnegParts`, and @tbl-app-adni-sweep reports the top configuration per model family across the $1,214$-configuration `ADNI-MCI` grid sweep.
 
-### Gradient Stability
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-app-quantile-grid
+#| tbl-cap: "Fine-grained quantile `sparseness` ablation across $q \\in [\\text{None}, 0.90]$ on `ADNI-MCI` ($N = 1,084$) and synthetic `NonnegParts` (`ablation_quantile_sparseness.csv`)."
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
 
-We employ LeakyReLU or GELU activations coupled with Kaiming He initialization to bound gradient magnitudes and prevent signal decay in high-dimensional domains.
+csv_path = "results_cache/ablation_quantile_sparseness.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/ablation_quantile_sparseness.csv"
 
-### Learning Rate Schedules
+df_q = pd.read_csv(csv_path)
+rows = []
+for _, r in df_q.iterrows():
+    dkt_str = f"({int(r['dkt_v1_active_regions'])},{int(r['dkt_v2_active_regions'])},{int(r['dkt_v3_active_regions'])})"
+    rows.append([
+        r["positivity"],
+        str(r["sparseness"]).replace(" (NSA-Flow only)", ""),
+        f"{r['defect_D']:.5f}",
+        f"{r['sparsity_all']*100:.1f}% ({r['sparsity_v1']*100:.1f}%)",
+        dkt_str,
+        f"{r['cog_pc1_r2']:.4f}",
+        f"{r['mean_11scale_r2']:.4f}",
+        f"{r['synth_support_f1']:.3f}",
+    ])
 
-We use the OneCycleLR scheduler to fuse the warmup and annealing phases. This accelerates convergence traversing the non-convex joint-variational objective space.
+headers = [
+    "Sign", "Quantile q", "ADNI D(V) ↓", "ADNI Sparsity (v1) ↑",
+    "Active DKT (/62)", "CogPC1 R2 ↑", "11-Scale R2 ↑", "Synth F1 ↑"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
 
-### Data Throughput
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-app-adni-sweep
+#| tbl-cap: "Summary of the 1,214-configuration `ADNI-MCI` Protocol B sweep ($N = 1,084$, Seed 42, $k = 3$) computed from `adni_mci_1214_grid_sweep.csv`."
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
 
-We specify `pin_memory=True` and configure `num_workers > 0` in the PyTorch DataLoader. This implements asynchronous memory transfer to the GPU, mitigating host-device I/O latency.
+csv_path = "results_cache/adni_mci_1214_grid_sweep.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/adni_mci_1214_grid_sweep.csv"
 
-## Technical Glossary
+df_sw = pd.read_csv(csv_path)
+df_sw["Model"] = df_sw["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V"})
+df_ok = df_sw[df_sw["Status"] == "ok"].copy()
 
-- **Normalizing Flow**: A family of deep generative models that transforms a simple probability distribution (e.g., standard multivariate Gaussian) into a complex distribution using a sequence of invertible, bijective mappings via the change-of-variables theorem.
-- **Bijective Mapping**: A mathematically exact, one-to-one and onto function. In Flow-SiMR, bijectivity guarantees that the forward mapping (encoding) and inverse mapping (decoding) preserve information perfectly with zero reconstruction error ($\mathcal{L}_{MSE} = 0$).
-- **Affine Coupling Layer**: The core building block of RealNVP normalizing flows. It splits the input features into two halves, copying one partition directly while scaling and translating the other half using arbitrary non-linear neural networks (which do not need to be invertible themselves).
-- **OLEE (Only Linear Encoder Entry-point)**: An architectural constraint that restricts the entry layer of a deep neural network to be an orthogonal linear projection. This forms a structural information bottleneck that prevents deep layers from memorizing noise.
-- **NSA-Flow (Non-negative Stiefel Approximating Flow)**: A calibration-free composite energy $E_w(\mathbf{V}_m; \mathbf{V}_{m,0}) = (1-w)\mathcal{L}_{\text{fid}} + w D(\mathbf{V}_m)$ parameterized by $w \in [0, 1]$ (default $w = 0.5$, capped at $w_{\max} = 0.95$) that approximates Stiefel manifold retraction under optional non-negativity ($\mathbf{V}_m \ge 0$) without SVD or QR factorization inside the solver loop.
-- **Schur Complement**: A matrix operation used to compute the conditional mean and covariance of a partitioned multivariate Gaussian distribution in closed form for cross-view imputation.
-- **Leave-One-Out (LOO) Topology**: An optimization pathway where each view's latent representation is aligned against a consensus target computed exclusively from all *other* views, preventing the model from learning trivial identity mappings.
-- **Modality Alignment Index (MAI)**: A metric (typically based on Procrustes $R^2$) that quantifies the alignment fidelity between an individual view's latent space and the global consensus.
-- **Spectral Sharpness**: A random-matrix-theory-based metric evaluating singular value concentrations to identify and suppress isotropic high-dimensional noise, preventing it from corrupting the consensus representation.
-- **Classical SiMLR**: Similarity-driven Multi-view Linear Reconstruction. Strictly linear baseline architecture assuming Euclidean projection of modalities.
-- **LEND**: Linear Encoder, Deep Decoder. Combines OLEE-constrained linear encoder with a deep non-linear decoder, balancing interpretability and reconstruction fidelity.
-- **NED**: Non-linear Encoder-Decoder. Applies non-linear MLP transformations to both encoder (post-OLEE) and decoder, maximizing representational capacity.
-- **NEDPP**: Non-linear Encoder-Decoder with Private Partitions. Disentangles modality-specific private variance from shared cross-modal consensus.
-- **Flow-SiMR**: Normalizing Flow Similarity-driven Multi-view Representation. Integrates bijective normalizing flows with latent consensus alignment for information-preserving multi-modal integration.
-- **Flow-SiMR-V**: Flow-SiMR with a linear projection matrix (OLEE) entry point to allow feature attribution while maintaining deep flow-based mappings.
+best_per_model = df_ok.sort_values("CogPC1_R2", ascending=False).groupby("Model", as_index=False).first()
+best_per_model = best_per_model.sort_values("CogPC1_R2", ascending=False)
+stats_per_model = df_ok.groupby("Model").agg(n_runs=("CogPC1_R2", "count"), mean_r2=("CogPC1_R2", "mean"), std_r2=("CogPC1_R2", "std"))
+
+rows = []
+for _, r in best_per_model.iterrows():
+    m = r["Model"]
+    n_r = int(stats_per_model.loc[m, "n_runs"])
+    m_r2 = stats_per_model.loc[m, "mean_r2"]
+    s_r2 = stats_per_model.loc[m, "std_r2"]
+    mean_str = f"{m_r2:.3f} ± {s_r2:.3f}" if pd.notnull(s_r2) else f"{m_r2:.3f}"
+    rows.append([
+        r["Family"],
+        m,
+        n_r,
+        f"{r['CogPC1_R2']:.4f}",
+        f"{r['Mean11_RidgeCV']:.4f}",
+        mean_str,
+        f"{r['Runtime_s']:.2f}s"
+    ])
+
+headers = ["Family", "Model", "Runs", "Peak CogPC1 R2 ↑", "11-Scale R2 ↑", "Sweep Mean ± SD ↑", "Time ↓"]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
+
+## Synthetic Per-Regime Breakdown and Pairwise Wilcoxon Tests
+
+@tbl-app-synthetic-breakdown and @fig-cmc-recovery report the 3-seed performance across each of the six synthetic ground-truth regimes, and @tbl-app-wilcoxon reports pairwise Wilcoxon signed-rank tests against `PCA` across the $N = 36$ dataset-seed pairs.
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-app-synthetic-breakdown
+#| tbl-cap: "Out-of-sample performance across the six synthetic ground-truth regimes (`deep_ranking_benchmark.csv`). Entries show `Linear XV R2 (CMC or Support F1)`."
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+csv_path = "results_cache/deep_ranking_benchmark.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
+
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+
+models = ["SiMLR-LBFGSB", "SiMLR-LBFGS", "LEND", "Flow-SiMR-V", "SiMLR", "NSAFlow-PCA", "PCA", "NEDPP", "NED"]
+syn_dsets = ["Linear", "Polynomial", "Sine", "Shared+Private", "NonnegParts", "NonnegPartsWeak"]
+
+rows = []
+for m in models:
+    row = [m]
+    for ds in syn_dsets:
+        sub = df[(df["Dataset"] == ds) & (df["Model"] == m)]
+        xv_m = sub["Strictly_Linear_Metric"].mean()
+        if ds in ("NonnegParts", "NonnegPartsWeak"):
+            s_m = sub["Support_Recovery_V"].mean()
+            row.append(f"{xv_m:.3f} (F1={s_m:.2f})")
+        else:
+            c_m = sub["CMC_Latent_U"].mean()
+            row.append(f"{xv_m:.3f} (CMC={c_m:.2f})")
+    rows.append(row)
+
+headers = ["Model", "Linear", "Polynomial", "Sine", "Shared+Priv", "NonnegParts", "NonnegWeak"]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-cmc-recovery
+#| fig-cap: "Latent manifold recovery (`CMC_Latent_U`, higher is better ↑) across the six synthetic ground-truth generative regimes (`Linear`, `Polynomial`, `Sine`, `Shared+Private`, `NonnegParts`, and `NonnegPartsWeak`) computed from `deep_ranking_benchmark.csv`."
+#| out-width: 100%
+#| echo: false
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+csv_path = "results_cache/deep_ranking_benchmark.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
+
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+
+syn_dsets = ["Linear", "Polynomial", "Sine", "Shared+Private", "NonnegParts", "NonnegPartsWeak"]
+piv_c = df[df["Dataset"].isin(syn_dsets)].pivot_table(index="Dataset", columns="Model", values="CMC_Latent_U", aggfunc="mean").reindex(syn_dsets)
+
+fig, ax = plt.subplots(figsize=(10.5, 3.6), dpi=300)
+x = np.arange(len(syn_dsets))
+w = 0.18
+ax.bar(x - 1.5*w, piv_c["SiMLR-LBFGSB"], w, label="SiMLR-LBFGSB", color="#0284c7", edgecolor="#0f172a", lw=0.7)
+ax.bar(x - 0.5*w, piv_c["LEND"], w, label="LEND", color="#0d9488", edgecolor="#0f172a", lw=0.7)
+ax.bar(x + 0.5*w, piv_c["Flow-SiMR-V"], w, label="Flow-SiMR-V", color="#7c3aed", edgecolor="#0f172a", lw=0.7)
+ax.bar(x + 1.5*w, piv_c["PCA"], w, label="Dense PCA", color="#94a3b8", edgecolor="#0f172a", lw=0.7)
+
+ax.set_xticks(x)
+ax.set_xticklabels(syn_dsets, fontsize=8.8, weight="bold")
+ax.set_ylabel("Latent Manifold CMC (↑)", fontsize=9.5, weight="bold")
+ax.set_title("Ground-Truth Latent Coordinate Recovery Across Six Synthetic Regimes", fontsize=10.2, weight="bold")
+ax.set_ylim(0.0, 1.05)
+ax.grid(True, axis="y", linestyle="--", alpha=0.35)
+ax.legend(loc="upper right", ncol=4, fontsize=8.3, frameon=True)
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-app-wilcoxon
+#| tbl-cap: "Pairwise Wilcoxon signed-rank tests and win/tie/loss counts against single-matrix `PCA` across all 36 dataset-seed evaluations (`deep_ranking_benchmark.csv`)."
+#| echo: false
+#| output: asis
+import os
+import numpy as np
+import pandas as pd
+from scipy.stats import wilcoxon
+from tabulate import tabulate
+
+csv_path = "results_cache/deep_ranking_benchmark.csv"
+if not os.path.exists(csv_path):
+    csv_path = "paper/results_cache/deep_ranking_benchmark.csv"
+
+df = pd.read_csv(csv_path)
+df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+
+piv_xv = df.pivot(index=["Dataset", "Seed"], columns="Model", values="Strictly_Linear_Metric")
+piv_u = df.pivot(index=["Dataset", "Seed"], columns="Model", values="Predictive_Metric")
+
+models = ["LEND", "NEDPP", "Flow-SiMR-V", "SiMLR-LBFGS", "SiMLR-LBFGSB", "NED", "SiMLR", "NSAFlow-PCA"]
+rows = []
+for m in models:
+    diff_xv = piv_xv[m] - piv_xv["PCA"]
+    w_xv = int((diff_xv > 1e-6).sum())
+    t_xv = int((diff_xv.abs() <= 1e-6).sum())
+    l_xv = int((diff_xv < -1e-6).sum())
+    _, p_xv = wilcoxon(piv_xv[m], piv_xv["PCA"])
+
+    diff_u = piv_u[m] - piv_u["PCA"]
+    w_u = int((diff_u > 1e-6).sum())
+    t_u = int((diff_u.abs() <= 1e-6).sum())
+    l_u = int((diff_u < -1e-6).sum())
+    _, p_u = wilcoxon(piv_u[m], piv_u["PCA"])
+
+    rows.append([
+        m,
+        f"{w_xv} / {t_xv} / {l_xv}",
+        f"{diff_xv.mean():+.4f}",
+        f"{p_xv:.4f}",
+        f"{w_u} / {t_u} / {l_u}",
+        f"{diff_u.mean():+.4f}",
+        f"{p_u:.4f}",
+    ])
+
+headers = [
+    "Model vs PCA", "XV Wins/Ties/Losses", "XV Mean Δ ↑", "XV Wilcoxon p",
+    "U Wins/Ties/Losses", "U Mean Δ ↑", "U Wilcoxon p"
+]
+print(tabulate(rows, headers=headers, tablefmt="pipe"))
+```
+
+## Computational Complexity Summary
+
+| Operation | Complexity per Iteration | Memory Footprint | Inner-Loop Factorization Required? |
+|:---|:---|:---|:---|
+| **`nsa_flow` Retraction Step** | $\mathcal{O}(p_m k^2)$ | $\mathcal{O}(p_m k + k^2)$ | None (1 Gram product + 2 $[p_m,k]\times[k,k]$ products) |
+| **Polar Consensus Update ($\mathbf{U}$)** | $\mathcal{O}(N k^2 + k^3)$ | $\mathcal{O}(N k)$ | $k \times k$ Sylvester polar factor ($k \ll N$) |
+| **Forward / Backward Pass** | $\mathcal{O}(N p_m k)$ | $\mathcal{O}(N k + p_m k)$ | None |
+
+: Computational and memory complexity of the `SiMR` and `nsa_flow` primitives. {#tbl-app-complexity}

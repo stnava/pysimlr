@@ -10,7 +10,7 @@
 <meta name="author" content="Nicholas J. Tustison">
 <meta name="author" content="James R. Stone">
 
-<title>Appendix B — Operational Implementation and Complexity</title>
+<title>Appendix B — Extended Parameter Ablations and Operational Details</title>
 <style>
 /* Default styles provided by pandoc.
 ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
@@ -26,42 +26,26 @@ ul.task-list li input[type="checkbox"] {
   margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
   vertical-align: middle;
 }
-/* CSS for syntax highlighting */
-html { -webkit-text-size-adjust: 100%; }
-pre > code.sourceCode { white-space: pre; position: relative; }
-pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
-pre > code.sourceCode > span:empty { height: 1.2em; }
-.sourceCode { overflow: visible; }
-code.sourceCode > span { color: inherit; text-decoration: inherit; }
-div.sourceCode { margin: 1em 0; }
-pre.sourceCode { margin: 0; }
-@media screen {
-div.sourceCode { overflow: auto; }
+/* CSS for citations */
+div.csl-bib-body { }
+div.csl-entry {
+  clear: both;
 }
-@media print {
-pre > code.sourceCode { white-space: pre-wrap; }
-pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+.hanging-indent div.csl-entry {
+  margin-left:2em;
+  text-indent:-2em;
 }
-pre.numberSource code
-  { counter-reset: source-line 0; }
-pre.numberSource code > span
-  { position: relative; left: -4em; counter-increment: source-line; }
-pre.numberSource code > span > a:first-child::before
-  { content: counter(source-line);
-    position: relative; left: -1em; text-align: right; vertical-align: baseline;
-    border: none; display: inline-block;
-    -webkit-touch-callout: none; -webkit-user-select: none;
-    -khtml-user-select: none; -moz-user-select: none;
-    -ms-user-select: none; user-select: none;
-    padding: 0 4px; width: 4em;
-  }
-pre.numberSource { margin-left: 3em;  padding-left: 4px; }
-div.sourceCode
-  {   }
-@media screen {
-pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+div.csl-left-margin {
+  min-width:2em;
+  float:left;
 }
-</style>
+div.csl-right-inline {
+  margin-left:2em;
+  padding-left:1em;
+}
+div.csl-indent {
+  margin-left: 2em;
+}</style>
 
 
 <script src="site_libs/quarto-nav/quarto-nav.js"></script>
@@ -181,25 +165,25 @@ window.Quarto = {
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./01_intro_background.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Background</span></span></a>
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./02_methods.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Methods</span></span></a>
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./03_experiments.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Experiments</span></span></a>
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./04_discussion.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Discussion</span></span></a>
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item sidebar-item-section">
@@ -214,7 +198,7 @@ window.Quarto = {
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./appendix_brca_clinical_validation.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-omics Clinical Validation (TCGA-BRCA)</span></span></a>
+ <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-Omics Clinical Validation (TCGA-BRCA)</span></span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -247,32 +231,11 @@ window.Quarto = {
     <h2 id="toc-title">Table of contents</h2>
    
   <ul>
-  <li><a href="#operational-protocol-the-simlr-training-loop" id="toc-operational-protocol-the-simlr-training-loop" class="nav-link active" data-scroll-target="#operational-protocol-the-simlr-training-loop"><span class="header-section-number">B.1</span> Operational Protocol: The SiMLR Training Loop</a>
-  <ul class="collapse">
-  <li><a href="#training-algorithm" id="toc-training-algorithm" class="nav-link" data-scroll-target="#training-algorithm"><span class="header-section-number">B.1.1</span> Training Algorithm</a></li>
-  </ul></li>
-  <li><a href="#mathematical-derivations" id="toc-mathematical-derivations" class="nav-link" data-scroll-target="#mathematical-derivations"><span class="header-section-number">B.2</span> Mathematical Derivations</a>
-  <ul class="collapse">
-  <li><a href="#riemannian-updates" id="toc-riemannian-updates" class="nav-link" data-scroll-target="#riemannian-updates"><span class="header-section-number">B.2.1</span> Riemannian Updates</a></li>
-  <li><a href="#newton-schulz-convergence" id="toc-newton-schulz-convergence" class="nav-link" data-scroll-target="#newton-schulz-convergence"><span class="header-section-number">B.2.2</span> Newton-Schulz Convergence</a></li>
-  <li><a href="#noise-reduction-law" id="toc-noise-reduction-law" class="nav-link" data-scroll-target="#noise-reduction-law"><span class="header-section-number">B.2.3</span> Noise Reduction Law</a></li>
-  </ul></li>
-  <li><a href="#statistical-sensitivity" id="toc-statistical-sensitivity" class="nav-link" data-scroll-target="#statistical-sensitivity"><span class="header-section-number">B.3</span> Statistical Sensitivity</a>
-  <ul class="collapse">
-  <li><a href="#modality-weights-w" id="toc-modality-weights-w" class="nav-link" data-scroll-target="#modality-weights-w"><span class="header-section-number">B.3.1</span> Modality Weights (<span class="math inline">\(w\)</span>)</a></li>
-  <li><a href="#alpha-transition" id="toc-alpha-transition" class="nav-link" data-scroll-target="#alpha-transition"><span class="header-section-number">B.3.2</span> <span class="math inline">\(\alpha\)</span>-Transition</a></li>
-  </ul></li>
-  <li><a href="#hyperparameter-guidance" id="toc-hyperparameter-guidance" class="nav-link" data-scroll-target="#hyperparameter-guidance"><span class="header-section-number">B.4</span> Hyperparameter Guidance</a></li>
-  <li><a href="#mai-implementation" id="toc-mai-implementation" class="nav-link" data-scroll-target="#mai-implementation"><span class="header-section-number">B.5</span> MAI Implementation</a></li>
-  <li><a href="#computational-complexity" id="toc-computational-complexity" class="nav-link" data-scroll-target="#computational-complexity"><span class="header-section-number">B.6</span> Computational Complexity</a></li>
-  <li><a href="#pre-processing-protocol" id="toc-pre-processing-protocol" class="nav-link" data-scroll-target="#pre-processing-protocol"><span class="header-section-number">B.7</span> Pre-processing Protocol</a></li>
-  <li><a href="#system-optimizations" id="toc-system-optimizations" class="nav-link" data-scroll-target="#system-optimizations"><span class="header-section-number">B.8</span> System Optimizations</a>
-  <ul class="collapse">
-  <li><a href="#gradient-stability" id="toc-gradient-stability" class="nav-link" data-scroll-target="#gradient-stability"><span class="header-section-number">B.8.1</span> Gradient Stability</a></li>
-  <li><a href="#learning-rate-schedules" id="toc-learning-rate-schedules" class="nav-link" data-scroll-target="#learning-rate-schedules"><span class="header-section-number">B.8.2</span> Learning Rate Schedules</a></li>
-  <li><a href="#data-throughput" id="toc-data-throughput" class="nav-link" data-scroll-target="#data-throughput"><span class="header-section-number">B.8.3</span> Data Throughput</a></li>
-  </ul></li>
-  <li><a href="#technical-glossary" id="toc-technical-glossary" class="nav-link" data-scroll-target="#technical-glossary"><span class="header-section-number">B.9</span> Technical Glossary</a></li>
+  <li><a href="#effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95" id="toc-effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95" class="nav-link active" data-scroll-target="#effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95"><span class="header-section-number">B.1</span> Effect of the Approximate Stiefel Weight <span class="math inline">\(w \in [0.01, 0.95]\)</span></a></li>
+  <li><a href="#preprocessing-controls-subject-row-mean-removal-and-ica-initialization" id="toc-preprocessing-controls-subject-row-mean-removal-and-ica-initialization" class="nav-link" data-scroll-target="#preprocessing-controls-subject-row-mean-removal-and-ica-initialization"><span class="header-section-number">B.2</span> Preprocessing Controls: Subject Row-Mean Removal and ICA Initialization</a></li>
+  <li><a href="#fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-1214-sweep-summary" id="toc-fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-1214-sweep-summary" class="nav-link" data-scroll-target="#fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-1214-sweep-summary"><span class="header-section-number">B.3</span> Fine-Grained Quantile Sparsity (<span class="math inline">\(q \in [\text{None}, 0.90]\)</span>) and <code>ADNI-MCI</code> 1,214-Sweep Summary</a></li>
+  <li><a href="#synthetic-per-regime-breakdown-and-pairwise-wilcoxon-tests" id="toc-synthetic-per-regime-breakdown-and-pairwise-wilcoxon-tests" class="nav-link" data-scroll-target="#synthetic-per-regime-breakdown-and-pairwise-wilcoxon-tests"><span class="header-section-number">B.4</span> Synthetic Per-Regime Breakdown and Pairwise Wilcoxon Tests</a></li>
+  <li><a href="#computational-complexity-summary" id="toc-computational-complexity-summary" class="nav-link" data-scroll-target="#computational-complexity-summary"><span class="header-section-number">B.5</span> Computational Complexity Summary</a></li>
   </ul>
 </nav>
     </div>
@@ -281,7 +244,7 @@ window.Quarto = {
 
 <header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./appendix_brca_clinical_validation.html">Appendices</a></li><li class="breadcrumb-item"><a href="./appendix_operational.html"><span class="chapter-number">B</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></a></li></ol></nav>
 <div class="quarto-title">
-<h1 class="title">Appendix B — Operational Implementation and Complexity</h1>
+<h1 class="title">Appendix B — Extended Parameter Ablations and Operational Details</h1>
 </div>
 
 
@@ -327,213 +290,1048 @@ window.Quarto = {
 </header>
 
 
-<p>This appendix specifies technical details for the SiMLR framework, including hyperparameter definitions, computational complexity bounds, and the optimization protocol.</p>
-<section id="operational-protocol-the-simlr-training-loop" class="level2" data-number="B.1">
-<h2 data-number="B.1" class="anchored" data-anchor-id="operational-protocol-the-simlr-training-loop"><span class="header-section-number">B.1</span> Operational Protocol: The SiMLR Training Loop</h2>
-<p>The training procedure for SiMLR and its deep extensions (LEND, NED, NEDPP) interleaves neural network backpropagation with manifold projection.</p>
-<section id="training-algorithm" class="level3" data-number="B.1.1">
-<h3 data-number="B.1.1" class="anchored" data-anchor-id="training-algorithm"><span class="header-section-number">B.1.1</span> Training Algorithm</h3>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>Initialize {V_m, theta_m, phi_m}</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>For epoch t <span class="kw">in</span> <span class="fl">1.</span>.T:</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="fl">1.</span> Calculate alpha_t (Stiefel mixing coefficient)</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>       <span class="op">-</span> alpha_t <span class="op">=</span> <span class="bu">min</span>(<span class="fl">1.0</span>, t <span class="op">/</span> (Total_Epochs <span class="op">*</span> ramp_ratio))</span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="fl">2.</span> Forward Pass:</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>       <span class="co"># Apply OLEE</span></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>       V_active <span class="op">=</span> (<span class="dv">1</span> <span class="op">-</span> alpha_t) <span class="op">*</span> V_raw <span class="op">+</span> alpha_t <span class="op">*</span> NewtonSchulz(V_raw)</span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>       Z_m <span class="op">=</span> Encoder(X_m, V_active, theta_m)</span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>       </span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>       <span class="co"># For NEDPP: Disentangle Shared vs Private</span></span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>       U_shared, P_private <span class="op">=</span> Split(Z_m)</span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>       Loss_disentangle <span class="op">=</span> CovariancePenalty(U_shared, P_private)</span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>       </span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="fl">3.</span> Consensus Estimation:</span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>       <span class="op">-</span> U_hat <span class="op">=</span> Average(Z_1, ..., Z_M) <span class="kw">or</span> NewtonSchulzConsensus(Z_list)</span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="fl">4.</span> Calculate Total Energy J:</span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>       <span class="op">-</span> J <span class="op">=</span> (<span class="dv">1</span> <span class="op">-</span> alpha_t) <span class="op">*</span> L_recon <span class="op">+</span> alpha_t <span class="op">*</span> L_align <span class="op">+</span> gamma <span class="op">*</span> L_disentangle</span>
-<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="fl">5.</span> Backpropagate gradients to {V_raw, theta_m, phi_m}</span>
-<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="fl">6.</span> Update weights via Optimizer (Adam <span class="cf">with</span> weight decay)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-</section>
-</section>
-<section id="mathematical-derivations" class="level2" data-number="B.2">
-<h2 data-number="B.2" class="anchored" data-anchor-id="mathematical-derivations"><span class="header-section-number">B.2</span> Mathematical Derivations</h2>
-<section id="riemannian-updates" class="level3" data-number="B.2.1">
-<h3 data-number="B.2.1" class="anchored" data-anchor-id="riemannian-updates"><span class="header-section-number">B.2.1</span> Riemannian Updates</h3>
-<p>We implement Riemannian updates on the Stiefel manifold via projection onto the tangent space <span class="math inline">\(\mathcal{T}_{\mathbf{V}} \mathbb{V}_{k,n}\)</span>. We compute the Riemannian gradient <span class="math inline">\(\text{grad} \mathcal{J}(\mathbf{V})\)</span> from the Euclidean gradient <span class="math inline">\(\nabla \mathcal{J}(\mathbf{V})\)</span>: <span class="math display">\[ \text{grad} \mathcal{J}(\mathbf{V}) = \nabla \mathcal{J}(\mathbf{V}) - \mathbf{V} \text{sym}(\mathbf{V}^\top \nabla \mathcal{J}(\mathbf{V})) \]</span></p>
-<p>The orthogonal penalty <span class="math inline">\(\mathcal{P}(\mathbf{V}) = \frac{1}{4} \| \mathbf{V}^\top \mathbf{V} - \mathbf{I}_k \|_F^2\)</span> permits a Taylor expansion for a perturbation <span class="math inline">\(\Delta\)</span>: <span class="math display">\[ \mathcal{P}(\mathbf{V} + \Delta) \approx \frac{1}{4} \text{Tr}\left( (\mathbf{V}^\top \Delta + \Delta^\top \mathbf{V})^2 \right) \]</span> This penalty evaluates to zero for any <span class="math inline">\(\Delta\)</span> strictly within the tangent space.</p>
-</section>
-<section id="newton-schulz-convergence" class="level3" data-number="B.2.2">
-<h3 data-number="B.2.2" class="anchored" data-anchor-id="newton-schulz-convergence"><span class="header-section-number">B.2.2</span> Newton-Schulz Convergence</h3>
-<p>We enforce orthogonality via the iteration sequence: <span class="math display">\[ \mathbf{Y}_{k+1} = \frac{1}{2} \mathbf{Y}_k (3\mathbf{I} - \mathbf{Y}_k^\top \mathbf{Y}_k) \]</span> The residual error <span class="math inline">\(\mathbf{E}_k = \mathbf{I} - \mathbf{Y}_k^\top \mathbf{Y}_k\)</span> obeys the relation <span class="math inline">\(\mathbf{E}_{k+1} = \frac{3}{4} \mathbf{E}_k^2 + \frac{1}{4} \mathbf{E}_k^3\)</span>. This yields quadratic convergence: <span class="math inline">\(\| \mathbf{E}_{k+1} \|_2 &lt; \| \mathbf{E}_k \|_2^2\)</span>.</p>
-</section>
-<section id="noise-reduction-law" class="level3" data-number="B.2.3">
-<h3 data-number="B.2.3" class="anchored" data-anchor-id="noise-reduction-law"><span class="header-section-number">B.2.3</span> Noise Reduction Law</h3>
-<p>Assuming independent noise distributions <span class="math inline">\(\boldsymbol{\epsilon}_m \sim \mathcal{N}(\mathbf{0}, \sigma^2 \mathbf{I})\)</span>, the consensus variance scales as: <span class="math display">\[ \text{Var}\left( \frac{1}{M} \sum_{m=1}^M \boldsymbol{\epsilon}_m \right) = \frac{\sigma^2}{M} \]</span> The corresponding <span class="math inline">\(100(1-\delta)\%\)</span> confidence interval for the underlying signal <span class="math inline">\(\boldsymbol{\mu}\)</span> is bounded by: <span class="math display">\[ \hat{\boldsymbol{\mu}}_{\text{consensus}} \pm z_{\delta/2} \sqrt{\frac{\sigma^2}{M}(1-\rho) + \rho\sigma^2} \]</span> The covariance term <span class="math inline">\(\rho\sigma^2\)</span> provides the strict statistical lower bound for the multi-modal consensus error.</p>
-</section>
-</section>
-<section id="statistical-sensitivity" class="level2" data-number="B.3">
-<h2 data-number="B.3" class="anchored" data-anchor-id="statistical-sensitivity"><span class="header-section-number">B.3</span> Statistical Sensitivity</h2>
-<section id="modality-weights-w" class="level3" data-number="B.3.1">
-<h3 data-number="B.3.1" class="anchored" data-anchor-id="modality-weights-w"><span class="header-section-number">B.3.1</span> Modality Weights (<span class="math inline">\(w\)</span>)</h3>
-<p>We bound the Statistical Influence Function <span class="math inline">\(\mathcal{I}_m = \frac{\partial \mathbf{U}}{\partial w_m}\)</span> by the spectral gap <span class="math inline">\((\lambda_1 - \lambda_2)^{-1}\)</span> of the input feature covariance <span class="math inline">\(\Sigma_m\)</span>. Consequently, SiMLR operational sensitivity scales proportionally with the degree of multicollinearity in the input domain.</p>
-</section>
-<section id="alpha-transition" class="level3" data-number="B.3.2">
-<h3 data-number="B.3.2" class="anchored" data-anchor-id="alpha-transition"><span class="header-section-number">B.3.2</span> <span class="math inline">\(\alpha\)</span>-Transition</h3>
-<p>The mixing parameter <span class="math inline">\(\alpha\)</span> controls the trade-off between independent modality reconstruction and cross-modal consensus alignment. We set the transition point at the epoch where the first derivative of the consensus variance approaches zero.</p>
-</section>
-</section>
-<section id="hyperparameter-guidance" class="level2" data-number="B.4">
-<h2 data-number="B.4" class="anchored" data-anchor-id="hyperparameter-guidance"><span class="header-section-number">B.4</span> Hyperparameter Guidance</h2>
-<table class="caption-top table">
+<p>This appendix provides the complete empirical ablation tables referenced in Chapters 2–4—covering the <code>nsa_flow</code> trade-off weight <span class="math inline">\(w \in [0.01, 0.95]\)</span>, in-fold subject row-mean removal and deterministic ICA initialization, fine-grained quantile sparsity <span class="math inline">\(q \in [\text{None}, 0.90]\)</span>, the <span class="math inline">\(1,214\)</span>-configuration <code>ADNI-MCI</code> grid sweep, synthetic per-regime breakdowns, and pairwise Wilcoxon rank-sum tests—followed by computational complexity bounds.</p>
+<section id="effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95" class="level2" data-number="B.1">
+<h2 data-number="B.1" class="anchored" data-anchor-id="effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95"><span class="header-section-number">B.1</span> Effect of the Approximate Stiefel Weight <span class="math inline">\(w \in [0.01, 0.95]\)</span></h2>
+<p><a href="#tbl-app-w-sweep" class="quarto-xref">Table&nbsp;<span>B.1</span></a> and <a href="#fig-w-sweep" class="quarto-xref">Figure&nbsp;<span>B.1</span></a> evaluate <code>SiMLR-LBFGSB</code> (<span class="math inline">\(\mathbf{V}_m \ge 0, k = 3\)</span>) across ten values of <span class="math inline">\(w \in [0.01, 0.95]\)</span> on synthetic <code>NonnegParts</code> and clinical <code>ADNI-MCI</code> (<code>Protocol B</code>).</p>
+<div id="tbl-app-w-sweep" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="1">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-w-sweep-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;B.1: Sensitivity of basis orthogonality defect <span class="math inline">\(D(V)\)</span>, effective rank, sparsity, runtime, and out-of-sample accuracy across ten values of the <code>nsa_flow</code> weight <span class="math inline">\(w \in [0.01, 0.95]\)</span> (<code>ablation_w_sweep.csv</code>).
+</figcaption>
+<div aria-describedby="tbl-app-w-sweep-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<table class="cell caption-top table table-sm table-striped small">
 <colgroup>
-<col style="width: 25%">
-<col style="width: 25%">
-<col style="width: 25%">
-<col style="width: 25%">
+<col style="width: 4%">
+<col style="width: 9%">
+<col style="width: 11%">
+<col style="width: 13%">
+<col style="width: 10%">
+<col style="width: 12%">
+<col style="width: 13%">
+<col style="width: 13%">
+<col style="width: 10%">
 </colgroup>
 <thead>
 <tr class="header">
-<th style="text-align: left;">Parameter</th>
-<th style="text-align: left;">Default</th>
-<th style="text-align: left;">Range</th>
-<th style="text-align: left;">Rationale</th>
+<th style="text-align: left;">w</th>
+<th style="text-align: right;">Synth F1 ↑</th>
+<th style="text-align: right;">Synth D(V) ↓</th>
+<th style="text-align: left;">Synth Sparsity ↑</th>
+<th style="text-align: right;">ADNI D(V) ↓</th>
+<th style="text-align: right;">ADNI EffRank ↑</th>
+<th style="text-align: left;">ADNI Sparsity ↑</th>
+<th style="text-align: right;">ADNI CogPC1 R2 ↑</th>
+<th style="text-align: left;">ADNI Time ↓</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
-<td style="text-align: left;"><strong><span class="math inline">\(\lambda_{\text{sim}}\)</span></strong></td>
-<td style="text-align: left;">1.0</td>
-<td style="text-align: left;"><span class="math inline">\([0.1, 10.0]\)</span></td>
-<td style="text-align: left;">Cross-modal alignment weighting.</td>
+<td style="text-align: left;">0.01</td>
+<td style="text-align: right;">0.639</td>
+<td style="text-align: right;">0.00868</td>
+<td style="text-align: left;">50.9%</td>
+<td style="text-align: right;">0.24425</td>
+<td style="text-align: right;">2.02</td>
+<td style="text-align: left;">22.5%</td>
+<td style="text-align: right;">0.1323</td>
+<td style="text-align: left;">2.80s</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;"><strong><span class="math inline">\(\lambda_{\text{rec}}\)</span></strong></td>
-<td style="text-align: left;">0.5</td>
-<td style="text-align: left;"><span class="math inline">\([0.0, 5.0]\)</span></td>
-<td style="text-align: left;">Reconstruction priority.</td>
+<td style="text-align: left;">0.05</td>
+<td style="text-align: right;">0.656</td>
+<td style="text-align: right;">7e-05</td>
+<td style="text-align: left;">62.3%</td>
+<td style="text-align: right;">0.05693</td>
+<td style="text-align: right;">2.69</td>
+<td style="text-align: left;">52.2%</td>
+<td style="text-align: right;">0.1753</td>
+<td style="text-align: left;">2.39s</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;"><strong><span class="math inline">\(\lambda_{\text{var}}\)</span></strong></td>
-<td style="text-align: left;">1.0</td>
-<td style="text-align: left;"><span class="math inline">\([0.5, 2.0]\)</span></td>
-<td style="text-align: left;">Variance preservation.</td>
+<td style="text-align: left;">0.10</td>
+<td style="text-align: right;">0.729</td>
+<td style="text-align: right;">2e-05</td>
+<td style="text-align: left;">64.4%</td>
+<td style="text-align: right;">0.01867</td>
+<td style="text-align: right;">2.89</td>
+<td style="text-align: left;">55.1%</td>
+<td style="text-align: right;">0.1657</td>
+<td style="text-align: left;">2.92s</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;"><strong><span class="math inline">\(\lambda_{\text{cov}}\)</span></strong></td>
-<td style="text-align: left;">1.0</td>
-<td style="text-align: left;"><span class="math inline">\([0.5, 2.0]\)</span></td>
-<td style="text-align: left;">Latent de-correlation.</td>
+<td style="text-align: left;">0.20</td>
+<td style="text-align: right;">0.682</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">63.5%</td>
+<td style="text-align: right;">0.01606</td>
+<td style="text-align: right;">2.91</td>
+<td style="text-align: left;">49.6%</td>
+<td style="text-align: right;">0.1697</td>
+<td style="text-align: left;">3.30s</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;"><strong><span class="math inline">\(\alpha_{\text{ramp}}\)</span></strong></td>
-<td style="text-align: left;">0.5 * Total Epochs</td>
-<td style="text-align: left;"><span class="math inline">\([0.2, 0.8]\)</span></td>
-<td style="text-align: left;">Stiefel manifold transition duration.</td>
+<td style="text-align: left;">0.35</td>
+<td style="text-align: right;">0.71</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">65.5%</td>
+<td style="text-align: right;">0.00151</td>
+<td style="text-align: right;">2.99</td>
+<td style="text-align: left;">63.1%</td>
+<td style="text-align: right;">0.1505</td>
+<td style="text-align: left;">3.51s</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;"><strong><span class="math inline">\(N_{\text{warmup}}\)</span></strong></td>
-<td style="text-align: left;">10 epochs</td>
-<td style="text-align: left;"><span class="math inline">\([5, 50]\)</span></td>
-<td style="text-align: left;">Shared-First schedule for NEDPP.</td>
+<td style="text-align: left;">0.50*</td>
+<td style="text-align: right;">0.687</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">65.5%</td>
+<td style="text-align: right;">0.00062</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: left;">64.8%</td>
+<td style="text-align: right;">0.1587</td>
+<td style="text-align: left;">4.01s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">0.65</td>
+<td style="text-align: right;">0.594</td>
+<td style="text-align: right;">3e-05</td>
+<td style="text-align: left;">64.4%</td>
+<td style="text-align: right;">9e-05</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: left;">62.4%</td>
+<td style="text-align: right;">0.1401</td>
+<td style="text-align: left;">4.55s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">0.80</td>
+<td style="text-align: right;">0.702</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">62.5%</td>
+<td style="text-align: right;">4e-05</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: left;">66.6%</td>
+<td style="text-align: right;">0.1746</td>
+<td style="text-align: left;">4.58s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">0.90</td>
+<td style="text-align: right;">0.692</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">67.3%</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: left;">68.1%</td>
+<td style="text-align: right;">0.1501</td>
+<td style="text-align: left;">7.28s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">0.95</td>
+<td style="text-align: right;">0.726</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">65.4%</td>
+<td style="text-align: right;">1e-05</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: left;">66.5%</td>
+<td style="text-align: right;">0.1323</td>
+<td style="text-align: left;">9.85s</td>
 </tr>
 </tbody>
 </table>
+</div>
+</figure>
+</div>
+<div id="cell-fig-w-sweep" class="cell" data-message="false" data-execution_count="2">
+<div class="cell-output cell-output-display">
+<div id="fig-w-sweep" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-w-sweep-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_operational_files/figure-html/fig-w-sweep-output-1.png" width="3426" height="1117" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-w-sweep-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;B.1: Continuous trade-off between cross-view fidelity (<span class="math inline">\(1 - w\)</span>) and Stiefel orthogonality (<span class="math inline">\(w\)</span>) across <span class="math inline">\(w \in [0.01, 0.95]\)</span> (<code>ablation_w_sweep.csv</code>). (A) Synthetic <code>NonnegParts</code> ground-truth support recovery (<span class="math inline">\(F_1\)</span>, blue) and Gram orthogonality defect <span class="math inline">\(D(V)\)</span> (red, log scale). (B) <code>ADNI-MCI</code> Gram defect <span class="math inline">\(D(V)\)</span> and effective rank (<span class="math inline">\(\text{EffRank} \in [1, 3]\)</span>). (C) <code>ADNI-MCI</code> out-of-sample cognitive prediction (<code>CogPC1</code> <span class="math inline">\(R^2\)</span>, green) and cortical sparsity (<span class="math inline">\(v_2..v_k\)</span>, purple), showing a broad stable plateau across <span class="math inline">\(w \in [0.20, 0.85]\)</span> centered at the default <span class="math inline">\(w = 0.50\)</span>.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
 </section>
-<section id="mai-implementation" class="level2" data-number="B.5">
-<h2 data-number="B.5" class="anchored" data-anchor-id="mai-implementation"><span class="header-section-number">B.5</span> MAI Implementation</h2>
-<p>The Modality Alignment Index (MAI) applies automated weighting to modalities via a Sigmoid Gate. We configure the MAI parameters as follows:</p>
-<ul>
-<li><strong>Center:</strong> Mean(MAI).</li>
-<li><strong>Steepness:</strong> 20.0 (annealed).</li>
-<li><strong>Transition_Epochs:</strong> 20.</li>
-</ul>
-<p>The SiMLR framework provides 4 available MAI metrics:</p>
-<ul>
-<li><code>procrustes_r2</code></li>
-<li><code>procrustes_r2_sharp</code></li>
-<li><code>cca</code></li>
-<li><code>rvcoef</code></li>
-</ul>
+<section id="preprocessing-controls-subject-row-mean-removal-and-ica-initialization" class="level2" data-number="B.2">
+<h2 data-number="B.2" class="anchored" data-anchor-id="preprocessing-controls-subject-row-mean-removal-and-ica-initialization"><span class="header-section-number">B.2</span> Preprocessing Controls: Subject Row-Mean Removal and ICA Initialization</h2>
+<p>On neuroimaging cohorts where cortical regions share a positive global correlation floor, <a href="#tbl-app-rowmean-ica" class="quarto-xref">Table&nbsp;<span>B.2</span></a> and <a href="#fig-rowmean-k-ablation" class="quarto-xref">Figure&nbsp;<span>B.2</span></a> compare standard column centering against in-fold subject row-mean centering, deterministic FastICA <span class="citation" data-cites="hyvarinen2000independent">(<a href="#ref-hyvarinen2000independent" role="doc-biblioref">Hyvärinen and Oja 2000</a>)</span> initialization, and latent rank scaling <span class="math inline">\(k \in \{2, 3, 5, 8, 12\}\)</span>.</p>
+<div id="tbl-app-rowmean-ica" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="3">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-rowmean-ica-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;B.2: Factorial ablation of column vs.&nbsp;subject row-mean centering, PCA vs.&nbsp;ICA initialization, and positivity constraints on <code>ADNI-MCI</code> (<span class="math inline">\(N = 1,084, k = 3, w = 0.50\)</span>, <code>ablation_rowmean_ica_positivity.csv</code>).
+</figcaption>
+<div aria-describedby="tbl-app-rowmean-ica-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<table class="cell caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 8%">
+<col style="width: 7%">
+<col style="width: 7%">
+<col style="width: 8%">
+<col style="width: 9%">
+<col style="width: 20%">
+<col style="width: 23%">
+<col style="width: 15%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Prep</th>
+<th style="text-align: left;">Init</th>
+<th style="text-align: left;">Sign</th>
+<th style="text-align: left;">Stage</th>
+<th style="text-align: right;">D(V) ↓</th>
+<th style="text-align: left;">Sparsity All (v1) ↑</th>
+<th style="text-align: left;">CogPC1 R2 (+RowMean) ↑</th>
+<th style="text-align: right;">11-Scale R2 ↑</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Col</td>
+<td style="text-align: left;">PCA</td>
+<td style="text-align: left;">Signed</td>
+<td style="text-align: left;">Init</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">1.3% (0.7%)</td>
+<td style="text-align: left;">0.1628 (0.1628)</td>
+<td style="text-align: right;">0.0769</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Col</td>
+<td style="text-align: left;">PCA</td>
+<td style="text-align: left;">Signed</td>
+<td style="text-align: left;">SiMR</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">3.3% (1.6%)</td>
+<td style="text-align: left;">0.1714 (0.1719)</td>
+<td style="text-align: right;">0.0833</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Col</td>
+<td style="text-align: left;">PCA</td>
+<td style="text-align: left;">V&gt;=0</td>
+<td style="text-align: left;">Init</td>
+<td style="text-align: right;">0.00186</td>
+<td style="text-align: left;">57.8% (37.1%)</td>
+<td style="text-align: left;">0.1638 (0.1638)</td>
+<td style="text-align: right;">0.0768</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Col</td>
+<td style="text-align: left;">PCA</td>
+<td style="text-align: left;">V&gt;=0</td>
+<td style="text-align: left;">SiMR</td>
+<td style="text-align: right;">8e-05</td>
+<td style="text-align: left;">63.0% (35.8%)</td>
+<td style="text-align: left;">0.1892 (0.1895)</td>
+<td style="text-align: right;">0.0889</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Col</td>
+<td style="text-align: left;">ICA</td>
+<td style="text-align: left;">Signed</td>
+<td style="text-align: left;">Init</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">3.3% (5.3%)</td>
+<td style="text-align: left;">0.1410 (0.1490)</td>
+<td style="text-align: right;">0.0683</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Col</td>
+<td style="text-align: left;">ICA</td>
+<td style="text-align: left;">Signed</td>
+<td style="text-align: left;">SiMR</td>
+<td style="text-align: right;">4e-05</td>
+<td style="text-align: left;">1.9% (1.4%)</td>
+<td style="text-align: left;">0.1737 (0.1719)</td>
+<td style="text-align: right;">0.085</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Col</td>
+<td style="text-align: left;">ICA</td>
+<td style="text-align: left;">V&gt;=0</td>
+<td style="text-align: left;">Init</td>
+<td style="text-align: right;">0.01607</td>
+<td style="text-align: left;">63.8% (72.3%)</td>
+<td style="text-align: left;">0.1476 (0.1615)</td>
+<td style="text-align: right;">0.0651</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Col</td>
+<td style="text-align: left;">ICA</td>
+<td style="text-align: left;">V&gt;=0</td>
+<td style="text-align: left;">SiMR</td>
+<td style="text-align: right;">5e-05</td>
+<td style="text-align: left;">62.4% (39.3%)</td>
+<td style="text-align: left;">0.1213 (0.1215)</td>
+<td style="text-align: right;">0.0602</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Row+Col</td>
+<td style="text-align: left;">PCA</td>
+<td style="text-align: left;">Signed</td>
+<td style="text-align: left;">Init</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">1.8% (1.2%)</td>
+<td style="text-align: left;">0.1399 (0.1580)</td>
+<td style="text-align: right;">0.0684</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Row+Col</td>
+<td style="text-align: left;">PCA</td>
+<td style="text-align: left;">Signed</td>
+<td style="text-align: left;">SiMR</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">2.4% (2.4%)</td>
+<td style="text-align: left;">0.1399 (0.1532)</td>
+<td style="text-align: right;">0.072</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Row+Col</td>
+<td style="text-align: left;">PCA</td>
+<td style="text-align: left;">V&gt;=0</td>
+<td style="text-align: left;">Init</td>
+<td style="text-align: right;">0.00258</td>
+<td style="text-align: left;">58.7% (56.2%)</td>
+<td style="text-align: left;">0.1348 (0.1497)</td>
+<td style="text-align: right;">0.066</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Row+Col</td>
+<td style="text-align: left;">PCA</td>
+<td style="text-align: left;">V&gt;=0</td>
+<td style="text-align: left;">SiMR</td>
+<td style="text-align: right;">0.00465</td>
+<td style="text-align: left;">62.0% (52.9%)</td>
+<td style="text-align: left;">0.1689 (0.1776)</td>
+<td style="text-align: right;">0.0813</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Row+Col</td>
+<td style="text-align: left;">ICA</td>
+<td style="text-align: left;">Signed</td>
+<td style="text-align: left;">Init</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">1.7% (1.8%)</td>
+<td style="text-align: left;">0.1400 (0.1581)</td>
+<td style="text-align: right;">0.0684</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Row+Col</td>
+<td style="text-align: left;">ICA</td>
+<td style="text-align: left;">Signed</td>
+<td style="text-align: left;">SiMR</td>
+<td style="text-align: right;">5e-05</td>
+<td style="text-align: left;">2.8% (2.5%)</td>
+<td style="text-align: left;">0.1489 (0.1567)</td>
+<td style="text-align: right;">0.0761</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Row+Col</td>
+<td style="text-align: left;">ICA</td>
+<td style="text-align: left;">V&gt;=0</td>
+<td style="text-align: left;">Init</td>
+<td style="text-align: right;">0.02073</td>
+<td style="text-align: left;">60.4% (58.2%)</td>
+<td style="text-align: left;">0.1286 (0.1594)</td>
+<td style="text-align: right;">0.0623</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Row+Col</td>
+<td style="text-align: left;">ICA</td>
+<td style="text-align: left;">V&gt;=0</td>
+<td style="text-align: left;">SiMR</td>
+<td style="text-align: right;">6e-05</td>
+<td style="text-align: left;">67.1% (69.4%)</td>
+<td style="text-align: left;">0.1408 (0.1531)</td>
+<td style="text-align: right;">0.0727</td>
+</tr>
+</tbody>
+</table>
+</div>
+</figure>
+</div>
+<div id="cell-fig-rowmean-k-ablation" class="cell" data-message="false" data-execution_count="4">
+<div class="cell-output cell-output-display">
+<div id="fig-rowmean-k-ablation" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-rowmean-k-ablation-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_operational_files/figure-html/fig-rowmean-k-ablation-output-1.png" width="3394" height="1234" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-rowmean-k-ablation-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;B.2: Resolution of the unthresholded <code>ADNI-MCI</code> Component 1 density effect via subject row-mean removal and latent rank scaling (<code>ablation_rowmean_ica_positivity.csv</code> and <code>ablation_k_sparsity_sweep.csv</code>). (A) Under unthresholded column centering (<code>q = None</code>), Component 1 (<span class="math inline">\(v_1\)</span>, blue) absorbs the global cortical thickness floor (<span class="math inline">\(3.2\%\)</span> sparse) while Components <span class="math inline">\(2..k\)</span> (<span class="math inline">\(v_2..v_k\)</span>, teal) remain <span class="math inline">\(21.0\%\)</span> sparse; removing each subject’s mean cortical thickness or applying quantile thresholding (<span class="math inline">\(q = 0.80\)</span>) restores <span class="math inline">\(53.2\%\)</span>–<span class="math inline">\(81.5\%\)</span> sparsity on <span class="math inline">\(v_1\)</span>. (B) Scaling latent rank <span class="math inline">\(k \in \{2, 3, 5, 8, 12\}\)</span> systematically increases natural unthresholded non-negative sparsity toward the theoretical disjoint limit <span class="math inline">\(1 - 1/k\)</span>.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
 </section>
-<section id="computational-complexity" class="level2" data-number="B.6">
-<h2 data-number="B.6" class="anchored" data-anchor-id="computational-complexity"><span class="header-section-number">B.6</span> Computational Complexity</h2>
+<section id="fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-1214-sweep-summary" class="level2" data-number="B.3">
+<h2 data-number="B.3" class="anchored" data-anchor-id="fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-1214-sweep-summary"><span class="header-section-number">B.3</span> Fine-Grained Quantile Sparsity (<span class="math inline">\(q \in [\text{None}, 0.90]\)</span>) and <code>ADNI-MCI</code> 1,214-Sweep Summary</h2>
+<p><a href="#tbl-app-quantile-grid" class="quarto-xref">Table&nbsp;<span>B.3</span></a> reports the complete quantile <code>sparseness</code> progression from <span class="math inline">\(q = \text{None}\)</span> to <span class="math inline">\(q = 0.90\)</span> on <code>ADNI-MCI</code> and <code>NonnegParts</code>, and <a href="#tbl-app-adni-sweep" class="quarto-xref">Table&nbsp;<span>B.4</span></a> reports the top configuration per model family across the <span class="math inline">\(1,214\)</span>-configuration <code>ADNI-MCI</code> grid sweep.</p>
+<div id="tbl-app-quantile-grid" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="5">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-quantile-grid-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;B.3: Fine-grained quantile <code>sparseness</code> ablation across <span class="math inline">\(q \in [\text{None}, 0.90]\)</span> on <code>ADNI-MCI</code> (<span class="math inline">\(N = 1,084\)</span>) and synthetic <code>NonnegParts</code> (<code>ablation_quantile_sparseness.csv</code>).
+</figcaption>
+<div aria-describedby="tbl-app-quantile-grid-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<table class="cell caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 7%">
+<col style="width: 10%">
+<col style="width: 11%">
+<col style="width: 18%">
+<col style="width: 15%">
+<col style="width: 11%">
+<col style="width: 13%">
+<col style="width: 10%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Sign</th>
+<th style="text-align: left;">Quantile q</th>
+<th style="text-align: right;">ADNI D(V) ↓</th>
+<th style="text-align: left;">ADNI Sparsity (v1) ↑</th>
+<th style="text-align: left;">Active DKT (/62)</th>
+<th style="text-align: right;">CogPC1 R2 ↑</th>
+<th style="text-align: right;">11-Scale R2 ↑</th>
+<th style="text-align: right;">Synth F1 ↑</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">positive</td>
+<td style="text-align: left;">None</td>
+<td style="text-align: right;">8e-05</td>
+<td style="text-align: left;">63.0% (35.8%)</td>
+<td style="text-align: left;">(55,7,12)</td>
+<td style="text-align: right;">0.1892</td>
+<td style="text-align: right;">0.0889</td>
+<td style="text-align: right;">0.941</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">positive</td>
+<td style="text-align: left;">0.50</td>
+<td style="text-align: right;">1e-05</td>
+<td style="text-align: left;">74.5% (61.5%)</td>
+<td style="text-align: left;">(31,3,7)</td>
+<td style="text-align: right;">0.1602</td>
+<td style="text-align: right;">0.0751</td>
+<td style="text-align: right;">0.915</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">positive</td>
+<td style="text-align: left;">0.70</td>
+<td style="text-align: right;">0.00063</td>
+<td style="text-align: left;">76.9% (72.0%)</td>
+<td style="text-align: left;">(19,10,5)</td>
+<td style="text-align: right;">0.1689</td>
+<td style="text-align: right;">0.0793</td>
+<td style="text-align: right;">0.88</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">positive</td>
+<td style="text-align: left;">0.80</td>
+<td style="text-align: right;">3e-05</td>
+<td style="text-align: left;">85.8% (81.9%)</td>
+<td style="text-align: left;">(12,3,3)</td>
+<td style="text-align: right;">0.1735</td>
+<td style="text-align: right;">0.0807</td>
+<td style="text-align: right;">0.562</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">positive</td>
+<td style="text-align: left;">0.85</td>
+<td style="text-align: right;">0.00062</td>
+<td style="text-align: left;">88.0% (85.5%)</td>
+<td style="text-align: left;">(9,9,9)</td>
+<td style="text-align: right;">0.1923</td>
+<td style="text-align: right;">0.0897</td>
+<td style="text-align: right;">0.46</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">positive</td>
+<td style="text-align: left;">0.90</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">92.3% (91.0%)</td>
+<td style="text-align: left;">(6,6,3)</td>
+<td style="text-align: right;">0.1595</td>
+<td style="text-align: right;">0.0773</td>
+<td style="text-align: right;">0.279</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">either</td>
+<td style="text-align: left;">None</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">3.3% (1.6%)</td>
+<td style="text-align: left;">(62,62,62)</td>
+<td style="text-align: right;">0.1714</td>
+<td style="text-align: right;">0.0833</td>
+<td style="text-align: right;">0.333</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">either</td>
+<td style="text-align: left;">0.50</td>
+<td style="text-align: right;">0.00023</td>
+<td style="text-align: left;">58.5% (55.7%)</td>
+<td style="text-align: left;">(31,31,31)</td>
+<td style="text-align: right;">0.1968</td>
+<td style="text-align: right;">0.0938</td>
+<td style="text-align: right;">0.621</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">either</td>
+<td style="text-align: left;">0.70</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">75.7% (75.9%)</td>
+<td style="text-align: left;">(19,19,19)</td>
+<td style="text-align: right;">0.2089</td>
+<td style="text-align: right;">0.0943</td>
+<td style="text-align: right;">0.791</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">either</td>
+<td style="text-align: left;">0.80</td>
+<td style="text-align: right;">0.00035</td>
+<td style="text-align: left;">85.0% (84.2%)</td>
+<td style="text-align: left;">(12,12,12)</td>
+<td style="text-align: right;">0.1699</td>
+<td style="text-align: right;">0.0773</td>
+<td style="text-align: right;">0.551</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">either</td>
+<td style="text-align: left;">0.85</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">86.6% (86.5%)</td>
+<td style="text-align: left;">(9,9,9)</td>
+<td style="text-align: right;">0.1722</td>
+<td style="text-align: right;">0.0808</td>
+<td style="text-align: right;">0.436</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">either</td>
+<td style="text-align: left;">0.90</td>
+<td style="text-align: right;">6e-05</td>
+<td style="text-align: left;">90.6% (90.2%)</td>
+<td style="text-align: left;">(6,6,6)</td>
+<td style="text-align: right;">0.1514</td>
+<td style="text-align: right;">0.0716</td>
+<td style="text-align: right;">0.266</td>
+</tr>
+</tbody>
+</table>
+</div>
+</figure>
+</div>
+<div id="tbl-app-adni-sweep" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="6">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-adni-sweep-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;B.4: Summary of the 1,214-configuration <code>ADNI-MCI</code> Protocol B sweep (<span class="math inline">\(N = 1,084\)</span>, Seed 42, <span class="math inline">\(k = 3\)</span>) computed from <code>adni_mci_1214_grid_sweep.csv</code>.
+</figcaption>
+<div aria-describedby="tbl-app-adni-sweep-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<table class="cell caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 9%">
+<col style="width: 17%">
+<col style="width: 7%">
+<col style="width: 19%">
+<col style="width: 16%">
+<col style="width: 20%">
+<col style="width: 9%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Family</th>
+<th style="text-align: left;">Model</th>
+<th style="text-align: right;">Runs</th>
+<th style="text-align: right;">Peak CogPC1 R2 ↑</th>
+<th style="text-align: right;">11-Scale R2 ↑</th>
+<th style="text-align: left;">Sweep Mean ± SD ↑</th>
+<th style="text-align: left;">Time ↓</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Linear</td>
+<td style="text-align: left;">SiMLR-Lookahead</td>
+<td style="text-align: right;">35</td>
+<td style="text-align: right;">0.2407</td>
+<td style="text-align: right;">0.0939</td>
+<td style="text-align: left;">0.166 ± 0.023</td>
+<td style="text-align: left;">2.07s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">NEDPP</td>
+<td style="text-align: right;">150</td>
+<td style="text-align: right;">0.2357</td>
+<td style="text-align: right;">0.1074</td>
+<td style="text-align: left;">0.195 ± 0.020</td>
+<td style="text-align: left;">14.32s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Flow</td>
+<td style="text-align: left;">Flow-SiMR-V</td>
+<td style="text-align: right;">120</td>
+<td style="text-align: right;">0.2341</td>
+<td style="text-align: right;">0.1054</td>
+<td style="text-align: left;">0.181 ± 0.027</td>
+<td style="text-align: left;">16.80s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Linear</td>
+<td style="text-align: left;">SiMLR-LARS</td>
+<td style="text-align: right;">35</td>
+<td style="text-align: right;">0.2296</td>
+<td style="text-align: right;">0.1073</td>
+<td style="text-align: left;">0.172 ± 0.014</td>
+<td style="text-align: left;">1.23s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Linear</td>
+<td style="text-align: left;">SiMLR-BiArmijo</td>
+<td style="text-align: right;">35</td>
+<td style="text-align: right;">0.2277</td>
+<td style="text-align: right;">0.0778</td>
+<td style="text-align: left;">0.171 ± 0.019</td>
+<td style="text-align: left;">2.92s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">NED</td>
+<td style="text-align: right;">150</td>
+<td style="text-align: right;">0.2237</td>
+<td style="text-align: right;">0.1069</td>
+<td style="text-align: left;">0.185 ± 0.016</td>
+<td style="text-align: left;">8.69s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Linear</td>
+<td style="text-align: left;">SiMLR-LBFGSB</td>
+<td style="text-align: right;">35</td>
+<td style="text-align: right;">0.2212</td>
+<td style="text-align: right;">0.0643</td>
+<td style="text-align: left;">0.159 ± 0.026</td>
+<td style="text-align: left;">4.74s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: right;">150</td>
+<td style="text-align: right;">0.219</td>
+<td style="text-align: right;">0.1059</td>
+<td style="text-align: left;">0.180 ± 0.023</td>
+<td style="text-align: left;">25.58s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Linear</td>
+<td style="text-align: left;">SiMLR-LBFGS</td>
+<td style="text-align: right;">35</td>
+<td style="text-align: right;">0.2177</td>
+<td style="text-align: right;">0.0613</td>
+<td style="text-align: left;">0.164 ± 0.021</td>
+<td style="text-align: left;">4.89s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Linear</td>
+<td style="text-align: left;">SiMLR</td>
+<td style="text-align: right;">35</td>
+<td style="text-align: right;">0.2151</td>
+<td style="text-align: right;">0.0703</td>
+<td style="text-align: left;">0.171 ± 0.016</td>
+<td style="text-align: left;">0.96s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Linear</td>
+<td style="text-align: left;">SiMLR-NSAFlow</td>
+<td style="text-align: right;">35</td>
+<td style="text-align: right;">0.1911</td>
+<td style="text-align: right;">0.0866</td>
+<td style="text-align: left;">0.166 ± 0.007</td>
+<td style="text-align: left;">1.77s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Linear</td>
+<td style="text-align: left;">SiMLR-HybridAdam</td>
+<td style="text-align: right;">35</td>
+<td style="text-align: right;">0.1894</td>
+<td style="text-align: right;">0.041</td>
+<td style="text-align: left;">0.158 ± 0.016</td>
+<td style="text-align: left;">0.95s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Baseline</td>
+<td style="text-align: left;">NSAFlow-PCA</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.1891</td>
+<td style="text-align: right;">0.0823</td>
+<td style="text-align: left;">0.189</td>
+<td style="text-align: left;">0.35s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Baseline</td>
+<td style="text-align: left;">PCA</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.1786</td>
+<td style="text-align: right;">0.0813</td>
+<td style="text-align: left;">0.179</td>
+<td style="text-align: left;">0.29s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">LEND-LARS</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">0.1628</td>
+<td style="text-align: right;">0.0782</td>
+<td style="text-align: left;">0.163 ± 0.000</td>
+<td style="text-align: left;">3.12s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">LEND-LARSLOW</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">0.1628</td>
+<td style="text-align: right;">0.0782</td>
+<td style="text-align: left;">0.163 ± 0.000</td>
+<td style="text-align: left;">3.31s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">NEDPP-LARSLOW</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">0.1627</td>
+<td style="text-align: right;">0.0782</td>
+<td style="text-align: left;">0.163 ± 0.000</td>
+<td style="text-align: left;">7.69s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">NEDPP-LARS</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">0.1627</td>
+<td style="text-align: right;">0.0782</td>
+<td style="text-align: left;">0.163 ± 0.000</td>
+<td style="text-align: left;">7.53s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">NED-LARSLOW</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">0.1627</td>
+<td style="text-align: right;">0.0782</td>
+<td style="text-align: left;">0.163 ± 0.000</td>
+<td style="text-align: left;">4.00s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">NED-LARS</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">0.1627</td>
+<td style="text-align: right;">0.0782</td>
+<td style="text-align: left;">0.163 ± 0.000</td>
+<td style="text-align: left;">3.71s</td>
+</tr>
+</tbody>
+</table>
+</div>
+</figure>
+</div>
+</section>
+<section id="synthetic-per-regime-breakdown-and-pairwise-wilcoxon-tests" class="level2" data-number="B.4">
+<h2 data-number="B.4" class="anchored" data-anchor-id="synthetic-per-regime-breakdown-and-pairwise-wilcoxon-tests"><span class="header-section-number">B.4</span> Synthetic Per-Regime Breakdown and Pairwise Wilcoxon Tests</h2>
+<p><a href="#tbl-app-synthetic-breakdown" class="quarto-xref">Table&nbsp;<span>B.5</span></a> and <a href="#fig-cmc-recovery" class="quarto-xref">Figure&nbsp;<span>B.3</span></a> report the 3-seed performance across each of the six synthetic ground-truth regimes, and <a href="#tbl-app-wilcoxon" class="quarto-xref">Table&nbsp;<span>B.6</span></a> reports pairwise Wilcoxon signed-rank tests against <code>PCA</code> across the <span class="math inline">\(N = 36\)</span> dataset-seed pairs.</p>
+<div id="tbl-app-synthetic-breakdown" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="7">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-synthetic-breakdown-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;B.5: Out-of-sample performance across the six synthetic ground-truth regimes (<code>deep_ranking_benchmark.csv</code>). Entries show <code>Linear XV R2 (CMC or Support F1)</code>.
+</figcaption>
+<div aria-describedby="tbl-app-synthetic-breakdown-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<table class="cell caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 11%">
+<col style="width: 15%">
+<col style="width: 15%">
+<col style="width: 15%">
+<col style="width: 15%">
+<col style="width: 14%">
+<col style="width: 14%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Model</th>
+<th style="text-align: left;">Linear</th>
+<th style="text-align: left;">Polynomial</th>
+<th style="text-align: left;">Sine</th>
+<th style="text-align: left;">Shared+Priv</th>
+<th style="text-align: left;">NonnegParts</th>
+<th style="text-align: left;">NonnegWeak</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">SiMLR-LBFGSB</td>
+<td style="text-align: left;">0.971 (CMC=0.96)</td>
+<td style="text-align: left;">0.881 (CMC=0.89)</td>
+<td style="text-align: left;">0.928 (CMC=0.92)</td>
+<td style="text-align: left;">0.474 (CMC=0.26)</td>
+<td style="text-align: left;">0.916 (F1=0.99)</td>
+<td style="text-align: left;">0.353 (F1=0.61)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">SiMLR-LBFGS</td>
+<td style="text-align: left;">0.971 (CMC=0.96)</td>
+<td style="text-align: left;">0.879 (CMC=0.89)</td>
+<td style="text-align: left;">0.928 (CMC=0.92)</td>
+<td style="text-align: left;">0.472 (CMC=0.26)</td>
+<td style="text-align: left;">0.916 (F1=0.97)</td>
+<td style="text-align: left;">0.350 (F1=0.61)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">0.973 (CMC=0.88)</td>
+<td style="text-align: left;">0.882 (CMC=0.90)</td>
+<td style="text-align: left;">0.936 (CMC=0.87)</td>
+<td style="text-align: left;">0.633 (CMC=0.36)</td>
+<td style="text-align: left;">0.918 (F1=0.94)</td>
+<td style="text-align: left;">0.514 (F1=0.63)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Flow-SiMR-V</td>
+<td style="text-align: left;">0.972 (CMC=0.97)</td>
+<td style="text-align: left;">0.881 (CMC=0.89)</td>
+<td style="text-align: left;">0.936 (CMC=0.92)</td>
+<td style="text-align: left;">0.706 (CMC=0.44)</td>
+<td style="text-align: left;">0.916 (F1=0.88)</td>
+<td style="text-align: left;">0.462 (F1=0.53)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">SiMLR</td>
+<td style="text-align: left;">0.970 (CMC=0.96)</td>
+<td style="text-align: left;">0.882 (CMC=0.89)</td>
+<td style="text-align: left;">0.928 (CMC=0.92)</td>
+<td style="text-align: left;">0.478 (CMC=0.25)</td>
+<td style="text-align: left;">0.920 (F1=0.68)</td>
+<td style="text-align: left;">0.451 (F1=0.49)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">NSAFlow-PCA</td>
+<td style="text-align: left;">0.968 (CMC=0.99)</td>
+<td style="text-align: left;">0.862 (CMC=0.92)</td>
+<td style="text-align: left;">0.921 (CMC=0.94)</td>
+<td style="text-align: left;">0.294 (CMC=0.15)</td>
+<td style="text-align: left;">0.890 (F1=0.64)</td>
+<td style="text-align: left;">0.114 (F1=0.36)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">PCA</td>
+<td style="text-align: left;">0.968 (CMC=0.99)</td>
+<td style="text-align: left;">0.864 (CMC=0.92)</td>
+<td style="text-align: left;">0.921 (CMC=0.94)</td>
+<td style="text-align: left;">0.291 (CMC=0.15)</td>
+<td style="text-align: left;">0.893 (F1=0.33)</td>
+<td style="text-align: left;">0.125 (F1=0.20)</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">NEDPP</td>
+<td style="text-align: left;">0.971 (CMC=0.72)</td>
+<td style="text-align: left;">0.884 (CMC=0.61)</td>
+<td style="text-align: left;">0.942 (CMC=0.71)</td>
+<td style="text-align: left;">0.447 (CMC=0.24)</td>
+<td style="text-align: left;">0.916 (F1=0.81)</td>
+<td style="text-align: left;">0.370 (F1=0.47)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">NED</td>
+<td style="text-align: left;">0.973 (CMC=0.76)</td>
+<td style="text-align: left;">0.880 (CMC=0.63)</td>
+<td style="text-align: left;">0.942 (CMC=0.64)</td>
+<td style="text-align: left;">0.439 (CMC=0.36)</td>
+<td style="text-align: left;">0.916 (F1=0.81)</td>
+<td style="text-align: left;">0.391 (F1=0.45)</td>
+</tr>
+</tbody>
+</table>
+</div>
+</figure>
+</div>
+<div id="cell-fig-cmc-recovery" class="cell" data-message="false" data-execution_count="8">
+<div class="cell-output cell-output-display">
+<div id="fig-cmc-recovery" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cmc-recovery-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_operational_files/figure-html/fig-cmc-recovery-output-1.png" width="3119" height="1050" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cmc-recovery-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;B.3: Latent manifold recovery (<code>CMC_Latent_U</code>, higher is better ↑) across the six synthetic ground-truth generative regimes (<code>Linear</code>, <code>Polynomial</code>, <code>Sine</code>, <code>Shared+Private</code>, <code>NonnegParts</code>, and <code>NonnegPartsWeak</code>) computed from <code>deep_ranking_benchmark.csv</code>.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div id="tbl-app-wilcoxon" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="9">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-wilcoxon-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;B.6: Pairwise Wilcoxon signed-rank tests and win/tie/loss counts against single-matrix <code>PCA</code> across all 36 dataset-seed evaluations (<code>deep_ranking_benchmark.csv</code>).
+</figcaption>
+<div aria-describedby="tbl-app-wilcoxon-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<table class="cell caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 13%">
+<col style="width: 18%">
+<col style="width: 12%">
+<col style="width: 13%">
+<col style="width: 17%">
+<col style="width: 11%">
+<col style="width: 13%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Model vs PCA</th>
+<th style="text-align: left;">XV Wins/Ties/Losses</th>
+<th style="text-align: right;">XV Mean Δ ↑</th>
+<th style="text-align: right;">XV Wilcoxon p</th>
+<th style="text-align: left;">U Wins/Ties/Losses</th>
+<th style="text-align: right;">U Mean Δ ↑</th>
+<th style="text-align: right;">U Wilcoxon p</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">30 / 0 / 6</td>
+<td style="text-align: right;">0.0889</td>
+<td style="text-align: right;">0.0001</td>
+<td style="text-align: left;">24 / 2 / 10</td>
+<td style="text-align: right;">0.0482</td>
+<td style="text-align: right;">0.0034</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">NEDPP</td>
+<td style="text-align: left;">29 / 1 / 6</td>
+<td style="text-align: right;">0.0654</td>
+<td style="text-align: right;">0.0001</td>
+<td style="text-align: left;">9 / 0 / 27</td>
+<td style="text-align: right;">-0.0871</td>
+<td style="text-align: right;">0.0001</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Flow-SiMR-V</td>
+<td style="text-align: left;">29 / 2 / 5</td>
+<td style="text-align: right;">0.0912</td>
+<td style="text-align: right;">0.0001</td>
+<td style="text-align: left;">22 / 1 / 13</td>
+<td style="text-align: right;">0.0479</td>
+<td style="text-align: right;">0.0183</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">SiMLR-LBFGS</td>
+<td style="text-align: left;">28 / 3 / 5</td>
+<td style="text-align: right;">0.0614</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">16 / 0 / 20</td>
+<td style="text-align: right;">-0.0065</td>
+<td style="text-align: right;">0.3962</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">SiMLR-LBFGSB</td>
+<td style="text-align: left;">28 / 3 / 5</td>
+<td style="text-align: right;">0.0616</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">15 / 1 / 20</td>
+<td style="text-align: right;">-0.0063</td>
+<td style="text-align: right;">0.2654</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">NED</td>
+<td style="text-align: left;">30 / 1 / 5</td>
+<td style="text-align: right;">0.0656</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">11 / 2 / 23</td>
+<td style="text-align: right;">-0.0648</td>
+<td style="text-align: right;">0.0018</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">SiMLR</td>
+<td style="text-align: left;">27 / 3 / 6</td>
+<td style="text-align: right;">0.0681</td>
+<td style="text-align: right;">0.0002</td>
+<td style="text-align: left;">16 / 1 / 19</td>
+<td style="text-align: right;">-0.0045</td>
+<td style="text-align: right;">0.6524</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">NSAFlow-PCA</td>
+<td style="text-align: left;">16 / 1 / 19</td>
+<td style="text-align: right;">0.0002</td>
+<td style="text-align: right;">0.7494</td>
+<td style="text-align: left;">15 / 4 / 17</td>
+<td style="text-align: right;">0.0004</td>
+<td style="text-align: right;">0.837</td>
+</tr>
+</tbody>
+</table>
+</div>
+</figure>
+</div>
+</section>
+<section id="computational-complexity-summary" class="level2" data-number="B.5">
+<h2 data-number="B.5" class="anchored" data-anchor-id="computational-complexity-summary"><span class="header-section-number">B.5</span> Computational Complexity Summary</h2>
+<div id="tbl-app-complexity" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-complexity-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table&nbsp;B.7: Computational and memory complexity of the <code>SiMR</code> and <code>nsa_flow</code> primitives.
+</figcaption>
+<div aria-describedby="tbl-app-complexity-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="caption-top table">
 <colgroup>
-<col style="width: 33%">
-<col style="width: 33%">
-<col style="width: 33%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
 </colgroup>
 <thead>
 <tr class="header">
 <th style="text-align: left;">Operation</th>
-<th style="text-align: left;">Complexity</th>
-<th style="text-align: left;">Scaling Law</th>
+<th style="text-align: left;">Complexity per Iteration</th>
+<th style="text-align: left;">Memory Footprint</th>
+<th style="text-align: left;">Inner-Loop Factorization Required?</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
-<td style="text-align: left;"><strong>Manifold Projection</strong></td>
-<td style="text-align: left;"><span class="math inline">\(\mathcal{O}(D \cdot K^2)\)</span></td>
-<td style="text-align: left;">Linear in features (<span class="math inline">\(D\)</span>), Quadratic in Latents (<span class="math inline">\(K\)</span>).</td>
+<td style="text-align: left;"><strong><code>nsa_flow</code> Retraction Step</strong></td>
+<td style="text-align: left;"><span class="math inline">\(\mathcal{O}(p_m k^2)\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(\mathcal{O}(p_m k + k^2)\)</span></td>
+<td style="text-align: left;">None (1 Gram product + 2 <span class="math inline">\([p_m,k]\times[k,k]\)</span> products)</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;"><strong>Consensus Estimation</strong></td>
-<td style="text-align: left;"><span class="math inline">\(\mathcal{O}(M \cdot K^3)\)</span></td>
-<td style="text-align: left;">Linear in modalities (<span class="math inline">\(M\)</span>), Cubic in Latents (<span class="math inline">\(K\)</span>).</td>
+<td style="text-align: left;"><strong>Polar Consensus Update (<span class="math inline">\(\mathbf{U}\)</span>)</strong></td>
+<td style="text-align: left;"><span class="math inline">\(\mathcal{O}(N k^2 + k^3)\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(\mathcal{O}(N k)\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(k \times k\)</span> Sylvester polar factor (<span class="math inline">\(k \ll N\)</span>)</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;"><strong>Forward/Backward</strong></td>
-<td style="text-align: left;"><span class="math inline">\(\mathcal{O}(N \cdot D \cdot K)\)</span></td>
-<td style="text-align: left;">Linear in Samples (<span class="math inline">\(N\)</span>) and features (<span class="math inline">\(D\)</span>).</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;"><strong>VRAM Consumption</strong></td>
-<td style="text-align: left;"><span class="math inline">\(\mathcal{O}(N \cdot K + D \cdot K)\)</span></td>
-<td style="text-align: left;">Linear in Samples (<span class="math inline">\(N\)</span>) and features (<span class="math inline">\(D\)</span>).</td>
+<td style="text-align: left;"><strong>Forward / Backward Pass</strong></td>
+<td style="text-align: left;"><span class="math inline">\(\mathcal{O}(N p_m k)\)</span></td>
+<td style="text-align: left;"><span class="math inline">\(\mathcal{O}(N k + p_m k)\)</span></td>
+<td style="text-align: left;">None</td>
 </tr>
 </tbody>
 </table>
-<p>The Newton-Schulz iteration relies exclusively on dense matrix multiplications, achieving optimal throughput on parallel GPU architectures.</p>
-</section>
-<section id="pre-processing-protocol" class="level2" data-number="B.7">
-<h2 data-number="B.7" class="anchored" data-anchor-id="pre-processing-protocol"><span class="header-section-number">B.7</span> Pre-processing Protocol</h2>
-<p>We require mean-centering and unit-scaling (<span class="math inline">\(z\)</span>-score normalization) for all input matrices <span class="math inline">\(\{\mathbf{X}_m\}\)</span>. This normalizes the alignment energy <span class="math inline">\(E_{\text{align}}\)</span> independently of the native measurement scale.</p>
-</section>
-<section id="system-optimizations" class="level2" data-number="B.8">
-<h2 data-number="B.8" class="anchored" data-anchor-id="system-optimizations"><span class="header-section-number">B.8</span> System Optimizations</h2>
-<section id="gradient-stability" class="level3" data-number="B.8.1">
-<h3 data-number="B.8.1" class="anchored" data-anchor-id="gradient-stability"><span class="header-section-number">B.8.1</span> Gradient Stability</h3>
-<p>We employ LeakyReLU or GELU activations coupled with Kaiming He initialization to bound gradient magnitudes and prevent signal decay in high-dimensional domains.</p>
-</section>
-<section id="learning-rate-schedules" class="level3" data-number="B.8.2">
-<h3 data-number="B.8.2" class="anchored" data-anchor-id="learning-rate-schedules"><span class="header-section-number">B.8.2</span> Learning Rate Schedules</h3>
-<p>We utilize the OneCycleLR scheduler to fuse the warmup and annealing phases. This accelerates convergence traversing the non-convex joint-variational objective space.</p>
-</section>
-<section id="data-throughput" class="level3" data-number="B.8.3">
-<h3 data-number="B.8.3" class="anchored" data-anchor-id="data-throughput"><span class="header-section-number">B.8.3</span> Data Throughput</h3>
-<p>We specify <code>pin_memory=True</code> and configure <code>num_workers &gt; 0</code> in the PyTorch DataLoader. This implements asynchronous memory transfer to the GPU, mitigating host-device I/O latency.</p>
-</section>
-</section>
-<section id="technical-glossary" class="level2" data-number="B.9">
-<h2 data-number="B.9" class="anchored" data-anchor-id="technical-glossary"><span class="header-section-number">B.9</span> Technical Glossary</h2>
-<ul>
-<li><strong>Normalizing Flow</strong>: A family of deep generative models that transforms a simple probability distribution (e.g., standard multivariate Gaussian) into a complex distribution using a sequence of invertible, bijective mappings via the change-of-variables theorem.</li>
-<li><strong>Bijective Mapping</strong>: A mathematically exact, one-to-one and onto function. In Flow-SiMR, bijectivity guarantees that the forward mapping (encoding) and inverse mapping (decoding) preserve information perfectly with zero reconstruction error (<span class="math inline">\(\mathcal{L}_{MSE} = 0\)</span>).</li>
-<li><strong>Affine Coupling Layer</strong>: The core building block of RealNVP normalizing flows. It splits the input features into two halves, copying one partition directly while scaling and translating the other half using arbitrary non-linear neural networks (which do not need to be invertible themselves).</li>
-<li><strong>OLEE (Only Linear Encoder Entry-point)</strong>: An architectural constraint that restricts the entry layer of a deep neural network to be an orthogonal linear projection. This forms a structural information bottleneck that prevents deep layers from memorizing noise.</li>
-<li><strong>NSA-Flow (Non-negative Stiefel Approximating Flow)</strong>: A smooth, fully differentiable optimization penalty used to constrain the linear encoder basis matrix <span class="math inline">\(\mathbf{V}_m\)</span> to the Stiefel manifold (<span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m = \mathbf{I}_K\)</span>) during backpropagation, replacing hard SVD projections.</li>
-<li><strong>Schur Complement</strong>: A matrix operation used to compute the conditional mean and covariance of a partitioned multivariate Gaussian distribution in closed form, enabling mathematically valid cross-view imputation.</li>
-<li><strong>Leave-One-Out (LOO) Topology</strong>: An optimization pathway where each view’s latent representation is aligned against a consensus target computed exclusively from all <em>other</em> views, preventing the model from learning trivial identity mappings.</li>
-<li><strong>Modality Alignment Index (MAI)</strong>: A metric (typically based on Procrustes <span class="math inline">\(R^2\)</span>) that quantifies the alignment fidelity between an individual view’s latent space and the global consensus.</li>
-<li><strong>Spectral Sharpness</strong>: A random-matrix-theory-based metric evaluating singular value concentrations to identify and suppress isotropic high-dimensional noise, preventing it from corrupting the consensus representation.</li>
-<li><strong>Classical SiMLR</strong>: Similarity-driven Multi-view Linear Reconstruction. Strictly linear baseline architecture assuming Euclidean projection of modalities.</li>
-<li><strong>LEND</strong>: Linear Encoder, Deep Decoder. Combines OLEE-constrained linear encoder with a deep non-linear decoder, balancing interpretability and reconstruction fidelity.</li>
-<li><strong>NED</strong>: Non-linear Encoder-Decoder. Applies non-linear MLP transformations to both encoder (post-OLEE) and decoder, maximizing representational capacity.</li>
-<li><strong>NEDPP</strong>: Non-linear Encoder-Decoder with Private Partitions. Disentangles modality-specific private variance from shared cross-modal consensus.</li>
-<li><strong>Flow-SiMR</strong>: Normalizing Flow Similarity-driven Multi-view Representation. Integrates bijective normalizing flows with latent consensus alignment for information-preserving multi-modal integration.</li>
-<li><strong>Flow-SiMR-V</strong>: Flow-SiMR with a linear projection matrix (OLEE) entry point to allow feature attribution while maintaining deep flow-based mappings.</li>
-</ul>
+</div>
+</figure>
+</div>
 
 
+<div id="refs" class="references csl-bib-body hanging-indent" role="list">
+<div id="ref-hyvarinen2000independent" class="csl-entry" role="listitem">
+Hyvärinen, Aapo, and Erkki Oja. 2000. <span>“Independent Component Analysis: Algorithms and Applications.”</span> <em>Neural Networks</em> 13 (4-5): 411–30. <a href="https://doi.org/10.1016/S0893-6080(00)00026-5">https://doi.org/10.1016/S0893-6080(00)00026-5</a>.
+</div>
+</div>
 </section>
 
 </main> <!-- /main -->
@@ -939,8 +1737,8 @@ window.Quarto = {
   </script>
 <nav class="page-navigation">
   <div class="nav-page nav-page-previous">
-      <a href="./appendix_brca_clinical_validation.html" class="pagination-link" aria-label="Multi-omics Clinical Validation (TCGA-BRCA)">
-        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-omics Clinical Validation (TCGA-BRCA)</span></span>
+      <a href="./appendix_brca_clinical_validation.html" class="pagination-link" aria-label="Multi-Omics Clinical Validation (TCGA-BRCA)">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-Omics Clinical Validation (TCGA-BRCA)</span></span>
       </a>          
   </div>
   <div class="nav-page nav-page-next">

@@ -1,26 +1,26 @@
 ---
-title: "Multi-omics Clinical Validation (TCGA-BRCA)"
+title: "Multi-Omics Clinical Validation (TCGA-BRCA)"
 ---
 
 ## Multi-Omic Integration Strategy
 
-We evaluate the nine benchmark architectures on the three-view TCGA-BRCA breast invasive carcinoma cohort ($N = 822$ primary tumors with complete multi-omic profiles and clinical receptor status, cached at `data/tcga/brca_er_cached.npz`) [@tcga2012breast; @cancerdiscovery2016esr1]. The dataset integrates three molecular assay platforms filtered at $\ge 98\%$ completeness:
+We evaluate the nine benchmark architectures on the three-view `TCGA-BRCA` breast invasive carcinoma cohort ($N = 822$ primary tumors with complete multi-omic profiles and clinical receptor status) [@tcga2012breast; @perou2000; @parker2009supervised; @curtis2012; @weinstein2013]. The dataset integrates three molecular assay platforms filtered at $\ge 98\%$ completeness:
 
 * **RNA-Seq (`rna`):** $p_1 = 200$ top-variance mRNA sequencing gene expression transcripts (Illumina HiSeqV2).
 * **Copy Number Variation (`cnv`):** $p_2 = 150$ somatic GISTIC2 gene-level copy-number scores.
 * **Proteomics (`rppa`):** $p_3 = 150$ Reverse Phase Protein Array targeted proteomic and phosphoproteomic markers.
 
-The downstream clinical target is binary Estrogen Receptor (ER) status (Positive vs.\ Negative, $76.4\%$ ER+ prevalence), evaluated across $N_{\text{seeds}} = 3$ independent $70/30$ stratified train/test splits (`Seeds 42, 43, 44`, standardized strictly inside each training fold).
+The downstream clinical target is binary Estrogen Receptor (ER) status (Positive vs. Negative, $76.4\%$ ER+ prevalence), evaluated across three independent $70/30$ stratified train/test splits (`Seeds 42, 43, 44`, standardized strictly inside each training fold).
 
 ## Performance Results
 
-@tbl-brca-appendix-results reports out-of-sample ER status classification accuracy across both primary evaluation probes: global consensus coordinates ($\mathbf{U}$) and the strictly linear first-layer OLEE projection ($\mathbf{X}_m \mathbf{V}_m$), alongside Stiefel frame defect $D(\mathbf{V}_m)$, sparsity, and execution runtime computed directly from `paper/results_cache/deep_ranking_benchmark.csv`.
+@tbl-brca-appendix-results reports out-of-sample ER status classification accuracy across both primary evaluation probes: global consensus coordinates ($\mathbf{U}$) and the linear entrypoint projection ($\mathbf{X}_m \mathbf{V}_m$), alongside Stiefel frame defect $D(\mathbf{V}_m)$, sparsity, and execution runtime computed directly from `paper/results_cache/deep_ranking_benchmark.csv`.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: tbl-brca-appendix-results
-#| tbl-cap: 'TCGA-BRCA 3-View Multi-Omics Classification Benchmark ($N = 822$, $p = [200, 150, 150]$, 3 seeds) computed from `deep_ranking_benchmark.csv`. Comparison of global consensus accuracy ($\mathbf{U}$), strictly linear OLEE basis accuracy ($\mathbf{X}\mathbf{V}$), Stiefel frame defect $D(\mathbf{V})$, sparsity, and wall-clock fit time.'
+#| tbl-cap: "TCGA-BRCA 3-view multi-omics classification benchmark ($N = 822$, $p = [200, 150, 150]$, 3 seeds) computed from `deep_ranking_benchmark.csv`."
 #| echo: false
 #| output: asis
 import os
@@ -62,20 +62,16 @@ for m in order:
         f"{ft:.3f}s"
     ])
 
-headers = ["Model", "Consensus Acc (U)", "Linear Probe (XV)", "Frame Defect D", "Sparsity", "Fit Time"]
+headers = ["Model", "Consensus Acc (U) ↑", "Linear Probe (XV) ↑", "Frame Defect D ↓", "Sparsity ↑", "Fit Time ↓"]
 print(tabulate(rows, headers=headers, tablefmt="pipe"))
 ```
 
-Across the $N = 822$ cohort, single-matrix `NSAFlow-PCA` ($w = 0.5$) achieves $0.927 \pm 0.025$ consensus accuracy in $0.055\text{ s}$ with $20.4\%$ sparsity, while `SiMLR-LBFGSB`, `SiMLR-LBFGS`, `LEND`, `NED`, `NEDPP`, and `Flow-SiMR-V` achieve $0.926\text{–}0.927$ on the strictly linear OLEE probe with per-view Stiefel defect $D < 10^{-4}$.
+## Tri-Modal Molecular Driver Recovery
 
-## Tri-Modal Feature Discovery
-
-The OLEE linear boundary maps the 500 ambient multi-omic features directly onto the low-dimensional latent coordinates via $\mathbf{V}_m$. @fig-brca-trimodal-waterfall displays the top 15 feature weights $|\mathbf{V}_m|$ on the ER-aligned component learned by `LEND` across the three molecular modalities.
+The linear entrypoint maps the 500 multi-omic features directly onto the low-dimensional latent coordinates via $\mathbf{V}_m$. @fig-brca-trimodal-waterfall displays the top 15 feature weights $|\mathbf{V}_m|$ on the ER-aligned component learned by `LEND` across the three molecular modalities.
 
 ![Tri-Modal Feature Weights for ER-Status (`TCGA-BRCA`, $N=822$). `LEND` identifies coordinated molecular drivers across modalities on the ER-aligned basis component. (Left) RNA-Seq weights isolating luminal hormone-receptor transcripts (`PGR`, `PIP`, `GRPR`, `ELOVL2`, `LTF`, `S100A8/A9`). (Center) CNV regional weights isolating the 17q23 (`RPS6KB1`, `PTRH2`, `VMP1`, `MIR21`) and 8p11-p12 (`ZNF703`, `ERLIN2`, `BRF2`, `RAB11FIP1`, `GPR124`) breast cancer amplicons. (Right) Proteomics (RPPA) weights led by `ER-alpha-R-V`, `GATA3-M-V`, `HER2-M-V`, `AR-R-V`, `PR-R-V`, and `ER-alpha_pS118-R-V`.](figures/fig_brca_trimodal_waterfall.png){#fig-brca-trimodal-waterfall width="100%"}
 
-### Biological Pathways Recovered by $\mathbf{V}_m$
-
-1. **Proteomics (`rppa`):** Within the targeted proteomics view, `ER-alpha-R-V` ($|V| = 0.290$) and `GATA3-M-V` ($|V| = 0.268$) carry the two largest loading magnitudes, followed by `HER2-M-V` ($0.205$), androgen receptor `AR-R-V` ($0.203$), `Cyclin_E1-M-V` ($0.200$), progesterone receptor `PR-R-V` ($0.164$), and phosphorylated `ER-alpha_pS118-R-V` ($0.131$).
-2. **Transcriptomics (`rna`):** In the mRNA view, the ER-aligned component highlights progesterone receptor `PGR`, prolactin-induced protein `PIP`, gastrin-releasing peptide receptor `GRPR`, `ELOVL2`, and luminal/basal discriminators `LTF` and `S100A8`/`S100A9`.
-3. **Copy Number Variation (`cnv`):** In the somatic copy-number view, the basis highlights the 8p11-p12 luminal amplicon (`ZNF703`, `ERLIN2`, `BRF2`, `RAB11FIP1`, `GPR124`) alongside the 17q23 amplicon (`RPS6KB1`, `PTRH2`, `VMP1`, `MIR21`, `TUBD1`) [@tcga2012breast; @Cohen_2014; @Prat_2019].
+1. **Proteomics (`rppa`):** `ER-alpha-R-V` ($|V| = 0.290$) and `GATA3-M-V` ($|V| = 0.268$) carry the two largest loading magnitudes, followed by `HER2-M-V` ($0.205$), androgen receptor `AR-R-V` ($0.203$), `Cyclin_E1-M-V` ($0.200$), progesterone receptor `PR-R-V` ($0.164$), and phosphorylated `ER-alpha_pS118-R-V` ($0.131$) [@tcga2012breast].
+2. **Transcriptomics (`rna`):** In the mRNA view, the ER-aligned component highlights progesterone receptor `PGR`, prolactin-induced protein `PIP`, gastrin-releasing peptide receptor `GRPR`, `ELOVL2`, and luminal/basal discriminators `LTF` and `S100A8`/`S100A9` [@perou2000; @parker2009supervised].
+3. **Copy Number Variation (`cnv`):** In the somatic copy-number view, the basis isolates the 8p11-p12 luminal amplicon (`ZNF703`, `ERLIN2`, `BRF2`, `RAB11FIP1`, `GPR124`) alongside the 17q23 amplicon (`RPS6KB1`, `PTRH2`, `VMP1`, `MIR21`, `TUBD1`) [@tcga2012breast; @curtis2012].

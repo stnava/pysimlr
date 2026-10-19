@@ -6,22 +6,22 @@ aliases:
 
 ## Model Formulation
 
-`Flow-SiMR-V` prepends a linear OLEE projection matrix $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ to each view's volume-preserving Normalizing Flow. This architecture provides a linear bottleneck at the input boundary while retaining bijective density mapping, conditional cross-view inference, and latent trajectory interpolation on the $k$-dimensional subspace. The normalizing flows are implemented in PyTorch, adapting coupling structures from the Latent-Aligned Multiview Normalizing Flows (`LAMNrFlows`) framework ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)).
+`Flow-SiMR-V` prepends a linear entrypoint projection matrix $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ to each view's volume-preserving Normalizing Flow [@dinh2016density; @rezende2015variational; @kingma2018; @papamakarios2021; @kobyzev2020]. This architecture provides a linear bottleneck at the input boundary while retaining bijective density mapping, conditional cross-view inference, and latent trajectory interpolation on the $k$-dimensional subspace. The normalizing flows are implemented in PyTorch [@paszke2019], adapting coupling structures from the Latent-Aligned Multiview Normalizing Flows (`LAMNrFlows`) framework ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)).
 
 ### Mathematical Formulation
 
 For each input modality $\mathbf{X}_m \in \mathbb{R}^{n \times p_m}$ ($m = 1, \dots, M$):
 
-1. **Linear OLEE bottleneck:**
+1. **Linear entrypoint bottleneck:**
    $$
    \mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m, \qquad \mathbf{V}_m \in \mathbb{R}^{p_m \times k},
    $$
-   where $\mathbf{V}_m$ is regularized via `nsa_flow` ($w \in [0, 1]$, default $w = 0.5$) or polar retraction.
+   where $\mathbf{V}_m$ is regularized via `nsa_flow` ($w \in (0, 1)$, default $w = 0.5$) or polar retraction [@higham2008functions; @absil2009optimization].
 2. **Low-dimensional bijective normalizing flow:**
    $$
    \mathbf{Z}_m = f_{\text{flow}, m}(\mathbf{Z}_{m,\text{lin}}),
    $$
-   where $f_{\text{flow}, m}: \mathbb{R}^k \to \mathbb{R}^k$ is a composition of RealNVP affine coupling layers with exact inverse $f_{\text{flow}, m}^{-1}$ and tractable log-determinant $\log |\det J_{f_{\text{flow}, m}}(\mathbf{Z}_{m,\text{lin}})|$.
+   where $f_{\text{flow}, m}: \mathbb{R}^k \to \mathbb{R}^k$ is a composition of RealNVP affine coupling layers [@dinh2016density] with exact inverse $f_{\text{flow}, m}^{-1}$ and tractable log-determinant $\log |\det J_{f_{\text{flow}, m}}(\mathbf{Z}_{m,\text{lin}})|$.
 3. **Consensus mixing and inverse reconstruction:**
    $$
    \mathbf{U}_m = \operatorname{Consensus}\big(\{\mathbf{Z}_j\}_{j \in \mathcal{N}(m)}\big), \qquad \hat{\mathbf{X}}_m = f_{\text{flow}, m}^{-1}(\mathbf{U}_m) \mathbf{V}_m^\top.
@@ -142,7 +142,9 @@ mats = [X_h[:, :4], X_h[:, 4:8], X_h[:, 8:]]
 k = 2
 
 train_x = [torch.tensor(m).float() for m in mats]
-res = flow_simr_v(train_x, k=k, epochs=60, warmup_epochs=10, device="cpu", verbose=False)
+np.random.seed(42)
+torch.manual_seed(42)
+res = flow_simr_v(train_x, k=k, epochs=60, warmup_epochs=10, positivity="either", sparseness=None, device="cpu", verbose=False)
 
 v_v1 = res["v"][0].numpy()
 x_sample = mats[0][0]
@@ -152,12 +154,12 @@ impact = x_sample * v_v1[:, latent_idx]
 feat_names = cols[:4]
 
 idx = np.argsort(np.abs(impact))[::-1]
-plt.figure(figsize=(7, 4.5))
+plt.figure(figsize=(7, 4.2), dpi=300)
 colors = ['#d62728' if imp > 0 else '#1f77b4' for imp in impact[idx]]
-plt.barh([feat_names[i] for i in idx], impact[idx], color=colors)
+plt.barh([feat_names[i] for i in idx], impact[idx], color=colors, edgecolor="#0f172a", height=0.58, lw=0.7)
 plt.axvline(0, color='black', lw=0.8)
-plt.title(f'Patient #1 (Flow-SiMR-V): Cardiovascular Attributions (Latent #{latent_idx+1})')
-plt.xlabel('Linear Feature Contribution (x_ij * V_jl)')
+plt.title(f'Patient #1 (Flow-SiMR-V): Cardiovascular Attributions (Latent #{latent_idx+1})', weight='bold')
+plt.xlabel('Linear Feature Contribution (x_ij * V_jl)', weight='bold')
 plt.grid(True, linestyle=':', alpha=0.6)
 plt.tight_layout()
 plt.show()
@@ -188,7 +190,9 @@ mats = [X[:, :5], X[:, 5:]]
 k = 2
 
 train_x = [torch.tensor(m).float() for m in mats]
-res = flow_simr_v(train_x, k=k, epochs=60, warmup_epochs=10, device="cpu", verbose=False)
+np.random.seed(42)
+torch.manual_seed(42)
+res = flow_simr_v(train_x, k=k, epochs=60, warmup_epochs=10, positivity="either", sparseness=None, device="cpu", verbose=False)
 
 u = res["u"]
 patient_a_u = u[0]
@@ -207,13 +211,13 @@ bmi_curve = x_path[:, 2].numpy()
 bp_curve = x_path[:, 3].numpy()
 age_curve = x_path[:, 0].numpy()
 
-plt.figure(figsize=(7, 5))
+plt.figure(figsize=(7, 4.4), dpi=300)
 plt.plot(alphas, bmi_curve, 'o-', color='#d62728', lw=2, label='BMI')
 plt.plot(alphas, bp_curve, 's-', color='#1f77b4', lw=2, label='Blood Pressure')
 plt.plot(alphas, age_curve, '^-', color='#2ca02c', lw=2, label='Age')
-plt.xlabel('Latent Trajectory Coordinate (Low-Risk -> High-Risk)')
-plt.ylabel('Attributed Feature Level (Standardized)')
-plt.title('Latent Trajectory Interpolation (Flow-SiMR-V)')
+plt.xlabel('Latent Trajectory Coordinate (Low-Risk -> High-Risk)', weight='bold')
+plt.ylabel('Attributed Feature Level (Standardized)', weight='bold')
+plt.title('Latent Trajectory Interpolation (Flow-SiMR-V)', weight='bold')
 plt.legend()
 plt.grid(True, linestyle=':', alpha=0.6)
 plt.tight_layout()

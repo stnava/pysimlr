@@ -1,126 +1,192 @@
-# pysimlr
+# PySiMLR: Similarity-Driven Multi-View Representation Learning in PyTorch
 
-A professional, high-performance PyTorch implementation of SIMLR (Structured Identification of Multimodal Low-rank Relationships), based on the reference R implementation.
+`pysimlr` is a PyTorch and Scikit-Learn implementation of the **Similarity-driven Multi-view Representation (SiMR)** framework for auditable multi-modal data integration, biomarker discovery, and clinical translation.
 
-## Features
+Every architecture in `pysimlr` enforces the **Linear Entrypoint Principle**: each input modality $\mathbf{X}_m \in \mathbb{R}^{N \times p_m}$ ($m \in \{1, \dots, M\}$) enters the model exclusively through an explicit, inspectable linear projection matrix $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ regularized by **Non-Negative Stiefel Approximating Flow (`nsa_flow`)**:
 
-- **Multi-modal Low-rank Analysis**: Integrate multiple data modalities into a shared latent space.
-- **PyTorch Backend**: High-performance numerical operations with GPU support (where available).
-- **Professional Engineering**: Clean, modular structure with comprehensive testing.
-- **R Parity**: Functionality aligned with the reference R implementation.
-- **Robust SVD**: Automated fallback to randomized SVD for numerical stability.
-- **Flexible Optimization**: Multiple optimizers including Hybrid Adam with backtracking line search.
+$$
+\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m
+$$
+
+Holding this linear input boundary fixed, `pysimlr` provides three interchangeable cross-modal alignment topologies:
+
+1. **Linear Consensus (`simlr` / `SiMLR`)**: Alternating optimization of the feature dictionaries $\{\mathbf{V}_m\}_{m=1}^M$ via `nsa_flow` (`L-BFGS-B`, `L-BFGS`, `Lookahead`, or `LARS`) and a shared orthonormal subject embedding $\mathbf{U} \in \operatorname{St}(N, k)$ via Sylvester-differentiable polar decomposition and within-view similarity graphs $\mathbf{S}_m$.
+2. **Linear Entrypoint with Non-Linear Decoders (`lend_simr` / `LEND`, `ned_simr` / `NED`, `ned_simr_shared_private` / `NEDPP`)**: Couples linear `nsa_flow`-regularized encoders $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ with modality-specific multilayer perceptron decoders $g_{\phi_m}(\mathbf{U}) \to \mathbf{X}_m$, capturing curved cross-modal manifolds during training while keeping test-time projection strictly linear.
+3. **Detached-Prior Normalizing Flows (`flow_simr_v` / `Flow-SiMR-V`, `flow_simr`)**: Routes the linear projections $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ through invertible RealNVP affine coupling flows $f_{\psi_m} : \mathbb{R}^k \to \mathbb{R}^k$ with detached Gaussian prior gradients ($\operatorname{sg}(\mathbf{X}_m \mathbf{V}_m)$) to prevent rectangular subspace collapse and support exact conditional cross-view imputation (`FlowConditionalInference`).
+
+---
 
 ## Installation
 
 ```bash
-# From source
 git clone https://github.com/stnava/pysimlr.git
 cd pysimlr
-pip install .
+pip install -e ".[dev]"
 ```
+
+`pysimlr` requires Python $\ge 3.12$, `torch >= 2.0.0`, `numpy`, `scipy`, `pandas`, `scikit-learn`, and `nsa_flow >= 3.0.0`.
+
+---
 
 ## Quick Start
 
+### 1. Functional API (`simlr`, `lend_simr`, `flow_simr_v`)
+
 ```python
-import torch
-from pysimlr import simlr
+import numpy as np
+from pysimlr import (
+    simlr,
+    lend_simr,
+    flow_simr_v,
+    predict_simlr,
+    predict_deep,
+    attribute_prediction_to_features,
+)
 
-# Generate some dummy multimodal data
-n, p1, p2 = 100, 50, 40
-x1 = torch.randn(n, p1)
-x2 = torch.randn(n, p2)
+rng = np.random.default_rng(42)
+X1 = rng.standard_normal((120, 60))
+X2 = rng.standard_normal((120, 40))
+views_train = [X1[:90], X2[:90]]
+views_test = [X1[90:], X2[90:]]
 
-# Run SIMLR
-result = simlr([x1, x2], k=5, iterations=20, verbose=True)
+# 1. Linear SiMLR with L-BFGS-B + NSA-Flow polish and 50% quantile sparsity
+res_lin = simlr(
+    views_train,
+    k=3,
+    optimizer="lbfgsb",
+    constraint="orthox0.5x1",
+    positivity="positive",
+    sparseness=0.5,
+    random_state=42,
+)
+U_train = res_lin["u"]          # (90, 3) shared consensus embedding
+V1, V2 = res_lin["v"]           # (60, 3) and (40, 3) sparse non-negative dictionaries
 
-# Access shared latent space
-u = result['u'] # n x 5
-# Access modality-specific basis matrices
-v1, v2 = result['v'] # p1 x 5 and p2 x 5
+# Out-of-sample linear entrypoint projection: Z_m = X_{m,test} @ V_m
+Z1_test = views_test[0] @ np.asarray(V1)
+
+# 2. LEND: Linear NSA-Flow encoder + non-linear MLP decoders
+res_lend = lend_simr(
+    views_train,
+    k=3,
+    nsa_w=0.5,
+    positivity="positive",
+    sparseness=0.5,
+    epochs=150,
+    random_state=42,
+)
+
+# 3. Flow-SiMR-V: Linear NSA-Flow bottleneck + invertible RealNVP flows
+res_flow = flow_simr_v(
+    views_train,
+    k=3,
+    nsa_w=0.5,
+    positivity="positive",
+    sparseness=0.5,
+    epochs=150,
+    random_state=42,
+)
 ```
 
-## Development and Testing
+### 2. Scikit-Learn Estimator & Pipeline API
 
-The project uses `pytest` for unit and parity testing.
+All multi-view architectures expose standard `fit`, `transform`, and `fit_transform` interfaces compatible with `scikit-learn` cross-validation and pipelines:
+
+```python
+from pysimlr import (
+    SiMLR,
+    LENDTransformer,
+    NEDTransformer,
+    FlowSiMLRTransformer,
+    MultiViewPCA,
+)
+
+model = SiMLR(
+    n_components=3,
+    optimizer="lbfgsb",
+    positivity="positive",
+    sparseness=0.5,
+    random_state=42,
+)
+Z_train = model.fit_transform(views_train)
+Z_test = model.transform(views_test)
+```
+
+### 3. Patient-Level Attribution & Basis Diagnostics
+
+Because every view enters linearly via $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$, the exact additive contribution of feature $j$ in modality $m$ to latent coordinate $l$ for patient $i$ is $c_{m,i,j,l} = x_{m,i,j} v_{m,j,l}$:
+
+```python
+from pysimlr import summarize_basis_matrix, build_interpretability_report
+
+# Inspect per-column sparsity, effective rank, and Stiefel Gram defect D(V_m)
+summary_v1 = summarize_basis_matrix(res_lin["v"][0])
+```
+
+---
+
+## Architecture & Operating-Point Reference
+
+### `nsa_flow` Trade-off Weight ($w \in (0, 1)$, default $w = 0.5$)
+Each basis update minimizes the dimensionless `nsa_flow` energy:
+
+$$
+E_w(\mathbf{V}_m; \mathbf{V}_{m,0}) = (1 - w)\,\frac{\|\mathbf{V}_m - \mathbf{V}_{m,0}\|_F^2}{2\|\mathbf{V}_{m,0}\|_F^2} + w\,\frac{\|\mathbf{G}(\mathbf{V}_m) - \frac{1}{k}\mathbf{I}_k\|_F^2}{1 - 1/k}, \qquad \mathbf{G}(\mathbf{V}_m) = \frac{\mathbf{V}_m^\top \mathbf{V}_m}{\operatorname{tr}(\mathbf{V}_m^\top \mathbf{V}_m)}
+$$
+
+* **`w = 0.5` (Default)**: Sits in the middle of the stable conditioning plateau ($w \in [0.20, 0.85]$), maintaining full effective rank ($\text{EffRank} \approx k$) and low Gram defect ($D \le 10^{-3}$).
+* **`w < 0.2`**: Risks column rank collapse on correlated views.
+* **`w > 0.85`**: Increases boundary stiffness and runtime ($2.5\times$–$3.8\times$) as columns are forced toward strictly disjoint supports.
+
+### Quantile `sparseness` Operating Points ($q \in \{\text{None}, 0.5, 0.8\}$)
+Following gradient polish, `sparseness=q` zeros out weights below the $q$-th quantile of each column's active entries and re-optimizes $E_w(\mathbf{V}_m)$ restricted to the surviving support mask:
+
+* **`sparseness=0.5` (Default — Discovery Operating Point)**: Retains the top $50\%$ of active weights per column. Maximizes out-of-sample linear subspace fidelity ($0.679$ mean across 12 benchmarks) and single-axis Random Forest interpretability ($0.651$), and achieves $F_1 = 0.847$ pathway recovery on $50\%$-sparse ground-truth benchmarks.
+* **`sparseness=0.8`–`0.85` (Focal Biomarker Panel Operating Point)**: Retains only the top $15\%$–$20\%$ of weights per column while preserving $>99\%$ of peak linear predictive performance ($0.673$ vs. $0.679$) and isolating compact anatomical or molecular panels (e.g., $9/62$ DKT cortical regions per network on `ADNI-MCI`).
+* **`sparseness=None` (Unthresholded Soft Polish)**: Applies `nsa_flow` without post-optimization quantile thresholding.
+
+---
+
+## Known Technical Behavior & Current Limitations (As of v0.2.16)
+
+1. **Global Mean Absorption on Component 1 ("First Component Is the Mean")**:
+   * **Mechanism**: Under the current default initialization (`initialization_type="pca"`) and entrywise anchored retraction (`fidelity="anchor"` in `_nsa_retract`), columns of $\mathbf{V}_m$ are anchored directly to variance-ordered SVD directions without prior within-subspace rotation (such as Varimax). When input features share a positive correlation floor (e.g., regional cortical thickness in `ADNI-MCI` or clinical vitals in `Heart`/`Diabetes`), the Perron–Frobenius leading eigenvector $\mathbf{v}_{m,1}$ is dense and single-signed, whereas $\mathbf{v}_{m,2}, \dots, \mathbf{v}_{m,k}$ are sign-alternating contrast vectors. Clamping to $\mathbf{V}_m \ge 0$ under entrywise anchoring leaves $\mathbf{v}_{m,1}$ dense across most features (absorbing the global mean) and forces $\mathbf{v}_{m,2}, \dots, \mathbf{v}_{m,k}$ into smaller residual supports to satisfy non-negative orthogonality ($D(\mathbf{V}_m) \to 0$).
+   * **Current Mitigations**:
+     1. Use column-wise quantile thresholding (`sparseness=0.5` or `sparseness=0.85`), which enforces equal support cardinality $(1-q)p_m$ across all columns $\mathbf{v}_{m,1}, \dots, \mathbf{v}_{m,k}$.
+     2. Use `initialization_type="ica"` or `"nndsvd"` to break the variance-ordered Perron–Frobenius alignment at initialization.
+     3. Apply in-fold subject row-mean centering when global per-subject amplitude is a nuisance factor rather than a predictive clinical signal.
+2. **Subspace Capacity vs. Coordinate-Axis Disentanglement**:
+   * Multi-variable linear probes (`Ridge(X_m V_m)`) are invariant to invertible right-mixing $\mathbf{V}_m \leftarrow \mathbf{V}_m \mathbf{M}$ ($\operatorname{span}(\mathbf{X}_m \mathbf{V}_m \mathbf{M}) = \operatorname{span}(\mathbf{X}_m \mathbf{V}_m)$). Always pair linear subspace probes with axis-sensitive tree probes (`RandomForest(X_m V_m)`), Gram defect $D(\mathbf{V}_m)$, and support recovery ($F_1$) when evaluating coordinate interpretability.
+3. **Rectangular Normalizing Flow Prior Detachment**:
+   * In `Flow-SiMR-V`, backpropagating the isotropic Gaussian prior $\|f_{\psi_m}(\mathbf{X}_m \mathbf{V}_m)\|_2^2$ into a rectangular matrix $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ ($k \ll p_m$) rotates $\mathbf{V}_m$ onto the smallest-variance trailing eigenvectors of $\mathbf{X}_m^\top \mathbf{X}_m$. `flow_simr_v` prevents this by detaching $\mathbf{Z}_{m,\text{lin}}$ at the input to the prior term while training $\mathbf{V}_m$ via cross-view alignment and reconstruction.
+
+---
+
+## Development, Testing, and Building Documentation
 
 ```bash
-pytest                 # fast suite (~2.5 min); this is the default
-pytest -m slow         # statistical calibration + multi-seed benchmarks only
-pytest -m ""           # everything
+# Run the fast unit and property test suite
+make test
+
+# Render Quarto tutorials in docs/
+make docs
+
+# Render the full Quarto manuscript (HTML book + PDF in paper/_book/ and docs/manuscript/)
+make paper
+
+# Remove temporary build and cache artifacts
+make clean
 ```
 
-`pytest.ini` sets `pythonpath` and excludes the `slow` marker by default, so no
-`PYTHONPATH` export is needed.
+### Repository Structure
 
-## Parity Note
-
-This implementation aims for functional parity with the reference R code. Any identified bugs in the original logic are noted in the source with a `BUG` comment and addressed in the Python version.
+* `src/pysimlr/`: Core package (`simlr.py`, `deep.py`, `flows.py`, `sparsification.py`, `optimizers.py`, `sklearn.py`, `interpretability.py`, `consensus.py`, `benchmarks/`).
+* `tests/`: Unit, statistical calibration, optimizer correctness, and end-to-end tests.
+* `paper/`: Quarto book manuscript (`index.qmd`, `01_intro_background.qmd`, `02_methods.qmd`, `03_experiments.qmd`, `04_discussion.qmd`, `appendix_*.qmd`, `references.bib`, and cached empirical tables in `paper/results_cache/`).
+* `docs/`: Quarto tutorials (`docs/*.qmd`) and rendered manuscript (`docs/manuscript/`).
+* `reports/`: Standalone visual HTML benchmark reports (`deep_method_ranking_benchmark.html`, `sparseness_benchmark_report.html`, `simr_ablation_and_feature_report.html`).
+* `scripts/`: Benchmark runners and data loaders (`run_deep_benchmark.py`, `adni_loader.py`, `tcga_loader.py`).
 
 ## License
 
 Apache-2.0
-
-## What Could Go Wrong? (Audit Findings)
-
-Failure modes to watch for, with the diagnostics that detect them.
-
-1. **Mixing Alpha Starvation**: If `mixing_alpha` (scheduled projection) is not
-   annealed to 1.0, the model may perform well while losing interpretability,
-   because the latent scores drift off the Stiefel manifold. Verify
-   `invariant_orthogonality_defect` in your results.
-2. **Latent Collapse**: In deep models (NED/NEDPP), insufficient VICReg
-   regularization can leave several latents highly correlated, making the deep
-   consensus redundant. Check `u_off_diag_cov` in the training diagnostics.
-3. **Sparsity vs. Signal**: Aggressive quantile sparsification in
-   `simlr_sparseness` can zero out predictive features before they reach the
-   deep layers. Monitor the feature importance map.
-4. **Shared-Private Starvation**: In NEDPP models, too short a shared-latent
-   schedule lets the private latents absorb the shared variation, giving poor
-   consensus recovery.
-5. **Orthogonality defect**: measured invariant defect after 40 iterations on a
-   synthetic 3-factor problem is roughly `1e-4` for `constraint="NewtonSchulz"`
-   and `3e-4` for `constraint="Stiefel"`. The soft `ortho` family is looser
-   (~2e-3) by construction — it is a partial projection, not a retraction. If
-   your defect exceeds `1e-2`, reduce the step size or raise the constraint
-   iteration count.
-6. **The orthogonality weight is a hyperparameter, not a free improvement.**
-   On a synthetic 3-factor benchmark, latent recovery was *better* without the
-   soft orthogonality term (`orthox0`) than with it, and degraded further as the
-   weight rose. Tune it against your own criterion.
-7. **The energy is only comparable within a run.** `simlr` reports the
-   lowest-energy iterate (`best_energy`, `best_iteration`), because alternating
-   minimization is not monotone: `u` is recomputed after each sweep over the
-   views, so the total typically falls steeply for a few iterations and then
-   drifts slowly upward. Convergence usually happens within 5–10 iterations;
-   the default `iterations=100` mostly spends compute after the optimum.
-8. **Interpretability R² is reported both in-sample and cross-validated.** Use
-   the `*_cv` fields. The in-sample values come from an effectively
-   unregularized fit and approach 1 whenever the predictor is wide relative to
-   the sample count — on pure noise with n=40 and p=35, in-sample R² is 0.92
-   while cross-validated R² is −367.
-9. **Results depend on whether the optional NSA-Flow backend is installed.**
-   `pysimlr.nsa_backend.backend_report()` tells you which backend resolved;
-   record it alongside your results.
-
-10. **Check `simlr` against its own initialization on your data.** On
-    well-conditioned multi-view data the SVD initialization is already at the
-    optimum of the objective, and 40 iterations change latent recovery by
-    ~0.0002. The iteration earns its keep only where the shared signal is not
-    each view's leading singular direction — in a regime where it is buried
-    under view-private structure, 60 iterations improved recovery from 0.076 to
-    0.095. `result["best_iteration"]` tells you which iterate was actually
-    returned; if it is 0, the optimizer found nothing better than where it
-    started. See `CORRECTNESS_AUDIT.md` for the measurements.
-
-## Statistical notes
-
-- `simlr_perm` and `paths.permutation_test` report add-one permutation
-  p-values, `(1 + #{null ≥ observed}) / (1 + n_perms)`. The smallest attainable
-  value is `1 / (1 + n_perms)`, so choose `n_perms` for the resolution you need.
-- `energy_type="acc"` and `"logcosh"` sum over the **full** K×K cross-covariance,
-  including off-diagonal terms, so they reward cross-component coupling as well
-  as per-component alignment. `"regression"` and `"nc"` are diagonally aligned.
-  On a synthetic benchmark the choice made little difference to latent recovery
-  (0.981 vs 0.980) but the diagonal-only variant had lower cross-component
-  leakage.

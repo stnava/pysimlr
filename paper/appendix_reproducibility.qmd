@@ -1,10 +1,10 @@
-# Reproducibility {#sec-reproducibility}
+# Reproducibility and Statistical Methodology {#sec-reproducibility}
 
-This appendix documents the computational environment, replication structure, and statistical procedures used to generate all tables, figures, and hypothesis tests in the manuscript.
+This appendix documents the computational environment, replication structure, and non-parametric statistical testing procedures used to generate all tables, figures, and hypothesis tests in the manuscript.
 
 ## Building the Manuscript
 
-The manuscript is written in Quarto and compiles to HTML and PDF formats. All benchmark result caches are stored in `paper/results_cache/` (`deep_ranking_benchmark.csv` and `adni_mci_1214_grid_sweep.csv`), permitting an offline build with zero hardcoded fallback arrays:
+The manuscript is written in Quarto and compiles to HTML and PDF formats. All benchmark result caches are stored in `paper/results_cache/` (`deep_ranking_benchmark.csv`, `operating_points_05_08_benchmark.csv`, and `adni_mci_1214_grid_sweep.csv`), permitting a deterministic build from cached empirical runs:
 
 ```bash
 git clone https://github.com/stnava/pysimlr.git
@@ -13,16 +13,15 @@ pip install -e ".[dev]"
 quarto render paper
 ```
 
-Every table and statistic in the manuscript is computed at render time from `paper/results_cache/deep_ranking_benchmark.csv` and `paper/results_cache/adni_mci_1214_grid_sweep.csv`.
-
-## Single Analysis Path and Benchmark Engine
+## Non-Parametric Benchmark Engine and Optimization Stack
 
 All statistical hypothesis tests, ranking matrices, and permutation null distributions are computed by `src/pysimlr/benchmarks/deep_ranking.py`:
 
-* Non-parametric Friedman test and Iman–Davenport $F$ extension (@Demsar2006; @Iman1980).
-* Two-tailed Nemenyi Critical Difference ($CD = 3.468$ at $\alpha = 0.05$ for $k = 9, B = 12$) (@Nemenyi1963).
-* Pairwise Wilcoxon signed-rank tests (@Wilcoxon1945) with 36-pair Holm–Bonferroni step-down adjustments (@Holm1979).
-* Exact sign-flip permutation tests bounded by the distribution-free resolution floor.
+* Non-parametric Friedman omnibus test [@friedman1937use] and Iman–Davenport $F$-distribution extension [@Demsar2006; @Iman1980].
+* Two-tailed Nemenyi Critical Difference ($CD = 3.468$ at $\alpha = 0.05$ for $k = 9, B = 12$) [@Nemenyi1963; @Demsar2006].
+* Pairwise Wilcoxon signed-rank tests [@Wilcoxon1945] with Holm–Bonferroni step-down adjustments [@Holm1979].
+* Quasi-Newton (`L-BFGS`, `L-BFGS-B` [@byrd1995limited; @nocedal2006]) and adaptive first-order (`Adam`, `AdamW` [@kingma2014adam; @loshchilov2019]) solvers implemented on top of PyTorch [@paszke2019], NumPy [@harris2020], SciPy [@virtanen2020], and Scikit-Learn [@pedregosa2011].
+* Benchmark cohorts span clinical cardiology (`Heart` [@detrano1989international]), metabolic progression (`Diabetes` [@efron2004least]), handwritten pattern descriptors (`mfeat` [@vanbreukelen2006]), transcriptomic/multi-omic cancer benchmarks [@golub1999molecular; @tcga2012breast; @tcga2013kirc; @wang2014; @tenenhaus2011; @tenenhaus2014; @zhao2017; @abdi2013], and Alzheimer's neuroimaging (`ADNI-MCI` [@mueller2005; @jack2008alzheimer; @ADNI]).
 
 The test suite `tests/test_deep_ranking_stats.py` verifies the statistical calculations:
 
@@ -32,11 +31,11 @@ pytest tests/test_deep_ranking_stats.py -v
 
 ## Replication Structure and the Permutation Resolution Floor
 
-The deep ranking benchmark evaluates nine architectures across 12 multi-view datasets (six synthetic generative regimes with known ground truth and six real clinical, multi-omics, and pattern-recognition cohorts) across $N_{\text{seeds}} = 3$ independent random seeds ($324$ total model fits):
+The deep ranking benchmark evaluates nine architectures across 12 multi-view datasets across $N_{\text{seeds}} = 3$ independent random seeds ($324$ baseline fits and $1,215$ operating-point fits):
 
 ```{python}
 #| label: tbl-replication-design
-#| tbl-cap: 'Replication Structure of the 12-Dataset Benchmark (`deep_ranking_benchmark.csv`). Each block corresponds to an independent dataset evaluated across three random seeds controlling train/test partitioning and parameter initialization.'
+#| tbl-cap: "Replication structure of the 12-dataset benchmark (`deep_ranking_benchmark.csv`). Each block corresponds to an independent dataset evaluated across three random seeds controlling train/test partitioning and parameter initialization."
 #| echo: false
 #| output: asis
 import os
@@ -72,16 +71,17 @@ print(tabulate(df_summary, headers="keys", tablefmt="pipe", showindex=False))
 
 ### Block-Level Sign-Flip Permutation Floor
 
-In paired comparisons across $B = 12$ independent dataset blocks (where each block cell is the mean across $N_{\text{seeds}} = 3$ replicates, following @Demsar2006), the exact distribution-free sign-flip null distribution across the $B = 12$ blocks consists of $2^B = 4,096$ sign assignments:
+In paired comparisons across $B = 12$ independent dataset blocks (where each block cell is the mean across $N_{\text{seeds}} = 3$ replicates [@Demsar2006]), the exact distribution-free sign-flip null distribution across the $B = 12$ blocks consists of $2^B = 4,096$ sign assignments:
+
 $$
-p_{\text{perm}} = \frac{1}{2^B} \sum_{\mathbf{s} \in \{-1, +1\}^B} \mathbb{I}\left(\left|\frac{1}{B} \sum_{i=1}^B s_i \Delta_i\right| \ge |\bar{\Delta}|\right), \qquad p_{\min, B=12} = \frac{2}{2^{12}} = \frac{2}{4096} \approx 0.000488.
+p_{\text{perm}} = \frac{1}{2^B} \sum_{\mathbf{s} \in \{-1, +1\}^B} \mathbb{I}\left(\left|\frac{1}{B} \sum_{i=1}^B s_i \Delta_i\right| \ge |\bar{\Delta}|\right), \qquad p_{\min, B=12} = \frac{2}{2^{12}} = \frac{2}{4096} \approx 0.000488
 $$
 
-## Software Environment
+## Software Environment {.unnumbered}
 
 ```{python}
 #| label: tbl-software-environment
-#| tbl-cap: 'Software environment and runtime dependencies under which the benchmark and manuscript are compiled.'
+#| tbl-cap: "Software environment and runtime dependencies under which the benchmark and manuscript are compiled."
 #| echo: false
 #| output: asis
 import sys

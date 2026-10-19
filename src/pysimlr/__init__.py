@@ -1,3 +1,13 @@
+"""
+PySiMLR: Auditable Multi-View Representation Learning for Biomedical Discovery.
+
+PySiMLR implements Similarity-driven Multi-view Linear Reconstruction (`simlr`)
+alongside deep variational (`lend_simr`, `ned_simr`, `ned_simr_shared_private`)
+and invertible normalizing flow (`flow_simr`, `flow_simr_v`) extensions, all
+governed by the Linear Entrypoint Principle (`Z_{m,lin} = X_m @ V_m`) and
+Non-Negative Stiefel Approximating Flow (`nsa_flow`) geometry.
+"""
+
 import importlib
 import os
 import sys

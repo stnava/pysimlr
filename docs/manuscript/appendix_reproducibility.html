@@ -10,7 +10,7 @@
 <meta name="author" content="Nicholas J. Tustison">
 <meta name="author" content="James R. Stone">
 
-<title>Appendix D — Reproducibility</title>
+<title>Appendix D — Reproducibility and Statistical Methodology</title>
 <style>
 /* Default styles provided by pandoc.
 ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
@@ -199,25 +199,25 @@ window.Quarto = {
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./01_intro_background.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Introduction and Background</span></span></a>
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./02_methods.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Methods</span></span></a>
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./03_experiments.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Experiments</span></span></a>
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./04_discussion.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Discussion</span></span></a>
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></span></a>
   </div>
 </li>
         <li class="sidebar-item sidebar-item-section">
@@ -232,7 +232,7 @@ window.Quarto = {
           <li class="sidebar-item">
   <div class="sidebar-item-container"> 
   <a href="./appendix_brca_clinical_validation.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-omics Clinical Validation (TCGA-BRCA)</span></span></a>
+ <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">Multi-Omics Clinical Validation (TCGA-BRCA)</span></span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -266,13 +266,12 @@ window.Quarto = {
    
   <ul>
   <li><a href="#building-the-manuscript" id="toc-building-the-manuscript" class="nav-link active" data-scroll-target="#building-the-manuscript"><span class="header-section-number">D.1</span> Building the Manuscript</a></li>
-  <li><a href="#single-analysis-path-and-benchmark-engine" id="toc-single-analysis-path-and-benchmark-engine" class="nav-link" data-scroll-target="#single-analysis-path-and-benchmark-engine"><span class="header-section-number">D.2</span> Single Analysis Path and Benchmark Engine</a></li>
+  <li><a href="#non-parametric-benchmark-engine-and-optimization-stack" id="toc-non-parametric-benchmark-engine-and-optimization-stack" class="nav-link" data-scroll-target="#non-parametric-benchmark-engine-and-optimization-stack"><span class="header-section-number">D.2</span> Non-Parametric Benchmark Engine and Optimization Stack</a></li>
   <li><a href="#replication-structure-and-the-permutation-resolution-floor" id="toc-replication-structure-and-the-permutation-resolution-floor" class="nav-link" data-scroll-target="#replication-structure-and-the-permutation-resolution-floor"><span class="header-section-number">D.3</span> Replication Structure and the Permutation Resolution Floor</a>
   <ul class="collapse">
   <li><a href="#block-level-sign-flip-permutation-floor" id="toc-block-level-sign-flip-permutation-floor" class="nav-link" data-scroll-target="#block-level-sign-flip-permutation-floor"><span class="header-section-number">D.3.1</span> Block-Level Sign-Flip Permutation Floor</a></li>
   </ul></li>
-  <li><a href="#software-environment" id="toc-software-environment" class="nav-link" data-scroll-target="#software-environment"><span class="header-section-number">D.4</span> Software Environment</a></li>
-  <li><a href="#determinism-and-rng-isolation" id="toc-determinism-and-rng-isolation" class="nav-link" data-scroll-target="#determinism-and-rng-isolation"><span class="header-section-number">D.5</span> Determinism and RNG Isolation</a></li>
+  <li><a href="#software-environment" id="toc-software-environment" class="nav-link" data-scroll-target="#software-environment">Software Environment</a></li>
   </ul>
 </nav>
     </div>
@@ -281,7 +280,7 @@ window.Quarto = {
 
 <header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./appendix_brca_clinical_validation.html">Appendices</a></li><li class="breadcrumb-item"><a href="./appendix_reproducibility.html"><span class="chapter-number">D</span>&nbsp; <span class="chapter-title">Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</span></a></li></ol></nav>
 <div class="quarto-title">
-<h1 class="title"><span id="sec-reproducibility" class="quarto-section-identifier">Appendix D — Reproducibility</span></h1>
+<h1 class="title"><span id="sec-reproducibility" class="quarto-section-identifier">Appendix D — Reproducibility and Statistical Methodology</span></h1>
 </div>
 
 
@@ -327,37 +326,35 @@ window.Quarto = {
 </header>
 
 
-<p>This appendix documents the computational environment, replication structure, and exact mathematical procedures required to reproduce all benchmark tables, figures, and statistical hypothesis tests reported in the manuscript.</p>
+<p>This appendix documents the computational environment, replication structure, and non-parametric statistical testing procedures used to generate all tables, figures, and hypothesis tests in the manuscript.</p>
 <section id="building-the-manuscript" class="level2" data-number="D.1">
 <h2 data-number="D.1" class="anchored" data-anchor-id="building-the-manuscript"><span class="header-section-number">D.1</span> Building the Manuscript</h2>
-<p>The manuscript is authored in Quarto and compiles to HTML and PDF formats. All benchmark result caches are vendored directly under <code>paper/results_cache/</code>, permitting a completely offline build with zero external network access:</p>
+<p>The manuscript is written in Quarto and compiles to HTML and PDF formats. All benchmark result caches are stored in <code>paper/results_cache/</code> (<code>deep_ranking_benchmark.csv</code>, <code>operating_points_05_08_benchmark.csv</code>, and <code>adni_mci_1214_grid_sweep.csv</code>), permitting a deterministic build from cached empirical runs:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/stnava/pysimlr.git</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> pysimlr</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Use ".[dev,nsa]" for optional ANTsTorch normalizing flow backends</span></span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="at">-e</span> <span class="st">".[dev]"</span></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ex">quarto</span> render paper</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p>Every figure and table in the manuscript is generated at render time from <code>paper/results_cache/deep_ranking_benchmark.csv</code>. There are no hardcoded statistical figures in the manuscript source.</p>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="at">-e</span> <span class="st">".[dev]"</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">quarto</span> render paper</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
-<section id="single-analysis-path-and-benchmark-engine" class="level2" data-number="D.2">
-<h2 data-number="D.2" class="anchored" data-anchor-id="single-analysis-path-and-benchmark-engine"><span class="header-section-number">D.2</span> Single Analysis Path and Benchmark Engine</h2>
-<p>All statistical hypothesis tests, ranking matrices, and permutation null distributions are executed via a unified module: <code>src/pysimlr/benchmarks/deep_ranking.py</code>. This engine implements:</p>
+<section id="non-parametric-benchmark-engine-and-optimization-stack" class="level2" data-number="D.2">
+<h2 data-number="D.2" class="anchored" data-anchor-id="non-parametric-benchmark-engine-and-optimization-stack"><span class="header-section-number">D.2</span> Non-Parametric Benchmark Engine and Optimization Stack</h2>
+<p>All statistical hypothesis tests, ranking matrices, and permutation null distributions are computed by <code>src/pysimlr/benchmarks/deep_ranking.py</code>:</p>
 <ul>
-<li>Non-parametric Friedman test and Iman-Davenport <span class="math inline">\(F\)</span> extension (<span class="citation" data-cites="Demsar2006">Demšar (<a href="#ref-Demsar2006" role="doc-biblioref">2006</a>)</span>; <span class="citation" data-cites="Iman1980">Iman and Davenport (<a href="#ref-Iman1980" role="doc-biblioref">1980</a>)</span>).</li>
-<li>Two-tailed Nemenyi Critical Difference (<span class="math inline">\(CD\)</span>) computation at <span class="math inline">\(\alpha = 0.05\)</span> (<span class="citation" data-cites="Nemenyi1963">Nemenyi (<a href="#ref-Nemenyi1963" role="doc-biblioref">1963</a>)</span>).</li>
-<li>Pairwise Wilcoxon signed-rank tests (<span class="citation" data-cites="Wilcoxon1945">Wilcoxon (<a href="#ref-Wilcoxon1945" role="doc-biblioref">1945</a>)</span>) with family-wise Holm-Bonferroni step-down adjustments (<span class="citation" data-cites="Holm1979">Holm (<a href="#ref-Holm1979" role="doc-biblioref">1979</a>)</span>).</li>
-<li>Exact sign-flip permutation tests bounded by the distribution-free resolution floor.</li>
-<li>Multi-objective Pareto frontier identification.</li>
+<li>Non-parametric Friedman omnibus test <span class="citation" data-cites="friedman1937use">(<a href="#ref-friedman1937use" role="doc-biblioref">Friedman 1937</a>)</span> and Iman–Davenport <span class="math inline">\(F\)</span>-distribution extension <span class="citation" data-cites="Demsar2006 Iman1980">(<a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>; <a href="#ref-Iman1980" role="doc-biblioref">Iman and Davenport 1980</a>)</span>.</li>
+<li>Two-tailed Nemenyi Critical Difference (<span class="math inline">\(CD = 3.468\)</span> at <span class="math inline">\(\alpha = 0.05\)</span> for <span class="math inline">\(k = 9, B = 12\)</span>) <span class="citation" data-cites="Nemenyi1963 Demsar2006">(<a href="#ref-Nemenyi1963" role="doc-biblioref">Nemenyi 1963</a>; <a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>)</span>.</li>
+<li>Pairwise Wilcoxon signed-rank tests <span class="citation" data-cites="Wilcoxon1945">(<a href="#ref-Wilcoxon1945" role="doc-biblioref">Wilcoxon 1945</a>)</span> with Holm–Bonferroni step-down adjustments <span class="citation" data-cites="Holm1979">(<a href="#ref-Holm1979" role="doc-biblioref">Holm 1979</a>)</span>.</li>
+<li>Quasi-Newton (<code>L-BFGS</code>, <code>L-BFGS-B</code> <span class="citation" data-cites="byrd1995limited nocedal2006">(<a href="#ref-byrd1995limited" role="doc-biblioref">Byrd et al. 1995</a>; <a href="#ref-nocedal2006" role="doc-biblioref">Nocedal and Wright 2006</a>)</span>) and adaptive first-order (<code>Adam</code>, <code>AdamW</code> <span class="citation" data-cites="kingma2014adam loshchilov2019">(<a href="#ref-kingma2014adam" role="doc-biblioref">Kingma and Ba 2015</a>; <a href="#ref-loshchilov2019" role="doc-biblioref">Loshchilov and Hutter 2019</a>)</span>) solvers implemented on top of PyTorch <span class="citation" data-cites="paszke2019">(<a href="#ref-paszke2019" role="doc-biblioref"><span class="nocase">Paszke et al.</span> 2019</a>)</span>, NumPy <span class="citation" data-cites="harris2020">(<a href="#ref-harris2020" role="doc-biblioref"><span class="nocase">Harris et al.</span> 2020</a>)</span>, SciPy <span class="citation" data-cites="virtanen2020">(<a href="#ref-virtanen2020" role="doc-biblioref"><span class="nocase">Virtanen et al.</span> 2020</a>)</span>, and Scikit-Learn <span class="citation" data-cites="pedregosa2011">(<a href="#ref-pedregosa2011" role="doc-biblioref"><span class="nocase">Pedregosa et al.</span> 2011</a>)</span>.</li>
+<li>Benchmark cohorts span clinical cardiology (<code>Heart</code> <span class="citation" data-cites="detrano1989international">(<a href="#ref-detrano1989international" role="doc-biblioref">Detrano et al. 1989</a>)</span>), metabolic progression (<code>Diabetes</code> <span class="citation" data-cites="efron2004least">(<a href="#ref-efron2004least" role="doc-biblioref">Efron et al. 2004</a>)</span>), handwritten pattern descriptors (<code>mfeat</code> <span class="citation" data-cites="vanbreukelen2006">(<a href="#ref-vanbreukelen2006" role="doc-biblioref">Breukelen et al. 1998</a>)</span>), transcriptomic/multi-omic cancer benchmarks <span class="citation" data-cites="golub1999molecular tcga2012breast tcga2013kirc wang2014 tenenhaus2011 tenenhaus2014 zhao2017 abdi2013">(<a href="#ref-golub1999molecular" role="doc-biblioref"><span class="nocase">Golub et al.</span> 1999</a>; <a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-tcga2013kirc" role="doc-biblioref">The Cancer Genome Atlas Research Network 2013</a>; <a href="#ref-wang2014" role="doc-biblioref">Wang et al. 2014</a>; <a href="#ref-tenenhaus2011" role="doc-biblioref">Tenenhaus and Tenenhaus 2011</a>; <a href="#ref-tenenhaus2014" role="doc-biblioref">Tenenhaus et al. 2014</a>; <a href="#ref-zhao2017" role="doc-biblioref">Zhao et al. 2017</a>; <a href="#ref-abdi2013" role="doc-biblioref">Abdi et al. 2013</a>)</span>, and Alzheimer’s neuroimaging (<code>ADNI-MCI</code> <span class="citation" data-cites="mueller2005 jack2008alzheimer ADNI">(<a href="#ref-mueller2005" role="doc-biblioref">Mueller et al. 2005</a>; <a href="#ref-jack2008alzheimer" role="doc-biblioref"><span class="nocase">Jack et al.</span> 2008</a>; <a href="#ref-ADNI" role="doc-biblioref"><span class="nocase">Weiner et al.</span> 2017</a>)</span>).</li>
 </ul>
-<p>Consolidating all inference into <code>deep_ranking.py</code> ensures that the manuscript tables, figures, and text never diverge. The test suite <code>tests/test_deep_ranking_stats.py</code> validates the statistical calculations:</p>
+<p>The test suite <code>tests/test_deep_ranking_stats.py</code> verifies the statistical calculations:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> tests/test_deep_ranking_stats.py <span class="at">-v</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="replication-structure-and-the-permutation-resolution-floor" class="level2" data-number="D.3">
 <h2 data-number="D.3" class="anchored" data-anchor-id="replication-structure-and-the-permutation-resolution-floor"><span class="header-section-number">D.3</span> Replication Structure and the Permutation Resolution Floor</h2>
-<p>The deep ranking benchmark evaluates nine distinct architectures across twelve multi-modal data regimes (six synthetic generative manifolds with known ground truth + six public clinical, multi-omics, and neuroimaging cohorts: UCI Cleveland Heart Disease, Efron Diabetes Progression, 3-assay TCGA-BRCA, 3-assay TCGA-KIRC, 4-view ADNI-MCI, and 4-view UCI Multiple Features <code>mfeat</code>) across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> independent random seeds (<span class="math inline">\(324\)</span> total model fits):</p>
+<p>The deep ranking benchmark evaluates nine architectures across 12 multi-view datasets across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> independent random seeds (<span class="math inline">\(324\)</span> baseline fits and <span class="math inline">\(1,215\)</span> operating-point fits):</p>
 <div id="tbl-replication-design" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="1">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-replication-design-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task block corresponds to an independent dataset evaluated across three random seeds controlling data partitioning, train/test split, and torch weight initialization. Multiplicity across loss functions or consensus methods on the same data split is strictly avoided.
+Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ranking_benchmark.csv</code>). Each block corresponds to an independent dataset evaluated across three random seeds controlling train/test partitioning and parameter initialization.
 </figcaption>
 <div aria-describedby="tbl-replication-design-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="cell caption-top table table-sm table-striped small">
@@ -483,22 +480,14 @@ Table&nbsp;D.1: Replication Structure of the Deep Ranking Benchmark. Each task b
 </div>
 <section id="block-level-sign-flip-permutation-floor" class="level3" data-number="D.3.1">
 <h3 data-number="D.3.1" class="anchored" data-anchor-id="block-level-sign-flip-permutation-floor"><span class="header-section-number">D.3.1</span> Block-Level Sign-Flip Permutation Floor</h3>
-<p>In statistical hypothesis testing between paired models across <span class="math inline">\(B = 12\)</span> independent dataset blocks (where each block cell is the mean across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> replicates, following <span class="citation" data-cites="Demsar2006">Demšar (<a href="#ref-Demsar2006" role="doc-biblioref">2006</a>)</span>), the exact distribution-free sign-flip null distribution across the <span class="math inline">\(B = 12\)</span> blocks consists of <span class="math inline">\(2^B = 4,096\)</span> equally probable sign assignments: <span class="math display">\[
-p_{\text{perm}} = \frac{1}{2^B} \sum_{\mathbf{s} \in \{-1, +1\}^B} \mathbb{I}\left(\left|\frac{1}{B} \sum_{i=1}^B s_i \Delta_i\right| \ge |\bar{\Delta}|\right)
+<p>In paired comparisons across <span class="math inline">\(B = 12\)</span> independent dataset blocks (where each block cell is the mean across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> replicates <span class="citation" data-cites="Demsar2006">(<a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>)</span>), the exact distribution-free sign-flip null distribution across the <span class="math inline">\(B = 12\)</span> blocks consists of <span class="math inline">\(2^B = 4,096\)</span> sign assignments:</p>
+<p><span class="math display">\[
+p_{\text{perm}} = \frac{1}{2^B} \sum_{\mathbf{s} \in \{-1, +1\}^B} \mathbb{I}\left(\left|\frac{1}{B} \sum_{i=1}^B s_i \Delta_i\right| \ge |\bar{\Delta}|\right), \qquad p_{\min, B=12} = \frac{2}{2^{12}} = \frac{2}{4096} \approx 0.000488
 \]</span></p>
-<p>For <span class="math inline">\(B = 12\)</span> independent dataset blocks (or <span class="math inline">\(N = 10\)</span> independent seeds in the ADNI-MCI 4-view mediation benchmark), the minimal attainable two-sided permutation <span class="math inline">\(p\)</span>-value occurs when every block favours the same model: <span class="math display">\[
-p_{\min, B=12} = \frac{2}{2^{12}} = \frac{2}{4096} \approx 0.000488, \qquad p_{\min, N=10} = \frac{2}{2^{10}} = \frac{2}{1024} \approx 0.001953
-\]</span></p>
-<p>We enforce the following statistical standards throughout the manuscript:</p>
-<ol type="1">
-<li><strong>Zero Unadjusted Pooled <span class="math inline">\(p\)</span>-values</strong>: We completely eliminate pooled repeated-measures <span class="math inline">\(t\)</span>-tests and unaggregated seed-rows in global Friedman/Wilcoxon tests (<code>build_ranking_blocks</code>). Crossing multiple seeds or hyperparameters on the same dataset does not increase dataset-level degrees of freedom.</li>
-<li><strong>Floor Truncation</strong>: No distribution-free permutation test can report a value below <span class="math inline">\(2/2^B\)</span>.</li>
-<li><strong>Dual Subspace &amp; Localization Reporting</strong>: Global consensus prediction (<span class="math inline">\(Y\)</span> on <span class="math inline">\(\mathbf{U}\)</span>) and strictly linear first-layer accuracy (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>) are reported alongside ground-truth latent (<span class="math inline">\(CMC\)</span>) and sparse support Jaccard recovery (<span class="math inline">\(\text{Support } F_1\)</span>).</li>
-</ol>
 </section>
 </section>
-<section id="software-environment" class="level2" data-number="D.4">
-<h2 data-number="D.4" class="anchored" data-anchor-id="software-environment"><span class="header-section-number">D.4</span> Software Environment</h2>
+<section id="software-environment" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="software-environment">Software Environment</h2>
 <div id="tbl-software-environment" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="2">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-software-environment-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -541,40 +530,97 @@ Table&nbsp;D.2: Software environment and runtime dependencies under which the be
 <td style="text-align: left;">Matplotlib</td>
 <td style="text-align: left;">3.11.0</td>
 </tr>
-<tr class="even">
-<td style="text-align: left;">ANTsTorch Integration</td>
-<td style="text-align: left;">Bypassed / Native Fallback Active</td>
-</tr>
 </tbody>
 </table>
 </div>
 </figure>
 </div>
-</section>
-<section id="determinism-and-rng-isolation" class="level2" data-number="D.5">
-<h2 data-number="D.5" class="anchored" data-anchor-id="determinism-and-rng-isolation"><span class="header-section-number">D.5</span> Determinism and RNG Isolation</h2>
-<p>To ensure absolute determinism across all benchmark runs:</p>
-<ol type="1">
-<li><strong>Process RNG Isolation</strong>: Invocations of normalizing flow retractions and torch optimization loops restore CPU and CUDA generator states upon completion. No model fitting operation mutates the caller’s global random state.</li>
-<li><strong>Fixed Random Seeds</strong>: The primary deep ranking benchmark iterates over seeds <span class="math inline">\(42, 43, 44\)</span> (<span class="math inline">\(N_{\text{seeds}} = 3\)</span>, with <code>--seeds 10</code> configurable for extended runs up to seed <span class="math inline">\(51\)</span>), while the ADNI-MCI 4-view mediation benchmark evaluates across 10 seeds (<span class="math inline">\(42, \dots, 51\)</span>). Data synthesis, train/test splitting (<span class="math inline">\(70/30\)</span>), and neural network parameter initialization are strictly controlled by these seed parameters.</li>
-</ol>
 
 
 <div id="refs" class="references csl-bib-body hanging-indent" role="list">
+<div id="ref-abdi2013" class="csl-entry" role="listitem">
+Abdi, Hervé, Lynne J. Williams, and Dominique Valentin. 2013. <span>“Multiple Factor Analysis: Principal Component Analysis for Multitable and Multiblock Data Sets.”</span> <em>WIREs Computational Statistics</em> 5 (2): 149–79. <a href="https://doi.org/10.1002/wics.1246">https://doi.org/10.1002/wics.1246</a>.
+</div>
+<div id="ref-vanbreukelen2006" class="csl-entry" role="listitem">
+Breukelen, Martijn van, Robert P. W. Duin, David M. J. Tax, and J. E. den Hartog. 1998. <span>“Handwritten Digit Recognition by Combined Classifiers.”</span> <em>Kybernetika</em> 34 (4): 381–86.
+</div>
+<div id="ref-byrd1995limited" class="csl-entry" role="listitem">
+Byrd, Richard H., Peihuang Lu, Jorge Nocedal, and Ciyou Zhu. 1995. <span>“A Limited Memory Algorithm for Bound Constrained Optimization.”</span> <em>SIAM Journal on Scientific Computing</em> 16 (5): 1190–208. <a href="https://doi.org/10.1137/0916069">https://doi.org/10.1137/0916069</a>.
+</div>
 <div id="ref-Demsar2006" class="csl-entry" role="listitem">
 Demšar, Janez. 2006. <span>“Statistical Comparisons of Classifiers over Multiple Data Sets.”</span> <em>Journal of Machine Learning Research</em> 7: 1–30.
+</div>
+<div id="ref-detrano1989international" class="csl-entry" role="listitem">
+Detrano, Robert, Andras Janosi, William Steinbrunn, et al. 1989. <span>“International Application of a New Probability Algorithm for the Diagnosis of Coronary Artery Disease.”</span> <em>The American Journal of Cardiology</em> 64 (5): 304–10. <a href="https://doi.org/10.1016/0002-9149(89)90524-9">https://doi.org/10.1016/0002-9149(89)90524-9</a>.
+</div>
+<div id="ref-efron2004least" class="csl-entry" role="listitem">
+Efron, Bradley, Trevor Hastie, Iain Johnstone, and Robert Tibshirani. 2004. <span>“Least Angle Regression.”</span> <em>The Annals of Statistics</em> 32 (2): 407–99. <a href="https://doi.org/10.1214/009053604000000067">https://doi.org/10.1214/009053604000000067</a>.
+</div>
+<div id="ref-friedman1937use" class="csl-entry" role="listitem">
+Friedman, Milton. 1937. <span>“The Use of Ranks to Avoid the Assumption of Normality Implicit in the Analysis of Variance.”</span> <em>Journal of the American Statistical Association</em> 32 (200): 675–701. <a href="https://doi.org/10.1080/01621459.1937.10503522">https://doi.org/10.1080/01621459.1937.10503522</a>.
+</div>
+<div id="ref-golub1999molecular" class="csl-entry" role="listitem">
+<span class="nocase">Golub, Todd R., Donna K. Slonim, Pablo Tamayo, et al.</span> 1999. <span>“Molecular Classification of Cancer: Class Discovery and Class Prediction by Gene Expression Monitoring.”</span> <em>Science</em> 286 (5439): 531–37. <a href="https://doi.org/10.1126/science.286.5439.531">https://doi.org/10.1126/science.286.5439.531</a>.
+</div>
+<div id="ref-harris2020" class="csl-entry" role="listitem">
+<span class="nocase">Harris, Charles R., K. Jarrod Millman, Stéfan J. van der Walt, et al.</span> 2020. <span>“Array Programming with <span>NumPy</span>.”</span> <em>Nature</em> 585 (7825): 357–62. <a href="https://doi.org/10.1038/s41586-020-2649-2">https://doi.org/10.1038/s41586-020-2649-2</a>.
 </div>
 <div id="ref-Holm1979" class="csl-entry" role="listitem">
 Holm, Sture. 1979. <span>“A Simple Sequentially Rejective Multiple Test Procedure.”</span> <em>Scandinavian Journal of Statistics</em> 6 (2): 65–70.
 </div>
 <div id="ref-Iman1980" class="csl-entry" role="listitem">
-Iman, Ronald L., and James M. Davenport. 1980. <span>“Approximations of the Critical Region of the Friedman Statistic.”</span> <em>Communications in Statistics - Theory and Methods</em> 9 (6): 571–95. <a href="https://doi.org/10.1080/03610928008827904">https://doi.org/10.1080/03610928008827904</a>.
+Iman, Ronald L., and James M. Davenport. 1980. <span>“Approximations of the Critical Region of the <span>Friedman</span> Statistic.”</span> <em>Communications in Statistics - Theory and Methods</em> 9 (6): 571–95. <a href="https://doi.org/10.1080/03610928008827904">https://doi.org/10.1080/03610928008827904</a>.
+</div>
+<div id="ref-jack2008alzheimer" class="csl-entry" role="listitem">
+<span class="nocase">Jack, Clifford R., Matt A. Bernstein, Nick C. Fox, et al.</span> 2008. <span>“The <span class="nocase">Alzheimer’s Disease Neuroimaging Initiative</span> (<span>ADNI</span>): <span>MRI</span> Methods.”</span> <em>Journal of Magnetic Resonance Imaging</em> 27 (4): 685–91. <a href="https://doi.org/10.1002/jmri.21049">https://doi.org/10.1002/jmri.21049</a>.
+</div>
+<div id="ref-kingma2014adam" class="csl-entry" role="listitem">
+Kingma, Diederik P., and Jimmy Ba. 2015. <span>“Adam: A Method for Stochastic Optimization.”</span> <em>International Conference on Learning Representations</em>.
+</div>
+<div id="ref-loshchilov2019" class="csl-entry" role="listitem">
+Loshchilov, Ilya, and Frank Hutter. 2019. <span>“Decoupled Weight Decay Regularization.”</span> <em>International Conference on Learning Representations</em>.
+</div>
+<div id="ref-mueller2005" class="csl-entry" role="listitem">
+Mueller, Susanne G., Michael W. Weiner, Leon J. Thal, et al. 2005. <span>“Ways Toward an Early Diagnosis in <span class="nocase">Alzheimer’s</span> Disease: The <span class="nocase">Alzheimer’s Disease Neuroimaging Initiative</span> (<span>ADNI</span>).”</span> <em>Alzheimer’s &amp; Dementia</em> 1 (1): 55–66. <a href="https://doi.org/10.1016/j.jalz.2005.06.003">https://doi.org/10.1016/j.jalz.2005.06.003</a>.
 </div>
 <div id="ref-Nemenyi1963" class="csl-entry" role="listitem">
 Nemenyi, Peter B. 1963. <span>“Distribution-Free Multiple Comparisons.”</span> PhD thesis, Princeton University.
 </div>
+<div id="ref-nocedal2006" class="csl-entry" role="listitem">
+Nocedal, Jorge, and Stephen J. Wright. 2006. <em>Numerical Optimization</em>. 2nd ed. Springer.
+</div>
+<div id="ref-paszke2019" class="csl-entry" role="listitem">
+<span class="nocase">Paszke, Adam, Sam Gross, Francisco Massa, et al.</span> 2019. <span>“<span>PyTorch</span>: An Imperative Style, High-Performance Deep Learning Library.”</span> <em>Advances in Neural Information Processing Systems</em> 32: 8024–35.
+</div>
+<div id="ref-pedregosa2011" class="csl-entry" role="listitem">
+<span class="nocase">Pedregosa, Fabian, Gaël Varoquaux, Alexandre Gramfort, et al.</span> 2011. <span>“Scikit-Learn: Machine Learning in <span>Python</span>.”</span> <em>Journal of Machine Learning Research</em> 12: 2825–30.
+</div>
+<div id="ref-tenenhaus2014" class="csl-entry" role="listitem">
+Tenenhaus, Arthur, Cathy Philippe, Vincent Guillemot, Kim-Anh Le Cao, Jacques Grill, and Vincent Frouin. 2014. <span>“Variable Selection for Generalized Canonical Correlation Analysis.”</span> <em>Biostatistics</em> 15 (3): 569–83. <a href="https://doi.org/10.1093/biostatistics/kxu001">https://doi.org/10.1093/biostatistics/kxu001</a>.
+</div>
+<div id="ref-tenenhaus2011" class="csl-entry" role="listitem">
+Tenenhaus, Arthur, and Michel Tenenhaus. 2011. <span>“Regularized Generalized Canonical Correlation Analysis.”</span> <em>Psychometrika</em> 76 (2): 257–84. <a href="https://doi.org/10.1007/s11336-011-9206-8">https://doi.org/10.1007/s11336-011-9206-8</a>.
+</div>
+<div id="ref-tcga2012breast" class="csl-entry" role="listitem">
+The Cancer Genome Atlas Network. 2012. <span>“Comprehensive Molecular Portraits of Human Breast Tumours.”</span> <em>Nature</em> 490 (7418): 61–70. <a href="https://doi.org/10.1038/nature11412">https://doi.org/10.1038/nature11412</a>.
+</div>
+<div id="ref-tcga2013kirc" class="csl-entry" role="listitem">
+The Cancer Genome Atlas Research Network. 2013. <span>“Comprehensive Molecular Characterization of Clear Cell Renal Cell Carcinoma.”</span> <em>Nature</em> 499 (7456): 43–49. <a href="https://doi.org/10.1038/nature12222">https://doi.org/10.1038/nature12222</a>.
+</div>
+<div id="ref-virtanen2020" class="csl-entry" role="listitem">
+<span class="nocase">Virtanen, Pauli, Ralf Gommers, Travis E. Oliphant, et al.</span> 2020. <span>“<span>SciPy</span> 1.0: Fundamental Algorithms for Scientific Computing in <span>Python</span>.”</span> <em>Nature Methods</em> 17 (3): 261–72. <a href="https://doi.org/10.1038/s41592-019-0686-2">https://doi.org/10.1038/s41592-019-0686-2</a>.
+</div>
+<div id="ref-wang2014" class="csl-entry" role="listitem">
+Wang, Bo, Aziz M. Mezlini, Feyyaz Demir, et al. 2014. <span>“Similarity Network Fusion for Aggregating Data Types on a Genomic Scale.”</span> <em>Nature Methods</em> 11 (3): 333–37. <a href="https://doi.org/10.1038/nmeth.2810">https://doi.org/10.1038/nmeth.2810</a>.
+</div>
+<div id="ref-ADNI" class="csl-entry" role="listitem">
+<span class="nocase">Weiner, Michael W., Dallas P. Veitch, Paul S. Aisen, et al.</span> 2017. <span>“The <span class="nocase">Alzheimer’s Disease Neuroimaging Initiative</span> 3: Continued Innovation for Clinical Trial Design and Biomarker Verification.”</span> <em>Alzheimer’s &amp; Dementia</em> 13 (5): 561–71. <a href="https://doi.org/10.1016/j.jalz.2016.10.006">https://doi.org/10.1016/j.jalz.2016.10.006</a>.
+</div>
 <div id="ref-Wilcoxon1945" class="csl-entry" role="listitem">
 Wilcoxon, Frank. 1945. <span>“Individual Comparisons by Ranking Methods.”</span> <em>Biometrics Bulletin</em> 1 (6): 80–83. <a href="https://doi.org/10.2307/3001968">https://doi.org/10.2307/3001968</a>.
+</div>
+<div id="ref-zhao2017" class="csl-entry" role="listitem">
+Zhao, Jing, Xijiong Xie, Xin Xu, and Shiliang Sun. 2017. <span>“Multi-View Learning Overview: Recent Progress and New Challenges.”</span> <em>Information Fusion</em> 38: 43–54. <a href="https://doi.org/10.1016/j.inffus.2017.02.007">https://doi.org/10.1016/j.inffus.2017.02.007</a>.
 </div>
 </div>
 </section>
