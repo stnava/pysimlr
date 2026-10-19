@@ -178,7 +178,7 @@ def calculate_u(projections: List[torch.Tensor],
 
 #: Every strategy `initialize_simlr` implements. Kept as one tuple so the
 #: error message and the dispatcher can't drift apart.
-INITIALIZATION_TYPES = ("pca", "random", "gcca", "nndsvd", "perturbed_pca",
+INITIALIZATION_TYPES = ("pca", "varimax", "random", "gcca", "nndsvd", "perturbed_pca",
                         "domain", "best_of_n", "ica")
 
 
@@ -403,12 +403,50 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
         return out
     if initialization_type == "best_of_n":
         return _best_of_n_basis(data_matrices, k, positivity, generator, n_candidates, sparseness=sparseness)
-    return [initial_basis_for_view(x, k, positivity=positivity,
-                                   initialization_type=initialization_type,
-                                   generator=generator,
-                                   sparseness_quantile=sparseness,
-                                   modality_index=idx_m)
-            for idx_m, x in enumerate(data_matrices)]
+    v_mats = [initial_basis_for_view(x, k, positivity=positivity,
+                                     initialization_type=initialization_type,
+                                     generator=generator,
+                                     sparseness_quantile=sparseness,
+                                     modality_index=idx_m)
+              for idx_m, x in enumerate(data_matrices)]
+    want_nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg',
+                                 'softplus')
+    if len(v_mats) > 1 and k > 1 and (want_nonneg or initialization_type == "varimax"):
+        v_mats = _align_multiview_basis_columns(data_matrices, v_mats, nonneg=want_nonneg)
+    return v_mats
+
+
+def _align_multiview_basis_columns(data_matrices: List[torch.Tensor],
+                                   v_mats: List[torch.Tensor],
+                                   nonneg: bool = False) -> List[torch.Tensor]:
+    """Align column permutations across views to view 0 in sample space.
+
+    Per-view Varimax (and per-view ``nsa_flow_data``) solves an O(k)-invariant
+    objective independently per modality, so component columns are unordered
+    across views. Matching view m's sample projections ``X_m V_m`` to view 0's
+    ``X_0 V_0`` via linear assignment puts corresponding localized factors in
+    the same column slot before sweep 0 computes the shared consensus ``U``.
+    """
+    from scipy.optimize import linear_sum_assignment
+    p0 = (data_matrices[0].detach().double() @ v_mats[0].detach().double())
+    p0_c = p0 - p0.mean(dim=0, keepdim=True)
+    p0_n = p0_c / torch.linalg.vector_norm(p0_c, dim=0, keepdim=True).clamp_min(1e-12)
+    aligned = [v_mats[0]]
+    for m in range(1, len(v_mats)):
+        pm = (data_matrices[m].detach().double() @ v_mats[m].detach().double())
+        pm_c = pm - pm.mean(dim=0, keepdim=True)
+        pm_n = pm_c / torch.linalg.vector_norm(pm_c, dim=0, keepdim=True).clamp_min(1e-12)
+        cross = (p0_n.t() @ pm_n).cpu().numpy()
+        score = cross if nonneg else np.abs(cross)
+        _, col_ind = linear_sum_assignment(-score)
+        perm = torch.as_tensor(col_ind, dtype=torch.long, device=v_mats[m].device)
+        v_m = v_mats[m][:, perm]
+        if not nonneg:
+            signs = [1.0 if cross[j, col_ind[j]] >= 0.0 else -1.0 for j in range(len(col_ind))]
+            sign_t = torch.tensor(signs, dtype=v_m.dtype, device=v_m.device).unsqueeze(0)
+            v_m = v_m * sign_t
+        aligned.append(v_m)
+    return aligned
 
 
 def _ica_basis_for_view(x: torch.Tensor, k: int, positivity: str = "either",
@@ -755,10 +793,13 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
         padding = torch.randn(v.shape[0], k - v.shape[1],
                               dtype=v.dtype, device=v.device) * 1e-4
         v = torch.cat([v, padding], dim=1)
+    if (want_nonneg or initialization_type == "varimax") and v.shape[0] > k and k > 1:
+        from .svd import varimax
+        v = varimax(v)
     if want_nonneg:
         # Resolve each column's sign so downstream rectification removes as
         # little as possible. This is a sign flip, not a rectification, so the
-        # basis stays exactly as orthogonal as PCA made it.
+        # basis stays exactly as orthogonal as PCA/Varimax made it.
         for j in range(v.shape[1]):
             if v[:, j].sum() < 0:
                 v[:, j] *= -1

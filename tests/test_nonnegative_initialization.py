@@ -161,5 +161,46 @@ def test_simlr_threads_positivity_into_the_initializer():
         assert v.abs().sum() > 0
 
 
+def test_varimax_initialization_eliminates_mean_mode_and_aligns_views():
+    """Varimax rotates out the Perron-Frobenius global mean mode and aligns columns across views."""
+    from pysimlr import varimax, varimax_rotation
+    g = torch.Generator().manual_seed(11)
+    n, k = 120, 3
+    global_mode = torch.randn(n, 1, generator=g)
+    z = 0.7 * global_mode + 0.7 * torch.randn(n, k, generator=g)
+    mats = []
+    for p in (30, 24):
+        per = p // k
+        v_true = torch.zeros(p, k)
+        for j in range(k):
+            v_true[j * per:(j + 1) * per, j] = torch.rand(per, generator=g) + 1.0
+        # Scramble column order in view 1 to verify cross-view linear assignment
+        if p == 24:
+            v_true = v_true[:, [2, 0, 1]]
+        mats.append(z @ v_true.T + 0.05 * torch.randn(n, p, generator=g))
+
+    v_pca = initialize_simlr(mats, k=k, initialization_type="pca", positivity="either")
+    v_vmx = initialize_simlr(mats, k=k, initialization_type="varimax", positivity="either")
+
+    for m, x in enumerate(mats):
+        per = x.shape[1] // k
+        r = varimax_rotation(v_pca[m])
+        assert torch.allclose(r.T @ r, torch.eye(k, dtype=r.dtype), atol=1e-5)
+        assert torch.allclose(v_vmx[m] @ v_vmx[m].T, v_pca[m] @ v_pca[m].T, atol=1e-4)
+        for j in range(k):
+            col2 = v_vmx[m][:, j].pow(2)
+            shares = [float(col2[b * per:(b + 1) * per].sum() / col2.sum()) for b in range(k)]
+            assert max(shares) > 0.90
+
+    # Cross-view projections are column-matched at iteration 0
+    p0 = mats[0] @ v_vmx[0]
+    p1 = mats[1] @ v_vmx[1]
+    p0 = (p0 - p0.mean(0)) / p0.std(0)
+    p1 = (p1 - p1.mean(0)) / p1.std(0)
+    corr = (p0.T @ p1) / (n - 1)
+    assert float(torch.diag(corr).min()) > 0.85
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
+

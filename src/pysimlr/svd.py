@@ -314,3 +314,75 @@ def multiscale_svd(x: torch.Tensor,
             m_response[scl_idx, :len(s[:actual_nev])] = s[:actual_nev]
             
     return {"evals_vs_scale": m_response}
+
+
+def varimax_rotation(E: torch.Tensor,
+                     normalize: bool = True,
+                     eps: float = 1e-6,
+                     max_iter: int = 100) -> torch.Tensor:
+    """
+    Compute the Orthogonal Varimax rotation matrix R in O(k) for a [p, k] basis E.
+
+    Maximizes the Kaiser (1958) Varimax simple-structure criterion over the
+    orthogonal group O(k), preserving exact column orthonormality and exact
+    subspace projection while breaking the Perron-Frobenius global-mean mode.
+    """
+    E_t = torch.as_tensor(E)
+    p, k = E_t.shape
+    if k <= 1 or p <= k:
+        return torch.eye(k, dtype=E_t.dtype, device=E_t.device)
+    work = E_t.detach().double()
+    if normalize:
+        row_norms = torch.linalg.vector_norm(work, dim=1, keepdim=True)
+        valid = row_norms > 1e-12
+        Phi = torch.where(valid, work / row_norms.clamp_min(1e-12), work)
+    else:
+        Phi = work
+
+    R = torch.eye(k, dtype=Phi.dtype, device=Phi.device)
+    d_old = 0.0
+    for _ in range(max_iter):
+        Lambda = Phi @ R
+        L2 = Lambda * Lambda
+        col_means = L2.mean(dim=0, keepdim=True)
+        B = Phi.t() @ (Lambda * (L2 - col_means))
+        u_b, s_b, vh_b = safe_svd(B, full_matrices=False)
+        R = u_b @ vh_b
+        d = float(s_b.sum().item())
+        if d_old > 0.0 and abs(d - d_old) / max(d, 1e-12) < eps:
+            break
+        d_old = d
+    return R.to(dtype=E_t.dtype, device=E_t.device)
+
+
+def varimax(E: torch.Tensor,
+            normalize: bool = True,
+            eps: float = 1e-6,
+            max_iter: int = 100,
+            canonical_sign: bool = True) -> torch.Tensor:
+    """
+    Rotate a [p, k] basis E by Orthogonal Varimax into simple-structure axes.
+
+    Delegates to ``nsa_flow.varimax`` when available, falling back to the pure
+    PyTorch implementation in :func:`varimax_rotation`.
+    """
+    from .nsa_backend import load_varimax
+    fn = load_varimax()
+    if fn is not None:
+        try:
+            return fn(E, normalize=normalize, eps=eps, max_iter=max_iter,
+                      canonical_sign=canonical_sign)
+        except Exception:
+            pass
+    E_t = torch.as_tensor(E)
+    p, k = E_t.shape
+    if k <= 1 or p <= k:
+        return E_t.clone()
+    R = varimax_rotation(E_t, normalize=normalize, eps=eps, max_iter=max_iter)
+    V = E_t @ R
+    if canonical_sign:
+        skew = (V ** 3).sum(dim=0, keepdim=True)
+        signs = torch.where(skew < 0.0, -torch.ones_like(skew), torch.ones_like(skew))
+        V = V * signs
+    return V
+

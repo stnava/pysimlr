@@ -52,6 +52,7 @@ from .nsa_backend import (
     load_nsa_estimator,
     load_stiefel_defect_normalised,
     load_consolidate_supports,
+    load_varimax,
     backend_report,
 )
 from .optimizers import (
@@ -71,7 +72,9 @@ from .svd import (
     ba_svd,
     safe_pca,
     whiten_matrix,
-    multiscale_svd
+    multiscale_svd,
+    varimax,
+    varimax_rotation,
 )
 from .sparse import (
     sparse_distance_matrix,
@@ -183,6 +186,7 @@ __all__ = [
     'load_nsa_estimator',
     'load_stiefel_defect_normalised',
     'load_consolidate_supports',
+    'load_varimax',
     'backend_report',
     'NSAFlow',
     'create_optimizer',
@@ -198,6 +202,8 @@ __all__ = [
     'safe_pca',
     'whiten_matrix',
     'multiscale_svd',
+    'varimax',
+    'varimax_rotation',
     'sparse_distance_matrix',
     'sparse_distance_matrix_xy',
     'sparse_dist',
