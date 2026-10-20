@@ -191,7 +191,8 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
                      domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
                      n_candidates: int = 5,
                      perturbation_scale: float = 0.05,
-                     sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS) -> List[torch.Tensor]:
+                     sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
+                     varimax: bool = True) -> List[torch.Tensor]:
     """
     Initialize the basis matrices (V) for SiMLR.
 
@@ -392,7 +393,8 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
         base = [initial_basis_for_view(x, k, positivity=positivity,
                                        initialization_type="pca",
                                        sparseness_quantile=sparseness,
-                                       modality_index=idx_m)
+                                       modality_index=idx_m,
+                                       varimax=varimax)
                 for idx_m, x in enumerate(data_matrices)]
         out = []
         for idx_m, v in enumerate(base):
@@ -407,11 +409,12 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
                                      initialization_type=initialization_type,
                                      generator=generator,
                                      sparseness_quantile=sparseness,
-                                     modality_index=idx_m)
+                                     modality_index=idx_m,
+                                     varimax=varimax)
               for idx_m, x in enumerate(data_matrices)]
     want_nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg',
                                  'softplus')
-    if len(v_mats) > 1 and k > 1 and (want_nonneg or initialization_type == "varimax"):
+    if len(v_mats) > 1 and k > 1 and ((want_nonneg and varimax) or initialization_type == "varimax"):
         v_mats = _align_multiview_basis_columns(data_matrices, v_mats, nonneg=want_nonneg)
     return v_mats
 
@@ -721,7 +724,8 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
                            initialization_type: str = "pca",
                            generator: Optional[torch.Generator] = None,
                            sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
-                           modality_index: Optional[int] = None) -> torch.Tensor:
+                           modality_index: Optional[int] = None,
+                           varimax: bool = True) -> torch.Tensor:
     """
     Build the initial ``(features, k)`` basis for one view.
 
@@ -780,7 +784,7 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
                       else None)
             fitted = _nonnegative_basis_from_data(
                 fit_from_data, x, k, NSA_DEFAULT_W, _usable_retraction,
-                sparseness=q_data)
+                sparseness=q_data, varimax=varimax)
             if fitted is not None:
                 if q_data is not None:
                     from .sparsification import _apply_quantile_sparseness
@@ -793,9 +797,9 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
         padding = torch.randn(v.shape[0], k - v.shape[1],
                               dtype=v.dtype, device=v.device) * 1e-4
         v = torch.cat([v, padding], dim=1)
-    if (want_nonneg or initialization_type == "varimax") and v.shape[0] > k and k > 1:
-        from .svd import varimax
-        v = varimax(v)
+    if ((want_nonneg and varimax) or initialization_type == "varimax") and v.shape[0] > k and k > 1:
+        from .svd import varimax as _varimax
+        v = _varimax(v)
     if want_nonneg:
         # Resolve each column's sign so downstream rectification removes as
         # little as possible. This is a sign flip, not a rectification, so the
@@ -808,7 +812,8 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
 
 def _nonnegative_basis_from_data(fit_from_data, x: torch.Tensor, k: int,
                                  w: float, usable,
-                                 sparseness: Optional[float] = None) -> Optional[torch.Tensor]:
+                                 sparseness: Optional[float] = None,
+                                 varimax: bool = True) -> Optional[torch.Tensor]:
     """
     Fit a non-negative, near-orthogonal basis for `x` directly from the data.
 
@@ -818,12 +823,17 @@ def _nonnegative_basis_from_data(fit_from_data, x: torch.Tensor, k: int,
     more columns than rows can be orthogonal, so there is nothing to fit.
     """
     reference = torch.ones(x.shape[1], k, dtype=torch.float64)
+    init_mode = "varimax" if varimax else "pca_clamp"
     try:
         try:
             result = fit_from_data(x.detach().double(), k=k, w=float(w),
-                                   sparseness=sparseness)
+                                   init=init_mode, sparseness=sparseness)
         except TypeError:
-            result = fit_from_data(x.detach().double(), k=k, w=float(w))
+            try:
+                result = fit_from_data(x.detach().double(), k=k, w=float(w),
+                                       sparseness=sparseness)
+            except TypeError:
+                result = fit_from_data(x.detach().double(), k=k, w=float(w))
     except Exception:
         return None
     candidate = None
@@ -1198,6 +1208,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           consolidate: bool = False,
           nsa_w: Optional[float] = None,
           sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
+          varimax: bool = True,
           dynamic_weights: bool = False,
           mai_metric: str = "procrustes_r2",
           use_rank_mai: bool = False,
@@ -1344,6 +1355,21 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
     positivity : str, default="either"
         Sign constraint on the basis ("either", "positive", "negative").
+    sparseness : float or List[float] or None, default=0.5
+        R ``ANTsR::simlr``-style column-wise quantile sparsification target in
+        ``(0, 1)``, or ``None`` for soft NSA-Flow orthogonality without hard
+        cardinality thresholding.
+    consolidate : bool, default=True
+        Whether to apply post-hoc disjoint support consolidation across columns.
+    varimax : bool, default=True
+        When ``True`` (the default in ``v0.2.17+``), applies Orthogonal Varimax
+        subspace rotation (``init="varimax"`` in ``nsa_flow_data`` and
+        :func:`pysimlr.svd.varimax` on PCA bases) before non-negative
+        retraction, redistributing any Perron-Frobenius global/mean mode across
+        all ``k`` axes into localized regional factors. Set ``varimax=False``
+        (``init="pca_clamp"``) on raw abundance, compositional, or dietary
+        intake tables where the global mean mode itself carries the primary
+        signal of interest.
     smoothing_matrices : List[torch.Tensor], optional
         Spatial/prior smoothing operators for each modality.
     domain_matrices : List[Union[torch.Tensor, np.ndarray]], optional
@@ -1527,7 +1553,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                               initialization_type=initialization_type,
                               generator=init_gen,
                               domain_matrices=domain_matrices,
-                              sparseness=sparseness)
+                              sparseness=sparseness,
+                              varimax=varimax)
     # One weight.  `constraint` sets the prox weight; the "nsa_flow" optimizer's
     # intermediate soft retraction used to default to a DIFFERENT weight (0.5
     # against 0.1), so one call applied two different operators.  Unless the

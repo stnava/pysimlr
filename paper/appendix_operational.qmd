@@ -105,9 +105,9 @@ ax3.grid(True, linestyle="--", alpha=0.35)
 plt.show()
 ```
 
-## Preprocessing Controls: Subject Row-Mean Removal and ICA Initialization
+## Preprocessing Controls: Subject Row-Mean Removal, ICA Initialization, and Orthogonal Varimax Rotation
 
-On neuroimaging cohorts where cortical regions share a positive global correlation floor, @tbl-app-rowmean-ica and @fig-rowmean-k-ablation compare standard column centering against in-fold subject row-mean centering, deterministic FastICA [@hyvarinen2000independent] initialization, and latent rank scaling $k \in \{2, 3, 5, 8, 12\}$.
+On neuroimaging cohorts where cortical regions share a positive global correlation floor, @tbl-app-rowmean-ica and @fig-rowmean-k-ablation compare unrotated column centering against in-fold subject row-mean centering, deterministic FastICA [@hyvarinen2000independent] initialization, and latent rank scaling $k \in \{2, 3, 5, 8, 12\}$. While subject row-mean removal and FastICA initialization were originally used to diagnose and eliminate the unrotated Component 1 density effect (`Col + PCA, varimax = False, q = None`), `pysimlr v0.2.17` incorporates exact orthogonal Varimax subspace rotation (`varimax = True` by default inside `nsa_flow`) prior to non-negative retraction, achieving $66.1\%$ unthresholded sparsity ($[24, 12, 26]$ active DKT parcels) directly on standard column-centered data without discarding global atrophy severity.
 
 ```{python}
 #| warning: false

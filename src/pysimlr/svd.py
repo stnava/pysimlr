@@ -316,6 +316,15 @@ def multiscale_svd(x: torch.Tensor,
     return {"evals_vs_scale": m_response}
 
 
+def _canonical_sign(E: torch.Tensor) -> torch.Tensor:
+    """Largest-magnitude entry of each column made positive."""
+    k = E.shape[-1]
+    rows = E.abs().argmax(dim=0)
+    flip = E[rows, torch.arange(k, device=E.device)].sign()
+    flip = flip.where(flip != 0, torch.ones_like(flip))
+    return E * flip.unsqueeze(0)
+
+
 def varimax_rotation(E: torch.Tensor,
                      normalize: bool = True,
                      eps: float = 1e-6,
@@ -326,32 +335,42 @@ def varimax_rotation(E: torch.Tensor,
     Maximizes the Kaiser (1958) Varimax simple-structure criterion over the
     orthogonal group O(k), preserving exact column orthonormality and exact
     subspace projection while breaking the Perron-Frobenius global-mean mode.
+    Delegates to ``nsa_flow.linalg.varimax_rotation`` when available, and uses
+    the exact same Kaiser-normalized Lawley-Maxwell stopping rule
+    (``d <= d_prev * (1 + eps)``) matching ``R stats::varimax``.
     """
+    from .nsa_backend import load_varimax_rotation
+    fn = load_varimax_rotation()
+    if fn is not None:
+        try:
+            return fn(E, normalize=normalize, eps=eps, max_iter=max_iter)
+        except Exception:
+            pass
     E_t = torch.as_tensor(E)
-    p, k = E_t.shape
-    if k <= 1 or p <= k:
+    p, k = E_t.shape[-2], E_t.shape[-1]
+    if k < 2 or p < 2:
         return torch.eye(k, dtype=E_t.dtype, device=E_t.device)
     work = E_t.detach().double()
+    tiny = torch.finfo(work.dtype).tiny
     if normalize:
-        row_norms = torch.linalg.vector_norm(work, dim=1, keepdim=True)
-        valid = row_norms > 1e-12
-        Phi = torch.where(valid, work / row_norms.clamp_min(1e-12), work)
+        row_norms = work.pow(2).sum(dim=-1, keepdim=True).sqrt()
+        Phi = torch.where(row_norms > tiny, work / row_norms.clamp_min(tiny), work)
     else:
         Phi = work
 
     R = torch.eye(k, dtype=Phi.dtype, device=Phi.device)
-    d_old = 0.0
+    d_prev = 0.0
     for _ in range(max_iter):
-        Lambda = Phi @ R
-        L2 = Lambda * Lambda
-        col_means = L2.mean(dim=0, keepdim=True)
-        B = Phi.t() @ (Lambda * (L2 - col_means))
+        Z = Phi @ R
+        col_mean_sq = Z.pow(2).sum(dim=-2, keepdim=True) / float(p)
+        B = Phi.transpose(-2, -1) @ (Z.pow(3) - Z * col_mean_sq)
         u_b, s_b, vh_b = safe_svd(B, full_matrices=False)
-        R = u_b @ vh_b
-        d = float(s_b.sum().item())
-        if d_old > 0.0 and abs(d - d_old) / max(d, 1e-12) < eps:
+        R_new = u_b @ vh_b
+        d = float((B * R_new).sum())
+        R = R_new
+        if d <= d_prev * (1.0 + eps):
             break
-        d_old = d
+        d_prev = d
     return R.to(dtype=E_t.dtype, device=E_t.device)
 
 
@@ -363,8 +382,12 @@ def varimax(E: torch.Tensor,
     """
     Rotate a [p, k] basis E by Orthogonal Varimax into simple-structure axes.
 
-    Delegates to ``nsa_flow.varimax`` when available, falling back to the pure
-    PyTorch implementation in :func:`varimax_rotation`.
+    Delegates to ``nsa_flow.varimax`` when available, falling back to the
+    identical PyTorch implementation in :func:`varimax_rotation` with the exact
+    same canonical sign and column-ordering convention as ``nsa_flow.linalg.varimax``.
+    When ``canonical_sign=False``, returns the Kaiser-unscaled rotated loadings
+    matching ``R stats::varimax(E, normalize=normalize)$loadings`` up to column
+    sign and permutation.
     """
     from .nsa_backend import load_varimax
     fn = load_varimax()
@@ -375,14 +398,23 @@ def varimax(E: torch.Tensor,
         except Exception:
             pass
     E_t = torch.as_tensor(E)
-    p, k = E_t.shape
-    if k <= 1 or p <= k:
+    p, k = E_t.shape[-2], E_t.shape[-1]
+    if k < 2 or p < 2:
+        if canonical_sign and E_t.numel() > 0:
+            pos = torch.linalg.vector_norm(E_t.clamp_min(0.0), dim=-2, keepdim=True)
+            neg = torch.linalg.vector_norm((-E_t).clamp_min(0.0), dim=-2, keepdim=True)
+            E_t = torch.where(neg > pos, -E_t, E_t)
         return E_t.clone()
     R = varimax_rotation(E_t, normalize=normalize, eps=eps, max_iter=max_iter)
-    V = E_t @ R
+    Z = (E_t @ R).contiguous()
     if canonical_sign:
-        skew = (V ** 3).sum(dim=0, keepdim=True)
-        signs = torch.where(skew < 0.0, -torch.ones_like(skew), torch.ones_like(skew))
-        V = V * signs
-    return V
+        Z = _canonical_sign(Z)
+        pos = torch.linalg.vector_norm(Z.clamp_min(0.0), dim=-2)
+        neg = torch.linalg.vector_norm((-Z).clamp_min(0.0), dim=-2)
+        flip = torch.where(neg > pos, -torch.ones_like(pos), torch.ones_like(pos))
+        Z = Z * flip.unsqueeze(-2)
+        pos_after = torch.linalg.vector_norm(Z.clamp_min(0.0), dim=-2)
+        order = torch.argsort(pos_after, dim=-1, descending=True)
+        Z = Z[..., :, order].contiguous()
+    return Z
 

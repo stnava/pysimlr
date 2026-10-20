@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>PySiMLR + NSA-Flow Varimax Benchmark Preview</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 32px; color: #0f172a; background: #f8fafc; }
+h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+p.sub { color: #475569; margin-top: 0; margin-bottom: 1.5rem; }
+table { border-collapse: collapse; width: 100%; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border-radius: 8px; overflow: hidden; }
+th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 0.88rem; }
+th { background: #0f172a; color: white; font-weight: 600; }
+tr:hover { background: #f1f5f9; }
+td.pos { font-weight: 600; color: #047857; }
+td.neg { font-weight: 600; color: #b45309; }
+</style></head><body>
+<h1>PySiMLR + NSA-Flow (<code>main</code>) — Fast Full-Cohort Benchmark Preview</h1>
+<p class="sub">Real-data &amp; synthetic multi-view benchmark preview with Orthogonal Varimax Subspace Rotation merged on <code>main</code> in both repos (Runtime: 77.27s)</p>
+<table>
+<thead><tr>
+  <th>Cohort / Dataset</th>
+  <th>Method / Mode</th>
+  <th>Task Metric</th>
+  <th>Raw PCA Init</th>
+  <th>Varimax Init</th>
+  <th>&Delta; Metric</th>
+  <th>Max Comp Support Share (PCA &rarr; Varimax)</th>
+  <th>Mean Orth Defect (PCA &rarr; Varimax)</th>
+  <th>Fit Time</th>
+</tr></thead>
+<tbody>
+<tr>
+      <td><b>Diabetes (2-view, N=442)</b></td>
+      <td>SiMLR Signed (k=3)</td>
+      <td>5-Fold R²</td>
+      <td>0.3934</td>
+      <td><b>0.4144</b></td>
+      <td class="pos">+0.0210</td>
+      <td>0.40 &rarr; <b>0.40</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.23s / 0.20s</td>
+    </tr>
+<tr>
+      <td><b>Diabetes (2-view, N=442)</b></td>
+      <td>SiMLR Non-Neg (k=3, Varimax+NSA)</td>
+      <td>5-Fold R²</td>
+      <td>0.3934</td>
+      <td><b>0.4299</b></td>
+      <td class="pos">+0.0365</td>
+      <td>0.40 &rarr; <b>0.40</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.07s</td>
+    </tr>
+<tr>
+      <td><b>UCI mfeat (4-view, N=2000)</b></td>
+      <td>SiMLR Signed (k=6)</td>
+      <td>5-Fold Acc</td>
+      <td>0.7633</td>
+      <td><b>0.8233</b></td>
+      <td class="pos">+0.0600</td>
+      <td>0.22 &rarr; <b>0.20</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.42s / 0.46s</td>
+    </tr>
+<tr>
+      <td><b>UCI mfeat (4-view, N=2000)</b></td>
+      <td>SiMLR Non-Neg (k=6, Varimax+NSA)</td>
+      <td>5-Fold Acc</td>
+      <td>0.7633</td>
+      <td><b>0.8183</b></td>
+      <td class="pos">+0.0550</td>
+      <td>0.22 &rarr; <b>0.21</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.32s</td>
+    </tr>
+<tr>
+      <td><b>TCGA-BRCA (3-view, N=300)</b></td>
+      <td>SiMLR Signed (k=4)</td>
+      <td>5-Fold Acc</td>
+      <td>0.4250</td>
+      <td><b>0.3667</b></td>
+      <td class="neg">-0.0583</td>
+      <td>0.35 &rarr; <b>0.36</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.37s / 0.30s</td>
+    </tr>
+<tr>
+      <td><b>TCGA-BRCA (3-view, N=300)</b></td>
+      <td>SiMLR Non-Neg (k=4, Varimax+NSA)</td>
+      <td>5-Fold Acc</td>
+      <td>0.4250</td>
+      <td><b>0.4333</b></td>
+      <td class="pos">+0.0083</td>
+      <td>0.35 &rarr; <b>0.39</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.21s</td>
+    </tr>
+<tr>
+      <td><b>ADNI+PPMI Neuroimaging (N=296)</b></td>
+      <td>SiMLR Signed (k=4)</td>
+      <td>5-Fold Acc</td>
+      <td>0.4944</td>
+      <td><b>0.4500</b></td>
+      <td class="neg">-0.0444</td>
+      <td>0.30 &rarr; <b>0.29</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.34s / 0.26s</td>
+    </tr>
+<tr>
+      <td><b>ADNI+PPMI Neuroimaging (N=296)</b></td>
+      <td>SiMLR Non-Neg (k=4, Varimax+NSA)</td>
+      <td>5-Fold Acc</td>
+      <td>0.4944</td>
+      <td><b>0.4722</b></td>
+      <td class="neg">-0.0222</td>
+      <td>0.30 &rarr; <b>0.32</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.28s</td>
+    </tr>
+<tr>
+      <td><b>ADNI-MCI 4-View Mediation (CDRSB)</b></td>
+      <td>SiMLR Signed (k=5)</td>
+      <td>5-Fold R²</td>
+      <td>0.1252</td>
+      <td><b>0.2169</b></td>
+      <td class="pos">+0.0918</td>
+      <td>0.35 &rarr; <b>0.33</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.28s / 0.38s</td>
+    </tr>
+<tr>
+      <td><b>ADNI-MCI 4-View Mediation (CDRSB)</b></td>
+      <td>SiMLR Non-Neg (k=5, Varimax+NSA)</td>
+      <td>5-Fold R²</td>
+      <td>0.1252</td>
+      <td><b>0.0988</b></td>
+      <td class="neg">-0.0263</td>
+      <td>0.35 &rarr; <b>0.36</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.29s</td>
+    </tr>
+<tr>
+      <td><b>TCGA-KIRC (3-view)</b></td>
+      <td>SiMLR Signed (k=4)</td>
+      <td>5-Fold Acc</td>
+      <td>0.5931</td>
+      <td><b>0.6981</b></td>
+      <td class="pos">+0.1050</td>
+      <td>0.30 &rarr; <b>0.38</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.44s / 0.45s</td>
+    </tr>
+<tr>
+      <td><b>TCGA-KIRC (3-view)</b></td>
+      <td>SiMLR Non-Neg (k=4, Varimax+NSA)</td>
+      <td>5-Fold Acc</td>
+      <td>0.5931</td>
+      <td><b>0.6659</b></td>
+      <td class="pos">+0.0728</td>
+      <td>0.30 &rarr; <b>0.37</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.27s</td>
+    </tr>
+<tr>
+      <td><b>Synthetic Nonlinear Shared (N=400, 3 seeds)</b></td>
+      <td>Benchmark Runner (LINEAR)</td>
+      <td>Latent Recovery R²</td>
+      <td>0.7084</td>
+      <td><b>0.6930</b></td>
+      <td class="neg">-0.0154</td>
+      <td>0.50 &rarr; <b>0.50</b></td>
+      <td>0.000 &rarr; <b>0.000</b></td>
+      <td>0.19s / 0.24s</td>
+    </tr>
+<tr>
+      <td><b>Synthetic Nonlinear Shared (N=400, 3 seeds)</b></td>
+      <td>Benchmark Runner (LEND)</td>
+      <td>Latent Recovery R²</td>
+      <td>0.8315</td>
+      <td><b>0.8316</b></td>
+      <td class="pos">+0.0002</td>
+      <td>0.50 &rarr; <b>0.50</b></td>
+      <td>0.018 &rarr; <b>0.011</b></td>
+      <td>3.65s / 3.03s</td>
+    </tr>
+
+</tbody></table></body></html>

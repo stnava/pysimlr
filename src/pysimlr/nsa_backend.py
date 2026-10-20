@@ -320,6 +320,31 @@ def load_consolidate_supports() -> Optional[Any]:
 
 
 @lru_cache(maxsize=1)
+def load_varimax_rotation() -> Optional[Any]:
+    """
+    Resolve the Orthogonal Varimax rotation matrix operator.
+
+    Returns
+    -------
+    callable or None
+        ``varimax_rotation(E, normalize=True, eps=1e-6, max_iter=100)``,
+        or None if unavailable.
+    """
+    module = load_nsa_backend()
+    if module is None:
+        return None
+    fn = getattr(module, "varimax_rotation", None)
+    if callable(fn):
+        return fn
+    linalg_mod = getattr(module, "linalg", None)
+    if linalg_mod is not None:
+        fn = getattr(linalg_mod, "varimax_rotation", None)
+        if callable(fn):
+            return fn
+    return None
+
+
+@lru_cache(maxsize=1)
 def load_varimax() -> Optional[Any]:
     """
     Resolve the Orthogonal Varimax subspace rotation operator.

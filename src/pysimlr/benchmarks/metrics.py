@@ -87,6 +87,7 @@ def cross_val_metrics(
     out.update(extra)
     return out
 
+
 def axis_sensitive_cross_val_metrics(
     u_train: torch.Tensor, y_train: np.ndarray,
     u_test: torch.Tensor, y_test: np.ndarray,
@@ -166,6 +167,110 @@ def axis_sensitive_cross_val_metrics(
     out = {"train": train_perf, "test": test_perf, "gap": train_perf - test_perf}
     out.update(extra)
     return out
+
+
+def axis_alignment_control_metrics(
+    x_train_views: List[torch.Tensor],
+    x_test_views: List[torch.Tensor],
+    v_mats: List[torch.Tensor],
+    y_train: np.ndarray,
+    y_test: np.ndarray,
+    is_classification: bool = False,
+    n_estimators: int = 50,
+    random_state: int = 0,
+    basis_is_joint: bool = False,
+) -> Dict[str, float]:
+    """
+    Evaluate the two negative controls that isolate axis-alignment and anatomical
+    support localization from subspace capacity:
+
+    1. **PCA-Rotated Score Control**: Rotates the learned per-view scores
+       ``Z_m = X_m V_m`` by their in-fold principal-component eigenvectors
+       ``Q_m in O(k)`` (replacing localized axes with dense variance-ordered
+       directions spanning the exact same subspace ``span(Z_m Q_m) = span(Z_m)``).
+       Because ``span(Z_m Q_m) = span(Z_m)``, a linear model is exactly invariant
+       to ``Q_m``, whereas a coordinate-splitting Random Forest loses the
+       localized axis parametrization.
+    2. **Support-Shuffled Basis Control**: Permutes the row indices of each
+       ``V_m`` within view ``m`` (`V_m[perm_m, :]`). This preserves the exact
+       sparsity, weight distribution, and Stiefel orthogonality ``V_m^T V_m``
+       of every column while breaking the mapping between basis weights and true
+       anatomical/molecular features.
+    """
+    if basis_is_joint:
+        x_tr_cat = torch.cat([x.detach().cpu().float() for x in x_train_views], dim=1)
+        x_te_cat = torch.cat([x.detach().cpu().float() for x in x_test_views], dim=1)
+        v_cat = torch.cat([v.detach().cpu().float() for v in v_mats], dim=0)
+        z_tr_list = [x_tr_cat @ v_cat]
+        z_te_list = [x_te_cat @ v_cat]
+    else:
+        z_tr_list = [x.detach().cpu().float() @ v.detach().cpu().float()
+                     for x, v in zip(x_train_views, v_mats)]
+        z_te_list = [x.detach().cpu().float() @ v.detach().cpu().float()
+                     for x, v in zip(x_test_views, v_mats)]
+    z_tr = torch.cat(z_tr_list, dim=1)
+    z_te = torch.cat(z_te_list, dim=1)
+    mu = z_tr.mean(0, keepdim=True)
+    sd = z_tr.std(0, keepdim=True) + 1e-6
+    z_tr_std = (z_tr - mu) / sd
+    z_te_std = (z_te - mu) / sd
+
+    base_lin = cross_val_metrics(z_tr_std, y_train, z_te_std, y_test, is_classification)
+    base_rf = axis_sensitive_cross_val_metrics(
+        z_tr_std, y_train, z_te_std, y_test, is_classification,
+        n_estimators=n_estimators, random_state=random_state)
+
+    # Control 1: PCA-rotated scores across the joint 3k-dim score subspace
+    z_tr_c = z_tr_std - z_tr_std.mean(0, keepdim=True)
+    z_te_c = z_te_std - z_tr_std.mean(0, keepdim=True)
+    _, _, vt = torch.linalg.svd(z_tr_c, full_matrices=False)
+    q_rot = vt.T
+    z_tr_rot = z_tr_c @ q_rot
+    z_te_rot = z_te_c @ q_rot
+    mu_r = z_tr_rot.mean(0, keepdim=True)
+    sd_r = z_tr_rot.std(0, keepdim=True) + 1e-6
+    z_tr_rot_std = (z_tr_rot - mu_r) / sd_r
+    z_te_rot_std = (z_te_rot - mu_r) / sd_r
+    rot_lin = cross_val_metrics(z_tr_rot_std, y_train, z_te_rot_std, y_test, is_classification)
+    rot_rf = axis_sensitive_cross_val_metrics(
+        z_tr_rot_std, y_train, z_te_rot_std, y_test, is_classification,
+        n_estimators=n_estimators, random_state=random_state)
+
+    # Control 2: Support-shuffled basis V_m[perm_m, :] (preserves sparsity & V^T V)
+    rng = np.random.default_rng(random_state + 17)
+    if basis_is_joint:
+        perm = torch.from_numpy(rng.permutation(v_cat.shape[0])).long()
+        v_shuf = v_cat[perm, :]
+        z_shuf_tr_list = [x_tr_cat @ v_shuf]
+        z_shuf_te_list = [x_te_cat @ v_shuf]
+    else:
+        z_shuf_tr_list, z_shuf_te_list = [], []
+        for x_tr, x_te, v in zip(x_train_views, x_test_views, v_mats):
+            v_t = v.detach().cpu().float()
+            perm = torch.from_numpy(rng.permutation(v_t.shape[0])).long()
+            v_shuf = v_t[perm, :]
+            z_shuf_tr_list.append(x_tr.detach().cpu().float() @ v_shuf)
+            z_shuf_te_list.append(x_te.detach().cpu().float() @ v_shuf)
+    z_shuf_tr = torch.cat(z_shuf_tr_list, dim=1)
+    z_shuf_te = torch.cat(z_shuf_te_list, dim=1)
+    mu_s = z_shuf_tr.mean(0, keepdim=True)
+    sd_s = z_shuf_tr.std(0, keepdim=True) + 1e-6
+    z_shuf_tr_std = (z_shuf_tr - mu_s) / sd_s
+    z_shuf_te_std = (z_shuf_te - mu_s) / sd_s
+    shuf_lin = cross_val_metrics(z_shuf_tr_std, y_train, z_shuf_te_std, y_test, is_classification)
+    shuf_rf = axis_sensitive_cross_val_metrics(
+        z_shuf_tr_std, y_train, z_shuf_te_std, y_test, is_classification,
+        n_estimators=n_estimators, random_state=random_state)
+
+    key = "pc1_test" if "pc1_test" in base_rf else "test"
+    return {
+        "linear_score": float(base_lin[key]),
+        "linear_pca_rotated": float(rot_lin[key]),
+        "linear_support_shuffled": float(shuf_lin[key]),
+        "rf_axis_aligned": float(base_rf[key]),
+        "rf_pca_rotated": float(rot_rf[key]),
+        "rf_support_shuffled": float(shuf_rf[key]),
+    }
 
 
 def reconstruction_mse(data: List[torch.Tensor], recons: List[torch.Tensor]) -> float:
