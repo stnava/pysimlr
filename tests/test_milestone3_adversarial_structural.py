@@ -271,10 +271,17 @@ def test_fit_structural_models_zero_variance_views():
 
 
 def test_fit_structural_models_mismatched_sample_sizes_contract():
-    """Verify fit_structural_models raises AssertionError when data matrices have mismatched sample sizes."""
+    """Mismatched sample sizes are refused before any fitting.
+
+    The message used to come from torch's ``TensorDataset`` (an
+    ``AssertionError``) after initialization had already run;
+    `initialize_simlr` now checks the row counts itself, since a multi-view
+    initializer (``gcca``, the cross-view column alignment) cannot proceed
+    without them.
+    """
     views_mismatched = [torch.randn(15, 4), torch.randn(25, 4)]
     graph = create_path_graph([(0, 1)], n_modalities=2)
-    with pytest.raises(AssertionError, match="Size mismatch"):
+    with pytest.raises(ValueError, match="Size mismatch"):
         fit_structural_models(views_mismatched, k=2, models={"mismatch": graph})
 
 

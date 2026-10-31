@@ -192,7 +192,7 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
                      n_candidates: int = 5,
                      perturbation_scale: float = 0.05,
                      sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
-                     varimax: bool = True) -> List[torch.Tensor]:
+                     varimax: Optional[bool] = None) -> List[torch.Tensor]:
     """
     Initialize the basis matrices (V) for SiMLR.
 
@@ -315,6 +315,37 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
     perturbation_scale : float, default=0.05
         Standard deviation, relative to the PCA basis itself, of the noise
         added for ``initialization_type="perturbed_pca"``.
+    sparseness : float or list, optional
+        Column-wise quantile sparseness applied by the initial retraction.
+    varimax : bool or None, default=None
+        Apply an Orthogonal Varimax rotation at initialization. ``None``
+        rotates only when ``positivity`` is non-negative (see
+        `resolve_varimax` for the measurements behind that default); an
+        explicit ``True``/``False`` always wins. Semantics when rotating, by
+        ``initialization_type``:
+
+        * ``"pca"``, ``"perturbed_pca"`` -- per-view Varimax on each view's
+          leading ``k`` right singular vectors (signed and non-negative alike;
+          under a non-negative constraint with NSA-Flow installed the
+          rotation is ``nsa_flow_data(init="varimax")``), then the views'
+          columns are matched to view 0 by `_align_multiview_basis_columns`.
+          Per-view Varimax is O(k)-arbitrary per view, so without the
+          alignment column ``j`` of one view need not correspond to column
+          ``j`` of another.
+        * ``"gcca"`` -- one Varimax rotation ``R`` of the joint MAXVAR
+          sample-space subspace ``shared_u`` (``n x k``), applied before each
+          view is regressed onto it. Every view targets the same rotated
+          columns, so the views are column-aligned by construction and no
+          assignment step is needed.
+        * ``"varimax"`` -- always rotates (per view, then aligned), whatever
+          ``positivity`` is; an explicit ``varimax=False`` is refused.
+        * ``"random"``, ``"nndsvd"``, ``"ica"`` -- unaffected. ``"domain"``
+          forwards it to the PCA fallback used for a ``None`` prior, and
+          ``"best_of_n"`` to its PCA candidate.
+
+        ``varimax=False`` never rotates: under a non-negative constraint the
+        NSA-Flow fit uses ``init="pca_clamp"`` and the PCA fallback keeps the
+        unrotated loadings.
 
     Returns
     -------
@@ -325,6 +356,10 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
     ------
     TypeError
         If input matrices are not tensors.
+    ValueError
+        If ``initialization_type="varimax"`` is combined with an explicit
+        ``varimax=False``,
+        or if the views do not share a sample count.
 
     Notes
     -----
@@ -368,15 +403,30 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
             f"result depend on unrelated draws elsewhere in the process, "
             f"which is exactly what a multi-start experiment must not do."
         )
+    n_rows = [int(x.shape[0]) for x in data_matrices]
+    if len(set(n_rows)) > 1:
+        raise ValueError(
+            f"Size mismatch: every view must have the same number of samples "
+            f"(rows); got {n_rows}."
+        )
+    if initialization_type == "varimax" and varimax is False:
+        raise ValueError(
+            "initialization_type='varimax' contradicts varimax=False; use "
+            "initialization_type='pca' with varimax=False for unrotated PCA "
+            "loadings, or leave varimax at its default."
+        )
+    varimax = resolve_varimax(varimax, positivity)
     if initialization_type == "domain":
         if domain_matrices is None:
             raise ValueError(
                 "initialization_type='domain' needs `domain_matrices`, one "
                 "entry per view."
             )
-        return _domain_informed_basis(data_matrices, domain_matrices, k, positivity, sparseness=sparseness)
+        return _domain_informed_basis(data_matrices, domain_matrices, k, positivity,
+                                      sparseness=sparseness, varimax=varimax)
     if initialization_type == "gcca":
-        return _gcca_basis(data_matrices, k, positivity, sparseness=sparseness)
+        return _gcca_basis(data_matrices, k, positivity, sparseness=sparseness,
+                           varimax=varimax)
     if initialization_type == "nndsvd":
         return [
             simlr_sparseness(_nndsvd_basis_for_view(x, k), constraint_type="ortho",
@@ -396,6 +446,9 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
                                        modality_index=idx_m,
                                        varimax=varimax)
                 for idx_m, x in enumerate(data_matrices)]
+        if varimax and len(base) > 1 and k > 1:
+            base = _align_multiview_basis_columns(data_matrices, base,
+                                                  nonneg=_wants_nonneg(positivity))
         out = []
         for idx_m, v in enumerate(base):
             noise = torch.randn(v.shape, generator=generator, dtype=v.dtype)
@@ -404,7 +457,8 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
                                         sparseness_quantile=sparseness, modality_index=idx_m))
         return out
     if initialization_type == "best_of_n":
-        return _best_of_n_basis(data_matrices, k, positivity, generator, n_candidates, sparseness=sparseness)
+        return _best_of_n_basis(data_matrices, k, positivity, generator, n_candidates,
+                                sparseness=sparseness, varimax=varimax)
     v_mats = [initial_basis_for_view(x, k, positivity=positivity,
                                      initialization_type=initialization_type,
                                      generator=generator,
@@ -412,11 +466,36 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
                                      modality_index=idx_m,
                                      varimax=varimax)
               for idx_m, x in enumerate(data_matrices)]
-    want_nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg',
-                                 'softplus')
-    if len(v_mats) > 1 and k > 1 and ((want_nonneg and varimax) or initialization_type == "varimax"):
-        v_mats = _align_multiview_basis_columns(data_matrices, v_mats, nonneg=want_nonneg)
+    rotated = initialization_type == "varimax" or (varimax and initialization_type == "pca")
+    if len(v_mats) > 1 and k > 1 and rotated:
+        v_mats = _align_multiview_basis_columns(data_matrices, v_mats,
+                                                nonneg=_wants_nonneg(positivity))
     return v_mats
+
+
+def _wants_nonneg(positivity: str) -> bool:
+    """True when ``positivity`` requests a non-negative basis."""
+    return positivity in ('positive', 'hard', 'nonnegative', 'nonneg', 'softplus')
+
+
+def resolve_varimax(varimax: Optional[bool], positivity: str) -> bool:
+    """Resolve the ``varimax`` default against ``positivity``.
+
+    ``None`` (the default on every entry point) rotates only a non-negative
+    basis. An explicit ``True`` or ``False`` always wins.
+
+    The split follows measurement, not symmetry. Under a non-negative
+    constraint the Varimax start was never worse in the sweeps run for this
+    change (NED collapse basin 4/11 seeds against 5/11 without it). On a signed
+    problem the rotated start was itself never worse than PCA, but the fits
+    that followed were mixed: NED fell into the collapse basin on 6/11 seeds
+    against 4/11 (`test_latent_collapse`'s generator, seeds 0-9 and 42), and
+    linear `simlr` at ``orthox0.9x1`` dropped one of six seeds from 0.986 to
+    0.755 latent recovery. Signed rotation is therefore opt-in.
+    """
+    if varimax is None:
+        return _wants_nonneg(positivity)
+    return bool(varimax)
 
 
 def _align_multiview_basis_columns(data_matrices: List[torch.Tensor],
@@ -514,7 +593,8 @@ def _ica_basis_for_view(x: torch.Tensor, k: int, positivity: str = "either",
 
 def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
                 positivity: str,
-                sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS) -> List[torch.Tensor]:
+                sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
+                varimax: bool = True) -> List[torch.Tensor]:
     """Joint (generalized-CCA, MAXVAR) initialization.
 
     Finds the top-``k`` eigenvectors of ``sum_i P_i``, where ``P_i`` projects
@@ -523,6 +603,13 @@ def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
     squares to recover a per-view basis. See `initialize_simlr`'s docstring
     for why this targets the buried-shared-signal regime that per-view PCA
     does not.
+
+    With ``varimax=True`` the shared subspace is rotated once,
+    ``shared_u <- shared_u @ R`` with ``R = varimax_rotation(shared_u)``,
+    before the regressions. ``R`` is orthogonal, so the span (and hence the
+    MAXVAR objective) is unchanged; only the axes within it move. Because
+    every view regresses onto the same rotated columns, column ``j`` means
+    the same shared direction in every view.
     """
     n = data_matrices[0].shape[0]
     joint = torch.zeros(n, n, dtype=torch.float64)
@@ -537,6 +624,9 @@ def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
     # `eigh` returns ascending eigenvalues; the top-k shared directions are
     # the last k columns, largest first.
     shared_u = eigvecs[:, -k:].flip(dims=[1]).contiguous()
+    if varimax and k > 1 and n > k:
+        from .svd import varimax_rotation
+        shared_u = (shared_u @ varimax_rotation(shared_u)).contiguous()
     out = []
     for idx_m, x in enumerate(data_matrices):
         xd = x.detach().double()
@@ -597,7 +687,8 @@ def _nndsvd_basis_for_view(x: torch.Tensor, k: int) -> torch.Tensor:
 def _domain_informed_basis(data_matrices: List[torch.Tensor],
                            domain_matrices: List[Optional[torch.Tensor]],
                            k: int, positivity: str,
-                           sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS) -> List[torch.Tensor]:
+                           sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
+                           varimax: bool = True) -> List[torch.Tensor]:
     """Seed each view's basis from its domain prior's own leading directions.
 
     ``domain_matrices[i]`` must share view ``i``'s feature dimension, the same
@@ -614,7 +705,8 @@ def _domain_informed_basis(data_matrices: List[torch.Tensor],
             out.append(initial_basis_for_view(x, k, positivity=positivity,
                                               initialization_type="pca",
                                               sparseness_quantile=sparseness,
-                                              modality_index=idx_m))
+                                              modality_index=idx_m,
+                                              varimax=varimax))
             continue
         dm_t = torch.as_tensor(dm)
         if dm_t.shape[-1] != x.shape[1]:
@@ -666,11 +758,13 @@ def _score_joint_basis(data_matrices: List[torch.Tensor],
 
 def _best_of_n_basis(data_matrices: List[torch.Tensor], k: int, positivity: str,
                      generator: torch.Generator, n_candidates: int,
-                     sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS) -> List[torch.Tensor]:
+                     sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
+                     varimax: bool = True) -> List[torch.Tensor]:
     """Draw `n_candidates` feasible starts (PCA plus random draws) and keep
     the one `_score_joint_basis` ranks highest."""
     candidates = [initialize_simlr(data_matrices, k, initialization_type="pca",
-                                   positivity=positivity, sparseness=sparseness)]
+                                   positivity=positivity, sparseness=sparseness,
+                                   varimax=varimax)]
     for _ in range(max(0, n_candidates - 1)):
         candidates.append(initialize_simlr(data_matrices, k, initialization_type="random",
                                            positivity=positivity, generator=generator,
@@ -684,7 +778,8 @@ def initialize_deep_encoders(encoders, data_matrices: List[torch.Tensor], k: int
                              generator: Optional[torch.Generator] = None,
                              domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
                              n_candidates: int = 5,
-                             perturbation_scale: float = 0.05) -> None:
+                             perturbation_scale: float = 0.05,
+                             varimax: Optional[bool] = None) -> None:
     """Seed a deep model's per-view first-layer encoders, in place.
 
     Shared by `LENDSiMRModel`, `NEDSiMRModel`, `NEDSharedPrivateSiMRModel` and
@@ -705,7 +800,12 @@ def initialize_deep_encoders(encoders, data_matrices: List[torch.Tensor], k: int
         applied downstream by the encoder's own `.v` property, the same
         `initial_basis_for_view` relies on for the linear path).
     data_matrices, k, initialization_type, generator, domain_matrices,
-    n_candidates, perturbation_scale : see `initialize_simlr`.
+    n_candidates, perturbation_scale, varimax : see `initialize_simlr`.
+
+    Varimax acts here, on the initial first-layer basis, and nowhere after
+    training: the deep decoders ``f_m(X_m V_m)`` and the RealNVP couplings
+    are not O(k)-equivariant, so rotating a trained ``V_m`` would detach it
+    from the model that was fitted with it.
     """
     positivity = encoders[0].positivity
     enc_sparseness = [getattr(enc, "sparseness_quantile", DEFAULT_SPARSENESS) for enc in encoders]
@@ -713,7 +813,7 @@ def initialize_deep_encoders(encoders, data_matrices: List[torch.Tensor], k: int
                               positivity=positivity, generator=generator,
                               domain_matrices=domain_matrices, n_candidates=n_candidates,
                               perturbation_scale=perturbation_scale,
-                              sparseness=enc_sparseness)
+                              sparseness=enc_sparseness, varimax=varimax)
     with torch.no_grad():
         for enc, x, v in zip(encoders, data_matrices, v_mats):
             enc.v_raw.copy_(v.to(x.dtype))
@@ -725,7 +825,7 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
                            generator: Optional[torch.Generator] = None,
                            sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
                            modality_index: Optional[int] = None,
-                           varimax: bool = True) -> torch.Tensor:
+                           varimax: Optional[bool] = None) -> torch.Tensor:
     """
     Build the initial ``(features, k)`` basis for one view.
 
@@ -733,8 +833,8 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
     every entry point starts from the same basis for a given constraint.
 
     Under a non-negative constraint the basis is fitted from ``x`` with
-    `nsa_flow_data` when the backend is available. Otherwise it is the signed
-    PCA loadings, with each column's sign resolved so that its sum is positive
+    `nsa_flow_data` when the backend is available. Otherwise it is the
+    (optionally Varimax-rotated) PCA loadings, with each column's sign resolved so that its sum is positive
     -- a sign flip preserves orthogonality exactly, unlike the rectification
     that a non-negative constraint would otherwise apply downstream.
 
@@ -751,6 +851,13 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
         Target rank.
     positivity : str, default="either"
         When non-negative, fit from the data rather than rectifying PCA.
+    varimax : bool or None, default=None
+        Rotate the PCA loadings by Orthogonal Varimax, or request
+        ``init="varimax"`` from `nsa_flow_data`. ``None`` resolves through
+        `resolve_varimax` (non-negative only).
+        ``initialization_type="varimax"`` rotates regardless. Column
+        correspondence across views is the caller's job; see
+        `_align_multiview_basis_columns`.
 
     Returns
     -------
@@ -760,8 +867,8 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
     from .nsa_backend import load_nsa_flow_data
     from .sparsification import NSA_DEFAULT_W, _resolve_quantile, _usable_retraction, simlr_sparseness
 
-    want_nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg',
-                                 'softplus')
+    want_nonneg = _wants_nonneg(positivity)
+    varimax = resolve_varimax(varimax, positivity)
     q_init = _resolve_quantile(sparseness_quantile, modality_index=modality_index)
 
     if initialization_type == "random":
@@ -797,7 +904,7 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
         padding = torch.randn(v.shape[0], k - v.shape[1],
                               dtype=v.dtype, device=v.device) * 1e-4
         v = torch.cat([v, padding], dim=1)
-    if ((want_nonneg and varimax) or initialization_type == "varimax") and v.shape[0] > k and k > 1:
+    if (varimax or initialization_type == "varimax") and v.shape[0] > k and k > 1:
         from .svd import varimax as _varimax
         v = _varimax(v)
     if want_nonneg:
@@ -1208,7 +1315,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           consolidate: bool = False,
           nsa_w: Optional[float] = None,
           sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
-          varimax: bool = True,
+          varimax: Optional[bool] = None,
           dynamic_weights: bool = False,
           mai_metric: str = "procrustes_r2",
           use_rank_mai: bool = False,
@@ -1361,12 +1468,17 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         cardinality thresholding.
     consolidate : bool, default=True
         Whether to apply post-hoc disjoint support consolidation across columns.
-    varimax : bool, default=True
-        When ``True`` (the default in ``v0.2.17+``), applies Orthogonal Varimax
-        subspace rotation (``init="varimax"`` in ``nsa_flow_data`` and
-        :func:`pysimlr.svd.varimax` on PCA bases) before non-negative
-        retraction, redistributing any Perron-Frobenius global/mean mode across
-        all ``k`` axes into localized regional factors. Set ``varimax=False``
+    varimax : bool or None, default=None
+        ``None`` rotates only a non-negative basis (``positivity="positive"``
+        and its aliases); pass ``True`` to rotate a signed basis too, or
+        ``False`` to never rotate (see `resolve_varimax`). When rotating,
+        applies Orthogonal Varimax subspace rotation at initialization (``init="varimax"`` in
+        ``nsa_flow_data`` and :func:`pysimlr.svd.varimax` on PCA bases, signed
+        or non-negative; one shared rotation of the MAXVAR subspace for
+        ``initialization_type="gcca"``), redistributing any Perron-Frobenius
+        global/mean mode across all ``k`` axes into localized regional
+        factors. See `initialize_simlr` for the exact semantics per
+        ``initialization_type``. Set ``varimax=False``
         (``init="pca_clamp"``) on raw abundance, compositional, or dietary
         intake tables where the global mean mode itself carries the primary
         signal of interest.

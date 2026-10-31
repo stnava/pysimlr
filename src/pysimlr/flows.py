@@ -1102,6 +1102,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
                 n_candidates: int = 5,
                 perturbation_scale: float = 0.05,
+                varimax: Optional[bool] = None,
                 **kwargs) -> Dict[str, Any]:
     """
     Perform Flow-based Similarity-driven Multi-view Representation with Linear Encoder (Flow-SiMR-V).
@@ -1133,6 +1134,18 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         Candidates drawn for `initialization_type="best_of_n"`.
     perturbation_scale : float, default=0.05
         Noise scale for `initialization_type="perturbed_pca"`.
+    varimax : bool or None, default=None
+        Orthogonal Varimax at linear-encoder initialization only. ``None``
+        rotates only a non-negative basis; ``True``/``False`` override (see
+        `pysimlr.simlr.resolve_varimax` and `initialize_simlr`). The
+        trained ``V`` is never rotated afterwards: the RealNVP couplings act
+        coordinate-wise on ``X_m V_m`` and are not O(k)-equivariant, so a
+        post-hoc rotation would no longer be the basis the flow was fitted
+        with.
+    **kwargs
+        ``sparsity``/``sparseness`` (aliases of ``sparseness_quantile``). Any
+        other key triggers a ``UserWarning`` rather than being dropped
+        silently.
     """
     # See `simlr`: the budget slot accepts either name so the entry
     # points are interchangeable.
@@ -1143,6 +1156,8 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         sparseness_quantile = kwargs.pop('sparsity')
     if 'sparseness' in kwargs:
         sparseness_quantile = kwargs.pop('sparseness')
+    from .deep import _warn_unused_kwargs
+    _warn_unused_kwargs("flow_simr_v", kwargs)
 
     if positivity is True or (isinstance(positivity, str) and positivity.lower() == 'true'):
         positivity = 'positive'
@@ -1183,7 +1198,8 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             init_gen.manual_seed(int(init_seed))
     model.initialize_weights(torch_mats, initialization_type=initialization_type,
                              generator=init_gen, domain_matrices=domain_matrices,
-                             n_candidates=n_candidates, perturbation_scale=perturbation_scale)
+                             n_candidates=n_candidates, perturbation_scale=perturbation_scale,
+                             varimax=varimax)
     
     optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
     from .deep import _plateau_scheduler

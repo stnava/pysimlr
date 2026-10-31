@@ -445,4 +445,24 @@ altering the $k$-dimensional principal subspace:
    to view $1$ in sample space ($P_1^\top P_m$, where $P_m = X_m V_m^{(0)}$) via
    linear sum assignment before iteration 0.
 
+### 9.4 `varimax` semantics across entry points (`pysimlr 0.2.18`)
+
+`varimax` is resolved once, in `initialize_simlr`, and reaches it from every
+linear, deep and flow entry point. With $\nu$ the resolved flag
+(`resolve_varimax`: `None` $\to$ non-negative `positivity`; explicit values win):
+
+* `pca`, `perturbed_pca`, `varimax`: $V_m^{(0)} = E_m R_m$ per view, then the
+  Hungarian column matching above. `initialization_type="varimax"` with an
+  explicit `varimax=False` is refused.
+* `gcca`: let $U \in \operatorname{St}(n, k)$ be the top-$k$ eigenvectors of
+  $\sum_m P_{X_m}$. With $\nu$, $U \leftarrow U R$ for the single
+  $R = \operatorname{varimax}(U) \in O(k)$; then
+  $V_m^{(0)} = \arg\min_V \lVert X_m V - U \rVert_F$. $R$ is orthogonal, so the
+  MAXVAR objective and $\operatorname{span}(U)$ are unchanged, and since every
+  view regresses onto the same columns no assignment step is needed.
+* Deep and flow models apply $\nu$ to the first-layer basis at
+  initialization only. $f_m(X_m V_m)$ and the RealNVP couplings are not
+  $O(k)$-equivariant, so rotating a trained $V_m$ would detach it from the
+  fitted decoder.
+
 

@@ -5,35 +5,21 @@ from scripts.benchmark_nonlinear_noise_simlr_vs_ned import run_ned_vs_simlr_benc
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "This contract previously held only because a bug in _train_loop's "
-        "early-stopping baseline truncated NED training to warmup+patience "
-        "(~26 of the 200 epochs the benchmark script requests), which happened "
-        "to land near the peak of the latent-recovery curve. With the intended "
-        "budget actually run, NED's latent recovery peaks around epoch 40 and "
-        "then degrades as reconstruction keeps improving:\n"
-        "  epochs:  26     40     60     100    200\n"
-        "  latent:  0.606  0.752  0.727  0.687  0.659\n"
-        "  recon:   0.870  0.686  0.581  0.511  0.453\n"
-        "Up-weighting the similarity term mitigates but does not remove it, so "
-        "this is not merely a missing scale normalization between the two loss "
-        "terms (measured, 3 seeds, epochs 40 -> 200):\n"
-        "  sim_weight= 1.0:  0.752 -> 0.659   (-0.093)\n"
-        "  sim_weight= 5.0:  0.765 -> 0.684   (-0.081)\n"
-        "  sim_weight=20.0:  0.767 -> 0.705   (-0.062)\n"
-        "With a longer budget the nonlinear decoder heads fit reconstruction "
-        "through pathways that bypass the shared latent, so the shared "
-        "representation degrades even as the training objective improves. "
-        "Resolving this needs validation-based model selection on a latent- "
-        "quality criterion -- the trainers currently early-stop on training "
-        "loss only, which cannot detect this. Remove this mark once such "
-        "selection exists; do not restore the assertion by shortening the "
-        "epoch budget, which is what made it pass before."
-    ),
-)
 def test_ned_advantage_contract():
+    """NED keeps SiMLR's latent recovery and beats its held-out R^2 by >= 0.05.
+
+    Previously ``xfail(strict=True)``: the contract held only while a bug in
+    ``_train_loop``'s early-stopping baseline cut NED to ~26 of 200 epochs,
+    and with the full budget latent recovery degraded (0.752 at epoch 40 to
+    0.659 at 200) as the decoders fit reconstruction around the shared
+    latent. Re-measured at the full 200-epoch budget over 8 seeds (42-49,
+    n=1000), the contract holds: latent recovery median 0.700 (NED) against
+    0.578 (SiMLR), held-out R^2 0.827 against 0.725; the 3-seed protocol
+    below gives 0.732/0.734 and 0.841/0.675. Training still selects the
+    best state by training loss, not by a latent-quality criterion, so the
+    degradation mechanism has not been removed -- if this fails again,
+    re-measure the epoch curve before shortening the budget.
+    """
     # Run with fixed protocol
     df = run_ned_vs_simlr_benchmark(n_samples=1000, n_seeds=3, noise_level=0.1)
     

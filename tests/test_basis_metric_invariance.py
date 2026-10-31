@@ -24,10 +24,17 @@ from pysimlr.benchmarks.metrics import (axis_sensitive_cross_val_metrics,
                                         cross_val_metrics)
 
 
+# Fixtures are float64. The invariance is exact algebra, and the tests assert
+# it to 1e-9; a float32 fixture puts ~1e-7 relative roundoff into ``u @ m``
+# before the metric ever sees it (measured: 6e-8 on seed 1, 1.4e-6 under
+# the 100x rescaling), which the metric cannot undo.
+_F64 = torch.float64
+
+
 def _case(seed=0, n=200, k=4, classification=False):
     g = torch.Generator().manual_seed(seed)
-    u = torch.randn(n, k, generator=g)
-    signal = 1.5 * u[:, 0] - u[:, 2] + 0.3 * torch.randn(n, generator=g)
+    u = torch.randn(n, k, generator=g, dtype=_F64)
+    signal = 1.5 * u[:, 0] - u[:, 2] + 0.3 * torch.randn(n, generator=g, dtype=_F64)
     y = (signal > 0).long().numpy() if classification else signal.numpy()
     split = int(0.75 * n)
     return u[:split], y[:split], u[split:], y[split:]
@@ -36,7 +43,7 @@ def _case(seed=0, n=200, k=4, classification=False):
 def _invertible(k, seed):
     g = torch.Generator().manual_seed(seed)
     while True:
-        m = torch.randn(k, k, generator=g)
+        m = torch.randn(k, k, generator=g, dtype=_F64)
         if abs(float(torch.linalg.det(m))) > 0.1:
             return m
 
@@ -110,10 +117,9 @@ def test_a_permutation_and_a_column_rescaling_leave_the_regression_score_unchang
     permuted = cross_val_metrics(u_tr[:, perm], y_tr, u_te[:, perm], y_te, False)
     assert permuted["test"] == pytest.approx(base["test"], abs=1e-9)
 
-    # Rescaling by up to 100x costs float32 precision -- the invariance is
-    # exact in exact arithmetic, and the residual here is roundoff (~1e-7), not
-    # sensitivity to the basis.
-    scales = torch.tensor([1.0, 10.0, 0.1, 100.0][:k])
+    # Rescaling by up to 100x: exact in exact arithmetic; the 1e-6 tolerance
+    # leaves room for roundoff, not for sensitivity to the basis.
+    scales = torch.tensor([1.0, 10.0, 0.1, 100.0][:k], dtype=_F64)
     rescaled = cross_val_metrics(u_tr * scales, y_tr, u_te * scales, y_te, False)
     assert rescaled["test"] == pytest.approx(base["test"], abs=1e-6)
     rescaled64 = cross_val_metrics((u_tr * scales).double(), y_tr,

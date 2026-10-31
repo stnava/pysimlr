@@ -166,9 +166,14 @@ def test_positive_constraint_does_not_cripple_latent_recovery(optimizer_type):
     for seed in range(3):
         z, x = _coupled(seed)
         for pos, acc in (("positive", r2_pos), ("either", r2_either)):
+            # Consensus pinned to svd, as in the fast screen above: this
+            # measures the sign constraint, not the mixing method. Under the
+            # newton default even positivity="either" recovers only 0.62
+            # (lars) on this fixture; under svd every optimizer gives
+            # 0.972-0.975 constrained and 0.984 unconstrained (3 seeds).
             res = simlr(x, k=3, iterations=40, optimizer_type=optimizer_type,
                         positivity=pos, energy_type="acc",
-                        constraint="orthox0.1x1")
+                        constraint="orthox0.1x1", mixing_algorithm="svd")
             u = res["u"]
             u = u[0] if isinstance(u, list) else u
             acc.append(procrustes_r2(z, u))

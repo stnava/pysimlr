@@ -68,6 +68,9 @@ EXERCISED = {
     "orthogonalize_u": (True, False),
     "scale_list": (["centerAndScale", "np"], ["centerAndScale"]),
     "consolidate": (True, False),
+    # Orthogonal Varimax at initialization (BASE is non-negative, so this is
+    # nsa_flow_data(init="varimax") against init="pca_clamp").
+    "varimax": (True, False),
     "smoothing_matrices": (None, _SM),
     "domain_matrices": ({"domain_matrices": None},
                         {"domain_matrices": _DOM, "domain_lambdas": 1.0}),
@@ -242,6 +245,7 @@ DEEP_KNOBS = {
     "nsa_w": (0.1, 0.9),
     "sparseness": (0.5, 0.8),
     "positivity": ("positive", "either"),
+    "varimax": (True, False),
 }
 
 #: MAI ramps in over a fraction of the run and has nothing to say unless the

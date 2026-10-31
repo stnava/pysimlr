@@ -307,6 +307,7 @@ def nnh_embed(blaster: pd.DataFrame,
               resnet_grade_thresh: float = 1.02,
               use_flow: bool = False,
               verbose: bool = False,
+              varimax: Optional[bool] = None,
               **simlr_kwargs) -> Dict[str, Any]:
     """
     NNHEmbed: Perform SiMLR or Flow-SiMR Analysis on Multimodal Neuroimaging Data.
@@ -340,6 +341,8 @@ def nnh_embed(blaster: pd.DataFrame,
         If True, run Flow-SiMR (flow_simr_v) instead of linear SiMLR.
     verbose : bool, default=False
         Whether to print progress messages.
+    varimax : bool or None, default=None
+        Forwarded to `simlr` or `flow_simr_v`; see `initialize_simlr`.
     **simlr_kwargs : Dict[str, Any]
         Additional arguments passed to the underlying SiMLR / Flow-SiMR function.
 
@@ -430,6 +433,7 @@ def nnh_embed(blaster: pd.DataFrame,
         import inspect
         
         flow_kwargs = simlr_kwargs.copy()
+        flow_kwargs['varimax'] = varimax
         
         # Map iterations to epochs
         if 'iterations' in flow_kwargs and 'epochs' not in flow_kwargs:
@@ -491,6 +495,7 @@ def nnh_embed(blaster: pd.DataFrame,
             k=nsimlr,
             energy_type=energy,
             verbose=verbose,
+            varimax=varimax,
             **simlr_kwargs
         )
     
@@ -948,6 +953,7 @@ def extend_simlr_embedding_with_new_modalities(
     feature_names: Optional[Union[List[List[str]], Dict[str, List[str]]]] = None,
     standardize: bool = True,
     verbose: bool = False,
+    varimax: Optional[bool] = None,
     **kwargs
 ) -> Dict[str, Any]:
     """
@@ -991,6 +997,8 @@ def extend_simlr_embedding_with_new_modalities(
         Whether to standard-scale the new modality features.
     verbose : bool, default=False
         Whether to print diagnostic messages.
+    varimax : bool or None, default=None
+        Forwarded to the selected method; see `initialize_simlr`.
     **kwargs : dict
         Additional parameters passed to the underlying pysimlr method.
 
@@ -1146,6 +1154,7 @@ def extend_simlr_embedding_with_new_modalities(
     adj_list = [adjacency[name] for name in block_names_ordered]
     
     method_kwargs = copy.deepcopy(kwargs)
+    method_kwargs["varimax"] = varimax
     if method in ["flow_simr_v", "flow_simlr_v", "lend_simr"]:
         if "iterations" in method_kwargs:
             method_kwargs["epochs"] = method_kwargs.pop("iterations")
