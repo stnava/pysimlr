@@ -20,7 +20,8 @@ import pytest
 import torch
 from scipy.optimize import linear_sum_assignment
 
-from pysimlr.svd import varimax, varimax_rotation, _canonical_sign
+from pysimlr.svd import (varimax, varimax_rotation, _canonical_sign,
+                         _varimax_rotation_torch, _varimax_torch)
 from pysimlr.simlr import simlr
 
 
@@ -87,10 +88,15 @@ def test_pysimlr_varimax_matches_nsa_flow_linalg_varimax_exactly():
     V_nsa = nsa_linalg.varimax(E, normalize=True, eps=1e-6, max_iter=100, canonical_sign=True)
     assert torch.allclose(V_delegated, V_nsa, atol=1e-12)
 
-    # 2. Pure-PyTorch fallback path (when load_varimax is bypassed)
-    R_py = varimax_rotation(E, normalize=True, eps=1e-6, max_iter=100)
+    # 2. The pure-PyTorch implementations themselves. This used to call the
+    # public `varimax_rotation`, which dispatches to nsa_flow whenever it is
+    # installed -- so it compared nsa_flow with itself and never exercised
+    # the PyTorch path it claimed to test.
+    R_py = _varimax_rotation_torch(E, normalize=True, eps=1e-6, max_iter=100)
     R_nsa = nsa_linalg.varimax_rotation(E, normalize=True, eps=1e-6, max_iter=100)
     assert torch.allclose(R_py, R_nsa, atol=1e-10)
+    V_py = _varimax_torch(E, normalize=True, eps=1e-6, max_iter=100, canonical_sign=True)
+    assert torch.allclose(V_py, V_nsa, atol=1e-10)
 
 
 def test_varimax_matches_r_stats_varimax_reference():
@@ -172,3 +178,96 @@ def test_simlr_varimax_flag_controls_nonnegative_initialization():
     res_legacy = simlr(views, k=3, iterations=3, positivity="positive",
                        sparseness=None, varimax=False, learning_rate=0.01)
     assert not torch.allclose(res_vmx["v"][0], res_legacy["v"][0])
+
+
+# --------------------------------------------------------------------------
+# dispatch: explicit, validated, and errors are not swallowed
+# --------------------------------------------------------------------------
+import sys
+import warnings
+
+
+def _nsa_backend_module():
+    return sys.modules["pysimlr.nsa_backend"]
+
+
+def _orthonormal(p=20, k=4, seed=3):
+    g = torch.Generator().manual_seed(seed)
+    return torch.linalg.qr(torch.randn(p, k, generator=g, dtype=torch.float64))[0]
+
+
+def test_numpy_input_is_converted_not_rescued():
+    """NumPy used to reach nsa_flow raw, raise TypeError there, and be rescued
+    by a blanket except. It is now converted before dispatch."""
+    E = _orthonormal()
+    assert torch.allclose(varimax_rotation(E.numpy()), varimax_rotation(E))
+    assert torch.allclose(varimax(E.numpy()), varimax(E))
+
+
+@pytest.mark.parametrize("fn", [varimax, varimax_rotation])
+def test_a_batched_input_is_refused(fn):
+    with pytest.raises(ValueError, match="2-D"):
+        fn(torch.randn(2, 6, 3))
+
+
+@pytest.mark.parametrize("shape", [(5, 1), (1, 3), (0, 3)])
+def test_degenerate_shapes_agree_with_and_without_the_backend(monkeypatch, shape):
+    E = torch.randn(*shape, dtype=torch.float64)
+    with_backend = (varimax_rotation(E), varimax(E))
+    nb = _nsa_backend_module()
+    monkeypatch.setattr(nb, "load_varimax_rotation", lambda: None)
+    monkeypatch.setattr(nb, "load_varimax", lambda: None)
+    without = (varimax_rotation(E), varimax(E))
+    assert torch.equal(with_backend[0], torch.eye(shape[1], dtype=E.dtype))
+    assert torch.equal(with_backend[0], without[0])
+    assert torch.equal(with_backend[1], without[1])
+
+
+def test_the_torch_path_is_used_when_the_backend_is_absent(monkeypatch):
+    E = _orthonormal()
+    nb = _nsa_backend_module()
+    monkeypatch.setattr(nb, "load_varimax_rotation", lambda: None)
+    monkeypatch.setattr(nb, "load_varimax", lambda: None)
+    assert torch.equal(varimax_rotation(E), _varimax_rotation_torch(E))
+    assert torch.equal(varimax(E), _varimax_torch(E))
+
+
+@pytest.mark.parametrize("fn,loader", [(varimax_rotation, "load_varimax_rotation"),
+                                       (varimax, "load_varimax")])
+def test_a_backend_error_propagates(monkeypatch, fn, loader):
+    """A failure inside the backend is a failure, not a cue to quietly switch
+    implementations."""
+    def broken(*a, **kw):
+        raise RuntimeError("backend exploded")
+    monkeypatch.setattr(_nsa_backend_module(), loader, lambda: broken)
+    with pytest.raises(RuntimeError, match="backend exploded"):
+        fn(_orthonormal())
+
+
+def test_an_incompatible_backend_signature_is_refused_with_a_warning(monkeypatch):
+    nb = _nsa_backend_module()
+
+    class FakeBackend:
+        @staticmethod
+        def varimax_rotation(E, normalize=True):   # no eps / max_iter
+            raise AssertionError("must not be called")
+
+    monkeypatch.setattr(nb, "load_nsa_backend", lambda: FakeBackend)
+    monkeypatch.setattr(nb, "INCOMPATIBLE_BACKEND_FUNCTIONS", {})
+    with pytest.warns(RuntimeWarning, match="incompatible"):
+        fn = nb._resolve_backend_function("varimax_rotation",
+                                          ("normalize", "eps", "max_iter"))
+    assert fn is None
+    assert "varimax_rotation" in nb.INCOMPATIBLE_BACKEND_FUNCTIONS
+
+
+def test_the_installed_backend_is_compatible_and_reported():
+    pytest.importorskip("nsa_flow")
+    nb = _nsa_backend_module()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        assert nb._resolve_backend_function(
+            "varimax", ("normalize", "eps", "max_iter", "canonical_sign")) is not None
+        assert nb._resolve_backend_function(
+            "varimax_rotation", ("normalize", "eps", "max_iter")) is not None
+    assert nb.backend_report(extended=True)["incompatible_functions"] == {}

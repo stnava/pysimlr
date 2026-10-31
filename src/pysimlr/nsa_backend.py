@@ -185,7 +185,7 @@ def load_gradient_mapping() -> Optional[Any]:
             from importlib import import_module
             fn = getattr(import_module(f"{module.__name__}.diagnostics"),
                          "gradient_mapping", None)
-        except Exception:
+        except ImportError:
             return None
     return fn if callable(fn) else None
 
@@ -221,7 +221,7 @@ def load_lbfgsb() -> Optional[Any]:
             from importlib import import_module
             fn = getattr(import_module(f"{module.__name__}.lbfgsb"),
                          "lbfgsb_minimize", None)
-        except Exception:
+        except ImportError:
             return None
     return fn if callable(fn) else None
 
@@ -319,6 +319,52 @@ def load_consolidate_supports() -> Optional[Any]:
     return None
 
 
+#: Backend functions found but refused because their signature cannot take
+#: the keyword arguments pysimlr passes, keyed by name, with the reason.
+#: Surfaced by `backend_report(extended=True)` so the choice of implementation
+#: is visible rather than inferred.
+INCOMPATIBLE_BACKEND_FUNCTIONS: dict = {}
+
+
+def _accepts_keywords(fn: Callable, name: str, keywords: tuple) -> bool:
+    """True if ``fn(E, **{k: ... for k in keywords})`` binds.
+
+    A backend whose signature has drifted is refused here, once, with a
+    warning and a record in `INCOMPATIBLE_BACKEND_FUNCTIONS` -- rather than
+    being called, failing with a ``TypeError``, and having a blanket
+    ``except`` quietly substitute the PyTorch implementation on every call,
+    which also hid genuine errors raised inside the backend.
+    """
+    import inspect
+    import warnings
+    try:
+        inspect.signature(fn).bind(None, **{k: None for k in keywords})
+    except TypeError as exc:
+        reason = f"signature {inspect.signature(fn)} cannot bind {list(keywords)}: {exc}"
+        INCOMPATIBLE_BACKEND_FUNCTIONS[name] = reason
+        warnings.warn(
+            f"nsa_flow {name} is incompatible with pysimlr ({reason}); using "
+            f"pysimlr's PyTorch implementation.", RuntimeWarning, stacklevel=3)
+        return False
+    except ValueError:
+        # No introspectable signature (builtin/C extension): trust the call.
+        return True
+    return True
+
+
+def _resolve_backend_function(name: str, keywords: tuple) -> Optional[Callable]:
+    module = load_nsa_backend()
+    if module is None:
+        return None
+    fn = getattr(module, name, None)
+    if not callable(fn):
+        linalg_mod = getattr(module, "linalg", None)
+        fn = getattr(linalg_mod, name, None) if linalg_mod is not None else None
+    if not callable(fn):
+        return None
+    return fn if _accepts_keywords(fn, name, keywords) else None
+
+
 @lru_cache(maxsize=1)
 def load_varimax_rotation() -> Optional[Any]:
     """
@@ -328,20 +374,10 @@ def load_varimax_rotation() -> Optional[Any]:
     -------
     callable or None
         ``varimax_rotation(E, normalize=True, eps=1e-6, max_iter=100)``,
-        or None if unavailable.
+        or None if unavailable or incompatible (see `_accepts_keywords`).
     """
-    module = load_nsa_backend()
-    if module is None:
-        return None
-    fn = getattr(module, "varimax_rotation", None)
-    if callable(fn):
-        return fn
-    linalg_mod = getattr(module, "linalg", None)
-    if linalg_mod is not None:
-        fn = getattr(linalg_mod, "varimax_rotation", None)
-        if callable(fn):
-            return fn
-    return None
+    return _resolve_backend_function("varimax_rotation",
+                                     ("normalize", "eps", "max_iter"))
 
 
 @lru_cache(maxsize=1)
@@ -353,20 +389,10 @@ def load_varimax() -> Optional[Any]:
     -------
     callable or None
         ``varimax(E, normalize=True, eps=1e-6, max_iter=100, canonical_sign=True)``,
-        or None if unavailable.
+        or None if unavailable or incompatible (see `_accepts_keywords`).
     """
-    module = load_nsa_backend()
-    if module is None:
-        return None
-    fn = getattr(module, "varimax", None)
-    if callable(fn):
-        return fn
-    linalg_mod = getattr(module, "linalg", None)
-    if linalg_mod is not None:
-        fn = getattr(linalg_mod, "varimax", None)
-        if callable(fn):
-            return fn
-    return None
+    return _resolve_backend_function("varimax",
+                                     ("normalize", "eps", "max_iter", "canonical_sign"))
 
 
 def backend_report(extended: bool = False) -> dict:
@@ -404,7 +430,10 @@ def backend_report(extended: bool = False) -> dict:
             opt = "torch_lbfgs"
         else:
             opt = None
+        load_varimax()
+        load_varimax_rotation()
         rep.update({
+            "incompatible_functions": dict(INCOMPATIBLE_BACKEND_FUNCTIONS),
             "version": version,
             "has_polar_factor": has_polar,
             "has_estimator": has_est,

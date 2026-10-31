@@ -325,31 +325,38 @@ def _canonical_sign(E: torch.Tensor) -> torch.Tensor:
     return E * flip.unsqueeze(0)
 
 
-def varimax_rotation(E: torch.Tensor,
-                     normalize: bool = True,
-                     eps: float = 1e-6,
-                     max_iter: int = 100) -> torch.Tensor:
-    """
-    Compute the Orthogonal Varimax rotation matrix R in O(k) for a [p, k] basis E.
+def _as_loading_matrix(E, fn_name: str) -> torch.Tensor:
+    """Validate a Varimax input once, for both the backend and the PyTorch path.
 
-    Maximizes the Kaiser (1958) Varimax simple-structure criterion over the
-    orthogonal group O(k), preserving exact column orthonormality and exact
-    subspace projection while breaking the Perron-Frobenius global-mean mode.
-    Delegates to ``nsa_flow.linalg.varimax_rotation`` when available, and uses
-    the exact same Kaiser-normalized Lawley-Maxwell stopping rule
-    (``d <= d_prev * (1 + eps)``) matching ``R stats::varimax``.
+    Accepts a tensor or array-like and returns a 2-D tensor. NumPy input used
+    to reach ``nsa_flow`` raw, fail there with a ``TypeError``, and be
+    rescued silently by a blanket ``except``; it is now converted here, so the
+    backend and the fallback see the same object. Batched (3-D) input is
+    refused: the backend's ``varimax`` raises on it, and the PyTorch path's
+    convergence test summed the criterion across the batch, so neither ever
+    supported it.
     """
-    from .nsa_backend import load_varimax_rotation
-    fn = load_varimax_rotation()
-    if fn is not None:
-        try:
-            return fn(E, normalize=normalize, eps=eps, max_iter=max_iter)
-        except Exception:
-            pass
     E_t = torch.as_tensor(E)
-    p, k = E_t.shape[-2], E_t.shape[-1]
-    if k < 2 or p < 2:
-        return torch.eye(k, dtype=E_t.dtype, device=E_t.device)
+    if E_t.ndim != 2:
+        raise ValueError(
+            f"{fn_name} expects a 2-D [p, k] loading matrix; got shape "
+            f"{tuple(E_t.shape)}. Rotate batched bases one matrix at a time."
+        )
+    return E_t
+
+
+def _varimax_rotation_torch(E_t: torch.Tensor,
+                            normalize: bool = True,
+                            eps: float = 1e-6,
+                            max_iter: int = 100) -> torch.Tensor:
+    """Pure-PyTorch Kaiser Varimax rotation for a 2-D ``E_t`` with ``p, k >= 2``.
+
+    Same Kaiser-normalized Lawley-Maxwell stopping rule
+    (``d <= d_prev * (1 + eps)``) as ``R stats::varimax`` and
+    ``nsa_flow.linalg.varimax_rotation``. Used when the backend is absent or
+    its signature is incompatible (see `pysimlr.nsa_backend.load_varimax_rotation`).
+    """
+    p, k = E_t.shape
     work = E_t.detach().double()
     tiny = torch.finfo(work.dtype).tiny
     if normalize:
@@ -374,38 +381,14 @@ def varimax_rotation(E: torch.Tensor,
     return R.to(dtype=E_t.dtype, device=E_t.device)
 
 
-def varimax(E: torch.Tensor,
-            normalize: bool = True,
-            eps: float = 1e-6,
-            max_iter: int = 100,
-            canonical_sign: bool = True) -> torch.Tensor:
-    """
-    Rotate a [p, k] basis E by Orthogonal Varimax into simple-structure axes.
-
-    Delegates to ``nsa_flow.varimax`` when available, falling back to the
-    identical PyTorch implementation in :func:`varimax_rotation` with the exact
-    same canonical sign and column-ordering convention as ``nsa_flow.linalg.varimax``.
-    When ``canonical_sign=False``, returns the Kaiser-unscaled rotated loadings
-    matching ``R stats::varimax(E, normalize=normalize)$loadings`` up to column
-    sign and permutation.
-    """
-    from .nsa_backend import load_varimax
-    fn = load_varimax()
-    if fn is not None:
-        try:
-            return fn(E, normalize=normalize, eps=eps, max_iter=max_iter,
-                      canonical_sign=canonical_sign)
-        except Exception:
-            pass
-    E_t = torch.as_tensor(E)
-    p, k = E_t.shape[-2], E_t.shape[-1]
-    if k < 2 or p < 2:
-        if canonical_sign and E_t.numel() > 0:
-            pos = torch.linalg.vector_norm(E_t.clamp_min(0.0), dim=-2, keepdim=True)
-            neg = torch.linalg.vector_norm((-E_t).clamp_min(0.0), dim=-2, keepdim=True)
-            E_t = torch.where(neg > pos, -E_t, E_t)
-        return E_t.clone()
-    R = varimax_rotation(E_t, normalize=normalize, eps=eps, max_iter=max_iter)
+def _varimax_torch(E_t: torch.Tensor,
+                   normalize: bool = True,
+                   eps: float = 1e-6,
+                   max_iter: int = 100,
+                   canonical_sign: bool = True) -> torch.Tensor:
+    """Pure-PyTorch rotated loadings, with ``nsa_flow.linalg.varimax``'s
+    canonical sign and column-ordering convention, for ``p, k >= 2``."""
+    R = _varimax_rotation_torch(E_t, normalize=normalize, eps=eps, max_iter=max_iter)
     Z = (E_t @ R).contiguous()
     if canonical_sign:
         Z = _canonical_sign(Z)
@@ -418,3 +401,77 @@ def varimax(E: torch.Tensor,
         Z = Z[..., :, order].contiguous()
     return Z
 
+
+def varimax_rotation(E: torch.Tensor,
+                     normalize: bool = True,
+                     eps: float = 1e-6,
+                     max_iter: int = 100) -> torch.Tensor:
+    """
+    Compute the Orthogonal Varimax rotation matrix R in O(k) for a [p, k] basis E.
+
+    Maximizes the Kaiser (1958) Varimax simple-structure criterion over the
+    orthogonal group O(k), preserving exact column orthonormality and exact
+    subspace projection while breaking the Perron-Frobenius global-mean mode.
+
+    Dispatch is explicit. A degenerate input (``k < 2`` or ``p < 2``) has
+    nothing to rotate and returns the identity on every path -- the backend
+    and the PyTorch implementation disagreed there. Otherwise
+    ``nsa_flow.linalg.varimax_rotation`` is used when
+    `pysimlr.nsa_backend.load_varimax_rotation` resolves a compatible one,
+    and `_varimax_rotation_torch` when it does not. Errors raised by the
+    backend propagate; they are not converted into a silent switch of
+    implementation.
+
+    Raises
+    ------
+    ValueError
+        If ``E`` is not 2-D.
+    """
+    from .nsa_backend import load_varimax_rotation
+    E_t = _as_loading_matrix(E, "varimax_rotation")
+    p, k = E_t.shape
+    if k < 2 or p < 2:
+        return torch.eye(k, dtype=E_t.dtype, device=E_t.device)
+    fn = load_varimax_rotation()
+    if fn is not None:
+        return fn(E_t, normalize=normalize, eps=eps, max_iter=max_iter)
+    return _varimax_rotation_torch(E_t, normalize=normalize, eps=eps, max_iter=max_iter)
+
+
+def varimax(E: torch.Tensor,
+            normalize: bool = True,
+            eps: float = 1e-6,
+            max_iter: int = 100,
+            canonical_sign: bool = True) -> torch.Tensor:
+    """
+    Rotate a [p, k] basis E by Orthogonal Varimax into simple-structure axes.
+
+    Uses ``nsa_flow.varimax`` when `pysimlr.nsa_backend.load_varimax`
+    resolves a compatible one, else `_varimax_torch`, which follows the same
+    canonical sign and column-ordering convention. When
+    ``canonical_sign=False``, returns the Kaiser-unscaled rotated loadings
+    matching ``R stats::varimax(E, normalize=normalize)$loadings`` up to column
+    sign and permutation. A degenerate input (``k < 2`` or ``p < 2``) is
+    returned unrotated (sign-canonicalized when ``canonical_sign``) on every
+    path. Backend errors propagate.
+
+    Raises
+    ------
+    ValueError
+        If ``E`` is not 2-D.
+    """
+    from .nsa_backend import load_varimax
+    E_t = _as_loading_matrix(E, "varimax")
+    p, k = E_t.shape
+    if k < 2 or p < 2:
+        if canonical_sign and E_t.numel() > 0:
+            pos = torch.linalg.vector_norm(E_t.clamp_min(0.0), dim=-2, keepdim=True)
+            neg = torch.linalg.vector_norm((-E_t).clamp_min(0.0), dim=-2, keepdim=True)
+            E_t = torch.where(neg > pos, -E_t, E_t)
+        return E_t.clone()
+    fn = load_varimax()
+    if fn is not None:
+        return fn(E_t, normalize=normalize, eps=eps, max_iter=max_iter,
+                  canonical_sign=canonical_sign)
+    return _varimax_torch(E_t, normalize=normalize, eps=eps, max_iter=max_iter,
+                          canonical_sign=canonical_sign)
