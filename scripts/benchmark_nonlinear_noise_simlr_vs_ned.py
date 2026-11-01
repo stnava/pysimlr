@@ -34,7 +34,7 @@ def fit_simlr(train_data, **kwargs):
 
 def fit_ned(train_data, **kwargs):
     # Ensure sufficient epochs for nonlinear learning
-    return ned_simr(train_data, epochs=200, warmup_epochs=20, device="cpu", verbose=False, **kwargs)
+    return ned_simr(train_data, iterations=200, warmup_epochs=20, device="cpu", verbose=False, **kwargs)
 
 def run_ned_vs_simlr_benchmark(n_samples=1200, n_seeds=3, noise_level=0.1):
     protocol = BenchmarkProtocol(n_samples=n_samples)

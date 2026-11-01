@@ -129,11 +129,11 @@ def analyze_ppmi_adni(file_path):
     start_time = time.time()
     
     res = lend_simr(
-        Xs, k=15, epochs=150, 
+        Xs, k=15, iterations=150, 
         energy_type='logcosh', 
         mixing_algorithm='newton',
         positivity='positive', 
-        sparseness_quantile=0.5,
+        sparseness=0.5,
         nsa_iterations=3,
         verbose=True
     )

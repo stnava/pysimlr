@@ -440,3 +440,21 @@ def backend_report(extended: bool = False) -> dict:
             "default_optimizer": opt,
         })
     return rep
+
+
+def result_matrix(result: Any) -> Any:
+    """The fitted matrix of an nsa_flow result: ``V`` if present, else ``Y``.
+
+    Uses explicit ``is None`` tests. The previous ``get('V') or get('Y')``
+    evaluated the truthiness of a tensor, which raises for any multi-element
+    ``V``; it only worked because current backends return ``Y`` alone.
+    """
+    for key in ("V", "Y"):
+        if hasattr(result, "get"):
+            value = result.get(key)
+            if value is not None:
+                return value
+        value = getattr(result, key, None)
+        if value is not None:
+            return value
+    return None

@@ -4,9 +4,11 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import numpy as np
-from typing import List, Dict, Any, Optional, Union, Tuple, Callable
+from typing import List, Dict, Any, Optional, Sequence, Union, Tuple, Callable
+import contextlib
 import math
 import warnings
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
 class larslow(optim.Optimizer):
     """Layer-wise Adaptive Rate Scaling (LARS) optimizer for deep SiMLR."""
     def __init__(self, params, lr, weight_decay=1e-4, momentum=0.9, trust_coefficient=0.001):
@@ -39,37 +41,26 @@ class larslow(optim.Optimizer):
                 p.sub_(buf)
         return loss
 
-def _warn_unused_kwargs(fn_name: str, kwargs: Dict[str, Any], consumed=()) -> None:
-    """Warn about keyword arguments an entry point accepted but will not read.
-
-    The deep and flow entry points take ``**kwargs`` so that one call can be
-    replayed across ``simlr``/``lend_simr``/``ned_simr``/``flow_simr_v``.
-    Anything left over after each one has taken what it reads would
-    otherwise vanish silently -- which is how ``varimax`` was once accepted
-    and ignored on every deep path.
-    """
-    unused = sorted(k for k in kwargs if k not in set(consumed))
-    if unused:
-        warnings.warn(
-            f"{fn_name} ignored unrecognised keyword argument(s) {unused}; "
-            f"check the spelling against its signature.",
-            UserWarning, stacklevel=3)
-
-
 def _get_optimizer(model, optimizer_type, learning_rate, weight_decay):
+    if optimizer_type == "adam":
+        return optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     if optimizer_type == "larslow":
         return larslow(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    elif optimizer_type == "lars":
+    if optimizer_type == "lars":
         try:
             import torch_optimizer as t_opt
-            return t_opt.LARS(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         except ImportError:
+            warnings.warn(
+                "optimizer_type='lars' needs the optional torch_optimizer package; "
+                "using pysimlr's own 'larslow' implementation instead.",
+                RuntimeWarning, stacklevel=3)
             return larslow(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    else:
-        return optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        return t_opt.LARS(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    raise ValueError(f"optimizer_type={optimizer_type!r} is not a deep-path optimizer; "
+                     f"choose one of ('adam', 'lars', 'larslow').")
 
 from .simlr import ba_svd
-from .consensus import compute_shared_consensus
+from .consensus import compute_shared_consensus, mai_score_or_zero
 from .utils import (preprocess_data, invariant_orthogonality_defect,
                     orthogonality_defect, safe_svd, basis_rank_report, align_column_signs)
 from .interpretability import build_first_layer_contract, build_interpretability_report
@@ -115,18 +106,18 @@ def _aggregate_shared_consensus(model, latents):
         prune_threshold=getattr(model, "prune_threshold", None),
         modality_weights=(model.modality_weights
                           if getattr(model, "dynamic_weights", False) else None),
+        frozen_map=getattr(model, "aggregate_map", None),
     )
 
 
 def _svd_project_columns(u: torch.Tensor) -> torch.Tensor:
     """Project towards the Stiefel manifold using SVD."""
     with torch.no_grad():
-        try:
-            u_svd, _, vh_svd = safe_svd(u, full_matrices=False)
-            return u_svd @ vh_svd
-        except Exception:
-            # Fallback to column normalization
-            return torch.nn.functional.normalize(u, p=2, dim=0)
+        # `safe_svd` already retries with LAPACK gesvd. A failure beyond that
+        # propagates; it used to return column-normalized `u`, which is not on
+        # the Stiefel manifold this function promises.
+        u_svd, _, vh_svd = safe_svd(u, full_matrices=False)
+        return u_svd @ vh_svd
 
 def _newton_step_ortho(u: torch.Tensor) -> torch.Tensor:
     """Deprecated: Use _svd_project_columns."""
@@ -165,12 +156,12 @@ def _safe_std(x: torch.Tensor, dim: int = 0, keepdim: bool = True, eps: float = 
     """Compute standard deviation safely."""
     return torch.sqrt(x.var(dim=dim, keepdim=keepdim, unbiased=False) + eps)
 
-def _standardize_deep(data_matrices, scale_list=["centerAndScale"]):
+def _standardize_deep(data_matrices, scale_list=("centerAndScale",)):
     torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
     provenance_list = []
     scaled_mats = []
     for m in torch_mats:
-        m_scaled, prov = preprocess_data(m, scale_list)
+        m_scaled, prov = preprocess_data(m, list(scale_list))
         # Add small noise to prevent constant columns if necessary
         if torch.any(torch.std(m_scaled, dim=0) < 1e-6):
             m_scaled = m_scaled + torch.randn_like(m_scaled) * 1e-6
@@ -334,8 +325,8 @@ def _nsa_raw_parameter(module):
 #: rotation of the k latent coordinates -- measured, the same data under three
 #: rotations gave 0.0348, 0.1319 and 0.0000, while the others were constant to
 #: four decimals. It ranked a planted pure-noise view above a signal view.
-VALID_MAI_METRICS = frozenset({"procrustes_r2", "procrustes_r2_sharp",
-                               "cca", "rvcoef"})
+from .consensus import MAI_METRICS
+VALID_MAI_METRICS = frozenset(MAI_METRICS)
 
 
 def _nsa_effective_weight(module):
@@ -368,8 +359,8 @@ class LENDNSAEncoder(nn.Module):
         Dimensionality of the input features.
     latent_dim : int
         Dimensionality of the projection (shared latent rank K).
-    nsa_w : float, default=0.1
-        Weight/step size for the Non-Standard Analysis (NSA) Flow retraction.
+    nsa_w : float, default=DEFAULT_NSA_W (0.5)
+        NSA-Flow weight (`pysimlr.defaults`).
     positivity : str, default="either"
         Positivity constraint on weights:
         - 'either': Unconstrained (standard orthogonal basis).
@@ -393,7 +384,7 @@ class LENDNSAEncoder(nn.Module):
     TypeError
         If inputs are of invalid types.
     """
-    def __init__(self, input_dim: int, latent_dim: int, nsa_w: float = 0.1, 
+    def __init__(self, input_dim: int, latent_dim: int, nsa_w: float = DEFAULT_NSA_W, 
                  positivity: str = "either", sparseness_quantile: Optional[float] = 0.5,
                  soft_thresholding: bool = False, use_nsa: bool = True,
                  first_layer_mode: str = "scheduled", nsa_iterations: int = 1,
@@ -567,16 +558,13 @@ class LENDNSAEncoder(nn.Module):
                     _nsa_effective_weight(self.nsa_linear),
                     self.input_dim, self.latent_dim)
                 if self.nsa_iterations > 1:
-                    try: v_out = _svd_project_columns(v_out)
-                    except Exception: pass
+                    v_out = _svd_project_columns(v_out)
             elif self.nsa_layer is not None:
                 v_out = self.nsa_layer(self.v_raw)
                 if self.nsa_iterations > 1:
-                    try: v_out = _svd_project_columns(v_out)
-                    except Exception: pass
+                    v_out = _svd_project_columns(v_out)
             else:
-                try: v_out = _svd_project_columns(self.v_raw)
-                except Exception: v_out = torch.nn.functional.normalize(self.v_raw, p=2, dim=0)
+                v_out = _svd_project_columns(self.v_raw)
         from .sparsification import _resolve_quantile, _apply_quantile_sparseness
         q_enc = _resolve_quantile(self.sparseness_quantile)
         if self.positivity in {'positive', 'hard'}:
@@ -597,10 +585,9 @@ class LENDNSAEncoder(nn.Module):
                 from .nsa_backend import load_polar_factor
                 pf = load_polar_factor()
                 if pf is not None:
-                    try:
-                        v_out = pf(v_out)
-                    except Exception:
-                        v_out = _svd_project_columns(v_out)
+                    # A backend failure propagates (see D2: no silent switch
+                    # between the nsa_flow and PyTorch implementations).
+                    v_out = pf(v_out)
                 else:
                     v_out = _svd_project_columns(v_out)
             if q_enc is not None and not getattr(self, 'is_low_dim', False):
@@ -683,7 +670,7 @@ class ModalityDecoder(nn.Module):
     TypeError
         If inputs are of invalid types.
     """
-    def __init__(self, latent_dim: int, output_dim: int, hidden_dims: List[int] = [128, 64], dropout: float = 0.1):
+    def __init__(self, latent_dim: int, output_dim: int, hidden_dims: Sequence[int] = (128, 64), dropout: float = 0.1):
         super().__init__()
         layers = []
         curr_dim = latent_dim
@@ -716,8 +703,8 @@ class LENDSiMRModel(nn.Module):
         Architecture of the nonlinear decoders.
     dropout : float, default=0.1
         Dropout rate for decoders.
-    nsa_w : float, default=0.1
-        NSA Flow weight for first-layer orthogonality.
+    nsa_w : float, default=DEFAULT_NSA_W (0.5)
+        NSA-Flow weight (`pysimlr.defaults`).
     positivity : str, default="either"
         Positivity constraint on first-layer weights.
     sparseness_quantile : Union[float, List[float]], default=0.0
@@ -734,8 +721,8 @@ class LENDSiMRModel(nn.Module):
     TypeError
         If inputs are of invalid types.
     """
-    def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
-                 dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "either", 
+    def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: Sequence[int] = (128, 64), 
+                 dropout: float = 0.1, nsa_w: float = DEFAULT_NSA_W, positivity: str = "either", 
                  sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
@@ -826,79 +813,7 @@ class LENDSiMRModel(nn.Module):
                 if u_loo_norm > 1e-8:
                     u_loo = u_loo / u_loo_norm
                     Z = norm_projs[i]
-                    cross = Z.t() @ u_loo
-                    try:
-                        u_svd, s_svd, vh_svd = torch.linalg.svd(cross, full_matrices=False)
-                        metric = getattr(self, "mai_metric", "procrustes_r2_sharp")
-                        
-                        if metric == "procrustes_r2" or metric == "procrustes_r2_sharp":
-                            omega = u_svd @ vh_svd
-                            aligned = Z @ omega
-                            # Scale-profiled Procrustes R^2. With Z and u_loo
-                            # both unit Frobenius norm and Omega orthogonal,
-                            # ||Z@Omega - u_loo||^2 = 2 - 2*sum(s), so the old
-                            # form below reduced to `2*sum(s) - 1` and clamped
-                            # to exactly 0 for every sum(s) < 0.5:
-                            #     max(0, 1 - ||aligned - u_loo||^2/||u_loo||^2)
-                            # At k=3 every view sits under that cliff, so all
-                            # modality scores came back 0, the gate saw no
-                            # spread, and the weights stayed uniform -- MAI was
-                            # inert. Measured with one planted pure-noise view:
-                            # mai = [0.0, 0.0, 0.0] every epoch, decaying only
-                            # because the EMA pulled the buffer toward zero.
-                            #
-                            # Profiling out the scale -- the same fix as
-                            # `similarity.energy_recon_r2` -- gives the squared
-                            # cosine between the optimally rotated-and-scaled Z
-                            # and u_loo, which is sum(s)^2: bounded in [0, 1],
-                            # never clamped, and still 0.989 for signal against
-                            # 0.020 for noise.
-                            r2 = float(s_svd.sum().item()) ** 2
-                            if metric == "procrustes_r2_sharp":
-                                # Spectral Sharpness of the modality latent itself
-                                # Isotropic noise has flat singular values; structured signal is top-heavy.
-                                _, s_latent, _ = torch.linalg.svd(Z, full_matrices=False)
-                                sharpness = s_latent[0] / (s_latent.sum() + 1e-8)
-                                mais.append(r2 * sharpness.item())
-                            else:
-                                mais.append(r2)
-                        elif metric == "cca":
-                            mais.append(s_svd.mean().item())
-                        elif metric == "rvcoef":
-                            num = torch.norm(cross, p='fro')**2
-                            den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
-                            mais.append((num / (den + 1e-8)).item())
-                        else:
-                            # Was `trace`, and was also the catch-all for any
-                            # unrecognised name, so a typo silently selected it.
-                            #
-                            # tr(Z' u_loo) is the only one of these computed
-                            # outside the SVD, and it is not invariant to the
-                            # latent gauge: the k latent coordinates carry an
-                            # arbitrary rotation Q, and tr((ZQ)' u) != tr(Z' u).
-                            # Measured on one fixed pair, rotating Q gave
-                            # 0.0348, 0.1319 and 0.0000 for the same data,
-                            # while procrustes / cca / rvcoef were constant to
-                            # four decimals. It therefore scores the accident
-                            # of the coordinate system rather than agreement
-                            # between views -- and on `flow_simr_v` it ranked a
-                            # planted pure-noise view *above* a signal view
-                            # (0.276 against 0.246).
-                            raise ValueError(
-                                f"unknown mai_metric {metric!r}. Choose one of "
-                                f"['procrustes_r2', 'procrustes_r2_sharp', "
-                                f"'cca', 'rvcoef']. 'trace' has been removed: "
-                                f"tr(Z'u) depends on the arbitrary rotation of "
-                                f"the latent coordinates, so it does not "
-                                f"measure agreement between views."
-                            )
-                    except ValueError:
-                        raise
-                    except Exception:
-                        # A numerical failure on one view only. Note this
-                        # scores the view as agreeing with nothing, which is a
-                        # real bias if it happens often.
-                        mais.append(0.0)
+                    mais.append(mai_score_or_zero(Z, u_loo, getattr(self, "mai_metric", "procrustes_r2_sharp"), i))
                 else:
                     mais.append(0.0)
             
@@ -935,7 +850,7 @@ class LENDSiMRModel(nn.Module):
             self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         latents = self.encode_first_layer(x_list)
-        res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor, topology=self.topology, path_graph=getattr(self, "path_graph", None), prune_threshold=self.prune_threshold, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None)
+        res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor, topology=self.topology, path_graph=getattr(self, "path_graph", None), prune_threshold=self.prune_threshold, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None, frozen_map=getattr(self, "consensus_map", None))
         if self.training:
             u_shared, new_anchor = res_u
             # Update anchor using EMA for stability
@@ -966,8 +881,8 @@ class NEDSiMRModel(nn.Module):
         Architecture of the nonlinear heads and decoders.
     dropout : float, default=0.1
         Dropout probability.
-    nsa_w : float, default=0.1
-        NSA Flow weight for first-layer orthogonality.
+    nsa_w : float, default=DEFAULT_NSA_W (0.5)
+        NSA-Flow weight (`pysimlr.defaults`).
     positivity : str, default="either"
         Positivity constraint on first-layer weights.
     sparseness_quantile : Union[float, List[float]], default=0.0
@@ -984,8 +899,8 @@ class NEDSiMRModel(nn.Module):
     TypeError
         If inputs are of invalid types.
     """
-    def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: List[int] = [128, 64], 
-                 dropout: float = 0.1, nsa_w: float = 0.1, positivity: str = "either", 
+    def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: Sequence[int] = (128, 64), 
+                 dropout: float = 0.1, nsa_w: float = DEFAULT_NSA_W, positivity: str = "either", 
                  sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
@@ -1077,79 +992,7 @@ class NEDSiMRModel(nn.Module):
                 if u_loo_norm > 1e-8:
                     u_loo = u_loo / u_loo_norm
                     Z = norm_projs[i]
-                    cross = Z.t() @ u_loo
-                    try:
-                        u_svd, s_svd, vh_svd = torch.linalg.svd(cross, full_matrices=False)
-                        metric = getattr(self, "mai_metric", "procrustes_r2_sharp")
-                        
-                        if metric == "procrustes_r2" or metric == "procrustes_r2_sharp":
-                            omega = u_svd @ vh_svd
-                            aligned = Z @ omega
-                            # Scale-profiled Procrustes R^2. With Z and u_loo
-                            # both unit Frobenius norm and Omega orthogonal,
-                            # ||Z@Omega - u_loo||^2 = 2 - 2*sum(s), so the old
-                            # form below reduced to `2*sum(s) - 1` and clamped
-                            # to exactly 0 for every sum(s) < 0.5:
-                            #     max(0, 1 - ||aligned - u_loo||^2/||u_loo||^2)
-                            # At k=3 every view sits under that cliff, so all
-                            # modality scores came back 0, the gate saw no
-                            # spread, and the weights stayed uniform -- MAI was
-                            # inert. Measured with one planted pure-noise view:
-                            # mai = [0.0, 0.0, 0.0] every epoch, decaying only
-                            # because the EMA pulled the buffer toward zero.
-                            #
-                            # Profiling out the scale -- the same fix as
-                            # `similarity.energy_recon_r2` -- gives the squared
-                            # cosine between the optimally rotated-and-scaled Z
-                            # and u_loo, which is sum(s)^2: bounded in [0, 1],
-                            # never clamped, and still 0.989 for signal against
-                            # 0.020 for noise.
-                            r2 = float(s_svd.sum().item()) ** 2
-                            if metric == "procrustes_r2_sharp":
-                                # Spectral Sharpness of the modality latent itself
-                                # Isotropic noise has flat singular values; structured signal is top-heavy.
-                                _, s_latent, _ = torch.linalg.svd(Z, full_matrices=False)
-                                sharpness = s_latent[0] / (s_latent.sum() + 1e-8)
-                                mais.append(r2 * sharpness.item())
-                            else:
-                                mais.append(r2)
-                        elif metric == "cca":
-                            mais.append(s_svd.mean().item())
-                        elif metric == "rvcoef":
-                            num = torch.norm(cross, p='fro')**2
-                            den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
-                            mais.append((num / (den + 1e-8)).item())
-                        else:
-                            # Was `trace`, and was also the catch-all for any
-                            # unrecognised name, so a typo silently selected it.
-                            #
-                            # tr(Z' u_loo) is the only one of these computed
-                            # outside the SVD, and it is not invariant to the
-                            # latent gauge: the k latent coordinates carry an
-                            # arbitrary rotation Q, and tr((ZQ)' u) != tr(Z' u).
-                            # Measured on one fixed pair, rotating Q gave
-                            # 0.0348, 0.1319 and 0.0000 for the same data,
-                            # while procrustes / cca / rvcoef were constant to
-                            # four decimals. It therefore scores the accident
-                            # of the coordinate system rather than agreement
-                            # between views -- and on `flow_simr_v` it ranked a
-                            # planted pure-noise view *above* a signal view
-                            # (0.276 against 0.246).
-                            raise ValueError(
-                                f"unknown mai_metric {metric!r}. Choose one of "
-                                f"['procrustes_r2', 'procrustes_r2_sharp', "
-                                f"'cca', 'rvcoef']. 'trace' has been removed: "
-                                f"tr(Z'u) depends on the arbitrary rotation of "
-                                f"the latent coordinates, so it does not "
-                                f"measure agreement between views."
-                            )
-                    except ValueError:
-                        raise
-                    except Exception:
-                        # A numerical failure on one view only. Note this
-                        # scores the view as agreeing with nothing, which is a
-                        # real bias if it happens often.
-                        mais.append(0.0)
+                    mais.append(mai_score_or_zero(Z, u_loo, getattr(self, "mai_metric", "procrustes_r2_sharp"), i))
                 else:
                     mais.append(0.0)
             
@@ -1187,7 +1030,7 @@ class NEDSiMRModel(nn.Module):
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         first_layer_scores = self.encode_first_layer(x_list)
         latents = [head(z0) for head, z0 in zip(self.nonlinear_heads, first_layer_scores)]
-        res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor, topology=self.topology, path_graph=getattr(self, "path_graph", None), prune_threshold=self.prune_threshold, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None)
+        res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor, topology=self.topology, path_graph=getattr(self, "path_graph", None), prune_threshold=self.prune_threshold, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None, frozen_map=getattr(self, "consensus_map", None))
         if self.training:
             u_shared, new_anchor = res_u
             # Update anchor using EMA for stability
@@ -1233,8 +1076,8 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         Architecture of the nonlinear encoders/decoders.
     dropout : float, default=0.1
         Dropout probability.
-    nsa_w : float, default=0.1
-        NSA Flow weight for shared first-layer orthogonality.
+    nsa_w : float, default=DEFAULT_NSA_W (0.5)
+        NSA-Flow weight (`pysimlr.defaults`).
     positivity : str, default="either"
         Positivity constraint on shared first-layer weights.
     sparseness_quantile : Union[float, List[float]], default=0.0
@@ -1252,7 +1095,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         If inputs are of invalid types.
     """
     def __init__(self, input_dims: List[int], shared_latent_dim: int, private_latent_dim: int,
-                 hidden_dims: List[int] = [128, 64], dropout: float = 0.1, nsa_w: float = 0.1,
+                 hidden_dims: Sequence[int] = (128, 64), dropout: float = 0.1, nsa_w: float = DEFAULT_NSA_W,
                  positivity: str = "either", sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
                  topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
@@ -1345,79 +1188,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
                 if u_loo_norm > 1e-8:
                     u_loo = u_loo / u_loo_norm
                     Z = norm_projs[i]
-                    cross = Z.t() @ u_loo
-                    try:
-                        u_svd, s_svd, vh_svd = torch.linalg.svd(cross, full_matrices=False)
-                        metric = getattr(self, "mai_metric", "procrustes_r2_sharp")
-                        
-                        if metric == "procrustes_r2" or metric == "procrustes_r2_sharp":
-                            omega = u_svd @ vh_svd
-                            aligned = Z @ omega
-                            # Scale-profiled Procrustes R^2. With Z and u_loo
-                            # both unit Frobenius norm and Omega orthogonal,
-                            # ||Z@Omega - u_loo||^2 = 2 - 2*sum(s), so the old
-                            # form below reduced to `2*sum(s) - 1` and clamped
-                            # to exactly 0 for every sum(s) < 0.5:
-                            #     max(0, 1 - ||aligned - u_loo||^2/||u_loo||^2)
-                            # At k=3 every view sits under that cliff, so all
-                            # modality scores came back 0, the gate saw no
-                            # spread, and the weights stayed uniform -- MAI was
-                            # inert. Measured with one planted pure-noise view:
-                            # mai = [0.0, 0.0, 0.0] every epoch, decaying only
-                            # because the EMA pulled the buffer toward zero.
-                            #
-                            # Profiling out the scale -- the same fix as
-                            # `similarity.energy_recon_r2` -- gives the squared
-                            # cosine between the optimally rotated-and-scaled Z
-                            # and u_loo, which is sum(s)^2: bounded in [0, 1],
-                            # never clamped, and still 0.989 for signal against
-                            # 0.020 for noise.
-                            r2 = float(s_svd.sum().item()) ** 2
-                            if metric == "procrustes_r2_sharp":
-                                # Spectral Sharpness of the modality latent itself
-                                # Isotropic noise has flat singular values; structured signal is top-heavy.
-                                _, s_latent, _ = torch.linalg.svd(Z, full_matrices=False)
-                                sharpness = s_latent[0] / (s_latent.sum() + 1e-8)
-                                mais.append(r2 * sharpness.item())
-                            else:
-                                mais.append(r2)
-                        elif metric == "cca":
-                            mais.append(s_svd.mean().item())
-                        elif metric == "rvcoef":
-                            num = torch.norm(cross, p='fro')**2
-                            den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
-                            mais.append((num / (den + 1e-8)).item())
-                        else:
-                            # Was `trace`, and was also the catch-all for any
-                            # unrecognised name, so a typo silently selected it.
-                            #
-                            # tr(Z' u_loo) is the only one of these computed
-                            # outside the SVD, and it is not invariant to the
-                            # latent gauge: the k latent coordinates carry an
-                            # arbitrary rotation Q, and tr((ZQ)' u) != tr(Z' u).
-                            # Measured on one fixed pair, rotating Q gave
-                            # 0.0348, 0.1319 and 0.0000 for the same data,
-                            # while procrustes / cca / rvcoef were constant to
-                            # four decimals. It therefore scores the accident
-                            # of the coordinate system rather than agreement
-                            # between views -- and on `flow_simr_v` it ranked a
-                            # planted pure-noise view *above* a signal view
-                            # (0.276 against 0.246).
-                            raise ValueError(
-                                f"unknown mai_metric {metric!r}. Choose one of "
-                                f"['procrustes_r2', 'procrustes_r2_sharp', "
-                                f"'cca', 'rvcoef']. 'trace' has been removed: "
-                                f"tr(Z'u) depends on the arbitrary rotation of "
-                                f"the latent coordinates, so it does not "
-                                f"measure agreement between views."
-                            )
-                    except ValueError:
-                        raise
-                    except Exception:
-                        # A numerical failure on one view only. Note this
-                        # scores the view as agreeing with nothing, which is a
-                        # real bias if it happens often.
-                        mais.append(0.0)
+                    mais.append(mai_score_or_zero(Z, u_loo, getattr(self, "mai_metric", "procrustes_r2_sharp"), i))
                 else:
                     mais.append(0.0)
             
@@ -1456,7 +1227,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         first_layer_scores = self.encode_first_layer(x_list)
         shared_l = [head(z0) for head, z0 in zip(self.shared_heads, first_layer_scores)]
         private_l = [p_enc(x) for p_enc, x in zip(self.private_encoders, x_list)]
-        res_u = compute_shared_consensus(shared_l, mixing_algorithm=self.mixing_algorithm, k=self.shared_dim, training=self.training, anchor=self.consensus_anchor, topology=self.topology, path_graph=getattr(self, "path_graph", None), prune_threshold=self.prune_threshold, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None)
+        res_u = compute_shared_consensus(shared_l, mixing_algorithm=self.mixing_algorithm, k=self.shared_dim, training=self.training, anchor=self.consensus_anchor, topology=self.topology, path_graph=getattr(self, "path_graph", None), prune_threshold=self.prune_threshold, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None, frozen_map=getattr(self, "consensus_map", None))
         if self.training:
             u_shared, new_anchor = res_u
             if new_anchor is not None: self.consensus_anchor.copy_(0.9 * self.consensus_anchor + 0.1 * new_anchor)
@@ -1503,7 +1274,7 @@ class ModalityEncoder(nn.Module):
     TypeError
         If inputs are of invalid types.
     """
-    def __init__(self, input_dim: int, k: int, hidden_dims: List[int] = [128, 64], dropout: float = 0.1):
+    def __init__(self, input_dim: int, k: int, hidden_dims: Sequence[int] = (128, 64), dropout: float = 0.1):
         super().__init__()
         layers = []
         curr_dim = input_dim
@@ -1553,13 +1324,8 @@ def _drop_last(dataset, batch_size: int) -> bool:
 
 def calculate_sim_loss(latents: List[torch.Tensor], 
                        u_shared: Union[torch.Tensor, List[torch.Tensor]], 
-                       energy_type: str = "regression",
-                       weights: Dict[str, float] = {
-                           "sim": 1.0, 
-                           "var": 1.0, 
-                           "collapse": 1.0, 
-                           "u_var": 1.0
-                       }) -> Tuple[torch.Tensor, Dict[str, float]]:
+                       energy_type: str = DEFAULT_ENERGY_TYPE,
+                       weights: Optional[Dict[str, float]] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
     """
     Calculate similarity and regularization losses for deep SiMLR models.
 
@@ -1689,6 +1455,7 @@ def calculate_sim_loss(latents: List[torch.Tensor],
         u_std_mean = torch.mean(_safe_std(u_shared, dim=0)).item()
         u_off_diag_cov = torch.norm(cov_u[mask]).item()
     
+    weights = {} if weights is None else weights
     total_loss = (weights.get("sim", 1.0) * sim_loss + 
                   weights.get("var", 1.0) * var_penalty + 
                   weights.get("collapse", 1.0) * collapse_loss + 
@@ -1923,136 +1690,160 @@ def _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=None):
     return out, diags
 
 
-def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, positivity: str = "either", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False,
-                 initialization_type: str = 'pca', init_seed: Optional[int] = None,
-                 domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
-                 n_candidates: int = 5, perturbation_scale: float = 0.05,
-                 varimax: Optional[bool] = None, **kwargs) -> Dict[str, Any]:
+#: Optimizers the deep and flow trainers accept. Anything else raises: the
+#: previous dispatcher turned every unrecognised name, typos included, into Adam.
+DEEP_OPTIMIZER_TYPES = ("adam", "lars", "larslow")
+
+#: Default decoder widths for the deep entry points (a tuple, so no call can
+#: mutate the shared default).
+DEFAULT_HIDDEN_DIMS = (128, 64)
+
+
+def _resolve_device(device: Optional[str]) -> torch.device:
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    return torch.device(device)
+
+
+def _resolve_seed(random_state: Optional[int]) -> int:
+    """The seed a stochastic fit runs under.
+
+    ``None`` draws one value from the caller's global torch stream, so two
+    unseeded calls still differ while each is reproducible from the seed it
+    reports in ``result["random_state"]``.
     """
-    Fit a Linear Encoded Nonlinear Decoding (LEND) model.
+    if random_state is None:
+        return int(torch.randint(0, 2**31 - 1, (1,)).item())
+    return int(random_state)
 
-    Parameters
-    ----------
-    initialization_type : str, default="pca"
-        One of `INITIALIZATION_TYPES` (`pysimlr.simlr`); see `initialize_simlr`
-        for what each does. Previously always PCA regardless of this argument.
-    init_seed : int, optional
-        Seed for initialization types needing a `torch.Generator` (`"random"`,
-        `"perturbed_pca"`, `"best_of_n"`). Same contract as `simlr`'s
-        `init_seed`.
-    domain_matrices : list of torch.Tensor, optional
-        Per-view priors for `initialization_type="domain"`.
-    n_candidates : int, default=5
-        Candidates drawn for `initialization_type="best_of_n"`.
-    perturbation_scale : float, default=0.05
-        Noise scale for `initialization_type="perturbed_pca"`.
-    varimax : bool or None, default=None
-        Orthogonal Varimax at first-layer initialization only. ``None``
-        rotates only a non-negative basis; ``True``/``False`` override (see
-        `pysimlr.simlr.resolve_varimax` and `initialize_simlr`). The
-        trained basis is never rotated afterwards, because the nonlinear
-        decoder is not O(k)-equivariant.
 
-    Parameters
-    ----------
-    data_matrices : List[Union[torch.Tensor, np.ndarray]]
-        List of data matrices (one for each modality).
-    k : int
-        The dimensionality of the shared latent space.
-    epochs : int, default=150
-        Number of training epochs.
-    batch_size : int, default=64
-        Batch size.
-    learning_rate : float, default=5e-4
-        Learning rate.
-    weight_decay : float, default=1e-4
-        Weight decay.
-    sim_weight : float, default=1.0
-        Weight for similarity loss.
-    warmup_epochs : int, default=20
-        Warmup epochs before sim loss.
-    hidden_dims : List[int], default=[128, 64]
-        Decoder hidden dimensions.
-    dropout : float, default=0.1
-        Dropout probability.
-    sparseness_quantile : Union[float, List[float]], default=0.5
-        Sparseness quantile.
-    positivity : str, default="either"
-        Positivity constraint on the first-layer encoders. Was `"positive"`;
-        changed because that silently forced every encoder non-negative even
-        on standardized (signed, zero-mean) input, the common case for real
-        tabular/omics data after scaling. Not independently re-measured for
-        this function -- see `flow_simr_v`'s docstring for the measured
-        before/after on real data, which shares the same encoder mechanism.
-        Pass `"positive"` explicitly when the input is genuinely non-negative.
-    nsa_w : float, default=0.1
-        NSA weight.
-    energy_type : str, default="regression"
-        Energy type.
-    mixing_algorithm : str, default="newton"
-        Mixing algorithm.
-    device : Optional[str], default=None
-        Device to use.
-    verbose : bool, default=False
-        Verbose output.
-    use_nsa : bool, default=False
-        Use NSA flow.
-    first_layer_mode : str, default="scheduled"
-        First layer projection mode.
-    stabilization_start_epoch : Optional[int], default=None
-        Stabilization start epoch.
-    stabilization_ramp_epochs : Optional[int], default=None
-        Stabilization ramp epochs.
-    **kwargs : Dict[str, Any]
-        Additional arguments.
+@contextlib.contextmanager
+def _seeded_rng(seed: int, device: torch.device):
+    """Run a fit on its own RNG stream and leave the caller's untouched.
 
-    Returns
-    -------
-    Dict[str, Any]
-        Model results.
-
-    Raises
-    ------
-    TypeError
-        If inputs are invalid.
+    Covers every global-RNG consumer in a deep or flow fit: the jitter
+    `_standardize_deep` adds to near-constant columns, module weight
+    initialisation, dropout and the DataLoader shuffle. The caller's CPU (and,
+    for a CUDA fit, that device's) generator state is restored on exit.
     """
-    # See `simlr`: the budget slot accepts either name so the entry
-    # points are interchangeable.
-    epochs = int(kwargs.pop("iterations", epochs))
+    if device.type == "cuda":
+        idx = device.index if device.index is not None else torch.cuda.current_device()
+        fork = torch.random.fork_rng(devices=[idx], device_type="cuda")
+    else:
+        fork = torch.random.fork_rng(devices=[])
+    with fork:
+        torch.random.default_generator.manual_seed(int(seed))
+        if device.type == "cuda":
+            torch.cuda.manual_seed(int(seed))
+        yield
 
-    if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
-    if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
-    if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
-    device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
-    retraction_type = kwargs.pop('retraction_type', 'soft_polar')
-    _warn_unused_kwargs("lend_simr", kwargs, consumed=("tol", "patience"))
-    model = LENDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai, retraction_type=retraction_type).to(device)
-    init_gen = None
-    if initialization_type in ("random", "perturbed_pca", "best_of_n"):
-        init_gen = torch.Generator()
-        if init_seed is not None:
-            init_gen.manual_seed(int(init_seed))
-    model.initialize_v(torch_mats, k, initialization_type=initialization_type,
-                       generator=init_gen, domain_matrices=domain_matrices,
-                       n_candidates=n_candidates, perturbation_scale=perturbation_scale,
-                       varimax=varimax)
-    optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
-    scheduler = _plateau_scheduler(optimizer); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
-    warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
-    loss_h, recon_h, sim_h, conv_ep, first_layer_training, conv_report = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=kwargs.get('tol', 1e-6), patience=kwargs.get('patience', 10), stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs)
-    model.eval(); 
-    with torch.no_grad():
-        eval_mats = [m.to(device) for m in torch_mats]
-        v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.encoders]
-        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=model.encoders)
-        final_latents, recons, u_final = model(eval_mats)
-        u_aggregate = (_aggregate_shared_consensus(model, final_latents)
-                       if isinstance(u_final, list) else u_final)
-        first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
-        first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "lend_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, "sparseness": sparseness_quantile, **basis_rank_report(v_mats, k)}
-    result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, recons)]
+
+def _shuffled_loader(torch_mats: List[torch.Tensor], batch_size: int, seed: int) -> DataLoader:
+    dataset = TensorDataset(*torch_mats)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=True,
+                      drop_last=_drop_last(dataset, batch_size),
+                      generator=torch.Generator().manual_seed(int(seed)))
+
+
+def _init_generator(initialization_type: str, seed: int) -> Optional[torch.Generator]:
+    from .simlr import RANDOM_INITIALIZATIONS
+    if initialization_type not in RANDOM_INITIALIZATIONS:
+        return None
+    return torch.Generator().manual_seed(int(seed))
+
+
+def _freeze_consensus(model: nn.Module, latents, u_final, u_aggregate) -> float:
+    """Freeze the trained model's consensus as the training batch's affine map
+    (`consensus.capture_consensus_map`), so prediction does not depend on which
+    rows share a batch. Returns the largest absolute residual of the fit."""
+    from .consensus import capture_consensus_map
+    model.consensus_map = capture_consensus_map(latents, u_final)
+    resid = model.consensus_map["max_residual"]
+    if isinstance(u_final, list):
+        model.aggregate_map = capture_consensus_map(latents, u_aggregate)
+        resid = max(resid, model.aggregate_map["max_residual"])
+    return float(resid)
+
+
+def _clean(t: torch.Tensor) -> torch.Tensor:
+    return torch.nan_to_num(t.cpu(), nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
+              data_matrices, k: int, *, iterations: int, batch_size: int,
+              learning_rate: float, weight_decay: float, sim_weight: float,
+              warmup_epochs: Optional[int], sparseness, positivity: str,
+              nsa_w: float, energy_type: str, device: Optional[str], verbose: bool,
+              stabilization_start_epoch: Optional[int],
+              stabilization_ramp_epochs: Optional[int], optimizer_type: str,
+              initialization_type: str, random_state: Optional[int],
+              domain_matrices, n_candidates: int, perturbation_scale: float,
+              varimax: Optional[bool], tol: float, patience: int,
+              freeze_private_epochs: int = 0) -> Dict[str, Any]:
+    """Shared body of `lend_simr`, `ned_simr` and `ned_simr_shared_private`."""
+    if optimizer_type not in DEEP_OPTIMIZER_TYPES:
+        raise ValueError(f"optimizer_type={optimizer_type!r} is not a deep-path optimizer; "
+                         f"choose one of {DEEP_OPTIMIZER_TYPES}.")
+    iterations = int(iterations)
+    device = _resolve_device(device)
+    seed = _resolve_seed(random_state)
+    shared_private = model_type == "ned_shared_private"
+    with _seeded_rng(seed, device):
+        torch_mats, provenance_list = _standardize_deep(data_matrices)
+        model = build_model([m.shape[1] for m in torch_mats]).to(device)
+        encoders = model.encoders if hasattr(model, "encoders") else model.linear_encoders
+        model.initialize_v(torch_mats, k, initialization_type=initialization_type,
+                           generator=_init_generator(initialization_type, seed),
+                           domain_matrices=domain_matrices, n_candidates=n_candidates,
+                           perturbation_scale=perturbation_scale, varimax=varimax)
+        optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
+        scheduler = _plateau_scheduler(optimizer)
+        dataloader = _shuffled_loader(torch_mats, batch_size, seed)
+        warmup_epochs = resolve_warmup_epochs(warmup_epochs, iterations)
+        loss_h, recon_h, sim_h, conv_ep, first_layer_training, conv_report = _train_loop(
+            model, dataloader, optimizer, scheduler, nn.MSELoss(), iterations, sim_weight,
+            energy_type, warmup_epochs, verbose, device, tol=tol, patience=patience,
+            stabilization_start_epoch=stabilization_start_epoch,
+            stabilization_ramp_epochs=stabilization_ramp_epochs,
+            freeze_private_epochs=freeze_private_epochs)
+        model.eval()
+        with torch.no_grad():
+            eval_mats = [m.to(device) for m in torch_mats]
+            v_mats = [_clean(enc.v.detach()) for enc in encoders]
+            v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type,
+                                                             encoders=encoders)
+            out = model(eval_mats)
+            if shared_private:
+                final_latents, recons, u_final, final_private = out
+            else:
+                final_latents, recons, u_final = out
+            u_aggregate = (_aggregate_shared_consensus(model, final_latents)
+                           if isinstance(u_final, list) else u_final)
+            consensus_residual = _freeze_consensus(model, final_latents, u_final, u_aggregate)
+            first_layer_scores = [_clean((m_.cpu().to(v_.dtype) @ v_).detach())
+                                  for m_, v_ in zip(eval_mats, v_mats)]
+            first_layer = build_first_layer_contract(v_mats, first_layer_scores)
+    result = {
+        "model": model.cpu(), "model_type": model_type,
+        "retraction_diagnostics": retraction_diagnostics,
+        "u": _clean(u_aggregate),
+        "u_per_modality": ([_clean(ux) for ux in u_final] if isinstance(u_final, list) else None),
+        "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer,
+        "first_layer_training": first_layer_training,
+        "latents": [_clean(l) for l in final_latents],
+        "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h,
+        "converged_iter": conv_ep, "convergence": conv_report,
+        "scale_list": ["centerAndScale"], "provenance_list": provenance_list,
+        "sparseness": sparseness, "random_state": seed,
+        "initialization_type": initialization_type,
+        "consensus_map_residual": consensus_residual,
+        **basis_rank_report(v_mats, k),
+    }
+    if shared_private:
+        result["private_latents"] = [_clean(p) for p in final_private]
+    result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item()
+                        / (torch.norm(x.cpu(), p="fro").item() + 1e-10)
+                        for x, r in zip(torch_mats, recons)]
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
     if getattr(model, "dynamic_weights", False):
@@ -2060,352 +1851,229 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epoc
         result["mai"] = model.mai.detach().cpu().numpy()
     return result
 
-def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, positivity: str = "either", nsa_w: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", device: Optional[str] = None, verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = 'adam', use_rank_mai: bool = False,
-                 initialization_type: str = 'pca', init_seed: Optional[int] = None,
-                 domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
-                 n_candidates: int = 5, perturbation_scale: float = 0.05,
-                 varimax: Optional[bool] = None, **kwargs) -> Dict[str, Any]:
-    """
-    Fit a Nonlinear Encoded Decoding (NED) model.
 
+_DEEP_COMMON_DOC = """
     Parameters
     ----------
-    initialization_type : str, default="pca"
-        One of `INITIALIZATION_TYPES` (`pysimlr.simlr`); see `initialize_simlr`
-        for what each does. Previously always PCA regardless of this argument.
-    init_seed : int, optional
-        Seed for initialization types needing a `torch.Generator` (`"random"`,
-        `"perturbed_pca"`, `"best_of_n"`).
-    domain_matrices : list of torch.Tensor, optional
-        Per-view priors for `initialization_type="domain"`.
-    n_candidates : int, default=5
-        Candidates drawn for `initialization_type="best_of_n"`.
-    perturbation_scale : float, default=0.05
-        Noise scale for `initialization_type="perturbed_pca"`.
-    varimax : bool or None, default=None
-        Orthogonal Varimax at first-layer initialization only. ``None``
-        rotates only a non-negative basis; ``True``/``False`` override (see
-        `pysimlr.simlr.resolve_varimax` and `initialize_simlr`). The
-        trained basis is never rotated afterwards, because the nonlinear
-        decoder is not O(k)-equivariant.
-    ----------
-    data_matrices : List[Union[torch.Tensor, np.ndarray]]
-        List of data matrices (one for each modality).
+    data_matrices : list of torch.Tensor or np.ndarray
+        One ``(n, p_m)`` matrix per view; rows are matched samples.
     k : int
-        The dimensionality of the shared latent space.
-    epochs : int, default=150
-        Number of training epochs.
-    batch_size : int, default=64
-        Batch size.
-    learning_rate : float, default=5e-4
-        Learning rate.
-    weight_decay : float, default=1e-4
-        Weight decay.
+        Dimensionality of the shared latent space.
+    iterations : int, default=150
+        Training budget in epochs (the shared budget name across pysimlr;
+        ``api.describe_method`` reports the unit).
+    batch_size, learning_rate, weight_decay : training hyperparameters.
     sim_weight : float, default=1.0
-        Weight for similarity loss.
-    warmup_epochs : int, default=20
-        Warmup epochs before sim loss.
-    hidden_dims : List[int], default=[128, 64]
-        Decoder hidden dimensions.
-    dropout : float, default=0.1
-        Dropout probability.
-    sparseness_quantile : Union[float, List[float]], default=0.5
-        Sparseness quantile.
-    positivity : str, default="either"
-        Positivity constraint on the first-layer encoders. Was `"positive"`;
-        changed because that silently forced every encoder non-negative even
-        on standardized (signed, zero-mean) input, the common case for real
-        tabular/omics data after scaling. Not independently re-measured for
-        this function -- see `flow_simr_v`'s docstring for the measured
-        before/after on real data, which shares the same encoder mechanism.
-        Pass `"positive"` explicitly when the input is genuinely non-negative.
-    nsa_w : float, default=0.1
-        NSA weight.
-    energy_type : str, default="regression"
-        Energy type.
-    mixing_algorithm : str, default="newton"
-        Mixing algorithm.
-    device : Optional[str], default=None
-        Device to use.
-    verbose : bool, default=False
-        Verbose output.
-    use_nsa : bool, default=False
-        Use NSA flow.
-    first_layer_mode : str, default="scheduled"
-        First layer projection mode.
-    stabilization_start_epoch : Optional[int], default=None
-        Stabilization start epoch.
-    stabilization_ramp_epochs : Optional[int], default=None
-        Stabilization ramp epochs.
-    **kwargs : Dict[str, Any]
-        Additional arguments.
-
-    Returns
-    -------
-    Dict[str, Any]
-        Model results.
-
-    Raises
-    ------
-    TypeError
-        If inputs are invalid.
-    """
-    # See `simlr`: the budget slot accepts either name so the entry
-    # points are interchangeable.
-    epochs = int(kwargs.pop("iterations", epochs))
-
-    if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
-    if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
-    if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
-    device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
-    retraction_type = kwargs.pop('retraction_type', 'soft_polar')
-    _warn_unused_kwargs("ned_simr", kwargs, consumed=("tol", "patience"))
-    model = NEDSiMRModel(input_dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai, retraction_type=retraction_type).to(device)
-    init_gen = None
-    if initialization_type in ("random", "perturbed_pca", "best_of_n"):
-        init_gen = torch.Generator()
-        if init_seed is not None:
-            init_gen.manual_seed(int(init_seed))
-    model.initialize_v(torch_mats, k, initialization_type=initialization_type,
-                       generator=init_gen, domain_matrices=domain_matrices,
-                       n_candidates=n_candidates, perturbation_scale=perturbation_scale,
-                       varimax=varimax)
-    optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
-    scheduler = _plateau_scheduler(optimizer); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
-    warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
-    loss_h, recon_h, sim_h, conv_ep, first_layer_training, conv_report = _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=kwargs.get('tol', 1e-6), patience=kwargs.get('patience', 10), stabilization_start_epoch=stabilization_start_epoch, stabilization_ramp_epochs=stabilization_ramp_epochs)
-    model.eval(); 
-    with torch.no_grad():
-        eval_mats = [m.to(device) for m in torch_mats]
-        v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.linear_encoders]
-        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=model.linear_encoders)
-        final_latents, recons, u_final = model(eval_mats)
-        u_aggregate = (_aggregate_shared_consensus(model, final_latents)
-                       if isinstance(u_final, list) else u_final)
-        first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
-        first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "ned_simr", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_latents], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, "sparseness": sparseness_quantile, **basis_rank_report(v_mats, k)}
-    result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, recons)]
-    result["interpretability"] = build_interpretability_report(result)
-    result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
-    if getattr(model, "dynamic_weights", False):
-        result["modality_weights"] = model.modality_weights.detach().cpu().numpy()
-        result["mai"] = model.mai.detach().cpu().numpy()
-    return result
-
-def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, private_k: Optional[int] = None, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, positivity: str = "either", nsa_w: float = 0.1, hidden_dims: List[int] = [128, 64], dropout: float = 0.1, energy_type: str = "regression", mixing_algorithm: str = "newton",
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", private_recon_weight: float = 1.0, private_orthogonality_weight: float = 0.05, private_variance_weight: float = 0.10, device: Optional[str] = None, verbose: bool = False, tol: float = 1e-6, patience: int = 10, use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, shared_warmup_epochs: int = 20, optimizer_type: str = 'adam', use_rank_mai: bool = False,
-                 initialization_type: str = 'pca', init_seed: Optional[int] = None,
-                 domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
-                 n_candidates: int = 5, perturbation_scale: float = 0.05,
-                 varimax: Optional[bool] = None, **kwargs) -> Dict[str, Any]:
-    """
-    Fit a Nonlinear Encoded Decoding model with Shared and Private Latents (NED++).
-
-    Parameters
-    ----------
-    initialization_type : str, default="pca"
-        One of `INITIALIZATION_TYPES` (`pysimlr.simlr`); see `initialize_simlr`
-        for what each does. Previously always PCA regardless of this argument.
-    init_seed : int, optional
-        Seed for initialization types needing a `torch.Generator` (`"random"`,
-        `"perturbed_pca"`, `"best_of_n"`).
-    domain_matrices : list of torch.Tensor, optional
-        Per-view priors for `initialization_type="domain"`.
-    n_candidates : int, default=5
-        Candidates drawn for `initialization_type="best_of_n"`.
-    perturbation_scale : float, default=0.05
-        Noise scale for `initialization_type="perturbed_pca"`.
-    varimax : bool or None, default=None
-        Orthogonal Varimax at first-layer initialization only. ``None``
-        rotates only a non-negative basis; ``True``/``False`` override (see
-        `pysimlr.simlr.resolve_varimax` and `initialize_simlr`). The
-        trained basis is never rotated afterwards, because the nonlinear
-        decoder is not O(k)-equivariant.
-    data_matrices : List[Union[torch.Tensor, np.ndarray]]
-        List of data matrices (one for each modality).
-    k : int
-        The dimensionality of the shared latent space.
-    private_k : Optional[int], default=None
-        The dimensionality of the private latent space for each modality.
-    epochs : int, default=150
-        Number of training epochs.
-    batch_size : int, default=64
-        Batch size.
-    learning_rate : float, default=5e-4
-        Learning rate.
-    weight_decay : float, default=1e-4
-        Weight decay.
-    sim_weight : float, default=1.0
-        Weight for similarity loss.
-    warmup_epochs : int, default=20
-        Warmup epochs before sim loss.
-    sparseness_quantile : Union[float, List[float]], default=0.5
-        Sparseness quantile.
-    positivity : str, default="either"
-        Positivity constraint on the first-layer encoders. Was `"positive"`;
-        changed because that silently forced every encoder non-negative even
-        on standardized (signed, zero-mean) input, the common case for real
-        tabular/omics data after scaling. Not independently re-measured for
-        this function -- see `flow_simr_v`'s docstring for the measured
-        before/after on real data, which shares the same encoder mechanism.
-        Pass `"positive"` explicitly when the input is genuinely non-negative.
-    nsa_w : float, default=0.1
-        NSA weight.
-    hidden_dims : List[int], default=[128, 64]
-        Decoder hidden dimensions.
-    dropout : float, default=0.1
-        Dropout probability.
-    energy_type : str, default="regression"
-        Energy type.
-    mixing_algorithm : str, default="newton"
-        Mixing algorithm.
-    private_recon_weight : float, default=1.0
-        Weight for private reconstruction loss.
-    private_orthogonality_weight : float, default=0.05
-        Weight for private-shared orthogonality penalty.
-    private_variance_weight : float, default=0.10
-        Weight for private variance penalty.
-    device : Optional[str], default=None
-        Device to use.
-    verbose : bool, default=False
-        Verbose output.
-    tol : float, default=1e-6
-        Tolerance for early stopping.
-    patience : int, default=10
-        Patience for early stopping.
-    use_nsa : bool, default=False
-        Use NSA flow.
-    first_layer_mode : str, default="scheduled"
-        First layer projection mode.
-    stabilization_start_epoch : Optional[int], default=None
-        Stabilization start epoch.
-    stabilization_ramp_epochs : Optional[int], default=None
-        Stabilization ramp epochs.
-    shared_warmup_epochs : int, default=20
-        Epochs to freeze private encoders to allow shared to train first.
-    **kwargs : Dict[str, Any]
-        Additional arguments.
-
-    Returns
-    -------
-    Dict[str, Any]
-        Model results.
-
-    Raises
-    ------
-    TypeError
-        If inputs are invalid.
-    """
-    # See `simlr`: the budget slot accepts either name so the entry
-    # points are interchangeable.
-    epochs = int(kwargs.pop("iterations", epochs))
-
-    if 'sparsity' in kwargs: sparseness_quantile = kwargs.pop('sparsity')
-    if 'sparseness' in kwargs: sparseness_quantile = kwargs.pop('sparseness')
-    if private_k is None: private_k = max(1, k // 2)
-    if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
-    device = torch.device(device); torch_mats, provenance_list = _standardize_deep(data_matrices, ["centerAndScale"]); input_dims = [m.shape[1] for m in torch_mats]
-    retraction_type = kwargs.pop('retraction_type', 'soft_polar')
-    _warn_unused_kwargs("ned_simr_shared_private", kwargs)
-    model = NEDSharedPrivateSiMRModel(input_dims, k, private_k, hidden_dims, dropout, nsa_w, positivity, sparseness_quantile, mixing_algorithm, topology=topology, path_graph=path_graph, prune_threshold=prune_threshold, dynamic_weights=dynamic_weights, mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai, retraction_type=retraction_type).to(device)
-    init_gen = None
-    if initialization_type in ("random", "perturbed_pca", "best_of_n"):
-        init_gen = torch.Generator()
-        if init_seed is not None:
-            init_gen.manual_seed(int(init_seed))
-    model.initialize_v(torch_mats, k, initialization_type=initialization_type,
-                       generator=init_gen, domain_matrices=domain_matrices,
-                       n_candidates=n_candidates, perturbation_scale=perturbation_scale,
-                       varimax=varimax)
-    
-    # Store weights on model for train loop access
-    model.private_ortho_w = private_orthogonality_weight
-    model.private_var_w = private_variance_weight
-    
-    optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
-    scheduler = _plateau_scheduler(optimizer); mse_loss = nn.MSELoss(); dataset = TensorDataset(*torch_mats); dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=_drop_last(dataset, batch_size))
-    
-    warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
-    
-    loss_h, recon_h, sim_h, conv_ep, first_layer_training, conv_report = _train_loop(
-        model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, 
-        warmup_epochs, verbose, device, tol=tol, patience=patience, 
-        stabilization_start_epoch=stabilization_start_epoch, 
-        stabilization_ramp_epochs=stabilization_ramp_epochs,
-        freeze_private_epochs=shared_warmup_epochs
-    )
-    
-    model.eval(); 
-    with torch.no_grad():
-        eval_mats = [m.to(device) for m in torch_mats]
-        v_mats = [torch.nan_to_num(enc.v.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for enc in model.linear_encoders]
-        v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=model.linear_encoders)
-        final_shared, final_recons, u_final, final_private = model(eval_mats)
-        u_aggregate = (_aggregate_shared_consensus(model, final_shared)
-                       if isinstance(u_final, list) else u_final)
-        first_layer_scores = [torch.nan_to_num((m_.cpu().to(v_.dtype) @ v_).detach(), nan=0.0, posinf=0.0, neginf=0.0) for m_, v_ in zip(eval_mats, v_mats)]
-        first_layer = build_first_layer_contract(v_mats, first_layer_scores)
-    result = {"model": model.cpu(), "model_type": "ned_shared_private", "retraction_diagnostics": retraction_diagnostics, "u": torch.nan_to_num(u_aggregate.cpu(), nan=0.0, posinf=0.0, neginf=0.0), "u_per_modality": ([torch.nan_to_num(ux.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for ux in u_final] if isinstance(u_final, list) else None), "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer, "first_layer_training": first_layer_training, "latents": [torch.nan_to_num(l.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for l in final_shared], "private_latents": [torch.nan_to_num(p.cpu(), nan=0.0, posinf=0.0, neginf=0.0) for p in final_private], "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h, "converged_iter": conv_ep, "convergence": conv_report, "scale_list": ["centerAndScale"], "provenance_list": provenance_list, "sparseness": sparseness_quantile, **basis_rank_report(v_mats, k)}
-    result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, final_recons)]
-    result["interpretability"] = build_interpretability_report(result)
-    result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
-    if getattr(model, "dynamic_weights", False):
-        result["modality_weights"] = model.modality_weights.detach().cpu().numpy()
-        result["mai"] = model.mai.detach().cpu().numpy()
-    return result
-
-def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, epochs: int = 150, batch_size: int = 64, learning_rate: float = 5e-4, sim_weight: float = 1.0, warmup_epochs: Optional[int] = None, energy_type: str = "regression", device: Optional[str] = None, verbose: bool = False, optimizer_type: str = 'adam', **kwargs) -> Dict[str, Any]:
-    """
-    Deep SiMLR (SiMR) implementation using Neural Spatially-Aware (NSA) Flow or LEND encoders.
-
-    This function is a wrapper around `lend_simr`, which implements the Linear ENcoder 
-    Deep (LEND) architecture. It learns a shared latent space by optimizing a 
-    combination of reconstruction loss and a similarity loss (e.g., ACC) in the latent space.
-
-    Parameters
-    ----------
-    data_matrices : List[Union[torch.Tensor, np.ndarray]]
-        A list of data matrices for each modality.
-    k : int
-        The number of shared latent components.
-    epochs : int, optional
-        Number of training epochs (default is 150).
-    batch_size : int, optional
-        Size of mini-batches (default is 64).
-    learning_rate : float, optional
-        Learning rate for the optimizer (default is 5e-4).
-    sim_weight : float, optional
-        Weight of the similarity loss (ACC) relative to reconstruction loss (default is 1.0).
+        Weight of the similarity term after warmup.
     warmup_epochs : int, optional
-        Number of epochs before the similarity loss is fully weighted (default is 20).
-    energy_type : str, optional
-        The type of similarity loss ("regression", "acc", or "logcosh") (default is "regression").
+        Epochs before the similarity term switches on (`resolve_warmup_epochs`).
+    hidden_dims : sequence of int, optional
+        Decoder widths; ``None`` means ``DEFAULT_HIDDEN_DIMS``.
+    dropout : float, default=0.1
+    sparseness : float, list of float or None, default=0.5
+        Column-wise quantile sparsification target of the linear first layer.
+    positivity : str, default="either"
+        Sign constraint on the first-layer basis. Pass ``"positive"`` only for
+        genuinely non-negative input; on standardized data it forces a
+        non-negative basis onto signed features.
+    nsa_w : float, default=DEFAULT_NSA_W (0.5)
+        NSA-Flow weight (`pysimlr.defaults`).
+    energy_type, mixing_algorithm, topology, path_graph, prune_threshold,
+    dynamic_weights, mai_metric, use_rank_mai : consensus settings, as in `simlr`.
     device : str, optional
-        The device to use for training ("cpu", "cuda", or "mps"). If None, automatically detected.
-    verbose : bool, optional
-        Whether to print progress (default is False).
-    **kwargs : dict
-        Additional parameters passed to `lend_simr` (e.g., nsa_w, positivity, sparseness_quantile).
+        ``None`` picks CUDA when available, else CPU.
+    use_nsa, first_layer_mode, nsa_iterations, retraction_type,
+    stabilization_start_epoch, stabilization_ramp_epochs :
+        First-layer projection schedule.
+    optimizer_type : {"adam", "lars", "larslow"}, default="adam"
+        Unknown names raise `ValueError`.
+    initialization_type : str, default="pca"
+        One of `pysimlr.simlr.INITIALIZATION_TYPES` (see `initialize_simlr`).
+    random_state : int, optional
+        Seed for the whole fit: initialization, weight init, dropout and batch
+        order run on a private RNG stream seeded with it, and the caller's
+        global RNG state is restored afterwards. ``None`` draws one seed from
+        the global stream; the seed used is returned as
+        ``result["random_state"]``.
+    domain_matrices, n_candidates, perturbation_scale :
+        Settings of the ``"domain"``, ``"best_of_n"`` and ``"perturbed_pca"``
+        initializers.
+    varimax : bool or None, default=None
+        Orthogonal Varimax at first-layer initialization only (see
+        `pysimlr.simlr.resolve_varimax`). The trained basis is never rotated
+        afterwards, because the nonlinear decoder is not O(k)-equivariant.
+    tol : float, default=1e-6
+    patience : int, default=10
+        Early-stopping rule (`utils.ConvergenceMonitor`).
 
     Returns
     -------
-    Dict[str, Any]
-        A dictionary containing the trained model, learned latents (U), basis matrices (V), 
-        and training history.
-
-    Raises
-    ------
-    TypeError
-        If inputs are invalid.
+    dict
+        The deep result contract: ``u``, ``v``, ``latents``, ``convergence``,
+        rank diagnostics, ``random_state`` and the trained ``model``.
+"""
 
 
-    See Also
-    --------
-    lend_simr, ned_simr
+def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iterations: int = 150,
+              batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4,
+              sim_weight: float = 1.0, warmup_epochs: Optional[int] = None,
+              hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
+              sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5,
+              positivity: str = "either", nsa_w: float = DEFAULT_NSA_W, energy_type: str = DEFAULT_ENERGY_TYPE,
+              mixing_algorithm: str = "newton", topology: str = "loo",
+              path_graph: Optional[Dict[int, List[int]]] = None,
+              prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
+              mai_metric: str = "procrustes_r2", device: Optional[str] = None,
+              verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled",
+              nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None,
+              stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = "adam",
+              use_rank_mai: bool = False, initialization_type: str = "pca",
+              random_state: Optional[int] = None,
+              domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
+              n_candidates: int = 5, perturbation_scale: float = 0.05,
+              varimax: Optional[bool] = None, retraction_type: str = "soft_polar",
+              tol: float = 1e-6, patience: int = 10) -> Dict[str, Any]:
+    hidden_dims = tuple(DEFAULT_HIDDEN_DIMS if hidden_dims is None else hidden_dims)
+    return _fit_deep(
+        "lend_simr",
+        lambda dims: LENDSiMRModel(dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness,
+                                   mixing_algorithm, topology=topology, path_graph=path_graph,
+                                   prune_threshold=prune_threshold, dynamic_weights=dynamic_weights,
+                                   mai_metric=mai_metric, use_nsa=use_nsa,
+                                   first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations,
+                                   use_rank_mai=use_rank_mai, retraction_type=retraction_type),
+        data_matrices, k, iterations=iterations, batch_size=batch_size,
+        learning_rate=learning_rate, weight_decay=weight_decay, sim_weight=sim_weight,
+        warmup_epochs=warmup_epochs, sparseness=sparseness, positivity=positivity, nsa_w=nsa_w,
+        energy_type=energy_type, device=device, verbose=verbose,
+        stabilization_start_epoch=stabilization_start_epoch,
+        stabilization_ramp_epochs=stabilization_ramp_epochs, optimizer_type=optimizer_type,
+        initialization_type=initialization_type, random_state=random_state,
+        domain_matrices=domain_matrices, n_candidates=n_candidates,
+        perturbation_scale=perturbation_scale, varimax=varimax, tol=tol, patience=patience)
+
+
+lend_simr.__doc__ = ("Fit a Linear Encoded Nonlinear Decoding (LEND) model: a linear,\n"
+                     "NSA-Flow-projected first layer per view and a nonlinear decoder.\n"
+                     + _DEEP_COMMON_DOC)
+
+
+def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iterations: int = 150,
+             batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4,
+             sim_weight: float = 1.0, warmup_epochs: Optional[int] = None,
+             hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
+             sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5,
+             positivity: str = "either", nsa_w: float = DEFAULT_NSA_W, energy_type: str = DEFAULT_ENERGY_TYPE,
+             mixing_algorithm: str = "newton", topology: str = "loo",
+             path_graph: Optional[Dict[int, List[int]]] = None,
+             prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
+             mai_metric: str = "procrustes_r2", device: Optional[str] = None,
+             verbose: bool = False, use_nsa: bool = True, first_layer_mode: str = "scheduled",
+             nsa_iterations: int = 1, stabilization_start_epoch: Optional[int] = None,
+             stabilization_ramp_epochs: Optional[int] = None, optimizer_type: str = "adam",
+             use_rank_mai: bool = False, initialization_type: str = "pca",
+             random_state: Optional[int] = None,
+             domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
+             n_candidates: int = 5, perturbation_scale: float = 0.05,
+             varimax: Optional[bool] = None, retraction_type: str = "soft_polar",
+             tol: float = 1e-6, patience: int = 10) -> Dict[str, Any]:
+    hidden_dims = tuple(DEFAULT_HIDDEN_DIMS if hidden_dims is None else hidden_dims)
+    return _fit_deep(
+        "ned_simr",
+        lambda dims: NEDSiMRModel(dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness,
+                                  mixing_algorithm, topology=topology, path_graph=path_graph,
+                                  prune_threshold=prune_threshold, dynamic_weights=dynamic_weights,
+                                  mai_metric=mai_metric, use_nsa=use_nsa,
+                                  first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations,
+                                  use_rank_mai=use_rank_mai, retraction_type=retraction_type),
+        data_matrices, k, iterations=iterations, batch_size=batch_size,
+        learning_rate=learning_rate, weight_decay=weight_decay, sim_weight=sim_weight,
+        warmup_epochs=warmup_epochs, sparseness=sparseness, positivity=positivity, nsa_w=nsa_w,
+        energy_type=energy_type, device=device, verbose=verbose,
+        stabilization_start_epoch=stabilization_start_epoch,
+        stabilization_ramp_epochs=stabilization_ramp_epochs, optimizer_type=optimizer_type,
+        initialization_type=initialization_type, random_state=random_state,
+        domain_matrices=domain_matrices, n_candidates=n_candidates,
+        perturbation_scale=perturbation_scale, varimax=varimax, tol=tol, patience=patience)
+
+
+ned_simr.__doc__ = ("Fit a Nonlinear Encoded Decoding (NED) model: a linear first layer\n"
+                    "followed by a nonlinear head per view, and nonlinear decoders.\n"
+                    + _DEEP_COMMON_DOC)
+
+
+def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int,
+                            private_k: Optional[int] = None, iterations: int = 150,
+                            batch_size: int = 64, learning_rate: float = 5e-4,
+                            weight_decay: float = 1e-4, sim_weight: float = 1.0,
+                            warmup_epochs: Optional[int] = None,
+                            sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5,
+                            positivity: str = "either", nsa_w: float = DEFAULT_NSA_W,
+                            hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
+                            energy_type: str = DEFAULT_ENERGY_TYPE, mixing_algorithm: str = "newton",
+                            topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None,
+                            prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
+                            mai_metric: str = "procrustes_r2",
+                            private_orthogonality_weight: float = 0.05,
+                            private_variance_weight: float = 0.10, device: Optional[str] = None,
+                            verbose: bool = False, tol: float = 1e-6, patience: int = 10,
+                            use_nsa: bool = True, first_layer_mode: str = "scheduled",
+                            nsa_iterations: int = 1,
+                            stabilization_start_epoch: Optional[int] = None,
+                            stabilization_ramp_epochs: Optional[int] = None,
+                            shared_warmup_epochs: int = 20, optimizer_type: str = "adam",
+                            use_rank_mai: bool = False, initialization_type: str = "pca",
+                            random_state: Optional[int] = None,
+                            domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
+                            n_candidates: int = 5, perturbation_scale: float = 0.05,
+                            varimax: Optional[bool] = None,
+                            retraction_type: str = "soft_polar") -> Dict[str, Any]:
+    hidden_dims = tuple(DEFAULT_HIDDEN_DIMS if hidden_dims is None else hidden_dims)
+    if private_k is None:
+        private_k = max(1, k // 2)
+
+    def build(dims):
+        model = NEDSharedPrivateSiMRModel(
+            dims, k, private_k, hidden_dims, dropout, nsa_w, positivity, sparseness,
+            mixing_algorithm, topology=topology, path_graph=path_graph,
+            prune_threshold=prune_threshold, dynamic_weights=dynamic_weights,
+            mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode,
+            nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai,
+            retraction_type=retraction_type)
+        # Read by `_train_loop`.
+        model.private_ortho_w = private_orthogonality_weight
+        model.private_var_w = private_variance_weight
+        return model
+
+    return _fit_deep(
+        "ned_shared_private", build, data_matrices, k, iterations=iterations,
+        batch_size=batch_size, learning_rate=learning_rate, weight_decay=weight_decay,
+        sim_weight=sim_weight, warmup_epochs=warmup_epochs, sparseness=sparseness,
+        positivity=positivity, nsa_w=nsa_w, energy_type=energy_type, device=device,
+        verbose=verbose, stabilization_start_epoch=stabilization_start_epoch,
+        stabilization_ramp_epochs=stabilization_ramp_epochs, optimizer_type=optimizer_type,
+        initialization_type=initialization_type, random_state=random_state,
+        domain_matrices=domain_matrices, n_candidates=n_candidates,
+        perturbation_scale=perturbation_scale, varimax=varimax, tol=tol, patience=patience,
+        freeze_private_epochs=shared_warmup_epochs)
+
+
+ned_simr_shared_private.__doc__ = (
+    "Fit a NED model with shared and per-view private latents (NED++).\n\n"
+    "Additional parameters: ``private_k`` (private latent width, default ``max(1, k // 2)``),\n"
+    "``private_orthogonality_weight``, ``private_variance_weight``\n"
+    "and ``shared_warmup_epochs`` (epochs the private encoders stay frozen).\n"
+    + _DEEP_COMMON_DOC)
+
+
+def deep_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, **kwargs) -> Dict[str, Any]:
+    """Alias of `lend_simr`; every keyword is passed through unchanged.
+
+    It used to restate a subset of `lend_simr`'s parameters and dropped
+    ``optimizer_type`` on the way through.
     """
-    return lend_simr(data_matrices, k, epochs, batch_size, learning_rate, sim_weight=sim_weight, warmup_epochs=warmup_epochs, energy_type=energy_type, device=device, verbose=verbose, **kwargs)
+    return lend_simr(data_matrices, k, **kwargs)
+
 
 def predict_deep(data_matrices: List[Union[torch.Tensor, np.ndarray]], model_res: Dict[str, Any], device: Optional[str] = None) -> Dict[str, Any]:
     """

@@ -103,11 +103,11 @@ def analyze_ppmi_adni_at_status(file_path):
     print(f"\nFitting LEND-SiMLR (k={k_latents})...")
     
     res = lend_simr(
-        Xs, k=k_latents, epochs=150, 
+        Xs, k=k_latents, iterations=150, 
         energy_type='logcosh', 
         mixing_algorithm='newton',
         positivity='positive', 
-        sparseness_quantile=0.5,
+        sparseness=0.5,
         nsa_iterations=3,
         verbose=False
     )

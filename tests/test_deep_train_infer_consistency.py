@@ -16,7 +16,7 @@ def test_deep_train_infer_consistency():
     # 2. Fit LEND
     print("Fitting LEND...")
     # Use dropout=0.0
-    res = lend_simr([x1_train, x2_train], k=k, epochs=20, warmup_epochs=5, verbose=False, dropout=0.0)
+    res = lend_simr([x1_train, x2_train], k=k, iterations=20, warmup_epochs=5, verbose=False, dropout=0.0)
     model = res['model']
     
     # 3. Check consistency between two eval calls (should be identical)
@@ -47,7 +47,7 @@ def test_deep_train_infer_consistency():
     # uses the same mean logic in both train and eval.
     # Note: Encoders will still differ (v_raw vs v).
     
-    res_avg = lend_simr([x1_train, x2_train], k=k, epochs=5, warmup_epochs=0, mixing_algorithm="avg", dropout=0.0)
+    res_avg = lend_simr([x1_train, x2_train], k=k, iterations=5, warmup_epochs=0, mixing_algorithm="avg", dropout=0.0)
     model_avg = res_avg['model']
     
     # In model_avg, u_shared = mean(latents) in both modes.
@@ -62,7 +62,7 @@ def test_deep_train_infer_consistency():
         # the default is "loo", which yields one consensus per modality.
         u_manual = compute_shared_consensus(
             l_eval, mixing_algorithm="avg", k=k, training=False,
-            topology=model_avg.topology,
+            topology=model_avg.topology, frozen_map=model_avg.consensus_map,
         )
         assert type(u_eval) is type(u_manual)
         if isinstance(u_eval, list):
@@ -92,10 +92,14 @@ def test_train_and_eval_agree_for_every_mixing_algorithm():
         z @ torch.randn(k, d1) + 0.1 * torch.randn(n, d1),
         z @ torch.randn(k, d2) + 0.1 * torch.randn(n, d2),
     ]
+    # The model is fed what `lend_simr` feeds it: standardized views. Its
+    # eval-time consensus is the training batch's frozen affine map, which
+    # (correctly) does not re-standardize whatever it is given.
+    x = [(m - m.mean(0)) / m.std(0) for m in x]
 
     for alg in ["svd", "pca", "avg", "newton"]:
         res = lend_simr(
-            x, k=k, epochs=8, warmup_epochs=2, mixing_algorithm=alg,
+            x, k=k, iterations=8, warmup_epochs=2, mixing_algorithm=alg,
             topology="star", dropout=0.0, verbose=False,
         )
         model = res["model"]

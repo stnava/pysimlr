@@ -399,7 +399,16 @@ def test_adversarial_sparse_distance_matrix_xy_rectangular():
 # 4. compute_shared_consensus & preprocess_data Adversarial Stress Tests
 # ============================================================================
 
-@pytest.mark.parametrize("alg", ["svd", "pca", "avg", "newton", "ica"])
+def test_ica_consensus_on_one_sample_raises():
+    """ICA is undefined for one sample. It used to fall back silently to the
+    averaged projections; the error now surfaces."""
+    torch.manual_seed(42)
+    with pytest.raises(ValueError, match="sample"):
+        compute_shared_consensus([torch.randn(1, 5), torch.randn(1, 5)],
+                                 mixing_algorithm="ica", k=2, training=False)
+
+
+@pytest.mark.parametrize("alg", ["svd", "pca", "avg", "newton"])
 def test_adversarial_consensus_single_sample_n1_all_algorithms(alg):
     """Verify compute_shared_consensus handles single-sample N=1 for all mixing algorithms."""
     torch.manual_seed(42)

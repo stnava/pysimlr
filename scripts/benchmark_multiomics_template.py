@@ -24,11 +24,11 @@ def analyze_luad():
     # Top performing consensus: Newton
     print("Fitting LEND-Newton-LogCosh Gold Standard configuration...")
     res = lend_simr(
-        Xs, k=5, epochs=200, 
+        Xs, k=5, iterations=200, 
         energy_type='logcosh', 
         mixing_algorithm='newton',
         positivity='positive', 
-        sparseness_quantile=0.5,
+        sparseness=0.5,
         nsa_iterations=3,
         verbose=True
     )

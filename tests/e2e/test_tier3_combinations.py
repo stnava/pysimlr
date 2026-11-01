@@ -50,7 +50,7 @@ def test_combo_flow_simr_with_newton_and_svd_consensus(synthetic_two_views):
     res_newton = flow_simr(
         [x1, x2],
         k=k,
-        epochs=5,
+        iterations=5,
         batch_size=20,
         warmup_epochs=1,
         mixing_algorithm="newton",
@@ -63,7 +63,7 @@ def test_combo_flow_simr_with_newton_and_svd_consensus(synthetic_two_views):
     res_svd = flow_simr(
         [x1, x2],
         k=k,
-        epochs=5,
+        iterations=5,
         batch_size=20,
         warmup_epochs=1,
         mixing_algorithm="svd",
@@ -83,7 +83,7 @@ def test_combo_lend_with_graph_topology(synthetic_three_views):
     res = lend_simr(
         views,
         k=k,
-        epochs=8,
+        iterations=8,
         batch_size=25,
         warmup_epochs=2,
         topology="graph",
@@ -113,7 +113,7 @@ def test_combo_ned_with_structural_models(synthetic_three_views):
         k=k,
         models=models,
         model_type="ned",
-        epochs=6,
+        iterations=6,
         batch_size=25,
         warmup_epochs=1,
         hidden_dims=[32, 16],
@@ -143,7 +143,7 @@ def test_combo_whitened_inputs_to_flow_simr(synthetic_two_views):
     res = flow_simr(
         [w1, w2],
         k=2,
-        epochs=6,
+        iterations=6,
         batch_size=20,
         warmup_epochs=1,
         num_layers=2,
@@ -191,7 +191,7 @@ def test_combo_flow_simr_v_with_dynamic_weights(synthetic_two_views):
     res = flow_simr_v(
         [x1, x2],
         k=4,
-        epochs=5,
+        iterations=5,
         batch_size=20,
         warmup_epochs=1,
         dynamic_weights=True,
@@ -232,7 +232,7 @@ def test_combo_ned_with_logcosh_and_pruning(synthetic_two_views):
     res = ned_simr(
         [x1, x2],
         k=2,
-        epochs=6,
+        iterations=6,
         batch_size=20,
         warmup_epochs=1,
         energy_type="logcosh",
@@ -289,7 +289,7 @@ def test_combo_deep_simr_with_interpretability_pipeline(synthetic_two_views):
     res = deep_simr(
         [x1, x2],
         k=2,
-        epochs=6,
+        iterations=6,
         batch_size=20,
         warmup_epochs=1,
         verbose=False

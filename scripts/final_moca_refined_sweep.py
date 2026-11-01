@@ -69,7 +69,7 @@ def run_final_sweep(file_path):
                     try:
                         start_t = time.time()
                         res = m_fn(
-                            Xs_train, k=10, epochs=100, 
+                            Xs_train, k=10, iterations=100, 
                             hidden_dims=arch,
                             dynamic_weights=mai,
                             energy_type=energy, 

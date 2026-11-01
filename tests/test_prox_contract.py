@@ -173,7 +173,7 @@ def test_deep_result_bases_lie_close_to_the_prox_set():
     from pysimlr import lend_simr
     torch.manual_seed(0)
     X = [torch.randn(80, 10), torch.randn(80, 7)]
-    res = lend_simr(X, k=3, epochs=3, positivity="positive", nsa_w=0.3,
+    res = lend_simr(X, k=3, iterations=3, positivity="positive", nsa_w=0.3,
                     verbose=False)
     assert "retraction_diagnostics" in res
     for v, d in zip(res["v"], res["retraction_diagnostics"]):

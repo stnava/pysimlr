@@ -87,7 +87,7 @@ def run_targeted_search(file_path):
             m_fn = lend_simr if m_name == 'LEND' else lambda *args, **kwargs: ned_simr_shared_private(*args, private_k=2, **kwargs)
             
             res = m_fn(
-                Xs_train, k=10, epochs=150, 
+                Xs_train, k=10, iterations=150, 
                 hidden_dims=[64, 32],
                 energy_type=energy, 
                 mixing_algorithm=mix,

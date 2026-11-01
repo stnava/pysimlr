@@ -32,11 +32,11 @@ def fit_simlr(train_data, **kwargs):
 
 def fit_ned(train_data, **kwargs):
     k = kwargs.get("k", 3)
-    return ned_simr(train_data, k=k, epochs=100, warmup_epochs=15, device="cpu", verbose=False)
+    return ned_simr(train_data, k=k, iterations=100, warmup_epochs=15, device="cpu", verbose=False)
 
 def fit_flow(train_data, **kwargs):
     k = kwargs.get("k", 3)
-    return flow_simr(train_data, k=k, epochs=100, warmup_epochs=15, num_layers=3, hidden_dim=32, device="cpu", verbose=False)
+    return flow_simr(train_data, k=k, iterations=100, warmup_epochs=15, num_layers=3, hidden_dim=32, device="cpu", verbose=False)
 
 def main():
     n_samples = 800

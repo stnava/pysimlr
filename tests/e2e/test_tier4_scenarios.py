@@ -74,7 +74,7 @@ def test_scenario1_multimodal_omics_integration(synthetic_omics_data):
     res_lend = lend_simr(
         [x_rna, x_prot],
         k=k,
-        epochs=12,
+        iterations=12,
         batch_size=25,
         warmup_epochs=2,
         hidden_dims=[32, 16],
@@ -115,7 +115,7 @@ def test_scenario2_high_dimensional_nonlinear_manifold_recovery():
     res_ned = ned_simr(
         [x1, x2],
         k=k,
-        epochs=12,
+        iterations=12,
         batch_size=25,
         warmup_epochs=2,
         energy_type="logcosh",
@@ -134,7 +134,7 @@ def test_scenario2_high_dimensional_nonlinear_manifold_recovery():
         [x1, x2],
         k=k,
         private_k=2,
-        epochs=10,
+        iterations=10,
         batch_size=25,
         warmup_epochs=2,
         energy_type="logcosh",
@@ -174,7 +174,7 @@ def test_scenario3_generative_bijective_cross_modality_imputation():
     res = flow_simr(
         [x1_train, x2_train],
         k=k,
-        epochs=10,
+        iterations=10,
         batch_size=20,
         warmup_epochs=2,
         num_layers=2,
@@ -249,7 +249,7 @@ def test_scenario4_structural_path_modeling_with_graph_constraints():
         k=k,
         models=models,
         model_type="lend",
-        epochs=8,
+        iterations=8,
         batch_size=20,
         warmup_epochs=1,
         hidden_dims=[32, 16],
@@ -320,7 +320,7 @@ def test_scenario5_extreme_robustness_outlier_resilience():
     res_lend = lend_simr(
         [x1, x2],
         k=k,
-        epochs=8,
+        iterations=8,
         batch_size=20,
         warmup_epochs=1,
         hidden_dims=[32, 16],

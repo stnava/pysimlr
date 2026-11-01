@@ -10,7 +10,7 @@ def test_lend_mix_ica():
     
     print("Running LEND SiMR with mixing_algorithm='ica'...")
     # Smaller epochs for quick test
-    res = lend_simr([x1, x2], k=k, epochs=5, mixing_algorithm='ica', verbose=True)
+    res = lend_simr([x1, x2], k=k, iterations=5, mixing_algorithm='ica', verbose=True)
     
     assert 'u' in res
     assert res['u'].shape == (n, k)

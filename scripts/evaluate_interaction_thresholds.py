@@ -65,7 +65,7 @@ def run_interaction_analysis():
     res_perf_impute = flow_simr_v(
         scaled_perf_mats,
         k=2,
-        epochs=1500,
+        iterations=1500,
         batch_size=128,
         positivity='positive',
         use_nsa=True,
@@ -161,7 +161,7 @@ def run_interaction_analysis():
     res = flow_simr_v(
         [scaled_bl, scaled_mr],
         k=2,
-        epochs=1000,
+        iterations=1000,
         batch_size=128,
         positivity='positive',
         use_nsa=True,

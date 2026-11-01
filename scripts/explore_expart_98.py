@@ -73,7 +73,7 @@ def run_pipeline(use_gbev=False):
     res_perf_impute = flow_simr_v(
         scaled_perf_mats,
         k=2,
-        epochs=1500,
+        iterations=1500,
         batch_size=128,
         positivity='positive',
         use_nsa=True,
@@ -242,7 +242,7 @@ def run_pipeline(use_gbev=False):
         res = flow_simr_v(
             scaled_mats,
             k=k,
-            epochs=epochs_exploration,
+            iterations=epochs_exploration,
             batch_size=128, # Full-batch
             positivity='positive',
             use_nsa=True,
@@ -615,7 +615,7 @@ def run_pipeline(use_gbev=False):
             res_cv = flow_simr_v(
                 train_mats_scaled,
                 k=k,
-                epochs=epochs_cv,
+                iterations=epochs_cv,
                 batch_size=128, # Full-batch
                 positivity='positive',
                 use_nsa=True,

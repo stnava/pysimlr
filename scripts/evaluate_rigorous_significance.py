@@ -66,7 +66,7 @@ def run_rigorous_significance(n_perms=200):
     res_perf_impute = flow_simr_v(
         scaled_perf_mats,
         k=2,
-        epochs=1500,
+        iterations=1500,
         batch_size=128,
         positivity='positive',
         use_nsa=True,

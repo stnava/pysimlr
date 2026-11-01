@@ -161,7 +161,7 @@ def test_simlr_integration_with_universal_operator():
         k=1,
         iterations=10,
         smoothing_matrices=[S_op, None],
-        sparseness_quantile=0.10,
+        sparseness=0.10,
         optimizer_type='lars',
         verbose=False
     )

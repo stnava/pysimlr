@@ -78,7 +78,7 @@ def run_moca_model_sweep(file_path):
             try:
                 start_t = time.time()
                 res = m_fn(
-                    Xs_train, k=10, epochs=100, 
+                    Xs_train, k=10, iterations=100, 
                     hidden_dims=[64, 32],
                     dynamic_weights=mai,
                     energy_type='regression', 

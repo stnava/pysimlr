@@ -107,22 +107,35 @@ def test_unknown_initialisation_is_refused():
         initialize_simlr(_views(), 3, initialization_type="nmf")
 
 
-def test_simlr_init_seed_selects_random_and_leaves_the_global_rng_alone():
-    """`init_seed` on its own selects `"random"`: handing a seed to the
-    deterministic initialiser and getting the same basis back is the trap."""
+def test_simlr_random_state_seeds_a_random_start_and_leaves_the_global_rng_alone():
+    """`random_state` seeds the random initializer through a local generator.
+
+    It used to be `init_seed`, and supplying it silently switched the default
+    "pca" start to "random"; seeding every method in a benchmark therefore
+    changed this method's algorithm."""
     views = _views()
-    kw = dict(k=3, iterations=3, energy_type="recon_r2",
+    kw = dict(k=3, iterations=3, energy_type="recon_r2", initialization_type="random",
               positivity="positive", verbose=False)
-    a = simlr(views, init_seed=1, **kw)
-    b = simlr(views, init_seed=2, **kw)
-    c = simlr(views, init_seed=1, **kw)
+    a = simlr(views, random_state=1, **kw)
+    b = simlr(views, random_state=2, **kw)
+    c = simlr(views, random_state=1, **kw)
     assert float((a["v"][0] - b["v"][0]).norm()) > 1e-6, (
-        "two init seeds gave the same fit; init_seed did not reach the initialiser")
+        "two seeds gave the same fit; random_state did not reach the initialiser")
     assert float((a["v"][0] - c["v"][0]).norm()) == pytest.approx(0.0, abs=1e-6)
+    assert a["random_state"] == 1
 
     torch.manual_seed(99)
     expected = torch.randn(4)
     torch.manual_seed(99)
-    simlr(views, init_seed=5, **kw)
+    simlr(views, random_state=5, **kw)
     assert torch.equal(expected, torch.randn(4)), (
         "the fit consumed draws from the global RNG stream")
+
+
+def test_simlr_random_state_does_not_change_a_deterministic_start():
+    views = _views()
+    kw = dict(k=3, iterations=3, energy_type="recon_r2", positivity="positive", verbose=False)
+    a = simlr(views, random_state=1, **kw)
+    b = simlr(views, random_state=2, **kw)
+    assert a["initialization_type"] == "pca" and a["random_state"] is None
+    assert torch.equal(a["v"][0], b["v"][0])

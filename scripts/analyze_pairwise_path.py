@@ -20,11 +20,11 @@ def run_pairwise_significance(n_perms=100):
     graph_chain = create_path_graph([(0, 2), (2, 3), (3, 1)], 4)
     k = 2
     kwargs = {
-        "epochs": 200, 
+        "iterations": 200, 
         "nsa_iterations": 10,
         "energy_type": "acc", 
         "mixing_algorithm": "newton", 
-        "sparseness_quantile": 0.5, 
+        "sparseness": 0.5, 
         "sim_weight": 2.0, 
         "verbose": False,
         "optimizer_type": "larslow",

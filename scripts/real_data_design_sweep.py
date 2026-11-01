@@ -471,11 +471,11 @@ def run_one(task: tuple) -> dict:
     is_cls = bool(case.get("is_classification"))
 
     params = {
-        "iterations": iterations, "epochs": epochs,
+        "budget_by_unit": {"iterations": iterations, "epochs": epochs},
         "energy_type": energy, "mixing_algorithm": mixing,
         "use_nsa": True, "positivity": "positive",
         "nsa_w": w, "constraint": f"orthox{w}x1",
-        "sparseness_quantile": 0.0, "consolidate": True,
+        "sparseness": 0.0, "consolidate": True,
     }
     if mai is not None:
         params.update({"dynamic_weights": True, "mai_metric": mai,

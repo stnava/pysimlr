@@ -27,7 +27,6 @@ from .plotting import (
 )
 
 from .runner import (
-    filter_kwargs,
     run_single_experiment,
     run_seeded_benchmark,
     aggregate_results,
@@ -57,7 +56,6 @@ __all__ = [
     "plot_first_layer_alignment_heatmap",
     "plot_first_layer_feature_importance",
     "plot_interpretability_tradeoff",
-    "filter_kwargs",
     "run_single_experiment",
     "run_seeded_benchmark",
     "aggregate_results",

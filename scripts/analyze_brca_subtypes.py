@@ -57,21 +57,21 @@ def run_study():
         acc_simlr = accuracy_score(y_test, LogisticRegression().fit(u_train_simlr, y_train).predict(u_test_simlr))
         
         # 2. LEND
-        res_lend = lend_simr([torch.tensor(x).float() for x in X_train_s], k=5, epochs=100, energy_type="nc", mixing_algorithm="newton", positivity="positive", sparseness_quantile=0.5, nsa_iterations=3, verbose=False)
+        res_lend = lend_simr([torch.tensor(x).float() for x in X_train_s], k=5, iterations=100, energy_type="nc", mixing_algorithm="newton", positivity="positive", sparseness=0.5, nsa_iterations=3, verbose=False)
         v_lend = [v.detach().numpy() for v in res_lend['v']]
         u_train_lend = np.concatenate([X_train_s[i] @ v_lend[i] for i in range(3)], axis=1)
         u_test_lend = np.concatenate([X_test_s[i] @ v_lend[i] for i in range(3)], axis=1)
         acc_lend = accuracy_score(y_test, LogisticRegression().fit(u_train_lend, y_train).predict(u_test_lend))
 
         # 3. NED
-        res_ned = ned_simr([torch.tensor(x).float() for x in X_train_s], k=5, epochs=100, energy_type="logcosh", mixing_algorithm="newton", verbose=False)
+        res_ned = ned_simr([torch.tensor(x).float() for x in X_train_s], k=5, iterations=100, energy_type="logcosh", mixing_algorithm="newton", verbose=False)
         v_ned = [v.detach().numpy() for v in res_ned['v']]
         u_train_ned = np.concatenate([X_train_s[i] @ v_ned[i] for i in range(3)], axis=1)
         u_test_ned = np.concatenate([X_test_s[i] @ v_ned[i] for i in range(3)], axis=1)
         acc_ned = accuracy_score(y_test, LogisticRegression().fit(u_train_ned, y_train).predict(u_test_ned))
 
         # 4. NEDPP
-        res_nedpp = ned_simr_shared_private([torch.tensor(x).float() for x in X_train_s], k=5, epochs=100, energy_type="logcosh", mixing_algorithm="newton", verbose=False)
+        res_nedpp = ned_simr_shared_private([torch.tensor(x).float() for x in X_train_s], k=5, iterations=100, energy_type="logcosh", mixing_algorithm="newton", verbose=False)
         v_nedpp = [v.detach().numpy() for v in res_nedpp['v']]
         u_train_nedpp = np.concatenate([X_train_s[i] @ v_nedpp[i] for i in range(3)], axis=1)
         u_test_nedpp = np.concatenate([X_test_s[i] @ v_nedpp[i] for i in range(3)], axis=1)

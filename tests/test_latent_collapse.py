@@ -4,31 +4,14 @@ import numpy as np
 from pysimlr.deep import ned_simr
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "NED has a bistable failure mode: the two latents sometimes collapse onto "
-    "one direction, giving an off-diagonal covariance norm near 1.0 against "
-    "the 0.5 threshold while the per-dimension standard deviations stay at "
-    "1.0. It is redundancy rather than collapse, and it is a basin the "
-    "optimisation sometimes falls into rather than a property of any one "
-    "setting.\n\n"
-    "Re-measured over seeds 0-9 plus 42 after the latent gauge went into "
-    "`calculate_sim_loss`: 3 of 11 seeds land in the basin under the default "
-    "positivity='positive' (median off-diagonal 0.0023) and 4 of 11 under "
-    "positivity='either' (median 0.2509). The gauge moved *which* seeds fall "
-    "in -- seed 42, this test's original fixture, now comes out at 0.0032 and "
-    "the test xpassed -- but it did not remove the basin, so the fixture is "
-    "seed 1 (off-diagonal 0.9159), which is in it. Before the gauge the rates "
-    "were 1 of 11 and 6 of 11.\n\n"
-    "It is not intrinsic to non-negativity: rectifying oracle least-squares "
-    "loadings on the same data separates the latents to a correlation of "
-    "0.003. Nor is it the orthogonality penalty -- switching from the "
-    "orthonormality defect D to the angle defect C moves the off-diagonal from "
-    "0.0025 to 0.0024 and recovery from 0.8718 to 0.8723 over four seeds. The "
-    "cause is in the consensus path, not the basis.\n\n"
-    "Marked xfail rather than relaxed so it flips to a failure once NED's "
-    "optimisation stops admitting this basin. A flip means re-running the "
-    "seed sweep before celebrating: a single seed leaving the basin is not "
-    "the basin closing. Real-data accuracy is unaffected."))
+# History: NED had a bistable failure mode in which the two latents collapsed
+# onto one direction (off-diagonal covariance norm near 1.0 against the 0.5
+# threshold). Over seeds 0-9 plus 42 it caught 3/11 seeds under
+# positivity='positive' and 4/11 under 'either' with energy_type='regression'
+# and nsa_w=0.1, so this was a strict xfail. With the package defaults unified
+# in 0.3.0 (energy_type='acc', nsa_w=0.5; `pysimlr.defaults`) the same sweep
+# gives 0/11 under both positivities (median off-diagonal 0.0015 'either',
+# 0.0025 'positive'; this fixture, seed 1: 0.0071), measured 2026-11-01.
 def test_latent_collapse():
     # 1. Create data with k=2 real signal
     n_samples = 200
@@ -45,7 +28,7 @@ def test_latent_collapse():
     
     # 2. Fit NED with small batch to stress stability
     # Use 100 epochs to ensure training progress
-    res = ned_simr([x1, x2], k=k, epochs=100, batch_size=32, warmup_epochs=10, verbose=False)
+    res = ned_simr([x1, x2], k=k, iterations=100, batch_size=32, warmup_epochs=10, verbose=False)
     
     u_pred = res['u']
     

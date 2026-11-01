@@ -115,6 +115,8 @@ def test_antspymm_predictors_modify_df():
     np.testing.assert_array_almost_equal(df_mod["T1Hier_LRAVG-Caudate_vol"].values, [11.0, 19.0])
 
 def test_nnh_embed_flow():
+    # Seeded for determinism; see test_comprehensive.test_nnh_comprehensive.
+    np.random.seed(0)
     # Construct a small dataframe
     df = pd.DataFrame({
         'T1Hier_vol1': np.random.randn(20),

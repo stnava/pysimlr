@@ -57,8 +57,8 @@ def run_comprehensive_pathwise_analysis():
         print(f"Evaluating Model: {name}")
         stats = pathwise_permutation_test(
             data, k=3, topology=config["topology"], path_graph=config["path_graph"], 
-            n_perms=100, epochs=100, energy_type="acc", mixing_algorithm="svd", 
-            sparseness_quantile=0.5, sim_weight=2.0, verbose=False
+            n_perms=100, iterations=100, energy_type="acc", mixing_algorithm="svd", 
+            sparseness=0.5, sim_weight=2.0, verbose=False
         )
         results[name] = stats
         

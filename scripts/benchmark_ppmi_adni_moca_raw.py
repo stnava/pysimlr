@@ -84,7 +84,7 @@ def run_pooled_moca_non_adjusted_mapped(file_path):
 
     print("\nFitting LEND-SiMLR (k=12, MAI=True)...")
     res_final = lend_simr(
-        Xs_train, k=12, epochs=150, 
+        Xs_train, k=12, iterations=150, 
         hidden_dims=[128, 64],
         dynamic_weights=True,
         energy_type='regression', mixing_algorithm='newton',
@@ -106,7 +106,7 @@ def run_pooled_moca_non_adjusted_mapped(file_path):
     print(f"  Correlation: {corr:.4f}")
 
     # Re-fit for Viz
-    res_viz = lend_simr(Xs, k=12, epochs=150, hidden_dims=[128, 64], dynamic_weights=True, energy_type='regression', mixing_algorithm='newton', verbose=False)
+    res_viz = lend_simr(Xs, k=12, iterations=150, hidden_dims=[128, 64], dynamic_weights=True, energy_type='regression', mixing_algorithm='newton', verbose=False)
     U = res_viz.get('u', res_viz.get('U')).numpy()
     V_mats = res_viz.get('v')
     best_idx = np.argmax(np.abs([pearsonr(U[:, i], y)[0] for i in range(U.shape[1])]))

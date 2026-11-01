@@ -99,7 +99,9 @@ def _ridge_solve(xc: torch.Tensor, yc: torch.Tensor, l2: float) -> torch.Tensor:
     reg = l2 * torch.eye(n_features, dtype=xc.dtype, device=xc.device)
     try:
         return torch.linalg.solve(xtx + reg, xc.T @ yc)
-    except Exception:
+    except torch.linalg.LinAlgError:
+        # Singular only when l2 == 0 and X is rank deficient; the minimum-norm
+        # solution is then the standard choice.
         return torch.linalg.pinv(xtx + reg) @ (xc.T @ yc)
 
 

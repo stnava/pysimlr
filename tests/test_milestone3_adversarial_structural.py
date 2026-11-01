@@ -95,7 +95,7 @@ def test_fit_structural_models_large_graph_10_modalities():
         k=k,
         models=models,
         model_type="lend",
-        epochs=3,
+        iterations=3,
         batch_size=15,
         warmup_epochs=0,
         hidden_dims=[16, 8],
@@ -133,7 +133,7 @@ def test_fit_structural_models_complete_graph():
         k=k,
         models={"clique": clique_graph},
         model_type="lend",
-        epochs=3,
+        iterations=3,
         batch_size=10,
         warmup_epochs=0,
         hidden_dims=[16, 8],
@@ -145,7 +145,9 @@ def test_fit_structural_models_complete_graph():
     assert np.isfinite(comp["total_loss"])
     assert np.isfinite(comp["recon_loss"])
     assert np.isfinite(comp["sim_loss"])
-    assert comp["sim_loss"] > 0.0
+    # The default similarity is "acc" (-sum|u's|/(n-1)), which is signed; the
+    # old > 0 check held only for the alignment MSE that was the deep default.
+    assert comp["sim_loss"] != 0.0
 
 
 def test_fit_structural_models_fully_disconnected_graph():
@@ -161,7 +163,7 @@ def test_fit_structural_models_fully_disconnected_graph():
         k=k,
         models={"disconnected": disconnected_graph},
         model_type="lend",
-        epochs=3,
+        iterations=3,
         batch_size=15,
         warmup_epochs=0,
         hidden_dims=[16, 8],
@@ -187,7 +189,7 @@ def test_fit_structural_models_single_modality_view():
         k=k,
         models={"single_view_lend": graph_single},
         model_type="lend",
-        epochs=2,
+        iterations=2,
         batch_size=10,
         warmup_epochs=0,
         verbose=False,
@@ -202,7 +204,7 @@ def test_fit_structural_models_single_modality_view():
         k=k,
         models={"single_view_ned": graph_single},
         model_type="ned",
-        epochs=2,
+        iterations=2,
         batch_size=10,
         warmup_epochs=0,
         verbose=False,
@@ -232,7 +234,7 @@ def test_fit_structural_models_single_sample_n1():
             k=k,
             models={"n1_model": graph_pair},
             model_type="lend",
-            epochs=2,
+            iterations=2,
             batch_size=1,
             warmup_epochs=0,
             verbose=False,
@@ -255,7 +257,7 @@ def test_fit_structural_models_zero_variance_views():
         k=k,
         models={"zero_var": graph},
         model_type="lend",
-        epochs=2,
+        iterations=2,
         batch_size=10,
         warmup_epochs=0,
         verbose=False,

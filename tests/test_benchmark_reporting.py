@@ -66,7 +66,7 @@ def test_every_benchmark_model_reports_a_joint_rank(model_type):
     an orthonormal matrix being measured as though it were a basis.
     """
     out = run_single_experiment(model_type, _case(), seed=0, iterations=6,
-                                epochs=4, nsa_w=0.5, positivity="positive",
+                                nsa_w=0.5, positivity="positive",
                                 mixing_algorithm="avg")
     res = out["result"]
     for field in JOINT_FIELDS:
@@ -82,7 +82,7 @@ def test_every_benchmark_model_reports_a_joint_rank(model_type):
 def test_a_per_view_rank_is_reported_only_where_it_means_something(model_type):
     """Withheld for joint-basis models rather than reported and misread."""
     out = run_single_experiment(model_type, _case(), seed=0, iterations=6,
-                                epochs=4, nsa_w=0.5, positivity="positive",
+                                nsa_w=0.5, positivity="positive",
                                 mixing_algorithm="avg")
     res = out["result"]
     if model_type in JOINT_BASIS_MODELS:
@@ -115,7 +115,7 @@ def test_shared_private_is_scorable_across_the_constraint_range(nsa_w):
     NaN features, and the failure surfaces from sklearn rather than from the
     model, which is why it was hard to place."""
     out = run_single_experiment("shared_private", _case(), seed=0, iterations=6,
-                                epochs=6, nsa_w=nsa_w, positivity="positive",
+                                nsa_w=nsa_w, positivity="positive",
                                 mixing_algorithm="avg", consolidate=False)
     m = out["metrics"]
     assert np.isfinite(m.get("test_r2", np.nan)), (

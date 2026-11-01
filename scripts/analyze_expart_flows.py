@@ -38,7 +38,7 @@ def run_analysis():
     res = flow_simr_v(
         matrices, 
         k=k, 
-        epochs=epochs, 
+        iterations=epochs, 
         positivity='either', 
         use_nsa=True, 
         nsa_w=0.5, 

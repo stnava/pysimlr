@@ -103,7 +103,7 @@ def run_comprehensive_search(file_path):
                         
                         # Fit model on Train (fewer epochs for search speed)
                         res = m_fn(
-                            Xs_train, k=8, epochs=60, 
+                            Xs_train, k=8, iterations=60, 
                             hidden_dims=[64, 32],
                             dynamic_weights=mai,
                             energy_type=energy, 

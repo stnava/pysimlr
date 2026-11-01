@@ -73,11 +73,11 @@ def analyze_adni(file_path):
     
     # We use k=5 latent dimensions as a default
     res = lend_simr(
-        Xs, k=5, epochs=100, 
+        Xs, k=5, iterations=100, 
         energy_type='logcosh', 
         mixing_algorithm='newton',
         positivity='positive', 
-        sparseness_quantile=0.5,
+        sparseness=0.5,
         nsa_iterations=3,
         verbose=True
     )

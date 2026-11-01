@@ -1,16 +1,205 @@
 # Tracking Summary
-current phase: v0.2.19 -- `varimax` has one meaning on every multi-view entry point (linear, deep, flow, `nnh` wrappers), resolved once in `initialize_simlr` by `resolve_varimax` (default `None` rotates only a non-negative basis); `pysimlr.svd.varimax`/`varimax_rotation` dispatch explicitly to nsa_flow or the PyTorch implementation with no blanket `except`; full suite green including slow tests.
-next WP: D3 -- audit the 46 remaining `except Exception` sites in `src/pysimlr` (see D2 open items); first because each is a candidate silent fallback of the kind D2 removed.
+current phase: v0.3.0 released -- one method interface (`pysimlr.fit`/`predict`, `MultiViewSiMR`), one vocabulary and one defaults module, no broad exception handlers, batch-invariant prediction, standardized-space reconstruction R^2; nsa_flow>=3.5.1. Manuscript correction (D5) in progress, not part of the release.
+next WP: D5 -- finish the manuscript correction: prose numbers as inline values from paper/paper_numbers.py, rewrite claims the regenerated caches no longer support (owner review of every changed conclusion), rebuild, re-audit.
 blockers: none
-active work: none
-device: Apple Silicon (macOS 27 arm64), CPU only; venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.0 (editable, /Users/stnava/data/repos/nsa_flow)
-last updated: 2026-10-31
+active work: D5 (uncommitted: paper/03_experiments.qmd, paper/appendix_operational.qmd, paper/paper_numbers.py, paper/results_cache/*, paper/_freeze, docs/manuscript; the owner's own pre-existing manuscript edits are in the same files, snapshot in the session scratchpad)
+device: Apple Silicon (macOS 27 arm64), CPU only; venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
+last updated: 2026-11-01
 
 ---
 
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D5 (Manuscript correction against regenerated caches, 2026-11-01)
+status: in progress (not in v0.3.0)
+owner decisions (2026-11-01): adopt the v0.3.0 caches; write generators for the six unbacked
+caches and regenerate; report Wilcoxon tests over 12 dataset blocks with Holm; replace typed
+numbers with inline values computed from the caches; edit on top of the owner's uncommitted
+manuscript edits.
+done so far: main benchmark and ADNI sweep caches regenerated with v0.3.0 and copied into
+paper/results_cache with provenance JSON; scripts/paper_adni_ablations.py (committed in
+v0.3.0) regenerated the six previously unbacked caches; `deep_ranking.wilcoxon_vs_reference`
+and `holm_adjust` (in v0.3.0) and the appendix table rewritten to use them;
+paper/paper_numbers.py computes every cited number.
+remaining: rewrite the prose with inline values; the regenerated loadings change the ADNI-MCI
+neuroanatomy (component membership differs from the Braak-network text) and several headline
+claims (e.g. best ADNI-MCI model is NED 0.236; best linear sweep config 0.226) -- every changed
+conclusion goes to the owner; rebuild; re-audit.
+
+## D4 (Exception audit, package defaults, prediction invariance, reviewer R1-R9, paper audit, 2026-11-01)
+status: done
+release: v0.3.0 (tag `v0.3.0`)
+review input: /tmp/agy.md (R1-R9), each claim re-measured before acting
+
+**Broad exception handlers: 37 -> 0.** Removed where they substituted a different algorithm or
+value without a warning: FastICA consensus/initializer, encoder SVD/polar fallbacks, nsa_flow
+retraction/polar/initializer fallbacks, zero W on pinv failure, certificate -> None, consensus
+anchor/stats -> None (prediction then silently became batch dependent), Hungarian -> greedy,
+line search initial energy -> step 0. Narrowed with a warning where the substitute is stated:
+MAI view score (6 duplicated copies merged into `consensus.mai_score`; LinAlgError -> 0 with a
+RuntimeWarning), line-search candidate rejection, lr tuner, ridge solve -> pinv, diagnostic SVD
+-> NaN, nnh rank SVD, matplotlib guard, antstorch ImportError, Rscript (now warns).
+`tests/test_implementation_standards.py` allows zero.
+
+**Defaults in one place.** `src/pysimlr/defaults.py`: DEFAULT_ENERGY_TYPE="acc",
+DEFAULT_NSA_W=0.5, used by every entry point, model and helper (deep/flow were "regression"
+and 0.1 with no recorded reason). NED latent-collapse sweep (seeds 0-9, 42): 0/11 seeds
+collapse under both positivities (was 4/11 and 3/11); the strict xfail was removed.
+
+**Reviewer findings (verified first):**
+- R2: `score`/R^2 was 1-NRMSE and the baselines scored in raw units (pca 0.97 vs simlr 0.64 at a
+  +20 shift). `predict` now returns per-view `r2` and `mse` in each method's training-standardized
+  space; `score` is mean `r2`. The benchmark's `reconstruction_mse` compared raw data with
+  standardized reconstructions; now standardized for every method.
+- Batch dependence (worse than R2 said): lend latents moved up to 2.2 and simlr(loo) 0.58
+  between batch sizes. Fixed by freezing the training batch's consensus as an affine map
+  (`consensus.capture_consensus_map`, residual ~6e-7); every method now batch invariant to 1e-6
+  incl. N=1. The strict xfail in test_consensus_anchor_standardization was resolved.
+- R3: inverse_transform returns input units and input shape (`utils.invert_preprocessing`),
+  supports the baselines; `scale` added; build_simlr_pipeline no longer double-standardizes.
+- R4: baselines use `utils.preprocess_data`; provenance replays; PCA records a seed only when
+  its randomized solver ran.
+- R5: `private_recon_weight` was never read; removed.
+- R6: fit_structural_models routed through the registry (unknown names raised instead of
+  silently running ned_simr).
+- R7: presets excluded from `accepts`; L-BFGS presets accept only the keys they read;
+  warn-once set replaced by Python's per-call-site dedupe.
+- R1: ~25 script call sites migrated; plan gate 1 is a test.
+- R8: AST test that every parameter of a registered fit is read; per-method batch-invariance,
+  shift-invariance and provenance tests.
+
+**Found along the way.**
+- `learning_rate="auto"` ran 7 probe fits for torch_lbfgs/nsa_lbfgsb, which never read the
+  learning rate (all candidates scored identically); skipped now. Median fit 3.55 s -> 2.00 s
+  (LBFGS) and 3.70 s -> 2.68 s (LBFGSB) in the regenerated benchmark, identical results.
+- `nsa_flow` column-quantile sparseness kept the same row in every column on exact magnitude
+  ties: an orthonormal 2x2 (the PCA start of two standardized features) became rank 1 at
+  sparseness=0.5 (35/200 nnh_embed draws, also at v0.2.19). Fixed upstream in nsa_flow 3.5.1
+  (333a064); verified here: the pinned case passes, all 8 signed 2x2 Hadamard bases stay rank 2,
+  nnh_embed 0/200 failures. The strict xfail became a regression test over the 8 bases;
+  pyproject.toml now requires nsa_flow>=3.5.1.
+- tests/test_coverage_deep_simlr_ext.py::test_imports_fallback deleted: it re-imported
+  pysimlr.simlr, rebinding the package attribute to the module for every later test in the
+  worker, and asserted attributes that never existed.
+- scripts/run_deep_benchmark._execute_tasks returned surviving rows (an empty frame when every
+  task failed) and the caller wrote them as the benchmark; it now raises after the sweep.
+- L-BFGS-B at 4 iterations turns a 2e-6 input difference into a 0.15 R^2 change; agrees by 20.
+
+**Paper.** Built with `make paper` from the existing caches (see the audit report for
+build output). Audit report: reports/paper_audit_2026-11-01.html. Headline results:
+- ~25 verified mismatches between prose and caches, several changing a conclusion (abstract
+  LEND ADNI-MCI 0.252 vs cache 0.242 / table ranks Flow first; Shared+Private PCA 0.618 vs 0.291;
+  BRCA, KIRC, Heart, F1 claims; NEDPP control row absent from its CSV; panel A3 plots the
+  row-ICA solution because its "varimax" key does not exist).
+- The "1,214-configuration sweep" has 1,184 rows of which 224 failed (every linear simr
+  variant with mixing="svd": NameError align_column_signs) -- 960 configurations.
+- Six caches have no generating script in the repository.
+- The sweep cache (f4e53a6) does not reproduce at HEAD v0.2.19: PCA mean-11 R^2 0.0728 vs cached
+  0.0804; the paper's best linear config (Lookahead, nc, ica) 0.187 vs 0.2407. v0.3.0 matches
+  HEAD. Regenerated v0.3.0 sweep: 1214/1214 configurations ok; best CogPC1 NED 0.262, LEND 0.261,
+  Flow 0.246, NEDPP 0.235, SiMLR 0.209, PCA 0.178 (single seed).
+- scripts/run_adni_mci_grid_sweep.py hard-codes /Users/stnava/data/repos/pysimlr/src on sys.path.
+- Appendix Wilcoxon tests use 36 dataset-seed pairs as independent with no Holm correction; at
+  the 12-block level only SiMLR-LBFGS/LBFGSB stay below 0.05 vs PCA.
+- Regenerated with v0.3.0 into the scratchpad (not committed): Friedman linear chi2 30.5
+  (p 1.7e-4) vs 31.5; LEND still first by mean rank (3.71); ADNI-MCI deep values moved
+  (NED 0.236, Flow 0.229, LEND 0.220); linear and baseline values identical.
+
+**Verification.** `pytest -m ""`: 1591 passed, 4 xfailed, 0 failed (before the ADNI sweep
+regeneration and the paper build). `antsxqc.lint src/pysimlr`: 0 findings.
+
+**Open (owner decisions).**
+- Adopt the v0.3.0 caches for the paper, and correct the prose either way (D5).
+- Commit the six missing cache generators, or remove the claims they back.
+
+## D3 (Central method interface and correctness pass, 2026-11-01)
+status: done
+release: v0.3.0 (tag `v0.3.0`; breaking API)
+plan: docs/plans/2026-11-01_central_interface.md
+contract: docs/api_contract.md
+files added: src/pysimlr/api.py, docs/api_contract.md, docs/plans/2026-11-01_central_interface.md, tests/conftest.py, tests/test_api_registry.py, tests/test_random_state.py, tests/test_implementation_standards.py, tests/test_readme_examples.py
+files changed (src): simlr.py, deep.py, flows.py, optimizers.py, sklearn.py (rewritten), nnh.py, sparsification.py, nsa_backend.py, visualization.py, __init__.py, benchmarks/runner.py, benchmarks/deep_ranking.py, benchmarks/shared_private_sweep.py, benchmarks/__init__.py
+files changed (other): README.md (Quick Start rewritten), configs/benchmark_{smoke,full}.yaml, scripts/run_deep_benchmark.py, scripts/generate_nsa_report.py, paper/build_paper_experiments.py, docs/comparison_simlr_lend{,_basic}.qmd, 251 keyword renames across tests/, scripts/, docs/*.qmd by an AST rewriter (calls to the nine public entry points only)
+
+**What and why.** Five call sites translated between the entry points' vocabularies by hand
+(benchmark runner, `nnh_embed`, `extend_simlr_embedding_with_new_modalities`, the four sklearn
+wrappers, `scripts/run_deep_benchmark.py`), and each had drifted. Now:
+- `api.METHODS` registers `simlr`, `simlr_lbfgs`, `simlr_lbfgsb`, `lend`, `ned`,
+  `ned_shared_private`, `flow_v`, `pca` (joint), `nsa_pipeline`; accepted parameters are derived
+  from each native signature. `fit` records `requested` / `used` / `ignored` (with reason) /
+  `defaults` / `random_state` / `budget_unit`; a parameter for another method warns once
+  (`strict=True` raises); a name no method has raises.
+- One name per concept at the native entry points: `iterations` (deep/flow `epochs` removed),
+  `sparseness`, `random_state` (`init_seed` removed). Optimizer keys that collided with other
+  parameters renamed: `k` -> `lookahead_k`, `tol` -> `lbfgsb_tol`, `beta` -> `rmsprop_beta`.
+  Deep/flow `**kwargs` catch-alls removed; unknown keywords raise everywhere.
+- `random_state` on deep/flow runs the whole fit on a forked, seeded RNG stream (standardization
+  jitter, weight init, dropout, DataLoader shuffle); the caller's global state is restored.
+- `MultiViewSiMR` replaces `SiMLREstimator`/`SiMLR`/`SiMLRTransformer`/`LENDTransformer`/
+  `NEDTransformer`/`FlowSiMLRTransformer`; `view_sizes` makes multi-view input usable in
+  scikit-learn CV; `GridSearchCV` over `method` works.
+
+**Defects fixed (verified by execution or by reading the cited code):**
+- README Quick Start: 2 of 3 snippets wrong (`simlr(optimizer=, random_state=)` ran the default
+  optimizer unseeded; `SiMLR(optimizer=, sparseness=)` raised `TypeError`).
+- `simlr` never forwarded `positivity` to the optimizer: `nsa_lbfgsb` under
+  `positivity="positive"` ran with no lower bound (spy: optimizer saw `positivity='either'`,
+  `nonneg=False`). Changes `simlr_lbfgsb` benchmark results under positive mode.
+- Single-view `SiMLREstimator.transform` projected unscaled X (max abs diff 30.0 vs the library
+  predictor). LEND/NED wrappers' `epochs` argument never reached training.
+- `init_seed` switched `initialization_type="pca"` to `"random"`; `random_state` does not.
+- `deep_simr` dropped `optimizer_type`; unknown deep `optimizer_type` silently became Adam;
+  `lars` without `torch_optimizer` silently became `larslow` (now warns).
+- `simlr(patience=...)` drew a spurious unknown-parameter warning; `flow_simr_v` accepted `tol`
+  and `patience` and ignored them (now wired to the training loop).
+- `flow_simr` discarded its convergence report; it now returns it (still no `v`; not registered).
+- `nnh_embed`: `constraint` was never forwarded to `simlr` (default now `None` = `simlr`'s
+  default, so default behaviour is unchanged); the flow path replaced `energy="acc"` with
+  `"regression"` (now passed as given -- changes `nnh_embed(use_flow=True)` results); the
+  pinv-failure zero fallback for `w` removed.
+- Benchmark runner: `filter_kwargs` removed (it dropped valid aliases); two `except Exception`
+  sites removed; `convergence_report` certified deep/flow bases against the runner's
+  `energy_type` default ("acc") rather than the model's own, and always projected onto V >= 0
+  even for signed bases -- both now read from the fit's parameter record.
+- `deep_ranking.critical_difference` substituted 2.948 / 2.569 on any scipy failure (the
+  9-model value is 3.102); Wilcoxon failures became p = 1. Both now propagate.
+- `paper/build_paper_experiments.py` called `ned_simr_shared_private(k_shared=, k_private=)`.
+- Duplicate `generate_all_architecture_graphs` in visualization.py; three `get('V') or get('Y')`
+  tensor-truthiness chains (latent: current backends return only `Y`); mutable defaults on the
+  deep entry points and models.
+
+**Not a defect (survey claim checked and rejected):** `consensus.py`'s
+`warnings.filterwarnings` is inside `warnings.catch_warnings()`.
+
+**Behaviour changes to note for results.** Deep/flow fits are now seeded per fit, so numbers
+under a given global seed differ from 0.2.19. `run_single_experiment` passes `random_state=seed`
+to every method. The baselines' supervised `pipeline_test_score` is gone (they are scored by the
+shared estimator like every method). The `iterations` liveness test needed an explicit random
+start: from the PCA start, 1 and 30 iterations return the same best iterate (consistent with
+the open "iteration does not improve on SVD init" item in CORRECTNESS_AUDIT.md).
+
+**Verification.** Fast suite 1405 passed / 6 xfailed before; after: 1526 passed / 6 xfailed.
+`pytest -m ""`: 1557 passed, 7 xfailed, 0 failed (136.7 s, 6 workers). `python -m antsxqc.lint
+src/pysimlr`: 0 findings. `python -m pysimlr.benchmarks.runner --config
+configs/benchmark_smoke.yaml` completed (run in a scratch directory). One
+`run_deep_benchmark.run_experiment_task` per model on the Linear synthetic case completed.
+Not run: the full `scripts/run_deep_benchmark.py` sweep and the paper build; the ~100 other
+scripts were renamed mechanically but not executed.
+
+**Open items.**
+- D4: 37 broad exception handlers (per-file counts pinned in test_implementation_standards).
+- TODO(human): method defaults differ (`energy_type` acc vs regression, `nsa_w` 0.5 vs 0.1,
+  `topology` star vs loo); recorded per fit, not aligned.
+- TODO(human): `MultiViewSiMR.score` = held-out reconstruction R^2; confirm as the default
+  model-selection criterion.
+- The paper protocol dict sends `nsa_iterations` to linear methods and `consolidate` to deep
+  ones; the new `Ignored_Params` column shows neither is applied (it never was).
+- `nn.Module` constructors and sparsification helpers keep `sparseness_quantile`.
+- `scripts/unified_real_cv_comparison.py` keeps its own `filter_kwargs` dispatch.
+- Duplicated helpers (MAI update x6, `set_projection_schedule` x5, polar projection x3).
+- Audit items A1-A4 in docs/audit/AUDIT_2026_09.md have no recorded resolution.
 
 ## D2 (Remove the silent backend fallback in `svd.varimax` / `svd.varimax_rotation`, 2026-10-31)
 status: done

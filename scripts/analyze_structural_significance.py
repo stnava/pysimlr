@@ -67,10 +67,10 @@ def run_significance_analysis():
         k=3, 
         graph=graph_chain, 
         n_perms=20, # 20 permutations for statistical stability in this demo
-        epochs=100,
+        iterations=100,
         energy_type="acc",
         mixing_algorithm="svd",
-        sparseness_quantile=0.5,
+        sparseness=0.5,
         verbose=False
     )
     

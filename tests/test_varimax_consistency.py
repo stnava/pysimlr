@@ -48,11 +48,11 @@ CONFIGS = [("gcca", "either"), ("pca", "either"), ("pca", "positive")]
 
 ENTRY_POINTS = {
     "simlr": lambda X, **kw: _module("pysimlr.simlr").simlr(X, k=K, iterations=2, verbose=False, **kw),
-    "flow_simlr_v": lambda X, **kw: flow_simlr_v(X, k=K, epochs=2, batch_size=16, verbose=False, **kw),
-    "lend_simr": lambda X, **kw: lend_simr(X, k=K, epochs=2, batch_size=16, verbose=False, **kw),
-    "ned_simr": lambda X, **kw: ned_simr(X, k=K, epochs=2, batch_size=16, verbose=False, **kw),
+    "flow_simlr_v": lambda X, **kw: flow_simlr_v(X, k=K, iterations=2, batch_size=16, verbose=False, **kw),
+    "lend_simr": lambda X, **kw: lend_simr(X, k=K, iterations=2, batch_size=16, verbose=False, **kw),
+    "ned_simr": lambda X, **kw: ned_simr(X, k=K, iterations=2, batch_size=16, verbose=False, **kw),
     "ned_simr_shared_private": lambda X, **kw: ned_simr_shared_private(
-        X, k=K, epochs=2, batch_size=16, verbose=False, **kw),
+        X, k=K, iterations=2, batch_size=16, verbose=False, **kw),
 }
 
 
@@ -254,9 +254,12 @@ def test_entry_points_forward_varimax_and_change_the_fit(monkeypatch, name, init
 
 
 @pytest.mark.parametrize("fn", [lend_simr, ned_simr, ned_simr_shared_private, flow_simr_v])
-def test_an_unknown_keyword_warns_instead_of_vanishing(fn):
-    with pytest.warns(UserWarning, match="varimx"):
-        fn(_views(), k=K, epochs=1, batch_size=16, verbose=False, varimx=False)
+def test_an_unknown_keyword_raises_instead_of_vanishing(fn):
+    """A misspelled keyword is an error at every entry point. It used to be
+    warned about and then ignored, so the fit ran without the setting and
+    reported success."""
+    with pytest.raises(TypeError, match="varimx"):
+        fn(_views(), k=K, iterations=1, batch_size=16, verbose=False, varimx=False)
 
 
 # --------------------------------------------------------------------------
@@ -268,7 +271,7 @@ def test_flow_invariants_hold_under_either_initialisation(vm):
     torch.manual_seed(0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        res = flow_simr_v(X, k=K, epochs=3, batch_size=16, verbose=False,
+        res = flow_simr_v(X, k=K, iterations=3, batch_size=16, verbose=False,
                           initialization_type="gcca", varimax=vm)
     model = res["model"].eval()
     with torch.no_grad():

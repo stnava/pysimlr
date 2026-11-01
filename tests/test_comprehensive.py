@@ -77,6 +77,10 @@ def test_regression_comprehensive():
     assert 'v' in reg_res
 
 def test_nnh_comprehensive():
+    # Seeded for determinism. (Unseeded data used to hit an nsa_flow quantile
+    # tie on 2-feature views in 35 of 200 draws; fixed in nsa_flow 3.5.1, see
+    # test_nsa_flow.test_quantile_sparseness_keeps_an_orthonormal_two_by_two_full_rank.)
+    np.random.seed(0)
     df = pd.DataFrame({'T1Hier_vol1': np.random.randn(20), 'T1Hier_vol2': np.random.randn(20), 'DTI_fa1': np.random.randn(20), 'age': np.random.randn(20)})
     res = nnh_embed(df, nsimlr=2, iterations=2, covariates=['age'])
     assert 'u' in res
@@ -100,28 +104,28 @@ def test_path_comprehensive():
 
 def test_deep_simr_comprehensive():
     x1, x2 = torch.randn(50, 20), torch.randn(50, 15)
-    res = deep_simr([x1, x2], k=5, epochs=2, batch_size=10, warmup_epochs=0, sim_weight=0.0, verbose=True)
+    res = deep_simr([x1, x2], k=5, iterations=2, batch_size=10, warmup_epochs=0, sim_weight=0.0, verbose=True)
     assert 'u' in res
     pred = predict_simlr([x1, x2], res)
     assert u_is_stable(pred['u'])
 
 def test_lend_simr_comprehensive():
     x1, x2 = torch.randn(50, 20), torch.randn(50, 15)
-    res = lend_simr([x1, x2], k=5, epochs=2, batch_size=10, sparseness_quantile=0.0, warmup_epochs=0, sim_weight=0.0, verbose=True)
+    res = lend_simr([x1, x2], k=5, iterations=2, batch_size=10, sparseness=0.0, warmup_epochs=0, sim_weight=0.0, verbose=True)
     assert 'u' in res
     pred = predict_simlr([x1, x2], res)
     assert u_is_stable(pred['u'])
 
 def test_ned_simr_comprehensive():
     x1, x2 = torch.randn(50, 20), torch.randn(50, 15)
-    res = ned_simr([x1, x2], k=3, epochs=2, batch_size=10, warmup_epochs=0, sim_weight=0.0, verbose=True)
+    res = ned_simr([x1, x2], k=3, iterations=2, batch_size=10, warmup_epochs=0, sim_weight=0.0, verbose=True)
     assert 'u' in res
     pred = predict_simlr([x1, x2], res)
     assert u_is_stable(pred['u'])
 
 def test_ned_shared_private_comprehensive():
     x1, x2 = torch.randn(50, 20), torch.randn(50, 15)
-    res = ned_simr_shared_private([x1, x2], k=3, private_k=2, epochs=2, batch_size=10, warmup_epochs=0, 
+    res = ned_simr_shared_private([x1, x2], k=3, private_k=2, iterations=2, batch_size=10, warmup_epochs=0, 
                                   sim_weight=0.0, private_orthogonality_weight=0.0, private_variance_weight=0.0, verbose=True)
     assert 'u' in res
     pred = predict_simlr([x1, x2], res)

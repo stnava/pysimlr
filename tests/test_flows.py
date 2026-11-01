@@ -78,7 +78,7 @@ def test_flow_simr_training_and_imputation():
     res = flow_simr(
         [x1, x2], 
         k=k, 
-        epochs=10, 
+        iterations=10, 
         batch_size=20, 
         warmup_epochs=2, 
         num_layers=2, 
@@ -141,7 +141,7 @@ def test_flow_simr_v_bottleneck():
     res = flow_simr_v(
         [x1, x2],
         k=k,
-        epochs=3,
+        iterations=3,
         batch_size=10,
         warmup_epochs=1,
         num_layers=2,

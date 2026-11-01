@@ -93,7 +93,7 @@ def run_multimodal_search(file_path):
             
             # Fit SiMLR on Train
             res = lend_simr(
-                Xs_train, k=10, epochs=80, 
+                Xs_train, k=10, iterations=80, 
                 hidden_dims=arch,
                 dynamic_weights=mai,
                 energy_type='logcosh', 

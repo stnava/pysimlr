@@ -26,9 +26,9 @@ def _views(n=40, dims=(8, 6, 7), seed=0):
 
 
 DEEP_METHODS = [
-    ("lend_simr", lambda views, **kw: lend_simr(views, k=3, epochs=3, warmup_epochs=0, verbose=False, **kw)),
-    ("ned_simr", lambda views, **kw: ned_simr(views, k=3, epochs=3, warmup_epochs=0, verbose=False, **kw)),
-    ("flow_simr_v", lambda views, **kw: flow_simr_v(views, k=3, epochs=3, warmup_epochs=0, device="cpu", verbose=False, **kw)),
+    ("lend_simr", lambda views, **kw: lend_simr(views, k=3, iterations=3, warmup_epochs=0, verbose=False, **kw)),
+    ("ned_simr", lambda views, **kw: ned_simr(views, k=3, iterations=3, warmup_epochs=0, verbose=False, **kw)),
+    ("flow_simr_v", lambda views, **kw: flow_simr_v(views, k=3, iterations=3, warmup_epochs=0, device="cpu", verbose=False, **kw)),
 ]
 
 
@@ -51,7 +51,7 @@ def test_flow_simr_has_no_positivity_parameter():
     accepting and ignoring it."""
     views = _views()
     with pytest.raises(TypeError):
-        flow_simr(views, k=3, epochs=2, warmup_epochs=0, positivity="either")
+        flow_simr(views, k=3, iterations=2, warmup_epochs=0, positivity="either")
 
 
 @pytest.mark.parametrize("name,fn", DEEP_METHODS)
@@ -60,7 +60,7 @@ def test_initialization_type_is_dispatchable(name, fn, t):
     views = _views()
     kwargs = {"initialization_type": t}
     if t == "random":
-        kwargs["init_seed"] = 1
+        kwargs["random_state"] = 1
     if t == "domain":
         kwargs["domain_matrices"] = [torch.randn(2, v.shape[1]) for v in views]
     out = fn(views, **kwargs)
@@ -88,7 +88,7 @@ def test_initialization_type_actually_changes_the_start(name, fn):
 
 def test_ned_simr_shared_private_accepts_initialization_type():
     views = _views()
-    out = ned_simr_shared_private(views, k=2, private_k=1, epochs=3, warmup_epochs=0,
+    out = ned_simr_shared_private(views, k=2, private_k=1, iterations=3, warmup_epochs=0,
                                   verbose=False, initialization_type="gcca")
     assert torch.isfinite(out["u"]).all()
 

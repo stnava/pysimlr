@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import pytest
 from pysimlr.benchmarks.runner import (
-    filter_kwargs,
     run_single_experiment,
     run_seeded_benchmark,
     aggregate_results,
@@ -12,14 +11,14 @@ from pysimlr.benchmarks.runner import (
 )
 from pysimlr.benchmarks.synthetic_cases import build_case
 
-def test_filter_kwargs():
-    def dummy_func(a, b, c=None):
-        return a + b
-    
-    kwargs = {"a": 1, "b": 2, "d": 4}
-    filtered = filter_kwargs(dummy_func, kwargs)
-    assert filtered == {"a": 1, "b": 2}
-    assert "d" not in filtered
+def test_the_runner_records_parameters_a_model_cannot_use():
+    case = build_case(kind="nonlinear_shared", n_samples=100, seed=42)
+    with pytest.warns(RuntimeWarning, match="hidden_dims"):
+        out = run_single_experiment("linear", case, sparsity=0.0, seed=42, iterations=2,
+                                    hidden_dims=(4,))
+    assert out["metrics"]["ignored_params"] == "hidden_dims"
+    assert out["metrics"]["method"] == "simlr"
+
 
 def test_run_single_experiment():
     case = build_case(kind="nonlinear_shared", n_samples=100, seed=42)
@@ -29,17 +28,17 @@ def test_run_single_experiment():
     assert res_linear["metrics"]["model"] == "linear"
     
     # Test lend model
-    res_lend = run_single_experiment("lend", case, sparsity=0.0, seed=42, epochs=1)
+    res_lend = run_single_experiment("lend", case, sparsity=0.0, seed=42, iterations=1)
     assert "metrics" in res_lend
     assert res_lend["metrics"]["model"] == "lend"
 
     # Test ned model
-    res_ned = run_single_experiment("ned", case, sparsity=0.0, seed=42, epochs=1)
+    res_ned = run_single_experiment("ned", case, sparsity=0.0, seed=42, iterations=1)
     assert "metrics" in res_ned
     assert res_ned["metrics"]["model"] == "ned"
 
     # Test shared_private model
-    res_sp = run_single_experiment("shared_private", case, sparsity=0.0, seed=42, epochs=1)
+    res_sp = run_single_experiment("shared_private", case, sparsity=0.0, seed=42, iterations=1)
     assert "metrics" in res_sp
     assert res_sp["metrics"]["model"] == "shared_private"
 
@@ -93,13 +92,13 @@ def test_sweep_benchmark():
 
 def test_run_single_experiment_error():
     case = build_case(kind="nonlinear_shared", n_samples=50)
-    with pytest.raises(ValueError, match="Unknown model type"):
+    with pytest.raises(ValueError, match="unknown method .unknown.; registered"):
         run_single_experiment("unknown", case)
 
 
 def test_run_single_experiment_pr4_metrics_present():
     case = build_case(kind="nonlinear_shared", n_samples=60, seed=42)
-    res = run_single_experiment("lend", case, sparsity=0.0, seed=42, epochs=1)
+    res = run_single_experiment("lend", case, sparsity=0.0, seed=42, iterations=1)
     metrics = res["metrics"]
     assert "first_layer_density_mean" in metrics
     assert "first_layer_alignment_r2_mean" in metrics
@@ -150,9 +149,9 @@ def test_pipeline_models_do_not_override_the_shared_metric():
     out = run_single_experiment("pca", case, seed=42, iterations=5)
     metrics = out["metrics"]
 
-    # The pipeline's own (regularised) score is kept, but under its own key
-    # so it can never stand in for the shared metric.
-    assert "pipeline_test_score" in metrics
+    # The baselines no longer carry a supervised head of their own, so there
+    # is no second score that could stand in for the shared metric.
+    assert "pipeline_test_score" not in metrics
 
     # `test_r2` must be exactly what the shared estimator gives on the latents.
     tr_idx, te_idx = split_indices(
@@ -160,8 +159,8 @@ def test_pipeline_models_do_not_override_the_shared_metric():
     )
     y = case["outcome"]
     expected = cross_val_metrics(
-        out["result"]["custom_pred_train"]["u"], y[tr_idx].numpy(),
-        out["result"]["custom_pred_test"]["u"], y[te_idx].numpy(),
+        out["prediction"]["train"]["u"], y[tr_idx].numpy(),
+        out["prediction"]["test"]["u"], y[te_idx].numpy(),
         is_classification=False,
     )
     assert metrics["test_r2"] == pytest.approx(expected["test"], abs=1e-9)

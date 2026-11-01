@@ -67,11 +67,11 @@ def generate_v_matrices_plot():
     res_heart = lend_simr(
         [torch.from_numpy(X1_h).float(), torch.from_numpy(X2_h).float()],
         k=2,
-        epochs=150,
+        iterations=150,
         energy_type="nc",
         mixing_algorithm="newton",
         positivity="positive",
-        sparseness_quantile=0.5,
+        sparseness=0.5,
         verbose=False,
         nsa_iterations=3,
     )
@@ -90,11 +90,11 @@ def generate_v_matrices_plot():
     res_diab = lend_simr(
         [torch.from_numpy(X1_d).float(), torch.from_numpy(X2_d).float()],
         k=2,
-        epochs=150,
+        iterations=150,
         energy_type="logcosh",
         mixing_algorithm="newton",
         positivity="positive",
-        sparseness_quantile=0.5,
+        sparseness=0.5,
         verbose=False,
         nsa_iterations=3,
     )

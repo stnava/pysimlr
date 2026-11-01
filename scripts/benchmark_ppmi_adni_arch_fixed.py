@@ -101,7 +101,7 @@ def run_architecture_search(file_path):
                 # Guaranteeing convergence: Higher epochs, lower tolerance, higher patience
                 res = m_fn(
                     Xs_train, k=10, 
-                    epochs=250, 
+                    iterations=250, 
                     hidden_dims=arch,
                     dynamic_weights=False, # Fixing to False for architecture consistency
                     energy_type='nc', 

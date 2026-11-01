@@ -4,7 +4,7 @@ Defects covered:
   * `filter_params` built its result solely from a `defaults` dict that omitted
     `decay_rate`, `beta`, `k` and `alpha`, so those four hyperparameters were
     discarded even when passed explicitly -- LARS, RMSProp and Lookahead were
-    permanently stuck on their fallbacks. Unknown keys (typos) vanished too.
+    permanently stuck on their fallbacks. Unknown keys (typos) vanished too; they now raise.
   * `bidirectional_linesearch` chose its direction by comparing the two *step
     sizes*, which says nothing about which direction descends further.
   * `create_optimizer` silently substituted HybridAdam for an unrecognised name.
@@ -38,8 +38,8 @@ ALL_OPTIMIZERS = [
 
 @pytest.mark.parametrize("opt,key,value", [
     ("lars", "decay_rate", 0.25),
-    ("rmsprop", "beta", 0.5),
-    ("lookahead", "k", 3),
+    ("rmsprop", "rmsprop_beta", 0.5),
+    ("lookahead", "lookahead_k", 3),
     ("lookahead", "alpha", 0.75),
     ("adam", "beta1", 0.5),
     ("adam", "learning_rate", 0.123),
@@ -53,19 +53,19 @@ def test_hyperparameters_reach_the_optimizer(opt, key, value):
 
 
 def test_lookahead_uses_the_supplied_period_and_interpolation():
-    o = create_optimizer("lookahead", [torch.randn(8, 3)], k=3, alpha=0.75)
+    o = create_optimizer("lookahead", [torch.randn(8, 3)], lookahead_k=3, alpha=0.75)
     assert o.k == 3 and o.alpha == 0.75
 
 
 def test_defaults_cover_every_key_the_optimizers_read():
-    for key in ("learning_rate", "beta1", "beta2", "beta", "epsilon",
+    for key in ("learning_rate", "beta1", "beta2", "rmsprop_beta", "epsilon",
                 "weight_decay", "amsgrad", "momentum", "nsa_w", "decay_rate",
-                "k", "alpha"):
+                "lookahead_k", "alpha", "lbfgsb_tol"):
         assert key in SIMLR_OPTIMIZER_DEFAULTS, key
 
 
-def test_unknown_hyperparameter_warns_rather_than_vanishing():
-    with pytest.warns(UserWarning, match="Unrecognised optimizer parameter"):
+def test_unknown_hyperparameter_raises_rather_than_vanishing():
+    with pytest.raises(TypeError, match="Unrecognised optimizer parameter"):
         create_optimizer("adam", [torch.randn(4, 2)], learnign_rate=0.5)
 
 

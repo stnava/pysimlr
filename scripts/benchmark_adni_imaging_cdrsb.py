@@ -70,7 +70,7 @@ def run_adni_imaging_cdrsb_study(file_path):
 
     print("\nFitting LEND-SiMLR on neuroimaging data...")
     res = lend_simr(
-        Xs_train, k=12, epochs=200, 
+        Xs_train, k=12, iterations=200, 
         hidden_dims=[64, 32],
         energy_type='regression', 
         mixing_algorithm='newton',

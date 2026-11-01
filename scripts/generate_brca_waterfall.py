@@ -39,7 +39,7 @@ def generate_brca_waterfall():
     res = lend_simr(
         Xs,
         k=3,
-        epochs=45,
+        iterations=45,
         energy_type="acc",
         mixing_algorithm="svd",
         positivity="either",

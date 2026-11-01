@@ -69,7 +69,7 @@ def run_simlr(views, **kw):
 
 def run_lend(views, **kw):
     torch.manual_seed(SEED)
-    out = lend_simr(views, k=K, epochs=DEEP_EPOCHS, warmup_epochs=DEEP_WARMUP,
+    out = lend_simr(views, k=K, iterations=DEEP_EPOCHS, warmup_epochs=DEEP_WARMUP,
                     positivity="either", verbose=False, **kw)
     _check_converged("LEND", out)
     return out["u"]
@@ -77,7 +77,7 @@ def run_lend(views, **kw):
 
 def run_ned(views, **kw):
     torch.manual_seed(SEED)
-    out = ned_simr(views, k=K, epochs=DEEP_EPOCHS, warmup_epochs=DEEP_WARMUP,
+    out = ned_simr(views, k=K, iterations=DEEP_EPOCHS, warmup_epochs=DEEP_WARMUP,
                    positivity="either", verbose=False, **kw)
     _check_converged("NED", out)
     return out["u"]
@@ -85,7 +85,7 @@ def run_ned(views, **kw):
 
 def run_flow_simr_v(views, **kw):
     torch.manual_seed(SEED)
-    out = flow_simr_v(views, k=K, epochs=FLOW_EPOCHS, warmup_epochs=DEEP_WARMUP,
+    out = flow_simr_v(views, k=K, iterations=FLOW_EPOCHS, warmup_epochs=DEEP_WARMUP,
                       positivity="either", device="cpu", verbose=False, **kw)
     _check_converged("Flow-SiMR-V", out)
     return out["u"]
@@ -115,9 +115,9 @@ def evaluate(u, y, task):
 def init_kwargs(strat, views):
     kwargs = {"initialization_type": strat}
     if strat == "random":
-        kwargs["init_seed"] = SEED
+        kwargs["random_state"] = SEED
     if strat in ("perturbed_pca", "best_of_n"):
-        kwargs["init_seed"] = SEED
+        kwargs["random_state"] = SEED
     if strat == "domain":
         rng = np.random.default_rng(SEED)
         kwargs["domain_matrices"] = [

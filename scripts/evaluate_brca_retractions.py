@@ -67,9 +67,9 @@ def run_evaluation():
         
         # 1. LEND without NSA constraint
         t0 = time.time()
-        res_no_nsa = lend_simr(torch_train, k=5, epochs=100, energy_type="nc", 
+        res_no_nsa = lend_simr(torch_train, k=5, iterations=100, energy_type="nc", 
                                mixing_algorithm="newton", positivity="positive", 
-                               sparseness_quantile=0.5, use_nsa=False, verbose=False)
+                               sparseness=0.5, use_nsa=False, verbose=False)
         t_no_nsa = time.time() - t0
         v_no_nsa = [v.detach().numpy() for v in res_no_nsa['v']]
         u_train_no_nsa = np.concatenate([X_train_s[i] @ v_no_nsa[i] for i in range(3)], axis=1)
@@ -84,9 +84,9 @@ def run_evaluation():
 
         # 2. LEND with Soft Polar
         t0 = time.time()
-        res_polar = lend_simr(torch_train, k=5, epochs=100, energy_type="nc", 
+        res_polar = lend_simr(torch_train, k=5, iterations=100, energy_type="nc", 
                               mixing_algorithm="newton", positivity="positive", 
-                              sparseness_quantile=0.5, use_nsa=True, nsa_iterations=3, 
+                              sparseness=0.5, use_nsa=True, nsa_iterations=3, 
                               retraction_type="soft_polar", verbose=False)
         t_polar = time.time() - t0
         v_polar = [v.detach().numpy() for v in res_polar['v']]
@@ -102,9 +102,9 @@ def run_evaluation():
 
         # 3. LEND with Newton-Schulz
         t0 = time.time()
-        res_ns = lend_simr(torch_train, k=5, epochs=100, energy_type="nc", 
+        res_ns = lend_simr(torch_train, k=5, iterations=100, energy_type="nc", 
                            mixing_algorithm="newton", positivity="positive", 
-                           sparseness_quantile=0.5, use_nsa=True, nsa_iterations=3, 
+                           sparseness=0.5, use_nsa=True, nsa_iterations=3, 
                            retraction_type="soft_ns", verbose=False)
         t_ns = time.time() - t0
         v_ns = [v.detach().numpy() for v in res_ns['v']]

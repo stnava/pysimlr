@@ -54,10 +54,10 @@ def fit_simlr(train_data, **kwargs):
     return simlr(train_data, iterations=100, energy_type="acc", **kwargs)
 
 def fit_ned(train_data, **kwargs):
-    return ned_simr(train_data, epochs=150, warmup_epochs=20, device="cpu", verbose=False, **kwargs)
+    return ned_simr(train_data, iterations=150, warmup_epochs=20, device="cpu", verbose=False, **kwargs)
 
 def fit_nedpp(train_data, **kwargs):
-    return ned_simr_shared_private(train_data, epochs=200, device="cpu", verbose=False, **kwargs)
+    return ned_simr_shared_private(train_data, iterations=200, device="cpu", verbose=False, **kwargs)
 
 print("Running benchmarks...")
 common = {"n_seeds": 3, "generator_name": "shared_private", "noise_level": noise, "k": k_shared}

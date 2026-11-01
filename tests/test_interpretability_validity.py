@@ -86,7 +86,7 @@ def test_report_surfaces_cv_alongside_in_sample():
     z = torch.randn(120, 3)
     x = [z @ torch.randn(3, 12) + 0.2 * torch.randn(120, 12),
          z @ torch.randn(3, 9) + 0.2 * torch.randn(120, 9)]
-    res = ned_simr(x, k=3, epochs=12, warmup_epochs=3, verbose=False)
+    res = ned_simr(x, k=3, iterations=12, warmup_epochs=3, verbose=False)
     rep = res["interpretability"]
     for m in rep["deep_layer_alignment"]["modalities"]:
         assert "global_r2" in m and "global_r2_cv" in m

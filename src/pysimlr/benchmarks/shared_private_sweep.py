@@ -53,7 +53,7 @@ def tune_shared_private(case_kind: str = "shared_plus_private",
                 "shared_private", 
                 case, 
                 seed=seed,
-                epochs=100,
+                iterations=100,
                 warmup_epochs=20,
                 private_orthogonality_weight=ow,
                 private_variance_weight=vw

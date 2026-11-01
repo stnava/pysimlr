@@ -91,7 +91,7 @@ def run_pooled_moca_sweep(file_path):
             try:
                 start_t = time.time()
                 res = m_fn(
-                    Xs_train, k=12, epochs=100, 
+                    Xs_train, k=12, iterations=100, 
                     hidden_dims=[64, 32],
                     dynamic_weights=mai,
                     energy_type='regression', mixing_algorithm='newton',
@@ -125,9 +125,9 @@ def run_pooled_moca_sweep(file_path):
     best_m_fn = model_fns[best_res_meta['Model']]
     if best_res_meta['Model'] == 'NEDPP':
          # Handle lambda closure
-         res_final = ned_simr_shared_private(Xs, k=12, private_k=2, epochs=150, hidden_dims=[64, 32], dynamic_weights=best_res_meta['MAI'], energy_type='regression', mixing_algorithm='newton', verbose=False)
+         res_final = ned_simr_shared_private(Xs, k=12, private_k=2, iterations=150, hidden_dims=[64, 32], dynamic_weights=best_res_meta['MAI'], energy_type='regression', mixing_algorithm='newton', verbose=False)
     else:
-         res_final = best_m_fn(Xs, k=12, epochs=150, hidden_dims=[64, 32], dynamic_weights=best_res_meta['MAI'], energy_type='regression', mixing_algorithm='newton', verbose=False)
+         res_final = best_m_fn(Xs, k=12, iterations=150, hidden_dims=[64, 32], dynamic_weights=best_res_meta['MAI'], energy_type='regression', mixing_algorithm='newton', verbose=False)
 
     U = res_final.get('u', res_final.get('U')).numpy()
     V_mats = res_final.get('v')

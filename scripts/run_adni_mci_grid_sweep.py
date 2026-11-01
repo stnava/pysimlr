@@ -137,7 +137,7 @@ def eval_task(task):
     if model_type in ("linear", "simlr_lbfgs", "simlr_lbfgsb"):
         params["iterations"] = 25
     elif model_type in ("lend", "ned", "shared_private", "flow_v"):
-        params["epochs"] = 80
+        params["iterations"] = 80
 
     t0 = time.perf_counter()
     try:

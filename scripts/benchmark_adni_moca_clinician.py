@@ -80,7 +80,7 @@ def run_adni_moca_interpretation(file_path):
 
     print("\nBenchmarking predictive power...")
     res_bench = lend_simr(
-        Xs_train, k=12, epochs=150, 
+        Xs_train, k=12, iterations=150, 
         hidden_dims=[64, 32],
         energy_type='regression', mixing_algorithm='newton',
         verbose=False
@@ -98,7 +98,7 @@ def run_adni_moca_interpretation(file_path):
     # 2. Final Fit on All Data for Interpretation
     print("\nRe-fitting model on all data for clinician interpretation...")
     res_final = lend_simr(
-        Xs, k=12, epochs=200, 
+        Xs, k=12, iterations=200, 
         hidden_dims=[64, 32],
         energy_type='regression', mixing_algorithm='newton',
         verbose=False

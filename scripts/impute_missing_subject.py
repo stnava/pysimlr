@@ -79,7 +79,7 @@ def run_subject_perfusion_imputation():
     res = flow_simr_v(
         scaled_mats,
         k=k,
-        epochs=epochs,
+        iterations=epochs,
         batch_size=batch_size,
         positivity='positive',
         use_nsa=True,

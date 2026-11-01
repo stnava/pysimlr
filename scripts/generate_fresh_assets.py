@@ -29,11 +29,11 @@ def generate_all_fresh_assets():
     
     # "WINNER" PARAMETERS
     kwargs = {
-        "epochs": 200, 
+        "iterations": 200, 
         "nsa_iterations": 10,
         "energy_type": "acc", 
         "mixing_algorithm": "newton", 
-        "sparseness_quantile": 0.5, 
+        "sparseness": 0.5, 
         "sim_weight": 2.0, 
         "verbose": False,
         "optimizer_type": "larslow",

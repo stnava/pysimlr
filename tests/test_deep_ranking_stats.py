@@ -193,3 +193,29 @@ def test_duplicate_blocks_are_detected():
             rows.append({"Dataset": "Other", "Seed": seed, "Model": m, "Score": s / 2})
     _, info = build_ranking_blocks(pd.DataFrame(rows), metric_col="Score")
     assert info["duplicate_blocks"] == [["Parts", "PartsWeak"]]
+
+
+def test_holm_adjust_matches_the_step_down_definition():
+    from pysimlr.benchmarks.deep_ranking import holm_adjust
+    p = [0.01, 0.04, 0.03, 0.20]
+    # sorted: 0.01*4=0.04, 0.03*3=0.09, 0.04*2=0.08 -> monotone 0.09, 0.20*1 -> 0.20
+    assert np.allclose(holm_adjust(p), [0.04, 0.09, 0.09, 0.20])
+
+
+def test_wilcoxon_vs_reference_uses_one_block_per_dataset():
+    """Seeds of one dataset share its data; they must not count as separate
+    pairs. 12 datasets x 3 seeds is 12 blocks, not 36."""
+    from pysimlr.benchmarks.deep_ranking import wilcoxon_vs_reference
+    rng = np.random.default_rng(0)
+    rows = []
+    for d in range(12):
+        base = rng.normal()
+        for s in range(3):
+            rows += [{"Dataset": f"D{d}", "Seed": s, "Model": "Ref", "M": base},
+                     {"Dataset": f"D{d}", "Seed": s, "Model": "A", "M": base + 0.1 + 0.01 * s},
+                     {"Dataset": f"D{d}", "Seed": s, "Model": "B", "M": base + (0.05 if d % 2 else -0.05)}]
+    out = wilcoxon_vs_reference(pd.DataFrame(rows), "M", "Ref").set_index("Model")
+    assert (out["N_Blocks"] == 12).all()
+    assert out.loc["A", "Wins"] == 12 and out.loc["A", "P_Wilcoxon"] < 0.001
+    assert out.loc["B", "Wins"] == 6 and out.loc["B", "Losses"] == 6
+    assert (out["P_Holm"] >= out["P_Wilcoxon"]).all()

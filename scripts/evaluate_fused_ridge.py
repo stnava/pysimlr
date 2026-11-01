@@ -64,7 +64,7 @@ def run_fused_ridge(target_var='npsy_TMT.B_TotalTime_Raw', lambda1=0.1, lambda2_
     res_perf_impute = flow_simr_v(
         scaled_perf_mats,
         k=2,
-        epochs=100,
+        iterations=100,
         batch_size=128,
         positivity='positive',
         use_nsa=True,

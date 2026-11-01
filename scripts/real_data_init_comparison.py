@@ -145,9 +145,9 @@ def main():
         for strat in BENCHMARK_INITIALIZATION_TYPES:
             kwargs = {}
             if strat == "random":
-                kwargs["init_seed"] = SEED
+                kwargs["random_state"] = SEED
             if strat in ("perturbed_pca", "best_of_n"):
-                kwargs["init_seed"] = SEED
+                kwargs["random_state"] = SEED
             if strat == "domain":
                 rng = np.random.default_rng(SEED)
                 kwargs["domain_matrices"] = [

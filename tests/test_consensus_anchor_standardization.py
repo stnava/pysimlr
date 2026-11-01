@@ -65,25 +65,23 @@ def test_non_volatile_mixing_unaffected_by_anchor(alg):
     assert torch.allclose(u_train, u_pred, atol=1e-6)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known remaining defect: the anchor pins the rotation, but the "
-    "centering/scaling moments are still recomputed from each batch instead "
-    "of being stored at training time, so anchored prediction remains "
-    "batch-composition dependent. Remove this mark once train-time "
-    "center/scale are persisted alongside the anchor.",
-)
 @pytest.mark.parametrize("alg", VOLATILE)
-def test_anchor_holds_coordinates_fixed_across_disjoint_batches(alg):
-    """The point of the anchor: two disjoint sample sets must land in the
-    same coordinate frame, rather than each getting a fresh SVD rotation."""
+def test_frozen_consensus_holds_coordinates_fixed_across_disjoint_batches(alg):
+    """Two disjoint sample sets must land in the same coordinate frame.
+
+    The anchor alone pinned the rotation but the centring/scaling moments were
+    recomputed from each batch (this was a strict xfail). The frozen map
+    (`consensus.capture_consensus_map`) persists them, so a batch split
+    reproduces the single pass exactly."""
+    from pysimlr.consensus import capture_consensus_map
     projs = _projections(n=120)
-    _, anchor = compute_shared_consensus(
+    u_train, anchor = compute_shared_consensus(
         projs, mixing_algorithm=alg, k=3, training=True
     )
+    frozen = capture_consensus_map(projs, u_train)
     first = [p[:60] for p in projs]
     second = [p[60:] for p in projs]
-    kw = dict(mixing_algorithm=alg, k=3, training=False, anchor=anchor)
+    kw = dict(mixing_algorithm=alg, k=3, training=False, anchor=anchor, frozen_map=frozen)
     u_a = compute_shared_consensus(first, **kw)
     u_b = compute_shared_consensus(second, **kw)
     # same frame => the same projection applied to both halves, so the

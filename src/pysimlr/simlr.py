@@ -5,13 +5,14 @@ import numpy as np
 from typing import List, Optional, Union, Dict, Any, Tuple, Callable
 from .svd import ba_svd, safe_pca
 from .utils import basis_rank_report
-from .optimizers import create_optimizer
+from .optimizers import create_optimizer, SIMLR_OPTIMIZER_DEFAULTS
 from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness, NSA_DEFAULT_W, DEFAULT_SPARSENESS
 from .utils import (set_seed_based_on_time, adjusted_rvcoef, safe_svd,
                     invariant_orthogonality_defect, l1_normalize_features, orthogonality_defect,
                     gradient_orthogonality_defect,
                     orthogonality_summary, preprocess_data)
-from .consensus import compute_shared_consensus
+from .consensus import compute_shared_consensus, mai_score_or_zero
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
 
 #: The default `simlr` constraint. Named so that "did the caller choose this
 #: weight, or inherit it?" is answerable -- which decides whether an `nsa_w`
@@ -28,7 +29,26 @@ from .consensus import compute_shared_consensus
 #: p = 3.4e-16), while on BRCA4 w was not distinguishable at all (Friedman
 #: p = 0.43) and test accuracy was flat across the whole range. Prediction
 #: does not reveal the collapse; only the rank does.
-DEFAULT_CONSTRAINT = "orthox0.5x1"
+DEFAULT_CONSTRAINT = f"orthox{DEFAULT_NSA_W}x1"
+
+#: Keys `simlr` accepts through ``**opt_params``: the optimizer
+#: hyperparameters, minus the two the optimizer takes from `simlr`'s own named
+#: parameters (forwarding them twice would let the two disagree).
+SIMLR_OPTIMIZER_KEYS = frozenset(set(SIMLR_OPTIMIZER_DEFAULTS) - {"positivity", "nsa_w"})
+
+#: Names that existed in earlier releases. Passing one raises `TypeError`
+#: naming the replacement; nothing is aliased.
+SIMLR_RENAMED_PARAMETERS = {
+    "epochs": "iterations",
+    "init_seed": "random_state",
+    "sparseness_quantile": "sparseness",
+    "sparsity": "sparseness",
+    "use_nsa": "removed (it had no effect); use constraint='none' to fit without a projection",
+    "beta": "the RMSProp decay is now 'rmsprop_beta'",
+}
+
+#: Initializers that draw random numbers and therefore consume `random_state`.
+RANDOM_INITIALIZATIONS = ("random", "perturbed_pca", "best_of_n")
 
 
 def parse_constraint(constraint_str: str) -> Dict[str, Any]:
@@ -552,21 +572,19 @@ def _ica_basis_for_view(x: torch.Tensor, k: int, positivity: str = "either",
             v_svd[:, j] *= -1.0
 
     if k_eff > 1 and v_svd.shape[0] > k_eff:
-        try:
-            from sklearn.decomposition import FastICA
-            ica = FastICA(
-                n_components=k_eff,
-                algorithm="parallel",
-                whiten="unit-variance",
-                fun="logcosh",
-                w_init=np.eye(k_eff, dtype=np.float64),
-                max_iter=500,
-                tol=1e-5,
-                random_state=0,
-            )
-            v_ica = ica.fit_transform(v_svd)
-        except Exception:
-            v_ica = v_svd
+        # A FastICA failure propagates; it used to return the SVD basis under the name 'ica'.
+        from sklearn.decomposition import FastICA
+        ica = FastICA(
+            n_components=k_eff,
+            algorithm="parallel",
+            whiten="unit-variance",
+            fun="logcosh",
+            w_init=np.eye(k_eff, dtype=np.float64),
+            max_iter=500,
+            tol=1e-5,
+            random_state=0,
+        )
+        v_ica = ica.fit_transform(v_svd)
     else:
         v_ica = v_svd
 
@@ -931,23 +949,18 @@ def _nonnegative_basis_from_data(fit_from_data, x: torch.Tensor, k: int,
     """
     reference = torch.ones(x.shape[1], k, dtype=torch.float64)
     init_mode = "varimax" if varimax else "pca_clamp"
+    # A backend failure propagates; it used to return None and the caller silently used ba_svd.
     try:
+        result = fit_from_data(x.detach().double(), k=k, w=float(w),
+                               init=init_mode, sparseness=sparseness)
+    except TypeError:
         try:
             result = fit_from_data(x.detach().double(), k=k, w=float(w),
-                                   init=init_mode, sparseness=sparseness)
+                                   sparseness=sparseness)
         except TypeError:
-            try:
-                result = fit_from_data(x.detach().double(), k=k, w=float(w),
-                                       sparseness=sparseness)
-            except TypeError:
-                result = fit_from_data(x.detach().double(), k=k, w=float(w))
-    except Exception:
-        return None
-    candidate = None
-    if hasattr(result, 'get'):
-        candidate = result.get('V') or result.get('Y')
-    if candidate is None:
-        candidate = getattr(result, 'V', None) or getattr(result, 'Y', None)
+            result = fit_from_data(x.detach().double(), k=k, w=float(w))
+    from .nsa_backend import result_matrix
+    candidate = result_matrix(result)
     if candidate is None:
         return None
     candidate = torch.as_tensor(candidate, dtype=torch.float64)
@@ -959,7 +972,7 @@ def _nonnegative_basis_from_data(fit_from_data, x: torch.Tensor, k: int,
 
 def nsa_contrast_transform(x: Union[torch.Tensor, np.ndarray],
                            k: int = 6,
-                           w: float = 0.5,
+                           w: float = DEFAULT_NSA_W,
                            consolidate: bool = True,
                            optimizer: str = "torch_lbfgs",
                            max_iter: Optional[int] = None,
@@ -1018,7 +1031,7 @@ def nsa_contrast_transform(x: Union[torch.Tensor, np.ndarray],
 
 def nsa_nonnegative_transform(x: Union[torch.Tensor, np.ndarray],
                               k: int = 6,
-                              w: float = 0.5,
+                              w: float = DEFAULT_NSA_W,
                               optimizer: str = "torch_lbfgs",
                               max_iter: Optional[int] = None,
                               tol: Optional[float] = None) -> Dict[str, Any]:
@@ -1162,7 +1175,7 @@ SUPPORTED_ENERGY_TYPES = frozenset({
 })
 
 
-def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, energy_type: str = "regression", lambda_val: float = 0.0, prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
+def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, energy_type: str = DEFAULT_ENERGY_TYPE, lambda_val: float = 0.0, prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
     """
     Compute the energy (loss) for a single modality in SiMLR.
 
@@ -1178,8 +1191,8 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
         Input data matrix (N x P) for the current modality.
     u : torch.Tensor
         Shared latent space (N x K).
-    energy_type : str, default="regression"
-        The objective function to use. Options:
+    energy_type : str, default=DEFAULT_ENERGY_TYPE ("acc")
+        Similarity term (`pysimlr.defaults`, `similarity.SIMILARITY`).
         - 'regression': Reconstruction MSE (||X - UV^T||^2).
         - 'acc': Maximum absolute covariance (canonical correlation).
         - 'logcosh', 'exp', 'gauss', 'kurtosis': ICA-based negentropy.
@@ -1218,7 +1231,7 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
     return similarity_energy(name, x @ v, u, SimilarityContext(x=x, v=v))
 
 def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, 
-                             energy_type: str = "regression", lambda_val: float = 0.0, 
+                             energy_type: str = DEFAULT_ENERGY_TYPE, lambda_val: float = 0.0, 
                              prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
     """
     Calculate the gradient of the SiMLR energy function for a single view.
@@ -1231,8 +1244,8 @@ def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor,
         The view-specific data matrix (n x p_i).
     u : torch.Tensor
         The shared consensus latent matrix (n x k).
-    energy_type : str, default="regression"
-        The type of energy function used for gradient calculation.
+    energy_type : str, default=DEFAULT_ENERGY_TYPE ("acc")
+        Similarity term (`pysimlr.defaults`, `similarity.SIMILARITY`).
         Options: "regression", "acc", "logcosh", "exp", "gauss", "kurtosis", "dat".
     lambda_val : float, default=0.0
         Regularization parameter for "dat" (Directed Alignment Transfer) energy.
@@ -1297,11 +1310,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           k: int,
           iterations: int = 100,
           initialization_type: str = "pca",
-          init_seed: Optional[int] = None,
+          random_state: Optional[int] = None,
           negentropy_weight: float = 0.0,
           nonneg_u: bool = False,
           optimizer_type: str = "armijo_gradient",
-          energy_type: str = "acc",
+          energy_type: str = DEFAULT_ENERGY_TYPE,
           constraint: str = DEFAULT_CONSTRAINT,
           mixing_algorithm: str = "newton",
           positivity: str = "either",
@@ -1311,7 +1324,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           orthogonalize_u: bool = False,
           topology: str = "star",
           path_graph: Optional[Dict[int, List[int]]] = None,
-          scale_list: List[str] = ["centerAndScale", "np"],
+          scale_list: Optional[List[str]] = None,
           consolidate: bool = False,
           nsa_w: Optional[float] = None,
           sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
@@ -1320,6 +1333,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           mai_metric: str = "procrustes_r2",
           use_rank_mai: bool = False,
           tol: float = 1e-6,
+          patience: Optional[int] = None,
           verbose: bool = False,
           **opt_params) -> Dict[str, Any]:
     """
@@ -1437,11 +1451,16 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         ``"best_of_n"``. See `initialize_simlr` for what each does and why;
         only ``"pca"`` and ``"random"`` have any measurement behind them here
         -- the rest are untested strategies, not benchmarked replacements.
-    init_seed : int, optional
-        Seed for a random start. Supplying it selects ``"random"``
-        automatically, since a seed handed to the deterministic initialiser
-        would silently have no effect. Drawn from a local `torch.Generator`,
-        so the global RNG stream is untouched.
+    random_state : int, optional
+        Seed for the initializers that draw random numbers (``"random"``,
+        ``"perturbed_pca"``, ``"best_of_n"``), through a local
+        `torch.Generator`, so the global RNG stream is untouched. It does not
+        change `initialization_type`: under the deterministic ``"pca"`` start
+        it has no effect, and ``result["random_state"]`` is ``None``. When it
+        is ``None`` and the initializer needs randomness, one seed is drawn
+        from the global torch RNG and returned in ``result["random_state"]``.
+        (Was ``init_seed``, which silently switched ``"pca"`` to ``"random"``,
+        so seeding every method in a benchmark changed this one's algorithm.)
     optimizer_type : str, default="armijo_gradient"
         The optimizer to use. This default has changed twice (`lars` ->
         `hybrid_adam` -> `armijo_gradient`) without a controlled ablation ever
@@ -1494,14 +1513,22 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         The consensus topology ("star", "loo", "graph").
     path_graph : Dict[int, List[int]], optional
         Adjacency list for "graph" topology.
-    scale_list : List[str], default=["centerAndScale", "np"]
-        Preprocessing methods to apply to input data.
+    scale_list : List[str], optional
+        Preprocessing methods to apply to input data. ``None`` means
+        ``["centerAndScale", "np"]``.
     tol : float, default=1e-6
         Convergence tolerance for the optimization.
+    patience : int, optional
+        Iterations without relative improvement above `tol` before stopping.
+        ``None`` means `utils.CONVERGENCE_PATIENCE`.
     verbose : bool, default=False
         Whether to print convergence details.
     **opt_params : dict
-        Additional parameters to pass to the optimizer or constraint function.
+        Optimizer hyperparameters: the keys of
+        `optimizers.SIMLR_OPTIMIZER_DEFAULTS` except ``positivity`` and
+        ``nsa_w``, which come from this function's own parameters, plus
+        ``learning_rate`` (float or ``"auto"``). Any other key raises
+        `TypeError`.
 
     Returns
     -------
@@ -1524,45 +1551,23 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     TypeError
         If the inputs are not valid data structures.
     """
-    # Budget aliasing, so one caller can drive every method:
-    #     for alg in algorithms: evaluate(run(alg, data, budget))
-    # `simlr` counts `iterations` and the deep models count `epochs`. They are
-    # not the same unit, but they occupy the same slot -- "how long may this
-    # run" -- and requiring the caller to know which name each method uses is
-    # the one thing that stopped the entry points being interchangeable.
-    if "epochs" in opt_params:
-        iterations = int(opt_params.pop("epochs"))
-
-    # Removed parameters. Both were accepted, documented and swept, and
-    # neither did anything:
-    #
-    #   sparseness_quantile (and its aliases `sparsity` / `sparseness`)
-    #       Sparsity is a consequence of the NSA-Flow weight `w`. The value was
-    #       forwarded to `simlr_sparseness`, which has ignored it (with a
-    #       DeprecationWarning) since the projection became the single
-    #       constraint operator.
-    #   use_nsa
-    #       Reached `SIMLR_OPTIMIZER_DEFAULTS` and stopped -- no optimizer
-    #       reads it -- so `use_nsa=False` returned a bit-identical fit for
-    #       every optimizer, including `nsa_flow`. There is nothing here to
-    #       switch off: `simlr_sparseness` *is* the projection and has no
-    #       non-NSA fallback by design.
-    #
-    # They are intercepted rather than left to fall into `**opt_params`, where
-    # they would reach `create_optimizer` and draw a misleading "unrecognised
-    # optimizer parameter" warning instead of naming the real replacement.
-    for _alias in ("sparseness_quantile", "sparsity"):
-        if _alias in opt_params:
-            sparseness = opt_params.pop(_alias)
-
-    for _gone, _use in (("use_nsa", "constraint='none' to fit without a projection"),):
-        if _gone in opt_params:
-            opt_params.pop(_gone)
-            warnings.warn(
-                f"simlr: {_gone!r} has been removed because it had no effect. "
-                f"Use {_use}.",
-                DeprecationWarning, stacklevel=2,
-            )
+    # Keyword validation. Anything not a named parameter arrives here, and the
+    # only legitimate content is optimizer hyperparameters. Unknown keys used
+    # to be forwarded to the optimizer and merely warned about, so a typo or a
+    # parameter meant for a different method changed nothing and the fit
+    # still reported success. Renamed parameters raise with the new name.
+    if scale_list is None:
+        scale_list = ["centerAndScale", "np"]
+    _bad = sorted(set(opt_params) - set(SIMLR_OPTIMIZER_KEYS))
+    if _bad:
+        _hints = [f"{kk!r} -> {SIMLR_RENAMED_PARAMETERS[kk]}"
+                  for kk in _bad if kk in SIMLR_RENAMED_PARAMETERS]
+        raise TypeError(
+            f"simlr() got unexpected keyword argument(s) {_bad}."
+            + (f" Renamed or removed: {'; '.join(_hints)}." if _hints else "")
+            + f" Optimizer hyperparameters accepted through **opt_params: "
+            f"{sorted(SIMLR_OPTIMIZER_KEYS)}."
+        )
 
     # `learning_rate="auto"` resolves here, before anything is built, so the
     # probes are ordinary `simlr` calls with an explicit float -- the probe is
@@ -1577,6 +1582,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # short fit ended within ~0.4% of its initialisation and no energy,
     # constraint or regulariser could change the answer.
     opt_params.setdefault("learning_rate", "auto")
+    from .optimizers import LEARNING_RATE_FREE_OPTIMIZERS
+    if optimizer_type in LEARNING_RATE_FREE_OPTIMIZERS and opt_params["learning_rate"] == "auto":
+        # Nothing to tune: these optimizers never read the learning rate.
+        opt_params["learning_rate"] = SIMLR_OPTIMIZER_DEFAULTS["learning_rate"]
     if isinstance(opt_params.get("learning_rate", None), str):
         if opt_params["learning_rate"] != "auto":
             raise ValueError(
@@ -1652,15 +1661,17 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         
     n_modalities = len(torch_mats)
     orig_dtype = torch_mats[0].dtype
-    # `init_seed` implies a random start: passing a seed to a deterministic
-    # initialiser and getting the same basis back is the trap this avoids.
-    if init_seed is not None and initialization_type == "pca":
-        initialization_type = "random"
+    # `random_state` seeds only the initializers that draw random numbers. It
+    # used to switch "pca" to "random" as a side effect, so a benchmark that
+    # seeded every method silently changed this method's algorithm.
     init_gen = None
-    if initialization_type in ("random", "perturbed_pca", "best_of_n"):
+    if initialization_type in RANDOM_INITIALIZATIONS:
+        if random_state is None:
+            random_state = int(torch.randint(0, 2**31 - 1, (1,)).item())
         init_gen = torch.Generator()
-        if init_seed is not None:
-            init_gen.manual_seed(int(init_seed))
+        init_gen.manual_seed(int(random_state))
+    else:
+        random_state = None
     v_mats = initialize_simlr(torch_mats, k, positivity=positivity,
                               initialization_type=initialization_type,
                               generator=init_gen,
@@ -1680,7 +1691,12 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # NSA_DEFAULT_W made those two requests apply a half-strength
         # constraint instead of none.
         nsa_w = parse_constraint(constraint)["weight"]
-    opt_params.setdefault("nsa_w", nsa_w)
+    # The optimizer reads both from its own parameter dict. `positivity` was
+    # never forwarded, so the bound-constrained `nsa_lbfgsb` ran without its
+    # lower bound under positivity="positive" (verified 2026-11-01: the
+    # optimizer saw positivity='either', nonneg=False).
+    opt_params["nsa_w"] = nsa_w
+    opt_params["positivity"] = positivity
     optimizer = create_optimizer(optimizer_type, v_mats, **opt_params)
     
     constraint_info = parse_constraint(constraint)
@@ -1740,8 +1756,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     n_degenerate_iterates = 0
     stop_reason = "max_iter"
     from .utils import ConvergenceMonitor, CONVERGENCE_PATIENCE
-    monitor = ConvergenceMonitor(tol=tol, patience=int(opt_params.pop(
-        "patience", CONVERGENCE_PATIENCE)), max_steps=iterations)
+    monitor = ConvergenceMonitor(
+        tol=tol,
+        patience=int(CONVERGENCE_PATIENCE if patience is None else patience),
+        max_steps=iterations)
     certificate = None
     prev_total_energy = float('inf')
     prev_grad_map = float('inf')
@@ -1839,23 +1857,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 if u_loo_norm > 1e-8:
                     u_loo = u_loo / u_loo_norm
                     Z = norm_projs[idx_p]
-                    cross = Z.t() @ u_loo
-                    try:
-                        _, s_svd, _ = torch.linalg.svd(cross, full_matrices=False)
-                        if mai_metric in ("procrustes_r2", "procrustes_r2_sharp"):
-                            r2 = float(s_svd.sum().item()) ** 2
-                            if mai_metric == "procrustes_r2_sharp":
-                                _, s_lat, _ = torch.linalg.svd(Z, full_matrices=False)
-                                r2 = r2 * float((s_lat[0] / (s_lat.sum() + 1e-8)).item())
-                            mais.append(r2)
-                        elif mai_metric == "cca":
-                            mais.append(float(s_svd.mean().item()))
-                        elif mai_metric == "rvcoef":
-                            num = torch.norm(cross, p='fro') ** 2
-                            den = torch.norm(Z.t() @ Z, p='fro') * torch.norm(u_loo.t() @ u_loo, p='fro')
-                            mais.append(float((num / (den + 1e-8)).item()))
-                    except Exception:
-                        mais.append(0.0)
+                    mais.append(mai_score_or_zero(Z, u_loo, mai_metric, idx_p))
                 else:
                     mais.append(0.0)
             mai_t = torch.tensor(mais, dtype=orig_dtype)
@@ -1959,11 +1961,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             total_grad = smooth_gradient_fn(v_mats[i])
             gm_E = None
             if _grad_mapping is not None and raw_grad_holder[0] is not None:
-                try:
-                    gm_E = float(_grad_mapping(v_mats[i], raw_grad_holder[0],
-                                               _cert_proj))
-                except Exception:
-                    gm_E = None
+                gm_E = float(_grad_mapping(v_mats[i], raw_grad_holder[0], _cert_proj))
             gm_i = prev_resid[i]
             if not is_warm_start and gm_i is not None and gm_i <= tol and it > 0:
                 cert_terms.append(gm_i)
@@ -2096,6 +2094,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         projections, mixing_algorithm, k, orthogonalize_u, topology, path_graph)
     consensus_stats = _capture_consensus_stats(
         projections, u_raw, mixing_algorithm, consensus_anchor, topology)
+    # The general frozen map covers what the star statistics do not
+    # ("loo"/"graph" topologies, an anchorless SVD/PCA/ICA consensus); without
+    # it those predictions were re-derived from each test batch.
+    from .consensus import capture_consensus_map
+    consensus_map = capture_consensus_map(projections, u_raw)
     
     v_summaries = [orthogonality_summary(v) for v in v_mats]
     
@@ -2104,15 +2107,15 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     w_mats = []
     for i, x in enumerate(torch_mats):
         u_i = u[i] if isinstance(u, list) else u
-        try:
-            u_pinv = torch.linalg.pinv(u_i)
-            w_mats.append(u_pinv @ x)
-        except Exception:
-            # Fallback if pinv fails
-            w_mats.append(torch.zeros(k, x.shape[1], dtype=u_i.dtype, device=u_i.device))
+        # A pinv failure (non-finite u) propagates; it used to store W = 0, so
+        # every later reconstruction was zero without any sign of failure.
+        w_mats.append(torch.linalg.pinv(u_i) @ x)
 
     return {
-        "u": u, "v": v_mats, "w": w_mats, "energy": energy_history, 
+        "u": u, "v": v_mats, "w": w_mats, "energy": energy_history,
+        # Per-view first-layer projections of the (preprocessed) training
+        # data, the same quantity `predict_simlr` returns as "latents".
+        "latents": [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)],
         "normalizing_weights": normalizing_weights, 
         "orth_weights": orth_weights, "domain_weights": domain_weights, 
         "converged_iter": converged_iter,
@@ -2132,6 +2135,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "v_retraction": retraction_diags,
         "consensus_anchor": consensus_anchor,
         "consensus_stats": consensus_stats,
+        "consensus_map": consensus_map,
         "mixing_algorithm": mixing_algorithm,
         "orthogonalize_u": orthogonalize_u,
         "nonneg_u": bool(nonneg_u),
@@ -2142,6 +2146,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "provenance_list": provenance_list,
         "consolidated": consolidate,
         "sparseness": sparseness,
+        "random_state": random_state,
+        "initialization_type": initialization_type,
         "modality_weights": mai_mod_weights.detach().cpu().numpy(),
         "mai": mai_ema.detach().cpu().numpy(),
         **basis_rank_report(v_mats, k),
@@ -2318,13 +2324,11 @@ def _capture_consensus_anchor(projections: List[torch.Tensor],
     Returns None rather than raising if no anchor is available, since the fit
     itself does not depend on one.
     """
-    try:
-        result = compute_shared_consensus(
-            projections, mixing_algorithm=mixing_algorithm, k=k,
-            orthogonalize=orthogonalize_u, training=True,
-            topology=topology, path_graph=path_graph)
-    except Exception:
-        return None
+    # A failure propagates: the same consensus just succeeded during the fit.
+    result = compute_shared_consensus(
+        projections, mixing_algorithm=mixing_algorithm, k=k,
+        orthogonalize=orthogonalize_u, training=True,
+        topology=topology, path_graph=path_graph)
     if not isinstance(result, tuple) or len(result) != 2:
         return None
     anchor = result[1]
@@ -2339,44 +2343,42 @@ def _capture_consensus_stats(projections: List[torch.Tensor],
     """Capture training moments so out-of-sample prediction is batch-size (N=1) invariant."""
     if topology != "star" or isinstance(u_raw, list) or not projections:
         return None
-    try:
-        from .utils import align_column_signs
-        proj_rms = []
-        norm_projs = []
-        for p in projections:
-            p_safe = torch.nan_to_num(p.detach().double(), nan=0.0, posinf=0.0, neginf=0.0)
-            rms = float(torch.norm(p_safe, p="fro") / np.sqrt(max(1, p_safe.shape[0])))
-            proj_rms.append(rms)
-            norm_projs.append(p_safe / (rms + 1e-8) if rms > 1e-6 else torch.zeros_like(p_safe))
-        if mixing_algorithm in ("svd", "pca", "ica"):
-            if anchor is None:
-                return None
-            u_pre = torch.cat(norm_projs, dim=1) @ anchor.detach().double()
-            view_signs = None
-        else:
-            aligned = align_column_signs(norm_projs)
-            view_signs = []
-            for p_orig, p_al in zip(norm_projs, aligned):
-                dots = torch.sum(p_orig * p_al, dim=0, keepdim=True)
-                view_signs.append(torch.where(dots < 0.0, -torch.ones_like(dots), torch.ones_like(dots)))
-            u_pre = torch.mean(torch.stack(aligned), dim=0)
-        mu_k = u_pre.mean(dim=0, keepdim=True)
-        u_pre_c = u_pre - mu_k
-        lstsq_res = torch.linalg.lstsq(u_pre_c, u_raw.detach().double())
-        r_k = lstsq_res.solution
-        sv = torch.linalg.svdvals(u_pre_c)
-        cond = float((sv[0] / sv[-1].clamp_min(1e-15)).item()) if sv.numel() > 0 else 1.0
-        rank = int(lstsq_res.rank.item()) if lstsq_res.rank.numel() else int((sv > 1e-10 * sv[:1]).sum().item())
-        return {
-            "proj_rms": proj_rms,
-            "view_signs": view_signs,
-            "mu_k": mu_k,
-            "r_k": r_k,
-            "rank": rank,
-            "condition_number": cond,
-        }
-    except Exception:
-        return None
+    # A failure propagates; returning None made prediction fall back to the batch-dependent consensus.
+    from .utils import align_column_signs
+    proj_rms = []
+    norm_projs = []
+    for p in projections:
+        p_safe = torch.nan_to_num(p.detach().double(), nan=0.0, posinf=0.0, neginf=0.0)
+        rms = float(torch.norm(p_safe, p="fro") / np.sqrt(max(1, p_safe.shape[0])))
+        proj_rms.append(rms)
+        norm_projs.append(p_safe / (rms + 1e-8) if rms > 1e-6 else torch.zeros_like(p_safe))
+    if mixing_algorithm in ("svd", "pca", "ica"):
+        if anchor is None:
+            return None
+        u_pre = torch.cat(norm_projs, dim=1) @ anchor.detach().double()
+        view_signs = None
+    else:
+        aligned = align_column_signs(norm_projs)
+        view_signs = []
+        for p_orig, p_al in zip(norm_projs, aligned):
+            dots = torch.sum(p_orig * p_al, dim=0, keepdim=True)
+            view_signs.append(torch.where(dots < 0.0, -torch.ones_like(dots), torch.ones_like(dots)))
+        u_pre = torch.mean(torch.stack(aligned), dim=0)
+    mu_k = u_pre.mean(dim=0, keepdim=True)
+    u_pre_c = u_pre - mu_k
+    lstsq_res = torch.linalg.lstsq(u_pre_c, u_raw.detach().double())
+    r_k = lstsq_res.solution
+    sv = torch.linalg.svdvals(u_pre_c)
+    cond = float((sv[0] / sv[-1].clamp_min(1e-15)).item()) if sv.numel() > 0 else 1.0
+    rank = int(lstsq_res.rank.item()) if lstsq_res.rank.numel() else int((sv > 1e-10 * sv[:1]).sum().item())
+    return {
+        "proj_rms": proj_rms,
+        "view_signs": view_signs,
+        "mu_k": mu_k,
+        "r_k": r_k,
+        "rank": rank,
+        "condition_number": cond,
+    }
 
 
 def _apply_consensus_stats(projections: List[torch.Tensor],
@@ -2384,29 +2386,27 @@ def _apply_consensus_stats(projections: List[torch.Tensor],
                            mixing_algorithm: str,
                            anchor: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
     """Apply captured training consensus statistics row-wise (invariant to N_test)."""
-    try:
-        dtype = projections[0].dtype
-        device = projections[0].device
-        proj_rms = stats["proj_rms"]
-        norm_projs = []
-        for p, rms in zip(projections, proj_rms):
-            p_safe = torch.nan_to_num(p.double(), nan=0.0, posinf=0.0, neginf=0.0)
-            norm_projs.append(p_safe / (rms + 1e-8) if rms > 1e-6 else torch.zeros_like(p_safe))
-        if mixing_algorithm in ("svd", "pca", "ica"):
-            if anchor is None:
-                return None
-            u_pre = torch.cat(norm_projs, dim=1) @ anchor.to(device=device, dtype=torch.float64)
-        else:
-            view_signs = stats.get("view_signs")
-            if not view_signs:
-                return None
-            aligned = [p * s.to(device=device, dtype=torch.float64) for p, s in zip(norm_projs, view_signs)]
-            u_pre = torch.mean(torch.stack(aligned), dim=0)
-        mu_k = stats["mu_k"].to(device=device, dtype=torch.float64)
-        r_k = stats["r_k"].to(device=device, dtype=torch.float64)
-        return ((u_pre - mu_k) @ r_k).to(dtype=dtype)
-    except Exception:
-        return None
+    # A failure propagates; returning None made prediction fall back to the batch-dependent consensus.
+    dtype = projections[0].dtype
+    device = projections[0].device
+    proj_rms = stats["proj_rms"]
+    norm_projs = []
+    for p, rms in zip(projections, proj_rms):
+        p_safe = torch.nan_to_num(p.double(), nan=0.0, posinf=0.0, neginf=0.0)
+        norm_projs.append(p_safe / (rms + 1e-8) if rms > 1e-6 else torch.zeros_like(p_safe))
+    if mixing_algorithm in ("svd", "pca", "ica"):
+        if anchor is None:
+            return None
+        u_pre = torch.cat(norm_projs, dim=1) @ anchor.to(device=device, dtype=torch.float64)
+    else:
+        view_signs = stats.get("view_signs")
+        if not view_signs:
+            return None
+        aligned = [p * s.to(device=device, dtype=torch.float64) for p, s in zip(norm_projs, view_signs)]
+        u_pre = torch.mean(torch.stack(aligned), dim=0)
+    mu_k = stats["mu_k"].to(device=device, dtype=torch.float64)
+    r_k = stats["r_k"].to(device=device, dtype=torch.float64)
+    return ((u_pre - mu_k) @ r_k).to(dtype=dtype)
 
 
 def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
@@ -2486,7 +2486,12 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     u_new = None
     if stats is not None and (mixing_alg not in ("svd", "pca", "ica") or anchor is not None):
         u_new = _apply_consensus_stats(projections, stats, mixing_alg, anchor)
+    if u_new is None and simlr_result.get('consensus_map') is not None:
+        from .consensus import apply_consensus_map
+        u_new = apply_consensus_map(projections, simlr_result['consensus_map'])
     if u_new is None:
+        # Results from before 0.3.0 carry neither statistics nor a map; the
+        # consensus is then re-derived from this batch and depends on it.
         u_new = compute_shared_consensus(projections, mixing_algorithm=mixing_alg, k=k, orthogonalize=orthogonalize_u, training=False, anchor=anchor, topology=topology, path_graph=path_graph)
     if simlr_result.get('nonneg_u', False):
         u_new = _nonneg_consensus(u_new)
@@ -2709,7 +2714,7 @@ def estimate_rank(data_matrices: List[Union[torch.Tensor, np.ndarray]], n_permut
             optimal_k = np.argmax(y_norm - x_vals) + 1
     return int(optimal_k)
 
-def decompose_energy(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr_result: Dict[str, Any], energy_type: str = "acc") -> Dict[str, Any]:
+def decompose_energy(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr_result: Dict[str, Any], energy_type: str = DEFAULT_ENERGY_TYPE) -> Dict[str, Any]:
     """
     Decompose the SiMLR objective energy across modalities and features.
 

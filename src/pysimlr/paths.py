@@ -5,6 +5,7 @@ from .simlr import initialize_simlr
 from .optimizers import create_optimizer
 from .sparsification import orthogonalize_and_q_sparsify
 from .utils import adjusted_rvcoef
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
 def _to_consensus_tensor(u: Union[torch.Tensor, List[torch.Tensor]]) -> torch.Tensor:
     """
     Ensure consensus representation is returned as a single 2D tensor (N x K).
@@ -22,7 +23,7 @@ def simlr_path(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                path_model: List[List[int]],
                iterations: int = 20,
                optimizer_type: str = "hybrid_adam",
-               energy_type: str = "regression",
+               energy_type: str = DEFAULT_ENERGY_TYPE,
                verbose: bool = False,
                **kwargs) -> Dict[str, Any]:
     """
@@ -46,8 +47,8 @@ def simlr_path(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         Number of optimization iterations per path step.
     optimizer_type : str, default="hybrid_adam"
         The optimizer to use (e.g., "hybrid_adam", "nsa_flow").
-    energy_type : str, default="regression"
-        The similarity/reconstruction energy objective.
+    energy_type : str, default=DEFAULT_ENERGY_TYPE ("acc")
+        Similarity term (`pysimlr.defaults`, `similarity.SIMILARITY`).
     verbose : bool, default=False
         Whether to print progress.
     **kwargs

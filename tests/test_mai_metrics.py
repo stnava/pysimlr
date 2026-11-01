@@ -106,9 +106,9 @@ def test_spectral_sharpness_isotropic_noise():
 def test_mai_metric_propagation():
     n, d, k = 50, 10, 2
     xs = [torch.randn(n, d) for _ in range(3)]
-    res_lend = lend_simr(xs, k=k, epochs=1, dynamic_weights=True, mai_metric='cca', warmup_epochs=0)
+    res_lend = lend_simr(xs, k=k, iterations=1, dynamic_weights=True, mai_metric='cca', warmup_epochs=0)
     assert res_lend['model'].mai_metric == 'cca'
-    res_ned = ned_simr(xs, k=k, epochs=1, dynamic_weights=True, mai_metric='rvcoef', warmup_epochs=0)
+    res_ned = ned_simr(xs, k=k, iterations=1, dynamic_weights=True, mai_metric='rvcoef', warmup_epochs=0)
     assert res_ned['model'].mai_metric == 'rvcoef'
 
 def test_update_mai_edge_cases():

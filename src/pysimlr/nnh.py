@@ -3,9 +3,11 @@ import pandas as pd
 import numpy as np
 import re
 import copy
+import warnings
 from typing import List, Optional, Union, Dict, Any, Tuple
 from .simlr import simlr, initialize_simlr
 from .utils import multigrep
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
 
 def _get_names_from_dataframe(
     x: Union[str, List[str]],
@@ -299,10 +301,10 @@ def nnh_update_residuals(mat: torch.Tensor,
 def nnh_embed(blaster: pd.DataFrame,
               select_training_boolean: Optional[np.ndarray] = None,
               connect_cog: Optional[List[str]] = None,
-              energy: str = "acc",
+              energy: str = DEFAULT_ENERGY_TYPE,
               nsimlr: int = 5,
-              constraint: str = "ortho",
-              covariates: List[str] = [],
+              constraint: Optional[str] = None,
+              covariates: Optional[List[str]] = None,
               do_asym: int = 1,
               resnet_grade_thresh: float = 1.02,
               use_flow: bool = False,
@@ -329,9 +331,14 @@ def nnh_embed(blaster: pd.DataFrame,
         Energy function type for SiMLR.
     nsimlr : int, default=5
         The rank (K) of the latent embedding.
-    constraint : str, default="ortho"
-        Orthogonality constraint for SiMLR.
-    covariates : List[str], default=[]
+    constraint : str, optional
+        Constraint string for `simlr` (e.g. ``"orthox0.5x1"``). ``None`` uses
+        `simlr`'s default. It was documented but never forwarded, so every
+        call ran `simlr`'s default whatever was passed. With ``use_flow=True``
+        it selects the flow encoder's ``retraction_type`` (``"polar"`` in the
+        string -> ``"soft_polar"``, otherwise ``"soft_ns"``) unless
+        ``retraction_type`` is given, as before.
+    covariates : List[str], optional
         Columns to use as covariates for residualization (e.g., 'age', 'sex').
     do_asym : int, default=1
         Whether to compute asymmetry features (left - right).
@@ -344,7 +351,8 @@ def nnh_embed(blaster: pd.DataFrame,
     varimax : bool or None, default=None
         Forwarded to `simlr` or `flow_simr_v`; see `initialize_simlr`.
     **simlr_kwargs : Dict[str, Any]
-        Additional arguments passed to the underlying SiMLR / Flow-SiMR function.
+        Further parameters for `pysimlr.fit`; one the selected method cannot
+        use is recorded in ``result["parameters"]["ignored"]``.
 
     Returns
     -------
@@ -425,80 +433,31 @@ def nnh_embed(blaster: pd.DataFrame,
         for name in mats:
             mats[name] = nnh_update_residuals(mats[name], blaster_sub, covariates)
             
-    # Step 5: Run SIMLR or Flow-SiMR
+    # Step 5: Run SIMLR or Flow-SiMR through the central interface.
+    from .api import fit as _fit
     mat_list = list(mats.values())
-    
+    method = "flow_v" if use_flow else "simlr"
+    fit_kwargs = dict(simlr_kwargs)
+    fit_kwargs["energy_type"] = energy
+    fit_kwargs["varimax"] = varimax
     if use_flow:
-        from .flows import flow_simr_v
-        import inspect
-        
-        flow_kwargs = simlr_kwargs.copy()
-        flow_kwargs['varimax'] = varimax
-        
-        # Map iterations to epochs
-        if 'iterations' in flow_kwargs and 'epochs' not in flow_kwargs:
-            flow_kwargs['epochs'] = flow_kwargs.pop('iterations')
-            
-        # Map energy_type
-        if 'energy_type' not in flow_kwargs:
-            if energy == "acc":
-                flow_kwargs['energy_type'] = 'regression'
-            else:
-                flow_kwargs['energy_type'] = energy
-                
-        # Map retraction_type from constraint
-        if 'retraction_type' not in flow_kwargs:
-            if "polar" in constraint:
-                flow_kwargs['retraction_type'] = "soft_polar"
-            elif "ns" in constraint or constraint in ["ortho", "nsaflow"]:
-                flow_kwargs['retraction_type'] = "soft_ns"
-            else:
-                flow_kwargs['retraction_type'] = "soft_polar"
-                
-        # Map positivity (defaults to 'either' to align with linear simlr defaults)
-        if 'positivity' not in flow_kwargs:
-            flow_kwargs['positivity'] = 'either'
-            
-        # Filter valid parameters for flow_simr_v dynamically
-        flow_sig = inspect.signature(flow_simr_v)
-        valid_flow_params = set(flow_sig.parameters.keys())
-        flow_kwargs = {k: v for k, v in flow_kwargs.items() if k in valid_flow_params}
-        
-        if verbose:
-            print(f"Running Flow-SiMR with k={nsimlr}...")
-            
-        result = flow_simr_v(
-            data_matrices=mat_list,
-            k=nsimlr,
-            verbose=verbose,
-            **flow_kwargs
-        )
-        
-        # Ensure 'w' matrix is present for output compatibility
-        if 'w' not in result:
-            u_val = result["u"]
-            w_mats = []
-            for x in mat_list:
-                try:
-                    u_pinv = torch.linalg.pinv(u_val)
-                    w_mats.append(u_pinv @ x)
-                except Exception:
-                    w_mats.append(torch.zeros(nsimlr, x.shape[1], dtype=u_val.dtype, device=u_val.device))
-            result["w"] = w_mats
-            
-    else:
-        if verbose:
-            print(f"Running SIMLR with k={nsimlr}...")
-            
-        result = simlr(
-            data_matrices=mat_list,
-            k=nsimlr,
-            energy_type=energy,
-            verbose=verbose,
-            varimax=varimax,
-            **simlr_kwargs
-        )
-    
+        # nnh's own convention: the constraint string picks the flow encoder's
+        # retraction. `energy` is passed as given; this path used to replace
+        # "acc" with "regression", so the flow model optimised a different
+        # objective from the one requested.
+        if "retraction_type" not in fit_kwargs:
+            c = "ortho" if constraint is None else constraint
+            fit_kwargs["retraction_type"] = "soft_polar" if "polar" in c else "soft_ns"
+    elif constraint is not None:
+        fit_kwargs["constraint"] = constraint
+    if verbose:
+        print(f"Running {method} with k={nsimlr}...")
+    result = _fit(method, mat_list, nsimlr, verbose=verbose, **fit_kwargs)
+    if "w" not in result:
+        # Linear reconstruction maps for output compatibility with `simlr`.
+        u_val = result["u"]
+        result["w"] = [torch.linalg.pinv(u_val) @ x for x in mat_list]
+
     # Add metadata
     result["modality_names"] = list(mats.keys())
     result["feature_names"] = idplist
@@ -864,9 +823,11 @@ def _compute_recommended_k(M: np.ndarray, method: str = "cumulative", cumulative
         
     try:
         _, S, _ = np.linalg.svd(M, full_matrices=False)
-        sdsq = S**2
-    except Exception:
+    except np.linalg.LinAlgError as err:
+        warnings.warn(f"SVD did not converge when choosing k ({err}); using min_k={min_k_eff}.",
+                      RuntimeWarning, stacklevel=2)
         return min_k_eff
+    sdsq = S**2
         
     if len(sdsq) < 1 or np.sum(sdsq) <= 0:
         return min_k_eff
@@ -990,7 +951,7 @@ def extend_simlr_embedding_with_new_modalities(
     preprocess : str, default="drop"
         How to handle invalid variables ("drop" or "zero").
     method : str, default="simlr"
-        pysimlr method to use ("simlr", "flow_simr_v", or "lend_simr").
+        Any name or alias from `pysimlr.method_names()` (e.g. "simlr", "flow_v", "lend").
     feature_names : Union[List[List[str]], Dict[str, List[str]]], optional
         Feature names of the original simlr run.
     standardize : bool, default=True
@@ -1153,41 +1114,13 @@ def extend_simlr_embedding_with_new_modalities(
     mat_list = [blocks[name] for name in block_names_ordered]
     adj_list = [adjacency[name] for name in block_names_ordered]
     
+    from .api import fit as _fit, resolve_method
     method_kwargs = copy.deepcopy(kwargs)
     method_kwargs["varimax"] = varimax
-    if method in ["flow_simr_v", "flow_simlr_v", "lend_simr"]:
-        if "iterations" in method_kwargs:
-            method_kwargs["epochs"] = method_kwargs.pop("iterations")
-    elif method == "simlr":
-        if "epochs" in method_kwargs:
-            method_kwargs["iterations"] = method_kwargs.pop("epochs")
-
-    if method == "simlr":
-        simlr_fit = simlr(
-            data_matrices=mat_list,
-            k=joint_k,
-            smoothing_matrices=[torch.tensor(adj).float() for adj in adj_list],
-            verbose=verbose,
-            **method_kwargs
-        )
-    elif method in ("flow_simr_v", "flow_simlr_v"):
-        from .flows import flow_simr_v
-        simlr_fit = flow_simr_v(
-            data_matrices=mat_list,
-            k=joint_k,
-            verbose=verbose,
-            **method_kwargs
-        )
-    elif method == "lend_simr":
-        from .deep import lend_simr
-        simlr_fit = lend_simr(
-            data_matrices=mat_list,
-            k=joint_k,
-            verbose=verbose,
-            **method_kwargs
-        )
-    else:
-        raise ValueError(f"Unknown method: '{method}'. Choose from 'simlr', 'flow_simr_v', 'lend_simr'.")
+    if "smoothing_matrices" in resolve_method(method).accepts:
+        method_kwargs.setdefault("smoothing_matrices",
+                                 [torch.tensor(adj).float() for adj in adj_list])
+    simlr_fit = _fit(method, mat_list, joint_k, verbose=verbose, **method_kwargs)
         
     new_v_dict = {}
     for idx, name in enumerate(block_names_ordered):

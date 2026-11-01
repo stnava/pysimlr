@@ -10,7 +10,7 @@ $$
 
 Holding this linear input boundary fixed, `pysimlr` provides three interchangeable cross-modal alignment topologies:
 
-1. **Linear Consensus (`simlr` / `SiMLR`)**: Alternating optimization of the feature dictionaries $\{\mathbf{V}_m\}_{m=1}^M$ via `nsa_flow` (`L-BFGS-B`, `L-BFGS`, `Lookahead`, or `LARS`) and a shared orthonormal subject embedding $\mathbf{U} \in \operatorname{St}(N, k)$ via Sylvester-differentiable polar decomposition and within-view similarity graphs $\mathbf{S}_m$.
+1. **Linear Consensus (`simlr`)**: Alternating optimization of the feature dictionaries $\{\mathbf{V}_m\}_{m=1}^M$ via `nsa_flow` (`L-BFGS-B`, `L-BFGS`, `Lookahead`, or `LARS`) and a shared orthonormal subject embedding $\mathbf{U} \in \operatorname{St}(N, k)$ via Sylvester-differentiable polar decomposition and within-view similarity graphs $\mathbf{S}_m$.
 2. **Linear Entrypoint with Non-Linear Decoders (`lend_simr` / `LEND`, `ned_simr` / `NED`, `ned_simr_shared_private` / `NEDPP`)**: Couples linear `nsa_flow`-regularized encoders $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ with modality-specific multilayer perceptron decoders $g_{\phi_m}(\mathbf{U}) \to \mathbf{X}_m$, capturing curved cross-modal manifolds during training while keeping test-time projection strictly linear.
 3. **Detached-Prior Normalizing Flows (`flow_simr_v` / `Flow-SiMR-V`, `flow_simr`)**: Routes the linear projections $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ through invertible RealNVP affine coupling flows $f_{\psi_m} : \mathbb{R}^k \to \mathbb{R}^k$ with detached Gaussian prior gradients ($\operatorname{sg}(\mathbf{X}_m \mathbf{V}_m)$) to prevent rectangular subspace collapse and support exact conditional cross-view imputation (`FlowConditionalInference`).
 
@@ -24,102 +24,90 @@ cd pysimlr
 pip install -e ".[dev]"
 ```
 
-`pysimlr` requires Python $\ge 3.12$, `torch >= 2.0.0`, `numpy`, `scipy`, `pandas`, `scikit-learn`, and `nsa_flow >= 3.0.0`.
+`pysimlr` requires Python $\ge 3.12$, `torch >= 2.0.0`, `numpy`, `scipy`, `pandas`, `scikit-learn`, and `nsa_flow >= 3.5.1`.
 
 ---
 
 ## Quick Start
 
-### 1. Functional API (`simlr`, `lend_simr`, `flow_simr_v`)
+The blocks below run in order and are executed by `tests/test_readme_examples.py`.
+
+### 1. One interface to every method
+
+`pysimlr.fit(method, views, k, **params)` fits any registered method with one parameter vocabulary; `pysimlr.predict(result, views)` projects new samples. Every result carries the same keys (`u`, `v`, `latents`, `convergence`, rank diagnostics, `random_state`) and a `parameters` record of what the method used and what it ignored.
 
 ```python
 import numpy as np
-from pysimlr import (
-    simlr,
-    lend_simr,
-    flow_simr_v,
-    predict_simlr,
-    predict_deep,
-    attribute_prediction_to_features,
-)
+import pysimlr
 
 rng = np.random.default_rng(42)
-X1 = rng.standard_normal((120, 60))
-X2 = rng.standard_normal((120, 40))
+u_true = rng.standard_normal((120, 3))
+X1 = u_true @ rng.standard_normal((3, 60)) + 0.5 * rng.standard_normal((120, 60))
+X2 = u_true @ rng.standard_normal((3, 40)) + 0.5 * rng.standard_normal((120, 40))
 views_train = [X1[:90], X2[:90]]
 views_test = [X1[90:], X2[90:]]
 
-# 1. Linear SiMLR with L-BFGS-B + NSA-Flow polish and 50% quantile sparsity
-res_lin = simlr(
-    views_train,
-    k=3,
-    optimizer="lbfgsb",
-    constraint="orthox0.5x1",
-    positivity="positive",
-    sparseness=0.5,
-    random_state=42,
-)
-U_train = res_lin["u"]          # (90, 3) shared consensus embedding
-V1, V2 = res_lin["v"]           # (60, 3) and (40, 3) sparse non-negative dictionaries
+print(pysimlr.method_names())
+# ['simlr', 'simlr_lbfgs', 'simlr_lbfgsb', 'lend', 'ned', 'ned_shared_private',
+#  'flow_v', 'pca', 'nsa_pipeline']
 
-# Out-of-sample linear entrypoint projection: Z_m = X_{m,test} @ V_m
-Z1_test = views_test[0] @ np.asarray(V1)
-
-# 2. LEND: Linear NSA-Flow encoder + non-linear MLP decoders
-res_lend = lend_simr(
-    views_train,
-    k=3,
-    nsa_w=0.5,
-    positivity="positive",
-    sparseness=0.5,
-    epochs=150,
-    random_state=42,
-)
-
-# 3. Flow-SiMR-V: Linear NSA-Flow bottleneck + invertible RealNVP flows
-res_flow = flow_simr_v(
-    views_train,
-    k=3,
-    nsa_w=0.5,
-    positivity="positive",
-    sparseness=0.5,
-    epochs=150,
-    random_state=42,
-)
+# Benchmark loop: one call shape, no per-method branch.
+for name in ["simlr", "lend", "flow_v", "pca"]:
+    res = pysimlr.fit(name, views_train, k=3, iterations=20, random_state=0,
+                      sparseness=0.5, nsa_w=0.5)
+    pred = pysimlr.predict(res, views_test)
+    print(name, pred["u"].shape, "ignored:", sorted(res["parameters"]["ignored"]))
 ```
 
-### 2. Scikit-Learn Estimator & Pipeline API
+`iterations` is the budget for every method; `pysimlr.describe_method(name)` reports its unit (sweeps for `simlr`, epochs for the deep and flow models, none for the closed-form `pca`) and every parameter with its default. A parameter that another method uses but this one cannot is recorded in `res["parameters"]["ignored"]` and warned about once (`strict=True` raises); a name no method has raises `TypeError`.
 
-All multi-view architectures expose standard `fit`, `transform`, and `fit_transform` interfaces compatible with `scikit-learn` cross-validation and pipelines:
+### 2. Native entry points
+
+The registry calls these functions; they take the same names directly.
 
 ```python
-from pysimlr import (
-    SiMLR,
-    LENDTransformer,
-    NEDTransformer,
-    FlowSiMLRTransformer,
-    MultiViewPCA,
-)
+from pysimlr import simlr, lend_simr, flow_simr_v
 
-model = SiMLR(
-    n_components=3,
-    optimizer="lbfgsb",
-    positivity="positive",
-    sparseness=0.5,
-    random_state=42,
-)
-Z_train = model.fit_transform(views_train)
-Z_test = model.transform(views_test)
+# Linear SiMLR: non-negative, 50%-sparse dictionaries, bound-constrained L-BFGS-B.
+res_lin = simlr(views_train, k=3, iterations=30, optimizer_type="nsa_lbfgsb",
+                positivity="positive", sparseness=0.5)
+V1, V2 = res_lin["v"]            # (60, 3) and (40, 3)
+
+# LEND: linear NSA-Flow encoders, nonlinear decoders. `random_state` seeds the
+# whole fit on a private RNG stream; the global RNG is left untouched.
+res_lend = lend_simr(views_train, k=3, iterations=20, nsa_w=0.5, sparseness=0.5,
+                     random_state=42)
+
+# Flow-SiMR-V: linear encoders, RealNVP flows.
+res_flow = flow_simr_v(views_train, k=3, iterations=10, nsa_w=0.5, random_state=42)
 ```
 
-### 3. Patient-Level Attribution & Basis Diagnostics
+### 3. Scikit-learn
+
+`MultiViewSiMR` is one estimator for every method. scikit-learn's cross-validation slices rows of a single array, so concatenate the views and give their column counts in `view_sizes`:
+
+```python
+from sklearn.model_selection import GridSearchCV
+from pysimlr import MultiViewSiMR
+
+X = np.hstack(views_train)
+est = MultiViewSiMR(n_components=3, iterations=10, random_state=0, view_sizes=[60, 40])
+search = GridSearchCV(est, {"method": ["simlr", "lend", "pca"]}, cv=3).fit(X)
+print(search.best_params_)
+
+Z_test = search.best_estimator_.transform(np.hstack(views_test))   # (30, 3)
+```
+
+`score` is held-out reconstruction R² averaged over views, computed in the same standardized space for every method; pass `scoring=` for another criterion. A list of views also works for `fit`/`transform` outside cross-validation.
+
+### 4. Patient-level attribution and basis diagnostics
 
 Because every view enters linearly via $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$, the exact additive contribution of feature $j$ in modality $m$ to latent coordinate $l$ for patient $i$ is $c_{m,i,j,l} = x_{m,i,j} v_{m,j,l}$:
 
 ```python
-from pysimlr import summarize_basis_matrix, build_interpretability_report
+from pysimlr import summarize_basis_matrix
 
-# Inspect per-column sparsity, effective rank, and Stiefel Gram defect D(V_m)
+# Per-column sparsity, effective rank, and Stiefel Gram defect D(V_m)
 summary_v1 = summarize_basis_matrix(res_lin["v"][0])
 ```
 
@@ -127,14 +115,14 @@ summary_v1 = summarize_basis_matrix(res_lin["v"][0])
 
 ## Architecture & Operating-Point Reference
 
-### `nsa_flow` Trade-off Weight ($w \in (0, 1)$, default $w = 0.5$)
+### `nsa_flow` Trade-off Weight ($w \in (0, 1)$, default $w = 0.5$ for every method, `pysimlr.defaults`)
 Each basis update minimizes the dimensionless `nsa_flow` energy:
 
 $$
 E_w(\mathbf{V}_m; \mathbf{V}_{m,0}) = (1 - w)\,\frac{\|\mathbf{V}_m - \mathbf{V}_{m,0}\|_F^2}{2\|\mathbf{V}_{m,0}\|_F^2} + w\,\frac{\|\mathbf{G}(\mathbf{V}_m) - \frac{1}{k}\mathbf{I}_k\|_F^2}{1 - 1/k}, \qquad \mathbf{G}(\mathbf{V}_m) = \frac{\mathbf{V}_m^\top \mathbf{V}_m}{\operatorname{tr}(\mathbf{V}_m^\top \mathbf{V}_m)}
 $$
 
-* **`w = 0.5` (Default)**: Sits in the middle of the stable conditioning plateau ($w \in [0.20, 0.85]$), maintaining full effective rank ($\text{EffRank} \approx k$) and low Gram defect ($D \le 10^{-3}$).
+* **`w = 0.5` (default)**: Sits in the middle of the stable conditioning plateau ($w \in [0.20, 0.85]$), maintaining full effective rank ($\text{EffRank} \approx k$) and low Gram defect ($D \le 10^{-3}$).
 * **`w < 0.2`**: Risks column rank collapse on correlated views.
 * **`w > 0.85`**: Increases boundary stiffness and runtime ($2.5\times$–$3.8\times$) as columns are forced toward strictly disjoint supports.
 
@@ -181,7 +169,7 @@ make clean
 
 ### Repository Structure
 
-* `src/pysimlr/`: Core package (`simlr.py`, `deep.py`, `flows.py`, `sparsification.py`, `optimizers.py`, `sklearn.py`, `interpretability.py`, `consensus.py`, `benchmarks/`).
+* `src/pysimlr/`: Core package (`api.py` -- the method registry, `fit` and `predict`; `simlr.py`, `deep.py`, `flows.py`, `sparsification.py`, `optimizers.py`, `sklearn.py`, `interpretability.py`, `consensus.py`, `benchmarks/`). The interface contract is in `docs/api_contract.md`.
 * `tests/`: Unit, statistical calibration, optimizer correctness, and end-to-end tests.
 * `paper/`: Quarto book manuscript (`index.qmd`, `01_intro_background.qmd`, `02_methods.qmd`, `03_experiments.qmd`, `04_discussion.qmd`, `appendix_*.qmd`, `references.bib`, and cached empirical tables in `paper/results_cache/`).
 * `docs/`: Quarto tutorials (`docs/*.qmd`) and rendered manuscript (`docs/manuscript/`).

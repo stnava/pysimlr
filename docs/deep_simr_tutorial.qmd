@@ -72,7 +72,7 @@ y_test = y[test_idx]
 result = lend_simr(
     train_mats,
     k=k,
-    epochs=12,
+    iterations=12,
     batch_size=32,
     warmup_epochs=0,
     sim_weight=0.0,

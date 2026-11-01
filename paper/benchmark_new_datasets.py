@@ -130,7 +130,7 @@ def evaluate_model(model_name, X_train, X_test, y_train, y_test, k, dynamic_weig
         y_pred = reg.predict(U_cons)
     else:
         func = {"LEND": lend_simr, "NED": ned_simr, "NEDPP": ned_simr_shared_private}[model_name]
-        model = func(X_train_t, k=k, epochs=20, dynamic_weights=dynamic_weights, verbose=False)
+        model = func(X_train_t, k=k, iterations=20, dynamic_weights=dynamic_weights, verbose=False)
         pred_train, pred_test = predict_deep(X_train_t, model), predict_deep(X_test_t, model)
         U_train_np, U_test_np = to_numpy(pred_train['u']), to_numpy(pred_test['u'])
         reg = Ridge().fit(U_train_np, y_train)

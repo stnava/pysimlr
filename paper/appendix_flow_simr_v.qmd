@@ -88,7 +88,7 @@ test_idx = perm[int(n_samples * 0.7):]
 train_x = [torch.tensor(m[train_idx]).float() for m in mats]
 test_x = [torch.tensor(m[test_idx]).float() for m in mats]
 
-res = flow_simr_v(train_x, k=k, epochs=60, warmup_epochs=10, device="cpu", verbose=False)
+res = flow_simr_v(train_x, k=k, iterations=60, warmup_epochs=10, device="cpu", verbose=False)
 cond = res["cond_inference"]
 
 with torch.no_grad():
@@ -144,7 +144,7 @@ k = 2
 train_x = [torch.tensor(m).float() for m in mats]
 np.random.seed(42)
 torch.manual_seed(42)
-res = flow_simr_v(train_x, k=k, epochs=60, warmup_epochs=10, positivity="either", sparseness=None, device="cpu", verbose=False)
+res = flow_simr_v(train_x, k=k, iterations=60, warmup_epochs=10, positivity="either", sparseness=None, device="cpu", verbose=False)
 
 v_v1 = res["v"][0].numpy()
 x_sample = mats[0][0]
@@ -192,7 +192,7 @@ k = 2
 train_x = [torch.tensor(m).float() for m in mats]
 np.random.seed(42)
 torch.manual_seed(42)
-res = flow_simr_v(train_x, k=k, epochs=60, warmup_epochs=10, positivity="either", sparseness=None, device="cpu", verbose=False)
+res = flow_simr_v(train_x, k=k, iterations=60, warmup_epochs=10, positivity="either", sparseness=None, device="cpu", verbose=False)
 
 u = res["u"]
 patient_a_u = u[0]

@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.2.19"
+__version__ = "0.3.0"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -139,6 +139,16 @@ from .flows import (
 from .consensus import (
     compute_shared_consensus
 )
+from .api import (
+    fit,
+    predict,
+    method_names,
+    describe_method,
+    resolve_method,
+    validate_result,
+    parameter_summary,
+    METHODS,
+)
 from .interpretability import (
     summarize_basis_matrix,
     build_first_layer_contract,
@@ -216,13 +226,8 @@ __all__ = [
     'smooth_matrix_prediction',
     'smooth_regression',
     'build_nsa_pipeline',
-    'SiMLREstimator',
-    'SiMLRTransformer',
-    'SiMLR',
+    'MultiViewSiMR',
     'MultiViewPCA',
-    'LENDTransformer',
-    'NEDTransformer',
-    'FlowSiMLRTransformer',
     'build_simlr_pipeline',
     'nnh_embed',
     'extend_simlr_embedding_with_new_modalities',
@@ -259,6 +264,14 @@ __all__ = [
     'flow_whiten_matrix',
     'flow_whitener',
     'compute_shared_consensus',
+    'fit',
+    'predict',
+    'method_names',
+    'describe_method',
+    'resolve_method',
+    'validate_result',
+    'parameter_summary',
+    'METHODS',
     'summarize_basis_matrix',
     'build_first_layer_contract',
     'extract_first_layer_factors',
@@ -353,4 +366,4 @@ def __dir__():
     return sorted(set(globals()) | set(__all__))
 
 
-_LAZY_SKLEARN = ('FlowSiMLRTransformer', 'LENDTransformer', 'MultiViewPCA', 'NEDTransformer', 'SiMLR', 'SiMLREstimator', 'SiMLRTransformer', 'build_simlr_pipeline')
+_LAZY_SKLEARN = ('MultiViewPCA', 'MultiViewSiMR', 'build_simlr_pipeline')

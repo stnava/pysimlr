@@ -1,593 +1,274 @@
 """
-Scikit-learn compatible estimator and transformer interfaces for PySIMLR.
+Scikit-learn interface to pysimlr.
 
-Provides full scikit-learn BaseEstimator and TransformerMixin compatibility
-for SiMLR, LEND, NED, and Flow-SiMLR, including:
-- Standard fit / transform / fit_transform / inverse_transform workflow
-- Inspection via .components_ (shape [n_components, n_features]) and .loadings_ ([n_features, n_components])
-- Direct drop-in usage within sklearn.pipeline.Pipeline, cross_val_score, GridSearchCV
-- Seamless support for both single-view tabular data (X: [n, p]) and multi-view data (X: list of [n, p_m])
-- High-performance default optimization via torch_lbfgs quasi-Newton solver
-- Combinatorial support consolidation (consolidate=True) for strictly disjoint modules (zero crosstalk)
+`MultiViewSiMR` is one estimator for every registered method
+(`pysimlr.method_names()`), selected by ``method``. Every parameter is
+explicit, so `clone`, `get_params` and `GridSearchCV` work, and a grid over
+``method`` compares methods::
+
+    from sklearn.model_selection import GridSearchCV
+    X = np.hstack([X1, X2])                       # sklearn CV slices rows of one array
+    est = MultiViewSiMR(n_components=3, view_sizes=[X1.shape[1], X2.shape[1]])
+    GridSearchCV(est, {"method": ["simlr", "lend", "flow_v"]}, cv=3).fit(X)
+
+A parameter left at ``None`` takes the selected method's own default, so one
+grid can span methods whose defaults differ. A parameter set to a value that
+the selected method cannot use is recorded in ``parameters_ignored_`` and
+warned about once (``strict=True`` raises instead); see `pysimlr.fit`.
+
+`MultiViewPCA` (independent PCA per view) and `build_simlr_pipeline` are
+also provided.
 """
-from typing import Optional, Union, List, Tuple, Dict, Any
+from typing import Any, Dict, List, Optional, Sequence, Union
+
 import numpy as np
 import torch
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
-from .simlr import simlr, predict_shared_latent
-from .deep import lend_simr, ned_simr, predict_deep
-from .flows import flow_simr_v
+from . import api
 
-
-def _to_numpy_2d(x: Any) -> np.ndarray:
-    """Ensure array is 2D numpy float64/float32."""
-    if hasattr(x, "to_numpy"):
-        x = x.to_numpy()
-    arr = np.asarray(x)
-    if arr.ndim == 1:
-        arr = arr.reshape(-1, 1)
-    if not np.issubdtype(arr.dtype, np.floating):
-        arr = arr.astype(np.float64)
-    return arr
+#: `MultiViewSiMR` constructor arguments forwarded to `pysimlr.fit` when not
+#: None (``n_components`` is passed as ``k``).
+_FORWARDED = ("iterations", "energy_type", "mixing_algorithm", "positivity", "sparseness",
+              "nsa_w", "constraint", "optimizer_type", "learning_rate", "topology", "varimax",
+              "initialization_type", "hidden_dims", "dropout", "batch_size", "private_k",
+              "num_layers", "hidden_dim", "device", "tol", "patience", "random_state")
 
 
-def _parse_input_views(X: Any) -> Tuple[List[torch.Tensor], bool, List[int]]:
-    """
-    Parse input into list of PyTorch float tensors.
-
-    Returns
-    -------
-    views : List[torch.Tensor]
-        List of 2D tensors.
-    is_single_view : bool
-        True if X was passed as a single 2D matrix rather than a list/tuple.
-    feature_counts : List[int]
-        Number of features per view.
-    """
+def _split_views(X: Any, view_sizes: Optional[Sequence[int]]) -> List[torch.Tensor]:
+    """A list of views from a list of matrices, or from one matrix and its column sizes."""
     if isinstance(X, (list, tuple)):
-        is_single_view = False
-        mats = [_to_numpy_2d(view) for view in X]
-    else:
-        is_single_view = True
-        mats = [_to_numpy_2d(X)]
+        if view_sizes is not None:
+            raise ValueError("view_sizes splits a single matrix; X is already a list of views.")
+        return api.as_views(X)
+    full = api.as_views(X)[0]
+    if view_sizes is None:
+        return [full]
+    sizes = [int(s) for s in view_sizes]
+    if sum(sizes) != full.shape[1]:
+        raise ValueError(f"view_sizes {sizes} sum to {sum(sizes)}, but X has {full.shape[1]} columns.")
+    return list(torch.split(full, sizes, dim=1))
 
-    feature_counts = [m.shape[1] for m in mats]
-    tensors = [torch.from_numpy(m).float() for m in mats]
-    return tensors, is_single_view, feature_counts
 
-
-class SiMLREstimator(BaseEstimator, TransformerMixin):
+class MultiViewSiMR(BaseEstimator, TransformerMixin):
     """
-    Scikit-learn compatible transformer for Similarity-driven Multi-view Linear Representation (SiMLR).
-
-    Can be used as a direct drop-in replacement for PCA, NMF, or FactorAnalysis in scikit-learn
-    pipelines, supporting both standard single-view tables (X: [n, p]) and multi-modal lists
-    (X: [X_1, X_2, ...]).
+    Scikit-learn transformer for every pysimlr multi-view method.
 
     Parameters
     ----------
+    method : str, default="simlr"
+        A name from `pysimlr.method_names()` or an alias.
     n_components : int, default=2
-        Dimensionality of the shared latent space (k).
-    iterations : int, default=50
-        Maximum number of alternating optimization iterations.
-    optimizer_type : str, default="torch_lbfgs"
-        Optimizer for updating loading matrices. Defaults to "torch_lbfgs" for fast quasi-Newton convergence.
-    energy_type : str, default="acc"
-        Consensus similarity energy function ("acc", "regression", "logcosh", "nc").
-    mixing_algorithm : str, default="newton"
-        Algorithm for computing shared consensus ("newton", "svd", "pca", "ica").
-    constraint : str, default="orthox0.1x1"
-        Manifold constraint specification.
-    sparseness_quantile : float, default=0.0
-        Quantile threshold for sparsifying loading weights.
-    positivity : {"either", "positive"}, default="either"
-        Sign constraint on loadings. "positive" enforces non-negative loadings V >= 0.
-    consolidate : bool, default=True
-        Whether to enforce strictly disjoint module supports (zero crosstalk, zero lobe overlap).
-    use_nsa : bool, default=True
-        Whether to enable NSA-Flow manifold retractions during optimization.
-    nsa_w : float, default=0.1 (the wrapped function's default)
-        NSA-Flow trade-off stiffness weight between data fidelity and orthogonality.
-    scale : bool, default=True
-        Whether to standardize features prior to fitting.
-    tol : float, default=1e-6
-        Relative energy convergence tolerance.
+        Dimensionality ``k`` of the shared latent space.
+    iterations, energy_type, mixing_algorithm, positivity, sparseness, nsa_w,
+    constraint, optimizer_type, learning_rate, topology, varimax,
+    initialization_type, hidden_dims, dropout, batch_size, private_k,
+    num_layers, hidden_dim, device, tol, patience, random_state :
+        Forwarded to `pysimlr.fit` when not ``None``; ``None`` means the
+        selected method's default (`pysimlr.describe_method`).
+        ``random_state`` seeds the fit on a private RNG stream; the global
+        RNG state is not touched.
+    scale : bool, optional
+        Standardize each view with its training mean and standard deviation.
+        ``None`` uses the method's default (all methods standardize by
+        default). The deep and flow models always standardize; ``False`` is
+        recorded as ignored for them.
+    extra_params : dict, optional
+        Any other parameter of the selected method.
+    view_sizes : list of int, optional
+        Column counts of the views when ``X`` is one concatenated matrix (the
+        form scikit-learn's cross-validation can slice). ``None`` with a
+        single matrix means one view.
+    strict : bool, default=False
+        Raise instead of recording a parameter the method cannot use.
     verbose : bool, default=False
-        Whether to print optimization progress.
-    random_state : int, optional
-        Seed for reproducibility.
+
+    Attributes
+    ----------
+    result_ : dict
+        The `pysimlr.fit` result.
+    loadings_ : list of ndarray, or ndarray for single-view input
+        Per-view first-layer bases ``V_m`` of shape ``(p_m, k)``.
+    components_ : list of ndarray, or ndarray
+        ``V_m.T``, scikit-learn's ``(k, p_m)`` convention.
+    parameters_used_, parameters_ignored_ : dict
+        What reached the method, and what did not and why.
+    family_, budget_unit_ : str
+    n_features_in_ : int
+        Total columns across views.
     """
 
-    def __init__(
-        self,
-        n_components: int = 2,
-        iterations: int = 50,
-        optimizer_type: str = "torch_lbfgs",
-        energy_type: str = "acc",
-        mixing_algorithm: str = "newton",
-        constraint: str = "orthox0.1x1",
-        sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5,
-        positivity: str = "either",
-        consolidate: bool = True,
-        use_nsa: bool = True,
-        nsa_w: float = 0.1,
-        scale: bool = True,
-        tol: float = 1e-6,
-        verbose: bool = False,
-        random_state: Optional[int] = None,
-    ):
+    def __init__(self, method: str = "simlr", n_components: int = 2,
+                 iterations: Optional[int] = None, energy_type: Optional[str] = None,
+                 mixing_algorithm: Optional[str] = None, positivity: Optional[str] = None,
+                 sparseness: Optional[Union[float, List[Optional[float]]]] = None,
+                 nsa_w: Optional[float] = None, constraint: Optional[str] = None,
+                 optimizer_type: Optional[str] = None, learning_rate: Optional[Union[float, str]] = None,
+                 topology: Optional[str] = None, varimax: Optional[bool] = None,
+                 initialization_type: Optional[str] = None,
+                 hidden_dims: Optional[Sequence[int]] = None, dropout: Optional[float] = None,
+                 batch_size: Optional[int] = None, private_k: Optional[int] = None,
+                 num_layers: Optional[int] = None, hidden_dim: Optional[int] = None,
+                 device: Optional[str] = None, tol: Optional[float] = None,
+                 patience: Optional[int] = None, random_state: Optional[int] = None,
+                 scale: Optional[bool] = None,
+                 extra_params: Optional[Dict[str, Any]] = None,
+                 view_sizes: Optional[Sequence[int]] = None, strict: bool = False,
+                 verbose: bool = False):
+        self.method = method
         self.n_components = n_components
         self.iterations = iterations
-        self.optimizer_type = optimizer_type
         self.energy_type = energy_type
         self.mixing_algorithm = mixing_algorithm
-        self.constraint = constraint
-        self.sparseness_quantile = sparseness_quantile
         self.positivity = positivity
-        self.consolidate = consolidate
-        self.use_nsa = use_nsa
+        self.sparseness = sparseness
         self.nsa_w = nsa_w
-        self.scale = scale
+        self.constraint = constraint
+        self.optimizer_type = optimizer_type
+        self.learning_rate = learning_rate
+        self.topology = topology
+        self.varimax = varimax
+        self.initialization_type = initialization_type
+        self.hidden_dims = hidden_dims
+        self.dropout = dropout
+        self.batch_size = batch_size
+        self.private_k = private_k
+        self.num_layers = num_layers
+        self.hidden_dim = hidden_dim
+        self.device = device
         self.tol = tol
-        self.verbose = verbose
+        self.patience = patience
         self.random_state = random_state
+        self.scale = scale
+        self.extra_params = extra_params
+        self.view_sizes = view_sizes
+        self.strict = strict
+        self.verbose = verbose
 
-    def fit(self, X: Any, y: Optional[Any] = None) -> "SiMLREstimator":
-        """
-        Fit the SiMLR model on input data X.
+    def _fit_params(self) -> Dict[str, Any]:
+        params = {name: getattr(self, name) for name in _FORWARDED if getattr(self, name) is not None}
+        if self.scale is not None:
+            # `simlr` takes a preprocessing list, the joint baselines a flag;
+            # the deep and flow models always standardize, so for them the
+            # setting is recorded as ignored.
+            accepts = api.resolve_method(self.method).accepts
+            if "scale" in accepts:
+                params["scale"] = bool(self.scale)
+            else:
+                params["scale_list"] = ["centerAndScale", "np"] if self.scale else ["none"]
+        if self.verbose:
+            params["verbose"] = True
+        overlap = set(params) & set(self.extra_params or {})
+        if overlap:
+            raise ValueError(f"{sorted(overlap)} given both as constructor arguments and in extra_params.")
+        params.update(self.extra_params or {})
+        return params
 
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features) or list of array-like
-            Single-view data matrix or list of multi-view data matrices.
-        y : Ignored
-            Not used, present for scikit-learn API consistency.
-
-        Returns
-        -------
-        self : SiMLREstimator
-            Fitted estimator.
-        """
-        if self.random_state is not None:
-            torch.manual_seed(self.random_state)
-            np.random.seed(self.random_state)
-
-        tensors, is_single, feat_counts = _parse_input_views(X)
-        self.is_single_view_ = is_single
-        self.feature_counts_ = feat_counts
-        self.n_features_in_ = feat_counts[0] if is_single else feat_counts
-
-        scale_list = ["centerAndScale", "np"] if self.scale else ["none", "np"]
-
-        res = simlr(
-            tensors,
-            k=self.n_components,
-            iterations=self.iterations,
-            optimizer_type=self.optimizer_type,
-            energy_type=self.energy_type,
-            constraint=self.constraint,
-            mixing_algorithm=self.mixing_algorithm,
-            positivity=self.positivity,
-            consolidate=self.consolidate,
-            scale_list=scale_list,
-            tol=self.tol,
-            verbose=self.verbose,
-            nsa_w=self.nsa_w,
-            sparseness=self.sparseness_quantile,
-        )
+    def fit(self, X: Any, y: Optional[Any] = None) -> "MultiViewSiMR":
+        """Fit the selected method. ``y`` is ignored."""
+        views = _split_views(X, self.view_sizes)
+        res = api.fit(self.method, views, int(self.n_components), strict=self.strict,
+                      **self._fit_params())
         self.result_ = res
-
-        # Convert learned loadings to numpy
+        self.family_ = res["family"]
+        self.budget_unit_ = res["parameters"]["budget_unit"]
+        self.parameters_used_ = dict(res["parameters"]["used"])
+        self.parameters_ignored_ = dict(res["parameters"]["ignored"])
+        self.view_sizes_ = [int(v.shape[1]) for v in views]
+        self.n_views_ = len(views)
+        self.n_features_in_ = int(sum(self.view_sizes_))
         v_np = [v.detach().cpu().numpy() for v in res["v"]]
-        u_val = res["u"]
-        if isinstance(u_val, list):
-            self.u_ = [u.detach().cpu().numpy() for u in u_val]
-        else:
-            self.u_ = u_val.detach().cpu().numpy()
-
-        if is_single:
-            self.loadings_ = v_np[0]
-            # components_ follows scikit-learn convention: shape (n_components, n_features)
-            self.components_ = v_np[0].T
-        else:
-            self.loadings_ = v_np
-            self.components_ = [v.T for v in v_np]
-
-        self.v_ = self.loadings_
+        self.input_was_array_ = not isinstance(X, (list, tuple))
+        single = self.n_views_ == 1 and self.input_was_array_
+        self.loadings_ = v_np[0] if single else v_np
+        self.components_ = v_np[0].T if single else [v.T for v in v_np]
         return self
 
-    def transform(self, X: Any) -> np.ndarray:
-        """
-        Apply dimensionality reduction to X using learned basis.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features) or list of array-like
-            New data to transform.
-
-        Returns
-        -------
-        Z : np.ndarray of shape (n_samples, n_components)
-            Projected latent scores.
-        """
+    def _check_fitted(self):
         if not hasattr(self, "result_"):
-            raise ValueError("This SiMLREstimator instance is not fitted yet. Call 'fit' before using this method.")
+            raise ValueError(f"This {type(self).__name__} instance is not fitted yet; call 'fit' first.")
 
-        tensors, is_single, _ = _parse_input_views(X)
-        if is_single and self.is_single_view_:
-            # Fast direct projection for single view
-            x_mat = tensors[0].numpy()
-            return x_mat @ self.loadings_
+    def transform(self, X: Any) -> np.ndarray:
+        """Shared latent ``u`` of shape ``(n, k)`` through the method's own predictor
+        (the same preprocessing and consensus as at fit time)."""
+        self._check_fitted()
+        out = api.predict(self.result_, _split_views(X, self.view_sizes))
+        return out["u"].detach().cpu().numpy()
 
-        # Out-of-sample prediction via consensus anchor
-        pred_u = predict_shared_latent(tensors, self.result_)
-        return pred_u.detach().cpu().numpy()
+    def score(self, X: Any, y: Optional[Any] = None) -> float:
+        """Held-out reconstruction R^2, averaged over views. ``y`` is ignored.
 
-    def fit_transform(self, X: Any, y: Optional[Any] = None) -> np.ndarray:
-        """
-        Fit model and transform X in a single pass.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features) or list of array-like
-            Data to fit and transform.
-        y : Ignored
-
-        Returns
-        -------
-        Z : np.ndarray of shape (n_samples, n_components)
-            Projected latent scores.
-        """
-        self.fit(X, y)
-        if self.is_single_view_:
-            return self.transform(X)
-        if isinstance(self.u_, list):
-            return self.u_[0]
-        return self.u_
+        Per view, ``1 - ||X_m - X_hat_m||^2 / ||X_m||^2`` with ``X_m``
+        standardized by the *training* mean and standard deviation
+        (`pysimlr.predict`'s ``r2``): variance explained relative to the
+        training mean, on the same per-feature scale for every method, so a
+        grid over ``method`` compares like with like."""
+        self._check_fitted()
+        out = api.predict(self.result_, _split_views(X, self.view_sizes))
+        return float(np.mean(out["r2"]))
 
     def inverse_transform(self, Z: np.ndarray) -> Union[np.ndarray, List[np.ndarray]]:
+        """Reconstruct the input from latent coordinates, in input units.
+
+        Defined for the linear methods (``X_m ~ Z W_m``) and the joint
+        baselines (``X ~ Z V'``). The reconstruction is mapped back through
+        the training preprocessing (`utils.invert_preprocessing`), so
+        ``inverse_transform(transform(X))`` approximates ``X`` itself. Returns
+        one array shaped like the input when the input was one array (a single
+        view or a ``view_sizes`` concatenation), a list of arrays for list
+        input. Deep and flow models reconstruct through their decoders in
+        `pysimlr.predict`; there the latent alone is not the decoder's input.
         """
-        Transform data back to its original feature space.
-
-        Parameters
-        ----------
-        Z : array-like of shape (n_samples, n_components)
-            Latent coordinates.
-
-        Returns
-        -------
-        X_reconstructed : np.ndarray or list of np.ndarray
-            Reconstructed data in original feature space.
-        """
-        if not hasattr(self, "components_"):
-            raise ValueError("This SiMLREstimator instance is not fitted yet.")
-
-        Z_np = np.asarray(Z)
-        if self.is_single_view_:
-            return Z_np @ self.components_
-        return [Z_np @ comp for comp in self.components_]
-
-
-# Aliases for convenience
-SiMLRTransformer = SiMLREstimator
-SiMLR = SiMLREstimator
-
-
-class LENDTransformer(BaseEstimator, TransformerMixin):
-    """
-    Scikit-learn compatible transformer for the LEND (Linear Encoder, Non-linear Decoder) architecture.
-
-    Combines an interpretable linear first-layer encoder with a deep non-linear decoder.
-
-    Parameters
-    ----------
-    n_components : int, default=2
-        Dimensionality of the shared latent space.
-    iterations : int, default=10
-        Outer block-coordinate descent iterations.
-    epochs : int, default=30
-        Inner training epochs per iteration.
-    energy_type : str, default="acc"
-        Consensus similarity metric.
-    mixing_algorithm : str, default="newton"
-        Latent consensus formation algorithm.
-    use_nsa : bool, default=True
-        Whether to enforce Stiefel manifold constraints via NSA-Flow.
-    nsa_w : float, default=0.1 (the wrapped function's default)
-        NSA-Flow trade-off parameter.
-    sparseness_quantile : float, default=0.5
-        Quantile threshold for sparsifying loading weights.
-    consolidate : bool, default=True
-        Whether to consolidate supports for strictly disjoint modules.
-    verbose : bool, default=False
-        Whether to log progress.
-    random_state : int, optional
-        RNG seed.
-    """
-
-    def __init__(
-        self,
-        n_components: int = 2,
-        iterations: int = 10,
-        epochs: int = 30,
-        energy_type: str = "acc",
-        mixing_algorithm: str = "newton",
-        use_nsa: bool = True,
-        nsa_w: float = 0.1,
-        sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5,
-        consolidate: bool = True,
-        verbose: bool = False,
-        random_state: Optional[int] = None,
-    ):
-        self.n_components = n_components
-        self.iterations = iterations
-        self.epochs = epochs
-        self.energy_type = energy_type
-        self.mixing_algorithm = mixing_algorithm
-        self.use_nsa = use_nsa
-        self.nsa_w = nsa_w
-        self.sparseness_quantile = sparseness_quantile
-        self.consolidate = consolidate
-        self.verbose = verbose
-        self.random_state = random_state
-
-    def fit(self, X: Any, y: Optional[Any] = None) -> "LENDTransformer":
-        if self.random_state is not None:
-            torch.manual_seed(self.random_state)
-            np.random.seed(self.random_state)
-
-        tensors, is_single, feat_counts = _parse_input_views(X)
-        self.is_single_view_ = is_single
-        self.feature_counts_ = feat_counts
-        self.n_features_in_ = feat_counts[0] if is_single else feat_counts
-
-        res = lend_simr(
-            tensors,
-            k=self.n_components,
-            iterations=self.iterations,
-            epochs=self.epochs,
-            energy_type=self.energy_type,
-            mixing_algorithm=self.mixing_algorithm,
-            use_nsa=self.use_nsa,
-            nsa_w=self.nsa_w,
-            sparseness_quantile=self.sparseness_quantile,
-            verbose=self.verbose,
-        )
-        self.result_ = res
-        v_np = [v.detach().cpu().numpy() for v in res["v"]]
-
-        if is_single:
-            self.loadings_ = v_np[0]
-            self.components_ = v_np[0].T
+        self._check_fitted()
+        res = self.result_
+        z = torch.as_tensor(np.asarray(Z)).float()
+        if self.family_ == "linear":
+            from .simlr import reconstruct_from_learned_maps
+            recs = reconstruct_from_learned_maps(z, res)
+        elif self.family_ == "baseline":
+            rec = z.double() @ res["v_tot"].double().T
+            recs = list(torch.split(rec.float(), self.view_sizes_, dim=1))
         else:
-            self.loadings_ = v_np
-            self.components_ = [v.T for v in v_np]
-
-        self.v_ = self.loadings_
-        return self
-
-    def transform(self, X: Any) -> np.ndarray:
-        if not hasattr(self, "result_"):
-            raise ValueError("This LENDTransformer instance is not fitted yet.")
-        tensors, is_single, _ = _parse_input_views(X)
-        if is_single and self.is_single_view_:
-            return tensors[0].numpy() @ self.loadings_
-        pred = predict_deep(tensors, self.result_, device="cpu")
-        return pred["u"].detach().cpu().numpy()
-
-
-class NEDTransformer(BaseEstimator, TransformerMixin):
-    """
-    Scikit-learn compatible transformer for the NED (Non-linear Encoder, Non-linear Decoder) architecture.
-    """
-
-    def __init__(
-        self,
-        n_components: int = 2,
-        iterations: int = 10,
-        epochs: int = 30,
-        energy_type: str = "acc",
-        mixing_algorithm: str = "newton",
-        use_nsa: bool = True,
-        nsa_w: float = 0.1,
-        sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5,
-        verbose: bool = False,
-        random_state: Optional[int] = None,
-    ):
-        self.n_components = n_components
-        self.iterations = iterations
-        self.epochs = epochs
-        self.energy_type = energy_type
-        self.mixing_algorithm = mixing_algorithm
-        self.use_nsa = use_nsa
-        self.nsa_w = nsa_w
-        self.sparseness_quantile = sparseness_quantile
-        self.verbose = verbose
-        self.random_state = random_state
-
-    def fit(self, X: Any, y: Optional[Any] = None) -> "NEDTransformer":
-        if self.random_state is not None:
-            torch.manual_seed(self.random_state)
-            np.random.seed(self.random_state)
-
-        tensors, is_single, feat_counts = _parse_input_views(X)
-        self.is_single_view_ = is_single
-        self.feature_counts_ = feat_counts
-        self.n_features_in_ = feat_counts[0] if is_single else feat_counts
-
-        res = ned_simr(
-            tensors,
-            k=self.n_components,
-            iterations=self.iterations,
-            epochs=self.epochs,
-            energy_type=self.energy_type,
-            mixing_algorithm=self.mixing_algorithm,
-            use_nsa=self.use_nsa,
-            nsa_w=self.nsa_w,
-            sparseness_quantile=self.sparseness_quantile,
-            verbose=self.verbose,
-        )
-        self.result_ = res
-        v_np = [v.detach().cpu().numpy() for v in res["v"]]
-
-        if is_single:
-            self.loadings_ = v_np[0]
-            self.components_ = v_np[0].T
-        else:
-            self.loadings_ = v_np
-            self.components_ = [v.T for v in v_np]
-
-        self.v_ = self.loadings_
-        return self
-
-    def transform(self, X: Any) -> np.ndarray:
-        if not hasattr(self, "result_"):
-            raise ValueError("This NEDTransformer instance is not fitted yet.")
-        tensors, is_single, _ = _parse_input_views(X)
-        if is_single and self.is_single_view_:
-            return tensors[0].numpy() @ self.loadings_
-        pred = predict_deep(tensors, self.result_, device="cpu")
-        return pred["u"].detach().cpu().numpy()
-
-
-class FlowSiMLRTransformer(BaseEstimator, TransformerMixin):
-    """
-    Scikit-learn compatible transformer for the Flow-SiMLR-V bijective normalizing flow architecture.
-    """
-
-    def __init__(
-        self,
-        n_components: int = 2,
-        epochs: int = 30,
-        energy_type: str = "regression",
-        mixing_algorithm: str = "newton",
-        use_nsa: bool = True,
-        nsa_w: float = 0.1,
-        sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5,
-        verbose: bool = False,
-        random_state: Optional[int] = None,
-    ):
-        self.n_components = n_components
-        self.epochs = epochs
-        self.energy_type = energy_type
-        self.mixing_algorithm = mixing_algorithm
-        self.use_nsa = use_nsa
-        self.nsa_w = nsa_w
-        self.sparseness_quantile = sparseness_quantile
-        self.verbose = verbose
-        self.random_state = random_state
-
-    def fit(self, X: Any, y: Optional[Any] = None) -> "FlowSiMLRTransformer":
-        if self.random_state is not None:
-            torch.manual_seed(self.random_state)
-            np.random.seed(self.random_state)
-
-        tensors, is_single, feat_counts = _parse_input_views(X)
-        self.is_single_view_ = is_single
-        self.feature_counts_ = feat_counts
-        self.n_features_in_ = feat_counts[0] if is_single else feat_counts
-
-        res = flow_simr_v(
-            tensors,
-            k=self.n_components,
-            epochs=self.epochs,
-            energy_type=self.energy_type,
-            mixing_algorithm=self.mixing_algorithm,
-            use_nsa=self.use_nsa,
-            nsa_w=self.nsa_w,
-            sparseness_quantile=self.sparseness_quantile,
-            verbose=self.verbose,
-        )
-        self.result_ = res
-        v_np = [v.detach().cpu().numpy() for v in res["v"]]
-
-        if is_single:
-            self.loadings_ = v_np[0]
-            self.components_ = v_np[0].T
-        else:
-            self.loadings_ = v_np
-            self.components_ = [v.T for v in v_np]
-
-        self.v_ = self.loadings_
-        return self
-
-    def transform(self, X: Any) -> np.ndarray:
-        if not hasattr(self, "result_"):
-            raise ValueError("This FlowSiMLRTransformer instance is not fitted yet.")
-        tensors, is_single, _ = _parse_input_views(X)
-        if is_single and self.is_single_view_:
-            return tensors[0].numpy() @ self.loadings_
-        pred = predict_deep(tensors, self.result_, device="cpu")
-        return pred["u"].detach().cpu().numpy()
+            raise NotImplementedError(f"inverse_transform is defined for linear methods and the joint "
+                                      f"baselines; {self.method!r} is {self.family_!r}.")
+        from .utils import invert_preprocessing
+        recs = [invert_preprocessing(r.float(), res["scale_list"], prov).detach().cpu().numpy()
+                for r, prov in zip(recs, res["provenance_list"])]
+        return np.hstack(recs) if self.input_was_array_ else recs
 
 
 def build_simlr_pipeline(
     n_components: int = 6,
     task: str = "classification",
     model: Optional[Any] = None,
-    optimizer_type: str = "torch_lbfgs",
-    consolidate: bool = True,
-    scale: bool = True,
-    **simlr_kwargs: Any,
+    method: str = "simlr",
+    **estimator_params: Any,
 ) -> Pipeline:
     """
-    Build a turnkey scikit-learn Pipeline with SiMLR dimensionality reduction.
+    A scikit-learn Pipeline: `MultiViewSiMR` followed by a downstream
+    predictor (LogisticRegression(C=1.0, max_iter=500) for
+    ``task="classification"``, Ridge(alpha=1.0) for ``"regression"``, or
+    ``model``). ``estimator_params`` go to `MultiViewSiMR`, including
+    ``scale`` and ``view_sizes``.
 
-    Adapts automatically to tabular data distribution and utilizes torch_lbfgs
-    quasi-Newton optimization for fast, superlinear convergence.
-
-    Parameters
-    ----------
-    n_components : int, default=6
-        Number of latent components to extract.
-    task : {"classification", "regression"}, default="classification"
-        Task type used to pick default downstream predictor if `model` is None.
-    model : estimator, optional
-        Downstream scikit-learn estimator. If None, defaults to LogisticRegression(C=1.0, max_iter=500)
-        for classification, or Ridge(alpha=1.0) for regression.
-    optimizer_type : str, default="torch_lbfgs"
-        Optimizer for basis learning (e.g. "torch_lbfgs" or "hybrid_adam").
-    consolidate : bool, default=True
-        Whether to enforce strictly disjoint supports with zero crosstalk.
-    scale : bool, default=True
-        Whether to prepend StandardScaler() to the pipeline.
-    **simlr_kwargs : Any
-        Additional keyword arguments forwarded to SiMLREstimator.
-
-    Returns
-    -------
-    sklearn.pipeline.Pipeline
-        The constructed turnkey pipeline.
+    There is no outer StandardScaler: `MultiViewSiMR` standardizes each view
+    with its training statistics, and an outer scaler standardized the data
+    a second time (and rejected list-of-views input).
     """
-    steps = []
-    if scale:
-        steps.append(("scaler", StandardScaler()))
-
-    kwargs = {
-        "optimizer_type": optimizer_type,
-        "consolidate": consolidate,
-    }
-    kwargs.update(simlr_kwargs)
-    steps.append(("dim_reduction", SiMLREstimator(n_components=n_components, **kwargs)))
-
+    if task not in ("classification", "regression"):
+        raise ValueError(f"Unknown task: {task}. Expected 'classification' or 'regression'.")
+    steps = [("dim_reduction", MultiViewSiMR(method=method, n_components=n_components,
+                                              **estimator_params))]
     if model is None:
         if task == "classification":
             from sklearn.linear_model import LogisticRegression
             model = LogisticRegression(C=1.0, max_iter=500)
-            steps.append(("classifier", model))
-        elif task == "regression":
+        else:
             from sklearn.linear_model import Ridge
             model = Ridge(alpha=1.0)
-            steps.append(("regressor", model))
-        else:
-            raise ValueError(f"Unknown task: {task}. Expected 'classification' or 'regression'.")
-    else:
-        step_name = "classifier" if task == "classification" else "regressor"
-        steps.append((step_name, model))
-
+    steps.append(("classifier" if task == "classification" else "regressor", model))
     return Pipeline(steps)
 
 
@@ -617,6 +298,9 @@ class MultiViewPCA(BaseEstimator, TransformerMixin):
         (shape: [N, sum(k_m)]) or a list of 2D numpy arrays.
     random_state : int, optional
         Seed for reproducible SVD / sign convention.
+    view_sizes : list of int, optional
+        Column counts of the views when ``X`` is one concatenated matrix (the
+        form scikit-learn's cross-validation can slice).
 
     Attributes
     ----------
@@ -641,12 +325,14 @@ class MultiViewPCA(BaseEstimator, TransformerMixin):
         whiten: bool = False,
         concat: bool = True,
         random_state: Optional[int] = None,
+        view_sizes: Optional[Sequence[int]] = None,
     ) -> None:
         self.n_components = n_components
         self.scale = scale
         self.whiten = whiten
         self.concat = concat
         self.random_state = random_state
+        self.view_sizes = view_sizes
 
     def fit(self, X: Any, y: Optional[Any] = None) -> "MultiViewPCA":
         """
@@ -667,7 +353,9 @@ class MultiViewPCA(BaseEstimator, TransformerMixin):
         from sklearn.decomposition import PCA
         from sklearn.preprocessing import StandardScaler
 
-        tensors, is_single, feature_counts = _parse_input_views(X)
+        tensors = _split_views(X, self.view_sizes)
+        is_single = len(tensors) == 1 and not isinstance(X, (list, tuple))
+        feature_counts = [int(t.shape[1]) for t in tensors]
         self.is_single_view_ = is_single
         self.n_views_ = len(tensors)
         self.feature_counts_ = feature_counts
@@ -747,7 +435,7 @@ class MultiViewPCA(BaseEstimator, TransformerMixin):
         if not hasattr(self, "pca_models_"):
             raise ValueError("MultiViewPCA instance is not fitted yet.")
 
-        tensors, _, _ = _parse_input_views(X)
+        tensors = _split_views(X, self.view_sizes)
         if len(tensors) != self.n_views_:
             raise ValueError(
                 f"Expected {self.n_views_} views, got {len(tensors)}."

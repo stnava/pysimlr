@@ -70,7 +70,7 @@ def fit_and_score(mats, model_type, opt, use_mai, k):
         res = deep_simr(
             mats, k=k, model_type=model_type, optimizer_type=opt,
             dynamic_weights=use_mai, mai_metric="procrustes_r2",
-            epochs=100, learning_rate=1e-3, verbose=False, device="cpu"
+            iterations=100, learning_rate=1e-3, verbose=False, device="cpu"
         )
         # For deep models, we use first_layer_scores which are X_i @ V_i (interpretable projection)
         projections = res['first_layer_scores']

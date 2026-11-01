@@ -12,7 +12,7 @@ def check_linear_sig():
     data = [bl, mh, mr, pe]
     
     print("Running Linear SiMLR Permutation Test (Star Topology)...")
-    res = simlr_perm(data, k=3, n_perms=50, energy_type="acc", sparseness_quantile=0.5)
+    res = simlr_perm(data, k=3, n_perms=50, energy_type="acc", sparseness=0.5)
     
     print("\nLINEAR SIGNIFICANCE REPORT:")
     print("="*40)

@@ -565,10 +565,10 @@ html_content = f"""<!DOCTYPE html>
             <span class="rule-badge-pass">SCIKIT-LEARN COMPATIBLE</span>
         </div>
         <div class="rule-desc">
-            Use <code>SiMLR</code> as a direct replacement for <code>sklearn.decomposition.PCA</code>. Works inside <code>Pipeline</code>, <code>cross_val_score</code>, and <code>GridSearchCV</code>. Automatically consolidates supports for zero crosstalk.
+            Use <code>MultiViewSiMR</code> as a direct replacement for <code>sklearn.decomposition.PCA</code>. Works inside <code>Pipeline</code>, <code>cross_val_score</code>, and <code>GridSearchCV</code>. Automatically consolidates supports for zero crosstalk.
         </div>
         <div class="rule-code">
-from pysimlr import SiMLR
+from pysimlr import MultiViewSiMR
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
@@ -576,7 +576,7 @@ from sklearn.linear_model import LogisticRegression
 # Create drop-in scikit-learn pipeline:
 pipeline = Pipeline([
     ("scaler", StandardScaler()),
-    ("dim_reduction", SiMLR(n_components=6, optimizer_type="torch_lbfgs", consolidate=True)),
+    ("dim_reduction", MultiViewSiMR(n_components=6, optimizer_type="torch_lbfgs", extra_params={"consolidate": True})),
     ("classifier", LogisticRegression(max_iter=500))
 ])
 

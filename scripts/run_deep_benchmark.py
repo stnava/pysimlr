@@ -43,6 +43,7 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+from pysimlr import api
 from pysimlr.benchmarks.runner import run_single_experiment
 from pysimlr.benchmarks.synthetic_cases import build_case
 from pysimlr.utils import procrustes_r2
@@ -281,6 +282,20 @@ def calculate_v_recovery(res: dict, true_v: list) -> float:
     return float(np.mean(r2s)) if r2s else float("nan")
 
 
+#: Registered method (or alias) -> label used in the paper's tables.
+MODEL_LABELS = {
+    "pca": "PCA",
+    "linear": "SiMLR",
+    "simlr_lbfgs": "SiMLR-LBFGS",
+    "simlr_lbfgsb": "SiMLR-LBFGSB",
+    "nsa_pipeline": "NSAFlow-PCA",
+    "lend": "LEND",
+    "ned": "NED",
+    "flow_v": "Flow-SiMLR-V",
+    "shared_private": "NEDPP",
+}
+
+
 def run_experiment_task(task_args: tuple) -> dict:
     torch.set_num_threads(1)
     if len(task_args) == 7:
@@ -345,14 +360,15 @@ def run_experiment_task(task_args: tuple) -> dict:
         "nsa_iterations": 2,
         "consolidate": False,
     }
-    if model_type in ("linear", "simlr_lbfgs", "simlr_lbfgsb"):
-        params["iterations"] = iterations
-    elif model_type in ("lend", "ned", "shared_private", "flow_v"):
-        params["epochs"] = epochs
-    if model_type == "shared_private" and "private_k" in case:
+    # One budget name; the runner picks each method's budget by its registry
+    # unit: `iterations` sweeps for linear methods, `epochs` epochs for deep
+    # and flow methods, none for the closed-form baselines.
+    if "private_k" in case and "private_k" in api.resolve_method(model_type).accepts:
         params["private_k"] = case["private_k"]
 
-    exp_res = run_single_experiment(model_type, case, sparsity=sparsity, seed=seed, **params)
+    exp_res = run_single_experiment(model_type, case, sparsity=sparsity, seed=seed,
+                                    budget_by_unit={"iterations": iterations, "epochs": epochs},
+                                    **params)
     metrics = exp_res["metrics"]
     res = exp_res["result"]
 
@@ -400,6 +416,8 @@ def run_experiment_task(task_args: tuple) -> dict:
         "Grad_Map": metrics.get("grad_map"),
         "Energy_Reduction": metrics.get("energy_reduction"),
         "Solver_Iters": metrics.get("solver_iters"),
+        "Method": metrics.get("method"),
+        "Ignored_Params": metrics.get("ignored_params"),
     }
 
 
@@ -409,6 +427,7 @@ def _execute_tasks(tasks: list, workers: int = 8, label: str = "Deep Benchmark")
     print(f"Workers: {workers} parallel processes (single-threaded PyTorch).")
 
     results = []
+    failures = []
     t_start = time.perf_counter()
     completed = 0
 
@@ -419,8 +438,9 @@ def _execute_tasks(tasks: list, workers: int = 8, label: str = "Deep Benchmark")
             try:
                 rec = future.result()
                 results.append(rec)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- collected and raised after the sweep
                 print(f"[ERROR] Task {task} failed with exception: {exc}")
+                failures.append((task, exc))
             completed += 1
             if completed % 25 == 0 or completed == total_tasks:
                 elapsed = time.perf_counter() - t_start
@@ -429,6 +449,16 @@ def _execute_tasks(tasks: list, workers: int = 8, label: str = "Deep Benchmark")
                 print(f"[{completed}/{total_tasks}] ({completed/total_tasks*100:.1f}%) | "
                       f"Elapsed: {elapsed:.1f}s | ETA: {rem:.1f}s | Rate: {rate:.2f} tasks/s")
 
+    if failures:
+        # A sweep with failed fits is not a result: the missing rows would
+        # silently drop models or datasets from the rankings. Every task is
+        # attempted first, so the log lists all failures, and then nothing is
+        # written. (This used to return the surviving rows -- including an empty
+        # frame when every task failed -- and the caller saved them as the
+        # benchmark.)
+        task, exc = failures[0]
+        raise RuntimeError(f"{label}: {len(failures)} of {total_tasks} tasks failed; "
+                           f"first: {task} -> {exc!r}")
     return pd.DataFrame(results)
 
 
@@ -444,17 +474,7 @@ def run_deep_benchmark(
                          "NonnegParts", "NonnegPartsWeak"]
     real_regimes = ["Heart", "Diabetes", "MultiOmics", "TCGA-KIRC", "ADNI-MCI", "mfeat"]
 
-    model_configs = [
-        ("pca", "PCA"),
-        ("linear", "SiMLR"),
-        ("simlr_lbfgs", "SiMLR-LBFGS"),
-        ("simlr_lbfgsb", "SiMLR-LBFGSB"),
-        ("nsa_pipeline", "NSAFlow-PCA"),
-        ("lend", "LEND"),
-        ("ned", "NED"),
-        ("flow_v", "Flow-SiMLR-V"),
-        ("shared_private", "NEDPP"),
-    ]
+    model_configs = list(MODEL_LABELS.items())
 
     tasks = []
     for reg in synthetic_regimes:
@@ -503,17 +523,7 @@ def run_operating_point_suite(
 
     # Paired positivity="positive" evaluation on high-dimensional real biomedical cohorts
     real_bio_cohorts = ["ADNI-MCI", "MultiOmics", "TCGA-KIRC"]
-    model_configs = [
-        ("pca", "PCA"),
-        ("linear", "SiMLR"),
-        ("simlr_lbfgs", "SiMLR-LBFGS"),
-        ("simlr_lbfgsb", "SiMLR-LBFGSB"),
-        ("nsa_pipeline", "NSAFlow-PCA"),
-        ("lend", "LEND"),
-        ("ned", "NED"),
-        ("flow_v", "Flow-SiMLR-V"),
-        ("shared_private", "NEDPP"),
-    ]
+    model_configs = list(MODEL_LABELS.items())
     pos_tasks = []
     for sp in (None, 0.5, 0.8):
         for dset in real_bio_cohorts:

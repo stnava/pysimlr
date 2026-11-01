@@ -53,7 +53,8 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                             topology: str = "star",
                             path_graph: Optional[Dict[int, List[int]]] = None,
                             prune_threshold: Optional[float] = None,
-                            modality_weights: Optional[torch.Tensor] = None) -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
+                            modality_weights: Optional[torch.Tensor] = None,
+                            frozen_map: Optional[Dict[str, Any]] = None) -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
     """
     Combine modality-specific projections into a shared latent consensus (U).
     
@@ -70,6 +71,9 @@ def compute_shared_consensus(projections: List[torch.Tensor],
 
     Parameters
     ----------
+    frozen_map : dict, optional
+        From `capture_consensus_map`. Outside training, the consensus is that
+        frozen map applied row by row, so it does not depend on the batch.
     orthogonalize : bool, default=False
         If True, decorrelate the consensus columns (polar projection) so that
         ``U.T @ U`` is diagonal, before the per-column standardization. Requires
@@ -79,6 +83,10 @@ def compute_shared_consensus(projections: List[torch.Tensor],
     """
     if not projections:
         return torch.empty(0)
+    if frozen_map is not None and not training:
+        # Prediction with the training batch's frozen affine consensus; see
+        # `capture_consensus_map`.
+        return apply_consensus_map(projections, frozen_map)
         
     n_modalities = len(projections)
     if k is None:
@@ -137,12 +145,11 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                 
                 if FastICA is not None:
                     ica = FastICA(n_components=k, random_state=42, max_iter=2000, tol=1e-2)
-                    try:
-                        u_np = ica.fit_transform(avg_p)
-                        local_anchor = torch.from_numpy(ica.components_.T).to(local_big_p.device).to(local_big_p.dtype)
-                    except Exception:
-                        u_np = avg_p[:, :k]
-                        local_anchor = torch.eye(local_big_p.shape[1], k, device=local_big_p.device).to(local_big_p.dtype)
+                    # A FastICA failure propagates: it used to be replaced by
+                    # the first k averaged projection columns and an identity
+                    # anchor, a different consensus with no warning.
+                    u_np = ica.fit_transform(avg_p)
+                    local_anchor = torch.from_numpy(ica.components_.T).to(local_big_p.device).to(local_big_p.dtype)
                 else:
                     u_np = avg_p[:, :k]
                     local_anchor = torch.eye(local_big_p.shape[1], k, device=local_big_p.device).to(local_big_p.dtype)
@@ -293,3 +300,116 @@ def compute_shared_consensus(projections: List[torch.Tensor],
     # Unreachable: the topology is validated above. Kept so a future branch
     # that forgets to return has a defined result rather than None.
     return _get_u(norm_projs, return_anchor=training)
+
+
+#: MAI metrics `mai_score` implements. ``trace`` was removed: tr(Z'u) depends
+#: on the arbitrary rotation of the latent coordinates (measured 0.0348, 0.1319
+#: and 0.0000 for one pair under three rotations), and on `flow_simr_v` it
+#: ranked a planted pure-noise view above a signal view (0.276 vs 0.246).
+MAI_METRICS = ("procrustes_r2", "procrustes_r2_sharp", "cca", "rvcoef")
+
+
+def mai_score(z: torch.Tensor, u_loo: torch.Tensor, metric: str) -> float:
+    """Agreement of one view's normalized latent ``z`` with the leave-one-out
+    consensus ``u_loo`` (both centred, unit Frobenius norm).
+
+    ``procrustes_r2`` is the scale-profiled Procrustes R^2, ``sum(s)^2`` for
+    the singular values ``s`` of ``z' u_loo``: bounded in [0, 1] and never
+    clamped (the un-profiled form reduced to ``2 sum(s) - 1`` and clamped to
+    0 whenever ``sum(s) < 0.5``, so at k=3 every view scored 0 and MAI was
+    inert; profiled, a signal view scores 0.989 against 0.020 for noise).
+    ``procrustes_r2_sharp`` multiplies it by the spectral sharpness
+    ``s_1 / sum(s)`` of ``z`` itself (isotropic noise has a flat spectrum).
+    ``cca`` is the mean singular value; ``rvcoef`` the RV coefficient.
+
+    One implementation for the linear, deep and flow models, which carried
+    six copies of this code.
+    """
+    if metric not in MAI_METRICS:
+        raise ValueError(f"unknown mai_metric {metric!r}. Choose one of {list(MAI_METRICS)}. "
+                         f"'trace' has been removed: tr(Z'u) depends on the arbitrary rotation "
+                         f"of the latent coordinates, so it does not measure agreement between views.")
+    cross = z.t() @ u_loo
+    s = torch.linalg.svdvals(cross)
+    if metric in ("procrustes_r2", "procrustes_r2_sharp"):
+        r2 = float(s.sum().item()) ** 2
+        if metric == "procrustes_r2_sharp":
+            s_lat = torch.linalg.svdvals(z)
+            r2 *= float((s_lat[0] / (s_lat.sum() + 1e-8)).item())
+        return r2
+    if metric == "cca":
+        return float(s.mean().item())
+    num = torch.norm(cross, p="fro") ** 2
+    den = torch.norm(z.t() @ z, p="fro") * torch.norm(u_loo.t() @ u_loo, p="fro")
+    return float((num / (den + 1e-8)).item())
+
+
+def mai_score_or_zero(z: torch.Tensor, u_loo: torch.Tensor, metric: str, view: int) -> float:
+    """`mai_score`, scoring a view whose SVD does not converge as 0 with a
+    `RuntimeWarning` naming the view (a non-finite latent is the usual cause).
+    Scoring it 0 down-weights that view in the consensus; the warning makes
+    the substitution visible."""
+    try:
+        return mai_score(z, u_loo, metric)
+    except torch.linalg.LinAlgError as err:
+        warnings.warn(f"MAI for view {view} could not be computed ({err}); scored 0, which "
+                      f"down-weights the view.", RuntimeWarning, stacklevel=3)
+        return 0.0
+
+
+def capture_consensus_map(projections: List[torch.Tensor],
+                          u: Union[torch.Tensor, List[torch.Tensor]]) -> Dict[str, Any]:
+    """Freeze the training batch's consensus as a row-wise affine map.
+
+    For a fixed batch, every mixing rule `compute_shared_consensus` applies at
+    prediction time -- per-view RMS scaling, per-column sign alignment, the
+    learned SVD/PCA/ICA anchor, Newton-Schulz orthogonalization (a right
+    multiplication by a k x k matrix), and the final per-column centring and
+    scaling -- is an affine function of the concatenated per-view projections.
+    Re-deriving those statistics from each prediction batch made out-of-sample
+    latents depend on which other rows were in the batch (measured: up to 2.2
+    for `lend`, 0.58 for `simlr` under topology="loo"). Fitting the affine map
+    on the training batch by least squares and replaying it per row makes
+    prediction batch-size invariant, including N=1.
+
+    Returns
+    -------
+    dict
+        ``proj_rms`` (per view), ``mu`` (mean of the normalized concatenation),
+        ``maps`` (one ``(sum k_m, k)`` matrix per consensus output), ``offsets``,
+        ``is_list`` and ``max_residual`` (largest absolute training residual;
+        near machine precision when the consensus is affine, as it is for every
+        rule except an ICA refit without an anchor).
+    """
+    proj_rms, normed = [], []
+    for p in projections:
+        p = torch.nan_to_num(p.detach().double(), nan=0.0, posinf=0.0, neginf=0.0)
+        rms = float(torch.norm(p, p="fro") / np.sqrt(max(1, p.shape[0])))
+        proj_rms.append(rms)
+        normed.append(p / (rms + 1e-8))
+    z = torch.cat(normed, dim=1)
+    mu = z.mean(dim=0, keepdim=True)
+    zc = z - mu
+    targets = list(u) if isinstance(u, (list, tuple)) else [u]
+    maps, offsets, resid = [], [], 0.0
+    for t in targets:
+        t = t.detach().double()
+        b = t.mean(dim=0, keepdim=True)
+        r = torch.linalg.lstsq(zc, t - b, driver="gelsd").solution
+        maps.append(r)
+        offsets.append(b)
+        resid = max(resid, float((zc @ r + b - t).abs().max()))
+    return {"proj_rms": proj_rms, "mu": mu, "maps": maps, "offsets": offsets,
+            "is_list": isinstance(u, (list, tuple)), "max_residual": resid}
+
+
+def apply_consensus_map(projections: List[torch.Tensor],
+                        frozen: Dict[str, Any]) -> Union[torch.Tensor, List[torch.Tensor]]:
+    """Replay `capture_consensus_map` row-wise on new projections."""
+    dtype, device = projections[0].dtype, projections[0].device
+    normed = [torch.nan_to_num(p.double(), nan=0.0, posinf=0.0, neginf=0.0) / (rms + 1e-8)
+              for p, rms in zip(projections, frozen["proj_rms"])]
+    zc = torch.cat(normed, dim=1) - frozen["mu"].to(device)
+    outs = [(zc @ r.to(device) + b.to(device)).to(dtype)
+            for r, b in zip(frozen["maps"], frozen["offsets"])]
+    return outs if frozen["is_list"] else outs[0]

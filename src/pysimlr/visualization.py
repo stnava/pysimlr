@@ -293,36 +293,6 @@ def plot_v_matrix(v: torch.Tensor, title: str = "Feature Importance (V Matrix)")
     ax.set_title(title)
     return fig
 
-def generate_all_architecture_graphs(output_dir=".", base_fontsize=11) -> List[plt.Figure]:
-    """
-    Generate and save all detailed architecture graphs as PDFs.
-
-    Parameters
-    ----------
-    output_dir : str, default="."
-        Directory where PDFs will be saved.
-    base_fontsize : int, default=11
-        Base font size for diagrams.
-
-    Returns
-    -------
-    List[plt.Figure]
-        List of all generated architecture figures.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-    """
-    import os
-    if not os.path.exists(output_dir): os.makedirs(output_dir)
-    figs = []
-    figs.append(plot_lend_simr_architecture(save_path=os.path.join(output_dir, "detailed_lend_simr.pdf"), base_fontsize=base_fontsize))
-    figs.append(plot_ned_simr_architecture(save_path=os.path.join(output_dir, "detailed_ned_simr.pdf"), base_fontsize=base_fontsize))
-    figs.append(plot_ned_shared_private_architecture(save_path=os.path.join(output_dir, "detailed_ned_shared_private.pdf"), base_fontsize=base_fontsize))
-    figs.append(plot_nsa_flow_architecture(save_path=os.path.join(output_dir, "detailed_nsa_flow.pdf"), base_fontsize=base_fontsize))
-    return figs
-
 def plot_flow_simr_architecture(save_path=None, base_fontsize=11):
     """
     Generate a schematic diagram of the Flow-SiMR (Normalizing Flow) architecture.
@@ -389,7 +359,6 @@ def plot_flow_simr_architecture(save_path=None, base_fontsize=11):
     if save_path: plt.savefig(save_path, bbox_inches='tight', dpi=300)
     return fig
 
-# Update generate_all_architecture_graphs to include the new function
 def generate_all_architecture_graphs(output_dir="docs/manuscript/figures", base_fontsize=11):
     """
     Generate and save schematic diagrams for all architectures.

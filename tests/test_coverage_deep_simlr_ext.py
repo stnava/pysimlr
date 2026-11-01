@@ -4,17 +4,12 @@ import numpy as np
 from unittest.mock import patch
 import sys
 
-def test_imports_fallback():
-    with patch.dict('sys.modules', {'sklearn.decomposition': None, 'nsa_flow': None}):
-        if 'pysimlr.simlr' in sys.modules: del sys.modules['pysimlr.simlr']
-        if 'pysimlr.deep' in sys.modules: del sys.modules['pysimlr.deep']
-        import pysimlr.simlr
-        import pysimlr.deep
-        assert getattr(pysimlr.simlr, 'FastICA', None) is None
-        assert getattr(pysimlr.deep, 'nsa', None) is None
-    # restore modules to prevent issues with other tests
-    if 'pysimlr.simlr' in sys.modules: del sys.modules['pysimlr.simlr']
-    if 'pysimlr.deep' in sys.modules: del sys.modules['pysimlr.deep']
+# `test_imports_fallback` was removed (2026-11-01). It deleted pysimlr.simlr
+# and pysimlr.deep from sys.modules and re-imported them, which rebinds the
+# package attribute `pysimlr.simlr` (normally the `simlr` function) to the
+# module and leaves two copies of each module live for every later test in the
+# process; and what it asserted was vacuous -- neither module defines a
+# `FastICA` or `nsa` attribute, so `getattr(..., None) is None` always held.
 
 from pysimlr.simlr import (
     parse_constraint,
@@ -179,21 +174,21 @@ def test_deep_calculate_sim_loss_nc_logcosh():
 
 def test_deep_train_loop_freeze_private():
     x1 = torch.randn(20, 5)
-    res = ned_simr_shared_private([x1], k=2, private_k=2, epochs=2, shared_warmup_epochs=1, device="cpu")
+    res = ned_simr_shared_private([x1], k=2, private_k=2, iterations=2, shared_warmup_epochs=1, device="cpu")
     assert "u" in res
 
 def test_deep_lend_simr_sparseness_alias():
     x1 = torch.randn(10, 5)
-    res = lend_simr([x1], k=2, epochs=1, sparseness=0.1, device="cpu")
+    res = lend_simr([x1], k=2, iterations=1, sparseness=0.1, device="cpu")
     assert "u" in res
 
 def test_deep_deep_simr_alias():
     x1 = torch.randn(10, 5)
-    res = deep_simr([x1], k=2, epochs=1, device="cpu")
+    res = deep_simr([x1], k=2, iterations=1, device="cpu")
     assert "u" in res
 
 def test_deep_predict_deep_ned():
     x1 = torch.randn(10, 5)
-    res = ned_simr([x1], k=2, epochs=1, device="cpu")
+    res = ned_simr([x1], k=2, iterations=1, device="cpu")
     pred = predict_deep([x1], res, device="cpu")
     assert "u" in pred

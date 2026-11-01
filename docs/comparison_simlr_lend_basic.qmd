@@ -66,8 +66,7 @@ sweep_results = sweep_benchmark(
     case_kind="nonlinear_shared",
     sparsities=sparsities,
     n_seeds=1, # 95% CI calculation requires multiple seeds
-    iterations=200,
-    epochs=500,
+    budget_by_unit={"iterations": 200, "epochs": 500},
     warmup_epochs=20,
     verbose=True,
     save_prefix="academic_results"
@@ -119,7 +118,7 @@ We examine how well the most predictive latent dimension (Dimension 0) is captur
 ```{python}
 #| label: viz-consensus
 best_ned_row = best_df[best_df["model"] == "ned"].iloc[0]
-best_ned_res = run_single_experiment("ned", case, sparsity=best_ned_row["sparsity"], epochs=200)
+best_ned_res = run_single_experiment("ned", case, sparsity=best_ned_row["sparsity"], iterations=200)
 
 plot_latent_consensus(
     best_ned_res["metrics"]["u_pred"] if "u_pred" in best_ned_res["metrics"] else best_ned_res["result"]["u"], 

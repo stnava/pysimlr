@@ -62,8 +62,8 @@ def run_pathwise_analysis():
         print(f"\nEvaluating Path Model: {name}")
         stats = pathwise_permutation_test(
             data, k=3, graph=graph, n_perms=30, # Increased permutations for more robust z-scores
-            epochs=100, energy_type="acc", mixing_algorithm="svd", 
-            sparseness_quantile=0.5, sim_weight=2.0, verbose=False
+            iterations=100, energy_type="acc", mixing_algorithm="svd", 
+            sparseness=0.5, sim_weight=2.0, verbose=False
         )
         results[name] = stats
         

@@ -11,44 +11,8 @@ import time
 from typing import List, Dict, Any, Optional, Union, Callable
 from .synthetic_cases import build_case
 from .metrics import calculate_all_metrics
-from pysimlr.simlr import simlr, predict_simlr, predict_shared_latent
-from pysimlr.deep import lend_simr, ned_simr, ned_simr_shared_private, predict_deep
-
-def filter_kwargs(func: Callable, kwargs: Dict[str, Any]) -> Dict[str, Any]:
-    """Keep the kwargs ``func`` can actually accept, including via ``**kwargs``.
-
-    The previous version kept only *named* parameters. `simlr` forwards its
-    optimizer hyperparameters through ``**opt_params``, so ``learning_rate``
-    was not a named parameter and was silently dropped from every benchmark
-    call -- every recorded run used the default 0.001 whatever the sweep
-    asked for. That default is load-bearing rather than incidental: LARS moves
-    ``V`` by exactly ``lr`` of its norm per sweep, so at 0.001 a 12-iteration
-    fit ends within ~0.4% of its initialisation, and any parameter that acts
-    through the objective -- the energy, a regulariser weight -- cannot
-    change the answer. Six benchmark conditions that differ in energy,
-    negentropy weight and consensus positivity came back bit-identical on all
-    11 cohorts because of this.
-
-    A key the callee cannot accept under any route is still dropped, but now
-    with a warning rather than in silence.
-    """
-    sig = inspect.signature(func)
-    takes_var_kw = any(q.kind is inspect.Parameter.VAR_KEYWORD
-                       for q in sig.parameters.values())
-    allowed = set(sig.parameters)
-    if takes_var_kw:
-        from pysimlr.optimizers import SIMLR_OPTIMIZER_DEFAULTS
-        allowed |= set(SIMLR_OPTIMIZER_DEFAULTS)
-    kept = {k: v for k, v in kwargs.items() if k in allowed}
-    dropped = sorted(set(kwargs) - set(kept))
-    if dropped:
-        warnings.warn(
-            f"{getattr(func, '__name__', func)!r} cannot accept {dropped}; "
-            f"these were dropped. A benchmark condition that differs only in a "
-            f"dropped key is not a distinct condition.",
-            RuntimeWarning, stacklevel=2,
-        )
-    return kept
+from pysimlr import api
+from ..defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
 
 
 def split_indices(n_samples: int,
@@ -99,7 +63,7 @@ def split_indices(n_samples: int,
 
 def convergence_report(model_type: str, res: Dict[str, Any],
                        train_mats: List[torch.Tensor],
-                       energy_type: str = "acc") -> Dict[str, Any]:
+                       energy_type: str = DEFAULT_ENERGY_TYPE) -> Dict[str, Any]:
     r"""One convergence contract, for every model.
 
     Before this, only the three linear SiMLR variants reported anything: the
@@ -115,17 +79,15 @@ def convergence_report(model_type: str, res: Dict[str, Any],
     one-name-several-definitions problem this package has already hit three
     times.
 
-    Four cases:
+    Three cases:
 
     ``linear SiMLR family``
         Already reports it; passed through unchanged.
-    ``NSAFlow-Turnkey``
-        Its sklearn estimator carries ``converged_``, ``certificate_`` and
-        ``grad_map_``; they were simply never read.
-    ``PCA``
-        A closed-form eigendecomposition. Exactly stationary by construction,
-        so ``grad_map = 0`` with certificate ``"exact"`` -- not a claim about
-        an iteration that never ran.
+    ``baselines`` (``pca``, ``nsa_pipeline``)
+        PCA is a closed-form eigendecomposition, exactly stationary by
+        construction (``grad_map = 0``, certificate ``"exact"``); the NSA-Flow
+        estimator reports its own ``converged_``/``certificate_``/``grad_map_``,
+        which `api.nsa_pipeline` copies into ``convergence``.
     ``deep / flow``
         The mapping is evaluated post hoc on the returned ``V`` and consensus
         ``u``. This certifies the *basis*, not the decoder weights, which is
@@ -150,24 +112,24 @@ def convergence_report(model_type: str, res: Dict[str, Any],
                 "energy_reduction": res.get("energy_reduction"),
                 "solver_iters": res.get("converged_iter")}
 
-    # 2. the sklearn NSA-Flow estimator knows its own answer
-    pipe = res.get("pipeline")
-    dim_red = getattr(pipe, "named_steps", {}).get("dim_reduction") if pipe is not None else None
-    if dim_red is not None and hasattr(dim_red, "grad_map_"):
-        return {"stop_reason": "grad_map" if getattr(dim_red, "converged_", False) else "max_iter",
-                "certificate": getattr(dim_red, "certificate_", None),
-                "converged": bool(getattr(dim_red, "converged_", False)),
-                "grad_map": float(getattr(dim_red, "grad_map_", float("nan"))),
-                "energy_reduction": None,
-                "solver_iters": getattr(dim_red, "n_iter_", None)}
+    # 2. closed-form and NSA-Flow baselines report their own record
+    if res.get("family") == "baseline":
+        conv = res["convergence"]
+        closed = conv["stop_reason"] == "closed_form"
+        return {"stop_reason": conv["stop_reason"], "certificate": conv.get("certificate"),
+                "converged": bool(conv["converged"]),
+                "grad_map": 0.0 if closed else conv.get("grad_map"),
+                "energy_reduction": None, "solver_iters": conv["n_steps"]}
 
-    # 3. closed form
-    if model_type in ("pca", "sklearn_pca"):
-        return {"stop_reason": "closed_form", "certificate": "exact",
-                "converged": True, "grad_map": 0.0,
-                "energy_reduction": None, "solver_iters": 0}
-
-    # 4. deep / flow: certify the returned basis with the shared mapping
+    # 3. deep / flow: certify the returned basis with the shared mapping, on
+    # the objective and feasible set the fit actually used. This used to take
+    # `energy_type` from the runner's own params (default "acc") while the
+    # deep models defaulted to "regression", and always projected onto
+    # V >= 0, so a signed basis was certified against the wrong set.
+    rec = res.get("parameters", {})
+    used, defaults = rec.get("used", {}), rec.get("defaults", {})
+    energy_type = used.get("energy_type", defaults.get("energy_type", energy_type))
+    positivity = used.get("positivity", defaults.get("positivity", "either"))
     gmap = load_gradient_mapping()
     vs, u = res.get("v"), res.get("u")
     if gmap is None or not vs or u is None:
@@ -176,19 +138,16 @@ def convergence_report(model_type: str, res: Dict[str, Any],
     u_t = u[0] if isinstance(u, list) else u
     u_t = torch.as_tensor(u_t).detach().float()
     name = resolve_energy_name(energy_type, path="deep")
-    proj = (lambda z: torch.clamp(z, min=0.0))
+    nonneg = positivity in ("positive", "hard", "nonnegative", "nonneg", "softplus")
+    proj = (lambda z: torch.clamp(z, min=0.0)) if nonneg else None
     terms = []
     for x, v in zip(train_mats, vs):
         v = torch.as_tensor(v).detach().float()
         x = torch.as_tensor(x).detach().float()
         if x.shape[0] != u_t.shape[0] or v.shape[1] != u_t.shape[1]:
             continue
-        try:
-            g = x.t() @ similarity_gradient(name, x @ v, u_t,
-                                            SimilarityContext(x=x, v=v), wrt="s")
-            terms.append(gmap(v, g, proj))
-        except Exception:
-            continue
+        g = x.t() @ similarity_gradient(name, x @ v, u_t, SimilarityContext(x=x, v=v), wrt="s")
+        terms.append(gmap(v, g, proj))
     loss = res.get("loss_history") or []
     red = (float(loss[0]) - float(min(loss))) if len(loss) > 1 else None
     return {"stop_reason": "max_iter", "certificate": None, "converged": False,
@@ -200,11 +159,41 @@ def convergence_report(model_type: str, res: Dict[str, Any],
 from pysimlr.sparsification import DEFAULT_SPARSENESS
 
 
-def run_single_experiment(model_type: str, 
-                          case: Dict[str, Any], 
-                          sparsity: Optional[float] = DEFAULT_SPARSENESS, 
+def run_single_experiment(model_type: str,
+                          case: Dict[str, Any],
+                          sparsity: Optional[float] = DEFAULT_SPARSENESS,
                           seed: int = 42,
+                          budget_by_unit: Optional[Dict[str, int]] = None,
                           **params) -> Dict[str, Any]:
+    """Fit one registered method on one train/test split of ``case`` and score it.
+
+    Parameters
+    ----------
+    model_type : str
+        A name or alias from `pysimlr.method_names()`.
+    case : dict
+        A benchmark case (`synthetic_cases.build_case` or a real-data loader).
+    sparsity : float or None
+        Operating point. Views with more than 15 features get it as their
+        ``sparseness``; smaller views stay dense. The joint baselines get it
+        as a scalar when the concatenation has more than 15 features.
+    seed : int
+        Draws the split and is the fit's ``random_state`` unless one is given.
+    budget_by_unit : dict, optional
+        Budget per unit, e.g. ``{"iterations": 25, "epochs": 45}``: each
+        method gets ``iterations`` set from the entry for its
+        ``budget_unit``, so one sweep can give sweeps and epochs different
+        budgets. An explicit ``iterations`` wins.
+    **params
+        Passed to `pysimlr.fit`; a parameter the method cannot use is
+        recorded in the metrics row (``ignored_params``) and warned once.
+
+    Returns
+    -------
+    dict
+        ``metrics`` (one row), ``result`` (the `pysimlr.fit` result) and
+        ``prediction`` (``train`` / ``test`` outputs of `pysimlr.predict`).
+    """
     data_all = case["data"]
     u_all = case["true_u"]
     y_all = case["outcome"]
@@ -282,174 +271,35 @@ def run_single_experiment(model_type: str,
     else:
         eff_sparsity = sparsity
     
+    # One call for every model. Parameters a model cannot use are recorded in
+    # `res["parameters"]["ignored"]` (and in the metrics row) instead of being
+    # filtered out here, which is how `learning_rate` was once dropped from
+    # every benchmark call without anyone seeing it.
+    spec = api.resolve_method(model_type)
+    if budget_by_unit is not None and spec.budget_unit in budget_by_unit:
+        params.setdefault("iterations", budget_by_unit[spec.budget_unit])
+    fit_tr_mats, fit_te_mats = train_mats, test_mats
+    if spec.family == "baseline":
+        # The joint baselines fit one basis on the evaluated views only; the
+        # multi-view methods see every view and are evaluated on the subset
+        # below.
+        eval_idx = case.get("eval_view_indices")
+        if eval_idx is not None:
+            fit_tr_mats = [train_mats[i] for i in eval_idx]
+            fit_te_mats = [test_mats[i] for i in eval_idx]
+        p_tot = sum(m.shape[1] for m in fit_tr_mats)
+        joint_sparsity = (float(sparsity) if isinstance(sparsity, (int, float))
+                          and float(sparsity) > 0.0 and p_tot > 15 else None)
+        params.setdefault("sparseness", joint_sparsity)
+    else:
+        params.setdefault("sparseness", eff_sparsity)
+    params.setdefault("random_state", seed)
+
     t0 = time.perf_counter()
-    if model_type == "linear":
-        f_params = filter_kwargs(simlr, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
-        res = simlr(train_mats, k=k, **f_params)
-    elif model_type == "lend":
-        f_params = filter_kwargs(lend_simr, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
-        res = lend_simr(train_mats, k=k, **f_params)
-    elif model_type == "ned":
-        f_params = filter_kwargs(ned_simr, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
-        res = ned_simr(train_mats, k=k, **f_params)
-    elif model_type == "shared_private":
-        f_params = filter_kwargs(ned_simr_shared_private, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
-        res = ned_simr_shared_private(train_mats, k=k, **f_params)
-    elif model_type == "simlr_lbfgs":
-        f_params = filter_kwargs(simlr, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
-        f_params['optimizer_type'] = 'torch_lbfgs'
-        f_params['consolidate'] = params.get('consolidate', False)
-        res = simlr(train_mats, k=k, **f_params)
-    elif model_type == "simlr_lbfgsb":
-        # Bound-constrained L-BFGS-B from the NSA-Flow backend. `torch_lbfgs`
-        # is unconstrained and restores feasibility by clipping after the step;
-        # this builds V >= 0 into the step itself.
-        f_params = filter_kwargs(simlr, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
-        f_params['optimizer_type'] = 'nsa_lbfgsb'
-        f_params['consolidate'] = params.get('consolidate', False)
-        res = simlr(train_mats, k=k, **f_params)
-    elif model_type == "flow_v":
-        from pysimlr.flows import flow_simr_v
-        f_params = filter_kwargs(flow_simr_v, params)
-        if 'sparseness_quantile' not in f_params: f_params['sparseness_quantile'] = eff_sparsity
-        res = flow_simr_v(train_mats, k=k, **f_params)
-    elif model_type == "nsa_pipeline":
-        from pysimlr import build_nsa_pipeline
-        eval_idx = case.get("eval_view_indices")
-        fit_tr_mats = [train_mats[i] for i in eval_idx] if eval_idx is not None else train_mats
-        fit_te_mats = [test_mats[i] for i in eval_idx] if eval_idx is not None else test_mats
-        X_tr = torch.cat(fit_tr_mats, dim=1).numpy()
-        X_te = torch.cat(fit_te_mats, dim=1).numpy()
-        y_tr_np = y_train.numpy()
-        y_te_np = y_test.numpy()
-        is_classif = bool(case.get("is_classification")) if "is_classification" in case else bool(len(torch.unique(y_train)) <= 5 and (y_train == y_train.round()).all())
-        task_type = "classification" if is_classif else "regression"
-        nsa_q = float(sparsity) if (isinstance(sparsity, (int, float)) and sparsity is not None and float(sparsity) > 0.0 and X_tr.shape[1] > 15) else None
-        pipe = build_nsa_pipeline(
-            n_components=k,
-            w=params.get("nsa_w", 0.5),
-            task=task_type,
-            consolidate=params.get("consolidate", False),
-            sparseness=nsa_q,
-        )
-        pipe.fit(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np)
-        
-        scaler = pipe.named_steps.get("scaler")
-        dim_red = pipe.named_steps["dim_reduction"]
-        
-        X_tr_sc = scaler.transform(X_tr) if scaler else X_tr
-        X_te_sc = scaler.transform(X_te) if scaler else X_te
-        
-        u_tr = torch.from_numpy(dim_red.transform(X_tr_sc)).float()
-        u_te = torch.from_numpy(dim_red.transform(X_te_sc)).float()
-        
-        V_tot = torch.from_numpy(dim_red.components_.T).float()
-        p_offsets = [0] + list(np.cumsum([m.shape[1] for m in fit_tr_mats]))
-        v_mats = [V_tot[p_offsets[i]:p_offsets[i+1]] for i in range(len(fit_tr_mats))]
-        
-        # Exact orthogonal adjoint reconstruction
-        x_rec_sc = u_te.numpy() @ V_tot.numpy().T
-        x_rec_te = scaler.inverse_transform(x_rec_sc) if scaler else x_rec_sc
-        recons_te = [torch.from_numpy(x_rec_te[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(fit_te_mats))]
-        
-        x_rec_sc_tr = u_tr.numpy() @ V_tot.numpy().T
-        x_rec_tr = scaler.inverse_transform(x_rec_sc_tr) if scaler else x_rec_sc_tr
-        recons_tr = [torch.from_numpy(x_rec_tr[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(fit_tr_mats))]
-        
-        pred_test_score = float(pipe.score(X_te, y_te_np.astype(int) if is_classif else y_te_np))
-        pred_train_score = float(pipe.score(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np))
-        
-        res = {
-            "v": v_mats,
-            "v_tot": V_tot,
-            "u": u_tr,
-            "w": [],
-            "scale_list": ["none"],
-            "provenance_list": [],
-            "first_layer": {"v": v_mats},
-            "first_layer_scores": [u_tr],
-            "pipeline": pipe,
-            "pred_test_score": pred_test_score,
-            "pred_train_score": pred_train_score,
-            "custom_pred_test": {"u": u_te, "reconstructions": recons_te, "first_layer_scores": [u_te]},
-            "custom_pred_train": {"u": u_tr, "reconstructions": recons_tr, "first_layer_scores": [u_tr]},
-        }
-    elif model_type in ("pca", "sklearn_pca"):
-        from sklearn.decomposition import PCA
-        from sklearn.preprocessing import StandardScaler
-        from sklearn.pipeline import Pipeline
-        from sklearn.linear_model import Ridge, LogisticRegression
-        
-        eval_idx = case.get("eval_view_indices")
-        fit_tr_mats = [train_mats[i] for i in eval_idx] if eval_idx is not None else train_mats
-        fit_te_mats = [test_mats[i] for i in eval_idx] if eval_idx is not None else test_mats
-        X_tr = torch.cat(fit_tr_mats, dim=1).numpy()
-        X_te = torch.cat(fit_te_mats, dim=1).numpy()
-        y_tr_np = y_train.numpy()
-        y_te_np = y_test.numpy()
-        is_classif = bool(case.get("is_classification")) if "is_classification" in case else bool(len(torch.unique(y_train)) <= 5 and (y_train == y_train.round()).all())
-        
-        scaler = StandardScaler()
-        pca = PCA(n_components=k, random_state=seed)
-        head = LogisticRegression(C=1.0, max_iter=500) if is_classif else Ridge(alpha=1.0)
-        pipe = Pipeline([("scaler", scaler), ("dim_reduction", pca), ("estimator", head)])
-        pipe.fit(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np)
-        
-        X_tr_sc = scaler.transform(X_tr)
-        X_te_sc = scaler.transform(X_te)
-        
-        u_tr = torch.from_numpy(pca.transform(X_tr_sc)).float()
-        u_te = torch.from_numpy(pca.transform(X_te_sc)).float()
-        
-        V_tot = torch.from_numpy(pca.components_.T).float()
-        p_offsets = [0] + list(np.cumsum([m.shape[1] for m in fit_tr_mats]))
-        v_mats = [V_tot[p_offsets[i]:p_offsets[i+1]] for i in range(len(fit_tr_mats))]
-        
-        x_rec_sc = u_te.numpy() @ V_tot.numpy().T
-        x_rec_te = scaler.inverse_transform(x_rec_sc)
-        recons_te = [torch.from_numpy(x_rec_te[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(fit_te_mats))]
-        
-        x_rec_sc_tr = u_tr.numpy() @ V_tot.numpy().T
-        x_rec_tr = scaler.inverse_transform(x_rec_sc_tr)
-        recons_tr = [torch.from_numpy(x_rec_tr[:, p_offsets[i]:p_offsets[i+1]]).float() for i in range(len(fit_tr_mats))]
-        
-        pred_test_score = float(pipe.score(X_te, y_te_np.astype(int) if is_classif else y_te_np))
-        pred_train_score = float(pipe.score(X_tr, y_tr_np.astype(int) if is_classif else y_tr_np))
-        
-        res = {
-            "v": v_mats,
-            "v_tot": V_tot,
-            "u": u_tr,
-            "w": [],
-            "scale_list": ["none"],
-            "provenance_list": [],
-            "first_layer": {"v": v_mats},
-            "first_layer_scores": [u_tr],
-            "pipeline": pipe,
-            "pred_test_score": pred_test_score,
-            "pred_train_score": pred_train_score,
-            "custom_pred_test": {"u": u_te, "reconstructions": recons_te, "first_layer_scores": [u_te]},
-            "custom_pred_train": {"u": u_tr, "reconstructions": recons_tr, "first_layer_scores": [u_tr]},
-        }
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
+    res = api.fit(model_type, fit_tr_mats, k, **params)
     fit_seconds = time.perf_counter() - t0
-        
-    if "custom_pred_test" in res:
-        pred_test = res["custom_pred_test"]
-        pred_train = res["custom_pred_train"]
-    elif "model" in res:
-        pred_test = predict_deep(test_mats, res, device="cpu")
-        pred_train = predict_deep(train_mats, res, device="cpu")
-    else:
-        pred_test = predict_simlr(test_mats, res)
-        pred_train = predict_simlr(train_mats, res)
+    pred_test = api.predict(res, fit_te_mats)
+    pred_train = api.predict(res, fit_tr_mats)
 
     shared_l = pred_test.get("latents")
     private_l = pred_test.get("private_latents")
@@ -506,37 +356,34 @@ def run_single_experiment(model_type: str,
     # `model_type` list above.
     if res.get("v") is not None:
         from pysimlr.utils import basis_rank_report
-        try:
-            V = [v.detach() for v in res["v"]]
-            # Two kinds of model, and only one has a per-view basis.
-            #
-            # `pca` and `nsa_pipeline` fit ONE basis on the concatenated views
-            # and this function slices it into blocks for reporting. A block of
-            # a column-orthonormal matrix is not itself orthonormal, so its
-            # participation ratio measures how unevenly that view contributes
-            # to the shared components -- not whether components were lost.
-            # Reported as a per-view "effective rank" it read as 0.48-0.70 of k
-            # for PCA against ~0.99 for SiMLR, which looked like the
-            # unconstrained methods collapsing. They do not: the basis they
-            # actually fit has singular values [1, 1, 1], effective rank
-            # exactly k and condition number 1.000.
-            #
-            # So the joint figure is computed for every model, because it is
-            # the one number comparable across both families, and the per-view
-            # figure is withheld where there is no per-view basis.
-            joint = res.get("v_tot")
-            joint = joint.detach() if joint is not None else torch.cat(V, dim=0)
-            res.update({f"joint_{kk}": vv for kk, vv in
-                        basis_rank_report([joint], k, warn=False).items()})
-            res["basis_is_joint"] = res.get("v_tot") is not None
-            if not res["basis_is_joint"] and "effective_rank" not in res:
-                res.update(basis_rank_report(V, k, warn=False))
-            elif res["basis_is_joint"]:
-                for kk in ("effective_rank", "numerical_rank",
-                           "condition_number", "max_column_overlap"):
-                    res.pop(kk, None)
-        except Exception:
-            pass
+        V = [v.detach() for v in res["v"]]
+        # Two kinds of model, and only one has a per-view basis.
+        #
+        # `pca` and `nsa_pipeline` fit ONE basis on the concatenated views
+        # and this function slices it into blocks for reporting. A block of
+        # a column-orthonormal matrix is not itself orthonormal, so its
+        # participation ratio measures how unevenly that view contributes
+        # to the shared components -- not whether components were lost.
+        # Reported as a per-view "effective rank" it read as 0.48-0.70 of k
+        # for PCA against ~0.99 for SiMLR, which looked like the
+        # unconstrained methods collapsing. They do not: the basis they
+        # actually fit has singular values [1, 1, 1], effective rank
+        # exactly k and condition number 1.000.
+        #
+        # So the joint figure is computed for every model, because it is
+        # the one number comparable across both families, and the per-view
+        # figure is withheld where there is no per-view basis.
+        joint = res.get("v_tot")
+        joint = joint.detach() if joint is not None else torch.cat(V, dim=0)
+        res.update({f"joint_{kk}": vv for kk, vv in
+                    basis_rank_report([joint], k, warn=False).items()})
+        res["basis_is_joint"] = res.get("v_tot") is not None
+        if not res["basis_is_joint"] and "effective_rank" not in res:
+            res.update(basis_rank_report(V, k, warn=False))
+        elif res["basis_is_joint"]:
+            for kk in ("effective_rank", "numerical_rank",
+                       "condition_number", "max_column_overlap"):
+                res.pop(kk, None)
 
     metrics = calculate_all_metrics(
         pred_test['u'], u_true_test, y_test, test_mats, pred_test['reconstructions'],
@@ -555,9 +402,6 @@ def run_single_experiment(model_type: str,
     # comparison, on the metric used for the global ranking. Keep the number
     # for reference under its own key and let `calculate_all_metrics` score
     # every model through one estimator.
-    if "pred_test_score" in res:
-        metrics["pipeline_test_score"] = res["pred_test_score"]
-        metrics["pipeline_train_score"] = res["pred_train_score"]
 
     frame_defect = 0.0
     lobe_crosstalk = 0.0
@@ -596,6 +440,8 @@ def run_single_experiment(model_type: str,
                model_type, res, train_mats,
                params.get("energy_type", "acc")).items()},
         "model": model_type,
+        "method": res["method"],
+        "ignored_params": ",".join(sorted(res["parameters"]["ignored"])),
         "sparsity": sparsity,
         "seed": seed,
         "fit_seconds": fit_seconds,
@@ -603,7 +449,8 @@ def run_single_experiment(model_type: str,
         "lobe_crosstalk": lobe_crosstalk,
         "sparsity_ratio": sparsity_ratio,
     })
-    return {"metrics": metrics, "result": res}
+    return {"metrics": metrics, "result": res,
+            "prediction": {"train": pred_train, "test": pred_test}}
 
 def run_seeded_benchmark(model_type: str, 
                          case_kind: str = "nonlinear_shared",

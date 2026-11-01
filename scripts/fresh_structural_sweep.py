@@ -51,8 +51,8 @@ def run_fresh_sweep():
         print(f"Sweep: Evaluating {name}...")
         stats = pathwise_permutation_test(
             data, k=2, topology=config["topology"], path_graph=config["path_graph"], 
-            n_perms=50, epochs=100, energy_type="acc", mixing_algorithm="svd", 
-            sparseness_quantile=0.5, sim_weight=2.0, verbose=False
+            n_perms=50, iterations=100, energy_type="acc", mixing_algorithm="svd", 
+            sparseness=0.5, sim_weight=2.0, verbose=False
         )
         stats["Model"] = name
         results.append(stats)

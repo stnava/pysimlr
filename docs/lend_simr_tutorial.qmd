@@ -121,12 +121,12 @@ k = 3
 lend_results = lend_simr(
     data_matrices=train_mats,
     k=k,
-    epochs=150,
+    iterations=150,
     batch_size=64,
     learning_rate=1e-3,
     weight_decay=1e-4,
     sim_weight=1.0,
-    sparseness_quantile=0.5, 
+    sparseness=0.5, 
     positivity="hard",
     nsa_w=0.5,
     hidden_dims=[64, 32], 
@@ -221,11 +221,11 @@ for e_type in energies:
         res = lend_simr(
             data_matrices=train_mats,
             k=k,
-            epochs=100,
+            iterations=100,
             batch_size=64,
             learning_rate=1e-3,
             sim_weight=1.0,
-            sparseness_quantile=0.5, 
+            sparseness=0.5, 
             positivity="hard",
             nsa_w=w_val,
             energy_type=e_type, 
@@ -269,7 +269,7 @@ In LEND SiMR, the **mixing algorithm** occurs at the shared bottleneck. While th
 
 ```{python}
 # Train with ICA mixing to force independent latent components
-lend_ica = lend_simr(train_mats, k=k, epochs=50, mixing_algorithm="ica", verbose=False)
+lend_ica = lend_simr(train_mats, k=k, iterations=50, mixing_algorithm="ica", verbose=False)
 
 u_ica = lend_ica['u'].numpy()
 plt.figure(figsize=(6, 5))
@@ -289,7 +289,7 @@ By default, LEND SiMR treats the shared bottleneck $U$ as a consensus target (co
 lend_backprop = lend_simr(
     train_mats, 
     k=k, 
-    epochs=50, 
+    iterations=50, 
     mixing_algorithm="svd", 
     
     verbose=False

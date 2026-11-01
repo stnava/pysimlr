@@ -35,7 +35,7 @@ def test_shared_private_non_starvation():
     
     # 2. Fit Shared/Private model
     res = ned_simr_shared_private([x1, x2], k=k_shared, private_k=k_private, 
-                                  epochs=150, batch_size=64, verbose=False)
+                                  iterations=150, batch_size=64, verbose=False)
     
     # Evaluate on split for robustness.
     n_train = 400

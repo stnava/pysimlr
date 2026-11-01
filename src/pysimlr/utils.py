@@ -1011,7 +1011,9 @@ def orthogonality_summary(a: torch.Tensor) -> Dict[str, float]:
         _, s, _ = torch.linalg.svd(a, full_matrices=False)
         cond = (s[0] / (s[-1] + 1e-10)).item()
         ortho_score = torch.sum(s**2).item() / (s[0]**2).item() # Effective rank proxy
-    except Exception:
+    except torch.linalg.LinAlgError:
+        # A diagnostic: an unconverged SVD (non-finite input) is reported as
+        # NaN rather than failing the fit that asked for the summary.
         cond = float('nan')
         ortho_score = float('nan')
         
@@ -1165,6 +1167,48 @@ def preprocess_data(x: torch.Tensor, scale_list: List[str], provenance: Optional
     if replay:
         return x_out
     return x_out, new_provenance
+
+def invert_preprocessing(x: torch.Tensor, scale_list: List[str],
+                         provenance: Dict[str, Any]) -> torch.Tensor:
+    """Map data from the space `preprocess_data` produced back to input units.
+
+    Applies the inverse of each step in ``scale_list``, last step first, with
+    the statistics recorded in ``provenance``. NaN filling is not inverted
+    (the original positions of missing values are not recorded).
+
+    Raises
+    ------
+    KeyError
+        If ``provenance`` lacks a statistic a step needs.
+    ValueError
+        For a step with no stored inverse.
+    """
+    first_step = {}
+    for idx, m in enumerate(scale_list):
+        first_step.setdefault(m, idx)
+
+    def key(base, step, method):
+        return base if step == first_step[method] else f"{base}@{step}"
+
+    out = x
+    for step in range(len(scale_list) - 1, -1, -1):
+        method = scale_list[step]
+        if method == "none":
+            continue
+        if method in ("norm", "np", "sqrtnp", "eigenvalue"):
+            base = {"norm": "norm_factor", "np": "np_factor", "sqrtnp": "sqrtnp_factor",
+                    "eigenvalue": "eigen_factor"}[method]
+            out = out * float(provenance[key(base, step, method)])
+        elif method == "center":
+            out = out + torch.as_tensor(provenance[key("center_mean", step, method)], dtype=out.dtype)
+        elif method == "centerAndScale":
+            mean = torch.as_tensor(provenance[key("cas_mean", step, method)], dtype=out.dtype)
+            std = torch.as_tensor(provenance[key("cas_std", step, method)], dtype=out.dtype)
+            out = out * std + mean
+        else:
+            raise ValueError(f"no inverse for preprocessing step {method!r}")
+    return out
+
 
 def set_all_seeds(seed: int = 42):
     """
@@ -1651,11 +1695,13 @@ saveRDS(manifest, file.path(outdir, "manifest.rds"))
 """
             # run the script
             subprocess.run(["Rscript", "--vanilla", "-e", r_script], capture_output=True, text=True, check=True)
+        except FileNotFoundError:
+            warnings.warn("write_simlr(use_r=True): Rscript not found; the result was written "
+                          "as JSON only (no .rds files).", RuntimeWarning, stacklevel=2)
         except subprocess.CalledProcessError as e:
-            # Fallback silently or print depending on debug, but let's keep it silent like original
-            pass
-        except Exception:
-            pass
+            warnings.warn(f"write_simlr(use_r=True): the R conversion failed; the result was "
+                          f"written as JSON only. Rscript stderr: {(e.stderr or '').strip()[:500]}",
+                          RuntimeWarning, stacklevel=2)
 
 def read_simlr(dir_path: str, use_r: bool = True) -> Dict[str, Any]:
     """
@@ -1689,7 +1735,7 @@ def read_simlr(dir_path: str, use_r: bool = True) -> Dict[str, Any]:
         try:
             subprocess.run(["Rscript", "--version"], capture_output=True, check=True)
             has_r = True
-        except Exception:
+        except (FileNotFoundError, subprocess.CalledProcessError):
             has_r = False
             
     if os.path.exists(manifest_rds) and use_r and has_r:

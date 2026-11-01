@@ -29,5 +29,5 @@ def test_consensus_pruning():
 def test_lend_simr_pruning():
     torch.manual_seed(42)
     xs = [torch.randn(20, 5) for _ in range(4)]
-    res = lend_simr(xs, k=2, epochs=2, batch_size=10, topology="star", prune_threshold=0.5, verbose=False)
+    res = lend_simr(xs, k=2, iterations=2, batch_size=10, topology="star", prune_threshold=0.5, verbose=False)
     assert 'u' in res

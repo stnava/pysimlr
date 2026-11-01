@@ -14,7 +14,7 @@ def experiment_pruning():
     x1, x2 = [torch.as_tensor(m).float() for m in case["data"]]
     
     # Train LEND with k=10
-    res = lend_simr([x1, x2], k=k_model, epochs=200, nsa_w=0.1, verbose=False)
+    res = lend_simr([x1, x2], k=k_model, iterations=200, nsa_w=0.1, verbose=False)
     
     # Calculate the variance captured by each component in the consensus U
     # U is orthogonal, so each column has norm 1. 

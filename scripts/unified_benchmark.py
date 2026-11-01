@@ -41,14 +41,13 @@ def run_experiment_task(task_args):
     regime_name, case_params, model_type, model_label, seed, energy_type, mixing_algorithm, iterations, epochs, use_nsa = task_args
     case = build_case(seed=seed, **case_params)
     params = {
-        "iterations": iterations, 
-        "epochs": epochs, 
+        "budget_by_unit": {"iterations": iterations, "epochs": epochs},
         "energy_type": energy_type, 
         "mixing_algorithm": mixing_algorithm, 
         "use_nsa": use_nsa, 
         "positivity": "positive", 
         "nsa_w": 0.5, 
-        "sparseness_quantile": 0.5,
+        "sparseness": 0.5,
         "nsa_iterations": 3
     }
     if model_type == "shared_private" and "private_k" in case: 

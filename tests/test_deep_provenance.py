@@ -9,7 +9,7 @@ def test_deep_preprocessing_provenance():
     
     # 2. Run deep_simr - it now captures provenance for ["centerAndScale"]
     # Reducing epochs for speed
-    res = deep_simr([train_x1, train_x2], k=2, epochs=5, warmup_epochs=0)
+    res = deep_simr([train_x1, train_x2], k=2, iterations=5, warmup_epochs=0)
     
     assert "provenance_list" in res
     assert "cas_mean" in res["provenance_list"][0]

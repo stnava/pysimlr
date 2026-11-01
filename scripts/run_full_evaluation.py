@@ -34,7 +34,7 @@ def fit_and_score(mats, arch, opt, mai, energy, mixing, k):
             mats, k=k, model_type=arch, optimizer_type=opt,
             dynamic_weights=mai, mai_metric="procrustes_r2",
             energy_type=energy, mixing_algorithm=mixing,
-            epochs=30, learning_rate=1e-3, 
+            iterations=30, learning_rate=1e-3, 
             scale_list=sl,
             verbose=False, device="cpu"
         )

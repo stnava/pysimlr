@@ -12,19 +12,26 @@ from .sparsification import _usable_retraction
 #: from this mapping are rejected with a warning by
 #: :meth:`SimlrOptimizer.filter_params`, so it must stay in sync with the
 #: optimizer implementations below.
+from .defaults import DEFAULT_NSA_W
+
+#: Optimizers that never read `learning_rate` (torch L-BFGS steps by
+#: `lbfgs_lr`; L-BFGS-B has its own line search). `simlr` skips the
+#: learning-rate probes for them: every candidate scored identically, so
+#: `learning_rate="auto"` cost seven wasted fits per call.
+LEARNING_RATE_FREE_OPTIMIZERS = frozenset({"torch_lbfgs", "nsa_lbfgsb"})
+
 SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
     'learning_rate': 0.001,
     'beta1': 0.9,          # Adam / Nadam / HybridAdam first moment
     'beta2': 0.999,        # Adam / Nadam / HybridAdam second moment
-    'beta': 0.9,           # RMSProp squared-gradient decay
+    'rmsprop_beta': 0.9,   # RMSProp squared-gradient decay (was 'beta', which collided with the flow models' NLL weight)
     'epsilon': 1e-8,
     'weight_decay': 0.0,
     'amsgrad': False,
     'momentum': 0.9,
-    'use_nsa': True,       # NSA-Flow retraction toggle
-    'nsa_w': 0.1,          # NSAFlowOptimizer retraction weight
+    'nsa_w': DEFAULT_NSA_W,  # NSAFlowOptimizer retraction weight (pysimlr.defaults)
     'decay_rate': 1e-3,    # LARS weight decay
-    'k': 5,                # Lookahead slow-weight period
+    'lookahead_k': 5,      # Lookahead slow-weight period (was 'k', which collided with simlr's rank)
     'alpha': 0.5,          # Lookahead slow-weight interpolation
     'lbfgs_lr': 1.0,       # Torch L-BFGS step size (quasi-Newton standard)
     'max_iter': 20,        # Torch L-BFGS maximum iterations per step
@@ -33,7 +40,7 @@ SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
     'reparameterize': True, # Quadratic reparameterization for non-negativity
     'positivity': 'either', # Positivity constraint type
     'nonneg': None,         # Explicit nonneg flag for bound-constrained solvers
-    'tol': 1e-9,            # Tolerance for solvers like nsa_lbfgsb
+    'lbfgsb_tol': 1e-9,     # nsa_lbfgsb solver tolerance (was 'tol', which collided with simlr's convergence tol)
 }
 
 class SimlrOptimizer(ABC):
@@ -101,12 +108,12 @@ class SimlrOptimizer(ABC):
             Every key in `SIMLR_OPTIMIZER_DEFAULTS`, overridden where the caller
             supplied a value.
 
-        Warns
-        -----
-        UserWarning
+        Raises
+        ------
+        TypeError
             If `params` contains a key no optimizer recognises -- most often a
-            typo. These used to be discarded in silence, so a misspelled
-            hyperparameter simply had no effect.
+            typo. These were first discarded in silence and then only warned
+            about, so a misspelled hyperparameter had no effect on the fit.
 
         Notes
         -----
@@ -122,12 +129,10 @@ class SimlrOptimizer(ABC):
         filtered = dict(SIMLR_OPTIMIZER_DEFAULTS)
         unknown = sorted(set(params) - set(SIMLR_OPTIMIZER_DEFAULTS))
         if unknown:
-            warnings.warn(
+            raise TypeError(
                 f"Unrecognised optimizer parameter(s) {unknown} for "
-                f"optimizer_type={optimizer_type!r}; they will be ignored. "
-                f"Known parameters: {sorted(SIMLR_OPTIMIZER_DEFAULTS)}.",
-                UserWarning,
-                stacklevel=3,
+                f"optimizer_type={optimizer_type!r}. "
+                f"Known parameters: {sorted(SIMLR_OPTIMIZER_DEFAULTS)}."
             )
         filtered.update({k: v for k, v in params.items()
                          if k in SIMLR_OPTIMIZER_DEFAULTS})
@@ -208,10 +213,9 @@ def backtracking_linesearch(v_current: torch.Tensor,
     TypeError
         If inputs are of invalid types.
     """
-    try:
-        initial_energy = energy_function(v_current)
-    except Exception:
-        return 0.0
+    # The current iterate must be evaluable; a failure here is a bug upstream,
+    # not a step size of zero (which is what it used to return, silently).
+    initial_energy = energy_function(v_current)
         
     step_size = initial_step_size
     slope_term = torch.sum(ascent_gradient * descent_direction)
@@ -224,7 +228,9 @@ def backtracking_linesearch(v_current: torch.Tensor,
         v_candidate = v_current + step_size * descent_direction
         try:
             new_energy = energy_function(v_candidate)
-        except Exception:
+        except (RuntimeError, ValueError, ArithmeticError):
+            # A candidate the energy cannot be evaluated at (e.g. a degenerate
+            # basis) is rejected like one that increases it.
             new_energy = float('inf')
         if new_energy <= initial_energy + alpha * step_size * slope_term:
             return step_size
@@ -302,7 +308,8 @@ def bidirectional_linesearch(v_current: torch.Tensor,
             return float('inf')
         try:
             return float(energy_function(v_current + step * direction))
-        except Exception:
+        except (RuntimeError, ValueError, ArithmeticError):
+            # Rejected like a candidate that increases the energy.
             return float('inf')
 
     pos_energy = _energy_at(pos_step, descent_direction)
@@ -597,7 +604,7 @@ class Lookahead(SimlrOptimizer):
     """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
-        self.k = self.params.get('k', 5)
+        self.k = int(self.params['lookahead_k'])
         self.alpha = self.params.get('alpha', 0.5)
         self.slow_weights = [v.clone() for v in v_mats]
         self.inner_opt = HybridAdam(optimizer_type, v_mats, **params)
@@ -640,7 +647,7 @@ class BidirectionalLookahead(SimlrOptimizer):
     """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
-        self.k = self.params.get('k', 5)
+        self.k = int(self.params['lookahead_k'])
         self.alpha = self.params.get('alpha', 0.5)
         self.slow_weights = [v.clone() for v in v_mats]
         self.inner_opt = BidirectionalArmijoGradient(optimizer_type, v_mats, **params)
@@ -683,7 +690,7 @@ class RMSProp(SimlrOptimizer):
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         state = self.state[i]
-        beta = self.params.get('beta', 0.9)
+        beta = float(self.params['rmsprop_beta'])
         epsilon = self.params['epsilon']
         lr = self.params['learning_rate']
         state['v'] = beta * state['v'] + (1 - beta) * (descent_gradient**2)
@@ -763,7 +770,7 @@ class NSAFlowOptimizer(SimlrOptimizer):
         Initial matrices.
     learning_rate : float, default=0.01
         The step size for gradient updates.
-    nsa_w : float, default=0.1
+    nsa_w : float, default=DEFAULT_NSA_W (0.5)
         The retraction weight/step for NSA Flow.
 
     Raises
@@ -793,23 +800,20 @@ class NSAFlowOptimizer(SimlrOptimizer):
                 # Direct call to the unconstrained anchored NSA-Flow prox.
                 # Mode="anchored" matches the definition of the prox, and
                 # fidelity="anchor" retains the target rather than fitting to
-                # an intermediate iterate is not the returned point.
+                # an intermediate iterate is not the returned point. A backend
+                # error propagates; it used to fall through to the SVD polar
+                # factor, a different retraction, without a warning.
                 res = self.nsa_flow(v_next.double(), w=self.w, mode="anchored",
                                     fidelity="anchor", nonneg=False)
-                # Restore RNG state
+            finally:
                 torch.set_rng_state(rng_state)
-                candidate = None
-                if hasattr(res, 'get'):
-                    candidate = res.get('V') or res.get('Y')
-                if candidate is None:
-                    candidate = getattr(res, 'V', None) or getattr(res, 'Y', None)
-                if candidate is not None:
-                    candidate = candidate.to(v_current.dtype)
-                from .sparsification import _usable_retraction
-                if _usable_retraction(candidate, v_next):
-                    return candidate
-            except Exception:
-                torch.set_rng_state(rng_state)
+            from .nsa_backend import result_matrix
+            candidate = result_matrix(res)
+            if candidate is not None:
+                candidate = candidate.to(v_current.dtype)
+            from .sparsification import _usable_retraction
+            if _usable_retraction(candidate, v_next):
+                return candidate
         from .sparsification import _svd_polar
         return _svd_polar(v_next)
 
@@ -849,7 +853,9 @@ class TorchNativeOptimizer(SimlrOptimizer):
         elif optimizer_type == "torch_nadam":
             self.optimizers = [optim.NAdam([p], lr=lr) for p in self.v_params]
         elif optimizer_type == "torch_lbfgs":
-            lbfgs_lr = float(self.params.get('lbfgs_lr', 1.0 if lr == 0.001 else lr))
+            # Steps by `lbfgs_lr` (default 1.0, the quasi-Newton standard);
+            # `learning_rate` is not read on this path.
+            lbfgs_lr = float(self.params['lbfgs_lr'])
             max_iter = int(self.params.get('max_iter', 20))
             history_size = int(self.params.get('history_size', 10))
             line_search_fn = self.params.get('line_search_fn', 'strong_wolfe')
@@ -1043,7 +1049,7 @@ class NSALBFGSB(SimlrOptimizer):
                 fun=fun,
                 lower=0.0 if self.nonneg else None,
                 max_grad=self.max_grad,
-                tol=float(self.params.get("tol", 1e-9) or 1e-9),
+                tol=float(self.params["lbfgsb_tol"]),
                 certificate=certificate,
             )
         except (ZeroDivisionError, FloatingPointError, RuntimeError) as exc:
@@ -1197,12 +1203,12 @@ def tune_learning_rate(fit: Callable[..., Dict[str, Any]],
 
     Using it on a deep model
     ------------------------
-    The deep entry points take ``epochs`` rather than ``iterations`` and are
-    reached with a two-line adapter, which is all the generality this needs::
+    The deep entry points share the ``iterations`` budget name (counted in
+    epochs) and are reached with a one-line adapter::
 
         tune_learning_rate(
             lambda learning_rate, iterations: lend_simr(
-                mats, k=3, epochs=iterations, learning_rate=learning_rate))
+                mats, k=3, iterations=iterations, learning_rate=learning_rate))
 
     Returns
     -------
@@ -1247,7 +1253,7 @@ def tune_learning_rate(fit: Callable[..., Dict[str, Any]],
             # mistake into "no learning rate produced a usable fit", which
             # names the wrong thing and sends the reader to the tuner.
             raise
-        except Exception as exc:               # a step size that breaks the solve
+        except (RuntimeError, ArithmeticError) as exc:  # a step size that breaks the solve
             if first_error is None:
                 first_error = exc
             continue                           # is not a candidate

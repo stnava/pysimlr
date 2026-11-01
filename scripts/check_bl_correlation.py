@@ -17,8 +17,8 @@ df_pe = pd.read_csv("data/expart_pe.csv")
 data = [df_bl.values, df_mh.values, df_mr.values, df_pe.values]
 
 graph_chain = create_path_graph([(0, 2), (2, 3), (3, 1)], 4)
-res_chain = lend_simr(data, k=2, topology="graph", path_graph=graph_chain, epochs=150, 
-                      energy_type="acc", mixing_algorithm="svd", sparseness_quantile=0.5, 
+res_chain = lend_simr(data, k=2, topology="graph", path_graph=graph_chain, iterations=150, 
+                      energy_type="acc", mixing_algorithm="svd", sparseness=0.5, 
                       sim_weight=2.0, nsa_iterations=5, verbose=False)
 
 v_bl = res_chain["v"][0].detach().cpu().numpy()

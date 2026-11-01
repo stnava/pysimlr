@@ -92,7 +92,7 @@ def test_simlr_basis_is_non_degenerate_on_narrow_views(k):
     z = torch.randn(200, k)
     x = [z @ torch.randn(k, 5) + 0.3 * torch.randn(200, 5) for _ in range(2)]
     res = simlr(x, k=k, iterations=30, positivity="positive",
-                sparseness_quantile=0.5)
+                sparseness=0.5)
     for i, v in enumerate(res["v"]):
         assert float(v.norm()) > 0.0, f"view {i}: V is identically zero"
         assert int(torch.linalg.matrix_rank(v)) == k, (
@@ -110,7 +110,7 @@ def test_narrow_view_basis_still_predicts():
     y = (z @ w).squeeze(1)
 
     res = simlr(x, k=k, iterations=30, positivity="positive",
-                sparseness_quantile=0.5)
+                sparseness=0.5)
     scores = torch.cat([m @ v for m, v in zip(x, res["v"])], dim=1)
     scores = (scores - scores.mean(0)) / (scores.std(0) + 1e-8)
     design = torch.cat([scores, torch.ones(n, 1)], dim=1)

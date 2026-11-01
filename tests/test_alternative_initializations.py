@@ -209,7 +209,7 @@ def test_simlr_runs_end_to_end_with_every_initialization_type(t):
     views = _shared_signal_views(n=60, dims=(10, 8), k=2)
     kwargs = {}
     if t == "random":
-        kwargs["init_seed"] = 3
+        kwargs["random_state"] = 3
     if t == "domain":
         kwargs["domain_matrices"] = [torch.randn(3, v.shape[1]) for v in views]
     out = simlr(views, k=2, iterations=5, initialization_type=t, verbose=False, **kwargs)

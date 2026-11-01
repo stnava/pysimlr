@@ -28,8 +28,8 @@ def generate_interpretability_assets():
     # Fit the Sequential Chain Model with Final Winner Parameters
     print("Fitting Sequential Chain model (Final Winner Parameters) for interpretability...")
     graph_chain = create_path_graph([(0, 2), (2, 3), (3, 1)], 4)
-    res_chain = lend_simr(data, k=2, topology="graph", path_graph=graph_chain, epochs=150, 
-                          energy_type="acc", mixing_algorithm="newton", sparseness_quantile=0.5, 
+    res_chain = lend_simr(data, k=2, topology="graph", path_graph=graph_chain, iterations=150, 
+                          energy_type="acc", mixing_algorithm="newton", sparseness=0.5, 
                           sim_weight=2.0, verbose=False, optimizer_type="lars", dynamic_weights=False)
     
     # Extract V matrices

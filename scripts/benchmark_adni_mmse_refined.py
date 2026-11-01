@@ -75,7 +75,7 @@ def run_mmse_study(file_path):
     # Best config found earlier: LEND | [128, 64] | MAI=False (or True, let's use True as it was more robust for MOCA)
     print("\nFitting LEND-SiMLR on neuroimaging data...")
     res = lend_simr(
-        Xs_train, k=12, epochs=150, 
+        Xs_train, k=12, iterations=150, 
         hidden_dims=[128, 64],
         dynamic_weights=True,
         energy_type='regression', mixing_algorithm='newton',
@@ -102,7 +102,7 @@ def run_mmse_study(file_path):
 
     # Interpretation on full data
     print("\nGenerating interpretation plots...")
-    res_final = lend_simr(Xs, k=12, epochs=150, hidden_dims=[128, 64], dynamic_weights=True, energy_type='regression', mixing_algorithm='newton', verbose=False)
+    res_final = lend_simr(Xs, k=12, iterations=150, hidden_dims=[128, 64], dynamic_weights=True, energy_type='regression', mixing_algorithm='newton', verbose=False)
     U = res_final.get('u', res_final.get('U')).numpy()
     V_mats = res_final.get('v')
 

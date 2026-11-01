@@ -31,21 +31,32 @@ import numpy as np
 import pytest
 import torch
 
-from pysimlr.deep import lend_simr, ned_simr, ned_simr_shared_private
-from pysimlr.flows import flow_simr_v
-from pysimlr.simlr import simlr
+import pysimlr
+from pysimlr import api
 
 pytest.importorskip("sklearn")
 
-#: Every multi-view entry point that should be drop-in interchangeable.
-#: `pca` and `nsa_pipeline` are deliberately absent: they are sklearn
-#: pipelines reached through `benchmarks.runner`, not pysimlr model functions,
-#: and they fit one joint basis rather than a basis per view.
-ALGORITHMS = [simlr, lend_simr, ned_simr, ned_simr_shared_private, flow_simr_v]
+#: Every registered method with a per-view basis (linear, deep, flow), taken
+#: from the registry so a newly registered method joins the loop. The joint
+#: baselines (`pca`, `nsa_pipeline`) and the preset variants of `simlr` are
+#: covered by test_api_registry.
+def _via_registry(name):
+    """`pysimlr.fit` for one method, with ``strict=True`` so a common
+    parameter that a method cannot use fails the test instead of being
+    recorded and skipped."""
+    def call(views, **kw):
+        k = kw.pop("k")
+        return pysimlr.fit(name, views, k, strict=True, **kw)
+    call.__name__ = name
+    return call
+
+
+ALGORITHMS = [_via_registry(n) for n in api.method_names(("linear", "deep", "flow"))
+              if not api.METHODS[n].presets]
 
 #: The parameter set the loop is allowed to use. Anything not here would make
 #: the caller special-case a method.
-COMMON_PARAMS = dict(k=2, energy_type="acc", mixing_algorithm="newton",
+COMMON_PARAMS = dict(k=2, random_state=0, energy_type="acc", mixing_algorithm="newton",
                      nsa_w=0.5, positivity="positive", verbose=False)
 
 #: Result keys every method must provide for a generic `evaluate` to work.
@@ -103,18 +114,15 @@ def test_every_algorithm_accepts_the_common_parameters(alg):
 
 
 @pytest.mark.parametrize("alg", ALGORITHMS, ids=lambda f: f.__name__)
-def test_either_budget_name_is_accepted(alg):
-    """`simlr` counts iterations and the deep models count epochs. They are
-    different units, but they occupy the same slot, and a caller should not
-    have to know which name a method uses to give it a budget."""
+def test_the_budget_has_one_name(alg):
+    """Every entry point takes its budget as `iterations` (counted in sweeps
+    for `simlr`, epochs for the deep and flow models). `epochs` used to be an
+    alias on some entry points and the only name on others; it now raises
+    everywhere, so a caller cannot pass a budget that one method reads and
+    another silently ignores."""
     views, _ = _planted()
-    torch.manual_seed(0); np.random.seed(0)
-    a = alg(views, iterations=8, **COMMON_PARAMS)
-    torch.manual_seed(0); np.random.seed(0)
-    b = alg(views, epochs=8, **COMMON_PARAMS)
-    ua = a["u"][0] if isinstance(a["u"], list) else a["u"]
-    ub = b["u"][0] if isinstance(b["u"], list) else b["u"]
-    assert ua.shape == ub.shape
+    with pytest.raises(TypeError):
+        alg(views, epochs=8, **COMMON_PARAMS)
 
 
 @pytest.mark.parametrize("alg", ALGORITHMS, ids=lambda f: f.__name__)

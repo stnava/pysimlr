@@ -80,10 +80,10 @@ def run_one(task):
     t = time.perf_counter()
     try:
         out = run_single_experiment(
-            model_type, case, seed=seed, iterations=iters, epochs=epochs,
+            model_type, case, seed=seed, budget_by_unit={"iterations": iters, "epochs": epochs},
             energy_type=energy, mixing_algorithm=mixing, use_nsa=True,
             positivity="positive", nsa_w=w, constraint=f"orthox{w}x1",
-            sparseness_quantile=0.0, consolidate=True)
+            sparseness=0.0, consolidate=True)
         m = out["metrics"]
         g = lambda a, b: m.get(a, np.nan) if is_cls else m.get(b, np.nan)
         return dict(Dataset=ds, Model=label, Energy=energy, Mixing=mixing, W=w,

@@ -66,7 +66,7 @@ def run_rigorous_flow_significance(n_perms=20):
     res_perf_impute = flow_simr_v(
         scaled_perf_mats,
         k=2,
-        epochs=1500,
+        iterations=1500,
         batch_size=128,
         positivity='positive',
         use_nsa=True,
@@ -190,7 +190,7 @@ def run_rigorous_flow_significance(n_perms=20):
     res_obs = flow_simr_v(
         scaled_mats_obs,
         k=k,
-        epochs=epochs_flow,
+        iterations=epochs_flow,
         batch_size=128,
         positivity='positive',
         use_nsa=True,
@@ -278,7 +278,7 @@ def run_rigorous_flow_significance(n_perms=20):
         res_null = flow_simr_v(
             scaled_mats_null,
             k=k,
-            epochs=epochs_flow,
+            iterations=epochs_flow,
             batch_size=128,
             positivity='positive',
             use_nsa=True,

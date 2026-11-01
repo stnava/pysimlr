@@ -66,7 +66,7 @@ def run_multivariate_group_coupling(n_perms=1000):
     res_perf_impute = flow_simr_v(
         scaled_perf_mats,
         k=2,
-        epochs=100, # fast for helper script
+        iterations=100, # fast for helper script
         batch_size=128,
         positivity='positive',
         use_nsa=True,

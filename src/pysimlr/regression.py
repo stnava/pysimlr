@@ -3,6 +3,7 @@ import numpy as np
 from typing import Optional, Union, Dict, Any, Tuple, List
 from .utils import safe_svd
 from .nsa_backend import load_nsa_estimator
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
 
 def smooth_matrix_prediction(x: Union[torch.Tensor, np.ndarray],
                             y: Union[torch.Tensor, np.ndarray],
@@ -162,7 +163,7 @@ def smooth_regression(x: Union[torch.Tensor, np.ndarray],
 
 def build_nsa_pipeline(
     n_components: int = 6,
-    w: float = 0.5,
+    w: float = DEFAULT_NSA_W,
     task: str = "classification",
     model: Optional[Any] = None,
     consolidate: bool = True,

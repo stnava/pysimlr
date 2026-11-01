@@ -53,9 +53,12 @@ _DOM = [torch.randn(2, p, generator=torch.Generator().manual_seed(1)) for p in D
 
 #: parameter -> two values that must produce different fits.
 EXERCISED = {
-    "init_seed": (1, 2),
+    # Under the deterministic "pca" start `random_state` has nothing to seed,
+    # so it is exercised with a random initializer.
+    "random_state": ({"initialization_type": "random", "random_state": 1},
+                     {"initialization_type": "random", "random_state": 2}),
     "initialization_type": ({"initialization_type": "pca"},
-                            {"initialization_type": "random", "init_seed": 3}),
+                            {"initialization_type": "random", "random_state": 3}),
     "energy_type": ("recon_r2", "acc"),
     "optimizer_type": ("lars", "adam"),
     "mixing_algorithm": ("newton", "svd"),
@@ -81,8 +84,14 @@ EXERCISED = {
     # `best_energy` at 1, 3 and 30 iterations for `hybrid_adam` and `lars`
     # alike. That is correct behaviour rather than an inert parameter, so the
     # test starts somewhere the optimiser has to work from.
-    "iterations": ({"iterations": 1, "learning_rate": 0.01, "init_seed": 5},
-                   {"iterations": 30, "learning_rate": 0.01, "init_seed": 5}),
+    # A random start, stated explicitly: from the PCA start 1 and 30
+    # iterations return the same best iterate (the open "does iteration
+    # improve on the SVD initialization" question in CORRECTNESS_AUDIT.md).
+    # This entry used to rely on `init_seed` silently selecting "random".
+    "iterations": ({"iterations": 1, "learning_rate": 0.01,
+                    "initialization_type": "random", "random_state": 5},
+                   {"iterations": 30, "learning_rate": 0.01,
+                    "initialization_type": "random", "random_state": 5}),
 }
 
 #: parameter -> why changing it cannot or should not change the fitted basis.
@@ -99,6 +108,8 @@ EXEMPT = {
            "the basis: `simlr` returns its *best* iterate, and stopping "
            "sooner returns the same one unless a later iterate would have "
            "beaten it. Asserted in test_tol_controls_early_stopping.",
+    "patience": "gates early stopping together with tol, so it acts on "
+                "`stop_reason` for the same reason tol does.",
     "path_graph": "read only by topology='graph', where with this module's "
                   "two-view fixture the only possible graph is the complete "
                   "one -- which is leave-one-out, so no two graphs can differ. "
@@ -190,49 +201,23 @@ class _quiet:
         return self._c.__exit__(*a)
 
 
-#: Parameters deleted from `simlr` because they provably did nothing. Each
-#: must still be *recognised* -- accepted, warned about, and not forwarded --
-#: so an old call site gets told what to use instead of a confusing
-#: "unrecognised optimizer parameter" from three layers down.
+#: Parameters deleted from `simlr` because they provably did nothing, and
+#: parameters renamed in 0.3.0. Passing one raises `TypeError` naming the
+#: replacement, rather than a generic "unexpected keyword" from three layers
+#: down or, worse, an alias that keeps the old name alive.
 REMOVED = {
-    "use_nsa": "constraint",
+    "use_nsa": "constraint='none'",
+    "epochs": "iterations",
+    "init_seed": "random_state",
+    "sparseness_quantile": "sparseness",
+    "sparsity": "sparseness",
 }
 
 
 @pytest.mark.parametrize("gone", sorted(REMOVED))
-def test_a_removed_parameter_is_named_not_silently_swallowed(gone):
-    """Deleting a dead parameter is only half the job.
-
-    Left to fall into ``**opt_params`` these would reach `create_optimizer`
-    and produce "Unrecognised optimizer parameter", which tells a caller
-    nothing about why their setting stopped mattering -- or, worse, nothing
-    at all if the optimizer accepted the name.
-    """
-    with pytest.warns(DeprecationWarning, match=f"{gone!r} has been removed"):
-        simlr(_views(), k=K, iterations=2, verbose=False, **{gone: 0.5})
-
-
-@pytest.mark.parametrize("gone", sorted(REMOVED))
-def test_a_removed_parameter_does_not_reach_the_optimizer(gone):
-    import warnings as _w
-    with _w.catch_warnings(record=True) as caught:
-        _w.simplefilter("always")
-        simlr(_views(), k=K, iterations=2, verbose=False, **{gone: 0.5})
-    assert not [m for m in caught
-                if "Unrecognised optimizer parameter" in str(m.message)], (
-        f"{gone} was forwarded into opt_params instead of being intercepted")
-
-
-@pytest.mark.parametrize("gone", sorted(REMOVED))
-def test_a_removed_parameter_changes_nothing(gone):
-    """The justification for deleting them: they had no effect. If one of
-    these ever starts mattering, it was not dead and should come back."""
-    views = _views()
-    base = _fit(views, {})
-    with _quiet():
-        got = _fit(views, {gone: 0.5})
-    assert torch.equal(base, got), (
-        f"{gone} changed the fit, so removing it was wrong")
+def test_a_removed_parameter_raises_and_names_its_replacement(gone):
+    with pytest.raises(TypeError, match=REMOVED[gone].split("=")[0]):
+        simlr(_views(), k=K, iterations=2, verbose=False, **{gone: 1})
 
 
 # --------------------------------------------------------------------------
@@ -265,7 +250,7 @@ def _deep_views(seed=0, n=48):
 def _deep_fit(fn, views, overrides):
     torch.manual_seed(0)
     np.random.seed(0)
-    res = fn(views, k=K, epochs=DEEP_EPOCHS, verbose=False, **overrides)
+    res = fn(views, k=K, iterations=DEEP_EPOCHS, verbose=False, **overrides)
     return torch.cat([v.detach().flatten() for v in res["v"]])
 
 
@@ -309,9 +294,9 @@ def test_deep_models_respond_to_their_initialisation(fn):
     views = _views(n=30)
     with _quiet():
         torch.manual_seed(0); np.random.seed(0)
-        a = torch.cat([v.detach().flatten() for v in fn(views, k=K, epochs=2, verbose=False)["v"]])
+        a = torch.cat([v.detach().flatten() for v in fn(views, k=K, iterations=2, verbose=False)["v"]])
         torch.manual_seed(7); np.random.seed(7)
-        b = torch.cat([v.detach().flatten() for v in fn(views, k=K, epochs=2, verbose=False)["v"]])
+        b = torch.cat([v.detach().flatten() for v in fn(views, k=K, iterations=2, verbose=False)["v"]])
     assert float((a - b).norm()) > 1e-9, f"{fn.__name__} ignores its seed"
 
 
@@ -350,10 +335,10 @@ def test_an_unknown_initialisation_is_refused():
         simlr(_views(), k=K, iterations=2, initialization_type="nmf", verbose=False)
 
 
-def test_an_unrecognised_optimizer_hyperparameter_warns():
-    """Accepting a misspelled hyperparameter in silence is how a sweep ends up
-    reporting a setting it never ran."""
-    with pytest.warns(UserWarning, match="Unrecognised optimizer parameter"):
+def test_an_unrecognised_optimizer_hyperparameter_raises():
+    """Accepting a misspelled hyperparameter -- silently or with a warning --
+    is how a sweep ends up reporting a setting it never ran."""
+    with pytest.raises(TypeError, match="lerning_rate"):
         simlr(_views(), k=K, iterations=2, verbose=False, lerning_rate=0.1)
 
 
@@ -421,7 +406,7 @@ def test_mai_downweights_a_pure_noise_view(fn):
     views = _deep_views()
     with _quiet():
         torch.manual_seed(0); np.random.seed(0)
-        res = fn(views, k=K, epochs=12, dynamic_weights=True, verbose=False)
+        res = fn(views, k=K, iterations=12, dynamic_weights=True, verbose=False)
     w = np.asarray(res["modality_weights"], dtype=float)
     assert w.shape == (3,)
     assert w[2] == pytest.approx(w.min()), (
@@ -435,7 +420,7 @@ def test_mai_weights_stay_a_normalised_distribution():
     views = _deep_views()
     with _quiet():
         torch.manual_seed(0); np.random.seed(0)
-        w = np.asarray(ned_simr(views, k=K, epochs=8, dynamic_weights=True,
+        w = np.asarray(ned_simr(views, k=K, iterations=8, dynamic_weights=True,
                                 verbose=False)["modality_weights"], dtype=float)
     assert np.all(w >= 0) and w.sum() == pytest.approx(1.0, abs=1e-5)
 
@@ -536,7 +521,7 @@ def test_every_mai_metric_ranks_a_pure_noise_view_last():
     for metric in MAI_METRICS:
         with _quiet():
             torch.manual_seed(0); np.random.seed(0)
-            w = np.asarray(ned_simr(views, k=K, epochs=14, dynamic_weights=True,
+            w = np.asarray(ned_simr(views, k=K, iterations=14, dynamic_weights=True,
                                     mai_metric=metric, verbose=False)["modality_weights"],
                            dtype=float)
         assert w.argmin() == 2, (
@@ -588,7 +573,7 @@ def test_an_unknown_mai_metric_is_refused(bad):
     """
     with pytest.raises(ValueError, match="unknown mai_metric"):
         with _quiet():
-            ned_simr(_deep_views(), k=K, epochs=2, dynamic_weights=True,
+            ned_simr(_deep_views(), k=K, iterations=2, dynamic_weights=True,
                      mai_metric=bad, verbose=False)
 
 
@@ -645,7 +630,7 @@ def test_every_method_reports_the_same_convergence_keys():
         got["simlr"] = simlr(views, k=K, iterations=40, positivity="positive",
                              energy_type="recon_r2", verbose=False)
         for fn in (lend_simr, ned_simr, ned_simr_shared_private):
-            got[fn.__name__] = fn(views, k=K, epochs=40, verbose=False)
+            got[fn.__name__] = fn(views, k=K, iterations=40, verbose=False)
     for name, res in got.items():
         assert "convergence" in res, f"{name} does not report `convergence`"
         assert CONVERGENCE_KEYS <= set(res["convergence"]), (
@@ -703,7 +688,7 @@ def test_every_method_returns_its_best_iterate_not_its_last():
     views = _views()
     with _quiet():
         for fn in (lend_simr, ned_simr, ned_simr_shared_private, flow_simr_v):
-            res = fn(views, k=K, epochs=60, verbose=False)
+            res = fn(views, k=K, iterations=60, verbose=False)
             c = res["convergence"]
             assert c["returned"] == "best", (
                 f"{fn.__name__} returned its final weights, not its best")
@@ -732,9 +717,9 @@ def test_the_deep_schedule_does_not_depend_on_the_budget():
     views = _views()
     with _quiet():
         torch.manual_seed(0); np.random.seed(0)
-        short = ned_simr(views, k=K, epochs=80, verbose=False)
+        short = ned_simr(views, k=K, iterations=80, verbose=False)
         torch.manual_seed(0); np.random.seed(0)
-        long = ned_simr(views, k=K, epochs=400, verbose=False)
+        long = ned_simr(views, k=K, iterations=400, verbose=False)
     assert short["convergence"]["converged"] and long["convergence"]["converged"]
     assert short["convergence"]["n_steps"] == long["convergence"]["n_steps"]
     assert short["convergence"]["best"] == pytest.approx(

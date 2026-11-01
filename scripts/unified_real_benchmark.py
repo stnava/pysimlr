@@ -47,15 +47,13 @@ def run_experiment_task(task_args):
     dataset_name, model_type, model_label, seed, energy_type, mixing_algorithm, iterations, epochs, use_nsa = task_args
     case = get_diabetes_case(seed=seed) if dataset_name == "Diabetes" else get_heart_case(seed=seed)
     params = {
-        "iterations": iterations, 
-        "epochs": epochs, 
+        "budget_by_unit": {"iterations": iterations, "epochs": epochs},
         "energy_type": energy_type, 
         "mixing_algorithm": mixing_algorithm, 
         "use_nsa": use_nsa,
         "positivity": "positive",
         "nsa_w": 0.5,
-        # sparseness_quantile is ignored: sparsity is a consequence of w.
-        "sparseness_quantile": 0.0,
+        "sparseness": 0.0,
         "nsa_iterations": 3
     }
     

@@ -81,21 +81,21 @@ def run_simlr(views_tr, views_te):
 
 def run_lend(views_tr, views_te):
     torch.manual_seed(SEED)
-    out = lend_simr(views_tr, k=K, epochs=DEEP_EPOCHS, warmup_epochs=DEEP_WARMUP, verbose=False)
+    out = lend_simr(views_tr, k=K, iterations=DEEP_EPOCHS, warmup_epochs=DEEP_WARMUP, verbose=False)
     _check_converged("LEND", out)
     return out["u"], predict_deep(views_te, out, device="cpu")["u"]
 
 
 def run_ned(views_tr, views_te):
     torch.manual_seed(SEED)
-    out = ned_simr(views_tr, k=K, epochs=DEEP_EPOCHS, warmup_epochs=DEEP_WARMUP, verbose=False)
+    out = ned_simr(views_tr, k=K, iterations=DEEP_EPOCHS, warmup_epochs=DEEP_WARMUP, verbose=False)
     _check_converged("NED", out)
     return out["u"], predict_deep(views_te, out, device="cpu")["u"]
 
 
 def run_flow_simr(views_tr, views_te):
     torch.manual_seed(SEED)
-    out = flow_simr(views_tr, k=K, epochs=FLOW_EPOCHS, warmup_epochs=DEEP_WARMUP,
+    out = flow_simr(views_tr, k=K, iterations=FLOW_EPOCHS, warmup_epochs=DEEP_WARMUP,
                     device="cpu", verbose=False)
     _check_converged("Flow-SiMR", out)
     return out["u"], predict_deep(views_te, out, device="cpu")["u"]
@@ -103,7 +103,7 @@ def run_flow_simr(views_tr, views_te):
 
 def run_flow_simr_v(views_tr, views_te):
     torch.manual_seed(SEED)
-    out = flow_simr_v(views_tr, k=K, epochs=FLOW_EPOCHS, warmup_epochs=DEEP_WARMUP,
+    out = flow_simr_v(views_tr, k=K, iterations=FLOW_EPOCHS, warmup_epochs=DEEP_WARMUP,
                       device="cpu", verbose=False)
     _check_converged("Flow-SiMR-V", out)
     return out["u"], predict_deep(views_te, out, device="cpu")["u"]
@@ -111,7 +111,7 @@ def run_flow_simr_v(views_tr, views_te):
 
 def run_lend_mai(views_tr, views_te):
     torch.manual_seed(SEED)
-    out = lend_simr(views_tr, k=K, epochs=DEEP_EPOCHS, warmup_epochs=DEEP_WARMUP,
+    out = lend_simr(views_tr, k=K, iterations=DEEP_EPOCHS, warmup_epochs=DEEP_WARMUP,
                     dynamic_weights=True, mai_metric="cca", verbose=False)
     _check_converged("LEND+MAI", out)
     return out["u"], predict_deep(views_te, out, device="cpu")["u"]
@@ -119,7 +119,7 @@ def run_lend_mai(views_tr, views_te):
 
 def run_flow_simr_v_mai(views_tr, views_te):
     torch.manual_seed(SEED)
-    out = flow_simr_v(views_tr, k=K, epochs=FLOW_EPOCHS, warmup_epochs=DEEP_WARMUP,
+    out = flow_simr_v(views_tr, k=K, iterations=FLOW_EPOCHS, warmup_epochs=DEEP_WARMUP,
                       dynamic_weights=True, mai_metric="cca", device="cpu", verbose=False)
     _check_converged("Flow-SiMR-V+MAI", out)
     return out["u"], predict_deep(views_te, out, device="cpu")["u"]

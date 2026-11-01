@@ -202,7 +202,8 @@ def test_a_raising_backend_is_reported_not_substituted():
     mock = MagicMock(side_effect=Exception("nsa_flow internal error"))
 
     with _patch_backend(mock):
-        with pytest.raises(RuntimeError, match="unusable projection"):
+        # The backend's own error propagates: the most specific report there is.
+        with pytest.raises(Exception, match="nsa_flow internal error"):
             simlr([x1], k=2, iterations=1, constraint="orthox0.5")
     assert mock.called
 
@@ -261,7 +262,7 @@ def test_deep_encoders_expose_an_oriented_basis_when_the_backend_is_used():
 
     set_all_seeds(42)
     x1 = torch.randn(20, 8)
-    res = lend_simr([x1], k=2, epochs=2, batch_size=10, warmup_epochs=0,
+    res = lend_simr([x1], k=2, iterations=2, batch_size=10, warmup_epochs=0,
                     use_nsa=True, verbose=False)
 
     model = res["model"]
@@ -277,3 +278,24 @@ def test_deep_encoders_expose_an_oriented_basis_when_the_backend_is_used():
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+# Regression for an nsa_flow defect fixed upstream in 3.5.1 (333a064):
+# column-quantile sparseness broke exact magnitude ties by keeping the same row
+# in every column, so an orthonormal 2x2 basis -- e.g. the PCA start of two
+# standardized features, which is exactly the 45-degree rotation -- became
+# rank 1 at sparseness=0.5 and `_usable_retraction` rejected it (35 of 200
+# nnh_embed draws on a 2+1-feature table failed, at v0.2.19 too). With 3.5.1:
+# 0 of 200.
+_C = 2 ** -0.5
+_HADAMARD_2X2 = [torch.tensor([[a * _C, b * _C], [c * _C, d * _C]])
+                 for a, b, c, d in [(1, 1, 1, -1), (1, 1, -1, 1), (1, -1, 1, 1), (-1, 1, 1, 1),
+                                    (-1, -1, 1, -1), (-1, -1, -1, 1), (-1, 1, -1, -1), (1, -1, -1, -1)]]
+
+
+@pytest.mark.parametrize("v", _HADAMARD_2X2, ids=[f"hadamard{i}" for i in range(8)])
+def test_quantile_sparseness_keeps_an_orthonormal_two_by_two_full_rank(v):
+    from pysimlr.sparsification import _nsa_retract
+    out = _nsa_retract(v, w=0.5, nonneg=False, sparseness=0.5)
+    assert out is not None
+    assert int(torch.linalg.matrix_rank(out.double())) == 2

@@ -76,9 +76,25 @@ def test_linesearch_error_handling():
     ascent_gradient = torch.tensor([2.0, 2.0])
     descent_direction = -ascent_gradient
     
-    # Should handle error and return 0
-    step = backtracking_linesearch(v_current, descent_direction, ascent_gradient, broken_energy)
-    assert step == 0.0
+    # The current iterate must be evaluable: an error there is raised, not
+    # turned into a zero step (which hid the failure).
+    with pytest.raises(ValueError, match="Broken"):
+        backtracking_linesearch(v_current, descent_direction, ascent_gradient, broken_energy)
+
+
+def test_linesearch_rejects_a_candidate_it_cannot_evaluate():
+    calls = {"n": 0}
+
+    def energy(v):
+        calls["n"] += 1
+        if calls["n"] > 1 and float(v.sum()) < 1.5:
+            raise ValueError("degenerate candidate")
+        return float((v ** 2).sum())
+
+    v_current = torch.tensor([1.0, 1.0])
+    g = torch.tensor([2.0, 2.0])
+    step = backtracking_linesearch(v_current, -g, g, energy)
+    assert step >= 0.0
 
 def test_nsa_flow_fallback():
     # Force nsa_flow to None to test fallback to SVD

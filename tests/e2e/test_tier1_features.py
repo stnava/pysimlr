@@ -66,7 +66,7 @@ def test_simlr_stiefel_constraint_is_near_orthogonal(synthetic_two_views):
     k = synthetic_two_views["k"]
 
     res = simlr([x1, x2], k=k, iterations=15, constraint="Stiefel",
-                optimizer_type="hybrid_adam", sparseness_quantile=0.0)
+                optimizer_type="hybrid_adam", sparseness=0.0)
 
     for i, v in enumerate(res["v"]):
         vtv = v.t() @ v
@@ -238,7 +238,7 @@ def test_simlr_sparsification_and_positivity(synthetic_two_views):
         [x1, x2],
         k=2,
         iterations=15,
-        sparseness_quantile=0.4,
+        sparseness=0.4,
         positivity="positive"
     )
 
@@ -261,7 +261,7 @@ def test_lend_simr_end_to_end_training(synthetic_two_views):
     res = lend_simr(
         [x1, x2],
         k=k,
-        epochs=10,
+        iterations=10,
         batch_size=20,
         warmup_epochs=2,
         hidden_dims=[32, 16],
@@ -290,7 +290,7 @@ def test_ned_simr_nonlinear_representation(synthetic_two_views):
     res = ned_simr(
         [x1, x2],
         k=k,
-        epochs=10,
+        iterations=10,
         batch_size=20,
         warmup_epochs=2,
         hidden_dims=[32, 16],
@@ -315,7 +315,7 @@ def test_nedpp_shared_private_disentanglement(synthetic_two_views):
         [x1, x2],
         k=k,
         private_k=private_k,
-        epochs=10,
+        iterations=10,
         batch_size=20,
         warmup_epochs=2,
         hidden_dims=[32, 16],
@@ -339,7 +339,7 @@ def test_deep_loss_formulations(synthetic_two_views):
         res = lend_simr(
             [x1, x2],
             k=2,
-            epochs=5,
+            iterations=5,
             batch_size=30,
             energy_type=energy,
             hidden_dims=[16],
@@ -357,7 +357,7 @@ def test_deep_interpretability_and_contract(synthetic_two_views):
     res = lend_simr(
         [x1, x2],
         k=2,
-        epochs=6,
+        iterations=6,
         batch_size=30,
         hidden_dims=[16],
         verbose=False
@@ -415,7 +415,7 @@ def test_flow_simr_multi_view_training(synthetic_two_views):
     res = flow_simr(
         [x1, x2],
         k=k,
-        epochs=8,
+        iterations=8,
         batch_size=20,
         warmup_epochs=2,
         num_layers=2,
@@ -443,7 +443,7 @@ def test_flow_simr_v_latent_bottleneck_expansion():
     res = flow_simr_v(
         [x1, x2],
         k=k,
-        epochs=5,
+        iterations=5,
         batch_size=20,
         warmup_epochs=1,
         num_layers=2,
@@ -467,7 +467,7 @@ def test_flow_conditional_inference_cross_prediction(synthetic_two_views):
     res = flow_simr(
         [x1, x2],
         k=k,
-        epochs=6,
+        iterations=6,
         batch_size=20,
         warmup_epochs=1,
         num_layers=2,

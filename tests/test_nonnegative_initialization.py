@@ -91,9 +91,10 @@ def test_the_initialization_is_far_more_orthogonal_than_rectified_pca():
         assert rectified_defect > 0.5
 
 
-def test_a_failing_backend_falls_back_to_the_pca_initializer():
-    """The backend is optional; a non-negative request must still return a
-    usable basis without it, rather than raising or returning nothing."""
+def test_an_absent_backend_uses_the_pca_initializer_and_a_failing_one_raises():
+    """The backend is optional: when it is not installed a non-negative request
+    still returns a usable basis. When it is installed and fails, the error
+    propagates; it used to be swallowed and the PCA start used instead."""
     from unittest.mock import patch
 
     mats, _ = make_case()
@@ -110,10 +111,8 @@ def test_a_failing_backend_falls_back_to_the_pca_initializer():
 
     with patch("pysimlr.nsa_backend.load_nsa_flow_data",
                return_value=exploding):
-        v_mats = initialize_simlr(mats, k=3, positivity="positive")
-    for i, v in enumerate(v_mats):
-        assert v.shape == (mats[i].shape[1], 3)
-        assert torch.isfinite(v).all()
+        with pytest.raises(RuntimeError, match="backend failure"):
+            initialize_simlr(mats, k=3, positivity="positive")
 
 
 @pytest.mark.parametrize("bad", ["zeros", "wrong_shape", "nan"])

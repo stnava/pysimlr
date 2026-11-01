@@ -209,7 +209,7 @@ def run_systematic_perm_tests(n_perms=500, lambda1=0.25, alpha=0.8, lambda2=1.0,
     res_flow = flow_simr_v(
         scaled_mats,
         k=32,
-        epochs=100,
+        iterations=100,
         batch_size=128,
         positivity='positive',
         use_nsa=True,

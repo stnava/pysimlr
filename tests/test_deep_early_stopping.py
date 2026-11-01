@@ -24,7 +24,7 @@ def _coupled_views(n=160, k=3, seed=0):
 def test_training_continues_past_warmup_plus_patience():
     warmup, patience, epochs = 10, 5, 80
     res = ned_simr(
-        _coupled_views(), k=3, epochs=epochs, warmup_epochs=warmup,
+        _coupled_views(), k=3, iterations=epochs, warmup_epochs=warmup,
         batch_size=64, patience=patience, verbose=False,
     )
     ran = len(res["loss_history"])
@@ -40,7 +40,7 @@ def test_training_continues_past_warmup_plus_patience():
 def test_similarity_objective_actually_improves_after_warmup():
     warmup = 10
     res = ned_simr(
-        _coupled_views(), k=3, epochs=80, warmup_epochs=warmup,
+        _coupled_views(), k=3, iterations=80, warmup_epochs=warmup,
         batch_size=64, patience=5, verbose=False,
     )
     sim = res["sim_history"]
@@ -55,7 +55,7 @@ def test_similarity_objective_actually_improves_after_warmup():
 
 def test_converged_iter_is_reported_and_consistent():
     res = ned_simr(
-        _coupled_views(), k=3, epochs=40, warmup_epochs=5,
+        _coupled_views(), k=3, iterations=40, warmup_epochs=5,
         batch_size=64, patience=5, verbose=False,
     )
     conv = res["converged_iter"]
@@ -66,7 +66,7 @@ def test_converged_iter_is_reported_and_consistent():
 def test_full_epoch_budget_used_when_patience_is_large():
     epochs = 25
     res = ned_simr(
-        _coupled_views(), k=3, epochs=epochs, warmup_epochs=5,
+        _coupled_views(), k=3, iterations=epochs, warmup_epochs=5,
         batch_size=64, patience=epochs + 1, verbose=False,
     )
     assert len(res["loss_history"]) == epochs

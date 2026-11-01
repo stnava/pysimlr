@@ -105,9 +105,9 @@ def run_dataset(name, views, y, task, seed, cov=None):
         for strat in BENCHMARK_INITIALIZATION_TYPES:
             kwargs = {"initialization_type": strat}
             if strat == "random":
-                kwargs["init_seed"] = seed
+                kwargs["random_state"] = seed
             if strat in ("perturbed_pca",):
-                kwargs["init_seed"] = seed
+                kwargs["random_state"] = seed
             if strat == "domain":
                 rng = np.random.default_rng(seed)
                 kwargs["domain_matrices"] = [

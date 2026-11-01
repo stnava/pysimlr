@@ -152,11 +152,11 @@ def run_multimodal_study(file_path, target_type='AsynStatus', study_name='Both')
     print(f"\nFitting LEND-SiMLR (k={k_latents})...")
     
     res = lend_simr(
-        Xs, k=k_latents, epochs=100, 
+        Xs, k=k_latents, iterations=100, 
         energy_type='logcosh', 
         mixing_algorithm='newton',
         positivity='positive', 
-        sparseness_quantile=0.5,
+        sparseness=0.5,
         nsa_iterations=3,
         verbose=False
     )

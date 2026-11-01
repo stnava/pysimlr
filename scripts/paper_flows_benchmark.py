@@ -73,7 +73,7 @@ def run_experiment_1(n_samples=1000, n_seeds=3):
         
         # 2. Deep NED
         t0 = time.time()
-        res_ned = ned_simr(train_x, k=k, epochs=100, warmup_epochs=15, device="cpu", verbose=False)
+        res_ned = ned_simr(train_x, k=k, iterations=100, warmup_epochs=15, device="cpu", verbose=False)
         t_ned = time.time() - t0
         pred_ned = predict_deep(test_x, res_ned, device="cpu")
         u_ned = pred_ned["u"]
@@ -86,7 +86,7 @@ def run_experiment_1(n_samples=1000, n_seeds=3):
         
         # 3. Flow SiMLR
         t0 = time.time()
-        res_flow = flow_simr(train_x, k=k, epochs=100, warmup_epochs=15, device="cpu", verbose=False)
+        res_flow = flow_simr(train_x, k=k, iterations=100, warmup_epochs=15, device="cpu", verbose=False)
         t_flow = time.time() - t0
         pred_flow = predict_deep(test_x, res_flow, device="cpu")
         u_flow = pred_flow["u"]
@@ -150,7 +150,7 @@ def run_experiment_2(n_samples=1000, n_seeds=3):
         
         # 1. Standard Deep NED
         t0 = time.time()
-        res_ned = ned_simr(train_x, k=k, epochs=100, warmup_epochs=15, device="cpu", verbose=False)
+        res_ned = ned_simr(train_x, k=k, iterations=100, warmup_epochs=15, device="cpu", verbose=False)
         t_ned = time.time() - t0
         pred_ned = predict_deep(test_x, res_ned, device="cpu")
         reg_ned = Ridge().fit(res_ned["u"].numpy(), train_y)
@@ -162,7 +162,7 @@ def run_experiment_2(n_samples=1000, n_seeds=3):
         
         # 2. Deep NEDPP (Shared-Private)
         t0 = time.time()
-        res_nedpp = ned_simr_shared_private(train_x, k=k, private_k=3, epochs=100, warmup_epochs=15, device="cpu", verbose=False)
+        res_nedpp = ned_simr_shared_private(train_x, k=k, private_k=3, iterations=100, warmup_epochs=15, device="cpu", verbose=False)
         t_nedpp = time.time() - t0
         pred_nedpp = predict_deep(test_x, res_nedpp, device="cpu")
         reg_nedpp = Ridge().fit(res_nedpp["u"].numpy(), train_y)
@@ -174,7 +174,7 @@ def run_experiment_2(n_samples=1000, n_seeds=3):
         
         # 3. Flow SiMLR (Shared-Private by default due to bijective mapping)
         t0 = time.time()
-        res_flow = flow_simr(train_x, k=k, epochs=100, warmup_epochs=15, device="cpu", verbose=False)
+        res_flow = flow_simr(train_x, k=k, iterations=100, warmup_epochs=15, device="cpu", verbose=False)
         t_flow = time.time() - t0
         pred_flow = predict_deep(test_x, res_flow, device="cpu")
         reg_flow = Ridge().fit(res_flow["u"].numpy(), train_y)
@@ -243,7 +243,7 @@ def run_experiment_3(n_seeds=3):
         
         # 2. Deep NED
         t0 = time.time()
-        res_ned = ned_simr(train_x, k=k, epochs=100, warmup_epochs=15, device="cpu", verbose=False)
+        res_ned = ned_simr(train_x, k=k, iterations=100, warmup_epochs=15, device="cpu", verbose=False)
         t_ned = time.time() - t0
         pred_ned = predict_deep(test_x, res_ned, device="cpu")
         reg_ned = Ridge().fit(res_ned["u"].numpy(), train_y)
@@ -255,7 +255,7 @@ def run_experiment_3(n_seeds=3):
         
         # 3. Flow SiMLR
         t0 = time.time()
-        res_flow = flow_simr(train_x, k=k, epochs=100, warmup_epochs=15, device="cpu", verbose=False)
+        res_flow = flow_simr(train_x, k=k, iterations=100, warmup_epochs=15, device="cpu", verbose=False)
         t_flow = time.time() - t0
         pred_flow = predict_deep(test_x, res_flow, device="cpu")
         reg_flow = Ridge().fit(res_flow["u"].numpy(), train_y)

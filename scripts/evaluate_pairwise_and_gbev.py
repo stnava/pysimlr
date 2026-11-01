@@ -189,7 +189,7 @@ def run_pairwise_and_gbev_studies():
     res_flow = flow_simr_v(
         scaled_mats,
         k=8,
-        epochs=2000,
+        iterations=2000,
         batch_size=128,
         positivity='positive',
         use_nsa=True,

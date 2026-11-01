@@ -166,7 +166,7 @@ def test_legacy_functional_flow_simlr():
     result = flow_simlr(
         data_matrices=mats,
         k=3,
-        epochs=3,
+        iterations=3,
         batch_size=16,
         warmup_epochs=1,
         verbose=False
@@ -195,7 +195,7 @@ def test_legacy_functional_flow_simlr_v():
     result = flow_simlr_v(
         data_matrices=mats,
         k=3,
-        epochs=3,
+        iterations=3,
         batch_size=16,
         warmup_epochs=1,
         verbose=False
@@ -231,7 +231,7 @@ def test_nnh_extend_simlr_embedding_with_flow_simlr_v_epochs():
     new_modalities = {'mod2': ['y1']}
 
     res = extend_simlr_embedding_with_new_modalities(
-        pymm, simlr_result, new_modalities, method='flow_simlr_v', epochs=2
+        pymm, simlr_result, new_modalities, method='flow_simlr_v', iterations=2
     )
     assert isinstance(res, dict)
     assert "updated_simlr_result" in res

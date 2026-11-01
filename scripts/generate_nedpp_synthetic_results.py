@@ -21,7 +21,7 @@ def evaluate_nedpp(kind, regime=None, n_seeds=10):
         true_v = case["true_v"]
         
         # Fit NEDPP
-        res = ned_simr_shared_private(mats, k=case["shared_k"], private_k=2, epochs=150, verbose=False)
+        res = ned_simr_shared_private(mats, k=case["shared_k"], private_k=2, iterations=150, verbose=False)
         
         # Latent Recovery (CMC)
         u_est = res["u"]

@@ -26,7 +26,7 @@ def demo_structural_modeling():
     
     # Standard SiMLR (Star Topology: A, B, C -> U)
     print("Fitting standard SiMLR (Star)...")
-    res_star = deep_simr(data, k=k, epochs=50, verbose=False)
+    res_star = deep_simr(data, k=k, iterations=50, verbose=False)
     
     # How to implement A -> B -> C?
     # We need a model where B aligns to A, and C aligns to B.

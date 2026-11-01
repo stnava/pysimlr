@@ -141,7 +141,7 @@ def fit_simlr(train_data, **kwargs):
     return simlr(train_data, iterations=100, energy_type="acc", **kwargs)
 
 def fit_ned(train_data, **kwargs):
-    return ned_simr(train_data, epochs=200, warmup_epochs=20, device="cpu", verbose=False, **kwargs)
+    return ned_simr(train_data, iterations=200, warmup_epochs=20, device="cpu", verbose=False, **kwargs)
 
 print("Running benchmarks...")
 df_simlr = run_repeated_benchmark(protocol, data_gen, fit_simlr, "linear", n_seeds=3, generator_name="nonlinear", noise_level=noise, k=k)

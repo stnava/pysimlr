@@ -9,7 +9,7 @@ def test_flow_simr_v_positivity_either():
     xs = [torch.randn(30, 5) for _ in range(3)]
     
     # Run Flow-SiMR-V with positivity='either'
-    res = flow_simr_v(xs, k=2, epochs=3, batch_size=15, warmup_epochs=0, positivity='either', verbose=False)
+    res = flow_simr_v(xs, k=2, iterations=3, batch_size=15, warmup_epochs=0, positivity='either', verbose=False)
     
     # Extract projection matrices V and convert to numpy
     v_mats = [v.numpy() if hasattr(v, 'numpy') else np.array(v) for v in res['v']]
@@ -29,7 +29,7 @@ def test_flow_simr_v_positivity_positive():
     xs = [torch.randn(30, 5) for _ in range(3)]
     
     # Run Flow-SiMR-V with default positivity='positive'
-    res = flow_simr_v(xs, k=2, epochs=3, batch_size=15, warmup_epochs=0, positivity='positive', verbose=False)
+    res = flow_simr_v(xs, k=2, iterations=3, batch_size=15, warmup_epochs=0, positivity='positive', verbose=False)
     
     # Extract projection matrices V and convert to numpy
     v_mats = [v.numpy() if hasattr(v, 'numpy') else np.array(v) for v in res['v']]
@@ -43,7 +43,7 @@ def test_flow_weight_history_logging():
     xs = [torch.randn(30, 5) for _ in range(3)]
     
     # Test flow_simr
-    res_flow = flow_simr(xs, k=2, epochs=4, batch_size=15, warmup_epochs=0, dynamic_weights=True, verbose=False)
+    res_flow = flow_simr(xs, k=2, iterations=4, batch_size=15, warmup_epochs=0, dynamic_weights=True, verbose=False)
     assert 'weight_history' in res_flow
     assert len(res_flow['weight_history']) == 4
     for entry in res_flow['weight_history']:
@@ -51,7 +51,7 @@ def test_flow_weight_history_logging():
         assert np.isclose(np.sum(entry), 1.0)
         
     # Test flow_simr_v
-    res_flow_v = flow_simr_v(xs, k=2, epochs=4, batch_size=15, warmup_epochs=0, dynamic_weights=True, verbose=False)
+    res_flow_v = flow_simr_v(xs, k=2, iterations=4, batch_size=15, warmup_epochs=0, dynamic_weights=True, verbose=False)
     assert 'weight_history' in res_flow_v
     assert len(res_flow_v['weight_history']) == 4
     for entry in res_flow_v['weight_history']:
@@ -68,7 +68,7 @@ def test_delayed_dynamic_weights_start_epoch():
     ]
     
     # Run Flow-SiMR-V with dynamic_weights_start = 3 and epochs = 5
-    res = flow_simr_v(xs, k=2, epochs=5, batch_size=15, warmup_epochs=0, dynamic_weights=True, dynamic_weights_start=3, verbose=False)
+    res = flow_simr_v(xs, k=2, iterations=5, batch_size=15, warmup_epochs=0, dynamic_weights=True, dynamic_weights_start=3, verbose=False)
     
     weight_hist = res['weight_history']
     assert len(weight_hist) == 5

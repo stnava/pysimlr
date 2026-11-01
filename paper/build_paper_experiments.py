@@ -87,11 +87,11 @@ We evaluate SiMLR and LEND across varying levels of sparsity constraints. Becaus
 results_lin = []
 for sparsity in [0.0, 0.2, 0.5, 0.8]:
     # Classical SiMLR
-    res_simlr = simlr([x1_lin, x2_lin], k=k_true, iterations=50, sparsity=[sparsity, sparsity], verbose=False)
+    res_simlr = simlr([x1_lin, x2_lin], k=k_true, iterations=50, sparseness=[sparsity, sparsity], verbose=False)
     u_est_simlr = res_simlr['u']
     
     # LEND
-    res_lend = lend_simr([x1_lin, x2_lin], k=k_true, epochs=50, nsa_w=0.1, sparsity=[sparsity, sparsity], verbose=False)
+    res_lend = lend_simr([x1_lin, x2_lin], k=k_true, iterations=50, nsa_w=0.1, sparseness=[sparsity, sparsity], verbose=False)
     u_est_lend = res_lend['u']
     
     # Predict Y
@@ -140,8 +140,8 @@ plt.show()
 #| label: tbl-mild-results
 #| tbl-cap: "Performance on polynomial mildly-nonlinear dataset."
 res_simlr_poly = simlr([x1_poly, x2_poly], k=k_true, iterations=50, verbose=False)
-res_lend_poly = lend_simr([x1_poly, x2_poly], k=k_true, epochs=50, verbose=False)
-res_ned_poly = ned_simr([x1_poly, x2_poly], k=k_true, epochs=50, verbose=False)
+res_lend_poly = lend_simr([x1_poly, x2_poly], k=k_true, iterations=50, verbose=False)
+res_ned_poly = ned_simr([x1_poly, x2_poly], k=k_true, iterations=50, verbose=False)
 
 models = ['SiMLR', 'LEND', 'NED']
 r2s = [
@@ -192,8 +192,8 @@ results_strong = []
 
 for ep in epochs:
     res_simlr = simlr([x1_sin, x2_sin], k=k_true, iterations=ep, verbose=False)
-    res_lend = lend_simr([x1_sin, x2_sin], k=k_true, epochs=ep, verbose=False)
-    res_ned = ned_simr([x1_sin, x2_sin], k=k_true, epochs=ep, verbose=False)
+    res_lend = lend_simr([x1_sin, x2_sin], k=k_true, iterations=ep, verbose=False)
+    res_ned = ned_simr([x1_sin, x2_sin], k=k_true, iterations=ep, verbose=False)
     
     results_strong.append({"Epochs": ep, "Model": "SiMLR", "R2": r2_score(y_lin, Ridge().fit(res_simlr['u'], y_lin).predict(res_simlr['u']))})
     results_strong.append({"Epochs": ep, "Model": "LEND", "R2": r2_score(y_lin, Ridge().fit(res_lend['u'], y_lin).predict(res_lend['u']))})
@@ -230,8 +230,8 @@ x1_priv = StandardScaler().fit_transform(x1_priv.numpy())
 x2_priv = StandardScaler().fit_transform(x2_priv.numpy())
 
 # Train standard NED vs NED Shared/Private
-res_ned_standard = ned_simr([x1_priv, x2_priv], k=k_true, epochs=50, verbose=False)
-res_nedpp = ned_simr_shared_private([x1_priv, x2_priv], k_shared=k_true, k_private=3, epochs=50, verbose=False)
+res_ned_standard = ned_simr([x1_priv, x2_priv], k=k_true, iterations=50, verbose=False)
+res_nedpp = ned_simr_shared_private([x1_priv, x2_priv], k=k_true, private_k=3, iterations=50, verbose=False)
 
 r2_standard = r2_score(y_lin, Ridge().fit(res_ned_standard['u'], y_lin).predict(res_ned_standard['u']))
 r2_pp = r2_score(y_lin, Ridge().fit(res_nedpp['u'], y_lin).predict(res_nedpp['u']))
@@ -261,7 +261,7 @@ X_view2 = X[:, 15:]
 print(f"View 1 shape: {X_view1.shape}, View 2 shape: {X_view2.shape}")
 
 # Run LEND for interpretability
-res_real_lend = lend_simr([X_view1, X_view2], k=2, epochs=80, nsa_w=0.1, sparsity=[0.1, 0.1], verbose=False)
+res_real_lend = lend_simr([X_view1, X_view2], k=2, iterations=80, nsa_w=0.1, sparseness=[0.1, 0.1], verbose=False)
 
 # Plot the 2D Latent Space
 u_real = res_real_lend['u']
@@ -309,7 +309,7 @@ ortho_defects = []
 
 for w in w_vals:
     # Run a short LEND with varying w
-    res = lend_simr([x1_lin, x2_lin], k=k_true, epochs=20, nsa_w=w, verbose=False)
+    res = lend_simr([x1_lin, x2_lin], k=k_true, iterations=20, nsa_w=w, verbose=False)
     v1 = res['v'][0]
     defect = np.linalg.norm(v1.T @ v1 - np.eye(k_true))
     ortho_defects.append(defect)

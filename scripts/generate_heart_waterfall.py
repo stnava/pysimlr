@@ -18,7 +18,7 @@ def generate_heart_waterfall():
     X2_h = StandardScaler().fit_transform(df_heart[v2_cols].values.astype(float))
 
     # Train LEND
-    res = lend_simr([torch.from_numpy(X1_h).float(), torch.from_numpy(X2_h).float()], k=2, epochs=200, verbose=False)
+    res = lend_simr([torch.from_numpy(X1_h).float(), torch.from_numpy(X2_h).float()], k=2, iterations=200, verbose=False)
     
     u = res['u'].detach().numpy()
     v1 = res['v'][0].detach().numpy()

@@ -55,12 +55,12 @@ def analyze_expart():
         res = lend_simr(
             data, 
             k=k, 
-            epochs=epochs, 
+            iterations=epochs, 
             topology="graph", 
             path_graph=graph,
             energy_type="acc",
             mixing_algorithm="svd",
-            sparseness_quantile=0.5,
+            sparseness=0.5,
             sim_weight=sim_weight,
             warmup_epochs=20,
             verbose=False

@@ -59,7 +59,7 @@ def run_linear_structural_analysis():
     print("Running Linear Structural Significance Analysis (N=62)...")
     stats = structural_permutation_test_linear(
         data, k=3, graph=graph_linear_best, n_perms=100, 
-        energy_type="acc", sparseness_quantile=0.5, iterations=50
+        energy_type="acc", sparseness=0.5, iterations=50
     )
     
     print("\n" + "="*50)

@@ -55,11 +55,7 @@ from pysimlr import (
     ba_svd,
 )
 from pysimlr.sklearn import (
-    SiMLREstimator,
-    SiMLR,
-    LENDTransformer,
-    NEDTransformer,
-    FlowSiMLRTransformer,
+    MultiViewSiMR,
     MultiViewPCA,
     build_simlr_pipeline,
 )
@@ -201,7 +197,7 @@ class TestTier1FeatureCoverage:
         assert len(model.flows) == 2
 
         # Public flow_simr wrapper execution
-        res = flow_simr([x1, x2], k=k, epochs=4, batch_size=30, warmup_epochs=1, verbose=False)
+        res = flow_simr([x1, x2], k=k, iterations=4, batch_size=30, warmup_epochs=1, verbose=False)
         assert "model" in res
         assert "latents" in res
         assert "cond_inference" in res
@@ -219,7 +215,7 @@ class TestTier1FeatureCoverage:
         assert hasattr(model_v, "linear_encoders")
         assert len(model_v.linear_encoders) == 2
 
-        res_v = flow_simr_v([x1, x2], k=k, epochs=4, batch_size=30, warmup_epochs=1, verbose=False)
+        res_v = flow_simr_v([x1, x2], k=k, iterations=4, batch_size=30, warmup_epochs=1, verbose=False)
         assert "model" in res_v
         assert "v" in res_v
         assert len(res_v["v"]) == 2
@@ -231,7 +227,7 @@ class TestTier1FeatureCoverage:
         x1, x2 = clean_two_views["x1"], clean_two_views["x2"]
         k = clean_two_views["k"]
 
-        res = lend_simr([x1, x2], k=k, iterations=2, epochs=4, batch_size=30, warmup_epochs=1, verbose=False)
+        res = lend_simr([x1, x2], k=k, iterations=2, batch_size=30, warmup_epochs=1, verbose=False)
         assert res["model_type"] == "lend_simr"
         assert "v" in res
         assert len(res["v"]) == 2
@@ -250,7 +246,7 @@ class TestTier1FeatureCoverage:
         x1, x2 = clean_two_views["x1"], clean_two_views["x2"]
         k = clean_two_views["k"]
 
-        res = ned_simr([x1, x2], k=k, iterations=2, epochs=4, batch_size=30, warmup_epochs=1, verbose=False)
+        res = ned_simr([x1, x2], k=k, iterations=2, batch_size=30, warmup_epochs=1, verbose=False)
         assert res["model_type"] == "ned_simr"
         assert len(res["latents"]) == 2
         assert res["latents"][0].shape == (clean_two_views["n"], k)
@@ -259,13 +255,13 @@ class TestTier1FeatureCoverage:
         assert pred["latents"][0].shape == (5, k)
 
     def test_sklearn_simlr_estimator_api(self, clean_two_views):
-        """Verify SiMLREstimator / SiMLR conforms to Scikit-Learn Estimator specifications."""
+        """Verify MultiViewSiMR conforms to Scikit-Learn Estimator specifications."""
         x1_np = clean_two_views["x1"].numpy()
         x2_np = clean_two_views["x2"].numpy()
         k = clean_two_views["k"]
 
         # Single-view fit & transform
-        single_est = SiMLR(n_components=k, iterations=8, optimizer_type="torch_lbfgs", random_state=42)
+        single_est = MultiViewSiMR(n_components=k, iterations=8, optimizer_type="torch_lbfgs", random_state=42)
         single_est.fit(x1_np)
         assert hasattr(single_est, "components_")
         assert hasattr(single_est, "loadings_")
@@ -281,35 +277,22 @@ class TestTier1FeatureCoverage:
         assert rec_single.shape == x1_np.shape
 
         # Multi-view fit & transform
-        multi_est = SiMLREstimator(n_components=k, iterations=8, optimizer_type="torch_lbfgs", random_state=42)
+        multi_est = MultiViewSiMR(n_components=k, iterations=8, optimizer_type="torch_lbfgs", random_state=42)
         multi_est.fit([x1_np, x2_np])
         assert isinstance(multi_est.components_, list)
         assert len(multi_est.components_) == 2
         z_multi = multi_est.transform([x1_np, x2_np])
         assert z_multi.shape == (clean_two_views["n"], k)
 
-    def test_sklearn_deep_transformers(self, clean_two_views):
-        """Verify LENDTransformer, NEDTransformer, and FlowSiMLRTransformer scikit-learn transformers."""
+    @pytest.mark.parametrize("method", ["lend", "ned", "flow_v"])
+    def test_sklearn_deep_transformers(self, clean_two_views, method):
+        """Verify the deep and flow methods through the one MultiViewSiMR estimator."""
         x1_np = clean_two_views["x1"].numpy()
         k = 2
-
-        # LENDTransformer
-        lend_t = LENDTransformer(n_components=k, iterations=2, epochs=4, random_state=42)
-        lend_t.fit(x1_np)
-        z_lend = lend_t.transform(x1_np)
-        assert z_lend.shape == (clean_two_views["n"], k)
-
-        # NEDTransformer
-        ned_t = NEDTransformer(n_components=k, iterations=2, epochs=4, random_state=42)
-        ned_t.fit(x1_np)
-        z_ned = ned_t.transform(x1_np)
-        assert z_ned.shape == (clean_two_views["n"], k)
-
-        # FlowSiMLRTransformer
-        flow_t = FlowSiMLRTransformer(n_components=k, epochs=4, random_state=42)
-        flow_t.fit(x1_np)
-        z_flow = flow_t.transform(x1_np)
-        assert z_flow.shape == (clean_two_views["n"], k)
+        est = MultiViewSiMR(method=method, n_components=k, iterations=4, random_state=42)
+        est.fit(x1_np)
+        assert est.transform(x1_np).shape == (clean_two_views["n"], k)
+        assert est.budget_unit_ == "epochs"
 
     def test_sklearn_multiview_pca(self, clean_two_views):
         """Verify MultiViewPCA per-view orthogonal decomposition, whitening, and concatenation."""
@@ -436,8 +419,8 @@ class TestTier2BoundariesAndCornerCases:
         x1, x2 = clean_two_views["x1"], clean_two_views["x2"]
         k = clean_two_views["k"]
 
-        # 1. Single-view SiMLREstimator / SiMLR batch invariance
-        single_est = SiMLR(n_components=k, iterations=8, optimizer_type="torch_lbfgs", random_state=42)
+        # 1. Single-view MultiViewSiMR batch invariance
+        single_est = MultiViewSiMR(n_components=k, iterations=8, optimizer_type="torch_lbfgs", random_state=42)
         single_est.fit(x1.numpy())
         batch_x1 = x1[:5].numpy()
         z_batch = single_est.transform(batch_x1)
@@ -450,7 +433,7 @@ class TestTier2BoundariesAndCornerCases:
         )
 
         # 2. Multi-view single sample transformation stability
-        multi_est = SiMLREstimator(n_components=k, iterations=8, random_state=42)
+        multi_est = MultiViewSiMR(n_components=k, iterations=8, random_state=42)
         multi_est.fit([x1.numpy(), x2.numpy()])
         res = multi_est.result_
         u_single = predict_shared_latent([x1[0:1], x2[0:1]], res)
@@ -584,7 +567,7 @@ class TestTier3CrossFeatureInteractions:
         x1_test, x2_test = x1[n_train:], x2[n_train:]
         n_test = x1_test.shape[0]
 
-        res = flow_simr_v([x1_train, x2_train], k=k, epochs=6, batch_size=20, warmup_epochs=1, verbose=False)
+        res = flow_simr_v([x1_train, x2_train], k=k, iterations=6, batch_size=20, warmup_epochs=1, verbose=False)
         cond = res.get("cond_inference")
         assert isinstance(cond, FlowConditionalInference)
 
@@ -631,7 +614,7 @@ class TestTier3CrossFeatureInteractions:
             assert torch.isfinite(u_loo_val[0]).all()
 
     def test_interaction_sklearn_pipeline_end_to_end(self, clean_two_views):
-        """Verify SiMLREstimator integrates into a full scikit-learn Pipeline and cross_val_score."""
+        """Verify MultiViewSiMR integrates into a full scikit-learn Pipeline and cross_val_score."""
         x1_np = clean_two_views["x1"].numpy()
         # Synthetic binary target correlated with the ground-truth latent
         u_true = clean_two_views["u_true"].numpy()
@@ -639,7 +622,7 @@ class TestTier3CrossFeatureInteractions:
 
         pipe = Pipeline([
             ("scaler", StandardScaler()),
-            ("simlr", SiMLREstimator(n_components=2, iterations=8, optimizer_type="torch_lbfgs", random_state=42)),
+            ("simlr", MultiViewSiMR(n_components=2, iterations=8, optimizer_type="torch_lbfgs", random_state=42)),
             ("clf", LogisticRegression(C=1.0, solver="lbfgs")),
         ])
 
@@ -727,7 +710,7 @@ class TestTier4RealWorldWorkloads:
         """
         Scenario 2: Clinical Diagnostic Classification Pipeline.
         Evaluates 5-fold cross-validated diagnostic classification (e.g. MCI vs Cognitively Normal)
-        using SiMLREstimator multi-view latent representations.
+        using MultiViewSiMR multi-view latent representations.
         """
         np.random.seed(42)
         torch.manual_seed(42)
@@ -752,7 +735,7 @@ class TestTier4RealWorldWorkloads:
             y_tr, y_te = y[train_idx], y[test_idx]
 
             # Fit multi-view estimator strictly inside training fold (zero test leakage)
-            simlr_model = SiMLREstimator(n_components=k, iterations=10, optimizer_type="torch_lbfgs", random_state=42)
+            simlr_model = MultiViewSiMR(n_components=k, iterations=10, optimizer_type="torch_lbfgs", random_state=42)
             z_tr = simlr_model.fit_transform([x1_tr, x2_tr])
             z_te = simlr_model.transform([x1_te, x2_te])
 
@@ -783,7 +766,7 @@ class TestTier4RealWorldWorkloads:
         n_test = x1_test.shape[0]
 
         # Train generative Flow-SiMR model
-        res = flow_simr([x1_train, x2_train], k=k, epochs=8, batch_size=24, warmup_epochs=1, verbose=False)
+        res = flow_simr([x1_train, x2_train], k=k, iterations=8, batch_size=24, warmup_epochs=1, verbose=False)
         cond = res["cond_inference"]
         model = res["model"]
         model.eval()

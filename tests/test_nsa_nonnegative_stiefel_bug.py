@@ -26,7 +26,7 @@ def test_nsa_nonnegative_stiefel_collapse():
     res = lend_simr(
         data, 
         k=k, 
-        epochs=50, 
+        iterations=50, 
         positivity="positive", 
         use_nsa=True, 
         nsa_iterations=1,

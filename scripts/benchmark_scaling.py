@@ -20,7 +20,7 @@ def benchmark_scaling():
             
             start_time = time.time()
             # Run for a few epochs to get a stable measure
-            res = lend_simr([x1, x2], k=k, epochs=10, verbose=False)
+            res = lend_simr([x1, x2], k=k, iterations=10, verbose=False)
             end_time = time.time()
             
             duration = (end_time - start_time) / 10.0 # average per epoch

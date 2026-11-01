@@ -36,8 +36,8 @@ def generate_assets():
     data = [bl, mh, mr, pe]
     
     print("Fitting Sequential Chain model (Final Winner Parameters) to generate asset plots...")
-    res_chain = lend_simr(data, k=2, topology="graph", path_graph=graph_chain, epochs=150, 
-                          energy_type="acc", mixing_algorithm="newton", sparseness_quantile=0.5, 
+    res_chain = lend_simr(data, k=2, topology="graph", path_graph=graph_chain, iterations=150, 
+                          energy_type="acc", mixing_algorithm="newton", sparseness=0.5, 
                           sim_weight=2.0, verbose=False, optimizer_type="lars", dynamic_weights=False)
     
     # Energy Plot

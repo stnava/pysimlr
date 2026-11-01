@@ -45,7 +45,7 @@ def _assert_first_layer_contract(model_res, mats):
 
 def test_lend_first_layer_contract():
     mats = [torch.randn(24, 10), torch.randn(24, 8)]
-    res = lend_simr(mats, k=3, epochs=2, batch_size=8, warmup_epochs=0, sim_weight=0.0)
+    res = lend_simr(mats, k=3, iterations=2, batch_size=8, warmup_epochs=0, sim_weight=0.0)
     _assert_first_layer_contract(res, mats)
     pred = predict_deep(mats, res, device="cpu")
     assert pred["first_layer"] is not None
@@ -56,7 +56,7 @@ def test_lend_first_layer_contract():
 
 def test_ned_first_layer_contract_and_extraction():
     mats = [torch.randn(20, 11), torch.randn(20, 7)]
-    res = ned_simr(mats, k=4, epochs=4, batch_size=10, warmup_epochs=0, sim_weight=0.0)
+    res = ned_simr(mats, k=4, iterations=4, batch_size=10, warmup_epochs=0, sim_weight=0.0)
     _assert_first_layer_contract(res, mats)
     extracted = extract_first_layer_factors(
         res,
@@ -77,7 +77,7 @@ def test_shared_private_first_layer_contract():
         mats,
         k=3,
         private_k=2,
-        epochs=2,
+        iterations=2,
         batch_size=6,
         warmup_epochs=0,
         sim_weight=0.0,
@@ -97,7 +97,7 @@ def test_first_layer_training_schedule_metadata():
     res = lend_simr(
         mats,
         k=3,
-        epochs=4,
+        iterations=4,
         batch_size=8,
         warmup_epochs=0,
         sim_weight=0.0,
@@ -134,7 +134,7 @@ def test_encoder_scheduled_projection_matches_projected_basis_at_alpha_one():
 
 def test_pr3_alignment_and_shared_attribution_payloads():
     mats = [torch.randn(22, 9), torch.randn(22, 7)]
-    res = ned_simr(mats, k=3, epochs=2, batch_size=11, warmup_epochs=0, sim_weight=0.0)
+    res = ned_simr(mats, k=3, iterations=2, batch_size=11, warmup_epochs=0, sim_weight=0.0)
 
     assert "interpretability" in res
     assert "deep_layer" in res
@@ -160,7 +160,7 @@ def test_pr3_prediction_attribution_prefers_signal_modality():
     x2 = 0.05 * torch.randn(n, 6)
     y = 2.0 * x1[:, 0] - 1.5 * x1[:, 1] + 0.1 * torch.randn(n)
 
-    res = lend_simr([x1, x2], k=2, epochs=4, batch_size=10, warmup_epochs=0, sim_weight=0.0)
+    res = lend_simr([x1, x2], k=2, iterations=4, batch_size=10, warmup_epochs=0, sim_weight=0.0)
     attr = attribute_prediction_to_features(res, y)
 
     m1 = attr["per_modality"][0]["global_r2"]

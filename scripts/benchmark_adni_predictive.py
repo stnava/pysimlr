@@ -75,11 +75,11 @@ def analyze_adni_predictive_mri_csf(file_path):
     print(f"\nFitting LEND-SiMLR on {view_names} to extract latents...")
     k_latents = 8
     res = lend_simr(
-        Xs, k=k_latents, epochs=100, 
+        Xs, k=k_latents, iterations=100, 
         energy_type='logcosh', 
         mixing_algorithm='newton',
         positivity='positive', 
-        sparseness_quantile=0.5,
+        sparseness=0.5,
         nsa_iterations=3,
         verbose=False
     )

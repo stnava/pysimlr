@@ -33,7 +33,7 @@ print("--- Head-to-Head: Baseline vs Optimized (Diabetes) ---")
 
 # 1. Baseline
 torch.manual_seed(42)
-res_base = lend_simr([X_train_v1, X_train_v2], k=2, epochs=100, positivity='positive', sparseness_quantile=0.5, nsa_iterations=3, verbose=False)
+res_base = lend_simr([X_train_v1, X_train_v2], k=2, iterations=100, positivity='positive', sparseness=0.5, nsa_iterations=3, verbose=False)
 u_train_base = res_base['u'].detach().numpy()
 
 from pysimlr.deep import predict_deep
@@ -45,7 +45,7 @@ print(f"Baseline LEND Test R2: {r2_base:.4f}")
 
 # 2. Optimized (BatchNorm + LeakyReLU)
 torch.manual_seed(42)
-res_opt = lend_simr_optimized([X_train_v1, X_train_v2], k=2, epochs=100, positivity='positive', sparseness_quantile=0.5, nsa_iterations=3)
+res_opt = lend_simr_optimized([X_train_v1, X_train_v2], k=2, iterations=100, positivity='positive', sparseness=0.5, nsa_iterations=3)
 u_train_opt = res_opt['u'].detach().numpy()
 
 model_opt = res_opt['model']

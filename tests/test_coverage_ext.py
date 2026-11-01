@@ -91,14 +91,14 @@ def test_deep_extra():
     x1, x2 = torch.randn(50, 10), torch.randn(50, 8)
     # Test different energy types in deep models
     for e in ["acc", "logcosh"]:
-        assert 'u' in deep_simr([x1, x2], k=2, epochs=2, energy_type=e, warmup_epochs=0)
+        assert 'u' in deep_simr([x1, x2], k=2, iterations=2, energy_type=e, warmup_epochs=0)
     # Test ICA mixing in deep models
-    assert 'u' in lend_simr([x1, x2], k=2, epochs=2, mixing_algorithm="ica", warmup_epochs=0)
+    assert 'u' in lend_simr([x1, x2], k=2, iterations=2, mixing_algorithm="ica", warmup_epochs=0)
 
 def test_deep_mixing_algs():
     x1, x2 = torch.randn(50, 10), torch.randn(50, 8)
     for mix in ["avg", "newton", "pca", "svd", "stochastic"]:
-        assert 'u' in ned_simr([x1, x2], k=2, epochs=2, mixing_algorithm=mix, warmup_epochs=0)
+        assert 'u' in ned_simr([x1, x2], k=2, iterations=2, mixing_algorithm=mix, warmup_epochs=0)
 
 def test_svd_extra():
     x = torch.randn(20, 10)

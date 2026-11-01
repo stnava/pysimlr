@@ -48,7 +48,7 @@ def test_deep_model_cannot_be_run_at_the_degenerate_weight():
     x = torch.randn(40, 12)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        res = lend_simr([x], k=2, epochs=2, batch_size=20, warmup_epochs=0,
+        res = lend_simr([x], k=2, iterations=2, batch_size=20, warmup_epochs=0,
                         use_nsa=True, nsa_w=1.0, verbose=False)
     model = res["model"]
     encoders = getattr(model, "linear_encoders", getattr(model, "encoders", []))

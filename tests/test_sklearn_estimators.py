@@ -1,191 +1,172 @@
-"""
-Unit tests verifying Scikit-Learn Estimator compatibility and torch_lbfgs optimization in PySIMLR.
+"""`MultiViewSiMR`: one scikit-learn estimator for every pysimlr method.
 
-Covers:
-- SiMLREstimator single-view and multi-view compatibility
-- Standard scikit-learn attributes (.components_, .loadings_, .v_, .n_features_in_)
-- fit, transform, fit_transform, and inverse_transform
-- Seamless integration with sklearn.pipeline.Pipeline and cross_val_score
-- Combinatorial support consolidation (consolidate=True) guaranteeing zero lobe overlap
-- Fast quasi-Newton optimization via optimizer_type="torch_lbfgs"
-- Deep transformers: LENDTransformer, NEDTransformer, FlowSiMLRTransformer
-- Turnkey pipeline builders: build_simlr_pipeline, build_nsa_pipeline
+Regressions pinned here:
+  * single-view `transform` projected *raw* X onto the loadings although `fit`
+    had standardized X, so it disagreed with the library's own predictor (max
+    abs difference 30.0 on a shifted, scaled input) and `fit_transform`
+    disagreed with `result_["u"]`;
+  * the LEND/NED wrappers passed both `iterations` and `epochs`, and the
+    callee kept `iterations`, so the `epochs` argument never did anything;
+  * `random_state` seeded the global torch/numpy RNG instead of the fit.
 """
-import pytest
 import numpy as np
+import pytest
 import torch
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression, Ridge
-from sklearn.model_selection import cross_val_score
+from sklearn.base import clone
+from sklearn.model_selection import GridSearchCV, cross_val_score
 
 import pysimlr
-from pysimlr.sklearn import (
-    SiMLREstimator,
-    SiMLRTransformer,
-    SiMLR,
-    LENDTransformer,
-    NEDTransformer,
-    FlowSiMLRTransformer,
-    build_simlr_pipeline,
-)
+from pysimlr import MultiViewPCA, MultiViewSiMR, build_simlr_pipeline
+
+K = 2
 
 
-class TestSiMLRScikitLearnCompatibility:
-
-    def test_single_view_fit_transform_and_inverse(self):
-        """Verify single-view tabular data fits, transforms, and inverse-transforms."""
-        np.random.seed(42)
-        X = np.random.randn(50, 8)
-
-        model = SiMLR(n_components=3, iterations=15, optimizer_type="torch_lbfgs", random_state=42)
-        model.fit(X)
-
-        assert hasattr(model, "components_")
-        assert model.components_.shape == (3, 8)
-        assert hasattr(model, "loadings_")
-        assert model.loadings_.shape == (8, 3)
-        assert model.n_features_in_ == 8
-
-        # Transform
-        Z = model.transform(X)
-        assert Z.shape == (50, 3)
-
-        # Fit transform parity
-        Z_ft = model.fit_transform(X)
-        assert Z_ft.shape == (50, 3)
-
-        # Inverse transform reconstruction
-        X_rec = model.inverse_transform(Z)
-        assert X_rec.shape == (50, 8)
-
-    def test_multi_view_fit_transform(self):
-        """Verify multi-view list of matrices fits and produces consensus coordinates."""
-        np.random.seed(42)
-        X1 = np.random.randn(40, 6)
-        X2 = np.random.randn(40, 10)
-
-        model = SiMLREstimator(n_components=2, iterations=10, optimizer_type="torch_lbfgs", random_state=42)
-        model.fit([X1, X2])
-
-        assert isinstance(model.components_, list)
-        assert len(model.components_) == 2
-        assert model.components_[0].shape == (2, 6)
-        assert model.components_[1].shape == (2, 10)
-
-        Z = model.transform([X1, X2])
-        assert Z.shape == (40, 2)
-
-    def test_pipeline_and_cross_validation(self):
-        """Verify SiMLREstimator works inside sklearn.pipeline.Pipeline and cross_val_score."""
-        np.random.seed(42)
-        X = np.random.randn(60, 12)
-        y = (X[:, 0] + X[:, 1] > 0).astype(int)
-
-        pipe = Pipeline([
-            ("scaler", StandardScaler()),
-            ("dim_reduction", SiMLREstimator(n_components=3, iterations=10, optimizer_type="torch_lbfgs")),
-            ("classifier", LogisticRegression(C=1.0, max_iter=500)),
-        ])
-
-        scores = cross_val_score(pipe, X, y, cv=3)
-        assert len(scores) == 3
-        assert (scores >= 0.0).all()
-
-    def test_consolidate_disjoint_modules(self):
-        """Verify consolidate=True produces strictly disjoint module lobes with zero overlap."""
-        np.random.seed(42)
-        X = np.random.randn(60, 15)
-
-        model = SiMLR(n_components=3, iterations=15, consolidate=True, random_state=42)
-        model.fit(X)
-
-        V = torch.from_numpy(model.loadings_)
-        v_pos = torch.clamp_min(V, 0.0)
-        v_neg = torch.clamp_min(-V, 0.0)
-
-        # Lobe overlap must vanish
-        lobe_overlap = torch.sum(v_pos * v_neg).item()
-        assert lobe_overlap == pytest.approx(0.0, abs=1e-5), f"Expected 0.0 lobe overlap, got {lobe_overlap}"
-
-    def test_torch_lbfgs_optimizer_convergence(self):
-        """Verify optimizer_type='torch_lbfgs' optimizes stably and reduces energy."""
-        np.random.seed(42)
-        X1 = np.random.randn(50, 8)
-        X2 = np.random.randn(50, 8)
-
-        model = SiMLREstimator(n_components=2, iterations=8, optimizer_type="torch_lbfgs", random_state=42)
-        model.fit([X1, X2])
-
-        energy = model.result_["energy"]
-        assert len(energy) > 0
-        assert np.isfinite(energy).all()
-        assert np.isfinite(model.result_["best_energy"])
-        assert model.result_["converged_iter"] > 0
-
-    def test_build_simlr_pipeline_classification_and_regression(self):
-        """Verify turnkey build_simlr_pipeline factory for classification and regression."""
-        np.random.seed(42)
-        X = np.random.randn(50, 10)
-        y_clf = (X[:, 0] > 0).astype(int)
-        y_reg = 2.0 * X[:, 0] + 0.5 * np.random.randn(50)
-
-        # Classification
-        pipe_c = build_simlr_pipeline(n_components=3, task="classification")
-        assert "scaler" in pipe_c.named_steps
-        assert "dim_reduction" in pipe_c.named_steps
-        assert "classifier" in pipe_c.named_steps
-        pipe_c.fit(X, y_clf)
-        preds_c = pipe_c.predict(X)
-        assert preds_c.shape == (50,)
-
-        # Regression
-        pipe_r = build_simlr_pipeline(n_components=3, task="regression")
-        assert "scaler" in pipe_r.named_steps
-        assert "dim_reduction" in pipe_r.named_steps
-        assert "regressor" in pipe_r.named_steps
-        pipe_r.fit(X, y_reg)
-        preds_r = pipe_r.predict(X)
-        assert preds_r.shape == (50,)
+def _views(n=60, dims=(8, 6), seed=0, shift=0.0):
+    rng = np.random.default_rng(seed)
+    u = rng.standard_normal((n, K))
+    return [u @ rng.standard_normal((K, p)) * (1 + np.arange(p)) + shift
+            + 0.2 * rng.standard_normal((n, p)) for p in dims]
 
 
-class TestDeepScikitLearnTransformers:
+def test_single_view_transform_uses_the_fitted_preprocessing():
+    X = _views(dims=(8,), shift=10.0)[0]
+    est = MultiViewSiMR(n_components=K, iterations=5, random_state=0).fit(X)
+    z = est.transform(X)
+    ref = pysimlr.predict(est.result_, [X])["u"].numpy()
+    np.testing.assert_allclose(z, ref, atol=1e-6)
+    assert abs(z.mean()) < 1.0, "latents of standardized input should be near zero-mean"
+    np.testing.assert_allclose(clone(est).fit_transform(X), z, atol=1e-6)
+    assert est.components_.shape == (K, 8) and est.loadings_.shape == (8, K)
 
-    def test_lend_transformer(self):
-        """Verify LENDTransformer fits and transforms single-view data."""
-        np.random.seed(42)
-        X = np.random.randn(40, 8)
 
-        lend = LENDTransformer(n_components=2, iterations=2, epochs=5, random_state=42)
-        lend.fit(X)
+def test_multi_view_list_input():
+    views = _views()
+    est = MultiViewSiMR(n_components=K, iterations=5, random_state=0).fit(views)
+    assert isinstance(est.components_, list) and [c.shape for c in est.components_] == [(K, 8), (K, 6)]
+    assert est.transform(views).shape == (60, K)
+    assert est.n_features_in_ == 14 and est.family_ == "linear"
 
-        assert hasattr(lend, "components_")
-        assert lend.components_.shape == (2, 8)
-        Z = lend.transform(X)
-        assert Z.shape == (40, 2)
 
-    def test_ned_transformer(self):
-        """Verify NEDTransformer fits and transforms single-view data."""
-        np.random.seed(42)
-        X = np.random.randn(40, 8)
+def test_view_sizes_reproduces_the_list_form():
+    views = _views()
+    a = MultiViewSiMR(n_components=K, iterations=5, random_state=0).fit(views).transform(views)
+    X = np.hstack(views)
+    est = MultiViewSiMR(n_components=K, iterations=5, random_state=0, view_sizes=[8, 6]).fit(X)
+    np.testing.assert_allclose(est.transform(X), a, atol=1e-6)
+    with pytest.raises(ValueError, match="sum to"):
+        MultiViewSiMR(view_sizes=[8, 5]).fit(X)
 
-        ned = NEDTransformer(n_components=2, iterations=2, epochs=5, random_state=42)
-        ned.fit(X)
 
-        assert hasattr(ned, "components_")
-        assert ned.components_.shape == (2, 8)
-        Z = ned.transform(X)
-        assert Z.shape == (40, 2)
+@pytest.mark.parametrize("method", ["lend", "ned", "flow_v", "pca"])
+def test_other_methods_through_the_same_estimator(method):
+    views = _views()
+    est = MultiViewSiMR(method=method, n_components=K, iterations=3, batch_size=16,
+                        random_state=0).fit(views)
+    assert est.transform(views).shape == (60, K)
+    assert np.isfinite(est.score(views))
 
-    def test_flow_simlr_transformer(self):
-        """Verify FlowSiMLRTransformer fits and transforms single-view data."""
-        np.random.seed(42)
-        X = np.random.randn(40, 8)
 
-        flow = FlowSiMLRTransformer(n_components=2, epochs=5, random_state=42)
-        flow.fit(X)
+def test_the_budget_reaches_the_deep_models():
+    """The old wrappers' `epochs` argument never reached training."""
+    views = _views()
+    short = MultiViewSiMR(method="ned", n_components=K, iterations=2, random_state=0).fit(views)
+    long = MultiViewSiMR(method="ned", n_components=K, iterations=7, random_state=0).fit(views)
+    assert len(short.result_["loss_history"]) == 2
+    assert len(long.result_["loss_history"]) == 7
 
-        assert hasattr(flow, "components_")
-        assert flow.components_.shape == (2, 8)
-        Z = flow.transform(X)
-        assert Z.shape == (40, 2)
+
+def test_a_parameter_the_method_cannot_use_is_recorded():
+    with pytest.warns(RuntimeWarning, match="hidden_dims"):
+        est = MultiViewSiMR(n_components=K, iterations=3, hidden_dims=(8,)).fit(_views())
+    assert "hidden_dims" in est.parameters_ignored_
+    with pytest.raises(TypeError):
+        MultiViewSiMR(n_components=K, iterations=3, hidden_dims=(8,), strict=True).fit(_views())
+
+
+def test_random_state_reproduces_and_leaves_the_global_stream_alone():
+    views = _views()
+    torch.manual_seed(5)
+    expected = torch.randn(3)
+    torch.manual_seed(5)
+    a = MultiViewSiMR(method="lend", n_components=K, iterations=3, random_state=4).fit_transform(views)
+    assert torch.equal(torch.randn(3), expected)
+    b = MultiViewSiMR(method="lend", n_components=K, iterations=3, random_state=4).fit_transform(views)
+    np.testing.assert_array_equal(a, b)
+
+
+def test_grid_search_loops_over_methods():
+    views = _views(n=48)
+    X = np.hstack(views)
+    est = MultiViewSiMR(n_components=K, iterations=3, batch_size=16, random_state=0, view_sizes=[8, 6])
+    gs = GridSearchCV(est, {"method": ["simlr", "lend", "flow_v", "pca"]}, cv=2).fit(X)
+    assert set(gs.cv_results_["param_method"]) == {"simlr", "lend", "flow_v", "pca"}
+    assert np.isfinite(gs.cv_results_["mean_test_score"]).all()
+
+
+def test_clone_and_get_params_round_trip():
+    est = MultiViewSiMR(method="ned", n_components=3, hidden_dims=(16, 8), extra_params={"sim_weight": 2.0})
+    c = clone(est)
+    assert c.get_params() == est.get_params()
+
+
+def test_inverse_transform_is_linear_only():
+    views = _views()
+    est = MultiViewSiMR(n_components=K, iterations=5, random_state=0).fit(views)
+    recs = est.inverse_transform(est.transform(views))
+    assert [r.shape for r in recs] == [(60, 8), (60, 6)]
+    deep = MultiViewSiMR(method="lend", n_components=K, iterations=2).fit(views)
+    with pytest.raises(NotImplementedError):
+        deep.inverse_transform(deep.transform(views))
+
+
+@pytest.mark.parametrize("task", ["classification", "regression"])
+def test_build_simlr_pipeline_cross_validates(task):
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((60, 10))
+    y = (X[:, 0] > 0).astype(int) if task == "classification" else X[:, 0] + 0.1 * rng.standard_normal(60)
+    pipe = build_simlr_pipeline(n_components=K, task=task, iterations=4, random_state=0)
+    scores = cross_val_score(pipe, X, y, cv=3)
+    assert np.isfinite(scores).all()
+
+
+def test_multiview_pca_view_sizes_matches_list_input():
+    views = _views()
+    a = MultiViewPCA(n_components=K).fit_transform(views)
+    b = MultiViewPCA(n_components=K, view_sizes=[8, 6]).fit_transform(np.hstack(views))
+    np.testing.assert_allclose(a, b, atol=1e-6)
+
+
+@pytest.mark.parametrize("method", ["simlr", "pca"])
+def test_inverse_transform_returns_input_units_and_shape(method):
+    """It returned a list for a concatenated input and, for simlr, values
+    about 1/(n p) of the input scale (the "np" preprocessing step was not
+    undone)."""
+    views = _views(shift=20.0)
+    X = np.hstack(views)
+    est = MultiViewSiMR(method=method, n_components=K, iterations=8, random_state=0,
+                        view_sizes=[8, 6]).fit(X)
+    rec = est.inverse_transform(est.transform(X))
+    assert isinstance(rec, np.ndarray) and rec.shape == X.shape
+    rel = np.linalg.norm(rec - X) / np.linalg.norm(X - X.mean(0))
+    assert rel < 1.0, f"{method}: reconstruction error {rel:.3f} of the centred signal"
+    assert abs(rec.mean() - X.mean()) < 1.0
+
+
+def test_score_compares_methods_on_shifted_data():
+    """With a +20 mean, the baselines used to win any grid because their
+    error was divided by the raw (mean-inflated) norm."""
+    views = _views(n=60, shift=20.0)
+    s_raw = {m: MultiViewSiMR(method=m, n_components=K, iterations=8, random_state=0).fit(views).score(views)
+             for m in ("simlr", "pca")}
+    centred = [v - v.mean(0) for v in views]
+    s_c = {m: MultiViewSiMR(method=m, n_components=K, iterations=8, random_state=0).fit(centred).score(centred)
+           for m in ("simlr", "pca")}
+    for m in s_raw:
+        assert abs(s_raw[m] - s_c[m]) < 1e-3
+
+
+def test_build_simlr_pipeline_takes_a_list_of_views():
+    views = _views()
+    y = views[0][:, 0] > 0
+    pipe = build_simlr_pipeline(n_components=K, iterations=4, random_state=0).fit(views, y)
+    assert pipe.predict(views).shape == (60,)

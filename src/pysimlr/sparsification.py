@@ -12,7 +12,8 @@ from .nsa_backend import load_nsa_flow, load_polar_factor
 #: ~1435 iterations (~559 ms) for 5.7e-5. Moderate w also proved more
 #: reproducible -- at high w the solution approaches a combinatorial vertex and
 #: small data changes flip which vertex is selected.
-NSA_DEFAULT_W = 0.5
+from .defaults import DEFAULT_NSA_W
+NSA_DEFAULT_W = DEFAULT_NSA_W
 
 #: Default column-wise quantile sparseness applied across all SiMR entry points.
 #: Following the original SiMLR manuscript, 0.5 (retaining the top 50% of
@@ -92,23 +93,13 @@ def _assignment_indicator(m: torch.Tensor) -> torch.Tensor:
     """
     indicator = torch.zeros_like(m)
     m_safe = torch.nan_to_num(m, nan=float('-inf'), posinf=float('inf'), neginf=float('-inf'))
-    try:
-        from scipy.optimize import linear_sum_assignment
-        # linear_sum_assignment minimizes, so negate to maximize sum(m * I).
-        cost = -torch.nan_to_num(m_safe, nan=0.0, posinf=1e30, neginf=-1e30)
-        rows, cols = linear_sum_assignment(cost.detach().cpu().numpy())
-        indicator[torch.as_tensor(rows, dtype=torch.long),
-                  torch.as_tensor(cols, dtype=torch.long)] = 1.0
-    except Exception:
-        # Greedy fallback: one pass over columns, claiming the best free row.
-        row_used = torch.zeros(m_safe.shape[0], dtype=torch.bool, device=m.device)
-        for j in range(m_safe.shape[1]):
-            available = m_safe[:, j].clone()
-            available[row_used] = float('-inf')
-            max_val, selected_row = torch.max(available, dim=0)
-            if torch.isfinite(max_val):
-                indicator[selected_row, j] = 1.0
-                row_used[selected_row] = True
+    # The cost is finite after nan_to_num; an assignment failure propagates rather than switching to a greedy match.
+    from scipy.optimize import linear_sum_assignment
+    # linear_sum_assignment minimizes, so negate to maximize sum(m * I).
+    cost = -torch.nan_to_num(m_safe, nan=0.0, posinf=1e30, neginf=-1e30)
+    rows, cols = linear_sum_assignment(cost.detach().cpu().numpy())
+    indicator[torch.as_tensor(rows, dtype=torch.long),
+              torch.as_tensor(cols, dtype=torch.long)] = 1.0
     return indicator
 
 
@@ -199,22 +190,17 @@ def _nsa_retract(v: torch.Tensor,
         return None
     target = v_detached.double() / scale
 
+    # A backend failure propagates; returning None made callers switch to the SVD polar factor.
     try:
-        try:
-            result = fn(target, w=float(w), mode="anchored", fidelity="anchor",
-                        nonneg=bool(nonneg), max_iter=int(max_iter),
-                        sparseness=sp_key)
-        except TypeError:
-            result = fn(target, w=float(w), mode="anchored", fidelity="anchor",
-                        nonneg=bool(nonneg), max_iter=int(max_iter))
-    except Exception:
-        return None
+        result = fn(target, w=float(w), mode="anchored", fidelity="anchor",
+                    nonneg=bool(nonneg), max_iter=int(max_iter),
+                    sparseness=sp_key)
+    except TypeError:
+        result = fn(target, w=float(w), mode="anchored", fidelity="anchor",
+                    nonneg=bool(nonneg), max_iter=int(max_iter))
 
-    candidate = None
-    if hasattr(result, 'get'):
-        candidate = result.get('V') or result.get('Y')
-    if candidate is None:
-        candidate = getattr(result, 'V', None) or getattr(result, 'Y', None)
+    from .nsa_backend import result_matrix
+    candidate = result_matrix(result)
     diag_snapshot = _retraction_diagnostics(result, w)
     if diagnostics is not None:
         diagnostics.update(diag_snapshot)
@@ -515,10 +501,8 @@ def _svd_polar(v: torch.Tensor) -> torch.Tensor:
     """
     polar_fn = load_polar_factor()
     if polar_fn is not None:
-        try:
-            return polar_fn(v)
-        except Exception:
-            pass
+        # A backend failure propagates (D2: no silent switch between implementations).
+        return polar_fn(v)
     u, _, vh = safe_svd(v, full_matrices=False)
     return u @ vh
 
@@ -667,13 +651,10 @@ def _project_nonnegative(v: torch.Tensor, sign: float = 1.0) -> torch.Tensor:
     if bool((projected.abs().sum(dim=0) == 0).any()):
         return torch.abs(v)
     if v.shape[1] > 1:
-        try:
-            if (torch.linalg.matrix_rank(projected.float())
-                    < torch.linalg.matrix_rank(v.float())):
-                return torch.abs(v)
-        except Exception:
-            # A rank query that fails is not a reason to reject the projection.
-            pass
+        # A rank query failure propagates.
+        if (torch.linalg.matrix_rank(projected.float())
+                < torch.linalg.matrix_rank(v.float())):
+            return torch.abs(v)
     return projected
 
 
@@ -987,11 +968,10 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
     n, k = v_out.shape
     
     if orthogonalize and k > 1:
-        try:
-            nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg')
-            retracted = _nsa_retract(v_out, w=NSA_DEFAULT_W, nonneg=nonneg)
-            v_out = retracted if retracted is not None else _svd_polar(v_out)
-        except Exception: pass
+        # A retraction failure propagates; it used to leave v unretracted silently.
+        nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg')
+        retracted = _nsa_retract(v_out, w=NSA_DEFAULT_W, nonneg=nonneg)
+        v_out = retracted if retracted is not None else _svd_polar(v_out)
         
     sparsify = (isinstance(sparseness_quantile, (list, torch.Tensor, np.ndarray))
                 or sparseness_quantile > 0)

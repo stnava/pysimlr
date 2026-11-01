@@ -23,14 +23,8 @@ from scipy import stats
 
 # Ensure src is in path
 sys.path.append(os.path.join(os.getcwd(), "src"))
-from pysimlr.simlr import simlr, predict_simlr
-from pysimlr.deep import lend_simr, ned_simr, ned_simr_shared_private, predict_deep
+import pysimlr
 from pysimlr.benchmarks.metrics import calculate_all_metrics
-
-def filter_kwargs(func, kwargs):
-    import inspect
-    sig = inspect.signature(func)
-    return {k: v for k, v in kwargs.items() if k in sig.parameters}
 
 def get_diabetes_case():
     data = load_diabetes(); X_scaled = StandardScaler().fit_transform(data.data); y = data.target
@@ -65,8 +59,8 @@ def run_cv_experiment(model_type, dataset_name, topology, loss, consensus, seed=
     fold_metrics = []
     
     params = {
-        "iterations": 100, "epochs": 100, "energy_type": loss, "mixing_algorithm": consensus, 
-        "use_nsa": True, "positivity": "positive", "nsa_w": 0.5, "sparseness_quantile": 0.5,
+        "iterations": 100, "energy_type": loss, "mixing_algorithm": consensus,
+        "use_nsa": True, "positivity": "positive", "nsa_w": 0.5, "sparseness": 0.5,
         "nsa_iterations": 3, "topology": topology, "verbose": False
     }
 
@@ -78,25 +72,12 @@ def run_cv_experiment(model_type, dataset_name, topology, loss, consensus, seed=
         
         torch.manual_seed(seed) 
         
-        if model_type == "linear":
-            f_params = filter_kwargs(simlr, params)
-            res = simlr(train_mats, k=k, **f_params)
-        elif model_type == "lend":
-            f_params = filter_kwargs(lend_simr, params)
-            res = lend_simr(train_mats, k=k, **f_params)
-        elif model_type == "ned":
-            f_params = filter_kwargs(ned_simr, params)
-            res = ned_simr(train_mats, k=k, **f_params)
-        elif model_type == "shared_private":
-            f_params = filter_kwargs(ned_simr_shared_private, params)
-            res = ned_simr_shared_private(train_mats, k=k, **f_params)
-
-        if "model" in res:
-            pred_test = predict_deep(test_mats, res, device="cpu")
-            pred_train = predict_deep(train_mats, res, device="cpu")
-        else:
-            pred_test = predict_simlr(test_mats, res)
-            pred_train = predict_simlr(train_mats, res)
+        # One call for every method; parameters a method cannot use are
+        # recorded in res["parameters"]["ignored"]. The local filter_kwargs this
+        # replaces silently dropped "sparseness_quantile" after its rename.
+        res = pysimlr.fit(model_type, train_mats, k, random_state=seed, **params)
+        pred_test = pysimlr.predict(res, test_mats)
+        pred_train = pysimlr.predict(res, train_mats)
 
         fl_scores_train = pred_train.get("first_layer_scores")
         fl_scores_test = pred_test.get("first_layer_scores")

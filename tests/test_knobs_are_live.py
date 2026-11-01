@@ -14,7 +14,7 @@ Three that shipped simultaneously:
   ``nsa_w in {0.05, 0.3, 0.5, 0.9}`` the fitted basis was identical to
   ``0.00e+00``. This is what made ``w`` look like an irrelevant
   hyperparameter across an entire design sweep.
-* ``filter_kwargs`` in the benchmark runner kept only *named* parameters,
+* ``filter_kwargs`` (since removed) in the benchmark runner kept only *named* parameters,
   while `simlr` takes optimizer hyperparameters through ``**opt_params``, so
   ``learning_rate`` was silently dropped from every benchmark call ever run.
 * ``gauss`` and ``exp`` were two registry entries evaluating the identical
@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 import torch
 
-from pysimlr.benchmarks.runner import filter_kwargs
+from pysimlr import api
 from pysimlr.consensus import compute_shared_consensus
 from pysimlr.similarity import SIMILARITY, SimilarityContext, similarity_energy
 from pysimlr.simlr import simlr
@@ -203,22 +203,27 @@ def test_conflicting_weight_spellings_warn():
         _fit(_views(), nsa_w=0.9, constraint="orthox0.2x1")
 
 
-def test_filter_kwargs_keeps_what_the_callee_takes_via_var_keyword():
+def test_the_harness_passes_optimizer_hyperparameters_through():
     """The harness bug, tested without running a fit.
 
-    Keeping only named parameters silently discarded every optimizer
-    hyperparameter `simlr` accepts through ``**opt_params``.
+    The runner's old `filter_kwargs` kept only named parameters and so
+    silently discarded every optimizer hyperparameter `simlr` accepts through
+    ``**opt_params``. The registry derives what `simlr` accepts from its
+    signature plus those keys.
     """
-    kept = filter_kwargs(simlr, {"learning_rate": 0.2, "energy_type": "recon_r2"})
-    assert "learning_rate" in kept, (
-        "learning_rate was dropped on the way to simlr; benchmark conditions "
+    accepts = api.resolve_method("simlr").accepts
+    assert "learning_rate" in accepts, (
+        "learning_rate would be dropped on the way to simlr; benchmark conditions "
         "that differ only in it are not distinct conditions")
-    assert "energy_type" in kept
+    assert "energy_type" in accepts
 
 
-def test_filter_kwargs_warns_rather_than_dropping_in_silence():
-    with pytest.warns(RuntimeWarning, match="cannot accept"):
-        filter_kwargs(simlr, {"a_key_simlr_has_never_heard_of": 1})
+def test_the_harness_records_rather_than_drops_a_parameter():
+    with pytest.warns(RuntimeWarning, match="hidden_dims"):
+        res = api.fit("simlr", _views(), 2, iterations=2, hidden_dims=(4,))
+    assert "hidden_dims" in res["parameters"]["ignored"]
+    with pytest.raises(TypeError, match="a_key_no_method_has"):
+        api.fit("simlr", _views(), 2, iterations=2, a_key_no_method_has=1)
 
 
 def test_modality_weights_change_the_consensus():

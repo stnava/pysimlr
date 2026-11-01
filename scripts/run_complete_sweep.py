@@ -27,7 +27,7 @@ def fit_and_score(mats, arch, opt, mai, energy, mixing, k, sparseness):
     if arch == "linear":
         res = simlr(mats, k=k, optimizer_type=opt, iterations=500, 
                     energy_type=energy, mixing_algorithm=mixing, 
-                    sparseness_quantile=sparseness,
+                    sparseness=sparseness,
                     constraint=constraint,
                     positivity="positive",
                     scale_list=sl, verbose=False)
@@ -37,8 +37,8 @@ def fit_and_score(mats, arch, opt, mai, energy, mixing, k, sparseness):
             mats, k=k, model_type=arch, optimizer_type=opt,
             dynamic_weights=mai, mai_metric="procrustes_r2",
             energy_type=energy, mixing_algorithm=mixing,
-            sparseness_quantile=sparseness,
-            epochs=500, learning_rate=1e-3, 
+            sparseness=sparseness,
+            iterations=500, learning_rate=1e-3, 
             scale_list=sl,
             verbose=False, device="cpu",
             retraction_type="soft_ns"

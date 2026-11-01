@@ -39,7 +39,7 @@ def test_boundary_empty_data_matrices_list():
         simlr([], k=2)
 
     with pytest.raises((ValueError, IndexError)):
-        lend_simr([], k=2, epochs=2)
+        lend_simr([], k=2, iterations=2)
 
 
 def test_boundary_empty_consensus_tensor():
@@ -201,7 +201,7 @@ def test_boundary_latent_dim_k_equals_1_univariate():
     assert res_simlr["u"].shape == (n, 1)
     assert res_simlr["v"][0].shape == (p1, 1)
 
-    res_flow = flow_simr([x1, x2], k=1, epochs=4, batch_size=20, verbose=False)
+    res_flow = flow_simr([x1, x2], k=1, iterations=4, batch_size=20, verbose=False)
     assert res_flow["latents"][0].shape == (n, 1)
 
 
@@ -287,7 +287,7 @@ def test_boundary_sparseness_quantile_dense_zero():
     x1 = torch.randn(30, 6)
     x2 = torch.randn(30, 8)
 
-    res = simlr([x1, x2], k=2, sparseness_quantile=0.0, iterations=6)
+    res = simlr([x1, x2], k=2, sparseness=0.0, iterations=6)
     assert res["u"] is not None
     # Weights should be predominantly non-zero
     assert torch.all(torch.abs(res["v"][0]) > 0.0)
@@ -318,7 +318,7 @@ def test_boundary_flow_batch_size_equals_sample_size():
     x1 = torch.randn(n, 6)
     x2 = torch.randn(n, 6)
 
-    res = flow_simr([x1, x2], k=2, epochs=4, batch_size=n, verbose=False)
+    res = flow_simr([x1, x2], k=2, iterations=4, batch_size=n, verbose=False)
     assert res["latents"][0].shape == (n, 2)
     assert len(res["loss_history"]) == 4
 
@@ -329,7 +329,7 @@ def test_boundary_deep_zero_dropout():
     x1 = torch.randn(35, 8)
     x2 = torch.randn(35, 6)
 
-    res = lend_simr([x1, x2], k=2, epochs=4, batch_size=15, dropout=0.0, verbose=False)
+    res = lend_simr([x1, x2], k=2, iterations=4, batch_size=15, dropout=0.0, verbose=False)
     assert res["latents"][0].shape == (35, 2)
     assert not np.isnan(res["loss_history"][-1])
 

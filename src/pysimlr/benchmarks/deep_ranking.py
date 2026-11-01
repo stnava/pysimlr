@@ -221,12 +221,11 @@ def compute_nemenyi_cd(n_models: int, n_datasets: int, alpha: float = 0.05) -> f
     if n_models < 2 or n_datasets < 1:
         raise ValueError("n_models must be >= 2 and n_datasets >= 1")
 
-    # studentized_range critical value divided by sqrt(2)
-    try:
-        q_val = float(stats.studentized_range.ppf(1.0 - alpha, n_models, np.inf) / np.sqrt(2.0))
-    except Exception:
-        # Fallback approximation for studentized range
-        q_val = 2.948 if n_models == 7 else 2.569
+    # Studentized-range critical value divided by sqrt(2) (Demsar 2006). The
+    # previous version caught any failure and substituted 2.948 for seven
+    # models and 2.569 -- the four-model value -- for every other count; for
+    # the nine-model benchmark the correct value is 3.102.
+    q_val = float(stats.studentized_range.ppf(1.0 - alpha, n_models, np.inf) / np.sqrt(2.0))
 
     cd = q_val * np.sqrt((n_models * (n_models + 1)) / (6.0 * n_datasets))
     return float(cd)
@@ -275,12 +274,18 @@ def pairwise_wilcoxon_holm(
     df: pd.DataFrame,
     metric_col: str,
     model_col: str = "Model",
-    replicate_cols: Sequence[str] = ("Dataset", "Seed"),
+    replicate_cols: Sequence[str] = ("Dataset",),
     higher_is_better: bool = True
 ) -> pd.DataFrame:
     """
     Compute pairwise Wilcoxon signed-rank tests with Holm-Bonferroni correction
     and exact sign-flip permutation tests across all pairs of models.
+
+    The paired blocks are the ``replicate_cols`` groups, with any other rows
+    (seeds) averaged within a block. The default is one block per dataset
+    (Demsar 2006): seeds of one dataset share its data and are not independent
+    replicates. The default used to be ("Dataset", "Seed"), which treated each
+    seed as an independent block and understated p-values.
 
     Parameters
     ----------
@@ -327,15 +332,14 @@ def pairwise_wilcoxon_holm(
         diffs = (vals_a - vals_b) if higher_is_better else (vals_b - vals_a)
         mean_diff = float(np.mean(diffs))
 
-        # Wilcoxon signed-rank test
-        try:
-            non_zero_diffs = diffs[diffs != 0]
-            if len(non_zero_diffs) >= 3:
-                w_stat, p_wilc = stats.wilcoxon(diffs, alternative="two-sided")
-                p_wilc = float(p_wilc)
-            else:
-                p_wilc = 1.0
-        except Exception:
+        # Wilcoxon signed-rank test; with fewer than three non-zero paired
+        # differences there is no evidence either way and p is reported as 1.
+        # Any other failure of the test propagates rather than becoming p = 1.
+        non_zero_diffs = diffs[diffs != 0]
+        if len(non_zero_diffs) >= 3:
+            _, p_wilc = stats.wilcoxon(diffs, alternative="two-sided")
+            p_wilc = float(p_wilc)
+        else:
             p_wilc = 1.0
 
         p_perm = exact_sign_flip_permutation(diffs)
@@ -356,22 +360,68 @@ def pairwise_wilcoxon_holm(
 
     res_df = pd.DataFrame(records)
 
-    # Apply Holm-Bonferroni correction to Wilcoxon p-values
-    p_vals = res_df["P_Wilcoxon_Raw"].values
-    m = len(p_vals)
-    order = np.argsort(p_vals)
-    adj_p = np.zeros(m)
-    for rank_idx, idx in enumerate(order):
-        adj_p[idx] = p_vals[idx] * (m - rank_idx)
-    # Enforce monotonicity: p_{adj}[i] = max(p_{adj}[i], p_{adj}[i-1]) in sorted order
-    sorted_adj = adj_p[order]
-    for i in range(1, m):
-        sorted_adj[i] = max(sorted_adj[i], sorted_adj[i - 1])
-    adj_p[order] = np.clip(sorted_adj, 0.0, 1.0)
-
-    res_df["P_Wilcoxon_Holm"] = adj_p
+    res_df["P_Wilcoxon_Holm"] = holm_adjust(res_df["P_Wilcoxon_Raw"].values)
     res_df["Significant"] = res_df["P_Wilcoxon_Holm"] < 0.05
     return res_df
+
+
+def holm_adjust(p_values: Sequence[float]) -> np.ndarray:
+    """Holm-Bonferroni step-down adjusted p-values (monotone, clipped to 1)."""
+    p = np.asarray(p_values, dtype=float)
+    m = len(p)
+    order = np.argsort(p)
+    adj = np.empty(m)
+    running = 0.0
+    for rank, idx in enumerate(order):
+        running = max(running, p[idx] * (m - rank))
+        adj[idx] = min(running, 1.0)
+    return adj
+
+
+def wilcoxon_vs_reference(
+    df: pd.DataFrame,
+    metric_col: str,
+    reference: str,
+    models: Optional[Sequence[str]] = None,
+    model_col: str = "Model",
+    block_col: str = "Dataset",
+    higher_is_better: bool = True,
+    tol: float = 1e-6,
+) -> pd.DataFrame:
+    """Each model against one reference, with one paired block per dataset.
+
+    Rows sharing a ``block_col`` value (the seeds of a dataset) are averaged
+    first, so the test has as many pairs as datasets. Per model: blocks won,
+    tied (|diff| <= ``tol``) and lost; mean difference; two-sided Wilcoxon
+    signed-rank p; Holm-adjusted across the models in this table; and the
+    exact sign-flip permutation p on the block differences.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ``Model, N_Blocks, Wins, Ties, Losses, Mean_Diff, P_Wilcoxon,
+        P_Holm, P_Permutation``.
+    """
+    piv = df.pivot_table(index=block_col, columns=model_col, values=metric_col, aggfunc="mean")
+    if reference not in piv.columns:
+        raise ValueError(f"reference {reference!r} not in {list(piv.columns)}")
+    models = [m for m in (models or piv.columns) if m != reference]
+    recs = []
+    for m in models:
+        sub = piv[[m, reference]].dropna()
+        d = (sub[m] - sub[reference]).values
+        if not higher_is_better:
+            d = -d
+        nz = d[np.abs(d) > tol]
+        p_w = float(stats.wilcoxon(d, alternative="two-sided")[1]) if len(nz) >= 3 else 1.0
+        recs.append({"Model": m, "N_Blocks": len(d), "Wins": int((d > tol).sum()),
+                     "Ties": int((np.abs(d) <= tol).sum()), "Losses": int((d < -tol).sum()),
+                     "Mean_Diff": float(d.mean()), "P_Wilcoxon": p_w,
+                     "P_Permutation": exact_sign_flip_permutation(d)})
+    out = pd.DataFrame(recs)
+    out["P_Holm"] = holm_adjust(out["P_Wilcoxon"].values)
+    return out[["Model", "N_Blocks", "Wins", "Ties", "Losses", "Mean_Diff", "P_Wilcoxon", "P_Holm",
+                "P_Permutation"]]
 
 
 def compute_bayesian_win_rates(

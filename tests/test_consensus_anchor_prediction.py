@@ -123,7 +123,11 @@ def test_the_anchor_is_what_makes_it_work(alg):
     with_anchor = with_anchor[0] if isinstance(with_anchor, list) else with_anchor
 
     stripped = dict(res)
+    # The frozen consensus (anchor, star statistics and the general affine map)
+    # is removed as a whole; any one of them alone would restore the axes.
     stripped["consensus_anchor"] = None
+    stripped["consensus_stats"] = None
+    stripped["consensus_map"] = None
     without = predict_shared_latent(te, stripped)
     without = without[0] if isinstance(without, list) else without
 

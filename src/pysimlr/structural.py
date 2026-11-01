@@ -21,9 +21,12 @@ def fit_structural_models(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         A dictionary where keys are model names and values are path graphs 
         (adjacency lists).
     model_type : str, default="lend"
-        The deep SiMLR model type to use ("lend" or "ned").
+        A registered deep or flow method (`pysimlr.method_names(("deep",
+        "flow"))`): the comparison reads their training-loss histories. Any
+        other name raises; it used to select `ned_simr` for every name except
+        "lend", typos included.
     **kwargs
-        Additional parameters passed to the training function.
+        Further parameters for `pysimlr.fit`.
 
     Returns
     -------
@@ -33,11 +36,15 @@ def fit_structural_models(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     results = {}
     comparison = []
     
-    fit_fn = lend_simr if model_type == "lend" else ned_simr
-    
+    from .api import fit as _fit, resolve_method
+    spec = resolve_method(model_type)
+    if spec.family not in ("deep", "flow"):
+        raise ValueError(f"fit_structural_models needs a deep or flow method (it compares "
+                         f"training-loss histories); {model_type!r} is {spec.family!r}.")
+
     for name, graph in models.items():
         print(f"Fitting model: {name}...")
-        res = fit_fn(data_matrices, k, topology="graph", path_graph=graph, **kwargs)
+        res = _fit(model_type, data_matrices, k, topology="graph", path_graph=graph, **kwargs)
         results[name] = res
         
         avg_recon_loss = float(np.mean(res["recon_history"][-5:]))

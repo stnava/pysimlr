@@ -74,9 +74,9 @@ def run_brca_study():
 
     # 2. LEND (Deep-Aligned Linear)
     print("\nFitting LEND (Gold Standard)...")
-    res_lend = lend_simr([torch.tensor(x).float() for x in X_train_scaled], k=5, epochs=100, 
+    res_lend = lend_simr([torch.tensor(x).float() for x in X_train_scaled], k=5, iterations=100, 
                          energy_type="nc", mixing_algorithm="newton", positivity="positive", 
-                         sparseness_quantile=0.5, nsa_iterations=3, verbose=False)
+                         sparseness=0.5, nsa_iterations=3, verbose=False)
     
     # Evaluate XV
     v_lend = [v.detach().numpy() for v in res_lend['v']]
@@ -89,7 +89,7 @@ def run_brca_study():
 
     # 3. NED (Fully Deep Consensus)
     print("\nFitting NED...")
-    res_ned = ned_simr([torch.tensor(x).float() for x in X_train_scaled], k=5, epochs=100,
+    res_ned = ned_simr([torch.tensor(x).float() for x in X_train_scaled], k=5, iterations=100,
                        energy_type="logcosh", mixing_algorithm="newton", verbose=False)
     
     # Evaluate XV
