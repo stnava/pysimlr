@@ -47,6 +47,39 @@ def _get_names_from_dataframe(
         
     return matched
 
+def _map_left_right(mydataframe: pd.DataFrame, leftvar: List[str], leftname: str, rightname: str,
+                    replacer: str, combine) -> pd.DataFrame:
+    """Add ``combine(left, right)`` for every left column whose right twin
+    (``leftname`` -> ``rightname``) exists, named with ``leftname`` -> ``replacer``.
+    Shared by `mapAsymVar` and `mapLRAverageVar`."""
+    df = mydataframe.copy()
+    pairs = [(l, l.replace(leftname, rightname)) for l in leftvar]
+    pairs = [(l, r) for l, r in pairs if r in set(df.columns)]
+    if not pairs:
+        return df
+    left_cols, right_cols = zip(*pairs)
+    temp = combine(df[list(left_cols)].values, df[list(right_cols)].values)
+    for i, col in enumerate(left_cols):
+        df[col.replace(leftname, replacer)] = temp[:, i]
+    return df
+
+
+def _unit_columns(w):
+    """Scale each column of `w` to unit L2 norm (zero columns are left as is),
+    keeping its type: DataFrame (index and columns kept), tensor (dtype and
+    device kept) or array."""
+    vals = w.values if isinstance(w, pd.DataFrame) else (
+        w.detach().cpu().numpy() if torch.is_tensor(w) else np.asarray(w))
+    norms = np.linalg.norm(vals, axis=0, keepdims=True)
+    norms[norms == 0] = 1.0
+    out = vals / norms
+    if isinstance(w, pd.DataFrame):
+        return pd.DataFrame(out, index=w.index, columns=w.columns)
+    if torch.is_tensor(w):
+        return torch.tensor(out).to(w.dtype).to(w.device)
+    return out
+
+
 def mapAsymVar(
     mydataframe: pd.DataFrame,
     leftvar: List[str],
@@ -57,25 +90,7 @@ def mapAsymVar(
     """
     Compute absolute asymmetry between left and right variables.
     """
-    df = mydataframe.copy()
-    rightvar = [col.replace(leftname, rightname) for col in leftvar]
-    cols_set = set(df.columns)
-    valid_indices = [i for i, r_col in enumerate(rightvar) if r_col in cols_set]
-    
-    if not valid_indices:
-        return df
-        
-    left_cols = [leftvar[i] for i in valid_indices]
-    right_cols = [rightvar[i] for i in valid_indices]
-    
-    left_data = df[left_cols].values
-    right_data = df[right_cols].values
-    
-    temp = np.abs(left_data - right_data)
-    newnames = [col.replace(leftname, replacer) for col in left_cols]
-    
-    for i, col_name in enumerate(newnames):
-        df[col_name] = temp[:, i]
+    df = _map_left_right(mydataframe, leftvar, leftname, rightname, replacer, lambda l, r: np.abs(l - r))
         
     return df
 
@@ -89,25 +104,7 @@ def mapLRAverageVar(
     """
     Compute average of left and right variables.
     """
-    df = mydataframe.copy()
-    rightvar = [col.replace(leftname, rightname) for col in leftvar]
-    cols_set = set(df.columns)
-    valid_indices = [i for i, r_col in enumerate(rightvar) if r_col in cols_set]
-    
-    if not valid_indices:
-        return df
-        
-    left_cols = [leftvar[i] for i in valid_indices]
-    right_cols = [rightvar[i] for i in valid_indices]
-    
-    left_data = df[left_cols].values
-    right_data = df[right_cols].values
-    
-    temp = (left_data + right_data) * 0.5
-    newnames = [col.replace(leftname, replacer) for col in left_cols]
-    
-    for i, col_name in enumerate(newnames):
-        df[col_name] = temp[:, i]
+    df = _map_left_right(mydataframe, leftvar, leftname, rightname, replacer, lambda l, r: (l + r) * 0.5)
         
     return df
 
@@ -1161,40 +1158,9 @@ def extend_simlr_embedding_with_new_modalities(
                 updated_simlr_result["v"].append(v_new_val)
                 
     # Auto-L2 normalize columns of all weight matrices V in updated_simlr_result
-    if isinstance(updated_simlr_result["v"], dict):
-        for k in updated_simlr_result["v"]:
-            W = updated_simlr_result["v"][k]
-            if isinstance(W, pd.DataFrame):
-                w_vals = W.values
-                norms = np.linalg.norm(w_vals, axis=0, keepdims=True)
-                norms[norms == 0] = 1.0
-                updated_simlr_result["v"][k] = pd.DataFrame(w_vals / norms, index=W.index, columns=W.columns)
-            else:
-                if torch.is_tensor(W):
-                    w_vals = W.detach().cpu().numpy()
-                else:
-                    w_vals = np.asarray(W)
-                norms = np.linalg.norm(w_vals, axis=0, keepdims=True)
-                norms[norms == 0] = 1.0
-                w_normed = w_vals / norms
-                if torch.is_tensor(W):
-                    updated_simlr_result["v"][k] = torch.tensor(w_normed).to(W.dtype).to(W.device)
-                else:
-                    updated_simlr_result["v"][k] = w_normed
-    else:
-        for idx in range(len(updated_simlr_result["v"])):
-            W = updated_simlr_result["v"][idx]
-            if torch.is_tensor(W):
-                w_vals = W.detach().cpu().numpy()
-            else:
-                w_vals = np.asarray(W)
-            norms = np.linalg.norm(w_vals, axis=0, keepdims=True)
-            norms[norms == 0] = 1.0
-            w_normed = w_vals / norms
-            if torch.is_tensor(W):
-                updated_simlr_result["v"][idx] = torch.tensor(w_normed).to(W.dtype).to(W.device)
-            else:
-                updated_simlr_result["v"][idx] = w_normed
+    vs = updated_simlr_result["v"]
+    for key in (list(vs) if isinstance(vs, dict) else range(len(vs))):
+        vs[key] = _unit_columns(vs[key])
                 
     if "modality_names" in updated_simlr_result:
         if not isinstance(updated_simlr_result["modality_names"], list):

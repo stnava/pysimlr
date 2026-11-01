@@ -281,8 +281,8 @@ def test_boundary_cyclic_path_graph_topology():
         assert not torch.isnan(u).any()
 
 
-def test_boundary_sparseness_quantile_dense_zero():
-    """Verify sparseness_quantile=0.0 runs dense optimization without thresholding."""
+def test_boundary_sparseness_dense_zero():
+    """Verify sparseness=0.0 runs dense optimization without thresholding."""
     torch.manual_seed(42)
     x1 = torch.randn(30, 6)
     x2 = torch.randn(30, 8)

@@ -12,23 +12,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score
 from scipy.stats import pearsonr
 from pysimlr.deep import lend_simr, predict_deep
-
-def preprocess_view(df_sub, return_cols=False):
-    df_num = df_sub.apply(pd.to_numeric, errors='coerce')
-    valid_cols = [c for c in df_num.columns if df_num[c].isna().mean() < 0.90]
-    if not valid_cols: return (None, None) if return_cols else None
-    
-    df_valid = df_num[valid_cols].astype(float)
-    X_imp = SimpleImputer(strategy='mean').fit_transform(df_valid.values)
-    
-    scaler = StandardScaler()
-    X_sc = scaler.fit_transform(X_imp)
-    X_clipped = np.clip(X_sc, -10, 10)
-    X_final = scaler.fit_transform(X_clipped)
-    
-    if return_cols:
-        return X_final, valid_cols
-    return X_final
+from script_shared import preprocess_view_clipped as preprocess_view
 
 def run_updrs_study(file_path):
     print("=== PPMI UPDRS Total Score Study (Imaging -> Motor/Clinical) ===")

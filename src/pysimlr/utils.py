@@ -630,6 +630,17 @@ def gradient_orthogonality_defect(a: torch.Tensor,
     return grad
 
 
+def _angle_gram(a: torch.Tensor, k: int, eps: float, diagonal: bool):
+    """Column norms, unit columns, their Gram (cosine) matrix and the
+    reference it is compared with: I, or the Gram's own diagonal."""
+    norms = a.norm(dim=0, keepdim=True).clamp_min(eps)
+    unit = a / norms
+    gram = unit.t() @ unit
+    ref = (torch.eye(k, device=a.device, dtype=a.dtype) if diagonal
+           else torch.diag(torch.diagonal(gram)))
+    return norms, unit, gram, ref
+
+
 def angle_defect(a: torch.Tensor, eps: float = 1e-12,
                  diagonal: bool = True) -> torch.Tensor:
     r"""
@@ -714,13 +725,7 @@ def angle_defect(a: torch.Tensor, eps: float = 1e-12,
     k = a.shape[1]
     if k < 2:
         return torch.zeros((), device=a.device, dtype=a.dtype)
-    norms = a.norm(dim=0, keepdim=True).clamp_min(eps)
-    unit = a / norms
-    gram = unit.t() @ unit
-    if diagonal:
-        ref = torch.eye(k, device=a.device, dtype=a.dtype)
-    else:
-        ref = torch.diag(torch.diagonal(gram))
+    norms, unit, gram, ref = _angle_gram(a, k, eps, diagonal)
     return torch.sum((gram - ref) ** 2) / (k * (k - 1))
 
 
@@ -751,13 +756,7 @@ def gradient_angle_defect(a: torch.Tensor, eps: float = 1e-12,
     k = a.shape[1]
     if k < 2:
         return torch.zeros_like(a)
-    norms = a.norm(dim=0, keepdim=True).clamp_min(eps)
-    unit = a / norms
-    gram = unit.t() @ unit
-    if diagonal:
-        ref = torch.eye(k, device=a.device, dtype=a.dtype)
-    else:
-        ref = torch.diag(torch.diagonal(gram))
+    norms, unit, gram, ref = _angle_gram(a, k, eps, diagonal)
     # For a column whose norm exceeds `eps` the diagonal residual is exactly
     # zero, so this agrees with the off-diagonal-only gradient there; the
     # difference is confined to floored columns, where the unit vector and
@@ -1253,6 +1252,17 @@ def _scipy_gesvd_fallback(x: torch.Tensor, full_matrices: bool) -> Tuple[torch.T
     return (torch.from_numpy(u).to(**to), torch.from_numpy(s).to(**to), torch.from_numpy(vh).to(**to))
 
 
+def _svd_on_cpu(x: torch.Tensor, full_matrices: bool):
+    """SVD of `x` computed on the CPU (LAPACK gesdd, then scipy gesvd if that
+    does not converge), returned on `x`'s device."""
+    x_cpu = x.cpu()
+    try:
+        u, s, vh = torch.linalg.svd(x_cpu, full_matrices=full_matrices)
+    except torch.linalg.LinAlgError:
+        u, s, vh = _scipy_gesvd_fallback(x_cpu, full_matrices)
+    return u.to(x.device), s.to(x.device), vh.to(x.device)
+
+
 def safe_svd(x: torch.Tensor, full_matrices: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Hardware-aware, convergence-robust SVD.
@@ -1283,24 +1293,14 @@ def safe_svd(x: torch.Tensor, full_matrices: bool = False) -> Tuple[torch.Tensor
     """
     if x.device.type == 'mps':
         # Current MPS backend lacks stable linalg_svd support for all shapes/precisions
-        x_cpu = x.cpu()
-        try:
-            u, s, vh = torch.linalg.svd(x_cpu, full_matrices=full_matrices)
-        except torch.linalg.LinAlgError:
-            u, s, vh = _scipy_gesvd_fallback(x_cpu, full_matrices)
-        return u.to(x.device), s.to(x.device), vh.to(x.device)
+        return _svd_on_cpu(x, full_matrices)
     try:
         return torch.linalg.svd(x, full_matrices=full_matrices)
     except torch.linalg.LinAlgError:
         return _scipy_gesvd_fallback(x, full_matrices)
     except RuntimeError:
         # Fallback for unexpected backend failures
-        x_cpu = x.cpu()
-        try:
-            u, s, vh = torch.linalg.svd(x_cpu, full_matrices=full_matrices)
-        except torch.linalg.LinAlgError:
-            u, s, vh = _scipy_gesvd_fallback(x_cpu, full_matrices)
-        return u.to(x.device), s.to(x.device), vh.to(x.device)
+        return _svd_on_cpu(x, full_matrices)
 
 def procrustes_r2(u_true: torch.Tensor, u_est: torch.Tensor) -> float:
     """

@@ -9,32 +9,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score
 from pysimlr.deep import lend_simr, predict_deep
-
-def preprocess_view(df_sub):
-    df_num = pd.DataFrame(index=df_sub.index)
-    for col in df_sub.columns:
-        s = pd.to_numeric(df_sub[col], errors='coerce')
-        if not s.isna().all():
-            df_num[col] = s
-        else:
-            if df_sub[col].nunique() < 10:
-                dummies = pd.get_dummies(df_sub[col], prefix=col)
-                df_num = pd.concat([df_num, dummies], axis=1)
-    
-    valid_cols = [c for c in df_num.columns if df_num[c].isna().mean() < 0.90]
-    if not valid_cols: return None
-    df_valid = df_num[valid_cols].astype(float)
-    
-    imputer = SimpleImputer(strategy='mean')
-    X = imputer.fit_transform(df_valid.values)
-    
-    stds = np.std(X, axis=0)
-    valid_indices = stds > 1e-6
-    if not np.any(valid_indices): return None
-    
-    X = X[:, valid_indices]
-    X_sc = StandardScaler().fit_transform(X)
-    return X_sc
+from script_shared import preprocess_view
 
 def run_multimodal_search(file_path):
     print("=== PPMI+ADNI Architecture & MAI Search ===")

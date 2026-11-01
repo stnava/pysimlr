@@ -7,7 +7,7 @@ def test_simlr_list_sparsity():
     x1 = torch.randn(n, p1)
     x2 = torch.randn(n, p2)
     
-    # Test with sparseness_quantile as a list
+    # Test with sparseness as a list
     res = simlr([x1, x2], k=5, iterations=2, sparseness=[0.1, 0.2], verbose=False)
     assert len(res['v']) == 2
     
@@ -24,7 +24,7 @@ def test_lend_simr_list_sparsity():
     x1 = torch.randn(n, p1)
     x2 = torch.randn(n, p2)
     
-    # Test with sparseness_quantile as a list
+    # Test with sparseness as a list
     res = lend_simr([x1, x2], k=5, iterations=2, sparseness=[0.1, 0.2], verbose=False)
     assert len(res['v']) == 2
     

@@ -7,15 +7,7 @@ from pysimlr.utils import set_all_seeds, adjusted_rvcoef
 import os
 import sys
 import time
-
-def load_expart_data():
-    names = ["bl", "mh", "mr", "pe"]
-    files = [f"data/expart_{n}.csv" for n in names]
-    matrices = []
-    for f in files:
-        df = pd.read_csv(f)
-        matrices.append(torch.as_tensor(df.values).float())
-    return names, matrices
+from script_shared import load_expart_data
 
 def fit_and_score(mats, k=2):
     # R-Parity Config

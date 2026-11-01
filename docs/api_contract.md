@@ -99,7 +99,7 @@ Every `fit` result has the following keys, checked by `validate_result`:
 | `u` | `(n, k)` tensor. For linear `loo`/`graph` topologies it is the first view's consensus; all views' consensus is in `u_per_modality`. |
 | `v` | one `(p_m, k)` block per view |
 | `latents` | per-view first-layer projections (`[u]` for the joint baselines) |
-| `convergence` | `converged`, `stop_reason`, `n_steps`, `max_steps`, `tol`, `patience`, `best`, `final` (closed-form baselines: `stop_reason="closed_form"`) |
+| `convergence` | `converged`, `stop_reason`, `n_steps`, `max_steps`, `tol`, `patience`, `best`, `final` (closed-form baselines: `stop_reason="closed_form"`; `simlr` stops with `stop_reason="no_descent"` and no certificate when no view's line search finds a decrease) |
 | rank diagnostics | `effective_rank`, `numerical_rank`, `condition_number`, `max_column_overlap` per view; for the joint baselines `joint_*` with `basis_is_joint=True` |
 | `sparseness`, `scale_list`, `provenance_list`, `random_state` | |
 

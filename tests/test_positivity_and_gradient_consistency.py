@@ -321,8 +321,10 @@ def test_simlr_is_no_worse_than_its_initialization(constraint):
         "ruled out: retracting the search direction (<0.0004 difference) and "
         "the step size (learning_rate 0.001 vs 0.1 differ by 0.001). The "
         "well-conditioned generators used here have the SVD basis at the "
-        "optimum, so they cannot show optimizer value; remove this mark only "
-        "with a generator where the initialization is demonstrably suboptimal."
+        "optimum, so they cannot show optimizer value. Resolved 2026-11-01 "
+        "(CORRECTNESS_AUDIT.md, 'Answer'): under topology='star' the iteration "
+        "does not improve on its start even where the start is wrong; under "
+        "'loo' it does, see test_loo_iteration_improves_on_a_wrong_initialization."
     ),
 )
 def test_simlr_iteration_improves_on_initialization():
@@ -338,6 +340,40 @@ def test_simlr_iteration_improves_on_initialization():
     assert float(np.mean(gains)) > 0.01
 
 
+def test_loo_iteration_improves_on_a_wrong_initialization():
+    """Where the per-view SVD start is wrong, leave-one-out iteration fixes it.
+
+    Generator of `scripts/experiment_iteration_vs_init.py`: each view carries
+    private factors with twice the shared scale, so the PCA start recovers
+    the shared latent poorly (least-squares latent R2 ~0.1). Under topology='loo' each
+    view is scored against the other views only, and 40 sweeps raise
+    recovery on every seed (8-seed mean +0.217, docs/audit/evidence). Under
+    'star' the view's own projection is part of its consensus, its private
+    variance counts toward its own objective, and the mean gain is -0.002.
+    """
+    import importlib.util, pathlib
+    spec = importlib.util.spec_from_file_location(
+        "exp_iter", pathlib.Path(__file__).parents[1] / "scripts" / "experiment_iteration_vs_init.py")
+    exp = importlib.util.module_from_spec(spec); spec.loader.exec_module(exp)
+    from pysimlr.consensus import compute_shared_consensus
+    from pysimlr.simlr import initialize_simlr
+    from pysimlr.utils import preprocess_data
+    gains = {}
+    for topology in ("star", "loo"):
+        gains[topology] = []
+        for seed in range(3):
+            z, x = exp.buried(seed)
+            scaled = [preprocess_data(m, ["centerAndScale", "np"])[0] for m in x]
+            u0 = compute_shared_consensus([m @ v for m, v in zip(scaled, initialize_simlr(scaled, 3))],
+                                          mixing_algorithm="newton", k=3)
+            res = simlr(x, k=3, iterations=40, energy_type="acc", mixing_algorithm="newton",
+                        topology=topology, random_state=seed)
+            u = res["u"][0] if isinstance(res["u"], list) else res["u"]
+            gains[topology].append(exp.latent_regression_r2(z, u) - exp.latent_regression_r2(z, u0))
+    assert min(gains["loo"]) > 0.05, gains
+    assert np.mean(gains["loo"]) > np.mean(gains["star"]) + 0.1, gains
+
+
 def test_degradation_tracks_rank_loss():
     """The pathology `orthox0` actually exhibits, stated as the relationship.
 
@@ -349,9 +385,11 @@ def test_degradation_tracks_rank_loss():
     import numpy as np
     from pysimlr.simlr import simlr
     z, x = _coupled(0)
+    # Measured under "star", where the pathology was recorded. Under the
+    # default "loo" orthox0 loses less rank (2.64 of 3 against 3.00 at w=0.5).
     def fit(c):
         return simlr(x, k=3, iterations=20, constraint=c, energy_type="acc",
-                     optimizer_type="lars", mixing_algorithm="newton")
+                     optimizer_type="lars", mixing_algorithm="newton", topology="star")
     ranks = {c: float(np.mean(fit(c)["effective_rank"]))
              for c in ("orthox0", "orthox0.1x1", "orthox0.5x1")}
     assert ranks["orthox0"] < ranks["orthox0.1x1"] < ranks["orthox0.5x1"], (

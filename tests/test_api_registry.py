@@ -354,6 +354,13 @@ def test_reconstruction_r2_is_in_one_space_for_every_method(name):
         # 20 iterations the two agree (0.651 vs 0.653). The property tested
         # here is the evaluation space, not early-iterate stability.
         kw["iterations"] = 20
+    if api.METHODS[name].presets:
+        # Under topology="loo" both L-BFGS presets converge (plateau /
+        # grad_map) to different stationary points for the two inputs, per-view
+        # R^2 differing by up to 0.11 (simlr_lbfgs means 0.567 vs 0.635), so
+        # the optimizer, not the evaluation space, would be under test. Tracked
+        # in docs/tracking.md; "star" isolates the property tested here.
+        kw["topology"] = "star"
     a = pysimlr.predict(_quiet_fit(name, views, **kw), views)["r2"]
     b = pysimlr.predict(_quiet_fit(name, shifted, **kw), shifted)["r2"]
     # The two L-BFGS presets stop at the iteration cap at nearby but different

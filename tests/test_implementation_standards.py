@@ -175,10 +175,8 @@ def test_every_parameter_of_a_registered_fit_is_read():
 
 
 #: Line substrings that may legitimately contain a removed parameter name:
-#: internal helpers that still take `sparseness_quantile`, local loops with
-#: their own `epochs`, CLI arguments, and the per-unit budget map.
-_LEGACY_NAME_OK = ("warmup_epochs", "ramp_epochs", "LENDNSAEncoder", "orthogonalize_and_q_sparsify",
-                   "rank_based_matrix_segmentation", "simlr_sparseness(", "budget_by_unit",
+#: local loops with their own `epochs`, CLI arguments, and the per-unit budget map.
+_LEGACY_NAME_OK = ("warmup_epochs", "ramp_epochs", "budget_by_unit",
                    "fit_encoders", "args.epochs", "a.epochs", "def ", "run_unified_benchmark(",
                    "run_real_benchmark(", "run_single_experiment(", "run_seeded_benchmark",
                    "sweep_benchmark", "run_deep_benchmark", "run_operating_point_suite",

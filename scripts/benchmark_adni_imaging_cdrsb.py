@@ -10,27 +10,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error
 from scipy.stats import pearsonr
 from pysimlr.deep import lend_simr, predict_deep
-
-def preprocess_view(df_sub):
-    df_num = pd.DataFrame(index=df_sub.index)
-    for col in df_sub.columns:
-        s = pd.to_numeric(df_sub[col], errors='coerce')
-        if not s.isna().all():
-            df_num[col] = s
-        else:
-            if df_sub[col].nunique() < 10:
-                dummies = pd.get_dummies(df_sub[col], prefix=col)
-                df_num = pd.concat([df_num, dummies], axis=1)
-    
-    valid_cols = [c for c in df_num.columns if df_num[c].isna().mean() < 0.90]
-    if not valid_cols: return None
-    df_valid = df_num[valid_cols].astype(float)
-    X_imp = SimpleImputer(strategy='mean').fit_transform(df_valid.values)
-    stds = np.std(X_imp, axis=0)
-    valid_indices = stds > 1e-6
-    if not np.any(valid_indices): return None
-    X = X_imp[:, valid_indices]
-    return StandardScaler().fit_transform(X)
+from script_shared import preprocess_view
 
 def run_adni_imaging_cdrsb_study(file_path):
     print("=== ADNI Imaging-Only Study: Predicting CDRSB_bl ===")

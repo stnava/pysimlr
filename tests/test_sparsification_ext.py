@@ -26,13 +26,13 @@ def test_indicator_opt_both_ways():
 
 def test_rank_based_matrix_segmentation():
     v = torch.randn(10, 5)
-    v_seg = rank_based_matrix_segmentation(v, sparseness_quantile=0.5, basic=True)
+    v_seg = rank_based_matrix_segmentation(v, sparseness=0.5, basic=True)
     assert v_seg.shape == v.shape
     
-    v_seg_either = rank_based_matrix_segmentation(v, sparseness_quantile=0.5, basic=True, positivity="either")
+    v_seg_either = rank_based_matrix_segmentation(v, sparseness=0.5, basic=True, positivity="either")
     assert v_seg_either.shape == v.shape
 
-    v_seg_transpose = rank_based_matrix_segmentation(v, sparseness_quantile=0.5, basic=True, transpose=True)
+    v_seg_transpose = rank_based_matrix_segmentation(v, sparseness=0.5, basic=True, transpose=True)
     assert v_seg_transpose.shape == v.shape
 
 def test_orthogonalize_and_q_sparsify():
@@ -44,7 +44,7 @@ def test_orthogonalize_and_q_sparsify():
     v_basic = orthogonalize_and_q_sparsify(v, sparseness_alg="basic")
     assert v_basic.shape == v.shape
     
-    v_q = orthogonalize_and_q_sparsify(v, sparseness_quantile=0.5, soft_thresholding=True)
+    v_q = orthogonalize_and_q_sparsify(v, sparseness=0.5, soft_thresholding=True)
     assert v_q.shape == v.shape
     
     # All zeros

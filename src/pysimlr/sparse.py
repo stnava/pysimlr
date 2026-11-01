@@ -53,6 +53,40 @@ def _laplacian_from_weights(W: sp.spmatrix, scale_degree: bool = False) -> sp.cs
     return (sp.diags(deg) - W).tocsr()
 
 
+def _keep_neighbours(dist: torch.Tensor, indices: torch.Tensor,
+                     sigma: Optional[float]) -> torch.Tensor:
+    """Zero every entry of `dist` outside each row's neighbour `indices`; with
+    `sigma`, the kept entries become Gaussian weights exp(-d^2 / 2 sigma^2)."""
+    mask = torch.zeros_like(dist, dtype=torch.bool)
+    mask.scatter_(1, indices, True)
+    out = torch.zeros_like(dist)
+    if sigma is None:
+        out[mask] = dist[mask]
+        return out
+    if sigma <= 0.0:
+        raise ValueError(f"sigma must be strictly positive (sigma > 0), got {sigma}")
+    out[mask] = torch.exp(-(dist[mask] ** 2) / (2.0 * float(sigma) ** 2))
+    return out
+
+
+def _finish_laplacian(L_sp, normalized: bool, return_torch: bool):
+    """Optionally normalise a sparse Laplacian, ``D^-1/2 L D^-1/2`` (isolated
+    nodes stay zero), and optionally return it as a torch sparse CSR tensor."""
+    if normalized:
+        deg = L_sp.diagonal()
+        d_inv_sqrt = np.zeros_like(deg)
+        pos = deg > 1e-10
+        d_inv_sqrt[pos] = 1.0 / np.sqrt(deg[pos])
+        D_inv = sp.diags(d_inv_sqrt)
+        L_sp = (D_inv @ L_sp @ D_inv).tocsr()
+    if not return_torch:
+        return L_sp
+    L_coo = L_sp.tocoo()
+    indices = torch.tensor(np.vstack([L_coo.row, L_coo.col]), dtype=torch.long)
+    values = torch.tensor(L_coo.data, dtype=torch.float32)
+    return torch.sparse_coo_tensor(indices, values, L_sp.shape).to_sparse_csr()
+
+
 def _to_scipy_sparse(t: "torch.Tensor") -> sp.csr_matrix:
     """
     Convert any torch tensor layout to a SciPy CSR matrix.
@@ -140,20 +174,7 @@ def sparse_distance_matrix(x: torch.Tensor,
     values, indices = torch.topk(dist, k=min(k+1, n), largest=False)
     
     # Create sparse representation
-    mask = torch.zeros_like(dist, dtype=torch.bool)
-    mask.scatter_(1, indices, True)
-    
-    sparse_dist_mat = torch.zeros_like(dist)
-    sparse_dist_mat[mask] = dist[mask]
-    
-    if sigma is not None:
-        if sigma <= 0.0:
-            raise ValueError(f"sigma must be strictly positive (sigma > 0), got {sigma}")
-        denom = 2.0 * (float(sigma) ** 2)
-        sparse_dist_mat = torch.zeros_like(dist)
-        sparse_dist_mat[mask] = torch.exp(- (dist[mask] ** 2) / denom)
-        
-    return sparse_dist_mat
+    return _keep_neighbours(dist, indices, sigma)
 
 def sparse_distance_matrix_xy(x: torch.Tensor, 
                               y: torch.Tensor, 
@@ -202,20 +223,7 @@ def sparse_distance_matrix_xy(x: torch.Tensor,
     
     values, indices = torch.topk(dist, k=min(k, ny), largest=False)
     
-    mask = torch.zeros_like(dist, dtype=torch.bool)
-    mask.scatter_(1, indices, True)
-    
-    sparse_dist_mat = torch.zeros_like(dist)
-    sparse_dist_mat[mask] = dist[mask]
-    
-    if sigma is not None:
-        if sigma <= 0.0:
-            raise ValueError(f"sigma must be strictly positive (sigma > 0), got {sigma}")
-        denom = 2.0 * (float(sigma) ** 2)
-        sparse_dist_mat = torch.zeros_like(dist)
-        sparse_dist_mat[mask] = torch.exp(- (dist[mask] ** 2) / denom)
-        
-    return sparse_dist_mat
+    return _keep_neighbours(dist, indices, sigma)
 
 def sparse_dist(x: torch.Tensor, 
                 k: Optional[int] = None, 
@@ -524,20 +532,7 @@ def create_grid_graph_laplacian(
     W_sp = sp.coo_matrix((weights, (rows, cols)), shape=(P, P), dtype=np.float32).tocsr()
     L_sp = _laplacian_from_weights(W_sp, scale_degree=scale_degree)
 
-    if normalized:
-        deg = L_sp.diagonal()
-        d_inv_sqrt = np.zeros_like(deg)
-        pos = (deg > 1e-10)
-        d_inv_sqrt[pos] = 1.0 / np.sqrt(deg[pos])
-        D_inv = sp.diags(d_inv_sqrt)
-        L_sp = (D_inv @ L_sp @ D_inv).tocsr()
-
-    if return_torch:
-        L_coo = L_sp.tocoo()
-        indices = torch.tensor(np.vstack([L_coo.row, L_coo.col]), dtype=torch.long)
-        values = torch.tensor(L_coo.data, dtype=torch.float32)
-        return torch.sparse_coo_tensor(indices, values, (P, P)).to_sparse_csr()
-    return L_sp
+    return _finish_laplacian(L_sp, normalized, return_torch)
 
 
 def create_laplacian_resolvent_operator(
@@ -875,22 +870,7 @@ def create_graph_laplacian(
 
     # Mean-degree normalization plus L = D - W (see _laplacian_from_weights).
     L_sp = _laplacian_from_weights(W, scale_degree=scale_degree)
-    deg = L_sp.diagonal()
-
-    # Optional normalization: L_norm = D^(-1/2) L D^(-1/2)
-    if normalized:
-        d_inv_sqrt = np.zeros_like(deg)
-        pos = (deg > 1e-10)
-        d_inv_sqrt[pos] = 1.0 / np.sqrt(deg[pos])
-        D_inv = sp.diags(d_inv_sqrt)
-        L_sp = (D_inv @ L_sp @ D_inv).tocsr()
-
-    if return_torch:
-        L_coo = L_sp.tocoo()
-        indices = torch.tensor(np.vstack([L_coo.row, L_coo.col]), dtype=torch.long)
-        values = torch.tensor(L_coo.data, dtype=torch.float32)
-        return torch.sparse_coo_tensor(indices, values, (P, P)).to_sparse_csr()
-    return L_sp
+    return _finish_laplacian(L_sp, normalized, return_torch)
 
 
 def create_smoothing_operator(

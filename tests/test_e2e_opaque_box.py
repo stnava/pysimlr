@@ -605,13 +605,12 @@ class TestTier3CrossFeatureInteractions:
             x1_tr, x2_tr = x1[train_idx], x2[train_idx]
             x1_val, x2_val = x1[val_idx], x2[val_idx]
 
-            # LOO topology returns list of consensus tensors (one per view)
+            # LOO trains each view against the others; prediction returns the
+            # one all-view consensus through the frozen training map.
             res_loo = simlr([x1_tr, x2_tr], k=k, topology="loo", iterations=6)
             u_loo_val = predict_shared_latent([x1_val, x2_val], res_loo)
-            assert isinstance(u_loo_val, list)
-            assert len(u_loo_val) == 2
-            assert u_loo_val[0].shape == (len(val_idx), k)
-            assert torch.isfinite(u_loo_val[0]).all()
+            assert u_loo_val.shape == (len(val_idx), k)
+            assert torch.isfinite(u_loo_val).all()
 
     def test_interaction_sklearn_pipeline_end_to_end(self, clean_two_views):
         """Verify MultiViewSiMR integrates into a full scikit-learn Pipeline and cross_val_score."""

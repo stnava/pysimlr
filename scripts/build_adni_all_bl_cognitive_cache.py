@@ -21,6 +21,7 @@ import os
 import re
 import numpy as np
 import pandas as pd
+from adni_loader import _clean_columns
 
 SOURCE = ("/Users/stnava/Library/Mobile Documents/com~apple~CloudDocs/"
           "code/multidisorder/data/ppmi_pym_data/"
@@ -37,16 +38,6 @@ COGNITIVE_COLS = [
 
 COVARIATES = ["AGE", "PTGENDER", "PTEDUCAT", "APOE4"]
 TARGETS = ["CDRSB", "MMSE"]
-
-
-def _clean_columns(m: pd.DataFrame, max_features=None) -> pd.DataFrame:
-    m = m.loc[:, m.notna().mean() >= 0.8]
-    m = m.fillna(m.median(numeric_only=True))
-    m = m.loc[:, m.std() > 0]
-    if max_features is not None and m.shape[1] > max_features:
-        keep = m.std().sort_values(ascending=False).index[:max_features]
-        m = m[sorted(keep)]
-    return m
 
 
 def build():

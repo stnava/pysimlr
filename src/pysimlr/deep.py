@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional, Sequence, Union, Tuple, Callable
 import contextlib
 import math
 import warnings
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY
 class larslow(optim.Optimizer):
     """Layer-wise Adaptive Rate Scaling (LARS) optimizer for deep SiMLR."""
     def __init__(self, params, lr, weight_decay=1e-4, momentum=0.9, trust_coefficient=0.001):
@@ -325,8 +325,147 @@ def _nsa_raw_parameter(module):
 #: rotation of the k latent coordinates -- measured, the same data under three
 #: rotations gave 0.0348, 0.1319 and 0.0000, while the others were constant to
 #: four decimals. It ranked a planted pure-noise view above a signal view.
-from .consensus import MAI_METRICS
-VALID_MAI_METRICS = frozenset(MAI_METRICS)
+from .consensus import (MAI_METRICS, VALID_MAI_METRICS, check_mai_metric,
+                        loo_mai_scores, mai_gated_target)
+
+
+def _mlp(in_dim: int, out_dim: int, hidden_dims: Sequence[int], dropout: float) -> nn.Sequential:
+    """Linear -> LayerNorm -> ReLU (-> Dropout) per hidden width, then a linear
+    output layer. The body of every `ModalityEncoder` and `ModalityDecoder`."""
+    layers, curr = [], in_dim
+    for h in hidden_dims:
+        layers += [nn.Linear(curr, h), nn.LayerNorm(h), nn.ReLU()]
+        if dropout > 0:
+            layers.append(nn.Dropout(dropout))
+        curr = h
+    layers.append(nn.Linear(curr, out_dim))
+    return nn.Sequential(*layers)
+
+
+def _linear_encoders(input_dims, latent_dim, nsa_w, positivity, sparseness, use_nsa,
+                     first_layer_mode, nsa_iterations, retraction_type) -> nn.ModuleList:
+    """One `LENDNSAEncoder` per view: the linear first layer shared by LEND,
+    NED, NEDPP and Flow-SiMR-V. A scalar or None `sparseness` applies
+    to every view."""
+    if sparseness is None or isinstance(sparseness, (float, int)):
+        sparseness = [None if sparseness is None else float(sparseness)] * len(input_dims)
+    return nn.ModuleList([
+        LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa,
+                       first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations,
+                       retraction_type=retraction_type)
+        for dim, sq in zip(input_dims, sparseness)])
+
+
+class _ModalityWeightingMixin:
+    """`update_mai`, shared by every deep and flow multi-view model: reweights
+    the views by leave-one-out agreement (`consensus.loo_mai_scores`). It was
+    copied into each model class; one definition keeps the copies from drifting.
+    """
+
+    def _init_consensus_state(self, n_views: int, latent_dim: int, mixing_algorithm: str,
+                              topology: str, path_graph, prune_threshold, dynamic_weights: bool,
+                              mai_metric: str, use_rank_mai: bool,
+                              dynamic_weights_start: Optional[int] = None) -> None:
+        """Consensus settings and the three buffers every multi-view model
+        carries: MAI scores, modality weights (both uniform), and the
+        consensus anchor."""
+        self.mixing_algorithm = mixing_algorithm
+        self.topology = topology
+        self.path_graph = path_graph
+        self.prune_threshold = prune_threshold
+        self.dynamic_weights = dynamic_weights
+        self.mai_metric = mai_metric
+        self.use_rank_mai = use_rank_mai
+        self.dynamic_weights_start = dynamic_weights_start
+        self.register_buffer("mai", torch.ones(n_views) / n_views)
+        self.register_buffer("modality_weights", torch.ones(n_views) / n_views)
+        self.register_buffer("consensus_anchor", torch.zeros(n_views * latent_dim, latent_dim))
+
+    def _training_consensus(self, latents: List[torch.Tensor], k: int):
+        """Shared latent for a forward pass under the model's consensus settings.
+
+        In training mode the consensus anchor follows the batch anchor by an
+        EMA (0.9) for stability; in eval mode the frozen training map, when
+        one has been captured, makes the result batch-invariant.
+        """
+        res_u = compute_shared_consensus(
+            latents, mixing_algorithm=self.mixing_algorithm, k=k, training=self.training,
+            anchor=self.consensus_anchor, topology=self.topology, path_graph=self.path_graph,
+            prune_threshold=self.prune_threshold,
+            modality_weights=self.modality_weights if self.dynamic_weights else None,
+            frozen_map=getattr(self, "consensus_map", None))
+        if not self.training:
+            return res_u
+        u_shared, new_anchor = res_u
+        if new_anchor is not None:
+            self.consensus_anchor.copy_(0.9 * self.consensus_anchor + 0.1 * new_anchor)
+        return u_shared
+
+    def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int,
+                   dynamic_weights_start: Optional[int] = None) -> None:
+        """Move `modality_weights` from uniform toward MAI-gated targets.
+
+        Scores are smoothed by an EMA (0.9); the gate steepens over 30 epochs.
+        The transition from uniform runs over 20 epochs from
+        `dynamic_weights_start` when one is set, otherwise from 33% to 66% of
+        the run (it was `(epoch - 10) / 20`, which left MAI inert on runs of
+        10 epochs or fewer).
+        """
+        if not getattr(self, "dynamic_weights", False):
+            return
+        metric = check_mai_metric(getattr(self, "mai_metric", "procrustes_r2"))
+        if dynamic_weights_start is None:
+            dynamic_weights_start = getattr(self, "dynamic_weights_start", None)
+        with torch.no_grad():
+            uniform_w = torch.ones_like(self.modality_weights) / len(self.modality_weights)
+            if dynamic_weights_start is not None and epoch < dynamic_weights_start:
+                self.modality_weights.copy_(uniform_w)
+                return
+            mais = loo_mai_scores(latents, metric, use_rank=getattr(self, "use_rank_mai", False))
+            self.mai.copy_(0.9 * self.mai + 0.1 * torch.tensor(mais, device=self.mai.device))
+            steepness = 5.0 + 10.0 * min(1.0, epoch / 30.0)
+            target_w = mai_gated_target(self.mai, steepness)
+            if dynamic_weights_start is not None:
+                rho = max(0.0, min(1.0, (epoch - dynamic_weights_start) / 20.0))
+            else:
+                warm = 0.33 * max(1, total_epochs)
+                rho = max(0.0, min(1.0, (epoch - warm) / max(1.0, warm)))
+            self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
+
+
+class _MultiViewModelMixin(_ModalityWeightingMixin):
+    """Adds the first-layer schedule and its diagnostics, which act on the
+    per-view linear encoders (`_first_layer_encoders`), for the models that
+    have a linear first layer (LEND, NED, NEDPP, Flow-SiMR-V).
+    """
+
+    def _first_layer_encoders(self):
+        return self.linear_encoders
+
+    def initialize_v(self, data_matrices: List[torch.Tensor], k: int, **init_kwargs):
+        """
+        Seed each encoder's first-layer basis.
+
+        Delegates to `initialize_deep_encoders`, so any `INITIALIZATION_TYPES`
+        strategy is available here, not only PCA -- see `initialize_simlr`'s
+        docstring for what each does.
+        """
+        from .simlr import initialize_deep_encoders
+        initialize_deep_encoders(self._first_layer_encoders(), data_matrices, k, **init_kwargs)
+
+    def set_projection_schedule(self, epoch: int, total_epochs: int, stabilization_start_epoch: int,
+                                stabilization_ramp_epochs: int) -> None:
+        for enc in self._first_layer_encoders():
+            enc.set_projection_schedule(epoch, total_epochs, stabilization_start_epoch, stabilization_ramp_epochs)
+
+    def first_layer_diagnostics(self) -> Dict[str, float]:
+        encs = list(self._first_layer_encoders())
+        drifts = [float(enc.basis_drift().cpu()) for enc in encs]
+        alphas = [float(enc.projection_alpha) for enc in encs]
+        return {
+            "basis_drift": float(sum(drifts) / max(1, len(drifts))),
+            "projection_alpha": float(sum(alphas) / max(1, len(alphas))),
+        }
 
 
 def _nsa_effective_weight(module):
@@ -367,7 +506,7 @@ class LENDNSAEncoder(nn.Module):
         - 'positive': Strictly non-negative via clamping (legacy behavior).
         - 'softplus': Smoothly non-negative via Softplus (advanced behavior).
         - 'hard': Strictly non-negative via clamping.
-    sparseness_quantile : float, default=0.0
+    sparseness : float, default=0.0
         Quantile (0-1) below which weights are set to zero.
     soft_thresholding : bool, default=False
         Whether to use soft instead of hard thresholding for sparsity.
@@ -385,7 +524,7 @@ class LENDNSAEncoder(nn.Module):
         If inputs are of invalid types.
     """
     def __init__(self, input_dim: int, latent_dim: int, nsa_w: float = DEFAULT_NSA_W, 
-                 positivity: str = "either", sparseness_quantile: Optional[float] = 0.5,
+                 positivity: str = "either", sparseness: Optional[float] = 0.5,
                  soft_thresholding: bool = False, use_nsa: bool = True,
                  first_layer_mode: str = "scheduled", nsa_iterations: int = 1,
                  retraction_type: str = "soft_polar"):
@@ -395,13 +534,13 @@ class LENDNSAEncoder(nn.Module):
         elif positivity is False or (isinstance(positivity, str) and positivity.lower() == 'false'):
             positivity = 'either'
         self.positivity = positivity
-        self.sparseness_quantile = sparseness_quantile
+        self.sparseness = sparseness
         self.soft_thresholding = soft_thresholding
         self.use_nsa = use_nsa
         if first_layer_mode not in {"raw", "projected", "scheduled"}:
             raise ValueError(f"Unsupported first_layer_mode: {first_layer_mode}")
         self.first_layer_mode = first_layer_mode
-        self.topology = "loo"
+        self.topology = DEFAULT_TOPOLOGY
         self.nsa_iterations = nsa_iterations
         # Absent a driven schedule, train on the same basis inference uses.
         #
@@ -566,7 +705,7 @@ class LENDNSAEncoder(nn.Module):
             else:
                 v_out = _svd_project_columns(self.v_raw)
         from .sparsification import _resolve_quantile, _apply_quantile_sparseness
-        q_enc = _resolve_quantile(self.sparseness_quantile)
+        q_enc = _resolve_quantile(self.sparseness)
         if self.positivity in {'positive', 'hard'}:
             # `consolidate_supports` used to run here, unconditionally, and it
             # is why `nsa_w` did nothing to any deep model. It forces strictly
@@ -672,19 +811,10 @@ class ModalityDecoder(nn.Module):
     """
     def __init__(self, latent_dim: int, output_dim: int, hidden_dims: Sequence[int] = (128, 64), dropout: float = 0.1):
         super().__init__()
-        layers = []
-        curr_dim = latent_dim
-        for h_dim in hidden_dims:
-            layers.append(nn.Linear(curr_dim, h_dim))
-            layers.append(nn.LayerNorm(h_dim))
-            layers.append(nn.ReLU())
-            if dropout > 0: layers.append(nn.Dropout(dropout))
-            curr_dim = h_dim
-        layers.append(nn.Linear(curr_dim, output_dim))
-        self.network = nn.Sequential(*layers)
+        self.network = _mlp(latent_dim, output_dim, hidden_dims, dropout)
     def forward(self, z): return self.network(z)
 
-class LENDSiMRModel(nn.Module):
+class LENDSiMRModel(_MultiViewModelMixin, nn.Module):
     """
     Linear Encoded Nonlinear Decoding (LEND) SiMR Model.
 
@@ -707,7 +837,7 @@ class LENDSiMRModel(nn.Module):
         NSA-Flow weight (`pysimlr.defaults`).
     positivity : str, default="either"
         Positivity constraint on first-layer weights.
-    sparseness_quantile : Union[float, List[float]], default=0.0
+    sparseness : Union[float, List[float]], default=0.0
         Sparsity quantile for first-layer weights.
     mixing_algorithm : str, default="newton"
         Algorithm for computing the shared consensus (U).
@@ -723,146 +853,31 @@ class LENDSiMRModel(nn.Module):
     """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: Sequence[int] = (128, 64), 
                  dropout: float = 0.1, nsa_w: float = DEFAULT_NSA_W, positivity: str = "either", 
-                 sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
+                 sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
+                 topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
                  retraction_type: str = "soft_polar"):
         super().__init__()
-        if sparseness_quantile is None or isinstance(sparseness_quantile, (float, int)):
-            sparseness_quantile = [None if sparseness_quantile is None else float(sparseness_quantile)] * len(input_dims)
-        self.encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, retraction_type=retraction_type) for dim, sq in zip(input_dims, sparseness_quantile)])
+        self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
+                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai)
+        self.encoders = _linear_encoders(input_dims, latent_dim, nsa_w, positivity, sparseness, use_nsa, first_layer_mode, nsa_iterations, retraction_type)
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
-        self.mixing_algorithm, self.latent_dim = mixing_algorithm, latent_dim
-        self.topology = topology
-        self.path_graph = path_graph
-        self.path_graph = path_graph
-        self.prune_threshold = prune_threshold
-        self.dynamic_weights = dynamic_weights
-        self.mai_metric = mai_metric
-        self.use_rank_mai = use_rank_mai
-        self.register_buffer("mai", torch.ones(len(input_dims)) / len(input_dims))
-        self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
-        self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
-    def initialize_v(self, data_matrices: List[torch.Tensor], k: int, **init_kwargs):
-        """
-        Seed each encoder's first-layer basis.
+        self.latent_dim = latent_dim
 
-        Delegates to `initialize_deep_encoders`, so any `INITIALIZATION_TYPES`
-        strategy is available here, not only PCA -- see `initialize_simlr`'s
-        docstring for what each does.
-        """
-        from .simlr import initialize_deep_encoders
-        initialize_deep_encoders(self.encoders, data_matrices, k, **init_kwargs)
+    def _first_layer_encoders(self):
+        return self.encoders
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.encoders, x_list)]
 
-    def set_projection_schedule(self, epoch: int, total_epochs: int, stabilization_start_epoch: int, stabilization_ramp_epochs: int) -> None:
-        for enc in self.encoders:
-            enc.set_projection_schedule(epoch, total_epochs, stabilization_start_epoch, stabilization_ramp_epochs)
-
-    def first_layer_diagnostics(self) -> Dict[str, float]:
-        drifts = [float(enc.basis_drift().cpu()) for enc in self.encoders]
-        alphas = [float(enc.projection_alpha) for enc in self.encoders]
-        return {
-            "basis_drift": float(sum(drifts) / max(1, len(drifts))),
-            "projection_alpha": float(sum(alphas) / max(1, len(alphas))),
-        }
-
-    def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int):
-        if not getattr(self, "dynamic_weights", False): return
-        _metric = getattr(self, "mai_metric", "procrustes_r2")
-        if _metric not in VALID_MAI_METRICS:
-            # Validated here rather than at the point of use: the per-view
-            # computation is wrapped in `except Exception: mais.append(0.0)`,
-            # which would turn a misspelled metric into "this view agrees with
-            # nothing" and quietly return uniform weights.
-            raise ValueError(
-                f"unknown mai_metric {_metric!r}; choose one of "
-                f"{sorted(VALID_MAI_METRICS)}. 'trace' was removed because "
-                f"tr(Z'u) is not invariant to the arbitrary rotation of the "
-                f"latent coordinates."
-            )
-        with torch.no_grad():
-            if getattr(self, "use_rank_mai", False):
-                ranked_latents = []
-                for p in latents:
-                    r = torch.argsort(torch.argsort(p, dim=0), dim=0).float()
-                    ranked_latents.append(r)
-                latents = ranked_latents
-                
-            norm_projs = []
-            for p in latents:
-                p_c = p - p.mean(dim=0, keepdim=True)
-                p_norm = torch.norm(p_c, p='fro')
-                if p_norm > 1e-8:
-                    norm_projs.append(p_c / p_norm)
-                else:
-                    norm_projs.append(torch.zeros_like(p_c))
-            
-            mais = []
-            for i in range(len(norm_projs)):
-                loo_projs = [norm_projs[j] for j in range(len(norm_projs)) if j != i]
-                if not loo_projs:
-                    mais.append(1.0)
-                    continue
-                # Sign-aligned: this leave-one-out average decides the
-                # modality weights, and unaligned views cancel here exactly as
-                # they do in the consensus (see `utils.align_column_signs`).
-                u_loo = torch.mean(torch.stack(align_column_signs(loo_projs)), dim=0)
-                u_loo_norm = torch.norm(u_loo, p='fro')
-                if u_loo_norm > 1e-8:
-                    u_loo = u_loo / u_loo_norm
-                    Z = norm_projs[i]
-                    mais.append(mai_score_or_zero(Z, u_loo, getattr(self, "mai_metric", "procrustes_r2_sharp"), i))
-                else:
-                    mais.append(0.0)
-            
-            mai_tensor = torch.tensor(mais, device=self.mai.device)
-            # EMA for stability
-            self.mai.copy_(0.9 * self.mai + 0.1 * mai_tensor)
-            
-            # Gating Logic: Only squashing severe outliers
-            # Use mean similarity as the soft threshold center
-            center = self.mai.mean()
-            progress = min(1.0, epoch / 30.0)
-            steepness = 5.0 + 10.0 * progress
-            gate = torch.sigmoid(steepness * (self.mai - center))
-            
-            # Target weights = Proportional MAI * Gating Signal
-            raw_w = self.mai * gate
-            target_w = raw_w / (raw_w.sum() + 1e-8)
-            
-            # Temporal transition from uniform to the MAI target, expressed as
-            # a fraction of the run rather than in absolute epochs.
-            #
-            # This was `(epoch - 10) / 20`, which is exactly 0 for the first
-            # ten epochs, so on any run of 10 epochs or fewer `dynamic_weights`
-            # did nothing whatsoever -- measured, the weights stayed at
-            # [0.333, 0.333, 0.333] at 10 epochs even with one view of pure
-            # noise, while `flow_simr_v`, which schedules this differently,
-            # reached [0.407, 0.409, 0.184] on the same data. The benchmarks
-            # run 8 and 12 epochs, so MAI was inert or nearly so in all of
-            # them, which is why the MAI arm of the design sweep read as
-            # "no effect". `total_epochs` was passed in and ignored.
-            warm = 0.33 * max(1, total_epochs)
-            rho = max(0.0, min(1.0, (epoch - warm) / max(1.0, warm)))
-            uniform_w = torch.ones_like(target_w) / len(target_w)
-            self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         latents = self.encode_first_layer(x_list)
-        res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor, topology=self.topology, path_graph=getattr(self, "path_graph", None), prune_threshold=self.prune_threshold, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None, frozen_map=getattr(self, "consensus_map", None))
-        if self.training:
-            u_shared, new_anchor = res_u
-            # Update anchor using EMA for stability
-            if new_anchor is not None: self.consensus_anchor.copy_(0.9 * self.consensus_anchor + 0.1 * new_anchor)
-        else:
-            u_shared = res_u
+        u_shared = self._training_consensus(latents, self.latent_dim)
         return latents, [dec(u_shared[i] if isinstance(u_shared, list) else u_shared) for i, dec in enumerate(self.decoders)], u_shared
 
     def get_projectors(self) -> List[Callable[[torch.Tensor], torch.Tensor]]:
         return [enc.get_projector() for enc in self.encoders]
 
-class NEDSiMRModel(nn.Module):
+class NEDSiMRModel(_MultiViewModelMixin, nn.Module):
     """
     Nonlinear Encoded Decoding (NED) SiMR Model.
 
@@ -885,7 +900,7 @@ class NEDSiMRModel(nn.Module):
         NSA-Flow weight (`pysimlr.defaults`).
     positivity : str, default="either"
         Positivity constraint on first-layer weights.
-    sparseness_quantile : Union[float, List[float]], default=0.0
+    sparseness : Union[float, List[float]], default=0.0
         Sparsity quantile for first-layer weights.
     mixing_algorithm : str, default="newton"
         Algorithm for computing the shared consensus (U).
@@ -901,142 +916,24 @@ class NEDSiMRModel(nn.Module):
     """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: Sequence[int] = (128, 64), 
                  dropout: float = 0.1, nsa_w: float = DEFAULT_NSA_W, positivity: str = "either", 
-                 sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
+                 sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
+                 topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
                  retraction_type: str = "soft_polar"):
         super().__init__()
-        if sparseness_quantile is None or isinstance(sparseness_quantile, (float, int)):
-            sparseness_quantile = [None if sparseness_quantile is None else float(sparseness_quantile)] * len(input_dims)
-        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, retraction_type=retraction_type) for dim, sq in zip(input_dims, sparseness_quantile)])
+        self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
+                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai)
+        self.linear_encoders = _linear_encoders(input_dims, latent_dim, nsa_w, positivity, sparseness, use_nsa, first_layer_mode, nsa_iterations, retraction_type)
         self.nonlinear_heads = nn.ModuleList([ModalityDecoder(latent_dim, latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
-        self.mixing_algorithm, self.latent_dim = mixing_algorithm, latent_dim
-        self.topology = topology
-        self.path_graph = path_graph
-        self.path_graph = path_graph
-        self.prune_threshold = prune_threshold
-        self.dynamic_weights = dynamic_weights
-        self.mai_metric = mai_metric
-        self.use_rank_mai = use_rank_mai
-        self.register_buffer("mai", torch.ones(len(input_dims)) / len(input_dims))
-        self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
-        self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
-    def initialize_v(self, data_matrices: List[torch.Tensor], k: int, **init_kwargs):
-        """
-        Seed each encoder's first-layer basis.
-
-        Delegates to `initialize_deep_encoders`, so any `INITIALIZATION_TYPES`
-        strategy is available here, not only PCA -- see `initialize_simlr`'s
-        docstring for what each does.
-        """
-        from .simlr import initialize_deep_encoders
-        initialize_deep_encoders(self.linear_encoders, data_matrices, k, **init_kwargs)
+        self.latent_dim = latent_dim
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
 
-    def set_projection_schedule(self, epoch: int, total_epochs: int, stabilization_start_epoch: int, stabilization_ramp_epochs: int) -> None:
-        for enc in self.linear_encoders:
-            enc.set_projection_schedule(epoch, total_epochs, stabilization_start_epoch, stabilization_ramp_epochs)
-
-    def first_layer_diagnostics(self) -> Dict[str, float]:
-        drifts = [float(enc.basis_drift().cpu()) for enc in self.linear_encoders]
-        alphas = [float(enc.projection_alpha) for enc in self.linear_encoders]
-        return {
-            "basis_drift": float(sum(drifts) / max(1, len(drifts))),
-            "projection_alpha": float(sum(alphas) / max(1, len(alphas))),
-        }
-
-    def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int):
-        if not getattr(self, "dynamic_weights", False): return
-        _metric = getattr(self, "mai_metric", "procrustes_r2")
-        if _metric not in VALID_MAI_METRICS:
-            # Validated here rather than at the point of use: the per-view
-            # computation is wrapped in `except Exception: mais.append(0.0)`,
-            # which would turn a misspelled metric into "this view agrees with
-            # nothing" and quietly return uniform weights.
-            raise ValueError(
-                f"unknown mai_metric {_metric!r}; choose one of "
-                f"{sorted(VALID_MAI_METRICS)}. 'trace' was removed because "
-                f"tr(Z'u) is not invariant to the arbitrary rotation of the "
-                f"latent coordinates."
-            )
-        with torch.no_grad():
-            if getattr(self, "use_rank_mai", False):
-                ranked_latents = []
-                for p in latents:
-                    r = torch.argsort(torch.argsort(p, dim=0), dim=0).float()
-                    ranked_latents.append(r)
-                latents = ranked_latents
-                
-            norm_projs = []
-            for p in latents:
-                p_c = p - p.mean(dim=0, keepdim=True)
-                p_norm = torch.norm(p_c, p='fro')
-                if p_norm > 1e-8:
-                    norm_projs.append(p_c / p_norm)
-                else:
-                    norm_projs.append(torch.zeros_like(p_c))
-            
-            mais = []
-            for i in range(len(norm_projs)):
-                loo_projs = [norm_projs[j] for j in range(len(norm_projs)) if j != i]
-                if not loo_projs:
-                    mais.append(1.0)
-                    continue
-                # Sign-aligned: this leave-one-out average decides the
-                # modality weights, and unaligned views cancel here exactly as
-                # they do in the consensus (see `utils.align_column_signs`).
-                u_loo = torch.mean(torch.stack(align_column_signs(loo_projs)), dim=0)
-                u_loo_norm = torch.norm(u_loo, p='fro')
-                if u_loo_norm > 1e-8:
-                    u_loo = u_loo / u_loo_norm
-                    Z = norm_projs[i]
-                    mais.append(mai_score_or_zero(Z, u_loo, getattr(self, "mai_metric", "procrustes_r2_sharp"), i))
-                else:
-                    mais.append(0.0)
-            
-            mai_tensor = torch.tensor(mais, device=self.mai.device)
-            # EMA for stability
-            self.mai.copy_(0.9 * self.mai + 0.1 * mai_tensor)
-            
-            # Gating Logic: Only squashing severe outliers
-            # Use mean similarity as the soft threshold center
-            center = self.mai.mean()
-            progress = min(1.0, epoch / 30.0)
-            steepness = 5.0 + 10.0 * progress
-            gate = torch.sigmoid(steepness * (self.mai - center))
-            
-            # Target weights = Proportional MAI * Gating Signal
-            raw_w = self.mai * gate
-            target_w = raw_w / (raw_w.sum() + 1e-8)
-            
-            # Temporal transition from uniform to the MAI target, expressed as
-            # a fraction of the run rather than in absolute epochs.
-            #
-            # This was `(epoch - 10) / 20`, which is exactly 0 for the first
-            # ten epochs, so on any run of 10 epochs or fewer `dynamic_weights`
-            # did nothing whatsoever -- measured, the weights stayed at
-            # [0.333, 0.333, 0.333] at 10 epochs even with one view of pure
-            # noise, while `flow_simr_v`, which schedules this differently,
-            # reached [0.407, 0.409, 0.184] on the same data. The benchmarks
-            # run 8 and 12 epochs, so MAI was inert or nearly so in all of
-            # them, which is why the MAI arm of the design sweep read as
-            # "no effect". `total_epochs` was passed in and ignored.
-            warm = 0.33 * max(1, total_epochs)
-            rho = max(0.0, min(1.0, (epoch - warm) / max(1.0, warm)))
-            uniform_w = torch.ones_like(target_w) / len(target_w)
-            self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         first_layer_scores = self.encode_first_layer(x_list)
         latents = [head(z0) for head, z0 in zip(self.nonlinear_heads, first_layer_scores)]
-        res_u = compute_shared_consensus(latents, mixing_algorithm=self.mixing_algorithm, k=self.latent_dim, training=self.training, anchor=self.consensus_anchor, topology=self.topology, path_graph=getattr(self, "path_graph", None), prune_threshold=self.prune_threshold, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None, frozen_map=getattr(self, "consensus_map", None))
-        if self.training:
-            u_shared, new_anchor = res_u
-            # Update anchor using EMA for stability
-            if new_anchor is not None: self.consensus_anchor.copy_(0.9 * self.consensus_anchor + 0.1 * new_anchor)
-        else:
-            u_shared = res_u
+        u_shared = self._training_consensus(latents, self.latent_dim)
         return latents, [dec(u_shared[i] if isinstance(u_shared, list) else u_shared) for i, dec in enumerate(self.decoders)], u_shared
 
     def transform(self, x_list: List[torch.Tensor]) -> torch.Tensor:
@@ -1055,7 +952,7 @@ class NEDSiMRModel(nn.Module):
                 return _aggregate_shared_consensus(self, latents)
             return u
 
-class NEDSharedPrivateSiMRModel(nn.Module):
+class NEDSharedPrivateSiMRModel(_MultiViewModelMixin, nn.Module):
     """
     Nonlinear Encoded Decoding with Shared and Private Latents (NED++).
 
@@ -1080,7 +977,7 @@ class NEDSharedPrivateSiMRModel(nn.Module):
         NSA-Flow weight (`pysimlr.defaults`).
     positivity : str, default="either"
         Positivity constraint on shared first-layer weights.
-    sparseness_quantile : Union[float, List[float]], default=0.0
+    sparseness : Union[float, List[float]], default=0.0
         Sparsity quantile for shared first-layer weights.
     mixing_algorithm : str, default="newton"
         Algorithm for computing the shared consensus (U).
@@ -1096,143 +993,26 @@ class NEDSharedPrivateSiMRModel(nn.Module):
     """
     def __init__(self, input_dims: List[int], shared_latent_dim: int, private_latent_dim: int,
                  hidden_dims: Sequence[int] = (128, 64), dropout: float = 0.1, nsa_w: float = DEFAULT_NSA_W,
-                 positivity: str = "either", sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
+                 positivity: str = "either", sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
+                 topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
                  retraction_type: str = "soft_polar"):
         super().__init__()
-        if sparseness_quantile is None or isinstance(sparseness_quantile, (float, int)):
-            sparseness_quantile = [None if sparseness_quantile is None else float(sparseness_quantile)] * len(input_dims)
-        self.linear_encoders = nn.ModuleList([LENDNSAEncoder(dim, shared_latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa, first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations, retraction_type=retraction_type) for dim, sq in zip(input_dims, sparseness_quantile)])
+        self._init_consensus_state(len(input_dims), shared_latent_dim, mixing_algorithm, topology, path_graph,
+                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai)
+        self.linear_encoders = _linear_encoders(input_dims, shared_latent_dim, nsa_w, positivity, sparseness, use_nsa, first_layer_mode, nsa_iterations, retraction_type)
         self.shared_heads = nn.ModuleList([ModalityDecoder(shared_latent_dim, shared_latent_dim, hidden_dims, dropout) for _ in input_dims])
-        self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * shared_latent_dim, shared_latent_dim))
         self.private_encoders = nn.ModuleList([ModalityEncoder(dim, private_latent_dim, hidden_dims, dropout) for dim in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(shared_latent_dim + private_latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
-        self.mixing_algorithm, self.shared_dim = mixing_algorithm, shared_latent_dim
-        self.topology = topology
-        self.path_graph = path_graph
-        self.path_graph = path_graph
-        self.prune_threshold = prune_threshold
-        self.dynamic_weights = dynamic_weights
-        self.mai_metric = mai_metric
-        self.use_rank_mai = use_rank_mai
-        self.register_buffer("mai", torch.ones(len(input_dims)) / len(input_dims))
-        self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
-    def initialize_v(self, data_matrices: List[torch.Tensor], k: int, **init_kwargs):
-        """
-        Seed each encoder's first-layer basis.
-
-        Delegates to `initialize_deep_encoders`, so any `INITIALIZATION_TYPES`
-        strategy is available here, not only PCA -- see `initialize_simlr`'s
-        docstring for what each does.
-        """
-        from .simlr import initialize_deep_encoders
-        initialize_deep_encoders(self.linear_encoders, data_matrices, k, **init_kwargs)
+        self.shared_dim = shared_latent_dim
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
 
-    def set_projection_schedule(self, epoch: int, total_epochs: int, stabilization_start_epoch: int, stabilization_ramp_epochs: int) -> None:
-        for enc in self.linear_encoders:
-            enc.set_projection_schedule(epoch, total_epochs, stabilization_start_epoch, stabilization_ramp_epochs)
-
-    def first_layer_diagnostics(self) -> Dict[str, float]:
-        drifts = [float(enc.basis_drift().cpu()) for enc in self.linear_encoders]
-        alphas = [float(enc.projection_alpha) for enc in self.linear_encoders]
-        return {
-            "basis_drift": float(sum(drifts) / max(1, len(drifts))),
-            "projection_alpha": float(sum(alphas) / max(1, len(alphas))),
-        }
-
-    def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int):
-        if not getattr(self, "dynamic_weights", False): return
-        _metric = getattr(self, "mai_metric", "procrustes_r2")
-        if _metric not in VALID_MAI_METRICS:
-            # Validated here rather than at the point of use: the per-view
-            # computation is wrapped in `except Exception: mais.append(0.0)`,
-            # which would turn a misspelled metric into "this view agrees with
-            # nothing" and quietly return uniform weights.
-            raise ValueError(
-                f"unknown mai_metric {_metric!r}; choose one of "
-                f"{sorted(VALID_MAI_METRICS)}. 'trace' was removed because "
-                f"tr(Z'u) is not invariant to the arbitrary rotation of the "
-                f"latent coordinates."
-            )
-        with torch.no_grad():
-            if getattr(self, "use_rank_mai", False):
-                ranked_latents = []
-                for p in latents:
-                    r = torch.argsort(torch.argsort(p, dim=0), dim=0).float()
-                    ranked_latents.append(r)
-                latents = ranked_latents
-                
-            norm_projs = []
-            for p in latents:
-                p_c = p - p.mean(dim=0, keepdim=True)
-                p_norm = torch.norm(p_c, p='fro')
-                if p_norm > 1e-8:
-                    norm_projs.append(p_c / p_norm)
-                else:
-                    norm_projs.append(torch.zeros_like(p_c))
-            
-            mais = []
-            for i in range(len(norm_projs)):
-                loo_projs = [norm_projs[j] for j in range(len(norm_projs)) if j != i]
-                if not loo_projs:
-                    mais.append(1.0)
-                    continue
-                # Sign-aligned: this leave-one-out average decides the
-                # modality weights, and unaligned views cancel here exactly as
-                # they do in the consensus (see `utils.align_column_signs`).
-                u_loo = torch.mean(torch.stack(align_column_signs(loo_projs)), dim=0)
-                u_loo_norm = torch.norm(u_loo, p='fro')
-                if u_loo_norm > 1e-8:
-                    u_loo = u_loo / u_loo_norm
-                    Z = norm_projs[i]
-                    mais.append(mai_score_or_zero(Z, u_loo, getattr(self, "mai_metric", "procrustes_r2_sharp"), i))
-                else:
-                    mais.append(0.0)
-            
-            mai_tensor = torch.tensor(mais, device=self.mai.device)
-            # EMA for stability
-            self.mai.copy_(0.9 * self.mai + 0.1 * mai_tensor)
-            
-            # Gating Logic: Only squashing severe outliers
-            # Use mean similarity as the soft threshold center
-            center = self.mai.mean()
-            progress = min(1.0, epoch / 30.0)
-            steepness = 5.0 + 10.0 * progress
-            gate = torch.sigmoid(steepness * (self.mai - center))
-            
-            # Target weights = Proportional MAI * Gating Signal
-            raw_w = self.mai * gate
-            target_w = raw_w / (raw_w.sum() + 1e-8)
-            
-            # Temporal transition from uniform to the MAI target, expressed as
-            # a fraction of the run rather than in absolute epochs.
-            #
-            # This was `(epoch - 10) / 20`, which is exactly 0 for the first
-            # ten epochs, so on any run of 10 epochs or fewer `dynamic_weights`
-            # did nothing whatsoever -- measured, the weights stayed at
-            # [0.333, 0.333, 0.333] at 10 epochs even with one view of pure
-            # noise, while `flow_simr_v`, which schedules this differently,
-            # reached [0.407, 0.409, 0.184] on the same data. The benchmarks
-            # run 8 and 12 epochs, so MAI was inert or nearly so in all of
-            # them, which is why the MAI arm of the design sweep read as
-            # "no effect". `total_epochs` was passed in and ignored.
-            warm = 0.33 * max(1, total_epochs)
-            rho = max(0.0, min(1.0, (epoch - warm) / max(1.0, warm)))
-            uniform_w = torch.ones_like(target_w) / len(target_w)
-            self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
         first_layer_scores = self.encode_first_layer(x_list)
         shared_l = [head(z0) for head, z0 in zip(self.shared_heads, first_layer_scores)]
         private_l = [p_enc(x) for p_enc, x in zip(self.private_encoders, x_list)]
-        res_u = compute_shared_consensus(shared_l, mixing_algorithm=self.mixing_algorithm, k=self.shared_dim, training=self.training, anchor=self.consensus_anchor, topology=self.topology, path_graph=getattr(self, "path_graph", None), prune_threshold=self.prune_threshold, modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None, frozen_map=getattr(self, "consensus_map", None))
-        if self.training:
-            u_shared, new_anchor = res_u
-            if new_anchor is not None: self.consensus_anchor.copy_(0.9 * self.consensus_anchor + 0.1 * new_anchor)
-        else:
-            u_shared = res_u
+        u_shared = self._training_consensus(shared_l, self.shared_dim)
         recons = [dec(torch.cat([u_shared[i] if isinstance(u_shared, list) else u_shared, p], dim=1)) for i, (dec, p) in enumerate(zip(self.decoders, private_l))]
         return shared_l, recons, u_shared, private_l
 
@@ -1276,16 +1056,7 @@ class ModalityEncoder(nn.Module):
     """
     def __init__(self, input_dim: int, k: int, hidden_dims: Sequence[int] = (128, 64), dropout: float = 0.1):
         super().__init__()
-        layers = []
-        curr_dim = input_dim
-        for h_dim in hidden_dims:
-            layers.append(nn.Linear(curr_dim, h_dim))
-            layers.append(nn.LayerNorm(h_dim))
-            layers.append(nn.ReLU())
-            if dropout > 0: layers.append(nn.Dropout(dropout))
-            curr_dim = h_dim
-        layers.append(nn.Linear(curr_dim, k))
-        self.network = nn.Sequential(*layers)
+        self.network = _mlp(input_dim, k, hidden_dims, dropout)
     def forward(self, x): return self.network(x)
 
 def resolve_warmup_epochs(warmup_epochs, epochs: int) -> int:
@@ -1669,13 +1440,13 @@ def _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=None):
     out, diags = [], []
     for idx, v in enumerate(v_mats):
         d = {}
-        sq = (getattr(encoders[idx], "sparseness_quantile", DEFAULT_SPARSENESS)
+        sq = (getattr(encoders[idx], "sparseness", DEFAULT_SPARSENESS)
               if encoders is not None and idx < len(encoders)
               else DEFAULT_SPARSENESS)
         try:
             v_f = simlr_sparseness(v.double(), constraint_type="orth",
                                    positivity=positivity,
-                                   sparseness_quantile=sq,
+                                   sparseness=sq,
                                    constraint_weight=nsa_w,
                                    energy_type=energy_type,
                                    modality_index=idx,
@@ -1914,13 +1685,32 @@ _DEEP_COMMON_DOC = """
 """
 
 
+def _fit_first_layer_model(name: str, model_cls, data_matrices, k, hidden_dims, dropout, nsa_w,
+                           positivity, sparseness, mixing_algorithm, topology, path_graph,
+                           prune_threshold, dynamic_weights, mai_metric, use_nsa, first_layer_mode,
+                           nsa_iterations, use_rank_mai, retraction_type, **fit_kwargs) -> Dict[str, Any]:
+    """Shared body of `lend_simr` and `ned_simr`, which take identical
+    parameters and differ only in the model class they train."""
+    hidden_dims = tuple(DEFAULT_HIDDEN_DIMS if hidden_dims is None else hidden_dims)
+    return _fit_deep(
+        name,
+        lambda dims: model_cls(dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness,
+                               mixing_algorithm, topology=topology, path_graph=path_graph,
+                               prune_threshold=prune_threshold, dynamic_weights=dynamic_weights,
+                               mai_metric=mai_metric, use_nsa=use_nsa,
+                               first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations,
+                               use_rank_mai=use_rank_mai, retraction_type=retraction_type),
+        data_matrices, k, sparseness=sparseness, positivity=positivity, nsa_w=nsa_w,
+        **fit_kwargs)
+
+
 def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iterations: int = 150,
               batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4,
               sim_weight: float = 1.0, warmup_epochs: Optional[int] = None,
               hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
               sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5,
               positivity: str = "either", nsa_w: float = DEFAULT_NSA_W, energy_type: str = DEFAULT_ENERGY_TYPE,
-              mixing_algorithm: str = "newton", topology: str = "loo",
+              mixing_algorithm: str = "newton", topology: str = DEFAULT_TOPOLOGY,
               path_graph: Optional[Dict[int, List[int]]] = None,
               prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
               mai_metric: str = "procrustes_r2", device: Optional[str] = None,
@@ -1933,24 +1723,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iter
               n_candidates: int = 5, perturbation_scale: float = 0.05,
               varimax: Optional[bool] = None, retraction_type: str = "soft_polar",
               tol: float = 1e-6, patience: int = 10) -> Dict[str, Any]:
-    hidden_dims = tuple(DEFAULT_HIDDEN_DIMS if hidden_dims is None else hidden_dims)
-    return _fit_deep(
-        "lend_simr",
-        lambda dims: LENDSiMRModel(dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness,
-                                   mixing_algorithm, topology=topology, path_graph=path_graph,
-                                   prune_threshold=prune_threshold, dynamic_weights=dynamic_weights,
-                                   mai_metric=mai_metric, use_nsa=use_nsa,
-                                   first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations,
-                                   use_rank_mai=use_rank_mai, retraction_type=retraction_type),
-        data_matrices, k, iterations=iterations, batch_size=batch_size,
-        learning_rate=learning_rate, weight_decay=weight_decay, sim_weight=sim_weight,
-        warmup_epochs=warmup_epochs, sparseness=sparseness, positivity=positivity, nsa_w=nsa_w,
-        energy_type=energy_type, device=device, verbose=verbose,
-        stabilization_start_epoch=stabilization_start_epoch,
-        stabilization_ramp_epochs=stabilization_ramp_epochs, optimizer_type=optimizer_type,
-        initialization_type=initialization_type, random_state=random_state,
-        domain_matrices=domain_matrices, n_candidates=n_candidates,
-        perturbation_scale=perturbation_scale, varimax=varimax, tol=tol, patience=patience)
+    return _fit_first_layer_model("lend_simr", LENDSiMRModel, **locals())
 
 
 lend_simr.__doc__ = ("Fit a Linear Encoded Nonlinear Decoding (LEND) model: a linear,\n"
@@ -1964,7 +1737,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, itera
              hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
              sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5,
              positivity: str = "either", nsa_w: float = DEFAULT_NSA_W, energy_type: str = DEFAULT_ENERGY_TYPE,
-             mixing_algorithm: str = "newton", topology: str = "loo",
+             mixing_algorithm: str = "newton", topology: str = DEFAULT_TOPOLOGY,
              path_graph: Optional[Dict[int, List[int]]] = None,
              prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
              mai_metric: str = "procrustes_r2", device: Optional[str] = None,
@@ -1977,24 +1750,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, itera
              n_candidates: int = 5, perturbation_scale: float = 0.05,
              varimax: Optional[bool] = None, retraction_type: str = "soft_polar",
              tol: float = 1e-6, patience: int = 10) -> Dict[str, Any]:
-    hidden_dims = tuple(DEFAULT_HIDDEN_DIMS if hidden_dims is None else hidden_dims)
-    return _fit_deep(
-        "ned_simr",
-        lambda dims: NEDSiMRModel(dims, k, hidden_dims, dropout, nsa_w, positivity, sparseness,
-                                  mixing_algorithm, topology=topology, path_graph=path_graph,
-                                  prune_threshold=prune_threshold, dynamic_weights=dynamic_weights,
-                                  mai_metric=mai_metric, use_nsa=use_nsa,
-                                  first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations,
-                                  use_rank_mai=use_rank_mai, retraction_type=retraction_type),
-        data_matrices, k, iterations=iterations, batch_size=batch_size,
-        learning_rate=learning_rate, weight_decay=weight_decay, sim_weight=sim_weight,
-        warmup_epochs=warmup_epochs, sparseness=sparseness, positivity=positivity, nsa_w=nsa_w,
-        energy_type=energy_type, device=device, verbose=verbose,
-        stabilization_start_epoch=stabilization_start_epoch,
-        stabilization_ramp_epochs=stabilization_ramp_epochs, optimizer_type=optimizer_type,
-        initialization_type=initialization_type, random_state=random_state,
-        domain_matrices=domain_matrices, n_candidates=n_candidates,
-        perturbation_scale=perturbation_scale, varimax=varimax, tol=tol, patience=patience)
+    return _fit_first_layer_model("ned_simr", NEDSiMRModel, **locals())
 
 
 ned_simr.__doc__ = ("Fit a Nonlinear Encoded Decoding (NED) model: a linear first layer\n"
@@ -2011,7 +1767,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
                             positivity: str = "either", nsa_w: float = DEFAULT_NSA_W,
                             hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
                             energy_type: str = DEFAULT_ENERGY_TYPE, mixing_algorithm: str = "newton",
-                            topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None,
+                            topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None,
                             prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
                             mai_metric: str = "procrustes_r2",
                             private_orthogonality_weight: float = 0.05,

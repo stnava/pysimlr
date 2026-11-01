@@ -6,7 +6,7 @@ import pandas as pd
 from typing import List, Tuple, Optional, Dict, Any, Union
 from .consensus import compute_shared_consensus, mai_score_or_zero
 from .utils import basis_rank_report, align_column_signs
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY
 
 
 #: MAI similarity metrics. `trace` was removed: tr(Z' u_loo) is the only one
@@ -14,8 +14,8 @@ from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
 #: rotation of the k latent coordinates -- measured, the same data under three
 #: rotations gave 0.0348, 0.1319 and 0.0000, while the others were constant to
 #: four decimals. It ranked a planted pure-noise view above a signal view.
-from .consensus import MAI_METRICS
-VALID_MAI_METRICS = frozenset(MAI_METRICS)
+from .consensus import MAI_METRICS, VALID_MAI_METRICS
+from .deep import _ModalityWeightingMixin, _MultiViewModelMixin, _linear_encoders
 
 
 class preserve_matplotlib_backend:
@@ -294,135 +294,27 @@ class FlowDecoderWrapper(nn.Module):
         
         return self.flow.inverse(z_full)
 
-class FlowSiMRModel(nn.Module):
+class FlowSiMRModel(_ModalityWeightingMixin, nn.Module):
     """
     Normalizing Flow SiMR Model.
     """
-    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, hidden_dim: int = 64, mixing_algorithm: str = "newton", scale_bound: float = 2.0, topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False, force_fallback: bool = False):
+    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, hidden_dim: int = 64, mixing_algorithm: str = "newton", scale_bound: float = 2.0, topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False, force_fallback: bool = False):
         super().__init__()
+        self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
+                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai, dynamic_weights_start)
         self.input_dims = input_dims
         self.latent_dim = latent_dim
         self.is_flow = True
-        self.mixing_algorithm = mixing_algorithm
-        self.topology = topology
-        self.path_graph = path_graph
-        self.prune_threshold = prune_threshold
-        self.dynamic_weights = dynamic_weights
-        self.mai_metric = mai_metric
-        self.dynamic_weights_start = dynamic_weights_start
-        self.use_rank_mai = use_rank_mai
         self.force_fallback = force_fallback
         
         self.flows = nn.ModuleList([NormalizingFlow(dim, num_layers, hidden_dim, scale_bound, force_fallback=force_fallback) for dim in input_dims])
         self.encoders = nn.ModuleList([FlowEncoderWrapper(flow, latent_dim) for flow in self.flows])
         self.decoders = nn.ModuleList([FlowDecoderWrapper(flow, latent_dim) for flow in self.flows])
         
-        self.register_buffer("consensus_anchor", torch.zeros(len(input_dims) * latent_dim, latent_dim))
-        self.register_buffer("mai", torch.ones(len(input_dims)) / len(input_dims))
-        self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
         
-    def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int, dynamic_weights_start: Optional[int] = None):
-        if not getattr(self, "dynamic_weights", False): return
-        _metric = getattr(self, "mai_metric", "procrustes_r2")
-        if _metric not in VALID_MAI_METRICS:
-            # Validated here rather than at the point of use: the per-view
-            # computation is wrapped in `except Exception: mais.append(0.0)`,
-            # which would turn a misspelled metric into "this view agrees with
-            # nothing" and quietly return uniform weights.
-            raise ValueError(
-                f"unknown mai_metric {_metric!r}; choose one of "
-                f"{sorted(VALID_MAI_METRICS)}. 'trace' was removed because "
-                f"tr(Z'u) is not invariant to the arbitrary rotation of the "
-                f"latent coordinates."
-            )
-        
-        if dynamic_weights_start is None:
-            dynamic_weights_start = getattr(self, "dynamic_weights_start", None)
-            
-        with torch.no_grad():
-            if dynamic_weights_start is not None and epoch < dynamic_weights_start:
-                # Keep weights uniform during training before the delay/warmup period ends
-                uniform_w = torch.ones_like(self.modality_weights) / len(self.modality_weights)
-                self.modality_weights.copy_(uniform_w)
-                return
-                
-            if getattr(self, "use_rank_mai", False):
-                ranked_latents = []
-                for p in latents:
-                    r = torch.argsort(torch.argsort(p, dim=0), dim=0).float()
-                    ranked_latents.append(r)
-                latents = ranked_latents
-                
-            norm_projs = []
-            for p in latents:
-                p_c = p - p.mean(dim=0, keepdim=True)
-                p_norm = torch.norm(p_c, p='fro')
-                if p_norm > 1e-8:
-                    norm_projs.append(p_c / p_norm)
-                else:
-                    norm_projs.append(torch.zeros_like(p_c))
-            
-            mais = []
-            for i in range(len(norm_projs)):
-                loo_projs = [norm_projs[j] for j in range(len(norm_projs)) if j != i]
-                if not loo_projs:
-                    mais.append(1.0)
-                    continue
-                # Sign-aligned: this leave-one-out average decides the
-                # modality weights, and unaligned views cancel here exactly as
-                # they do in the consensus (see `utils.align_column_signs`).
-                u_loo = torch.mean(torch.stack(align_column_signs(loo_projs)), dim=0)
-                u_loo_norm = torch.norm(u_loo, p='fro')
-                if u_loo_norm > 1e-8:
-                    u_loo = u_loo / u_loo_norm
-                    Z = norm_projs[i]
-                    mais.append(mai_score_or_zero(Z, u_loo, getattr(self, "mai_metric", "procrustes_r2"), i))
-                else:
-                    mais.append(0.0)
-            
-            mai_tensor = torch.tensor(mais, device=self.mai.device)
-            # EMA for stability
-            self.mai.copy_(0.9 * self.mai + 0.1 * mai_tensor)
-            
-            # Gating Logic
-            center = self.mai.mean()
-            progress = min(1.0, epoch / 30.0)
-            steepness = 5.0 + 10.0 * progress
-            gate = torch.sigmoid(steepness * (self.mai - center))
-            
-            # Target weights = Proportional MAI * Gating Signal
-            raw_w = self.mai * gate
-            target_w = raw_w / (raw_w.sum() + 1e-8)
-            
-            # Temporal transition (from uniform to target) starting relative to dynamic_weights_start
-            if dynamic_weights_start is not None:
-                rho = max(0.0, min(1.0, (epoch - dynamic_weights_start) / 20.0))
-            else:
-                warm = 0.33 * max(1, total_epochs)
-                rho = max(0.0, min(1.0, (epoch - warm) / max(1.0, warm)))
-            uniform_w = torch.ones_like(target_w) / len(target_w)
-            self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
-
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         latents = [enc(x) for enc, x in zip(self.encoders, x_list)]
-        res_u = compute_shared_consensus(
-            latents,
-            mixing_algorithm=self.mixing_algorithm,
-            k=self.latent_dim,
-            training=self.training,
-            anchor=self.consensus_anchor,
-            topology=getattr(self, "topology", "loo"),
-            path_graph=getattr(self, "path_graph", None),
-            prune_threshold=getattr(self, "prune_threshold", None),
-            modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None,
-            frozen_map=getattr(self, "consensus_map", None),
-        )
-        if self.training:
-            u_shared, new_anchor = res_u
-            if new_anchor is not None: 
-                self.consensus_anchor.copy_(0.9 * self.consensus_anchor + 0.1 * new_anchor)
-        else:
-            u_shared = res_u
+        u_shared = self._training_consensus(latents, self.latent_dim)
             
         reconstructions = [dec(u_shared[i] if isinstance(u_shared, list) else u_shared) for i, dec in enumerate(self.decoders)]
         return latents, reconstructions, u_shared
@@ -708,7 +600,7 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               hidden_dim: int = 64,
               energy_type: str = DEFAULT_ENERGY_TYPE,
               mixing_algorithm: str = "newton",
-              topology: str = "loo",
+              topology: str = DEFAULT_TOPOLOGY,
               path_graph: Optional[Dict[int, List[int]]] = None,
               prune_threshold: Optional[float] = None,
               optimizer_type: str = "adam",
@@ -755,15 +647,15 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         stabilization_ramp_epochs=None, random_state=random_state, tol=tol, patience=patience)
 
 
-class FlowSiMRVModel(nn.Module):
+class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
     """
     Normalizing Flow SiMR Model with Pre-pended Linear Encoder Matrix V (Flow-SiMR-V).
     """
     def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, 
                  hidden_dim: int = 64, mixing_algorithm: str = 'newton', scale_bound: float = 2.0,
                  nsa_w: float = DEFAULT_NSA_W, positivity: str = 'either', 
-                 sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = 0.5, use_nsa: bool = True,
-                 topology: str = "loo", path_graph: Optional[Dict[int, List[int]]] = None,
+                 sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, use_nsa: bool = True,
+                 topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None,
                  prune_threshold: Optional[float] = None,
                  dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False,
@@ -771,6 +663,8 @@ class FlowSiMRVModel(nn.Module):
                  retraction_type: str = "soft_polar",
                  force_fallback: bool = False):
         super().__init__()
+        self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
+                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai, dynamic_weights_start)
         if positivity is True or (isinstance(positivity, str) and positivity.lower() == 'true'):
             positivity = 'positive'
         elif positivity is False or (isinstance(positivity, str) and positivity.lower() == 'false'):
@@ -778,31 +672,13 @@ class FlowSiMRVModel(nn.Module):
         self.input_dims = input_dims
         self.latent_dim = latent_dim
         self.is_flow = True
-        self.mixing_algorithm = mixing_algorithm
-        self.topology = topology
-        self.path_graph = path_graph
-        self.prune_threshold = prune_threshold
-        self.dynamic_weights = dynamic_weights
-        self.mai_metric = mai_metric
-        self.dynamic_weights_start = dynamic_weights_start
-        self.use_rank_mai = use_rank_mai
         self.first_layer_mode = first_layer_mode
         self.nsa_iterations = nsa_iterations
         self.retraction_type = retraction_type
         self.force_fallback = force_fallback
         
-        # Local import to prevent circular dependency
-        from .deep import LENDNSAEncoder
-        
-        if sparseness_quantile is None or isinstance(sparseness_quantile, (float, int)):
-            sparseness_quantile = [None if sparseness_quantile is None else float(sparseness_quantile)] * len(input_dims)
-            
-        self.linear_encoders = nn.ModuleList([
-            LENDNSAEncoder(dim, latent_dim, nsa_w, positivity, sq, use_nsa=use_nsa,
-                           first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations,
-                           retraction_type=retraction_type) 
-            for dim, sq in zip(input_dims, sparseness_quantile)
-        ])
+        self.linear_encoders = _linear_encoders(input_dims, latent_dim, nsa_w, positivity, sparseness,
+                                                use_nsa, first_layer_mode, nsa_iterations, retraction_type)
         
         # flows now operate on the low-dimensional projected space of size latent_dim (K)
         self.flows = nn.ModuleList([
@@ -818,107 +694,10 @@ class FlowSiMRVModel(nn.Module):
             for flow in self.flows
         ])
         
-        self.register_buffer('consensus_anchor', torch.zeros(len(input_dims) * latent_dim, latent_dim))
-        self.register_buffer("mai", torch.ones(len(input_dims)) / len(input_dims))
-        self.register_buffer("modality_weights", torch.ones(len(input_dims)) / len(input_dims))
         
-    def update_mai(self, latents: List[torch.Tensor], epoch: int, total_epochs: int, dynamic_weights_start: Optional[int] = None):
-        if not getattr(self, "dynamic_weights", False): return
-        _metric = getattr(self, "mai_metric", "procrustes_r2")
-        if _metric not in VALID_MAI_METRICS:
-            # Validated here rather than at the point of use: the per-view
-            # computation is wrapped in `except Exception: mais.append(0.0)`,
-            # which would turn a misspelled metric into "this view agrees with
-            # nothing" and quietly return uniform weights.
-            raise ValueError(
-                f"unknown mai_metric {_metric!r}; choose one of "
-                f"{sorted(VALID_MAI_METRICS)}. 'trace' was removed because "
-                f"tr(Z'u) is not invariant to the arbitrary rotation of the "
-                f"latent coordinates."
-            )
-        
-        if dynamic_weights_start is None:
-            dynamic_weights_start = getattr(self, "dynamic_weights_start", None)
-            
-        with torch.no_grad():
-            if dynamic_weights_start is not None and epoch < dynamic_weights_start:
-                # Keep weights uniform during training before the delay/warmup period ends
-                uniform_w = torch.ones_like(self.modality_weights) / len(self.modality_weights)
-                self.modality_weights.copy_(uniform_w)
-                return
-                
-            if getattr(self, "use_rank_mai", False):
-                ranked_latents = []
-                for p in latents:
-                    r = torch.argsort(torch.argsort(p, dim=0), dim=0).float()
-                    ranked_latents.append(r)
-                latents = ranked_latents
-                
-            norm_projs = []
-            for p in latents:
-                p_c = p - p.mean(dim=0, keepdim=True)
-                p_norm = torch.norm(p_c, p='fro')
-                if p_norm > 1e-8:
-                    norm_projs.append(p_c / p_norm)
-                else:
-                    norm_projs.append(torch.zeros_like(p_c))
-            
-            mais = []
-            for i in range(len(norm_projs)):
-                loo_projs = [norm_projs[j] for j in range(len(norm_projs)) if j != i]
-                if not loo_projs:
-                    mais.append(1.0)
-                    continue
-                # Sign-aligned: this leave-one-out average decides the
-                # modality weights, and unaligned views cancel here exactly as
-                # they do in the consensus (see `utils.align_column_signs`).
-                u_loo = torch.mean(torch.stack(align_column_signs(loo_projs)), dim=0)
-                u_loo_norm = torch.norm(u_loo, p='fro')
-                if u_loo_norm > 1e-8:
-                    u_loo = u_loo / u_loo_norm
-                    Z = norm_projs[i]
-                    mais.append(mai_score_or_zero(Z, u_loo, getattr(self, "mai_metric", "procrustes_r2"), i))
-                else:
-                    mais.append(0.0)
-            
-            mai_tensor = torch.tensor(mais, device=self.mai.device)
-            # EMA for stability
-            self.mai.copy_(0.9 * self.mai + 0.1 * mai_tensor)
-            
-            # Gating Logic
-            center = self.mai.mean()
-            progress = min(1.0, epoch / 30.0)
-            steepness = 5.0 + 10.0 * progress
-            gate = torch.sigmoid(steepness * (self.mai - center))
-            
-            # Target weights = Proportional MAI * Gating Signal
-            raw_w = self.mai * gate
-            target_w = raw_w / (raw_w.sum() + 1e-8)
-            
-            # Temporal transition (from uniform to target) starting relative to dynamic_weights_start
-            if dynamic_weights_start is not None:
-                rho = max(0.0, min(1.0, (epoch - dynamic_weights_start) / 20.0))
-            else:
-                warm = 0.33 * max(1, total_epochs)
-                rho = max(0.0, min(1.0, (epoch - warm) / max(1.0, warm)))
-            uniform_w = torch.ones_like(target_w) / len(target_w)
-            self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
-
     def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
         return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
         
-    def set_projection_schedule(self, epoch: int, total_epochs: int, stabilization_start_epoch: int, stabilization_ramp_epochs: int) -> None:
-        for enc in self.linear_encoders:
-            enc.set_projection_schedule(epoch, total_epochs, stabilization_start_epoch, stabilization_ramp_epochs)
-
-    def first_layer_diagnostics(self) -> Dict[str, float]:
-        drifts = [float(enc.basis_drift().cpu()) for enc in self.linear_encoders]
-        alphas = [float(enc.projection_alpha) for enc in self.linear_encoders]
-        return {
-            "basis_drift": float(sum(drifts) / max(1, len(drifts))),
-            "projection_alpha": float(sum(alphas) / max(1, len(alphas))),
-        }
-
     def retract_linear_encoders(self) -> None:
         """Retract the linear encoders onto the feasible set.
 
@@ -967,24 +746,7 @@ class FlowSiMRVModel(nn.Module):
                 enc.last_log_det = ld_det
         
         # 3. Consensus mixing
-        res_u = compute_shared_consensus(
-            latents,
-            mixing_algorithm=self.mixing_algorithm,
-            k=self.latent_dim,
-            training=self.training,
-            anchor=self.consensus_anchor,
-            topology=getattr(self, "topology", "loo"),
-            path_graph=getattr(self, "path_graph", None),
-            prune_threshold=getattr(self, "prune_threshold", None),
-            modality_weights=self.modality_weights if getattr(self, "dynamic_weights", False) else None,
-            frozen_map=getattr(self, "consensus_map", None),
-        )
-        if self.training:
-            u_shared, new_anchor = res_u
-            if new_anchor is not None: 
-                self.consensus_anchor.copy_(0.9 * self.consensus_anchor + 0.1 * new_anchor)
-        else:
-            u_shared = res_u
+        u_shared = self._training_consensus(latents, self.latent_dim)
             
         # 4. Decoders: invert normalizing flows, then project back using V_m.t()
         reconstructions = []
@@ -1019,7 +781,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 hidden_dim: int = 64,
                 energy_type: str = DEFAULT_ENERGY_TYPE,
                 mixing_algorithm: str = 'newton',
-                topology: str = 'loo',
+                topology: str = DEFAULT_TOPOLOGY,
                 path_graph: Optional[Dict[int, List[int]]] = None,
                 prune_threshold: Optional[float] = None,
                 optimizer_type: str = 'adam',
@@ -1095,7 +857,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         lambda dims: FlowSiMRVModel(
             dims, k, num_layers=num_layers, hidden_dim=hidden_dim,
             mixing_algorithm=mixing_algorithm, scale_bound=scale_bound,
-            nsa_w=nsa_w, positivity=positivity, sparseness_quantile=sparseness,
+            nsa_w=nsa_w, positivity=positivity, sparseness=sparseness,
             use_nsa=use_nsa, topology=topology, path_graph=path_graph,
             prune_threshold=prune_threshold, dynamic_weights=dynamic_weights,
             mai_metric=mai_metric, dynamic_weights_start=dynamic_weights_start,
@@ -1113,6 +875,21 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         init_kwargs=dict(initialization_type=initialization_type,
                          domain_matrices=domain_matrices, n_candidates=n_candidates,
                          perturbation_scale=perturbation_scale, varimax=varimax))
+
+
+def _lamnr_flows_function(name: str):
+    """Import `name` from antstorch's LAMNr-Flows module, which older
+    antstorch releases exported from the package root instead."""
+    with preserve_matplotlib_backend():
+        import antstorch
+        try:
+            from antstorch import lamnr_flows
+        except ImportError:
+            lamnr_flows = None
+    fn = getattr(lamnr_flows, name, None) or getattr(antstorch, name, None)
+    if fn is None:
+        raise ImportError(f"antstorch provides no {name!r} in lamnr_flows or at the package root")
+    return fn
 
 
 class FlowWhitener:
@@ -1188,12 +965,7 @@ class FlowWhitener:
         return out_list[0] if is_single else out_list
 
     def fit(self, data_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]]) -> "FlowWhitener":
-        try:
-            with preserve_matplotlib_backend():
-                from antstorch.lamnr_flows import lamnr_flows_whitener
-        except ImportError:
-            with preserve_matplotlib_backend():
-                from antstorch import lamnr_flows_whitener
+        lamnr_flows_whitener = _lamnr_flows_function("lamnr_flows_whitener")
 
         df_list, _, _ = self._convert_input(data_matrices)
         whitener_kwargs = dict(self.kwargs)
@@ -1225,12 +997,7 @@ class FlowWhitener:
     ) -> Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Any]]:
         if self.trainer_output is None:
             raise RuntimeError("FlowWhitener must be fitted before calling transform.")
-        try:
-            with preserve_matplotlib_backend():
-                from antstorch.lamnr_flows import apply_lamnr_flows_whitener
-        except ImportError:
-            with preserve_matplotlib_backend():
-                from antstorch import apply_lamnr_flows_whitener
+        apply_lamnr_flows_whitener = _lamnr_flows_function("apply_lamnr_flows_whitener")
 
         df_list, is_single, meta_list = self._convert_input(data_matrices)
         target_space = output_space if output_space is not None else self.output_space
@@ -1252,12 +1019,7 @@ class FlowWhitener:
     ) -> Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Any]]:
         if self.trainer_output is None:
             raise RuntimeError("FlowWhitener must be fitted before calling inverse_transform.")
-        try:
-            with preserve_matplotlib_backend():
-                from antstorch.lamnr_flows import apply_lamnr_flows_whitener
-        except ImportError:
-            with preserve_matplotlib_backend():
-                from antstorch import apply_lamnr_flows_whitener
+        apply_lamnr_flows_whitener = _lamnr_flows_function("apply_lamnr_flows_whitener")
 
         df_list, is_single, meta_list = self._convert_input(whitened_matrices)
         target_space = input_space if input_space is not None else self.output_space
@@ -1344,12 +1106,7 @@ def flow_whiten_matrix(
     whitened_out = whitener.transform(data_matrices, output_space=output_space)
     
     df_list, is_single, _ = whitener._convert_input(data_matrices)
-    try:
-        with preserve_matplotlib_backend():
-            from antstorch.lamnr_flows import apply_lamnr_flows_whitener
-    except ImportError:
-        with preserve_matplotlib_backend():
-            from antstorch import apply_lamnr_flows_whitener
+    apply_lamnr_flows_whitener = _lamnr_flows_function("apply_lamnr_flows_whitener")
     dfs_out = apply_lamnr_flows_whitener(
         whitener.trainer_output,
         df_list,

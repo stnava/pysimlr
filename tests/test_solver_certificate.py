@@ -27,11 +27,25 @@ def _views(seed=0, n=120):
 
 def test_result_reports_a_stop_reason_and_never_claims_convergence_bare():
     res = simlr(_views(), k=3, iterations=5)
-    assert res["stop_reason"] in ("grad_map", "plateau", "max_iter")
+    assert res["stop_reason"] in ("grad_map", "plateau", "max_iter", "no_descent")
     # converged is a claim about the point, and only a certificate may make it.
     assert res["converged"] == (res["certificate"] is not None)
     if res["certificate"] is not None:
         assert res["certificate"] in ("stationary", "numerical_floor")
+
+
+def test_a_zero_step_is_not_a_stationarity_certificate(monkeypatch):
+    """A line search that finds no decrease returns step 0, so the iterate is
+    unchanged and its fixed-point residual is exactly 0. That used to be
+    certified "stationary" (seen under topology='loo' with tol=1e-12, where the
+    gradient mapping at the certified point was 3.7-7.8)."""
+    from pysimlr import optimizers
+    monkeypatch.setattr(optimizers.ArmijoGradient, "step",
+                        lambda self, i, v, g, f=None: v)
+    res = simlr(_views(), k=3, iterations=10, tol=1e-12, optimizer_type="armijo_gradient")
+    assert res["stop_reason"] == "no_descent"
+    assert res["certificate"] is None and res["converged"] is False
+    assert all(d.get("zero_step") for d in res["v_retraction"])
 
 
 def test_energy_reduction_is_reported_so_no_progress_is_visible():

@@ -8,26 +8,7 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import accuracy_score, f1_score
 from sklearn.linear_model import LogisticRegression
 from pysimlr.deep import lend_simr
-
-def load_brca_subtypes():
-    df = pd.read_csv('data/BRCA/brca_data_w_subtypes.csv', on_bad_lines='skip')
-    
-    # Use ER.Status as target
-    target_col = 'ER.Status'
-    df = df[df[target_col].isin(['Positive', 'Negative'])].copy()
-    
-    rs_cols = [c for c in df.columns if c.startswith('rs_')]
-    cn_cols = [c for c in df.columns if c.startswith('cn_')]
-    pp_cols = [c for c in df.columns if c.startswith('pp_')]
-    
-    le = LabelEncoder()
-    y = le.fit_transform(df[target_col])
-    
-    Xs = [df[rs_cols].values.astype(float), 
-          df[cn_cols].values.astype(float),
-          df[pp_cols].values.astype(float)]
-    
-    return Xs, y, [rs_cols, cn_cols, pp_cols], le.classes_
+from script_shared import load_brca_subtypes
 
 def compute_orthogonality_error(v_list):
     errors = []

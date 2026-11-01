@@ -1,6 +1,6 @@
 # Tracking Summary
-current phase: v0.3.0 released -- one method interface (`pysimlr.fit`/`predict`, `MultiViewSiMR`), one vocabulary and one defaults module, no broad exception handlers, batch-invariant prediction, standardized-space reconstruction R^2; nsa_flow>=3.5.1. Manuscript correction (D5) in progress, not part of the release.
-next WP: D5 -- finish the manuscript correction: prose numbers as inline values from paper/paper_numbers.py, rewrite claims the regenerated caches no longer support (owner review of every changed conclusion), rebuild, re-audit.
+current phase: v0.4.0 (leave-one-out default, audit items closed, duplicate code removed); v0.3.0 released -- one method interface (`pysimlr.fit`/`predict`, `MultiViewSiMR`), one vocabulary and one defaults module, no broad exception handlers, batch-invariant prediction, standardized-space reconstruction R^2; nsa_flow>=3.5.1. Manuscript correction (D5) in progress, not part of the release.
+next WP: D5/D6 paper -- caches regenerating under v0.4.0 (DEFAULT_TOPOLOGY="loo"); then rebuild the paper and list the conclusions that moved for owner review. Paper sources and caches are uncommitted.
 blockers: none
 active work: D5 (uncommitted: paper/03_experiments.qmd, paper/appendix_operational.qmd, paper/paper_numbers.py, paper/results_cache/*, paper/_freeze, docs/manuscript; the owner's own pre-existing manuscript edits are in the same files, snapshot in the session scratchpad)
 device: Apple Silicon (macOS 27 arm64), CPU only; venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
@@ -12,21 +12,82 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
-## D5 (Manuscript correction against regenerated caches, 2026-11-01)
-status: in progress (not in v0.3.0)
+## D6 (Open items closed: audit A1-A4, iteration vs SVD start, topology default, duplicate code, 2026-11-01)
+status: code released as v0.4.0 (minor: topology default changes results); paper caches regenerating, paper not yet rebuilt
+owner decisions (2026-11-01): "loo should be the default topology"; "eliminate duplicate code,
+maximize code reuse".
+what changed:
+- Audit A1-A4 (docs/audit/AUDIT_2026_09.md): all four were already fixed (d2e86b7, 1b6790a,
+  56549a3) with no recorded resolution. `tests/test_audit_2026_09.py` (17 tests) reproduces each
+  measurement; gradients are checked against central finite differences, not autograd.
+- Iteration vs SVD start (CORRECTNESS_AUDIT.md "Answer"): the limiter is the topology.
+  `scripts/experiment_iteration_vs_init.py`, private factors at twice the shared scale, 8 seeds,
+  40 sweeps: star gain -0.002 (3/8 seeds), loo +0.217 (8/8); two-view CCA 0.9945. Evidence in
+  docs/audit/evidence/; test `test_loo_iteration_improves_on_a_wrong_initialization`.
+- `defaults.DEFAULT_TOPOLOGY = "loo"` for every entry point. `simlr` trains each view against
+  the other views but reports `u`, `w` and the prediction map from the all-view consensus (as
+  the deep and flow paths do); per-view targets are `u_per_modality`.
+- Defect found and fixed: a zero line-search step (Armijo found no decrease) gave a fixed-point
+  residual of exactly 0 and was certified "stationary". `simlr` now stops with
+  `stop_reason="no_descent"` and no certificate. On the test fixture LARS reaches energy 0.0180
+  against Armijo's 0.0197 stopping point, so those earlier "converged" Armijo fits were stalls.
+- Defect found and fixed: the synthetic generators replaced an explicit `p_list` / `shared_k` /
+  `noise_scale` with regime constants whenever `private_scale` was set; default outputs are
+  bit-identical to HEAD (9 calls checked). Test: tests/test_synthetic_explicit_params.py.
+- Duplicate code removed (behaviour preserved, suite green after each step): MAI scoring
+  (`consensus.loo_mai_scores`, `mai_gated_target`, `check_mai_metric`; was 6 copies); model
+  mixins `_ModalityWeightingMixin` / `_MultiViewModelMixin` (update_mai, consensus state and
+  buffers, `_training_consensus`, projection schedule, diagnostics, initialize_v); `_mlp`,
+  `_linear_encoders`; `_fit_first_layer_model` (lend/ned bodies); Nadam(Adam),
+  BidirectionalLookahead(Lookahead), BidirectionalArmijoGradient(ArmijoGradient);
+  `simlr._check_views` / `_scale_like_training`; `_nsa_data_transform` on
+  `nsa_backend.result_matrix`; `sparse._keep_neighbours` / `_finish_laplacian`;
+  `utils._angle_gram` / `_svd_on_cpu`; `interpretability._fit_with_importance`;
+  `nnh._map_left_right` / `_unit_columns`; `flows._lamnr_flows_function`;
+  `synthetic_cases._planted_latent`. Scripts: 29 scripts import from the new
+  `scripts/script_shared.py` (copies verified AST-identical before replacement). Duplicate scan:
+  no identical or >= 0.85-similar functions left in src/pysimlr.
+- `sparseness_quantile` renamed `sparseness` in every module, helper and test (no alias).
+- fig-nsa-v-interpretability is built from code: `scripts/paper_nsa_v_loadings.py` ->
+  results_cache/nsa_v_loadings.json (nsa_flow 3.5 dropped `varimax=True`, so the old script no
+  longer ran; the rotation is `pysimlr.svd.varimax`).
+- `scripts/run_adni_mci_grid_sweep.py`: no absolute paths; writes its provenance; exits non-zero
+  if any configuration fails (the 224 NameError rows of f4e53a6 went unnoticed).
+verification: fast suite 1598 passed / 2 xfailed; `pytest -m ""` 1622 passed / 3 xfailed / 0
+failed (200.7 s, 6 workers); `python -m antsxqc.lint src/pysimlr` 0 findings.
+open:
+- Both L-BFGS presets under loo reach different stationary points for inputs differing by float32
+  rounding (per-view R^2 up to 0.11 apart); the shift-invariance test pins them to star.
+- Armijo stalls on the projected energy (line search through a piecewise retraction); LARS gets
+  lower. Not fixed here.
+- Remaining compatibility aliases (`flow_simlr`, `FlowSiMLRModel`, `flow_whitener`) and
+  `predict_simlr(allow_legacy_refit=)` were left; they are shims, not duplicates.
+
+## D5 (Manuscript built from code, 2026-11-01)
+status: built for owner review, uncommitted
 owner decisions (2026-11-01): adopt the v0.3.0 caches; write generators for the six unbacked
-caches and regenerate; report Wilcoxon tests over 12 dataset blocks with Holm; replace typed
-numbers with inline values computed from the caches; edit on top of the owner's uncommitted
-manuscript edits.
-done so far: main benchmark and ADNI sweep caches regenerated with v0.3.0 and copied into
-paper/results_cache with provenance JSON; scripts/paper_adni_ablations.py (committed in
-v0.3.0) regenerated the six previously unbacked caches; `deep_ranking.wilcoxon_vs_reference`
-and `holm_adjust` (in v0.3.0) and the appendix table rewritten to use them;
-paper/paper_numbers.py computes every cited number.
-remaining: rewrite the prose with inline values; the regenerated loadings change the ADNI-MCI
-neuroanatomy (component membership differs from the Braak-network text) and several headline
-claims (e.g. best ADNI-MCI model is NED 0.236; best linear sweep config 0.226) -- every changed
-conclusion goes to the owner; rebuild; re-audit.
+caches; Wilcoxon over 12 dataset blocks with Holm; inline computed values; edit on top of the
+owner's manuscript edits; "build the paper as it is ... a paper built from code as much as is
+possible".
+what changed:
+- Every result number in the prose is a Quarto inline value from `paper/paper_numbers.py`
+  (Markdown-valued, so math and code spans render); captions no longer carry typed numbers.
+- Caches: main benchmark + ADNI sweep regenerated with v0.3.0; six previously unbacked caches
+  regenerated by `scripts/paper_adni_ablations.py`; new `brca_er_loadings.json` from
+  `scripts/paper_brca_loadings.py` (feature names rebuilt and verified equal to the cached data).
+- Figures now drawn from caches: ADNI neuroanatomy (titles, panel B = data-driven leading
+  regions), row-mean bars, BRCA waterfall. Still a pre-rendered PNG: fig-nsa-v-interpretability.
+- Chunk fixes: pooled means exclude the paired positive reruns (`op_default`); the ADNI table no
+  longer fills a missing sweep value with 0.095; the Pareto envelope is computed.
+conclusions that changed (owner to review):
+- ADNI-MCI best model: NED 0.236 (+55% over PCA), not LEND 0.252 (+65.8%).
+- Neuroanatomy at q = 0.85: components lead with parietal/frontal/occipital, fusiform/temporal,
+  and parietal/supramarginal regions; Braak-stage labels removed; left precentral loads 0.325
+  (sensorimotor cortex is not spared).
+- Support-shuffle control lowers single-axis R^2 for all six models tested; PCA rotation for 3/6.
+- Shared+Private PCA 0.291 vs best multi-view 0.586 (was 0.618 vs 0.956).
+- Sweep: best linear-family config 0.226 (SiMLR-LARS), not 0.241; mean-11 best 0.119 vs PCA 0.081.
+- Discussion limitation 2 (row-mean) and 3 (extreme w) restated from the regenerated ablations.
 
 ## D4 (Exception audit, package defaults, prediction invariance, reviewer R1-R9, paper audit, 2026-11-01)
 status: done

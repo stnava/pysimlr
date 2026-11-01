@@ -490,6 +490,28 @@ preceding V-steps. A fixed-`u` probe showed the V-subproblem itself moving the
 energy by only 0.06% over 5 steps, which points away from this and toward the
 initialization simply being near-stationary for the objective.
 
+**Answer (2026-11-01).** The limiter is the consensus topology, not the
+optimizer. `scripts/experiment_iteration_vs_init.py` uses a generator on which
+the per-view SVD start is demonstrably wrong: each view carries private factors
+with twice the shared scale, so the PCA start recovers the shared latent with
+least-squares latent R-squared 0.101 (`latent_regression_r2`). Two-view CCA recovers it at 0.9945, so the signal is
+recoverable. Eight seeds, 40 sweeps, `energy_type="acc"`, newton mixing:
+
+| topology | init | after simlr | mean gain | seeds improved (> 0.01) |
+|---|---|---|---|---|
+| `star` | 0.101 | 0.099 | -0.002 | 3 / 8 |
+| `loo` | 0.101 | 0.318 | +0.217 | 8 / 8 |
+
+Under `star` each view is scored against a consensus that contains its own
+projection, so the view's private variance raises its own objective and the
+private start is near-stationary. Under `loo` the consensus excludes the view,
+only cross-view signal pays, and the iteration moves toward the shared latent;
+it is still rising at 40 sweeps (0.526 at 150 sweeps over 3 seeds), so the
+remaining gap to CCA is a convergence-speed question. Evidence:
+`docs/audit/evidence/iteration_vs_init_{star,loo}.json`. Regression test:
+`test_loo_iteration_improves_on_a_wrong_initialization`. `DEFAULT_TOPOLOGY` is
+`"loo"` for every method from this change on.
+
 **Caveat on the numbers in this document.** Because the initialization dominates
 latent recovery on these generators, differences of ±0.003 in the tables above
 are not measuring optimizer quality. The large effects (0.88 → 0.98 for the sign

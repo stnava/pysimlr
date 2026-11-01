@@ -98,13 +98,13 @@ def test_parity_simlr_sparseness_constraints():
     torch.manual_seed(42)
     v = torch.randn(30, 4)
     # Positive constraint + unit norm
-    v_pos = orthogonalize_and_q_sparsify(v, sparseness_quantile=0.5, positivity='positive', unit_norm=True)
+    v_pos = orthogonalize_and_q_sparsify(v, sparseness=0.5, positivity='positive', unit_norm=True)
     assert (v_pos < -1e-6).sum() == 0, 'Negative values found'
     np.testing.assert_allclose(torch.norm(v_pos, p=2, dim=0).numpy(), 1.0, atol=1e-5)
     assert ((v_pos == 0).float().mean(dim=0) >= 0.45).all()
 
     # Negative constraint + unit norm
-    v_neg = orthogonalize_and_q_sparsify(v, sparseness_quantile=0.5, positivity='negative', unit_norm=True)
+    v_neg = orthogonalize_and_q_sparsify(v, sparseness=0.5, positivity='negative', unit_norm=True)
     assert (v_neg > 1e-6).sum() == 0, 'Positive values found'
     np.testing.assert_allclose(torch.norm(v_neg, p=2, dim=0).numpy(), 1.0, atol=1e-5)
     assert ((v_neg == 0).float().mean(dim=0) >= 0.45).all()

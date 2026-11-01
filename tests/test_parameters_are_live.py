@@ -604,7 +604,9 @@ def test_tol_controls_early_stopping():
     assert loose["stop_reason"] == "grad_map", (
         f"a tolerance of 10 did not certify immediately "
         f"(stop_reason={loose['stop_reason']!r}); `tol` is not being read")
-    assert tight["stop_reason"] in ("plateau", "max_iter")
+    # "no_descent": the line search found no decrease, which is not a certificate.
+    assert tight["stop_reason"] in ("plateau", "max_iter", "no_descent")
+    assert tight["certificate"] != "stationary"
     assert tight["convergence"]["n_steps"] > loose["convergence"]["n_steps"], (
         f"a tight tolerance ({tight['convergence']['n_steps']} steps) did not "
         f"run longer than a loose one ({loose['convergence']['n_steps']})")
@@ -666,8 +668,13 @@ def test_convergence_is_not_an_artifact_of_the_budget():
                   energy_type="recon_r2", verbose=False)
         b = simlr(views, k=K, iterations=400, positivity="positive",
                   energy_type="recon_r2", verbose=False)
-    assert a["convergence"]["converged"] and b["convergence"]["converged"]
-    assert a["convergence"]["n_steps"] == b["convergence"]["n_steps"]
+    # Both stop before either cap, for the same reason. On this fixture the
+    # Armijo line search stops finding descent ("no_descent", uncertified):
+    # LARS reaches energy 0.0180 against 0.0197 here, so the stop is a stall,
+    # not a minimum. It used to be certified "stationary" because the zero
+    # step had a fixed-point residual of exactly 0.
+    assert a["stop_reason"] == b["stop_reason"] != "max_iter"
+    assert a["convergence"]["n_steps"] == b["convergence"]["n_steps"] < 100
     assert a["best_energy"] == pytest.approx(b["best_energy"], rel=1e-6)
 
 

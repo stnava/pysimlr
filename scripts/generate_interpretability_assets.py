@@ -5,11 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 from pysimlr import lend_simr, create_path_graph
-
-def get_top_features_per_component(v_mat, feature_names, component=0, top_n=10):
-    importance = np.abs(v_mat[:, component])
-    top_indices = np.argsort(importance)[::-1][:top_n]
-    return [feature_names[i] for i in top_indices], importance[top_indices]
+from script_shared import get_top_features_per_component
 
 def generate_interpretability_assets():
     out_dir = "expart_report_figures"

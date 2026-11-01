@@ -42,7 +42,7 @@ def test_sparsification_coverage():
                                         rank_based_matrix_segmentation,
                                         project_to_partially_orthonormal_nonnegative)
     v = torch.randn(10, 3)
-    assert simlr_sparseness(v, sparseness_alg='soft', sparseness_quantile=0.5).shape == (10, 3)
+    assert simlr_sparseness(v, sparseness_alg='soft', sparseness=0.5).shape == (10, 3)
     assert torch.all(simlr_sparseness(v, sparseness_alg='nnorth', positivity='positive') >= -1e-6)
     assert simlr_sparseness(v, constraint_type='ortho', constraint_weight=0.5).shape == (10, 3)
     assert rank_based_matrix_segmentation(v, 0.5, basic=True, positivity='either', transpose=False).shape == (10, 3)

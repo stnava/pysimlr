@@ -63,7 +63,10 @@ def test_scenario1_multimodal_omics_integration(synthetic_omics_data):
         optimizer_type="hybrid_adam"
     )
     assert len(res_simlr["v"]) == 2
-    assert len(res_simlr["u"]) == 2
+    # Topology sets the training objective; the shared latent is the
+    # all-view consensus, and the per-view LOO targets are kept alongside.
+    assert res_simlr["u"].shape == (n, k)
+    assert len(res_simlr["u_per_modality"]) == 2
 
     # Verify high alignment of classical consensus with ground truth biological pathway
     u_rna_simlr = x_rna @ res_simlr["v"][0]

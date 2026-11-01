@@ -4,6 +4,25 @@ from typing import List, Dict, Any, Optional, Tuple, Union
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+def _planted_latent(n_samples: int, shared_k: int, private_scale: float,
+                    scales, weights=None):
+    """Shared latent and outcome for the planted generators (global RNG).
+
+    With view-private background (`private_scale > 0`) the latent columns have
+    standard deviations `scales` and the outcome is their `weights`-weighted
+    sum (all ones when None) plus N(0, 0.15^2) noise. Without it the outcome
+    is N(0, 1) and is added, doubled, to the first latent column.
+    """
+    if private_scale > 0.0:
+        true_u = torch.randn(n_samples, shared_k) * torch.tensor(scales[:shared_k])
+        w = torch.ones(shared_k) if weights is None else torch.tensor(weights[:shared_k])
+        return true_u, (true_u @ w) + torch.randn(n_samples) * 0.15
+    outcome_signal = torch.randn(n_samples)
+    true_u = torch.randn(n_samples, shared_k)
+    true_u[:, 0] += outcome_signal * 2.0
+    return true_u, outcome_signal
+
+
 def _sparse_signed_basis(shared_k: int, p: int, true_sparsity: float) -> torch.Tensor:
     """Construct a (shared_k, p) signed basis with exact per-component sparsity."""
     if true_sparsity <= 0.0:
@@ -24,7 +43,7 @@ def _sparse_signed_basis(shared_k: int, p: int, true_sparsity: float) -> torch.T
 
 def build_linear_footprint_case(n_samples: int = 1000, 
                                 shared_k: int = 3, 
-                                p_list: List[int] = [100, 80, 60],
+                                p_list: Optional[List[int]] = None,
                                 noise_scale: float = 0.5,
                                 seed: int = 42,
                                 **kwargs) -> Dict[str, Any]:
@@ -40,7 +59,8 @@ def build_linear_footprint_case(n_samples: int = 1000,
         Number of samples to generate.
     shared_k : int, default=3
         The rank of the shared latent space.
-    p_list : List[int], default=[100, 80, 60]
+    p_list : List[int], optional
+        Features per view; None gives [100, 80, 60].
         The dimensionality of each generated modality.
     noise_scale : float, default=0.5
         Standard deviation of Gaussian noise added to each modality.
@@ -65,18 +85,10 @@ def build_linear_footprint_case(n_samples: int = 1000,
     torch.manual_seed(seed)
     np.random.seed(seed)
     
-    if private_scale > 0.0:
-        # Clean linear multi-view regime: shared components are stronger than
-        # view-private background (private_scale=0.5), with equal outcome weights.
-        p_list = kwargs.get("p_list", [100, 80, 60])
-        scales = torch.tensor([1.2, 1.0, 0.85][:shared_k])
-        true_u = torch.randn(n_samples, shared_k) * scales
-        weights = torch.ones(shared_k)
-        outcome_signal = (true_u @ weights) + torch.randn(n_samples) * 0.15
-    else:
-        outcome_signal = torch.randn(n_samples)
-        true_u = torch.randn(n_samples, shared_k)
-        true_u[:, 0] += outcome_signal * 2.0
+    # Clean linear multi-view regime: shared components are stronger than
+    # view-private background (private_scale=0.5), with equal outcome weights.
+    p_list = [100, 80, 60] if p_list is None else p_list
+    true_u, outcome_signal = _planted_latent(n_samples, shared_k, private_scale, [1.2, 1.0, 0.85], None)
     
     data_matrices = []
     v_true = []
@@ -102,7 +114,7 @@ def build_linear_footprint_case(n_samples: int = 1000,
 
 def build_nonlinear_shared_case(n_samples: int = 1000, 
                                 shared_k: int = 3, 
-                                p_list: List[int] = [100, 80, 60],
+                                p_list: Optional[List[int]] = None,
                                 noise_scale: float = 0.5,
                                 seed: int = 42,
                                 regime: str = "mixed",
@@ -119,16 +131,9 @@ def build_nonlinear_shared_case(n_samples: int = 1000,
     torch.manual_seed(seed)
     np.random.seed(seed)
     
-    if private_scale > 0.0:
-        p_list = kwargs.get("p_list", [120, 80, 50])
-        scales = torch.tensor([1.15, 0.95, 0.80][:shared_k])
-        true_u = torch.randn(n_samples, shared_k) * scales
-        weights = torch.tensor([0.9, 1.0, 1.1][:shared_k])
-        outcome_signal = (true_u @ weights) + torch.randn(n_samples) * 0.15
-    else:
-        outcome_signal = torch.randn(n_samples)
-        true_u = torch.randn(n_samples, shared_k)
-        true_u[:, 0] += outcome_signal * 2.0 
+    if p_list is None:
+        p_list = [120, 80, 50] if private_scale > 0.0 else [100, 80, 60]
+    true_u, outcome_signal = _planted_latent(n_samples, shared_k, private_scale, [1.15, 0.95, 0.80], [0.9, 1.0, 1.1])
     
     data_matrices = []
     v_true = [] # Approximate linear basis
@@ -193,9 +198,9 @@ def build_nonlinear_shared_case(n_samples: int = 1000,
     }
 
 def build_shared_plus_private_case(n_samples: int = 1000, 
-                                   shared_k: int = 2, 
+                                   shared_k: Optional[int] = None, 
                                    private_k: int = 2,
-                                   p_list: List[int] = [100, 100],
+                                   p_list: Optional[List[int]] = None,
                                    noise_scale: float = 0.5,
                                    seed: int = 42,
                                    **kwargs) -> Dict[str, Any]:
@@ -204,15 +209,19 @@ def build_shared_plus_private_case(n_samples: int = 1000,
     """
     if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     has_explicit_priv = "private_scale" in kwargs
+    # Regime defaults apply only to parameters the caller left unset; these
+    # used to overwrite explicit `shared_k` and `p_list` whenever
+    # `private_scale` was passed.
+    if shared_k is None:
+        shared_k = 3 if has_explicit_priv else 2
+    if p_list is None:
+        p_list = [160, 60, 30] if has_explicit_priv else [100, 100]
     private_scale = float(kwargs.get("private_scale", 1.0))
     true_sparsity = float(kwargs.get("true_sparsity", 0.8 if has_explicit_priv else 0.0))
     torch.manual_seed(seed)
     np.random.seed(seed)
     
     if has_explicit_priv:
-        shared_k = kwargs.get("shared_k", 3)
-        private_k = kwargs.get("private_k", 2)
-        p_list = kwargs.get("p_list", [160, 60, 30])
         scales = torch.tensor([1.0 / (1.0 + 0.6 * i) for i in range(shared_k)])
         true_u_shared = torch.randn(n_samples, shared_k) * scales
         weights = torch.linspace(0.6, 1.4, shared_k)
@@ -251,8 +260,8 @@ def build_shared_plus_private_case(n_samples: int = 1000,
 
 def build_nonnegative_parts_case(n_samples: int = 400,
                                  shared_k: int = 3,
-                                 p_list: List[int] = [60, 40, 30],
-                                 noise_scale: float = 0.3,
+                                 p_list: Optional[List[int]] = None,
+                                 noise_scale: Optional[float] = None,
                                  seed: int = 42,
                                  signal_component: int = 0,
                                  **kwargs) -> Dict[str, Any]:
@@ -263,6 +272,12 @@ def build_nonnegative_parts_case(n_samples: int = 400,
         noise_scale = kwargs['noise_level']
     private_scale = float(kwargs.get("private_scale", 0.0))
     active_frac = kwargs.get("active_frac", None)
+    # Regime defaults apply only to parameters the caller left unset; the
+    # private-background branch used to overwrite explicit values.
+    if p_list is None:
+        p_list = [120, 45, 30] if private_scale > 0.0 else [60, 40, 30]
+    if noise_scale is None:
+        noise_scale = 0.18 if private_scale > 0.0 else 0.3
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -272,9 +287,7 @@ def build_nonnegative_parts_case(n_samples: int = 400,
         )
 
     if private_scale > 0.0:
-        p_list = kwargs.get("p_list", [120, 45, 30])
         scales = torch.tensor([1.0, 0.65, 0.48][:shared_k])
-        noise_scale = 0.18
     else:
         scales = torch.tensor([1.0 / (1.0 + 1.5 * i) for i in range(shared_k)])
     true_u = torch.rand(n_samples, shared_k) * scales

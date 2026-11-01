@@ -423,9 +423,14 @@ class Adam(SimlrOptimizer):
         state['v'] = beta2 * state['v'] + (1 - beta2) * (descent_gradient**2)
         m_hat = state['m'] / (1 - beta1**state['iter'])
         v_hat = state['v'] / (1 - beta2**state['iter'])
-        return v_current + lr * (m_hat / (torch.sqrt(v_hat) + epsilon))
+        numerator = self._first_moment(m_hat, descent_gradient, beta1, state['iter'])
+        return v_current + lr * (numerator / (torch.sqrt(v_hat) + epsilon))
 
-class Nadam(SimlrOptimizer):
+    def _first_moment(self, m_hat, descent_gradient, beta1, t):
+        """Bias-corrected first moment; `Nadam` adds the Nesterov look-ahead."""
+        return m_hat
+
+class Nadam(Adam):
     """
     Nadam (Nesterov-accelerated Adaptive Moment Estimation) optimizer for SiMLR.
 
@@ -452,20 +457,8 @@ class Nadam(SimlrOptimizer):
     TypeError
         If inputs are of invalid types.
     """
-    def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
-             full_energy_function: Optional[Callable] = None) -> torch.Tensor:
-        state = self.state[i]
-        state['iter'] += 1
-        beta1 = self.params['beta1']
-        beta2 = self.params['beta2']
-        epsilon = self.params['epsilon']
-        lr = self.params['learning_rate']
-        state['m'] = beta1 * state['m'] + (1 - beta1) * descent_gradient
-        state['v'] = beta2 * state['v'] + (1 - beta2) * (descent_gradient**2)
-        m_hat = state['m'] / (1 - beta1**state['iter'])
-        v_hat = state['v'] / (1 - beta2**state['iter'])
-        nesterov_m_hat = beta1 * m_hat + ((1 - beta1) * descent_gradient) / (1 - beta1**state['iter'])
-        return v_current + lr * (nesterov_m_hat / (torch.sqrt(v_hat) + epsilon))
+    def _first_moment(self, m_hat, descent_gradient, beta1, t):
+        return beta1 * m_hat + ((1 - beta1) * descent_gradient) / (1 - beta1**t)
 
 class ArmijoGradient(SimlrOptimizer):
     """
@@ -491,37 +484,43 @@ class ArmijoGradient(SimlrOptimizer):
     TypeError
         If inputs are of invalid types.
     """
-    def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
+    #: Restart the momentum from the raw direction when it stops being a
+    #: descent direction. `BidirectionalArmijoGradient` keeps it, because its
+    #: line search may move against the direction anyway.
+    reset_non_descent = True
+
+    def _line_search(self, v_current, direction, descent_gradient, energy_fn, initial_step):
+        """Return ``(step_size, direction)``; a step of 0 means no decrease was found."""
+        step = backtracking_linesearch(
+            v_current=v_current, descent_direction=direction,
+            ascent_gradient=-descent_gradient, energy_function=energy_fn,
+            initial_step_size=initial_step)
+        return step, direction
+
+    def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor,
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         state = self.state[i]
         epsilon = self.params.get('epsilon', 1e-8)
         lr = self.params['learning_rate']
         state['momentum'] = 0.9 * state['momentum'] + 0.1 * descent_gradient
         search_direction = state['momentum']
-        grad_norm = torch.norm(descent_gradient)
-        if grad_norm > epsilon and torch.sum(-descent_gradient * search_direction) >= 0:
+        if (self.reset_non_descent and torch.norm(descent_gradient) > epsilon
+                and torch.sum(-descent_gradient * search_direction) >= 0):
             state['momentum'] = descent_gradient.clone()
             search_direction = state['momentum']
         dir_norm = torch.norm(search_direction)
         if dir_norm < epsilon:
             return v_current
-        norm_search_direction = search_direction / dir_norm
-        
-        if full_energy_function is not None:
-            initial_step = state.get('last_step_size', torch.tensor(lr)).item()
-            optimal_step_size = backtracking_linesearch(
-                v_current=v_current,
-                descent_direction=norm_search_direction,
-                ascent_gradient=-descent_gradient,
-                energy_function=full_energy_function,
-                initial_step_size=initial_step
-            )
-            state['last_step_size'] = torch.tensor(optimal_step_size * 1.5 if optimal_step_size > 1e-10 else float(lr))
-            return v_current + optimal_step_size * norm_search_direction
-        else:
-            return v_current + lr * norm_search_direction
+        norm_direction = search_direction / dir_norm
+        if full_energy_function is None:
+            return v_current + lr * norm_direction
+        initial_step = state.get('last_step_size', torch.tensor(lr)).item()
+        step_size, direction = self._line_search(v_current, norm_direction, descent_gradient,
+                                                 full_energy_function, initial_step)
+        state['last_step_size'] = torch.tensor(step_size * 1.5 if step_size > 1e-10 else float(lr))
+        return v_current + step_size * direction
 
-class BidirectionalArmijoGradient(SimlrOptimizer):
+class BidirectionalArmijoGradient(ArmijoGradient):
     """
     Gradient descent optimizer with bidirectional Armijo line search.
 
@@ -546,35 +545,13 @@ class BidirectionalArmijoGradient(SimlrOptimizer):
     TypeError
         If inputs are of invalid types.
     """
-    def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
-             full_energy_function: Optional[Callable] = None) -> torch.Tensor:
-        state = self.state[i]
-        epsilon = self.params.get('epsilon', 1e-8)
-        lr = self.params['learning_rate']
-        # Use the momentum-smoothed direction, matching ArmijoGradient. This
-        # buffer was updated every step and then ignored in favour of the raw
-        # gradient, so the class was plain gradient descent despite its
-        # docstring claiming to be "similar to ArmijoGradient".
-        state['momentum'] = 0.9 * state['momentum'] + 0.1 * descent_gradient
-        search_direction = state['momentum']
-        dir_norm = torch.norm(search_direction)
-        if dir_norm < epsilon:
-            return v_current
-        norm_direction = search_direction / dir_norm
-        
-        if full_energy_function is not None:
-            initial_step = state.get('last_step_size', torch.tensor(lr)).item()
-            optimal_step_size, selected_dir = bidirectional_linesearch(
-                v_current=v_current,
-                descent_direction=norm_direction,
-                ascent_gradient=-descent_gradient,
-                energy_function=full_energy_function,
-                initial_step_size=initial_step
-            )
-            state['last_step_size'] = torch.tensor(optimal_step_size * 1.5 if optimal_step_size > 1e-10 else float(lr))
-            return v_current + optimal_step_size * selected_dir
-        else:
-            return v_current + lr * norm_direction
+    reset_non_descent = False
+
+    def _line_search(self, v_current, direction, descent_gradient, energy_fn, initial_step):
+        return bidirectional_linesearch(
+            v_current=v_current, descent_direction=direction,
+            ascent_gradient=-descent_gradient, energy_function=energy_fn,
+            initial_step_size=initial_step)
 
 class Lookahead(SimlrOptimizer):
     """
@@ -602,12 +579,14 @@ class Lookahead(SimlrOptimizer):
     TypeError
         If inputs are of invalid types.
     """
+    inner_class = HybridAdam
+
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
         self.k = int(self.params['lookahead_k'])
         self.alpha = self.params.get('alpha', 0.5)
         self.slow_weights = [v.clone() for v in v_mats]
-        self.inner_opt = HybridAdam(optimizer_type, v_mats, **params)
+        self.inner_opt = self.inner_class(optimizer_type, v_mats, **params)
 
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
@@ -619,7 +598,7 @@ class Lookahead(SimlrOptimizer):
             return self.slow_weights[i].clone()
         return v_next
 
-class BidirectionalLookahead(SimlrOptimizer):
+class BidirectionalLookahead(Lookahead):
     """
     Lookahead optimizer using `BidirectionalArmijoGradient` as the inner solver.
 
@@ -645,22 +624,8 @@ class BidirectionalLookahead(SimlrOptimizer):
     TypeError
         If inputs are of invalid types.
     """
-    def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
-        super().__init__(optimizer_type, v_mats, **params)
-        self.k = int(self.params['lookahead_k'])
-        self.alpha = self.params.get('alpha', 0.5)
-        self.slow_weights = [v.clone() for v in v_mats]
-        self.inner_opt = BidirectionalArmijoGradient(optimizer_type, v_mats, **params)
+    inner_class = BidirectionalArmijoGradient
 
-    def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
-             full_energy_function: Optional[Callable] = None) -> torch.Tensor:
-        state = self.state[i]
-        state['iter'] += 1
-        v_next = self.inner_opt.step(i, v_current, descent_gradient, full_energy_function)
-        if state['iter'] % self.k == 0:
-            self.slow_weights[i] = self.slow_weights[i] + self.alpha * (v_next - self.slow_weights[i])
-            return self.slow_weights[i].clone()
-        return v_next
 
 class RMSProp(SimlrOptimizer):
     """

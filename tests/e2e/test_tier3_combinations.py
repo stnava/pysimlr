@@ -217,10 +217,10 @@ def test_combo_simlr_with_loo_consensus_and_armijo(synthetic_three_views):
         iterations=10
     )
 
-    assert "u" in res
-    assert isinstance(res["u"], list)
-    assert len(res["u"]) == 3
-    for u_i in res["u"]:
+    # One shared latent; the per-view leave-one-out targets are reported too.
+    assert res["u"].shape == (synthetic_three_views["n"], k)
+    assert len(res["u_per_modality"]) == 3
+    for u_i in res["u_per_modality"]:
         assert u_i.shape == (synthetic_three_views["n"], k)
 
 

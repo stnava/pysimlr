@@ -9,8 +9,8 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
-sys.path.insert(0, "/Users/stnava/data/repos/pysimlr/src")
-sys.path.insert(0, "/Users/stnava/data/repos/nsa_flow")
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(REPO, "src"))  # nsa_flow comes from the environment (nsa_flow>=3.5.1)
 
 import numpy as np
 import pandas as pd
@@ -29,7 +29,7 @@ OUT_CSV = os.path.join(os.path.dirname(__file__), "..", "paper", "results_cache"
 
 
 def build_adni_case_11():
-    csv_path = "/Users/stnava/data/repos/pysimlr/data/adni/adni_mci_cognitive_merged.csv"
+    csv_path = os.path.join(REPO, "data", "adni", "adni_mci_cognitive_merged.csv")
     df = pd.read_csv(csv_path)
     vol_cols = [c for c in df.columns if c.startswith("T1Hier_vol__")]
     thk_cols = [c for c in df.columns if c.startswith("T1Hier_thk__")]
@@ -313,7 +313,22 @@ def main():
                         flush=True,
                     )
 
-    print("SWEEP COMPLETE.", flush=True)
+    df = pd.DataFrame(rows)
+    failed = df[df["Status"] != "ok"]
+    import datetime, json, platform
+    import pysimlr
+    prov = {"cli": " ".join(sys.argv), "seconds": round(time.perf_counter() - t_start, 1),
+            "end_utc": datetime.datetime.utcnow().isoformat() + "Z", "host": platform.node(),
+            "pysimlr": pysimlr.__version__, "torch": torch.__version__,
+            "n_configurations": int(len(df)), "n_failed": int(len(failed))}
+    with open(os.path.join(os.path.dirname(OUT_CSV), "provenance_adni_mci_grid_sweep.json"), "w") as f:
+        json.dump(prov, f, indent=1)
+    if len(failed):
+        # A failed configuration is a row with Status != "ok"; 224 of them once
+        # sat in the paper's cache unnoticed. Fail loudly instead.
+        raise SystemExit(f"{len(failed)} of {len(df)} configurations failed; first: "
+                         f"{failed.iloc[0].to_dict()}")
+    print(f"SWEEP COMPLETE: {len(df)} configurations, none failed.", flush=True)
 
 
 if __name__ == "__main__":

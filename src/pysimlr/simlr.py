@@ -12,7 +12,7 @@ from .utils import (set_seed_based_on_time, adjusted_rvcoef, safe_svd,
                     gradient_orthogonality_defect,
                     orthogonality_summary, preprocess_data)
 from .consensus import compute_shared_consensus, mai_score_or_zero
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY
 
 #: The default `simlr` constraint. Named so that "did the caller choose this
 #: weight, or inherit it?" is answerable -- which decides whether an `nsa_w`
@@ -450,19 +450,19 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
     if initialization_type == "nndsvd":
         return [
             simlr_sparseness(_nndsvd_basis_for_view(x, k), constraint_type="ortho",
-                             positivity=positivity, sparseness_quantile=sparseness,
+                             positivity=positivity, sparseness=sparseness,
                              modality_index=idx_m).to(x.dtype)
             if sparseness is not None and x.shape[1] > k
             else _nndsvd_basis_for_view(x, k)
             for idx_m, x in enumerate(data_matrices)
         ]
     if initialization_type == "ica":
-        return [_ica_basis_for_view(x, k, positivity=positivity, sparseness_quantile=sparseness, modality_index=idx_m)
+        return [_ica_basis_for_view(x, k, positivity=positivity, sparseness=sparseness, modality_index=idx_m)
                 for idx_m, x in enumerate(data_matrices)]
     if initialization_type == "perturbed_pca":
         base = [initial_basis_for_view(x, k, positivity=positivity,
                                        initialization_type="pca",
-                                       sparseness_quantile=sparseness,
+                                       sparseness=sparseness,
                                        modality_index=idx_m,
                                        varimax=varimax)
                 for idx_m, x in enumerate(data_matrices)]
@@ -474,7 +474,7 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
             noise = torch.randn(v.shape, generator=generator, dtype=v.dtype)
             raw = v + perturbation_scale * v.norm() * noise / (noise.norm() + 1e-12)
             out.append(simlr_sparseness(raw, constraint_type="ortho", positivity=positivity,
-                                        sparseness_quantile=sparseness, modality_index=idx_m))
+                                        sparseness=sparseness, modality_index=idx_m))
         return out
     if initialization_type == "best_of_n":
         return _best_of_n_basis(data_matrices, k, positivity, generator, n_candidates,
@@ -482,7 +482,7 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
     v_mats = [initial_basis_for_view(x, k, positivity=positivity,
                                      initialization_type=initialization_type,
                                      generator=generator,
-                                     sparseness_quantile=sparseness,
+                                     sparseness=sparseness,
                                      modality_index=idx_m,
                                      varimax=varimax)
               for idx_m, x in enumerate(data_matrices)]
@@ -552,7 +552,7 @@ def _align_multiview_basis_columns(data_matrices: List[torch.Tensor],
 
 
 def _ica_basis_for_view(x: torch.Tensor, k: int, positivity: str = "either",
-                        sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
+                        sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
                         modality_index: Optional[int] = None) -> torch.Tensor:
     """Deterministic spatial ICA initialization on the top-``k`` singular vectors.
 
@@ -606,7 +606,7 @@ def _ica_basis_for_view(x: torch.Tensor, k: int, positivity: str = "either",
 
     v_t = torch.tensor(v_ica, dtype=x.dtype, device=x.device)
     return simlr_sparseness(v_t, constraint_type="ortho", positivity=positivity,
-                            sparseness_quantile=sparseness_quantile, modality_index=modality_index)
+                            sparseness=sparseness, modality_index=modality_index)
 
 
 def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
@@ -658,7 +658,7 @@ def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
         v = v / (v.norm(dim=0, keepdim=True) + 1e-12)
         out.append(simlr_sparseness(v.to(x.dtype), constraint_type="ortho",
                                     positivity=positivity,
-                                    sparseness_quantile=sparseness,
+                                    sparseness=sparseness,
                                     modality_index=idx_m))
     return out
 
@@ -722,7 +722,7 @@ def _domain_informed_basis(data_matrices: List[torch.Tensor],
         if dm is None:
             out.append(initial_basis_for_view(x, k, positivity=positivity,
                                               initialization_type="pca",
-                                              sparseness_quantile=sparseness,
+                                              sparseness=sparseness,
                                               modality_index=idx_m,
                                               varimax=varimax))
             continue
@@ -742,7 +742,7 @@ def _domain_informed_basis(data_matrices: List[torch.Tensor],
             v = torch.cat([v, pad], dim=1)
         out.append(simlr_sparseness(v.to(x.dtype), constraint_type="ortho",
                                     positivity=positivity,
-                                    sparseness_quantile=sparseness,
+                                    sparseness=sparseness,
                                     modality_index=idx_m))
     return out
 
@@ -826,7 +826,7 @@ def initialize_deep_encoders(encoders, data_matrices: List[torch.Tensor], k: int
     from the model that was fitted with it.
     """
     positivity = encoders[0].positivity
-    enc_sparseness = [getattr(enc, "sparseness_quantile", DEFAULT_SPARSENESS) for enc in encoders]
+    enc_sparseness = [getattr(enc, "sparseness", DEFAULT_SPARSENESS) for enc in encoders]
     v_mats = initialize_simlr(data_matrices, k, initialization_type=initialization_type,
                               positivity=positivity, generator=generator,
                               domain_matrices=domain_matrices, n_candidates=n_candidates,
@@ -841,7 +841,7 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
                            positivity: str = "either",
                            initialization_type: str = "pca",
                            generator: Optional[torch.Generator] = None,
-                           sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
+                           sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
                            modality_index: Optional[int] = None,
                            varimax: Optional[bool] = None) -> torch.Tensor:
     """
@@ -887,7 +887,7 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
 
     want_nonneg = _wants_nonneg(positivity)
     varimax = resolve_varimax(varimax, positivity)
-    q_init = _resolve_quantile(sparseness_quantile, modality_index=modality_index)
+    q_init = _resolve_quantile(sparseness, modality_index=modality_index)
 
     if initialization_type == "random":
         if generator is None:
@@ -901,7 +901,7 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
                torch.randn(x.shape[1], k, generator=generator, dtype=x.dtype))
         return simlr_sparseness(raw, constraint_type="ortho",
                                 positivity=positivity,
-                                sparseness_quantile=q_init).to(x.dtype)
+                                sparseness=q_init).to(x.dtype)
     if want_nonneg and x.shape[1] > k:
         fit_from_data = load_nsa_flow_data()
         if fit_from_data is not None:
@@ -970,6 +970,24 @@ def _nonnegative_basis_from_data(fit_from_data, x: torch.Tensor, k: int,
     return candidate
 
 
+def _nsa_data_transform(x, nonneg: bool, **nsa_kwargs) -> Dict[str, Any]:
+    """Run NSA-Flow on a data matrix and return its basis, scores and result.
+    Shared by `nsa_contrast_transform` (signed) and `nsa_nonnegative_transform`
+    (non-negative, basis clamped at 0)."""
+    from .nsa_backend import load_nsa_flow, result_matrix
+    fn = load_nsa_flow()
+    if fn is None:
+        raise RuntimeError("NSA-Flow is not installed. Install with `pip install nsa-flow`.")
+    x_t = torch.as_tensor(x, dtype=torch.float32)
+    res = fn(x_t, nonneg=True, **nsa_kwargs) if nonneg else fn(x_t, **nsa_kwargs)
+    v = result_matrix(res)
+    if v is None:
+        raise RuntimeError("NSA-Flow returned a result with neither 'V' nor 'Y'.")
+    if nonneg:
+        v = torch.clamp_min(v, 0.0)
+    return {"v": v, "scores": x_t @ v, "result": res}
+
+
 def nsa_contrast_transform(x: Union[torch.Tensor, np.ndarray],
                            k: int = 6,
                            w: float = DEFAULT_NSA_W,
@@ -1009,24 +1027,8 @@ def nsa_contrast_transform(x: Union[torch.Tensor, np.ndarray],
         - 'scores': Projection scores [samples, k]
         - 'result': Underlying NSAResult object
     """
-    from .nsa_backend import load_nsa_flow
-    fn = load_nsa_flow()
-    if fn is None:
-        raise RuntimeError("NSA-Flow is not installed. Install with `pip install nsa-flow`.")
-    x_t = torch.as_tensor(x, dtype=torch.float32)
-    res = fn(x_t, k=k, w=w, mode="signed", consolidate=consolidate,
-             optimizer=optimizer, max_iter=max_iter, tol=tol)
-    v = getattr(res, 'V', None)
-    if v is None:
-        v = getattr(res, 'Y', None)
-    if v is None and hasattr(res, 'get'):
-        v = res.get('V') if res.get('V') is not None else res.get('Y')
-    scores = x_t @ v
-    return {
-        "v": v,
-        "scores": scores,
-        "result": res,
-    }
+    return _nsa_data_transform(x, nonneg=False, k=k, w=w, mode="signed", consolidate=consolidate,
+                               optimizer=optimizer, max_iter=max_iter, tol=tol)
 
 
 def nsa_nonnegative_transform(x: Union[torch.Tensor, np.ndarray],
@@ -1064,26 +1066,8 @@ def nsa_nonnegative_transform(x: Union[torch.Tensor, np.ndarray],
         - 'scores': Projection scores [samples, k]
         - 'result': Underlying NSAResult object
     """
-    from .nsa_backend import load_nsa_flow
-    fn = load_nsa_flow()
-    if fn is None:
-        raise RuntimeError("NSA-Flow is not installed. Install with `pip install nsa-flow`.")
-    x_t = torch.as_tensor(x, dtype=torch.float32)
-    res = fn(x_t, k=k, w=w, mode="data", nonneg=True,
-             optimizer=optimizer, max_iter=max_iter, tol=tol)
-    v = getattr(res, 'V', None)
-    if v is None:
-        v = getattr(res, 'Y', None)
-    if v is None and hasattr(res, 'get'):
-        v = res.get('V') if res.get('V') is not None else res.get('Y')
-    if v is not None:
-        v = torch.clamp_min(v, 0.0)
-    scores = x_t @ v
-    return {
-        "v": v,
-        "scores": scores,
-        "result": res,
-    }
+    return _nsa_data_transform(x, nonneg=True, k=k, w=w, mode="data",
+                               optimizer=optimizer, max_iter=max_iter, tol=tol)
 
 def calculate_ica_energy(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, nonlinearity: str = "logcosh", a: float = 1.0) -> torch.Tensor:
     """
@@ -1306,6 +1290,54 @@ def _nonneg_consensus(u):
     return [one(z) for z in u] if isinstance(u, list) else one(u)
 
 
+def _check_views(data_matrices, n_views: Optional[int] = None,
+                 fitting: bool = False) -> List[torch.Tensor]:
+    """Validate a list of views and return them as float32 tensors.
+
+    Shared by `simlr`, `predict_shared_latent` and `predict_simlr`. Requires a
+    non-empty list or tuple of 2-D matrices with equal row counts and, when
+    `n_views` is given, exactly that many. For a fit (`fitting=True`) each
+    view must also be a tensor or array with at least one row and column.
+    """
+    if not isinstance(data_matrices, (list, tuple)) or len(data_matrices) == 0:
+        raise ValueError("data_matrices must be a non-empty list or tuple of matrices/arrays.")
+    if n_views is not None and len(data_matrices) != n_views:
+        raise ValueError(f"Expected {n_views} data matrices matching model views, "
+                         f"but received {len(data_matrices)}.")
+    mats = []
+    for idx, m in enumerate(data_matrices):
+        if fitting and not isinstance(m, (torch.Tensor, np.ndarray)):
+            raise TypeError(f"View {idx} must be a torch.Tensor or np.ndarray, got {type(m).__name__}.")
+        m_t = torch.as_tensor(m).float()
+        if m_t.ndim != 2:
+            raise ValueError(
+                f"Each view in data_matrices must be 2D (samples x features). "
+                f"View {idx} has {m_t.ndim} dimension(s) with shape {tuple(m_t.shape)}.")
+        if fitting and m_t.shape[0] == 0:
+            raise ValueError(f"View {idx} has 0 samples.")
+        if fitting and m_t.shape[1] == 0:
+            raise ValueError(f"View {idx} has 0 features.")
+        mats.append(m_t)
+    n_samples_list = [m.shape[0] for m in mats]
+    if len(set(n_samples_list)) > 1:
+        details = ", ".join(f"view {i}: {n}" for i, n in enumerate(n_samples_list))
+        raise ValueError(
+            f"All data matrices must have identical number of samples (rows), "
+            f"but found mismatched sample counts: {details}.")
+    return mats
+
+
+def _scale_like_training(torch_mats: List[torch.Tensor], simlr_result: Dict[str, Any]) -> List[torch.Tensor]:
+    """Apply the fit's `scale_list` with its recorded per-view provenance
+    (training means and scales), so new data land in the training space."""
+    scale_list = simlr_result.get('scale_list', [])
+    provenance_list = simlr_result.get('provenance_list', [])
+    if not scale_list or scale_list[0] == "none":
+        return torch_mats
+    return [preprocess_data(m, scale_list, provenance=provenance_list[i] if i < len(provenance_list) else None)
+            for i, m in enumerate(torch_mats)]
+
+
 def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           k: int,
           iterations: int = 100,
@@ -1322,7 +1354,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           domain_matrices: Optional[List[Union[torch.Tensor, np.ndarray]]] = None,
           domain_lambdas: Optional[Union[float, List[float]]] = None,
           orthogonalize_u: bool = False,
-          topology: str = "star",
+          topology: str = DEFAULT_TOPOLOGY,
           path_graph: Optional[Dict[int, List[int]]] = None,
           scale_list: Optional[List[str]] = None,
           consolidate: bool = False,
@@ -1509,7 +1541,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         Weight(s) for the domain knowledge alignment objective.
     orthogonalize_u : bool, default=False
         Whether to enforce orthogonality on the consensus matrix U.
-    topology : str, default="star"
+    topology : str, default=DEFAULT_TOPOLOGY ("loo")
         The consensus topology ("star", "loo", "graph").
     path_graph : Dict[int, List[int]], optional
         Adjacency list for "graph" topology.
@@ -1619,36 +1651,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         return _out
 
     # Contract Validation: data_matrices structure
-    if not isinstance(data_matrices, (list, tuple)) or len(data_matrices) == 0:
-        raise ValueError("data_matrices must be a non-empty list or tuple of matrices/arrays.")
-
     if not isinstance(k, (int, np.integer)) or k <= 0:
         raise ValueError(f"k must be a positive integer, got k={k}.")
-
-    torch_mats = []
-    for idx, m in enumerate(data_matrices):
-        if not isinstance(m, (torch.Tensor, np.ndarray)):
-            raise TypeError(f"View {idx} must be a torch.Tensor or np.ndarray, got {type(m).__name__}.")
-        m_t = torch.as_tensor(m).float()
-        if m_t.ndim != 2:
-            raise ValueError(
-                f"Each view in data_matrices must be 2D (samples x features). "
-                f"View {idx} has {m_t.ndim} dimension(s) with shape {tuple(m_t.shape)}."
-            )
-        if m_t.shape[0] == 0:
-            raise ValueError(f"View {idx} has 0 samples.")
-        if m_t.shape[1] == 0:
-            raise ValueError(f"View {idx} has 0 features.")
-        torch_mats.append(m_t)
-
-    # Contract Validation: sample count consistency across all views
-    n_samples_list = [m.shape[0] for m in torch_mats]
-    if len(set(n_samples_list)) > 1:
-        details = ", ".join(f"view {i}: {n}" for i, n in enumerate(n_samples_list))
-        raise ValueError(
-            f"All data matrices must have identical number of samples (rows), "
-            f"but found mismatched sample counts: {details}."
-        )
+    torch_mats = _check_views(data_matrices, fitting=True)
     
     provenance_list = []
     if scale_list is not None and len(scale_list) > 0 and scale_list[0] != "none":
@@ -1832,44 +1837,19 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     mai_mod_weights = torch.ones(n_modalities, dtype=orig_dtype) / n_modalities
 
     def _update_simlr_mai(projs, step_idx, max_steps):
+        # Scores and gate shared with the deep and flow models
+        # (`consensus.loo_mai_scores`, `mai_gated_target`); the schedule is
+        # per sweep here: EMA 0.8, gate and transition both over half the run.
         if not dynamic_weights:
             return None
-        from .consensus import align_column_signs
-        from .flows import VALID_MAI_METRICS
-        if mai_metric not in VALID_MAI_METRICS:
-            raise ValueError(f"unknown mai_metric {mai_metric!r}; choose one of {sorted(VALID_MAI_METRICS)}")
+        from .consensus import loo_mai_scores, mai_gated_target
         with torch.no_grad():
-            work_projs = ([torch.argsort(torch.argsort(p, dim=0), dim=0).to(orig_dtype) for p in projs]
-                          if use_rank_mai else projs)
-            norm_projs = []
-            for p in work_projs:
-                p_c = p - p.mean(dim=0, keepdim=True)
-                p_norm = torch.norm(p_c, p='fro')
-                norm_projs.append(p_c / p_norm if p_norm > 1e-8 else torch.zeros_like(p_c))
-            mais = []
-            for idx_p in range(len(norm_projs)):
-                loo_projs = [norm_projs[j] for j in range(len(norm_projs)) if j != idx_p]
-                if not loo_projs:
-                    mais.append(1.0)
-                    continue
-                u_loo = torch.mean(torch.stack(align_column_signs(loo_projs)), dim=0)
-                u_loo_norm = torch.norm(u_loo, p='fro')
-                if u_loo_norm > 1e-8:
-                    u_loo = u_loo / u_loo_norm
-                    Z = norm_projs[idx_p]
-                    mais.append(mai_score_or_zero(Z, u_loo, mai_metric, idx_p))
-                else:
-                    mais.append(0.0)
-            mai_t = torch.tensor(mais, dtype=orig_dtype)
+            mai_t = torch.tensor(loo_mai_scores(projs, mai_metric, use_rank=use_rank_mai), dtype=orig_dtype)
             mai_ema.copy_(0.8 * mai_ema + 0.2 * mai_t)
-            center = mai_ema.mean()
-            progress = min(1.0, max(0, step_idx) / max(1.0, float(max_steps) * 0.5))
-            steepness = 5.0 + 10.0 * progress
-            gate = torch.sigmoid(steepness * (mai_ema - center))
-            raw_w = mai_ema * gate
-            target_w = raw_w / (raw_w.sum() + 1e-8)
+            half = max(1.0, float(max_steps) * 0.5)
+            target_w = mai_gated_target(mai_ema, 5.0 + 10.0 * min(1.0, max(0, step_idx) / half))
             uniform_w = torch.ones_like(target_w) / len(target_w)
-            rho = min(1.0, max(0.0, float(step_idx) / max(1.0, float(max_steps) * 0.5)))
+            rho = min(1.0, max(0.0, float(step_idx) / half))
             mai_mod_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
             return mai_mod_weights
 
@@ -1879,6 +1859,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         is_warm_start = (raw_it == 0)
         it = raw_it - 1
         cert_terms = []
+        # Views whose optimizer step returned the iterate unchanged (the line
+        # search found no decrease). Such a step has a fixed-point residual of
+        # exactly 0 without the iterate being stationary, so it must not count
+        # toward the certificate.
+        zero_step_views = 0
         projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
         cur_mod_w = _update_simlr_mai(projections, max(0, it), max(1, iterations))
         u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph, modality_weights=cur_mod_w)
@@ -1909,7 +1894,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                     v_cand.to(orig_dtype), constraint_type=constraint_type,
                     smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None,
                     positivity=positivity,
-                    sparseness_quantile=_loop_sp,
+                    sparseness=_loop_sp,
                     constraint_weight=constraint_weight, constraint_iterations=constraint_iterations,
                     energy_type=energy_type, modality_index=i)
 
@@ -1972,16 +1957,22 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             if hasattr(optimizer, "gradient_function"):
                 optimizer.gradient_function = smooth_gradient_fn
             v_updated = optimizer.step(i, v_mats[i], total_grad, smooth_energy_fn)
-            
+            zero_step = bool(torch.equal(v_updated, v_before))
+
             # Apply final projection
             retraction_diags[i] = {}
-            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness_quantile=_loop_sp, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type, modality_index=i, retraction_diagnostics=retraction_diags[i])
+            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness=_loop_sp, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type, modality_index=i, retraction_diagnostics=retraction_diags[i])
             resid = float(torch.linalg.norm(v_mats[i] - v_before)
                           / torch.linalg.norm(v_before).clamp_min(1e-300))
-            prev_resid[i] = resid
-            cert_terms.append(resid)
             retraction_diags[i]["fixed_point_residual"] = resid
             retraction_diags[i]["grad_map_E"] = gm_E
+            if zero_step:
+                retraction_diags[i]["zero_step"] = True
+                prev_resid[i] = None
+                zero_step_views += 1
+            else:
+                prev_resid[i] = resid
+                cert_terms.append(resid)
             
         if is_warm_start:
             _calibrate_weights(v_mats, u, orth_floor=1e-10)
@@ -2018,6 +2009,14 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         grad_map_history.append(this_grad_map)
 
         plateaued = monitor.update(total_energy)
+
+        if zero_step_views == n_modalities:
+            # No view found a descent step. This is a line-search failure,
+            # not a certificate: the fit stops, uncertified, at its best iterate.
+            stop_reason, certificate = "no_descent", None
+            converged_iter = it + 1
+            if verbose: print(f"No descent step at iteration {it}")
+            break
 
         if cert_terms and monitor.certify("grad_map", this_grad_map, tol):
             stop_reason, certificate = "grad_map", "stationary"
@@ -2085,15 +2084,24 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
     # Re-calculate final shared consensus after the last V update
     projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
-    u_raw = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
+    # `topology` sets the training objective only: under "loo"/"graph" each
+    # view was scored against a consensus of the other views. The reported
+    # shared latent, the reconstruction weights and the prediction map are
+    # always the all-view ("star") consensus, as on the deep and flow paths;
+    # the per-view training targets are returned as `u_per_modality`.
+    u_per_modality = None
+    if topology != "star":
+        u_targets = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
+        u_per_modality = [_nonneg_consensus(t) if nonneg_u else t for t in u_targets]
+    u_raw = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology="star")
     u = _nonneg_consensus(u_raw) if nonneg_u else u_raw
     # Capture the linear map this consensus used, so that
     # `predict_shared_latent` can apply it to new data instead of
     # deriving a fresh one. See `_capture_consensus_anchor`.
     consensus_anchor = _capture_consensus_anchor(
-        projections, mixing_algorithm, k, orthogonalize_u, topology, path_graph)
+        projections, mixing_algorithm, k, orthogonalize_u, "star", None)
     consensus_stats = _capture_consensus_stats(
-        projections, u_raw, mixing_algorithm, consensus_anchor, topology)
+        projections, u_raw, mixing_algorithm, consensus_anchor, "star")
     # The general frozen map covers what the star statistics do not
     # ("loo"/"graph" topologies, an anchorless SVD/PCA/ICA consensus); without
     # it those predictions were re-derived from each test batch.
@@ -2112,7 +2120,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         w_mats.append(torch.linalg.pinv(u_i) @ x)
 
     return {
-        "u": u, "v": v_mats, "w": w_mats, "energy": energy_history,
+        "u": u, "u_per_modality": u_per_modality, "v": v_mats, "w": w_mats, "energy": energy_history,
         # Per-view first-layer projections of the (preprocessed) training
         # data, the same quantity `predict_simlr` returns as "latents".
         "latents": [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)],
@@ -2432,49 +2440,14 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         If inputs are of invalid type.
     """
     # 1. Contract Validation
-    if not isinstance(data_matrices, (list, tuple)) or len(data_matrices) == 0:
-        raise ValueError("data_matrices must be a non-empty list or tuple of matrices/arrays.")
+    torch_mats = _check_views(data_matrices, n_views=len(simlr_result['v']) if simlr_result.get('v') is not None else None)
 
-    v_mats = simlr_result.get('v')
-    if v_mats is not None and len(data_matrices) != len(v_mats):
-        raise ValueError(
-            f"Expected {len(v_mats)} data matrices matching model views, "
-            f"but received {len(data_matrices)}."
-        )
-
-    for idx, m in enumerate(data_matrices):
-        m_t = torch.as_tensor(m)
-        if m_t.ndim != 2:
-            raise ValueError(
-                f"Each view in data_matrices must be 2D (samples x features). "
-                f"View {idx} has {m_t.ndim} dimension(s) with shape {tuple(m_t.shape)}."
-            )
-
-    n_samples_list = [torch.as_tensor(m).shape[0] for m in data_matrices]
-    if len(set(n_samples_list)) > 1:
-        details = ", ".join(f"view {i}: {n}" for i, n in enumerate(n_samples_list))
-        raise ValueError(
-            f"All data matrices must have identical number of samples (rows), "
-            f"but found mismatched sample counts: {details}."
-        )
-
-    # 2. Preprocess data matrices
-    torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
-    scale_list = simlr_result.get('scale_list', [])
-    provenance_list = simlr_result.get('provenance_list', [])
-    if scale_list and scale_list[0] != "none":
-        scaled_mats = []
-        for i, m in enumerate(torch_mats):
-            prov = provenance_list[i] if i < len(provenance_list) else None
-            m_scaled = preprocess_data(m, scale_list, provenance=prov)
-            scaled_mats.append(m_scaled)
-        torch_mats = scaled_mats
+    # 2. Preprocess with the training statistics
+    torch_mats = _scale_like_training(torch_mats, simlr_result)
 
     v_mats = simlr_result['v']
     mixing_alg = simlr_result.get('mixing_algorithm', 'svd')
     orthogonalize_u = simlr_result.get('orthogonalize_u', False)
-    topology = simlr_result.get('topology', 'star')
-    path_graph = simlr_result.get('path_graph', None)
     k = v_mats[0].shape[1]
     
     # 2. Project to shared space
@@ -2492,7 +2465,7 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     if u_new is None:
         # Results from before 0.3.0 carry neither statistics nor a map; the
         # consensus is then re-derived from this batch and depends on it.
-        u_new = compute_shared_consensus(projections, mixing_algorithm=mixing_alg, k=k, orthogonalize=orthogonalize_u, training=False, anchor=anchor, topology=topology, path_graph=path_graph)
+        u_new = compute_shared_consensus(projections, mixing_algorithm=mixing_alg, k=k, orthogonalize=orthogonalize_u, training=False, anchor=anchor, topology="star")
     if simlr_result.get('nonneg_u', False):
         u_new = _nonneg_consensus(u_new)
     return u_new
@@ -2568,43 +2541,9 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         If the inputs are not valid formats.
     """
     # 1. Contract Validation
-    if not isinstance(data_matrices, (list, tuple)) or len(data_matrices) == 0:
-        raise ValueError("data_matrices must be a non-empty list or tuple of matrices/arrays.")
+    torch_mats = _check_views(data_matrices, n_views=len(simlr_result['v']) if simlr_result.get('v') is not None else None)
 
-    v_mats = simlr_result.get('v')
-    if v_mats is not None and len(data_matrices) != len(v_mats):
-        raise ValueError(
-            f"Expected {len(v_mats)} data matrices matching model views, "
-            f"but received {len(data_matrices)}."
-        )
-
-    for idx, m in enumerate(data_matrices):
-        m_t = torch.as_tensor(m)
-        if m_t.ndim != 2:
-            raise ValueError(
-                f"Each view in data_matrices must be 2D (samples x features). "
-                f"View {idx} has {m_t.ndim} dimension(s) with shape {tuple(m_t.shape)}."
-            )
-
-    n_samples_list = [torch.as_tensor(m).shape[0] for m in data_matrices]
-    if len(set(n_samples_list)) > 1:
-        details = ", ".join(f"view {i}: {n}" for i, n in enumerate(n_samples_list))
-        raise ValueError(
-            f"All data matrices must have identical number of samples (rows), "
-            f"but found mismatched sample counts: {details}."
-        )
-
-    torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
-    
-    scale_list = simlr_result.get('scale_list', [])
-    provenance_list = simlr_result.get('provenance_list', [])
-    if scale_list and scale_list[0] != "none":
-        scaled_mats = []
-        for i, m in enumerate(torch_mats):
-            prov = provenance_list[i] if i < len(provenance_list) else None
-            m_scaled = preprocess_data(m, scale_list, provenance=prov)
-            scaled_mats.append(m_scaled)
-        torch_mats = scaled_mats
+    torch_mats = _scale_like_training(torch_mats, simlr_result)
 
     if 'model' in simlr_result:
         # Fallback to predict_deep logic if a deep model is detected

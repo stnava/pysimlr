@@ -49,7 +49,7 @@ def test_lend_nsa_encoder_demo_logic():
 def test_lend_nsa_encoder_sparsity():
     d, k = 20, 5
     q = 0.5
-    enc = LENDNSAEncoder(d, latent_dim=k, sparseness_quantile=q)
+    enc = LENDNSAEncoder(d, latent_dim=k, sparseness=q)
     enc.eval()
     v = enc.v
     sparsity = (v == 0).float().mean().item()

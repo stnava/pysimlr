@@ -145,7 +145,7 @@ def test_deep_decoder_no_dropout():
     assert res.shape == (10, 5)
 
 def test_deep_lend_simr_model_branches():
-    model = LENDSiMRModel(input_dims=[5, 6], latent_dim=2, sparseness_quantile=0.1)
+    model = LENDSiMRModel(input_dims=[5, 6], latent_dim=2, sparseness=0.1)
     x1 = torch.randn(10, 1)
     x2 = torch.randn(10, 1)
     model.initialize_v([x1, x2], k=2)

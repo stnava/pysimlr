@@ -818,7 +818,7 @@ def indicator_opt_both_ways(m: torch.Tensor, verbose: bool = False) -> torch.Ten
     return torch.where(indicator > 0, m, torch.zeros_like(m))
 
 def rank_based_matrix_segmentation(v: torch.Tensor, 
-                                   sparseness_quantile: float, 
+                                   sparseness: float, 
                                    basic: bool = False, 
                                    positivity: str = "positive", 
                                    transpose: bool = False) -> torch.Tensor:
@@ -832,11 +832,11 @@ def rank_based_matrix_segmentation(v: torch.Tensor,
     ----------
     v : torch.Tensor
         The matrix to segment.
-    sparseness_quantile : float
+    sparseness : float
         The quantile of elements to set to zero (0.0 to 1.0).
     basic : bool, default=False
         If False, uses assignment-based segmentation (`indicator_opt_both_ways`),
-        retaining a single entry per row and column; `sparseness_quantile` is
+        retaining a single entry per row and column; `sparseness` is
         not used in this mode because the assignment fixes the retained count.
         If True, uses quantile-based thresholding.
     positivity : str, default="positive"
@@ -866,7 +866,7 @@ def rank_based_matrix_segmentation(v: torch.Tensor,
     if not basic:
         # Assignment-based segmentation: one retained entry per row/column.
         # `positivity` still applies, so a "positive" request cannot come back
-        # negative; `sparseness_quantile` has no meaning here because the
+        # negative; `sparseness` has no meaning here because the
         # assignment already fixes how many entries survive.
         if positivity == "positive":
             v_resolved = _resolve_column_sign_gauge(v.t()).t() if v.ndim == 2 else v
@@ -880,7 +880,7 @@ def rank_based_matrix_segmentation(v: torch.Tensor,
         return outmat.t() if transpose else outmat
 
     outmat = torch.zeros_like(v)
-    n_to_keep = int(round(v.shape[1] * (1.0 - sparseness_quantile)))
+    n_to_keep = int(round(v.shape[1] * (1.0 - sparseness)))
     n_to_keep = max(0, min(n_to_keep, v.shape[1]))
     if n_to_keep == 0:
         return outmat.t() if transpose else outmat
@@ -915,7 +915,7 @@ def rank_based_matrix_segmentation(v: torch.Tensor,
     return outmat
 
 def orthogonalize_and_q_sparsify(v: torch.Tensor, 
-                                 sparseness_quantile: float = 0.0, 
+                                 sparseness: float = 0.0, 
                                  positivity: str = "either",
                                  orthogonalize: bool = True,
                                  unit_norm: bool = True,
@@ -932,7 +932,7 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
     ----------
     v : torch.Tensor
         The input matrix (features x components).
-    sparseness_quantile : float, default=0.0
+    sparseness : float, default=0.0
         Proportion of elements to zero out.
     positivity : str, default="either"
         Sign constraints: "positive", "negative", or "either".
@@ -956,9 +956,9 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
         If inputs are of invalid types.
     """
     if sparseness_alg == "orthorank":
-        return rank_based_matrix_segmentation(v, sparseness_quantile, basic=False, positivity=positivity, transpose=True)
+        return rank_based_matrix_segmentation(v, sparseness, basic=False, positivity=positivity, transpose=True)
     elif sparseness_alg == "basic":
-        return rank_based_matrix_segmentation(v, sparseness_quantile, basic=True, positivity=positivity, transpose=True)
+        return rank_based_matrix_segmentation(v, sparseness, basic=True, positivity=positivity, transpose=True)
 
     if torch.all(v == 0):
         return v.clone()
@@ -973,12 +973,12 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
         retracted = _nsa_retract(v_out, w=NSA_DEFAULT_W, nonneg=nonneg)
         v_out = retracted if retracted is not None else _svd_polar(v_out)
         
-    sparsify = (isinstance(sparseness_quantile, (list, torch.Tensor, np.ndarray))
-                or sparseness_quantile > 0)
+    sparsify = (isinstance(sparseness, (list, torch.Tensor, np.ndarray))
+                or sparseness > 0)
 
     if not sparsify:
         # `unit_norm` used to be honoured only on the sparsification path, so
-        # with sparseness_quantile == 0 the columns were left unnormalized no
+        # with sparseness == 0 the columns were left unnormalized no
         # matter what the caller asked for. Column scale is arbitrary for a
         # basis matrix, and leaving it free lets covariance-style energies grow
         # without bound.
@@ -1002,7 +1002,7 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
                     local_v = -local_v
                 local_v = torch.clamp(local_v, max=0.0)
             
-            sq = sparseness_quantile[vv] if isinstance(sparseness_quantile, (list, torch.Tensor, np.ndarray)) else sparseness_quantile
+            sq = sparseness[vv] if isinstance(sparseness, (list, torch.Tensor, np.ndarray)) else sparseness
             if sq <= 0:
                 if unit_norm:
                     norm = torch.norm(local_v)
@@ -1258,13 +1258,13 @@ def enforce_column_floor(v: torch.Tensor,
 
 
 def _resolve_quantile(
-    sparseness_quantile: Optional[Union[float, List[Optional[float]], tuple, np.ndarray]],
+    sparseness: Optional[Union[float, List[Optional[float]], tuple, np.ndarray]],
     modality_index: Optional[int] = None,
 ) -> Optional[float]:
     """Resolve a scalar or per-view quantile in (0, 1); returns None when unset or <= 0."""
-    if sparseness_quantile is None:
+    if sparseness is None:
         return None
-    q = sparseness_quantile
+    q = sparseness
     if isinstance(q, (list, tuple, np.ndarray)):
         if len(q) == 0:
             return None
@@ -1346,7 +1346,7 @@ def simlr_sparseness(v: torch.Tensor,
                      constraint_type: str = "none",
                      smoothing_matrix: Optional[torch.Tensor] = None,
                      positivity: str = 'either',
-                     sparseness_quantile: Optional[Union[float, List[Optional[float]]]] = None,
+                     sparseness: Optional[Union[float, List[Optional[float]]]] = None,
                      constraint_weight: Optional[float] = None,
                      constraint_iterations: int = 1,
                      sparseness_alg: str = 'soft',
@@ -1357,9 +1357,9 @@ def simlr_sparseness(v: torch.Tensor,
     """
     Project a basis onto the NSA-Flow feasible set with optional column-wise quantile sparsification.
 
-    When ``sparseness_quantile`` is ``None`` (the default), sparsity is governed
+    When ``sparseness`` is ``None`` (the default), sparsity is governed
     solely by the NSA-Flow weight ``w`` and sign constraint. When
-    ``sparseness_quantile`` is set to a quantile ``q in (0, 1)`` (or a per-view
+    ``sparseness`` is set to a quantile ``q in (0, 1)`` (or a per-view
     list of quantiles, as in R ``ANTsR::simlr``), column-wise quantile
     soft-thresholding strips the diffuse background off each column before
     NSA-Flow retraction and re-optimises the NSA-Flow energy restricted to the
@@ -1381,7 +1381,7 @@ def simlr_sparseness(v: torch.Tensor,
             DeprecationWarning, stacklevel=2,
         )
 
-    q_val = _resolve_quantile(sparseness_quantile, modality_index=modality_index)
+    q_val = _resolve_quantile(sparseness, modality_index=modality_index)
 
     nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg', 'softplus')
     negative = (positivity == 'negative')

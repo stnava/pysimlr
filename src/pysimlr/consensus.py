@@ -357,6 +357,62 @@ def mai_score_or_zero(z: torch.Tensor, u_loo: torch.Tensor, metric: str, view: i
         return 0.0
 
 
+#: Same set as `MAI_METRICS`, as a frozenset for membership checks.
+VALID_MAI_METRICS = frozenset(MAI_METRICS)
+
+
+def check_mai_metric(metric: str) -> str:
+    """Return `metric` or raise naming the valid choices. Checked before any
+    scoring so a misspelled metric cannot become a uniform weighting."""
+    if metric not in VALID_MAI_METRICS:
+        raise ValueError(
+            f"unknown mai_metric {metric!r}; choose one of {sorted(VALID_MAI_METRICS)}. "
+            f"'trace' was removed because tr(Z'u) is not invariant to the arbitrary "
+            f"rotation of the latent coordinates.")
+    return metric
+
+
+def loo_mai_scores(latents: List[torch.Tensor], metric: str,
+                   use_rank: bool = False) -> List[float]:
+    """Leave-one-out agreement of every view with the others, one float per view.
+
+    Each latent is centred and scaled to unit Frobenius norm (optionally after a
+    column-wise rank transform); view i is scored by `mai_score` against the
+    sign-aligned mean of the other views (`utils.align_column_signs`), and a
+    view scores 1.0 when it is the only one. Shared by `simlr` and every deep
+    and flow model; only the weighting schedule built on these scores differs.
+    """
+    check_mai_metric(metric)
+    if use_rank:
+        latents = [torch.argsort(torch.argsort(p, dim=0), dim=0).to(p.dtype) for p in latents]
+    norm_projs = []
+    for p in latents:
+        p_c = p - p.mean(dim=0, keepdim=True)
+        p_norm = torch.norm(p_c, p="fro")
+        norm_projs.append(p_c / p_norm if p_norm > 1e-8 else torch.zeros_like(p_c))
+    mais = []
+    for i in range(len(norm_projs)):
+        others = [norm_projs[j] for j in range(len(norm_projs)) if j != i]
+        if not others:
+            mais.append(1.0)
+            continue
+        # Sign-aligned: unaligned views cancel in this average exactly as they
+        # do in the consensus.
+        u_loo = torch.mean(torch.stack(align_column_signs(others)), dim=0)
+        u_norm = torch.norm(u_loo, p="fro")
+        mais.append(mai_score_or_zero(norm_projs[i], u_loo / u_norm, metric, i)
+                    if u_norm > 1e-8 else 0.0)
+    return mais
+
+
+def mai_gated_target(mai: torch.Tensor, steepness: float) -> torch.Tensor:
+    """Target modality weights from smoothed MAI scores: each score times a
+    sigmoid gate centred on the mean score, renormalised to sum to one."""
+    gate = torch.sigmoid(steepness * (mai - mai.mean()))
+    raw = mai * gate
+    return raw / (raw.sum() + 1e-8)
+
+
 def capture_consensus_map(projections: List[torch.Tensor],
                           u: Union[torch.Tensor, List[torch.Tensor]]) -> Dict[str, Any]:
     """Freeze the training batch's consensus as a row-wise affine map.

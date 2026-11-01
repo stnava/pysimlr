@@ -394,6 +394,15 @@ def extract_first_layer_factors(
     return first_layer
 
 
+def _fit_with_importance(z0: torch.Tensor, target: torch.Tensor, v: torch.Tensor, l2: float):
+    """Ridge map from first-layer scores `z0` to `target`, the mean absolute
+    coefficient per component, and that importance carried back to features
+    through the basis `v`."""
+    fit = _fit_linear_map(z0, target, l2=l2)
+    component_importance = torch.mean(torch.abs(fit["coefficients"]), dim=1)
+    return fit, component_importance, _feature_importance_from_basis(v, component_importance)
+
+
 def _feature_importance_from_basis(
     v: torch.Tensor,
     component_importance: torch.Tensor,
@@ -451,9 +460,7 @@ def analyze_first_layer_alignment(
     per_modality: List[Dict[str, Any]] = []
     global_r2_values: List[float] = []
     for modality_index, (z0, z1, v) in enumerate(zip(z0_list, z1_list, first_layer["v"])):
-        fit = _fit_linear_map(z0, z1, l2=l2)
-        component_importance = torch.mean(torch.abs(fit["coefficients"]), dim=1)
-        feature_importance = _feature_importance_from_basis(v, component_importance)
+        fit, component_importance, feature_importance = _fit_with_importance(z0, z1, v, l2)
         corr = _column_correlation_matrix(z0, z1)
         per_modality.append({
             "modality_index": int(modality_index),
@@ -521,9 +528,7 @@ def attribute_shared_to_first_layer(
     global_r2_values: List[float] = []
     for modality_index, (z0, v) in enumerate(zip(z0_list, v_list)):
         u = u_all[modality_index] if isinstance(u_all, list) else u_all
-        fit = _fit_linear_map(z0, u, l2=l2)
-        component_importance = torch.mean(torch.abs(fit["coefficients"]), dim=1)
-        feature_importance = _feature_importance_from_basis(v, component_importance)
+        fit, component_importance, feature_importance = _fit_with_importance(z0, u, v, l2)
         per_modality.append({
             "modality_index": int(modality_index),
             "global_r2": float(fit["global_r2"]),
@@ -614,9 +619,7 @@ def attribute_prediction_to_features(
 
     per_modality: List[Dict[str, Any]] = []
     for modality_index, (z0, v) in enumerate(zip(z0_list, v_list)):
-        fit = _fit_linear_map(z0, y, l2=l2)
-        component_importance = torch.mean(torch.abs(fit["coefficients"]), dim=1)
-        feature_importance = _feature_importance_from_basis(v, component_importance)
+        fit, component_importance, feature_importance = _fit_with_importance(z0, y, v, l2)
         per_modality.append({
             "modality_index": int(modality_index),
             "global_r2": float(fit["global_r2"]),

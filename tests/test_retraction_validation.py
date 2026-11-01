@@ -74,7 +74,7 @@ def test_simlr_sparseness_never_returns_a_zero_basis(p_dim, k, constraint_weight
     v = torch.linalg.qr(torch.randn(p_dim, k))[0]
     out = simlr_sparseness(
         v, constraint_type="ortho", positivity="positive",
-        sparseness_quantile=0.5, constraint_weight=constraint_weight,
+        sparseness=0.5, constraint_weight=constraint_weight,
         constraint_iterations=1,
     )
     assert torch.isfinite(out).all()

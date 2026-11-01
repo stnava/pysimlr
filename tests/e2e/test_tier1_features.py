@@ -56,7 +56,7 @@ def test_simlr_stiefel_constraint_is_near_orthogonal(synthetic_two_views):
 
     The column norms are still exact; only the off-diagonals carry the slack.
 
-    `sparseness_quantile` is set to 0 deliberately. It defaults to 0.5, and a
+    `sparseness` is set to 0 deliberately. It defaults to 0.5, and a
     50% soft threshold applied after the retraction moves the basis further off
     the manifold -- so leaving it on would test the interaction rather than the
     constraint. See
