@@ -164,6 +164,7 @@ def _procrustes(a: np.ndarray, ref: np.ndarray) -> np.ndarray:
 
 def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 100,
                       fraction: float = 0.5, threshold: float = 0.8,
+                      expected_false: float = 1.0,
                       n_permutations: int = 0, random_state: int = 0,
                       **params: Any) -> Dict[str, Any]:
     r"""Uncertainty and selection for `structure`, by refitting the whole pipeline.
@@ -192,8 +193,12 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         rows of every view but the first permuted independently, i.e. no
         shared signal).
 
-    ``q_m`` is the number of features the fit's own ``sparseness`` keeps,
-    ``round((1 - sparseness) p_m)``, or ``ceil(sqrt(p_m))`` without sparsity.
+    ``q_m``, the number of features each refit selects in view ``m``, is set
+    from the tolerated number of false selections (``expected_false``, per
+    view) by inverting the bound: ``q_m = floor(sqrt(expected_false *
+    (2 threshold - 1) p_m))``. Tying ``q`` to the fit's sparsity instead (half
+    of the features) made the bound vacuous: on ADNI-MCI it promised ~165
+    expected false selections among ~170 selected.
     """
     from .api import as_views, fit
     if not 0.0 < fraction < 1.0:
@@ -206,9 +211,9 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     ref = fit(method, view_list, k, random_state=random_state, **params)
     c_ref = [c.double().numpy() for c in ref["structure"]]
     stacked_ref = np.vstack(c_ref)
-    sp = ref.get("sparseness")
-    sp = float(sp[0] if isinstance(sp, (list, tuple)) else sp) if sp is not None else None
-    qs = [max(1, int(round((1 - sp) * c.shape[0]))) if sp else int(np.ceil(np.sqrt(c.shape[0])))
+    if expected_false <= 0:
+        raise ValueError(f"expected_false must be positive; got {expected_false}.")
+    qs = [max(1, min(c.shape[0], int(np.floor(np.sqrt(expected_false * (2 * threshold - 1) * c.shape[0])))))
           for c in c_ref]
     sizes = np.cumsum([0] + [c.shape[0] for c in c_ref])
     aligned, chosen = [], [[] for _ in c_ref]

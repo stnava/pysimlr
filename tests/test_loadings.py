@@ -160,7 +160,9 @@ def test_loading_inference_reports_intervals_stability_and_selection():
         f = out["selection_frequency"][vi]
         assert ((f >= 0) & (f <= 1)).all() and out["selected"][vi].dtype == torch.bool
         q = out["q"][vi]
+        assert q == int(np.floor(np.sqrt(1.0 * (2 * 0.8 - 1) * p)))
         assert out["expected_false_selections"][vi] == pytest.approx(q ** 2 / ((2 * 0.8 - 1) * p))
+        assert out["expected_false_selections"][vi] <= 1.0
     assert out["null_max_abs"] > 0
 
 
