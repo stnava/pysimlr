@@ -130,7 +130,7 @@ def _apply_smoothing(v: torch.Tensor, smoothing_matrix: Any) -> torch.Tensor:
     # Entries hold the operator itself: `id()` is only unique among live
     # objects, so a new matrix at a freed matrix's address would otherwise hit
     # the old matrix's entries. The reference also keeps that address taken.
-    for owner, prev_in, prev_out in _SMOOTHING_CACHE.get(key, ()):
+    for owner, prev_in, prev_out in reversed(_SMOOTHING_CACHE.get(key, ())):
         if owner is smoothing_matrix and (torch.equal(prev_in, v_det) or torch.equal(prev_out, v_det)):
             return prev_out.clone()
     out = smoothing_matrix @ v
@@ -195,8 +195,14 @@ def _nsa_retract(v: torch.Tensor,
     # Entries hold the backend function: keyed on `id(fn)` alone, a new
     # backend at a freed one's address (seen with per-test mocks) hit the old
     # entries and was never called.
-    for owner, prev_in, prev_out, prev_diag in _NSA_RETRACT_CACHE.get(cache_key, ()):
-        if owner is fn and (torch.equal(prev_in, v_detached) or torch.equal(prev_out, v_detached)):
+    v_fp = float(v_detached.reshape(-1)[0]) if v_detached.numel() > 0 else 0.0
+    v_fp_nan = v_fp != v_fp
+    for owner, prev_in, prev_out, prev_diag, in_fp, out_fp in reversed(_NSA_RETRACT_CACHE.get(cache_key, ())):
+        if owner is not fn:
+            continue
+        in_match = (in_fp != in_fp) if v_fp_nan else (v_fp == in_fp)
+        out_match = (out_fp != out_fp) if v_fp_nan else (v_fp == out_fp)
+        if (in_match and torch.equal(prev_in, v_detached)) or (out_match and torch.equal(prev_out, v_detached)):
             if diagnostics is not None:
                 diagnostics.update(prev_diag)
             return prev_out.clone()
@@ -235,7 +241,11 @@ def _nsa_retract(v: torch.Tensor,
     if not _usable_retraction(candidate, v, nonneg=nonneg):
         return None
     bucket = _cache_bucket(_NSA_RETRACT_CACHE, cache_key)
-    bucket.append((fn, v_detached.clone(), candidate.detach().clone(), dict(diag_snapshot)))
+    in_c = v_detached.clone()
+    out_c = candidate.detach().clone()
+    in_fp = float(in_c.reshape(-1)[0]) if in_c.numel() > 0 else 0.0
+    out_fp = float(out_c.reshape(-1)[0]) if out_c.numel() > 0 else 0.0
+    bucket.append((fn, in_c, out_c, dict(diag_snapshot), in_fp, out_fp))
     if len(bucket) > _CACHE_MAXSIZE:
         bucket.pop(0)
     return candidate
@@ -1260,42 +1270,47 @@ def _apply_quantile_sparseness(
     if n_keep >= p:
         return v
 
-    cols_out = []
     use_soft = (str(alg).lower() != "hard")
-    for j in range(k):
-        col = v[:, j]
-        mag = col.abs()
-        max_mag = float(mag.detach().max())
-        if max_mag <= 0.0:
-            cols_out.append(torch.zeros_like(col))
-            continue
-        if only_if_denser:
-            nnz_j = int((mag.detach() > 1e-12 * max_mag).sum())
-            if nnz_j <= n_keep:
-                clean_mask = mag > 1e-12 * max_mag
-                cols_out.append(torch.where(clean_mask, col, torch.zeros_like(col)))
-                continue
-        vals, idx_sort = torch.sort(mag, descending=True)
-        thresh = vals[n_keep].detach()
-        if use_soft and float((vals[0] - thresh).detach()) > 1e-12:
-            shrunk = torch.sign(col) * torch.clamp(mag - thresh, min=0.0)
-            # If ties at the threshold kept more than n_keep entries, mask strictly to top n_keep
-            if int((shrunk.detach().abs() > 0).sum()) > n_keep:
-                keep_mask = torch.zeros(p, dtype=torch.bool, device=v.device)
-                keep_mask[idx_sort[:n_keep]] = True
-                shrunk = torch.where(keep_mask, shrunk, torch.zeros_like(shrunk))
-            # Guard against a tie where vals[n_keep - 1] == thresh zeroed all entries
-            if float(shrunk.detach().abs().max()) <= 0.0:
-                keep_mask = torch.zeros(p, dtype=torch.bool, device=v.device)
-                keep_mask[idx_sort[:n_keep]] = True
-                cols_out.append(torch.where(keep_mask, col, torch.zeros_like(col)))
-            else:
-                cols_out.append(shrunk)
-        else:
-            keep_mask = torch.zeros(p, dtype=torch.bool, device=v.device)
-            keep_mask[idx_sort[:n_keep]] = True
-            cols_out.append(torch.where(keep_mask, col, torch.zeros_like(col)))
-    return torch.stack(cols_out, dim=1)
+    mag = v.abs()
+    if only_if_denser:
+        max_mag = mag.detach().amax(dim=0)
+        zero_col = max_mag <= 0.0
+        if bool(zero_col.all()):
+            return torch.zeros_like(v.detach())
+        clean_thresh = 1e-12 * max_mag.unsqueeze(0)
+        nnz_cols = (mag.detach() > clean_thresh).sum(dim=0)
+        already_sparse = (~zero_col) & (nnz_cols <= n_keep)
+        clean_out = torch.where(mag > clean_thresh, v, torch.zeros_like(v))
+        if bool((already_sparse | zero_col).all()):
+            if bool(zero_col.any()):
+                clean_out = torch.where(zero_col.unsqueeze(0), torch.zeros_like(clean_out), clean_out)
+            return clean_out
+    else:
+        already_sparse = None
+        clean_out = None
+
+    vals, idx_sort = torch.sort(mag, dim=0, descending=True)
+    max_mag = vals[0].detach()
+    zero_col = max_mag <= 0.0
+    if bool(zero_col.all()):
+        return torch.zeros_like(v.detach())
+    thresh = vals[n_keep].detach()
+    keep_mask = torch.zeros_like(mag, dtype=torch.bool)
+    keep_mask.scatter_(0, idx_sort[:n_keep], True)
+    hard_out = torch.where(keep_mask, v, torch.zeros_like(v))
+    if use_soft:
+        shrunk = torch.sign(v) * torch.clamp(mag - thresh.unsqueeze(0), min=0.0)
+        nnz = (shrunk.detach().abs() > 0).sum(dim=0)
+        shrunk = torch.where((nnz > n_keep).unsqueeze(0) & ~keep_mask, torch.zeros_like(shrunk), shrunk)
+        use_shrunk = ((vals[0] - thresh).detach() > 1e-12) & (shrunk.detach().abs().amax(dim=0) > 0.0)
+        out = torch.where(use_shrunk.unsqueeze(0), shrunk, hard_out)
+    else:
+        out = hard_out
+    if already_sparse is not None and bool(already_sparse.any()):
+        out = torch.where(already_sparse.unsqueeze(0), clean_out, out)
+    if bool(zero_col.any()):
+        out = torch.where(zero_col.unsqueeze(0), torch.zeros_like(out), out)
+    return out
 
 
 def simlr_sparseness(v: torch.Tensor,

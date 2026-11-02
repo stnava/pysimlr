@@ -1,19 +1,18 @@
 import torch
 import pandas as pd
 import pytest
-import matplotlib.pyplot as plt
-from pysimlr.benchmarks.plotting import (
-    plot_pareto_recovery_vs_r2,
-    plot_sparsity_sensitivity,
-    plot_stability_diagnostics,
-    plot_sparsity_vs_orthogonality,
-    plot_reconstruction_tradeoff,
-    plot_v_heatmaps,
-    plot_latent_correlation,
-    plot_first_layer_alignment_heatmap,
-    plot_first_layer_feature_importance,
-    plot_interpretability_tradeoff,
-)
+
+pytestmark = pytest.mark.xdist_group("plotting")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _lazy_module_imports():
+    import matplotlib.pyplot as _plt
+    from pysimlr.benchmarks import plotting as _plotting
+    globals()["plt"] = _plt
+    for _name in dir(_plotting):
+        if _name.startswith("plot_"):
+            globals()[_name] = getattr(_plotting, _name)
 
 @pytest.fixture
 def sample_df():

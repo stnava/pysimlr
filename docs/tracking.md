@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: v0.4.0 plus D7 (e254f05). D8 (default objective, collapse penalty, stopping rule, SiMLR-LBFGSB dropped from the paper, ANTsTorch whitener removed) and D9 (NSALBFGSB proximal-quartic subproblem fixing rounding instability; simlr_lbfgsb removed from _ROUNDING_UNSTABLE) done in the working tree, uncommitted. Paper caches and _freeze cleared.
-next WP: commit D8/D9 (on instruction); regenerate all paper caches; rebuild; list the conclusions that moved for owner review.
+current phase: v0.4.0 plus D7 (e254f05), D8/D9 (33e05f8 on `main`), and D10 on branch `perf/fast-test-suite` (library hot-path and test-suite speedup: default pytest 136.40s -> 19.75/19.77/19.91s min/median/max; full suite 199.86s -> 32.80s). Paper caches and _freeze cleared.
+next WP: merge `perf/fast-test-suite` to `main` (on instruction); regenerate all paper caches; rebuild; list the conclusions that moved for owner review.
 blockers: none
-active work: D8 + D9 (uncommitted); D5 paper sources (uncommitted; the owner's own manuscript edits are in the same files)
+active work: D10 committed on `perf/fast-test-suite`; D5 paper sources (uncommitted; the owner's own manuscript edits are in the same files)
 device: Apple Silicon (macOS 27 arm64), CPU only; venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
 last updated: 2026-11-02
 
@@ -11,6 +11,47 @@ last updated: 2026-11-02
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D10 (Library hot-path and test-suite speedup on `perf/fast-test-suite`, 2026-11-02)
+status: committed on branch `perf/fast-test-suite` (off `main` `33e05f8`)
+- Root causes fixed in library (`src/pysimlr/`):
+  - `flows.py`: replaced eager `import antstorch` (which pulled ITK/ANTsPy/matplotlib at `~2.58s` per
+    worker) with direct submodule loader `_load_antstorch_real_nvp_builder()` (`~0.008s`); bound
+    `_ShuffledTensorBatches` to target device; added per-step `_step_v_cache`; hoisted `_all_params` and
+    replaced 80-tensor per-batch `isfinite()` scans with `clip_grad_norm_(..., foreach=True)` `total_norm`
+    check; passed `compute_diagnostics=False` inside `_train_flow_loop`; replaced `copy.deepcopy(state_dict)`
+    with tensor `.detach().clone()`.
+  - `deep.py`: replaced `DataLoader(TensorDataset, ...)` per-row Python collation with
+    `_ShuffledTensorBatches` (`index_select`, bit-identical `torch.randperm` RNG sequence); added per-step
+    `_step_v_cache` on `LENDNSAEncoder` and early `alpha <= 0.0` guard before `self.v`; enabled
+    `optim.Adam(..., foreach=True)`; added backward-compatible `compute_diagnostics: bool = True` to
+    `calculate_sim_loss` (`False` inside `_train_loop`); hoisted `all_params`, `clip_grad_norm_(..., foreach=True)`,
+    and clone-based best-state snapshots; wrapped `first_layer_diagnostics` in `torch.no_grad()`.
+  - `simlr.py`: shared standardized views and `initialize_simlr` basis across `learning_rate="auto"` probes
+    and final fit via `_INTERNAL_PROBE_TOKEN`; skipped post-fit SVD/pinv/interpretability/`basis_rank_report`
+    and per-sweep `stationarity_residual` on discarded probes (`_probe_only=True`); removed dead inner-loop
+    `_capture_consensus_anchor`; hoisted float64 view/domain tensors and added 1-slot `_last_proj` reuse in
+    `_view_oracles`.
+  - `consensus.py`, `utils.py`, `sparsification.py`, `benchmarks/__init__.py`: skipped unused `pinv(mean_u)`
+    `local_anchor` on LOO subsets (`not need_anchor`) and fast-pathed `len(proj_list) == 1`; cached
+    `_EYE_OVER_K_CACHE` (`orthogonality_defect`) and `_THREE_EYE_CACHE` (`newton_schulz_orthogonalize`) and
+    skipped provably impossible `step_idx < 4` norm syncs for `scaled_unit, k >= 2, tol <= 1e-4`; vectorized
+    `_apply_quantile_sparseness` across all `k` columns and searched MRU-first in `_NSA_RETRACT_CACHE` /
+    `_SMOOTHING_CACHE`; converted `pysimlr.benchmarks` to PEP 562 lazy exports.
+- Test-runner and suite hygiene (`pyproject.toml`, `pytest.ini`, `tests/conftest.py`, `tests/`):
+  - Pinned `OMP_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, `MPLBACKEND=Agg`, and `torch.set_num_threads(1)` per
+    worker; configured `-n 10 --dist loadgroup --no-loadscope-reorder -m "not slow"` and disabled unused
+    autoloaded plugins (`playwright`, `jaxtyping`, `asyncio`, `anyio`, `base_url`).
+  - Implemented `@pytest.hookimpl(tryfirst=True)` 3-tier LPT scheduling + 25-item xdist batching for `<10ms`
+    unit tests; deferred heavy `sklearn`/`matplotlib`/`seaborn` imports from 10-worker collection to
+    `scope="module"` fixtures; deduplicated redundant identical setup fits via module `lru_cache` without
+    loosening any threshold, sample count, iteration count, or `strict=True` xfail.
+- Measured results (`n = 3` isolated sequential repeats on Apple Silicon arm64, report:
+  `docs/test_suite_speedup_report.html`):
+  - Default suite (`pytest`, `1566 passed, 2 xfailed, 0 failed`): `136.40s` baseline (`50.60s` naive xdist)
+    -> **`19.75s / 19.77s / 19.91s`** min / median / max (`6.90x` speedup, strictly `< 20.0s` on all 3 runs).
+  - Full suite (`pytest -m ""`, `1588 passed, 4 xfailed, 0 failed`): `199.86s` -> **`32.80s`** (`6.09x` speedup).
+verification: pytest (n=3) 1566 passed, 2 xfailed, 0 failed in 19.75s/19.77s/19.91s; pytest -m "" 1588 passed, 4 xfailed, 0 failed in 32.80s; test_implementation_standards.py 7 passed; antsxqc.lint 0 findings.
 
 ## D9 (NSALBFGSB rounding-instability root cause and proximal-quartic fix, 2026-11-02)
 status: done in the working tree, uncommitted (on top of D8; paper unchanged per owner decision)

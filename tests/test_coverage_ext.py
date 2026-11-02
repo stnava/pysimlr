@@ -3,8 +3,6 @@ import numpy as np
 import pandas as pd
 import pytest
 import os
-import matplotlib
-matplotlib.use('Agg')
 from pysimlr import (
     simlr,
     lend_simr,
@@ -72,13 +70,13 @@ def test_unsupported_energy_type_is_refused_not_silently_zero():
 
 def test_simlr_perm_and_decomp():
     x1, x2 = torch.randn(30, 10), torch.randn(30, 8)
-    res = simlr([x1, x2], k=2, iterations=2)
+    res = simlr([x1, x2], k=2, iterations=2, learning_rate=0.05)
     assert 'modality_energies' in decompose_energy([x1, x2], res)
-    assert 'stats' in simlr_perm([x1, x2], k=2, n_perms=2, iterations=2)
+    assert 'stats' in simlr_perm([x1, x2], k=2, n_perms=2, iterations=2, learning_rate=0.05)
 
 def test_nnh_extra():
     df = pd.DataFrame({'T1_1': np.random.randn(20), 'T1_2': np.random.randn(20), 'DTI_1': np.random.randn(20), 'age': np.random.randn(20)})
-    assert 'u' in nnh_embed(df, nsimlr=3, iterations=2, covariates=['age'])
+    assert 'u' in nnh_embed(df, nsimlr=3, iterations=2, learning_rate=0.05, covariates=['age'])
 
 def test_deep_extra():
     x1, x2 = torch.randn(50, 10), torch.randn(50, 8)
@@ -102,7 +100,8 @@ def test_svd_extra():
     x_flat = torch.ones(10, 5)
     assert torch.all(safe_pca(x_flat, nc=2)['u'] == 0)
 
-def test_visualization_coverage():
+@pytest.mark.xdist_group("plotting")
+def test_visualization_coverage(tmp_path):
     from pysimlr.visualization import (plot_energy,
     plot_latent_2d,
     plot_v_matrix,
@@ -118,12 +117,10 @@ def test_visualization_coverage():
     assert plot_ned_simr_architecture() is not None
     assert plot_ned_shared_private_architecture() is not None
     assert plot_flow_simr_architecture() is not None
-    test_dir = "test_viz_output"
+    test_dir = str(tmp_path / "test_viz_output")
     generate_all_architecture_graphs(test_dir)
     assert os.path.exists(os.path.join(test_dir, "detailed_lend_simr.pdf"))
     assert os.path.exists(os.path.join(test_dir, "detailed_flow_simr.pdf"))
-    import shutil
-    shutil.rmtree(test_dir)
 
 def test_utils_extra():
     from pysimlr.utils import rvcoef, map_asym_var, map_lr_average_var, l1_normalize_features

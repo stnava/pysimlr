@@ -212,6 +212,6 @@ def test_simlr_runs_end_to_end_with_every_initialization_type(t):
         kwargs["random_state"] = 3
     if t == "domain":
         kwargs["domain_matrices"] = [torch.randn(3, v.shape[1]) for v in views]
-    out = simlr(views, k=2, iterations=5, initialization_type=t, verbose=False, **kwargs)
+    out = simlr(views, k=2, iterations=5, learning_rate=0.05, initialization_type=t, verbose=False, **kwargs)
     assert torch.isfinite(out["v"][0]).all()
     assert torch.isfinite(out["v"][1]).all()

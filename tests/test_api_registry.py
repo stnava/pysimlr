@@ -14,6 +14,7 @@ What this pins:
     a benchmark loop actually passes -- is either shown to change the fit or
     exempted with a stated reason (`test_every_shared_parameter_is_classified`).
 """
+import functools
 import inspect
 import warnings
 from collections import defaultdict
@@ -108,7 +109,7 @@ def test_every_method_fits_and_predicts_through_one_call_shape(name):
 
 
 def test_validate_result_rejects_a_missing_contract_key():
-    res = _quiet_fit("simlr", _views(), iterations=2)
+    res = _quiet_fit("simlr", _views(), iterations=2, learning_rate=0.05)
     broken = dict(res)
     broken.pop("convergence")
     with pytest.raises(ValueError, match="convergence"):
@@ -121,7 +122,7 @@ def test_validate_result_rejects_a_missing_contract_key():
 def test_a_parameter_for_another_method_is_recorded_and_warned():
     views = _views()
     with pytest.warns(RuntimeWarning, match="hidden_dims"):
-        res = pysimlr.fit("simlr", views, K, iterations=2, hidden_dims=(8,))
+        res = pysimlr.fit("simlr", views, K, iterations=2, learning_rate=0.05, hidden_dims=(8,))
     assert "hidden_dims" in res["parameters"]["ignored"]
     assert "lend" in res["parameters"]["ignored"]["hidden_dims"]
     assert "hidden_dims" not in res["parameters"]["used"]
@@ -192,7 +193,7 @@ def test_random_state_reproduces_every_method(name):
 
 
 def test_random_state_does_not_change_the_linear_initializer():
-    res = _quiet_fit("simlr", _views(), iterations=2, random_state=1)
+    res = _quiet_fit("simlr", _views(), iterations=2, learning_rate=0.05, random_state=1)
     assert res["initialization_type"] == "pca"
     # Always recorded: the seed reaches every initializer (and the probes).
     assert res["parameters"]["random_state"] == 1
@@ -286,8 +287,29 @@ def _cases():
     out = []
     for p, by_family in EXERCISED.items():
         for f, (a, b) in by_family.items():
-            out.append(pytest.param(p, f, a, b, id=f"{p}-{f}"))
+            out.append(
+                pytest.param(
+                    p, f, a, b, id=f"{p}-{f}", marks=pytest.mark.xdist_group(f"vocab_{f}")
+                )
+            )
     return out
+
+
+@functools.lru_cache(maxsize=64)
+def _cached_vocab_fit_vec(name: str, eff_items: tuple) -> torch.Tensor:
+    res = _quiet_fit(name, _views(), **dict(eff_items))
+    return torch.cat([v.detach().flatten() for v in res["v"]] + [res["u"].flatten()])
+
+
+def _vocab_fit_vec(name: str, kw: dict) -> torch.Tensor:
+    eff = {**pysimlr.describe_method(name)["parameters"], **kw}
+    try:
+        key = tuple(sorted((k, tuple(v) if isinstance(v, list) else v) for k, v in eff.items()))
+        hash(key)
+    except TypeError:
+        res = _quiet_fit(name, _views(), **kw)
+        return torch.cat([v.detach().flatten() for v in res["v"]] + [res["u"].flatten()])
+    return _cached_vocab_fit_vec(name, key)
 
 
 @pytest.mark.parametrize("param,family,a,b", _cases())
@@ -304,11 +326,8 @@ def test_a_shared_parameter_changes_the_fit(param, family, a, b):
         # exercised from that start.
         base.pop("initialization_type")
         base.pop("random_state")
-    views = _views()
-    fa = _quiet_fit(name, views, **{**base, param: a})
-    fb = _quiet_fit(name, views, **{**base, param: b})
-    va = torch.cat([v.detach().flatten() for v in fa["v"]] + [fa["u"].flatten()])
-    vb = torch.cat([v.detach().flatten() for v in fb["v"]] + [fb["u"].flatten()])
+    va = _vocab_fit_vec(name, {**base, param: a})
+    vb = _vocab_fit_vec(name, {**base, param: b})
     assert va.shape != vb.shape or not torch.equal(va, vb), (
         f"{name}({param}={a!r}) and ({param}={b!r}) returned a bit-identical fit")
 
@@ -334,7 +353,7 @@ def test_prediction_does_not_depend_on_the_batch(name):
 def test_linear_loo_prediction_does_not_depend_on_the_batch():
     views = _views(n=60)
     tr, te = [v[:40] for v in views], [v[40:] for v in views]
-    res = _quiet_fit("simlr", tr, iterations=4, topology="loo")
+    res = _quiet_fit("simlr", tr, iterations=4, learning_rate=0.05, topology="loo")
     full = pysimlr.predict(res, te)["u"]
     part = pysimlr.predict(res, [v[:5] for v in te])["u"]
     assert torch.allclose(full[:5], part, atol=1e-4)

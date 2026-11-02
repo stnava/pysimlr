@@ -144,7 +144,7 @@ def test_simlr_three_views_energy_decomposition(synthetic_three_views):
     k = synthetic_three_views["k"]
     n = synthetic_three_views["n"]
 
-    res = simlr(views, k=k, iterations=15, optimizer_type="hybrid_adam")
+    res = simlr(views, k=k, iterations=15, learning_rate=0.05, optimizer_type="hybrid_adam")
     assert len(res["v"]) == 3
     assert res["u"].shape == (n, k)
 
@@ -175,7 +175,7 @@ def test_simlr_optimizers_convergence(synthetic_two_views):
     k = 2
 
     for opt_name in ["hybrid_adam", "armijo_gradient", "gd"]:
-        res = simlr([x1, x2], k=k, iterations=10, optimizer_type=opt_name)
+        res = simlr([x1, x2], k=k, iterations=10, learning_rate=0.05, optimizer_type=opt_name)
         assert res["u"] is not None
         assert not torch.isnan(res["u"]).any(), f"Optimizer {opt_name} produced NaNs in U"
         assert not torch.isnan(res["v"][0]).any(), f"Optimizer {opt_name} produced NaNs in V[0]"
@@ -187,7 +187,7 @@ def test_simlr_prediction_and_reconstruction_fidelity(synthetic_two_views):
     x2 = synthetic_two_views["x2"]
     k = synthetic_two_views["k"]
 
-    res = simlr([x1, x2], k=k, iterations=15)
+    res = simlr([x1, x2], k=k, iterations=15, learning_rate=0.05)
 
     # 1. predict_simlr
     pred = predict_simlr([x1, x2], res)
@@ -218,6 +218,7 @@ def test_simlr_sparsification_and_positivity(synthetic_two_views):
         [x1, x2],
         k=2,
         iterations=15,
+        learning_rate=0.05,
         sparseness=0.4,
         positivity="positive"
     )

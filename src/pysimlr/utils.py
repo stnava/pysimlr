@@ -6,6 +6,7 @@ import re
 import time
 import numpy as np
 from typing import List, Optional, Union, Dict, Any, Tuple
+from .defaults import DEFAULT_COLLAPSE_THRESHOLD
 
 def set_seed_based_on_time() -> int:
     """
@@ -524,7 +525,6 @@ def correlation_penalty(z: torch.Tensor, threshold: Optional[float] = None,
     collapse (t = 0.5 left a rank-4 basis at k = 5; powers 4 and 8 failed the
     k = 5 case or the narrow view).
     """
-    from .defaults import DEFAULT_COLLAPSE_THRESHOLD
     t = DEFAULT_COLLAPSE_THRESHOLD if threshold is None else float(threshold)
     n, d = z.shape
     if n < 2 or d < 2:
@@ -584,6 +584,9 @@ def stationarity_residual(v: torch.Tensor, grad: torch.Tensor,
             continue
         off = max(off, float(admissible[~keep, j].max() / v[keep, j].abs().min()))
     return on_face, off
+
+
+_EYE_OVER_K_CACHE: Dict[Tuple[int, torch.device, torch.dtype], torch.Tensor] = {}
 
 
 def orthogonality_defect(a: torch.Tensor, normalized: bool = True) -> torch.Tensor:
@@ -654,7 +657,11 @@ def orthogonality_defect(a: torch.Tensor, normalized: bool = True) -> torch.Tens
         ceiling = torch.ones((), device=a.device, dtype=a.dtype)
         return ceiling if normalized else ceiling * (1.0 - 1.0 / k)
     gram = s_mat / t
-    eye = torch.eye(k, device=a.device, dtype=a.dtype) / k
+    eye_key = (k, a.device, a.dtype)
+    eye = _EYE_OVER_K_CACHE.get(eye_key)
+    if eye is None:
+        eye = torch.eye(k, device=a.device, dtype=a.dtype) / k
+        _EYE_OVER_K_CACHE[eye_key] = eye
     # Formed as ||G - I/k||^2 directly. The algebraically identical
     # ||G||^2 - 1/k suffers catastrophic cancellation near the optimum and
     # returns small negative values.
@@ -1339,6 +1346,9 @@ def procrustes_r2(u_true: torch.Tensor, u_est: torch.Tensor) -> float:
     
     return (1.0 - ss_res / ss_tot).item()
 
+_THREE_EYE_CACHE: Dict[Tuple[int, torch.device, torch.dtype], torch.Tensor] = {}
+
+
 def newton_schulz_orthogonalize(x: torch.Tensor, iterations: int = 5, tol: float = 1e-7) -> torch.Tensor:
     """
     Project a matrix onto the Stiefel manifold using Newton-Schulz iteration.
@@ -1379,24 +1389,37 @@ def newton_schulz_orthogonalize(x: torch.Tensor, iterations: int = 5, tol: float
     if not isinstance(x, torch.Tensor):
         x = torch.as_tensor(x).float()
     
-    y = x.clone()
+    y = x
     # Ensure convergence by scaling x so that spectral norm is within stable range.
     # We use Frobenius norm as a safe, upper-bound proxy for the spectral norm.
     norm_f = torch.norm(y, p='fro')
-    if norm_f > 1.0:
+    norm_f_val = float(norm_f.detach())
+    if norm_f_val == 0.0:
+        return y.clone()
+    scaled_unit = norm_f_val > 1.0
+    if scaled_unit:
         y = y / (norm_f + 1e-10)
+    else:
+        y = y.clone()
     
     k = y.shape[1]
-    eye = torch.eye(k, device=y.device, dtype=y.dtype)
+    eye_key = (k, y.device, y.dtype)
+    three_eye = _THREE_EYE_CACHE.get(eye_key)
+    if three_eye is None:
+        three_eye = 3.0 * torch.eye(k, device=y.device, dtype=y.dtype)
+        _THREE_EYE_CACHE[eye_key] = three_eye
+    min_check_step = 4 if (scaled_unit and k >= 2 and tol <= 1e-4) else 0
     
-    for i in range(iterations):
-        y_prev = y.clone()
+    for step_idx in range(iterations):
+        y_prev = y
         # Newton-Schulz update: Y = 0.5 * Y * (3I - Y^T Y)
         yty = y.t() @ y
-        y = 0.5 * y @ (3.0 * eye - yty)
+        y = 0.5 * y @ (three_eye - yty)
         
-        if torch.norm(y - y_prev) < tol:
-            break
+        if tol > 0.0 and step_idx >= min_check_step:
+            with torch.no_grad():
+                if torch.norm(y.detach() - y_prev.detach()) < tol:
+                    break
             
     return y
 

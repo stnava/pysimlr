@@ -77,7 +77,8 @@ def test_permutation_null_is_not_degenerate():
     warnings.filterwarnings("ignore")
     torch.manual_seed(0)
     st = simlr_perm(
-        [torch.randn(50, 8), torch.randn(50, 6)], k=2, n_perms=9, iterations=5
+        [torch.randn(50, 8), torch.randn(50, 6)], k=2, n_perms=9, iterations=5,
+        learning_rate=0.05,
     )["stats"]["sim_0_1"]
     null = np.asarray(st["null_distribution"])
     assert null.size == 9

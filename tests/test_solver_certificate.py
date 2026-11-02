@@ -25,8 +25,18 @@ def _views(seed=0, n=120):
             + 0.3 * torch.randn(n, p, generator=g) for p in (30, 20)]
 
 
+_DEFAULT_CERT_CACHE = {}
+
+
+def _default_cert_fit():
+    if "res" not in _DEFAULT_CERT_CACHE:
+        _DEFAULT_CERT_CACHE["res"] = simlr(_views(), k=3, iterations=5)
+    return _DEFAULT_CERT_CACHE["res"]
+
+
+@pytest.mark.xdist_group("solver_cert_default")
 def test_result_reports_a_stop_reason_and_never_claims_convergence_bare():
-    res = simlr(_views(), k=3, iterations=5)
+    res = _default_cert_fit()
     assert res["stop_reason"] in ("grad_map", "plateau", "max_iter", "no_descent")
     # converged is a claim about the point, and only a certificate may make it.
     assert res["converged"] == (res["certificate"] is not None)
@@ -48,8 +58,9 @@ def test_a_zero_step_is_not_a_stationarity_certificate(monkeypatch):
     assert all(d.get("zero_step") for d in res["v_retraction"])
 
 
+@pytest.mark.xdist_group("solver_cert_default")
 def test_energy_reduction_is_reported_so_no_progress_is_visible():
-    res = simlr(_views(), k=3, iterations=5)
+    res = _default_cert_fit()
     assert res["energy_start"] is not None
     assert res["energy_reduction"] is not None
     assert res["energy_reduction"] >= 0.0

@@ -253,13 +253,29 @@ def test_stress_simlr_path_topologies_and_views(n_views, topology):
     kwargs = {"path_graph": graph} if topology == "graph" else {}
 
     # Single path step
-    res_single = simlr_path(data_matrices=mats, path_model=single_path, k=2, iterations=3, topology=topology, **kwargs)
+    res_single = simlr_path(
+        data_matrices=mats,
+        path_model=single_path,
+        k=2,
+        iterations=3,
+        learning_rate=0.05,
+        topology=topology,
+        **kwargs,
+    )
     assert len(res_single["consensus_correlations"]) == 1
     assert not np.isnan(res_single["consensus_correlations"][0])
     assert np.isclose(res_single["consensus_correlations"][0], 1.0, atol=1e-3)
 
     # Multi-path steps
-    res_multi = simlr_path(data_matrices=mats, path_model=multi_path, k=2, iterations=3, topology=topology, **kwargs)
+    res_multi = simlr_path(
+        data_matrices=mats,
+        path_model=multi_path,
+        k=2,
+        iterations=3,
+        learning_rate=0.05,
+        topology=topology,
+        **kwargs,
+    )
     assert len(res_multi["consensus_correlations"]) == len(multi_path)
     assert not any(np.isnan(res_multi["consensus_correlations"]))
     assert np.isclose(res_multi["consensus_correlations"][-1], 1.0, atol=1e-3)
@@ -274,7 +290,15 @@ def test_stress_permutation_test_topologies_and_views(n_views, topology):
     graph = {i: [(i + 1) % n_views, (i - 1) % n_views] for i in range(n_views)}
     kwargs = {"path_graph": graph} if topology == "graph" else {}
 
-    perm_res = permutation_test(data_matrices=mats, k=2, n_permutations=3, iterations=2, topology=topology, **kwargs)
+    perm_res = permutation_test(
+        data_matrices=mats,
+        k=2,
+        n_permutations=3,
+        iterations=2,
+        learning_rate=0.05,
+        topology=topology,
+        **kwargs,
+    )
     assert "observed_similarity" in perm_res
     assert "null_similarities" in perm_res
     assert len(perm_res["null_similarities"]) == 3
@@ -287,7 +311,7 @@ def test_stress_permutation_test_empty_permutations():
     x1 = torch.randn(15, 4)
     x2 = torch.randn(15, 4)
     # n_permutations=0 should return empty null_similarities and nan p_value cleanly
-    res = permutation_test([x1, x2], k=2, n_permutations=0, iterations=2)
+    res = permutation_test([x1, x2], k=2, n_permutations=0, iterations=2, learning_rate=0.05)
     assert res["null_similarities"] == []
     assert not np.isnan(res["observed_similarity"])
     assert np.isnan(res["p_value"])

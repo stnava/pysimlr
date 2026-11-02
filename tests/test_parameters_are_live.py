@@ -22,6 +22,7 @@ adds; requiring every parameter in the signature to be either exercised or
 exempted-with-a-reason can, and turns "I forgot to wire it up" into a failing
 test at the moment the signature changes.
 """
+import functools
 import inspect
 
 import numpy as np
@@ -145,7 +146,47 @@ BASE = dict(k=K, iterations=4, positivity="positive", energy_type="recon_r2",
             learning_rate=0.5, verbose=False)
 
 
+_SIMLR_DEFAULTS = {
+    k: v.default
+    for k, v in inspect.signature(simlr).parameters.items()
+    if v.default is not inspect.Parameter.empty
+}
+
+
+def _freeze_kw(d: dict):
+    items = []
+    for k, v in sorted(d.items()):
+        if isinstance(v, list) and all(isinstance(x, (str, int, float, bool, type(None))) for x in v):
+            items.append((k, ("__list__", tuple(v))))
+        elif isinstance(v, (str, int, float, bool, type(None), tuple)):
+            items.append((k, v))
+        else:
+            return None
+    key = tuple(items)
+    try:
+        hash(key)
+    except TypeError:
+        return None
+    return key
+
+
+@functools.lru_cache(maxsize=64)
+def _cached_linear_fit(frozen_items: tuple) -> torch.Tensor:
+    kw = {
+        k: (list(v[1]) if isinstance(v, tuple) and len(v) == 2 and v[0] == "__list__" else v)
+        for k, v in frozen_items
+    }
+    torch.manual_seed(0)
+    np.random.seed(0)
+    res = simlr(_views(), **kw)
+    return torch.cat([v.detach().flatten() for v in res["v"]])
+
+
 def _fit(views, overrides):
+    merged = {**_SIMLR_DEFAULTS, **BASE, **overrides}
+    key = _freeze_kw(merged)
+    if key is not None:
+        return _cached_linear_fit(key)
     torch.manual_seed(0)
     np.random.seed(0)
     res = simlr(views, **{**BASE, **overrides})
@@ -190,6 +231,7 @@ def test_the_two_tables_do_not_overlap():
 # --------------------------------------------------------------------------
 # every exercised parameter must change the answer
 # --------------------------------------------------------------------------
+@pytest.mark.xdist_group("params_live_linear")
 @pytest.mark.parametrize("param", sorted(EXERCISED))
 def test_changing_a_parameter_changes_the_fit(param):
     a, b = EXERCISED[param]
@@ -260,13 +302,34 @@ def _deep_views(seed=0, n=48):
     return views
 
 
+@functools.lru_cache(maxsize=64)
+def _cached_deep_fit(fn, frozen_items: tuple) -> torch.Tensor:
+    kw = {
+        k: (list(v[1]) if isinstance(v, tuple) and len(v) == 2 and v[0] == "__list__" else v)
+        for k, v in frozen_items
+    }
+    torch.manual_seed(0)
+    np.random.seed(0)
+    res = fn(_deep_views(), k=K, iterations=DEEP_EPOCHS, verbose=False, **kw)
+    return torch.cat([v.detach().flatten() for v in res["v"]])
+
+
 def _deep_fit(fn, views, overrides):
+    defaults = {
+        k: v.default
+        for k, v in inspect.signature(fn).parameters.items()
+        if v.default is not inspect.Parameter.empty and k not in ("k", "iterations", "verbose")
+    }
+    key = _freeze_kw({**defaults, **overrides})
+    if key is not None:
+        return _cached_deep_fit(fn, key)
     torch.manual_seed(0)
     np.random.seed(0)
     res = fn(views, k=K, iterations=DEEP_EPOCHS, verbose=False, **overrides)
     return torch.cat([v.detach().flatten() for v in res["v"]])
 
 
+@pytest.mark.xdist_group("params_live_deep")
 @pytest.mark.parametrize("fn", [ned_simr, ned_simr_shared_private])
 @pytest.mark.parametrize("param", sorted(DEEP_KNOBS))
 def test_deep_knobs_change_the_fit(fn, param):
@@ -284,6 +347,7 @@ def test_deep_knobs_change_the_fit(fn, param):
 
 
 @pytest.mark.slow
+@pytest.mark.xdist_group("params_live_slow_deep")
 @pytest.mark.parametrize("fn", [lend_simr, flow_simr_v])
 @pytest.mark.parametrize("param", sorted(DEEP_KNOBS))
 def test_slow_deep_knobs_change_the_fit(fn, param):
@@ -598,22 +662,25 @@ CONVERGENCE_KEYS = {"converged", "stop_reason", "certificate", "n_steps",
                     "recent_relative_range"}
 
 
-def test_every_method_reports_the_same_convergence_keys():
+@pytest.mark.parametrize("name", ("simlr", "lend_simr", "ned_simr", "ned_simr_shared_private"))
+def test_every_method_reports_the_same_convergence_keys(name):
     """`simlr` reported `stop_reason`/`certificate`/`grad_map`; the deep
     trainer reported `converged_iter`. Two vocabularies meant no single check
     could answer "did this fit finish?" across the package."""
     from pysimlr.deep import lend_simr, ned_simr, ned_simr_shared_private
     views = _views()
-    got = {}
+    fn_map = {
+        "simlr": lambda v: simlr(v, k=K, iterations=40, positivity="positive",
+                                 energy_type="recon_r2", verbose=False),
+        "lend_simr": lambda v: lend_simr(v, k=K, iterations=40, verbose=False),
+        "ned_simr": lambda v: ned_simr(v, k=K, iterations=40, verbose=False),
+        "ned_simr_shared_private": lambda v: ned_simr_shared_private(v, k=K, iterations=40, verbose=False),
+    }
     with _quiet():
-        got["simlr"] = simlr(views, k=K, iterations=40, positivity="positive",
-                             energy_type="recon_r2", verbose=False)
-        for fn in (lend_simr, ned_simr, ned_simr_shared_private):
-            got[fn.__name__] = fn(views, k=K, iterations=40, verbose=False)
-    for name, res in got.items():
-        assert "convergence" in res, f"{name} does not report `convergence`"
-        assert CONVERGENCE_KEYS <= set(res["convergence"]), (
-            f"{name} is missing {sorted(CONVERGENCE_KEYS - set(res['convergence']))}")
+        res = fn_map[name](views)
+    assert "convergence" in res, f"{name} does not report `convergence`"
+    assert CONVERGENCE_KEYS <= set(res["convergence"]), (
+        f"{name} is missing {sorted(CONVERGENCE_KEYS - set(res['convergence']))}")
 
 
 def test_an_exhausted_budget_is_not_reported_as_convergence():
@@ -655,7 +722,8 @@ def test_convergence_is_not_an_artifact_of_the_budget():
     assert a["best_energy"] == pytest.approx(b["best_energy"], rel=1e-6)
 
 
-def test_every_method_returns_its_best_iterate_not_its_last():
+@pytest.mark.parametrize("fn_name", ("lend_simr", "ned_simr", "ned_simr_shared_private", "flow_simr_v"))
+def test_every_method_returns_its_best_iterate_not_its_last(fn_name):
     """`simlr` returned `best_v_mats`; the deep trainers returned their last
     weights. Measured post-warmup on ADNI the last was worse than the best by
     +0.17 (NED), +0.08 (NEDPP) and +0.04 (LEND) -- small, but there is no
@@ -669,26 +737,31 @@ def test_every_method_returns_its_best_iterate_not_its_last():
     """
     from pysimlr.deep import lend_simr, ned_simr, ned_simr_shared_private
     from pysimlr.flows import flow_simr_v
+    fn = {
+        "lend_simr": lend_simr,
+        "ned_simr": ned_simr,
+        "ned_simr_shared_private": ned_simr_shared_private,
+        "flow_simr_v": flow_simr_v,
+    }[fn_name]
     views = _views()
     with _quiet():
-        for fn in (lend_simr, ned_simr, ned_simr_shared_private, flow_simr_v):
-            res = fn(views, k=K, iterations=60, verbose=False)
-            c = res["convergence"]
-            assert c["returned"] == "best", (
-                f"{fn.__name__} returned its final weights, not its best")
-            w = c["warmup_epochs"]
-            post = [l for i, l in enumerate(res["loss_history"]) if i >= w]
-            assert c["best_epoch"] is None or c["best_epoch"] >= w, (
-                f"{fn.__name__} selected a best epoch inside warmup "
-                f"({c['best_epoch']} < {w}), where the objective is different")
-            if post:
-                # `best_loss` is the raw loss of the restored iterate;
-                # `best` is the monitor's smoothed criterion value, a
-                # different quantity.
-                assert c.get("best_loss", float("nan")) == pytest.approx(
-                    min(post), rel=1e-6), (
-                    f"{fn.__name__} restored an iterate whose loss is not the "
-                    f"minimum of its post-warmup history")
+        res = fn(views, k=K, iterations=60, verbose=False)
+        c = res["convergence"]
+        assert c["returned"] == "best", (
+            f"{fn.__name__} returned its final weights, not its best")
+        w = c["warmup_epochs"]
+        post = [l for i, l in enumerate(res["loss_history"]) if i >= w]
+        assert c["best_epoch"] is None or c["best_epoch"] >= w, (
+            f"{fn.__name__} selected a best epoch inside warmup "
+            f"({c['best_epoch']} < {w}), where the objective is different")
+        if post:
+            # `best_loss` is the raw loss of the restored iterate;
+            # `best` is the monitor's smoothed criterion value, a
+            # different quantity.
+            assert c.get("best_loss", float("nan")) == pytest.approx(
+                min(post), rel=1e-6), (
+                f"{fn.__name__} restored an iterate whose loss is not the "
+                f"minimum of its post-warmup history")
 
 
 def test_the_deep_schedule_does_not_depend_on_the_budget():

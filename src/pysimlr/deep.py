@@ -41,7 +41,7 @@ class larslow(optim.Optimizer):
 
 def _get_optimizer(model, optimizer_type, learning_rate, weight_decay):
     if optimizer_type == "adam":
-        return optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        return optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay, foreach=True)
     if optimizer_type == "larslow":
         return larslow(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     if optimizer_type == "lars":
@@ -419,7 +419,8 @@ class _MultiViewModelMixin(_ModalityWeightingMixin):
 
     def first_layer_diagnostics(self) -> Dict[str, float]:
         encs = list(self._first_layer_encoders())
-        drifts = [float(enc.basis_drift().cpu()) for enc in encs]
+        with torch.no_grad():
+            drifts = [float(enc.basis_drift().cpu()) for enc in encs]
         alphas = [float(enc.projection_alpha) for enc in encs]
         return {
             "basis_drift": float(sum(drifts) / max(1, len(drifts))),
@@ -570,6 +571,9 @@ class LENDNSAEncoder(nn.Module):
 
     @property
     def v(self):
+        cached = getattr(self, "_step_v_cache", None)
+        if cached is not None:
+            return cached
         if not self.training and getattr(self, "_finalized_v", None) is not None:
             return self._finalized_v.to(device=self.v_raw.device, dtype=self.v_raw.dtype)
         if getattr(self, 'is_low_dim', False):
@@ -671,10 +675,10 @@ class LENDNSAEncoder(nn.Module):
             return self.v_raw
         if self.first_layer_mode == "projected":
             return self.v
-        projected = self.v
         alpha = float(self.projection_alpha)
         if alpha <= 0.0:
             return self.v_raw
+        projected = self.v
         if alpha >= 1.0:
             return self.v_raw + (projected - self.v_raw).detach()
         return self.v_raw + alpha * (projected - self.v_raw).detach()
@@ -1010,7 +1014,8 @@ def _drop_last(dataset, batch_size: int) -> bool:
 def calculate_sim_loss(latents: List[torch.Tensor], 
                        u_shared: Union[torch.Tensor, List[torch.Tensor]], 
                        energy_type: str = DEFAULT_ENERGY_TYPE,
-                       weights: Optional[Dict[str, float]] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
+                       weights: Optional[Dict[str, float]] = None,
+                       compute_diagnostics: bool = True) -> Tuple[torch.Tensor, Dict[str, float]]:
     """
     Calculate similarity and regularization losses for deep SiMLR models.
 
@@ -1125,20 +1130,19 @@ def calculate_sim_loss(latents: List[torch.Tensor],
         for u in u_shared:
             u_var_penalty += _variance_penalty(u)
         u_var_penalty /= len(u_shared)
-        
-        u_std_mean = torch.mean(torch.stack([torch.mean(_safe_std(u, dim=0)) for u in u_shared])).item()
-        
-        # approximate off diag cov for diagnostics
-        u_c_first = u_shared[0] - torch.mean(u_shared[0], dim=0)
-        cov_u_first = (u_c_first.t() @ u_c_first) / (n - 1)
-        u_off_diag_cov = torch.norm(cov_u_first[~torch.eye(u_shared[0].shape[1], device=device).bool()]).item()
+        if compute_diagnostics:
+            u_std_mean = torch.mean(torch.stack([torch.mean(_safe_std(u, dim=0)) for u in u_shared])).item()
+            u_c_first = u_shared[0] - torch.mean(u_shared[0], dim=0)
+            cov_u_first = (u_c_first.t() @ u_c_first) / (n - 1)
+            u_off_diag_cov = torch.norm(cov_u_first[~torch.eye(u_shared[0].shape[1], device=device).bool()]).item()
     else:
-        u_c = u_shared - torch.mean(u_shared, dim=0)
-        cov_u = (u_c.t() @ u_c) / (n - 1)
-        mask = ~torch.eye(u_shared.shape[1], device=device).bool()
         u_var_penalty = _variance_penalty(u_shared)
-        u_std_mean = torch.mean(_safe_std(u_shared, dim=0)).item()
-        u_off_diag_cov = torch.norm(cov_u[mask]).item()
+        if compute_diagnostics:
+            u_c = u_shared - torch.mean(u_shared, dim=0)
+            cov_u = (u_c.t() @ u_c) / (n - 1)
+            mask = ~torch.eye(u_shared.shape[1], device=device).bool()
+            u_std_mean = torch.mean(_safe_std(u_shared, dim=0)).item()
+            u_off_diag_cov = torch.norm(cov_u[mask]).item()
     
     weights = {} if weights is None else weights
     unknown = sorted(set(weights) - {"sim", "var", "collapse", "u_var"})
@@ -1151,6 +1155,9 @@ def calculate_sim_loss(latents: List[torch.Tensor],
                   weights.get("collapse", 1.0) * collapse_loss + 
                   weights.get("u_var", 1.0) * u_var_penalty)
     
+    if not compute_diagnostics:
+        return total_loss, {"sim_loss": sim_loss.item()}
+
     diagnostics = {
         "sim_loss": sim_loss.item(),
         "var_penalty": var_penalty.item(),
@@ -1210,7 +1217,6 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     # for simlr. Every deep result was being read off a badly sub-optimal
     # iterate, and the convergence monitor cannot prevent that -- it stops the
     # run, it does not choose what the run returns.
-    import copy as _copy
     best_loss, best_state, best_epoch_idx = float("inf"), None, None
     last_sim_weight = None
     stabilization_start_epoch, stabilization_ramp_epochs = _resolve_stabilization_schedule(
@@ -1226,6 +1232,11 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
         "collapse": DEFAULT_COLLAPSE_WEIGHT,
         "u_var": 1.0
     }
+    if hasattr(dataloader, "bind_device"):
+        dataloader.bind_device(device)
+    raw_encs = getattr(model, "linear_encoders", None) or getattr(model, "encoders", ())
+    first_layer_encs = [enc for enc in raw_encs if isinstance(enc, LENDNSAEncoder)]
+    all_params = list(model.parameters())
     
     for epoch in range(epochs):
         model.train(); epoch_loss, epoch_recon, epoch_sim = 0.0, 0.0, 0.0
@@ -1252,46 +1263,54 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
         last_sim_weight = current_sim_weight
         penalty_weights["sim"] = current_sim_weight
         
+        pre_staged = getattr(dataloader, "_device", None) == device
         for batch in dataloader:
-            batch_mats = [b.to(device) for b in batch]; optimizer.zero_grad()
-            res = model(batch_mats)
-            shared_latents, reconstructions, u_shared = res[0], res[1], res[2]
-            
-            recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
-            sim_loss_total, diagnostics = calculate_sim_loss(shared_latents, u_shared, energy_type, weights=penalty_weights)
-            
-            total_loss = recon_loss + sim_loss_total
-            
-            if model.__class__.__name__ == "NEDSharedPrivateSiMRModel":
-                private_l = res[3]
-                if isinstance(u_shared, list):
-                    cross_cov_loss = sum(_cross_covariance_penalty(u_shared[i], p) for i, p in enumerate(private_l))
-                else:
-                    cross_cov_loss = sum(_cross_covariance_penalty(u_shared, p) for p in private_l)
-                p_var_loss = sum(_variance_penalty(p) for p in private_l)
-                # These attributes are typically set during the ned_simr_shared_private call
-                # We default to 0 if not provided by opt loop structure
-                total_loss += getattr(model, 'private_ortho_w', 0.05) * cross_cov_loss
-                total_loss += getattr(model, 'private_var_w', 0.10) * p_var_loss
+            batch_mats = batch if pre_staged else [b.to(device) for b in batch]
+            optimizer.zero_grad()
+            try:
+                for enc in first_layer_encs:
+                    enc._step_v_cache = enc.v
+                res = model(batch_mats)
+                shared_latents, reconstructions, u_shared = res[0], res[1], res[2]
+                
+                recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
+                sim_loss_total, diagnostics = calculate_sim_loss(shared_latents, u_shared, energy_type, weights=penalty_weights, compute_diagnostics=False)
+                
+                total_loss = recon_loss + sim_loss_total
+                
+                if model.__class__.__name__ == "NEDSharedPrivateSiMRModel":
+                    private_l = res[3]
+                    if isinstance(u_shared, list):
+                        cross_cov_loss = sum(_cross_covariance_penalty(u_shared[i], p) for i, p in enumerate(private_l))
+                    else:
+                        cross_cov_loss = sum(_cross_covariance_penalty(u_shared, p) for p in private_l)
+                    p_var_loss = sum(_variance_penalty(p) for p in private_l)
+                    # These attributes are typically set during the ned_simr_shared_private call
+                    # We default to 0 if not provided by opt loop structure
+                    total_loss += getattr(model, 'private_ortho_w', 0.05) * cross_cov_loss
+                    total_loss += getattr(model, 'private_var_w', 0.10) * p_var_loss
 
-            # Orthogonality penalty on the activated basis enc.v and on the raw
-            # weights enc.v_raw. The raw-weight term is a regulariser, not a
-            # compatibility shim (its old comment said otherwise): removing it
-            # dropped NEDPP's shared-branch R^2 below 0.4 on
-            # test_shared_private_no_shared_starvation (0.384).
-            if hasattr(model, 'encoders'):
-                for enc in model.encoders:
-                    # Apply a stronger soft disjoint penalty to low-dimensional modalities 
-                    # since they bypassed the hard Stiefel projection
-                    penalty_weight = 0.5 if getattr(enc, 'is_low_dim', False) else 0.05
-                    total_loss += penalty_weight * orthogonality_defect(enc.v)
-                    total_loss += penalty_weight * orthogonality_defect(enc.v_raw)
-            elif hasattr(model, 'linear_encoders'):
-                total_loss += 0.05 * sum(orthogonality_defect(enc.v) for enc in model.linear_encoders)
-                total_loss += 0.05 * sum(orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
+                # Orthogonality penalty on the activated basis enc.v and on the raw
+                # weights enc.v_raw. The raw-weight term is a regulariser, not a
+                # compatibility shim (its old comment said otherwise): removing it
+                # dropped NEDPP's shared-branch R^2 below 0.4 on
+                # test_shared_private_no_shared_starvation (0.384).
+                if hasattr(model, 'encoders'):
+                    for enc in model.encoders:
+                        # Apply a stronger soft disjoint penalty to low-dimensional modalities 
+                        # since they bypassed the hard Stiefel projection
+                        penalty_weight = 0.5 if getattr(enc, 'is_low_dim', False) else 0.05
+                        total_loss += penalty_weight * orthogonality_defect(enc.v)
+                        total_loss += penalty_weight * orthogonality_defect(enc.v_raw)
+                elif hasattr(model, 'linear_encoders'):
+                    total_loss += 0.05 * sum(orthogonality_defect(enc.v) for enc in model.linear_encoders)
+                    total_loss += 0.05 * sum(orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
+            finally:
+                for enc in first_layer_encs:
+                    enc._step_v_cache = None
             
             if torch.isnan(total_loss): continue
-            total_loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0); optimizer.step()
+            total_loss.backward(); torch.nn.utils.clip_grad_norm_(all_params, max_norm=1.0, foreach=True); optimizer.step()
             if hasattr(model, 'update_mai'):
                 model.update_mai(shared_latents, epoch, epochs)
             epoch_loss += total_loss.item(); epoch_recon += recon_loss.item(); epoch_sim += diagnostics["sim_loss"]
@@ -1309,7 +1328,7 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
         # range over the last window still 0.56, i.e. nowhere near flat.
         if epoch >= warmup_epochs and np.isfinite(epoch_loss) and epoch_loss < best_loss:
             best_loss, best_epoch_idx = epoch_loss, epoch
-            best_state = _copy.deepcopy(model.state_dict())
+            best_state = {k_: v_.detach().clone() for k_, v_ in model.state_dict().items()}
         stop = monitor.update(epoch_loss) if epoch >= warmup_epochs else False
         if stop:
             if verbose:
@@ -1428,11 +1447,47 @@ def _seeded_rng(seed: int, device: torch.device):
         yield
 
 
-def _shuffled_loader(torch_mats: List[torch.Tensor], batch_size: int, seed: int) -> DataLoader:
-    dataset = TensorDataset(*torch_mats)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=True,
-                      drop_last=_drop_last(dataset, batch_size),
-                      generator=torch.Generator().manual_seed(int(seed)))
+class _ShuffledTensorBatches:
+    """In-memory batch slicer matching DataLoader(TensorDataset, shuffle=True)
+    exact RNG draw sequence without per-row Python collation overhead."""
+
+    def __init__(self, torch_mats: List[torch.Tensor], batch_size: int, seed: int):
+        self.mats = torch_mats
+        self.n = int(torch_mats[0].shape[0])
+        self.batch_size = max(1, int(batch_size))
+        self.drop_last = _drop_last(torch_mats[0], self.batch_size)
+        self.generator = torch.Generator().manual_seed(int(seed))
+        if self.drop_last:
+            self._len = self.n // self.batch_size
+        else:
+            self._len = (self.n + self.batch_size - 1) // self.batch_size
+        self._device: Optional[torch.device] = None
+        self._dev_mats: Optional[List[torch.Tensor]] = None
+
+    def __len__(self) -> int:
+        return self._len
+
+    def bind_device(self, device: torch.device) -> None:
+        if self._device != device:
+            self._dev_mats = [m.to(device) for m in self.mats]
+            self._device = device
+
+    def __iter__(self):
+        n, bs = self.n, self.batch_size
+        torch.empty((), dtype=torch.int64).random_(generator=self.generator)
+        perm = torch.randperm(n, generator=self.generator)
+        torch.randperm(n, generator=self.generator)
+        mats = self._dev_mats if self._dev_mats is not None else self.mats
+        if self._device is not None and self._device.type != "cpu":
+            perm = perm.to(self._device)
+        limit = (n // bs) * bs if self.drop_last else n
+        for s in range(0, limit, bs):
+            idx = perm[s:s + bs]
+            yield [m.index_select(0, idx) for m in mats]
+
+
+def _shuffled_loader(torch_mats: List[torch.Tensor], batch_size: int, seed: int):
+    return _ShuffledTensorBatches(torch_mats, batch_size, seed)
 
 
 def _init_generator(initialization_type: str, seed: int) -> torch.Generator:

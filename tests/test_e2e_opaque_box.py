@@ -22,11 +22,6 @@ import numpy as np
 import pytest
 import torch
 
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression, Ridge
-from sklearn.model_selection import cross_val_score, KFold
-
 from pysimlr import (
     simlr,
     predict_simlr,
@@ -46,10 +41,24 @@ from pysimlr import (
     read_simlr,
     adjusted_rvcoef,
 )
-from pysimlr.sklearn import (
-    MultiViewSiMR,
-    MultiViewPCA,
-)
+
+_LAZY_SKLEARN_IMPORTS = {
+    "Pipeline": ("sklearn.pipeline", "Pipeline"),
+    "StandardScaler": ("sklearn.preprocessing", "StandardScaler"),
+    "LogisticRegression": ("sklearn.linear_model", "LogisticRegression"),
+    "Ridge": ("sklearn.linear_model", "Ridge"),
+    "cross_val_score": ("sklearn.model_selection", "cross_val_score"),
+    "KFold": ("sklearn.model_selection", "KFold"),
+    "MultiViewSiMR": ("pysimlr.sklearn", "MultiViewSiMR"),
+    "MultiViewPCA": ("pysimlr.sklearn", "MultiViewPCA"),
+}
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _lazy_module_imports():
+    import importlib
+    for _name, (_mod, _attr) in _LAZY_SKLEARN_IMPORTS.items():
+        globals()[_name] = getattr(importlib.import_module(_mod), _attr)
 
 
 # ============================================================================
@@ -318,7 +327,7 @@ class TestTier1FeatureCoverage:
     def test_io_serialization_clean_roundtrip(self, clean_two_views, tmp_path):
         """Verify write_simlr and read_simlr correctly persist and restore primary model results."""
         x1, x2 = clean_two_views["x1"], clean_two_views["x2"]
-        res = simlr([x1, x2], k=2, iterations=6)
+        res = simlr([x1, x2], k=2, iterations=6, learning_rate=0.05)
 
         prefix = os.path.join(tmp_path, "test_clean_simlr")
         core_obj = {
@@ -345,7 +354,7 @@ class TestTier1FeatureCoverage:
     def test_io_serialization_raw_model_regression(self, clean_two_views, tmp_path):
         """Verify write_simlr and read_simlr handle raw dictionary with provenance_list (tracking F2.9)."""
         x1, x2 = clean_two_views["x1"], clean_two_views["x2"]
-        res = simlr([x1, x2], k=2, iterations=6)
+        res = simlr([x1, x2], k=2, iterations=6, learning_rate=0.05)
 
         prefix = os.path.join(tmp_path, "test_opaque_simlr")
         # Direct raw simlr serialization check:
@@ -482,7 +491,7 @@ class TestTier2BoundariesAndCornerCases:
     def test_boundary_feature_count_mismatch_at_test_time(self, clean_two_views):
         """Verify dimension mismatch at test-time prediction raises ValueError."""
         x1, x2 = clean_two_views["x1"], clean_two_views["x2"]
-        res = simlr([x1, x2], k=2, iterations=6)
+        res = simlr([x1, x2], k=2, iterations=6, learning_rate=0.05)
 
         # Provide x1 with wrong feature count (p1 + 5)
         bad_x1 = torch.randn(10, clean_two_views["p1"] + 5)
@@ -598,7 +607,7 @@ class TestTier3CrossFeatureInteractions:
 
             # LOO trains each view against the others; prediction returns the
             # one all-view consensus through the frozen training map.
-            res_loo = simlr([x1_tr, x2_tr], k=k, topology="loo", iterations=6)
+            res_loo = simlr([x1_tr, x2_tr], k=k, topology="loo", iterations=6, learning_rate=0.05)
             u_loo_val = predict_shared_latent([x1_val, x2_val], res_loo)
             assert u_loo_val.shape == (len(val_idx), k)
             assert torch.isfinite(u_loo_val).all()

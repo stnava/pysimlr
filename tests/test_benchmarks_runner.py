@@ -1,20 +1,29 @@
 import torch
 import pandas as pd
 import pytest
-from pysimlr.benchmarks.runner import (
-    run_single_experiment,
-    run_seeded_benchmark,
-    aggregate_results,
-    get_best_per_model,
-    sweep_benchmark
-)
 from pysimlr.benchmarks.synthetic_cases import build_case
+
+_RUNNER_EXPORTS = {
+    "run_single_experiment",
+    "run_seeded_benchmark",
+    "aggregate_results",
+    "get_best_per_model",
+    "sweep_benchmark",
+}
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _lazy_module_imports():
+    import pysimlr.benchmarks.runner as _runner
+    for _name in _RUNNER_EXPORTS:
+        globals()[_name] = getattr(_runner, _name)
+
 
 def test_the_runner_records_parameters_a_model_cannot_use():
     case = build_case(kind="nonlinear", n_samples=100, seed=42)
     with pytest.warns(RuntimeWarning, match="hidden_dims"):
         out = run_single_experiment("simlr", case, sparsity=0.0, seed=42, iterations=2,
-                                    hidden_dims=(4,))
+                                    learning_rate=0.05, hidden_dims=(4,))
     assert out["metrics"]["ignored_params"] == "hidden_dims"
     assert out["metrics"]["method"] == "simlr"
 
@@ -22,7 +31,7 @@ def test_the_runner_records_parameters_a_model_cannot_use():
 def test_run_single_experiment():
     case = build_case(kind="nonlinear", n_samples=100, seed=42)
     # Test linear model
-    res_linear = run_single_experiment("simlr", case, sparsity=0.0, seed=42, iterations=2)
+    res_linear = run_single_experiment("simlr", case, sparsity=0.0, seed=42, iterations=2, learning_rate=0.05)
     assert "metrics" in res_linear
     assert res_linear["metrics"]["model"] == "simlr"
     
@@ -49,7 +58,7 @@ def test_run_single_experiment():
         assert g is not None and math.isfinite(g) and g >= 0.0, (r["metrics"]["model"], g)
 
 def test_run_seeded_benchmark():
-    df = run_seeded_benchmark("simlr", case_kind="nonlinear", n_samples=50, n_seeds=2, iterations=1)
+    df = run_seeded_benchmark("simlr", case_kind="nonlinear", n_samples=50, n_seeds=2, iterations=1, learning_rate=0.05)
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 2
     assert "recovery" in df.columns
@@ -81,7 +90,7 @@ def test_get_best_per_model():
     assert best.loc[best["model"] == "linear", "test_r2"].values[0] == 0.8
     assert best.loc[best["model"] == "ned", "test_r2"].values[0] == 0.9
 
-def test_sweep_benchmark():
+def test_sweep_benchmark(tmp_path):
     # Use very small parameters for speed
     res = sweep_benchmark(
         model_types=["simlr"],
@@ -89,7 +98,9 @@ def test_sweep_benchmark():
         n_samples=50,
         sparsities=[0.0],
         n_seeds=1,
-        iterations=1
+        iterations=1,
+        learning_rate=0.05,
+        save_prefix=str(tmp_path / "benchmark"),
     )
     assert "raw" in res
     assert "summary" in res

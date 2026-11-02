@@ -37,9 +37,12 @@ def test_simlr_perm_reports_permutation_fields():
 @pytest.mark.parametrize("n_perms", [1, 5, 19])
 def test_p_value_is_in_range_and_respects_the_add_one_floor(n_perms):
     torch.manual_seed(1)
+    # Default learning_rate="auto" inside simlr_perm is exercised above in
+    # test_simlr_perm_reports_permutation_fields; pass an explicit step size
+    # here so the add-one floor check does not run (1 + n_perms) * 7 probes.
     res = simlr_perm(
         [torch.randn(40, 8), torch.randn(40, 6)], k=2,
-        n_perms=n_perms, iterations=4,
+        n_perms=n_perms, iterations=4, learning_rate=0.05,
     )
     st = res["stats"]["sim_0_1"]
     p = st["p_value"]
@@ -77,7 +80,9 @@ def test_null_p_values_are_not_concentrated_at_the_floor():
         torch.manual_seed(1000 + rep)
         x1 = torch.randn(30, 5)
         x2 = torch.randn(30, 4)        # independent => null is true
-        st = simlr_perm([x1, x2], k=2, n_perms=n_perms, iterations=3)
+        # Pass an explicit fixed step size so observed and permuted fits stay
+        # strictly exchangeable without running 7 auto-LR probe fits per shuffle.
+        st = simlr_perm([x1, x2], k=2, n_perms=n_perms, iterations=3, learning_rate=0.05)
         ps.append(st["stats"]["sim_0_1"]["p_value"])
     ps = np.asarray(ps)
 
@@ -111,7 +116,10 @@ def test_null_p_values_are_calibrated_at_the_nominal_level():
     for _ in range(n_reps):
         x1 = torch.randn(40, 8)
         x2 = torch.randn(40, 6)   # independent of x1 => the null is true
-        st = simlr_perm([x1, x2], k=2, n_perms=n_perms, iterations=5)
+        # Explicit fixed learning_rate preserves H_0 exchangeability between
+        # observed and permuted fits while avoiding 24 * 20 * 7 = 3,360
+        # redundant tune_learning_rate grid probes.
+        st = simlr_perm([x1, x2], k=2, n_perms=n_perms, iterations=5, learning_rate=0.05)
         ps.append(st["stats"]["sim_0_1"]["p_value"])
     ps = np.asarray(ps)
 
@@ -135,7 +143,9 @@ def test_strong_shared_signal_is_detected():
     z = torch.randn(80, 3)
     x1 = z @ torch.randn(3, 10) + 0.05 * torch.randn(80, 10)
     x2 = z @ torch.randn(3, 8) + 0.05 * torch.randn(80, 8)
-    st = simlr_perm([x1, x2], k=3, n_perms=19, iterations=15)["stats"]["sim_0_1"]
+    st = simlr_perm(
+        [x1, x2], k=3, n_perms=19, iterations=15, learning_rate=0.05
+    )["stats"]["sim_0_1"]
     assert st["p_value"] <= 0.10, (
         f"failed to detect a near-noiseless shared latent: p={st['p_value']}, "
         f"observed={st['observed']:.4f}, null_mean={st['null_mean']:.4f}"
@@ -150,7 +160,7 @@ def test_paths_permutation_test_never_returns_zero():
     z = torch.randn(40, 2)
     res = permutation_test(
         [z @ torch.randn(2, 6), z @ torch.randn(2, 5)],
-        k=2, n_permutations=5, iterations=4,
+        k=2, n_permutations=5, iterations=4, learning_rate=0.05,
     )
     assert res["p_value"] > 0.0, "p == 0 is not attainable from finite permutations"
     assert res["p_value"] >= 1.0 / 6.0 - 1e-12

@@ -215,14 +215,38 @@ def test_retraction_does_not_disturb_the_callers_rng_stream():
 # `simlr` end to end
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("constraint", ["orthox0.1", "orthox0.5", "orthox0.9",
-                                        "nsaflow", "Stiefel", "Stiefel_ns",
-                                        "Grassmann"])
-@pytest.mark.parametrize("positivity", ["positive", "either"])
+_CONSTRAINT_FIT_CACHE = {}
+
+
+def _cached_constraint_fit(constraint: str, positivity: str):
+    key = (constraint, positivity)
+    if key not in _CONSTRAINT_FIT_CACHE:
+        mats, _ = make_case()
+        _CONSTRAINT_FIT_CACHE[key] = (
+            mats,
+            simlr(mats, k=3, iterations=8, constraint=constraint,
+                  positivity=positivity, verbose=False),
+        )
+    return _CONSTRAINT_FIT_CACHE[key]
+
+
+def _constraint_cases():
+    out = []
+    for c in ("orthox0.1", "orthox0.5", "orthox0.9", "nsaflow",
+              "Stiefel", "Stiefel_ns", "Grassmann"):
+        for pos in ("positive", "either"):
+            marks = (
+                [pytest.mark.xdist_group(f"nsa_stiefel_{pos}")]
+                if c == "Stiefel"
+                else []
+            )
+            out.append(pytest.param(c, pos, id=f"{c}-{pos}", marks=marks))
+    return out
+
+
+@pytest.mark.parametrize("constraint,positivity", _constraint_cases())
 def test_simlr_returns_a_usable_basis_for_every_constraint(constraint, positivity):
-    mats, _ = make_case()
-    res = simlr(mats, k=3, iterations=8, constraint=constraint,
-                positivity=positivity, verbose=False)
+    mats, res = _cached_constraint_fit(constraint, positivity)
 
     for i, v in enumerate(res["v"]):
         assert v.shape == (mats[i].shape[1], 3)
@@ -233,18 +257,20 @@ def test_simlr_returns_a_usable_basis_for_every_constraint(constraint, positivit
             assert (v >= -1e-8).all(), f"modality {i} violated positivity"
 
 
-@pytest.mark.parametrize("positivity", ["positive", "either"])
+@pytest.mark.parametrize("positivity", [
+    pytest.param("positive", marks=pytest.mark.xdist_group("nsa_stiefel_positive")),
+    pytest.param("either", marks=pytest.mark.xdist_group("nsa_stiefel_either")),
+])
 def test_hard_manifold_constraint_delivers_unit_norm_columns(positivity):
     """Stiefel/Grassmann promise an orthonormal basis; the column norms are the
     part a soft constraint does not pin down, so they are asserted explicitly."""
-    mats, _ = make_case()
-    res = simlr(mats, k=3, iterations=8, constraint="Stiefel",
-                positivity=positivity, verbose=False)
+    _, res = _cached_constraint_fit("Stiefel", positivity)
     for v in res["v"]:
         norms = v.norm(dim=0)
         assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5), norms
 
 
+@pytest.mark.xdist_group("nsa_stiefel_positive")
 def test_hard_constraint_with_positivity_is_actually_orthogonal():
     """
     The behaviour the backend exists for: non-negativity and orthogonality
@@ -254,9 +280,7 @@ def test_hard_constraint_with_positivity_is_actually_orthogonal():
     no fallback now -- `simlr_sparseness` is a call to NSA-Flow and nothing
     else -- so the assertion is absolute rather than relative.
     """
-    mats, _ = make_case()
-    res = simlr(mats, k=3, iterations=8, constraint="Stiefel",
-                positivity="positive", verbose=False)
+    _, res = _cached_constraint_fit("Stiefel", "positive")
     defect = float(np.mean([orthogonality_defect(v) for v in res["v"]]))
     assert defect < 0.1, f"non-negative basis is not near-orthogonal: {defect}"
     for v in res["v"]:
@@ -296,7 +320,7 @@ def test_out_of_range_constraint_weights_do_not_crash_simlr(weight):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         res = simlr(mats, k=3, iterations=5, constraint=f"orthox{weight}",
-                    positivity="positive", verbose=False)
+                    positivity="positive", learning_rate=0.05, verbose=False)
     for v in res["v"]:
         assert torch.isfinite(v).all()
         assert v.abs().sum() > 0

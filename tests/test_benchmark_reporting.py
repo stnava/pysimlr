@@ -16,13 +16,22 @@ suite:
   after the backend's non-negative path became the certified prox, but nothing
   in the suite would have caught it and nothing would catch its return.
 """
+import functools
+import importlib.util
 import numpy as np
 import pytest
 import torch
 
-pytest.importorskip("sklearn")
+pytestmark = [
+    pytest.mark.skipif(importlib.util.find_spec("sklearn") is None, reason="sklearn not installed"),
+    pytest.mark.xdist_group("benchmark_reporting"),
+]
 
-from pysimlr.benchmarks.runner import run_single_experiment
+
+@pytest.fixture(scope="module", autouse=True)
+def _lazy_module_imports():
+    from pysimlr.benchmarks.runner import run_single_experiment as _fn
+    globals()["run_single_experiment"] = _fn
 
 K = 2
 RANK_FIELDS = ("effective_rank", "numerical_rank",
@@ -54,6 +63,13 @@ def _case(seed=0, n=90, dims=(8, 6)):
             "outcome": y, "shared_k": K, "is_classification": False}
 
 
+@functools.lru_cache(maxsize=16)
+def _base_experiment(model_type: str):
+    return run_single_experiment(model_type, _case(), seed=0, iterations=6,
+                                 nsa_w=0.5, positivity="positive",
+                                 mixing_algorithm="avg")
+
+
 @pytest.mark.parametrize("model_type", ALL_BENCHMARK_MODELS)
 def test_every_benchmark_model_reports_a_joint_rank(model_type):
     """One number comparable across both model families.
@@ -65,9 +81,7 @@ def test_every_benchmark_model_reports_a_joint_rank(model_type):
     exactly k and condition number 1.000. The apparent deficit was a slice of
     an orthonormal matrix being measured as though it were a basis.
     """
-    out = run_single_experiment(model_type, _case(), seed=0, iterations=6,
-                                nsa_w=0.5, positivity="positive",
-                                mixing_algorithm="avg")
+    out = _base_experiment(model_type)
     res = out["result"]
     for field in JOINT_FIELDS:
         assert field in res, f"{model_type} does not report {field}"
@@ -81,9 +95,7 @@ def test_every_benchmark_model_reports_a_joint_rank(model_type):
 @pytest.mark.parametrize("model_type", ALL_BENCHMARK_MODELS)
 def test_a_per_view_rank_is_reported_only_where_it_means_something(model_type):
     """Withheld for joint-basis models rather than reported and misread."""
-    out = run_single_experiment(model_type, _case(), seed=0, iterations=6,
-                                nsa_w=0.5, positivity="positive",
-                                mixing_algorithm="avg")
+    out = _base_experiment(model_type)
     res = out["result"]
     if model_type in JOINT_BASIS_MODELS:
         assert res.get("basis_is_joint") is True

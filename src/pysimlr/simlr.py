@@ -1293,6 +1293,9 @@ def _scale_like_training(torch_mats: List[torch.Tensor], simlr_result: Dict[str,
             for i, m in enumerate(torch_mats)]
 
 
+_INTERNAL_PROBE_TOKEN = object()
+
+
 def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           k: int,
           iterations: int = 100,
@@ -1547,6 +1550,13 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # still reported success. Renamed parameters raise with the new name.
     if scale_list is None:
         scale_list = ["centerAndScale", "np"]
+    _internal = opt_params.get("_internal_probe", None)
+    if isinstance(_internal, tuple) and len(_internal) == 5 and _internal[0] is _INTERNAL_PROBE_TOKEN:
+        opt_params.pop("_internal_probe")
+        _, _prepped_mats, _prepped_prov, _prepped_v, _probe_only = _internal
+    else:
+        _prepped_mats = _prepped_prov = _prepped_v = None
+        _probe_only = False
     _bad = sorted(set(opt_params) - set(SIMLR_OPTIMIZER_KEYS))
     if _bad:
         _hints = [f"{kk!r} -> {SIMLR_RENAMED_PARAMETERS[kk]}"
@@ -1602,48 +1612,82 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                   if vv.kind is not vv.VAR_KEYWORD}
         _frame = locals()
         _bound = {kk: _frame[kk] for kk in _names if kk in _frame}
+        if not isinstance(k, (int, np.integer)) or k <= 0:
+            raise ValueError(f"k must be a positive integer, got k={k}.")
+        _prep_mats = _check_views(data_matrices, fitting=True)
+        _prep_prov = []
+        if scale_list is not None and len(scale_list) > 0 and scale_list[0] != "none":
+            _scaled = []
+            for _m in _prep_mats:
+                _ms, _pv = preprocess_data(_m, scale_list)
+                _scaled.append(_ms)
+                _prep_prov.append(_pv)
+            _prep_mats = _scaled
+        _init_gen = torch.Generator()
+        _init_gen.manual_seed(random_state)
+        _prep_v = initialize_simlr(
+            _prep_mats, k, positivity=positivity,
+            initialization_type=initialization_type,
+            generator=_init_gen,
+            domain_matrices=domain_matrices,
+            sparseness=sparseness,
+            varimax=varimax,
+        )
         from .optimizers import tune_learning_rate
         _iters = _bound.pop("iterations")
         _rest = {kk: vv for kk, vv in opt_params.items() if kk != "learning_rate"}
 
         def _probe(learning_rate, iterations):
-            return simlr(**_bound, **_rest, iterations=iterations,
-                         learning_rate=learning_rate)
+            return simlr(
+                **_bound, **_rest, iterations=iterations,
+                learning_rate=learning_rate,
+                _internal_probe=(_INTERNAL_PROBE_TOKEN, _prep_mats, _prep_prov, _prep_v, True),
+            )
 
         _lr, _scores = tune_learning_rate(
             _probe, probe_iterations=min(3, max(1, _iters)), verbose=verbose)
-        _out = simlr(**_bound, **_rest, iterations=_iters, learning_rate=_lr)
+        _out = simlr(
+            **_bound, **_rest, iterations=_iters, learning_rate=_lr,
+            _internal_probe=(_INTERNAL_PROBE_TOKEN, _prep_mats, _prep_prov, _prep_v, False),
+        )
         _out["learning_rate"] = _lr
         _out["learning_rate_scores"] = _scores
         return _out
 
-    # Contract Validation: data_matrices structure
-    if not isinstance(k, (int, np.integer)) or k <= 0:
-        raise ValueError(f"k must be a positive integer, got k={k}.")
-    torch_mats = _check_views(data_matrices, fitting=True)
-    
-    provenance_list = []
-    if scale_list is not None and len(scale_list) > 0 and scale_list[0] != "none":
-        scaled_mats = []
-        for m in torch_mats:
-            m_scaled, prov = preprocess_data(m, scale_list)
-            scaled_mats.append(m_scaled)
-            provenance_list.append(prov)
-        torch_mats = scaled_mats
+    if _prepped_mats is not None:
+        torch_mats = _prepped_mats
+        provenance_list = list(_prepped_prov)
+        n_modalities = len(torch_mats)
+        orig_dtype = torch_mats[0].dtype
+        v_mats = [v.clone() for v in _prepped_v]
+    else:
+        # Contract Validation: data_matrices structure
+        if not isinstance(k, (int, np.integer)) or k <= 0:
+            raise ValueError(f"k must be a positive integer, got k={k}.")
+        torch_mats = _check_views(data_matrices, fitting=True)
         
-    n_modalities = len(torch_mats)
-    orig_dtype = torch_mats[0].dtype
-    # Every initializer gets a generator seeded from `random_state`; the
-    # deterministic ones ignore it. It does not change `initialization_type`
-    # (it used to switch "pca" to "random").
-    init_gen = torch.Generator()
-    init_gen.manual_seed(random_state)
-    v_mats = initialize_simlr(torch_mats, k, positivity=positivity,
-                              initialization_type=initialization_type,
-                              generator=init_gen,
-                              domain_matrices=domain_matrices,
-                              sparseness=sparseness,
-                              varimax=varimax)
+        provenance_list = []
+        if scale_list is not None and len(scale_list) > 0 and scale_list[0] != "none":
+            scaled_mats = []
+            for m in torch_mats:
+                m_scaled, prov = preprocess_data(m, scale_list)
+                scaled_mats.append(m_scaled)
+                provenance_list.append(prov)
+            torch_mats = scaled_mats
+            
+        n_modalities = len(torch_mats)
+        orig_dtype = torch_mats[0].dtype
+        # Every initializer gets a generator seeded from `random_state`; the
+        # deterministic ones ignore it. It does not change `initialization_type`
+        # (it used to switch "pca" to "random").
+        init_gen = torch.Generator()
+        init_gen.manual_seed(random_state)
+        v_mats = initialize_simlr(torch_mats, k, positivity=positivity,
+                                  initialization_type=initialization_type,
+                                  generator=init_gen,
+                                  domain_matrices=domain_matrices,
+                                  sparseness=sparseness,
+                                  varimax=varimax)
     # One NSA-Flow weight: `nsa_w` if given, else the constraint string's.
     nsa_w_given = nsa_w is not None
     if nsa_w is None:
@@ -1801,6 +1845,13 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             mai_mod_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
             return mai_mod_weights
 
+    torch_mats_64 = [x.double() for x in torch_mats]
+    torch_domains_64 = (
+        [d.double() if d is not None else None for d in torch_domains]
+        if torch_domains is not None else None
+    )
+    _gauge = energy_needs_unit_columns(energy_type)
+
     def _view_oracles(i, u_i, _loop_sp):
         """Objective, smooth energy, exact gradient and projection for view
         `i`. Built per view so each closure captures its own view index, data
@@ -1823,11 +1874,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # float32 spacings (4.7e-10 at E = -6e-3). L-BFGS-B then built its
         # curvature pairs from rounding noise, and inputs 1e-8 apart reached
         # bases 0.07-1.1 apart after one sweep.
-        x64 = torch_mats[i].double()
+        x64 = torch_mats_64[i]
         u64 = u_i.double()
-        dom64 = (torch_domains[i].double()
-                 if torch_domains is not None and torch_domains[i] is not None else None)
-        _gauge = energy_needs_unit_columns(energy_type)
+        dom64 = torch_domains_64[i] if torch_domains_64 is not None else None
+        sm_i = smoothing_matrices[i] if smoothing_matrices else None
+        _last_proj = [None, None, None]
 
         def _smooth_objective(v64):
             w64 = v64 / v64.norm(dim=0, keepdim=True).clamp_min(1e-300) if _gauge else v64
@@ -1850,12 +1901,19 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
         def _projection(v_cand):
             """The constraint set's projection P, exactly as applied after each step."""
-            return simlr_sparseness(
-                v_cand.to(orig_dtype), constraint_type=constraint_type,
-                smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None,
+            v_in = v_cand.to(orig_dtype)
+            d = None if _probe_only else {}
+            v_proj = simlr_sparseness(
+                v_in, constraint_type=constraint_type,
+                smoothing_matrix=sm_i,
                 positivity=positivity, sparseness=_loop_sp,
                 constraint_weight=constraint_weight,
-                energy_type=energy_type, modality_index=i)
+                energy_type=energy_type, modality_index=i,
+                retraction_diagnostics=d)
+            _last_proj[0] = v_in.detach()
+            _last_proj[1] = v_proj
+            _last_proj[2] = d
+            return v_proj
 
         def composite_energy_fn(v_cand):
             """The objective itself, E(P(v)): the smooth energy at the
@@ -1874,7 +1932,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # constraints: for an orthogonal projector P, <grad, P grad> =
         # |P grad|^2, so a line search along it still tests the true slope.
         # The oracle above stays the exact gradient.
-        return smooth_energy_fn, smooth_gradient_fn, composite_energy_fn, _projection
+        return smooth_energy_fn, smooth_gradient_fn, composite_energy_fn, _projection, _last_proj
 
     total_sweeps = (iterations + 1) if iterations > 0 else 0
     for raw_it in range(total_sweeps):
@@ -1891,11 +1949,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph, modality_weights=cur_mod_w)
         if nonneg_u:
             u = _nonneg_consensus(u)
-        # Capture the linear map this consensus used, so that
-        # `predict_shared_latent` can apply it to new data instead of
-        # deriving a fresh one. See `_capture_consensus_anchor`.
-        consensus_anchor = _capture_consensus_anchor(
-            projections, mixing_algorithm, k, orthogonalize_u, topology, path_graph)
         for i in range(n_modalities):
             u_i = u[i] if isinstance(u, list) else u
             # Local energy function that incorporates sparsification/retraction
@@ -1904,14 +1957,17 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             _loop_sp = (None if (_want_nonneg and k > 1 and _q_mod is not None
                                  and _q_mod < 1.0 - 1.0 / k)
                         else sparseness)
-            smooth_energy_fn, smooth_gradient_fn, composite_energy_fn, _projection = \
+            smooth_energy_fn, smooth_gradient_fn, composite_energy_fn, _projection, _last_proj = \
                 _view_oracles(i, u_i, _loop_sp)
             _exact = smooth_gradient_fn(v_mats[i])
             # Stationarity diagnostic of the iterate entering this sweep, on its
             # current face (`utils.stationarity_residual`). Reported, not used
             # to stop: convergence is the energy plateau rule.
-            gm_E, gm_off = stationarity_residual(v_mats[i], -_exact, nonneg=_want_nonneg)
-            sweep_grad_map.append(gm_E)
+            if _probe_only:
+                gm_E, gm_off = 0.0, 0.0
+            else:
+                gm_E, gm_off = stationarity_residual(v_mats[i], -_exact, nonneg=_want_nonneg)
+                sweep_grad_map.append(gm_E)
             total_grad = project_gradient(_exact, v_mats[i], constraint_type).contiguous()
             v_before = v_mats[i].detach().clone()
             # Two oracles, the same for every optimizer: the objective E(P(v))
@@ -1924,9 +1980,17 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             v_updated = optimizer.step(i, v_mats[i], total_grad, composite_energy_fn)
             zero_step = bool(torch.equal(v_updated, v_before))
 
-            # Apply final projection
-            retraction_diags[i] = {}
-            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness=_loop_sp, constraint_weight=constraint_weight, energy_type=energy_type, modality_index=i, retraction_diagnostics=retraction_diags[i])
+            # Apply final projection (reusing the exact candidate already
+            # projected during line search when `v_updated` matches it).
+            if (_last_proj[0] is not None
+                    and v_updated.dtype == _last_proj[0].dtype
+                    and v_updated.shape == _last_proj[0].shape
+                    and torch.equal(v_updated, _last_proj[0])):
+                retraction_diags[i] = {} if _last_proj[2] is None else dict(_last_proj[2])
+                v_mats[i] = _last_proj[1].clone()
+            else:
+                retraction_diags[i] = {}
+                v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness=_loop_sp, constraint_weight=constraint_weight, energy_type=energy_type, modality_index=i, retraction_diagnostics=None if _probe_only else retraction_diags[i])
             resid = float(torch.linalg.norm(v_mats[i] - v_before)
                           / torch.linalg.norm(v_before).clamp_min(1e-300))
             retraction_diags[i]["fixed_point_residual"] = resid
@@ -2018,6 +2082,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         best_total_energy = min(energy_history) if energy_history else init_total_energy
     if best_iteration is None:
         best_iteration = int(np.argmin(energy_history)) if energy_history else 0
+    if _probe_only:
+        return {"best_energy": best_total_energy, "v": v_mats, "energy": energy_history}
 
     if consolidate:
         from .nsa_backend import load_consolidate_supports

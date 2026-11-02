@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PySiMLR Test Suite Speedup Report (D10)</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #0f172a;
+    background: #f8fafc;
+    margin: 0;
+    padding: 32px 24px;
+    line-height: 1.5;
+  }
+  .container { max-width: 1120px; margin: 0 auto; }
+  h1 { margin: 0 0 6px 0; font-size: 26px; color: #0f172a; }
+  .subtitle { color: #475569; font-size: 14px; margin-bottom: 24px; }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px 18px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+  .card .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; }
+  .card .value { font-size: 28px; font-weight: 700; margin: 6px 0 4px 0; color: #0f172a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .card .value.pass { color: #15803d; }
+  .card .detail { font-size: 12.5px; color: #475569; }
+  h2 { font-size: 18px; margin: 28px 0 12px 0; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 13.5px;
+  }
+  th, td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; font-weight: 600; color: #334155; }
+  tr:last-child td { border-bottom: none; }
+  code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .meta { margin-top: 24px; font-size: 12.5px; color: #64748b; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>PySiMLR Test Suite Speedup Report (D10)</h1>
+  <div class="subtitle">
+    Branch: <code>perf/fast-test-suite</code> (off <code>main</code> <code>33e05f8</code>) &middot;
+    Host: Apple Silicon arm64 (8P+4E cores, macOS) &middot;
+    Python 3.12.12 / PyTorch 2.13.0 &middot;
+    Zero threshold, sample-size, or contract relaxations
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="label">Default Suite (<code>pytest</code>, n=3)</div>
+      <div class="value pass">19.77s</div>
+      <div class="detail">min 19.75s / med 19.77s / max 19.91s (target &lt; 20.0s)</div>
+    </div>
+    <div class="card">
+      <div class="label">Speedup vs Baseline</div>
+      <div class="value">6.9&times;</div>
+      <div class="detail">136.4s single-process (2.6&times; vs 50.6s naive xdist)</div>
+    </div>
+    <div class="card">
+      <div class="label">Full Suite (<code>pytest -m ""</code>)</div>
+      <div class="value">32.80s</div>
+      <div class="detail">6.1&times; faster than 199.86s baseline (1588 passed, 4 strict xfailed, 0 failed)</div>
+    </div>
+    <div class="card">
+      <div class="label">Contract &amp; Lint Gates</div>
+      <div class="value pass">0 findings</div>
+      <div class="detail">1566 passed, 2 strict xfailed, 0 failed; standards 7/7</div>
+    </div>
+  </div>
+
+  <h2>1. Wall-Clock Progression</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Configuration / Milestone</th>
+        <th style="text-align:right;">Wall-Clock</th>
+        <th style="text-align:right;">Speedup</th>
+        <th>Relative Duration</th>
+        <th>Key Mechanism</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td><strong>Baseline (main 33e05f8, single-process)</strong></td>
+          <td style="font-family:monospace;text-align:right;">136.40s</td>
+          <td style="font-family:monospace;text-align:right;">1.00&times;</td>
+          <td style="width:36%;"><div style="background:#e2e8f0;border-radius:4px;height:18px;width:100%;overflow:hidden;"><div style="background:#dc2626;height:100%;width:100.0%;"></div></div></td>
+          <td>8 OpenMP threads thrashing small BLAS/SVD kernels; eager antstorch/matplotlib imports; redundant inner-loop allocations and auto-LR sweeps.</td>
+        </tr>
+        <tr>
+          <td><strong>Naive pytest-xdist (-n auto, unpinned threads)</strong></td>
+          <td style="font-family:monospace;text-align:right;">50.60s</td>
+          <td style="font-family:monospace;text-align:right;">2.70&times;</td>
+          <td style="width:36%;"><div style="background:#e2e8f0;border-radius:4px;height:18px;width:100%;overflow:hidden;"><div style="background:#dc2626;height:100%;width:37.1%;"></div></div></td>
+          <td>N_workers x 8 OpenMP threads oversubscribing CPU cores; --loadscope-reorder serializing heavy xdist groups into a 25s single-worker tail.</td>
+        </tr>
+        <tr>
+          <td><strong>Library hot-path fixes + single-thread BLAS (-n 10)</strong></td>
+          <td style="font-family:monospace;text-align:right;">25.82s</td>
+          <td style="font-family:monospace;text-align:right;">5.28&times;</td>
+          <td style="width:36%;"><div style="background:#e2e8f0;border-radius:4px;height:18px;width:100%;overflow:hidden;"><div style="background:#2563eb;height:100%;width:18.9%;"></div></div></td>
+          <td>OMP_NUM_THREADS=1 / torch.set_num_threads(1); direct antstorch RealNVP submodule loader (2.58s -&gt; 0.008s); _ShuffledTensorBatches; foreach Adam/clip_grad_norm_; shared auto-LR preprocessing/init.</td>
+        </tr>
+        <tr>
+          <td><strong>--no-loadscope-reorder + LPT scheduling</strong></td>
+          <td style="font-family:monospace;text-align:right;">20.86s</td>
+          <td style="font-family:monospace;text-align:right;">6.54&times;</td>
+          <td style="width:36%;"><div style="background:#e2e8f0;border-radius:4px;height:18px;width:100%;overflow:hidden;"><div style="background:#2563eb;height:100%;width:15.3%;"></div></div></td>
+          <td>Prevented LoadScopeScheduling from overwriting Longest-Processing-Time-First order; balanced all 10 workers within 15.15s..16.08s call CPU.</td>
+        </tr>
+        <tr>
+          <td><strong>perf/fast-test-suite final (median of n=3)</strong></td>
+          <td style="font-family:monospace;text-align:right;">19.77s</td>
+          <td style="font-family:monospace;text-align:right;">6.90&times;</td>
+          <td style="width:36%;"><div style="background:#e2e8f0;border-radius:4px;height:18px;width:100%;overflow:hidden;"><div style="background:#16a34a;height:100%;width:14.5%;"></div></div></td>
+          <td>tryfirst=True LPT + 25-item millisecond unit-tail xdist batching; deferred sklearn/matplotlib/seaborn collection imports across workers; Newton-Schulz &amp; Gram identity caching.</td>
+        </tr>
+    </tbody>
+  </table>
+
+  <h2>2. Verified Root-Cause Defects Fixed</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Module / File</th>
+        <th>Measured Bottleneck</th>
+        <th>Fix Applied</th>
+        <th>Measured Gain</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td><code>src/pysimlr/flows.py</code></td>
+          <td>import antstorch eagerly imported ITK/ANTsPy/matplotlib (~2.58s per worker); 80-tensor per-batch isfinite() loop; deepcopy(state_dict).</td>
+          <td>Direct submodule loader _load_antstorch_real_nvp_builder(); clip_grad_norm_(foreach=True) total_norm check; tensor detach().clone() state snapshot.</td>
+          <td style="font-family:monospace;">2.58s -&gt; 0.008s import/worker (322x)</td>
+        </tr>
+        <tr>
+          <td><code>src/pysimlr/deep.py</code></td>
+          <td>DataLoader per-row Python collation; 3x enc.v projections/step; single-tensor Adam over 42 params; unused per-batch covariance diagnostics; deepcopy(state_dict).</td>
+          <td>_ShuffledTensorBatches (exact RNG parity); per-step _step_v_cache; Adam(foreach=True); compute_diagnostics=False in inner loop; clone state_dict.</td>
+          <td style="font-family:monospace;">~2.1x faster deep training loops</td>
+        </tr>
+        <tr>
+          <td><code>src/pysimlr/simlr.py</code></td>
+          <td>learning_rate='auto' re-standardized views &amp; re-ran initialize_simlr 8x (7 probes + final) and ran post-fit SVD/pinv/interpretability on discarded probes; dead inner-loop _capture_consensus_anchor.</td>
+          <td>Shared preprocessed views &amp; initial basis across probes + final fit via _INTERNAL_PROBE_TOKEN; _probe_only=True fast exit; 1-slot _last_proj oracle reuse.</td>
+          <td style="font-family:monospace;">~35% faster simlr(learning_rate='auto')</td>
+        </tr>
+        <tr>
+          <td><code>src/pysimlr/consensus.py &amp; utils.py</code></td>
+          <td>pinv(mean_u) computed on every LOO subset where anchor is discarded; repeated eye(k) allocations and impossible step&lt;4 Newton-Schulz norm syncs.</td>
+          <td>Gated local_anchor on need_anchor; cached _EYE_OVER_K_CACHE &amp; _THREE_EYE_CACHE; skipped provably impossible early-step norm checks.</td>
+          <td style="font-family:monospace;">~25% faster LOO Newton-Schulz consensus</td>
+        </tr>
+        <tr>
+          <td><code>src/pysimlr/sparsification.py &amp; benchmarks/__init__.py</code></td>
+          <td>Per-column Python loop in _apply_quantile_sparseness; FIFO scan on NSA caches; eager matplotlib/seaborn import in pysimlr.benchmarks.</td>
+          <td>Vectorized column-wise quantile thresholding across all k columns; MRU-first reversed() cache lookup; PEP 562 lazy __getattr__ in benchmarks.</td>
+          <td style="font-family:monospace;">Vectorized prox + 0.8s import saved</td>
+        </tr>
+        <tr>
+          <td><code>pytest.ini &amp; tests/conftest.py</code></td>
+          <td>Single-process default; OpenMP thread oversubscription; --loadscope-reorder defeating LPT order; 850 ungrouped &lt;10ms unit tests causing xdist IPC overhead; CWD file writes in 2 tests.</td>
+          <td>-n 10 --dist loadgroup --no-loadscope-reorder; OMP/torch threads=1; @hookimpl(tryfirst=True) 3-tier LPT + 25-item unit-tail batching; tmp_path outputs; cached identical baseline fits.</td>
+          <td style="font-family:monospace;">136.40s -&gt; 19.77s (6.9x); full 199.86s -&gt; 32.80s (6.1x)</td>
+        </tr>
+    </tbody>
+  </table>
+
+  <h2>3. Slowest 10 Individual Test Items (Post-Fix Default Suite)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:110px;text-align:right;">Call Time</th>
+        <th>Test Node ID</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr>
+          <td style="font-family:monospace;text-align:right;">4.44s</td>
+          <td><code>tests/test_readme_examples.py::test_the_quick_start_runs</code></td>
+        </tr>
+        <tr>
+          <td style="font-family:monospace;text-align:right;">3.33s</td>
+          <td><code>tests/test_collapse_penalty.py::test_ned_nc_newton_does_not_collapse[2]</code></td>
+        </tr>
+        <tr>
+          <td style="font-family:monospace;text-align:right;">3.01s</td>
+          <td><code>tests/test_positivity_and_gradient_consistency.py::test_loo_iteration_improves_on_a_wrong_initialization</code></td>
+        </tr>
+        <tr>
+          <td style="font-family:monospace;text-align:right;">2.94s</td>
+          <td><code>tests/test_interchangeable_api.py::test_the_evaluation_loop_runs_with_no_per_method_branch@interchangeable_api</code></td>
+        </tr>
+        <tr>
+          <td style="font-family:monospace;text-align:right;">2.94s</td>
+          <td><code>tests/test_solver_certificate.py::test_lbfgsb_is_reproducible_under_float32_input_perturbations[either]</code></td>
+        </tr>
+        <tr>
+          <td style="font-family:monospace;text-align:right;">2.79s</td>
+          <td><code>tests/test_collapse_penalty.py::test_ned_nc_newton_does_not_collapse[4]</code></td>
+        </tr>
+        <tr>
+          <td style="font-family:monospace;text-align:right;">2.79s</td>
+          <td><code>tests/test_solver_certificate.py::test_lbfgsb_is_reproducible_under_float32_input_perturbations[positive]</code></td>
+        </tr>
+        <tr>
+          <td style="font-family:monospace;text-align:right;">2.65s</td>
+          <td><code>tests/test_collapse_penalty.py::test_ned_nc_newton_does_not_collapse[3]</code></td>
+        </tr>
+        <tr>
+          <td style="font-family:monospace;text-align:right;">2.64s</td>
+          <td><code>tests/test_collapse_penalty.py::test_ned_nc_newton_does_not_collapse[1]</code></td>
+        </tr>
+        <tr>
+          <td style="font-family:monospace;text-align:right;">2.38s</td>
+          <td><code>tests/test_collapse_penalty.py::test_ned_nc_newton_does_not_collapse[5]</code></td>
+        </tr>
+    </tbody>
+  </table>
+
+  <div class="meta">
+    Generated on 2026-11-02 from isolated sequential <code>time.perf_counter()</code> and <code>pytest</code> measurements on <code>/Users/stnava/data/repos/pysimlr</code>.
+  </div>
+</div>
+</body>
+</html>

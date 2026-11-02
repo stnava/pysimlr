@@ -1,8 +1,14 @@
 import pytest
 import torch
 from pysimlr.deep import ned_simr_shared_private, predict_deep
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _lazy_module_imports():
+    from sklearn.linear_model import LinearRegression
+    from sklearn.metrics import r2_score
+    globals()["LinearRegression"] = LinearRegression
+    globals()["r2_score"] = r2_score
 
 @pytest.mark.slow
 def test_shared_private_non_starvation():

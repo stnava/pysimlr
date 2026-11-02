@@ -1,10 +1,20 @@
+import functools
 import pytest
 from scripts.benchmark_linear_noise_simlr_vs_lend import run_linear_benchmark
 
+
+@functools.lru_cache(maxsize=4)
+def _cached_linear_benchmark(n_samples: int, n_seeds: int, noise_level: float):
+    return run_linear_benchmark(
+        n_samples=n_samples, n_seeds=n_seeds, noise_level=noise_level
+    )
+
+
 @pytest.mark.slow
+@pytest.mark.xdist_group("linear_noise_bench")
 def test_linear_parity_contract():
     # Run with fixed protocol
-    df = run_linear_benchmark(n_samples=1000, n_seeds=3, noise_level=0.1)
+    df = _cached_linear_benchmark(n_samples=1000, n_seeds=3, noise_level=0.1).copy()
     
     medians = df.groupby("model")["latent_recovery_corr"].median()
     simlr_rec = medians["linear"]
@@ -32,8 +42,9 @@ if __name__ == "__main__":
 
 
 @pytest.mark.slow
+@pytest.mark.xdist_group("linear_noise_bench")
 def test_linear_model_heldout_regression_not_broken():
-    df = run_linear_benchmark(n_samples=1000, n_seeds=3, noise_level=0.1)
+    df = _cached_linear_benchmark(n_samples=1000, n_seeds=3, noise_level=0.1).copy()
     simlr = df[df["model"] == "linear"]
 
     assert simlr["heldout_outcome_r2"].median() > 0.5

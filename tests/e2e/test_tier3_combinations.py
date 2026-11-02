@@ -269,7 +269,7 @@ def test_combo_simlr_path_with_permutation_test(synthetic_three_views):
     assert len(path_res["path_results"]) == 2
 
     # Permutation significance testing
-    perm = permutation_test(views, k=k, n_permutations=3)
+    perm = permutation_test(views, k=k, n_permutations=3, iterations=6, learning_rate=0.05)
     assert "observed_similarity" in perm
     assert "null_similarities" in perm
     assert "p_value" in perm

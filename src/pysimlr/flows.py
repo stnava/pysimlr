@@ -199,6 +199,52 @@ class CustomRealNVP(nn.Module):
                 x = layer.inverse(x)
         return x, total_log_det
 
+_ANTSTORCH_REAL_NVP_BUILDER = None
+
+
+def _load_antstorch_real_nvp_builder():
+    """Load ANTsTorch's `create_real_nvp_normalizing_flow_model` directly from
+    its pure-PyTorch submodule when present, avoiding `antstorch.__init__`'s
+    ~2.6s eager import of unrelated ITK/ANTsPy/matplotlib modules."""
+    global _ANTSTORCH_REAL_NVP_BUILDER
+    import importlib.util
+    import os
+    import sys
+
+    if "antstorch" in sys.modules:
+        mod = sys.modules["antstorch"]
+        if mod is None:
+            raise ImportError("No module named 'antstorch'")
+        fn = getattr(mod, "create_real_nvp_normalizing_flow_model", None)
+        if fn is not None:
+            return fn
+    if _ANTSTORCH_REAL_NVP_BUILDER is not None:
+        return _ANTSTORCH_REAL_NVP_BUILDER
+
+    spec = importlib.util.find_spec("antstorch")
+    if spec is None:
+        raise ImportError("No module named 'antstorch'")
+    for loc in spec.submodule_search_locations or ():
+        candidate = os.path.join(
+            loc, "lamnr_flows", "architectures", "create_normalizing_flow_model.py"
+        )
+        if os.path.isfile(candidate):
+            mspec = importlib.util.spec_from_file_location(
+                "_antstorch_real_nvp_builder", candidate
+            )
+            if mspec is not None and mspec.loader is not None:
+                mod = importlib.util.module_from_spec(mspec)
+                mspec.loader.exec_module(mod)
+                fn = getattr(mod, "create_real_nvp_normalizing_flow_model", None)
+                if fn is not None:
+                    _ANTSTORCH_REAL_NVP_BUILDER = fn
+                    return fn
+    with preserve_matplotlib_backend():
+        from antstorch import create_real_nvp_normalizing_flow_model
+    _ANTSTORCH_REAL_NVP_BUILDER = create_real_nvp_normalizing_flow_model
+    return create_real_nvp_normalizing_flow_model
+
+
 class NormalizingFlow(nn.Module):
     """
     Normalizing Flow model wrapped around antstorch's create_real_nvp_normalizing_flow_model,
@@ -213,8 +259,7 @@ class NormalizingFlow(nn.Module):
             warnings.warn("Using local fallback CustomRealNVP because force_fallback is True.", UserWarning, stacklevel=2)
         else:
             try:
-                with preserve_matplotlib_backend():
-                    from antstorch import create_real_nvp_normalizing_flow_model
+                create_real_nvp_normalizing_flow_model = _load_antstorch_real_nvp_builder()
                 import antsnormflows as nf
                 q0 = nf.distributions.DiagGaussian(dim)
                 # Map num_layers to K, hidden_dim to mlp_width, scale_bound to scale_cap
@@ -370,11 +415,17 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         "u_var": 1.0
     }
     
-    from .deep import (calculate_sim_loss, _resolve_stabilization_schedule,
+    from .deep import (LENDNSAEncoder, calculate_sim_loss, _resolve_stabilization_schedule,
                        _update_first_layer_schedule, orthogonality_defect,
                        resolve_warmup_epochs)
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     mse_loss = nn.MSELoss()
+    if hasattr(dataloader, "bind_device"):
+        dataloader.bind_device(device)
+    first_layer_encs = [
+        enc for enc in getattr(model, "linear_encoders", ())
+        if isinstance(enc, LENDNSAEncoder)
+    ]
     
     stabilization_start_epoch, stabilization_ramp_epochs = _resolve_stabilization_schedule(
         epochs,
@@ -384,12 +435,12 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
     )
     
     has_stepped = False
-    import copy as _copy
     from .utils import ConvergenceMonitor
     _monitor = ConvergenceMonitor(tol=float(tol), patience=int(patience),
                                   max_steps=epochs)
     _best_loss, _best_state, _best_epoch = float("inf"), None, None
     _warm = int(warmup_epochs or 0)
+    _all_params = list(model.parameters())
     for epoch in range(epochs):
         model.train()
         epoch_loss, epoch_recon, epoch_sim = 0.0, 0.0, 0.0
@@ -401,44 +452,49 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         current_sim_weight = 0.0 if epoch < warmup_epochs else sim_weight
         penalty_weights["sim"] = current_sim_weight
         
+        pre_staged = getattr(dataloader, "_device", None) == device
         for batch in dataloader:
-            batch_mats = [b.to(device) for b in batch]
+            batch_mats = batch if pre_staged else [b.to(device) for b in batch]
             optimizer.zero_grad()
-            
-            latents, reconstructions, u_shared = model(batch_mats)
-            
-            recon_loss = 0.0
-            for enc in model.encoders:
-                z = enc.last_z
-                log_det = enc.last_log_det
-                log_prior = -0.5 * torch.sum(z ** 2, dim=1) - 0.5 * z.shape[1] * np.log(2 * np.pi)
-                nll = -torch.mean(log_prior + log_det)
-                recon_loss += nll
+            try:
+                for enc in first_layer_encs:
+                    enc._step_v_cache = enc.v
+                latents, reconstructions, u_shared = model(batch_mats)
+                
+                recon_loss = 0.0
+                for enc in model.encoders:
+                    z = enc.last_z
+                    log_det = enc.last_log_det
+                    log_prior = -0.5 * torch.sum(z ** 2, dim=1) - 0.5 * z.shape[1] * np.log(2 * np.pi)
+                    nll = -torch.mean(log_prior + log_det)
+                    recon_loss += nll
 
-            sim_loss_total, diagnostics = calculate_sim_loss(latents, u_shared, energy_type, weights=penalty_weights)
+                sim_loss_total, diagnostics = calculate_sim_loss(latents, u_shared, energy_type, weights=penalty_weights, compute_diagnostics=False)
 
-            # Hybrid zero-padded MSE reconstruction loss
-            mse_recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
+                # Hybrid zero-padded MSE reconstruction loss
+                mse_recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
 
-            total_loss = beta * recon_loss + sim_loss_total + gamma * mse_recon_loss
-            
-            # Orthogonality penalty on the activated basis enc.v and the raw weights
-            # enc.v_raw (a regulariser; see the same term in deep._train_loop).
-            if hasattr(model, 'linear_encoders'):
-                total_loss += 0.05 * sum(orthogonality_defect(enc.v) for enc in model.linear_encoders)
-                total_loss += 0.05 * sum(orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
+                total_loss = beta * recon_loss + sim_loss_total + gamma * mse_recon_loss
+                
+                # Orthogonality penalty on the activated basis enc.v and the raw weights
+                # enc.v_raw (a regulariser; see the same term in deep._train_loop).
+                if hasattr(model, 'linear_encoders'):
+                    total_loss += 0.05 * sum(orthogonality_defect(enc.v) for enc in model.linear_encoders)
+                    total_loss += 0.05 * sum(orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
+            finally:
+                for enc in first_layer_encs:
+                    enc._step_v_cache = None
                 
             if torch.isnan(total_loss): 
                 continue
                 
             total_loss.backward()
 
-            if not all(torch.isfinite(p.grad).all()
-                       for p in model.parameters() if p.grad is not None):
+            total_norm = torch.nn.utils.clip_grad_norm_(_all_params, max_norm=1.0, foreach=True)
+            if not bool(torch.isfinite(total_norm)):
                 nonfinite_grad_steps += 1
                 optimizer.zero_grad(set_to_none=True)
                 continue
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             has_stepped = True
             valid_batches += 1
@@ -457,7 +513,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         loss_history.append(epoch_loss)
         if epoch >= _warm and np.isfinite(epoch_loss) and epoch_loss < _best_loss:
             _best_loss, _best_epoch = epoch_loss, epoch
-            _best_state = _copy.deepcopy(model.state_dict())
+            _best_state = {k_: v_.detach().clone() for k_, v_ in model.state_dict().items()}
         recon_history.append(epoch_recon)
         sim_history.append(epoch_sim)
         if has_stepped and scheduler is not None:

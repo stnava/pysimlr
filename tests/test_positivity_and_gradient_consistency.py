@@ -230,7 +230,7 @@ def test_energy_descends_overall_and_stays_bounded(optimizer_type):
 def test_returned_iterate_is_the_best_one_found(optimizer_type):
     _, x = _coupled(12)
     res = simlr(x, k=3, iterations=20, optimizer_type=optimizer_type,
-                energy_type="acc", constraint="orthox0.1")
+                energy_type="acc", constraint="orthox0.1", learning_rate=0.05)
     e = np.asarray(res["energy"], dtype=float)
     assert res["best_energy"] == pytest.approx(float(e.min()), rel=1e-9)
     assert res["best_iteration"] == int(np.argmin(e))
@@ -244,7 +244,8 @@ def test_basis_columns_have_bounded_norm(constraint):
     """Column scale is a gauge freedom; leaving it free is what let the
     covariance energy diverge."""
     _, x = _coupled(13)
-    res = simlr(x, k=3, iterations=15, energy_type="acc", constraint=constraint)
+    res = simlr(x, k=3, iterations=15, energy_type="acc", constraint=constraint,
+                learning_rate=0.05)
     for v in res["v"]:
         norms = torch.linalg.vector_norm(v, dim=0)
         assert float(norms.max()) < 10.0, f"column norms blew up to {float(norms.max())}"

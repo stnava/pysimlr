@@ -132,6 +132,9 @@ def compute_shared_consensus(projections: List[torch.Tensor],
 
     # Core consensus logic separated into a helper to reuse for LOO
     def _get_u(proj_list, return_anchor=False):
+        need_anchor = bool(return_anchor) or (
+            training and anchor is not None and anchor.shape == (len(proj_list) * k, k)
+        )
         local_big_p = torch.cat(proj_list, dim=1)
         # Every mixing has a linear anchor (U = big_p @ anchor for the batch it
         # was derived on), so prediction can replay it instead of re-deriving a
@@ -152,18 +155,28 @@ def compute_shared_consensus(projections: List[torch.Tensor],
             # can recover the same factors with opposite signs and the mean
             # then cancels them. Measured on a planted signal: per-view latents
             # at R^2 0.784 and 0.785, their plain average at 0.023.
-            aligned = align_column_signs(proj_list)
-            local_u = torch.mean(torch.stack(aligned), dim=0)
-            # The mean is big_p @ A with A = [diag(s_1); ...; diag(s_M)] / M.
-            signs = [torch.where((a * p).sum(dim=0) < 0, -1.0, 1.0).to(p.dtype)
-                     for a, p in zip(aligned, proj_list)]
-            local_anchor = torch.cat([torch.diag(sg) for sg in signs], dim=0) / len(proj_list)
+            if len(proj_list) == 1:
+                local_u = proj_list[0]
+                signs = [torch.ones(k, device=local_u.device, dtype=local_u.dtype)] if need_anchor else None
+            else:
+                aligned = align_column_signs(proj_list)
+                local_u = torch.mean(torch.stack(aligned), dim=0)
+                # The mean is big_p @ A with A = [diag(s_1); ...; diag(s_M)] / M.
+                signs = ([torch.where((a * p).sum(dim=0) < 0, -1.0, 1.0).to(p.dtype)
+                          for a, p in zip(aligned, proj_list)]
+                         if need_anchor else None)
+            mean_u = local_u
             if mixing_algorithm == "newton":
-                mean_u = local_u
                 local_u = newton_schulz_orthogonalize(mean_u, iterations=10)
-                # Newton-Schulz iterates X <- X p(X^T X), so its result is
-                # mean_u @ W for a k x k W; recover W to keep the anchor exact.
-                local_anchor = local_anchor @ (torch.linalg.pinv(mean_u) @ local_u)
+            if need_anchor:
+                with torch.no_grad():
+                    local_anchor = torch.cat([torch.diag(sg) for sg in signs], dim=0) / len(proj_list)
+                    if mixing_algorithm == "newton":
+                        # Newton-Schulz iterates X <- X p(X^T X), so its result is
+                        # mean_u @ W for a k x k W; recover W to keep the anchor exact.
+                        local_anchor = local_anchor @ (torch.linalg.pinv(mean_u.detach()) @ local_u.detach())
+            else:
+                local_anchor = None
         elif mixing_algorithm == "ica":
             avg_p = local_big_p.detach().cpu().numpy()
             with warnings.catch_warnings():
@@ -309,7 +322,8 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                 u_list.append(_get_u(loo_projs, return_anchor=False))
                 
         if training:
-            _, new_anchor = _get_u(norm_projs, return_anchor=True)
+            with torch.no_grad():
+                _, new_anchor = _get_u([p.detach() for p in norm_projs], return_anchor=True)
             return u_list, new_anchor
         return u_list
 
@@ -327,7 +341,8 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                 u_list.append(_get_u(neighbor_projs, return_anchor=False))
                 
         if training:
-            _, new_anchor = _get_u(norm_projs, return_anchor=True)
+            with torch.no_grad():
+                _, new_anchor = _get_u([p.detach() for p in norm_projs], return_anchor=True)
             return u_list, new_anchor
         return u_list
 

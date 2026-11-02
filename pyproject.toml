@@ -38,7 +38,8 @@ nsa = [
 ]
 test = [
     "pytest",
-    "pytest-cov"
+    "pytest-cov",
+    "pytest-xdist"
 ]
 docs = [
     "jupyter",

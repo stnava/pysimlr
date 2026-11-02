@@ -1,11 +1,17 @@
+import pytest
 import torch
-import matplotlib.pyplot as plt
-from pysimlr.viz import (
-    plot_view_correlations,
-    plot_latent_consensus,
-    plot_feature_signatures,
-    plot_convergence_dynamics
-)
+
+pytestmark = pytest.mark.xdist_group("plotting")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _lazy_module_imports():
+    import matplotlib.pyplot as _plt
+    from pysimlr import viz as _viz
+    globals()["plt"] = _plt
+    for _name in dir(_viz):
+        if _name.startswith("plot_"):
+            globals()[_name] = getattr(_viz, _name)
 
 def test_plot_view_correlations():
     data = [torch.randn(50, 10), torch.randn(50, 10)]

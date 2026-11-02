@@ -167,7 +167,7 @@ def test_boundary_extreme_high_dimensional_p_much_greater_than_n():
     x1 = torch.randn(n, p1)
     x2 = torch.randn(n, p2)
 
-    res = simlr([x1, x2], k=k, iterations=8, optimizer_type="hybrid_adam")
+    res = simlr([x1, x2], k=k, iterations=8, learning_rate=0.05, optimizer_type="hybrid_adam")
     assert res["u"].shape == (n, k)
     assert res["v"][0].shape == (p1, k)
     assert res["v"][1].shape == (p2, k)
@@ -181,7 +181,7 @@ def test_boundary_extreme_tall_matrix_n_much_greater_than_p():
     x1 = torch.randn(n, p1)
     x2 = torch.randn(n, p2)
 
-    res = simlr([x1, x2], k=k, iterations=8, optimizer_type="hybrid_adam")
+    res = simlr([x1, x2], k=k, iterations=8, learning_rate=0.05, optimizer_type="hybrid_adam")
     assert res["u"].shape == (n, k)
     assert res["v"][0].shape == (p1, k)
     assert res["v"][1].shape == (p2, k)
@@ -195,7 +195,7 @@ def test_boundary_latent_dim_k_equals_1_univariate():
     x1 = torch.randn(n, p1)
     x2 = torch.randn(n, p2)
 
-    res_simlr = simlr([x1, x2], k=1, iterations=6)
+    res_simlr = simlr([x1, x2], k=1, iterations=6, learning_rate=0.05)
     assert res_simlr["u"].shape == (n, 1)
     assert res_simlr["v"][0].shape == (p1, 1)
 
@@ -211,7 +211,7 @@ def test_boundary_latent_dim_k_equals_min_dim():
     x1 = torch.randn(n, p1)
     x2 = torch.randn(n, p2)
 
-    res = simlr([x1, x2], k=k, iterations=6)
+    res = simlr([x1, x2], k=k, iterations=6, learning_rate=0.05)
     assert res["u"].shape == (n, k)
     assert res["v"][0].shape == (p1, k)
 

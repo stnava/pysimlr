@@ -1,5 +1,11 @@
 import numpy as np
-from pysimlr import MultiViewPCA
+import pytest
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _lazy_module_imports():
+    from pysimlr.sklearn import MultiViewPCA
+    globals()["MultiViewPCA"] = MultiViewPCA
 
 def test_multiview_pca_multi_modal():
     np.random.seed(42)

@@ -12,6 +12,7 @@ start seed) pairs, with this one on 0 of 20.
 """
 import warnings
 
+import pytest
 import torch
 
 from pysimlr.utils import correlation_penalty
@@ -60,18 +61,18 @@ def test_linear_nc_newton_keeps_both_components_on_narrow_views():
     assert abs(float(torch.corrcoef(scores.T)[0, 1])) < 0.9
 
 
-def test_ned_nc_newton_does_not_collapse():
+@pytest.mark.parametrize("seed", range(1, 6))
+def test_ned_nc_newton_does_not_collapse(seed):
     """With the latent correlation penalty: 0 of 20 (data seed, start seed)
     pairs collapse; without any penalty, 6 of 20 (|r| 0.76-0.98)."""
     from pysimlr.deep import ned_simr
-    for seed in range(1, 6):
-        torch.manual_seed(seed)
-        n = 200
-        u = torch.randn(n, 2)
-        x = [u @ torch.randn(2, 20) + 0.1 * torch.randn(n, 20) for _ in range(2)]
-        x = [(a - a.mean(0)) / (a.std(0) + 1e-6) for a in x]
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            r = ned_simr(x, k=2, iterations=100, batch_size=32, warmup_epochs=10, energy_type="nc",
-                         mixing_algorithm="newton", random_state=seed)
-        assert abs(float(torch.corrcoef(r["u"].T)[0, 1])) < 0.5, seed
+    torch.manual_seed(seed)
+    n = 200
+    u = torch.randn(n, 2)
+    x = [u @ torch.randn(2, 20) + 0.1 * torch.randn(n, 20) for _ in range(2)]
+    x = [(a - a.mean(0)) / (a.std(0) + 1e-6) for a in x]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        r = ned_simr(x, k=2, iterations=100, batch_size=32, warmup_epochs=10, energy_type="nc",
+                     mixing_algorithm="newton", random_state=seed)
+    assert abs(float(torch.corrcoef(r["u"].T)[0, 1])) < 0.5, seed

@@ -28,36 +28,27 @@ def test_heavy_optional_modules_are_not_imported_eagerly():
 
 
 def test_plotting_entry_points_still_resolve():
-    r = _probe(
-        "import pysimlr; "
-        "assert callable(pysimlr.plot_path_model); "
-        "assert callable(pysimlr.generate_all_architecture_graphs); "
-        "assert pysimlr.benchmarks.__name__.endswith('benchmarks'); "
-        "assert pysimlr.viz.__name__.endswith('viz'); "
-        "print('ok')"
-    )
-    assert r.returncode == 0, r.stderr
-    assert "ok" in r.stdout
+    import pysimlr
+
+    assert callable(pysimlr.plot_path_model)
+    assert callable(pysimlr.generate_all_architecture_graphs)
+    assert pysimlr.benchmarks.__name__.endswith("benchmarks")
+    assert pysimlr.viz.__name__.endswith("viz")
 
 
 def test_every_public_name_resolves():
-    r = _probe(
-        "import pysimlr; "
-        "missing=[n for n in pysimlr.__all__ if not hasattr(pysimlr,n)]; "
-        "assert not missing, missing; print('ok')"
-    )
-    assert r.returncode == 0, r.stderr
+    import pysimlr
+
+    missing = [n for n in pysimlr.__all__ if not hasattr(pysimlr, n)]
+    assert not missing, missing
 
 
 def test_unknown_attribute_raises_attribute_error():
-    r = _probe(
-        "import pysimlr\n"
-        "try:\n"
-        "    pysimlr.definitely_not_a_thing\n"
-        "except AttributeError:\n"
-        "    print('ok')\n"
-    )
-    assert "ok" in r.stdout, r.stderr
+    import pytest
+    import pysimlr
+
+    with pytest.raises(AttributeError):
+        _ = pysimlr.definitely_not_a_thing
 
 
 def test_nsa_backend_is_reported_for_provenance():

@@ -12,11 +12,24 @@ Regressions pinned here:
 import numpy as np
 import pytest
 import torch
-from sklearn.base import clone
-from sklearn.model_selection import GridSearchCV, cross_val_score
 
 import pysimlr
-from pysimlr import MultiViewPCA, MultiViewSiMR, build_simlr_pipeline
+
+_LAZY_SKLEARN_IMPORTS = {
+    "clone": ("sklearn.base", "clone"),
+    "GridSearchCV": ("sklearn.model_selection", "GridSearchCV"),
+    "cross_val_score": ("sklearn.model_selection", "cross_val_score"),
+    "MultiViewPCA": ("pysimlr.sklearn", "MultiViewPCA"),
+    "MultiViewSiMR": ("pysimlr.sklearn", "MultiViewSiMR"),
+    "build_simlr_pipeline": ("pysimlr.sklearn", "build_simlr_pipeline"),
+}
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _lazy_module_imports():
+    import importlib
+    for _name, (_mod, _attr) in _LAZY_SKLEARN_IMPORTS.items():
+        globals()[_name] = getattr(importlib.import_module(_mod), _attr)
 
 K = 2
 
@@ -30,7 +43,7 @@ def _views(n=60, dims=(8, 6), seed=0, shift=0.0):
 
 def test_single_view_transform_uses_the_fitted_preprocessing():
     X = _views(dims=(8,), shift=10.0)[0]
-    est = MultiViewSiMR(n_components=K, iterations=5, random_state=0).fit(X)
+    est = MultiViewSiMR(n_components=K, iterations=5, learning_rate=0.05, random_state=0).fit(X)
     z = est.transform(X)
     ref = pysimlr.predict(est.result_, [X])["u"].numpy()
     np.testing.assert_allclose(z, ref, atol=1e-6)
@@ -41,7 +54,7 @@ def test_single_view_transform_uses_the_fitted_preprocessing():
 
 def test_multi_view_list_input():
     views = _views()
-    est = MultiViewSiMR(n_components=K, iterations=5, random_state=0).fit(views)
+    est = MultiViewSiMR(n_components=K, iterations=5, learning_rate=0.05, random_state=0).fit(views)
     assert isinstance(est.components_, list) and [c.shape for c in est.components_] == [(K, 8), (K, 6)]
     assert est.transform(views).shape == (60, K)
     assert est.n_features_in_ == 14 and est.family_ == "linear"
@@ -49,9 +62,9 @@ def test_multi_view_list_input():
 
 def test_view_sizes_reproduces_the_list_form():
     views = _views()
-    a = MultiViewSiMR(n_components=K, iterations=5, random_state=0).fit(views).transform(views)
+    a = MultiViewSiMR(n_components=K, iterations=5, learning_rate=0.05, random_state=0).fit(views).transform(views)
     X = np.hstack(views)
-    est = MultiViewSiMR(n_components=K, iterations=5, random_state=0, view_sizes=[8, 6]).fit(X)
+    est = MultiViewSiMR(n_components=K, iterations=5, learning_rate=0.05, random_state=0, view_sizes=[8, 6]).fit(X)
     np.testing.assert_allclose(est.transform(X), a, atol=1e-6)
     with pytest.raises(ValueError, match="sum to"):
         MultiViewSiMR(view_sizes=[8, 5]).fit(X)
@@ -77,10 +90,10 @@ def test_the_budget_reaches_the_deep_models():
 
 def test_a_parameter_the_method_cannot_use_is_recorded():
     with pytest.warns(RuntimeWarning, match="hidden_dims"):
-        est = MultiViewSiMR(n_components=K, iterations=3, hidden_dims=(8,)).fit(_views())
+        est = MultiViewSiMR(n_components=K, iterations=3, learning_rate=0.05, hidden_dims=(8,)).fit(_views())
     assert "hidden_dims" in est.parameters_ignored_
     with pytest.raises(TypeError):
-        MultiViewSiMR(n_components=K, iterations=3, hidden_dims=(8,), strict=True).fit(_views())
+        MultiViewSiMR(n_components=K, iterations=3, learning_rate=0.05, hidden_dims=(8,), strict=True).fit(_views())
 
 
 def test_random_state_reproduces_and_leaves_the_global_stream_alone():
@@ -111,7 +124,7 @@ def test_clone_and_get_params_round_trip():
 
 def test_inverse_transform_is_linear_only():
     views = _views()
-    est = MultiViewSiMR(n_components=K, iterations=5, random_state=0).fit(views)
+    est = MultiViewSiMR(n_components=K, iterations=5, learning_rate=0.05, random_state=0).fit(views)
     recs = est.inverse_transform(est.transform(views))
     assert [r.shape for r in recs] == [(60, 8), (60, 6)]
     deep = MultiViewSiMR(method="lend", n_components=K, iterations=2).fit(views)
@@ -124,7 +137,7 @@ def test_build_simlr_pipeline_cross_validates(task):
     rng = np.random.default_rng(0)
     X = rng.standard_normal((60, 10))
     y = (X[:, 0] > 0).astype(int) if task == "classification" else X[:, 0] + 0.1 * rng.standard_normal(60)
-    pipe = build_simlr_pipeline(n_components=K, task=task, iterations=4, random_state=0)
+    pipe = build_simlr_pipeline(n_components=K, task=task, iterations=4, learning_rate=0.05, random_state=0)
     scores = cross_val_score(pipe, X, y, cv=3)
     assert np.isfinite(scores).all()
 
@@ -168,5 +181,5 @@ def test_score_compares_methods_on_shifted_data():
 def test_build_simlr_pipeline_takes_a_list_of_views():
     views = _views()
     y = views[0][:, 0] > 0
-    pipe = build_simlr_pipeline(n_components=K, iterations=4, random_state=0).fit(views, y)
+    pipe = build_simlr_pipeline(n_components=K, iterations=4, learning_rate=0.05, random_state=0).fit(views, y)
     assert pipe.predict(views).shape == (60,)

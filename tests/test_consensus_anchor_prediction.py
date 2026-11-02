@@ -18,11 +18,15 @@ The deep models never had this problem: they carry a `consensus_anchor` buffer
 and pass it at eval. These tests pin the same guarantee for the linear path.
 """
 
+import functools
+
 import pytest
 import torch
 
 from pysimlr import simlr
 from pysimlr.simlr import predict_shared_latent
+
+pytestmark = pytest.mark.xdist_group("consensus_anchor")
 
 VOLATILE = ["svd", "pca", "ica"]
 FIXED = ["newton", "avg"]
@@ -36,7 +40,20 @@ def _case(seed=0, n=200, p=(8, 6), k=2):
     return mats, u
 
 
+@functools.lru_cache(maxsize=16)
+def _cached_case_fit(n: int, ntr: int, alg: str, k: int = 2):
+    mats, _ = _case(n=n, k=k)
+    tr = [m[:ntr] for m in mats]
+    return simlr(tr, k=k, iterations=15, mixing_algorithm=alg, verbose=False)
+
+
 def _fit(mats, alg, k=2, **kw):
+    if not kw and k == 2 and len(mats) == 2:
+        ntr = mats[0].shape[0]
+        if ntr == 200 and all(torch.equal(a, b) for a, b in zip(mats, _case(n=200)[0])):
+            return _cached_case_fit(200, 200, alg, 2)
+        if ntr == 210 and all(torch.equal(a, b[:210]) for a, b in zip(mats, _case(n=300)[0])):
+            return _cached_case_fit(300, 210, alg, 2)
     return simlr(mats, k=k, iterations=15, mixing_algorithm=alg, verbose=False, **kw)
 
 

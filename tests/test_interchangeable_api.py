@@ -26,6 +26,8 @@ Kept fast on purpose (about three seconds for all five) so it can run on every
 edit; a contract test nobody runs is not a contract.
 """
 
+import functools
+
 import numpy as np
 import pytest
 import torch
@@ -34,6 +36,7 @@ import pysimlr
 from pysimlr import api
 
 pytest.importorskip("sklearn")
+pytestmark = pytest.mark.xdist_group("interchangeable_api")
 
 #: Every registered method with a per-view basis (linear, deep, flow), taken
 #: from the registry so a newly registered method joins the loop. The joint
@@ -77,8 +80,24 @@ def _planted(seed=0, n=80, dims=(10, 8)):
     return views, y
 
 
+_DEFAULT_VIEWS, _ = _planted()
+
+
+@functools.lru_cache(maxsize=16)
+def _cached_default_run(alg_name: str, budget: int):
+    alg = next(a for a in ALGORITHMS if a.__name__ == alg_name)
+    torch.manual_seed(0)
+    np.random.seed(0)
+    return alg(_DEFAULT_VIEWS, iterations=budget, **COMMON_PARAMS)
+
+
 def run(alg, views, budget=BUDGET):
     """One call shape for every algorithm."""
+    if (
+        len(views) == len(_DEFAULT_VIEWS)
+        and all(a.shape == b.shape and torch.equal(a, b) for a, b in zip(views, _DEFAULT_VIEWS))
+    ):
+        return _cached_default_run(alg.__name__, budget)
     torch.manual_seed(0)
     np.random.seed(0)
     return alg(views, iterations=budget, **COMMON_PARAMS)
