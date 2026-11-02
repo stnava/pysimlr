@@ -213,7 +213,29 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
     2. Cell latent R² and loadings F1 on 20 default cells: latent R² mean paired difference +0.0002 (sd 0.0010), worst cell -0.0014 (guard 0.05); loadings F1 mean paired difference +0.0004 (sd 0.0017), worst cell -0.0031 (guard 0.10) -> HOLDS.
     3. Narrow score correlation at cw=0: |-0.9758| = 0.9758 (< 0.5) -> FAILS.
     *Verdict*: Keep `DEFAULT_COLLAPSE_WEIGHT = 1.0` for linear. `DEFAULT_COLLAPSE_THRESHOLD` stays 0.3 with derivation open.
-- **D4. Deep collapse (WP-5).** 6/20 (data seed, start seed) pairs collapse without the penalty; planned test in WP-5.
+- **D4. Deep collapse (Decision Rule R3, WP-5).** Evaluated deep collapse on the NED fixture
+  (n = 200, 2 views with 20 features, `ned_simr(iterations=100, batch_size=32, warmup_epochs=10)`)
+  using `scripts/deep_collapse_diagnosis.py` (evidence: `docs/audit/evidence/deep_collapse_diagnosis.csv`).
+  - *Step 1 (collapse rates across 20 data seeds 1..5 × start seeds 1..4)*:
+    - With penalty (`hinge`, `DEFAULT_COLLAPSE_WEIGHT = 1.0`): **0/20** pairs collapsed ($|corr(u)| \ge 0.5$, max $|r| = 0.194$, mean $|r| = 0.081$).
+    - Without penalty (`none`, `pysimlr.deep.correlation_penalty` patched to zero per Rule 8): **7/20** pairs collapsed (35%, $|corr(u)|$ between 0.765 and 0.981, mean 0.895; latent $|corr(z_0)| \ge 0.997$).
+    - Collapsing pairs: (1, 4), (2, 4), (3, 2), (3, 4), (4, 3), (5, 1), (5, 2).
+  - *Step 2 (determinism & onset timing)*:
+    - Determinism verified bit-identical (`max param diff = 0.0`, `max u diff = 0.0`).
+    - Prefix sweeps at iterations $\in \{10, 20, 40, 100\}$ on the 7 collapsing pairs pinpoint onset:
+      - At iteration 10 (end of warmup, autoencoder reconstruction only): **0/7** collapsed (mean $|corr(u)| = 0.135$, range 0.011 to 0.266).
+      - At iteration 20 (10 epochs after `"nc"` similarity activated): **7/7** collapsed (mean $|corr(u)| = 0.816$, range 0.600 to 0.934; latent $|corr(z_0)|$ jumped to mean 0.985).
+      - Conclusive diagnosis: dimensional collapse originates in the **similarity phase** (epochs 10-20), not during the reconstruction warmup phase.
+  - *Step 3 (energy comparison & constructibility)*:
+    - Model-parameter planted warm start is **non-constructible** in closed form due to multi-layer nonlinear MLP heads (`ModalityDecoder`: 2 $\to$ 128 $\to$ 64 $\to$ 2 with ReLU activations and Dropout) and decoders in `NEDSiMRModel`.
+    - Representation-space evaluation under unpenalized loss (`weights={"collapse": 0.0}`):
+      - Ground-truth planted latents achieve lower unpenalized loss (total $-1.9926$, $E_{sim} = -2.0000$).
+      - Collapsed unpenalized fits achieve total $+0.0062$ ($E_{sim} = -0.0012$, incurring an unweighted hinge collapse loss of $0.9958$).
+      - While the pure similarity objective mathematically favors orthogonal representations, unregularized neural network optimization encounters a spurious collapsed attractor from which it cannot escape without the collapse penalty.
+  - *Decision Rule R3 evaluation*:
+    - Condition: Keep the deep penalty unless the count without it is 0/20 and the count with it is no better.
+    - Measured: without penalty 7/20, with penalty 0/20.
+    - *Verdict*: **KEEP DEFAULT_COLLAPSE_WEIGHT = 1.0**.
 - **D3. Correlated factors.** The newton consensus decorrelates the scores; true ρ = 0.7 comes
   back as recovered ρ 0.03-0.15. Is this a gauge freedom or a defect? Report subspace R² against
   column recovery.
