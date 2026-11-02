@@ -7,10 +7,12 @@ from .utils import basis_rank_report
 from .optimizers import create_optimizer, SIMLR_OPTIMIZER_DEFAULTS
 from .sparsification import simlr_sparseness, DEFAULT_SPARSENESS, energy_needs_unit_columns
 from .utils import (adjusted_rvcoef, safe_svd, correlation_penalty, stationarity_residual,
-                    l1_normalize_features, orthogonality_defect,
+                    l1_normalize_features,
                     orthogonality_summary, preprocess_data)
 from .consensus import compute_shared_consensus
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM
+from .defaults import (DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER,
+                       DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM, DEFAULT_SIMLR_ITERATIONS,
+                       DEFAULT_SIMLR_TOL)
 
 #: How the default NSA-Flow weight `DEFAULT_NSA_W` was chosen.
 #:
@@ -1229,7 +1231,7 @@ def _prepare_fit_inputs(data_matrices, k, scale_list, positivity, initialization
 
 def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           k: int,
-          iterations: int = 100,
+          iterations: int = DEFAULT_SIMLR_ITERATIONS,
           initialization_type: str = "pca",
           random_state: Optional[int] = None,
           negentropy_weight: float = 0.0,
@@ -1253,7 +1255,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           dynamic_weights: bool = False,
           mai_metric: str = "procrustes_r2",
           use_rank_mai: bool = False,
-          tol: float = 1e-6,
+          tol: float = DEFAULT_SIMLR_TOL,
           patience: Optional[int] = None,
           verbose: bool = False,
           **opt_params) -> Dict[str, Any]:
@@ -1269,8 +1271,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         List of data matrices (one for each modality).
     k : int
         The dimensionality of the shared latent space.
-    iterations : int, default=100
-        Maximum number of optimization iterations.
+    iterations : int, default=DEFAULT_SIMLR_ITERATIONS (300)
+        Maximum number of optimization sweeps. At the default `tol` the fits
+        measured in `pysimlr.defaults` stop after ~73; the rest is headroom.
     nonneg_u : bool, default=False
         Project the shared consensus onto the non-negative NSA-Flow set each
         sweep. Experimental.
@@ -1288,17 +1291,20 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         per-view energies are comparable, and rectifying it changes what the
         mixing method returns. Measure before adopting.
     nsa_w : float, default=DEFAULT_NSA_W (0.5)
-        The one orthogonality weight, in ``[0, 1]``: the NSA-Flow retraction
-        weight applied after every step and the scale of the calibrated
-        orthogonality-defect term in the objective. ``0`` fits without an
-        orthogonality constraint (positivity and ``sparseness`` still apply).
-        0.5 comes from the NSA-Flow paper's results and carries the OLEE
-        contract (near-orthogonal, low-overlap loadings). On the synthetic
-        cells of `scripts/constraint_selection.py` (20 paired fits) no weight
-        in {0.2, 0.9}, the hard Stiefel retraction, or 0.5 without the defect
-        term beat it on support F1 or resampling stability while holding that
-        contract; dropping the defect term raised column overlap 0.155 ->
-        0.244 (paired t 3.5).
+        The one orthogonality weight, in ``[0, 1]``: the weight of the
+        NSA-Flow retraction applied after every step. The objective is the
+        similarity energy alone, minimised subject to that projection (the
+        original SiMLR design; the NSA-Flow paper calibrated w = 0.5 for the
+        projection alone). ``0`` fits without an orthogonality constraint
+        (positivity and ``sparseness`` still apply).
+
+        An orthogonality-defect penalty used to be added to the objective as
+        well. Removing it (`scripts/constraint_selection.py`, 20 paired
+        synthetic fits) raised support F1 0.621 -> 0.646 (paired t 2.6) and
+        made every fit converge (20/20 against 14/20); frame defect stayed
+        near zero (0.0043) and column support overlap rose 0.155 -> 0.244,
+        a difference confined to signed fits, where the contract is
+        orthogonality rather than disjointness.
 
         Its primary job is keeping the basis from collapsing. The gradient
         step drives the columns together; ``w`` holds them apart. Measured on
@@ -1438,7 +1444,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     scale_list : List[str], optional
         Preprocessing methods to apply to input data. ``None`` means
         ``["centerAndScale", "np"]``.
-    tol : float, default=1e-6
+    tol : float, default=DEFAULT_SIMLR_TOL (1e-4)
         Relative-improvement threshold of the energy plateau rule: the fit
         stops, converged (``certificate="energy_plateau"``), after `patience`
         sweeps that improve the best energy by less than `tol` relative. This
@@ -1639,7 +1645,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     best_retraction_diags = None
     
     normalizing_weights = [1.0] * n_modalities
-    orth_weights = [1.0] * n_modalities
     domain_weights = [1.0] * n_modalities
     neg_weights = [1.0] * n_modalities
 
@@ -1649,17 +1654,12 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     except (ValueError, KeyError):
         _self_norm = False
 
-    def _calibrate_weights(curr_v_mats, curr_u, orth_floor: float = 1e-10):
+    def _calibrate_weights(curr_v_mats, curr_u):
         for idx_m in range(n_modalities):
             u_m = curr_u[idx_m] if isinstance(curr_u, list) else curr_u
             sim_e = calculate_simlr_energy(curr_v_mats[idx_m], torch_mats[idx_m], u_m, energy_type).item()
             normalizing_weights[idx_m] = (1.0 / n_modalities if _self_norm
                                           else 1.0 / (abs(sim_e) * n_modalities + 1e-10))
-            orth_e = orthogonality_defect(curr_v_mats[idx_m]).item()
-            if orth_e > orth_floor:
-                orth_weights[idx_m] = abs(sim_e) * normalizing_weights[idx_m] / orth_e
-            else:
-                orth_weights[idx_m] = 0.0
             if negentropy_weight != 0.0:
                 neg_e0 = abs(calculate_simlr_energy(
                     curr_v_mats[idx_m], torch_mats[idx_m], u_m, "negentropy").item())
@@ -1680,7 +1680,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph)
         if nonneg_u:
             init_u = _nonneg_consensus(init_u)
-        _calibrate_weights(v_mats, init_u, orth_floor=1e-10)
+        _calibrate_weights(v_mats, init_u)
         init_total_energy = sum(
             calculate_simlr_energy(v_mats[idx_m], torch_mats[idx_m],
                                    init_u[idx_m] if isinstance(init_u, list) else init_u,
@@ -1750,8 +1750,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             if dom64 is not None:
                 e = e + calculate_simlr_energy(w64, x64, u64, "dat", lambda_val=domain_lambdas[i],
                                                prior_matrix=dom64) * domain_weights[i]
-            if constraint_type == "ortho":
-                e = e + orthogonality_defect(w64) * constraint_weight * orth_weights[i]
             if negentropy_weight != 0.0:
                 e = e + (calculate_simlr_energy(w64, x64, u64, "negentropy")
                          * negentropy_weight * neg_weights[i])
@@ -1865,7 +1863,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 zero_step_views += 1
             
         if is_warm_start:
-            _calibrate_weights(v_mats, u, orth_floor=1e-10)
+            _calibrate_weights(v_mats, u)
             init_total_energy = sum(
                 calculate_simlr_energy(v_mats[idx_m], torch_mats[idx_m],
                                        u[idx_m] if isinstance(u, list) else u,
@@ -2013,7 +2011,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # data, the same quantity `predict_simlr` returns as "latents".
         "latents": [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)],
         "normalizing_weights": normalizing_weights, 
-        "orth_weights": orth_weights, "domain_weights": domain_weights, 
+        "domain_weights": domain_weights, 
         "converged_iter": converged_iter,
         "stop_reason": stop_reason,
         "convergence": {**monitor.report(), "stop_reason": stop_reason,

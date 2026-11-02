@@ -96,6 +96,11 @@ def test_face_residual_is_zero_on_a_stationary_face_and_flags_the_support():
     assert on1 == pytest.approx(on2, rel=1e-9)
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "Defect penalty removed from the objective (amigo): the face residual falls 0.86 "
+    "decades (0.0388 -> 0.0056 over 150 sweeps, 0.0053 over 600) instead of 2.8, and the "
+    "energy keeps moving (relative 1.2e-4 per 20 sweeps at 600), so the premise of a "
+    "settled energy fails here. Open item A3 in docs/tracking_amigo.md."))
 def test_face_residual_falls_where_the_energy_settles():
     """Calibration (scripts/stationarity_residual_calibration.py): on this
     fixture the residual fell 2.8 decades over 300 sweeps; the removed

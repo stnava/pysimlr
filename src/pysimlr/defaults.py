@@ -64,3 +64,15 @@ DEFAULT_COLLAPSE_WEIGHT = 1.0
 #: it the cost rises quadratically to 1 per fully collinear column pair. 0.3
 #: from the comparison recorded in that function's docstring.
 DEFAULT_COLLAPSE_THRESHOLD = 0.3
+
+
+#: `simlr` stopping. At tol = 1e-6 the plateau rule almost never fired: 0/20
+#: default fits converged within 100 sweeps and 14/20 within 300, every
+#: non-converged trace still creeping monotonically by 1e-6 to 1e-5 per sweep.
+#: Fits stopped at 1e-4 match the 300-sweep fits to < 0.001 latent R^2 with
+#: support F1, frame defect and overlap unchanged
+#: (scripts/linear_tol_selection.py). 1e-4 is also the ConvergenceMonitor and
+#: flow default. 300 sweeps is headroom for harder problems; at 1e-4 the
+#: measured fits stop after ~73.
+DEFAULT_SIMLR_TOL = 1e-4
+DEFAULT_SIMLR_ITERATIONS = 300

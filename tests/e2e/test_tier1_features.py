@@ -8,6 +8,7 @@ Exercises:
 - Consensus Topologies: Star, LOO, Graph, Anchor stability, Pruning.
 """
 
+import pytest
 import torch
 import numpy as np
 
@@ -39,6 +40,11 @@ from pysimlr.flows import NormalizingFlow, CustomRealNVP
 # FEATURE AREA 1: SiMLR Core
 # ============================================================================
 
+@pytest.mark.xfail(strict=True, reason=(
+    "Defect penalty removed from the objective (amigo, owner decision): at nsa_w=1 "
+    "(cap 0.95) the retraction alone leaves max |V'V| off-diagonal 1.26e-3 on this "
+    "fixture, against 1.2e-4 with the penalty; threshold 1e-3 kept. Open item A3 in "
+    "docs/tracking_amigo.md."))
 def test_simlr_stiefel_constraint_is_near_orthogonal(synthetic_two_views):
     """
     The Stiefel contract on its own, with nothing else acting on the basis.

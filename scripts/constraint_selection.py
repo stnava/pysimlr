@@ -1,6 +1,10 @@
 """F1: which orthogonality setting gives the best loadings without breaking the
 OLEE contract? One run; writes docs/audit/evidence/constraint_selection*.csv.
 
+Since the amigo branch the orthogonality-defect term is gone from `simlr`'s
+objective, so the "w0.5_nodefect" arm equals "w0.5" when rerun; the CSV
+records both as they were.
+
 The evidence CSV was produced before the constraint-string API was removed
 (the "Stiefel" arm, a hard retraction at w = 1 with a tangent-space gradient
 and no defect term, needed ``constraint="Stiefel"``). The script now runs the
