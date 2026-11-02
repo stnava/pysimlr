@@ -1068,12 +1068,28 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
     return similarity_energy(name, x @ v, u, SimilarityContext(x=x, v=v))
 
 
-def _calibrate_view_scale(v_m: torch.Tensor, x_m: torch.Tensor, u_m: torch.Tensor,
-                          energy_type: str, lambda_val: float = 0.0,
-                          prior_matrix: Optional[torch.Tensor] = None) -> float:
-    """Evaluate initial view scale for similarity normalization."""
-    sim_e = calculate_simlr_energy(v_m, x_m, u_m, energy_type, lambda_val=lambda_val, prior_matrix=prior_matrix)
-    return abs(float(sim_e.item()))
+def _view_energy_scale(energy_type: str, x: torch.Tensor, u: torch.Tensor,
+                       sim_e: Union[float, torch.Tensor]) -> float:
+    """Evaluate characteristic view energy scale for similarity normalization.
+
+    Parameters
+    ----------
+    energy_type : str
+        Energy function name.
+    x : torch.Tensor
+        View data matrix (n x p_i).
+    u : torch.Tensor
+        Consensus latent matrix (n x k).
+    sim_e : float or torch.Tensor
+        Raw initial similarity energy for this view.
+
+    Returns
+    -------
+    float
+        Scale factor used to calibrate the view's normalizing weight.
+    """
+    e_val = float(sim_e.item()) if hasattr(sim_e, "item") else float(sim_e)
+    return abs(e_val)
 
 
 def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, 
@@ -1672,7 +1688,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     def _calibrate_weights(curr_v_mats, curr_u):
         for idx_m in range(n_modalities):
             u_m = curr_u[idx_m] if isinstance(curr_u, list) else curr_u
-            scale_val = _calibrate_view_scale(curr_v_mats[idx_m], torch_mats[idx_m], u_m, energy_type)
+            sim_e = calculate_simlr_energy(curr_v_mats[idx_m], torch_mats[idx_m], u_m, energy_type)
+            scale_val = _view_energy_scale(energy_type, torch_mats[idx_m], u_m, sim_e)
             normalizing_weights[idx_m] = (1.0 / n_modalities if _self_norm
                                           else 1.0 / (scale_val * n_modalities + 1e-10))
             if negentropy_weight != 0.0:

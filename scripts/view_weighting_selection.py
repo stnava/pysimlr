@@ -62,14 +62,14 @@ from run_deep_benchmark import get_adni_mci_case, run_experiment_task
 from test_collapse_penalty import _narrow, _outcome_r2
 
 _BASE_SCALE_FREE_ENERGIES = frozenset(pysimlr.similarity.SCALE_FREE_ENERGIES)
-_BASE_CALIBRATE_VIEW_SCALE = simlr_module._calibrate_view_scale
+_BASE_VIEW_ENERGY_SCALE = simlr_module._view_energy_scale
 
 
 def set_weighting_mode(energy: str, mode: str):
     """Set weighting mode in the current process with strict state management."""
     # Step 1: ALWAYS restore baseline state first (Rule 6 / Rule 8)
     pysimlr.similarity.SCALE_FREE_ENERGIES = _BASE_SCALE_FREE_ENERGIES
-    simlr_module._calibrate_view_scale = _BASE_CALIBRATE_VIEW_SCALE
+    simlr_module._view_energy_scale = _BASE_VIEW_ENERGY_SCALE
 
     if energy == "nc":
         if mode in ("equal", "candidate"):
@@ -78,14 +78,13 @@ def set_weighting_mode(energy: str, mode: str):
             pysimlr.similarity.SCALE_FREE_ENERGIES = _BASE_SCALE_FREE_ENERGIES - {"nc"}
     elif energy == "acc":
         if mode in ("equal", "candidate"):
-            def candidate_view_scale(v_m, x_m, u_m, energy_type="acc", lambda_val=0.0, prior_matrix=None):
+            def candidate_view_scale(energy_type, x, u, sim_e):
                 if energy_type == "acc":
-                    n = x_m.shape[0]
-                    s_m = (torch.linalg.norm(x_m, 2) * torch.linalg.norm(u_m, "fro") / (n - 1)).clamp_min(1e-10)
-                    return float(s_m.item())
-                return _BASE_CALIBRATE_VIEW_SCALE(v_m, x_m, u_m, energy_type=energy_type, lambda_val=lambda_val, prior_matrix=prior_matrix)
+                    scale = (torch.linalg.norm(x, ord=2) * torch.linalg.norm(u, "fro")) / (x.shape[0] - 1)
+                    return float(scale.item())
+                return _BASE_VIEW_ENERGY_SCALE(energy_type, x, u, sim_e)
 
-            simlr_module._calibrate_view_scale = candidate_view_scale
+            simlr_module._view_energy_scale = candidate_view_scale
         elif mode == "calibrated":
             pass
 
@@ -123,15 +122,22 @@ def run_default_cell_task(task_args: tuple) -> list:
             full = pysimlr.fit("simlr", views, k, energy_type=energy,
                                positivity=pos, random_state=seed)
 
-            # Sanity assertion for scale-free equal weights
-            if mode == "equal" and energy == "nc":
+            # Sanity assertion for scale-free equal weights / candidate scale
+            if energy == "nc":
                 expected_w = 1.0 / len(full["normalizing_weights"])
-                assert all(abs(w - expected_w) < 1e-6 for w in full["normalizing_weights"]), \
-                    f"Weight leakage: {full['normalizing_weights']} != {expected_w}"
-            elif mode == "calibrated" and energy == "nc":
-                expected_w = 1.0 / len(full["normalizing_weights"])
-                assert not all(abs(w - expected_w) < 1e-6 for w in full["normalizing_weights"]), \
-                    f"Expected calibrated weights, but got equal weights: {full['normalizing_weights']}"
+                if mode == "equal":
+                    assert all(abs(w - expected_w) < 1e-6 for w in full["normalizing_weights"]), \
+                        f"Weight leakage: {full['normalizing_weights']} != {expected_w}"
+                elif mode == "calibrated":
+                    assert not all(abs(w - expected_w) < 1e-6 for w in full["normalizing_weights"]), \
+                        f"Expected calibrated weights, but got equal weights: {full['normalizing_weights']}"
+            elif energy == "acc":
+                if mode == "candidate":
+                    assert simlr_module._view_energy_scale is not _BASE_VIEW_ENERGY_SCALE, \
+                        "Candidate patch was not applied in candidate mode"
+                elif mode == "calibrated":
+                    assert simlr_module._view_energy_scale is _BASE_VIEW_ENERGY_SCALE, \
+                        "Baseline scale was not restored in calibrated mode"
 
             lat_r2 = latent_r2(z, full["u"])
             conv = bool(full["convergence"]["converged"])
@@ -180,6 +186,11 @@ def run_default_cell_task(task_args: tuple) -> list:
 
     # Format paired output rows
     case_id = f"{generator}_{pos}_s{seed}"
+    if energy == "acc":
+        diffs = [abs(results_by_mode["calibrated"][m] - results_by_mode[alt_name][m])
+                 for m in ("weight_spread", "latent_r2", "loadings_instability", "u_init_invariance")]
+        assert any(d > 1e-5 for d in diffs), \
+            f"Candidate arm produced identical results to calibrated in cell {case_id}"
     records = []
     for metric_name in results_by_mode["calibrated"]:
         c_val = results_by_mode["calibrated"][metric_name]
@@ -218,14 +229,21 @@ def run_narrow_fixture(energy: str) -> list:
             # 1. Default budget (iterations=None -> 300 / DEFAULT_TOL)
             r_cw1 = pysimlr.fit("simlr", x, k=2, positivity="positive", sparseness=0.5,
                                 energy_type=energy, random_state=0, collapse_weight=1.0)
-            if mode == "equal" and energy == "nc":
+            if energy == "nc":
                 expected_w = 1.0 / len(r_cw1["normalizing_weights"])
-                assert all(abs(w - expected_w) < 1e-6 for w in r_cw1["normalizing_weights"]), \
-                    f"Weight leakage: {r_cw1['normalizing_weights']} != {expected_w}"
-            elif mode == "calibrated" and energy == "nc":
-                expected_w = 1.0 / len(r_cw1["normalizing_weights"])
-                assert not all(abs(w - expected_w) < 1e-6 for w in r_cw1["normalizing_weights"]), \
-                    f"Expected calibrated weights, but got equal weights: {r_cw1['normalizing_weights']}"
+                if mode == "equal":
+                    assert all(abs(w - expected_w) < 1e-6 for w in r_cw1["normalizing_weights"]), \
+                        f"Weight leakage: {r_cw1['normalizing_weights']} != {expected_w}"
+                elif mode == "calibrated":
+                    assert not all(abs(w - expected_w) < 1e-6 for w in r_cw1["normalizing_weights"]), \
+                        f"Expected calibrated weights, but got equal weights: {r_cw1['normalizing_weights']}"
+            elif energy == "acc":
+                if mode == "candidate":
+                    assert simlr_module._view_energy_scale is not _BASE_VIEW_ENERGY_SCALE, \
+                        "Candidate patch was not applied in candidate mode"
+                elif mode == "calibrated":
+                    assert simlr_module._view_energy_scale is _BASE_VIEW_ENERGY_SCALE, \
+                        "Baseline scale was not restored in calibrated mode"
 
             r2_cw1 = _outcome_r2(x, y, r_cw1["v"])
             sc1 = x[0] @ r_cw1["v"][0]
@@ -339,10 +357,18 @@ def run_nonneg_task(task_args: tuple) -> list:
             nw = row.get("normalizing_weights")
             assert nw is not None, f"normalizing_weights missing in NonnegParts task for mode={mode}"
             expected_w = 1.0 / len(nw)
-            if mode == "equal" and energy == "nc":
-                assert all(abs(w - expected_w) < 1e-6 for w in nw), f"Expected equal weights, got {nw}"
-            elif mode == "calibrated" and energy == "nc":
-                assert not all(abs(w - expected_w) < 1e-6 for w in nw), f"Expected calibrated weights, got {nw}"
+            if energy == "nc":
+                if mode == "equal":
+                    assert all(abs(w - expected_w) < 1e-6 for w in nw), f"Expected equal weights, got {nw}"
+                elif mode == "calibrated":
+                    assert not all(abs(w - expected_w) < 1e-6 for w in nw), f"Expected calibrated weights, got {nw}"
+            elif energy == "acc":
+                if mode == "candidate":
+                    assert simlr_module._view_energy_scale is not _BASE_VIEW_ENERGY_SCALE, \
+                        "Candidate patch was not applied in candidate mode"
+                elif mode == "calibrated":
+                    assert simlr_module._view_energy_scale is _BASE_VIEW_ENERGY_SCALE, \
+                        "Baseline scale was not restored in calibrated mode"
 
             if mode == alt_name:
                 alt_conv = float(bool(row.get("Solver_Converged", True)))
@@ -351,9 +377,17 @@ def run_nonneg_task(task_args: tuple) -> list:
             results[mode] = {
                 "support_recovery_loadings": float(row.get("Support_Recovery_L", float("nan"))),
                 "support_recovery_v": float(row.get("Support_Recovery_V", float("nan"))),
+                "normalizing_weights": nw,
             }
         finally:
             set_weighting_mode(energy, "calibrated")
+
+    if energy == "acc":
+        assert not np.allclose(results["calibrated"]["normalizing_weights"],
+                               results[alt_name]["normalizing_weights"], rtol=1e-4, atol=1e-4), \
+            f"Candidate weights did not differ from calibrated weights in nonneg_parts seed {seed}"
+        del results["calibrated"]["normalizing_weights"]
+        del results[alt_name]["normalizing_weights"]
 
     records = []
     for metric_name in results["calibrated"]:
@@ -397,10 +431,18 @@ def run_adni_heldout_task(task_args: tuple) -> list:
             nw = row.get("normalizing_weights")
             assert nw is not None, f"normalizing_weights missing in ADNI held-out task for mode={mode}"
             expected_w = 1.0 / len(nw)
-            if mode == "equal" and energy == "nc":
-                assert all(abs(w - expected_w) < 1e-6 for w in nw), f"Expected equal weights, got {nw}"
-            elif mode == "calibrated" and energy == "nc":
-                assert not all(abs(w - expected_w) < 1e-6 for w in nw), f"Expected calibrated weights, got {nw}"
+            if energy == "nc":
+                if mode == "equal":
+                    assert all(abs(w - expected_w) < 1e-6 for w in nw), f"Expected equal weights, got {nw}"
+                elif mode == "calibrated":
+                    assert not all(abs(w - expected_w) < 1e-6 for w in nw), f"Expected calibrated weights, got {nw}"
+            elif energy == "acc":
+                if mode == "candidate":
+                    assert simlr_module._view_energy_scale is not _BASE_VIEW_ENERGY_SCALE, \
+                        "Candidate patch was not applied in candidate mode"
+                elif mode == "calibrated":
+                    assert simlr_module._view_energy_scale is _BASE_VIEW_ENERGY_SCALE, \
+                        "Baseline scale was not restored in calibrated mode"
 
             if mode == alt_name:
                 alt_conv = float(bool(row.get("Solver_Converged", True)))
@@ -408,9 +450,17 @@ def run_adni_heldout_task(task_args: tuple) -> list:
 
             results[mode] = {
                 "adni_predictive_metric": float(row.get("Predictive_Metric", float("nan"))),
+                "normalizing_weights": nw,
             }
         finally:
             set_weighting_mode(energy, "calibrated")
+
+    if energy == "acc":
+        assert not np.allclose(results["calibrated"]["normalizing_weights"],
+                               results[alt_name]["normalizing_weights"], rtol=1e-4, atol=1e-4), \
+            f"Candidate weights did not differ from calibrated weights in ADNI held-out seed {seed} pos {pos}"
+        del results["calibrated"]["normalizing_weights"]
+        del results[alt_name]["normalizing_weights"]
 
     records = []
     for metric_name in results["calibrated"]:
@@ -446,6 +496,13 @@ def run_adni_stability_task(task_args: tuple) -> list:
     for mode in ("calibrated", alt_name):
         set_weighting_mode(energy, mode)
         try:
+            if energy == "acc":
+                if mode == "candidate":
+                    assert simlr_module._view_energy_scale is not _BASE_VIEW_ENERGY_SCALE, \
+                        "Candidate patch was not applied in candidate mode"
+                elif mode == "calibrated":
+                    assert simlr_module._view_energy_scale is _BASE_VIEW_ENERGY_SCALE, \
+                        "Baseline scale was not restored in calibrated mode"
             sr = pysimlr.select_rank("simlr", case["data"], [2, 3], n_subsamples=20,
                                      random_state=42, positivity=pos, topology="graph",
                                      path_graph=case["path_graph"], energy_type=energy)
@@ -858,10 +915,14 @@ def main():
     cols = ["group", "case_id", "generator", "positivity", "seed", "k", "metric",
             "calibrated", "alternative", "difference", "converged", "n_steps", "source"]
     final_df = final_df[cols]
-    final_df.sort_values(by=["group", "case_id", "metric"], inplace=True)
-    final_df.to_csv(args.out, index=False)
     elapsed = time.perf_counter() - t0
-    print(f"\nWrote {len(final_df)} paired measurements to {args.out} in {elapsed:.1f} s.")
+    try:
+        final_df.to_csv(args.out, index=False)
+        print(f"\nWrote {len(final_df)} paired measurements to {args.out} in {elapsed:.1f} s.")
+    except PermissionError:
+        tmp_out = f"/tmp/{os.path.basename(args.out)}"
+        final_df.to_csv(tmp_out, index=False)
+        print(f"\nWrote {len(final_df)} paired measurements to {tmp_out} (PermissionError writing to {args.out}) in {elapsed:.1f} s.")
 
     passed, summary_df = evaluate_decision_rules(final_df, args.energy)
     return 0 if passed else 1

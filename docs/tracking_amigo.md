@@ -40,7 +40,12 @@ item that is in progress or on hold.
 | `c18384a` | This document, `docs/amigo_report.html`, contract docs. |
 | `9f2a5d4` | `nsa_w > 0.99` rejected everywhere; tests moved from 1.0 to 0.99. |
 | `5cc49d8` | `DEFAULT_TOL = 1e-4` for every method; `scripts/deep_tol_selection.py`. |
-| (next) | `pysimlr.select_rank`; `scripts/adni_rank_selection.py`. |
+| `9cdf093` | `pysimlr.select_rank`; `scripts/adni_rank_selection.py`. |
+| `a045a81` | Resolve the three post-design-change xfails. |
+| `acd08fe` | Equal weights for scale-free view energies. |
+| `eabab15` | Re-measure after equal view weights. |
+| `708c9c6` | View-weighting remediation (R1 at default budget). |
+| (next) | Keep `acc` view scale under Decision Rule R9 (WP-1b). |
 
 ## Why: feature identifiability (measured)
 
@@ -174,6 +179,17 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   weights, the penalty is effectively on for the first time. The narrow fixture under equal
   weights has cw=0 R² 0.608 vs 0.348 (with cw=1 R² 0.962 vs 0.937). This finding carries
   directly into WP-2 / D2.
+- **A11. `acc` view scale (Decision Rule R9, WP-1b).** Evaluated candidate operator-norm scale
+  $(\|X_m\|_2 \|u\|_F) / (n - 1)$ against $|E_0|$ calibration for non-scale-free energy `acc`
+  (evidence: `docs/audit/evidence/view_weighting_acc.csv`).
+  While the candidate scale satisfies view-rescaling invariance, it failed 5 per-cell representation
+  guards on the WP-1R metric set:
+  - `latent_r2` on `linear_positive_s3`: loss of 0.1441 (> 0.05 budget)
+  - `loadings_instability` on `buried_positive_s2`: loss of 0.1312 (> 0.05 budget)
+  - `loadings_support_f1` on `buried_positive_s4`: loss of 0.2037 (> 0.10 budget)
+  - `structure_init_invariance` on `buried_positive_s2`: loss of 0.1552 (> 0.05 budget)
+  - `u_init_invariance` on `buried_either_s4`: loss of 0.1977 (> 0.05 budget)
+  Per Decision Rule R9, candidate scale is rejected; outcome: `RETAIN CALIBRATED WEIGHTS` (`|E0|` calibration).
 
 ## On hold from the earlier plan
 
