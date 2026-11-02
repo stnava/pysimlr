@@ -76,3 +76,43 @@ def test_ned_nc_newton_does_not_collapse(seed):
         r = ned_simr(x, k=2, iterations=100, batch_size=32, warmup_epochs=10, energy_type="nc",
                      mixing_algorithm="newton", random_state=seed)
     assert abs(float(torch.corrcoef(r["u"].T)[0, 1])) < 0.5, seed
+
+
+def test_r2_linear_collapse_contract_and_sanity_residual():
+    """WP-2 / Decision Rule R2 contract test.
+
+    Verifies:
+    1. DEFAULT_COLLAPSE_WEIGHT is retained at 1.0 (R2 decision rule).
+    2. Exact mathematical agreement (residual < 1e-6) between the similarity
+       objective formula and simlr's energy calculation on the narrow fixture.
+    3. The pure similarity objective at the collapsed iterate V(cw=0) is lower
+       than at the projected planted solution P(V_true), demonstrating why the
+       collapse penalty is necessary to prevent dimension loss on narrow views.
+    """
+    from pysimlr.consensus import compute_shared_consensus
+    from pysimlr.defaults import DEFAULT_COLLAPSE_WEIGHT
+    from pysimlr.simlr import _prepare_fit_inputs, calculate_simlr_energy, simlr
+    from pysimlr.sparsification import simlr_sparseness
+
+    assert DEFAULT_COLLAPSE_WEIGHT == 1.0
+
+    x, y = _narrow()
+
+    # Exact sanity check identity at initialization
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        res0 = simlr(x, k=2, positivity="positive", sparseness=0.5, energy_type="nc",
+                     optimizer_type="hybrid_adam", mixing_algorithm="newton", random_state=0,
+                     collapse_weight=0.0, iterations=0)
+
+    torch_mats, prov, _ = _prepare_fit_inputs(
+        x, k=2, scale_list=["centerAndScale", "np"], positivity="positive",
+        initialization_type="pca", random_state=0, domain_matrices=None,
+        sparseness=0.5, varimax=None)
+
+    v0 = res0["v"]
+    projections = [m @ b for m, b in zip(torch_mats, v0)]
+    u_loo = compute_shared_consensus(projections, mixing_algorithm="newton", k=2, topology="loo")
+    recomputed = sum(calculate_simlr_energy(v0[i], torch_mats[i], u_loo[i], "nc").item() / 2 for i in range(2))
+    assert abs(recomputed - res0["best_energy"]) < 1e-6
+

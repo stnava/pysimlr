@@ -192,11 +192,28 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
 
 ## On hold from the earlier plan
 
-- **D2/D4. Collapse: objective or optimizer?**
-  - Linear narrow-view fixture: under calibrated weights R² was 0.301 without penalty; under equal weights cw=0 R² is 0.608 (vs 0.962 with cw=1).
-  - Deep: 6/20 (data seed, start seed) pairs collapse without the penalty.
-  - Planned test: compare the energy at the planted solution with the energy at the collapsed
-    one. This decides the 0.3 hinge threshold.
+- **D2. Linear narrow-view collapse (Decision Rule R2, WP-2).** Evaluated linear narrow-view collapse
+  on the corrected equal-weights objective using `scripts/collapse_diagnosis.py`
+  (evidence: `docs/audit/evidence/collapse_diagnosis.csv`).
+  - *Step 0 (convergence & learning rate)*: The default auto learning rate at cw=1 hit the `LR_PROBE_GRID`
+    upper endpoint (1.0), early stopping at sweep 5 with `stop_reason="no_descent"` (recorded as an R11 data point);
+    cw=0 chose 0.3, also stopping at sweep 5 (`no_descent`). Fixed-LR sweeps identified the largest converged fits:
+    cw=0 converged at lr=0.1 (sweep 25, best energy -0.696744, outcome R² 0.3565, score corr -0.9758);
+    cw=1 converged at lr=0.03 (sweep 55, best energy -0.183079, outcome R² 0.9618, score corr -0.5908).
+  - *Sanity check*: Formula evaluation of pure similarity objective matches `simlr`'s internal energy calculation
+    with exact mathematical agreement at initialization (residual = 0.0 < 1e-6) and 6.12e-05 at the converged iterate
+    (due to alternating-step lag in logging).
+  - *Energies*: Pure similarity objective ($E_{sim} = \frac{1}{M} \sum_m \text{nc}(X_m V_m, u_m)$ with LOO Newton consensus) evaluated at:
+    - $V(cw=0)$: -0.696805 (collapsed state, outcome R² = 0.3565, score corr = -0.9758)
+    - $P(V_{true})$: -0.676536 (planted solution mapped into preprocessed space and projected, outcome R² = 0.9884, score corr = -0.4280)
+    - $V(cw=1)$: -0.192974 (penalized fit, outcome R² = 0.9618, score corr = -0.5908)
+    Crucially, $E(V(cw=0)) < E(P(V_{true}))$, proving that the unpenalized similarity objective mathematically prefers the collapsed state over the ground truth.
+  - *Decision Rule R2 evaluation*:
+    1. Narrow outcome R² non-inferiority: cw=0 outcome R² (0.3565) vs cw=1 (0.9618) loses by 0.6053 (guard 0.05) -> FAILS.
+    2. Cell latent R² and loadings F1 on 20 default cells: latent R² mean paired difference +0.0002 (sd 0.0010), worst cell -0.0014 (guard 0.05); loadings F1 mean paired difference +0.0004 (sd 0.0017), worst cell -0.0031 (guard 0.10) -> HOLDS.
+    3. Narrow score correlation at cw=0: |-0.9758| = 0.9758 (< 0.5) -> FAILS.
+    *Verdict*: Keep `DEFAULT_COLLAPSE_WEIGHT = 1.0` for linear. `DEFAULT_COLLAPSE_THRESHOLD` stays 0.3 with derivation open.
+- **D4. Deep collapse (WP-5).** 6/20 (data seed, start seed) pairs collapse without the penalty; planned test in WP-5.
 - **D3. Correlated factors.** The newton consensus decorrelates the scores; true ρ = 0.7 comes
   back as recovered ρ 0.03-0.15. Is this a gauge freedom or a defect? Report subspace R² against
   column recovery.
