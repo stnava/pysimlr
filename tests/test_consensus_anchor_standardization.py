@@ -28,11 +28,9 @@ def _projections(seed=0, n=60, k=3):
 def test_anchored_prediction_matches_training_on_identical_data(alg):
     projs = _projections()
     u_train, anchor = compute_shared_consensus(
-        projs, mixing_algorithm=alg, k=3, training=True
-    )
+        projs, mixing_algorithm=alg, k=3, training=True, topology="star")
     u_pred = compute_shared_consensus(
-        projs, mixing_algorithm=alg, k=3, training=False, anchor=anchor
-    )
+        projs, mixing_algorithm=alg, k=3, training=False, anchor=anchor, topology="star")
     assert anchor is not None
     assert torch.allclose(u_train, u_pred, atol=1e-4), (
         f"{alg}: anchored prediction diverges from training U on identical input"
@@ -43,11 +41,9 @@ def test_anchored_prediction_matches_training_on_identical_data(alg):
 def test_anchored_prediction_is_standardized(alg):
     projs = _projections()
     _, anchor = compute_shared_consensus(
-        projs, mixing_algorithm=alg, k=3, training=True
-    )
+        projs, mixing_algorithm=alg, k=3, training=True, topology="star")
     u_pred = compute_shared_consensus(
-        projs, mixing_algorithm=alg, k=3, training=False, anchor=anchor
-    )
+        projs, mixing_algorithm=alg, k=3, training=False, anchor=anchor, topology="star")
     assert torch.allclose(u_pred.mean(0), torch.zeros(3), atol=1e-4)
     assert torch.allclose(u_pred.std(0), torch.ones(3), atol=1e-4)
 
@@ -56,11 +52,9 @@ def test_anchored_prediction_is_standardized(alg):
 def test_averaging_mixing_anchor_replays_the_training_consensus(alg):
     projs = _projections()
     u_train, anchor = compute_shared_consensus(
-        projs, mixing_algorithm=alg, k=3, training=True
-    )
+        projs, mixing_algorithm=alg, k=3, training=True, topology="star")
     u_pred = compute_shared_consensus(
-        projs, mixing_algorithm=alg, k=3, training=False, anchor=anchor
-    )
+        projs, mixing_algorithm=alg, k=3, training=False, anchor=anchor, topology="star")
     assert anchor is not None
     assert torch.allclose(u_train, u_pred, atol=1e-5)
 
@@ -76,8 +70,7 @@ def test_frozen_consensus_holds_coordinates_fixed_across_disjoint_batches(alg):
     from pysimlr.consensus import capture_consensus_map
     projs = _projections(n=120)
     u_train, anchor = compute_shared_consensus(
-        projs, mixing_algorithm=alg, k=3, training=True
-    )
+        projs, mixing_algorithm=alg, k=3, training=True, topology="star")
     frozen = capture_consensus_map(projs, u_train)
     first = [p[:60] for p in projs]
     second = [p[60:] for p in projs]
@@ -97,12 +90,10 @@ def test_frozen_consensus_holds_coordinates_fixed_across_disjoint_batches(alg):
 def test_single_sample_prediction_does_not_crash():
     projs = _projections()
     _, anchor = compute_shared_consensus(
-        projs, mixing_algorithm="svd", k=3, training=True
-    )
+        projs, mixing_algorithm="svd", k=3, training=True, topology="star")
     one = [p[:1] for p in projs]
     u = compute_shared_consensus(
-        one, mixing_algorithm="svd", k=3, training=False, anchor=anchor
-    )
+        one, mixing_algorithm="svd", k=3, training=False, anchor=anchor, topology="star")
     assert u.shape == (1, 3)
     assert torch.isfinite(u).all()
 
@@ -140,8 +131,7 @@ def test_training_anchor_is_sign_stable_across_steps(alg):
     ema = torch.zeros(projs[0].shape[1] * len(projs), k)
     for _ in range(25):
         _, new_anchor = compute_shared_consensus(
-            projs, mixing_algorithm=alg, k=k, training=True, anchor=ema
-        )
+            projs, mixing_algorithm=alg, k=k, training=True, anchor=ema, topology="star")
         ema = 0.9 * ema + 0.1 * new_anchor
     col_norms = ema.norm(dim=0)
     # each column of an SVD/ICA basis has unit norm; an EMA of consistently
@@ -176,8 +166,7 @@ def test_orthogonalize_decorrelates_the_consensus(alg):
         torch.randn(80, 3) @ torch.randn(3, 3),
     ]
     u = compute_shared_consensus(
-        projs, mixing_algorithm=alg, k=3, orthogonalize=True
-    )
+        projs, mixing_algorithm=alg, k=3, orthogonalize=True, topology="star")
     assert _max_offdiag_cov(u) < 1e-4, (
         f"{alg}: orthogonalize=True left off-diagonal covariance "
         f"{_max_offdiag_cov(u):.2e}"
@@ -188,15 +177,15 @@ def test_orthogonalize_actually_changes_the_result():
     """Guards against the parameter silently reverting to a no-op."""
     torch.manual_seed(1)
     projs = [torch.randn(60, 3) @ torch.randn(3, 3) for _ in range(2)]
-    off = compute_shared_consensus(projs, mixing_algorithm="avg", k=3, orthogonalize=False)
-    on = compute_shared_consensus(projs, mixing_algorithm="avg", k=3, orthogonalize=True)
+    off = compute_shared_consensus(projs, mixing_algorithm="avg", k=3, orthogonalize=False, topology="star")
+    on = compute_shared_consensus(projs, mixing_algorithm="avg", k=3, orthogonalize=True, topology="star")
     assert not torch.allclose(off, on, atol=1e-4)
     assert _max_offdiag_cov(off) > 10 * _max_offdiag_cov(on)
 
 
 def test_orthogonalize_is_skipped_rather_than_crashing_when_underdetermined():
     projs = [torch.randn(2, 4), torch.randn(2, 4)]
-    u = compute_shared_consensus(projs, mixing_algorithm="avg", k=4, orthogonalize=True)
+    u = compute_shared_consensus(projs, mixing_algorithm="avg", k=4, orthogonalize=True, topology="star")
     assert u.shape == (2, 4)
     assert torch.isfinite(u).all()
 

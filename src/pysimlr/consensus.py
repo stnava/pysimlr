@@ -4,7 +4,7 @@ import warnings
 from typing import List, Optional, Union, Dict, Any, Tuple
 from .utils import align_column_signs
 from .utils import newton_schulz_orthogonalize, safe_svd
-from .defaults import DEFAULT_MIXING_ALGORITHM
+from .defaults import DEFAULT_MIXING_ALGORITHM, DEFAULT_TOPOLOGY
 
 
 def align_anchor_columns(new_anchor: torch.Tensor,
@@ -55,7 +55,7 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                             orthogonalize: bool = False,
                             training: bool = False,
                             anchor: Optional[torch.Tensor] = None,
-                            topology: str = "star",
+                            topology: str = DEFAULT_TOPOLOGY,
                             path_graph: Optional[Dict[int, List[int]]] = None,
                             prune_threshold: Optional[float] = None,
                             modality_weights: Optional[torch.Tensor] = None,

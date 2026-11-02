@@ -143,7 +143,7 @@ def test_positive_constraint_does_not_cripple_latent_recovery_fast():
             # of consensus look like a positivity regression.
             res = simlr(x, k=3, iterations=20, optimizer_type="lars",
                         positivity=pos, energy_type="acc",
-                        constraint="orthox0.1", mixing_algorithm="svd")
+                        nsa_w=0.1, mixing_algorithm="svd")
             u = res["u"]
             u = u[0] if isinstance(u, list) else u
             acc.append(procrustes_r2(z, u))
@@ -173,7 +173,7 @@ def test_positive_constraint_does_not_cripple_latent_recovery(optimizer_type):
             # 0.972-0.975 constrained and 0.984 unconstrained (3 seeds).
             res = simlr(x, k=3, iterations=40, optimizer_type=optimizer_type,
                         positivity=pos, energy_type="acc",
-                        constraint="orthox0.1", mixing_algorithm="svd")
+                        nsa_w=0.1, mixing_algorithm="svd")
             u = res["u"]
             u = u[0] if isinstance(u, list) else u
             acc.append(procrustes_r2(z, u))
@@ -209,7 +209,7 @@ def test_energy_descends_overall_and_stays_bounded(optimizer_type):
     _, x = _coupled(11)
     res = simlr(x, k=3, iterations=20, optimizer_type=optimizer_type,
                 positivity="positive", energy_type="acc",
-                constraint="orthox0.1")
+                nsa_w=0.1)
     e = np.asarray(res["energy"], dtype=float)
     if len(e) < 3:
         pytest.skip("converged too early to assess the trajectory")
@@ -230,7 +230,7 @@ def test_energy_descends_overall_and_stays_bounded(optimizer_type):
 def test_returned_iterate_is_the_best_one_found(optimizer_type):
     _, x = _coupled(12)
     res = simlr(x, k=3, iterations=20, optimizer_type=optimizer_type,
-                energy_type="acc", constraint="orthox0.1", learning_rate=0.05)
+                energy_type="acc", nsa_w=0.1, learning_rate=0.05)
     e = np.asarray(res["energy"], dtype=float)
     assert res["best_energy"] == pytest.approx(float(e.min()), rel=1e-9)
     assert res["best_iteration"] == int(np.argmin(e))
@@ -239,12 +239,12 @@ def test_returned_iterate_is_the_best_one_found(optimizer_type):
     )
 
 
-@pytest.mark.parametrize("constraint", ["orthox0.1", "orthox0.5", "Stiefel"])
-def test_basis_columns_have_bounded_norm(constraint):
+@pytest.mark.parametrize("nsa_w", [0.1, 0.5, 1.0])
+def test_basis_columns_have_bounded_norm(nsa_w):
     """Column scale is a gauge freedom; leaving it free is what let the
     covariance energy diverge."""
     _, x = _coupled(13)
-    res = simlr(x, k=3, iterations=15, energy_type="acc", constraint=constraint,
+    res = simlr(x, k=3, iterations=15, energy_type="acc", nsa_w=nsa_w,
                 learning_rate=0.05)
     for v in res["v"]:
         norms = torch.linalg.vector_norm(v, dim=0)
@@ -262,12 +262,11 @@ def _init_only_latent(x, k=3, mixing="svd"):
     scaled = [preprocess_data(m, ["centerAndScale", "np"])[0] for m in x]
     v0 = initialize_simlr(scaled, k)
     return compute_shared_consensus(
-        [m @ v for m, v in zip(scaled, v0)], mixing_algorithm=mixing, k=k
-    )
+        [m @ v for m, v in zip(scaled, v0)], mixing_algorithm=mixing, k=k, topology="star")
 
 
-@pytest.mark.parametrize("constraint", ["orthox0.5", "orthox0.9"])
-def test_simlr_is_no_worse_than_its_initialization(constraint):
+@pytest.mark.parametrize("nsa_w", [0.5, 0.9])
+def test_simlr_is_no_worse_than_its_initialization(nsa_w):
     """Best-iterate tracking guarantees this at any usable constraint weight.
 
     `orthox0` was the only case tested here and it is the one case where the
@@ -297,7 +296,7 @@ def test_simlr_is_no_worse_than_its_initialization(constraint):
         # "actively hurt" by 0.18 -- measured under a matched consensus the
         # gain is +0.0995 under newton and -0.0030 under svd.
         u0 = _init_only_latent(x, mixing="newton")
-        res = simlr(x, k=3, iterations=20, constraint=constraint,
+        res = simlr(x, k=3, iterations=20, nsa_w=nsa_w,
                     energy_type="acc", optimizer_type="lars",
                     mixing_algorithm="newton")
         u = res["u"]
@@ -333,7 +332,7 @@ def test_simlr_iteration_improves_on_initialization():
     for seed in range(4):
         z, x = _coupled(seed)
         u0 = _init_only_latent(x)
-        res = simlr(x, k=3, iterations=40, constraint="orthox0",
+        res = simlr(x, k=3, iterations=40, nsa_w=0.0,
                     energy_type="acc", optimizer_type="lars")
         u = res["u"]
         u = u[0] if isinstance(u, list) else u
@@ -366,7 +365,7 @@ def test_loo_iteration_improves_on_a_wrong_initialization():
             z, x = exp.buried(seed)
             scaled = [preprocess_data(m, ["centerAndScale", "np"])[0] for m in x]
             u0 = compute_shared_consensus([m @ v for m, v in zip(scaled, initialize_simlr(scaled, 3))],
-                                          mixing_algorithm="newton", k=3)
+                                          mixing_algorithm="newton", k=3, topology="star")
             res = simlr(x, k=3, iterations=40, energy_type="acc", mixing_algorithm="newton",
                         topology=topology, random_state=seed)
             u = res["u"][0] if isinstance(res["u"], list) else res["u"]
@@ -376,7 +375,7 @@ def test_loo_iteration_improves_on_a_wrong_initialization():
 
 
 def test_no_rank_loss_at_any_constraint_weight():
-    """`orthox0` (no orthogonality constraint) used to return fewer components
+    """`nsa_w=0` (no orthogonality constraint) used to return fewer components
     than asked for -- effective rank 1.83 of 3 under "acc" -- and latent
     recovery tracked the lost rank. The collapse penalty on each view's scores
     (`utils.correlation_penalty`) now keeps the basis full rank whatever the
@@ -384,8 +383,8 @@ def test_no_rank_loss_at_any_constraint_weight():
     import numpy as np
     from pysimlr.simlr import simlr
     z, x = _coupled(0)
-    for c in ("orthox0", "orthox0.1", "orthox0.5"):
-        r = simlr(x, k=3, iterations=20, constraint=c, random_state=0)
+    for c in (0.0, 0.1, 0.5):
+        r = simlr(x, k=3, iterations=20, nsa_w=c, random_state=0)
         rank = float(np.mean(r["effective_rank"]))
         assert rank > 2.8, f"{c}: effective rank {rank:.2f} of 3"
 

@@ -65,7 +65,6 @@ EXERCISED = {
     "mixing_algorithm": ("newton", "svd"),
     "nsa_w": (0.1, 0.9),
     "sparseness": (0.5, 0.8),
-    "constraint": ("orthox0.2", "none"),
     "positivity": ("positive", "either"),
     "nonneg_u": (False, True),
     "negentropy_weight": (0.0, 5.0),
@@ -74,17 +73,17 @@ EXERCISED = {
     # (penalty 0.0 at weight 0, so both weights give the same basis). Without
     # the constraint and from a random start, view 1's scores do (penalty
     # 0.78 at weight 0), and the weight changes the basis.
-    "collapse_weight": ({"collapse_weight": 0.0, "constraint": "none",
+    "collapse_weight": ({"collapse_weight": 0.0, "nsa_w": 0.0,
                          "initialization_type": "random", "random_state": 5},
-                        {"collapse_weight": 1.0, "constraint": "none",
+                        {"collapse_weight": 1.0, "nsa_w": 0.0,
                          "initialization_type": "random", "random_state": 5}),
     "orthogonalize_u": (True, False),
     "scale_list": (["centerAndScale", "np"], ["centerAndScale"]),
     # Under the default orthogonality constraint this fixture's basis is
     # already disjoint, so consolidation has nothing to do; with no constraint
     # the supports overlap (9 and 6 shared rows) and it changes the basis.
-    "consolidate": ({"consolidate": True, "constraint": "none"},
-                    {"consolidate": False, "constraint": "none"}),
+    "consolidate": ({"consolidate": True, "nsa_w": 0.0},
+                    {"consolidate": False, "nsa_w": 0.0}),
     # Orthogonal Varimax at initialization (BASE is non-negative, so this is
     # nsa_flow_data(init="varimax") against init="pca_clamp").
     "varimax": (True, False),
@@ -261,7 +260,8 @@ class _quiet:
 #: replacement, rather than a generic "unexpected keyword" from three layers
 #: down or, worse, an alias that keeps the old name alive.
 REMOVED = {
-    "use_nsa": "constraint='none'",
+    "use_nsa": "nsa_w=0",
+    "constraint": "nsa_w",
     "epochs": "iterations",
     "init_seed": "random_state",
     "sparseness_quantile": "sparseness",
@@ -542,16 +542,6 @@ def test_the_complete_graph_reproduces_leave_one_out():
         assert torch.allclose(a, b, atol=1e-6)
 
 
-def test_a_three_field_constraint_string_raises():
-    """`<type>x<weight>` only: the old third 'iterations' field never had an
-    effect (a third field of 1 or 9 fitted a bit-identical basis) and was
-    removed in 0.4.0."""
-    from pysimlr.simlr import parse_constraint
-    with pytest.raises(ValueError, match="removed in 0.4.0"):
-        parse_constraint("orthox0.5" + "x9")
-    assert parse_constraint("orthox0.5") == {"type": "ortho", "weight": 0.5}
-
-
 # --------------------------------------------------------------------------
 # MAI metrics: live, valid, and gauge-invariant
 # --------------------------------------------------------------------------
@@ -647,7 +637,7 @@ def test_tol_controls_early_stopping():
     views = _views()
     tight = simlr(views, k=K, iterations=60, positivity="positive", tol=1e-12, random_state=0)
     loose = simlr(views, k=K, iterations=60, positivity="positive", tol=1e-1, random_state=0)
-    assert loose["stop_reason"] == "plateau" and loose["certificate"] == "energy_plateau"
+    assert loose["stop_reason"] == "converged" and loose["certificate"] == "energy_plateau"
     assert loose["converged"]
     assert tight["convergence"]["n_steps"] > loose["convergence"]["n_steps"], (
         f"a tight tolerance ({tight['convergence']['n_steps']} steps) did not "

@@ -1,4 +1,3 @@
-import warnings
 
 import torch
 import numpy as np
@@ -13,9 +12,7 @@ from .utils import (adjusted_rvcoef, safe_svd, correlation_penalty, stationarity
 from .consensus import compute_shared_consensus
 from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM
 
-#: The default `simlr` constraint. Named so that "did the caller choose this
-#: weight, or inherit it?" is answerable -- which decides whether an `nsa_w`
-#: that disagrees with it is a conflict worth warning about.
+#: How the default NSA-Flow weight `DEFAULT_NSA_W` was chosen.
 #:
 #: The weight was 0.1 here while `NSA_DEFAULT_W` was 0.5, so "the default w"
 #: was two different numbers depending on which path reached the projection.
@@ -28,7 +25,6 @@ from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFA
 #: p = 3.4e-16), while on BRCA4 w was not distinguishable at all (Friedman
 #: p = 0.43) and test accuracy was flat across the whole range. Prediction
 #: does not reveal the collapse; only the rank does.
-DEFAULT_CONSTRAINT = f"orthox{DEFAULT_NSA_W}"
 
 #: Keys `simlr` accepts through ``**opt_params``: the optimizer
 #: hyperparameters, minus the two the optimizer takes from `simlr`'s own named
@@ -42,112 +38,12 @@ SIMLR_RENAMED_PARAMETERS = {
     "init_seed": "random_state",
     "sparseness_quantile": "sparseness",
     "sparsity": "sparseness",
-    "use_nsa": "removed (it had no effect); use constraint='none' to fit without a projection",
+    "use_nsa": "removed (it had no effect); use nsa_w=0 to fit without a projection",
+    "constraint": "removed; the one orthogonality weight is nsa_w (0 = no orthogonality constraint)",
     "beta": "the RMSProp decay is now 'rmsprop_beta'",
 }
 
 
-
-def parse_constraint(constraint_str: str) -> Dict[str, Any]:
-    """
-    Parse a constraint string into type, weight, and iterations.
-
-    The constraint string follows the format "Type[xWeight[xIterations]]",
-    e.g., "Stiefel", "Stiefel x 0.5", or "Stiefel x 0.5 x 5".
-
-    Parameters
-    ----------
-    constraint_str : str
-        The constraint string to parse.
-
-    Returns
-    -------
-    Dict[str, Any]
-        A dictionary with keys:
-        - "type": The name of the constraint (e.g., "Stiefel", "Grassmann").
-        - "weight": The constraint weight (float).
-
-    Raises
-    ------
-    TypeError
-        If the input is not a string.
-    """
-    parts = constraint_str.split('x')
-    constraint_type = parts[0].strip()
-
-    # Default weight depends on type. Every soft-orthogonality branch in
-    # simlr_sparseness is gated on `weight > 0`, so defaulting the "ortho" and
-    # "nsaflow" families to 0.0 made a bare constraint="ortho" apply no
-    # constraint whatsoever -- and zero the orthogonality penalty in simlr's
-    # energy as well. An explicit "orthox0" still selects no constraint.
-    if constraint_type in ("Stiefel", "Grassmann", "Stiefel_ns", "Grassmann_ns",
-                           "Stiefel_polar", "Grassmann_polar", "NewtonSchulz"):
-        weight = 1.0
-    elif constraint_type in ("ortho", "nsaflow", "ortho_ns", "nsaflow_ns",
-                             "ortho_polar", "nsaflow_polar"):
-        # One default weight, shared with `NSA_DEFAULT_W`; see
-        # `DEFAULT_CONSTRAINT` for the evidence and how thin it is.
-        weight = 0.5
-    elif constraint_type == "none":
-        weight = 0.0
-    else:
-        warnings.warn(
-            f"Unrecognised constraint type {constraint_type!r} in "
-            f"{constraint_str!r}; no manifold constraint will be applied. "
-            f"Known types: Stiefel, Grassmann, NewtonSchulz, ortho, nsaflow "
-            f"(optionally suffixed _ns or _polar), none.",
-            UserWarning, stacklevel=2,
-        )
-        weight = 0.0
-
-    if len(parts) > 2:
-        raise ValueError(
-            f"constraint={constraint_str!r}: the format is '<type>x<weight>'. The third "
-            f"'iterations' field was removed in 0.4.0 -- it never had an effect, the "
-            f"projection is applied once per sweep and solved to tolerance.")
-    if len(parts) > 1:
-        try:
-            weight = float(parts[1])
-        except ValueError as exc:
-            raise ValueError(f"constraint={constraint_str!r}: weight {parts[1]!r} is not a number") from exc
-    return {"type": constraint_type, "weight": weight}
-
-def project_gradient(v_grad: torch.Tensor, v_current: torch.Tensor, constraint_type: str) -> torch.Tensor:
-    """
-    Project the gradient onto the tangent space of a specific manifold.
-
-    This ensures that optimization updates remain valid with respect to 
-    manifold constraints (e.g., Stiefel or Grassmann manifolds), following 
-    the theory in Edelman et al. (1998).
-
-    Parameters
-    ----------
-    v_grad : torch.Tensor
-        The raw gradient of the energy function.
-    v_current : torch.Tensor
-        The current value of the basis matrix (point on the manifold).
-    constraint_type : str
-        The type of manifold/constraint ("Stiefel", "Grassmann", etc.).
-
-    Returns
-    -------
-    torch.Tensor
-        The projected gradient.
-
-    Raises
-    ------
-    TypeError
-        If inputs are not tensors.
-    """
-    if constraint_type == "Grassmann":
-        # Project onto Grassmann tangent space: G = G - V(V^T G)
-        return v_grad - v_current @ (v_current.t() @ v_grad)
-    elif constraint_type == "Stiefel":
-        # Project onto Stiefel tangent space: G = G - V sym(V^T G)
-        vtg = v_current.t() @ v_grad
-        sym_vtg = 0.5 * (vtg + vtg.t())
-        return v_grad - v_current @ sym_vtg
-    return v_grad
 
 #: Every strategy `initialize_simlr` implements. Kept as one tuple so the
 #: error message and the dispatcher can't drift apart.
@@ -250,7 +146,7 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
         highest on a cheap joint-agreement proxy (projecting every view onto a
         rough shared direction and summing the alignment). The proxy is not
         SiMLR's actual energy -- it is data-only and ignores `energy_type`,
-        `constraint` and `positivity`'s interaction with the optimizer -- so
+        `nsa_w` and `positivity`'s interaction with the optimizer -- so
         treat this as a way to avoid an unlucky random draw, not as a
         surrogate for running `simlr` itself.
 
@@ -1293,7 +1189,42 @@ def _scale_like_training(torch_mats: List[torch.Tensor], simlr_result: Dict[str,
             for i, m in enumerate(torch_mats)]
 
 
+# Private channel from the `learning_rate="auto"` branch of `simlr` into its
+# own probe and final fits: `opt_params["_internal_probe"] = (token, views,
+# provenance, v0, probe_only)`. The views are prepared and the start basis drawn
+# once, so every probe and the final fit start from the same point and none
+# repeats the preprocessing. Only a tuple headed by this object is honoured;
+# users cannot construct it.
 _INTERNAL_PROBE_TOKEN = object()
+
+
+def _prepare_fit_inputs(data_matrices, k, scale_list, positivity, initialization_type,
+                        random_state, domain_matrices, sparseness, varimax):
+    """Validate and scale the views and draw the starting basis for `simlr`.
+
+    Returns ``(torch_mats, provenance_list, v0)``. Every initializer gets a
+    generator seeded from `random_state`; the deterministic ones ignore it.
+    It does not change `initialization_type` (it used to switch "pca" to
+    "random").
+    """
+    if not isinstance(k, (int, np.integer)) or k <= 0:
+        raise ValueError(f"k must be a positive integer, got k={k}.")
+    torch_mats = _check_views(data_matrices, fitting=True)
+    provenance_list = []
+    if scale_list is not None and len(scale_list) > 0 and scale_list[0] != "none":
+        scaled = []
+        for m in torch_mats:
+            m_scaled, prov = preprocess_data(m, scale_list)
+            scaled.append(m_scaled)
+            provenance_list.append(prov)
+        torch_mats = scaled
+    init_gen = torch.Generator()
+    init_gen.manual_seed(random_state)
+    v0 = initialize_simlr(torch_mats, k, positivity=positivity,
+                          initialization_type=initialization_type,
+                          generator=init_gen, domain_matrices=domain_matrices,
+                          sparseness=sparseness, varimax=varimax)
+    return torch_mats, provenance_list, v0
 
 
 def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
@@ -1306,7 +1237,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           nonneg_u: bool = False,
           optimizer_type: str = DEFAULT_LINEAR_OPTIMIZER,
           energy_type: str = DEFAULT_ENERGY_TYPE,
-          constraint: str = DEFAULT_CONSTRAINT,
           mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
           positivity: str = "either",
           smoothing_matrices: Optional[List[torch.Tensor]] = None,
@@ -1317,7 +1247,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           path_graph: Optional[Dict[int, List[int]]] = None,
           scale_list: Optional[List[str]] = None,
           consolidate: bool = False,
-          nsa_w: Optional[float] = None,
+          nsa_w: float = DEFAULT_NSA_W,
           sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
           varimax: Optional[bool] = None,
           dynamic_weights: bool = False,
@@ -1357,9 +1287,18 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         Note this is not free: the consensus is standardised precisely so that
         per-view energies are comparable, and rectifying it changes what the
         mixing method returns. Measure before adopting.
-    nsa_w : float, optional
-        The NSA-Flow weight, in ``[0, 1]``. Defaults to the weight parsed from
-        ``constraint`` (both are 0.35; see `DEFAULT_CONSTRAINT`).
+    nsa_w : float, default=DEFAULT_NSA_W (0.5)
+        The one orthogonality weight, in ``[0, 1]``: the NSA-Flow retraction
+        weight applied after every step and the scale of the calibrated
+        orthogonality-defect term in the objective. ``0`` fits without an
+        orthogonality constraint (positivity and ``sparseness`` still apply).
+        0.5 comes from the NSA-Flow paper's results and carries the OLEE
+        contract (near-orthogonal, low-overlap loadings). On the synthetic
+        cells of `scripts/constraint_selection.py` (20 paired fits) no weight
+        in {0.2, 0.9}, the hard Stiefel retraction, or 0.5 without the defect
+        term beat it on support F1 or resampling stability while holding that
+        contract; dropping the defect term raised column overlap 0.155 ->
+        0.244 (paired t 3.5).
 
         Its primary job is keeping the basis from collapsing. The gradient
         step drives the columns together; ``w`` holds them apart. Measured on
@@ -1459,9 +1398,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         `pysimlr.defaults`. Before 0.4.0 the default was `armijo_gradient`.
     energy_type : str, default=DEFAULT_ENERGY_TYPE ("nc")
         The similarity/reconstruction objective to minimize.
-    constraint : str, default="Stiefel"
-        The manifold constraint on basis matrices ("Stiefel", "Grassmann", "NewtonSchulz").
-
     mixing_algorithm : str, default="svd"
         The algorithm used to mix projections ("svd", "pca", "ica", "avg", "newton").
 
@@ -1612,27 +1548,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                   if vv.kind is not vv.VAR_KEYWORD}
         _frame = locals()
         _bound = {kk: _frame[kk] for kk in _names if kk in _frame}
-        if not isinstance(k, (int, np.integer)) or k <= 0:
-            raise ValueError(f"k must be a positive integer, got k={k}.")
-        _prep_mats = _check_views(data_matrices, fitting=True)
-        _prep_prov = []
-        if scale_list is not None and len(scale_list) > 0 and scale_list[0] != "none":
-            _scaled = []
-            for _m in _prep_mats:
-                _ms, _pv = preprocess_data(_m, scale_list)
-                _scaled.append(_ms)
-                _prep_prov.append(_pv)
-            _prep_mats = _scaled
-        _init_gen = torch.Generator()
-        _init_gen.manual_seed(random_state)
-        _prep_v = initialize_simlr(
-            _prep_mats, k, positivity=positivity,
-            initialization_type=initialization_type,
-            generator=_init_gen,
-            domain_matrices=domain_matrices,
-            sparseness=sparseness,
-            varimax=varimax,
-        )
+        _prep_mats, _prep_prov, _prep_v = _prepare_fit_inputs(
+            data_matrices, k, scale_list, positivity, initialization_type,
+            random_state, domain_matrices, sparseness, varimax)
         from .optimizers import tune_learning_rate
         _iters = _bound.pop("iterations")
         _rest = {kk: vv for kk, vv in opt_params.items() if kk != "learning_rate"}
@@ -1655,80 +1573,26 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         return _out
 
     if _prepped_mats is not None:
-        torch_mats = _prepped_mats
-        provenance_list = list(_prepped_prov)
-        n_modalities = len(torch_mats)
-        orig_dtype = torch_mats[0].dtype
+        torch_mats, provenance_list = _prepped_mats, list(_prepped_prov)
         v_mats = [v.clone() for v in _prepped_v]
     else:
-        # Contract Validation: data_matrices structure
-        if not isinstance(k, (int, np.integer)) or k <= 0:
-            raise ValueError(f"k must be a positive integer, got k={k}.")
-        torch_mats = _check_views(data_matrices, fitting=True)
-        
-        provenance_list = []
-        if scale_list is not None and len(scale_list) > 0 and scale_list[0] != "none":
-            scaled_mats = []
-            for m in torch_mats:
-                m_scaled, prov = preprocess_data(m, scale_list)
-                scaled_mats.append(m_scaled)
-                provenance_list.append(prov)
-            torch_mats = scaled_mats
-            
-        n_modalities = len(torch_mats)
-        orig_dtype = torch_mats[0].dtype
-        # Every initializer gets a generator seeded from `random_state`; the
-        # deterministic ones ignore it. It does not change `initialization_type`
-        # (it used to switch "pca" to "random").
-        init_gen = torch.Generator()
-        init_gen.manual_seed(random_state)
-        v_mats = initialize_simlr(torch_mats, k, positivity=positivity,
-                                  initialization_type=initialization_type,
-                                  generator=init_gen,
-                                  domain_matrices=domain_matrices,
-                                  sparseness=sparseness,
-                                  varimax=varimax)
-    # One NSA-Flow weight: `nsa_w` if given, else the constraint string's.
-    nsa_w_given = nsa_w is not None
-    if nsa_w is None:
-        # `parse_constraint` already applies the type-dependent default, so a
-        # zero reaching here is one the caller asked for -- `constraint="none"`
-        # or an explicit `"orthox0"` -- not an unset value. Substituting
-        # NSA_DEFAULT_W made those two requests apply a half-strength
-        # constraint instead of none.
-        nsa_w = parse_constraint(constraint)["weight"]
+        torch_mats, provenance_list, v_mats = _prepare_fit_inputs(
+            data_matrices, k, scale_list, positivity, initialization_type,
+            random_state, domain_matrices, sparseness, varimax)
+    n_modalities = len(torch_mats)
+    orig_dtype = torch_mats[0].dtype
+    # One orthogonality weight. It drives the NSA-Flow retraction applied after
+    # every step and the calibrated orthogonality-defect term of the objective;
+    # 0 removes both (no orthogonality constraint, sparsity still applied).
+    nsa_w = float(nsa_w)
+    if not 0.0 <= nsa_w <= 1.0:
+        raise ValueError(f"nsa_w must be in [0, 1]; got {nsa_w}.")
+    constraint_type = "ortho" if nsa_w > 0.0 else "none"
+    constraint_weight = nsa_w
     # `positivity` reaches the optimizer: without it the bound-constrained
     # `nsa_lbfgsb` ran with no lower bound under positivity="positive".
     opt_params["positivity"] = positivity
     optimizer = create_optimizer(optimizer_type, v_mats, **opt_params)
-    
-    constraint_info = parse_constraint(constraint)
-    constraint_type = constraint_info["type"]
-    constraint_weight = constraint_info["weight"]
-    if nsa_w_given:
-        # `nsa_w` used to reach `opt_params` only -- the optimizer's internal
-        # retraction -- while the prox that runs every sweep took its weight
-        # from `constraint`. With `optimizer_type="lars"` (the default when
-        # this was measured), which has no retraction at all, `nsa_w`
-        # therefore did *nothing*: measured
-        # across nsa_w in {0.05, 0.3, 0.5, 0.9} the fitted basis was identical
-        # to 0.00e+00, which is the "flat w sweep" that made w look like an
-        # irrelevant hyperparameter. It is not irrelevant -- the same weight
-        # passed through `constraint` moves the projection's zero count from
-        # 10 to 75 -- it was simply not being applied.
-        # The *default* constraint string carries a weight too, so a caller
-        # who passed only `nsa_w` must not be warned about a conflict with a
-        # value they never chose.
-        explicit_in_string = (len(str(constraint).split('x')) > 1
-                              and str(constraint) != DEFAULT_CONSTRAINT)
-        if explicit_in_string and abs(float(constraint_weight) - float(nsa_w)) > 1e-12:
-            warnings.warn(
-                f"nsa_w={nsa_w!r} and constraint={constraint!r} (weight "
-                f"{constraint_weight}) specify different NSA-Flow weights. "
-                f"nsa_w wins for the projection. Pass only one.",
-                RuntimeWarning, stacklevel=2,
-            )
-        constraint_weight = float(nsa_w)
     
     torch_domains = [torch.as_tensor(dm).float() if dm is not None else None for dm in domain_matrices] if domain_matrices else None
     if domain_lambdas is not None and not isinstance(domain_lambdas, (list, tuple)):
@@ -1968,7 +1832,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             else:
                 gm_E, gm_off = stationarity_residual(v_mats[i], -_exact, nonneg=_want_nonneg)
                 sweep_grad_map.append(gm_E)
-            total_grad = project_gradient(_exact, v_mats[i], constraint_type).contiguous()
+            total_grad = _exact.contiguous()
             v_before = v_mats[i].detach().clone()
             # Two oracles, the same for every optimizer: the objective E(P(v))
             # for line searches (passed to `step`), and the smooth part E(v)
@@ -2051,7 +1915,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         if plateaued:
             if monitor.stop_reason != "converged":
                 break
-            stop_reason = "plateau"
+            stop_reason = "converged"
             certificate = "energy_plateau"
             converged_iter = it + 1
             if verbose:
@@ -2069,7 +1933,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         v_mats = best_v_mats
         if best_retraction_diags is not None:
             retraction_diags = best_retraction_diags
-    if sparseness is not None and (constraint_type == "none" or float(constraint_weight) > 0.0):
+    if sparseness is not None:
         from .sparsification import _apply_quantile_sparseness, _resolve_quantile, _unit_normalize_columns
         for idx_m in range(n_modalities):
             q_m = _resolve_quantile(sparseness, modality_index=idx_m)
@@ -2152,7 +2016,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "orth_weights": orth_weights, "domain_weights": domain_weights, 
         "converged_iter": converged_iter,
         "stop_reason": stop_reason,
-        "convergence": {**monitor.report(), "stop_reason": stop_reason},
+        "convergence": {**monitor.report(), "stop_reason": stop_reason,
+                        "converged": stop_reason == "converged", "certificate": certificate,
+                        "grad_map": (grad_map_history[-1] if grad_map_history else None)},
         "certificate": certificate,
         "converged": certificate is not None,
         "n_degenerate_iterates": n_degenerate_iterates,
@@ -2233,7 +2099,7 @@ def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_p
     verbose : bool, optional
         Whether to print progress during the SiMLR optimization (default is False).
     **simlr_params : dict
-        Additional parameters passed to the `simlr` function (e.g., energy_type, constraint, optimizer_type).
+        Additional parameters passed to the `simlr` function (e.g., energy_type, nsa_w, optimizer_type).
 
     Returns
     -------

@@ -218,13 +218,13 @@ def test_retraction_does_not_disturb_the_callers_rng_stream():
 _CONSTRAINT_FIT_CACHE = {}
 
 
-def _cached_constraint_fit(constraint: str, positivity: str):
-    key = (constraint, positivity)
+def _cached_constraint_fit(nsa_w: float, positivity: str):
+    key = (nsa_w, positivity)
     if key not in _CONSTRAINT_FIT_CACHE:
         mats, _ = make_case()
         _CONSTRAINT_FIT_CACHE[key] = (
             mats,
-            simlr(mats, k=3, iterations=8, constraint=constraint,
+            simlr(mats, k=3, iterations=8, nsa_w=nsa_w,
                   positivity=positivity, verbose=False),
         )
     return _CONSTRAINT_FIT_CACHE[key]
@@ -232,21 +232,20 @@ def _cached_constraint_fit(constraint: str, positivity: str):
 
 def _constraint_cases():
     out = []
-    for c in ("orthox0.1", "orthox0.5", "orthox0.9", "nsaflow",
-              "Stiefel", "Stiefel_ns", "Grassmann"):
+    for w in (0.1, 0.5, 0.9, 1.0):
         for pos in ("positive", "either"):
             marks = (
                 [pytest.mark.xdist_group(f"nsa_stiefel_{pos}")]
-                if c == "Stiefel"
+                if w == 1.0
                 else []
             )
-            out.append(pytest.param(c, pos, id=f"{c}-{pos}", marks=marks))
+            out.append(pytest.param(w, pos, id=f"w{w}-{pos}", marks=marks))
     return out
 
 
-@pytest.mark.parametrize("constraint,positivity", _constraint_cases())
-def test_simlr_returns_a_usable_basis_for_every_constraint(constraint, positivity):
-    mats, res = _cached_constraint_fit(constraint, positivity)
+@pytest.mark.parametrize("nsa_w,positivity", _constraint_cases())
+def test_simlr_returns_a_usable_basis_for_every_weight(nsa_w, positivity):
+    mats, res = _cached_constraint_fit(nsa_w, positivity)
 
     for i, v in enumerate(res["v"]):
         assert v.shape == (mats[i].shape[1], 3)
@@ -262,9 +261,10 @@ def test_simlr_returns_a_usable_basis_for_every_constraint(constraint, positivit
     pytest.param("either", marks=pytest.mark.xdist_group("nsa_stiefel_either")),
 ])
 def test_hard_manifold_constraint_delivers_unit_norm_columns(positivity):
-    """Stiefel/Grassmann promise an orthonormal basis; the column norms are the
-    part a soft constraint does not pin down, so they are asserted explicitly."""
-    _, res = _cached_constraint_fit("Stiefel", positivity)
+    """The strongest weight (nsa_w=1, capped at NSA_MAX_W) promises a
+    near-orthonormal basis; the column norms are the part the retraction alone
+    does not pin down, so they are asserted explicitly."""
+    _, res = _cached_constraint_fit(1.0, positivity)
     for v in res["v"]:
         norms = v.norm(dim=0)
         assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5), norms
@@ -280,7 +280,7 @@ def test_hard_constraint_with_positivity_is_actually_orthogonal():
     no fallback now -- `simlr_sparseness` is a call to NSA-Flow and nothing
     else -- so the assertion is absolute rather than relative.
     """
-    _, res = _cached_constraint_fit("Stiefel", "positive")
+    _, res = _cached_constraint_fit(1.0, "positive")
     defect = float(np.mean([orthogonality_defect(v) for v in res["v"]]))
     assert defect < 0.1, f"non-negative basis is not near-orthogonal: {defect}"
     for v in res["v"]:
@@ -299,12 +299,12 @@ def test_simlr_requires_the_backend_for_a_constrained_fit():
     mats, _ = make_case()
     with patch("pysimlr.sparsification.load_nsa_flow", return_value=None):
         with pytest.raises(ImportError, match="requires the NSA-Flow backend"):
-            simlr(mats, k=3, iterations=2, constraint="Stiefel",
+            simlr(mats, k=3, iterations=2, nsa_w=0.5,
                   positivity="positive", verbose=False)
 
 def test_simlr_is_reproducible_with_the_backend_engaged():
     mats, _ = make_case()
-    kwargs = dict(k=3, iterations=8, constraint="orthox0.9",
+    kwargs = dict(k=3, iterations=8, nsa_w=0.9,
                   positivity="positive", verbose=False)
     first = simlr(mats, **kwargs)
     second = simlr(mats, **kwargs)
@@ -312,18 +312,23 @@ def test_simlr_is_reproducible_with_the_backend_engaged():
         assert torch.allclose(a, b, atol=1e-6), "repeated simlr runs disagree"
 
 
-@pytest.mark.parametrize("weight", [0.0, 1.0, 1.5, -0.5])
-def test_out_of_range_constraint_weights_do_not_crash_simlr(weight):
-    """`w` outside (0, 1) is meaningless to the solver but reachable from a
-    user-supplied constraint string, so it must degrade rather than explode."""
+@pytest.mark.parametrize("weight", [0.0, 1.0])
+def test_endpoint_weights_give_a_usable_basis(weight):
+    """``nsa_w`` = 0 (no orthogonality constraint) and 1 (capped at NSA_MAX_W)
+    are the endpoints of the accepted range."""
     mats, _ = make_case()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        res = simlr(mats, k=3, iterations=5, constraint=f"orthox{weight}",
-                    positivity="positive", learning_rate=0.05, verbose=False)
+    res = simlr(mats, k=3, iterations=5, nsa_w=weight,
+                positivity="positive", learning_rate=0.05, verbose=False)
     for v in res["v"]:
         assert torch.isfinite(v).all()
         assert v.abs().sum() > 0
+
+
+@pytest.mark.parametrize("weight", [1.5, -0.5])
+def test_out_of_range_weights_raise(weight):
+    mats, _ = make_case()
+    with pytest.raises(ValueError, match="nsa_w must be in"):
+        simlr(mats, k=3, iterations=1, nsa_w=weight, verbose=False)
 
 
 @pytest.mark.parametrize("requested,expected", [
@@ -335,8 +340,7 @@ def test_retraction_weight_is_clamped_off_the_degenerate_endpoints(requested, ex
     """
     ``w = 1`` drops the fidelity term, so the retraction stops staying near the
     candidate; ``w = 0`` drops the constraint term, so it does nothing. Both
-    are reachable -- ``parse_constraint`` assigns 1.0 to every hard-manifold
-    constraint -- and a user string like ``"orthox1.5"`` is not bounded at all.
+    are reachable: ``nsa_w`` accepts both endpoints of ``[0, 1]``.
     """
     from pysimlr.sparsification import (NSA_MAX_W, NSA_MIN_W,
                                         _clamp_retraction_weight)
@@ -346,12 +350,11 @@ def test_retraction_weight_is_clamped_off_the_degenerate_endpoints(requested, ex
     assert 0.0 < _clamp_retraction_weight(requested) < 1.0
 
 
-def test_every_constraint_family_is_capped_below_w_equals_one():
+def test_the_largest_weight_is_capped_below_w_equals_one():
     """
-    No constraint reaches w=1, including the hard manifold ones.
+    ``nsa_w=1`` never reaches the backend as w=1.
 
-    `parse_constraint` assigns weight 1.0 to "Stiefel" and "Grassmann", and at
-    w=1 the fidelity term drops out: the scale of the result is unconstrained
+    At w=1 the fidelity term drops out: the scale of the result is unconstrained
     and every scaled Stiefel matrix is optimal, so nothing selects among
     clusterings and the answer is arbitrary rather than merely rescaled.
 
@@ -367,7 +370,7 @@ def test_every_constraint_family_is_capped_below_w_equals_one():
 
     real = load_nsa_flow()
 
-    def run(constraint):
+    def run(nsa_w):
         seen = []
 
         def spy(target, **kwargs):
@@ -378,15 +381,15 @@ def test_every_constraint_family_is_capped_below_w_equals_one():
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             with patch("pysimlr.sparsification.load_nsa_flow", return_value=spy):
-                simlr(mats, k=3, iterations=5, constraint=constraint,
+                simlr(mats, k=3, iterations=5, nsa_w=nsa_w,
                       positivity="positive", verbose=False)
-        assert seen, f"the backend was never called for {constraint!r}"
+        assert seen, f"the backend was never called for nsa_w={nsa_w}"
         return seen
 
-    for constraint in ("Stiefel", "Grassmann", "orthox1.0", "nsaflowx1.5"):
-        seen = run(constraint)
+    for nsa_w in (1.0, 0.99):
+        seen = run(nsa_w)
         assert max(seen) <= NSA_MAX_W, (
-            f"{constraint!r} reached w={max(seen)}, above the cap {NSA_MAX_W}")
+            f"nsa_w={nsa_w} reached w={max(seen)}, above the cap {NSA_MAX_W}")
         assert all(0.0 < w < 1.0 for w in seen)
 
     assert NSA_MAX_W == pytest.approx(0.95)

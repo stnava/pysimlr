@@ -128,7 +128,7 @@ def test_the_oracle_simlr_hands_its_optimizer_is_consistent():
         g = torch.Generator().manual_seed(0)
         z = torch.randn(50, 2, generator=g)
         views = [z @ torch.randn(2, p, generator=g) + 0.3 * torch.randn(50, p, generator=g) for p in (8, 6)]
-        simlr(views, k=2, iterations=1, optimizer_type="nsa_lbfgsb", constraint="orthox0.3",
+        simlr(views, k=2, iterations=1, optimizer_type="nsa_lbfgsb", nsa_w=0.3,
               energy_type="acc", random_state=0)
     finally:
         O.NSALBFGSB.step = orig

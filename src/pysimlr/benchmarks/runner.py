@@ -8,7 +8,6 @@ from typing import List, Dict, Any, Optional
 from .synthetic_cases import build_case
 from .metrics import calculate_all_metrics
 from pysimlr import api
-from ..defaults import DEFAULT_ENERGY_TYPE
 
 
 def split_indices(n_samples: int,
@@ -57,9 +56,7 @@ def split_indices(n_samples: int,
         te = g.permutation(np.concatenate(te_parts))
     return torch.as_tensor(tr, dtype=torch.long), torch.as_tensor(te, dtype=torch.long)
 
-def convergence_report(model_type: str, res: Dict[str, Any],
-                       train_mats: List[torch.Tensor],
-                       energy_type: str = DEFAULT_ENERGY_TYPE) -> Dict[str, Any]:
+def convergence_report(res: Dict[str, Any]) -> Dict[str, Any]:
     r"""One convergence contract, for every model.
 
     Before this, only the three linear SiMLR variants reported anything: the
@@ -75,19 +72,13 @@ def convergence_report(model_type: str, res: Dict[str, Any],
     one-name-several-definitions problem this package has already hit three
     times.
 
-    Three cases:
-
-    ``linear SiMLR family``
-        Already reports it; passed through unchanged.
-    ``baselines`` (``pca``, ``nsa_pipeline``)
-        PCA is a closed-form eigendecomposition, exactly stationary by
-        construction (``grad_map = 0``, certificate ``"exact"``); the NSA-Flow
-        estimator reports its own ``converged_``/``certificate_``/``grad_map_``,
-        which `api.nsa_pipeline` copies into ``convergence``.
-    ``deep / flow``
-        The mapping is evaluated post hoc on the returned ``V`` and consensus
-        ``u``. This certifies the *basis*, not the decoder weights, which is
-        the part that is comparable across the family.
+    `pysimlr.fit` fills ``convergence`` for every family: `simlr` per sweep;
+    the deep and flow models post hoc on the returned ``V`` and consensus
+    ``u`` (`api._basis_grad_map`; this certifies the basis, not the decoder
+    weights); PCA is exactly stationary (``grad_map = 0``, certificate
+    ``"exact"``); NSA-Flow copies its estimator's own certificate. This
+    function only reads that record, so every row of a benchmark table means
+    the same thing.
 
     Returns
     -------
@@ -96,58 +87,17 @@ def convergence_report(model_type: str, res: Dict[str, Any],
         ``energy_reduction``, ``solver_iters``. Values are ``None`` only when
         genuinely unavailable, never invented.
     """
-    from ..utils import stationarity_residual
-    from ..similarity import SimilarityContext, resolve_energy_name, similarity_gradient
-
-    # 1. already reported
-    if res.get("stop_reason") is not None:
-        return {"stop_reason": res.get("stop_reason"),
-                "certificate": res.get("certificate"),
-                "converged": res.get("converged"),
-                "grad_map": res.get("grad_map"),
-                "energy_reduction": res.get("energy_reduction"),
-                "solver_iters": res.get("converged_iter")}
-
-    # 2. closed-form and NSA-Flow baselines report their own record
-    if res.get("family") == "baseline":
-        conv = res["convergence"]
-        closed = conv["stop_reason"] == "closed_form"
-        return {"stop_reason": conv["stop_reason"], "certificate": conv.get("certificate"),
-                "converged": bool(conv["converged"]),
-                "grad_map": 0.0 if closed else conv.get("grad_map"),
-                "energy_reduction": None, "solver_iters": conv["n_steps"]}
-
-    # 3. deep / flow: certify the returned basis with the shared mapping, on
-    # the objective and feasible set the fit actually used. This used to take
-    # `energy_type` from the runner's own params (default "acc") while the
-    # deep models defaulted to "regression", and always projected onto
-    # V >= 0, so a signed basis was certified against the wrong set.
-    rec = res.get("parameters", {})
-    used, defaults = rec.get("used", {}), rec.get("defaults", {})
-    energy_type = used.get("energy_type", defaults.get("energy_type", energy_type))
-    positivity = used.get("positivity", defaults.get("positivity", "either"))
-    vs, u = res.get("v"), res.get("u")
-    if not vs or u is None:
-        return {"stop_reason": None, "certificate": None, "converged": None,
-                "grad_map": None, "energy_reduction": None, "solver_iters": None}
-    u_t = u[0] if isinstance(u, list) else u
-    u_t = torch.as_tensor(u_t).detach().float()
-    name = resolve_energy_name(energy_type, path="deep")
-    nonneg = positivity in ("positive", "hard", "nonnegative", "nonneg", "softplus")
-    terms = []
-    for x, v in zip(train_mats, vs):
-        v = torch.as_tensor(v).detach().float()
-        x = torch.as_tensor(x).detach().float()
-        if x.shape[0] != u_t.shape[0] or v.shape[1] != u_t.shape[1]:
-            continue
-        g = x.t() @ similarity_gradient(name, x @ v, u_t, SimilarityContext(x=x, v=v), wrt="s")
-        terms.append(stationarity_residual(v, g, nonneg=nonneg)[0])
+    conv = res["convergence"]
     loss = res.get("loss_history") or []
-    red = (float(loss[0]) - float(min(loss))) if len(loss) > 1 else None
-    return {"stop_reason": "max_iter", "certificate": None, "converged": False,
-            "grad_map": (max(terms) if terms else None),
-            "energy_reduction": red,
-            "solver_iters": res.get("converged_iter") or (len(loss) or None)}
+    if res.get("energy_reduction") is not None:
+        red = res["energy_reduction"]
+    elif len(loss) > 1:
+        red = float(loss[0]) - float(min(loss))
+    else:
+        red = None
+    return {"stop_reason": conv["stop_reason"], "certificate": conv.get("certificate"),
+            "converged": bool(conv["converged"]), "grad_map": conv.get("grad_map"),
+            "energy_reduction": red, "solver_iters": conv.get("n_steps")}
 
 
 from pysimlr.sparsification import DEFAULT_SPARSENESS
@@ -430,9 +380,7 @@ def run_single_experiment(model_type: str,
         # whether it optimised anything -- previously unanswerable from the
         # results table.
         **{("solver_converged" if k == "converged" else k): v
-           for k, v in convergence_report(
-               model_type, res, train_mats,
-               params.get("energy_type", DEFAULT_ENERGY_TYPE)).items()},
+           for k, v in convergence_report(res).items()},
         "model": model_type,
         "method": res["method"],
         "ignored_params": ",".join(sorted(res["parameters"]["ignored"])),

@@ -106,7 +106,7 @@ def test_diagnostics_are_reported_even_when_the_result_is_rejected():
 def test_simlr_carries_per_modality_retraction_diagnostics():
     torch.manual_seed(0)
     mats = [torch.randn(80, 30), torch.randn(80, 24)]
-    res = simlr(mats, k=3, iterations=8, constraint="orthox0.5",
+    res = simlr(mats, k=3, iterations=8, nsa_w=0.5,
                 positivity="positive", verbose=False)
 
     assert "v_retraction" in res

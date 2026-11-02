@@ -208,3 +208,16 @@ def test_every_model_reports_the_axis_sensitive_metric():
             f"column defaults to 0.0 and the model looks infinitely bad"
         )
         assert m["first_layer_axis_test_r2"] != 0.0
+
+
+def test_the_runner_reports_a_deep_fit_that_converged_as_converged():
+    """The runner used to label every deep/flow row `stop_reason="max_iter"`,
+    `converged=False` whatever the fit's own monitor said, so no deep row could
+    ever read as converged. It now reads the fit's `convergence` record."""
+    case = build_case(kind="nonlinear", n_samples=100, seed=42)
+    r = run_single_experiment("lend", case, sparsity=0.0, seed=42, iterations=40, tol=0.5, patience=1)
+    conv = r["result"]["convergence"]
+    assert conv["stop_reason"] == "converged", conv["stop_reason"]
+    assert r["metrics"]["stop_reason"] == "converged"
+    assert r["metrics"]["solver_converged"] is True
+    assert r["metrics"]["certificate"] == "energy_plateau"

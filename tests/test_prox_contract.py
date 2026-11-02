@@ -132,12 +132,6 @@ def test_simlr_defaults_do_not_trigger_the_deprecated_path():
                 and "simlr_sparseness" in str(x.message)]
 
 
-def test_simlr_one_weight_unless_separated():
-    """nsa_w defaults to the prox weight parsed from `constraint`."""
-    from pysimlr.simlr import parse_constraint
-    assert parse_constraint("orthox0.3")["weight"] == 0.3
-
-
 def test_deep_result_bases_lie_close_to_the_prox_set():
     """The returned deep bases lie on the same feasible set as simlr's.
 

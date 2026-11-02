@@ -85,7 +85,7 @@ def test_the_pipeline_recovers_support_under_every_energy(energy, floor):
     np.random.seed(0)
     res = simlr(views, k=3, iterations=25, optimizer_type="lars",
                 energy_type=energy, positivity="positive",
-                constraint="orthox0.5")
+                nsa_w=0.5)
     got = support_recovery_score([v.detach() for v in res["v"]], truth)
     assert got > floor, (
         f"{energy} recovered only {got:.4f} of the planted support, below the "
@@ -175,7 +175,7 @@ def test_optimisers_are_not_silently_equivalent():
         np.random.seed(0)
         r = simlr(views, k=3, iterations=20, optimizer_type=opt,
                   energy_type="acc", positivity="positive",
-                  constraint="orthox0.5")
+                  nsa_w=0.5)
         out[opt] = (torch.cat([v.detach() for v in r["v"]]),
                     float(r["energy_reduction"]), float(r["grad_map"]))
 

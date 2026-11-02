@@ -37,7 +37,7 @@ def _default_cert_fit():
 @pytest.mark.xdist_group("solver_cert_default")
 def test_result_reports_a_stop_reason_and_never_claims_convergence_bare():
     res = _default_cert_fit()
-    assert res["stop_reason"] in ("grad_map", "plateau", "max_iter", "no_descent")
+    assert res["stop_reason"] in ("converged", "max_iter", "no_descent")
     # converged is a claim about the point, and only a certificate may make it.
     assert res["converged"] == (res["certificate"] is not None)
     if res["certificate"] is not None:

@@ -1920,10 +1920,10 @@ class ConvergenceMonitor:
     ``patience`` consecutive non-improving steps the run has converged in the
     only sense that applies to every method here.
 
-    A stationarity certificate is strictly stronger and is not replaced by
-    this -- `simlr` can still certify, and `certify()` records it. Where no
-    certificate exists, "converged" means the weaker statement, and
-    `report()` says which was obtained so the two are never confused.
+    Every family reports the same ``stop_reason`` vocabulary
+    (`api.STOP_REASONS`): ``converged`` (this rule fired; certificate
+    ``"energy_plateau"``), ``max_iter`` (budget exhausted), ``non_finite``.
+    `simlr` adds ``no_descent``; closed-form baselines report ``closed_form``.
 
     Parameters
     ----------
@@ -1932,7 +1932,7 @@ class ConvergenceMonitor:
     patience : int
         Consecutive non-improving steps before declaring convergence.
     max_steps : int
-        Hard cap. Reaching it is reported as ``stop_reason="max_steps"`` and
+        Hard cap. Reaching it is reported as ``stop_reason="max_iter"`` and
         ``converged=False`` -- a budget exhausted is not a fit that finished.
     """
 
@@ -1948,7 +1948,6 @@ class ConvergenceMonitor:
         self._stale = 0
         self.stop_reason = None
         self.certificate = None
-        self.certificate_value = None
 
     def update(self, value: float) -> bool:
         """Record one step. Returns True when the run should stop."""
@@ -1957,7 +1956,7 @@ class ConvergenceMonitor:
         if not np.isfinite(v):
             # A non-finite objective is not convergence and not progress; it
             # is a failed step, and continuing to burn budget on it hides the
-            # failure behind a "max_steps" report.
+            # failure behind a "max_iter" report.
             self.stop_reason = "non_finite"
             return True
         # Compared on a trailing mean, not on the raw value. A stochastic
@@ -1978,23 +1977,10 @@ class ConvergenceMonitor:
             self._stale += 1
         if self._stale >= self.patience:
             self.stop_reason = "converged"
+            self.certificate = "energy_plateau"
             return True
         if len(self.history) >= self.max_steps:
-            self.stop_reason = "max_steps"
-            return True
-        return False
-
-    def certify(self, name: str, value: float, tol: Optional[float] = None) -> bool:
-        """Record a stronger, method-specific certificate (e.g. `grad_map`).
-
-        Returns True when it is satisfied, which stops the run with a strictly
-        stronger claim than the relative-improvement rule can make.
-        """
-        t = self.tol if tol is None else float(tol)
-        self.certificate_value = float(value)
-        if np.isfinite(value) and float(value) <= t:
-            self.certificate = name
-            self.stop_reason = name
+            self.stop_reason = "max_iter"
             return True
         return False
 
@@ -2005,10 +1991,9 @@ class ConvergenceMonitor:
         rel = ((max(recent) - min(recent)) / max(abs(max(recent)), 1e-12)
                if len(recent) > 1 else float("nan"))
         return {
-            "converged": self.stop_reason in ("converged",) or self.certificate is not None,
-            "stop_reason": self.stop_reason or "max_steps",
+            "converged": self.stop_reason == "converged",
+            "stop_reason": self.stop_reason or "max_iter",
             "certificate": self.certificate,
-            "certificate_value": self.certificate_value,
             "n_steps": len(h),
             "max_steps": self.max_steps,
             "tol": self.tol,

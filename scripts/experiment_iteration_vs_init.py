@@ -85,7 +85,7 @@ def main():
         scaled = [preprocess_data(m, ["centerAndScale", "np"])[0] for m in x]
         v0 = initialize_simlr(scaled, 3)
         u0 = compute_shared_consensus([m @ v for m, v in zip(scaled, v0)],
-                                      mixing_algorithm=a.mixing, k=3)
+                                      mixing_algorithm=a.mixing, k=3, topology="star")
         row = {"seed": seed, "init_r2": latent_regression_r2(z, u0),
                "init_energy": mean_energy(scaled, v0, u0, a.energy)}
         for arm, init in (("simlr", "pca"), ("random", "random")):

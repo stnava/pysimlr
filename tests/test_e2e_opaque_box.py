@@ -784,3 +784,16 @@ class TestTier4RealWorldWorkloads:
             # Verify positive correlation between imputed and actual features across samples
             recon_error = torch.mean((x2_imputed - x2_test)**2).item()
             assert np.isfinite(recon_error)
+
+
+def test_every_default_simlr_fit_recovers_the_planted_latent(clean_two_views):
+    """Most unit tests pin `learning_rate=0.05` to skip the rate probes; this
+    one runs the public entry point with every default, `learning_rate="auto"`
+    included. Measured Procrustes R^2: 0.9919 on this fixture (0.9892 and
+    0.9854 at seeds 0 and 1)."""
+    import pysimlr
+    from pysimlr.utils import procrustes_r2
+    d = clean_two_views
+    res = pysimlr.fit("simlr", [d["x1"], d["x2"]], d["k"])
+    assert "learning_rate_scores" in res
+    assert procrustes_r2(d["u_true"], res["u"]) > 0.98

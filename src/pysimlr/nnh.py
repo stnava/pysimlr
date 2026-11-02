@@ -298,7 +298,6 @@ def nnh_embed(blaster: pd.DataFrame,
               connect_cog: Optional[List[str]] = None,
               energy: str = DEFAULT_ENERGY_TYPE,
               nsimlr: int = 5,
-              constraint: Optional[str] = None,
               covariates: Optional[List[str]] = None,
               do_asym: int = 1,
               resnet_grade_thresh: float = 1.02,
@@ -326,11 +325,6 @@ def nnh_embed(blaster: pd.DataFrame,
         Energy function type for SiMLR.
     nsimlr : int, default=5
         The rank (K) of the latent embedding.
-    constraint : str, optional
-        Constraint string for `simlr` (e.g. ``"orthox0.5"``). ``None`` uses
-        `simlr`'s default. It was documented but never forwarded, so every
-        call ran `simlr`'s default whatever was passed. Not accepted with
-        ``use_flow=True``.
     covariates : List[str], optional
         Columns to use as covariates for residualization (e.g., 'age', 'sex').
     do_asym : int, default=1
@@ -433,13 +427,6 @@ def nnh_embed(blaster: pd.DataFrame,
     fit_kwargs = dict(simlr_kwargs)
     fit_kwargs["energy_type"] = energy
     fit_kwargs["varimax"] = varimax
-    if use_flow:
-        # `constraint` is a `simlr` setting; the flow model has none.
-        if constraint is not None:
-            raise ValueError("constraint applies to the simlr path only; the flow "
-                             "model (use_flow=True) does not take one.")
-    elif constraint is not None:
-        fit_kwargs["constraint"] = constraint
     if verbose:
         print(f"Running {method} with k={nsimlr}...")
     result = _fit(method, mat_list, nsimlr, verbose=verbose, **fit_kwargs)

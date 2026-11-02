@@ -159,7 +159,7 @@ def test_stress_simlr_armijo_monotonic_correlation_ascent():
     x2 = (u_true @ torch.randn(2, 6)) + torch.randn(n, 6) * 0.1
 
     res = simlr([x1, x2], k=2, iterations=12, optimizer_type="armijo_gradient", energy_type="acc",
-                constraint="orthox0")  # the optimizer is under test, not the constraint
+                nsa_w=0.0)  # the optimizer is under test, not the constraint
     energy_history = res["energy"]
 
     # In acc mode, energy = -sum(|cov|), so decreasing energy == increasing correlation
@@ -201,7 +201,7 @@ def test_stress_simlr_bidirectional_armijo_acc_correlation_ascent():
     x2 = u_true @ torch.randn(2, 6) + torch.randn(n, 6) * 0.1
 
     res = simlr([x1, x2], k=2, iterations=10, optimizer_type="bidirectional_armijo_gradient", energy_type="acc",
-                constraint="orthox0")  # the optimizer is under test, not the constraint
+                nsa_w=0.0)  # the optimizer is under test, not the constraint
     assert not torch.isnan(res["u"]).any()
     energy_history = res["energy"]
     assert energy_history[-1] <= energy_history[0], "Overall energy did not decrease across iterations"

@@ -481,7 +481,7 @@ def run_one(task: tuple) -> dict:
         "budget_by_unit": {"iterations": iterations, "epochs": epochs},
         "energy_type": energy, "mixing_algorithm": mixing,
         "use_nsa": True, "positivity": "positive",
-        "nsa_w": w, "constraint": f"orthox{w}",
+        "nsa_w": w,
         "sparseness": 0.0, "consolidate": True,
     }
     if mai is not None:

@@ -174,7 +174,8 @@ def test_every_algorithm_reports_convergence_the_same_way(alg):
                   "patience", "best", "final"):
         assert field in c, f"{alg.__name__} convergence is missing {field}"
     assert isinstance(c["converged"], (bool, np.bool_))
-    assert isinstance(c["stop_reason"], str)
+    assert c["stop_reason"] in api.STOP_REASONS, (alg.__name__, c["stop_reason"])
+    assert bool(c["converged"]) == (c["stop_reason"] == "converged")
     assert 0 < c["n_steps"] <= c["max_steps"]
 
 

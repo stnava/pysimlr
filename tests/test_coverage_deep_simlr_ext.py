@@ -9,7 +9,6 @@ import torch
 # `FastICA` or `nsa` attribute, so `getattr(..., None) is None` always held.
 
 from pysimlr.simlr import (
-    parse_constraint,
     initialize_simlr,
     calculate_ica_gradient,
     simlr,
@@ -36,11 +35,6 @@ from pysimlr.deep import (
     ned_simr,
     ned_simr_shared_private
 )
-
-def test_simlr_parse_constraint_exceptions():
-    with pytest.raises(ValueError, match="not a number"):
-        parse_constraint("Stiefelxnot_a_float")
-    assert parse_constraint("Stiefel") == {"type": "Stiefel", "weight": 1.0}
 
 def test_simlr_initialize_simlr_padding():
     x = torch.randn(10, 2)

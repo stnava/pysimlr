@@ -25,8 +25,7 @@ DEFAULT_SPARSENESS = 0.5
 #: the candidate, the scale of the returned Y is unconstrained, and -- the
 #: decisive point -- every scaled Stiefel matrix is optimal, so *nothing selects
 #: among clusterings*. The answer is then arbitrary rather than merely rescaled.
-#: `parse_constraint` assigns weight 1.0 to every hard-manifold constraint, so
-#: "Stiefel" and "Grassmann" hit exactly that case and must be capped too.
+#: A caller passing w = 1 hits exactly that case, so it is capped too.
 #:
 #: Measured over 10 paired seeds, holding w at 0.99 rather than 1.0 raised
 #: subspace recovery from 0.842 to 0.876 on one design and 0.720 to 0.738 on
@@ -1351,7 +1350,13 @@ def simlr_sparseness(v: torch.Tensor,
     nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg', 'softplus')
     negative = (positivity == 'negative')
 
-    if constraint_type == "none":
+    w = constraint_weight
+    if isinstance(w, (list, tuple, np.ndarray)) and modality_index is not None:
+        w = w[modality_index]
+    # A zero weight is no orthogonality constraint, and only that: positivity
+    # and quantile sparsity still apply. It used to also drop the sparsity
+    # (``q_val = None``), so ``w = 0`` silently returned a dense basis.
+    if constraint_type == "none" or (w is not None and float(w) <= 0.0):
         # The sign constraint is part of the feasible set whether or not the
         # orthogonality projection runs, so it is applied on this path too.
         out_none = apply_positivity(v_out, positivity)
@@ -1371,11 +1376,6 @@ def simlr_sparseness(v: torch.Tensor,
         v_out = -v_out
         nonneg = True
 
-    w = constraint_weight
-    if isinstance(w, (list, tuple, np.ndarray)) and modality_index is not None:
-        w = w[modality_index]
-    if w is not None and float(w) <= 0.0:
-        q_val = None
     w = NSA_DEFAULT_W if w is None else float(w)
 
     v_out = enforce_column_floor(v_out)

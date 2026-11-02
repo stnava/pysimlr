@@ -185,37 +185,3 @@ def test_larslow_trust_ratio_fallback_is_scaled():
     )
 
 
-# ----------------------------------------------- constraint string parsing
-
-@pytest.mark.parametrize("spec,expected_type,expected_weight", [
-    ("ortho", "ortho", 0.5),
-    ("nsaflow", "nsaflow", 0.5),
-    ("Stiefel", "Stiefel", 1.0),
-    ("Grassmann", "Grassmann", 1.0),
-    ("NewtonSchulz", "NewtonSchulz", 1.0),
-    ("none", "none", 0.0),
-    ("orthox0", "ortho", 0.0),
-    ("orthox0.5", "ortho", 0.5),
-])
-def test_constraint_defaults(spec, expected_type, expected_weight):
-    from pysimlr.simlr import parse_constraint
-
-    got = parse_constraint(spec)
-    assert got["type"] == expected_type
-    assert got["weight"] == pytest.approx(expected_weight)
-
-
-def test_bare_ortho_actually_constrains():
-    """constraint='ortho' defaulted to weight 0.0, and every soft-orthogonality
-    branch is gated on weight > 0, so it applied nothing at all."""
-    from pysimlr.simlr import parse_constraint
-
-    assert parse_constraint("ortho")["weight"] > 0.0
-
-
-def test_unknown_constraint_warns():
-    from pysimlr.simlr import parse_constraint
-
-    with pytest.warns(UserWarning, match="Unrecognised constraint type"):
-        parse_constraint("Orthoo")
-

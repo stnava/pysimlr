@@ -61,7 +61,7 @@ def test_simlr_stiefel_constraint_is_near_orthogonal(synthetic_two_views):
     x1, x2 = synthetic_two_views["x1"], synthetic_two_views["x2"]
     k = synthetic_two_views["k"]
 
-    res = simlr([x1, x2], k=k, iterations=15, constraint="Stiefel",
+    res = simlr([x1, x2], k=k, iterations=15, nsa_w=1.0,
                 optimizer_type="hybrid_adam", sparseness=0.0)
 
     for i, v in enumerate(res["v"]):
@@ -91,7 +91,7 @@ def test_simlr_stiefel_orthogonality_and_sparsity_are_set_by_w(synthetic_two_vie
     x1, x2 = synthetic_two_views["x1"], synthetic_two_views["x2"]
     k = synthetic_two_views["k"]
 
-    res = simlr([x1, x2], k=k, iterations=15, constraint="Stiefelx0.9",
+    res = simlr([x1, x2], k=k, iterations=15, nsa_w=0.9,
                 energy_type="acc", positivity="positive",
                 optimizer_type="hybrid_adam")
 
@@ -115,7 +115,7 @@ def test_simlr_canonical_correlation_two_views(synthetic_two_views):
     k = synthetic_two_views["k"]
     n = synthetic_two_views["n"]
 
-    res = simlr([x1, x2], k=k, iterations=15, constraint="Stiefel", optimizer_type="hybrid_adam")
+    res = simlr([x1, x2], k=k, iterations=15, nsa_w=1.0, optimizer_type="hybrid_adam")
 
     # Assert contract outputs
     assert "u" in res

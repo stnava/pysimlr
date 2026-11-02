@@ -42,7 +42,7 @@ def test_boundary_empty_data_matrices_list():
 
 def test_boundary_empty_consensus_tensor():
     """Verify compute_shared_consensus handles empty projection list gracefully."""
-    res = compute_shared_consensus([])
+    res = compute_shared_consensus([], topology="star")
     assert isinstance(res, torch.Tensor)
     assert res.numel() == 0
 
@@ -302,7 +302,7 @@ def test_boundary_high_w_gives_high_sparsity():
     x1 = torch.randn(40, 15)
     x2 = torch.randn(40, 12)
 
-    res = simlr([x1, x2], k=2, constraint="orthox0.9", positivity="positive",
+    res = simlr([x1, x2], k=2, nsa_w=0.9, positivity="positive",
                 iterations=10)
     v = res["v"][0]
     frac_zero = float((v.abs() < 1e-9).float().mean())
@@ -339,6 +339,6 @@ def test_boundary_all_discordant_projections_pruning_fallback():
     p1 = torch.randn(30, 2)
     p2 = torch.randn(30, 2)
 
-    u = compute_shared_consensus([p1, p2], prune_threshold=0.999, training=False)
+    u = compute_shared_consensus([p1, p2], prune_threshold=0.999, training=False, topology="star")
     assert u.shape == (30, 2)
     assert not torch.isnan(u).any()

@@ -157,6 +157,11 @@ Following gradient polish, `sparseness=q` zeros out weights below the $q$-th qua
 # Run the fast unit and property test suite
 make test
 
+# pytest.ini runs 10 xdist workers and excludes @pytest.mark.slow by default:
+pytest              # fast subset (~20 s)
+pytest -m ""        # full suite, including the slow calibration/benchmark tests
+pytest -n 0 -x ...  # single process, for debugging and pdb
+
 # Render Quarto tutorials in docs/
 make docs
 

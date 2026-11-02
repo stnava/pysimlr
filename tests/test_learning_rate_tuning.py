@@ -164,3 +164,15 @@ def test_auto_is_deterministic():
     torch.manual_seed(0); np.random.seed(0); a = simlr(views, **kw)["v"][0]
     torch.manual_seed(0); np.random.seed(0); b = simlr(views, **kw)["v"][0]
     assert torch.equal(a, b)
+
+
+def test_auto_learning_rate_fit_equals_a_plain_fit_at_the_chosen_rate():
+    """The auto branch prepares the views and draws the start basis once and
+    shares them with its probes and final fit. That final fit must be exactly
+    the fit a user gets by passing the chosen rate."""
+    views = [torch.as_tensor(x) for x in _views(3)]
+    auto = simlr(views, k=K, iterations=10, verbose=False)
+    plain = simlr(views, k=K, iterations=10, learning_rate=auto["learning_rate"], verbose=False)
+    assert auto["energy"] == plain["energy"]
+    for a, b in zip(auto["v"], plain["v"]):
+        assert torch.equal(a, b)

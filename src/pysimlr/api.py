@@ -62,8 +62,15 @@ FAMILIES = ("linear", "deep", "flow", "baseline")
 CONTRACT_KEYS = ("method", "family", "parameters", "u", "v", "latents", "convergence",
                  "sparseness", "scale_list", "provenance_list", "random_state")
 RANK_KEYS = ("effective_rank", "numerical_rank", "condition_number", "max_column_overlap")
-CONVERGENCE_KEYS = ("converged", "stop_reason", "n_steps", "max_steps", "tol", "patience",
-                    "best", "final")
+CONVERGENCE_KEYS = ("converged", "stop_reason", "certificate", "grad_map", "n_steps",
+                    "max_steps", "tol", "patience", "best", "final")
+#: The only values ``convergence["stop_reason"]`` takes, for every method.
+#: ``converged``: the energy plateau rule fired (certificate
+#: ``"energy_plateau"``) or, for NSA-Flow, its stationarity certificate;
+#: ``max_iter``: the budget ran out; ``no_descent``: no view found a descent
+#: step (`simlr`); ``non_finite``: the objective became NaN/Inf;
+#: ``closed_form``: an exact eigendecomposition (PCA).
+STOP_REASONS = ("converged", "max_iter", "no_descent", "non_finite", "closed_form")
 
 #: Arguments every native fit takes positionally; not parameters.
 _POSITIONAL = ("data_matrices", "k")
@@ -102,7 +109,7 @@ def as_views(views: Any) -> List[torch.Tensor]:
 # ---------------------------------------------------------------------------
 def _closed_form_convergence() -> Dict[str, Any]:
     return {"converged": True, "stop_reason": "closed_form", "certificate": "exact",
-            "n_steps": 0, "max_steps": 0, "tol": None, "patience": None,
+            "grad_map": 0.0, "n_steps": 0, "max_steps": 0, "tol": None, "patience": None,
             "best": float("nan"), "final": float("nan")}
 
 
@@ -202,7 +209,7 @@ def nsa_pipeline(data_matrices, k: int, nsa_w: float = DEFAULT_NSA_W, consolidat
     est = holder["est"]
     converged = bool(getattr(est, "converged_", False))
     res["convergence"] = {
-        "converged": converged, "stop_reason": "grad_map" if converged else "max_iter",
+        "converged": converged, "stop_reason": "converged" if converged else "max_iter",
         "certificate": getattr(est, "certificate_", None),
         "grad_map": float(getattr(est, "grad_map_", float("nan"))),
         "n_steps": getattr(est, "n_iter_", None), "max_steps": None, "tol": None,
@@ -424,8 +431,43 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
         "budget_unit": spec.budget_unit,
         "preset": dict(spec.presets),
     }
+    if spec.family in ("deep", "flow"):
+        res["convergence"]["grad_map"] = _basis_grad_map(res, view_list)
     validate_result(res, n=view_list[0].shape[0], k=int(k), n_views=len(view_list))
     return res
+
+
+def _basis_grad_map(res: Dict[str, Any], views: List[torch.Tensor]) -> Optional[float]:
+    """Face residual (`utils.stationarity_residual`) of a deep/flow fit's
+    first-layer basis ``V``, the object every method has.
+
+    The same functional `simlr` reports per sweep, evaluated once on the
+    returned ``V`` and consensus ``u``, on the views as the model saw them
+    (its own scaling replayed), for the energy and feasible set it used. It
+    certifies the basis, not the decoder weights. Largest over views; ``None``
+    only when the result has no per-view basis of matching shape.
+    """
+    from .utils import stationarity_residual
+    from .similarity import SimilarityContext, resolve_energy_name, similarity_gradient
+    vs, u = res.get("v"), res.get("u")
+    if not vs or u is None:
+        return None
+    used, defaults = res["parameters"]["used"], res["parameters"]["defaults"]
+    energy_type = used.get("energy_type", defaults.get("energy_type"))
+    positivity = used.get("positivity", defaults.get("positivity", "either"))
+    nonneg = positivity in ("positive", "hard", "nonnegative", "nonneg", "softplus")
+    name = resolve_energy_name(energy_type, path="deep")
+    xs, _ = _preprocess_views(views, res["scale_list"], res["provenance_list"])
+    u_t = torch.as_tensor(u).detach().float()
+    terms = []
+    for x, v in zip(xs, vs):
+        v = torch.as_tensor(v).detach().float()
+        x = torch.as_tensor(x).detach().float()
+        if x.shape[0] != u_t.shape[0] or v.shape[1] != u_t.shape[1] or x.shape[1] != v.shape[0]:
+            continue
+        g = x.t() @ similarity_gradient(name, x @ v, u_t, SimilarityContext(x=x, v=v), wrt="s")
+        terms.append(stationarity_residual(v, g, nonneg=nonneg)[0])
+    return max(terms) if terms else None
 
 
 def _normalize(out: Dict[str, Any]) -> None:
@@ -484,6 +526,9 @@ def validate_result(result: Dict[str, Any], n: Optional[int] = None, k: Optional
         missing.append("convergence (not a dict)")
     if missing:
         raise ValueError(f"result of {result.get('method')!r} is missing {missing}.")
+    if conv["stop_reason"] not in STOP_REASONS:
+        raise ValueError(f"result of {result.get('method')!r} has stop_reason "
+                         f"{conv['stop_reason']!r}, not one of {STOP_REASONS}.")
     u = result["u"]
     if not isinstance(u, torch.Tensor) or u.ndim != 2:
         raise ValueError(f"u must be a 2-D tensor; got {type(u).__name__}.")

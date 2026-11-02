@@ -152,7 +152,7 @@ def test_simlr_threads_positivity_into_the_initializer():
     mats, _ = make_case()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        res = simlr(mats, k=3, iterations=6, constraint="orthox0.5",
+        res = simlr(mats, k=3, iterations=6, nsa_w=0.5,
                     positivity="positive", verbose=False)
     for v in res["v"]:
         assert (v >= -1e-8).all()

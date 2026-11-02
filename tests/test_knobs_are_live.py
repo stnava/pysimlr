@@ -182,25 +182,6 @@ def test_a_larger_learning_rate_travels_further():
         f"{dist[0]:.2e}; the step size is not reaching the update")
 
 
-def test_nsa_w_and_the_constraint_string_mean_the_same_weight():
-    """`nsa_w` must drive the prox, not only the optimizer's own retraction.
-
-    It previously reached `opt_params` alone. Under `optimizer_type="lars"`,
-    which has no retraction, that made it inert.
-    """
-    views = _views()
-    via_arg = _fit(views, nsa_w=0.9)
-    via_str = _fit(views, constraint="orthox0.9")
-    assert not _differs(via_arg, via_str), (
-        "nsa_w=0.9 and constraint='orthox0.9' gave different fits; the two "
-        "spellings of one weight have diverged again")
-
-
-def test_conflicting_weight_spellings_warn():
-    with pytest.warns(RuntimeWarning, match="different NSA-Flow weights"):
-        _fit(_views(), nsa_w=0.9, constraint="orthox0.2")
-
-
 def test_the_harness_passes_optimizer_hyperparameters_through():
     """The harness bug, tested without running a fit.
 

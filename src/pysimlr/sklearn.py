@@ -31,7 +31,7 @@ from . import api
 #: `MultiViewSiMR` constructor arguments forwarded to `pysimlr.fit` when not
 #: None (``n_components`` is passed as ``k``).
 _FORWARDED = ("iterations", "energy_type", "mixing_algorithm", "positivity", "sparseness",
-              "nsa_w", "constraint", "optimizer_type", "learning_rate", "topology", "varimax",
+              "nsa_w", "optimizer_type", "learning_rate", "topology", "varimax",
               "initialization_type", "hidden_dims", "dropout", "batch_size", "private_k",
               "num_layers", "hidden_dim", "device", "tol", "patience", "random_state")
 
@@ -62,7 +62,7 @@ class MultiViewSiMR(BaseEstimator, TransformerMixin):
     n_components : int, default=2
         Dimensionality ``k`` of the shared latent space.
     iterations, energy_type, mixing_algorithm, positivity, sparseness, nsa_w,
-    constraint, optimizer_type, learning_rate, topology, varimax,
+    optimizer_type, learning_rate, topology, varimax,
     initialization_type, hidden_dims, dropout, batch_size, private_k,
     num_layers, hidden_dim, device, tol, patience, random_state :
         Forwarded to `pysimlr.fit` when not ``None``; ``None`` means the
@@ -103,7 +103,7 @@ class MultiViewSiMR(BaseEstimator, TransformerMixin):
                  iterations: Optional[int] = None, energy_type: Optional[str] = None,
                  mixing_algorithm: Optional[str] = None, positivity: Optional[str] = None,
                  sparseness: Optional[Union[float, List[Optional[float]]]] = None,
-                 nsa_w: Optional[float] = None, constraint: Optional[str] = None,
+                 nsa_w: Optional[float] = None,
                  optimizer_type: Optional[str] = None, learning_rate: Optional[Union[float, str]] = None,
                  topology: Optional[str] = None, varimax: Optional[bool] = None,
                  initialization_type: Optional[str] = None,
@@ -124,7 +124,6 @@ class MultiViewSiMR(BaseEstimator, TransformerMixin):
         self.positivity = positivity
         self.sparseness = sparseness
         self.nsa_w = nsa_w
-        self.constraint = constraint
         self.optimizer_type = optimizer_type
         self.learning_rate = learning_rate
         self.topology = topology

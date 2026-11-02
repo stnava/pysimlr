@@ -66,12 +66,23 @@ Schedule offsets keep their `_epoch(s)` suffix: `warmup_epochs`, `stabilization_
 `stabilization_ramp_epochs` and `shared_warmup_epochs`. They are measured in the method's
 budget unit.
 
-`energy_type` and `nsa_w` take their defaults from one place, `src/pysimlr/defaults.py`:
-`DEFAULT_ENERGY_TYPE = "acc"` and `DEFAULT_NSA_W = 0.5`, for every method. Before
-v0.3.0 the deep and flow models defaulted to `"regression"` and 0.1 with no recorded
-reason. Other defaults still differ by method, for example `topology` (`star` for
-`simlr`, `loo` for deep and flow) and `mixing_algorithm`. `parameters["defaults"]`
-records the value each fit used.
+`energy_type`, `nsa_w`, `mixing_algorithm` and `topology` take their defaults from one
+place, `src/pysimlr/defaults.py`, for every method (`"nc"`, 0.5, `"newton"`, `"loo"`);
+`compute_shared_consensus` defaults to the same topology. `nsa_w` is the one orthogonality
+weight (NSA-Flow retraction plus the calibrated defect term; 0 = no orthogonality
+constraint, sparsity still applied). The remaining differences, from
+`scripts/method_settings_table.py` (`docs/audit/evidence/method_settings.csv`):
+
+| setting | linear (`simlr`) | deep / flow | kind |
+|---|---|---|---|
+| budget `iterations` | 100 sweeps | 150 epochs | intrinsic unit; values open (F2) |
+| `tol` | 1e-6 | 1e-6 deep, 1e-4 `flow_v` | arbitrary; open (F2) |
+| `learning_rate` | `"auto"` | 0.0005 | intrinsic (different optimizers) |
+| `optimizer_type` | `hybrid_adam` | `adam` | intrinsic |
+| `collapse_weight` | parameter (1.0) | fixed at 1.0 | open (D4) |
+| `batch_size`, `warmup_epochs` | -- | 64, auto | intrinsic (stochastic training) |
+
+`parameters["defaults"]` records the value each fit used.
 
 ### `random_state`
 
@@ -98,7 +109,7 @@ Every `fit` result has the following keys, checked by `validate_result`:
 | `u` | `(n, k)` tensor. For linear `loo`/`graph` topologies it is the first view's consensus; all views' consensus is in `u_per_modality`. |
 | `v` | one `(p_m, k)` block per view |
 | `latents` | per-view first-layer projections (`[u]` for the joint baselines) |
-| `convergence` | `converged`, `stop_reason`, `n_steps`, `max_steps`, `tol`, `patience`, `best`, `final` (closed-form baselines: `stop_reason="closed_form"`; `simlr` converges on the energy plateau rule (`tol`, `patience`; `certificate="energy_plateau"`), stops uncertified with `stop_reason="no_descent"` when no view's line search finds a decrease; it computes no stationarity residual -- the `grad_map`/`grad_map_history` keys were removed because the prox-gradient residual is not a valid certificate for the non-convex sparsity projection) |
+| `convergence` | `converged`, `stop_reason`, `certificate`, `grad_map`, `n_steps`, `max_steps`, `tol`, `patience`, `best`, `final`. `stop_reason` is one of `api.STOP_REASONS` for every method: `converged` (the energy plateau rule fired, `certificate="energy_plateau"`; NSA-Flow: its own certificate), `max_iter` (budget exhausted), `no_descent` (`simlr`: no view's line search found a decrease), `non_finite`, `closed_form` (PCA). `converged` is `stop_reason == "converged"`. `grad_map` is the face residual `utils.stationarity_residual` of the basis, a diagnostic not a stop rule: per sweep for `simlr`, post hoc on the returned `V` and `u` for deep/flow (`api._basis_grad_map`), 0 for PCA |
 | rank diagnostics | `effective_rank`, `numerical_rank`, `condition_number`, `max_column_overlap` per view; for the joint baselines `joint_*` with `basis_is_joint=True` |
 | `sparseness`, `scale_list`, `provenance_list`, `random_state` | |
 
@@ -174,7 +185,9 @@ method. All parameters are explicit, so `clone`, `get_params` and `GridSearchCV`
 - Energies `regression`, `gauss`, `normalized_correlation` raise naming the replacement
   (`recon_r2` linear / `align` deep, `exp`, `nc`); `recon` is refused as a linear objective.
 - Optimizers `torch_lbfgs` and `nsa_flow` and the `simlr_lbfgs` method.
-- The constraint string's third field (`"orthox0.5x1"`): the format is `<type>x<weight>`.
+- `simlr(constraint=...)`, `parse_constraint`, `project_gradient` and the 13 constraint type
+  strings (`Stiefel`, `Grassmann`, `NewtonSchulz`, `ortho*`, `nsaflow*`): every non-`none` type
+  ran the same NSA-Flow retraction. Use `nsa_w` (0 = no orthogonality constraint).
 - `retraction_type` (it had no effect with nsa_flow>=3.5.1), `simlr_sparseness(constraint_iterations=)`,
   `predict_simlr(allow_legacy_refit=)`, prediction from pre-0.3.0 results (no frozen consensus),
   `invariant_orthogonality_defect` and its gradient, `calculate_u`, `load_nsa_flow_orth`.

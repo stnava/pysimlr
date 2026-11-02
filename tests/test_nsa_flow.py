@@ -41,92 +41,53 @@ def _patch_backend(mock):
     return patch("pysimlr.sparsification.load_nsa_flow", return_value=mock)
 
 
-@pytest.mark.parametrize("constraint_type", ["ortho", "ortho_polar", "ortho_ns",
-                                             "nsaflow", "nsaflow_ns"])
-def test_backend_is_invoked_for_every_soft_ortho_constraint(constraint_type):
-    set_all_seeds(42)
-    x1, x2 = torch.randn(20, 10), torch.randn(20, 10)
-    mock = _identity_backend()
-
-    with _patch_backend(mock):
-        simlr([x1, x2], k=2, iterations=1, constraint=f"{constraint_type}x0.6")
-
-    assert mock.called, f"NSA-Flow was not called for constraint '{constraint_type}'"
-
-
 def test_constraint_weight_is_passed_as_w():
     set_all_seeds(42)
     x1 = torch.randn(20, 10)
     mock = _identity_backend()
 
     with _patch_backend(mock):
-        simlr([x1], k=2, iterations=1, constraint="orthox0.6")
+        simlr([x1], k=2, iterations=1, nsa_w=0.6)
 
     _, kwargs = mock.call_args
     assert kwargs["w"] == pytest.approx(0.6)
 
 
-def test_a_bare_constraint_uses_parse_constraints_weight_not_nsa_default_w():
-    """
-    Two defaults could supply `w`, and they must now agree.
-
-    `parse_constraint` defaulted the ortho family to 0.1 while
-    `NSA_DEFAULT_W` was 0.5, so "the default w" was two different numbers
-    depending on which path reached the projection. Both are 0.35 now, and
-    this asserts the parsed weight still wins -- `NSA_DEFAULT_W` applies only
-    when no weight is supplied at all (`constraint_weight=None`); an explicit
-    zero is honoured as the unconstrained endpoint, not treated as unset.
-
-    That ordering is deliberate. Measured over four designs (12 paired seeds
-    each), tightening the retraction under non-negativity lowered the
-    orthogonality defect monotonically but *reduced* subspace recovery in
-    every design -- e.g. 0.894 at w=0.1 falling to 0.886 at w=0.9 and 0.841
-    at a hard Stiefel constraint. At w=0.1 the backend also costs ~10x the
-    runtime of the polar fallback for a +0.0006 recovery difference. So the
-    weak default is the right one for a soft constraint, and raising it to
-    0.5 here would silently change every `constraint="ortho"` run.
-    """
+def test_the_default_weight_reaches_the_backend():
+    """With no `nsa_w`, the retraction runs at `DEFAULT_NSA_W`, which is also
+    the backend's own `NSA_DEFAULT_W`: one default, not two."""
+    from pysimlr.defaults import DEFAULT_NSA_W
+    assert DEFAULT_NSA_W == NSA_DEFAULT_W
     set_all_seeds(42)
     x1 = torch.randn(20, 10)
     mock = _identity_backend()
 
     with _patch_backend(mock):
-        simlr([x1], k=2, iterations=1, constraint="nsaflow")
+        simlr([x1], k=2, iterations=1)
 
     _, kwargs = mock.call_args
-    assert kwargs["w"] == pytest.approx(NSA_DEFAULT_W)
+    assert kwargs["w"] == pytest.approx(DEFAULT_NSA_W)
 
 
-def test_an_explicitly_zero_weight_reaches_the_backend_as_the_floor():
-    """`nsaflowx0` means no orthogonality term, and the floor is what gets sent.
+def test_a_zero_weight_skips_the_retraction_but_keeps_sparsity():
+    """`nsa_w=0` is no orthogonality constraint, and only that.
 
-    This test previously asserted the opposite -- that an explicit zero falls
-    back to `NSA_DEFAULT_W` -- on the premise that the backend "needs some
-    weight". That premise is false: `_nsa_retract(v, w=0.0)` returns a finite
-    basis whose maximum off-diagonal column overlap (0.785) is the input's own,
-    i.e. exactly the unconstrained endpoint. `_clamp_w` then maps the request
-    to `NSA_MIN_W` (1e-3) so the solve is not a literal no-op -- that clamp is
-    deliberate and is asserted by
-    `test_retraction_weight_is_clamped_off_the_degenerate_endpoints`. The bug
-    was not the clamp; it was that the request never reached it.
-
-    The cost of the old behaviour was that `constraint_weight=0.0` produced
-    output *bit-identical* to `0.5` (measured: ||P_0(v) - P_0.5(v)|| = 0.0e+00,
-    43 zeros in both). Any sweep using w=0 as its unconstrained baseline
-    measured w=0.5 twice and therefore read flat at the low end. It also
-    contradicted `parse_constraint`, which documents that an explicit
-    `"orthox0"` selects no constraint.
+    It used to reach the backend at the floor weight *and* drop the quantile
+    sparsity (``q_val = None`` for any w <= 0), so a zero weight silently
+    returned a dense basis. Now it skips the retraction and still applies
+    positivity and `sparseness`.
     """
     set_all_seeds(42)
-    x1 = torch.randn(20, 10)
+    x1 = torch.randn(40, 12)
     mock = _identity_backend()
 
     with _patch_backend(mock):
-        simlr([x1], k=2, iterations=1, constraint="nsaflowx0")
+        res = simlr([x1], k=2, iterations=2, nsa_w=0.0, sparseness=0.5,
+                    learning_rate=0.05)
 
-    assert mock.called
-    _, kwargs = mock.call_args
-    assert kwargs["w"] == pytest.approx(NSA_MIN_W)
+    assert not mock.called
+    zeros = float((res["v"][0].abs() < 1e-12).float().mean())
+    assert zeros >= 0.45, f"sparseness=0.5 at nsa_w=0 left only {zeros:.2f} zeros"
 
 
 def test_w_zero_is_not_w_default():
@@ -169,7 +130,7 @@ def test_candidate_is_handed_to_the_backend_in_float64():
     mock = _identity_backend()
 
     with _patch_backend(mock):
-        res = simlr([x1], k=2, iterations=1, constraint="orthox0.5")
+        res = simlr([x1], k=2, iterations=1, nsa_w=0.5)
 
     args, _ = mock.call_args
     assert args[0].dtype == torch.float64
@@ -184,7 +145,7 @@ def test_positivity_selects_the_nonneg_flag(positivity, expected_nonneg):
     mock = _identity_backend()
 
     with _patch_backend(mock):
-        simlr([x1], k=2, iterations=1, constraint="orthox0.5", positivity=positivity)
+        simlr([x1], k=2, iterations=1, nsa_w=0.5, positivity=positivity)
 
     _, kwargs = mock.call_args
     assert kwargs["nonneg"] is expected_nonneg
@@ -204,7 +165,7 @@ def test_a_raising_backend_is_reported_not_substituted():
     with _patch_backend(mock):
         # The backend's own error propagates: the most specific report there is.
         with pytest.raises(Exception, match="nsa_flow internal error"):
-            simlr([x1], k=2, iterations=1, constraint="orthox0.5")
+            simlr([x1], k=2, iterations=1, nsa_w=0.5)
     assert mock.called
 
 
@@ -234,21 +195,8 @@ def test_an_unusable_backend_result_is_rejected_rather_than_adopted(bad):
     mock = MagicMock(side_effect=payload)
     with _patch_backend(mock):
         with pytest.raises(RuntimeError, match="unusable projection"):
-            simlr([x1], k=2, iterations=1, constraint="orthox0.5")
+            simlr([x1], k=2, iterations=1, nsa_w=0.5)
     assert mock.called
-
-
-def test_hard_stiefel_constraint_also_routes_through_the_backend():
-    set_all_seeds(42)
-    x1 = torch.randn(20, 5)
-    mock = _identity_backend()
-
-    with _patch_backend(mock):
-        simlr([x1], k=2, iterations=1, constraint="Stiefel_nsx0.5")
-
-    assert mock.called
-    _, kwargs = mock.call_args
-    assert kwargs["w"] == pytest.approx(0.5)
 
 
 def test_deep_encoders_expose_an_oriented_basis_when_the_backend_is_used():
