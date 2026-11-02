@@ -347,33 +347,35 @@ def run_single_experiment(model_type: str,
     # for reference under its own key and let `calculate_all_metrics` score
     # every model through one estimator.
 
-    frame_defect = 0.0
-    lobe_crosstalk = 0.0
-    sparsity_ratio = 0.0
-    # Evaluate the invariants on the per-view blocks for every model. These
-    # used to be read off the *joint* basis `v_tot` for PCA and nsa_pipeline
-    # and off the per-view blocks for everyone else, which are different
-    # objects: a joint orthonormal V has gram exactly I (frame defect 0 by
-    # construction) while its per-view restrictions do not. PCA's "D = 0.0000"
-    # and its place on the Pareto frontier were artefacts of that asymmetry.
-    v_eval = res.get("v")
-    if v_eval is not None and len(v_eval) > 0:
-        from ..utils import orthogonality_defect
-        defects = []
-        crosstalks = []
-        zeros = 0
-        total = 0
-        for vm in v_eval:
-            vm_t = torch.as_tensor(vm).float()
-            defects.append(float(orthogonality_defect(vm_t, normalized=True).item()))
-            pos = torch.clamp(vm_t, min=0.0)
-            neg = torch.clamp(-vm_t, min=0.0)
-            crosstalks.append(torch.norm(pos * neg, p='fro').item())
-            zeros += (vm_t.abs() < 1e-6).sum().item()
-            total += vm_t.numel()
-        frame_defect = float(np.mean(defects))
-        lobe_crosstalk = float(np.mean(crosstalks))
-        sparsity_ratio = float(zeros / max(1, total))
+    # Basis metrics, on the per-view blocks for every model (the joint basis
+    # `v_tot` of PCA / nsa_pipeline has gram exactly I by construction, so
+    # scoring it instead gave PCA "D = 0.0000" as an artefact). Two objects:
+    # the encoder `v`, which is weakly identified and kept only so earlier
+    # numbers stay reproducible (`*_v`), and the `loadings` every fit carries
+    # (`pysimlr.loadings`), the identified object a reader interprets
+    # (`*_loadings`). `lobe_crosstalk` (||V+ * V-||, identically 0 because no
+    # entry is both positive and negative) is gone; `support_overlap` is the
+    # disjointness measure.
+    from ..utils import orthogonality_defect
+    from .metrics import column_coherence, support_overlap, support_recovery_score
+
+    def _basis_metrics(blocks, suffix):
+        blocks = [torch.as_tensor(b).detach().float() for b in (blocks or [])]
+        if not blocks:
+            return {}
+        out = {
+            f"column_coherence_{suffix}": float(np.mean([column_coherence(b) for b in blocks])),
+            f"support_overlap_{suffix}": float(np.mean([support_overlap(b) for b in blocks])),
+            f"sparsity_ratio_{suffix}": float(sum(int((b.abs() < 1e-6).sum()) for b in blocks)
+                                              / max(1, sum(b.numel() for b in blocks))),
+            f"support_recovery_{suffix}": support_recovery_score(blocks, case.get("true_v") or []),
+        }
+        if suffix == "v":
+            out["frame_defect_v"] = float(np.mean([float(orthogonality_defect(b, normalized=True))
+                                                    for b in blocks]))
+        return out
+
+    basis_metrics = {**_basis_metrics(res.get("v"), "v"), **_basis_metrics(res.get("loadings"), "loadings")}
 
     metrics.update({
         # Solver self-report, so a row can say whether its fit converged and
@@ -387,9 +389,7 @@ def run_single_experiment(model_type: str,
         "sparsity": sparsity,
         "seed": seed,
         "fit_seconds": fit_seconds,
-        "frame_defect": frame_defect,
-        "lobe_crosstalk": lobe_crosstalk,
-        "sparsity_ratio": sparsity_ratio,
+        **basis_metrics,
     })
     return {"metrics": metrics, "result": res,
             "prediction": {"train": pred_train, "test": pred_test}}

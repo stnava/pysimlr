@@ -191,9 +191,35 @@ def test_invariants_use_per_view_blocks_for_every_model():
     pca = run_single_experiment("pca", case, seed=42, iterations=5)["metrics"]
     # Per-view restrictions of a joint orthonormal basis are not orthonormal,
     # so an honest per-view frame defect for PCA is strictly positive.
-    assert pca["frame_defect"] > 1e-3, (
+    assert pca["frame_defect_v"] > 1e-3, (
         "PCA scoring frame_defect 0 means the joint basis is still being used"
     )
+
+
+def test_every_basis_metric_can_take_a_nonzero_value():
+    """`lobe_crosstalk` was ||V+ * V-||, which is 0 for every input, and a
+    paper table reported it. Each basis metric must respond to its input."""
+    from pysimlr.benchmarks.metrics import column_coherence, support_overlap
+    shared = torch.tensor([[1.0, 1.0], [1.0, -1.0], [0.0, 0.0]])   # orthogonal, same features
+    disjoint = torch.tensor([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
+    oblique = torch.tensor([[1.0, 1.0], [0.0, 1.0], [0.0, 0.0]])
+    assert column_coherence(shared) == pytest.approx(0.0, abs=1e-12)
+    assert support_overlap(shared) == pytest.approx(1.0)
+    assert support_overlap(disjoint) == pytest.approx(0.0, abs=1e-12)
+    assert column_coherence(oblique) == pytest.approx(2 ** -0.5)
+
+
+def test_the_runner_scores_the_encoder_and_the_loadings():
+    from pysimlr.benchmarks.runner import run_single_experiment
+    from pysimlr.benchmarks.synthetic_cases import build_case
+    case = build_case(kind="linear", n_samples=200, seed=42)
+    m = run_single_experiment("simlr", case, seed=42, iterations=5, positivity="positive")["metrics"]
+    assert "lobe_crosstalk" not in m
+    for key in ("frame_defect_v", "support_overlap_v", "column_coherence_v", "sparsity_ratio_v",
+                "support_recovery_v", "column_coherence_loadings", "support_overlap_loadings",
+                "sparsity_ratio_loadings", "support_recovery_loadings"):
+        assert key in m, key
+    assert m["support_overlap_loadings"] == pytest.approx(0.0, abs=1e-6)
 
 
 def test_every_model_reports_the_axis_sensitive_metric():

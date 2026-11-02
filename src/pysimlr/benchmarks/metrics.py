@@ -451,6 +451,26 @@ def calculate_all_metrics(
     return metrics
 
 
+def column_coherence(v: torch.Tensor) -> float:
+    """Largest |cosine| between two distinct columns: 0 for orthogonal columns,
+    whatever their norms (the trace-normalised frame defect also penalises
+    unequal column norms). 0.0 for a single column."""
+    a = torch.as_tensor(v).detach().double()
+    if a.shape[1] < 2:
+        return 0.0
+    a = a / a.norm(dim=0, keepdim=True).clamp_min(1e-300)
+    g = (a.T @ a).abs()
+    return float((g - torch.diag(torch.diag(g))).max())
+
+
+def support_overlap(v: torch.Tensor) -> float:
+    """Largest cosine between the absolute values of two distinct columns: 0
+    when the columns use disjoint features, 1 when they load the same features
+    in the same proportions. The OLEE disjointness measure under positivity;
+    for signed bases, orthogonal columns may still share features."""
+    return column_coherence(torch.as_tensor(v).detach().abs())
+
+
 def support_recovery_score(v_est: List[torch.Tensor],
                            v_true: List[torch.Tensor],
                            tol: float = 1e-6,

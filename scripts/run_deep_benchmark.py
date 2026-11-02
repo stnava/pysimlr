@@ -403,9 +403,15 @@ def run_experiment_task(task_args: tuple) -> dict:
         "CMC_Latent_U": cmc_u,
         "Feature_Recovery_V": float(v_rec),
         "Support_Recovery_V": float(v_sup),
-        "Frame_Defect_D": float(metrics.get("frame_defect", 0.0)),
-        "Lobe_Crosstalk": float(metrics.get("lobe_crosstalk", 0.0)),
-        "Sparsity_Ratio": float(metrics.get("sparsity_ratio", 0.0)),
+        # Encoder V (kept so earlier tables reproduce) and the loadings the
+        # reader interprets (`pysimlr.loadings`). Lobe_Crosstalk is gone: it
+        # was ||V+ * V-||, identically 0.
+        "Frame_Defect_D": float(metrics["frame_defect_v"]),
+        "Sparsity_Ratio": float(metrics["sparsity_ratio_v"]),
+        "Support_Overlap_V": float(metrics["support_overlap_v"]),
+        "Column_Coherence_L": float(metrics["column_coherence_loadings"]),
+        "Support_Overlap_L": float(metrics["support_overlap_loadings"]),
+        "Support_Recovery_L": float(metrics["support_recovery_loadings"]),
         "Fit_Seconds": float(metrics.get("fit_seconds", 0.0)),
         "Stop_Reason": metrics.get("stop_reason"),
         "Solver_Converged": metrics.get("solver_converged"),

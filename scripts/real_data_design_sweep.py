@@ -499,8 +499,8 @@ def run_one(task: tuple) -> dict:
         "Train": float(pick("train_accuracy", "train_r2")),
         "StrictlyLinear": float(pick("first_layer_test_accuracy", "first_layer_test_r2")),
         "AxisSensitive": float(pick("first_layer_axis_test_accuracy", "first_layer_axis_test_r2")),
-        "Sparsity": float(m.get("sparsity_ratio", np.nan)),
-        "FrameDefect": float(m.get("frame_defect", np.nan)),
+        "Sparsity": float(m["sparsity_ratio_v"]),
+        "FrameDefect": float(m["frame_defect_v"]),
         "GradMap": (float(m["grad_map"]) if m.get("grad_map") is not None else np.nan),
         "EnergyReduction": (float(m["energy_reduction"])
                             if m.get("energy_reduction") is not None else np.nan),
