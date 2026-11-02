@@ -114,13 +114,16 @@ def _apply_smoothing(v: torch.Tensor, smoothing_matrix: Any) -> torch.Tensor:
         return v
     key = (id(smoothing_matrix), v.shape, v.dtype, v.device)
     v_det = v.detach()
-    for prev_in, prev_out in _SMOOTHING_CACHE.get(key, ()):
-        if torch.equal(prev_in, v_det) or torch.equal(prev_out, v_det):
+    # Entries hold the operator itself: `id()` is only unique among live
+    # objects, so a new matrix at a freed matrix's address would otherwise hit
+    # the old matrix's entries. The reference also keeps that address taken.
+    for owner, prev_in, prev_out in _SMOOTHING_CACHE.get(key, ()):
+        if owner is smoothing_matrix and (torch.equal(prev_in, v_det) or torch.equal(prev_out, v_det)):
             return prev_out.clone()
     out = smoothing_matrix @ v
     if isinstance(out, torch.Tensor):
         bucket = _SMOOTHING_CACHE.setdefault(key, [])
-        bucket.append((v_det.clone(), out.detach().clone()))
+        bucket.append((smoothing_matrix, v_det.clone(), out.detach().clone()))
         if len(bucket) > _CACHE_MAXSIZE:
             bucket.pop(0)
     return out
@@ -176,8 +179,11 @@ def _nsa_retract(v: torch.Tensor,
     v_detached = v.detach()
     sp_key = None if sparseness is None else float(sparseness)
     cache_key = (id(fn), v_detached.shape, v_detached.dtype, v_detached.device, float(w), bool(nonneg), sp_key)
-    for prev_in, prev_out, prev_diag in _NSA_RETRACT_CACHE.get(cache_key, ()):
-        if torch.equal(prev_in, v_detached) or torch.equal(prev_out, v_detached):
+    # Entries hold the backend function: keyed on `id(fn)` alone, a new
+    # backend at a freed one's address (seen with per-test mocks) hit the old
+    # entries and was never called.
+    for owner, prev_in, prev_out, prev_diag in _NSA_RETRACT_CACHE.get(cache_key, ()):
+        if owner is fn and (torch.equal(prev_in, v_detached) or torch.equal(prev_out, v_detached)):
             if diagnostics is not None:
                 diagnostics.update(prev_diag)
             return prev_out.clone()
@@ -216,7 +222,7 @@ def _nsa_retract(v: torch.Tensor,
     if not _usable_retraction(candidate, v, nonneg=nonneg):
         return None
     bucket = _NSA_RETRACT_CACHE.setdefault(cache_key, [])
-    bucket.append((v_detached.clone(), candidate.detach().clone(), dict(diag_snapshot)))
+    bucket.append((fn, v_detached.clone(), candidate.detach().clone(), dict(diag_snapshot)))
     if len(bucket) > _CACHE_MAXSIZE:
         bucket.pop(0)
     return candidate
@@ -1457,7 +1463,7 @@ def simlr_sparseness(v: torch.Tensor,
     if smoothing_matrix is not None:
         sm_key = (id(smoothing_matrix), out.shape, out.dtype, out.device)
         sm_bucket = _SMOOTHING_CACHE.setdefault(sm_key, [])
-        sm_bucket.append((out.detach().clone(), out.detach().clone()))
+        sm_bucket.append((smoothing_matrix, out.detach().clone(), out.detach().clone()))
         if len(sm_bucket) > _CACHE_MAXSIZE:
             sm_bucket.pop(0)
     return out

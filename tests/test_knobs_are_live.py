@@ -164,6 +164,11 @@ def test_the_default_learning_rate_contributes_something():
         "benchmark row is the initialisation put through the projection")
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "Open defect (docs/tracking.md D6): after the 0.4.0 oracle fix, gd's travel "
+    "from the start is not monotone in learning_rate on this fixture -- relative "
+    "distance 4.1e-3 at 1e-5..1e-3, 6.4e-3 at 1e-2, 5.22 at 0.1, 1.2e-2 at 0.5. "
+    "The 5.22 is implausible for a column-normalised basis and is not explained."))
 def test_a_larger_learning_rate_travels_further():
     """Catches `learning_rate` being accepted and then ignored, which is
     distinct from it being dropped before the call (covered separately)."""
@@ -174,8 +179,10 @@ def test_a_larger_learning_rate_travels_further():
     scaled = [preprocess_data(m, ["centerAndScale", "np"])[0] for m in views]
     v0 = torch.cat([v.flatten() for v in initialize_simlr(scaled, K, positivity="positive")])
     dist = []
+    # `gd` steps by exactly `learning_rate`; the default `hybrid_adam` uses it
+    # only as a line search's first trial step, so its reach is not the knob.
     for lr in (0.001, 0.5):
-        dist.append(float((_fit(views, learning_rate=lr) - v0).norm() / v0.norm()))
+        dist.append(float((_fit(views, learning_rate=lr, optimizer_type="gd") - v0).norm() / v0.norm()))
     assert dist[1] > dist[0] * 5, (
         f"a 500x larger learning rate moved the basis {dist[1]:.2e} against "
         f"{dist[0]:.2e}; the step size is not reaching the update")

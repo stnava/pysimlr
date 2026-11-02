@@ -279,11 +279,10 @@ def _simlr_extra(keys=None) -> Dict[str, Any]:
     return extra
 
 
-#: Hyperparameters the preset optimizers read (`TorchNativeOptimizer` for
-#: torch_lbfgs, `NSALBFGSB` for nsa_lbfgsb; checked against their source in
+#: Hyperparameters the preset optimizer reads (`NSALBFGSB` for nsa_lbfgsb;
+#: checked against its source in
 #: test_api_registry). Anything else passed to these methods is reported as
 #: ignored instead of being accepted and never read.
-TORCH_LBFGS_KEYS = ("lbfgs_lr", "max_iter", "history_size", "line_search_fn")
 NSA_LBFGSB_KEYS = ("lbfgsb_tol", "max_iter", "nonneg")
 
 
@@ -295,10 +294,6 @@ _SPECS = [
     MethodSpec("simlr", "linear", simlr, _predict_linear, "iterations",
                "Linear SiMLR: one sparse, NSA-Flow-constrained basis per view.",
                aliases=("linear",), extra_params=_frozen(_simlr_extra())),
-    MethodSpec("simlr_lbfgs", "linear", simlr, _predict_linear, "iterations",
-               "`simlr` with the torch L-BFGS optimizer (optimizer_type fixed).",
-               presets=_frozen({"optimizer_type": "torch_lbfgs"}),
-               extra_params=_frozen(_simlr_extra(TORCH_LBFGS_KEYS))),
     MethodSpec("simlr_lbfgsb", "linear", simlr, _predict_linear, "iterations",
                "`simlr` with nsa_flow's bound-constrained L-BFGS-B (optimizer_type fixed).",
                presets=_frozen({"optimizer_type": "nsa_lbfgsb"}),

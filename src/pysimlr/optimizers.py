@@ -14,11 +14,11 @@ from .sparsification import _usable_retraction
 #: optimizer implementations below.
 from .defaults import DEFAULT_NSA_W
 
-#: Optimizers that never read `learning_rate` (torch L-BFGS steps by
-#: `lbfgs_lr`; L-BFGS-B has its own line search). `simlr` skips the
+#: Optimizers that never read `learning_rate` (L-BFGS-B has its own line
+#: search). `simlr` skips the
 #: learning-rate probes for them: every candidate scored identically, so
 #: `learning_rate="auto"` cost seven wasted fits per call.
-LEARNING_RATE_FREE_OPTIMIZERS = frozenset({"torch_lbfgs", "nsa_lbfgsb"})
+LEARNING_RATE_FREE_OPTIMIZERS = frozenset({"nsa_lbfgsb"})
 
 SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
     'learning_rate': 0.001,
@@ -33,10 +33,7 @@ SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
     'decay_rate': 1e-3,    # LARS weight decay
     'lookahead_k': 5,      # Lookahead slow-weight period (was 'k', which collided with simlr's rank)
     'alpha': 0.5,          # Lookahead slow-weight interpolation
-    'lbfgs_lr': 1.0,       # Torch L-BFGS step size (quasi-Newton standard)
-    'max_iter': 20,        # Torch L-BFGS maximum iterations per step
-    'history_size': 10,    # Torch L-BFGS two-loop recursion history size
-    'line_search_fn': 'strong_wolfe', # Torch L-BFGS line search strategy
+    'max_iter': 20,        # NSA L-BFGS-B maximum iterations per step
     'reparameterize': True, # Quadratic reparameterization for non-negativity
     'positivity': 'either', # Positivity constraint type
     'nonneg': None,         # Explicit nonneg flag for bound-constrained solvers
@@ -786,14 +783,14 @@ class TorchNativeOptimizer(SimlrOptimizer):
     """
     Wrapper for using standard PyTorch optimizers within the SiMLR framework.
 
-    Allows the use of `torch.optim` algorithms (e.g., AdamW, Adagrad, LBFGS) 
-    to update the basis matrices.
+    Allows the use of first-order `torch.optim` algorithms (AdamW, Adagrad,
+    NAdam) to update the basis matrices.
 
     Parameters
     ----------
     optimizer_type : str
-        The type of PyTorch optimizer to use (e.g., 'torch_adamw', 
-        'torch_lbfgs').
+        The type of PyTorch optimizer to use ('torch_adamw', 'torch_adagrad',
+        'torch_nadam').
     v_mats : List[torch.Tensor]
         The initial basis matrices.
     **params : Dict[str, Any]
@@ -806,9 +803,6 @@ class TorchNativeOptimizer(SimlrOptimizer):
     """
     def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
         super().__init__(optimizer_type, v_mats, **params)
-        #: Optional analytic-gradient callback, set by the caller. Only the
-        #: LBFGS path needs it, to refresh the gradient inside its line search.
-        self.gradient_function: Optional[Callable] = None
         self.v_params = [nn.Parameter(v.clone()) for v in v_mats]
         lr = self.params['learning_rate']
         if optimizer_type == "torch_adamw":
@@ -817,23 +811,6 @@ class TorchNativeOptimizer(SimlrOptimizer):
             self.optimizers = [optim.Adagrad([p], lr=lr) for p in self.v_params]
         elif optimizer_type == "torch_nadam":
             self.optimizers = [optim.NAdam([p], lr=lr) for p in self.v_params]
-        elif optimizer_type == "torch_lbfgs":
-            # Steps by `lbfgs_lr` (default 1.0, the quasi-Newton standard);
-            # `learning_rate` is not read on this path.
-            lbfgs_lr = float(self.params['lbfgs_lr'])
-            max_iter = int(self.params.get('max_iter', 20))
-            history_size = int(self.params.get('history_size', 10))
-            line_search_fn = self.params.get('line_search_fn', 'strong_wolfe')
-            self.optimizers = [
-                optim.LBFGS(
-                    [p],
-                    lr=lbfgs_lr,
-                    max_iter=max_iter,
-                    history_size=history_size,
-                    line_search_fn=line_search_fn,
-                )
-                for p in self.v_params
-            ]
         else:
             self.optimizers = [optim.Adam([p], lr=lr) for p in self.v_params]
 
@@ -844,59 +821,7 @@ class TorchNativeOptimizer(SimlrOptimizer):
         with torch.no_grad():
             v_param.copy_(v_current)
         v_param.grad = (-descent_gradient).contiguous()
-        if self.optimizer_type == "torch_lbfgs" and full_energy_function is not None:
-            # LBFGS re-evaluates the closure at trial points along its own line
-            # search, and needs the gradient *at that trial point* each time.
-            # SiMLR supplies gradients analytically rather than through autograd,
-            # so the closure has to call back into the gradient function; pinning
-            # `v_param.grad` to the entry-point gradient (as this used to) makes
-            # every trial evaluation use a stale direction, which defeats the
-            # curvature estimate LBFGS is built on.
-            grad_fn = getattr(self, "gradient_function", None)
-            if grad_fn is None:
-                warnings.warn(
-                    "torch_lbfgs was selected but no gradient_function was "
-                    "provided, so its line search will re-use the gradient from "
-                    "the start of the step. Results will not match a true LBFGS "
-                    "run; prefer 'hybrid_adam' or 'armijo_gradient'.",
-                    UserWarning, stacklevel=2,
-                )
-
-            def closure():
-                optimizer.zero_grad()
-                with torch.no_grad():
-                    trial = v_param.detach()
-                    # Same hazard as `NSALBFGSB`: a line search probes points
-                    # the caller never asked for, and a long step can drive a
-                    # column -- or the whole basis -- to zero. The projection
-                    # inside the energy then refuses a rank-deficient basis and
-                    # the exception escapes the solve. Scoring the trial point
-                    # +inf tells the line search to back off, which is what it
-                    # is for. This path was left unpatched when the guard was
-                    # added to NSALBFGSB, and it is why `SiMLR-LBFGS` still
-                    # crashed on 13/3424 fits (all `logcosh`, seed dependent)
-                    # while `SiMLR-LBFGSB` did not.
-                    degenerate = not bool(
-                        (trial.abs() > 1e-12).any(dim=0).all())
-                    if degenerate:
-                        v_param.grad = torch.zeros_like(v_param)
-                        return torch.as_tensor(float("inf"),
-                                               device=v_param.device)
-                    try:
-                        if grad_fn is not None:
-                            g = -grad_fn(trial)
-                            v_param.grad = g.contiguous()
-                        else:
-                            v_param.grad = (-descent_gradient).contiguous()
-                        loss = full_energy_function(trial)
-                    except (RuntimeError, ValueError):
-                        v_param.grad = torch.zeros_like(v_param)
-                        return torch.as_tensor(float("inf"),
-                                               device=v_param.device)
-                return torch.as_tensor(float(loss), device=v_param.device)
-            optimizer.step(closure)
-        else:
-            optimizer.step()
+        optimizer.step()
         return v_param.detach().clone()
 
 class NSALBFGSB(SimlrOptimizer):
@@ -945,6 +870,10 @@ class NSALBFGSB(SimlrOptimizer):
                 "(nsa_flow.lbfgsb.lbfgsb_minimize), which is not importable."
             )
         self.gradient_function: Optional[Callable] = None
+        #: Smooth part of the energy, set by `simlr` with `gradient_function`;
+        #: L-BFGS-B minimises this pair (a smooth function and its exact
+        #: gradient), not the projected objective passed to `step`.
+        self.smooth_energy_function: Optional[Callable] = None
         # Budget per outer sweep, in gradient evaluations. SiMLR calls `step`
         # once per modality per sweep, so this is an inner budget and is kept
         # small; the outer loop supplies the rest of the iteration.
@@ -963,6 +892,8 @@ class NSALBFGSB(SimlrOptimizer):
     def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor,
              full_energy_function: Optional[Callable] = None) -> torch.Tensor:
         grad_fn = self.gradient_function
+        if self.smooth_energy_function is not None:
+            full_energy_function = self.smooth_energy_function
         if full_energy_function is None or grad_fn is None:
             # Without both an energy and a gradient callable there is no
             # objective to minimise; fall back to the plain projected step
@@ -1008,8 +939,10 @@ class NSALBFGSB(SimlrOptimizer):
             certificate = lambda x, g: self._grad_mapping(x, g, proj)
 
         try:
+            # float64: the curvature pairs (s, y) are differences of nearby
+            # iterates and gradients, which float32 reduces to rounding noise.
             res = self._minimize(
-                v_current.detach(),
+                v_current.detach().double(),
                 fun_grad,
                 fun=fun,
                 lower=0.0 if self.nonneg else None,
@@ -1035,7 +968,7 @@ class NSALBFGSB(SimlrOptimizer):
             self.last_rejected = True
             return v_current.detach().clone()
         self.last_result = res
-        v_next = res["x"].detach().clone().reshape(v_current.shape)
+        v_next = res["x"].detach().clone().reshape(v_current.shape).to(v_current.dtype)
 
         # Reject a step that kills a component.
         #
@@ -1069,18 +1002,17 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
     ----------
     optimizer_type : str
         The name of the optimizer to create. Supported values include:
-        - 'hybrid_adam': `HybridAdam`
+        - 'hybrid_adam': `HybridAdam` (`simlr()`'s default, `defaults.DEFAULT_LINEAR_OPTIMIZER`)
         - 'adam': `Adam`
         - 'nadam': `Nadam`
         - 'rmsprop': `RMSProp`
         - 'gd': `SGD`
-        - 'armijo_gradient': `ArmijoGradient` (`simlr()`'s default -- not a
-          benchmarked winner, see its docstring)
+        - 'armijo_gradient': `ArmijoGradient` (`simlr()`'s default before 0.4.0)
         - 'bidirectional_armijo_gradient': `BidirectionalArmijoGradient`
         - 'lookahead': `Lookahead`
         - 'bidirectional_lookahead': `BidirectionalLookahead`
         - 'nsa_flow': `NSAFlowOptimizer`
-        - 'torch_adamw', 'torch_adagrad', 'torch_nadam', 'torch_lbfgs': `TorchNativeOptimizer`
+        - 'torch_adamw', 'torch_adagrad', 'torch_nadam': `TorchNativeOptimizer`
         - 'nsa_lbfgsb': `NSALBFGSB`, bound-constrained L-BFGS-B (needs NSA-Flow)
         - 'lars': `LARS`
     v_mats : List[torch.Tensor]
@@ -1114,10 +1046,15 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
         "torch_adamw": TorchNativeOptimizer,
         "torch_adagrad": TorchNativeOptimizer,
         "torch_nadam": TorchNativeOptimizer,
-        "torch_lbfgs": TorchNativeOptimizer,
         "nsa_lbfgsb": NSALBFGSB,
         "lars": LARS
     }
+    if optimizer_type == "torch_lbfgs":
+        raise ValueError(
+            "optimizer_type='torch_lbfgs' was removed in 0.4.0: its line search saw the "
+            "energy of the projected basis but a tangent-projected gradient, and its "
+            "curvature history spanned changing consensus targets, so it rarely moved "
+            "from its start (and was once certified stationary there). Use 'nsa_lbfgsb'.")
     if optimizer_type not in mapping:
         raise ValueError(
             f"Unknown optimizer_type {optimizer_type!r}. Choose one of: "

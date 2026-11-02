@@ -48,7 +48,7 @@ views_train = [X1[:90], X2[:90]]
 views_test = [X1[90:], X2[90:]]
 
 print(pysimlr.method_names())
-# ['simlr', 'simlr_lbfgs', 'simlr_lbfgsb', 'lend', 'ned', 'ned_shared_private',
+# ['simlr', 'simlr_lbfgsb', 'lend', 'ned', 'ned_shared_private',
 #  'flow_v', 'pca', 'nsa_pipeline']
 
 # Benchmark loop: one call shape, no per-method branch.

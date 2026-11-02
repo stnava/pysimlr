@@ -6,13 +6,13 @@ from typing import List, Optional, Union, Dict, Any, Tuple, Callable
 from .svd import ba_svd, safe_pca
 from .utils import basis_rank_report
 from .optimizers import create_optimizer, SIMLR_OPTIMIZER_DEFAULTS
-from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness, NSA_DEFAULT_W, DEFAULT_SPARSENESS
+from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness, NSA_DEFAULT_W, DEFAULT_SPARSENESS, energy_needs_unit_columns
 from .utils import (set_seed_based_on_time, adjusted_rvcoef, safe_svd,
                     invariant_orthogonality_defect, l1_normalize_features, orthogonality_defect,
                     gradient_orthogonality_defect,
                     orthogonality_summary, preprocess_data)
 from .consensus import compute_shared_consensus, mai_score_or_zero
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER
 
 #: The default `simlr` constraint. Named so that "did the caller choose this
 #: weight, or inherit it?" is answerable -- which decides whether an `nsa_w`
@@ -992,7 +992,7 @@ def nsa_contrast_transform(x: Union[torch.Tensor, np.ndarray],
                            k: int = 6,
                            w: float = DEFAULT_NSA_W,
                            consolidate: bool = True,
-                           optimizer: str = "torch_lbfgs",
+                           optimizer: Optional[str] = None,
                            max_iter: Optional[int] = None,
                            tol: Optional[float] = None) -> Dict[str, Any]:
     """
@@ -1012,8 +1012,9 @@ def nsa_contrast_transform(x: Union[torch.Tensor, np.ndarray],
         w=1 maximizes orthogonality (disjoint supports).
     consolidate : bool, default=True
         Guarantees strictly disjoint supports (zero lobe overlap).
-    optimizer : str, default="torch_lbfgs"
-        Optimization algorithm ("torch_lbfgs", "spg", or "lbfgs").
+    optimizer : str, optional
+        NSA-Flow optimizer; None uses NSA-Flow's default (L-BFGS-B). NSA-Flow
+        deprecated "torch_lbfgs", which was the default here before 0.4.0.
     max_iter : int, optional
         Maximum iterations cap.
     tol : float, optional
@@ -1034,7 +1035,7 @@ def nsa_contrast_transform(x: Union[torch.Tensor, np.ndarray],
 def nsa_nonnegative_transform(x: Union[torch.Tensor, np.ndarray],
                               k: int = 6,
                               w: float = DEFAULT_NSA_W,
-                              optimizer: str = "torch_lbfgs",
+                              optimizer: Optional[str] = None,
                               max_iter: Optional[int] = None,
                               tol: Optional[float] = None) -> Dict[str, Any]:
     """
@@ -1051,8 +1052,9 @@ def nsa_nonnegative_transform(x: Union[torch.Tensor, np.ndarray],
         Number of components to extract.
     w : float, default=0.5
         Trade-off weight in [0, 1].
-    optimizer : str, default="torch_lbfgs"
-        Optimization algorithm ("torch_lbfgs", "spg", or "lbfgs").
+    optimizer : str, optional
+        NSA-Flow optimizer; None uses NSA-Flow's default (L-BFGS-B). NSA-Flow
+        deprecated "torch_lbfgs", which was the default here before 0.4.0.
     max_iter : int, optional
         Maximum iterations cap.
     tol : float, optional
@@ -1345,7 +1347,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           random_state: Optional[int] = None,
           negentropy_weight: float = 0.0,
           nonneg_u: bool = False,
-          optimizer_type: str = "armijo_gradient",
+          optimizer_type: str = DEFAULT_LINEAR_OPTIMIZER,
           energy_type: str = DEFAULT_ENERGY_TYPE,
           constraint: str = DEFAULT_CONSTRAINT,
           mixing_algorithm: str = "newton",
@@ -1493,17 +1495,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         from the global torch RNG and returned in ``result["random_state"]``.
         (Was ``init_seed``, which silently switched ``"pca"`` to ``"random"``,
         so seeding every method in a benchmark changed this one's algorithm.)
-    optimizer_type : str, default="armijo_gradient"
-        The optimizer to use. This default has changed twice (`lars` ->
-        `hybrid_adam` -> `armijo_gradient`) without a controlled ablation ever
-        settling which is best. The one comparison on record
-        (`CORRECTNESS_AUDIT.md`, 10 seeds, post-bugfix) has `hybrid_adam`,
-        `lars` and `armijo_gradient` within noise of each other (0.9822-0.9848
-        Procrustes R^2 depending on `positivity`), so `armijo_gradient` is
-        chosen for its line search's sufficient-decrease guarantee rather than
-        for a measured accuracy advantage -- treat it as a reasonable default,
-        not a proven one, until that ablation exists.
-    energy_type : str, default="acc"
+    optimizer_type : str, default=DEFAULT_LINEAR_OPTIMIZER ("hybrid_adam")
+        The optimizer to use; the default and the benchmark behind it are in
+        `pysimlr.defaults`. Before 0.4.0 the default was `armijo_gradient`.
+    energy_type : str, default=DEFAULT_ENERGY_TYPE ("acc")
         The similarity/reconstruction objective to minimize.
     constraint : str, default="Stiefel"
         The manifold constraint on basis matrices ("Stiefel", "Grassmann", "NewtonSchulz").
@@ -1889,61 +1884,73 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                                  and _q_mod < 1.0 - 1.0 / k)
                         else sparseness)
 
-            def to_feasible(v_cand):
-                return simlr_sparseness(
-                    v_cand.to(orig_dtype), constraint_type=constraint_type,
-                    smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None,
-                    positivity=positivity,
-                    sparseness=_loop_sp,
-                    constraint_weight=constraint_weight, constraint_iterations=constraint_iterations,
-                    energy_type=energy_type, modality_index=i)
+            # The smooth oracle every optimizer sees: one scalar function of V,
+            # evaluated in float64, with its exact gradient by autograd. For
+            # energies with a scale gauge (`energy_needs_unit_columns`) it is
+            # the energy of the column-normalised basis -- otherwise
+            # -sum|U'XV| falls without bound as ||V|| grows -- and that
+            # normalisation is smooth away from a zero column. The rest of the
+            # constraint set (sparsity, positivity, NSA-Flow retraction) is
+            # applied once after the step (`simlr_sparseness` below), as in
+            # proximal gradient.
+            #
+            # It used to score the fully *projected* point while returning a
+            # tangent-projected gradient taken there, in float32: the slope a
+            # line search tested was off by 2-14x, and the energy only moved in
+            # float32 spacings (4.7e-10 at E = -6e-3). L-BFGS-B then built its
+            # curvature pairs from rounding noise, and inputs 1e-8 apart reached
+            # bases 0.07-1.1 apart after one sweep.
+            x64 = torch_mats[i].double()
+            u64 = u_i.double()
+            dom64 = (torch_domains[i].double()
+                     if torch_domains is not None and torch_domains[i] is not None else None)
+            _gauge = energy_needs_unit_columns(energy_type)
+
+            def _smooth_objective(v64):
+                w64 = v64 / v64.norm(dim=0, keepdim=True).clamp_min(1e-300) if _gauge else v64
+                e = calculate_simlr_energy(w64, x64, u64, energy_type) * normalizing_weights[i]
+                if dom64 is not None:
+                    e = e + calculate_simlr_energy(w64, x64, u64, "dat", lambda_val=domain_lambdas[i],
+                                                   prior_matrix=dom64) * domain_weights[i]
+                if constraint_type == "ortho":
+                    e = e + orthogonality_defect(w64) * constraint_weight * orth_weights[i]
+                if negentropy_weight != 0.0:
+                    e = e + (calculate_simlr_energy(w64, x64, u64, "negentropy")
+                             * negentropy_weight * neg_weights[i])
+                return e
 
             def smooth_energy_fn(v_cand):
-                v_sp = to_feasible(v_cand)
-                sim_e = calculate_simlr_energy(v_sp, torch_mats[i], u_i, energy_type) * normalizing_weights[i]
-                dom_e = 0.0
-                if torch_domains is not None and torch_domains[i] is not None:
-                    dom_e = calculate_simlr_energy(v_sp, torch_mats[i], u_i, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
-                orth_e = 0.0
-                if constraint_type == "ortho": orth_e = orthogonality_defect(v_sp) * constraint_weight * orth_weights[i]
-                neg_e = 0.0
-                if negentropy_weight != 0.0:
-                    neg_e = (calculate_simlr_energy(v_sp, torch_mats[i], u_i, "negentropy")
-                             * negentropy_weight * neg_weights[i])
-                return (sim_e + dom_e + orth_e + neg_e).item()
+                with torch.no_grad():
+                    return float(_smooth_objective(v_cand.detach().double()))
 
-            # Local gradient function that also incorporates manifold projection
+            def composite_energy_fn(v_cand):
+                """The objective itself, E(P(v)): the smooth energy at the
+                constrained point the step will actually produce. Line searches
+                test trial points against this, in float64."""
+                v_feas = simlr_sparseness(
+                    v_cand.to(orig_dtype), constraint_type=constraint_type,
+                    smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None,
+                    positivity=positivity, sparseness=_loop_sp,
+                    constraint_weight=constraint_weight, constraint_iterations=constraint_iterations,
+                    energy_type=energy_type, modality_index=i)
+                return smooth_energy_fn(v_feas)
+
             raw_grad_holder = [None]
 
             def smooth_gradient_fn(v_curr):
-                # Evaluate at the feasible point the energy also uses.
-                v_feas = to_feasible(v_curr)
+                """Descent direction ``-grad E(v)`` at `v_curr`, in its dtype."""
+                with torch.enable_grad():
+                    v64 = v_curr.detach().double().requires_grad_(True)
+                    (g,) = torch.autograd.grad(_smooth_objective(v64), v64)
+                return (-g).to(v_curr.dtype).contiguous()
 
-                sim_grad = calculate_simlr_gradient(v_feas, torch_mats[i], u_i, energy_type) * normalizing_weights[i]
-                # Kept in step with `smooth_energy_fn`: a term present in one
-                # and absent from the other makes every line search test a
-                # sufficient-decrease condition against the wrong slope.
-                if negentropy_weight != 0.0:
-                    sim_grad = sim_grad + calculate_simlr_gradient(
-                        v_feas, torch_mats[i], u_i, "negentropy"
-                    ) * negentropy_weight * neg_weights[i]
-                dom_grad = 0.0
-                if torch_domains is not None and torch_domains[i] is not None:
-                    dom_grad = calculate_simlr_gradient(v_feas, torch_mats[i], u_i, "dat", lambda_val=domain_lambdas[i], prior_matrix=torch_domains[i]) * domain_weights[i]
-                
-                orth_grad = 0.0
-                if constraint_type == "ortho" and constraint_weight != 0.0:
-                    orth_grad = (gradient_orthogonality_defect(v_feas)
-                                 * constraint_weight * orth_weights[i])
-
-                total_grad = sim_grad + dom_grad - orth_grad
-                raw_grad_holder[0] = total_grad.detach().clone()
-                # Project gradient onto tangent space
-                total_grad = project_gradient(total_grad, v_feas, constraint_type)
-                
-                return total_grad.contiguous()
-
-            total_grad = smooth_gradient_fn(v_mats[i])
+            # The step direction may be tangent-projected for manifold
+            # constraints: for an orthogonal projector P, <grad, P grad> =
+            # |P grad|^2, so a line search along it still tests the true slope.
+            # The oracle above stays the exact gradient.
+            _exact = smooth_gradient_fn(v_mats[i])
+            raw_grad_holder[0] = _exact.detach().clone()
+            total_grad = project_gradient(_exact, v_mats[i], constraint_type).contiguous()
             gm_E = None
             if _grad_mapping is not None and raw_grad_holder[0] is not None:
                 gm_E = float(_grad_mapping(v_mats[i], raw_grad_holder[0], _cert_proj))
@@ -1954,9 +1961,14 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                                        "grad_map_E": gm_E}
                 continue
             v_before = v_mats[i].detach().clone()
+            # Two oracles, the same for every optimizer: the objective E(P(v))
+            # for line searches (passed to `step`), and the smooth part E(v)
+            # with its exact gradient for quasi-Newton solvers, whose curvature
+            # pairs need a gradient that is the derivative of the function.
             if hasattr(optimizer, "gradient_function"):
                 optimizer.gradient_function = smooth_gradient_fn
-            v_updated = optimizer.step(i, v_mats[i], total_grad, smooth_energy_fn)
+                optimizer.smooth_energy_function = smooth_energy_fn
+            v_updated = optimizer.step(i, v_mats[i], total_grad, composite_energy_fn)
             zero_step = bool(torch.equal(v_updated, v_before))
 
             # Apply final projection
@@ -2048,7 +2060,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         if best_retraction_diags is not None:
             retraction_diags = best_retraction_diags
     if sparseness is not None and (constraint_type == "none" or float(constraint_weight) > 0.0):
-        from .sparsification import _apply_quantile_sparseness, _resolve_quantile, _unit_normalize_columns, energy_needs_unit_columns
+        from .sparsification import _apply_quantile_sparseness, _resolve_quantile, _unit_normalize_columns
         for idx_m in range(n_modalities):
             q_m = _resolve_quantile(sparseness, modality_index=idx_m)
             if q_m is not None and _want_nonneg and k > 1 and q_m < 1.0 - 1.0 / k:
@@ -2663,7 +2675,7 @@ def decompose_energy(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr
         List of data matrices (one for each modality).
     simlr_result : Dict[str, Any]
         The result dictionary from a fitted SiMLR model.
-    energy_type : str, default="acc"
+    energy_type : str, default=DEFAULT_ENERGY_TYPE ("acc")
         The energy function type to evaluate.
 
     Returns

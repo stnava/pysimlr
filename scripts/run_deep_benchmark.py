@@ -286,7 +286,6 @@ def calculate_v_recovery(res: dict, true_v: list) -> float:
 MODEL_LABELS = {
     "pca": "PCA",
     "linear": "SiMLR",
-    "simlr_lbfgs": "SiMLR-LBFGS",
     "simlr_lbfgsb": "SiMLR-LBFGSB",
     "nsa_pipeline": "NSAFlow-PCA",
     "lend": "LEND",

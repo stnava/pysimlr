@@ -8,7 +8,6 @@ Implemented in `src/pysimlr/api.py`; scikit-learn layer in `src/pysimlr/sklearn.
 | name | family | native fit | budget unit | aliases |
 |---|---|---|---|---|
 | `simlr` | linear | `simlr` | iterations (sweeps) | `linear` |
-| `simlr_lbfgs` | linear | `simlr`, `optimizer_type="torch_lbfgs"` fixed; accepts only the keys L-BFGS reads | iterations | |
 | `simlr_lbfgsb` | linear | `simlr`, `optimizer_type="nsa_lbfgsb"` fixed; accepts only the keys L-BFGS-B reads | iterations | |
 | `lend` | deep | `lend_simr` | epochs | `lend_simr`, `deep_simr` |
 | `ned` | deep | `ned_simr` | epochs | `ned_simr` |
@@ -45,7 +44,7 @@ hyperparameters (`SIMLR_OPTIMIZER_KEYS`).
 |---|---|
 | Accepted by this method | Forwarded; listed in `parameters["used"]`. |
 | Accepted only by another method | Not forwarded; listed in `parameters["ignored"]` with the reason; a `RuntimeWarning` deduplicated per call site by Python's default warning filter; `strict=True` raises `TypeError`. |
-| Fixed by a preset (`simlr_lbfgs`'s `optimizer_type`) | As above, with reason "fixed by method". |
+| Fixed by a preset (`simlr_lbfgsb`'s `optimizer_type`) | As above, with reason "fixed by method". |
 | Accepted by no method | `TypeError`: it can only be a misspelling. |
 
 The native entry points raise `TypeError` on any unknown keyword. Renamed `simlr` keywords

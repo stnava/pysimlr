@@ -102,15 +102,40 @@ def test_orthogonality_term_gradient_matches_its_energy():
     assert _cos(-fd, step) > 0.9999
 
 
-def test_simlr_pairs_the_orthogonality_energy_with_its_gradient():
-    """A4, at the source: both closures in the `simlr` sweep carry the term."""
-    import importlib, inspect
-    mod = importlib.import_module("pysimlr.simlr")
-    src = inspect.getsource(mod.simlr)
-    energy = src[src.index("def smooth_energy_fn"):src.index("def smooth_gradient_fn")]
-    grad = src[src.index("def smooth_gradient_fn"):src.index("total_grad = smooth_gradient_fn")]
-    assert "orthogonality_defect(" in energy
-    assert "gradient_orthogonality_defect(" in grad
+def test_the_oracle_simlr_hands_its_optimizer_is_consistent():
+    """A4 at the source, and the 0.4.0 oracle fix: inside a real `simlr`
+    sweep (constraint "ortho", so the orthogonality term is live), the smooth
+    energy and the gradient given to the quasi-Newton solver must describe one
+    function in float64. They used to score the projected point in float32
+    while returning a tangent-projected gradient: slopes 2-14x off."""
+    import importlib
+    O = importlib.import_module("pysimlr.optimizers")
+    simlr = importlib.import_module("pysimlr.simlr").simlr
+    seen = []
+    orig = O.NSALBFGSB.step
+
+    def spy(self, i, v, g, f=None):
+        if not seen:
+            E, grad = self.smooth_energy_function, self.gradient_function
+            v0 = v.detach().double()
+            d = torch.randn(v0.shape, generator=torch.Generator().manual_seed(3), dtype=v0.dtype)
+            d /= d.norm()
+            h = 1e-5
+            fd = (E(v0 + h * d) - E(v0 - h * d)) / (2 * h)
+            seen.append((float((-grad(v0) * d).sum()), fd))
+        return orig(self, i, v, g, f)
+
+    O.NSALBFGSB.step = spy
+    try:
+        g = torch.Generator().manual_seed(0)
+        z = torch.randn(50, 2, generator=g)
+        views = [z @ torch.randn(2, p, generator=g) + 0.3 * torch.randn(50, p, generator=g) for p in (8, 6)]
+        simlr(views, k=2, iterations=1, optimizer_type="nsa_lbfgsb", constraint="orthox0.3x1",
+              energy_type="acc", random_state=0)
+    finally:
+        O.NSALBFGSB.step = orig
+    slope, fd = seen[0]
+    assert slope == pytest.approx(fd, rel=1e-5, abs=1e-12)
 
 
 def test_one_orthogonality_defect_for_energy_losses_and_reports():

@@ -440,8 +440,7 @@ CASES = {
        for c in ("LUAD", "KIRC", "OV", "HNSC", "UCEC", "COAD")},
 }
 
-SIMLR_FAMILY = [("linear", "SiMLR"), ("simlr_lbfgs", "SiMLR-LBFGS"),
-                ("simlr_lbfgsb", "SiMLR-LBFGSB")]
+SIMLR_FAMILY = [("linear", "SiMLR"), ("simlr_lbfgsb", "SiMLR-LBFGSB")]
 ALL_MODELS = SIMLR_FAMILY + [
     ("pca", "PCA"), ("lend", "LEND"), ("ned", "NED"), ("shared_private", "NEDPP"),
     ("flow_v", "Flow-SiMLR-V"), ("nsa_pipeline", "NSAFlow-Turnkey"),

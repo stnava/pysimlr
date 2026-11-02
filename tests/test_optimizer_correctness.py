@@ -29,7 +29,7 @@ from pysimlr.utils import procrustes_r2
 ALL_OPTIMIZERS = [
     "hybrid_adam", "adam", "nadam", "rmsprop", "gd", "armijo_gradient",
     "bidirectional_armijo_gradient", "lookahead", "bidirectional_lookahead",
-    "nsa_flow", "torch_adamw", "torch_adagrad", "torch_nadam", "torch_lbfgs",
+    "nsa_flow", "torch_adamw", "torch_adagrad", "torch_nadam",
     "lars",
 ]
 

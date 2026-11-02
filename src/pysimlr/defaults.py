@@ -25,3 +25,13 @@ DEFAULT_NSA_W = 0.5
 #: docs/audit/evidence). The reported shared latent and the prediction map are
 #: the all-view consensus under either topology.
 DEFAULT_TOPOLOGY = "loo"
+
+#: Optimizer for the linear `simlr` path. Chosen on
+#: scripts/optimizer_benchmark_synthetic.py (objectives acc/nc x mixing
+#: newton/svd/avg x positivity positive/either, 3 seeds each; optimality gap at
+#: 25 iterations against a 200-iteration reference): hybrid_adam had the best
+#: mean rank (1.9 of 6) and was in the top three in 11 of 12 settings, against
+#: mean rank 4.8 for the previous default armijo_gradient. No optimizer changed
+#: the held-out ADNI-MCI score beyond seed noise. The deep and flow paths use
+#: their own torch optimizers.
+DEFAULT_LINEAR_OPTIMIZER = "hybrid_adam"

@@ -98,7 +98,6 @@ def run_real_benchmark(version="v22", n_seeds=5, iterations=50, epochs=150, use_
     # repository; `run_single_experiment` has supported "flow_v" all along.
     model_configs = [
         ("linear", "SiMLR"),
-        ("simlr_lbfgs", "SiMLR-LBFGS"),
         ("simlr_lbfgsb", "SiMLR-LBFGSB"),
         ("lend", "LEND"),
         ("ned", "NED"),

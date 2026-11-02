@@ -59,14 +59,12 @@ def test_all_optimizers():
         v_next_e = opt.step(0, v_mats[0], grad, full_energy_function=energy_func)
         assert v_next_e.shape == v_mats[0].shape
 
-def test_torch_lbfgs():
-    v_mats = [torch.randn(10, 2)]
-    opt = create_optimizer("torch_lbfgs", v_mats)
-    grad = torch.randn(10, 2)
-    def energy_func(v):
-        return torch.sum(v**2)
-    v_next = opt.step(0, v_mats[0], grad, full_energy_function=energy_func)
-    assert v_next.shape == v_mats[0].shape
+def test_torch_lbfgs_is_removed_and_names_its_replacement():
+    """Removed in 0.4.0: it rarely moved from its start and was once certified
+    stationary there (docs/tracking.md D6)."""
+    import pytest
+    with pytest.raises(ValueError, match="nsa_lbfgsb"):
+        create_optimizer("torch_lbfgs", [torch.randn(10, 2)])
 
 def test_linesearch_error_handling():
     def broken_energy(v):
