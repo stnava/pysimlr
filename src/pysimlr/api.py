@@ -60,7 +60,7 @@ from .flows import flow_simr_v
 from .optimizers import SIMLR_OPTIMIZER_DEFAULTS
 from .simlr import SIMLR_OPTIMIZER_KEYS, predict_simlr, simlr
 from .utils import basis_rank_report
-from .defaults import DEFAULT_NSA_W
+from .defaults import DEFAULT_NSA_W, check_nsa_w
 
 FAMILIES = ("linear", "deep", "flow", "baseline")
 
@@ -198,6 +198,7 @@ def nsa_pipeline(data_matrices, k: int, nsa_w: float = DEFAULT_NSA_W, consolidat
     Deterministic: there is no ``random_state``.
     """
     from .nsa_backend import load_nsa_estimator
+    nsa_w = check_nsa_w(nsa_w)
     cls = load_nsa_estimator()
     if cls is None:
         raise ImportError("nsa_pipeline needs the nsa_flow package (pip install nsa-flow).")

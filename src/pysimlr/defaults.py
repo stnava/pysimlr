@@ -26,6 +26,21 @@ DEFAULT_ENERGY_TYPE = "nc"
 #: (README, "nsa_flow Trade-off Weight").
 DEFAULT_NSA_W = 0.5
 
+#: Largest `nsa_w` any entry point accepts. At w = 1 the NSA-Flow fidelity
+#: term drops out, the scale of the result is unconstrained and the answer is
+#: arbitrary; it is known to be unstable and must not be run (owner rule). The
+#: backend clamps the weight it receives further (`sparsification.NSA_MAX_W`).
+MAX_NSA_W = 0.99
+
+
+def check_nsa_w(nsa_w) -> float:
+    """`nsa_w` as a float in ``[0, MAX_NSA_W]``, else `ValueError`."""
+    w = float(nsa_w)
+    if not 0.0 <= w <= MAX_NSA_W:
+        raise ValueError(f"nsa_w must be in [0, {MAX_NSA_W}]; got {w}. nsa_w = 1 is known to be "
+                         f"unstable (the NSA-Flow fidelity term vanishes).")
+    return w
+
 #: Consensus mixing. "newton" (orthogonal polar factor by Newton iteration) was
 #: the best mixing for every top optimizer under "nc" in
 #: scripts/default_selection_benchmark.py (hybrid_adam: 0.969 mean latent R^2

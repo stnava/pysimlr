@@ -1,12 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 from typing import List, Dict, Any, Optional, Sequence, Union, Tuple, Callable
 import contextlib
 import warnings
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM, check_nsa_w
 class larslow(optim.Optimizer):
     """Layer-wise Adaptive Rate Scaling (LARS) optimizer for deep SiMLR."""
     def __init__(self, params, lr, weight_decay=1e-4, momentum=0.9, trust_coefficient=0.001):
@@ -1526,6 +1525,7 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
               varimax: Optional[bool], tol: float, patience: int,
               freeze_private_epochs: int = 0) -> Dict[str, Any]:
     """Shared body of `lend_simr`, `ned_simr` and `ned_simr_shared_private`."""
+    nsa_w = check_nsa_w(nsa_w)
     if optimizer_type not in DEEP_OPTIMIZER_TYPES:
         raise ValueError(f"optimizer_type={optimizer_type!r} is not a deep-path optimizer; "
                          f"choose one of {DEEP_OPTIMIZER_TYPES}.")

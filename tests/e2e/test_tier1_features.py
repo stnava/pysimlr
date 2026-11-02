@@ -41,7 +41,7 @@ from pysimlr.flows import NormalizingFlow, CustomRealNVP
 # ============================================================================
 
 @pytest.mark.xfail(strict=True, reason=(
-    "Defect penalty removed from the objective (amigo, owner decision): at nsa_w=1 "
+    "Defect penalty removed from the objective (amigo, owner decision): at nsa_w=0.99 "
     "(cap 0.95) the retraction alone leaves max |V'V| off-diagonal 1.26e-3 on this "
     "fixture, against 1.2e-4 with the penalty; threshold 1e-3 kept. Open item A3 in "
     "docs/tracking_amigo.md."))
@@ -67,7 +67,7 @@ def test_simlr_stiefel_constraint_is_near_orthogonal(synthetic_two_views):
     x1, x2 = synthetic_two_views["x1"], synthetic_two_views["x2"]
     k = synthetic_two_views["k"]
 
-    res = simlr([x1, x2], k=k, iterations=15, nsa_w=1.0,
+    res = simlr([x1, x2], k=k, iterations=15, nsa_w=0.99,
                 optimizer_type="hybrid_adam", sparseness=0.0)
 
     for i, v in enumerate(res["v"]):
@@ -121,7 +121,7 @@ def test_simlr_canonical_correlation_two_views(synthetic_two_views):
     k = synthetic_two_views["k"]
     n = synthetic_two_views["n"]
 
-    res = simlr([x1, x2], k=k, iterations=15, nsa_w=1.0, optimizer_type="hybrid_adam")
+    res = simlr([x1, x2], k=k, iterations=15, nsa_w=0.99, optimizer_type="hybrid_adam")
 
     # Assert contract outputs
     assert "u" in res

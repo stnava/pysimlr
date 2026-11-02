@@ -12,7 +12,7 @@ from .utils import (adjusted_rvcoef, safe_svd, correlation_penalty, stationarity
 from .consensus import compute_shared_consensus
 from .defaults import (DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER,
                        DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM, DEFAULT_SIMLR_ITERATIONS,
-                       DEFAULT_SIMLR_TOL)
+                       DEFAULT_SIMLR_TOL, check_nsa_w)
 
 #: How the default NSA-Flow weight `DEFAULT_NSA_W` was chosen.
 #:
@@ -1590,9 +1590,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # One orthogonality weight. It drives the NSA-Flow retraction applied after
     # every step and the calibrated orthogonality-defect term of the objective;
     # 0 removes both (no orthogonality constraint, sparsity still applied).
-    nsa_w = float(nsa_w)
-    if not 0.0 <= nsa_w <= 1.0:
-        raise ValueError(f"nsa_w must be in [0, 1]; got {nsa_w}.")
+    nsa_w = check_nsa_w(nsa_w)
     constraint_type = "ortho" if nsa_w > 0.0 else "none"
     constraint_weight = nsa_w
     # `positivity` reaches the optimizer: without it the bound-constrained

@@ -4,7 +4,7 @@ import torch.nn as nn
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Any, Union
 from .utils import basis_rank_report
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM, check_nsa_w
 
 
 #: MAI similarity metrics. `trace` was removed: tr(Z' u_loo) is the only one
@@ -567,6 +567,7 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
                        resolve_warmup_epochs, _aggregate_shared_consensus, _plateau_scheduler,
                        _finalize_bases, _resolve_device, _resolve_seed, _seeded_rng,
                        _shuffled_loader, _init_generator, _freeze_consensus)
+    nsa_w = check_nsa_w(nsa_w)
     if optimizer_type not in DEEP_OPTIMIZER_TYPES:
         raise ValueError(f"optimizer_type={optimizer_type!r} is not a flow-path optimizer; "
                          f"choose one of {DEEP_OPTIMIZER_TYPES}.")

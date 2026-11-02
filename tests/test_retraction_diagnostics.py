@@ -40,7 +40,7 @@ def test_encoder_nsa_w_is_capped_before_it_reaches_the_backend(requested, expect
 
 
 def test_deep_model_cannot_be_run_at_the_degenerate_weight():
-    """`lend_simr(nsa_w=1.0)` must not reach w=1, where the fidelity term drops
+    """`lend_simr(nsa_w=0.99)` must not reach w=1, where the fidelity term drops
     out and every scaled Stiefel matrix is optimal."""
     from pysimlr.deep import lend_simr
 
@@ -49,7 +49,7 @@ def test_deep_model_cannot_be_run_at_the_degenerate_weight():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         res = lend_simr([x], k=2, iterations=2, batch_size=20, warmup_epochs=0,
-                        use_nsa=True, nsa_w=1.0, verbose=False)
+                        use_nsa=True, nsa_w=0.99, verbose=False)
     model = res["model"]
     encoders = getattr(model, "linear_encoders", getattr(model, "encoders", []))
     assert encoders

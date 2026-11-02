@@ -305,7 +305,7 @@ def test_scenario5_extreme_robustness_outlier_resilience():
         k=k,
         iterations=12,
         optimizer_type="armijo_gradient",
-        nsa_w=1.0
+        nsa_w=0.99
     )
 
     # Verify no NaN explosion despite extreme outliers

@@ -232,11 +232,11 @@ def _cached_constraint_fit(nsa_w: float, positivity: str):
 
 def _constraint_cases():
     out = []
-    for w in (0.1, 0.5, 0.9, 1.0):
+    for w in (0.1, 0.5, 0.9, 0.99):
         for pos in ("positive", "either"):
             marks = (
                 [pytest.mark.xdist_group(f"nsa_stiefel_{pos}")]
-                if w == 1.0
+                if w == 0.99
                 else []
             )
             out.append(pytest.param(w, pos, id=f"w{w}-{pos}", marks=marks))
@@ -261,10 +261,10 @@ def test_simlr_returns_a_usable_basis_for_every_weight(nsa_w, positivity):
     pytest.param("either", marks=pytest.mark.xdist_group("nsa_stiefel_either")),
 ])
 def test_hard_manifold_constraint_delivers_unit_norm_columns(positivity):
-    """The strongest weight (nsa_w=1, capped at NSA_MAX_W) promises a
+    """The strongest allowed weight (nsa_w=0.99, capped at NSA_MAX_W) promises a
     near-orthonormal basis; the column norms are the part the retraction alone
     does not pin down, so they are asserted explicitly."""
-    _, res = _cached_constraint_fit(1.0, positivity)
+    _, res = _cached_constraint_fit(0.99, positivity)
     for v in res["v"]:
         norms = v.norm(dim=0)
         assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5), norms
@@ -280,7 +280,7 @@ def test_hard_constraint_with_positivity_is_actually_orthogonal():
     no fallback now -- `simlr_sparseness` is a call to NSA-Flow and nothing
     else -- so the assertion is absolute rather than relative.
     """
-    _, res = _cached_constraint_fit(1.0, "positive")
+    _, res = _cached_constraint_fit(0.99, "positive")
     defect = float(np.mean([orthogonality_defect(v) for v in res["v"]]))
     assert defect < 0.1, f"non-negative basis is not near-orthogonal: {defect}"
     for v in res["v"]:
@@ -312,7 +312,7 @@ def test_simlr_is_reproducible_with_the_backend_engaged():
         assert torch.allclose(a, b, atol=1e-6), "repeated simlr runs disagree"
 
 
-@pytest.mark.parametrize("weight", [0.0, 1.0])
+@pytest.mark.parametrize("weight", [0.0, 0.99])
 def test_endpoint_weights_give_a_usable_basis(weight):
     """``nsa_w`` = 0 (no orthogonality constraint) and 1 (capped at NSA_MAX_W)
     are the endpoints of the accepted range."""
@@ -324,7 +324,7 @@ def test_endpoint_weights_give_a_usable_basis(weight):
         assert v.abs().sum() > 0
 
 
-@pytest.mark.parametrize("weight", [1.5, -0.5])
+@pytest.mark.parametrize("weight", [1.0, 1.5, -0.5])
 def test_out_of_range_weights_raise(weight):
     mats, _ = make_case()
     with pytest.raises(ValueError, match="nsa_w must be in"):
@@ -386,7 +386,7 @@ def test_the_largest_weight_is_capped_below_w_equals_one():
         assert seen, f"the backend was never called for nsa_w={nsa_w}"
         return seen
 
-    for nsa_w in (1.0, 0.99):
+    for nsa_w in (0.99,):
         seen = run(nsa_w)
         assert max(seen) <= NSA_MAX_W, (
             f"nsa_w={nsa_w} reached w={max(seen)}, above the cap {NSA_MAX_W}")
@@ -473,3 +473,15 @@ def test_softplus_positivity_is_not_applied_twice():
     assert encoder.nsa_linear.nonneg in (None, "none", False), (
         f"layer was configured with nonneg={encoder.nsa_linear.nonneg!r}, which "
         "would apply softplus on top of the encoder's own")
+
+
+@pytest.mark.parametrize("method", ["simlr", "lend", "ned", "flow_v", "nsa_pipeline"])
+def test_every_entry_point_rejects_nsa_w_one(method):
+    """nsa_w = 1 is known to be unstable and must not be run (owner rule);
+    MAX_NSA_W = 0.99 is the largest accepted weight."""
+    from pysimlr import api
+    from pysimlr.defaults import MAX_NSA_W
+    assert MAX_NSA_W == 0.99
+    mats, _ = make_case()
+    with pytest.raises(ValueError, match="nsa_w must be in"):
+        api.fit(method, mats, 3, iterations=1, nsa_w=1.0)

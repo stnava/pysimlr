@@ -239,7 +239,7 @@ def test_returned_iterate_is_the_best_one_found(optimizer_type):
     )
 
 
-@pytest.mark.parametrize("nsa_w", [0.1, 0.5, 1.0])
+@pytest.mark.parametrize("nsa_w", [0.1, 0.5, 0.99])
 def test_basis_columns_have_bounded_norm(nsa_w):
     """Column scale is a gauge freedom; leaving it free is what let the
     covariance energy diverge."""
