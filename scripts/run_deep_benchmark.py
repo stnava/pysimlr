@@ -300,8 +300,12 @@ def run_experiment_task(task_args: tuple) -> dict:
         from pysimlr.sparsification import DEFAULT_SPARSENESS
         sparsity = DEFAULT_SPARSENESS
         positivity_mode = "default"
+        energy_type = None
+    elif len(task_args) == 10:
+        dataset_name, case_type, model_type, model_label, seed, iterations, epochs, sparsity, positivity_mode, energy_type = task_args
     else:
         dataset_name, case_type, model_type, model_label, seed, iterations, epochs, sparsity, positivity_mode = task_args
+        energy_type = None
 
     if case_type == "synthetic":
         if dataset_name == "Linear":
@@ -356,6 +360,8 @@ def run_experiment_task(task_args: tuple) -> dict:
         "nsa_iterations": 2,
         "consolidate": False,
     }
+    if energy_type is not None:
+        params["energy_type"] = energy_type
     # One budget name; the runner picks each method's budget by its registry
     # unit: `iterations` sweeps for linear methods, `epochs` epochs for deep
     # and flow methods, none for the closed-form baselines.
@@ -420,6 +426,7 @@ def run_experiment_task(task_args: tuple) -> dict:
         "Solver_Iters": metrics.get("solver_iters"),
         "Method": metrics.get("method"),
         "Ignored_Params": metrics.get("ignored_params"),
+        "normalizing_weights": res.get("normalizing_weights") if res else None,
     }
 
 

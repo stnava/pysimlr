@@ -16,12 +16,13 @@ Measurements:
       - mean sin^2 distance between PCA start and random starts (seeds 1 and 2)
         on u and on structure blocks.
   (c) Narrow-view collapse fixture:
-      - outcome R^2 and score correlation with collapse_weight at 1.0 and 0.0.
+      - outcome R^2 and score correlation with collapse_weight at 1.0 and 0.0,
+        both at default budget and at iterations=30.
   (d) NonnegParts support recovery:
-      - seeds 42-44, Support_Recovery_L.
+      - seeds 42-44, Support_Recovery_L and Support_Recovery_V at default budget.
   (e) ADNI-MCI:
-      - held-out metric (seeds 42-44, pos in {either, positive})
-      - select_rank per-component stability at k=2 and k=3.
+      - held-out metric (seeds 42-44, pos in {either, positive}) at default budget
+      - select_rank per-component stability at k=2 and k=3 (reused from acd08fe for nc).
 
 Applies Decision Rule R1 (for 'nc') and Decision Rule R9 (for 'acc').
 Writes CSV to --out (default docs/audit/evidence/view_weighting_selection.csv).
@@ -29,6 +30,7 @@ Writes CSV to --out (default docs/audit/evidence/view_weighting_selection.csv).
 Usage:
   python scripts/view_weighting_selection.py --energy nc --out docs/audit/evidence/view_weighting_selection.csv
   python scripts/view_weighting_selection.py --energy acc --out docs/audit/evidence/view_weighting_acc.csv
+  python scripts/view_weighting_selection.py --energy nc --groups narrow_fixture,nonneg_parts,adni_heldout
 """
 import argparse
 import itertools
@@ -48,51 +50,42 @@ import numpy as np
 import pandas as pd
 import torch
 
+import importlib
 import pysimlr
 import pysimlr.defaults
 import pysimlr.similarity
+simlr_module = importlib.import_module("pysimlr.simlr")
 from amigo_loadings_evaluation import span_instability
 from default_selection_benchmark import _case
 from optimizer_benchmark_synthetic import latent_r2, support_f1
 from run_deep_benchmark import get_adni_mci_case, run_experiment_task
 from test_collapse_penalty import _narrow, _outcome_r2
 
-_BASE_SELF_NORMALISED = frozenset(pysimlr.similarity.SELF_NORMALISED)
-_BASE_DEFAULT_ENERGY = pysimlr.defaults.DEFAULT_ENERGY_TYPE
+_BASE_SCALE_FREE_ENERGIES = frozenset(pysimlr.similarity.SCALE_FREE_ENERGIES)
+_BASE_CALIBRATE_VIEW_SCALE = simlr_module._calibrate_view_scale
 
 
 def set_weighting_mode(energy: str, mode: str):
     """Set weighting mode in the current process with strict state management."""
-    # Step 1: ALWAYS restore baseline state first (Rule 6)
-    pysimlr.similarity.SELF_NORMALISED = _BASE_SELF_NORMALISED
-    pysimlr.defaults.DEFAULT_ENERGY_TYPE = _BASE_DEFAULT_ENERGY
-
-    simlr_mod = sys.modules.get("pysimlr.simlr")
-    if simlr_mod is not None and hasattr(simlr_mod, "_orig_calculate_simlr_energy"):
-        simlr_mod.calculate_simlr_energy = simlr_mod._orig_calculate_simlr_energy
+    # Step 1: ALWAYS restore baseline state first (Rule 6 / Rule 8)
+    pysimlr.similarity.SCALE_FREE_ENERGIES = _BASE_SCALE_FREE_ENERGIES
+    simlr_module._calibrate_view_scale = _BASE_CALIBRATE_VIEW_SCALE
 
     if energy == "nc":
         if mode in ("equal", "candidate"):
-            pysimlr.similarity.SELF_NORMALISED = _BASE_SELF_NORMALISED | {"nc"}
+            pysimlr.similarity.SCALE_FREE_ENERGIES = _BASE_SCALE_FREE_ENERGIES | {"nc"}
         elif mode == "calibrated":
-            pysimlr.similarity.SELF_NORMALISED = _BASE_SELF_NORMALISED - {"nc"}
+            pysimlr.similarity.SCALE_FREE_ENERGIES = _BASE_SCALE_FREE_ENERGIES - {"nc"}
     elif energy == "acc":
-        pysimlr.defaults.DEFAULT_ENERGY_TYPE = "acc"
         if mode in ("equal", "candidate"):
-            if simlr_mod is not None:
-                if not hasattr(simlr_mod, "_orig_calculate_simlr_energy"):
-                    simlr_mod._orig_calculate_simlr_energy = simlr_mod.calculate_simlr_energy
-                orig_fn = simlr_mod._orig_calculate_simlr_energy
+            def candidate_view_scale(v_m, x_m, u_m, energy_type="acc", lambda_val=0.0, prior_matrix=None):
+                if energy_type == "acc":
+                    n = x_m.shape[0]
+                    s_m = (torch.linalg.norm(x_m, 2) * torch.linalg.norm(u_m, "fro") / (n - 1)).clamp_min(1e-10)
+                    return float(s_m.item())
+                return _BASE_CALIBRATE_VIEW_SCALE(v_m, x_m, u_m, energy_type=energy_type, lambda_val=lambda_val, prior_matrix=prior_matrix)
 
-                def candidate_calc(v, x, u, energy_type="nc", lambda_val=0.0, prior_matrix=None):
-                    caller = sys._getframe(1).f_code.co_name
-                    if caller == "_calibrate_weights" and energy_type == "acc":
-                        n = x.shape[0]
-                        s_m = (torch.linalg.norm(x, 2) * torch.linalg.norm(u, "fro") / (n - 1)).clamp_min(1e-10)
-                        return s_m
-                    return orig_fn(v, x, u, energy_type=energy_type, lambda_val=lambda_val, prior_matrix=prior_matrix)
-
-                simlr_mod.calculate_simlr_energy = candidate_calc
+            simlr_module._calibrate_view_scale = candidate_view_scale
         elif mode == "calibrated":
             pass
 
@@ -121,11 +114,13 @@ def run_default_cell_task(task_args: tuple) -> list:
     views_sub2 = [x[idx2] for x in views]
 
     results_by_mode = {}
+    alt_conv = 1.0
+    alt_steps = 0.0
     for mode in ("calibrated", alt_name):
         set_weighting_mode(energy, mode)
         try:
-            # Full fit (PCA init default)
-            full = pysimlr.fit("simlr", views, k, iterations=25, energy_type=energy,
+            # Full fit (PCA init default, default 300 / DEFAULT_TOL budget)
+            full = pysimlr.fit("simlr", views, k, energy_type=energy,
                                positivity=pos, random_state=seed)
 
             # Sanity assertion for scale-free equal weights
@@ -133,27 +128,35 @@ def run_default_cell_task(task_args: tuple) -> list:
                 expected_w = 1.0 / len(full["normalizing_weights"])
                 assert all(abs(w - expected_w) < 1e-6 for w in full["normalizing_weights"]), \
                     f"Weight leakage: {full['normalizing_weights']} != {expected_w}"
+            elif mode == "calibrated" and energy == "nc":
+                expected_w = 1.0 / len(full["normalizing_weights"])
+                assert not all(abs(w - expected_w) < 1e-6 for w in full["normalizing_weights"]), \
+                    f"Expected calibrated weights, but got equal weights: {full['normalizing_weights']}"
 
             lat_r2 = latent_r2(z, full["u"])
             conv = bool(full["convergence"]["converged"])
             steps = int(full["convergence"]["n_steps"])
+            if mode == alt_name:
+                alt_conv = float(conv)
+                alt_steps = float(steps)
+
             w = full["normalizing_weights"]
             spread = float(max(w) / max(min(w), 1e-12))
             v_sup_f1 = float(np.mean([support_f1(np.asarray(b, float), s) for b, s in zip(full["v"], sups)]))
             l_sup_f1 = float(np.mean([support_f1(np.asarray(b, float), s) for b, s in zip(full["loadings"], sups)]))
 
-            # Subsample fits for loadings/V stability
-            fit_s1 = pysimlr.fit("simlr", views_sub1, k, iterations=25, energy_type=energy,
+            # Subsample fits for loadings/V stability (default budget)
+            fit_s1 = pysimlr.fit("simlr", views_sub1, k, energy_type=energy,
                                  positivity=pos, random_state=seed)
-            fit_s2 = pysimlr.fit("simlr", views_sub2, k, iterations=25, energy_type=energy,
+            fit_s2 = pysimlr.fit("simlr", views_sub2, k, energy_type=energy,
                                  positivity=pos, random_state=seed)
             l_instab = span_instability(_blocks(fit_s1, "loadings"), _blocks(fit_s2, "loadings"))
             v_instab = span_instability(_blocks(fit_s1, "v"), _blocks(fit_s2, "v"))
 
-            # Init-invariance (b): random starts 1 and 2 vs PCA
-            r_fit1 = pysimlr.fit("simlr", views, k, iterations=25, energy_type=energy,
+            # Init-invariance (b): random starts 1 and 2 vs PCA (default budget)
+            r_fit1 = pysimlr.fit("simlr", views, k, energy_type=energy,
                                  positivity=pos, initialization_type="random", random_state=1)
-            r_fit2 = pysimlr.fit("simlr", views, k, iterations=25, energy_type=energy,
+            r_fit2 = pysimlr.fit("simlr", views, k, energy_type=energy,
                                  positivity=pos, initialization_type="random", random_state=2)
             u_init_inv = 0.5 * (span_instability([full["u"]], [r_fit1["u"]]) +
                                 span_instability([full["u"]], [r_fit2["u"]]))
@@ -193,46 +196,88 @@ def run_default_cell_task(task_args: tuple) -> list:
             "calibrated": c_val,
             "alternative": a_val,
             "difference": a_val - c_val,
+            "converged": alt_conv,
+            "n_steps": alt_steps,
+            "source": "measured",
         })
     return records
 
 
 def run_narrow_fixture(energy: str) -> list:
-    """Run narrow collapse fixture (c) for calibrated and alternative modes."""
+    """Run narrow collapse fixture (c) at default budget AND at iterations=30 for cw in {0, 1}."""
     warnings.simplefilter("ignore")
     torch.set_num_threads(1)
     alt_name = "equal" if energy == "nc" else "candidate"
 
     x, y = _narrow()
     results = {}
+    convergence_info = {}
     for mode in ("calibrated", alt_name):
         set_weighting_mode(energy, mode)
         try:
-            # cw = 1.0
-            r_cw1 = pysimlr.fit("simlr", x, k=2, iterations=30, positivity="positive", sparseness=0.5,
+            # 1. Default budget (iterations=None -> 300 / DEFAULT_TOL)
+            r_cw1 = pysimlr.fit("simlr", x, k=2, positivity="positive", sparseness=0.5,
                                 energy_type=energy, random_state=0, collapse_weight=1.0)
+            if mode == "equal" and energy == "nc":
+                expected_w = 1.0 / len(r_cw1["normalizing_weights"])
+                assert all(abs(w - expected_w) < 1e-6 for w in r_cw1["normalizing_weights"]), \
+                    f"Weight leakage: {r_cw1['normalizing_weights']} != {expected_w}"
+            elif mode == "calibrated" and energy == "nc":
+                expected_w = 1.0 / len(r_cw1["normalizing_weights"])
+                assert not all(abs(w - expected_w) < 1e-6 for w in r_cw1["normalizing_weights"]), \
+                    f"Expected calibrated weights, but got equal weights: {r_cw1['normalizing_weights']}"
+
             r2_cw1 = _outcome_r2(x, y, r_cw1["v"])
             sc1 = x[0] @ r_cw1["v"][0]
             corr_cw1 = abs(float(torch.corrcoef(sc1.T)[0, 1]))
 
-            # cw = 0.0
-            r_cw0 = pysimlr.fit("simlr", x, k=2, iterations=30, positivity="positive", sparseness=0.5,
+            r_cw0 = pysimlr.fit("simlr", x, k=2, positivity="positive", sparseness=0.5,
                                 energy_type=energy, random_state=0, collapse_weight=0.0)
             r2_cw0 = _outcome_r2(x, y, r_cw0["v"])
             sc0 = x[0] @ r_cw0["v"][0]
             corr_cw0 = abs(float(torch.corrcoef(sc0.T)[0, 1]))
 
+            # 2. Iterations=30 budget (continuity with test suite fixture)
+            r_cw1_30 = pysimlr.fit("simlr", x, k=2, positivity="positive", sparseness=0.5,
+                                   energy_type=energy, random_state=0, collapse_weight=1.0, iterations=30)
+            r2_cw1_30 = _outcome_r2(x, y, r_cw1_30["v"])
+            sc1_30 = x[0] @ r_cw1_30["v"][0]
+            corr_cw1_30 = abs(float(torch.corrcoef(sc1_30.T)[0, 1]))
+
+            r_cw0_30 = pysimlr.fit("simlr", x, k=2, positivity="positive", sparseness=0.5,
+                                   energy_type=energy, random_state=0, collapse_weight=0.0, iterations=30)
+            r2_cw0_30 = _outcome_r2(x, y, r_cw0_30["v"])
+            sc0_30 = x[0] @ r_cw0_30["v"][0]
+            corr_cw0_30 = abs(float(torch.corrcoef(sc0_30.T)[0, 1]))
+
             results[mode] = {
+                # Default budget rows (used by R1)
                 "outcome_r2_cw1": float(r2_cw1),
                 "score_corr_cw1": float(corr_cw1),
                 "outcome_r2_cw0": float(r2_cw0),
                 "score_corr_cw0": float(corr_cw0),
+                # 30-iteration rows (continuity with test suite)
+                "outcome_r2_cw1_it30": float(r2_cw1_30),
+                "score_corr_cw1_it30": float(corr_cw1_30),
+                "outcome_r2_cw0_it30": float(r2_cw0_30),
+                "score_corr_cw0_it30": float(corr_cw0_30),
             }
+            if mode == alt_name:
+                convergence_info["default"] = (
+                    float(bool(r_cw1["convergence"]["converged"])),
+                    float(r_cw1["convergence"]["n_steps"])
+                )
+                convergence_info["it30"] = (
+                    float(bool(r_cw1_30["convergence"]["converged"])),
+                    float(r_cw1_30["convergence"]["n_steps"])
+                )
         finally:
             set_weighting_mode(energy, "calibrated")
 
     records = []
-    for metric_name in results["calibrated"]:
+    # Default budget records
+    conv_def, steps_def = convergence_info["default"]
+    for metric_name in ("outcome_r2_cw1", "score_corr_cw1", "outcome_r2_cw0", "score_corr_cw0"):
         c_val = results["calibrated"][metric_name]
         a_val = results[alt_name][metric_name]
         records.append({
@@ -246,23 +291,63 @@ def run_narrow_fixture(energy: str) -> list:
             "calibrated": c_val,
             "alternative": a_val,
             "difference": a_val - c_val,
+            "converged": conv_def,
+            "n_steps": steps_def,
+            "source": "measured",
+        })
+
+    # 30-iteration records
+    conv_30, steps_30 = convergence_info["it30"]
+    for metric_name in ("outcome_r2_cw1_it30", "score_corr_cw1_it30", "outcome_r2_cw0_it30", "score_corr_cw0_it30"):
+        c_val = results["calibrated"][metric_name]
+        a_val = results[alt_name][metric_name]
+        records.append({
+            "group": "narrow_fixture",
+            "case_id": "narrow_k2_it30",
+            "generator": "narrow",
+            "positivity": "positive",
+            "seed": 0,
+            "k": 2,
+            "metric": metric_name,
+            "calibrated": c_val,
+            "alternative": a_val,
+            "difference": a_val - c_val,
+            "converged": conv_30,
+            "n_steps": steps_30,
+            "source": "measured",
         })
     return records
 
 
 def run_nonneg_task(task_args: tuple) -> list:
-    """Run NonnegParts support recovery (d) for calibrated and alternative modes."""
+    """Run NonnegParts support recovery (d) at default budget for calibrated and alternative modes."""
     seed, energy = task_args
     warnings.simplefilter("ignore")
     torch.set_num_threads(1)
     alt_name = "equal" if energy == "nc" else "candidate"
 
     results = {}
+    alt_conv = 1.0
+    alt_steps = 0.0
     for mode in ("calibrated", alt_name):
         set_weighting_mode(energy, mode)
         try:
-            task = ("NonnegParts", "synthetic", "simlr", "SiMLR", seed, 25, 45, 0.5, "positive")
+            # Explicit default budget and energy_type in 10-tuple (Section 3 & Section 5 WP-1R step 3)
+            task = ("NonnegParts", "synthetic", "simlr", "SiMLR", seed,
+                    pysimlr.defaults.DEFAULT_SIMLR_ITERATIONS, 45, 0.5, "positive", energy)
             row = run_experiment_task(task)
+            nw = row.get("normalizing_weights")
+            assert nw is not None, f"normalizing_weights missing in NonnegParts task for mode={mode}"
+            expected_w = 1.0 / len(nw)
+            if mode == "equal" and energy == "nc":
+                assert all(abs(w - expected_w) < 1e-6 for w in nw), f"Expected equal weights, got {nw}"
+            elif mode == "calibrated" and energy == "nc":
+                assert not all(abs(w - expected_w) < 1e-6 for w in nw), f"Expected calibrated weights, got {nw}"
+
+            if mode == alt_name:
+                alt_conv = float(bool(row.get("Solver_Converged", True)))
+                alt_steps = float(row.get("Solver_Iters", pysimlr.defaults.DEFAULT_SIMLR_ITERATIONS))
+
             results[mode] = {
                 "support_recovery_loadings": float(row.get("Support_Recovery_L", float("nan"))),
                 "support_recovery_v": float(row.get("Support_Recovery_V", float("nan"))),
@@ -285,23 +370,42 @@ def run_nonneg_task(task_args: tuple) -> list:
             "calibrated": c_val,
             "alternative": a_val,
             "difference": a_val - c_val,
+            "converged": alt_conv,
+            "n_steps": alt_steps,
+            "source": "measured",
         })
     return records
 
 
 def run_adni_heldout_task(task_args: tuple) -> list:
-    """Run ADNI-MCI held-out evaluation for calibrated and alternative modes."""
+    """Run ADNI-MCI held-out evaluation at default budget for calibrated and alternative modes."""
     seed, pos, energy = task_args
     warnings.simplefilter("ignore")
     torch.set_num_threads(1)
     alt_name = "equal" if energy == "nc" else "candidate"
 
     results = {}
+    alt_conv = 1.0
+    alt_steps = 0.0
     for mode in ("calibrated", alt_name):
         set_weighting_mode(energy, mode)
         try:
-            task = ("ADNI-MCI", "real", "simlr", "SiMLR", seed, 25, 45, 0.5, pos)
+            # Explicit default budget and energy_type in 10-tuple (Section 3 & Section 5 WP-1R step 3)
+            task = ("ADNI-MCI", "real", "simlr", "SiMLR", seed,
+                    pysimlr.defaults.DEFAULT_SIMLR_ITERATIONS, 45, 0.5, pos, energy)
             row = run_experiment_task(task)
+            nw = row.get("normalizing_weights")
+            assert nw is not None, f"normalizing_weights missing in ADNI held-out task for mode={mode}"
+            expected_w = 1.0 / len(nw)
+            if mode == "equal" and energy == "nc":
+                assert all(abs(w - expected_w) < 1e-6 for w in nw), f"Expected equal weights, got {nw}"
+            elif mode == "calibrated" and energy == "nc":
+                assert not all(abs(w - expected_w) < 1e-6 for w in nw), f"Expected calibrated weights, got {nw}"
+
+            if mode == alt_name:
+                alt_conv = float(bool(row.get("Solver_Converged", True)))
+                alt_steps = float(row.get("Solver_Iters", pysimlr.defaults.DEFAULT_SIMLR_ITERATIONS))
+
             results[mode] = {
                 "adni_predictive_metric": float(row.get("Predictive_Metric", float("nan"))),
             }
@@ -323,6 +427,9 @@ def run_adni_heldout_task(task_args: tuple) -> list:
             "calibrated": c_val,
             "alternative": a_val,
             "difference": a_val - c_val,
+            "converged": alt_conv,
+            "n_steps": alt_steps,
+            "source": "measured",
         })
     return records
 
@@ -344,17 +451,16 @@ def run_adni_stability_task(task_args: tuple) -> list:
                                      path_graph=case["path_graph"], energy_type=energy)
             table = {r["k"]: r for r in sr["table"]}
             results[mode] = {
-                "min_component_stability_k2": float(table[2]["min_stability"]),
-                "min_component_stability_k3": float(table[3]["min_stability"]),
+                2: float(table[2]["min_stability"]),
+                3: float(table[3]["min_stability"]),
             }
         finally:
             set_weighting_mode(energy, "calibrated")
 
     records = []
-    for metric_name in results["calibrated"]:
-        k_val = 2 if "k2" in metric_name else 3
-        c_val = results["calibrated"][metric_name]
-        a_val = results[alt_name][metric_name]
+    for k_val in (2, 3):
+        c_val = results["calibrated"][k_val]
+        a_val = results[alt_name][k_val]
         records.append({
             "group": "adni_stability",
             "case_id": f"adni_stab_{pos}_k{k_val}",
@@ -362,70 +468,254 @@ def run_adni_stability_task(task_args: tuple) -> list:
             "positivity": pos,
             "seed": 42,
             "k": k_val,
-            "metric": metric_name,
+            "metric": "min_component_stability",
             "calibrated": c_val,
             "alternative": a_val,
             "difference": a_val - c_val,
+            "converged": np.nan,
+            "n_steps": np.nan,
+            "source": "measured",
         })
     return records
 
 
+def get_adni_stability_rows(energy: str) -> list:
+    """Retrieve ADNI-MCI select_rank component stability records.
+
+    Per Section 5 WP-1R step 3:
+    'Reuse, don't re-run, (e)-stability (the adni_stability rows: select_rank at k = 2 and 3).
+     They already ran at the default budget, and both arms differed, so the patch took effect.
+     Copy them with source=acd08fe.'
+    """
+    if energy == "nc":
+        # Verified valid rows measured under acd08fe at default budget
+        return [
+            {
+                "group": "adni_stability",
+                "case_id": "adni_stab_positive_k2",
+                "generator": "adni_mci",
+                "positivity": "positive",
+                "seed": 42,
+                "k": 2,
+                "metric": "min_component_stability",
+                "calibrated": 0.9651146278635524,
+                "alternative": 0.9609386872452806,
+                "difference": -0.004175940618271756,
+                "converged": np.nan,
+                "n_steps": np.nan,
+                "source": "acd08fe",
+            },
+            {
+                "group": "adni_stability",
+                "case_id": "adni_stab_positive_k3",
+                "generator": "adni_mci",
+                "positivity": "positive",
+                "seed": 42,
+                "k": 3,
+                "metric": "min_component_stability",
+                "calibrated": 0.7912613063164405,
+                "alternative": 0.8030343486680626,
+                "difference": 0.01177304235162202,
+                "converged": np.nan,
+                "n_steps": np.nan,
+                "source": "acd08fe",
+            },
+            {
+                "group": "adni_stability",
+                "case_id": "adni_stab_either_k2",
+                "generator": "adni_mci",
+                "positivity": "either",
+                "seed": 42,
+                "k": 2,
+                "metric": "min_component_stability",
+                "calibrated": 0.770528404660616,
+                "alternative": 0.7515670033495488,
+                "difference": -0.01896140131106716,
+                "converged": np.nan,
+                "n_steps": np.nan,
+                "source": "acd08fe",
+            },
+            {
+                "group": "adni_stability",
+                "case_id": "adni_stab_either_k3",
+                "generator": "adni_mci",
+                "positivity": "either",
+                "seed": 42,
+                "k": 3,
+                "metric": "min_component_stability",
+                "calibrated": 0.4172311888307556,
+                "alternative": 0.5680600131542479,
+                "difference": 0.15082882432349232,
+                "converged": np.nan,
+                "n_steps": np.nan,
+                "source": "acd08fe",
+            },
+        ]
+    else:
+        # For non-nc energies, run fresh
+        adni_stab_tasks = [(pos, energy) for pos in ("either", "positive")]
+        recs = []
+        for t in adni_stab_tasks:
+            recs.extend(run_adni_stability_task(t))
+        return recs
+
+
 def evaluate_decision_rules(df: pd.DataFrame, energy: str) -> tuple:
-    """Evaluate Decision Rule R1 (for 'nc') or Rule R9 (for 'acc') from paired data."""
+    """Evaluate Decision Rule R1 (for 'nc') or Rule R9 (for 'acc') per Section 3 specifications.
+
+    Section 3 Definitions:
+      - Paired difference: alternative minus baseline, oriented so positive = better.
+      - Worse beyond noise:
+        * (mean test): n >= 2 and mean oriented paired difference < -SD of paired differences (ddof=1).
+          Seed SD is NOT used.
+        * (per-cell guard): any single cell is worse by more than the metric's guard:
+            latent R^2, outcome R^2, held-out metric: 0.05
+            support F1: 0.10
+            span instability / sin^2 init-invariance: 0.05
+            component stability: 0.10
+            convergence rate (aggregate): 0.10
+        * When n = 1, only the guard applies.
+      - Non-inferior: not worse beyond noise on every listed metric.
+    """
     alt_label = "equal" if energy == "nc" else "candidate"
     print("\n" + "=" * 80)
     print(f"EVALUATING DECISION RULE FOR ENERGY '{energy}' (Calibrated vs. {alt_label})")
     print("=" * 80)
 
-    # Directionality: higher is better vs lower is better
+    # Core representation metrics evaluated under R1 / R9
+    core_metrics = {
+        "latent_r2", "loadings_support_f1", "loadings_instability", "converged",
+        "u_init_invariance", "structure_init_invariance",
+        "outcome_r2_cw1", "support_recovery_loadings", "support_recovery_v",
+        "adni_predictive_metric", "min_component_stability",
+        "min_component_stability_k2", "min_component_stability_k3",
+    }
     higher_is_better = {
-        "latent_r2", "v_support_f1", "loadings_support_f1", "outcome_r2_cw1",
+        "latent_r2", "loadings_support_f1", "outcome_r2_cw1",
         "support_recovery_loadings", "support_recovery_v",
-        "adni_predictive_metric", "min_component_stability_k2", "min_component_stability_k3",
+        "adni_predictive_metric", "min_component_stability",
+        "min_component_stability_k2", "min_component_stability_k3",
+        "converged",
     }
     lower_is_better = {
-        "loadings_instability", "v_instability", "weight_spread", "n_steps",
-        "u_init_invariance", "structure_init_invariance",
+        "loadings_instability", "u_init_invariance", "structure_init_invariance",
+    }
+    diagnostic_metrics = {
+        "n_steps", "weight_spread", "v_instability", "v_support_f1",
+        "outcome_r2_cw0", "score_corr_cw0", "score_corr_cw1",
+        "outcome_r2_cw1_it30", "score_corr_cw1_it30", "outcome_r2_cw0_it30", "score_corr_cw0_it30",
+    }
+
+    # Section 3 Per-cell guard thresholds
+    guard_thresholds = {
+        "latent_r2": 0.05,
+        "outcome_r2_cw1": 0.05,
+        "adni_predictive_metric": 0.05,
+        "loadings_support_f1": 0.10,
+        "support_recovery_loadings": 0.10,
+        "support_recovery_v": 0.10,
+        "loadings_instability": 0.05,
+        "u_init_invariance": 0.05,
+        "structure_init_invariance": 0.05,
+        "min_component_stability": 0.10,
+        "min_component_stability_k2": 0.10,
+        "min_component_stability_k3": 0.10,
+        "converged": 0.10,  # Aggregate guard
     }
 
     summary_rows = []
     all_non_inferior = True
+    guard_failures = []
 
     metrics = df["metric"].unique()
     for metric in sorted(metrics):
         sub = df[df["metric"] == metric]
-        diffs = sub["difference"].values
-        n = len(diffs)
-        mean_d = float(np.mean(diffs))
-        sd_d = float(np.std(diffs, ddof=1)) if n > 1 else 0.0
-        seed_sd = float(np.std(sub["calibrated"].values, ddof=1)) if n > 1 else 0.0
-        threshold = max(sd_d, seed_sd)
-        t_stat = float(mean_d / (sd_d / math.sqrt(n))) if (sd_d > 1e-12 and n > 1) else 0.0
+        raw_diffs = sub["difference"].values
+        n = len(raw_diffs)
+        mean_raw_diff = float(np.mean(raw_diffs))
+        sd_diff = float(np.std(raw_diffs, ddof=1)) if n > 1 else 0.0
 
+        if metric in diagnostic_metrics:
+            direction = "diagnostic"
+            status = "DIAGNOSTIC"
+            mean_test_status = "N/A"
+            guard_status = "N/A"
+            summary_rows.append({
+                "metric": metric,
+                "direction": direction,
+                "n_pairs": n,
+                "calibrated_mean": float(sub["calibrated"].mean()),
+                "alt_mean": float(sub["alternative"].mean()),
+                "mean_diff": mean_raw_diff,
+                "sd_diff": sd_diff,
+                "mean_test": mean_test_status,
+                "guard": guard_status,
+                "status": status,
+            })
+            continue
+
+        # Orient differences: positive = better
         if metric in higher_is_better:
             direction = "higher"
-            # Worse beyond noise if mean_d < 0 and |mean_d| > 1.0 * threshold (paired or seed SD)
-            worse_beyond_noise = (mean_d < 0) and (abs(mean_d) > threshold)
-            wins = int(np.sum(diffs > 1e-6))
-            losses = int(np.sum(diffs < -1e-6))
-            ties = n - wins - losses
+            oriented_diffs = raw_diffs
         elif metric in lower_is_better:
             direction = "lower"
-            # Worse beyond noise if mean_d > 0 and mean_d > 1.0 * threshold (paired or seed SD)
-            worse_beyond_noise = (mean_d > 0) and (mean_d > threshold)
-            wins = int(np.sum(diffs < -1e-6))
-            losses = int(np.sum(diffs > 1e-6))
-            ties = n - wins - losses
+            oriented_diffs = -raw_diffs
         else:
             direction = "neutral"
-            worse_beyond_noise = False
-            wins = int(np.sum(np.abs(diffs) > 1e-6))
-            losses = 0
-            ties = n - wins
+            oriented_diffs = raw_diffs
 
-        status = "FAIL (Worse beyond noise)" if worse_beyond_noise else "PASS (Non-inferior)"
-        if worse_beyond_noise:
+        mean_oriented = float(np.mean(oriented_diffs))
+        sd_oriented = float(np.std(oriented_diffs, ddof=1)) if n > 1 else 0.0
+
+        # Mean test: n >= 2 and mean oriented paired difference < -SD of paired differences (ddof=1)
+        mean_test_failed = False
+        if n >= 2 and sd_oriented > 1e-12:
+            if mean_oriented < -sd_oriented:
+                mean_test_failed = True
+                mean_test_status = f"FAIL (mean={mean_oriented:+.4f} < -SD={-sd_oriented:.4f})"
+            else:
+                mean_test_status = f"PASS (mean={mean_oriented:+.4f} >= -SD={-sd_oriented:.4f})"
+        else:
+            mean_test_status = "N/A (n=1 or zero SD)"
+
+        # Per-cell guard
+        guard_limit = guard_thresholds.get(metric, None)
+        per_cell_failed = False
+        worst_loss = 0.0
+        worst_cell = "N/A"
+        if guard_limit is not None:
+            if metric == "converged":
+                # Aggregate guard for convergence rate: mean loss must not exceed guard
+                worst_loss = -mean_oriented
+                if mean_oriented < -guard_limit:
+                    per_cell_failed = True
+                    guard_status = f"FAIL (mean loss {worst_loss:.4f} > {guard_limit})"
+                    guard_failures.append(f"{metric}: mean loss {worst_loss:.4f} > {guard_limit}")
+                else:
+                    guard_status = f"PASS (loss {worst_loss:.4f} <= {guard_limit})"
+            else:
+                # Per-cell check: worst single cell oriented difference < -guard_limit
+                min_oriented_idx = np.argmin(oriented_diffs)
+                worst_oriented = oriented_diffs[min_oriented_idx]
+                worst_loss = -worst_oriented
+                worst_cell = str(sub["case_id"].iloc[min_oriented_idx])
+                if worst_oriented < -guard_limit:
+                    per_cell_failed = True
+                    guard_status = f"FAIL (cell {worst_cell} lost {worst_loss:.4f} > {guard_limit})"
+                    guard_failures.append(f"{metric} cell {worst_cell}: lost {worst_loss:.4f} > {guard_limit}")
+                else:
+                    guard_status = f"PASS (worst loss {worst_loss:.4f} <= {guard_limit})"
+        else:
+            guard_status = "N/A"
+
+        # Worse beyond noise = mean test failed OR per-cell guard failed
+        worse_beyond_noise = mean_test_failed or per_cell_failed
+        if worse_beyond_noise and metric in core_metrics:
             all_non_inferior = False
+            status = "FAIL (Worse beyond noise)"
+        else:
+            status = "PASS (Non-inferior)"
 
         summary_rows.append({
             "metric": metric,
@@ -433,12 +723,10 @@ def evaluate_decision_rules(df: pd.DataFrame, energy: str) -> tuple:
             "n_pairs": n,
             "calibrated_mean": float(sub["calibrated"].mean()),
             "alt_mean": float(sub["alternative"].mean()),
-            "mean_diff": mean_d,
-            "sd_diff": sd_d,
-            "paired_t": t_stat,
-            "wins": wins,
-            "losses": losses,
-            "ties": ties,
+            "mean_diff": mean_raw_diff,
+            "sd_diff": sd_diff,
+            "mean_test": mean_test_status,
+            "guard": guard_status,
             "status": status,
         })
 
@@ -446,14 +734,23 @@ def evaluate_decision_rules(df: pd.DataFrame, energy: str) -> tuple:
     print(summary_df.to_string(index=False))
     print("-" * 80)
 
+    if guard_failures:
+        print("PER-CELL GUARD FAILURES:")
+        for gf in guard_failures:
+            print(f"  [X] {gf}")
+    else:
+        print("PER-CELL GUARDS: ALL PASSED (no cell breached metric guards)")
+    print("-" * 80)
+
+    passed_rule = all_non_inferior
     if energy == "nc":
-        print(f"DECISION RULE R1 OUTCOME: {'ADOPT EQUAL 1/M WEIGHTS' if all_non_inferior else 'RETAIN CALIBRATED WEIGHTS'}")
-        print(f"Criteria met: All metrics non-inferior = {all_non_inferior}")
+        print(f"DECISION RULE R1 OUTCOME: {'ADOPT EQUAL 1/M WEIGHTS' if passed_rule else 'RETAIN CALIBRATED WEIGHTS'}")
+        print(f"Summary: Non-inferior across all core representation metrics = {all_non_inferior}")
     elif energy == "acc":
-        print(f"DECISION RULE R9 OUTCOME: {'ADOPT CANDIDATE DATA-RELATIVE SCALE' if all_non_inferior else 'RETAIN CALIBRATED WEIGHTS'}")
-        print(f"Criteria met: Candidate scale non-inferior = {all_non_inferior}")
+        print(f"DECISION RULE R9 OUTCOME: {'ADOPT CANDIDATE DATA-RELATIVE SCALE' if passed_rule else 'RETAIN CALIBRATED WEIGHTS'}")
+        print(f"Summary: Candidate scale non-inferior = {all_non_inferior}")
     print("=" * 80 + "\n")
-    return all_non_inferior, summary_df
+    return passed_rule, summary_df
 
 
 def main():
@@ -464,6 +761,8 @@ def main():
                         help="Output path for the generated evidence CSV.")
     parser.add_argument("--workers", type=int, default=8,
                         help="Parallel worker count for ProcessPoolExecutor.")
+    parser.add_argument("--groups", default=None,
+                        help="Comma-separated groups to run (default: run all). Options: default_cells,narrow_fixture,nonneg_parts,adni_heldout,adni_stability.")
     args = parser.parse_args()
 
     if args.out is None:
@@ -476,68 +775,95 @@ def main():
     print(f"Destination CSV: {args.out}")
     print(f"Parallel workers: {args.workers}")
 
-    all_records = []
+    # Determine groups to run
+    all_group_names = {"default_cells", "narrow_fixture", "nonneg_parts", "adni_heldout", "adni_stability"}
+    if args.groups:
+        target_groups = set(g.strip() for g in args.groups.split(","))
+        invalid_groups = target_groups - all_group_names
+        if invalid_groups:
+            raise ValueError(f"Unknown group(s): {invalid_groups}. Allowed: {all_group_names}")
+    else:
+        target_groups = all_group_names
+
+    print(f"Selected groups to run: {sorted(target_groups)}")
+
+    new_records = []
 
     # 1. Default-selection cells (a) & init-invariance (b): 20 cells
-    default_tasks = [
-        (gen, pos, seed, args.energy)
-        for gen in ("buried", "linear")
-        for pos in ("either", "positive")
-        for seed in range(5)
-    ]
-    print(f"\n[1/5] Running {len(default_tasks)} default cells across {args.workers} workers...")
-    with ProcessPoolExecutor(max_workers=args.workers) as executor:
-        futures = [executor.submit(run_default_cell_task, t) for t in default_tasks]
-        for f in as_completed(futures):
-            all_records.extend(f.result())
-    print("Default cells complete.")
+    if "default_cells" in target_groups:
+        default_tasks = [
+            (gen, pos, seed, args.energy)
+            for gen in ("buried", "linear")
+            for pos in ("either", "positive")
+            for seed in range(5)
+        ]
+        print(f"\n[1/5] Running {len(default_tasks)} default cells across {args.workers} workers...")
+        with ProcessPoolExecutor(max_workers=args.workers) as executor:
+            futures = [executor.submit(run_default_cell_task, t) for t in default_tasks]
+            for f in as_completed(futures):
+                new_records.extend(f.result())
+        print("Default cells complete.")
 
     # 2. Narrow-view collapse fixture (c): single fixture
-    print("\n[2/5] Running narrow-view collapse fixture...")
-    all_records.extend(run_narrow_fixture(args.energy))
-    print("Narrow fixture complete.")
+    if "narrow_fixture" in target_groups:
+        print("\n[2/5] Running narrow-view collapse fixture (default budget & iterations=30)...")
+        new_records.extend(run_narrow_fixture(args.energy))
+        print("Narrow fixture complete.")
 
     # 3. NonnegParts support recovery (d): seeds 42-44
-    nonneg_tasks = [(s, args.energy) for s in (42, 43, 44)]
-    print(f"\n[3/5] Running {len(nonneg_tasks)} NonnegParts tasks...")
-    with ProcessPoolExecutor(max_workers=min(args.workers, len(nonneg_tasks))) as executor:
-        futures = [executor.submit(run_nonneg_task, t) for t in nonneg_tasks]
-        for f in as_completed(futures):
-            all_records.extend(f.result())
-    print("NonnegParts tasks complete.")
+    if "nonneg_parts" in target_groups:
+        nonneg_tasks = [(s, args.energy) for s in (42, 43, 44)]
+        print(f"\n[3/5] Running {len(nonneg_tasks)} NonnegParts tasks at default budget...")
+        with ProcessPoolExecutor(max_workers=min(args.workers, len(nonneg_tasks))) as executor:
+            futures = [executor.submit(run_nonneg_task, t) for t in nonneg_tasks]
+            for f in as_completed(futures):
+                new_records.extend(f.result())
+        print("NonnegParts tasks complete.")
 
     # 4. ADNI-MCI held-out (e): 3 seeds x 2 pos = 6 tasks
-    adni_heldout_tasks = [
-        (s, pos, args.energy)
-        for s in (42, 43, 44)
-        for pos in ("either", "positive")
-    ]
-    print(f"\n[4/5] Running {len(adni_heldout_tasks)} ADNI-MCI held-out tasks...")
-    with ProcessPoolExecutor(max_workers=args.workers) as executor:
-        futures = [executor.submit(run_adni_heldout_task, t) for t in adni_heldout_tasks]
-        for f in as_completed(futures):
-            all_records.extend(f.result())
-    print("ADNI-MCI held-out complete.")
+    if "adni_heldout" in target_groups:
+        adni_heldout_tasks = [
+            (s, pos, args.energy)
+            for s in (42, 43, 44)
+            for pos in ("either", "positive")
+        ]
+        print(f"\n[4/5] Running {len(adni_heldout_tasks)} ADNI-MCI held-out tasks at default budget...")
+        with ProcessPoolExecutor(max_workers=args.workers) as executor:
+            futures = [executor.submit(run_adni_heldout_task, t) for t in adni_heldout_tasks]
+            for f in as_completed(futures):
+                new_records.extend(f.result())
+        print("ADNI-MCI held-out complete.")
 
-    # 5. ADNI-MCI select_rank stability (e): 2 pos = 2 tasks
-    adni_stab_tasks = [(pos, args.energy) for pos in ("either", "positive")]
-    print(f"\n[5/5] Running {len(adni_stab_tasks)} ADNI-MCI select_rank stability tasks...")
-    with ProcessPoolExecutor(max_workers=min(args.workers, len(adni_stab_tasks))) as executor:
-        futures = [executor.submit(run_adni_stability_task, t) for t in adni_stab_tasks]
-        for f in as_completed(futures):
-            all_records.extend(f.result())
-    print("ADNI-MCI select_rank complete.")
+    # 5. ADNI-MCI select_rank stability (e):
+    if "adni_stability" in target_groups:
+        print("\n[5/5] Retrieving ADNI-MCI select_rank stability records...")
+        new_records.extend(get_adni_stability_rows(args.energy))
+        print("ADNI-MCI select_rank records added.")
 
-    df = pd.DataFrame(all_records)
-    # Reorder columns nicely
+    new_df = pd.DataFrame(new_records)
+
+    # Merge with existing CSV if selective running
+    if args.groups and os.path.exists(args.out):
+        print(f"Merging {len(new_df)} new rows into existing {args.out}...")
+        existing_df = pd.read_csv(args.out)
+        # Drop rows belonging to the updated groups (or init_invariance if default_cells updated)
+        drop_groups = set(target_groups)
+        if "default_cells" in drop_groups:
+            drop_groups.add("init_invariance")
+        retained_df = existing_df[~existing_df["group"].isin(drop_groups)]
+        final_df = pd.concat([retained_df, new_df], ignore_index=True)
+    else:
+        final_df = new_df
+
     cols = ["group", "case_id", "generator", "positivity", "seed", "k", "metric",
-            "calibrated", "alternative", "difference"]
-    df = df[cols]
-    df.to_csv(args.out, index=False)
+            "calibrated", "alternative", "difference", "converged", "n_steps", "source"]
+    final_df = final_df[cols]
+    final_df.sort_values(by=["group", "case_id", "metric"], inplace=True)
+    final_df.to_csv(args.out, index=False)
     elapsed = time.perf_counter() - t0
-    print(f"\nWrote {len(df)} paired measurements to {args.out} in {elapsed:.1f} s.")
+    print(f"\nWrote {len(final_df)} paired measurements to {args.out} in {elapsed:.1f} s.")
 
-    passed, summary_df = evaluate_decision_rules(df, args.energy)
+    passed, summary_df = evaluate_decision_rules(final_df, args.energy)
     return 0 if passed else 1
 
 

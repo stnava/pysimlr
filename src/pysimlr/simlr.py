@@ -1067,6 +1067,15 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
     name = resolve_energy_name(energy_type, path="linear")
     return similarity_energy(name, x @ v, u, SimilarityContext(x=x, v=v))
 
+
+def _calibrate_view_scale(v_m: torch.Tensor, x_m: torch.Tensor, u_m: torch.Tensor,
+                          energy_type: str, lambda_val: float = 0.0,
+                          prior_matrix: Optional[torch.Tensor] = None) -> float:
+    """Evaluate initial view scale for similarity normalization."""
+    sim_e = calculate_simlr_energy(v_m, x_m, u_m, energy_type, lambda_val=lambda_val, prior_matrix=prior_matrix)
+    return abs(float(sim_e.item()))
+
+
 def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, 
                              energy_type: str = DEFAULT_ENERGY_TYPE, lambda_val: float = 0.0, 
                              prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -1264,6 +1273,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
     SiMLR identifies a shared latent subspace across multiple data modalities
     by optimizing an energy function subject to manifold constraints and sparsity.
+    Scale-free similarity energies receive equal weight (1/M) across modalities,
+    while non-scale-free energies calibrate weights relative to initial empirical energy.
 
     Parameters
     ----------
@@ -1652,31 +1663,31 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     domain_weights = [1.0] * n_modalities
     neg_weights = [1.0] * n_modalities
 
-    from .similarity import similarity_is_self_normalised
+    from .similarity import similarity_is_scale_free
     try:
-        _self_norm = similarity_is_self_normalised(energy_type)
+        _self_norm = similarity_is_scale_free(energy_type)
     except (ValueError, KeyError):
         _self_norm = False
 
     def _calibrate_weights(curr_v_mats, curr_u):
         for idx_m in range(n_modalities):
             u_m = curr_u[idx_m] if isinstance(curr_u, list) else curr_u
-            sim_e = calculate_simlr_energy(curr_v_mats[idx_m], torch_mats[idx_m], u_m, energy_type).item()
+            scale_val = _calibrate_view_scale(curr_v_mats[idx_m], torch_mats[idx_m], u_m, energy_type)
             normalizing_weights[idx_m] = (1.0 / n_modalities if _self_norm
-                                          else 1.0 / (abs(sim_e) * n_modalities + 1e-10))
+                                          else 1.0 / (scale_val * n_modalities + 1e-10))
             if negentropy_weight != 0.0:
                 neg_e0 = abs(calculate_simlr_energy(
                     curr_v_mats[idx_m], torch_mats[idx_m], u_m, "negentropy").item())
                 # For scale-free energies normalizing_weights[idx_m] is 1/M, so neg_weights
                 # scales relative to |E0| / M.
-                neg_weights[idx_m] = (abs(sim_e) * normalizing_weights[idx_m] / neg_e0
+                neg_weights[idx_m] = (scale_val * normalizing_weights[idx_m] / neg_e0
                                       if neg_e0 > 1e-12 else 0.0)
             if torch_domains is not None and torch_domains[idx_m] is not None:
                 dom_e_raw = calculate_simlr_energy(curr_v_mats[idx_m], torch_mats[idx_m], u_m, "dat", lambda_val=domain_lambdas[idx_m], prior_matrix=torch_domains[idx_m]).item()
                 if abs(dom_e_raw) > 1e-10:
                     # For scale-free energies normalizing_weights[idx_m] is 1/M, so domain_weights
                     # scales relative to |E0| / M.
-                    domain_weights[idx_m] = abs(sim_e * normalizing_weights[idx_m]) / abs(dom_e_raw)
+                    domain_weights[idx_m] = abs(scale_val * normalizing_weights[idx_m]) / abs(dom_e_raw)
                 else:
                     domain_weights[idx_m] = 1.0
 

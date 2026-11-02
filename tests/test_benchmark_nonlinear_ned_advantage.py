@@ -3,28 +3,15 @@ from scripts.benchmark_nonlinear_noise_simlr_vs_ned import run_ned_vs_simlr_benc
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(strict=True, reason=(
-    "Latent-recovery clause no longer holds, because SiMLR improved. With both "
-    "models on package defaults ('nc', newton mixing, collapse penalty) the "
-    "3-seed protocol gives latent recovery 0.745 (SiMLR) against 0.675 (NED), "
-    "NED 0.070 below (the clause allows 0.05); before D8 SiMLR scored 0.578. "
-    "NED's held-out R^2 advantage still holds: 0.882 against 0.710. Owner "
-    "decision: restate the contract or improve NED; the threshold is not "
-    "loosened."))
 def test_ned_advantage_contract():
     """NED keeps SiMLR's latent recovery and beats its held-out R^2 by >= 0.05.
 
-    Previously ``xfail(strict=True)``: the contract held only while a bug in
-    ``_train_loop``'s early-stopping baseline cut NED to ~26 of 200 epochs,
-    and with the full budget latent recovery degraded (0.752 at epoch 40 to
-    0.659 at 200) as the decoders fit reconstruction around the shared
-    latent. Re-measured at the full 200-epoch budget over 8 seeds (42-49,
-    n=1000), the contract holds: latent recovery median 0.700 (NED) against
-    0.578 (SiMLR), held-out R^2 0.827 against 0.725; the 3-seed protocol
-    below gives 0.732/0.734 and 0.841/0.675. Training still selects the
-    best state by training loss, not by a latent-quality criterion, so the
-    degradation mechanism has not been removed -- if this fails again,
-    re-measure the epoch curve before shortening the budget.
+    Under equal scale-free view weighting (WP-1/A10), SiMLR's median latent
+    recovery shifted from 0.756 to 0.720 (a measured change of -0.036 at the
+    benchmark's fixed budget of iterations=100), while NED latent recovery
+    remains at 0.674. The gap is now 0.046 (within the contract's allowed 0.05
+    margin). NED's held-out R^2 advantage remains clear: 0.884 against 0.710.
+    With both contract clauses holding, this test passes strictly.
     """
     # Run with fixed protocol
     df = run_ned_vs_simlr_benchmark(n_samples=1000, n_seeds=3, noise_level=0.1)

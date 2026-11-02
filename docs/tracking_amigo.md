@@ -166,16 +166,19 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   (old and new code alike), the total energy alternates between two states every sweep: -2.08
   and -0.94. The fit reports "converged" after 11 sweeps only because the best value stops
   improving. Investigate the step rule; this is a 2-cycle, not convergence.
-- **A10. `nc` per-view weights.** `nc` is not in `similarity.SELF_NORMALISED`, so each view's term
-  is weighted by 1/(|E0|·M), using its starting energy E0. Views with a poor start are
-  up-weighted, and the total can fall below -1, as the -2.08 above shows. For a bounded,
-  scale-free energy an equal 1/M weight is the natural choice. Changing it is a scientific
-  default, so it needs measuring before any change.
+- **A10. `nc` per-view weights.** Adopted equal 1/M weights for scale-free energies
+  (`similarity.SCALE_FREE_ENERGIES`, including `nc`, `align`, `procrustes`, `recon_r2`,
+  and ICA terms) under Decision Rule R1. Total energy bounded min >= -1.
+  Collapse-penalty finding: before this change, the collapse penalty was effectively off
+  wherever calibrated weights were large (similarity term scaled by up to ~2000x); with equal
+  weights, the penalty is effectively on for the first time. The narrow fixture under equal
+  weights has cw=0 R² 0.608 vs 0.348 (with cw=1 R² 0.962 vs 0.937). This finding carries
+  directly into WP-2 / D2.
 
 ## On hold from the earlier plan
 
 - **D2/D4. Collapse: objective or optimizer?**
-  - Linear narrow-view fixture: R² 0.301 without the penalty.
+  - Linear narrow-view fixture: under calibrated weights R² was 0.301 without penalty; under equal weights cw=0 R² is 0.608 (vs 0.962 with cw=1).
   - Deep: 6/20 (data seed, start seed) pairs collapse without the penalty.
   - Planned test: compare the energy at the planted solution with the energy at the collapsed
     one. This decides the 0.3 hinge threshold.

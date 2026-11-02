@@ -515,15 +515,11 @@ SCALE_FREE_ENERGIES = frozenset({
     "procrustes",
     "recon_r2",
 })
-SELF_NORMALISED = SCALE_FREE_ENERGIES
 
 
-def similarity_is_self_normalised(name: str) -> bool:
+def similarity_is_scale_free(name: str) -> bool:
     """True when per-view values are scale-free across views."""
     return resolve_energy_name(name) in SCALE_FREE_ENERGIES
-
-
-similarity_is_scale_free = similarity_is_self_normalised
 
 
 def similarity_needs_data(name: str) -> bool:
