@@ -1,0 +1,47 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>amigo loadings report</title><style>
+:root{--bg:#fbfbfa;--fg:#1d1d1f;--mut:#5f6368;--line:#dcdcd8;--card:#ffffff;--b1:#c4553f;--b2:#2f6db5;--acc:#2f6db5}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#17181a;--fg:#e8e8e6;--mut:#a0a3a8;--line:#34363a;--card:#1f2124;--b1:#e07a62;--b2:#6ea3e6;--acc:#6ea3e6}}
+:root[data-theme="dark"]{--bg:#17181a;--fg:#e8e8e6;--mut:#a0a3a8;--line:#34363a;--card:#1f2124;--b1:#e07a62;--b2:#6ea3e6;--acc:#6ea3e6}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;margin:0;padding:24px 16px}
+main{max-width:980px;margin:0 auto} h1{font-size:24px;margin:0 0 4px} h2{font-size:18px;margin:32px 0 8px}
+p,li{color:var(--fg)} .mut{color:var(--mut)} .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:12px 0;overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px} th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;white-space:nowrap}
+td.n{text-align:right;font-variant-numeric:tabular-nums} th{color:var(--mut);font-weight:600}
+svg{width:100%;max-width:560px} .b1{fill:var(--b1)} .b2{fill:var(--b2)} .lab,.val{fill:var(--fg);font-size:12px}
+code{font-size:13px}</style></head><body><main>
+<h1>amigo: identified loadings for every pysimlr fit</h1>
+<p class="mut">Branch <code>amigo</code>. Evidence: <code>docs/audit/evidence/amigo_loadings_*.csv</code>, <code>constraint_selection.csv</code>, <code>linear_tol_selection.csv</code>. Script: <code>scripts/amigo_loadings_evaluation.py</code>. Tracking: <code>docs/tracking_amigo.md</code>.</p>
+<div class="card"><b>Summary.</b>
+<ul>
+<li>The encoder <code>V</code> is weakly identified: two refits on 98% of the rows move it substantially, while the latent <code>U</code> barely moves.</li>
+<li>Every fit now also returns <code>structure</code> (feature-latent correlations, in a canonical varimax basis) and <code>loadings</code> (their OLEE summary). On synthetic data these are 50-150&times; more stable than <code>V</code> and meet the contract exactly: column coherence 0, and support overlap 0 under positivity.</li>
+<li>On ADNI-MCI the loadings are only as stable as <code>U</code>. At k = 3 one component is not identified; at k = 2 under positivity everything is stable.</li>
+</ul></div>
+<h2>1. Synthetic: encoder vs loadings</h2>
+<p>Default <code>simlr</code>, {buried, linear} &times; 3 seeds per sign mode. Every fit converged (29-83 sweeps); latent R&sup2; 0.976-0.997.</p>
+<div class="card"><svg viewBox='0 0 560 98' role='img' aria-label='span instability'><text x='0' y='21' class='lab'>either - V (encoder)</text><rect x='170' y='8' width='360.0' height='16' class='b1'/><text x='536.0' y='21' class='val'>0.3350</text><text x='0' y='43' class='lab'>either - loadings</text><rect x='170' y='30' width='2.4' height='16' class='b2'/><text x='178.4' y='43' class='val'>0.0023</text><text x='0' y='65' class='lab'>positive - V (encoder)</text><rect x='170' y='52' width='133.7' height='16' class='b1'/><text x='309.7' y='65' class='val'>0.1244</text><text x='0' y='87' class='lab'>positive - loadings</text><rect x='170' y='74' width='1.0' height='16' class='b2'/><text x='177.0' y='87' class='val'>0.0009</text></svg><p class="mut">Span instability: mean sin&sup2; of the principal angles between the two refits' bases (0 = the same subspace).</p></div>
+<div class="card"><table><thead><tr><th>sign mode</th><th>object</th><th>span instability</th><th>matched |r|</th><th>support F1</th><th>column coherence</th><th>support overlap</th></tr></thead><tbody><tr><td>either</td><td>loadings</td><td class='n'>0.0023</td><td class='n'>0.9987</td><td class='n'>0.5580</td><td class='n'>0.0000</td><td class='n'>0.3034</td></tr><tr><td>either</td><td>structure</td><td class='n'>0.0023</td><td class='n'>0.9986</td><td class='n'>0.5580</td><td class='n'>0.0787</td><td class='n'>0.3065</td></tr><tr><td>either</td><td>v</td><td class='n'>0.3350</td><td class='n'>0.6368</td><td class='n'>0.6764</td><td class='n'>0.0187</td><td class='n'>0.4156</td></tr><tr><td>positive</td><td>loadings</td><td class='n'>0.0009</td><td class='n'>0.9994</td><td class='n'>0.6762</td><td class='n'>0.0000</td><td class='n'>0.0000</td></tr><tr><td>positive</td><td>structure</td><td class='n'>0.0013</td><td class='n'>0.9991</td><td class='n'>0.5580</td><td class='n'>0.0779</td><td class='n'>0.3031</td></tr><tr><td>positive</td><td>v</td><td class='n'>0.1244</td><td class='n'>0.9123</td><td class='n'>0.6028</td><td class='n'>0.0773</td><td class='n'>0.0773</td></tr></tbody></table></div>
+<p>Signed loadings are dense (a polar factor), so their support F1 is below <code>V</code>'s. Sparse signed claims come from stability selection.</p>
+<h2>2. ADNI-MCI</h2>
+<p>4 views (p = 160/160/62/11), the benchmark's graph topology. Component stability is the median correlation between each refit's aligned column and the reference, from <code>loading_inference</code> with 30 half-sample refits. Stability selection uses threshold 0.8 and tolerates 1 expected false selection per view.</p>
+<div class="card"><table><thead><tr><th>sign mode</th><th>k</th><th>V instability</th><th>loadings instability</th><th>loadings matched |r|</th><th>comp 1 stab.</th><th>comp 2 stab.</th><th>comp 3 stab.</th><th>selected</th><th>E[false] bound</th></tr></thead><tbody><tr><td>either</td><td>3</td><td class='n'>0.616</td><td class='n'>0.343</td><td class='n'>0.630</td><td class='n'>0.836</td><td class='n'>0.994</td><td class='n'>0.384</td><td>7</td><td class='n'>3.261</td></tr><tr><td>either</td><td>2</td><td class='n'>0.635</td><td class='n'>0.280</td><td class='n'>0.872</td><td class='n'>0.993</td><td class='n'>0.726</td><td class='n'>-</td><td>5</td><td class='n'>3.261</td></tr><tr><td>positive</td><td>3</td><td class='n'>0.460</td><td class='n'>0.288</td><td class='n'>0.626</td><td class='n'>0.949</td><td class='n'>0.736</td><td class='n'>0.996</td><td>11</td><td class='n'>3.261</td></tr><tr><td>positive</td><td>2</td><td class='n'>0.057</td><td class='n'>0.007</td><td class='n'>0.995</td><td class='n'>0.962</td><td class='n'>0.996</td><td class='n'>-</td><td>13</td><td class='n'>3.261</td></tr></tbody></table></div>
+<p>Claims per component need a stability of about 0.9 or more.</p>
+<ul>
+<li>At k = 3 one component falls below 0.4 (signed) or 0.74 (positive).</li>
+<li>At k = 2, positive mode is stable throughout: loadings instability 0.007, matched |r| 0.995.</li>
+</ul>
+<p>Whether ADNI should use k = 2 is open item A4.</p>
+<h2>3. The objective: projection only</h2>
+<div class="card"><table><thead><tr><th>objective</th><th>support F1</th><th>frame defect</th><th>support overlap</th><th>converged (300)</th><th>mean steps</th></tr></thead><tbody><tr><td>projection + defect penalty (before)</td><td class='n'>0.6207</td><td class='n'>0.0001</td><td class='n'>0.1553</td><td>14/20</td><td class='n'>215.6000</td></tr><tr><td>projection only (amigo)</td><td class='n'>0.6462</td><td class='n'>0.0043</td><td class='n'>0.2438</td><td>20/20</td><td class='n'>113.4000</td></tr></tbody></table></div>
+<h2>4. Stopping tolerance</h2>
+<div class="card"><table><thead><tr><th>tol</th><th>converged (100 sweeps)</th><th>mean steps</th><th>latent R2</th><th>support F1</th></tr></thead><tbody><tr><td>1e-06</td><td>0/20</td><td class='n'>100.0000</td><td class='n'>0.9876</td><td class='n'>0.6169</td></tr><tr><td>1e-05</td><td>3/20</td><td class='n'>98.9500</td><td class='n'>0.9876</td><td class='n'>0.6170</td></tr><tr><td>0.0001</td><td>16/20</td><td class='n'>72.0500</td><td class='n'>0.9874</td><td class='n'>0.6174</td></tr></tbody></table></div>
+<p class="mut">The 100-sweep fits match the 300-sweep fits to &lt; 0.001 latent R&sup2;. Default now <code>tol = 1e-4</code>, <code>iterations = 300</code>.</p>
+<h2>5. Known costs and open items</h2>
+<ul>
+<li><b>Three measured regressions</b> from removing the defect penalty are recorded as strict xfails (thresholds unchanged): the near-Stiefel tolerance at <code>nsa_w=1</code>, the face-residual calibration, and one support-recovery fixture (0.978 &rarr; 0.813). See A3.</li>
+<li><b>Positive-mode <code>V</code></b> is less stable without the penalty (0.030 &rarr; 0.161 on the planted case). The loadings are unaffected.</li>
+<li><b>Plug-in <code>structure</code> is inflated</b> because <code>U</code> is fitted on the same rows. Thresholds come from <code>loading_inference</code>, never from point estimates.</li>
+<li><b>The paper</b> still reads <code>V</code> and the removed <code>Lobe_Crosstalk</code> column (A2).</li>
+</ul>
+</main></body></html>

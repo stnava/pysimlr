@@ -75,14 +75,25 @@ constraint, sparsity still applied). The remaining differences, from
 
 | setting | linear (`simlr`) | deep / flow | kind |
 |---|---|---|---|
-| budget `iterations` | 100 sweeps | 150 epochs | intrinsic unit; values open (F2) |
-| `tol` | 1e-6 | 1e-6 deep, 1e-4 `flow_v` | arbitrary; open (F2) |
+| budget `iterations` | 300 sweeps (`DEFAULT_SIMLR_ITERATIONS`) | 150 epochs | intrinsic unit |
+| `tol` | 1e-4 (`DEFAULT_SIMLR_TOL`) | 1e-6 deep, 1e-4 `flow_v` | deep value open (amigo A1) |
 | `learning_rate` | `"auto"` | 0.0005 | intrinsic (different optimizers) |
 | `optimizer_type` | `hybrid_adam` | `adam` | intrinsic |
 | `collapse_weight` | parameter (1.0) | fixed at 1.0 | open (D4) |
 | `batch_size`, `warmup_epochs` | -- | 64, auto | intrinsic (stochastic training) |
 
 `parameters["defaults"]` records the value each fit used.
+
+### Interpretation and inference
+
+`structure` and `loadings` are point estimates. `u` was fitted on the same rows, which inflates
+`|structure|` (with the cross-view link destroyed by permutation, in-sample `max |C|` reached
+0.4-0.5 where ~0.07 is expected). Feature-level claims use `pysimlr.loading_inference(method,
+views, k, n_subsamples=100, fraction=0.5, threshold=0.8, n_permutations=...)`: whole-pipeline
+refits on half-samples, Procrustes-aligned to the reference; percentile intervals per feature,
+per-component stability (claims per component need it high, e.g. >= 0.9), Meinshausen-Buhlmann
+stability selection with its bound `q^2 / ((2*threshold - 1) p)`, and a permutation null for
+`max |structure|`.
 
 ### `random_state`
 
@@ -106,8 +117,11 @@ Every `fit` result has the following keys, checked by `validate_result`:
 |---|---|
 | `method`, `family` | registered name and family |
 | `parameters` | `requested`, `used`, `ignored` (name -> reason), `defaults`, `random_state`, `budget_unit`, `preset` |
-| `u` | `(n, k)` tensor. For linear `loo`/`graph` topologies it is the first view's consensus; all views' consensus is in `u_per_modality`. |
-| `v` | one `(p_m, k)` block per view |
+| `u` | `(n, k)` tensor. For `simlr` it is the star consensus of the fitted views under every topology; the per-view targets of `loo`/`graph` are in `u_per_modality`. |
+| `v` | one `(p_m, k)` block per view: the encoder (`u ~ X v`) that scores new subjects. Weakly identified in each view's low-variance directions, so not the object to read feature by feature. |
+| `structure` | one `(p_m, k)` block per view: `corr(x_f, u_j)` in the varimax basis of all views stacked, column signs set so dominant loadings are positive (`pysimlr.loadings`). Association, not unique contribution. |
+| `loadings` | one `(p_m, k)` block per view: the OLEE summary of `structure`, with orthogonal columns. `positivity="positive"`: each feature assigned to the component it correlates with most positively (disjoint supports); otherwise the polar factor of `structure` at its column norms. |
+| `loading_rotation`, `loading_margin` | the `k x k` rotation `R` (the columns of `structure`/`loadings` describe `u @ R`); per feature, top minus second positive correlation (positive only, else `None`). |
 | `latents` | per-view first-layer projections (`[u]` for the joint baselines) |
 | `convergence` | `converged`, `stop_reason`, `certificate`, `grad_map`, `n_steps`, `max_steps`, `tol`, `patience`, `best`, `final`. `stop_reason` is one of `api.STOP_REASONS` for every method: `converged` (the energy plateau rule fired, `certificate="energy_plateau"`; NSA-Flow: its own certificate), `max_iter` (budget exhausted), `no_descent` (`simlr`: no view's line search found a decrease), `non_finite`, `closed_form` (PCA). `converged` is `stop_reason == "converged"`. `grad_map` is the face residual `utils.stationarity_residual` of the basis, a diagnostic not a stop rule: per sweep for `simlr`, post hoc on the returned `V` and `u` for deep/flow (`api._basis_grad_map`), 0 for PCA |
 | rank diagnostics | `effective_rank`, `numerical_rank`, `condition_number`, `max_column_overlap` per view; for the joint baselines `joint_*` with `basis_is_joint=True` |

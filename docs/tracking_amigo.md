@@ -1,0 +1,165 @@
+# pysimlr: amigo branch tracking
+
+Branch `amigo`, from `main` at `b10c993` (D10 merged fast-forward; not pushed).
+Last updated 2026-11-02.
+Verification at the branch tip: `pytest -m ""` 1593 passed, 7 strict xfailed, 0 failed;
+`antsxqc.lint src/pysimlr` 0 findings. Each commit below was verified on its own in a clean
+worktree.
+
+The earlier history (D1-D10) is in `docs/tracking.md`. This file holds the amigo work and every
+item that is in progress or on hold.
+
+## Owner decisions taken on this branch
+
+1. The OLEE contract is orthogonality. Under `positivity="positive"`, orthogonality implies
+   disjoint supports and support overlap is part of the contract. For signed fits, overlap is
+   descriptive.
+2. `simlr` minimises the similarity energy subject to the NSA-Flow projection, with no
+   orthogonality-defect penalty. This is the original SiMLR design. `nsa_w = 0.5` is kept,
+   following the NSA-Flow paper's calibration of the projection.
+3. `simlr` stopping: `tol = 1e-4`, `iterations = 300`.
+4. `lobe_crosstalk` is replaced by support overlap.
+5. Interpretation uses two-stage loadings computed from `U`, for every method. The encoder `V`
+   is the scoring rule.
+
+## Commits
+
+| commit | scope |
+|---|---|
+| `3a88f5f` | Stop vocabulary, one orthogonality weight, and the consensus topology default. Also fixes the runner's deep-convergence bug and the D10 follow-ups. |
+| `580bb91` | `pysimlr.loadings` and `loading_inference`; `structure`/`loadings` on every fit; the OLEE contract on the loadings. |
+| `d3e5590` | Defect penalty removed; `DEFAULT_SIMLR_TOL = 1e-4`, `DEFAULT_SIMLR_ITERATIONS = 300`. |
+| `5c77d60` | Benchmark scores both the encoder (`*_v`) and the loadings (`*_loadings`); `lobe_crosstalk` removed. |
+| `792e9a6` | Stability-selection `q` chosen from the error bound; amigo evaluation script and evidence. |
+
+## Why: feature identifiability (measured)
+
+**Mechanism.**
+- Under the correlation energy `nc`, the scores `XV` determine `V` only where `X` has variance.
+- Restricted to the leading-variance directions, refits of `V` agree: mean sin² 0.014, against
+  0.28 overall at 98% subsamples.
+- Input noise of 1e-6 moves nothing, so the fit is continuous. The instability is weak
+  identification, not chaos.
+- The low-variance share of `V`'s norm (about 60%) has no chance baseline, because a random `V`
+  puts 63-90% there. It is not evidence of the mechanism on its own.
+
+**What the energy changes.**
+- `acc` and `recon_r2` identify `V`.
+- They fail on the buried-signal generator: latent R² 0.10-0.62, against 0.98 for `nc`.
+
+**Remedies compared** (scratchpad `ident_fix.csv`):
+
+| remedy | latent R² | support F1 | V instability |
+|---|---|---|---|
+| two-stage loadings | 0.988 (unchanged) | 0.709 | 0.059 |
+| ridge `nc`, λ = 0.5 | 0.983 | 0.708 | 0.055 |
+
+PCA restriction fails: at 90% of variance it drops the buried signal; at 99% it keeps the flat
+directions.
+
+**Three independent reviews** (scientific, statistical, ML engineering) agreed:
+- report correlation-scale structure coefficients and keep `V` for scoring;
+- put the OLEE contract on the loadings;
+- gate claims on whole-pipeline refit inference.
+
+The statistical review found that in-sample `max |C|` reaches 0.4-0.5 under a null where about
+0.07 is expected. This is selection inflation from fitting `U` on the same rows, so plug-in
+thresholds are anti-conservative.
+
+## Results: `scripts/amigo_loadings_evaluation.py`
+
+Evidence: `docs/audit/evidence/amigo_loadings_{synthetic,adni}.csv`.
+
+**Synthetic data.** Default `simlr`, 4 cells × 3 seeds, two refits on 98% of the rows. Every fit
+converged, in 41-78 sweeps, with latent R² 0.982-0.997.
+
+| sign mode | object | span instability | matched-column \|r\| | support F1 | column coherence | support overlap |
+|---|---|---|---|---|---|---|
+| signed | V | 0.335 | 0.637 | 0.676 | 0.019 | 0.416 |
+| signed | structure | 0.0023 | 0.999 | 0.558 | 0.079 | 0.307 |
+| signed | loadings | 0.0023 | 0.999 | 0.558 | 0.000 | 0.303 |
+| positive | V | 0.124 | 0.912 | 0.603 | 0.077 | 0.077 |
+| positive | structure | 0.0013 | 0.999 | 0.558 | 0.078 | 0.303 |
+| positive | loadings | 0.0009 | 0.999 | 0.676 | 0.000 | 0.000 |
+
+**ADNI-MCI.** 4 views, p = 160/160/62/11, graph topology; `loading_inference` with 30
+half-sample refits.
+
+| sign mode, k | V instability | loadings instability | loadings matched \|r\| | component stability | selected (E[false]) |
+|---|---|---|---|---|---|
+| signed, 3 | 0.616 | 0.343 | 0.63 | 0.84 / 0.99 / 0.38 | 7 (≤ 3.3) |
+| signed, 2 | 0.635 | 0.280 | 0.87 | 0.99 / 0.73 | 5 (≤ 3.3) |
+| positive, 3 | 0.460 | 0.288 | 0.63 | 0.95 / 0.74 / 1.00 | 11 (≤ 3.3) |
+| positive, 2 | 0.057 | **0.0068** | **0.995** | 0.96 / 1.00 | 13 (≤ 3.3) |
+
+**Reading.**
+- Loadings are 50-150× more stable than `V` on synthetic data and meet the contract exactly:
+  coherence 0, and positive overlap 0.
+- On ADNI, loadings are only as stable as `U`. At k = 3 one component is not identified in either
+  sign mode. At k = 2 under positivity, everything is stable.
+- Signed loadings are dense, so their support F1 (0.558) is below `V`'s (0.676). Sparse signed
+  claims come from stability selection, not from the point estimate.
+
+Measured cost of removing the defect penalty, apart from the 3 xfails: positive-mode `V` is less
+stable on the planted case (span instability 0.030 → 0.161). The loadings are unaffected.
+
+## Open items, owner decisions
+
+- **A1. Deep/flow `tol`.** `lend`, `ned` and `ned_shared_private` stop at 1e-6, `flow_v` at 1e-4.
+  Measure the deep fixtures at 1e-4 before unifying; `docs/api_contract.md` lists the difference.
+- **A2. Paper.** Several parts read objects or columns that changed:
+  - `paper/appendix_flow_simr_v.qmd:235-278` reports "Signed Lobe Crosstalk" (`Lobe_Crosstalk`,
+    identically 0) and `Frame_Defect_D` of `V`.
+  - The ADNI and BRCA feature figures read `V`.
+  - Replace these with `structure`/`loadings`, intervals from `loading_inference`, and
+    per-component stability.
+  - Regenerate every cache from the final code. This also covers deep-fit drift of about 1e-7
+    from D10.
+- **A3. Three measured regressions** from removing the defect penalty, recorded as strict xfails
+  with thresholds unchanged:
+  - `tests/e2e/test_tier1_features.py::test_simlr_stiefel_constraint_is_near_orthogonal`:
+    off-diagonal 1.26e-3 against 1.2e-4 (limit 1e-3).
+  - `tests/test_solver_certificate.py::test_face_residual_falls_where_the_energy_settles`:
+    0.86 decades instead of 2.8; the energy no longer settles.
+  - `tests/test_support_identifiability.py::test_the_pipeline_recovers_support_under_every_energy[nc]`:
+    0.9783 → 0.8131 on one fixture.
+
+  Decide per test: accept and re-baseline, or act. The second also bears on A7.
+- **A4. ADNI rank.** k = 3 has one unidentified component. Choose k = 2, or keep k = 3 and report
+  per-component stability next to each map. The eigengap has not been checked.
+- **A5. Signed displays.** The polar summary is dense. Decide whether signed figures show
+  `structure` with intervals, or only stability-selected features.
+- **A6. Ridge `nc` (λ ≈ 0.5)** as an optional fit setting that makes `V` itself identified. It
+  needs CV for λ and an ADNI check. It is not on by default.
+- **A7. `grad_map` under projection-only fits.** It no longer falls 2 decades on the calibration
+  fixture. Keep it as a diagnostic, re-calibrate it, or drop it.
+- **A8. `loading_inference` cost and defaults.** The default `n_subsamples = 100` costs 100 refits.
+  The permutation null is opt-in. Bootstrap percentiles from half-samples are conservative.
+
+## On hold from the earlier plan
+
+- **D2/D4. Collapse: objective or optimizer?**
+  - Linear narrow-view fixture: R² 0.301 without the penalty.
+  - Deep: 6/20 (data seed, start seed) pairs collapse without the penalty.
+  - Planned test: compare the energy at the planted solution with the energy at the collapsed
+    one. This decides the 0.3 hinge threshold.
+- **D3. Correlated factors.** The newton consensus decorrelates the scores; true ρ = 0.7 comes
+  back as recovered ρ 0.03-0.15. Is this a gauge freedom or a defect? Report subspace R² against
+  column recovery.
+- **D5. D9 proximal constants** (2.5 / 64) are uncalibrated: run a 3×3 grid, or drop
+  `simlr_lbfgsb` if it never beats `hybrid_adam`.
+- **D6. NED rounding sensitivity** (`_ROUNDING_UNSTABLE`): find the first epoch where the
+  trajectories diverge, and the operation that causes it.
+- **T2. Change requested in ANTsTorch** (a different repository, not edited from here):
+  - Make `create_real_nvp_normalizing_flow_model` a lazy (PEP 562) export of
+    `antstorch/__init__.py`, so importing it does not load ITK/ANTsPy/matplotlib (~2.6 s).
+  - pysimlr then returns to `from antstorch import ...` and deletes
+    `flows._load_antstorch_real_nvp_builder` and `tests/test_flow_antstorch_loader.py`.
+- **Release.** v0.5.0 after the paper phase, on instruction.
+
+## Caveats
+
+- Synthetic results use few seeds on the `default_selection_benchmark` generators.
+- ADNI checks are not covariate-adjusted.
+- `true_v` in the linear generator is the latent-to-data mixing, which is the object the loadings
+  estimate. `V` maps data to latent, so its support F1 is against a different object.
