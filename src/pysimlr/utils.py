@@ -6,7 +6,7 @@ import re
 import time
 import numpy as np
 from typing import List, Optional, Union, Dict, Any, Tuple
-from .defaults import DEFAULT_COLLAPSE_THRESHOLD
+from .defaults import DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_TOL
 
 def set_seed_based_on_time() -> int:
     """
@@ -1900,7 +1900,7 @@ def basis_rank_report(v_mats: List[torch.Tensor], k: int,
 #: any decrease at all reset its patience counter and it never stopped early --
 #: measured, it ran its full budget at 8, 30 and 80 epochs alike while the loss
 #: was still falling at -0.37 per epoch at the 8-epoch cap.
-CONVERGENCE_TOL = 1e-4
+CONVERGENCE_TOL = DEFAULT_TOL
 CONVERGENCE_PATIENCE = 10
 
 

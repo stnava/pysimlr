@@ -81,13 +81,16 @@ DEFAULT_COLLAPSE_WEIGHT = 1.0
 DEFAULT_COLLAPSE_THRESHOLD = 0.3
 
 
-#: `simlr` stopping. At tol = 1e-6 the plateau rule almost never fired: 0/20
-#: default fits converged within 100 sweeps and 14/20 within 300, every
-#: non-converged trace still creeping monotonically by 1e-6 to 1e-5 per sweep.
-#: Fits stopped at 1e-4 match the 300-sweep fits to < 0.001 latent R^2 with
-#: support F1, frame defect and overlap unchanged
-#: (scripts/linear_tol_selection.py). 1e-4 is also the ConvergenceMonitor and
-#: flow default. 300 sweeps is headroom for harder problems; at 1e-4 the
-#: measured fits stop after ~73.
-DEFAULT_SIMLR_TOL = 1e-4
+#: The relative tolerance of the energy/loss plateau rule, for every method.
+#: Linear: at 1e-6 the rule almost never fired (0/20 default fits converged
+#: within 100 sweeps, 14/20 within 300, the rest creeping monotonically by
+#: 1e-6 to 1e-5 per sweep); fits stopped at 1e-4 match the 300-sweep fits to
+#: < 0.001 latent R^2 with support F1, frame defect and overlap unchanged
+#: (scripts/linear_tol_selection.py). Deep: the per-epoch loss moves by ~1e-3
+#: from minibatch noise, so 1e-6 and 1e-4 made identical decisions on all 36
+#: lend / ned / ned_shared_private fits measured (scripts/deep_tol_selection.py).
+DEFAULT_TOL = 1e-4
+
+#: `simlr`'s sweep budget. At `DEFAULT_TOL` the measured fits stop after ~73;
+#: the rest is headroom for harder problems.
 DEFAULT_SIMLR_ITERATIONS = 300

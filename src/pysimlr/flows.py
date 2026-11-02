@@ -4,7 +4,7 @@ import torch.nn as nn
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Any, Union
 from .utils import basis_rank_report
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM, check_nsa_w
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM, DEFAULT_TOL, check_nsa_w
 
 
 #: MAI similarity metrics. `trace` was removed: tr(Z' u_loo) is the only one
@@ -403,7 +403,7 @@ class FlowConditionalInference:
         return mu_cond
 
 def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epochs: int, sim_weight: float, energy_type: str, warmup_epochs: int, verbose: bool, device: torch.device, beta: float = 0.05, gamma: float = 2.0, dynamic_weights_start: Optional[int] = None, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None,
-                     tol: float = 1e-4, patience: int = 10):
+                     tol: float = DEFAULT_TOL, patience: int = 10):
     loss_history, recon_history, sim_history = [], [], []
     nonfinite_grad_steps = 0
     model.weight_history = []
@@ -670,7 +670,7 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               use_rank_mai: bool = False,
               force_fallback: bool = False,
               random_state: Optional[int] = None,
-              tol: float = 1e-4,
+              tol: float = DEFAULT_TOL,
               patience: int = 10) -> Dict[str, Any]:
     """
     Flow-based Similarity-driven Multi-view Representation (Flow-SiMR).
@@ -862,7 +862,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 n_candidates: int = 5,
                 perturbation_scale: float = 0.05,
                 varimax: Optional[bool] = None,
-                tol: float = 1e-4,
+                tol: float = DEFAULT_TOL,
                 patience: int = 10) -> Dict[str, Any]:
     """
     Flow-SiMR-V: a linear, NSA-Flow-projected first layer ``V_m`` per view

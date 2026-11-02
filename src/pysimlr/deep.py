@@ -5,7 +5,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Sequence, Union, Tuple, Callable
 import contextlib
 import warnings
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM, check_nsa_w
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM, DEFAULT_TOL, check_nsa_w
 class larslow(optim.Optimizer):
     """Layer-wise Adaptive Rate Scaling (LARS) optimizer for deep SiMLR."""
     def __init__(self, params, lr, weight_decay=1e-4, momentum=0.9, trust_coefficient=0.001):
@@ -1193,7 +1193,7 @@ def _update_first_layer_schedule(model, epoch: int, epochs: int, stabilization_s
     return {"basis_drift": 0.0, "projection_alpha": 1.0}
 
 
-def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=1e-6, patience=10, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, freeze_private_epochs: int = 0):
+def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=DEFAULT_TOL, patience=10, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, freeze_private_epochs: int = 0):
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     loss_history, recon_history, sim_history = [], [], []
     projection_alpha_history, basis_drift_history = [], []
@@ -1647,7 +1647,7 @@ _DEEP_COMMON_DOC = """
         Orthogonal Varimax at first-layer initialization only (see
         `pysimlr.simlr.resolve_varimax`). The trained basis is never rotated
         afterwards, because the nonlinear decoder is not O(k)-equivariant.
-    tol : float, default=1e-6
+    tol : float, default=DEFAULT_TOL (1e-4)
     patience : int, default=10
         Early-stopping rule (`utils.ConvergenceMonitor`).
 
@@ -1696,7 +1696,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iter
               domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
               n_candidates: int = 5, perturbation_scale: float = 0.05,
               varimax: Optional[bool] = None,
-              tol: float = 1e-6, patience: int = 10) -> Dict[str, Any]:
+              tol: float = DEFAULT_TOL, patience: int = 10) -> Dict[str, Any]:
     return _fit_first_layer_model("lend_simr", LENDSiMRModel, **locals())
 
 
@@ -1723,7 +1723,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, itera
              domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
              n_candidates: int = 5, perturbation_scale: float = 0.05,
              varimax: Optional[bool] = None,
-             tol: float = 1e-6, patience: int = 10) -> Dict[str, Any]:
+             tol: float = DEFAULT_TOL, patience: int = 10) -> Dict[str, Any]:
     return _fit_first_layer_model("ned_simr", NEDSiMRModel, **locals())
 
 
@@ -1746,7 +1746,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
                             mai_metric: str = "procrustes_r2",
                             private_orthogonality_weight: float = 0.05,
                             private_variance_weight: float = 0.10, device: Optional[str] = None,
-                            verbose: bool = False, tol: float = 1e-6, patience: int = 10,
+                            verbose: bool = False, tol: float = DEFAULT_TOL, patience: int = 10,
                             use_nsa: bool = True, first_layer_mode: str = "scheduled",
                             nsa_iterations: int = 1,
                             stabilization_start_epoch: Optional[int] = None,

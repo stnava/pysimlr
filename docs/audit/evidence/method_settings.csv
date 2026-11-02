@@ -1,6 +1,6 @@
 parameter,simlr,simlr_lbfgsb,lend,ned,ned_shared_private,flow_v
-iterations,100,100,150,150,150,150
-tol,1e-06,1e-06,1e-06,1e-06,1e-06,0.0001
+iterations,300,300,150,150,150,150
+tol,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001
 patience,None,None,10,10,10,10
 learning_rate,'auto',-,0.0005,0.0005,0.0005,0.0005
 optimizer_type,'hybrid_adam','nsa_lbfgsb' (preset),'adam','adam','adam','adam'
@@ -9,8 +9,7 @@ mixing_algorithm,'newton','newton','newton','newton','newton','newton'
 topology,'loo','loo','loo','loo','loo','loo'
 sparseness,0.5,0.5,0.5,0.5,0.5,0.5
 positivity,'either','either','either','either','either','either'
-constraint,'orthox0.5','orthox0.5',-,-,-,-
-nsa_w,None,None,0.5,0.5,0.5,0.5
+nsa_w,0.5,0.5,0.5,0.5,0.5,0.5
 collapse_weight,1.0,1.0,-,-,-,-
 batch_size,-,-,64,64,64,64
 warmup_epochs,-,-,None,None,None,None

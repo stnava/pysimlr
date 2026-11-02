@@ -12,7 +12,7 @@ from .utils import (adjusted_rvcoef, safe_svd, correlation_penalty, stationarity
 from .consensus import compute_shared_consensus
 from .defaults import (DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER,
                        DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM, DEFAULT_SIMLR_ITERATIONS,
-                       DEFAULT_SIMLR_TOL, check_nsa_w)
+                       DEFAULT_TOL, check_nsa_w)
 
 #: How the default NSA-Flow weight `DEFAULT_NSA_W` was chosen.
 #:
@@ -1255,7 +1255,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           dynamic_weights: bool = False,
           mai_metric: str = "procrustes_r2",
           use_rank_mai: bool = False,
-          tol: float = DEFAULT_SIMLR_TOL,
+          tol: float = DEFAULT_TOL,
           patience: Optional[int] = None,
           verbose: bool = False,
           **opt_params) -> Dict[str, Any]:
@@ -1444,7 +1444,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     scale_list : List[str], optional
         Preprocessing methods to apply to input data. ``None`` means
         ``["centerAndScale", "np"]``.
-    tol : float, default=DEFAULT_SIMLR_TOL (1e-4)
+    tol : float, default=DEFAULT_TOL (1e-4)
         Relative-improvement threshold of the energy plateau rule: the fit
         stops, converged (``certificate="energy_plateau"``), after `patience`
         sweeps that improve the best energy by less than `tol` relative. This

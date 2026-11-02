@@ -76,7 +76,7 @@ constraint, sparsity still applied). The remaining differences, from
 | setting | linear (`simlr`) | deep / flow | kind |
 |---|---|---|---|
 | budget `iterations` | 300 sweeps (`DEFAULT_SIMLR_ITERATIONS`) | 150 epochs | intrinsic unit |
-| `tol` | 1e-4 (`DEFAULT_SIMLR_TOL`) | 1e-6 deep, 1e-4 `flow_v` | deep value open (amigo A1) |
+| `tol` | 1e-4 (`DEFAULT_TOL`) | 1e-4 (`DEFAULT_TOL`) | one constant |
 | `learning_rate` | `"auto"` | 0.0005 | intrinsic (different optimizers) |
 | `optimizer_type` | `hybrid_adam` | `adam` | intrinsic |
 | `collapse_weight` | parameter (1.0) | fixed at 1.0 | open (D4) |
