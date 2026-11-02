@@ -160,47 +160,27 @@ def test_linear_and_deep_equal_view_weighting_parity():
 
 
 def test_view_energy_scale_calibrated_vs_candidate():
-    """Verify _view_energy_scale behavior under calibrated default vs candidate scale."""
-    import sys
-    from pysimlr.simlr import _view_energy_scale
-    simlr_mod = sys.modules["pysimlr.simlr"]
+    """Verify _view_energy_scale calibrated scale and normalizing_weights at init."""
+    from pysimlr.simlr import _view_energy_scale, calculate_simlr_energy
 
     torch.manual_seed(42)
     n, p, k = 50, 10, 2
     x = torch.randn(n, p)
     u = torch.randn(n, k)
-    sim_e = -0.42
+    assert _view_energy_scale("acc", x, u, -0.42) == 0.42
 
-    # Calibrated default returns abs(sim_e)
-    scale_cal = _view_energy_scale("acc", x, u, sim_e)
-    assert abs(scale_cal - 0.42) < 1e-6
+    views = [torch.randn(n, 12, dtype=torch.float32), torch.randn(n, 8, dtype=torch.float32)]
+    m = len(views)
+    res = simlr(views, k=k, iterations=0, energy_type="acc", topology="star",
+                scale_list=["none"], random_state=42)
+    u_init = res["u"]
+    v_init = res["v"]
+    weights = res["normalizing_weights"]
 
-    # Candidate scale formula: ||X||_2 * ||u||_F / (n - 1)
-    cand_scale_val = float((torch.linalg.norm(x, ord=2) * torch.linalg.norm(u, "fro") / (n - 1)).item())
-    assert cand_scale_val > 0.0
-    assert abs(cand_scale_val - scale_cal) > 1e-3  # Differ significantly
+    assert len(weights) == m
+    for idx in range(m):
+        e0_m = calculate_simlr_energy(v_init[idx], views[idx], u_init, "acc").item()
+        expected_w = 1.0 / (abs(e0_m) * m)
+        assert abs(weights[idx] - expected_w) < 1e-6
 
-    # View rescaling invariance of candidate scale
-    cand_scale_7x = float((torch.linalg.norm(7.0 * x, ord=2) * torch.linalg.norm(u, "fro") / (n - 1)).item())
-    assert abs(cand_scale_7x / cand_scale_val - 7.0) < 1e-4
-
-    # Fit under calibrated default vs candidate patched
-    views = [torch.randn(n, 12), torch.randn(n, 8)]
-    res_cal = simlr(views, k=k, iterations=5, energy_type="acc", random_state=42)
-    w_cal = res_cal["normalizing_weights"]
-
-    orig_scale_fn = simlr_mod._view_energy_scale
-    try:
-        def candidate_patch(energy_type, x_m, u_m, s_e):
-            if energy_type == "acc":
-                return float((torch.linalg.norm(x_m, ord=2) * torch.linalg.norm(u_m, "fro") / (x_m.shape[0] - 1)).item())
-            return orig_scale_fn(energy_type, x_m, u_m, s_e)
-
-        simlr_mod._view_energy_scale = candidate_patch
-        res_cand = simlr(views, k=k, iterations=5, energy_type="acc", random_state=42)
-        w_cand = res_cand["normalizing_weights"]
-    finally:
-        simlr_mod._view_energy_scale = orig_scale_fn
-
-    assert not np.allclose(w_cal, w_cand, rtol=1e-3, atol=1e-3)
 

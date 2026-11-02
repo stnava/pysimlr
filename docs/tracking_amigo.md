@@ -45,7 +45,7 @@ item that is in progress or on hold.
 | `acd08fe` | Equal weights for scale-free view energies. |
 | `eabab15` | Re-measure after equal view weights. |
 | `708c9c6` | View-weighting remediation (R1 at default budget). |
-| (next) | Keep `acc` view scale under Decision Rule R9 (WP-1b). |
+| `394144c` | Keep `acc` view scale under Decision Rule R9 (WP-1b). |
 
 ## Why: feature identifiability (measured)
 
@@ -177,8 +177,7 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   Collapse-penalty finding: before this change, the collapse penalty was effectively off
   wherever calibrated weights were large (similarity term scaled by up to ~2000x); with equal
   weights, the penalty is effectively on for the first time. The narrow fixture under equal
-  weights has cw=0 R² 0.608 vs 0.348 (with cw=1 R² 0.962 vs 0.937). This finding carries
-  directly into WP-2 / D2.
+  weights has R² 0.608 (cw=0) against 0.962 (cw=1), both fits unconverged (`no_descent` at sweep 5); see D2/WP-2.
 - **A11. `acc` view scale (Decision Rule R9, WP-1b).** Evaluated candidate operator-norm scale
   $(\|X_m\|_2 \|u\|_F) / (n - 1)$ against $|E_0|$ calibration for non-scale-free energy `acc`
   (evidence: `docs/audit/evidence/view_weighting_acc.csv`).

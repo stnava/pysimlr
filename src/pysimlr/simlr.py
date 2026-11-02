@@ -1072,6 +1072,9 @@ def _view_energy_scale(energy_type: str, x: torch.Tensor, u: torch.Tensor,
                        sim_e: Union[float, torch.Tensor]) -> float:
     """Evaluate characteristic view energy scale for similarity normalization.
 
+    Its `energy_type`, `x` and `u` parameters are unused by the default and exist so that
+    `scripts/view_weighting_selection.py` can substitute the R9 candidate.
+
     Parameters
     ----------
     energy_type : str

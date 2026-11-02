@@ -148,14 +148,9 @@ equal weight `1/M` across the `M` views (`res["normalizing_weights"] == [1/M]*M`
 arbitrary initialization-dependent view weight spreads (previously 1.05–279× on synthetic default
 fits, up to ~3200× in WP-1 cells, and 70× on ADNI positive, which could cause total energy to fall
 below -1) and aligns linear SiMLR with deep models which sum view terms unweighted. For
-`energy_type="nc"`, total energy is bounded below: `min(res["energy"]) >= -1 - 1e-6`. Non-scale-free
-energies (such as `acc` and `recon`) calibrate weights relative to initial empirical energy `|E0|`
-(computed via `_view_energy_scale`). Under Decision Rule R9, a candidate operator-norm scale
-`(\|X_m\|_2 \|u\|_F) / (n - 1)` for `acc` was evaluated against `|E0|` calibration across synthetic
-benchmarks and ADNI held-out data; while invariant to view rescaling, the candidate scale failed
-five representation guards on the WP-1R metric set (e.g. latent $R^2$ loss > 0.05 and loadings support
-F1 loss > 0.10 relative to calibrated weights), so `|E0|` calibration is retained.
-
+`energy_type="nc"`, total energy is bounded below: `min(res["energy"]) >= -1 - 1e-6`.
+`acc` and `recon` weight each view by 1/(|E0|·M), where E0 is the view's energy at the start of
+the fit, so their relative view weights depend on the initialization.
 
 ### Prediction does not depend on the batch
 
