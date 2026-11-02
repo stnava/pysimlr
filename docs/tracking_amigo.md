@@ -22,6 +22,12 @@ item that is in progress or on hold.
 5. Interpretation uses two-stage loadings computed from `U`, for every method. The encoder `V`
    is the scoring rule.
 
+6. `nsa_w = 1` must never be run (known unstable); `MAX_NSA_W = 0.99`, enforced at every entry
+   point.
+7. One plateau tolerance for every method, `DEFAULT_TOL = 1e-4` (A1, measured).
+8. ADNI: k = 3, with per-component stability shown. `select_rank` chooses k by stability in
+   general.
+
 ## Commits
 
 | commit | scope |
@@ -31,6 +37,10 @@ item that is in progress or on hold.
 | `d3e5590` | Defect penalty removed; `DEFAULT_SIMLR_TOL = 1e-4`, `DEFAULT_SIMLR_ITERATIONS = 300`. |
 | `5c77d60` | Benchmark scores both the encoder (`*_v`) and the loadings (`*_loadings`); `lobe_crosstalk` removed. |
 | `792e9a6` | Stability-selection `q` chosen from the error bound; amigo evaluation script and evidence. |
+| `c18384a` | This document, `docs/amigo_report.html`, contract docs. |
+| `9f2a5d4` | `nsa_w > 0.99` rejected everywhere; tests moved from 1.0 to 0.99. |
+| `5cc49d8` | `DEFAULT_TOL = 1e-4` for every method; `scripts/deep_tol_selection.py`. |
+| (next) | `pysimlr.select_rank`; `scripts/adni_rank_selection.py`. |
 
 ## Why: feature identifiability (measured)
 
@@ -105,8 +115,9 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
 
 ## Open items, owner decisions
 
-- **A1. Deep/flow `tol`.** `lend`, `ned` and `ned_shared_private` stop at 1e-6, `flow_v` at 1e-4.
-  Measure the deep fixtures at 1e-4 before unifying; `docs/api_contract.md` lists the difference.
+- **A1. Done.** Deep fits at 1e-6 and 1e-4 are identical: 36 fits, same epochs and R². The
+  per-epoch loss moves by about 1e-3 from minibatch noise.
+  Evidence: `docs/audit/evidence/deep_tol_selection.csv`.
 - **A2. Paper.** Several parts read objects or columns that changed:
   - `paper/appendix_flow_simr_v.qmd:235-278` reports "Signed Lobe Crosstalk" (`Lobe_Crosstalk`,
     identically 0) and `Frame_Defect_D` of `V`.
@@ -125,8 +136,18 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
     0.9783 → 0.8131 on one fixture.
 
   Decide per test: accept and re-baseline, or act. The second also bears on A7.
-- **A4. ADNI rank.** k = 3 has one unidentified component. Choose k = 2, or keep k = 3 and report
-  per-component stability next to each map. The eigengap has not been checked.
+- **A4. ADNI rank. Owner decision: k = 3, with per-component stability shown.**
+  `select_rank`, 20 half-sample refits per k (`docs/audit/evidence/adni_rank_selection.csv`):
+
+  | sign mode | k = 2 | k = 3 | k = 4 | k = 5 |
+  |---|---|---|---|---|
+  | positive | 0.965 / 0.996 | 0.953 / 0.791 / 0.996 | min 0.674 | min 0.724 |
+  | signed | 0.993 / 0.771 | 0.837 / 0.994 / 0.417 | min 0.593 | min 0.481 |
+
+  By the 0.9 rule the data identify k = 2 under positivity and no k when signed. At k = 3 the
+  paper should show the 0.79 (positive) and 0.42 (signed) components as not identified. On the
+  planted linear case (k = 3), `select_rank` recovers 3 on two seeds: k = 4 adds a component at
+  0.66-0.69, and k = 2 merges two components (one at 0.891).
 - **A5. Signed displays.** The polar summary is dense. Decide whether signed figures show
   `structure` with intervals, or only stability-selected features.
 - **A6. Ridge `nc` (λ ≈ 0.5)** as an optional fit setting that makes `V` itself identified. It

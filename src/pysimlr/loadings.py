@@ -255,3 +255,36 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
             null.append(max(float(c.abs().max()) for c in r["structure"]))
         out["null_max_abs"] = float(np.percentile(null, 95))
     return out
+
+
+def select_rank(method: str, views: Any, ks: Sequence[int], *, n_subsamples: int = 20,
+                fraction: float = 0.5, min_stability: float = 0.9, random_state: int = 0,
+                **params: Any) -> Dict[str, Any]:
+    """Choose ``k`` by component stability under whole-pipeline refits.
+
+    For every ``k`` in ``ks``, `loading_inference` refits ``method`` on
+    ``n_subsamples`` random ``fraction``-subsamples and measures, per
+    component, the median over refits of the correlation between the refit's
+    aligned structure column and the reference fit's (median over views). A
+    component that the data identify comes back the same in every refit; one
+    that the data do not identify rotates with the subsample. This is
+    stability-based model selection (Ben-Hur et al. 2002; Lange et al. 2004)
+    applied to the latent components.
+
+    Returns
+    -------
+    dict
+        ``k``: the largest candidate whose every component has stability
+        >= ``min_stability``, or ``None`` if no candidate does; ``table``: one
+        row per candidate with ``k``, ``component_stability`` (length k),
+        ``min_stability`` and ``all_stable``.
+    """
+    rows = []
+    for k in sorted(int(x) for x in ks):
+        inf = loading_inference(method, views, k, n_subsamples=n_subsamples, fraction=fraction,
+                                random_state=random_state, **params)
+        cs = np.nanmedian(np.asarray(inf["component_stability"], float), axis=0)
+        rows.append({"k": k, "component_stability": [float(x) for x in cs],
+                     "min_stability": float(np.min(cs)), "all_stable": bool(np.all(cs >= min_stability))})
+    stable = [r["k"] for r in rows if r["all_stable"]]
+    return {"k": max(stable) if stable else None, "table": rows}

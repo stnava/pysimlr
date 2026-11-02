@@ -143,6 +143,7 @@ from .api import (
 from .loadings import (
     loadings,
     loading_inference,
+    select_rank,
     structure_coefficients,
     olee_loadings,
 )
@@ -178,6 +179,7 @@ __all__ = [
     'predict_simlr',
     'loadings',
     'loading_inference',
+    'select_rank',
     'structure_coefficients',
     'olee_loadings',
     'predict_shared_latent',

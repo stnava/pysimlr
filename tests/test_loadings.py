@@ -169,3 +169,22 @@ def test_loading_inference_reports_intervals_stability_and_selection():
 def test_loading_inference_rejects_a_threshold_without_an_error_bound():
     with pytest.raises(ValueError, match="threshold"):
         pysimlr.loading_inference("simlr", _small(), 2, threshold=0.5)
+
+
+def test_select_rank_reports_per_component_stability():
+    out = pysimlr.select_rank("simlr", _small(n=80), [1, 2], n_subsamples=3, iterations=5, random_state=0)
+    assert [r["k"] for r in out["table"]] == [1, 2]
+    for r in out["table"]:
+        assert len(r["component_stability"]) == r["k"]
+        assert r["all_stable"] == (r["min_stability"] >= 0.9)
+    assert out["k"] in (None, 1, 2)
+
+
+@pytest.mark.slow
+def test_select_rank_recovers_a_planted_rank():
+    """Planted linear case with k = 3 (seed 0): measured component stability
+    k=2 [0.996, 0.891], k=3 [0.998, 0.997, 0.997], k=4 [.., 0.66, ..],
+    k=5 [.., 0.717, .., 0.347] with 10 half-sample refits."""
+    views, k_true = _planted(0)
+    out = pysimlr.select_rank("simlr", views, [2, 3, 4], n_subsamples=10, random_state=0)
+    assert k_true == 3 and out["k"] == 3
