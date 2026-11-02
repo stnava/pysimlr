@@ -10,7 +10,6 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import torch
 import numpy as np
-import pandas as pd
 from pysimlr.benchmarks.runner import run_single_experiment
 from pysimlr.benchmarks.synthetic_cases import build_case
 from pysimlr.utils import procrustes_r2
@@ -19,6 +18,15 @@ import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import csv
 import traceback
+
+
+def _energies_for(model_type, energies):
+    """The sweep's energies for one method: the reconstruction term is
+    "recon_r2" on the linear path and "align" (latent agreement) on deep and
+    flow models -- one name, "regression", used to mean both."""
+    from pysimlr.api import METHODS
+    rec = "recon_r2" if METHODS[model_type].family in ("linear", "baseline") else "align"
+    return [rec if e == "reconstruction" else e for e in energies]
 
 # Ensure src is in path
 sys.path.append(os.path.join(os.getcwd(), "src"))
@@ -50,7 +58,7 @@ def run_experiment_task(task_args):
         "sparseness": 0.5,
         "nsa_iterations": 3
     }
-    if model_type == "shared_private" and "private_k" in case: 
+    if model_type == "ned_shared_private" and "private_k" in case: 
         params["private_k"] = case["private_k"]
     
     # Run the experiment. Uncaught exceptions here will be passed to future.result()
@@ -92,15 +100,15 @@ def run_unified_benchmark(version="v22", n_seeds=5, iterations=50, epochs=150, u
     # report it. In v21 its 160 rows per cache were produced by a runner that
     # was never committed, so those numbers could not be regenerated from the
     # repository; `run_single_experiment` has supported "flow_v" all along.
-    model_configs = [("linear", "SiMLR"), ("lend", "LEND"), ("ned", "NED"),
-                     ("shared_private", "NEDPP"), ("flow_v", "Flow-SiMLR-V")]
-    losses = ["regression", "acc", "logcosh", "nc"]
+    model_configs = [("simlr", "SiMLR"), ("lend", "LEND"), ("ned", "NED"),
+                     ("ned_shared_private", "NEDPP"), ("flow_v", "Flow-SiMLR-V")]
+    losses = ["reconstruction", "acc", "logcosh", "nc"]
     mixing_methods = ["newton", "svd", "pca", "ica"]
     
     tasks = []
     for regime_name, case_params in regimes:
         for model_type, model_label in model_configs:
-            for energy_type in losses:
+            for energy_type in _energies_for(model_type, losses):
                 for mixing_algorithm in mixing_methods:
                     for seed in range(42, 42 + n_seeds):
                         tasks.append((regime_name, case_params, model_type, model_label, seed, energy_type, mixing_algorithm, iterations, epochs, use_nsa))

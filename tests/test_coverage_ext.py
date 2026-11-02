@@ -9,20 +9,13 @@ from pysimlr import (
     simlr,
     lend_simr,
     ned_simr,
-    ned_simr_shared_private,
-    deep_simr,
     create_optimizer,
     simlr_sparseness,
-    orthogonalize_and_q_sparsify,
     simlr_perm,
     decompose_energy,
     ba_svd,
     safe_pca,
-    whiten_matrix,
     multiscale_svd,
-    adjusted_rvcoef,
-    optimize_indicator_matrix,
-    rank_based_matrix_segmentation,
     nnh_embed
 )
 
@@ -38,9 +31,9 @@ def test_optimizer_coverage():
         assert v_next.shape == (5, 2)
 
 def test_sparsification_coverage():
-    from pysimlr.sparsification import (optimize_indicator_matrix, 
-                                        rank_based_matrix_segmentation,
-                                        project_to_partially_orthonormal_nonnegative)
+    from pysimlr.sparsification import (optimize_indicator_matrix,
+    rank_based_matrix_segmentation,
+    project_to_partially_orthonormal_nonnegative)
     v = torch.randn(10, 3)
     assert simlr_sparseness(v, sparseness_alg='soft', sparseness=0.5).shape == (10, 3)
     assert torch.all(simlr_sparseness(v, sparseness_alg='nnorth', positivity='positive') >= -1e-6)
@@ -58,14 +51,14 @@ def test_simlr_energy_types():
     # the primary energy without a `prior_matrix`, so `energy_type="dat"`
     # evaluated to a constant 0 with a zero gradient and optimised nothing.
     # It is exercised below in the role it actually has.
-    for e in ["regression", "acc", "logcosh", "exp", "nc", "gauss", "kurtosis"]:
+    for e in ["recon_r2", "acc", "logcosh", "exp", "nc", "kurtosis"]:
         assert 'u' in simlr([x1, x2], k=2, iterations=2, energy_type=e, verbose=True)
 
 
 def test_simlr_domain_term_runs_alongside_a_real_objective():
     x1, x2 = torch.randn(50, 10), torch.randn(50, 8)
     dm = [torch.randn(2, 10), torch.randn(2, 8)]
-    res = simlr([x1, x2], k=2, iterations=2, energy_type="regression",
+    res = simlr([x1, x2], k=2, iterations=2, energy_type="recon_r2",
                 domain_matrices=dm, domain_lambdas=0.1)
     assert 'u' in res
 
@@ -91,7 +84,7 @@ def test_deep_extra():
     x1, x2 = torch.randn(50, 10), torch.randn(50, 8)
     # Test different energy types in deep models
     for e in ["acc", "logcosh"]:
-        assert 'u' in deep_simr([x1, x2], k=2, iterations=2, energy_type=e, warmup_epochs=0)
+        assert 'u' in lend_simr([x1, x2], k=2, iterations=2, energy_type=e, warmup_epochs=0)
     # Test ICA mixing in deep models
     assert 'u' in lend_simr([x1, x2], k=2, iterations=2, mixing_algorithm="ica", warmup_epochs=0)
 
@@ -110,10 +103,14 @@ def test_svd_extra():
     assert torch.all(safe_pca(x_flat, nc=2)['u'] == 0)
 
 def test_visualization_coverage():
-    from pysimlr.visualization import (plot_energy, plot_latent_2d, plot_v_matrix, 
-                                       plot_lend_simr_architecture, plot_ned_simr_architecture,
-                                       plot_ned_shared_private_architecture, plot_flow_simr_architecture,
-                                       generate_all_architecture_graphs)
+    from pysimlr.visualization import (plot_energy,
+    plot_latent_2d,
+    plot_v_matrix,
+    plot_lend_simr_architecture,
+    plot_ned_simr_architecture,
+    plot_ned_shared_private_architecture,
+    plot_flow_simr_architecture,
+    generate_all_architecture_graphs)
     assert plot_energy([1.0, 0.5]) is not None
     assert plot_latent_2d(torch.randn(10, 2)) is not None
     assert plot_v_matrix(torch.randn(5, 2)) is not None
@@ -129,7 +126,7 @@ def test_visualization_coverage():
     shutil.rmtree(test_dir)
 
 def test_utils_extra():
-    from pysimlr.utils import rvcoef, adjusted_rvcoef, map_asym_var, map_lr_average_var, l1_normalize_features
+    from pysimlr.utils import rvcoef, map_asym_var, map_lr_average_var, l1_normalize_features
     assert isinstance(rvcoef(torch.randn(10, 20), torch.randn(10, 20)), float)
     df = pd.DataFrame({'left_vol': [1, 2], 'right_vol': [1.1, 1.9]})
     assert 'Asym_vol' in map_asym_var(df, ['left_vol']).columns
@@ -139,12 +136,12 @@ def test_utils_extra():
     assert torch.allclose(torch.sum(torch.abs(v_norm), dim=0), torch.ones(2))
 
 def test_utils_extra_coverage_more():
-    from pysimlr.utils import (multigrep, get_names_from_dataframe, 
-                               rvcoef_components, orthogonality_summary,
-                               gradient_invariant_orthogonality_defect,
-                               mean_orthogonality_defect,
-                               gradient_mean_orthogonality_defect,
-                               preprocess_data)
+    from pysimlr.utils import (multigrep,
+    get_names_from_dataframe,
+    rvcoef_components,
+    orthogonality_summary,
+    gradient_mean_orthogonality_defect,
+    preprocess_data)
     # multigrep
     assert multigrep(["a"], ["a", "b"]).tolist() == [0]
     # get_names_from_dataframe
@@ -158,8 +155,6 @@ def test_utils_extra_coverage_more():
     assert "mean_defect" in sum_res
     # gradients
     v = torch.randn(10, 5)
-    g1 = gradient_invariant_orthogonality_defect(v)
-    assert g1.shape == v.shape
     g2 = gradient_mean_orthogonality_defect(v)
     assert g2.shape == v.shape
     

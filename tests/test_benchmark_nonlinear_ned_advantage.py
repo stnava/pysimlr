@@ -1,6 +1,4 @@
 import pytest
-import torch
-import numpy as np
 from scripts.benchmark_nonlinear_noise_simlr_vs_ned import run_ned_vs_simlr_benchmark
 
 

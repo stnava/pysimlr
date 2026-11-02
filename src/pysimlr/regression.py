@@ -1,9 +1,9 @@
 import torch
 import numpy as np
-from typing import Optional, Union, Dict, Any, Tuple, List
+from typing import Optional, Union, Dict, Any
 from .utils import safe_svd
 from .nsa_backend import load_nsa_estimator
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
+from .defaults import DEFAULT_NSA_W
 
 def smooth_matrix_prediction(x: Union[torch.Tensor, np.ndarray],
                             y: Union[torch.Tensor, np.ndarray],
@@ -63,7 +63,6 @@ def smooth_matrix_prediction(x: Union[torch.Tensor, np.ndarray],
 
 def smooth_regression(x: Union[torch.Tensor, np.ndarray],
                       y: Union[torch.Tensor, np.ndarray],
-                      iterations: int = 10,
                       nv: Optional[int] = None,
                       alpha: float = 1e-4,
                       **kwargs) -> Dict[str, torch.Tensor]:
@@ -81,10 +80,6 @@ def smooth_regression(x: Union[torch.Tensor, np.ndarray],
         The input (predictor) matrix (samples x features_x).
     y : torch.Tensor or np.ndarray
         The output (target) matrix (samples x features_y).
-    iterations : int, default=10
-        Unused. The ridge solution is computed in closed form from a single SVD,
-        so there is nothing to iterate; the argument is retained only for
-        backwards compatibility.
     nv : int, optional
         Number of principal components to keep. Defaults to all.
     alpha : float, default=1e-4
@@ -99,10 +94,7 @@ def smooth_regression(x: Union[torch.Tensor, np.ndarray],
         - "u": Projected scores of the predictor matrix.
         - "v": Feature loadings (rotation matrix).
         - "coef": Regression coefficients (mapping X -> Y).
-        - "coefficients": Alias for coef.
-        - "beta": Alias for coef.
         - "y_pred": Predicted target matrix.
-        - "pred": Alias for y_pred.
         - "projection": Projection weight matrix.
         - "s": Retained singular values.
 
@@ -130,7 +122,7 @@ def smooth_regression(x: Union[torch.Tensor, np.ndarray],
         raise ValueError(f"Sample count mismatch: x has {x.shape[0]} samples, y has {y_2d.shape[0]} samples")
         
     n, p = x.shape
-    q = y_2d.shape[1]
+    y_2d.shape[1]
     
     u, s, vh = safe_svd(x, full_matrices=False)
     
@@ -152,10 +144,7 @@ def smooth_regression(x: Union[torch.Tensor, np.ndarray],
         "u": u_k,
         "v": v_k,
         "coef": w_out,
-        "coefficients": w_out,
-        "beta": w_out,
         "y_pred": y_pred,
-        "pred": y_pred,
         "projection": w,
         "s": s_k
     }

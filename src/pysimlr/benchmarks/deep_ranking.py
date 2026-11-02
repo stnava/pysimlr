@@ -11,7 +11,7 @@ Demšar (2006) and statistical best practices.
 from __future__ import annotations
 
 import itertools
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -308,7 +308,7 @@ def pairwise_wilcoxon_holm(
          'P_Wilcoxon_Raw', 'P_Wilcoxon_Holm', 'P_Permutation', 'Significant']
     """
     models = sorted(df[model_col].dropna().unique())
-    n_models = len(models)
+    len(models)
     records = []
 
     # Pivot to align paired evaluations
@@ -528,71 +528,3 @@ def compute_pareto_frontier(
     summary["is_pareto_optimal"] = is_pareto
     return summary
 
-
-def rank_effect_size(
-    df: pd.DataFrame,
-    metric_col: str,
-    model_col: str = "Model",
-    dataset_col: str = "Dataset",
-    seed_col: str = "Seed",
-) -> Dict[str, object]:
-    r"""
-    Compare the between-model spread of a metric to its seed-to-seed noise.
-
-    A Friedman test asks whether an ordering is *consistent*, not whether it is
-    *large*. With eight models and eight datasets, differences far below the
-    replicate noise still reach ``p < 0.05`` when they happen to fall the same
-    way -- the test is behaving correctly and the ranking is still meaningless.
-
-    This is not hypothetical. Ranking this suite on ``Axis_Sensitive_Metric``
-    gave a clean-looking ordering at ``p = 0.016``, while the spread across all
-    eight models was at or below the seed noise in every regime (median ratio
-    1.23, and 0.10 on ``NonnegParts``, where the eight models sat inside
-    0.0035 of one another against a seed standard deviation of 0.034). Any
-    metric used for a headline ranking should be required to clear this
-    diagnostic first.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Long-format results.
-    metric_col : str
-        Metric to characterise.
-    model_col, dataset_col, seed_col : str
-        Column names.
-
-    Returns
-    -------
-    Dict[str, object]
-        ``per_dataset`` (a frame of spread, noise and their ratio),
-        ``median_ratio``, ``max_ratio`` and ``resolvable`` -- ``False`` when
-        the median ratio is below 2, i.e. the typical gap between the best and
-        worst model is smaller than twice the noise on a single measurement.
-    """
-    means = df.pivot_table(index=dataset_col, columns=model_col, values=metric_col)
-    sds = df.groupby([dataset_col, model_col])[metric_col].std()
-
-    records = []
-    for ds in means.index:
-        row = means.loc[ds]
-        if row.isna().all():
-            continue
-        spread = float(row.max() - row.min())
-        noise = float(sds.loc[ds].mean())
-        if not np.isfinite(spread) or not np.isfinite(noise) or noise <= 0:
-            continue
-        records.append({"Dataset": ds, "spread": spread, "noise": noise,
-                        "ratio": spread / noise})
-
-    if not records:
-        return {"per_dataset": pd.DataFrame(), "median_ratio": float("nan"),
-                "max_ratio": float("nan"), "resolvable": False}
-
-    per_dataset = pd.DataFrame(records).set_index("Dataset")
-    median_ratio = float(per_dataset["ratio"].median())
-    return {
-        "per_dataset": per_dataset,
-        "median_ratio": median_ratio,
-        "max_ratio": float(per_dataset["ratio"].max()),
-        "resolvable": bool(median_ratio >= 2.0),
-    }

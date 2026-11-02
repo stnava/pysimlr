@@ -6,7 +6,6 @@ squared every retained entry and discarded its sign. `rank_based_matrix_segmenta
 dropped its `positivity`/`transpose`/`quantile` arguments on the non-basic path,
 and treated "positive" and "negative" identically on the basic path.
 """
-import numpy as np
 import pytest
 import torch
 

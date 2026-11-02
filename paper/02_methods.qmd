@@ -16,7 +16,7 @@ To maintain consistent notation across neuroimaging, multi-omics, and statistica
 
 : Mathematical notation for the SiMR multi-view representation framework. {#tbl-notation}
 
-## Unified Multi-View Objective and the Nine Benchmark Architectures
+## Unified Multi-View Objective and the Benchmark Architectures
 
 Let $\{\mathbf{X}_m \in \mathbb{R}^{N \times p_m}\}_{m=1}^M$ denote $M$ data modalities acquired on the same $N$ subjects during training. Every architecture within the SiMR family maps each view $m$ into a $k$-dimensional latent space exclusively through the linear entrypoint $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ while optimizing a composite objective combining cross-modal alignment $\mathcal{L}_{\text{align}}$, within-view geometric or reconstruction preservation $\mathcal{L}_{\text{within}}$, and manifold regularization $\mathcal{R}(\mathbf{V}_m)$:
 
@@ -24,7 +24,7 @@ $$
 \min_{\{\mathbf{V}_m\}_{m=1}^M, \, \Theta} \; \sum_{m=1}^M \mathcal{L}_{\text{within}}(\mathbf{X}_m, \mathbf{V}_m; \Theta) + \lambda_{\text{align}} \, \mathcal{L}_{\text{align}}\!\left(\{\mathbf{X}_m \mathbf{V}_m\}_{m=1}^M; \Theta\right) + \sum_{m=1}^M \mathcal{R}(\mathbf{V}_m)
 $$ {#eq-unified-simr}
 
-Here $\Theta$ denotes architecture-specific alignment parameters: the shared orthonormal subject basis $\mathbf{U} \in \operatorname{St}(N, k)$ in `SiMLR` [@avants2021], the non-linear decoder weights $\{\phi_m\}$ in `LEND`, or the invertible coupling network parameters $\{\psi_m\}$ in `Flow-SiMR-V` [@dinh2016density]. To evaluate which mathematical components drive predictive performance and biological localization, we compare nine architectures spanning classical linear factorizations, deep multi-modal encoders, and the SiMR family (@tbl-nine-models).
+Here $\Theta$ denotes architecture-specific alignment parameters: the shared orthonormal subject basis $\mathbf{U} \in \operatorname{St}(N, k)$ in `SiMLR` [@avants2021], the non-linear decoder weights $\{\phi_m\}$ in `LEND`, or the invertible coupling network parameters $\{\psi_m\}$ in `Flow-SiMR-V` [@dinh2016density]. To evaluate which mathematical components drive predictive performance and biological localization, we compare architectures spanning classical linear factorizations, deep multi-modal encoders, and the SiMR family (@tbl-nine-models).
 
 | Architecture | Input Projection $\mathbf{V}_m$ | Cross-Modal Alignment Mechanism | Sparsity & Orthogonality Control | Exact Linear Entrypoint? |
 |:---|:---|:---|:---|:---|
@@ -38,7 +38,7 @@ Here $\Theta$ denotes architecture-specific alignment parameters: the shared ort
 | **LEND** | Sparse $\mathbf{V}_m \in \mathbb{R}_{\ge 0}^{p_m \times k}$ | Non-linear MLP decoders $g_{\phi_m}(\mathbf{U}) \to \mathbf{X}_m$ | `nsa_flow` ($w=0.5$) on linear encoder $\mathbf{V}_m$ | Yes (Sparse $\ge 0$) |
 | **Flow-SiMR-V** | Sparse $\mathbf{V}_m \in \mathbb{R}_{\ge 0}^{p_m \times k}$ | Invertible RealNVP flows $f_{\psi_m}(\mathbf{X}_m \mathbf{V}_m) \leftrightarrow \mathcal{N}(\mathbf{0}, \mathbf{I}_k)$ | `nsa_flow` ($w=0.5$, $q=0.5$) + detached flow prior | Yes (Sparse $\ge 0$) |
 
-: The nine multi-modal integration architectures evaluated across all twelve benchmarks. {#tbl-nine-models}
+: Multi-modal integration architectures: the benchmarked SiMR family and the reference methods it is compared with. {#tbl-nine-models}
 
 ```{python}
 #| label: fig-simr-architecture-flow
@@ -128,7 +128,7 @@ Minimizing $D(\mathbf{V}_m)$ therefore prevents both duplicate factors ($G_{lr} 
 
 Holding the linear entrypoint $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ fixed, SiMR provides three alignment topologies tailored to different cross-modal relationships:
 
-1. **Linear Consensus Alignment (`SiMLR`)**: Alternates between updating $\mathbf{V}_m$ via cross-modal covariance projection $\mathbf{V}_{m,0} = \mathbf{X}_m^\top \mathbf{S}_m \mathbf{U}$ followed by `nsa_flow` polish (`L-BFGS-B` [@byrd1995limited; @nocedal2006] or Lookahead [@zhang2019lookahead]), and updating the shared subject basis $\mathbf{U} = \operatorname{polar}\!\left(\sum_{m=1}^M \tilde{\mathbf{Z}}_m\right)$ via exact Sylvester-differentiable polar decomposition [@higham2008functions; @avants2021].
+1. **Linear Consensus Alignment (`SiMLR`)**: Alternates between updating $\mathbf{V}_m$ via cross-modal covariance projection $\mathbf{V}_{m,0} = \mathbf{X}_m^\top \mathbf{S}_m \mathbf{U}$ followed by `nsa_flow` polish (`L-BFGS-B` [@byrd1995limited; @nocedal2006] or Lookahead [@zhang2019lookahead]), and updating the shared subject basis $\mathbf{U} = \operatorname{polar}\!\left(\sum_{m=1}^M \tilde{\mathbf{Z}}_m\right)$ via exact Sylvester-differentiable polar decomposition [@higham2008functions; @avants2021]. In this and every other method, view $m$ is trained against the leave-one-out consensus $\mathbf{U}_{-m}$ of the other views (`topology="loo"`, the package default), so a view's private variance cannot raise its own objective; the reported $\mathbf{U}$ and all out-of-sample projections use the consensus of all views. On a generator whose per-view leading directions are private, the leave-one-out iteration improves latent recovery over its PCA start while the all-view (`"star"`) iteration does not (`scripts/experiment_iteration_vs_init.py`).
 2. **Linear Entrypoint with Non-Linear Decoders (`LEND`)**: Replaces the linear reconstruction model with modality-specific multilayer perceptron decoders $g_{\phi_m} : \mathbb{R}^k \to \mathbb{R}^{p_m}$ trained to reconstruct $\mathbf{X}_m$ from $\mathbf{U}$ while penalizing encoder-consensus divergence $\gamma \|\mathbf{X}_m \mathbf{V}_m - \mathbf{U}\|_F^2$. Because non-linearity is restricted to the generative decoders $g_{\phi_m}$, out-of-sample inference $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_{m,\text{test}} \mathbf{V}_m$ remains strictly linear and auditable.
 3. **Detached-Prior Normalizing Flows (`Flow-SiMR-V`)**: Routes each linear projection $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ through a volume-preserving RealNVP flow $f_{\psi_m} : \mathbb{R}^k \to \mathbb{R}^k$ [@dinh2016density; @papamakarios2021] toward an isotropic Gaussian prior. To prevent the single-modality density term from pulling $\mathbf{V}_m$ toward high-variance noise directions, gradients from the Gaussian prior are detached before reaching $\mathbf{V}_m$ (proved in Appendix C), ensuring that $\mathbf{V}_m$ updates exclusively along cross-modal flow agreement:
 

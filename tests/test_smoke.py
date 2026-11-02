@@ -1,4 +1,3 @@
-import pysimlr
 
 def test_import():
     try:

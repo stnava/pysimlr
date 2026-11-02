@@ -2,7 +2,6 @@
 Unit tests for pysimlr.structural: create_path_graph and fit_structural_models.
 Addresses Feature 14 in PROJECT.md (Milestone 3).
 """
-import pytest
 import torch
 import numpy as np
 from pysimlr.structural import create_path_graph, fit_structural_models

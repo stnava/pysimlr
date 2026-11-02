@@ -14,7 +14,6 @@ Defects covered:
 """
 import warnings
 
-import numpy as np
 import pytest
 import torch
 
@@ -29,7 +28,7 @@ from pysimlr.utils import procrustes_r2
 ALL_OPTIMIZERS = [
     "hybrid_adam", "adam", "nadam", "rmsprop", "gd", "armijo_gradient",
     "bidirectional_armijo_gradient", "lookahead", "bidirectional_lookahead",
-    "nsa_flow", "torch_adamw", "torch_adagrad", "torch_nadam",
+    "torch_adamw", "torch_adagrad", "torch_nadam",
     "lars",
 ]
 
@@ -43,7 +42,6 @@ ALL_OPTIMIZERS = [
     ("lookahead", "alpha", 0.75),
     ("adam", "beta1", 0.5),
     ("adam", "learning_rate", 0.123),
-    ("nsa_flow", "nsa_w", 0.42),
 ])
 def test_hyperparameters_reach_the_optimizer(opt, key, value):
     o = create_optimizer(opt, [torch.randn(8, 3)], **{key: value})
@@ -59,7 +57,7 @@ def test_lookahead_uses_the_supplied_period_and_interpolation():
 
 def test_defaults_cover_every_key_the_optimizers_read():
     for key in ("learning_rate", "beta1", "beta2", "rmsprop_beta", "epsilon",
-                "weight_decay", "amsgrad", "momentum", "nsa_w", "decay_rate",
+                "weight_decay", "amsgrad", "momentum", "decay_rate",
                 "lookahead_k", "alpha", "lbfgsb_tol"):
         assert key in SIMLR_OPTIMIZER_DEFAULTS, key
 
@@ -197,7 +195,7 @@ def test_larslow_trust_ratio_fallback_is_scaled():
     ("NewtonSchulz", "NewtonSchulz", 1.0),
     ("none", "none", 0.0),
     ("orthox0", "ortho", 0.0),
-    ("orthox0.5x3", "ortho", 0.5),
+    ("orthox0.5", "ortho", 0.5),
 ])
 def test_constraint_defaults(spec, expected_type, expected_weight):
     from pysimlr.simlr import parse_constraint
@@ -221,9 +219,3 @@ def test_unknown_constraint_warns():
     with pytest.warns(UserWarning, match="Unrecognised constraint type"):
         parse_constraint("Orthoo")
 
-
-def test_parse_constraint_iterations():
-    from pysimlr.simlr import parse_constraint
-
-    assert parse_constraint("orthox0.3x7")["iterations"] == 7
-    assert parse_constraint("ortho")["iterations"] == 1

@@ -5,16 +5,16 @@ Implemented in `src/pysimlr/api.py`; scikit-learn layer in `src/pysimlr/sklearn.
 
 ## Registered methods
 
-| name | family | native fit | budget unit | aliases |
-|---|---|---|---|---|
-| `simlr` | linear | `simlr` | iterations (sweeps) | `linear` |
-| `simlr_lbfgsb` | linear | `simlr`, `optimizer_type="nsa_lbfgsb"` fixed; accepts only the keys L-BFGS-B reads | iterations | |
-| `lend` | deep | `lend_simr` | epochs | `lend_simr`, `deep_simr` |
-| `ned` | deep | `ned_simr` | epochs | `ned_simr` |
-| `ned_shared_private` | deep | `ned_simr_shared_private` | epochs | `shared_private`, `nedpp`, `ned_simr_shared_private` |
-| `flow_v` | flow | `flow_simr_v` | epochs | `flow_simr_v`, `flow_simlr_v` |
-| `pca` | baseline | `api.pca_joint` | none | `pca_joint`, `sklearn_pca` |
-| `nsa_pipeline` | baseline | `api.nsa_pipeline` | none | `nsaflow` |
+| name | family | native fit | budget unit |
+|---|---|---|---|
+| `simlr` | linear | `simlr` | iterations (sweeps) |
+| `simlr_lbfgsb` | linear | `simlr`, `optimizer_type="nsa_lbfgsb"` fixed; accepts only the keys L-BFGS-B reads | iterations |
+| `lend` | deep | `lend_simr` | epochs |
+| `ned` | deep | `ned_simr` | epochs |
+| `ned_shared_private` | deep | `ned_simr_shared_private` | epochs |
+| `flow_v` | flow | `flow_simr_v` | epochs |
+| `pca` | baseline | `api.pca_joint` | none |
+| `nsa_pipeline` | baseline | `api.nsa_pipeline` | none |
 
 `pysimlr.method_names(family=None)` lists them; `pysimlr.describe_method(name)` returns the family,
 budget unit, presets and every accepted parameter with its default.
@@ -160,6 +160,21 @@ method. All parameters are explicit, so `clone`, `get_params` and `GridSearchCV`
 `MultiViewPCA` (per-view PCA, with `view_sizes`) and `build_simlr_pipeline` remain.
 `SiMLREstimator`, `SiMLR`, `SiMLRTransformer`, `LENDTransformer`, `NEDTransformer` and
 `FlowSiMLRTransformer` were removed in 0.3.0.
+
+## Removed in 0.4.0 (no aliases; each raises or is gone)
+
+- Method-name aliases (`linear`, `shared_private`, `nedpp`, `flow_simr_v`, `nsaflow`, ...):
+  use the registered names above.
+- `deep_simr`, `flow_simlr`, `flow_simlr_v`, `FlowSiMLRModel`, `FlowSiMLRVModel`,
+  `flow_whitener`: use `lend_simr`, `flow_simr`, `flow_simr_v`, `FlowSiMRModel`,
+  `FlowSiMRVModel`, `flow_whiten_matrix`.
+- Energies `regression`, `gauss`, `normalized_correlation` raise naming the replacement
+  (`recon_r2` linear / `align` deep, `exp`, `nc`); `recon` is refused as a linear objective.
+- Optimizers `torch_lbfgs` and `nsa_flow` and the `simlr_lbfgs` method.
+- The constraint string's third field (`"orthox0.5x1"`): the format is `<type>x<weight>`.
+- `retraction_type` (it had no effect with nsa_flow>=3.5.1), `simlr_sparseness(constraint_iterations=)`,
+  `predict_simlr(allow_legacy_refit=)`, prediction from pre-0.3.0 results (no frozen consensus),
+  `invariant_orthogonality_defect` and its gradient, `calculate_u`, `load_nsa_flow_orth`.
 
 ## Benchmark loop
 

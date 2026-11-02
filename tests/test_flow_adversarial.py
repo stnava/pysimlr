@@ -15,9 +15,7 @@ Targeting:
 
 import pytest
 import torch
-import numpy as np
-import pandas as pd
-from pysimlr import NormalizingFlow, FlowWhitener, flow_whiten_matrix
+from pysimlr import NormalizingFlow, FlowWhitener
 
 
 @pytest.mark.parametrize("dim", [2, 3, 8, 17, 32, 64])

@@ -1,9 +1,6 @@
 import os
-import shutil
-import pytest
 import numpy as np
 import pandas as pd
-import torch
 from pysimlr import write_simlr, read_simlr
 
 def test_pysimlr_write_read_json_only(tmp_path):

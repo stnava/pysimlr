@@ -1,6 +1,6 @@
 # Tracking Summary
 current phase: v0.4.0 (leave-one-out default, audit items closed, duplicate code removed); v0.3.0 released -- one method interface (`pysimlr.fit`/`predict`, `MultiViewSiMR`), one vocabulary and one defaults module, no broad exception handlers, batch-invariant prediction, standardized-space reconstruction R^2; nsa_flow>=3.5.1. Manuscript correction (D5) in progress, not part of the release.
-next WP: D5/D6 paper -- caches regenerating under v0.4.0 (DEFAULT_TOPOLOGY="loo"); then rebuild the paper and list the conclusions that moved for owner review. Paper sources and caches are uncommitted.
+next WP: commit D7 (on instruction); then D5/D6 paper -- regenerate caches under the current code (DEFAULT_TOPOLOGY="loo"); then rebuild the paper and list the conclusions that moved for owner review. Paper sources and caches are uncommitted.
 blockers: none
 active work: D5 (uncommitted: paper/03_experiments.qmd, paper/appendix_operational.qmd, paper/paper_numbers.py, paper/results_cache/*, paper/_freeze, docs/manuscript; the owner's own pre-existing manuscript edits are in the same files, snapshot in the session scratchpad)
 device: Apple Silicon (macOS 27 arm64), CPU only; venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
@@ -11,6 +11,49 @@ last updated: 2026-11-01
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D7 (Defect fixes, shim removal, housekeeping, 2026-11-01)
+status: done in the working tree, uncommitted (on top of 4be858c)
+owner decisions: fix the gd anomaly, the unseeded start, the stationarity certificate and the
+late-bound callbacks; remove the "nsa_flow" optimizer; remove compatibility shims and do all
+housekeeping "brutally".
+fixes (each with a regression test):
+- gd anomaly: `recon_r2` (and `regression`, which resolved to it) profiles out the column scale
+  -- E(v) = E(3v) = E(v diag(1,10,0.1)) = 0.99147 -- yet was in GAUGE_FREE_ENERGIES, so its column
+  norms drifted (1 -> 2-10 in two gd steps) and fits returned bases of arbitrary scale. Now only
+  the unprofiled `recon` is gauge-free. The learning-rate test measures displacement from a
+  near-zero-rate fit (linear in lr in the stable range: 5.9e-5 at 1e-4, 5.9e-4 at 1e-3).
+- Unset random_state: one seed is drawn up front (shared by the learning-rate probes and the
+  fit), recorded, and handed to every initializer; it was None, so randomised starts ("gcca") used
+  the global stream after an optimizer-dependent number of probe draws. Seeded fits leave the
+  global stream untouched; unseeded fits consume exactly one draw (the deep/flow contract). The
+  varimax test's spy held the initializer's list, which simlr mutates -- it measured the fit.
+- Stationarity certificate: the prox-gradient residual ||P(V - ||V||^2 grad E) - V|| / ||V|| of
+  the current iterate under the projection actually applied; it used the step-size residual (a
+  tiny line-search step read as stationary), the descent direction as the gradient (an uphill
+  probe) and a bare clamp for P. A probe the projection refuses certifies nothing (+inf, noted).
+  Fits now mostly stop "plateau, uncertified" (residuals 0.005-0.03 on the test fixture).
+- Per-view callbacks: energy, gradient, objective and projection are built by `_view_oracles(i,
+  u_i, sparseness)`; defined in the loop they read the loop index and data when called.
+removed: optimizer "nsa_flow" (gd plus a second projection, with a silent SVD fallback) and its
+`nsa_w` optimizer key; method-name aliases; `deep_simr`, `flow_simlr`, `flow_simlr_v`,
+`FlowSiMLR*Model`, `flow_whitener`; energy aliases `regression`/`gauss`/`normalized_correlation`
+(raise naming `recon_r2`/`align`, `exp`, `nc`), `recon` as a linear objective; the constraint
+string's third field (format `<type>x<weight>`); `retraction_type` (bit-identical fits for any
+value); legacy nsa_flow constructor keywords and NSAFlowLayer fallback; `predict_simlr(
+allow_legacy_refit)`, prediction from pre-0.3.0 results, `reconstruct_from_learned_maps` returning
+[] without `w`; `invariant_orthogonality_defect` (+gradient), `calculate_u`, `_newton_step_ortho`,
+`load_nsa_flow_orth`, `_retraction_candidate`, `_backend_has_sign_blind_fidelity`,
+`rank_effect_size`, `plot_case_generative_shape`, `procrustes_mse`; regression-result alias keys,
+`top_n`, unused `iterations`/`max_iter`/`tol`/`constraint_iterations`; generator aliases
+`noise_level`, `nonlinear_shared`, `linear_footprint`. Listed in docs/api_contract.md.
+kept on evidence: the deep/flow orthogonality penalty on the raw first-layer weights, documented
+as a test-compatibility shim, is a regulariser -- without it NEDPP's shared R^2 fell to 0.384 (< 0.4).
+housekeeping: 101 scripts deleted (92 referenced by nothing; 9 stale or superseded), 20 remain;
+22 unreferenced paper figures deleted (one pre-rendered result figure remains in use:
+paper/figures/heart_waterfall.png); unused imports and locals removed (ruff F401/F841/F541);
+retraction/smoothing caches bounded to 64 keys.
+verification: pytest -m "" 1575 passed, 6 xfailed, 0 failed; antsxqc.lint 0 findings.
 
 ## D6 (Open items closed: audit A1-A4, iteration vs SVD start, topology default, duplicate code, 2026-11-01)
 status: code released as v0.4.0 (minor: topology default changes results); paper caches regenerating, paper not yet rebuilt

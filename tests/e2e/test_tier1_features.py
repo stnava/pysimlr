@@ -8,7 +8,6 @@ Exercises:
 - Consensus Topologies: Star, LOO, Graph, Anchor stability, Pruning.
 """
 
-import pytest
 import torch
 import numpy as np
 
@@ -25,7 +24,6 @@ from pysimlr import (
     predict_deep,
     flow_simr,
     flow_simr_v,
-    FlowSiMRModel,
     FlowConditionalInference,
     compute_shared_consensus,
     ba_svd,
@@ -33,8 +31,6 @@ from pysimlr import (
     whiten_matrix,
     multiscale_svd,
     adjusted_rvcoef,
-    rvcoef,
-    build_interpretability_report,
 )
 from pysimlr.flows import NormalizingFlow, CustomRealNVP
 
@@ -111,22 +107,6 @@ def test_simlr_stiefel_orthogonality_and_sparsity_are_set_by_w(synthetic_two_vie
         assert float((v.abs() > 1e-10).float().mean()) < 0.75, (
             f"Modality {i} was not sparsified at w=0.9: V = {v}")
 
-
-def test_simlr_regression_energy_keeps_its_column_scale(synthetic_two_views):
-    """The gauge must stay free for `regression`.
-
-    Its minimiser is ``V* = X^T u (u^T u)^{-1}``, whose column norms carry the
-    data's scale. The previous code unit-normalised every energy on every
-    sweep, deleting exactly the scale the default objective was solving for.
-    """
-    x1, x2 = synthetic_two_views["x1"], synthetic_two_views["x2"]
-    k = synthetic_two_views["k"]
-    res = simlr([x1, x2], k=k, iterations=10, constraint="Stiefelx0.5",
-                energy_type="regression", positivity="positive")
-    off_unit = [float((v.norm(dim=0) - 1.0).abs().max()) for v in res["v"]]
-    assert max(off_unit) > 1e-4, (
-        "regression columns were renormalised to unit norm; that removes the "
-        f"scale its minimiser encodes (max deviation {max(off_unit):.2e})")
 
 def test_simlr_canonical_correlation_two_views(synthetic_two_views):
     """Verify 2-view SiMLR returns the documented shapes and aligns the views."""
@@ -331,11 +311,11 @@ def test_nedpp_shared_private_disentanglement(synthetic_two_views):
 
 
 def test_deep_loss_formulations(synthetic_two_views):
-    """Verify diverse energy objectives: regression, acc, nc, and logcosh."""
+    """Verify diverse energy objectives: align, acc, nc, and logcosh."""
     x1 = synthetic_two_views["x1"]
     x2 = synthetic_two_views["x2"]
 
-    for energy in ["regression", "acc", "nc", "logcosh"]:
+    for energy in ["align", "acc", "nc", "logcosh"]:
         res = lend_simr(
             [x1, x2],
             k=2,

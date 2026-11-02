@@ -44,7 +44,7 @@ import dataclasses
 import inspect
 import types
 import warnings
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Union
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Union
 
 import numpy as np
 import torch
@@ -54,7 +54,7 @@ from .flows import flow_simr_v
 from .optimizers import SIMLR_OPTIMIZER_DEFAULTS
 from .simlr import SIMLR_OPTIMIZER_KEYS, predict_simlr, simlr
 from .utils import basis_rank_report
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
+from .defaults import DEFAULT_NSA_W
 
 FAMILIES = ("linear", "deep", "flow", "baseline")
 
@@ -250,7 +250,6 @@ class MethodSpec:
     predict: Callable[[List[torch.Tensor], Dict[str, Any]], Dict[str, Any]]
     budget_unit: str
     description: str
-    aliases: tuple = ()
     presets: Mapping[str, Any] = dataclasses.field(default_factory=lambda: types.MappingProxyType({}))
     extra_params: Mapping[str, Any] = dataclasses.field(default_factory=lambda: types.MappingProxyType({}))
 
@@ -292,34 +291,28 @@ def _frozen(d: Mapping[str, Any]) -> Mapping[str, Any]:
 
 _SPECS = [
     MethodSpec("simlr", "linear", simlr, _predict_linear, "iterations",
-               "Linear SiMLR: one sparse, NSA-Flow-constrained basis per view.",
-               aliases=("linear",), extra_params=_frozen(_simlr_extra())),
+               "Linear SiMLR: one sparse, NSA-Flow-constrained basis per view.", extra_params=_frozen(_simlr_extra())),
     MethodSpec("simlr_lbfgsb", "linear", simlr, _predict_linear, "iterations",
                "`simlr` with nsa_flow's bound-constrained L-BFGS-B (optimizer_type fixed).",
                presets=_frozen({"optimizer_type": "nsa_lbfgsb"}),
                extra_params=_frozen(_simlr_extra(NSA_LBFGSB_KEYS))),
     MethodSpec("lend", "deep", lend_simr, _predict_deep, "epochs",
-               "LEND: linear first layer, nonlinear decoders.", aliases=("lend_simr", "deep_simr")),
+               "LEND: linear first layer, nonlinear decoders."),
     MethodSpec("ned", "deep", ned_simr, _predict_deep, "epochs",
-               "NED: linear first layer, nonlinear heads and decoders.", aliases=("ned_simr",)),
+               "NED: linear first layer, nonlinear heads and decoders."),
     MethodSpec("ned_shared_private", "deep", ned_simr_shared_private, _predict_deep, "epochs",
-               "NED++: NED with per-view private latents.",
-               aliases=("shared_private", "nedpp", "ned_simr_shared_private")),
+               "NED++: NED with per-view private latents."),
     MethodSpec("flow_v", "flow", flow_simr_v, _predict_deep, "epochs",
-               "Flow-SiMR-V: linear first layer, RealNVP flow per view.",
-               aliases=("flow_simr_v", "flow_simlr_v")),
+               "Flow-SiMR-V: linear first layer, RealNVP flow per view."),
     MethodSpec("pca", "baseline", pca_joint, _predict_joint, "none",
-               "PCA of the concatenated standardized views (joint basis).",
-               aliases=("pca_joint", "sklearn_pca")),
+               "PCA of the concatenated standardized views (joint basis)."),
     MethodSpec("nsa_pipeline", "baseline", nsa_pipeline, _predict_joint, "none",
-               "NSA-Flow on the concatenated standardized views (joint basis).",
-               aliases=("nsaflow",)),
+               "NSA-Flow on the concatenated standardized views (joint basis)."),
 ]
 
 #: name -> spec. The single source of truth for what a method is called,
 #: what it accepts and how it predicts.
 METHODS: Mapping[str, MethodSpec] = types.MappingProxyType({s.name: s for s in _SPECS})
-_ALIASES: Dict[str, str] = {a: s.name for s in _SPECS for a in s.aliases}
 _ALL_PARAMS = frozenset().union(*(s.accepts for s in _SPECS))
 
 
@@ -335,19 +328,17 @@ def method_names(family: Optional[Union[str, Iterable[str]]] = None) -> List[str
 
 
 def resolve_method(name: str) -> MethodSpec:
-    """The spec for a method name or alias."""
-    key = _ALIASES.get(name, name)
-    if key not in METHODS:
-        raise ValueError(f"unknown method {name!r}; registered: {list(METHODS)} "
-                         f"(aliases: {sorted(_ALIASES)}).")
-    return METHODS[key]
+    """The spec for a registered method name (there are no aliases)."""
+    if name not in METHODS:
+        raise ValueError(f"unknown method {name!r}; registered: {list(METHODS)}.")
+    return METHODS[name]
 
 
 def describe_method(name: str) -> Dict[str, Any]:
     """Family, budget unit, presets and every accepted parameter with its default."""
     s = resolve_method(name)
     return {"name": s.name, "family": s.family, "budget_unit": s.budget_unit,
-            "description": s.description, "aliases": list(s.aliases),
+            "description": s.description,
             "presets": dict(s.presets),
             "parameters": {kk: vv for kk, vv in sorted(s.defaults.items()) if kk not in s.presets}}
 
@@ -374,7 +365,7 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
     Parameters
     ----------
     method : str
-        A name from `method_names()` or one of its aliases.
+        A name from `method_names()`.
     views : matrix or list of matrices
         One ``(n, p_m)`` matrix per view (see `as_views`).
     k : int

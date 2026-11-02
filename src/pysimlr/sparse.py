@@ -4,7 +4,7 @@ import torch
 import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
-from typing import Optional, Union, Any, List, Tuple
+from typing import Optional, Union, Any, Tuple
 
 
 def _array_fingerprint(arr: np.ndarray) -> Tuple[Any, ...]:
@@ -214,7 +214,7 @@ def sparse_distance_matrix_xy(x: torch.Tensor,
         raise ValueError(f"Expected 2D tensors, got x.ndim={x.ndim}, y.ndim={y.ndim}")
     if x.shape[1] != y.shape[1]:
         raise ValueError(f"Feature dimension mismatch: x has {x.shape[1]} features, y has {y.shape[1]} features")
-    nx = x.shape[0]
+    x.shape[0]
     ny = y.shape[0]
     if k <= 0:
         raise ValueError(f"k must be at least 1, got {k}")

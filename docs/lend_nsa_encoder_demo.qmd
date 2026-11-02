@@ -16,7 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pysimlr.deep import LENDNSAEncoder, ModalityDecoder
 from pysimlr.consensus import compute_shared_consensus
-from pysimlr.utils import invariant_orthogonality_defect
+from pysimlr.utils import orthogonality_defect
 
 # Set seed for reproducibility
 torch.manual_seed(42)
@@ -65,7 +65,7 @@ def fit_encoders(x1, x2, k=1, epochs=100):
         u_shared = (z1 + z2) / 2.0
         
         sim_loss = torch.mean((z1 - u_shared.detach())**2) + torch.mean((z2 - u_shared.detach())**2)
-        ortho_loss = invariant_orthogonality_defect(enc1.v_raw) + invariant_orthogonality_defect(enc2.v_raw)
+        ortho_loss = orthogonality_defect(enc1.v_raw) + orthogonality_defect(enc2.v_raw)
         
         loss = sim_loss + 0.1 * ortho_loss
         loss.backward()
@@ -85,7 +85,7 @@ with torch.no_grad():
     
 correlation = np.abs(np.corrcoef(z1_test.numpy().flatten(), u_test.numpy().flatten())[0, 1])
 print(f"Linear Case - Held-out Latent Correlation: {correlation:.4f}")
-print(f"Orthogonality defect (eval): {invariant_orthogonality_defect(enc1.v).item():.6e}")
+print(f"Orthogonality defect (eval): {orthogonality_defect(enc1.v).item():.6e}")
 ```
 
 ## Case 2: Strong Nonlinear Inverse Problem

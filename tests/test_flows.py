@@ -1,11 +1,9 @@
 import pytest
 import torch
-import numpy as np
 from pysimlr.flows import (
     AffineCouplingLayer,
     PermutationLayer,
     NormalizingFlow,
-    FlowSiMRModel,
     flow_simr,
     FlowConditionalInference
 )
@@ -187,16 +185,3 @@ def test_normalizing_flow_forced_fallback():
     assert torch.allclose(x, x_rec2, atol=1e-5)
     assert log_det_inv.shape == (15,)
 
-
-def test_flow_simr_backward_compatibility_aliases():
-    """Verify backward compatibility aliases in pysimlr."""
-    from pysimlr import (
-        FlowSiMRModel, FlowSiMRVModel,
-        FlowSiMLRModel, FlowSiMLRVModel,
-        flow_simr, flow_simr_v,
-        flow_simlr, flow_simlr_v
-    )
-    assert FlowSiMLRModel is FlowSiMRModel
-    assert FlowSiMLRVModel is FlowSiMRVModel
-    assert flow_simlr is flow_simr
-    assert flow_simlr_v is flow_simr_v

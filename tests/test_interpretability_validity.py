@@ -8,7 +8,6 @@ measured 0.92 on pure noise at n=40, p=35 -- so it carried no evidence of a
 real relationship. Cross-validated figures are now reported alongside.
 """
 import numpy as np
-import pytest
 import torch
 
 from pysimlr.interpretability import _fit_linear_map, _ridge_solve

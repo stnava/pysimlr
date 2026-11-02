@@ -25,7 +25,6 @@ Output: data/adni/adni_t1_dti_biomarker_merged.csv
 import os
 import re
 
-import numpy as np
 import pandas as pd
 
 from adni_loader import _clean_columns

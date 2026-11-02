@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 import pandas as pd
-import pytest
 from pysimlr.benchmarks.shared_private_sweep import tune_shared_private
 from unittest.mock import patch
 

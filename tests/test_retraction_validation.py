@@ -3,7 +3,7 @@
 `nsa_flow_orth` returns a result dict whose ``Y`` is an **all-zero matrix** for
 some combinations of shape and retraction weight -- measured for a 5x2
 non-negative input at w=0.1 and w=0.3 with ``apply_nonneg="hard"``. The default
-constraint string is "orthox0.1x1", i.e. exactly w=0.1, and clinical views with
+constraint string is "orthox0.1", i.e. exactly w=0.1, and clinical views with
 five features at k=2 hit it.
 
 Every call site checked only ``if res['Y'] is not None``. A zero matrix is not
@@ -75,7 +75,6 @@ def test_simlr_sparseness_never_returns_a_zero_basis(p_dim, k, constraint_weight
     out = simlr_sparseness(
         v, constraint_type="ortho", positivity="positive",
         sparseness=0.5, constraint_weight=constraint_weight,
-        constraint_iterations=1,
     )
     assert torch.isfinite(out).all()
     assert float(out.norm()) > 0.0, (
@@ -119,13 +118,3 @@ def test_narrow_view_basis_still_predicts():
     r2 = 1 - float(((y - pred) ** 2).sum() / ((y - y.mean()) ** 2).sum())
     assert r2 > 0.5, f"first-layer R^2 collapsed to {r2:.4f}"
 
-
-def test_nsa_flow_optimizer_does_not_take_a_zero_step():
-    from pysimlr.optimizers import create_optimizer
-
-    torch.manual_seed(0)
-    v = torch.linalg.qr(torch.randn(5, 2))[0]
-    opt = create_optimizer("nsa_flow", [v], learning_rate=0.05, nsa_w=0.1)
-    out = opt.step(0, v, torch.randn(5, 2))
-    assert torch.isfinite(out).all()
-    assert float(out.norm()) > 0.0, "optimizer returned an all-zero iterate"

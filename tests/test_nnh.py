@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import torch
-import pytest
 from pysimlr.nnh import (
     antspymm_predictors,
     _get_names_from_dataframe,

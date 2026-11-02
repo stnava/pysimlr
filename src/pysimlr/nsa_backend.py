@@ -22,7 +22,7 @@ from functools import lru_cache
 from typing import Any, Callable, Optional
 
 #: Module names tried, in order.
-CANDIDATE_MODULES = ("nsa_flow", "nsa")
+CANDIDATE_MODULES = ("nsa_flow",)
 
 #: Name of the resolved module, or None if no backend is available.
 RESOLVED_MODULE: Optional[str] = None
@@ -111,15 +111,12 @@ def load_nsa_flow() -> Optional[Any]:
 
     Notes
     -----
-    Earlier releases exposed ``nsa_flow_orth`` with a different keyword set
-    (``retraction``, ``precision``, ``apply_nonneg``). That name is gone; the
-    legacy names are still probed so an older backend keeps working, but the
-    modern signature is preferred.
+    Requires nsa_flow>=3.5.1.
     """
     module = load_nsa_backend()
     if module is None:
         return None
-    for attr in ("nsa_flow", "nsa_flow_orth"):
+    for attr in ("nsa_flow",):
         fn = getattr(module, attr, None)
         if callable(fn):
             return _rng_preserving(fn)
@@ -224,12 +221,6 @@ def load_lbfgsb() -> Optional[Any]:
         except ImportError:
             return None
     return fn if callable(fn) else None
-
-
-@lru_cache(maxsize=1)
-def load_nsa_flow_orth() -> Optional[Any]:
-    """Deprecated alias of :func:`load_nsa_flow`, kept for callers."""
-    return load_nsa_flow()
 
 
 @lru_cache(maxsize=1)
@@ -404,7 +395,7 @@ def backend_report(extended: bool = False) -> dict:
     extended : bool, default=False
         If True, includes extended provenance keys (version, has_polar_factor,
         has_estimator, default_optimizer). If False, returns the canonical
-        trio {"available", "module", "entry_point"} for backwards compatibility.
+        trio {"available", "module", "entry_point"}.
 
     Returns
     -------
@@ -413,7 +404,7 @@ def backend_report(extended: bool = False) -> dict:
         (str or None), plus extended keys if requested.
     """
     module = load_nsa_backend()
-    fn = load_nsa_flow_orth()
+    fn = load_nsa_flow()
     rep = {
         "available": fn is not None,
         "module": RESOLVED_MODULE,
@@ -423,13 +414,7 @@ def backend_report(extended: bool = False) -> dict:
         version = getattr(module, "__version__", None) if module is not None else None
         has_polar = load_polar_factor() is not None
         has_est = load_nsa_estimator() is not None
-        v_tuple = tuple(int(x) for x in version.split(".")[:2] if x.isdigit()) if version else ()
-        if v_tuple >= (3, 0):
-            opt = "lbfgsb"
-        elif v_tuple >= (2, 11):
-            opt = "torch_lbfgs"
-        else:
-            opt = None
+        opt = "lbfgsb"
         load_varimax()
         load_varimax_rotation()
         rep.update({

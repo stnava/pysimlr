@@ -220,12 +220,12 @@ train_data = [m[train_indices] for m in data_matrices]
 test_data = [m[test_indices] for m in data_matrices]
 
 # 2. Fit model on Training Data
-# We use "regression" energy here to minimize reconstruction error for evaluation
+# "recon_r2" (scale-profiled reconstruction error) suits a reconstruction evaluation
 res_train = simlr(
     data_matrices=train_data,
     k=k,
     iterations=50,
-    energy_type="regression",
+    energy_type="recon_r2",
     optimizer_type="hybrid_adam",
     verbose=False
 )

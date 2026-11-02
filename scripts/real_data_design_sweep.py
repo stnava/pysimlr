@@ -24,7 +24,6 @@ for _v in ("OMP", "MKL", "OPENBLAS", "VECLIB_MAXIMUM", "NUMEXPR"):
 import argparse
 import sys
 import time
-import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
@@ -35,6 +34,15 @@ from scipy.linalg import qr as scipy_qr
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from pysimlr.benchmarks.runner import run_single_experiment  # noqa: E402
+
+
+def _energies_for(model_type, energies):
+    """The sweep's energies for one method: the reconstruction term is
+    "recon_r2" on the linear path and "align" (latent agreement) on deep and
+    flow models -- one name, "regression", used to mean both."""
+    from pysimlr.api import METHODS
+    rec = "recon_r2" if METHODS[model_type].family in ("linear", "baseline") else "align"
+    return [rec if e == "reconstruction" else e for e in energies]
 
 
 # --------------------------------------------------------------------------
@@ -440,12 +448,12 @@ CASES = {
        for c in ("LUAD", "KIRC", "OV", "HNSC", "UCEC", "COAD")},
 }
 
-SIMLR_FAMILY = [("linear", "SiMLR"), ("simlr_lbfgsb", "SiMLR-LBFGSB")]
+SIMLR_FAMILY = [("simlr", "SiMLR"), ("simlr_lbfgsb", "SiMLR-LBFGSB")]
 ALL_MODELS = SIMLR_FAMILY + [
-    ("pca", "PCA"), ("lend", "LEND"), ("ned", "NED"), ("shared_private", "NEDPP"),
+    ("pca", "PCA"), ("lend", "LEND"), ("ned", "NED"), ("ned_shared_private", "NEDPP"),
     ("flow_v", "Flow-SiMLR-V"), ("nsa_pipeline", "NSAFlow-Turnkey"),
 ]
-ENERGIES = ["regression", "acc", "logcosh", "nc"]
+ENERGIES = ["reconstruction", "acc", "logcosh", "nc"]
 MIXINGS = ["newton", "svd", "pca", "ica"]
 WS = [0.1, 0.3, 0.5, 0.7, 0.9]
 # 'trace' removed: tr(Z'u) is the only MAI metric not computed through the
@@ -473,7 +481,7 @@ def run_one(task: tuple) -> dict:
         "budget_by_unit": {"iterations": iterations, "epochs": epochs},
         "energy_type": energy, "mixing_algorithm": mixing,
         "use_nsa": True, "positivity": "positive",
-        "nsa_w": w, "constraint": f"orthox{w}x1",
+        "nsa_w": w, "constraint": f"orthox{w}",
         "sparseness": 0.0, "consolidate": True,
     }
     if mai is not None:
@@ -511,14 +519,14 @@ def build_tasks(n_seeds: int, iterations: int, epochs: int,
     for ds in chosen:
         # Arm A: method x energy x mixing, w fixed
         for mt, lbl in ALL_MODELS:
-            for e in ENERGIES:
+            for e in _energies_for(mt, ENERGIES):
                 for mx in mixings:
                     for s in seeds:
                         tasks.append(("A", ds, mt, lbl, e, mx, 0.5, None, False,
                                       s, iterations, epochs))
         # Arm B: w sweep, SiMLR family, newton mixing
         for mt, lbl in SIMLR_FAMILY:
-            for e in ENERGIES:
+            for e in _energies_for(mt, ENERGIES):
                 for w in WS:
                     for s in seeds:
                         tasks.append(("B", ds, mt, lbl, e, "newton", w, None, False,
@@ -527,7 +535,7 @@ def build_tasks(n_seeds: int, iterations: int, epochs: int,
         for mai in MAIS:
             for rank in (False, True):
                 for s in seeds:
-                    tasks.append(("C", ds, "flow_v", "Flow-SiMLR-V", "regression",
+                    tasks.append(("C", ds, "flow_v", "Flow-SiMLR-V", "align",
                                   "newton", 0.5, mai, rank, s, iterations, epochs))
     return tasks
 

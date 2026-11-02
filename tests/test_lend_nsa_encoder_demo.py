@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from pysimlr.deep import LENDNSAEncoder
-from pysimlr.utils import invariant_orthogonality_defect
+from pysimlr.utils import orthogonality_defect
 
 def test_lend_nsa_encoder_demo_logic():
     # Case 1: Mostly Linear
@@ -27,7 +27,7 @@ def test_lend_nsa_encoder_demo_logic():
         optimizer.zero_grad()
         z = enc(x_train)
         # Trivial single-modality sim loss
-        loss = torch.mean((z - u_train)**2) + 0.1 * invariant_orthogonality_defect(enc.v_raw)
+        loss = torch.mean((z - u_train)**2) + 0.1 * orthogonality_defect(enc.v_raw)
         loss.backward()
         optimizer.step()
         
@@ -42,7 +42,7 @@ def test_lend_nsa_encoder_demo_logic():
     print(f"Test Correlation: {correlation:.4f}")
     assert correlation > 0.8
     
-    ortho_defect = invariant_orthogonality_defect(v_eval).item()
+    ortho_defect = orthogonality_defect(v_eval).item()
     print(f"Ortho Defect: {ortho_defect:.2e}")
     assert ortho_defect < 1e-5
 

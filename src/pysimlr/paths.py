@@ -1,11 +1,8 @@
 import torch
 import numpy as np
-from typing import List, Union, Dict, Any, Optional, Tuple
-from .simlr import initialize_simlr
-from .optimizers import create_optimizer
-from .sparsification import orthogonalize_and_q_sparsify
+from typing import List, Union, Dict, Any
 from .utils import adjusted_rvcoef
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
+from .defaults import DEFAULT_ENERGY_TYPE
 def _to_consensus_tensor(u: Union[torch.Tensor, List[torch.Tensor]]) -> torch.Tensor:
     """
     Ensure consensus representation is returned as a single 2D tensor (N x K).
@@ -46,7 +43,7 @@ def simlr_path(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     iterations : int, default=20
         Number of optimization iterations per path step.
     optimizer_type : str, default="hybrid_adam"
-        The optimizer to use (e.g., "hybrid_adam", "nsa_flow").
+        The optimizer to use (e.g., "hybrid_adam", "lars").
     energy_type : str, default=DEFAULT_ENERGY_TYPE ("acc")
         Similarity term (`pysimlr.defaults`, `similarity.SIMILARITY`).
     verbose : bool, default=False
@@ -75,7 +72,6 @@ def simlr_path(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         sub_mats = [torch_mats[idx] for idx in modality_indices]
         
         # Warm start from previous step if possible
-        init_v = None
         if i > 0:
              # Logic for warm starting could be added here
              pass

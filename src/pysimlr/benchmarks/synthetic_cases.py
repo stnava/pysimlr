@@ -1,8 +1,6 @@
 import torch
 import numpy as np
-from typing import List, Dict, Any, Optional, Tuple, Union
-import matplotlib.pyplot as plt
-import seaborn as sns
+from typing import List, Dict, Any, Optional
 
 def _planted_latent(n_samples: int, shared_k: int, private_scale: float,
                     scales, weights=None):
@@ -67,7 +65,6 @@ def build_linear_footprint_case(n_samples: int = 1000,
     seed : int, default=42
         Random seed for reproducibility.
     **kwargs : Dict[str, Any]
-        Supports `noise_level` as an alias for `noise_scale`.
 
     Returns
     -------
@@ -79,7 +76,6 @@ def build_linear_footprint_case(n_samples: int = 1000,
     TypeError
         If inputs are of invalid types.
     """
-    if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     private_scale = float(kwargs.get("private_scale", 0.0))
     true_sparsity = float(kwargs.get("true_sparsity", 0.5 if private_scale > 0.0 else 0.0))
     torch.manual_seed(seed)
@@ -104,7 +100,7 @@ def build_linear_footprint_case(n_samples: int = 1000,
         v_true.append(v.t())
         
     return {
-        "kind": "linear_footprint",
+        "kind": "linear",
         "data": data_matrices,
         "true_u": true_u,
         "true_v": v_true,
@@ -126,7 +122,6 @@ def build_nonlinear_shared_case(n_samples: int = 1000,
     latent space (U). This is used to test the capacity of LEND and NED to 
     recover latents that linear SiMLR cannot.
     """
-    if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     private_scale = float(kwargs.get("private_scale", 0.0))
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -207,7 +202,6 @@ def build_shared_plus_private_case(n_samples: int = 1000,
     """
     Generate synthetic data with both shared and private latent components.
     """
-    if 'noise_level' in kwargs: noise_scale = kwargs['noise_level']
     has_explicit_priv = "private_scale" in kwargs
     # Regime defaults apply only to parameters the caller left unset; these
     # used to overwrite explicit `shared_k` and `p_list` whenever
@@ -268,8 +262,6 @@ def build_nonnegative_parts_case(n_samples: int = 400,
     r"""
     Generate data whose ground-truth basis is non-negative, sparse and disjoint.
     """
-    if 'noise_level' in kwargs:
-        noise_scale = kwargs['noise_level']
     private_scale = float(kwargs.get("private_scale", 0.0))
     active_frac = kwargs.get("active_frac", None)
     # Regime defaults apply only to parameters the caller left unset; the
@@ -332,7 +324,7 @@ def build_nonnegative_parts_case(n_samples: int = 400,
     }
 
 
-def build_case(kind: str = "nonlinear_shared", **kwargs) -> Dict[str, Any]:
+def build_case(kind: str = "nonlinear", **kwargs) -> Dict[str, Any]:
     """
     Factory function to generate synthetic benchmark cases for SiMLR.
 
@@ -341,10 +333,10 @@ def build_case(kind: str = "nonlinear_shared", **kwargs) -> Dict[str, Any]:
 
     Parameters
     ----------
-    kind : str, default="nonlinear_shared"
+    kind : str, default="nonlinear"
         The type of case to build. Options:
         - 'linear' or 'linear_footprint': See `build_linear_footprint_case`.
-        - 'nonlinear' or 'nonlinear_shared': See `build_nonlinear_shared_case`.
+        - 'nonlinear': See `build_nonlinear_shared_case`.
         - 'shared_plus_private': See `build_shared_plus_private_case`.
     **kwargs : Dict[str, Any]
         Keyword arguments passed to the specific builder function.
@@ -383,66 +375,7 @@ def build_case(kind: str = "nonlinear_shared", **kwargs) -> Dict[str, Any]:
                 "signal_component": kw.get("shared_k", 3) - 1,
             }),
     }
-    # Backward compat
-    if kind == "nonlinear_shared": kind = "nonlinear"
-    if kind == "linear_footprint": kind = "linear"
 
     if kind not in builders:
         raise ValueError(f"Unknown case kind: {kind}")
     return builders[kind](**kwargs)
-
-def plot_case_generative_shape(case_res: Dict[str, Any], feature_idx: int = 0) -> plt.Figure:
-    """
-    Visualize the generative 'shape' of a synthetic case.
-
-    Plots the ground truth latent space (U) and its relationship with the 
-    observed features (X) across modalities. This helps confirm the 
-    linearity or nonlinearity of the simulated data.
-
-    Parameters
-    ----------
-    case_res : Dict[str, Any]
-        Standardized case dictionary from `build_case`.
-    feature_idx : int, default=0
-        The index of the feature to plot against the latent signal.
-
-    Returns
-    -------
-    matplotlib.figure.Figure
-        A figure showing the latent space and modality-specific feature shapes.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-    """
-    u = case_res["true_u"].numpy()
-    data = case_res["data"]
-    kind = case_res["kind"]
-    
-    n_views = len(data)
-    fig, axes = plt.subplots(1, n_views + 1, figsize=(4 * (n_views + 1), 4))
-    
-    # 1. Latent Space (U1 vs U2)
-    if u.shape[1] >= 2:
-        axes[0].scatter(u[:, 0], u[:, 1], alpha=0.5, c=u[:, 0], cmap='viridis', s=10)
-        axes[0].set_title("Ground Truth Consensus\n($U_1$ vs $U_2$)", fontsize=11, fontweight='bold')
-        axes[0].set_xlabel("$U_1$")
-        axes[0].set_ylabel("$U_2$")
-    else:
-        sns.histplot(u[:, 0], bins=30, color='indigo', alpha=0.6, ax=axes[0], kde=True)
-        axes[0].set_title("Shared Latent Signal ($U_1$)", fontsize=11, fontweight='bold')
-        axes[0].set_xlabel("$U_1$")
-        
-    # 2. View Transformations
-    for i in range(n_views):
-        x = data[i].numpy()
-        axes[i+1].scatter(u[:, 0], x[:, feature_idx], alpha=0.3, c='teal', s=10)
-        axes[i+1].set_title(f"View {i+1} Mapping\n($U_1 \\to X_{{{feature_idx}}}$)", fontsize=11, fontweight='bold')
-        axes[i+1].set_xlabel("$U_1$ (Consensus)")
-        axes[i+1].set_ylabel(f"Feature {feature_idx}")
-        
-    plt.suptitle(f"Generative Shape Analysis: {kind.replace('_', ' ').title()}", 
-                 fontsize=14, fontweight='bold', y=1.02)
-    plt.tight_layout()
-    return fig

@@ -11,7 +11,6 @@ prox of anything.  These tests pin both.
 """
 import inspect
 
-import numpy as np
 import pytest
 import torch
 
@@ -39,8 +38,10 @@ def test_retraction_is_the_anchored_prox_of_the_signed_point():
     from pysimlr.sparsification import _resolve_column_sign_gauge
     z = _resolve_column_sign_gauge(z)
     diag = {}
+    # "recon" is the one gauge-free energy, so no column normalisation follows
+    # the prox and the comparison isolates the prox itself.
     y = simlr_sparseness(z, constraint_type="orth", positivity="positive",
-                         constraint_weight=0.5, energy_type="regression",
+                         constraint_weight=0.5, energy_type="recon",
                          retraction_diagnostics=diag)
     # the same prox, called directly on the SIGNED z with the anchor fidelity
     ref = nsa_flow.nsa_flow(z / (float(torch.linalg.norm(z)) / z.shape[1] ** 0.5),
@@ -66,7 +67,7 @@ def test_fidelity_never_flips_across_iterates():
     for seed in range(5):
         diag = {}
         simlr_sparseness(_z(seed), constraint_type="orth", positivity="positive",
-                         constraint_weight=0.5, energy_type="regression",
+                         constraint_weight=0.5, energy_type="recon",
                          retraction_diagnostics=diag)
         assert diag["fidelity_mode"] == "anchor"
         assert diag["target_negative_mass"] > 0.3          # it really was signed
@@ -75,7 +76,7 @@ def test_fidelity_never_flips_across_iterates():
 def test_diagnostics_carry_the_certificate():
     diag = {}
     simlr_sparseness(_z(), constraint_type="orth", positivity="positive",
-                     constraint_weight=0.5, energy_type="regression",
+                     constraint_weight=0.5, energy_type="recon",
                      retraction_diagnostics=diag)
     for key in ("certificate", "converged", "grad_map", "n_grad", "defect_D"):
         assert key in diag, key
@@ -86,9 +87,9 @@ def test_diagnostics_carry_the_certificate():
 def test_negative_positivity_is_the_reflected_prox():
     z = _z(seed=7)
     y_neg = simlr_sparseness(z, constraint_type="orth", positivity="negative",
-                             constraint_weight=0.5, energy_type="regression")
+                             constraint_weight=0.5, energy_type="recon")
     y_pos = simlr_sparseness(-z, constraint_type="orth", positivity="positive",
-                             constraint_weight=0.5, energy_type="regression")
+                             constraint_weight=0.5, energy_type="recon")
     assert torch.allclose(y_neg, -y_pos, atol=1e-8)
     assert (y_neg <= 0).all()
 
@@ -97,10 +98,10 @@ def test_column_sign_gauge_is_a_symmetry_of_the_retraction():
     """Negating any column of the input must not change the output."""
     z = _z(seed=11)
     y0 = simlr_sparseness(z, constraint_type="orth", positivity="positive",
-                          constraint_weight=0.5, energy_type="regression")
+                          constraint_weight=0.5, energy_type="recon")
     flip = z.clone(); flip[:, 1] *= -1; flip[:, 3] *= -1
     y1 = simlr_sparseness(flip, constraint_type="orth", positivity="positive",
-                          constraint_weight=0.5, energy_type="regression")
+                          constraint_weight=0.5, energy_type="recon")
     assert torch.allclose(y0, y1, atol=1e-8)
 
 
@@ -108,7 +109,7 @@ def test_all_negative_column_is_flipped_not_zeroed_not_reflected():
     z = _z(seed=2)
     z[:, 0] = -z[:, 0].abs()                          # entirely non-positive column
     y = simlr_sparseness(z, constraint_type="orth", positivity="positive",
-                         constraint_weight=0.5, energy_type="regression")
+                         constraint_weight=0.5, energy_type="recon")
     assert float(torch.linalg.vector_norm(y[:, 0])) > 0.0
     # the mixed-sign columns are projected, not reflected: a negative entry
     # cannot reappear as a positive one
@@ -118,18 +119,6 @@ def test_all_negative_column_is_flipped_not_zeroed_not_reflected():
 
 
 # ------------------------------------------------ consistency across methods
-
-def test_nsa_flow_optimizer_step_is_the_signfree_anchored_prox():
-    import nsa_flow
-    from pysimlr.optimizers import NSAFlowOptimizer
-    v = [torch.randn(30, 4, dtype=torch.float64)]
-    g = torch.randn(30, 4, dtype=torch.float64)
-    opt = NSAFlowOptimizer("nsa_flow", v, learning_rate=0.1, nsa_w=0.3)
-    out = opt.step(0, v[0], g)
-    ref = nsa_flow.nsa_flow((v[0] + 0.1 * g).double(), w=0.3, mode="anchored",
-                            fidelity="anchor", nonneg=False).Y
-    assert torch.allclose(out.double(), ref, atol=1e-8)
-
 
 def test_simlr_defaults_do_not_trigger_the_deprecated_path():
     import warnings
@@ -146,7 +135,7 @@ def test_simlr_defaults_do_not_trigger_the_deprecated_path():
 def test_simlr_one_weight_unless_separated():
     """nsa_w defaults to the prox weight parsed from `constraint`."""
     from pysimlr.simlr import parse_constraint
-    assert parse_constraint("orthox0.3x1")["weight"] == 0.3
+    assert parse_constraint("orthox0.3")["weight"] == 0.3
 
 
 def test_deep_result_bases_lie_close_to_the_prox_set():
@@ -179,7 +168,7 @@ def test_deep_result_bases_lie_close_to_the_prox_set():
     for v, d in zip(res["v"], res["retraction_diagnostics"]):
         assert d.get("fidelity_mode") == "anchor", d
         kw = dict(constraint_type="orth", positivity="positive",
-                  constraint_weight=0.3, energy_type="regression",
+                  constraint_weight=0.3, energy_type="recon",
                   unit_columns=True)
         again = simlr_sparseness(v.double(), **kw)
         settled = float((again - v.double()).norm() / v.double().norm())

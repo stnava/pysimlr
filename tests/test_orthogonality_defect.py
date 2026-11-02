@@ -18,7 +18,6 @@ import pytest
 import torch
 
 from pysimlr.utils import (gradient_orthogonality_defect,
-                           invariant_orthogonality_defect,
                            orthogonality_defect)
 
 
@@ -27,8 +26,6 @@ def test_rank_collapse_is_penalised_not_rewarded():
     collapsed = torch.zeros(10, 3)
     collapsed[:, 0] = torch.randn(10)
 
-    assert float(invariant_orthogonality_defect(collapsed)) == pytest.approx(0.0), (
-        "fixture no longer reproduces the old measure's zero")
     assert float(orthogonality_defect(collapsed)) == pytest.approx(1.0), (
         "a rank-one basis must score the ceiling, not the floor")
 
@@ -77,9 +74,6 @@ def test_cannot_be_gamed_by_inflating_one_column():
     inflated = q.clone()
     inflated[:, 0] *= 100.0
 
-    assert float(invariant_orthogonality_defect(inflated)) < \
-        float(invariant_orthogonality_defect(q)), (
-        "fixture no longer reproduces the old measure's gameability")
     assert float(orthogonality_defect(inflated)) > \
         float(orthogonality_defect(q))
 

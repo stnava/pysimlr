@@ -1,7 +1,6 @@
 import torch
 import numpy as np
-from typing import List, Dict, Any, Optional, Union, Tuple
-from .deep import deep_simr, lend_simr, ned_simr, predict_deep
+from typing import List, Dict, Any, Union, Tuple
 
 def fit_structural_models(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
                           k: int, 

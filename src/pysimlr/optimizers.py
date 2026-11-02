@@ -5,14 +5,11 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Union, Callable, Tuple, Sequence
 import warnings
 from abc import ABC, abstractmethod
-from .utils import safe_svd
-from .sparsification import _usable_retraction
 
 #: Every hyperparameter any SiMLR optimizer reads, with its default. Keys absent
 #: from this mapping are rejected with a warning by
 #: :meth:`SimlrOptimizer.filter_params`, so it must stay in sync with the
 #: optimizer implementations below.
-from .defaults import DEFAULT_NSA_W
 
 #: Optimizers that never read `learning_rate` (L-BFGS-B has its own line
 #: search). `simlr` skips the
@@ -29,7 +26,6 @@ SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
     'weight_decay': 0.0,
     'amsgrad': False,
     'momentum': 0.9,
-    'nsa_w': DEFAULT_NSA_W,  # NSAFlowOptimizer retraction weight (pysimlr.defaults)
     'decay_rate': 1e-3,    # LARS weight decay
     'lookahead_k': 5,      # Lookahead slow-weight period (was 'k', which collided with simlr's rank)
     'alpha': 0.5,          # Lookahead slow-weight interpolation
@@ -716,69 +712,6 @@ class LARS(SimlrOptimizer):
         trust_ratio = v_norm / (g_norm + decay * v_norm + 1e-10)
         return v_current + lr * trust_ratio * (descent_gradient - decay * v_current)
 
-class NSAFlowOptimizer(SimlrOptimizer):
-    """
-    Optimizer using Non-Standard Analysis (NSA) Flow for Stiefel manifold updates.
-
-    Performs a gradient step and then uses NSA Flow to retract the result 
-    back onto the manifold of orthogonal matrices. Falls back to standard 
-    SVD-based projection if the `nsa_flow` package is unavailable.
-
-    Parameters
-    ----------
-    optimizer_type : str
-        The type of optimizer.
-    v_mats : List[torch.Tensor]
-        Initial matrices.
-    learning_rate : float, default=0.01
-        The step size for gradient updates.
-    nsa_w : float, default=DEFAULT_NSA_W (0.5)
-        The retraction weight/step for NSA Flow.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-    """
-    def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
-        super().__init__(optimizer_type, v_mats, **params)
-        self.lr = self.params['learning_rate']
-        # Clamp like every other retraction weight. This path constructs its
-        # own solver call rather than going through `_nsa_retract`, so it would
-        # otherwise bypass the cap and reach w=1, where the fidelity term drops
-        # out and every scaled Stiefel matrix is optimal.
-        from .sparsification import _clamp_retraction_weight
-        self.w = _clamp_retraction_weight(self.params['nsa_w'])
-        # The canonical resolver; `load_nsa_flow_orth` is a deprecated alias.
-        from .nsa_backend import load_nsa_flow
-        self.nsa_flow = load_nsa_flow()
-
-    def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor, 
-             full_energy_function: Optional[Callable] = None) -> torch.Tensor:
-        v_next = v_current + self.lr * descent_gradient
-        if self.nsa_flow:
-            rng_state = torch.get_rng_state()
-            try:
-                # Direct call to the unconstrained anchored NSA-Flow prox.
-                # Mode="anchored" matches the definition of the prox, and
-                # fidelity="anchor" retains the target rather than fitting to
-                # an intermediate iterate is not the returned point. A backend
-                # error propagates; it used to fall through to the SVD polar
-                # factor, a different retraction, without a warning.
-                res = self.nsa_flow(v_next.double(), w=self.w, mode="anchored",
-                                    fidelity="anchor", nonneg=False)
-            finally:
-                torch.set_rng_state(rng_state)
-            from .nsa_backend import result_matrix
-            candidate = result_matrix(res)
-            if candidate is not None:
-                candidate = candidate.to(v_current.dtype)
-            from .sparsification import _usable_retraction
-            if _usable_retraction(candidate, v_next):
-                return candidate
-        from .sparsification import _svd_polar
-        return _svd_polar(v_next)
-
 class TorchNativeOptimizer(SimlrOptimizer):
     """
     Wrapper for using standard PyTorch optimizers within the SiMLR framework.
@@ -994,6 +927,17 @@ class NSALBFGSB(SimlrOptimizer):
         return v_next
 
 
+#: Optimizer names that no longer exist, with the reason and the replacement.
+REMOVED_OPTIMIZERS = {
+    "torch_lbfgs": ("it rarely left its start and was once certified stationary there; "
+                    "use 'nsa_lbfgsb'."),
+    "nsa_flow": ("it was gradient descent with a fixed step followed by a second "
+                 "NSA-Flow projection (the constraint is already applied after every "
+                 "step) and fell back to an SVD polar factor without warning; use 'gd' "
+                 "or any other optimizer."),
+}
+
+
 def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) -> SimlrOptimizer:
     """
     Factory function to instantiate a SiMLR optimizer by name.
@@ -1011,7 +955,6 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
         - 'bidirectional_armijo_gradient': `BidirectionalArmijoGradient`
         - 'lookahead': `Lookahead`
         - 'bidirectional_lookahead': `BidirectionalLookahead`
-        - 'nsa_flow': `NSAFlowOptimizer`
         - 'torch_adamw', 'torch_adagrad', 'torch_nadam': `TorchNativeOptimizer`
         - 'nsa_lbfgsb': `NSALBFGSB`, bound-constrained L-BFGS-B (needs NSA-Flow)
         - 'lars': `LARS`
@@ -1042,19 +985,15 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
         "bidirectional_armijo_gradient": BidirectionalArmijoGradient,
         "lookahead": Lookahead,
         "bidirectional_lookahead": BidirectionalLookahead,
-        "nsa_flow": NSAFlowOptimizer,
         "torch_adamw": TorchNativeOptimizer,
         "torch_adagrad": TorchNativeOptimizer,
         "torch_nadam": TorchNativeOptimizer,
         "nsa_lbfgsb": NSALBFGSB,
         "lars": LARS
     }
-    if optimizer_type == "torch_lbfgs":
-        raise ValueError(
-            "optimizer_type='torch_lbfgs' was removed in 0.4.0: its line search saw the "
-            "energy of the projected basis but a tangent-projected gradient, and its "
-            "curvature history spanned changing consensus targets, so it rarely moved "
-            "from its start (and was once certified stationary there). Use 'nsa_lbfgsb'.")
+    if optimizer_type in REMOVED_OPTIMIZERS:
+        raise ValueError(f"optimizer_type={optimizer_type!r} was removed in 0.4.0: "
+                         f"{REMOVED_OPTIMIZERS[optimizer_type]}")
     if optimizer_type not in mapping:
         raise ValueError(
             f"Unknown optimizer_type {optimizer_type!r}. Choose one of: "

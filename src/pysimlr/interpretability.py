@@ -46,7 +46,7 @@ def _fit_linear_map(
     xc = x - x_mean
     yc = y - y_mean
 
-    n_features = xc.shape[1]
+    xc.shape[1]
     
     # Use lstsq for better numerical stability with potentially singular matrices
     # xtx + reg can still be unstable if l2 is too small or data scale is huge.

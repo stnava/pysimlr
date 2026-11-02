@@ -2,7 +2,6 @@
 a wrong PCA start, a recoverable shared signal, and a normalised gap."""
 import importlib.util
 import pathlib
-import sys
 
 import numpy as np
 

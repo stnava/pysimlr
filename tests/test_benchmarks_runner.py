@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 import pandas as pd
 import pytest
 from pysimlr.benchmarks.runner import (
@@ -12,20 +11,20 @@ from pysimlr.benchmarks.runner import (
 from pysimlr.benchmarks.synthetic_cases import build_case
 
 def test_the_runner_records_parameters_a_model_cannot_use():
-    case = build_case(kind="nonlinear_shared", n_samples=100, seed=42)
+    case = build_case(kind="nonlinear", n_samples=100, seed=42)
     with pytest.warns(RuntimeWarning, match="hidden_dims"):
-        out = run_single_experiment("linear", case, sparsity=0.0, seed=42, iterations=2,
+        out = run_single_experiment("simlr", case, sparsity=0.0, seed=42, iterations=2,
                                     hidden_dims=(4,))
     assert out["metrics"]["ignored_params"] == "hidden_dims"
     assert out["metrics"]["method"] == "simlr"
 
 
 def test_run_single_experiment():
-    case = build_case(kind="nonlinear_shared", n_samples=100, seed=42)
+    case = build_case(kind="nonlinear", n_samples=100, seed=42)
     # Test linear model
-    res_linear = run_single_experiment("linear", case, sparsity=0.0, seed=42, iterations=2)
+    res_linear = run_single_experiment("simlr", case, sparsity=0.0, seed=42, iterations=2)
     assert "metrics" in res_linear
-    assert res_linear["metrics"]["model"] == "linear"
+    assert res_linear["metrics"]["model"] == "simlr"
     
     # Test lend model
     res_lend = run_single_experiment("lend", case, sparsity=0.0, seed=42, iterations=1)
@@ -38,12 +37,12 @@ def test_run_single_experiment():
     assert res_ned["metrics"]["model"] == "ned"
 
     # Test shared_private model
-    res_sp = run_single_experiment("shared_private", case, sparsity=0.0, seed=42, iterations=1)
+    res_sp = run_single_experiment("ned_shared_private", case, sparsity=0.0, seed=42, iterations=1)
     assert "metrics" in res_sp
-    assert res_sp["metrics"]["model"] == "shared_private"
+    assert res_sp["metrics"]["model"] == "ned_shared_private"
 
 def test_run_seeded_benchmark():
-    df = run_seeded_benchmark("linear", case_kind="nonlinear_shared", n_samples=50, n_seeds=2, iterations=1)
+    df = run_seeded_benchmark("simlr", case_kind="nonlinear", n_samples=50, n_seeds=2, iterations=1)
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 2
     assert "recovery" in df.columns
@@ -78,8 +77,8 @@ def test_get_best_per_model():
 def test_sweep_benchmark():
     # Use very small parameters for speed
     res = sweep_benchmark(
-        model_types=["linear"],
-        case_kind="nonlinear_shared",
+        model_types=["simlr"],
+        case_kind="nonlinear",
         n_samples=50,
         sparsities=[0.0],
         n_seeds=1,
@@ -91,13 +90,13 @@ def test_sweep_benchmark():
     assert len(res["raw"]) == 1
 
 def test_run_single_experiment_error():
-    case = build_case(kind="nonlinear_shared", n_samples=50)
+    case = build_case(kind="nonlinear", n_samples=50)
     with pytest.raises(ValueError, match="unknown method .unknown.; registered"):
         run_single_experiment("unknown", case)
 
 
 def test_run_single_experiment_pr4_metrics_present():
-    case = build_case(kind="nonlinear_shared", n_samples=60, seed=42)
+    case = build_case(kind="nonlinear", n_samples=60, seed=42)
     res = run_single_experiment("lend", case, sparsity=0.0, seed=42, iterations=1)
     metrics = res["metrics"]
     assert "first_layer_density_mean" in metrics
@@ -184,7 +183,7 @@ def test_every_model_reports_the_axis_sensitive_metric():
     from pysimlr.benchmarks.runner import run_single_experiment
     from pysimlr.benchmarks.synthetic_cases import build_case
     case = build_case(kind="linear", n_samples=160, seed=42)
-    for model_type in ("linear", "simlr_lbfgsb", "pca"):
+    for model_type in ("simlr", "simlr_lbfgsb", "pca"):
         m = run_single_experiment(model_type, case, seed=42, iterations=3)["metrics"]
         assert "first_layer_axis_test_r2" in m, (
             f"{model_type} reports no axis-sensitive metric, so the benchmark "

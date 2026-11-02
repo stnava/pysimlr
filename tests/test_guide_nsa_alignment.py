@@ -15,12 +15,8 @@ import torch
 from unittest.mock import patch
 
 from pysimlr import (
-    simlr,
     NSAFlow,
     load_polar_factor,
-    load_nsa_estimator,
-    load_stiefel_defect_normalised,
-    load_consolidate_supports,
     backend_report,
     nsa_contrast_transform,
     nsa_nonnegative_transform,
@@ -32,9 +28,7 @@ from pysimlr.sparsification import (
     _nsa_retract,
     project_to_orthonormal_nonnegative,
     project_to_partially_orthonormal_nonnegative,
-    _RETRACTION_DIAGNOSTIC_FIELDS,
 )
-from pysimlr.optimizers import NSAFlowOptimizer
 
 
 @pytest.mark.skipif(load_nsa_flow() is None, reason="nsa-flow backend required")
@@ -89,18 +83,6 @@ class TestGuideAlignment:
         # project_to_partially_orthonormal_nonnegative
         v_partial = project_to_partially_orthonormal_nonnegative(x, max_iter=5, ortho_strength=0.5)
         assert v_partial.shape == x.shape
-
-    def test_nsa_flow_optimizer_fallback_uses_polar(self):
-        """Verify NSAFlowOptimizer step uses polar retraction on fallback."""
-        torch.manual_seed(42)
-        v_mats = [torch.randn(15, 3)]
-        opt = NSAFlowOptimizer("nsa_flow", v_mats, learning_rate=0.01, nsa_w=0.5)
-        # Disable full flow to trigger fallback
-        opt.nsa_flow = None
-        v_next = opt.step(0, v_mats[0], torch.randn(15, 3))
-        vtv = v_next.t() @ v_next
-        eye = torch.eye(3, dtype=v_next.dtype)
-        assert torch.allclose(vtv, eye, atol=1e-5)
 
     def test_retraction_diagnostics_coverage(self):
         """Verify solver reports all diagnostics specified in Section 3.1."""
@@ -227,7 +209,6 @@ class TestGuideAlignment:
 
     def test_build_nsa_pipeline_regression(self):
         """Verify build_nsa_pipeline generates scikit-learn Pipeline for regression."""
-        from sklearn.model_selection import cross_val_score
         np.random.seed(42)
         X = np.random.randn(60, 10)
         y = 2.0 * X[:, 0] - 1.5 * X[:, 1] + 0.1 * np.random.randn(60)

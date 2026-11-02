@@ -34,8 +34,8 @@ JOINT_FIELDS = tuple("joint_" + f for f in RANK_FIELDS)
 #: a view contributes to the shared components -- not about lost components.
 JOINT_BASIS_MODELS = {"pca", "nsa_pipeline"}
 
-ALL_BENCHMARK_MODELS = ["pca", "nsa_pipeline", "linear", "lend", "ned",
-                        "shared_private", "flow_v"]
+ALL_BENCHMARK_MODELS = ["pca", "nsa_pipeline", "simlr", "lend", "ned",
+                        "ned_shared_private", "flow_v"]
 
 
 def _case(seed=0, n=90, dims=(8, 6)):
@@ -114,7 +114,7 @@ def test_shared_private_is_scorable_across_the_constraint_range(nsa_w):
     """The NaN regression: a basis with a dead column reaches the scorer as
     NaN features, and the failure surfaces from sklearn rather than from the
     model, which is why it was hard to place."""
-    out = run_single_experiment("shared_private", _case(), seed=0, iterations=6,
+    out = run_single_experiment("ned_shared_private", _case(), seed=0, iterations=6,
                                 nsa_w=nsa_w, positivity="positive",
                                 mixing_algorithm="avg", consolidate=False)
     m = out["metrics"]

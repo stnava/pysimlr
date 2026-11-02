@@ -1,4 +1,3 @@
-import pytest
 import numpy as np
 import scipy.sparse as sp
 import torch
@@ -7,8 +6,6 @@ from pysimlr import (
     SparseGraphResolvent,
     create_grid_graph_laplacian,
     create_graph_laplacian,
-    create_laplacian_resolvent_operator,
-    create_spatial_smoothing_operator,
     create_smoothing_operator,
     simlr
 )

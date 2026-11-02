@@ -53,15 +53,17 @@ def test_simlr_does_not_reseed_the_global_rng():
     assert len(set(perms)) == len(perms), f"RNG state frozen by simlr(): {perms}"
 
 
-def test_rng_state_is_exactly_preserved_across_a_fit():
-    """Stronger: the stream should continue as if the fit had not happened."""
+def test_rng_state_is_exactly_preserved_across_a_seeded_fit():
+    """A seeded fit leaves the global stream as if it had not happened. An
+    unseeded one draws exactly one seed from it (recorded in the result), the
+    same contract as the deep and flow paths."""
     x = [torch.randn(30, 6), torch.randn(30, 5)]
 
     torch.manual_seed(7)
     expected = torch.randperm(10).tolist()
 
     torch.manual_seed(7)
-    simlr(x, k=2, iterations=3)
+    simlr(x, k=2, iterations=3, random_state=3)
     got = torch.randperm(10).tolist()
 
     assert got == expected, (
@@ -89,3 +91,14 @@ def test_permutation_null_is_not_degenerate():
 def test_backend_report_is_available_for_provenance():
     rep = backend_report()
     assert set(rep) == {"available", "module", "entry_point"}
+
+
+def test_an_unseeded_fit_consumes_exactly_one_draw():
+    x = [torch.randn(30, 6), torch.randn(30, 5)]
+    torch.manual_seed(7)
+    torch.randint(0, 2**31 - 1, (1,))
+    expected = torch.randperm(10).tolist()
+    torch.manual_seed(7)
+    res = simlr(x, k=2, iterations=3)
+    assert torch.randperm(10).tolist() == expected
+    assert isinstance(res["random_state"], int)

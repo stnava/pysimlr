@@ -50,9 +50,8 @@ energy makes both failures unrepresentable.
 """
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional
+from typing import Dict, Optional
 
 import numpy as np
 import torch
@@ -60,7 +59,7 @@ import torch
 __all__ = [
     "SimilarityContext", "SIMILARITY", "similarity_names",
     "similarity_energy", "similarity_gradient", "describe_similarity",
-    "LEGACY_ENERGY_ALIASES", "resolve_energy_name",
+    "REJECTED_ENERGY_NAMES", "resolve_energy_name",
 ]
 
 
@@ -341,7 +340,7 @@ def _ica_contrast(s: torch.Tensor, u: torch.Tensor, kind: str,
         # evaluating this identical expression, and a separate registry entry
         # for it, so every sweep over the energies ran this contrast twice and
         # reported the two runs as independent results. `gauss` is now an
-        # alias in LEGACY_ENERGY_ALIASES and there is one implementation.
+        # name in REJECTED_ENERGY_NAMES and there is one implementation.
         g = -torch.exp(-0.5 * c ** 2)
     elif kind == "kurtosis":
         g = c ** 4
@@ -456,102 +455,45 @@ SIMILARITY: Dict[str, tuple] = {
 #: Old names, and which term they actually meant in each path. ``regression``
 #: is deliberately *not* mapped: it meant two different functions, so resolving
 #: it silently would pick a winner and hide the change. Callers must say which.
-#: Names already announced as deprecated, so the notice is emitted once.
-_DEPRECATION_ANNOUNCED: set = set()
-
-LEGACY_ENERGY_ALIASES = {
-    "normalized_correlation": "nc",
-    # `gauss` and `exp` were two registry entries evaluating the identical
-    # expression -exp(-c^2/2) -- verified bit-identical, 8.956381485164 both --
-    # under two descriptions ("Gaussian" and "exponential"). They are the same
-    # contrast: Hyvarinen's G2 is named both ways in the literature. Keeping
-    # both as entries meant every sweep over `similarity_names()` ran one
-    # objective twice and reported it as two independent results. `gauss` now
-    # resolves to `exp` and is listed once.
-    "gauss": "exp",
-}
-
-
-#: Names whose *deep-path* meaning differed from the unified one. Resolving
-#: these warns instead of changing results quietly.
-_DEEP_RENAMED = {
-    "nc": ("procrustes",
-           "the deep path's 'nc' was -tr(u's)/||u's||_F, the Procrustes "
-           "correlation, not the normalised correlation -<u,s>/(||u|| ||s||) "
-           "that the linear path and the registry mean by that name"),
+#: Names that are not (or no longer) objectives, with the replacement. They
+#: raise; nothing is aliased.
+REJECTED_ENERGY_NAMES = {
+    "regression": "pass 'recon_r2' (the scale-profiled reconstruction) on the linear path "
+                  "or 'align' on a deep model",
+    "normalized_correlation": "pass 'nc'",
+    "gauss": "pass 'exp' (the identical contrast)",
 }
 
 
 def resolve_energy_name(name: str, path: Optional[str] = None) -> str:
-    """Map a legacy ``energy_type`` onto a registry key.
+    """Validate an ``energy_type`` against the registry and the calling path.
 
     Parameters
     ----------
     name : str
-        The requested energy.
+        A key of `SIMILARITY`.
     path : {"linear", "deep"}, optional
-        Which historical definition to assume for a genuinely ambiguous name.
-        ``"regression"`` meant ``recon`` in the linear path and ``align`` in
-        the deep path; without ``path`` it raises rather than guess.
+        The deep path refuses terms that need the data and loading matrix; the
+        linear path refuses ``recon``, which is minimised by shrinking ``V`` to
+        zero (use ``recon_r2``).
     """
-    if path == "deep" and name in SIMILARITY and SIMILARITY[name][1]:
+    if name in REJECTED_ENERGY_NAMES:
+        raise ValueError(f"energy_type={name!r} is not available: {REJECTED_ENERGY_NAMES[name]}.")
+    if name not in SIMILARITY:
+        raise ValueError(f"unknown similarity {name!r}; available: {sorted(SIMILARITY)}")
+    if path == "deep" and SIMILARITY[name][1]:
         raise ValueError(
             f"similarity {name!r} is a function of the data and the loading "
             f"matrix, and the deep path does not carry either into the "
             f"similarity term -- its reconstruction is a separate decoder "
             f"loss. Use 'align' for latent agreement on a deep model."
         )
-    if path == "linear" and name in ("regression", "recon"):
-        # `recon` is degenerate as an objective: it is minimised by V -> 0.
-        # Driven hard on a planted basis it reaches E = 0.0001 by shrinking the
-        # basis away, against 1793 at the true basis, and under the library's
-        # own default scaling 99.95% of its value is ||u V'||^2 -- a term that
-        # does not involve the data at all. `recon_r2` is the same residual
-        # with the nuisance scale profiled out and normalised by ||X||^2, so it
-        # has a finite non-degenerate minimiser and lies in [0, 1].
-        #
-        # The registry entry stays: `recon` is still a well-defined quantity
-        # and the identifiability ground truths are stated in terms of it.
-        # What is deprecated is *selecting it as an objective*, which is what
-        # `path="linear"` means here.
-        # Once per process, not once per evaluation: this resolves on every
-        # energy and gradient call, for every view, on every sweep -- 32k
-        # warnings for one test run, which buries everything else.
-        if name not in _DEPRECATION_ANNOUNCED:
-            _DEPRECATION_ANNOUNCED.add(name)
-            warnings.warn(
-                f"energy_type={name!r} is deprecated: it is minimised by "
-                f"driving the basis to zero. Resolving to 'recon_r2', the "
-                f"scale-profiled form. Pass 'recon_r2' explicitly to silence "
-                f"this.",
-                DeprecationWarning, stacklevel=3,
-            )
-        return "recon_r2"
-    if name in SIMILARITY:
-        if path == "deep" and name in _DEEP_RENAMED:
-            old, why = _DEEP_RENAMED[name]
-            warnings.warn(
-                f"energy_type={name!r} on a deep model now resolves to the "
-                f"registry's {name!r}: {why}. Results will differ from previous "
-                f"releases. Pass {old!r} for the previous behaviour.",
-                DeprecationWarning, stacklevel=3,
-            )
-        return name
-    if name in LEGACY_ENERGY_ALIASES:
-        return LEGACY_ENERGY_ALIASES[name]
-    if name == "regression":
-        if path == "linear":
-            return "recon"
-        if path == "deep":
-            return "align"
+    if path == "linear" and name == "recon":
         raise ValueError(
-            "energy_type='regression' is ambiguous: it meant ||X - uV'||^2 in "
-            "the linear path and standardised latent MSE in the deep path, and "
-            "those are different objectives. Ask for 'recon' or 'align'."
-        )
-    raise ValueError(
-        f"unknown similarity {name!r}; available: {sorted(SIMILARITY)}"
-    )
+            "energy_type='recon' is degenerate as a linear objective: it is minimised "
+            "by driving V to zero. Pass 'recon_r2', the same residual with the "
+            "column scale profiled out.")
+    return name
 
 
 def similarity_names() -> list:

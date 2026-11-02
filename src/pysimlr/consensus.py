@@ -88,7 +88,7 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         # `capture_consensus_map`.
         return apply_consensus_map(projections, frozen_map)
         
-    n_modalities = len(projections)
+    len(projections)
     if k is None:
         k = projections[0].shape[1]
         

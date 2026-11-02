@@ -250,7 +250,7 @@
 \title{Deep SiMLR: Auditable Multi-Modal Integration for Biomedical
 Discovery}
 \author{Brian B. Avants \and Nicholas J. Tustison \and James R. Stone}
-\date{2026-10-19}
+\date{2026-11-01}
 \begin{document}
 \maketitle
 
@@ -285,17 +285,17 @@ Impairment from the Alzheimer's Disease Neuroimaging Initiative
 synthetic benchmarks, aligning baseline cortical thickness and
 subcortical volumes with eleven neuropsychological scales during
 training improves out-of-sample cognitive prediction from structural
-magnetic resonance imaging alone from \(R^2 = 0.152\) to \(R^2 = 0.252\)
-while isolating focal temporoparietal, medial temporal, and
-frontocingulate networks that recapitulate Braak neurofibrillary staging
-and spare primary sensorimotor cortex. Crucially, evaluating learned
-representations across both multi-variable linear probes and single-axis
-decision trees demonstrates that while linear regression is
-algebraically invariant to post-hoc column mixing, coordinate-aligned
-SiMR projections preserve more than fourfold higher single-factor
-predictive utility (\(R^2 = 0.197\) versus \(0.044\)) and recover up to
-\(84.7\%\) of ground-truth biological pathways under moderate (\(50\%\))
-feature sparsity.
+magnetic resonance imaging alone from \(R^2 =\) 0.152 (principal
+component analysis) to \(R^2 =\) 0.236 (\texttt{NED}), while
+non-negative quantile-sparse projections restrict each latent axis to 9
+of 62 cortical regions. Crucially, evaluating learned representations
+across both multi-variable linear probes and single-axis decision trees
+demonstrates that while linear regression is algebraically invariant to
+post-hoc column mixing, coordinate-aligned SiMR projections preserve
+4.0-fold higher single-factor predictive utility on \texttt{ADNI-MCI}
+(\(R^2 =\) 0.178 for \texttt{NEDPP} versus 0.044 for principal component
+analysis), and recover ground-truth feature supports with \(F_1\)
+between 0.500 and 1.000 at moderate (\(50\%\)) feature sparsity.
 
 \bookmarksetup{startatroot}
 
@@ -608,23 +608,21 @@ components. \\
   (\(N = 1,084\))}: Under a strict clinical deployment protocol where
   multimodal alignment is learned from structural MRI and cognitive
   scales during training but evaluated using structural MRI alone at
-  test time, \texttt{SiMLR} improves out-of-sample composite cognitive
-  prediction by \(+65.8\%\) over raw anatomical ridge regression
-  (\(R^2 = 0.252\) vs.~\(0.152\)) and isolates three distinct
-  neuroanatomical circuits matching Braak neurofibrillary staging (Braak
-  and Braak 1991; {Dickerson et al.} 2009) while assigning zero weight
-  to spared primary sensorimotor cortex.
+  test time, the best multi-view model (\texttt{NED}) improves
+  out-of-sample composite cognitive prediction by +55.0\% over principal
+  component analysis of the same MRI features (\(R^2 =\) 0.236
+  vs.~0.152), and quantile-sparse non-negative projections isolate three
+  cortical networks of 9 regions each.
 \item
   \textbf{Actionable Operating-Point Characterization Across 12
   Benchmarks}: Through a 9-method comparison across six real biomedical
-  cohorts and six synthetic ground-truth regimes (\(1,215\)
-  operating-point cross-validation folds plus a \(1,214\)-configuration
-  hyperparameter sweep), we establish two practical operating regimes
-  for \texttt{nsa\_flow} quantile thresholding: moderate sparsity
-  (\(q = 0.5\)) for maximum pathway recovery (\(F_1 = 0.847\)) and
-  predictive accuracy, and aggressive sparsity (\(q = 0.8\)--\(0.85\))
-  for ultra-compact biomarker panels retaining over \(99\%\) of peak
-  linear predictive performance.
+  cohorts and six synthetic ground-truth regimes (972 train/test fits at
+  three sparsity levels, 243 paired non-negative reruns, and a
+  1,214-configuration hyperparameter sweep), we characterize
+  \texttt{nsa\_flow} quantile thresholding: aggressive sparsity
+  (\(q = 0.8\), 59.5\% zero loadings) retains 99.8\% of peak linear
+  predictive performance, so compact biomarker panels cost little
+  accuracy.
 \end{enumerate}
 
 \bookmarksetup{startatroot}
@@ -998,11 +996,12 @@ ground-truth latent coordinates \(\mathbf{U}^*\) and feature supports
 \(\mathbf{V}_m^*\) (Table~\ref{tbl-benchmark-cohorts}). Every model is
 evaluated across three independent 70/30 stratified or random train/test
 splits (seeds \(42, 43, 44\)) across three \texttt{nsa\_flow} quantile
-sparsity levels (\(q \in \{\text{None}, 0.5, 0.8\}\), totaling \(1,215\)
-cross-validation fits), supplemented by a \(1,214\)-configuration
-hyperparameter sweep on \texttt{ADNI-MCI} (\(N = 1,084\)). To prevent
-data leakage, all feature standardization (\texttt{StandardScaler}),
-column completeness filtering (\(\ge 98\%\)), and demographic covariate
+sparsity levels (\(q \in \{\text{None}, 0.5, 0.8\}\), 972 train/test
+fits), plus 243 paired reruns with non-negative loadings on the three
+high-dimensional cohorts and a 1,214-configuration hyperparameter sweep
+on \texttt{ADNI-MCI} (\(N = 1,084\), one seed). To prevent data leakage,
+all feature standardization (\texttt{StandardScaler}), column
+completeness filtering (\(\ge 98\%\)), and demographic covariate
 adjustments (Frisch--Waugh--Lovell residualization (Frisch and Waugh
 1933; Lovell 1963) of age, biological sex, and education inside
 \texttt{ADNI-MCI}) are fitted strictly within each training split and
@@ -1055,29 +1054,29 @@ Best Linear XV vs PCA
 \bottomrule\noalign{}
 \endlastfoot
 ADNI-MCI & Clinical MRI + Cog & 1,084 & 4 {[}160, 160, 62, 11{]} &
-CogPC1 R2 (MRI Only) & LEND (0.242 vs PCA 0.152) \\
+CogPC1 R2 (MRI Only) & NED (0.236 vs PCA 0.152) \\
 MultiOmics (BRCA) & Oncology (mRNA/CNV/RPPA) & 822 & 3 {[}200, 150,
-150{]} & ER Status Accuracy & NED (0.929 vs PCA 0.915) \\
+150{]} & ER Status Accuracy & LEND (0.929 vs PCA 0.915) \\
 TCGA-KIRC & Oncology (mRNA/CNV/RPPA) & 467 & 3 {[}200, 150, 150{]} &
-Pathologic Stage Acc & NEDPP (0.693 vs PCA 0.686) \\
+Pathologic Stage Acc & SiMLR-LBFGSB (0.690 vs PCA 0.686) \\
 Diabetes & Clinical Chemistries & 442 & 2 {[}5, 5{]} & 1-Yr Progression
 R2 & SiMLR-LBFGSB (0.396 vs PCA 0.351) \\
 Heart & Cardiology Vitals + ECG & 297 & 2 {[}7, 6{]} & Coronary Disease
 Acc & NSAFlow-PCA (0.848 vs PCA 0.841) \\
 mfeat & Multi-Descriptor Digits & 2,000 & 4 {[}76, 64, 6, 47{]} &
-10-Class Accuracy & NEDPP (0.964 vs PCA 0.727) \\
+10-Class Accuracy & NED (0.969 vs PCA 0.727) \\
 Linear & Synthetic (50\% Sparse ±) & 1,000 & 3 {[}100, 80, 60{]} &
 Latent R2 \& Support F1 & LEND (0.974 vs PCA 0.968) \\
 Polynomial & Synthetic (Deg-3 Warped) & 1,000 & 3 {[}120, 80, 50{]} &
-Latent R2 \& CMC & NED (0.889 vs PCA 0.864) \\
+Latent R2 \& CMC & NEDPP (0.887 vs PCA 0.864) \\
 Sine & Synthetic (Harmonic Warp) & 1,000 & 3 {[}120, 80, 50{]} & Latent
-R2 \& CMC & NED (0.944 vs PCA 0.921) \\
+R2 \& CMC & LEND (0.943 vs PCA 0.921) \\
 Shared+Private & Synthetic (80\% Sparse ±) & 1,000 & 3 {[}160, 60, 30{]}
-& Latent R2 \& Support F1 & Flow-SiMR-V (0.604 vs PCA 0.291) \\
+& Latent R2 \& Support F1 & Flow-SiMR-V (0.586 vs PCA 0.291) \\
 NonnegParts & Synthetic (66.7\% Non-Neg) & 400 & 3 {[}120, 45, 30{]} &
-Dominant Factor R2 \& F1 & SiMLR (0.918 vs PCA 0.893) \\
+Dominant Factor R2 \& F1 & SiMLR-LBFGSB (0.919 vs PCA 0.893) \\
 NonnegWeak & Synthetic (80\% Non-Neg) & 400 & 3 {[}120, 45, 30{]} & Weak
-Factor u3 R2 \& F1 & LEND (0.575 vs PCA 0.125) \\
+Factor u3 R2 \& F1 & LEND (0.567 vs PCA 0.125) \\
 \end{longtable}
 
 In \texttt{ADNI-MCI} (\(N = 1,084\)) (Mueller et al. 2005; {Jack et al.}
@@ -1109,18 +1108,19 @@ Interpretability}\label{global-12-dataset-benchmark-subspace-capacity-vs.-single
 
 Across the \(B = 12\) dataset blocks and nine architectures,
 block-averaged non-parametric Friedman (Friedman 1937) and
-Iman--Davenport (Iman and Davenport 1980) omnibus tests confirm
-statistically significant differentiation on both the linear subspace
-probe (\(\chi_F^2 = 31.49, p = 1.15 \times 10^{-4}\);
-\(F_F = 5.37, p = 1.98 \times 10^{-5}\)) and the multi-modal consensus
-probe (\(\chi_F^2 = 20.87, p = 0.0075\); \(F_F = 3.06, p = 0.0044\),
-Nemenyi Critical Difference \(CD = 3.468\) at \(\alpha = 0.05\) (Demšar
-2006; Nemenyi 1963; Benavoli et al. 2016)).
-Table~\ref{tbl-global-leaderboard} summarizes the global metrics across
-all nine models, accompanied by the Demšar Critical Difference diagram
-(Figure~\ref{fig-cd-diagram}), the multi-objective speed--accuracy and
-support--consensus Pareto frontiers (Figure~\ref{fig-pareto-frontier}),
-and the three-probe performance profile (Figure~\ref{fig-three-probes}).
+Iman--Davenport (Iman and Davenport 1980) omnibus tests differentiate
+the nine models on both the linear subspace probe (\(\chi_F^2 =\) 30.49,
+\(p =\) \(1.73 \times 10^{-4}\); \(F_F =\) 5.12, \(p =\)
+\(3.00 \times 10^{-5}\)) and the multi-modal consensus probe
+(\(\chi_F^2 =\) 33.12, \(p =\) \(5.85 \times 10^{-5}\); \(F_F =\) 5.79,
+\(p =\) \(6.21 \times 10^{-6}\); Nemenyi Critical Difference \(CD =\)
+3.468 at \(\alpha = 0.05\) (Demšar 2006; Nemenyi 1963; Benavoli et al.
+2016)). Table~\ref{tbl-global-leaderboard} summarizes the global metrics
+across all nine models, accompanied by the Demšar Critical Difference
+diagram (Figure~\ref{fig-cd-diagram}), the multi-objective
+speed--accuracy and support--consensus Pareto frontiers
+(Figure~\ref{fig-pareto-frontier}), and the three-probe performance
+profile (Figure~\ref{fig-three-probes}).
 
 \begin{longtable}[]{@{}
   >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.1159}}
@@ -1132,8 +1132,8 @@ and the three-probe performance profile (Figure~\ref{fig-three-probes}).
   >{\raggedleft\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.1159}}
   >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.1159}}@{}}
 \caption{Global 12-dataset benchmark leaderboard across all nine
-architectures (mean across 12 cohorts and 3 random seeds at the
-canonical discovery operating point \(q = 0.5\), paired with synthetic
+architectures (each cohort weighted equally, means over 3 random seeds,
+at the discovery operating point \(q = 0.5\), paired with synthetic
 ground-truth recovery metrics). Directional arrows indicate optimization
 direction (↑ higher is better, ↓ lower is
 better).}\label{tbl-global-leaderboard}\tabularnewline
@@ -1179,20 +1179,20 @@ Sparsity \% ↑
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-LEND & 3.79 & 0.703 & 0.680 (-0.023) & 0.676 & 0.807 & 0.621 & 46.7\% \\
-NED & 3.88 & 0.686 & 0.656 (-0.030) & 0.558 & 0.556 & 0.558 & 45.3\% \\
-NEDPP & 3.92 & 0.69 & 0.661 (-0.029) & 0.56 & 0.58 & 0.559 & 45.4\% \\
-Flow-SiMR-V & 4.25 & 0.705 & 0.683 (-0.022) & 0.672 & 0.8 & 0.59 &
-46.4\% \\
-SiMLR & 4.46 & 0.687 & 0.656 (-0.031) & 0.631 & 0.729 & 0.559 &
-47.1\% \\
-SiMLR-LBFGSB & 4.62 & 0.685 & 0.658 (-0.027) & 0.629 & 0.726 & 0.665 &
-48.6\% \\
-SiMLR-LBFGS & 4.67 & 0.685 & 0.660 (-0.025) & 0.628 & 0.727 & 0.659 &
-48.4\% \\
-NSAFlow-PCA & 7.67 & 0.632 & 0.586 (-0.046) & 0.635 & 0.717 & 0.55 &
-47.5\% \\
-PCA & 7.75 & 0.632 & 0.589 (-0.044) & 0.635 & 0.71 & 0.308 & 0.0\% \\
+LEND & 3.71 & 0.725 & 0.700 (-0.025) & 0.702 & 0.794 & 0.62 & 43.9\% \\
+Flow-SiMR-V & 3.83 & 0.725 & 0.701 (-0.025) & 0.688 & 0.779 & 0.61 &
+43.5\% \\
+NEDPP & 4 & 0.703 & 0.680 (-0.023) & 0.549 & 0.53 & 0.554 & 42.8\% \\
+SiMLR-LBFGSB & 4.25 & 0.707 & 0.679 (-0.028) & 0.641 & 0.726 & 0.661 &
+44.2\% \\
+NED & 4.46 & 0.709 & 0.680 (-0.029) & 0.556 & 0.574 & 0.586 & 43.0\% \\
+SiMLR-LBFGS & 4.71 & 0.708 & 0.685 (-0.023) & 0.641 & 0.727 & 0.659 &
+44.1\% \\
+SiMLR & 4.75 & 0.712 & 0.681 (-0.031) & 0.645 & 0.729 & 0.559 &
+42.7\% \\
+PCA & 7.54 & 0.644 & 0.601 (-0.044) & 0.648 & 0.71 & 0.308 & 0.0\% \\
+NSAFlow-PCA & 7.75 & 0.644 & 0.600 (-0.044) & 0.648 & 0.717 & 0.55 &
+46.8\% \\
 \end{longtable}
 
 \begin{figure}[htbp]
@@ -1204,15 +1204,14 @@ PCA & 7.75 & 0.632 & 0.589 (-0.044) & 0.635 & 0.71 & 0.308 & 0.0\% \\
 }
 
 \caption{\label{fig-cd-diagram}Demšar (2006) Critical Difference diagram
-across the \(B = 12\) benchmark dataset blocks (\(N = 36\) dataset-seed
-evaluations) for the linear entrypoint probe (\(\mathbf{X}\mathbf{V}\),
-Friedman \(\chi_F^2 = 31.49, p = 1.15 \times 10^{-4}\); Iman--Davenport
-\(F_F = 5.37, p = 1.98 \times 10^{-5}\)). Horizontal axis plots mean
-rank (lower is better, \(1 =\) best). Bold horizontal bars connect
-cliques of architectures whose rank differences are smaller than the
-Nemenyi Critical Difference (\(CD = 3.468\) at \(\alpha = 0.05\)). Green
-stars (\texttt{*}) indicate models on the 5-objective non-dominated
-Pareto frontier.}
+across the \(B = 12\) benchmark dataset blocks (seeds averaged within
+each dataset) for the linear entrypoint probe (\(\mathbf{X}\mathbf{V}\);
+Friedman and Iman--Davenport statistics in the text). Horizontal axis
+plots mean rank (lower is better, \(1 =\) best). Bold horizontal bars
+connect cliques of architectures whose rank differences are smaller than
+the Nemenyi Critical Difference (\(\alpha = 0.05\)). Green stars
+(\texttt{*}) indicate models on the 5-objective non-dominated Pareto
+frontier.}
 
 \end{figure}%
 
@@ -1227,14 +1226,13 @@ Pareto frontier.}
 \caption{\label{fig-pareto-frontier}Multi-objective Pareto trade-off
 envelopes across the nine benchmark architectures. (A) Out-of-sample
 multi-modal consensus performance (\(\mathbf{U}\)) versus wall-clock
-execution time (\texttt{Fit\_Seconds}, log scale), highlighting the 2D
-speed--accuracy Pareto frontier (green dashed envelope connecting
-\texttt{PCA}, \texttt{NSAFlow-PCA}, \texttt{SiMLR-LBFGS}, and
-\texttt{LEND}). (B) Ground-truth feature support recovery on
-\(\mathbf{V}_m\) (\texttt{Jaccard\ F1}) versus latent manifold recovery
-on \(\mathbf{U}\) (\texttt{CMC}) across the six synthetic ground-truth
-regimes. Green stars denote architectures that are non-dominated across
-the full 5-objective vector.}
+execution time (\texttt{Fit\_Seconds}, log scale), with the 2D
+speed--accuracy Pareto frontier as a green dashed envelope. (B)
+Ground-truth feature support recovery on \(\mathbf{V}_m\)
+(\texttt{Jaccard\ F1}) versus latent manifold recovery on \(\mathbf{U}\)
+(\texttt{CMC}) across the six synthetic ground-truth regimes. Green
+stars denote architectures that are non-dominated across the full
+5-objective vector.}
 
 \end{figure}%
 
@@ -1247,15 +1245,12 @@ the full 5-objective vector.}
 }
 
 \caption{\label{fig-three-probes}Global 12-dataset comparison across the
-three complementary evaluation probes at the canonical discovery
-operating point (\(q = 0.5\)): Subspace Fidelity (\texttt{Ridge(XV)},
-blue), Single-Axis Interpretability (\texttt{RandomForest(XV)}, teal),
-and Shared Patient Consensus (\texttt{Ridge(U)}, amber). Single-matrix
-\texttt{PCA} suffers double the axis-sensitive Random Forest degradation
-(\(\Delta = -0.044\)) compared to coordinate-aligned SiMR models
-(\texttt{SiMLR-LBFGSB} \(\Delta = -0.022\), \texttt{Flow-SiMR-V}
-\(\Delta = -0.024\)) because dense eigenvectors mix biological
-mechanisms across coordinates.}
+three complementary evaluation probes at the discovery operating point
+(\(q = 0.5\), each cohort weighted equally): Subspace Fidelity
+(\texttt{Ridge(XV)}, blue), Single-Axis Interpretability
+(\texttt{RandomForest(XV)}, teal), and Shared Patient Consensus
+(\texttt{Ridge(U)}, amber). Per-model differences between the Random
+Forest and linear scores are given in the text.}
 
 \end{figure}%
 
@@ -1267,50 +1262,48 @@ Table~\ref{tbl-global-leaderboard} and Figures
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \textbf{Multi-View Alignment Outperforms Single-Matrix Factorization
-  When Views Differ in Scale or Private Variance}: \texttt{LEND} (mean
-  Friedman rank \(3.79\)), \texttt{NED} (\(3.88\)), \texttt{NEDPP}
-  (\(3.92\)), and \texttt{Flow-SiMR-V} (\(4.25\)) lead the linear
-  entrypoint ranking ahead of concatenated \texttt{PCA} (\(7.75\)) and
-  \texttt{NSAFlow-PCA} (\(7.67\)). On heterogeneous cohorts such as
+  \textbf{Multi-View Alignment Against Single-Matrix Factorization}: The
+  leading mean Friedman ranks on the linear entrypoint probe are
+  \texttt{LEND} (3.71), \texttt{Flow-SiMR-V} (3.83), \texttt{NEDPP}
+  (4.00), \texttt{SiMLR-LBFGSB} (4.25), against \texttt{PCA} (7.54) and
+  \texttt{NSAFlow-PCA} (7.75). On heterogeneous cohorts such as
   \texttt{mfeat} (\(p = [76, 64, 6, 47]\)) and \texttt{Shared+Private}
-  (\(p = [160, 60, 30]\)), concatenated \texttt{PCA} rotates toward the
-  highest-dimensional view (\texttt{mfeat} linear accuracy \(0.727\),
-  \texttt{Shared+Private} \(R^2 = 0.618\)), whereas cross-view alignment
-  equalizes view contributions (\texttt{mfeat} accuracy \(0.964\) for
-  \texttt{NEDPP} and \(0.948\) for \texttt{SiMLR-LBFGSB};
-  \texttt{Shared+Private} \(R^2 = 0.956\) for \texttt{LEND}).
+  (\(p = [160, 60, 30]\)), concatenated \texttt{PCA} reaches a linear
+  score of 0.727 (\texttt{mfeat} accuracy) and 0.291
+  (\texttt{Shared+Private} \(R^2\)), against 0.969 (\texttt{NED}) and
+  0.586 (\texttt{Flow-SiMR-V}) for the best multi-view model. Over the
+  12 datasets (seeds averaged, Wilcoxon signed-rank against \texttt{PCA}
+  with Holm adjustment, Appendix B), the linear score differs from
+  \texttt{PCA} at \(p < 0.05\) for 7 of 8 models: \texttt{LEND},
+  \texttt{Flow-SiMR-V}, \texttt{NEDPP}, \texttt{SiMLR-LBFGSB},
+  \texttt{NED}, \texttt{SiMLR-LBFGS}, \texttt{SiMLR}.
 \item
-  \textbf{Coordinate-Aligned \texttt{nsa\_flow} Projections Prevent the
-  Random Forest Axis Drop}: As established in
-  Equation~\ref{eq-subspace-invariance}, ridge regression on
-  \(\mathbf{X}_m \mathbf{V}_m\) is insensitive to orthogonal or oblique
-  column mixing \(\mathbf{V}_m \mathbf{M}\), hiding the fact that dense
-  \texttt{PCA} mixes distinct biological mechanisms across columns. When
-  evaluated with coordinate-splitting decision trees
-  (\texttt{RandomForest}), \texttt{PCA} suffers an average score drop of
-  \(\Delta = -0.044\) across the 12 cohorts---collapsing completely on
-  weak sparse factors (\texttt{NonnegPartsWeak} linear
-  \(R^2 = 0.125 \to\) Random Forest \(R^2 = 0.000\)) and dropping by
-  \(71\%\) on \texttt{ADNI-MCI} (\(0.152 \to 0.044\)). In contrast,
-  \texttt{Flow-SiMR-V} (\(\Delta = -0.022\)) and \texttt{LEND}
-  (\(\Delta = -0.023\)) cut the axis-mixing penalty in half.
+  \textbf{Coordinate Alignment and the Random Forest Axis Drop}: As
+  established in Equation~\ref{eq-subspace-invariance}, ridge regression
+  on \(\mathbf{X}_m \mathbf{V}_m\) is insensitive to orthogonal or
+  oblique column mixing \(\mathbf{V}_m \mathbf{M}\), hiding the fact
+  that dense \texttt{PCA} mixes distinct mechanisms across columns. With
+  coordinate-splitting decision trees (\texttt{RandomForest}),
+  \texttt{PCA} loses -0.044 on average across the 12 cohorts (Random
+  Forest minus linear score), falling from 0.125 to -0.000 on the weak
+  sparse factors of \texttt{NonnegPartsWeak} and from 0.152 to 0.044 on
+  \texttt{ADNI-MCI} (71\% lower). The smallest drops are \texttt{NEDPP}
+  (-0.023), \texttt{SiMLR-LBFGS} (-0.023).
 \item
-  \textbf{Operating Points Match Intrinsic Biological Density
-  (\(q = 0.5\) vs.~\(q = 0.8\))}:
-  Figure~\ref{fig-operating-point-and-support} demonstrates how the
-  quantile threshold \(q\) acts as a tunable lens on feature support
-  recovery. Across the \(1,215\)-fit operating-point evaluation,
-  moderate sparsity (\(q = 0.5\)) achieves the highest overall linear
-  predictive score (\(0.680\)) and highest Random Forest axis score
-  (\(0.651\)) while recovering \(F_1 = 0.989\) (\texttt{SiMLR-LBFGSB} on
-  \texttt{NonnegParts}) and \(F_1 = 0.709\)--\(1.000\) on
-  \(50\%\)-sparse ground-truth pathways (\texttt{Linear}). When the
-  underlying biology is concentrated in focal \(20\%\)-active modules
-  (\texttt{NonnegPartsWeak} and \texttt{Shared+Private}), increasing the
-  quantile threshold to \(q = 0.8\) raises support recovery to
-  \(F_1 = 0.797\) while preserving \(99.1\%\) of peak subspace accuracy
-  (\(0.674\) vs.~\(0.680\)).
+  \textbf{Operating Points and Feature Density (\(q = 0.5\)
+  vs.~\(q = 0.8\))}: Figure~\ref{fig-operating-point-and-support} shows
+  the quantile threshold \(q\) as a lens on feature support recovery.
+  Across the 972 default-positivity fits, the mean linear score is
+  0.694, 0.698 and 0.696 at \(q = \text{None}\), \(0.5\) and \(0.8\),
+  and the mean Random Forest axis score is 0.663, 0.667 and 0.668; at
+  \(q = 0.8\), 59.5\% of loadings are zero while 99.8\% of the best
+  linear score is retained. At \(q = 0.5\), support recovery on the
+  \(50\%\)-sparse \texttt{Linear} regime ranges from \(F_1 =\) 0.500
+  (\texttt{PCA}) to 1.000 (\texttt{NSAFlow-PCA}), and reaches 0.973 on
+  \texttt{NonnegParts} (\texttt{SiMLR-LBFGSB}). On the focal
+  \(20\%\)-active modules, the best \(F_1\) at \(q = 0.8\) is 0.797 on
+  \texttt{NonnegPartsWeak} (\texttt{Flow-SiMR-V}) and 0.400 on
+  \texttt{Shared+Private} (\texttt{NEDPP}).
 \end{enumerate}
 
 \begin{figure}[htbp]
@@ -1322,18 +1315,12 @@ Table~\ref{tbl-global-leaderboard} and Figures
 }
 
 \caption{\label{fig-operating-point-and-support}Operating-point
-trade-off across 1,215 model fits spanning unthresholded
-(\texttt{q\ =\ None}), moderate discovery (\texttt{q\ =\ 0.5}), and
-focal biomarker panel (\texttt{q\ =\ 0.8}) regimes. (A) Moderate
-sparsity (\texttt{q\ =\ 0.5}) maximizes both linear subspace fidelity
-(\(0.679\)) and Random Forest axis interpretability (\(0.651\)), while
-focal sparsity (\texttt{q\ =\ 0.8}) compresses the active feature
-footprint to \(38.1\%\) (\(61.9\%\) zeros) with less than \(1\%\) loss
-in predictive score. (B) Ground-truth feature support recovery (\(F_1\))
-peaks when the chosen quantile \(q\) matches the intrinsic biological
-pathway sparsity (\(q = 0.5\) for \(50\%\)-sparse \texttt{Linear};
-\(q = 0.8\) for \(80\%\)-sparse \texttt{NonnegPartsWeak} and
-\texttt{Shared+Private}).}
+trade-off across the default-positivity fits at unthresholded
+(\texttt{q\ =\ None}), moderate (\texttt{q\ =\ 0.5}), and focal
+(\texttt{q\ =\ 0.8}) quantile sparsity. (A) Mean linear subspace and
+Random Forest axis scores and the fraction of zero loadings at each
+\(q\) (each cohort weighted equally). (B) Ground-truth feature support
+recovery (\(F_1\)) on the synthetic regimes as a function of \(q\).}
 
 \end{figure}%
 
@@ -1365,11 +1352,12 @@ neuropsychological scales (\texttt{ADAS11}, \texttt{ADAS13},
   >{\raggedleft\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1447}}
   >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1316}}@{}}
 \caption{Out-of-sample MRI-only prediction of cognitive impairment on
-\protect\texttt{ADNI-MCI} (\(N = 1,084\), \protect\texttt{Protocol\ B}
+\protect\texttt{ADNI-MCI} (\(N = 1,084\), \protect\texttt{Protocol\ B}:
 training alignment between 3 MRI views and 11 cognitive scales;
-cognitive views withheld at test time). Scores compare the 3-seed
-benchmark (\protect\texttt{q\ =\ 0.5}) and the 1,214-configuration sweep
-(\protect\texttt{Seed\ 42}).}\label{tbl-adni-mci-summary}\tabularnewline
+cognitive views withheld at test time). 3-seed means \(\pm\) SD across
+seeds from the benchmark (\(q = 0.5\), default positivity) alongside the
+best configuration per model in the single-seed hyperparameter
+sweep.}\label{tbl-adni-mci-summary}\tabularnewline
 \toprule\noalign{}
 \begin{minipage}[b]{\linewidth}\raggedright
 Architecture
@@ -1408,147 +1396,105 @@ MRI Sparsity \% ↑
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-Flow-SiMR-V & 0.239 ± 0.010 & 0.184 & 0.202 & 0.234 & 0.105 & 54.7\% \\
-LEND & 0.227 ± 0.023 & 0.165 & 0.193 & 0.219 & 0.106 & 53.6\% \\
-NEDPP & 0.206 ± 0.024 & 0.149 & 0.159 & 0.236 & 0.107 & 51.6\% \\
-NED & 0.196 ± 0.011 & 0.139 & 0.148 & 0.224 & 0.107 & 51.6\% \\
-SiMLR & 0.170 ± 0.014 & 0.106 & 0.153 & 0.215 & 0.07 & 56.7\% \\
-SiMLR-LBFGS & 0.167 ± 0.009 & 0.115 & 0.148 & 0.218 & 0.061 & 56.6\% \\
-SiMLR-LBFGSB & 0.165 ± 0.012 & 0.125 & 0.153 & 0.221 & 0.064 & 56.6\% \\
-NSAFlow-PCA & 0.159 ± 0.003 & 0.021 & 0.158 & 0.189 & 0.082 & 50.7\% \\
-PCA & 0.152 ± 0.004 & 0.044 & 0.151 & 0.179 & 0.081 & 0.0\% \\
+NED & 0.236 ± 0.024 & 0.163 & 0.165 & 0.262 & 0.119 & 48.6\% \\
+Flow-SiMR-V & 0.229 ± 0.008 & 0.165 & 0.184 & 0.246 & 0.115 & 48.6\% \\
+LEND & 0.219 ± 0.008 & 0.152 & 0.194 & 0.261 & 0.118 & 48.6\% \\
+NEDPP & 0.209 ± 0.007 & 0.178 & 0.158 & 0.235 & 0.109 & 48.6\% \\
+SiMLR & 0.175 ± 0.021 & 0.116 & 0.154 & 0.209 & 0.071 & 48.6\% \\
+SiMLR-LBFGSB & 0.166 ± 0.013 & 0.123 & 0.149 & 0.217 & 0.072 & 48.6\% \\
+SiMLR-LBFGS & 0.164 ± 0.012 & 0.117 & 0.147 & 0.213 & 0.073 & 48.6\% \\
+NSAFlow-PCA & 0.159 ± 0.004 & 0.021 & 0.158 & 0.188 & 0.08 & 50.7\% \\
+PCA & 0.152 ± 0.004 & 0.044 & 0.151 & 0.178 & 0.081 & 0.0\% \\
 \end{longtable}
 
 Comparing the unsupervised anatomical baselines against
 cognitive-aligned SiMR models in Table~\ref{tbl-adni-mci-summary} and
-Figure~\ref{fig-adni-neuroanatomy-flagship} yields three core clinical
-and neurobiological insights:
+Figure~\ref{fig-adni-neuroanatomy-flagship} yields three findings:
 
 \begin{enumerate}
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
   \textbf{Supervising MRI Factor Discovery with Cognitive Batteries
-  Improves Out-of-Sample MRI Prediction by \(+65.8\%\)}: Unsupervised
-  \texttt{PCA} on the \(382\) structural MRI features explains
-  \(R^2 = 0.152 \pm 0.004\) of out-of-sample cognitive variance on the
-  linear probe and collapses to \(R^2 = 0.044\) on the single-axis
-  Random Forest probe because its leading component reflects global head
-  and brain size rather than focal neurodegeneration. Aligning the MRI
-  projections against the 11-scale cognitive battery during training
-  raises out-of-sample MRI-only \texttt{CogPC1} prediction to
-  \(R^2 = 0.252 \pm 0.008\) (\texttt{LEND}), \(0.231 \pm 0.015\)
-  (\texttt{Flow-SiMR-V}, with Random Forest axis \(R^2 = 0.197\), a
-  \(4.5\times\) improvement over \texttt{PCA}), and \(0.241\) for linear
-  \texttt{SiMLR} solvers in the \(1,214\)-configuration sweep, while
-  raising mean prediction across all eleven individual cognitive scales
-  by \(+32.1\%\) (\(R^2 = 0.107\) vs.~\(0.081\) for \texttt{PCA};
-  peaking on \texttt{ADAS13} \(R^2 = 0.195\), \texttt{ADAS11} \(0.165\),
-  and \texttt{MMSE} \(0.141\)).
+  Improves Out-of-Sample MRI Prediction}: Unsupervised \texttt{PCA} on
+  the \(382\) structural MRI features explains \(R^2 =\) 0.152 \(\pm\)
+  0.004 of out-of-sample cognitive variance (\texttt{CogPC1}) on the
+  linear probe and 0.044 on the single-axis Random Forest probe.
+  Aligning the MRI projections with the 11-scale cognitive battery
+  during training gives, for the four leading models (3-seed means
+  \(\pm\) SD), \texttt{NED} (0.236 \(\pm\) 0.024), \texttt{Flow-SiMR-V}
+  (0.229 \(\pm\) 0.008), \texttt{LEND} (0.219 \(\pm\) 0.008),
+  \texttt{NEDPP} (0.209 \(\pm\) 0.007); the best is +55.0\% over
+  \texttt{PCA}. The best single-axis Random Forest score is 0.178
+  (\texttt{NEDPP}), 4.0 times that of \texttt{PCA}. In the single-seed
+  sweep the best configuration reaches 0.2624 (\texttt{NED}) and the
+  best linear-family configuration 0.2256 (\texttt{SiMLR-LARS}), against
+  0.1779 for \texttt{PCA}; mean prediction across all eleven scales
+  reaches 0.119 (\texttt{NED}) against 0.081 for \texttt{PCA} (+47.4\%).
+  These sweep peaks are maxima over many configurations on one split and
+  are optimistic.
 \item
-  \textbf{Orthogonal Varimax Subspace Rotation and Quantile-Sparsified
-  Non-Negative SiMR (\(q = 0.85\)) Isolate Three Classical Braak
-  Neurofibrillary Networks}: As shown in
-  Figure~\ref{fig-adni-neuroanatomy-flagship}, dense \texttt{PCA} (Panel
-  A1) assigns nearly uniform negative weights (\(\approx -0.15\)) across
-  all \(62\) DKT cortical thickness parcels on Component 1 (\(0\%\)
-  sparsity), mixing temporoparietal association areas with primary motor
-  and visual cortices. Under unrotated PCA initialization without
-  quantile thresholding (Panel A2,
-  \texttt{varimax\ =\ False,\ q\ =\ None}), Component 1 absorbs this
-  positive global correlation floor across \(53/62\) regions (\(15\%\)
-  overall sparsity). Enabling default orthogonal Varimax subspace
-  rotation (\texttt{varimax\ =\ True} in \texttt{pysimlr\ v0.2.17},
-  Panel A3) rotates the \(3\)-dimensional subspace before non-negative
-  \texttt{nsa\_flow} retraction, immediately raising unthresholded
-  sparsity from \(15\%\) to \(66\%\) with balanced active supports
-  (\([24, 12, 26]\) DKT parcels across
-  \(\mathbf{v}_1, \mathbf{v}_2, \mathbf{v}_3\)) without requiring manual
-  subject row-mean centering. Combining non-negative \texttt{nsa\_flow}
-  (\(w = 0.50\)) with \texttt{sparseness\ =\ 0.85} (Panels A4 and B)
-  further restricts each latent axis to \(9/62\) active DKT regions
-  (\(88\%\) overall sparsity, Gram defect \(D = 8.2 \times 10^{-5}\))
-  while achieving higher out-of-sample cognitive accuracy
-  (\(R^2 = 0.192\)) than dense \texttt{PCA} (\(0.190\)):
+  \textbf{Varimax Rotation and Quantile Sparsity on Cortical Thickness}:
+  Figure~\ref{fig-adni-neuroanatomy-flagship} shows the 62 DKT
+  cortical-thickness loadings (single seed, \texttt{Protocol\ B},
+  \texttt{SiMLR-LBFGSB}, \(w = 0.50\)). Dense \texttt{PCA} (Panel A1)
+  has 0\% zero loadings. Non-negative SiMR without rotation or quantile
+  thresholding (Panel A2, \texttt{varimax\ =\ False,\ q\ =\ None}) is
+  63\% sparse with {[}27, 13, 28{]} active regions per component; with
+  Varimax rotation (Panel A3, \texttt{varimax\ =\ True,\ q\ =\ None}) it
+  is 63\% sparse with {[}16, 27, 25{]}. With
+  \texttt{sparseness\ =\ 0.85} (Panels A4 and B) each component keeps
+  {[}9, 9, 9{]} regions (85\% sparse, Gram defect \(D =\)
+  \(2.00 \times 10^{-3}\)) with out-of-sample \texttt{CogPC1} \(R^2 =\)
+  0.199, against 0.178 for \texttt{PCA} on the same split. The leading
+  regions of each component are:
 
   \begin{itemize}
   \tightlist
   \item
-    \textbf{Component 1 (\(\mathbf{v}_1\), Temporoparietal Association
-    Network --- Braak Stages IV--V)}: Concentrates weight in
-    \texttt{left\_middle\_temporal} (\(+0.670\)),
-    \texttt{left\_supramarginal} (\(+0.454\)),
-    \texttt{right\_middle\_temporal} (\(+0.341\)),
-    \texttt{right\_pars\_opercularis} (\(+0.319\)), and
-    \texttt{left\_superior\_frontal} (\(+0.209\)). Thinning across these
-    heteromodal temporoparietal and inferior frontal hubs marks the
-    clinical transition from isolated amnestic impairment to language,
-    semantic, and praxis decline (Braak and Braak 1991; {Dickerson et
-    al.} 2009; Buckner et al. 2005).
+    \textbf{Component 1 (\(\mathbf{v}_1\))}:
+    \texttt{left\_inferior\_parietal} (+0.517),
+    \texttt{left\_rostral\_middle\_frontal} (+0.468),
+    \texttt{right\_lateral\_occipital} (+0.411), \texttt{left\_lingual}
+    (+0.296), \texttt{right\_lingual} (+0.287).
   \item
-    \textbf{Component 2 (\(\mathbf{v}_2\), Medial Temporal Amnestic Core
-    --- Braak Stages I--III)}: Isolates bilateral entorhinal cortex
-    (\texttt{left\_entorhinal} \(+0.680\), \texttt{right\_entorhinal}
-    \(+0.226\)) and precuneal/cuneal posterior hubs
-    (\texttt{right\_cuneus} \(+0.698\)), coupled with subcortical
-    hippocampal volume loss in View 0 (\texttt{right\_hippocampus}
-    \(+0.369\)). This circuit directly reflects early transentorhinal
-    tau neurofibrillary pathology responsible for episodic memory
-    encoding failure on \texttt{RAVLT} and \texttt{ADASQ4} (Braak and
-    Braak 1991; {Jack et al.} 2018; Rey 1964).
+    \textbf{Component 2 (\(\mathbf{v}_2\))}: \texttt{left\_fusiform}
+    (+0.378), \texttt{left\_inferior\_temporal} (+0.364),
+    \texttt{left\_rostral\_anterior\_cingulate} (+0.338),
+    \texttt{left\_superior\_temporal} (+0.334), \texttt{right\_fusiform}
+    (+0.327).
   \item
-    \textbf{Component 3 (\(\mathbf{v}_3\), Frontocingulate Salience
-    Network)}: Targets \texttt{left\_rostral\_middle\_frontal}
-    (\(+0.631\)), \texttt{right\_caudal\_anterior\_cingulate}
-    (\(+0.478\)), and bilateral insular cortex (\texttt{left\_insula}
-    \(+0.434\), \texttt{right\_insula} \(+0.429\)). Atrophy in this
-    anterior cingulate--insular salience network (Seeley et al. 2009;
-    Menon and Uddin 2010) governs executive set-shifting deficits
-    (\texttt{TRABSCOR} (Reitan 1958)) and everyday functional decline
-    (\texttt{FAQ} (Pfeffer et al. 1982)).
+    \textbf{Component 3 (\(\mathbf{v}_3\))}:
+    \texttt{right\_inferior\_parietal} (+0.355),
+    \texttt{left\_supramarginal} (+0.347),
+    \texttt{right\_pars\_triangularis} (+0.345),
+    \texttt{right\_supramarginal} (+0.341),
+    \texttt{left\_superior\_frontal} (+0.339).
   \end{itemize}
 \item
-  \textbf{Spared Primary Sensorimotor Cortex and Support-Shuffled /
-  PCA-Rotated Score Controls Confirm True Anatomical Localization}:
-  Across all three components, primary motor cortex
-  (\texttt{right\_precentral} \(+0.0016\), \texttt{left\_precentral}
-  \(\le 10^{-5}\)) and primary somatosensory cortex
-  (\texttt{left\_postcentral} \(\le 10^{-5}\),
-  \texttt{right\_postcentral} \(\le 10^{-5}\)) receive effectively zero
-  weight (Figure~\ref{fig-adni-neuroanatomy-flagship} B). Because
-  primary sensorimotor neocortex is pathologically spared until
-  end-stage Alzheimer's disease (Braak and Braak 1991; {Dickerson et
-  al.} 2009), its automatic exclusion provides an internal
-  neurobiological control. To further separate coordinate-level axis
-  alignment and anatomical support localization from pure subspace
-  capacity, we evaluate two algorithmic negative controls across all 3
+  \textbf{Support-Shuffled and PCA-Rotated Score Controls}: The largest
+  weight on primary motor or somatosensory cortex (\texttt{precentral},
+  \texttt{postcentral}) at \(q = 0.85\) is 0.325. To separate
+  coordinate-level axis alignment and anatomical support localization
+  from subspace capacity, two negative controls are evaluated across 3
   seeds on \texttt{ADNI-MCI}
-  (\texttt{adni\_mci\_axis\_alignment\_controls.csv} via
+  (\texttt{adni\_mci\_axis\_alignment\_controls.csv},
   \texttt{axis\_alignment\_control\_metrics}): (i) a \textbf{PCA-Rotated
-  Score Control} that rotates the learned scores
+  Score Control} rotates the learned scores
   \(\mathbf{Z} = [\mathbf{X}_m \mathbf{V}_m]\) by their in-fold
-  principal-component eigenvectors \(\mathbf{Q} \in \mathrm{O}(Mk)\)
-  (\(\operatorname{span}(\mathbf{Z}\mathbf{Q}) = \operatorname{span}(\mathbf{Z})\)),
-  which leaves the linear probe identically unchanged to machine
-  precision (\texttt{Flow-SiMR-V} \(0.2403 \to 0.2403\); \texttt{LEND}
-  \(0.2418 \to 0.2418\); \texttt{SiMLR-LBFGSB} \(0.1650 \to 0.1650\))
-  while reducing single-axis Random Forest accuracy when localized axes
-  are mixed (\texttt{SiMLR-LBFGSB} \(0.1123 \to 0.0879\), \texttt{LEND}
-  non-negative \(0.1617 \to 0.1416\)); and (ii) a
-  \textbf{Support-Shuffled Basis Control} that permutes the row indices
-  of each \(\mathbf{V}_m\) within view \(m\)
-  (\(\mathbf{V}_m[\pi_m, :]\), preserving exact sparsity, weight
-  magnitudes, and Stiefel orthogonality
-  \(\mathbf{V}_m^\top \mathbf{V}_m\)), which collapses the Random Forest
-  \texttt{CogPC1} \(R^2\) by \(60\%\)--\(65\%\) (\texttt{Flow-SiMR-V}
-  \(0.1798 \to 0.0627\), \(\Delta = -0.1171\); \texttt{LEND}
-  \(0.1725 \to 0.0690\), \(\Delta = -0.1035\); \texttt{NEDPP}
-  \(0.1563 \to 0.0668\), \(\Delta = -0.0895\)) and linear \(R^2\) from
-  \(0.240\)--\(0.242\) to \(0.151\)--\(0.157\) (the unstructured
-  \texttt{PCA} baseline floor of \(0.151\)). This confirms that the
-  \(+3.8\times\) to \(+4.5\times\) Random Forest advantage on
-  \texttt{ADNI-MCI} arises directly from localizing true neuroanatomical
-  circuits rather than generic sparsity or basis conditioning.
+  principal-component eigenvectors, which leaves the linear probe
+  unchanged (largest difference \(1.51 \times 10^{-7}\)) and lowers the
+  single-axis Random Forest score for 3 of 6 models; (ii) a
+  \textbf{Support-Shuffled Basis Control} permutes the rows of each
+  \(\mathbf{V}_m\) within its view, preserving sparsity, weight
+  magnitudes and \(\mathbf{V}_m^\top \mathbf{V}_m\), and lowers the
+  Random Forest \texttt{CogPC1} \(R^2\) for 6 of 6 models:
+  \texttt{Flow-SiMR-V} (0.136 \(\to\) 0.070), \texttt{LEND} (0.183
+  \(\to\) 0.071), \texttt{NEDPP} (0.149 \(\to\) 0.106),
+  \texttt{NSAFlow-PCA} (0.060 \(\to\) -0.057), \texttt{SiMLR} (0.106
+  \(\to\) 0.097), \texttt{SiMLR-LBFGSB} (0.131 \(\to\) 0.099).
+  Unshuffled Random Forest scores are 1.4--4.2 times that of
+  \texttt{PCA}.
 \end{enumerate}
 
 \begin{figure}[htbp]
@@ -1559,24 +1505,17 @@ and neurobiological insights:
 
 }
 
-\caption{\label{fig-adni-neuroanatomy-flagship}Neuroanatomical
-localization and cognitive prediction on \texttt{ADNI-MCI}
-(\(N = 1,084\), \texttt{Protocol\ B} MRI-only evaluation). (A1--A4)
-Cortical thickness loading matrices across the 62 DKT regions comparing
-(A1) Dense PCA (\(0\%\) sparse, diffuse global sign-mixing), (A2)
-Unrotated PCA+NSA (\(q = \text{None}\), \(15\%\) sparse, Component 1
-absorbs global thickness floor across \(53/62\) regions), (A3) Default
-Varimax+NSA (\texttt{pysimlr\ v0.2.17}, \(q = \text{None}\), \(66\%\)
-sparse, balanced regional supports without manual row-centering), and
-(A4) Focal Quantile-Thresholded Non-Negative SiMR (\(q = 0.85\),
-\(88\%\) sparse, \(9/62\) active regions per axis, \(R^2 = 0.192\)). (B)
-Exact regional weights of the three isolated Alzheimer's networks in
-Focal SiMR (\(q = 0.85\)): Network 1 captures the Temporoparietal
-Association circuit (Braak IV--V), Network 2 captures the Medial
-Temporal Amnestic Core (Braak I--III), and Network 3 captures the
-Frontocingulate Salience network, while pathologically spared Primary
-Sensorimotor regions (\texttt{precentral} and \texttt{postcentral} gyri)
-receive zero weight.}
+\caption{\label{fig-adni-neuroanatomy-flagship}Cortical-thickness
+loadings on \texttt{ADNI-MCI} (\(N = 1,084\), \texttt{Protocol\ B},
+single seed, \texttt{SiMLR-LBFGSB}, \(w = 0.50\)) across the 62 DKT
+regions. (A1) Dense PCA; (A2) non-negative SiMR without rotation or
+quantile thresholding (\texttt{varimax\ =\ False}, \(q = \text{None}\));
+(A3) with Varimax rotation (\texttt{varimax\ =\ True},
+\(q = \text{None}\)); (A4) with quantile sparsity \(q = 0.85\). Panel
+titles give each matrix's fraction of zero loadings and out-of-sample
+\texttt{CogPC1} \(R^2\). (B) The four largest loadings of each component
+at \(q = 0.85\), and the primary sensorimotor regions
+(\texttt{precentral}, \texttt{postcentral}).}
 
 \end{figure}%
 
@@ -1646,20 +1585,20 @@ mfeat Acc ↑
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-LEND & 0.242 (0.205) & 0.923 (0.919) & 0.690 (0.697) & 0.380 (0.346) &
-0.815 (0.833) & 0.909 (0.789) \\
-Flow-SiMR-V & 0.237 (0.212) & 0.922 (0.917) & 0.683 (0.693) & 0.383
-(0.350) & 0.815 (0.822) & 0.893 (0.799) \\
+LEND & 0.219 (0.194) & 0.929 (0.926) & 0.678 (0.716) & 0.383 (0.345) &
+0.819 (0.826) & 0.907 (0.782) \\
+Flow-SiMR-V & 0.229 (0.184) & 0.921 (0.923) & 0.683 (0.678) & 0.384
+(0.352) & 0.822 (0.833) & 0.897 (0.783) \\
 SiMLR-LBFGSB & 0.166 (0.149) & 0.921 (0.917) & 0.690 (0.676) & 0.396
 (0.322) & 0.837 (0.830) & 0.948 (0.753) \\
 SiMLR-LBFGS & 0.164 (0.147) & 0.921 (0.917) & 0.688 (0.676) & 0.396
 (0.322) & 0.837 (0.826) & 0.946 (0.752) \\
 SiMLR & 0.175 (0.154) & 0.921 (0.915) & 0.683 (0.674) & 0.383 (0.347) &
 0.819 (0.830) & 0.946 (0.757) \\
-NEDPP & 0.219 (0.172) & 0.929 (0.866) & 0.693 (0.686) & 0.368 (0.272) &
-0.819 (0.822) & 0.964 (0.625) \\
-NED & 0.195 (0.145) & 0.929 (0.927) & 0.690 (0.697) & 0.380 (0.307) &
-0.811 (0.833) & 0.959 (0.708) \\
+NEDPP & 0.209 (0.158) & 0.927 (0.922) & 0.686 (0.695) & 0.369 (0.266) &
+0.811 (0.826) & 0.962 (0.667) \\
+NED & 0.236 (0.165) & 0.927 (0.911) & 0.681 (0.693) & 0.376 (0.263) &
+0.807 (0.807) & 0.969 (0.684) \\
 NSAFlow-PCA & 0.159 (0.158) & 0.919 (0.929) & 0.669 (0.662) & 0.381
 (0.382) & 0.848 (0.837) & 0.706 (0.712) \\
 PCA & 0.152 (0.151) & 0.915 (0.922) & 0.686 (0.671) & 0.351 (0.350) &
@@ -1716,61 +1655,39 @@ depression, \texttt{exang} exercise angina).}
 Basis Localization (\texttt{varimax\ +\ nsa\_flow}).} Orthogonal Varimax
 subspace rotation paired with Non-Negative Stiefel Approximating Flow
 (\(q = 0.50\)) partitions every clinical and biomarker view of
-\texttt{Heart} and \texttt{Diabetes} into balanced, non-overlapping
-physiological subnetworks (\texttt{L1} vs.~\texttt{L2}, Gini
-\(G \in [0.51, 0.77]\)), eliminating the unrotated
-\texttt{"Component\ 1\ =\ Mean"} imbalance.}
+\texttt{Heart} and \texttt{Diabetes} into separate physiological
+subnetworks (\texttt{L1} vs.~\texttt{L2}). Pre-rendered by
+\texttt{scripts/generate\_nsa\_v\_figures.py}; not regenerated with this
+build.}
 
 \end{figure}%
 
-In \texttt{MultiOmics} (\texttt{TCGA-BRCA}, \(N = 822\)),
-\texttt{Flow-SiMR-V}, \texttt{LEND}, and \texttt{NEDPP} achieve
-\(92.7\% \pm 0.7\%\) out-of-sample Estrogen Receptor classification
-accuracy (vs.~\(91.5\%\) for \texttt{PCA}), while the sparse
-non-negative dictionaries \(\mathbf{V}_m\) isolate the canonical luminal
-breast cancer signaling cascade across all three molecular layers
-(detailed in Appendix A): estrogen receptor alpha (\texttt{ER-alpha})
-and phosphorylated \texttt{ER-alpha\_pS118} in RPPA proteomics, master
-luminal transcription factors \texttt{GATA3}, \texttt{PGR}, and
-\texttt{ESR1} in mRNA transcriptomics ({Perou et al.} 2000; {Parker et
-al.} 2009), and focal chromosomal amplifications at \texttt{17q23} and
-\texttt{8p11-p12} in somatic copy-number variation (The Cancer Genome
-Atlas Network 2012; {Curtis et al.} 2012). In \texttt{TCGA-KIRC}
-(\(N = 467\)), adding non-linear decoding in \texttt{LEND} improves
+In \texttt{MultiOmics} (\texttt{TCGA-BRCA}, \(N = 822\)), out-of-sample
+Estrogen Receptor classification accuracy on the linear entrypoint is
+92.1\% \(\pm\) 1.5\% (\texttt{Flow-SiMR-V}), 92.9\% \(\pm\) 1.2\%
+(\texttt{LEND}) and 92.7\% \(\pm\) 1.4\% (\texttt{NEDPP}), against
+91.5\% \(\pm\) 1.8\% for \texttt{PCA} (3-seed means \(\pm\) SD); the
+sparse non-negative dictionaries \(\mathbf{V}_m\) are examined feature
+by feature in Appendix A. In \texttt{TCGA-KIRC} (\(N = 467\)),
 pathologic stage classification on the consensus embedding
-\(\mathbf{U}\) to \(71.4\% \pm 0.4\%\) (vs.~\(67.1\%\) for
-\texttt{PCA}), capturing non-linear metabolic and hypoxia-inducible
-interactions across transcriptomic and proteomic layers (The Cancer
-Genome Atlas Research Network 2013). Finally, on compact clinical
-cohorts (\texttt{Diabetes} \(R^2 = 0.396\) for \texttt{SiMLR-LBFGSB}
-vs.~\(0.351\) for \texttt{PCA}; \texttt{Heart} accuracy \(0.848\) for
-\texttt{NSAFlow-PCA}), pairing orthogonal Varimax subspace rotation with
-\texttt{nsa\_flow} (\(q = 0.50\)) cleanly separates each modality into
-balanced physiological subnetworks
-(Figure~\ref{fig-nsa-v-interpretability})---isolating resting
-hemodynamics (\texttt{trestbps} \(0.91\), \texttt{restecg} \(0.42\))
-from chest-pain and demographic profile (\texttt{cp} \(0.70\),
-\texttt{sex} \(0.63\), \texttt{age} \(0.32\)) in \texttt{Heart} View 1,
-exercise ST/heart-rate response (\texttt{oldpeak} \(0.73\),
-\texttt{thalach} \(0.50\), \texttt{slope} \(0.46\)) from
-perfusion/vessel burden (\texttt{thal} \(0.75\), \texttt{exang}
-\(0.57\), \texttt{ca} \(0.34\)) in \texttt{Heart} View 2,
-adiposity/blood pressure (\texttt{bp} \(0.73\), \texttt{bmi} \(0.68\))
-from age/sex (\texttt{age} \(0.78\), \texttt{sex} \(0.62\)) in
-\texttt{Diabetes} View 1, and the glycemic/triglyceride triad
-(\texttt{s5} \(0.63\), \texttt{s6} \(0.56\), \texttt{s4} \(0.54\)) from
-lipoprotein cholesterol (\texttt{s2} \(0.71\), \texttt{s1} \(0.70\)) in
-\texttt{Diabetes} View 2---while the linear entrypoint
+\(\mathbf{U}\) is 71.6\% \(\pm\) 1.2\% for \texttt{LEND} against 67.1\%
+\(\pm\) 1.5\% for \texttt{PCA}. On compact clinical cohorts,
+\texttt{Diabetes} reaches \(R^2 =\) 0.396 for \texttt{SiMLR-LBFGSB}
+against 0.351 for \texttt{PCA}, and \texttt{Heart} reaches accuracy
+0.848 for \texttt{NSAFlow-PCA} and 0.819 for \texttt{SiMLR}.
+Figure~\ref{fig-nsa-v-interpretability} shows the Varimax-rotated
+\texttt{nsa\_flow} loadings (\(q = 0.50\)) of each \texttt{Heart} and
+\texttt{Diabetes} view, and the linear entrypoint
 \(\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m\) decomposes any
-individual patient's risk score into exact feature-level clinical
-contributions \(c_{m,i,j,l} = x_{m,i,j} v_{m,j,l}\) without post-hoc
-Monte Carlo approximations (Wachter et al. 2018; Karimi et al. 2021;
-Pearl 2009) (Figure~\ref{fig-multiomics-and-patient-attribution} B and
+individual patient's score into exact feature-level contributions
+\(c_{m,i,j,l} = x_{m,i,j} v_{m,j,l}\) without post-hoc Monte Carlo
+approximations (Wachter et al. 2018; Karimi et al. 2021; Pearl 2009)
+(Figure~\ref{fig-multiomics-and-patient-attribution} B and
 Figure~\ref{fig-heart-audit}). Complete parameter sensitivity
-ablations---including the \(w \in [0.01, 0.95]\) trade-off curve,
-row-mean/ICA preprocessing controls, latent rank
-\(k \in \{2, 3, 5, 8\}\) scaling, and pairwise Wilcoxon rank-sum
-tests---are provided in Appendix B.
+ablations---the \(w \in [0.01, 0.95]\) trade-off curve, row-mean/ICA
+preprocessing controls, latent rank \(k \in \{2, 3, 5, 8, 12\}\)
+scaling, and Wilcoxon signed-rank tests against \texttt{PCA}---are in
+Appendix B.
 
 \bookmarksetup{startatroot}
 
@@ -1790,22 +1707,19 @@ organized around an explicit linear entrypoint
 clinical neuroscientist or neuropsychologist, the primary value of
 \texttt{SiMR} lies in how cross-modal supervision shapes the learned
 anatomical basis. When structural MRI is decomposed in isolation via
-\texttt{PCA}, the dominant axis reflects diffuse global cortical
-thickness and intracranial scaling across all \(62\) DKT parcels
-(\(0\%\) sparsity), explaining only \(R^2 = 0.152\) of composite
-cognitive severity (\texttt{CogPC1}) and collapsing to \(R^2 = 0.044\)
-under single-axis decision tree splits. By coupling structural MRI views
-to an 11-scale cognitive battery during training (\texttt{Protocol\ B})
-and applying non-negative approximate Stiefel regularization
-(\texttt{nsa\_flow}, \(w = 0.50, q = 0.85\)), the learned projection
-matrices isolate three non-redundant, \(88\%\)-sparse anatomical systems
-that mirror classical Braak neurofibrillary staging (Braak and Braak
-1991; {Dickerson et al.} 2009; {Jack et al.} 2018): the lateral
-temporoparietal association circuit (Braak IV--V), the
-entorhinal--hippocampal amnestic core (Braak I--III), and the
-fronto-insular-cingulate salience network (Seeley et al. 2009; Menon and
-Uddin 2010), while automatically zeroing out pathologically spared
-primary motor and somatosensory cortex.
+\texttt{PCA}, every one of the \(62\) DKT parcels loads on every axis,
+and the result explains \(R^2 =\) 0.152 of composite cognitive severity
+(\texttt{CogPC1}), falling to 0.044 under single-axis decision tree
+splits. Coupling structural MRI views to an 11-scale cognitive battery
+during training (\texttt{Protocol\ B}) with non-negative approximate
+Stiefel regularization (\texttt{nsa\_flow}, \(w = 0.50, q = 0.85\))
+gives three non-overlapping cortical components of 9 regions each (85\%
+zero loadings). Their leading regions (Chapter 3) span inferior
+parietal, temporal and frontal association cortex; whether they
+correspond to stages of neurofibrillary pathology (Braak and Braak 1991;
+{Dickerson et al.} 2009; {Jack et al.} 2018) is not tested here, and
+primary motor cortex is not excluded (largest sensorimotor weight
+0.325).
 
 For the machine learning researcher, our four-probe evaluation resolves
 why post-hoc rotation or unmixing steps (\texttt{ICA} (Hyvärinen and Oja
@@ -1817,10 +1731,11 @@ for any invertible \(\mathbf{M} \in \mathrm{GL}(k)\), linear subspace
 probes measure only aggregate subspace capacity. Pairing linear subspace
 probes with coordinate-aligned Random Forest probes (\texttt{RF(XV)})
 and ground-truth support recovery (\(F_1\)) exposes diagonal coordinate
-mixing directly: across all twelve benchmarks,
-\texttt{nsa\_flow}-regularized architectures cut the axis-sensitivity
-drop in half (\(\Delta = -0.022\) vs.~\(-0.044\) for \texttt{PCA}) while
-recovering up to \(84.7\%\) of true pathway supports.
+mixing directly: across all twelve benchmarks, the Random Forest minus
+linear score is -0.044 for \texttt{PCA}, against \texttt{NEDPP}
+(-0.023), \texttt{SiMLR-LBFGS} (-0.023) for the models with the smallest
+drop, and support recovery on the \(50\%\)-sparse \texttt{Linear} regime
+ranges from \(F_1 =\) 0.500 to 1.000.
 
 \section{Practical Method and Operating-Point Selection
 Guide}\label{practical-method-and-operating-point-selection-guide}
@@ -1868,32 +1783,33 @@ Empirical \& Mathematical Rationale
 \textbf{Multi-View Clinical Translation} (e.g., training on MRI +
 Cognition, deploying on MRI alone; \(N \sim 10^3\)) & \texttt{LEND} or
 \texttt{Flow-SiMR-V} & \(w = 0.50\), \(q = 0.50\) (discovery) or
-\(q = 0.85\) (focal Braak circuits) & Leads \texttt{ADNI-MCI} MRI-only
-cognitive prediction (\(R^2 = 0.252\) linear, \(0.197\) RF axis) while
-isolating 9-region cortical networks at \(q = 0.85\). \\
+\(q = 0.85\) (focal Braak circuits) & On \texttt{ADNI-MCI} MRI-only
+cognitive prediction the best 3-seed linear score is 0.236
+(\texttt{NED}) and the best single-axis score 0.178 (\texttt{NEDPP});
+\(q = 0.85\) gives 9-region cortical components. \\
 \textbf{High-Dimensional Multi-Omics Pathway Discovery} (e.g., mRNA +
 CNV + RPPA; \(p_m \gg N\)) & \texttt{SiMLR-LBFGSB} or
 \texttt{Flow-SiMR-V} & \(w = 0.50\), \(q = 0.50\),
-\texttt{positivity="positive"} & Achieves \(92.7\%\) accuracy on
-\texttt{TCGA-BRCA} and \(F_1 = 0.847\) pathway recovery on
-\(50\%\)-sparse benchmarks without deep decoder overfitting. \\
+\texttt{positivity="positive"} & \texttt{TCGA-BRCA} accuracy 0.921
+(\texttt{SiMLR-LBFGSB}); support recovery on \texttt{NonnegParts}
+\(F_1 =\) 0.973. \\
 \textbf{Minimal Diagnostic Assay / Targeted Biomarker Panel Design} &
 \texttt{SiMLR-LBFGSB} & \(w = 0.50\), \(q = 0.80\)--\(0.85\),
-\texttt{positivity="positive"} & Compresses active feature sets by
-\(62\%\)--\(88\%\) (\(F_1 = 0.840\) on \(80\%\)-sparse targets) while
-retaining \(>99\%\) of peak linear predictive accuracy. \\
+\texttt{positivity="positive"} & At \(q = 0.8\), 59.5\% of loadings are
+zero while 99.8\% of the best mean linear score is retained (best
+\(F_1\) on the \(80\%\)-sparse \texttt{NonnegPartsWeak} regime
+0.797). \\
 \textbf{Non-Linear Cross-Assay Coupling} (e.g., renal cancer stage
 across heterogeneous assays) & \texttt{LEND} & \(w = 0.50\),
-\(q = 0.50\) & Non-linear decoders capture curved cross-modal
-relationships (\texttt{TCGA-KIRC} consensus accuracy \(71.4\%\)
-vs.~\(67.1\%\) for \texttt{PCA}) while keeping input projections
-\(\mathbf{X}_m \mathbf{V}_m\) linear. \\
+\(q = 0.50\) & Non-linear decoders with linear input projections
+\(\mathbf{X}_m \mathbf{V}_m\) (\texttt{TCGA-KIRC} consensus accuracy
+71.6\% \(\pm\) 1.2\% vs.~67.1\% \(\pm\) 1.5\% for \texttt{PCA}). \\
 \textbf{Low-Dimensional Clinical Tabular Vitals} (\(p_m < 15\),
 homogeneous noise) & \texttt{NSAFlow-PCA} or \texttt{SiMLR-LBFGSB} &
-\(w = 0.50\), \(q = 0.50\) & Runs in \(< 0.05\text{ s}\) with exact
-patient-level clinical attribution (\(c_{ij} = x_{ij} v_{jl}\),
-\texttt{Heart} accuracy \(84.8\%\), \texttt{Diabetes}
-\(R^2 = 0.396\)). \\
+\(w = 0.50\), \(q = 0.50\) & Exact patient-level clinical attribution
+(\(c_{ij} = x_{ij} v_{jl}\); \texttt{Heart} accuracy 0.848 for
+\texttt{NSAFlow-PCA}, \texttt{Diabetes} \(R^2 =\) 0.396 for
+\texttt{SiMLR-LBFGSB}). \\
 \textbf{Raw Abundance / Compositional / Dietary Intake Tables} (where
 the Perron-Frobenius global mean mode \emph{is} the target signal) &
 \texttt{SiMLR-LBFGSB} (\texttt{varimax=False}) & \(w = 0.50\),
@@ -1918,53 +1834,37 @@ trade-offs, or require careful preprocessing:
   without cross-modal supervision or when views share identical
   signal-to-noise ratios and dense Gaussian loadings, standard
   \texttt{PCA} remains optimal for variance explanation in
-  \(\mathcal{O}(\min(N p^2, p N^2))\) time (\(0.004\text{ s}\)).
-  Similarly, on low-dimensional clinical tables such as \texttt{Heart}
-  (\(p = [7, 6]\)), \texttt{NSAFlow-PCA} (\(0.848\)) slightly exceeds
-  multi-view \texttt{SiMLR} (\(0.831\)) because cross-view graph
-  regularization adds variance when \(p_m\) is very small.
+  \(\mathcal{O}(\min(N p^2, p N^2))\) time (median 0.010 s here). On
+  low-dimensional clinical tables such as \texttt{Heart}
+  (\(p = [7, 6]\)), \texttt{NSAFlow-PCA} reaches 0.848 against 0.819 for
+  multi-view \texttt{SiMLR}.
 \item
-  \textbf{Global Cortical Thickness Confounding Under Unrotated
-  Initialization (\texttt{varimax\ =\ False,\ q\ =\ None})}: On
-  \texttt{ADNI-MCI}, running unrotated non-negative \texttt{SiMLR}
-  (\texttt{varimax\ =\ False,\ sparseness\ =\ None}) leaves Component 1
-  \(85.5\%\) dense (\(53/62\) active DKT regions, \(15\%\) overall
-  sparsity) because cortical thickness parcels share a positive global
-  correlation floor across the brain
-  (Figure~\ref{fig-adni-neuroanatomy-flagship} A2). In
-  \texttt{pysimlr\ v0.2.17}, default orthogonal Varimax subspace
-  rotation (\texttt{varimax\ =\ True}) resolves this directly in
-  standard column-centered space by rotating the \(k\)-dimensional
-  subspace before non-negative projection, raising unthresholded
-  sparsity from \(15\%\) to \(66\%\) (\([24, 12, 26]\) active parcels,
-  Figure~\ref{fig-adni-neuroanatomy-flagship} A3) without discarding
-  global atrophy severity (unlike manual subject row-mean centering,
-  which yields \(61\%\)--\(68\%\) sparsity but reduces \texttt{CogPC1}
-  \(R^2\) from \(0.189\) to \(0.153\), as shown in Appendix B).
-  Combining \texttt{varimax\ =\ True} with quantile thresholding
-  \(q \in [0.50, 0.85]\) further isolates focal 9-region Braak networks
-  (\(88\%\) sparse, \texttt{CogPC1} \(R^2 = 0.192\),
-  Figure~\ref{fig-adni-neuroanatomy-flagship} A4).
+  \textbf{Unrotated Initialization and Row-Mean Centering on Cortical
+  Thickness}: On \texttt{ADNI-MCI}, non-negative \texttt{SiMLR-LBFGSB}
+  without rotation or quantile thresholding
+  (\texttt{varimax\ =\ False,\ sparseness\ =\ None}) is 63\% sparse with
+  {[}27, 13, 28{]} active DKT regions per component
+  (Figure~\ref{fig-adni-neuroanatomy-flagship} A2); with Varimax
+  rotation it is 63\% sparse with {[}16, 27, 25{]} (A3). Subject
+  row-mean centering (Appendix B) gives 66\% sparsity but lowers
+  \texttt{CogPC1} \(R^2\) from 0.181 to 0.100 (PCA start) or 0.111 (ICA
+  start). Quantile thresholding at \(q = 0.85\) restricts each component
+  to 9 regions (85\% sparse, \texttt{CogPC1} \(R^2 =\) 0.199, A4).
 \item
-  \textbf{Stiffness and Accuracy Degradation at Extreme Orthogonality
-  Weights (\(w \ge 0.80\))}: Pushing the \texttt{nsa\_flow} trade-off
-  weight toward strict Stiefel projection (\(w = 0.95\)) increases
-  wall-clock optimization time by \(2.5\times\)--\(3.8\times\) due to
-  boundary stiffness on the non-negative orthant and reduces
-  \texttt{ADNI-MCI} \texttt{CogPC1} \(R^2\) from \(0.159\)
-  (\(w = 0.50\)) to \(0.132\) (\(w = 0.95\)). Conversely, setting
-  \(w \le 0.10\) triggers severe rank collapse
-  (\(\text{EffRank} = 2.02\) of \(k = 3\), Gram defect \(D = 0.244\)).
-  The balanced default \(w = 0.50\) avoids both failure modes across all
-  tested cohorts.
+  \textbf{Extreme Orthogonality Weights}: Moving the \texttt{nsa\_flow}
+  weight from \(w = 0.50\) to \(w = 0.95\) multiplies fit time by 1.3 on
+  \texttt{ADNI-MCI} and 7.6 on synthetic \texttt{NonnegParts}, and
+  changes \texttt{CogPC1} \(R^2\) from 0.157 to 0.157. At \(w = 0.01\)
+  the effective rank is 3.00 of \(k = 3\) (Gram defect \(D =\) 0.000);
+  at \(w = 0.10\) it is 3.00. Across \(w \in [0.20, 0.85]\),
+  \texttt{CogPC1} \(R^2\) stays within 0.154--0.177.
 \item
-  \textbf{Hyperparameter Sensitivity of Deep Multi-View Models on Small
-  Sample Sizes}: When sample sizes are moderate (\(N \le 400\) in
-  \texttt{NonnegParts} and \texttt{Heart}), deep autoencoder variants
-  (\texttt{NED}, \texttt{NEDPP}) exhibit higher fold-to-fold variance
-  and lower feature support recovery (\(F_1 = 0.587\)--\(0.642\)) than
-  quasi-Newton linear solvers (\texttt{SiMLR-LBFGSB},
-  \(F_1 = 0.861\)--\(0.991\)).
+  \textbf{Deep Multi-View Models and Feature Support Recovery}: On the
+  synthetic parts regimes, the deep autoencoder variants recover feature
+  supports less well than the quasi-Newton linear solver: \(F_1 =\)
+  0.822 (\texttt{NED}) and 0.773 (\texttt{NEDPP}) on
+  \texttt{NonnegParts} against 0.973 for \texttt{SiMLR-LBFGSB}, and
+  0.511 and 0.485 on \texttt{NonnegPartsWeak} against 0.689.
 \end{enumerate}
 
 \section{Conclusion}\label{conclusion}
@@ -2012,8 +1912,8 @@ completeness:
 \end{itemize}
 
 The downstream clinical target is binary Estrogen Receptor (ER) status
-(Positive vs.~Negative, \(76.4\%\) ER+ prevalence), evaluated across
-three independent \(70/30\) stratified train/test splits
+(Positive vs.~Negative, 76.4\% ER+ prevalence), evaluated across three
+independent \(70/30\) stratified train/test splits
 (\texttt{Seeds\ 42,\ 43,\ 44}, standardized strictly inside each
 training fold).
 
@@ -2072,16 +1972,16 @@ Fit Time ↓
 \bottomrule\noalign{}
 \endlastfoot
 NSAFlow-PCA & 0.929 ± 0.022 & 0.919 ± 0.021 & 0.3479 & 50.0\% &
-0.059s \\
-SiMLR-LBFGSB & 0.915 ± 0.018 & 0.921 ± 0.015 & 0 & 50.0\% & 5.800s \\
-LEND & 0.917 ± 0.013 & 0.927 ± 0.022 & 0.0008 & 50.0\% & 2.168s \\
-PCA & 0.922 ± 0.016 & 0.915 ± 0.018 & 0.2388 & 0.0\% & 0.009s \\
-NEDPP & 0.934 ± 0.010 & 0.927 ± 0.011 & 0.0011 & 50.0\% & 3.160s \\
-NED & 0.929 ± 0.015 & 0.926 ± 0.013 & 0.0008 & 50.0\% & 2.294s \\
-SiMLR-LBFGS & 0.917 ± 0.019 & 0.921 ± 0.015 & 0 & 50.0\% & 6.489s \\
-SiMLR & 0.915 ± 0.015 & 0.921 ± 0.015 & 0.0002 & 50.0\% & 0.650s \\
-Flow-SiMR-V & 0.914 ± 0.012 & 0.927 ± 0.007 & 0.0014 & 50.0\% &
-7.889s \\
+0.066s \\
+SiMLR-LBFGSB & 0.917 ± 0.015 & 0.921 ± 0.015 & 0 & 50.0\% & 2.651s \\
+LEND & 0.926 ± 0.020 & 0.929 ± 0.012 & 0.0011 & 50.0\% & 2.368s \\
+PCA & 0.922 ± 0.016 & 0.915 ± 0.018 & 0.2388 & 0.0\% & 0.010s \\
+NEDPP & 0.922 ± 0.013 & 0.927 ± 0.014 & 0.0008 & 50.0\% & 3.624s \\
+NED & 0.911 ± 0.037 & 0.927 ± 0.007 & 0.0009 & 50.0\% & 2.673s \\
+SiMLR-LBFGS & 0.917 ± 0.015 & 0.921 ± 0.015 & 0 & 50.0\% & 2.677s \\
+SiMLR & 0.915 ± 0.015 & 0.921 ± 0.015 & 0.0003 & 50.0\% & 0.723s \\
+Flow-SiMR-V & 0.923 ± 0.022 & 0.921 ± 0.015 & 0.0008 & 50.0\% &
+9.037s \\
 \end{longtable}
 
 \section{Tri-Modal Molecular Driver
@@ -2097,22 +1997,16 @@ weights \(|\mathbf{V}_m|\) on the ER-aligned component learned by
 
 \centering{
 
-\includegraphics[width=1\linewidth,height=\textheight,keepaspectratio]{figures/fig_brca_trimodal_waterfall.png}
+\pandocbounded{\includegraphics[keepaspectratio]{appendix_brca_clinical_validation_files/figure-pdf/fig-brca-trimodal-waterfall-output-1.pdf}}
 
 }
 
-\caption{\label{fig-brca-trimodal-waterfall}Tri-Modal Feature Weights
-for ER-Status (\texttt{TCGA-BRCA}, \(N=822\)). \texttt{LEND} identifies
-coordinated molecular drivers across modalities on the ER-aligned basis
-component. (Left) RNA-Seq weights isolating luminal hormone-receptor
-transcripts (\texttt{PGR}, \texttt{PIP}, \texttt{GRPR}, \texttt{ELOVL2},
-\texttt{LTF}, \texttt{S100A8/A9}). (Center) CNV regional weights
-isolating the 17q23 (\texttt{RPS6KB1}, \texttt{PTRH2}, \texttt{VMP1},
-\texttt{MIR21}) and 8p11-p12 (\texttt{ZNF703}, \texttt{ERLIN2},
-\texttt{BRF2}, \texttt{RAB11FIP1}, \texttt{GPR124}) breast cancer
-amplicons. (Right) Proteomics (RPPA) weights led by
-\texttt{ER-alpha-R-V}, \texttt{GATA3-M-V}, \texttt{HER2-M-V},
-\texttt{AR-R-V}, \texttt{PR-R-V}, and \texttt{ER-alpha\_pS118-R-V}.}
+\caption{\label{fig-brca-trimodal-waterfall}Fifteen largest loadings
+\(|\mathbf{V}_m|\) on the ER-aligned \texttt{LEND} component of each
+\texttt{TCGA-BRCA} view (\(N = 822\); the component whose scores
+correlate most with ER status, per view;
+\texttt{brca\_er\_loadings.json} from
+\texttt{scripts/paper\_brca\_loadings.py}).}
 
 \end{figure}%
 
@@ -2120,28 +2014,21 @@ amplicons. (Right) Proteomics (RPPA) weights led by
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \textbf{Proteomics (\texttt{rppa}):} \texttt{ER-alpha-R-V}
-  (\(|V| = 0.290\)) and \texttt{GATA3-M-V} (\(|V| = 0.268\)) carry the
-  two largest loading magnitudes, followed by \texttt{HER2-M-V}
-  (\(0.205\)), androgen receptor \texttt{AR-R-V} (\(0.203\)),
-  \texttt{Cyclin\_E1-M-V} (\(0.200\)), progesterone receptor
-  \texttt{PR-R-V} (\(0.164\)), and phosphorylated
-  \texttt{ER-alpha\_pS118-R-V} (\(0.131\)) (The Cancer Genome Atlas
-  Network 2012).
+  \textbf{Proteomics (\texttt{rppa}):} the largest loadings on component
+  2 (\(|r|\) with ER 0.68) are \texttt{ASNS-R-V} (0.333),
+  \texttt{PR-R-V} (0.333), \texttt{ER-alpha-R-V} (0.331),
+  \texttt{p70S6K-R-V} (0.281), \texttt{AR-R-V} (0.243),
+  \texttt{GATA3-M-V} (0.241).
 \item
-  \textbf{Transcriptomics (\texttt{rna}):} In the mRNA view, the
-  ER-aligned component highlights progesterone receptor \texttt{PGR},
-  prolactin-induced protein \texttt{PIP}, gastrin-releasing peptide
-  receptor \texttt{GRPR}, \texttt{ELOVL2}, and luminal/basal
-  discriminators \texttt{LTF} and \texttt{S100A8}/\texttt{S100A9}
-  ({Perou et al.} 2000; {Parker et al.} 2009).
+  \textbf{Transcriptomics (\texttt{rna}):} the largest loadings on
+  component 1 (\(|r|\) with ER 0.75) are \texttt{AGR2} (0.287),
+  \texttt{ESR1} (0.249), \texttt{DIO1} (0.244), \texttt{ELF5} (0.224),
+  \texttt{CHAD} (0.215), \texttt{C1orf64} (0.202).
 \item
-  \textbf{Copy Number Variation (\texttt{cnv}):} In the somatic
-  copy-number view, the basis isolates the 8p11-p12 luminal amplicon
-  (\texttt{ZNF703}, \texttt{ERLIN2}, \texttt{BRF2}, \texttt{RAB11FIP1},
-  \texttt{GPR124}) alongside the 17q23 amplicon (\texttt{RPS6KB1},
-  \texttt{PTRH2}, \texttt{VMP1}, \texttt{MIR21}, \texttt{TUBD1}) (The
-  Cancer Genome Atlas Network 2012; {Curtis et al.} 2012).
+  \textbf{Copy Number Variation (\texttt{cnv}):} the largest loadings on
+  component 1 (\(|r|\) with ER 0.25) are \texttt{ERLIN2} (0.251),
+  \texttt{GPR124} (0.250), \texttt{PROSC} (0.222), \texttt{ZNF703}
+  (0.211), \texttt{RAB11FIP1} (0.207), \texttt{CASC3} (0.200).
 \end{enumerate}
 
 \chapter{Extended Parameter Ablations and Operational
@@ -2151,9 +2038,9 @@ This appendix provides the complete empirical ablation tables referenced
 in Chapters 2--4---covering the \texttt{nsa\_flow} trade-off weight
 \(w \in [0.01, 0.95]\), in-fold subject row-mean removal and
 deterministic ICA initialization, fine-grained quantile sparsity
-\(q \in [\text{None}, 0.90]\), the \(1,214\)-configuration
-\texttt{ADNI-MCI} grid sweep, synthetic per-regime breakdowns, and
-pairwise Wilcoxon rank-sum tests---followed by computational complexity
+\(q \in [\text{None}, 0.90]\), the 1,214-configuration \texttt{ADNI-MCI}
+grid sweep, synthetic per-regime breakdowns, and Wilcoxon signed-rank
+tests against \texttt{PCA}---followed by computational complexity
 bounds.
 
 \section{\texorpdfstring{Effect of the Approximate Stiefel Weight
@@ -2224,19 +2111,17 @@ ADNI Time ↓
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-0.01 & 0.639 & 0.00868 & 50.9\% & 0.24425 & 2.02 & 22.5\% & 0.1323 &
-2.80s \\
-0.05 & 0.656 & 7e-05 & 62.3\% & 0.05693 & 2.69 & 52.2\% & 0.1753 &
-2.39s \\
-0.10 & 0.729 & 2e-05 & 64.4\% & 0.01867 & 2.89 & 55.1\% & 0.1657 &
-2.92s \\
-0.20 & 0.682 & 0 & 63.5\% & 0.01606 & 2.91 & 49.6\% & 0.1697 & 3.30s \\
-0.35 & 0.71 & 0 & 65.5\% & 0.00151 & 2.99 & 63.1\% & 0.1505 & 3.51s \\
-0.50* & 0.687 & 0 & 65.5\% & 0.00062 & 3 & 64.8\% & 0.1587 & 4.01s \\
-0.65 & 0.594 & 3e-05 & 64.4\% & 9e-05 & 3 & 62.4\% & 0.1401 & 4.55s \\
-0.80 & 0.702 & 0 & 62.5\% & 4e-05 & 3 & 66.6\% & 0.1746 & 4.58s \\
-0.90 & 0.692 & 0 & 67.3\% & 0 & 3 & 68.1\% & 0.1501 & 7.28s \\
-0.95 & 0.726 & 0 & 65.4\% & 1e-05 & 3 & 66.5\% & 0.1323 & 9.85s \\
+0.01 & 0.653 & 0.0012 & 41.2\% & 0.00016 & 3 & 47.9\% & 0.1579 &
+3.49s \\
+0.05 & 0.704 & 0 & 45.5\% & 0 & 3 & 51.5\% & 0.1602 & 3.41s \\
+0.10 & 0.663 & 0 & 50.6\% & 0 & 3 & 57.3\% & 0.1595 & 3.55s \\
+0.20 & 0.772 & 0 & 57.8\% & 0 & 3 & 53.7\% & 0.1536 & 3.59s \\
+0.35 & 0.892 & 0 & 61.7\% & 0 & 3 & 64.7\% & 0.1773 & 3.56s \\
+0.50* & 0.969 & 0 & 64.8\% & 0 & 3 & 63.9\% & 0.1566 & 3.06s \\
+0.65 & 0.86 & 0.01035 & 59.5\% & 0 & 3 & 63.4\% & 0.158 & 3.13s \\
+0.80 & 0.972 & 0 & 68.4\% & 0 & 3 & 63.3\% & 0.1559 & 3.37s \\
+0.90 & 0.973 & 0 & 65.5\% & 0 & 3 & 65.4\% & 0.1638 & 3.13s \\
+0.95 & 0.972 & 0 & 65.5\% & 0 & 3 & 64.6\% & 0.1568 & 4.01s \\
 \end{longtable}
 
 \begin{figure}[htbp]
@@ -2266,19 +2151,17 @@ Rotation}\label{preprocessing-controls-subject-row-mean-removal-ica-initializati
 
 On neuroimaging cohorts where cortical regions share a positive global
 correlation floor, Table~\ref{tbl-app-rowmean-ica} and
-Figure~\ref{fig-rowmean-k-ablation} compare unrotated column centering
-against in-fold subject row-mean centering, deterministic FastICA
-(Hyvärinen and Oja 2000) initialization, and latent rank scaling
-\(k \in \{2, 3, 5, 8, 12\}\). While subject row-mean removal and FastICA
-initialization were originally used to diagnose and eliminate the
-unrotated Component 1 density effect
-(\texttt{Col\ +\ PCA,\ varimax\ =\ False,\ q\ =\ None}),
-\texttt{pysimlr\ v0.2.17} incorporates exact orthogonal Varimax subspace
-rotation (\texttt{varimax\ =\ True} by default inside
-\texttt{nsa\_flow}) prior to non-negative retraction, achieving
-\(66.1\%\) unthresholded sparsity (\([24, 12, 26]\) active DKT parcels)
-directly on standard column-centered data without discarding global
-atrophy severity.
+Figure~\ref{fig-rowmean-k-ablation} compare column centering with
+in-fold subject row-mean centering, PCA with deterministic FastICA
+(Hyvärinen and Oja 2000) initialization, signed with non-negative bases,
+and the initializer alone with the fitted model (\texttt{SiMLR-LBFGSB},
+\(k = 3\), \(w = 0.50\), no Varimax, no quantile threshold;
+\texttt{scripts/paper\_adni\_ablations.py}). With non-negative bases,
+row-mean centering changes cortical sparsity from 65\% to 66\% and
+\texttt{CogPC1} \(R^2\) from 0.181 to 0.100. Varimax rotation on
+column-centered data gives 63\% sparsity on the 62 DKT regions with
+{[}16, 27, 25{]} active regions per component, against 63\% and {[}27,
+13, 28{]} without rotation.
 
 \begin{longtable}[]{@{}
   >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0818}}
@@ -2335,38 +2218,38 @@ CogPC1 R2 (+RowMean) ↑
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-Col & PCA & Signed & Init & 0 & 1.3\% (0.7\%) & 0.1628 (0.1628) &
-0.0769 \\
-Col & PCA & Signed & SiMR & 0 & 3.3\% (1.6\%) & 0.1714 (0.1719) &
-0.0833 \\
-Col & PCA & V\textgreater=0 & Init & 0.00186 & 57.8\% (37.1\%) & 0.1638
-(0.1638) & 0.0768 \\
-Col & PCA & V\textgreater=0 & SiMR & 8e-05 & 63.0\% (35.8\%) & 0.1892
-(0.1895) & 0.0889 \\
-Col & ICA & Signed & Init & 0 & 3.3\% (5.3\%) & 0.1410 (0.1490) &
-0.0683 \\
-Col & ICA & Signed & SiMR & 4e-05 & 1.9\% (1.4\%) & 0.1737 (0.1719) &
-0.085 \\
-Col & ICA & V\textgreater=0 & Init & 0.01607 & 63.8\% (72.3\%) & 0.1476
-(0.1615) & 0.0651 \\
-Col & ICA & V\textgreater=0 & SiMR & 5e-05 & 62.4\% (39.3\%) & 0.1213
-(0.1215) & 0.0602 \\
-Row+Col & PCA & Signed & Init & 0 & 1.8\% (1.2\%) & 0.1399 (0.1580) &
-0.0684 \\
-Row+Col & PCA & Signed & SiMR & 0 & 2.4\% (2.4\%) & 0.1399 (0.1532) &
+Col & PCA & Signed & Init & 0 & 0.0\% (0.0\%) & 0.1627 (0.1657) &
+0.0782 \\
+Col & PCA & Signed & SiMR & 0 & 0.0\% (0.0\%) & 0.1642 (0.1636) &
+0.0796 \\
+Col & PCA & V\textgreater=0 & Init & 0.00182 & 57.2\% (45.3\%) & 0.1768
+(0.1867) & 0.081 \\
+Col & PCA & V\textgreater=0 & SiMR & 0 & 65.4\% (51.8\%) & 0.1814
+(0.1849) & 0.0843 \\
+Col & ICA & Signed & Init & 0 & 0.0\% (0.0\%) & 0.1456 (0.1474) &
 0.072 \\
-Row+Col & PCA & V\textgreater=0 & Init & 0.00258 & 58.7\% (56.2\%) &
-0.1348 (0.1497) & 0.066 \\
-Row+Col & PCA & V\textgreater=0 & SiMR & 0.00465 & 62.0\% (52.9\%) &
-0.1689 (0.1776) & 0.0813 \\
-Row+Col & ICA & Signed & Init & 0 & 1.7\% (1.8\%) & 0.1400 (0.1581) &
-0.0684 \\
-Row+Col & ICA & Signed & SiMR & 5e-05 & 2.8\% (2.5\%) & 0.1489 (0.1567)
-& 0.0761 \\
-Row+Col & ICA & V\textgreater=0 & Init & 0.02073 & 60.4\% (58.2\%) &
-0.1286 (0.1594) & 0.0623 \\
-Row+Col & ICA & V\textgreater=0 & SiMR & 6e-05 & 67.1\% (69.4\%) &
-0.1408 (0.1531) & 0.0727 \\
+Col & ICA & Signed & SiMR & 0 & 0.0\% (0.0\%) & 0.1583 (0.1553) &
+0.0797 \\
+Col & ICA & V\textgreater=0 & Init & 0.01466 & 61.5\% (61.3\%) & 0.1471
+(0.1432) & 0.0681 \\
+Col & ICA & V\textgreater=0 & SiMR & 0 & 58.8\% (53.9\%) & 0.1639
+(0.1535) & 0.0794 \\
+Row+Col & PCA & Signed & Init & 0 & 0.0\% (0.0\%) & 0.1351 (0.1364) &
+0.0968 \\
+Row+Col & PCA & Signed & SiMR & 0 & 0.0\% (0.0\%) & 0.1300 (0.1313) &
+0.098 \\
+Row+Col & PCA & V\textgreater=0 & Init & 0.00245 & 59.3\% (30.9\%) &
+0.0786 (0.0785) & 0.0697 \\
+Row+Col & PCA & V\textgreater=0 & SiMR & 0 & 65.9\% (40.3\%) & 0.0996
+(0.1028) & 0.083 \\
+Row+Col & ICA & Signed & Init & 0 & 0.0\% (0.0\%) & 0.1321 (0.1348) &
+0.0972 \\
+Row+Col & ICA & Signed & SiMR & 0 & 0.0\% (0.0\%) & 0.1271 (0.1291) &
+0.0986 \\
+Row+Col & ICA & V\textgreater=0 & Init & 0.01849 & 61.9\% (65.2\%) &
+0.1173 (0.1181) & 0.095 \\
+Row+Col & ICA & V\textgreater=0 & SiMR & 0 & 59.7\% (44.2\%) & 0.1112
+(0.1158) & 0.0941 \\
 \end{longtable}
 
 \begin{figure}[htbp]
@@ -2377,31 +2260,30 @@ Row+Col & ICA & V\textgreater=0 & SiMR & 6e-05 & 67.1\% (69.4\%) &
 
 }
 
-\caption{\label{fig-rowmean-k-ablation}Resolution of the unthresholded
-\texttt{ADNI-MCI} Component 1 density effect via subject row-mean
-removal and latent rank scaling
-(\texttt{ablation\_rowmean\_ica\_positivity.csv} and
-\texttt{ablation\_k\_sparsity\_sweep.csv}). (A) Under unthresholded
-column centering (\texttt{q\ =\ None}), Component 1 (\(v_1\), blue)
-absorbs the global cortical thickness floor (\(3.2\%\) sparse) while
-Components \(2..k\) (\(v_2..v_k\), teal) remain \(21.0\%\) sparse;
-removing each subject's mean cortical thickness or applying quantile
-thresholding (\(q = 0.80\)) restores \(53.2\%\)--\(81.5\%\) sparsity on
-\(v_1\). (B) Scaling latent rank \(k \in \{2, 3, 5, 8, 12\}\)
-systematically increases natural unthresholded non-negative sparsity
-toward the theoretical disjoint limit \(1 - 1/k\).}
+\caption{\label{fig-rowmean-k-ablation}Component sparsity under column
+vs.~row-mean centering, Varimax rotation and quantile thresholding, and
+natural non-negative sparsity against latent rank \(k\)
+(\texttt{ablation\_rowmean\_ica\_positivity.csv},
+\texttt{adni\_mci\_feature\_loadings.json} and
+\texttt{ablation\_k\_sparsity\_sweep.csv}). (A) Fraction of zero
+loadings in Component 1 (\(v_1\), blue) and Components \(2..k\)
+(\(v_2..v_k\), teal) on the 62 DKT cortical-thickness regions for five
+regimes. (B) Unthresholded non-negative sparsity across
+\(k \in \{2, 3, 5, 8, 12\}\), against the disjoint-support limit
+\(1 - 1/k\).}
 
 \end{figure}%
 
 \section{\texorpdfstring{Fine-Grained Quantile Sparsity
-(\(q \in [\text{None}, 0.90]\)) and \texttt{ADNI-MCI} 1,214-Sweep
-Summary}{Fine-Grained Quantile Sparsity (q \textbackslash in {[}\textbackslash text\{None\}, 0.90{]}) and ADNI-MCI 1,214-Sweep Summary}}\label{fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-1214-sweep-summary}
+(\(q \in [\text{None}, 0.90]\)) and \texttt{ADNI-MCI} Sweep
+Summary}{Fine-Grained Quantile Sparsity (q \textbackslash in {[}\textbackslash text\{None\}, 0.90{]}) and ADNI-MCI Sweep Summary}}\label{fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-sweep-summary}
 
 Table~\ref{tbl-app-quantile-grid} reports the complete quantile
 \texttt{sparseness} progression from \(q = \text{None}\) to \(q = 0.90\)
 on \texttt{ADNI-MCI} and \texttt{NonnegParts}, and
 Table~\ref{tbl-app-adni-sweep} reports the top configuration per model
-family across the \(1,214\)-configuration \texttt{ADNI-MCI} grid sweep.
+family across the 1,214-configuration \texttt{ADNI-MCI} grid sweep
+(1,214 completed).
 
 \begin{longtable}[]{@{}
   >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0775}}
@@ -2458,30 +2340,30 @@ Synth F1 ↑
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-positive & None & 8e-05 & 63.0\% (35.8\%) & (55,7,12) & 0.1892 & 0.0889
-& 0.941 \\
-positive & 0.50 & 1e-05 & 74.5\% (61.5\%) & (31,3,7) & 0.1602 & 0.0751 &
-0.915 \\
-positive & 0.70 & 0.00063 & 76.9\% (72.0\%) & (19,10,5) & 0.1689 &
-0.0793 & 0.88 \\
-positive & 0.80 & 3e-05 & 85.8\% (81.9\%) & (12,3,3) & 0.1735 & 0.0807 &
-0.562 \\
-positive & 0.85 & 0.00062 & 88.0\% (85.5\%) & (9,9,9) & 0.1923 & 0.0897
-& 0.46 \\
-positive & 0.90 & 0 & 92.3\% (91.0\%) & (6,6,3) & 0.1595 & 0.0773 &
-0.279 \\
-either & None & 0 & 3.3\% (1.6\%) & (62,62,62) & 0.1714 & 0.0833 &
+positive & None & 0 & 63.9\% (67.8\%) & (16,27,25) & 0.1566 & 0.0803 &
+0.969 \\
+positive & 0.50 & 0 & 64.3\% (69.1\%) & (16,27,25) & 0.1566 & 0.0803 &
+0.969 \\
+positive & 0.70 & 0 & 70.6\% (69.9\%) & (19,19,19) & 0.1391 & 0.0718 &
+0.88 \\
+positive & 0.80 & 0.00017 & 80.1\% (80.1\%) & (12,12,12) & 0.1707 &
+0.0804 & 0.549 \\
+positive & 0.85 & 0.002 & 85.1\% (85.1\%) & (9,9,9) & 0.199 & 0.0916 &
+0.452 \\
+positive & 0.90 & 0 & 90.1\% (90.1\%) & (6,6,6) & 0.1886 & 0.0856 &
+0.193 \\
+either & None & 0 & 0.0\% (0.0\%) & (62,62,62) & 0.1642 & 0.0796 &
 0.333 \\
-either & 0.50 & 0.00023 & 58.5\% (55.7\%) & (31,31,31) & 0.1968 & 0.0938
-& 0.621 \\
-either & 0.70 & 0 & 75.7\% (75.9\%) & (19,19,19) & 0.2089 & 0.0943 &
-0.791 \\
-either & 0.80 & 0.00035 & 85.0\% (84.2\%) & (12,12,12) & 0.1699 & 0.0773
-& 0.551 \\
-either & 0.85 & 0 & 86.6\% (86.5\%) & (9,9,9) & 0.1722 & 0.0808 &
-0.436 \\
-either & 0.90 & 6e-05 & 90.6\% (90.2\%) & (6,6,6) & 0.1514 & 0.0716 &
-0.266 \\
+either & 0.50 & 0 & 50.0\% (50.0\%) & (31,31,31) & 0.158 & 0.0777 &
+0.529 \\
+either & 0.70 & 0 & 69.9\% (69.9\%) & (19,19,19) & 0.1583 & 0.08 &
+0.62 \\
+either & 0.80 & 0 & 80.1\% (80.1\%) & (12,12,12) & 0.1669 & 0.0781 &
+0.529 \\
+either & 0.85 & 0 & 85.1\% (85.1\%) & (9,9,9) & 0.1823 & 0.084 &
+0.422 \\
+either & 0.90 & 0.00417 & 90.1\% (90.1\%) & (6,6,6) & 0.1801 & 0.0856 &
+0.256 \\
 \end{longtable}
 
 \begin{longtable}[]{@{}
@@ -2492,9 +2374,11 @@ either & 0.90 & 6e-05 & 90.6\% (90.2\%) & (6,6,6) & 0.1514 & 0.0716 &
   >{\raggedleft\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1635}}
   >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.2019}}
   >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0962}}@{}}
-\caption{Summary of the 1,214-configuration \protect\texttt{ADNI-MCI}
-Protocol B sweep (\(N = 1,084\), Seed 42, \(k = 3\)) computed from
-\protect\texttt{adni\_mci\_1214\_grid\_sweep.csv}.}\label{tbl-app-adni-sweep}\tabularnewline
+\caption{Summary of the \protect\texttt{ADNI-MCI} Protocol B
+hyperparameter sweep (\(N = 1,084\), Seed 42, \(k = 3\)) computed from
+\protect\texttt{adni\_mci\_1214\_grid\_sweep.csv}. Peak values are
+maxima over many configurations on one split and are
+optimistic.}\label{tbl-app-adni-sweep}\tabularnewline
 \toprule\noalign{}
 \begin{minipage}[b]{\linewidth}\raggedright
 Family
@@ -2533,29 +2417,29 @@ Time ↓
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-Linear & SiMLR-Lookahead & 35 & 0.2407 & 0.0939 & 0.166 ± 0.023 &
-2.07s \\
-Deep & NEDPP & 150 & 0.2357 & 0.1074 & 0.195 ± 0.020 & 14.32s \\
-Flow & Flow-SiMR-V & 120 & 0.2341 & 0.1054 & 0.181 ± 0.027 & 16.80s \\
-Linear & SiMLR-LARS & 35 & 0.2296 & 0.1073 & 0.172 ± 0.014 & 1.23s \\
-Linear & SiMLR-BiArmijo & 35 & 0.2277 & 0.0778 & 0.171 ± 0.019 &
-2.92s \\
-Deep & NED & 150 & 0.2237 & 0.1069 & 0.185 ± 0.016 & 8.69s \\
-Linear & SiMLR-LBFGSB & 35 & 0.2212 & 0.0643 & 0.159 ± 0.026 & 4.74s \\
-Deep & LEND & 150 & 0.219 & 0.1059 & 0.180 ± 0.023 & 25.58s \\
-Linear & SiMLR-LBFGS & 35 & 0.2177 & 0.0613 & 0.164 ± 0.021 & 4.89s \\
-Linear & SiMLR & 35 & 0.2151 & 0.0703 & 0.171 ± 0.016 & 0.96s \\
-Linear & SiMLR-NSAFlow & 35 & 0.1911 & 0.0866 & 0.166 ± 0.007 & 1.77s \\
-Linear & SiMLR-HybridAdam & 35 & 0.1894 & 0.041 & 0.158 ± 0.016 &
-0.95s \\
-Baseline & NSAFlow-PCA & 1 & 0.1891 & 0.0823 & 0.189 & 0.35s \\
-Baseline & PCA & 1 & 0.1786 & 0.0813 & 0.179 & 0.29s \\
-Deep & LEND-LARS & 18 & 0.1628 & 0.0782 & 0.163 ± 0.000 & 3.12s \\
-Deep & LEND-LARSLOW & 18 & 0.1628 & 0.0782 & 0.163 ± 0.000 & 3.31s \\
-Deep & NEDPP-LARSLOW & 18 & 0.1627 & 0.0782 & 0.163 ± 0.000 & 7.69s \\
-Deep & NEDPP-LARS & 18 & 0.1627 & 0.0782 & 0.163 ± 0.000 & 7.53s \\
-Deep & NED-LARSLOW & 18 & 0.1627 & 0.0782 & 0.163 ± 0.000 & 4.00s \\
-Deep & NED-LARS & 18 & 0.1627 & 0.0782 & 0.163 ± 0.000 & 3.71s \\
+Deep & NED & 150 & 0.2624 & 0.1194 & 0.192 ± 0.025 & 13.17s \\
+Deep & LEND & 150 & 0.2605 & 0.118 & 0.183 ± 0.031 & 7.35s \\
+Flow & Flow-SiMR-V & 150 & 0.2461 & 0.1153 & 0.197 ± 0.028 & 18.75s \\
+Deep & NEDPP & 150 & 0.2353 & 0.1095 & 0.194 ± 0.020 & 10.73s \\
+Linear & SiMLR-LARS & 63 & 0.2256 & 0.1 & 0.174 ± 0.021 & 1.26s \\
+Linear & SiMLR-LBFGSB & 63 & 0.2175 & 0.0715 & 0.161 ± 0.034 & 4.93s \\
+Linear & SiMLR-BiArmijo & 63 & 0.2161 & 0.0748 & 0.170 ± 0.020 &
+3.73s \\
+Linear & SiMLR-LBFGS & 63 & 0.2132 & 0.0732 & 0.161 ± 0.023 & 4.73s \\
+Linear & SiMLR & 63 & 0.2094 & 0.0712 & 0.165 ± 0.018 & 1.57s \\
+Baseline & NSAFlow-PCA & 1 & 0.1876 & 0.0799 & 0.188 & 0.44s \\
+Linear & SiMLR-HybridAdam & 63 & 0.1874 & 0.0869 & 0.157 ± 0.014 &
+2.83s \\
+Linear & SiMLR-Lookahead & 63 & 0.187 & 0.0804 & 0.160 ± 0.009 &
+2.32s \\
+Linear & SiMLR-NSAFlow & 63 & 0.1832 & 0.0851 & 0.163 ± 0.008 & 1.84s \\
+Baseline & PCA & 1 & 0.1779 & 0.081 & 0.178 & 0.38s \\
+Deep & NEDPP-LARSLOW & 18 & 0.1585 & 0.0789 & 0.158 ± 0.000 & 5.34s \\
+Deep & NEDPP-LARS & 18 & 0.1585 & 0.0789 & 0.158 ± 0.000 & 5.11s \\
+Deep & LEND-LARS & 18 & 0.1585 & 0.0789 & 0.158 ± 0.000 & 4.30s \\
+Deep & LEND-LARSLOW & 18 & 0.1585 & 0.0789 & 0.158 ± 0.000 & 4.39s \\
+Deep & NED-LARS & 18 & 0.1585 & 0.0789 & 0.158 ± 0.000 & 4.68s \\
+Deep & NED-LARSLOW & 18 & 0.1585 & 0.0789 & 0.158 ± 0.000 & 4.83s \\
 \end{longtable}
 
 \section{Synthetic Per-Regime Breakdown and Pairwise Wilcoxon
@@ -2564,8 +2448,9 @@ Tests}\label{synthetic-per-regime-breakdown-and-pairwise-wilcoxon-tests}
 Table~\ref{tbl-app-synthetic-breakdown} and
 Figure~\ref{fig-cmc-recovery} report the 3-seed performance across each
 of the six synthetic ground-truth regimes, and
-Table~\ref{tbl-app-wilcoxon} reports pairwise Wilcoxon signed-rank tests
-against \texttt{PCA} across the \(N = 36\) dataset-seed pairs.
+Table~\ref{tbl-app-wilcoxon} reports Wilcoxon signed-rank tests of each
+model against \texttt{PCA} over the 12 datasets, with seeds averaged
+within each dataset and Holm adjustment across models.
 
 \begin{longtable}[]{@{}
   >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1167}}
@@ -2616,24 +2501,24 @@ NonnegWeak
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-SiMLR-LBFGSB & 0.971 (CMC=0.96) & 0.881 (CMC=0.89) & 0.928 (CMC=0.92) &
-0.474 (CMC=0.26) & 0.916 (F1=0.99) & 0.353 (F1=0.61) \\
-SiMLR-LBFGS & 0.971 (CMC=0.96) & 0.879 (CMC=0.89) & 0.928 (CMC=0.92) &
-0.472 (CMC=0.26) & 0.916 (F1=0.97) & 0.350 (F1=0.61) \\
-LEND & 0.973 (CMC=0.88) & 0.882 (CMC=0.90) & 0.936 (CMC=0.87) & 0.633
-(CMC=0.36) & 0.918 (F1=0.94) & 0.514 (F1=0.63) \\
-Flow-SiMR-V & 0.972 (CMC=0.97) & 0.881 (CMC=0.89) & 0.936 (CMC=0.92) &
-0.706 (CMC=0.44) & 0.916 (F1=0.88) & 0.462 (F1=0.53) \\
-SiMLR & 0.970 (CMC=0.96) & 0.882 (CMC=0.89) & 0.928 (CMC=0.92) & 0.478
-(CMC=0.25) & 0.920 (F1=0.68) & 0.451 (F1=0.49) \\
-NSAFlow-PCA & 0.968 (CMC=0.99) & 0.862 (CMC=0.92) & 0.921 (CMC=0.94) &
-0.294 (CMC=0.15) & 0.890 (F1=0.64) & 0.114 (F1=0.36) \\
+SiMLR-LBFGSB & 0.970 (CMC=0.96) & 0.879 (CMC=0.89) & 0.928 (CMC=0.92) &
+0.481 (CMC=0.26) & 0.919 (F1=0.97) & 0.348 (F1=0.69) \\
+SiMLR-LBFGS & 0.971 (CMC=0.96) & 0.881 (CMC=0.89) & 0.928 (CMC=0.92) &
+0.491 (CMC=0.25) & 0.916 (F1=0.96) & 0.363 (F1=0.69) \\
+LEND & 0.974 (CMC=0.98) & 0.881 (CMC=0.88) & 0.943 (CMC=0.93) & 0.480
+(CMC=0.39) & 0.917 (F1=0.92) & 0.567 (F1=0.62) \\
+Flow-SiMR-V & 0.972 (CMC=0.95) & 0.882 (CMC=0.88) & 0.941 (CMC=0.92) &
+0.586 (CMC=0.38) & 0.916 (F1=0.90) & 0.470 (F1=0.55) \\
+SiMLR & 0.970 (CMC=0.96) & 0.881 (CMC=0.89) & 0.929 (CMC=0.92) & 0.479
+(CMC=0.26) & 0.918 (F1=0.68) & 0.435 (F1=0.58) \\
+NSAFlow-PCA & 0.968 (CMC=0.99) & 0.861 (CMC=0.92) & 0.921 (CMC=0.94) &
+0.293 (CMC=0.15) & 0.890 (F1=0.64) & 0.114 (F1=0.36) \\
 PCA & 0.968 (CMC=0.99) & 0.864 (CMC=0.92) & 0.921 (CMC=0.94) & 0.291
 (CMC=0.15) & 0.893 (F1=0.33) & 0.125 (F1=0.20) \\
-NEDPP & 0.971 (CMC=0.72) & 0.884 (CMC=0.61) & 0.942 (CMC=0.71) & 0.447
-(CMC=0.24) & 0.916 (F1=0.81) & 0.370 (F1=0.47) \\
-NED & 0.973 (CMC=0.76) & 0.880 (CMC=0.63) & 0.942 (CMC=0.64) & 0.439
-(CMC=0.36) & 0.916 (F1=0.81) & 0.391 (F1=0.45) \\
+NEDPP & 0.973 (CMC=0.59) & 0.887 (CMC=0.57) & 0.942 (CMC=0.53) & 0.363
+(CMC=0.27) & 0.916 (F1=0.77) & 0.393 (F1=0.49) \\
+NED & 0.973 (CMC=0.74) & 0.885 (CMC=0.72) & 0.939 (CMC=0.58) & 0.424
+(CMC=0.26) & 0.916 (F1=0.82) & 0.380 (F1=0.51) \\
 \end{longtable}
 
 \begin{figure}[htbp]
@@ -2654,32 +2539,35 @@ ground-truth generative regimes (\texttt{Linear}, \texttt{Polynomial},
 \end{figure}%
 
 \begin{longtable}[]{@{}
-  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1301}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1870}}
-  >{\raggedleft\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1220}}
-  >{\raggedleft\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1382}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1789}}
-  >{\raggedleft\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1138}}
-  >{\raggedleft\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1301}}@{}}
-\caption{Pairwise Wilcoxon signed-rank tests and win/tie/loss counts
-against single-matrix \protect\texttt{PCA} across all 36 dataset-seed
-evaluations
-(\protect\texttt{deep\_ranking\_benchmark.csv}).}\label{tbl-app-wilcoxon}\tabularnewline
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1416}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1770}}
+  >{\raggedleft\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1327}}
+  >{\raggedleft\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1327}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1681}}
+  >{\raggedleft\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1239}}
+  >{\raggedleft\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1239}}@{}}
+\caption{Each model against single-matrix \protect\texttt{PCA} over the
+12 datasets (\protect\texttt{deep\_ranking\_benchmark.csv},
+\(q = 0.5\)). Seeds are averaged within a dataset before testing, so
+each dataset is one paired block. Wins/ties/losses count datasets; \(p\)
+is the two-sided Wilcoxon signed-rank test, Holm-adjusted across the
+eight models of each column
+(\protect\texttt{deep\_ranking.wilcoxon\_vs\_reference}).}\label{tbl-app-wilcoxon}\tabularnewline
 \toprule\noalign{}
 \begin{minipage}[b]{\linewidth}\raggedright
 Model vs PCA
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
-XV Wins/Ties/Losses
+XV W/T/L (of 12)
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedleft
 XV Mean Δ ↑
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedleft
-XV Wilcoxon p
+XV p (Holm)
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
-U Wins/Ties/Losses
+U W/T/L (of 12)
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedleft
 U Mean Δ ↑
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedleft
-U Wilcoxon p
+U p (Holm)
 \end{minipage} \\
 \midrule\noalign{}
 \endfirsthead
@@ -2687,34 +2575,38 @@ U Wilcoxon p
 \begin{minipage}[b]{\linewidth}\raggedright
 Model vs PCA
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
-XV Wins/Ties/Losses
+XV W/T/L (of 12)
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedleft
 XV Mean Δ ↑
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedleft
-XV Wilcoxon p
+XV p (Holm)
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
-U Wins/Ties/Losses
+U W/T/L (of 12)
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedleft
 U Mean Δ ↑
 \end{minipage} & \begin{minipage}[b]{\linewidth}\raggedleft
-U Wilcoxon p
+U p (Holm)
 \end{minipage} \\
 \midrule\noalign{}
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-LEND & 30 / 0 / 6 & 0.0889 & 0.0001 & 24 / 2 / 10 & 0.0482 & 0.0034 \\
-NEDPP & 29 / 1 / 6 & 0.0654 & 0.0001 & 9 / 0 / 27 & -0.0871 & 0.0001 \\
-Flow-SiMR-V & 29 / 2 / 5 & 0.0912 & 0.0001 & 22 / 1 / 13 & 0.0479 &
-0.0183 \\
-SiMLR-LBFGS & 28 / 3 / 5 & 0.0614 & 0 & 16 / 0 / 20 & -0.0065 &
-0.3962 \\
-SiMLR-LBFGSB & 28 / 3 / 5 & 0.0616 & 0 & 15 / 1 / 20 & -0.0063 &
-0.2654 \\
-NED & 30 / 1 / 5 & 0.0656 & 0 & 11 / 2 / 23 & -0.0648 & 0.0018 \\
-SiMLR & 27 / 3 / 6 & 0.0681 & 0.0002 & 16 / 1 / 19 & -0.0045 & 0.6524 \\
-NSAFlow-PCA & 16 / 1 / 19 & 0.0002 & 0.7494 & 15 / 4 / 17 & 0.0004 &
-0.837 \\
+LEND & 10.0 / 0.0 / 2.0 & 0.0804 & 0.046 & 10.0 / 0.0 / 2.0 & 0.0538 &
+0.113 \\
+NEDPP & 10.0 / 1.0 / 1.0 & 0.0588 & 0.049 & 2.0 / 1.0 / 9.0 & -0.0992 &
+0.074 \\
+Flow-SiMR-V & 10.0 / 0.0 / 2.0 & 0.0809 & 0.041 & 9.0 / 0.0 / 3.0 &
+0.0403 & 0.261 \\
+SiMLR-LBFGS & 11.0 / 0.0 / 1.0 & 0.0639 & 0.017 & 5.0 / 0.0 / 7.0 &
+-0.0066 & 1 \\
+SiMLR-LBFGSB & 11.0 / 0.0 / 1.0 & 0.0625 & 0.012 & 5.0 / 0.0 / 7.0 &
+-0.0073 & 1 \\
+NED & 10.0 / 0.0 / 2.0 & 0.065 & 0.049 & 3.0 / 0.0 / 9.0 & -0.0923 &
+0.113 \\
+SiMLR & 10.0 / 0.0 / 2.0 & 0.0671 & 0.049 & 6.0 / 0.0 / 6.0 & -0.0029 &
+1 \\
+NSAFlow-PCA & 6.0 / 0.0 / 6.0 & -0.0002 & 0.91 & 6.0 / 1.0 / 5.0 &
+0.0004 & 1 \\
 \end{longtable}
 
 \section{Computational Complexity
@@ -2868,12 +2760,12 @@ penalty:
   \(f_{\text{flow},m}^{(0)}(\mathbf{Z}_{m,\text{lin}}) = \mathbf{Z}_{m,\text{lin}}\).
 \end{enumerate}
 
-In the \texttt{ADNI-MCI} 1,214-configuration sweep (\(N = 1,084\),
-\(k = 3\), \texttt{Protocol\ B}), \texttt{Flow-SiMR-V} with
-detached-prior optimization reaches an out-of-sample \texttt{CogPC1}
-\(R^2\) of \(0.2341\) (\texttt{Mean11\_RidgeCV} \(= 0.1054\), and
-\(0.1930 \pm 0.0048\) across the 3-seed benchmark), ranking third
-overall across all 12 benchmark datasets.
+In the \texttt{ADNI-MCI} hyperparameter sweep (\(N = 1,084\), \(k = 3\),
+\texttt{Protocol\ B}, 1,214 configurations), the best
+\texttt{Flow-SiMR-V} configuration reaches an out-of-sample
+\texttt{CogPC1} \(R^2\) of 0.2461; across the 3-seed benchmark its
+linear score on \texttt{ADNI-MCI} is 0.229, and its mean Friedman rank
+on the linear probe over all 12 datasets is 3.83.
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
@@ -3030,29 +2922,29 @@ Sparsity
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-Heart & Flow-SiMR-V & 0.815 ± 0.023 & 0 & 0 & 0.0\% \\
-Heart & LEND & 0.815 ± 0.023 & 0 & 0 & 0.0\% \\
+Heart & Flow-SiMR-V & 0.822 ± 0.022 & 0 & 0 & 0.0\% \\
+Heart & LEND & 0.819 ± 0.028 & 0 & 0 & 0.0\% \\
 Heart & SiMLR-LBFGSB & 0.837 ± 0.032 & 0 & 0 & 0.0\% \\
-Heart & NSAFlow-PCA & 0.848 ± 0.006 & 0.64563 & 0 & 32.1\% \\
-Diabetes & Flow-SiMR-V & 0.383 ± 0.077 & 0 & 0 & 0.0\% \\
-Diabetes & LEND & 0.380 ± 0.082 & 0 & 0 & 0.0\% \\
+Heart & NSAFlow-PCA & 0.848 ± 0.006 & 0.64564 & 0 & 32.1\% \\
+Diabetes & Flow-SiMR-V & 0.384 ± 0.074 & 0 & 0 & 0.0\% \\
+Diabetes & LEND & 0.383 ± 0.078 & 0 & 0 & 0.0\% \\
 Diabetes & SiMLR-LBFGSB & 0.396 ± 0.110 & 0 & 0 & 0.0\% \\
 Diabetes & NSAFlow-PCA & 0.381 ± 0.051 & 0.01342 & 0 & 28.3\% \\
-MultiOmics & Flow-SiMR-V & 0.927 ± 0.007 & 0.00144 & 0 & 50.0\% \\
-MultiOmics & LEND & 0.927 ± 0.022 & 0.00075 & 0 & 50.0\% \\
+MultiOmics & Flow-SiMR-V & 0.921 ± 0.015 & 0.00084 & 0 & 50.0\% \\
+MultiOmics & LEND & 0.929 ± 0.012 & 0.0011 & 0 & 50.0\% \\
 MultiOmics & SiMLR-LBFGSB & 0.921 ± 0.015 & 0 & 0 & 50.0\% \\
 MultiOmics & NSAFlow-PCA & 0.919 ± 0.021 & 0.34791 & 0 & 50.0\% \\
-TCGA-KIRC & Flow-SiMR-V & 0.676 ± 0.018 & 0.00061 & 0 & 50.1\% \\
-TCGA-KIRC & LEND & 0.664 ± 0.036 & 0.00076 & 0 & 50.0\% \\
-TCGA-KIRC & SiMLR-LBFGSB & 0.686 ± 0.015 & 0 & 0 & 50.0\% \\
-TCGA-KIRC & NSAFlow-PCA & 0.674 ± 0.019 & 0.75851 & 0 & 50.4\% \\
-ADNI-MCI & Flow-SiMR-V & 0.238 ± 0.015 & 0.0006 & 0 & 48.6\% \\
-ADNI-MCI & LEND & 0.252 ± 0.007 & 0.00034 & 0 & 48.6\% \\
-ADNI-MCI & SiMLR-LBFGSB & 0.168 ± 0.012 & 0 & 0 & 48.6\% \\
+TCGA-KIRC & Flow-SiMR-V & 0.683 ± 0.023 & 0.02389 & 0 & 50.1\% \\
+TCGA-KIRC & LEND & 0.678 ± 0.011 & 0.00816 & 0 & 50.0\% \\
+TCGA-KIRC & SiMLR-LBFGSB & 0.690 ± 0.018 & 0 & 0 & 50.0\% \\
+TCGA-KIRC & NSAFlow-PCA & 0.669 ± 0.015 & 0.69215 & 0 & 50.4\% \\
+ADNI-MCI & Flow-SiMR-V & 0.229 ± 0.008 & 0.00223 & 0 & 48.6\% \\
+ADNI-MCI & LEND & 0.219 ± 0.008 & 0.00184 & 0 & 48.6\% \\
+ADNI-MCI & SiMLR-LBFGSB & 0.166 ± 0.013 & 0 & 0 & 48.6\% \\
 ADNI-MCI & NSAFlow-PCA & 0.159 ± 0.004 & 0.40578 & 0 & 50.7\% \\
-mfeat & Flow-SiMR-V & 0.914 ± 0.047 & 0.00058 & 0 & 48.2\% \\
-mfeat & LEND & 0.905 ± 0.034 & 0.00135 & 0 & 48.2\% \\
-mfeat & SiMLR-LBFGSB & 0.943 ± 0.008 & 0 & 0 & 48.2\% \\
+mfeat & Flow-SiMR-V & 0.897 ± 0.031 & 0.00652 & 0 & 48.2\% \\
+mfeat & LEND & 0.907 ± 0.014 & 0.00317 & 0 & 48.2\% \\
+mfeat & SiMLR-LBFGSB & 0.948 ± 0.006 & 0 & 0 & 48.2\% \\
 mfeat & NSAFlow-PCA & 0.706 ± 0.009 & 0.3488 & 0 & 50.3\% \\
 \end{longtable}
 
@@ -3067,10 +2959,14 @@ generate all tables, figures, and hypothesis tests in the manuscript.
 
 The manuscript is written in Quarto and compiles to HTML and PDF
 formats. All benchmark result caches are stored in
-\texttt{paper/results\_cache/} (\texttt{deep\_ranking\_benchmark.csv},
-\texttt{operating\_points\_05\_08\_benchmark.csv}, and
-\texttt{adni\_mci\_1214\_grid\_sweep.csv}), permitting a deterministic
-build from cached empirical runs:
+\texttt{paper/results\_cache/}, each written by a committed script
+(\texttt{scripts/run\_deep\_benchmark.py},
+\texttt{scripts/run\_adni\_mci\_grid\_sweep.py},
+\texttt{scripts/paper\_adni\_ablations.py},
+\texttt{scripts/paper\_brca\_loadings.py}) and accompanied by a
+provenance file. Every number in the text is computed from these caches
+at build time (\texttt{paper/paper\_numbers.py}), so the manuscript is
+rebuilt deterministically from them:
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -3095,7 +2991,7 @@ distributions are computed by
   Iman--Davenport \(F\)-distribution extension (Demšar 2006; Iman and
   Davenport 1980).
 \item
-  Two-tailed Nemenyi Critical Difference (\(CD = 3.468\) at
+  Two-tailed Nemenyi Critical Difference (\(CD =\) 3.468 at
   \(\alpha = 0.05\) for \(k = 9, B = 12\)) (Nemenyi 1963; Demšar 2006).
 \item
   Pairwise Wilcoxon signed-rank tests (Wilcoxon 1945) with
@@ -3133,7 +3029,8 @@ Floor}\label{replication-structure-and-the-permutation-resolution-floor}
 
 The deep ranking benchmark evaluates nine architectures across 12
 multi-view datasets across \(N_{\text{seeds}} = 3\) independent random
-seeds (\(324\) baseline fits and \(1,215\) operating-point fits):
+seeds (324 fits at \(q = 0.5\), 972 across the three sparsity levels,
+and 243 paired non-negative reruns on three cohorts):
 
 \begin{longtable}[]{@{}
   >{\raggedright\arraybackslash}p{(\linewidth - 10\tabcolsep) * \real{0.2041}}
@@ -3229,8 +3126,8 @@ Component & Version \\
 \endlastfoot
 Python & 3.12.12 \\
 PyTorch & 2.13.0 \\
-NumPy & 2.3.5 \\
-SciPy & 1.15.3 \\
+NumPy & 2.5.4 \\
+SciPy & 1.18.1 \\
 Scikit-Learn & 1.9.0 \\
 Pandas & 3.0.3 \\
 Matplotlib & 3.11.0 \\

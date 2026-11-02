@@ -8,7 +8,6 @@ from pysimlr.optimizers import (
     HybridAdam,
     NSALBFGSB,
     backtracking_linesearch,
-    create_optimizer,
 )
 from pysimlr.simlr import simlr, predict_shared_latent
 from pysimlr.sparsification import GAUGE_FREE_ENERGIES, energy_needs_unit_columns
@@ -208,16 +207,29 @@ class TestGraphLaplacianMaskForwarding:
 class TestGaugeFreeEnergiesAndBackendReport:
     """F1.7 and F1.10: GAUGE_FREE_ENERGIES and backend_report default optimizer."""
 
-    def test_recon_energies_in_gauge_free_set(self):
-        """recon_r2 and recon must be in GAUGE_FREE_ENERGIES."""
-        assert "recon_r2" in GAUGE_FREE_ENERGIES
-        assert "recon" in GAUGE_FREE_ENERGIES
-        assert "regression" in GAUGE_FREE_ENERGIES
-
-        assert energy_needs_unit_columns("recon_r2") is False
+    def test_only_the_unprofiled_residual_is_gauge_free(self):
+        """`recon` sets its column scale from the data; `recon_r2` (and
+        `regression`, which resolves to it) profiles the scale out and is
+        invariant to it, so its gauge must be pinned like every other
+        scale-invariant energy."""
+        assert GAUGE_FREE_ENERGIES == frozenset({"recon"})
         assert energy_needs_unit_columns("recon") is False
-        assert energy_needs_unit_columns("regression") is False
-        assert energy_needs_unit_columns("acc") is True
+        for name in ("recon_r2", "acc", "nc", "logcosh"):
+            assert energy_needs_unit_columns(name) is True, name
+
+    def test_recon_r2_fit_keeps_unit_columns(self):
+        """With the scale unpinned, `gd` drifted column norms to 2-10 in two
+        steps on this energy and returned a basis of arbitrary scale."""
+        import torch
+        from pysimlr.simlr import simlr
+        g = torch.Generator().manual_seed(0)
+        z = torch.rand(60, 3, generator=g)
+        views = [z @ torch.rand(3, p, generator=g) + 0.1 * torch.rand(60, p, generator=g) for p in (12, 9)]
+        for lr in (0.01, 0.1, 0.5):
+            r = simlr(views, k=3, iterations=4, positivity="positive", energy_type="recon_r2",
+                      optimizer_type="gd", learning_rate=lr, random_state=0)
+            for v in r["v"]:
+                assert torch.allclose(v.norm(dim=0), torch.ones(3), atol=1e-5), (lr, v.norm(dim=0))
 
     def test_backend_report_default_optimizer_lbfgsb(self):
         """backend_report(extended=True) reports 'lbfgsb' for nsa_flow >= 3.0."""

@@ -1,6 +1,4 @@
 import torch
-import pytest
-import numpy as np
 from pysimlr.sparsification import (
     optimize_indicator_matrix,
     indicator_opt_both_ways,

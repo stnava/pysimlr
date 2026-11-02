@@ -1,4 +1,3 @@
-import pytest
 import torch
 import numpy as np
 from pysimlr.flows import flow_simr, flow_simr_v

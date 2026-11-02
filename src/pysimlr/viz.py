@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 import numpy as np
-from typing import List, Optional, Union, Dict, Any
+from typing import List, Optional, Union, Dict
 from .utils import adjusted_rvcoef
 
 def plot_view_correlations(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
@@ -106,8 +106,7 @@ def plot_latent_consensus(u_shared: torch.Tensor,
 def plot_feature_signatures(v_mat: torch.Tensor, 
                             feature_names: Optional[List[str]] = None,
                             top_k: int = 15,
-                            title: str = "Top Feature Signatures",
-                            **kwargs) -> plt.Figure:
+                            title: str = "Top Feature Signatures") -> plt.Figure:
     """
     Visualize the most important features (loadings) for each latent component.
 
@@ -126,8 +125,6 @@ def plot_feature_signatures(v_mat: torch.Tensor,
         The number of top features to display for each component.
     title : str, default="Top Feature Signatures"
         The title for the overall figure.
-    **kwargs : Dict[str, Any]
-        Supports `top_n` as an alias for `top_k`.
 
     Returns
     -------
@@ -139,8 +136,6 @@ def plot_feature_signatures(v_mat: torch.Tensor,
     TypeError
         If inputs are of invalid types.
     """
-    if "top_n" in kwargs:
-        top_k = kwargs["top_n"]
         
     v_np = v_mat.detach().cpu().numpy()
     k = v_np.shape[1]

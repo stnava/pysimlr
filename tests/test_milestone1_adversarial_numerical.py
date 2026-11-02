@@ -46,7 +46,6 @@ import numpy as np
 from pysimlr import (
     multiscale_svd,
     smooth_regression,
-    smooth_matrix_prediction,
     sparse_distance_matrix,
     sparse_distance_matrix_xy,
     compute_shared_consensus,

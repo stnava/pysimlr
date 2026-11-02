@@ -17,11 +17,8 @@ Tiers:
 """
 
 import os
-import shutil
 import random
-import tempfile
 import numpy as np
-import pandas as pd
 import pytest
 import torch
 
@@ -30,7 +27,6 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import cross_val_score, KFold
 
-import pysimlr
 from pysimlr import (
     simlr,
     predict_simlr,
@@ -49,15 +45,10 @@ from pysimlr import (
     write_simlr,
     read_simlr,
     adjusted_rvcoef,
-    compute_shared_consensus,
-    whiten_matrix,
-    safe_pca,
-    ba_svd,
 )
 from pysimlr.sklearn import (
     MultiViewSiMR,
     MultiViewPCA,
-    build_simlr_pipeline,
 )
 
 

@@ -1,6 +1,4 @@
 import torch
-import numpy as np
-import pytest
 import matplotlib.pyplot as plt
 from pysimlr.viz import (
     plot_view_correlations,
@@ -30,7 +28,7 @@ def test_plot_feature_signatures():
     
     # With feature names
     names = [f"F{i}" for i in range(100)]
-    fig2 = plot_feature_signatures(v_mat, feature_names=names, top_n=10)
+    fig2 = plot_feature_signatures(v_mat, feature_names=names, top_k=10)
     assert isinstance(fig2, plt.Figure)
     plt.close(fig2)
 

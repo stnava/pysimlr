@@ -33,7 +33,6 @@ import numpy as np
 import pandas as pd
 import torch
 from sklearn.datasets import load_diabetes
-from sklearn.preprocessing import StandardScaler
 
 # Ensure single-threading per process to prevent thread contention
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -285,13 +284,13 @@ def calculate_v_recovery(res: dict, true_v: list) -> float:
 #: Registered method (or alias) -> label used in the paper's tables.
 MODEL_LABELS = {
     "pca": "PCA",
-    "linear": "SiMLR",
+    "simlr": "SiMLR",
     "simlr_lbfgsb": "SiMLR-LBFGSB",
     "nsa_pipeline": "NSAFlow-PCA",
     "lend": "LEND",
     "ned": "NED",
     "flow_v": "Flow-SiMLR-V",
-    "shared_private": "NEDPP",
+    "ned_shared_private": "NEDPP",
 }
 
 

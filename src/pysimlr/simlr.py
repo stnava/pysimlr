@@ -2,16 +2,15 @@ import warnings
 
 import torch
 import numpy as np
-from typing import List, Optional, Union, Dict, Any, Tuple, Callable
-from .svd import ba_svd, safe_pca
+from typing import List, Optional, Union, Dict, Any
+from .svd import ba_svd
 from .utils import basis_rank_report
 from .optimizers import create_optimizer, SIMLR_OPTIMIZER_DEFAULTS
-from .sparsification import orthogonalize_and_q_sparsify, simlr_sparseness, NSA_DEFAULT_W, DEFAULT_SPARSENESS, energy_needs_unit_columns
-from .utils import (set_seed_based_on_time, adjusted_rvcoef, safe_svd,
-                    invariant_orthogonality_defect, l1_normalize_features, orthogonality_defect,
-                    gradient_orthogonality_defect,
+from .sparsification import simlr_sparseness, DEFAULT_SPARSENESS, energy_needs_unit_columns
+from .utils import (adjusted_rvcoef, safe_svd,
+                    l1_normalize_features, orthogonality_defect,
                     orthogonality_summary, preprocess_data)
-from .consensus import compute_shared_consensus, mai_score_or_zero
+from .consensus import compute_shared_consensus
 from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER
 
 #: The default `simlr` constraint. Named so that "did the caller choose this
@@ -29,12 +28,12 @@ from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFA
 #: p = 3.4e-16), while on BRCA4 w was not distinguishable at all (Friedman
 #: p = 0.43) and test accuracy was flat across the whole range. Prediction
 #: does not reveal the collapse; only the rank does.
-DEFAULT_CONSTRAINT = f"orthox{DEFAULT_NSA_W}x1"
+DEFAULT_CONSTRAINT = f"orthox{DEFAULT_NSA_W}"
 
 #: Keys `simlr` accepts through ``**opt_params``: the optimizer
 #: hyperparameters, minus the two the optimizer takes from `simlr`'s own named
 #: parameters (forwarding them twice would let the two disagree).
-SIMLR_OPTIMIZER_KEYS = frozenset(set(SIMLR_OPTIMIZER_DEFAULTS) - {"positivity", "nsa_w"})
+SIMLR_OPTIMIZER_KEYS = frozenset(set(SIMLR_OPTIMIZER_DEFAULTS) - {"positivity"})
 
 #: Names that existed in earlier releases. Passing one raises `TypeError`
 #: naming the replacement; nothing is aliased.
@@ -47,8 +46,6 @@ SIMLR_RENAMED_PARAMETERS = {
     "beta": "the RMSProp decay is now 'rmsprop_beta'",
 }
 
-#: Initializers that draw random numbers and therefore consume `random_state`.
-RANDOM_INITIALIZATIONS = ("random", "perturbed_pca", "best_of_n")
 
 
 def parse_constraint(constraint_str: str) -> Dict[str, Any]:
@@ -69,7 +66,6 @@ def parse_constraint(constraint_str: str) -> Dict[str, Any]:
         A dictionary with keys:
         - "type": The name of the constraint (e.g., "Stiefel", "Grassmann").
         - "weight": The constraint weight (float).
-        - "iterations": The number of projection iterations (int).
 
     Raises
     ------
@@ -104,29 +100,17 @@ def parse_constraint(constraint_str: str) -> Dict[str, Any]:
         )
         weight = 0.0
 
-    iterations = 1
-    if len(parts) > 1:
-        try: weight = float(parts[1])
-        except ValueError: pass
     if len(parts) > 2:
-        try: iterations = int(parts[2])
-        except ValueError: pass
-        if iterations != 1:
-            # The third field of the constraint string does nothing. It is
-            # forwarded to `simlr_sparseness` as `constraint_iterations`,
-            # which has ignored it since the projection became the single
-            # constraint operator -- measured, "orthox0.5x1" and "orthox0.5x9"
-            # produce a bit-identical basis. The documented format keeps the
-            # field so existing strings still parse, but a caller who sets it
-            # is asking for repeated projection and not getting it.
-            warnings.warn(
-                f"constraint={constraint_str!r}: the iterations field "
-                f"({iterations}) has no effect -- the projection is applied "
-                f"once per sweep and is solved to tolerance. Use the weight "
-                f"field to change the constraint's strength.",
-                DeprecationWarning, stacklevel=2,
-            )
-    return {"type": constraint_type, "weight": weight, "iterations": iterations}
+        raise ValueError(
+            f"constraint={constraint_str!r}: the format is '<type>x<weight>'. The third "
+            f"'iterations' field was removed in 0.4.0 -- it never had an effect, the "
+            f"projection is applied once per sweep and solved to tolerance.")
+    if len(parts) > 1:
+        try:
+            weight = float(parts[1])
+        except ValueError as exc:
+            raise ValueError(f"constraint={constraint_str!r}: weight {parts[1]!r} is not a number") from exc
+    return {"type": constraint_type, "weight": weight}
 
 def project_gradient(v_grad: torch.Tensor, v_current: torch.Tensor, constraint_type: str) -> torch.Tensor:
     """
@@ -164,37 +148,6 @@ def project_gradient(v_grad: torch.Tensor, v_current: torch.Tensor, constraint_t
         sym_vtg = 0.5 * (vtg + vtg.t())
         return v_grad - v_current @ sym_vtg
     return v_grad
-
-def calculate_u(projections: List[torch.Tensor], 
-                mixing_algorithm: str = "newton", 
-                k: Optional[int] = None,
-                orthogonalize: bool = False) -> torch.Tensor:
-    """
-    Deprecated: Use compute_shared_consensus from .consensus instead.
-
-    Parameters
-    ----------
-    projections : List[torch.Tensor]
-        List of projected data matrices (N x K).
-    mixing_algorithm : str, default="svd"
-        The algorithm used to mix projections ("svd", "pca", "ica", "avg", "newton").
-        The algorithm to use for consensus computation.
-    k : int, optional
-        Target rank for the shared latent space.
-    orthogonalize : bool, default=False
-        Whether to orthogonalize the resulting consensus matrix.
-
-    Returns
-    -------
-    torch.Tensor
-        The shared consensus latent matrix (N x K).
-
-    Raises
-    ------
-    TypeError
-        If projections is not a list of tensors.
-    """
-    return compute_shared_consensus(projections, mixing_algorithm, k, orthogonalize)
 
 #: Every strategy `initialize_simlr` implements. Kept as one tuple so the
 #: error message and the dispatcher can't drift apart.
@@ -1156,8 +1109,8 @@ def calculate_ica_gradient(x: torch.Tensor, u: torch.Tensor, v: torch.Tensor, no
 #: Objectives with both an energy and a matching gradient. Anything else is
 #: refused by both, rather than silently evaluating to zero.
 SUPPORTED_ENERGY_TYPES = frozenset({
-    "regression", "acc", "logcosh", "exp", "gauss", "kurtosis",
-    "nc", "normalized_correlation", "dat",
+    "recon_r2", "acc", "logcosh", "exp", "kurtosis", "nc", "align", "procrustes",
+    "negentropy", "dat",
 })
 
 
@@ -1232,7 +1185,7 @@ def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor,
         The shared consensus latent matrix (n x k).
     energy_type : str, default=DEFAULT_ENERGY_TYPE ("acc")
         Similarity term (`pysimlr.defaults`, `similarity.SIMILARITY`).
-        Options: "regression", "acc", "logcosh", "exp", "gauss", "kurtosis", "dat".
+        Options: `SUPPORTED_ENERGY_TYPES`.
     lambda_val : float, default=0.0
         Regularization parameter for "dat" (Directed Alignment Transfer) energy.
     prior_matrix : torch.Tensor, optional
@@ -1486,15 +1439,12 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         only ``"pca"`` and ``"random"`` have any measurement behind them here
         -- the rest are untested strategies, not benchmarked replacements.
     random_state : int, optional
-        Seed for the initializers that draw random numbers (``"random"``,
-        ``"perturbed_pca"``, ``"best_of_n"``), through a local
-        `torch.Generator`, so the global RNG stream is untouched. It does not
-        change `initialization_type`: under the deterministic ``"pca"`` start
-        it has no effect, and ``result["random_state"]`` is ``None``. When it
-        is ``None`` and the initializer needs randomness, one seed is drawn
-        from the global torch RNG and returned in ``result["random_state"]``.
-        (Was ``init_seed``, which silently switched ``"pca"`` to ``"random"``,
-        so seeding every method in a benchmark changed this one's algorithm.)
+        Seed for the initializer, through a local `torch.Generator`, so the
+        global RNG stream is untouched; deterministic starts (``"pca"``)
+        ignore it. It does not change `initialization_type`. When ``None``,
+        one seed is drawn from the global torch RNG before anything else
+        (including the learning-rate probes, which share it) and is always
+        returned in ``result["random_state"]``.
     optimizer_type : str, default=DEFAULT_LINEAR_OPTIMIZER ("hybrid_adam")
         The optimizer to use; the default and the benchmark behind it are in
         `pysimlr.defaults`. Before 0.4.0 the default was `armijo_gradient`.
@@ -1596,6 +1546,16 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             f"{sorted(SIMLR_OPTIMIZER_KEYS)}."
         )
 
+    # One seed per call, resolved before the learning-rate probes so that the
+    # probes and the final fit share it, and recorded in the result. It used to
+    # stay None for "deterministic" starts, which handed `initialize_simlr`
+    # generator=None: starts that do draw random numbers (e.g. "gcca") then
+    # used the global stream, whose state the probes leave optimizer-dependent
+    # (matched |r| 0.74/0.58 under hybrid_adam vs 0.94/0.96 for any seed).
+    if random_state is None:
+        random_state = int(torch.randint(0, 2**31 - 1, (1,)).item())
+    random_state = int(random_state)
+
     # `learning_rate="auto"` resolves here, before anything is built, so the
     # probes are ordinary `simlr` calls with an explicit float -- the probe is
     # literally the consumer, which is the only way to tune a step size across
@@ -1661,28 +1621,18 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         
     n_modalities = len(torch_mats)
     orig_dtype = torch_mats[0].dtype
-    # `random_state` seeds only the initializers that draw random numbers. It
-    # used to switch "pca" to "random" as a side effect, so a benchmark that
-    # seeded every method silently changed this method's algorithm.
-    init_gen = None
-    if initialization_type in RANDOM_INITIALIZATIONS:
-        if random_state is None:
-            random_state = int(torch.randint(0, 2**31 - 1, (1,)).item())
-        init_gen = torch.Generator()
-        init_gen.manual_seed(int(random_state))
-    else:
-        random_state = None
+    # Every initializer gets a generator seeded from `random_state`; the
+    # deterministic ones ignore it. It does not change `initialization_type`
+    # (it used to switch "pca" to "random").
+    init_gen = torch.Generator()
+    init_gen.manual_seed(random_state)
     v_mats = initialize_simlr(torch_mats, k, positivity=positivity,
                               initialization_type=initialization_type,
                               generator=init_gen,
                               domain_matrices=domain_matrices,
                               sparseness=sparseness,
                               varimax=varimax)
-    # One weight.  `constraint` sets the prox weight; the "nsa_flow" optimizer's
-    # intermediate soft retraction used to default to a DIFFERENT weight (0.5
-    # against 0.1), so one call applied two different operators.  Unless the
-    # caller separates them explicitly, they agree.  (parse_constraint is pure;
-    # the full parse below is unchanged.)
+    # One NSA-Flow weight: `nsa_w` if given, else the constraint string's.
     nsa_w_given = nsa_w is not None
     if nsa_w is None:
         # `parse_constraint` already applies the type-dependent default, so a
@@ -1691,18 +1641,14 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # NSA_DEFAULT_W made those two requests apply a half-strength
         # constraint instead of none.
         nsa_w = parse_constraint(constraint)["weight"]
-    # The optimizer reads both from its own parameter dict. `positivity` was
-    # never forwarded, so the bound-constrained `nsa_lbfgsb` ran without its
-    # lower bound under positivity="positive" (verified 2026-11-01: the
-    # optimizer saw positivity='either', nonneg=False).
-    opt_params["nsa_w"] = nsa_w
+    # `positivity` reaches the optimizer: without it the bound-constrained
+    # `nsa_lbfgsb` ran with no lower bound under positivity="positive".
     opt_params["positivity"] = positivity
     optimizer = create_optimizer(optimizer_type, v_mats, **opt_params)
     
     constraint_info = parse_constraint(constraint)
     constraint_type = constraint_info["type"]
     constraint_weight = constraint_info["weight"]
-    constraint_iterations = constraint_info["iterations"]
     if nsa_w_given:
         # `nsa_w` used to reach `opt_params` only -- the optimizer's internal
         # retraction -- while the prox that runs every sweep took its weight
@@ -1745,11 +1691,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     
     from .nsa_backend import load_gradient_mapping
     _grad_mapping = load_gradient_mapping()
-    # The feasible set the certificate projects onto must match the one the
-    # iterate actually lives in, or the measure is of a different problem.
+    if _grad_mapping is None:
+        raise ImportError("simlr's stationarity certificate needs nsa_flow.diagnostics."
+                          "gradient_mapping (nsa_flow>=3.5.1).")
     _want_nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg',
                                   'softplus')
-    _cert_proj = (lambda z: torch.clamp(z, min=0.0)) if _want_nonneg else None
 
     energy_history = []
     grad_map_history = []
@@ -1848,7 +1794,79 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             mai_mod_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
             return mai_mod_weights
 
-    prev_resid = [None] * n_modalities   # last prox-gradient fixed-point residual per view
+    def _view_oracles(i, u_i, _loop_sp):
+        """Objective, smooth energy, exact gradient and projection for view
+        `i`. Built per view so each closure captures its own view index, data
+        and consensus: defined directly in the sweep loop they read the loop's
+        `i` and data when *called*, so an optimizer that kept a callback past
+        its `step` would silently evaluate another view."""
+        # The smooth oracle every optimizer sees: one scalar function of V,
+        # evaluated in float64, with its exact gradient by autograd. For
+        # energies with a scale gauge (`energy_needs_unit_columns`) it is
+        # the energy of the column-normalised basis -- otherwise
+        # -sum|U'XV| falls without bound as ||V|| grows -- and that
+        # normalisation is smooth away from a zero column. The rest of the
+        # constraint set (sparsity, positivity, NSA-Flow retraction) is
+        # applied once after the step (`simlr_sparseness` below), as in
+        # proximal gradient.
+        #
+        # It used to score the fully *projected* point while returning a
+        # tangent-projected gradient taken there, in float32: the slope a
+        # line search tested was off by 2-14x, and the energy only moved in
+        # float32 spacings (4.7e-10 at E = -6e-3). L-BFGS-B then built its
+        # curvature pairs from rounding noise, and inputs 1e-8 apart reached
+        # bases 0.07-1.1 apart after one sweep.
+        x64 = torch_mats[i].double()
+        u64 = u_i.double()
+        dom64 = (torch_domains[i].double()
+                 if torch_domains is not None and torch_domains[i] is not None else None)
+        _gauge = energy_needs_unit_columns(energy_type)
+
+        def _smooth_objective(v64):
+            w64 = v64 / v64.norm(dim=0, keepdim=True).clamp_min(1e-300) if _gauge else v64
+            e = calculate_simlr_energy(w64, x64, u64, energy_type) * normalizing_weights[i]
+            if dom64 is not None:
+                e = e + calculate_simlr_energy(w64, x64, u64, "dat", lambda_val=domain_lambdas[i],
+                                               prior_matrix=dom64) * domain_weights[i]
+            if constraint_type == "ortho":
+                e = e + orthogonality_defect(w64) * constraint_weight * orth_weights[i]
+            if negentropy_weight != 0.0:
+                e = e + (calculate_simlr_energy(w64, x64, u64, "negentropy")
+                         * negentropy_weight * neg_weights[i])
+            return e
+
+        def smooth_energy_fn(v_cand):
+            with torch.no_grad():
+                return float(_smooth_objective(v_cand.detach().double()))
+
+        def _projection(v_cand):
+            """The constraint set's projection P, exactly as applied after each step."""
+            return simlr_sparseness(
+                v_cand.to(orig_dtype), constraint_type=constraint_type,
+                smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None,
+                positivity=positivity, sparseness=_loop_sp,
+                constraint_weight=constraint_weight,
+                energy_type=energy_type, modality_index=i)
+
+        def composite_energy_fn(v_cand):
+            """The objective itself, E(P(v)): the smooth energy at the
+            constrained point the step will actually produce. Line searches
+            test trial points against this, in float64."""
+            return smooth_energy_fn(_projection(v_cand))
+
+        def smooth_gradient_fn(v_curr):
+            """Descent direction ``-grad E(v)`` at `v_curr`, in its dtype."""
+            with torch.enable_grad():
+                v64 = v_curr.detach().double().requires_grad_(True)
+                (g,) = torch.autograd.grad(_smooth_objective(v64), v64)
+            return (-g).to(v_curr.dtype).contiguous()
+
+        # The step direction may be tangent-projected for manifold
+        # constraints: for an orthogonal projector P, <grad, P grad> =
+        # |P grad|^2, so a line search along it still tests the true slope.
+        # The oracle above stays the exact gradient.
+        return smooth_energy_fn, smooth_gradient_fn, composite_energy_fn, _projection
+
     total_sweeps = (iterations + 1) if iterations > 0 else 0
     for raw_it in range(total_sweeps):
         is_warm_start = (raw_it == 0)
@@ -1872,93 +1890,35 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         for i in range(n_modalities):
             u_i = u[i] if isinstance(u, list) else u
             # Local energy function that incorporates sparsification/retraction
-            # Single definition of "the feasible point corresponding to v", so
-            # the energy and the gradient are evaluated at the *same* place.
-            # Previously the energy was measured after sparsification/retraction
-            # while the gradient was taken at the raw iterate, which left every
-            # Armijo/backtracking optimizer testing a sufficient-decrease
-            # condition against the slope of a different function.
             from .sparsification import _resolve_quantile
             _q_mod = _resolve_quantile(sparseness, modality_index=i)
             _loop_sp = (None if (_want_nonneg and k > 1 and _q_mod is not None
                                  and _q_mod < 1.0 - 1.0 / k)
                         else sparseness)
-
-            # The smooth oracle every optimizer sees: one scalar function of V,
-            # evaluated in float64, with its exact gradient by autograd. For
-            # energies with a scale gauge (`energy_needs_unit_columns`) it is
-            # the energy of the column-normalised basis -- otherwise
-            # -sum|U'XV| falls without bound as ||V|| grows -- and that
-            # normalisation is smooth away from a zero column. The rest of the
-            # constraint set (sparsity, positivity, NSA-Flow retraction) is
-            # applied once after the step (`simlr_sparseness` below), as in
-            # proximal gradient.
-            #
-            # It used to score the fully *projected* point while returning a
-            # tangent-projected gradient taken there, in float32: the slope a
-            # line search tested was off by 2-14x, and the energy only moved in
-            # float32 spacings (4.7e-10 at E = -6e-3). L-BFGS-B then built its
-            # curvature pairs from rounding noise, and inputs 1e-8 apart reached
-            # bases 0.07-1.1 apart after one sweep.
-            x64 = torch_mats[i].double()
-            u64 = u_i.double()
-            dom64 = (torch_domains[i].double()
-                     if torch_domains is not None and torch_domains[i] is not None else None)
-            _gauge = energy_needs_unit_columns(energy_type)
-
-            def _smooth_objective(v64):
-                w64 = v64 / v64.norm(dim=0, keepdim=True).clamp_min(1e-300) if _gauge else v64
-                e = calculate_simlr_energy(w64, x64, u64, energy_type) * normalizing_weights[i]
-                if dom64 is not None:
-                    e = e + calculate_simlr_energy(w64, x64, u64, "dat", lambda_val=domain_lambdas[i],
-                                                   prior_matrix=dom64) * domain_weights[i]
-                if constraint_type == "ortho":
-                    e = e + orthogonality_defect(w64) * constraint_weight * orth_weights[i]
-                if negentropy_weight != 0.0:
-                    e = e + (calculate_simlr_energy(w64, x64, u64, "negentropy")
-                             * negentropy_weight * neg_weights[i])
-                return e
-
-            def smooth_energy_fn(v_cand):
-                with torch.no_grad():
-                    return float(_smooth_objective(v_cand.detach().double()))
-
-            def composite_energy_fn(v_cand):
-                """The objective itself, E(P(v)): the smooth energy at the
-                constrained point the step will actually produce. Line searches
-                test trial points against this, in float64."""
-                v_feas = simlr_sparseness(
-                    v_cand.to(orig_dtype), constraint_type=constraint_type,
-                    smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None,
-                    positivity=positivity, sparseness=_loop_sp,
-                    constraint_weight=constraint_weight, constraint_iterations=constraint_iterations,
-                    energy_type=energy_type, modality_index=i)
-                return smooth_energy_fn(v_feas)
-
+            smooth_energy_fn, smooth_gradient_fn, composite_energy_fn, _projection = \
+                _view_oracles(i, u_i, _loop_sp)
             raw_grad_holder = [None]
-
-            def smooth_gradient_fn(v_curr):
-                """Descent direction ``-grad E(v)`` at `v_curr`, in its dtype."""
-                with torch.enable_grad():
-                    v64 = v_curr.detach().double().requires_grad_(True)
-                    (g,) = torch.autograd.grad(_smooth_objective(v64), v64)
-                return (-g).to(v_curr.dtype).contiguous()
-
-            # The step direction may be tangent-projected for manifold
-            # constraints: for an orthogonal projector P, <grad, P grad> =
-            # |P grad|^2, so a line search along it still tests the true slope.
-            # The oracle above stays the exact gradient.
             _exact = smooth_gradient_fn(v_mats[i])
             raw_grad_holder[0] = _exact.detach().clone()
             total_grad = project_gradient(_exact, v_mats[i], constraint_type).contiguous()
-            gm_E = None
-            if _grad_mapping is not None and raw_grad_holder[0] is not None:
-                gm_E = float(_grad_mapping(v_mats[i], raw_grad_holder[0], _cert_proj))
-            gm_i = prev_resid[i]
-            if not is_warm_start and gm_i is not None and gm_i <= tol and it > 0:
-                cert_terms.append(gm_i)
-                retraction_diags[i] = {"skipped": "stationary", "fixed_point_residual": gm_i,
-                                       "grad_map_E": gm_E}
+            # Stationarity certificate: the prox-gradient residual of the
+            # current iterate under the projection actually applied,
+            # ||P(V - ||V||^2 grad E) - V|| / ||V||. It depends only on V, so a
+            # line search that takes a tiny step cannot make a non-stationary
+            # point look converged (the step-size residual could: a zero or
+            # microscopic accepted step read as a fixed point). It used the
+            # descent direction as the gradient (an uphill step) and a bare
+            # clamp in place of P.
+            # A probe point the projection refuses (it can collapse a tiny view
+            # to rank deficiency) certifies nothing: recorded as +inf, noted.
+            try:
+                gm_E = float(_grad_mapping(v_mats[i], -raw_grad_holder[0], _projection))
+                probe_failed = None
+            except RuntimeError as exc:
+                gm_E, probe_failed = float("inf"), f"{type(exc).__name__}: {str(exc)[:120]}"
+            if not is_warm_start and gm_E <= tol:
+                cert_terms.append(gm_E)
+                retraction_diags[i] = {"skipped": "stationary", "grad_map_E": gm_E}
                 continue
             v_before = v_mats[i].detach().clone()
             # Two oracles, the same for every optimizer: the objective E(P(v))
@@ -1973,18 +1933,17 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
             # Apply final projection
             retraction_diags[i] = {}
-            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness=_loop_sp, constraint_weight=constraint_weight, constraint_iterations=constraint_iterations, energy_type=energy_type, modality_index=i, retraction_diagnostics=retraction_diags[i])
+            v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness=_loop_sp, constraint_weight=constraint_weight, energy_type=energy_type, modality_index=i, retraction_diagnostics=retraction_diags[i])
             resid = float(torch.linalg.norm(v_mats[i] - v_before)
                           / torch.linalg.norm(v_before).clamp_min(1e-300))
             retraction_diags[i]["fixed_point_residual"] = resid
             retraction_diags[i]["grad_map_E"] = gm_E
+            if probe_failed:
+                retraction_diags[i]["certificate_probe_failed"] = probe_failed
+            cert_terms.append(gm_E)
             if zero_step:
                 retraction_diags[i]["zero_step"] = True
-                prev_resid[i] = None
                 zero_step_views += 1
-            else:
-                prev_resid[i] = resid
-                cert_terms.append(resid)
             
         if is_warm_start:
             _calibrate_weights(v_mats, u, orth_floor=1e-10)
@@ -1996,7 +1955,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             )
             best_v_mats = [v.clone() for v in v_mats]
             best_retraction_diags = [dict(d) for d in retraction_diags]
-            prev_resid = [None] * n_modalities
             continue
         
         total_energy = 0.0
@@ -2459,8 +2417,8 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
     v_mats = simlr_result['v']
     mixing_alg = simlr_result.get('mixing_algorithm', 'svd')
-    orthogonalize_u = simlr_result.get('orthogonalize_u', False)
-    k = v_mats[0].shape[1]
+    simlr_result.get('orthogonalize_u', False)
+    v_mats[0].shape[1]
     
     # 2. Project to shared space
     projections = [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)]
@@ -2475,9 +2433,9 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         from .consensus import apply_consensus_map
         u_new = apply_consensus_map(projections, simlr_result['consensus_map'])
     if u_new is None:
-        # Results from before 0.3.0 carry neither statistics nor a map; the
-        # consensus is then re-derived from this batch and depends on it.
-        u_new = compute_shared_consensus(projections, mixing_algorithm=mixing_alg, k=k, orthogonalize=orthogonalize_u, training=False, anchor=anchor, topology="star")
+        raise ValueError("simlr_result carries neither consensus statistics nor a consensus "
+                         "map (a result from before 0.3.0); refit it -- re-deriving the "
+                         "consensus from the prediction batch made it batch-dependent.")
     if simlr_result.get('nonneg_u', False):
         u_new = _nonneg_consensus(u_new)
     return u_new
@@ -2506,8 +2464,7 @@ def reconstruct_from_learned_maps(u: Union[torch.Tensor, List[torch.Tensor]],
         If inputs are of invalid type.
     """
     if 'w' not in simlr_result:
-        # For backward compatibility, but this should be avoided
-        return []
+        raise ValueError("simlr_result has no learned reconstruction weights 'w'; refit it.")
     
     w_mats = simlr_result['w']
     reconstructions = []
@@ -2518,8 +2475,7 @@ def reconstruct_from_learned_maps(u: Union[torch.Tensor, List[torch.Tensor]],
     return reconstructions
 
 def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
-                  simlr_result: Dict[str, Any],
-                  allow_legacy_refit: bool = False) -> Dict[str, Any]:
+                  simlr_result: Dict[str, Any]) -> Dict[str, Any]:
     """
     Predict using a trained SiMLR model on new data matrices.
 
@@ -2533,9 +2489,6 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         List of new data matrices to predict on.
     simlr_result : Dict[str, Any]
         The output dictionary from a previous `simlr` fit.
-    allow_legacy_refit : bool, default=False
-        Whether to allow least-squares estimation of reconstructions 
-        if learned weights 'w' are missing.
 
     Returns
     -------
@@ -2548,7 +2501,7 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     Raises
     ------
     ValueError
-        If learned weights are missing and legacy refit is not allowed.
+        If the result has no learned reconstruction weights or no frozen consensus.
     TypeError
         If the inputs are not valid formats.
     """
@@ -2565,28 +2518,7 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # For standard SIMLR:
     u_new = predict_shared_latent(data_matrices, simlr_result)
     
-    if 'w' in simlr_result:
-        reconstructions = reconstruct_from_learned_maps(u_new, simlr_result)
-    elif allow_legacy_refit:
-        # Fallback to old suspicious least-squares behavior for backward compatibility
-        reconstructions = []
-        v_mats = simlr_result['v']
-        mixing_alg = simlr_result.get('mixing_algorithm', 'svd')
-        orthogonalize_u = simlr_result.get('orthogonalize_u', False)
-        for i, x in enumerate(torch_mats):
-            u_i = u_new[i] if isinstance(u_new, list) else u_new
-            u_ortho = orthogonalize_u or (mixing_alg in ["svd", "pca"])
-            if u_ortho:
-                weights = u_i.t() @ x
-                x_pred = u_i @ weights
-            else:
-                u_pinv = torch.linalg.pinv(u_i)
-                weights = u_pinv @ x
-                x_pred = u_i @ weights
-            reconstructions.append(x_pred)
-    else:
-        raise ValueError("Learned reconstruction weights 'w' missing from simlr_result. "
-                         "Legacy refit is disabled by default. Set allow_legacy_refit=True to enable.")
+    reconstructions = reconstruct_from_learned_maps(u_new, simlr_result)
     
     errors = []
     for i, x in enumerate(torch_mats):

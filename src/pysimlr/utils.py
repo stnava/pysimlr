@@ -525,7 +525,7 @@ def orthogonality_defect(a: torch.Tensor, normalized: bool = True) -> torch.Tens
 
     Notes
     -----
-    This replaces :func:`invariant_orthogonality_defect` as the penalty used in
+    This replaced ``invariant_orthogonality_defect`` (removed in 0.4.0) as the penalty used in
     SiMLR's energy and the deep models' losses. That function normalises by the
     *global* Frobenius norm and sums only the off-diagonal Gram entries, which
     has two consequences that make it unfit to optimise against:
@@ -557,8 +557,6 @@ def orthogonality_defect(a: torch.Tensor, normalized: bool = True) -> torch.Tens
     >>> collapsed = torch.zeros(10, 3); collapsed[:, 0] = 1.0
     >>> bool(abs(float(orthogonality_defect(collapsed)) - 1.0) < 1e-6)
     True
-    >>> float(invariant_orthogonality_defect(collapsed))  # the measure this replaces
-    0.0
     """
     if not isinstance(a, torch.Tensor):
         a = torch.as_tensor(a).float()
@@ -662,7 +660,7 @@ def angle_defect(a: torch.Tensor, eps: float = 1e-12,
     looks equivalent -- for a matrix with no dead column it is -- but scores a
     rank-collapsed matrix 0.0, because a zero column has zero cosine against
     everything. That is the same too-large zero set that makes
-    :func:`invariant_orthogonality_defect` unusable as a penalty, so writing
+    the removed ``invariant_orthogonality_defect`` unusable as a penalty, so writing
     the sum form as the definition and then implementing the identity form is
     a documentation bug worth avoiding: the two disagree exactly where it
     matters and agree on random inputs.
@@ -680,7 +678,7 @@ def angle_defect(a: torch.Tensor, eps: float = 1e-12,
         of 1 and is charged ``1/(k(k-1))``, which doubles as a dead-column
         penalty. Without it a rank-collapsed matrix scores 0, since a zero
         column has zero cosine against everything -- the same failure that
-        makes :func:`invariant_orthogonality_defect` unusable as a penalty.
+        made the removed ``invariant_orthogonality_defect`` unusable as a penalty.
         Pass False only where a dead column is a legitimate outcome and
         something else keeps the basis non-degenerate.
 
@@ -707,7 +705,7 @@ def angle_defect(a: torch.Tensor, eps: float = 1e-12,
     ``C`` still penalises collapse, though less sharply than ``D``: on a matrix
     with one non-zero column and ``k - 1`` zero columns, ``C`` scores 1/3 at
     ``k = 3`` where ``D`` scores 1. Both are far from the 0.0 that
-    :func:`invariant_orthogonality_defect` assigns it -- but only because
+    the removed ``invariant_orthogonality_defect`` assigned it -- but only because
     `diagonal` is set; see that parameter.
 
     Examples
@@ -767,42 +765,6 @@ def gradient_angle_defect(a: torch.Tensor, eps: float = 1e-12,
     return grad * (4.0 / (k * (k - 1)))
 
 
-def invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
-    """
-    Deprecated. Use :func:`orthogonality_defect`.
-
-    Sums the off-diagonal Gram entries after normalising by the *global*
-    Frobenius norm. Retained so previously reported numbers can be reproduced,
-    but unfit to optimise against: a matrix with one non-zero column and
-    ``k - 1`` zero columns attains exactly 0.0, so it is minimised by rank
-    collapse, and because it normalises globally rather than per column it is
-    not a function of the angles and can be reduced by inflating one column.
-    See :func:`orthogonality_defect` for the measurements.
-
-    Parameters
-    ----------
-    a : torch.Tensor
-        The input matrix.
-
-    Returns
-    -------
-    torch.Tensor
-        The scalar defect value.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-    """
-    if not isinstance(a, torch.Tensor): a = torch.as_tensor(a).float()
-    norm_a_f = torch.sqrt(torch.sum(a**2))
-    if norm_a_f < 1e-10: return torch.tensor(0.0, device=a.device)
-    ap = a / norm_a_f
-    ata = ap.t() @ ap
-    d = torch.diag(torch.diag(ata))
-    defect = torch.sum((ata - d)**2)
-    return defect
-
 def stiefel_defect(a: torch.Tensor) -> torch.Tensor:
     """
     Measure violation of the Stiefel manifold constraint: V.t() @ V = I.
@@ -826,69 +788,6 @@ def stiefel_defect(a: torch.Tensor) -> torch.Tensor:
     k = a.shape[1]
     identity = torch.eye(k, device=a.device, dtype=a.dtype)
     return torch.norm(a.t() @ a - identity, p='fro')
-
-def gradient_invariant_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
-    r"""
-    Compute gradient of invariant orthogonality defect.
-
-    Parameters
-    ----------
-    a : torch.Tensor
-        The input matrix.
-
-    Returns
-    -------
-    torch.Tensor
-        The gradient of the defect with respect to the input matrix, matching
-        `torch.autograd` on `invariant_orthogonality_defect` to within floating
-        point tolerance.
-
-    Notes
-    -----
-    Writing ``s = ||A||_F``, ``Ap = A / s`` and ``M = Ap.T @ Ap`` with its
-    diagonal removed, the defect is ``f(A) = ||M||_F**2``. Because `f` divides
-    by the Frobenius norm, it is invariant to rescaling `A`, so its gradient
-    must be orthogonal to `A` itself (``<A, grad> == 0``). Differentiating
-    through the normalization gives
-
-    .. math::
-        \nabla f = \frac{4}{s}\left(A_p M - \|M\|_F^2 A_p\right)
-
-    Earlier revisions returned only ``4 * Ap @ M``, dropping both the ``1 / s``
-    factor and the projection term. That expression is not a positive multiple
-    of the true gradient -- individual components can differ in sign -- and it
-    violates the scale-invariance identity, since ``<A, 4 Ap M> == 4 s f(A)``.
-
-    Examples
-    --------
-    >>> import torch
-    >>> a = torch.randn(6, 3, dtype=torch.float64, requires_grad=True)
-    >>> invariant_orthogonality_defect(a).backward()
-    >>> manual = gradient_invariant_orthogonality_defect(a.detach())
-    >>> bool(torch.allclose(manual, a.grad, atol=1e-10))
-    True
-    >>> # scale invariance: the gradient carries no radial component
-    >>> bool(torch.sum(a.detach() * manual).abs() < 1e-10)
-    True
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-    """
-    if not isinstance(a, torch.Tensor):
-        a = torch.as_tensor(a).float()
-    norm_a_f = torch.norm(a, p='fro')
-    if norm_a_f < 1e-10: return torch.zeros_like(a)
-    ap = a / norm_a_f
-    ata = ap.t() @ ap
-    d = torch.diag(torch.diag(ata))
-    orthogonality_diff = ata - d
-    defect = torch.sum(orthogonality_diff**2)
-    # d/dAp of ||M||_F^2, then projected through the Frobenius normalization
-    grad_ap = 4.0 * (ap @ orthogonality_diff)
-    gradient = (grad_ap - 4.0 * defect * ap) / norm_a_f
-    return gradient
 
 def mean_orthogonality_defect(a: torch.Tensor) -> torch.Tensor:
     """
@@ -1357,49 +1256,6 @@ def procrustes_r2(u_true: torch.Tensor, u_est: torch.Tensor) -> float:
     
     return (1.0 - ss_res / ss_tot).item()
 
-def procrustes_mse(u_true: torch.Tensor, u_est: torch.Tensor) -> float:
-    """
-    Compute the Mean Squared Error after Procrustes alignment.
-
-    Aligns `u_est` to `u_true` including rotation, translation, and scaling 
-    before calculating the MSE.
-
-    Parameters
-    ----------
-    u_true : torch.Tensor
-        The reference target matrix.
-    u_est : torch.Tensor
-        The estimated matrix to align to the target.
-
-    Returns
-    -------
-    float
-        The Mean Squared Error of alignment.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-    """
-    u_true = torch.as_tensor(u_true).detach().float()
-    u_est = torch.as_tensor(u_est).detach().float()
-    
-    u_true = u_true - u_true.mean(0)
-    u_est = u_est - u_est.mean(0)
-    
-    m = u_est.t() @ u_true
-    u, s, vh = torch.linalg.svd(m)
-    r = u @ vh
-    u_rotated = u_est @ r
-    
-    denom = torch.sum(u_rotated**2)
-    if denom < 1e-10: return torch.mean(u_true**2).item()
-    
-    s_scale = torch.sum(u_true * u_rotated) / denom
-    u_aligned = s_scale * u_rotated
-    
-    return torch.mean((u_true - u_aligned)**2).item()
-
 def newton_schulz_orthogonalize(x: torch.Tensor, iterations: int = 5, tol: float = 1e-7) -> torch.Tensor:
     """
     Project a matrix onto the Stiefel manifold using Newton-Schulz iteration.
@@ -1753,7 +1609,7 @@ def read_simlr(dir_path: str, use_r: bool = True) -> Dict[str, Any]:
             manifest = json.load(f)
     elif os.path.exists(manifest_rds):
         # manifest.rds exists but R is not found or use_r is False
-        raise RuntimeError(f"Rscript is required to read manifest.rds, but R was not found or use_r=False.")
+        raise RuntimeError("Rscript is required to read manifest.rds, but R was not found or use_r=False.")
     else:
         raise FileNotFoundError(f"Neither manifest.json nor manifest.rds found in {dir_path}")
         

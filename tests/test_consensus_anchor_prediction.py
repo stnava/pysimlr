@@ -18,7 +18,6 @@ The deep models never had this problem: they carry a `consensus_anchor` buffer
 and pass it at eval. These tests pin the same guarantee for the linear path.
 """
 
-import numpy as np
 import pytest
 import torch
 
@@ -105,8 +104,9 @@ def test_held_out_latent_lands_in_the_training_axes(alg):
 
 @pytest.mark.parametrize("alg", VOLATILE)
 def test_the_anchor_is_what_makes_it_work(alg):
-    """Localises the guarantee to the anchor: drop it and the transfer breaks
-    again, so the test above is not passing for some incidental reason."""
+    """Localises the guarantee to the frozen consensus: without it prediction
+    is refused rather than re-deriving the consensus from the test batch (which
+    broke the transfer), so the test above is not passing incidentally."""
     from sklearn.linear_model import LinearRegression
 
     mats, u_true = _case(n=300)
@@ -128,25 +128,9 @@ def test_the_anchor_is_what_makes_it_work(alg):
     stripped["consensus_anchor"] = None
     stripped["consensus_stats"] = None
     stripped["consensus_map"] = None
-    without = predict_shared_latent(te, stripped)
-    without = without[0] if isinstance(without, list) else without
-
-    r2_with = model.score(with_anchor.numpy(), y[ntr:])
-    r2_without = model.score(without.numpy(), y[ntr:])
-    assert r2_with > r2_without, (
-        f"{alg}: anchored {r2_with:.4f} did not beat unanchored {r2_without:.4f}")
-
-
-def test_a_result_without_the_key_still_predicts():
-    """Backwards compatibility: a result dict from an older fit has no
-    `consensus_anchor`, and must still predict rather than raising."""
-    mats, _ = _case()
-    res = _fit(mats, "svd")
-    legacy = {key: value for key, value in res.items() if key != "consensus_anchor"}
-    u = predict_shared_latent(mats, legacy)
-    u = u[0] if isinstance(u, list) else u
-    assert u.shape == (mats[0].shape[0], 2)
-    assert torch.isfinite(u).all()
+    with pytest.raises(ValueError, match="refit"):
+        predict_shared_latent(te, stripped)
+    assert model.score(with_anchor.numpy(), y[ntr:]) > 0.5
 
 
 if __name__ == "__main__":

@@ -64,13 +64,17 @@ EXERCISED = {
     "mixing_algorithm": ("newton", "svd"),
     "nsa_w": (0.1, 0.9),
     "sparseness": (0.5, 0.8),
-    "constraint": ("orthox0.2x1", "none"),
+    "constraint": ("orthox0.2", "none"),
     "positivity": ("positive", "either"),
     "nonneg_u": (False, True),
     "negentropy_weight": (0.0, 5.0),
     "orthogonalize_u": (True, False),
     "scale_list": (["centerAndScale", "np"], ["centerAndScale"]),
-    "consolidate": (True, False),
+    # Under the default orthogonality constraint this fixture's basis is
+    # already disjoint, so consolidation has nothing to do; with no constraint
+    # the supports overlap (9 and 6 shared rows) and it changes the basis.
+    "consolidate": ({"consolidate": True, "constraint": "none"},
+                    {"consolidate": False, "constraint": "none"}),
     # Orthogonal Varimax at initialization (BASE is non-negative, so this is
     # nsa_flow_data(init="varimax") against init="pca_clamp").
     "varimax": (True, False),
@@ -314,9 +318,9 @@ def test_a_data_term_is_refused_on_the_deep_path():
             resolve_energy_name(name, path="deep")
 
 
-def test_an_ambiguous_energy_name_is_refused():
+def test_a_removed_energy_name_is_refused():
     from pysimlr.similarity import resolve_energy_name
-    with pytest.raises(ValueError, match="ambiguous"):
+    with pytest.raises(ValueError, match="recon_r2"):
         resolve_energy_name("regression")
 
 
@@ -465,26 +469,14 @@ def test_the_complete_graph_reproduces_leave_one_out():
         assert torch.allclose(a, b, atol=1e-6)
 
 
-def test_the_constraint_strings_iterations_field_is_declared_dead():
-    """`Type x Weight x Iterations` -- the third field does nothing.
-
-    It reaches `simlr_sparseness` as `constraint_iterations`, which has
-    ignored it since the projection became the single constraint operator:
-    "orthox0.5x1" and "orthox0.5x9" give a bit-identical basis. The field
-    still parses so old strings keep working, but setting it now says so.
-    """
+def test_a_three_field_constraint_string_raises():
+    """`<type>x<weight>` only: the old third 'iterations' field never had an
+    effect (a third field of 1 or 9 fitted a bit-identical basis) and was
+    removed in 0.4.0."""
     from pysimlr.simlr import parse_constraint
-    with pytest.warns(DeprecationWarning, match="iterations field"):
-        parse_constraint("orthox0.5x9")
-    with _quiet():
-        assert parse_constraint("orthox0.5x9")["iterations"] == 9
-    views = _views()
-    with _quiet():
-        a = _fit(views, {"constraint": "orthox0.5x1"})
-        b = _fit(views, {"constraint": "orthox0.5x9"})
-    assert torch.equal(a, b), (
-        "the iterations field now changes the fit, so it is no longer dead "
-        "and the warning above should be removed")
+    with pytest.raises(ValueError, match="removed in 0.4.0"):
+        parse_constraint("orthox0.5" + "x9")
+    assert parse_constraint("orthox0.5") == {"type": "ortho", "weight": 0.5}
 
 
 # --------------------------------------------------------------------------
@@ -501,14 +493,11 @@ def test_the_mai_metric_list_matches_the_library():
     here until someone has checked it is gauge-invariant -- which is the
     property `trace` failed.
     """
-    from pysimlr.deep import VALID_MAI_METRICS
+    from pysimlr.consensus import VALID_MAI_METRICS  # the single definition
     assert set(VALID_MAI_METRICS) == set(MAI_METRICS), (
         f"the library offers {sorted(VALID_MAI_METRICS)} but this module "
         f"checks {sorted(MAI_METRICS)}; a metric has been added or removed "
         f"without its invariance being verified")
-    from pysimlr.flows import VALID_MAI_METRICS as FLOW_METRICS
-    assert set(FLOW_METRICS) == set(VALID_MAI_METRICS), (
-        "deep.py and flows.py offer different MAI metrics")
 
 
 def test_every_mai_metric_ranks_a_pure_noise_view_last():
@@ -625,7 +614,6 @@ def test_every_method_reports_the_same_convergence_keys():
     trainer reported `converged_iter`. Two vocabularies meant no single check
     could answer "did this fit finish?" across the package."""
     from pysimlr.deep import lend_simr, ned_simr, ned_simr_shared_private
-    from pysimlr.flows import flow_simr_v
     views = _views()
     got = {}
     with _quiet():

@@ -49,7 +49,7 @@ def test_backend_is_invoked_for_every_soft_ortho_constraint(constraint_type):
     mock = _identity_backend()
 
     with _patch_backend(mock):
-        simlr([x1, x2], k=2, iterations=1, constraint=f"{constraint_type}x0.6x7")
+        simlr([x1, x2], k=2, iterations=1, constraint=f"{constraint_type}x0.6")
 
     assert mock.called, f"NSA-Flow was not called for constraint '{constraint_type}'"
 
@@ -60,7 +60,7 @@ def test_constraint_weight_is_passed_as_w():
     mock = _identity_backend()
 
     with _patch_backend(mock):
-        simlr([x1], k=2, iterations=1, constraint="orthox0.6x7")
+        simlr([x1], k=2, iterations=1, constraint="orthox0.6")
 
     _, kwargs = mock.call_args
     assert kwargs["w"] == pytest.approx(0.6)

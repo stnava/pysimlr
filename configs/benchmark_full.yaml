@@ -9,7 +9,7 @@ budget_by_unit:
   iterations: 50
   epochs: 150
 warmup_epochs: 20
-case_kind: "nonlinear_shared"
+case_kind: "nonlinear"
 save_prefix: "full_benchmark_results"
 learning_rate: 0.0005
 weight_decay: 0.0001

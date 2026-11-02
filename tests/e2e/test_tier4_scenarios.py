@@ -17,7 +17,6 @@ Scenarios:
    covariance stabilized by Armijo line search and NSA non-negative Stiefel retractions.
 """
 
-import pytest
 import torch
 import numpy as np
 
@@ -31,9 +30,8 @@ from pysimlr import (
     fit_structural_models,
     create_path_graph,
     simlr_path,
-    sparse_distance_matrix,
     adjusted_rvcoef,
-    invariant_orthogonality_defect,
+    orthogonality_defect,
 )
 
 
@@ -316,7 +314,7 @@ def test_scenario5_extreme_robustness_outlier_resilience():
     assert not torch.isnan(res_simlr["v"][0]).any()
 
     # Verify Stiefel invariant defect remains bounded
-    defect = invariant_orthogonality_defect(res_simlr["v"][0])
+    defect = orthogonality_defect(res_simlr["v"][0])
     assert defect < 0.25, f"Expected bounded orthogonality defect < 0.25 under outliers, got {defect}"
 
     # Test LEND NSA neural model under identical adversarial conditions

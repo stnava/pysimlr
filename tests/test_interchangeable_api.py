@@ -25,7 +25,6 @@ seeds and cohorts are controlled.
 Kept fast on purpose (about three seconds for all five) so it can run on every
 edit; a contract test nobody runs is not a contract.
 """
-import time
 
 import numpy as np
 import pytest

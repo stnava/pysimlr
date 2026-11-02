@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-import pytest
 from pysimlr.deep import LENDSiMRModel, lend_simr, ned_simr
 
 def generate_controlled_latents(n=500, k=4):

@@ -9,5 +9,5 @@ budget_by_unit:
   iterations: 5
   epochs: 10
 warmup_epochs: 2
-case_kind: "nonlinear_shared"
+case_kind: "nonlinear"
 save_prefix: "smoke_results"

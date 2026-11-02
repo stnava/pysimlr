@@ -68,13 +68,13 @@ In this section, we compare all four architectures (**Linear, LEND, NED, Shared/
 if use_external_results:
     df_summary = df_full
     # We still need one result set for interpretability viz
-    case = build_case(kind="nonlinear_shared", n_samples=1000, seed=SEED)
+    case = build_case(kind="nonlinear", n_samples=1000, seed=SEED)
     best_df = pd.read_csv("../full_benchmark_results_best.csv")
 else:
-    case = build_case(kind="nonlinear_shared", n_samples=1000, seed=SEED)
+    case = build_case(kind="nonlinear", n_samples=1000, seed=SEED)
     sweep_results = sweep_benchmark(
-        model_types=["linear", "lend", "ned", "shared_private"],
-        case_kind="nonlinear_shared",
+        model_types=["simlr", "lend", "ned", "ned_shared_private"],
+        case_kind="nonlinear",
         sparsities=[0.0, 0.5, 0.8],
         n_seeds=1,
         budget_by_unit={"iterations": 50, "epochs": 100},
@@ -120,7 +120,7 @@ One of the foundational requirements of `pysimlr` is that even deep models must 
 #| fig-cap: "Feature Weights (V Matrix) for Modality 1 (Linear)"
 
 best_results = {}
-for m_type in ["linear", "lend", "ned"]:
+for m_type in ["simlr", "lend", "ned"]:
     model_rows = best_df[best_df["model"] == m_type]
     if not model_rows.empty:
         best_config = model_rows.iloc[0]

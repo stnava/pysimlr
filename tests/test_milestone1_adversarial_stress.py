@@ -33,7 +33,6 @@ from pysimlr import (
 from pysimlr.optimizers import (
     ArmijoGradient,
     BidirectionalArmijoGradient,
-    backtracking_linesearch,
 )
 from pysimlr.paths import simlr_path, permutation_test
 

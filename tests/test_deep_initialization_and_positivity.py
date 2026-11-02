@@ -11,7 +11,6 @@
    parameter at all and should not gain a decorative one -- it has no linear
    encoder for `positivity` to constrain.
 """
-import numpy as np
 import pytest
 import torch
 

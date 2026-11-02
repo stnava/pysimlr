@@ -2,14 +2,13 @@
 
 These tests exist because the package previously carried two implementations
 of the same names. `simlr.calculate_simlr_energy` and `deep.calculate_sim_loss`
-both accepted ``energy_type="regression"`` and ``"nc"`` and computed different
+both accepted the same ``energy_type`` names and computed different
 functions, so holding ``energy_type`` fixed while varying the model silently
 varied the objective. Nothing caught it: each path had tests, and each path was
 self-consistent.
 
 The load-bearing test here is `test_identity_equivalence_linear_and_deep`.
 """
-import numpy as np
 import pytest
 import torch
 
@@ -94,14 +93,9 @@ def test_identity_equivalence_linear_and_deep():
     from pysimlr.deep import calculate_sim_loss
     x, v, u, s, ctx = _case()
     weights = {"sim": 1.0, "var": 0.0, "collapse": 0.0, "u_var": 0.0}
-    # Note "procrustes" maps to the deep path's *own* "procrustes", not to its
-    # historical "nc": that name has been unified to the registry's normalised
-    # correlation and now warns on the deep path (see `_DEEP_RENAMED`).
-    legacy_name = {"align": "regression", "acc": "acc",
-                   "nc": "nc", "procrustes": "procrustes",
-                   "logcosh": "logcosh"}
     from pysimlr.sparsification import energy_needs_unit_columns
-    for new, old in legacy_name.items():
+    for new in ("align", "acc", "nc", "procrustes", "logcosh"):
+        old = new
         # The deep path fixes the gauge on its input before scoring, exactly as
         # the linear path does by returning V with unit columns -- `acc` is
         # degree-1 and unbounded below, so without it the network reduces the
@@ -121,10 +115,9 @@ def test_identity_equivalence_linear_and_deep():
 def test_recon_matches_the_linear_definition():
     """`recon` is still exactly ||X - uV'||^2 when asked for by name.
 
-    `energy_type="regression"` no longer reaches it -- selecting it as an
-    objective is deprecated, because it is minimised by driving the basis to
-    zero -- so the comparison is against the registry entry directly. The
-    entry stays: the identifiability ground truths are stated in terms of it.
+    It cannot be selected as a linear objective -- it is minimised by driving
+    the basis to zero -- so the comparison is against the registry entry
+    directly. The entry stays: the identifiability ground truths use it.
     """
     x, v, u, s, ctx = _case()
     got = float(similarity_energy("recon", s, u, ctx))
@@ -132,24 +125,14 @@ def test_recon_matches_the_linear_definition():
     assert got == pytest.approx(want, rel=1e-9)
 
 
-def test_regression_is_deprecated_in_favour_of_recon_r2():
-    """Selecting the degenerate objective warns and redirects.
-
-    The announcement fires once per process -- it resolves on every energy and
-    gradient call, for every view, on every sweep, which was 32k warnings for
-    one test run -- so the record has to be cleared or this test depends on
-    collection order.
-    """
-    from pysimlr.similarity import _DEPRECATION_ANNOUNCED
-    _DEPRECATION_ANNOUNCED.discard("regression")
-    with pytest.warns(DeprecationWarning, match="deprecated"):
-        assert resolve_energy_name("regression", path="linear") == "recon_r2"
-    # and it does not repeat
-    import warnings as _w
-    with _w.catch_warnings(record=True) as again:
-        _w.simplefilter("always")
-        resolve_energy_name("regression", path="linear")
-    assert not [m for m in again if issubclass(m.category, DeprecationWarning)]
+def test_removed_energy_names_raise_with_the_replacement():
+    from pysimlr.similarity import REJECTED_ENERGY_NAMES
+    for name in REJECTED_ENERGY_NAMES:
+        for path in (None, "linear", "deep"):
+            with pytest.raises(ValueError, match="not available"):
+                resolve_energy_name(name, path=path)
+    with pytest.raises(ValueError, match="recon_r2"):
+        resolve_energy_name("recon", path="linear")
 
 
 # --------------------------------------------------------------------------
@@ -199,13 +182,6 @@ def test_terms_are_centring_invariant():
 # --------------------------------------------------------------------------
 # the ambiguity is refused rather than guessed
 # --------------------------------------------------------------------------
-def test_regression_is_ambiguous_and_says_so():
-    with pytest.raises(ValueError, match="ambiguous"):
-        resolve_energy_name("regression")
-    # `path="linear"` is covered by test_regression_is_deprecated_in_favour_of_recon_r2
-    assert resolve_energy_name("regression", path="deep") == "align"
-
-
 def test_unknown_energy_is_refused():
     with pytest.raises(ValueError, match="unknown similarity"):
         resolve_energy_name("cca")
@@ -256,27 +232,3 @@ def test_n3_is_enough():
     for name in similarity_names():
         assert torch.isfinite(similarity_energy(name, x @ v, u, ctx))
 
-
-def test_gauge_is_decided_by_the_energy_not_the_alias():
-    """Two names for one energy must be gauged the same way.
-
-    `calculate_sim_loss` standardises its latents for energies that do not fix
-    their own column scale. It used to key that off the raw ``energy_type``,
-    so the deep path's ``'regression'`` -- which *is* the registry's
-    ``'align'`` -- skipped the gauge while ``'align'`` took it: the same
-    objective computing two different numbers depending on which spelling the
-    caller used. Cheap to assert, and it is the only thing standing between a
-    future alias and the same split.
-    """
-    from pysimlr.deep import calculate_sim_loss
-    from pysimlr.similarity import resolve_energy_name
-    x, v, u, s, ctx = _case()
-    weights = {"sim": 1.0, "var": 1.0, "collapse": 1.0, "u_var": 1.0}
-    aliases = [("regression", "align")]
-    for legacy, registry in aliases:
-        assert resolve_energy_name(legacy, path="deep") == registry
-        a = float(calculate_sim_loss([s], u, legacy, weights=weights)[0])
-        b = float(calculate_sim_loss([s], u, registry, weights=weights)[0])
-        assert a == pytest.approx(b, rel=1e-12), (
-            f"{legacy!r} and {registry!r} are one energy but scored "
-            f"{a} vs {b} -- the gauge is keyed off the spelling.")

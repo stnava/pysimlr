@@ -1,6 +1,4 @@
-import pytest
 import torch
-import numpy as np
 from pysimlr.deep import ned_simr
 
 

@@ -16,7 +16,6 @@ These tests pin the invariance so the metric cannot quietly be read as evidence
 about a basis, and pin that the axis-sensitive companion is not invariant.
 """
 
-import numpy as np
 import pytest
 import torch
 

@@ -16,7 +16,6 @@ from pysimlr import (
     simlr_sparseness,
     orthogonalize_and_q_sparsify,
     sparse_distance_matrix,
-    invariant_orthogonality_defect,
 )
 from pysimlr.utils import preprocess_data, procrustes_r2
 

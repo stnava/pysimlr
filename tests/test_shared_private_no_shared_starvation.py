@@ -1,6 +1,5 @@
 import pytest
 import torch
-import numpy as np
 from pysimlr.deep import ned_simr_shared_private, predict_deep
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score

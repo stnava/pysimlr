@@ -30,7 +30,7 @@ from scipy.optimize import linear_sum_assignment
 
 from pysimlr.deep import (LENDSiMRModel, NEDSharedPrivateSiMRModel, NEDSiMRModel,
                           lend_simr, ned_simr, ned_simr_shared_private)
-from pysimlr.flows import FlowSiMRVModel, flow_simlr_v, flow_simr_v
+from pysimlr.flows import FlowSiMRVModel, flow_simr_v
 from pysimlr.simlr import initialize_simlr
 
 
@@ -48,7 +48,7 @@ CONFIGS = [("gcca", "either"), ("pca", "either"), ("pca", "positive")]
 
 ENTRY_POINTS = {
     "simlr": lambda X, **kw: _module("pysimlr.simlr").simlr(X, k=K, iterations=2, verbose=False, **kw),
-    "flow_simlr_v": lambda X, **kw: flow_simlr_v(X, k=K, iterations=2, batch_size=16, verbose=False, **kw),
+    "flow_simr_v": lambda X, **kw: flow_simr_v(X, k=K, iterations=2, batch_size=16, verbose=False, **kw),
     "lend_simr": lambda X, **kw: lend_simr(X, k=K, iterations=2, batch_size=16, verbose=False, **kw),
     "ned_simr": lambda X, **kw: ned_simr(X, k=K, iterations=2, batch_size=16, verbose=False, **kw),
     "ned_simr_shared_private": lambda X, **kw: ned_simr_shared_private(
@@ -215,14 +215,7 @@ def test_deep_encoder_seeding_honours_varimax(cls, init, pos):
 # public entry points
 # --------------------------------------------------------------------------
 @pytest.mark.parametrize("name", sorted(ENTRY_POINTS))
-@pytest.mark.parametrize("init,pos", [
-    pytest.param(i, p, marks=pytest.mark.xfail(strict=False, reason=(
-        "Open defect (docs/tracking.md D6): with random_state=None, simlr hands "
-        "initialize_simlr generator=None, so the start draws from the global RNG, "
-        "whose state the learning-rate probe fits leave optimizer-dependent. "
-        "Under hybrid_adam this start's matched |r| was 0.74/0.58 against "
-        "0.94/0.96 for every explicit seed.")))
-    if i == "gcca" else (i, p) for i, p in CONFIGS])
+@pytest.mark.parametrize("init,pos", CONFIGS)
 def test_entry_points_forward_varimax_and_change_the_fit(monkeypatch, name, init, pos):
     # `simlr`'s default learning-rate tuner runs short probe fits before the
     # real one, each calling `initialize_simlr`; every call must carry the
@@ -234,7 +227,11 @@ def test_entry_points_forward_varimax_and_change_the_fit(monkeypatch, name, init
 
     def spy(data, k, *a, **kw):
         v = real(data, k, *a, **kw)
-        current.append((kw.get("varimax"), [d.detach().clone() for d in data], v))
+        # Copy the returned list: `simlr` replaces its elements in place as it
+        # iterates, so holding the list itself measured the fitted basis, not
+        # the start this test asserts on.
+        current.append((kw.get("varimax"), [d.detach().clone() for d in data],
+                        [t.detach().clone() for t in v]))
         return v
 
     monkeypatch.setattr(simlr_mod, "initialize_simlr", spy)

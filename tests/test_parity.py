@@ -1,8 +1,6 @@
 import numpy as np
-import pandas as pd
 import subprocess
-import os
-from pysimlr import multigrep, get_names_from_dataframe
+from pysimlr import multigrep
 
 def run_r_code(code: str) -> str:
     # Use Rscript to run code and return output
@@ -22,18 +20,18 @@ def test_parity_utils():
     py_res_intersect = multigrep(patterns, desc, intersect=True)
     
     # R results (1-indexed)
-    r_code = f"""
-    multigrep <- function( x, desc, intersect=FALSE ) {{
+    r_code = """
+    multigrep <- function( x, desc, intersect=FALSE ) {
       roisel = c()
-      for ( xx in x ) {{
-        if (length(roisel)==0 | !intersect ) {{
+      for ( xx in x ) {
+        if (length(roisel)==0 | !intersect ) {
           roisel = c( roisel, grep(xx, desc) )
-        }} else {{
+        } else {
           roisel = intersect( roisel, grep(xx, desc) )
-        }}
-      }}
+        }
+      }
       return(  roisel )
-    }}
+    }
     desc = c("apple", "banana", "cherry", "date", "eggplant")
     patterns = c("a", "e")
     cat("union:", multigrep(patterns, desc, FALSE), "\\n")

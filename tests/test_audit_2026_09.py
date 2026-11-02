@@ -6,6 +6,7 @@ the energy, not against autograd, because the linear gradients are themselves
 produced by autograd: agreement with autograd would only show the code calls
 autograd, not that the energy and the step direction describe one function.
 """
+import numpy as np
 import torch
 import pytest
 
@@ -41,12 +42,10 @@ def _cos(a, b):
     return float(torch.sum(a * b) / (a.norm() * b.norm()))
 
 
-# "regression" resolves to the scale-profiled "recon_r2" with a DeprecationWarning.
-SMOOTH = sorted((SUPPORTED_ENERGY_TYPES - {"dat"}) | {"recon_r2"})
+SMOOTH = sorted(SUPPORTED_ENERGY_TYPES - {"dat"})
 
 
 @pytest.mark.parametrize("energy_type", SMOOTH)
-@pytest.mark.filterwarnings("ignore:energy_type='regression' is deprecated")
 def test_every_supported_energy_has_the_gradient_of_its_own_energy(energy_type):
     """A1 (regression direction dropped U'U) and A2 (zero gradients), for every
     objective the linear path accepts: the returned descent direction equals
@@ -59,13 +58,12 @@ def test_every_supported_energy_has_the_gradient_of_its_own_energy(energy_type):
     assert torch.allclose(step, -fd, rtol=1e-4, atol=1e-6 * float(fd.norm())), energy_type
 
 
-@pytest.mark.filterwarnings("ignore:energy_type='regression' is deprecated")
 def test_regression_direction_depends_on_the_iterate():
     """A1: the shipped direction reduced to the constant 2X'U. The fixed one
     changes when V changes, because the true gradient carries V U'U."""
     x, v, u = _fixture()
-    d1 = calculate_simlr_gradient(v, x, u, "regression")
-    d2 = calculate_simlr_gradient(2 * v, x, u, "regression")
+    d1 = calculate_simlr_gradient(v, x, u, "recon_r2")
+    d2 = calculate_simlr_gradient(v @ torch.diag(torch.tensor([1.0, 2.0, 0.5], dtype=v.dtype)) + 0.1, x, u, "recon_r2")
     assert not torch.allclose(d1, d2)
 
 
@@ -130,7 +128,7 @@ def test_the_oracle_simlr_hands_its_optimizer_is_consistent():
         g = torch.Generator().manual_seed(0)
         z = torch.randn(50, 2, generator=g)
         views = [z @ torch.randn(2, p, generator=g) + 0.3 * torch.randn(50, p, generator=g) for p in (8, 6)]
-        simlr(views, k=2, iterations=1, optimizer_type="nsa_lbfgsb", constraint="orthox0.3x1",
+        simlr(views, k=2, iterations=1, optimizer_type="nsa_lbfgsb", constraint="orthox0.3",
               energy_type="acc", random_state=0)
     finally:
         O.NSALBFGSB.step = orig
@@ -154,3 +152,31 @@ def test_one_orthogonality_defect_for_energy_losses_and_reports():
         for other in ("stiefel_defect(", "angle_defect(", "mean_orthogonality_defect(",
                       "invariant_orthogonality_defect("):
             assert other not in src.replace("import", ""), (module.__name__, other)
+
+
+def test_view_callbacks_stay_bound_to_their_view():
+    """The energy and gradient callbacks are built per view; called after the
+    sweep they must still evaluate their own view. Defined in the loop they read
+    the loop index late, and view 0's gradient computed with view 2's data
+    raised a shape mismatch."""
+    import importlib
+    O = importlib.import_module("pysimlr.optimizers")
+    simlr = importlib.import_module("pysimlr.simlr").simlr
+    kept = {}
+    orig = O.NSALBFGSB.step
+
+    def spy(self, i, v, g, f=None):
+        kept.setdefault(i, (self.smooth_energy_function, self.gradient_function, v.detach().clone()))
+        return orig(self, i, v, g, f)
+
+    O.NSALBFGSB.step = spy
+    try:
+        g = torch.Generator().manual_seed(0)
+        z = torch.randn(40, 2, generator=g)
+        views = [z @ torch.randn(2, p, generator=g) + 0.3 * torch.randn(40, p, generator=g) for p in (8, 6, 4)]
+        simlr(views, k=2, iterations=1, optimizer_type="nsa_lbfgsb", random_state=0)
+    finally:
+        O.NSALBFGSB.step = orig
+    for i, (E, grad, v) in kept.items():
+        assert grad(v).shape == v.shape, i
+        assert np.isfinite(E(v)), i

@@ -7,7 +7,7 @@ def test_linear_footprint_shapes():
     n_samples = 200
     shared_k = 3
     p_list = [50, 40]
-    case = build_case("linear_footprint", n_samples=n_samples, shared_k=shared_k, p_list=p_list)
+    case = build_case("linear", n_samples=n_samples, shared_k=shared_k, p_list=p_list)
     
     assert len(case["data"]) == 2
     assert case["data"][0].shape == (n_samples, p_list[0])
@@ -17,7 +17,7 @@ def test_linear_footprint_shapes():
 
 def test_nonlinear_shared_shapes():
     n_samples = 200
-    case = build_case("nonlinear_shared", n_samples=n_samples)
+    case = build_case("nonlinear", n_samples=n_samples)
     assert len(case["data"]) == 3
     assert case["data"][0].shape[0] == n_samples
 
@@ -32,9 +32,9 @@ def test_shared_plus_private_shapes():
     assert case["true_u_private"][0].shape == (n_samples, private_k)
 
 def test_reproducibility():
-    case1 = build_case("nonlinear_shared", seed=42)
-    case2 = build_case("nonlinear_shared", seed=42)
-    case3 = build_case("nonlinear_shared", seed=43)
+    case1 = build_case("nonlinear", seed=42)
+    case2 = build_case("nonlinear", seed=42)
+    case3 = build_case("nonlinear", seed=43)
     
     assert torch.allclose(case1["data"][0], case2["data"][0])
     assert not torch.allclose(case1["data"][0], case3["data"][0])

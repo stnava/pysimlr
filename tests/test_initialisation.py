@@ -137,5 +137,19 @@ def test_simlr_random_state_does_not_change_a_deterministic_start():
     kw = dict(k=3, iterations=3, energy_type="recon_r2", positivity="positive", verbose=False)
     a = simlr(views, random_state=1, **kw)
     b = simlr(views, random_state=2, **kw)
-    assert a["initialization_type"] == "pca" and a["random_state"] is None
+    assert a["initialization_type"] == "pca"
+    assert (a["random_state"], b["random_state"]) == (1, 2)
+    assert torch.equal(a["v"][0], b["v"][0])
+
+
+def test_simlr_unseeded_start_is_recorded_and_reproducible():
+    """With random_state=None one seed is drawn up front and recorded; it used
+    to be left None, so randomised starts such as "gcca" drew from the global
+    stream after the learning-rate probes had consumed an optimizer-dependent
+    amount of it."""
+    views = _views()
+    kw = dict(k=3, iterations=2, initialization_type="gcca", varimax=True, verbose=False)
+    a = simlr(views, **kw)
+    assert isinstance(a["random_state"], int)
+    b = simlr(views, random_state=a["random_state"], **kw)
     assert torch.equal(a["v"][0], b["v"][0])

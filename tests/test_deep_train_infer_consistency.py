@@ -1,6 +1,5 @@
 import torch
-import numpy as np
-from pysimlr.deep import lend_simr, NEDSiMRModel
+from pysimlr.deep import lend_simr
 
 def test_deep_train_infer_consistency():
     # 1. Create synthetic data

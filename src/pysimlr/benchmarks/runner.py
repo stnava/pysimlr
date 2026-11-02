@@ -3,16 +3,12 @@ import numpy as np
 import pandas as pd
 import argparse
 import yaml
-import os
-import inspect
-import warnings
-import json
 import time
-from typing import List, Dict, Any, Optional, Union, Callable
+from typing import List, Dict, Any, Optional
 from .synthetic_cases import build_case
 from .metrics import calculate_all_metrics
 from pysimlr import api
-from ..defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
+from ..defaults import DEFAULT_ENERGY_TYPE
 
 
 def split_indices(n_samples: int,
@@ -170,7 +166,7 @@ def run_single_experiment(model_type: str,
     Parameters
     ----------
     model_type : str
-        A name or alias from `pysimlr.method_names()`.
+        A name from `pysimlr.method_names()`.
     case : dict
         A benchmark case (`synthetic_cases.build_case` or a real-data loader).
     sparsity : float or None
@@ -453,15 +449,15 @@ def run_single_experiment(model_type: str,
             "prediction": {"train": pred_train, "test": pred_test}}
 
 def run_seeded_benchmark(model_type: str, 
-                         case_kind: str = "nonlinear_shared",
+                         case_kind: str = "nonlinear",
                          n_samples: int = 1000,
                          n_seeds: int = 3,
                          sparsity: Optional[float] = DEFAULT_SPARSENESS,
-                         noise_level: float = 0.1,
+                         noise_scale: float = 0.1,
                          **model_params) -> pd.DataFrame:
     all_metrics = []
     for seed in range(42, 42 + n_seeds):
-        case = build_case(n_samples=n_samples, kind=case_kind, seed=seed, noise_scale=noise_level)
+        case = build_case(n_samples=n_samples, kind=case_kind, seed=seed, noise_scale=noise_scale)
         res = run_single_experiment(model_type, case, sparsity=sparsity, seed=seed, **model_params)
         all_metrics.append(res["metrics"])
     return pd.DataFrame(all_metrics)
@@ -510,18 +506,18 @@ def get_best_per_model(results_df: pd.DataFrame, metric: str = "recovery") -> pd
     idx = means.groupby("model")[metric].transform("max") == means[metric]
     return means[idx]
 
-def sweep_benchmark(model_types: List[str] = ["linear", "lend", "ned"],
-                    case_kind: str = "nonlinear_shared",
+def sweep_benchmark(model_types: List[str] = ["simlr", "lend", "ned"],
+                    case_kind: str = "nonlinear",
                     n_samples: int = 1000,
                     sparsities: List[Optional[float]] = [DEFAULT_SPARSENESS],
                     n_seeds: int = 3,
                     save_prefix: str = "benchmark",
-                    noise_level: float = 0.1,
+                    noise_scale: float = 0.1,
                     **common_params) -> Dict[str, pd.DataFrame]:
     results = []
     for m_type in model_types:
         for spar in sparsities:
-            df_seeds = run_seeded_benchmark(m_type, case_kind, n_samples, n_seeds, sparsity=spar, noise_level=noise_level, **common_params)
+            df_seeds = run_seeded_benchmark(m_type, case_kind, n_samples, n_seeds, sparsity=spar, noise_scale=noise_scale, **common_params)
             results.append(df_seeds)
             
     full_df = pd.concat(results, ignore_index=True)
@@ -540,7 +536,7 @@ def main():
     if args.config:
         with open(args.config, 'r') as f: config = yaml.safe_load(f)
     else:
-        config = {"model_types": ["linear", "lend", "ned"], "case_kind": "nonlinear_shared", "n_samples": 500, "n_seeds": 3, "sparsities": [0.0], "save_prefix": "smoke_test"}
+        config = {"model_types": ["simlr", "lend", "ned"], "case_kind": "nonlinear", "n_samples": 500, "n_seeds": 3, "sparsities": [0.0], "save_prefix": "smoke_test"}
     
     m_types = config.pop("model_types")
     c_kind = config.pop("case_kind")
@@ -548,7 +544,7 @@ def main():
     n_seeds = config.pop("n_seeds")
     spars = config.pop("sparsities")
     pref = config.pop("save_prefix")
-    nl = config.pop("noise_level", 0.1)
+    nl = config.pop("noise_scale", 0.1)
     sweep_benchmark(m_types, c_kind, n_s, spars, n_seeds, pref, nl, **config)
 
 if __name__ == "__main__":

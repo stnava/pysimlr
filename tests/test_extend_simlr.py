@@ -1,12 +1,9 @@
 import pandas as pd
 import numpy as np
 import torch
-import pytest
 from pysimlr.nnh import (
-    nnh_embed,
     _shorten_pymm_names,
     apply_simlr_matrices,
-    apply_simlr_matrices_dtfix,
     extend_simlr_embedding_with_new_modalities
 )
 
@@ -168,7 +165,7 @@ def test_extend_simlr_embedding():
         mode="concatenate",
         k_new=2,
         min_k=2,
-        method="flow_simr_v",
+        method="flow_v",
         iterations=5,
         standardize=True,
         verbose=False

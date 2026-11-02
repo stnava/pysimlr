@@ -1,7 +1,4 @@
-import os
 import torch
-import pandas as pd
-import numpy as np
 from pysimlr import (
     simlr,
     predict_simlr,
@@ -61,5 +58,5 @@ def test_sparse():
 def test_regression():
     x = torch.randn(20, 10)
     y = x[:, 0] * 2 + x[:, 1] * -1 + torch.randn(20) * 0.1
-    res = smooth_regression(x, y, iterations=5, nv=1)
+    res = smooth_regression(x, y, nv=1)
     assert res["v"].shape == (10, 1)

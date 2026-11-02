@@ -5,9 +5,7 @@ import re
 import copy
 import warnings
 from typing import List, Optional, Union, Dict, Any, Tuple
-from .simlr import simlr, initialize_simlr
-from .utils import multigrep
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W
+from .defaults import DEFAULT_ENERGY_TYPE
 
 def _get_names_from_dataframe(
     x: Union[str, List[str]],
@@ -329,12 +327,10 @@ def nnh_embed(blaster: pd.DataFrame,
     nsimlr : int, default=5
         The rank (K) of the latent embedding.
     constraint : str, optional
-        Constraint string for `simlr` (e.g. ``"orthox0.5x1"``). ``None`` uses
+        Constraint string for `simlr` (e.g. ``"orthox0.5"``). ``None`` uses
         `simlr`'s default. It was documented but never forwarded, so every
-        call ran `simlr`'s default whatever was passed. With ``use_flow=True``
-        it selects the flow encoder's ``retraction_type`` (``"polar"`` in the
-        string -> ``"soft_polar"``, otherwise ``"soft_ns"``) unless
-        ``retraction_type`` is given, as before.
+        call ran `simlr`'s default whatever was passed. Not accepted with
+        ``use_flow=True``.
     covariates : List[str], optional
         Columns to use as covariates for residualization (e.g., 'age', 'sex').
     do_asym : int, default=1
@@ -438,13 +434,10 @@ def nnh_embed(blaster: pd.DataFrame,
     fit_kwargs["energy_type"] = energy
     fit_kwargs["varimax"] = varimax
     if use_flow:
-        # nnh's own convention: the constraint string picks the flow encoder's
-        # retraction. `energy` is passed as given; this path used to replace
-        # "acc" with "regression", so the flow model optimised a different
-        # objective from the one requested.
-        if "retraction_type" not in fit_kwargs:
-            c = "ortho" if constraint is None else constraint
-            fit_kwargs["retraction_type"] = "soft_polar" if "polar" in c else "soft_ns"
+        # `constraint` is a `simlr` setting; the flow model has none.
+        if constraint is not None:
+            raise ValueError("constraint applies to the simlr path only; the flow "
+                             "model (use_flow=True) does not take one.")
     elif constraint is not None:
         fit_kwargs["constraint"] = constraint
     if verbose:
@@ -948,7 +941,7 @@ def extend_simlr_embedding_with_new_modalities(
     preprocess : str, default="drop"
         How to handle invalid variables ("drop" or "zero").
     method : str, default="simlr"
-        Any name or alias from `pysimlr.method_names()` (e.g. "simlr", "flow_v", "lend").
+        Any name from `pysimlr.method_names()` (e.g. "simlr", "flow_v", "lend").
     feature_names : Union[List[List[str]], Dict[str, List[str]]], optional
         Feature names of the original simlr run.
     standardize : bool, default=True

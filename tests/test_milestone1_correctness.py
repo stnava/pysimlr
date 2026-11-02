@@ -194,7 +194,7 @@ def test_m1_simlr_end_to_end_single_sample_n1():
     # with a zero gradient, so the similarity registry refuses it rather than
     # let the loop report a converged fit that never moved.
     with pytest.raises((RuntimeError, ValueError)):
-        simlr([x1, x2], k=2, iterations=2, constraint="orthox0.1x1",
+        simlr([x1, x2], k=2, iterations=2, constraint="orthox0.1",
               energy_type="acc")
 
 def test_m1_preprocess_center_and_scale_n1():

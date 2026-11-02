@@ -6,7 +6,6 @@ no post-warmup epoch could ever beat it and the patience counter incremented
 every epoch -- training always stopped at warmup+patience, giving the
 similarity objective almost no optimization at all.
 """
-import numpy as np
 import torch
 
 from pysimlr.deep import ned_simr

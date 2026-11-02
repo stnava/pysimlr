@@ -1,4 +1,3 @@
-import pytest
 import torch
 import numpy as np
 import pandas as pd
@@ -8,7 +7,7 @@ from antstorch import (
     lamnr_flows_whitener as top_lamnr_flows_whitener,
     apply_lamnr_flows_whitener as top_apply_lamnr_flows_whitener
 )
-from pysimlr import flow_whiten_matrix, FlowWhitener, flow_whitener
+from pysimlr import flow_whiten_matrix, FlowWhitener
 
 
 def test_antstorch_whitener_exports():
@@ -246,11 +245,3 @@ def test_pysimlr_flow_whiten_matrix_numpy_and_dataframe():
     assert isinstance(res_df["whitened_matrix"], pd.DataFrame)
     assert res_df["whitened_matrix"].shape == (n, p)
 
-
-def test_pysimlr_flow_whitener_alias():
-    """Verify flow_whitener alias function behaves identically to flow_whiten_matrix."""
-    assert flow_whitener is flow_whiten_matrix
-    torch.manual_seed(42)
-    x = torch.randn(20, 3)
-    res = flow_whitener(x, K=4, max_iter=10, batch_size=10, output_space="z")
-    assert "whitened_matrix" in res

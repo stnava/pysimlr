@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 from pysimlr import simlr, lend_simr
 
 def test_simlr_list_sparsity():

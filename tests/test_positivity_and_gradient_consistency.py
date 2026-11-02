@@ -143,7 +143,7 @@ def test_positive_constraint_does_not_cripple_latent_recovery_fast():
             # of consensus look like a positivity regression.
             res = simlr(x, k=3, iterations=20, optimizer_type="lars",
                         positivity=pos, energy_type="acc",
-                        constraint="orthox0.1x1", mixing_algorithm="svd")
+                        constraint="orthox0.1", mixing_algorithm="svd")
             u = res["u"]
             u = u[0] if isinstance(u, list) else u
             acc.append(procrustes_r2(z, u))
@@ -173,7 +173,7 @@ def test_positive_constraint_does_not_cripple_latent_recovery(optimizer_type):
             # 0.972-0.975 constrained and 0.984 unconstrained (3 seeds).
             res = simlr(x, k=3, iterations=40, optimizer_type=optimizer_type,
                         positivity=pos, energy_type="acc",
-                        constraint="orthox0.1x1", mixing_algorithm="svd")
+                        constraint="orthox0.1", mixing_algorithm="svd")
             u = res["u"]
             u = u[0] if isinstance(u, list) else u
             acc.append(procrustes_r2(z, u))
@@ -209,7 +209,7 @@ def test_energy_descends_overall_and_stays_bounded(optimizer_type):
     _, x = _coupled(11)
     res = simlr(x, k=3, iterations=20, optimizer_type=optimizer_type,
                 positivity="positive", energy_type="acc",
-                constraint="orthox0.1x1")
+                constraint="orthox0.1")
     e = np.asarray(res["energy"], dtype=float)
     if len(e) < 3:
         pytest.skip("converged too early to assess the trajectory")
@@ -230,7 +230,7 @@ def test_energy_descends_overall_and_stays_bounded(optimizer_type):
 def test_returned_iterate_is_the_best_one_found(optimizer_type):
     _, x = _coupled(12)
     res = simlr(x, k=3, iterations=20, optimizer_type=optimizer_type,
-                energy_type="acc", constraint="orthox0.1x1")
+                energy_type="acc", constraint="orthox0.1")
     e = np.asarray(res["energy"], dtype=float)
     assert res["best_energy"] == pytest.approx(float(e.min()), rel=1e-9)
     assert res["best_iteration"] == int(np.argmin(e))
@@ -239,7 +239,7 @@ def test_returned_iterate_is_the_best_one_found(optimizer_type):
     )
 
 
-@pytest.mark.parametrize("constraint", ["orthox0.1x1", "orthox0.5x2", "Stiefel"])
+@pytest.mark.parametrize("constraint", ["orthox0.1", "orthox0.5", "Stiefel"])
 def test_basis_columns_have_bounded_norm(constraint):
     """Column scale is a gauge freedom; leaving it free is what let the
     covariance energy diverge."""
@@ -265,7 +265,7 @@ def _init_only_latent(x, k=3, mixing="svd"):
     )
 
 
-@pytest.mark.parametrize("constraint", ["orthox0.5x1", "orthox0.9x1"])
+@pytest.mark.parametrize("constraint", ["orthox0.5", "orthox0.9"])
 def test_simlr_is_no_worse_than_its_initialization(constraint):
     """Best-iterate tracking guarantees this at any usable constraint weight.
 
@@ -391,10 +391,10 @@ def test_degradation_tracks_rank_loss():
         return simlr(x, k=3, iterations=20, constraint=c, energy_type="acc",
                      optimizer_type="lars", mixing_algorithm="newton", topology="star")
     ranks = {c: float(np.mean(fit(c)["effective_rank"]))
-             for c in ("orthox0", "orthox0.1x1", "orthox0.5x1")}
-    assert ranks["orthox0"] < ranks["orthox0.1x1"] < ranks["orthox0.5x1"], (
+             for c in ("orthox0", "orthox0.1", "orthox0.5")}
+    assert ranks["orthox0"] < ranks["orthox0.1"] < ranks["orthox0.5"], (
         f"rank no longer increases with the constraint weight: {ranks}")
-    r_weak, r_ok = ranks["orthox0"], ranks["orthox0.5x1"]
+    r_weak, r_ok = ranks["orthox0"], ranks["orthox0.5"]
     assert r_weak < r_ok - 0.5, (
         f"w=0 no longer loses rank relative to w=0.5 ({r_weak:.2f} against "
         f"{r_ok:.2f}); if the projection now keeps the basis full rank at "

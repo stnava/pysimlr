@@ -162,7 +162,7 @@ def test_simlr_threads_positivity_into_the_initializer():
 
 def test_varimax_initialization_eliminates_mean_mode_and_aligns_views():
     """Varimax rotates out the Perron-Frobenius global mean mode and aligns columns across views."""
-    from pysimlr import varimax, varimax_rotation
+    from pysimlr import varimax_rotation
     g = torch.Generator().manual_seed(11)
     n, k = 120, 3
     global_mode = torch.randn(n, 1, generator=g)

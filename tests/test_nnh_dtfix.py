@@ -248,7 +248,7 @@ def test_nnh_auxiliary_helpers():
 
 
 def test_extend_simlr_embedding_with_flow_simlr_v_iterations():
-    """Verify extend_simlr_embedding_with_new_modalities remaps iterations -> epochs for legacy method='flow_simlr_v'."""
+    """Verify extend_simlr_embedding_with_new_modalities passes iterations through for method='flow_v'."""
     np.random.seed(42)
     torch.manual_seed(42)
     n = 25
@@ -269,7 +269,7 @@ def test_extend_simlr_embedding_with_flow_simlr_v_iterations():
         pymm,
         simlr_result,
         new_modalities,
-        method="flow_simlr_v",
+        method="flow_v",
         iterations=5,
         verbose=False
     )

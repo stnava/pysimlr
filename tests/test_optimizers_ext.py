@@ -1,22 +1,9 @@
 import torch
 import pytest
-import numpy as np
 from pysimlr.optimizers import (
     create_optimizer,
     backtracking_linesearch,
-    bidirectional_linesearch,
-    SGD,
-    Adam,
-    Nadam,
-    RMSProp,
-    HybridAdam,
-    ArmijoGradient,
-    BidirectionalArmijoGradient,
-    Lookahead,
-    BidirectionalLookahead,
-    LARS,
-    NSAFlowOptimizer,
-    TorchNativeOptimizer
+    bidirectional_linesearch
 )
 
 def test_linesearch():
@@ -42,7 +29,7 @@ def test_all_optimizers():
     opt_types = [
         "gd", "adam", "nadam", "rmsprop", "hybrid_adam", 
         "armijo_gradient", "bidirectional_armijo_gradient",
-        "lookahead", "bidirectional_lookahead", "lars", "nsa_flow",
+        "lookahead", "bidirectional_lookahead", "lars",
         "torch_adamw", "torch_adagrad", "torch_nadam"
     ]
     
@@ -59,12 +46,13 @@ def test_all_optimizers():
         v_next_e = opt.step(0, v_mats[0], grad, full_energy_function=energy_func)
         assert v_next_e.shape == v_mats[0].shape
 
-def test_torch_lbfgs_is_removed_and_names_its_replacement():
-    """Removed in 0.4.0: it rarely moved from its start and was once certified
-    stationary there (docs/tracking.md D6)."""
+def test_removed_optimizers_raise_with_a_reason():
     import pytest
-    with pytest.raises(ValueError, match="nsa_lbfgsb"):
-        create_optimizer("torch_lbfgs", [torch.randn(10, 2)])
+    from pysimlr.optimizers import REMOVED_OPTIMIZERS
+    for name in ("torch_lbfgs", "nsa_flow"):
+        assert name in REMOVED_OPTIMIZERS
+        with pytest.raises(ValueError, match="removed in 0.4.0"):
+            create_optimizer(name, [torch.randn(10, 2)])
 
 def test_linesearch_error_handling():
     def broken_energy(v):
@@ -93,13 +81,3 @@ def test_linesearch_rejects_a_candidate_it_cannot_evaluate():
     g = torch.tensor([2.0, 2.0])
     step = backtracking_linesearch(v_current, -g, g, energy)
     assert step >= 0.0
-
-def test_nsa_flow_fallback():
-    # Force nsa_flow to None to test fallback to SVD
-    v_mats = [torch.randn(10, 2)]
-    opt = NSAFlowOptimizer("nsa_flow", v_mats)
-    opt.nsa_flow = None
-    v_next = opt.step(0, v_mats[0], torch.randn(10, 2))
-    # Should be orthogonal
-    u, s, vh = torch.linalg.svd(v_next, full_matrices=False)
-    assert torch.allclose(s, torch.ones_like(s), atol=1e-5)

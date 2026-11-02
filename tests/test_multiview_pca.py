@@ -1,8 +1,5 @@
 import numpy as np
-import pytest
 from pysimlr import MultiViewPCA
-from sklearn.pipeline import Pipeline
-from sklearn.linear_model import Ridge
 
 def test_multiview_pca_multi_modal():
     np.random.seed(42)

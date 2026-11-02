@@ -1,10 +1,16 @@
 # Reproducibility and Statistical Methodology {#sec-reproducibility}
 
+```{python}
+#| echo: false
+#| output: false
+from paper_numbers import N, RAW
+```
+
 This appendix documents the computational environment, replication structure, and non-parametric statistical testing procedures used to generate all tables, figures, and hypothesis tests in the manuscript.
 
 ## Building the Manuscript
 
-The manuscript is written in Quarto and compiles to HTML and PDF formats. All benchmark result caches are stored in `paper/results_cache/` (`deep_ranking_benchmark.csv`, `operating_points_05_08_benchmark.csv`, and `adni_mci_1214_grid_sweep.csv`), permitting a deterministic build from cached empirical runs:
+The manuscript is written in Quarto and compiles to HTML and PDF formats. All benchmark result caches are stored in `paper/results_cache/`, each written by a committed script (`scripts/run_deep_benchmark.py`, `scripts/run_adni_mci_grid_sweep.py`, `scripts/paper_adni_ablations.py`, `scripts/paper_brca_loadings.py`) and accompanied by a provenance file. Every number in the text is computed from these caches at build time (`paper/paper_numbers.py`), so the manuscript is rebuilt deterministically from them:
 
 ```bash
 git clone https://github.com/stnava/pysimlr.git
@@ -18,9 +24,9 @@ quarto render paper
 All statistical hypothesis tests, ranking matrices, and permutation null distributions are computed by `src/pysimlr/benchmarks/deep_ranking.py`:
 
 * Non-parametric Friedman omnibus test [@friedman1937use] and Iman–Davenport $F$-distribution extension [@Demsar2006; @Iman1980].
-* Two-tailed Nemenyi Critical Difference ($CD = 3.468$ at $\alpha = 0.05$ for $k = 9, B = 12$) [@Nemenyi1963; @Demsar2006].
+* Two-tailed Nemenyi Critical Difference ($CD =$ `{python} N.cd` at $\alpha = 0.05$ for $k = 9, B = 12$) [@Nemenyi1963; @Demsar2006].
 * Pairwise Wilcoxon signed-rank tests [@Wilcoxon1945] with Holm–Bonferroni step-down adjustments [@Holm1979].
-* Quasi-Newton (`L-BFGS`, `L-BFGS-B` [@byrd1995limited; @nocedal2006]) and adaptive first-order (`Adam`, `AdamW` [@kingma2014adam; @loshchilov2019]) solvers implemented on top of PyTorch [@paszke2019], NumPy [@harris2020], SciPy [@virtanen2020], and Scikit-Learn [@pedregosa2011].
+* Quasi-Newton (`L-BFGS-B` [@byrd1995limited; @nocedal2006]) and adaptive first-order (`Adam`, `AdamW` [@kingma2014adam; @loshchilov2019]) solvers implemented on top of PyTorch [@paszke2019], NumPy [@harris2020], SciPy [@virtanen2020], and Scikit-Learn [@pedregosa2011].
 * Benchmark cohorts span clinical cardiology (`Heart` [@detrano1989international]), metabolic progression (`Diabetes` [@efron2004least]), handwritten pattern descriptors (`mfeat` [@vanbreukelen2006]), transcriptomic/multi-omic cancer benchmarks [@golub1999molecular; @tcga2012breast; @tcga2013kirc; @wang2014; @tenenhaus2011; @tenenhaus2014; @zhao2017; @abdi2013], and Alzheimer's neuroimaging (`ADNI-MCI` [@mueller2005; @jack2008alzheimer; @ADNI]).
 
 The test suite `tests/test_deep_ranking_stats.py` verifies the statistical calculations:
@@ -31,7 +37,7 @@ pytest tests/test_deep_ranking_stats.py -v
 
 ## Replication Structure and the Permutation Resolution Floor
 
-The deep ranking benchmark evaluates nine architectures across 12 multi-view datasets across $N_{\text{seeds}} = 3$ independent random seeds ($324$ baseline fits and $1,215$ operating-point fits):
+The deep ranking benchmark evaluates `{python} N.n_models_word` architectures across 12 multi-view datasets across $N_{\text{seeds}} = 3$ independent random seeds (`{python} N.n_main_fits` fits at $q = 0.5$, `{python} N.n_default_fits` across the three sparsity levels, and `{python} N.n_positive_reruns` paired non-negative reruns on three cohorts):
 
 ```{python}
 #| label: tbl-replication-design

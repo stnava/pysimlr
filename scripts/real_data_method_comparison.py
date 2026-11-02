@@ -18,7 +18,6 @@ import torch
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, "scripts")
 from real_data_init_comparison import load_heart, load_diabetes, load_mfeat, load_brca

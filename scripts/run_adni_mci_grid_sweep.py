@@ -134,9 +134,9 @@ def eval_task(task):
         params["mai_metric"] = mai_label
         params["use_rank_mai"] = False
 
-    if model_type in ("linear", "simlr_lbfgsb"):
+    if model_type in ("simlr", "simlr_lbfgsb"):
         params["iterations"] = 25
-    elif model_type in ("lend", "ned", "shared_private", "flow_v"):
+    elif model_type in ("lend", "ned", "ned_shared_private", "flow_v"):
         params["iterations"] = 80
 
     t0 = time.perf_counter()
@@ -207,18 +207,17 @@ def build_task_list():
 
     deep_models = [
         ("Deep", "ned", "NED", "adam"),
-        ("Deep", "shared_private", "NEDPP", "adam"),
+        ("Deep", "ned_shared_private", "NEDPP", "adam"),
         ("Deep", "lend", "LEND", "adam"),
         ("Flow", "flow_v", "Flow-SiMLR-V", "adam"),
     ]
     lin_models = [
-        ("Linear", "linear", "SiMLR", "armijo_gradient"),
-        ("Linear", "linear", "SiMLR-BiArmijo", "bidirectional_armijo_gradient"),
+        ("Linear", "simlr", "SiMLR", "armijo_gradient"),
+        ("Linear", "simlr", "SiMLR-BiArmijo", "bidirectional_armijo_gradient"),
         ("Linear", "simlr_lbfgsb", "SiMLR-LBFGSB", "nsa_lbfgsb"),
-        ("Linear", "linear", "SiMLR-HybridAdam", "hybrid_adam"),
-        ("Linear", "linear", "SiMLR-LARS", "lars"),
-        ("Linear", "linear", "SiMLR-NSAFlow", "nsa_flow"),
-        ("Linear", "linear", "SiMLR-Lookahead", "lookahead"),
+        ("Linear", "simlr", "SiMLR-HybridAdam", "hybrid_adam"),
+        ("Linear", "simlr", "SiMLR-LARS", "lars"),
+        ("Linear", "simlr", "SiMLR-Lookahead", "lookahead"),
     ]
 
     # WAVE 0 (First 45s): Fast balanced probe across Deep, Flow, and Linear for immediate 1-minute report

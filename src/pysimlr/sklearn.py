@@ -25,7 +25,6 @@ import numpy as np
 import torch
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 from . import api
 
@@ -59,7 +58,7 @@ class MultiViewSiMR(BaseEstimator, TransformerMixin):
     Parameters
     ----------
     method : str, default="simlr"
-        A name from `pysimlr.method_names()` or an alias.
+        A name from `pysimlr.method_names()`.
     n_components : int, default=2
         Dimensionality ``k`` of the shared latent space.
     iterations, energy_type, mixing_algorithm, positivity, sparseness, nsa_w,

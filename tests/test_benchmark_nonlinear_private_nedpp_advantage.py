@@ -1,5 +1,3 @@
-import torch
-import numpy as np
 import pytest
 from scripts.benchmark_nonlinear_private_noise_simlr_vs_nedpp import run_shared_private_benchmark
 

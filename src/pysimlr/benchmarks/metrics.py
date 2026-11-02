@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
 from ..utils import procrustes_r2, adjusted_rvcoef
 
 def latent_recovery_score(u_pred: torch.Tensor, u_true: torch.Tensor) -> float:

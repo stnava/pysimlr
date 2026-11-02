@@ -4,14 +4,14 @@ from pysimlr.utils import (
     mean_orthogonality_defect, 
     gradient_mean_orthogonality_defect,
     orthogonality_summary,
-    invariant_orthogonality_defect
+    orthogonality_defect
 )
 
 def test_orthogonality_metrics():
     # 1. Identity matrix should have zero defect
     eye = torch.eye(5)
     assert mean_orthogonality_defect(eye) == 0.0
-    assert invariant_orthogonality_defect(eye) == 0.0
+    assert orthogonality_defect(eye) == 0.0
     
     # 2. Correlated matrix should have positive defect
     a = torch.ones(10, 3)

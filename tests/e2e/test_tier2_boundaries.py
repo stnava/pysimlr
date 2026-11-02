@@ -27,9 +27,7 @@ from pysimlr import (
     ba_svd,
     safe_pca,
     whiten_matrix,
-    multiscale_svd,
     sparse_distance_matrix,
-    adjusted_rvcoef,
 )
 
 

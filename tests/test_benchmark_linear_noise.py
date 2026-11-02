@@ -1,6 +1,4 @@
 import pytest
-import torch
-import numpy as np
 from scripts.benchmark_linear_noise_simlr_vs_lend import run_linear_benchmark
 
 @pytest.mark.slow

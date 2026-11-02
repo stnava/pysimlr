@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import torch
-from typing import List, Optional, Union, Dict, Any
+from typing import List, Optional, Dict
 
 def _draw_box(ax, x, y, w, h, label, color='white', edgecolor='black', alpha=1.0, fontsize=10):
     rect = patches.Rectangle((x, y), w, h, facecolor=color, edgecolor=edgecolor, alpha=alpha, linewidth=1.5)

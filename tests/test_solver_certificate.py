@@ -148,7 +148,7 @@ def test_projection_survives_a_rank_deficient_iterate():
     v = torch.randn(12, 3)
     v[:, 1] = 0.0
     out = simlr_sparseness(v, constraint_type="ortho", positivity="positive",
-                           constraint_weight=0.5, energy_type="regression")
+                           constraint_weight=0.5, energy_type="recon")
     assert (out.norm(dim=0) > 0).all(), "projection returned a rank-deficient basis"
 
 

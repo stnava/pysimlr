@@ -72,10 +72,11 @@ def test_accepts_is_the_native_signature(name):
     assert spec.accepts == (named | set(spec.extra_params)) - set(spec.presets)
 
 
-def test_aliases_resolve_and_unknown_names_list_the_registry():
-    assert api.resolve_method("linear").name == "simlr"
-    assert api.resolve_method("shared_private").name == "ned_shared_private"
-    assert api.resolve_method("flow_simr_v").name == "flow_v"
+def test_only_registered_names_resolve_and_unknown_names_list_the_registry():
+    assert api.resolve_method("simlr").name == "simlr"
+    for removed in ("linear", "shared_private", "flow_simr_v", "nsaflow"):
+        with pytest.raises(ValueError, match="registered"):
+            api.resolve_method(removed)
     with pytest.raises(ValueError, match="registered"):
         api.resolve_method("nope")
 
@@ -193,7 +194,8 @@ def test_random_state_reproduces_every_method(name):
 def test_random_state_does_not_change_the_linear_initializer():
     res = _quiet_fit("simlr", _views(), iterations=2, random_state=1)
     assert res["initialization_type"] == "pca"
-    assert res["parameters"]["random_state"] is None
+    # Always recorded: the seed reaches every initializer (and the probes).
+    assert res["parameters"]["random_state"] == 1
 
 
 # --------------------------------------------------------------------------
@@ -238,7 +240,6 @@ EXEMPT = {
     "prune_threshold": "read only by the graph topology's edge pruning; test_latent_pruning",
     "first_layer_mode": "first-layer projection schedule; test_deep_first_layer_contract",
     "nsa_iterations": "first-layer projection schedule; test_deep_first_layer_contract",
-    "retraction_type": "first-layer projection operator; test_retraction_validation",
     "use_nsa": "first-layer projection switch; test_deep_first_layer_contract",
     "stabilization_start_epoch": "schedule offset, inert inside a 4-epoch budget; test_deep_first_layer_contract",
     "stabilization_ramp_epochs": "schedule offset, inert inside a 4-epoch budget; test_deep_first_layer_contract",

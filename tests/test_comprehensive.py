@@ -23,11 +23,9 @@ from pysimlr import (
     decompose_energy,
     simlr_path,
     permutation_test,
-    deep_simr,
     lend_simr,
     ned_simr,
-    ned_simr_shared_private,
-    adjusted_rvcoef
+    ned_simr_shared_private
 )
 
 def test_utils_comprehensive():
@@ -73,7 +71,7 @@ def test_regression_comprehensive():
     u_np = np.random.randn(20, 2)
     pred = smooth_matrix_prediction(x, u_np)
     assert pred.shape == (20, 2)
-    reg_res = smooth_regression(x, y, iterations=2)
+    reg_res = smooth_regression(x, y)
     assert 'v' in reg_res
 
 def test_nnh_comprehensive():
@@ -104,7 +102,7 @@ def test_path_comprehensive():
 
 def test_deep_simr_comprehensive():
     x1, x2 = torch.randn(50, 20), torch.randn(50, 15)
-    res = deep_simr([x1, x2], k=5, iterations=2, batch_size=10, warmup_epochs=0, sim_weight=0.0, verbose=True)
+    res = lend_simr([x1, x2], k=5, iterations=2, batch_size=10, warmup_epochs=0, sim_weight=0.0, verbose=True)
     assert 'u' in res
     pred = predict_simlr([x1, x2], res)
     assert u_is_stable(pred['u'])

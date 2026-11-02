@@ -22,7 +22,6 @@ import inspect
 import pathlib
 from collections import Counter
 
-import pytest
 
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "pysimlr"
 

@@ -2,15 +2,34 @@
 title: "Multi-Omics Clinical Validation (TCGA-BRCA)"
 ---
 
+```{python}
+#| echo: false
+#| output: false
+import json, os
+from IPython.display import Markdown
+from paper_numbers import N
+_p = "results_cache/brca_er_loadings.json"
+if not os.path.exists(_p):
+    _p = "paper/results_cache/brca_er_loadings.json"
+BRCA = json.load(open(_p))
+def brca_top(view, n=6):
+    v = BRCA["views"][view]
+    return Markdown(", ".join(f"`{name}` ({w:.3f})" for name, w in v["top"][:n]))
+def brca_view(view, key):
+    v = BRCA["views"][view]
+    return Markdown(f"{v[key]:.2f}" if isinstance(v[key], float) else str(v[key]))
+er_pct = Markdown(f"{100 * BRCA['er_positive_fraction']:.1f}%")
+```
+
 ## Multi-Omic Integration Strategy
 
-We evaluate the nine benchmark architectures on the three-view `TCGA-BRCA` breast invasive carcinoma cohort ($N = 822$ primary tumors with complete multi-omic profiles and clinical receptor status) [@tcga2012breast; @perou2000; @parker2009supervised; @curtis2012; @weinstein2013]. The dataset integrates three molecular assay platforms filtered at $\ge 98\%$ completeness:
+We evaluate the `{python} N.n_models_word` benchmark architectures on the three-view `TCGA-BRCA` breast invasive carcinoma cohort ($N = 822$ primary tumors with complete multi-omic profiles and clinical receptor status) [@tcga2012breast; @perou2000; @parker2009supervised; @curtis2012; @weinstein2013]. The dataset integrates three molecular assay platforms filtered at $\ge 98\%$ completeness:
 
 * **RNA-Seq (`rna`):** $p_1 = 200$ top-variance mRNA sequencing gene expression transcripts (Illumina HiSeqV2).
 * **Copy Number Variation (`cnv`):** $p_2 = 150$ somatic GISTIC2 gene-level copy-number scores.
 * **Proteomics (`rppa`):** $p_3 = 150$ Reverse Phase Protein Array targeted proteomic and phosphoproteomic markers.
 
-The downstream clinical target is binary Estrogen Receptor (ER) status (Positive vs. Negative, $76.4\%$ ER+ prevalence), evaluated across three independent $70/30$ stratified train/test splits (`Seeds 42, 43, 44`, standardized strictly inside each training fold).
+The downstream clinical target is binary Estrogen Receptor (ER) status (Positive vs. Negative, `{python} er_pct` ER+ prevalence), evaluated across three independent $70/30$ stratified train/test splits (`Seeds 42, 43, 44`, standardized strictly inside each training fold).
 
 ## Performance Results
 
@@ -43,7 +62,7 @@ agg = sub.groupby("Model").agg({
     "Fit_Seconds": "mean"
 })
 
-order = ["NSAFlow-PCA", "SiMLR-LBFGSB", "LEND", "PCA", "NEDPP", "NED", "SiMLR-LBFGS", "SiMLR", "Flow-SiMR-V"]
+order = ["NSAFlow-PCA", "SiMLR-LBFGSB", "LEND", "PCA", "NEDPP", "NED", "SiMLR", "Flow-SiMR-V"]
 rows = []
 for m in order:
     if m not in agg.index:
@@ -70,8 +89,28 @@ print(tabulate(rows, headers=headers, tablefmt="pipe"))
 
 The linear entrypoint maps the 500 multi-omic features directly onto the low-dimensional latent coordinates via $\mathbf{V}_m$. @fig-brca-trimodal-waterfall displays the top 15 feature weights $|\mathbf{V}_m|$ on the ER-aligned component learned by `LEND` across the three molecular modalities.
 
-![Tri-Modal Feature Weights for ER-Status (`TCGA-BRCA`, $N=822$). `LEND` identifies coordinated molecular drivers across modalities on the ER-aligned basis component. (Left) RNA-Seq weights isolating luminal hormone-receptor transcripts (`PGR`, `PIP`, `GRPR`, `ELOVL2`, `LTF`, `S100A8/A9`). (Center) CNV regional weights isolating the 17q23 (`RPS6KB1`, `PTRH2`, `VMP1`, `MIR21`) and 8p11-p12 (`ZNF703`, `ERLIN2`, `BRF2`, `RAB11FIP1`, `GPR124`) breast cancer amplicons. (Right) Proteomics (RPPA) weights led by `ER-alpha-R-V`, `GATA3-M-V`, `HER2-M-V`, `AR-R-V`, `PR-R-V`, and `ER-alpha_pS118-R-V`.](figures/fig_brca_trimodal_waterfall.png){#fig-brca-trimodal-waterfall width="100%"}
+```{python}
+#| label: fig-brca-trimodal-waterfall
+#| fig-cap: "Fifteen largest loadings $|\\mathbf{V}_m|$ on the ER-aligned `LEND` component of each `TCGA-BRCA` view ($N = 822$; the component whose scores correlate most with ER status, per view; `brca_er_loadings.json` from `scripts/paper_brca_loadings.py`)."
+#| echo: false
+#| out-width: 100%
+import matplotlib.pyplot as plt
+fig, axes = plt.subplots(1, 3, figsize=(13.5, 5.6), dpi=300)
+for ax, (view, title) in zip(axes, [("rna", "mRNA"), ("cnv", "Copy number"), ("rppa", "RPPA proteomics")]):
+    v = BRCA["views"][view]
+    names = [n[:22] for n, _ in v["top"]][::-1]
+    vals = [w for _, w in v["top"]][::-1]
+    ax.barh(range(len(vals)), vals, color="#0d9488", edgecolor="#0f172a", lw=0.6)
+    ax.set_yticks(range(len(vals)))
+    ax.set_yticklabels(names, fontsize=8)
+    ax.set_title(f"{title} (p = {v['p']})\ncomponent {v['component']}, |r| with ER = {v['abs_corr_with_er']:.2f}",
+                 fontsize=9.5, weight="bold")
+    ax.set_xlabel("|V| loading", fontsize=9)
+    ax.grid(True, axis="x", linestyle="--", alpha=0.35)
+plt.tight_layout()
+plt.show()
+```
 
-1. **Proteomics (`rppa`):** `ER-alpha-R-V` ($|V| = 0.290$) and `GATA3-M-V` ($|V| = 0.268$) carry the two largest loading magnitudes, followed by `HER2-M-V` ($0.205$), androgen receptor `AR-R-V` ($0.203$), `Cyclin_E1-M-V` ($0.200$), progesterone receptor `PR-R-V` ($0.164$), and phosphorylated `ER-alpha_pS118-R-V` ($0.131$) [@tcga2012breast].
-2. **Transcriptomics (`rna`):** In the mRNA view, the ER-aligned component highlights progesterone receptor `PGR`, prolactin-induced protein `PIP`, gastrin-releasing peptide receptor `GRPR`, `ELOVL2`, and luminal/basal discriminators `LTF` and `S100A8`/`S100A9` [@perou2000; @parker2009supervised].
-3. **Copy Number Variation (`cnv`):** In the somatic copy-number view, the basis isolates the 8p11-p12 luminal amplicon (`ZNF703`, `ERLIN2`, `BRF2`, `RAB11FIP1`, `GPR124`) alongside the 17q23 amplicon (`RPS6KB1`, `PTRH2`, `VMP1`, `MIR21`, `TUBD1`) [@tcga2012breast; @curtis2012].
+1. **Proteomics (`rppa`):** the largest loadings on component `{python} brca_view('rppa', 'component')` ($|r|$ with ER `{python} brca_view('rppa', 'abs_corr_with_er')`) are `{python} brca_top('rppa')`.
+2. **Transcriptomics (`rna`):** the largest loadings on component `{python} brca_view('rna', 'component')` ($|r|$ with ER `{python} brca_view('rna', 'abs_corr_with_er')`) are `{python} brca_top('rna')`.
+3. **Copy Number Variation (`cnv`):** the largest loadings on component `{python} brca_view('cnv', 'component')` ($|r|$ with ER `{python} brca_view('cnv', 'abs_corr_with_er')`) are `{python} brca_top('cnv')`.

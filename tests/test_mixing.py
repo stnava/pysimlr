@@ -1,6 +1,5 @@
 import torch
-import numpy as np
-from pysimlr import lend_simr, predict_simlr
+from pysimlr import lend_simr
 
 def test_lend_mix_ica():
     torch.manual_seed(42)

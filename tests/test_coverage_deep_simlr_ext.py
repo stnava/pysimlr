@@ -1,8 +1,5 @@
 import pytest
 import torch
-import numpy as np
-from unittest.mock import patch
-import sys
 
 # `test_imports_fallback` was removed (2026-11-01). It deleted pysimlr.simlr
 # and pysimlr.deep from sys.modules and re-imported them, which rebinds the
@@ -15,7 +12,6 @@ from pysimlr.simlr import (
     parse_constraint,
     initialize_simlr,
     calculate_ica_gradient,
-    calculate_simlr_energy,
     simlr,
     reconstruct_from_learned_maps,
     predict_simlr,
@@ -25,7 +21,6 @@ from pysimlr.simlr import (
 
 from pysimlr.deep import (
     _svd_project_columns,
-    _newton_step_ortho,
     _normalize_rows,
     _covariance_penalty,
     _cross_covariance_penalty,
@@ -36,17 +31,16 @@ from pysimlr.deep import (
     NEDSiMRModel,
     NEDSharedPrivateSiMRModel,
     calculate_sim_loss,
-    deep_simr,
-    predict_deep,
     lend_simr,
+    predict_deep,
     ned_simr,
     ned_simr_shared_private
 )
 
 def test_simlr_parse_constraint_exceptions():
-    res = parse_constraint("Stiefel x not_a_float x not_an_int")
-    assert res["weight"] == 1.0
-    assert res["iterations"] == 1
+    with pytest.raises(ValueError, match="not a number"):
+        parse_constraint("Stiefelxnot_a_float")
+    assert parse_constraint("Stiefel") == {"type": "Stiefel", "weight": 1.0}
 
 def test_simlr_initialize_simlr_padding():
     x = torch.randn(10, 2)
@@ -72,8 +66,8 @@ def test_simlr_sparseness_alias():
 def test_simlr_reconstruct_missing_w():
     u = torch.randn(10, 2)
     simlr_result = {"v": [torch.randn(5, 2)]}
-    recons = reconstruct_from_learned_maps(u, simlr_result)
-    assert recons == []
+    with pytest.raises(ValueError, match="'w'"):
+        reconstruct_from_learned_maps(u, simlr_result)
 
 def test_simlr_predict_simlr_legacy_refit():
     x1 = torch.randn(10, 5)
@@ -83,11 +77,9 @@ def test_simlr_predict_simlr_legacy_refit():
         "orthogonalize_u": True,
         "scale_list": ["none"]
     }
+    # No consensus statistics or map, no reconstruction weights: refused.
     with pytest.raises(ValueError):
         predict_simlr([x1], simlr_result)
-    
-    res = predict_simlr([x1], simlr_result, allow_legacy_refit=True)
-    assert "reconstructions" in res
 
 def test_simlr_estimate_rank_zero_perms():
     x1 = torch.randn(20, 5)
@@ -106,11 +98,6 @@ def test_deep_svd_project_columns_fallback():
     u = torch.tensor([[float('nan'), 1.0], [1.0, 1.0]])
     res = _svd_project_columns(u)
     assert torch.isnan(res).any()
-
-def test_deep_newton_step_ortho():
-    u = torch.randn(5, 2)
-    res = _newton_step_ortho(u)
-    assert res.shape == (5, 2)
 
 def test_deep_normalize_rows():
     x = torch.randn(5, 2)
@@ -184,7 +171,7 @@ def test_deep_lend_simr_sparseness_alias():
 
 def test_deep_deep_simr_alias():
     x1 = torch.randn(10, 5)
-    res = deep_simr([x1], k=2, iterations=1, device="cpu")
+    res = lend_simr([x1], k=2, iterations=1, device="cpu")
     assert "u" in res
 
 def test_deep_predict_deep_ned():

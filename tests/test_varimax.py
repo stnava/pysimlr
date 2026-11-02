@@ -20,8 +20,7 @@ import pytest
 import torch
 from scipy.optimize import linear_sum_assignment
 
-from pysimlr.svd import (varimax, varimax_rotation, _canonical_sign,
-                         _varimax_rotation_torch, _varimax_torch)
+from pysimlr.svd import (varimax, varimax_rotation, _varimax_rotation_torch, _varimax_torch)
 from pysimlr.simlr import simlr
 
 

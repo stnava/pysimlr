@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 from pysimlr.consensus import compute_shared_consensus
 from pysimlr.deep import lend_simr
 

@@ -1,8 +1,7 @@
 import torch
 import numpy as np
-from pysimlr.deep import LENDNSAEncoder, lend_simr
-from pysimlr.utils import invariant_orthogonality_defect
-from scipy.stats import pearsonr
+from pysimlr.deep import lend_simr
+from pysimlr.utils import orthogonality_defect
 
 def test_nsa_nonnegative_stiefel_collapse():
     """
@@ -38,7 +37,7 @@ def test_nsa_nonnegative_stiefel_collapse():
     print("\n--- Extracted V Matrix (Modality 1) ---")
     print(v_mat.numpy())
     
-    ortho_defect = invariant_orthogonality_defect(v_mat).item()
+    ortho_defect = orthogonality_defect(v_mat).item()
     print(f"\nOrthogonality Defect: {ortho_defect:.4f}")
     
     col1 = v_mat[:, 0]

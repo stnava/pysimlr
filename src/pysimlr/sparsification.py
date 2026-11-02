@@ -1,4 +1,3 @@
-import warnings
 import torch
 import numpy as np
 from typing import Optional, List, Union, Dict, Any
@@ -106,6 +105,20 @@ def _assignment_indicator(m: torch.Tensor) -> torch.Tensor:
 _NSA_RETRACT_CACHE: Dict[tuple, list] = {}
 _SMOOTHING_CACHE: Dict[tuple, list] = {}
 _CACHE_MAXSIZE: int = 128
+#: Most keys either cache holds; the oldest key is evicted beyond it. Entries
+#: hold their operator or backend, so an unbounded key set (one per fit's
+#: smoothing matrix, one per test's mock backend) grew without limit.
+_CACHE_MAXKEYS: int = 64
+
+
+def _cache_bucket(cache: Dict[tuple, list], key: tuple) -> list:
+    """The entry list for `key`, creating it and evicting the oldest key when
+    the cache holds more than `_CACHE_MAXKEYS`."""
+    if key not in cache:
+        cache[key] = []
+        while len(cache) > _CACHE_MAXKEYS:
+            cache.pop(next(iter(cache)))
+    return cache[key]
 
 
 def _apply_smoothing(v: torch.Tensor, smoothing_matrix: Any) -> torch.Tensor:
@@ -122,7 +135,7 @@ def _apply_smoothing(v: torch.Tensor, smoothing_matrix: Any) -> torch.Tensor:
             return prev_out.clone()
     out = smoothing_matrix @ v
     if isinstance(out, torch.Tensor):
-        bucket = _SMOOTHING_CACHE.setdefault(key, [])
+        bucket = _cache_bucket(_SMOOTHING_CACHE, key)
         bucket.append((smoothing_matrix, v_det.clone(), out.detach().clone()))
         if len(bucket) > _CACHE_MAXSIZE:
             bucket.pop(0)
@@ -221,7 +234,7 @@ def _nsa_retract(v: torch.Tensor,
     candidate = (candidate * scale).to(v.dtype)
     if not _usable_retraction(candidate, v, nonneg=nonneg):
         return None
-    bucket = _NSA_RETRACT_CACHE.setdefault(cache_key, [])
+    bucket = _cache_bucket(_NSA_RETRACT_CACHE, cache_key)
     bucket.append((fn, v_detached.clone(), candidate.detach().clone(), dict(diag_snapshot)))
     if len(bucket) > _CACHE_MAXSIZE:
         bucket.pop(0)
@@ -253,68 +266,6 @@ def _resolve_column_sign_gauge(z: torch.Tensor) -> torch.Tensor:
     neg = torch.linalg.vector_norm((-z).clamp_min(0.0), dim=0)
     sign = torch.where(neg > pos, -torch.ones_like(pos), torch.ones_like(pos))
     return z * sign.unsqueeze(0)
-
-
-def _retraction_candidate(v_signed: torch.Tensor, v_rectified: torch.Tensor,
-                          nonneg: bool) -> torch.Tensor:
-    """
-    Choose what to hand the retraction: the signed iterate, or the rectified one.
-
-    When the solver will enforce non-negativity itself, give it the signed
-    candidate. Rectifying first throws away the sign information the solver
-    would otherwise use, and the backend's sign-blind subspace fidelity exists
-    precisely to consume a signed target: it anchors to ``range(X0)`` rather
-    than to ``X0`` entrywise, so arbitrary column signs cost nothing.
-
-    Measured over 10 seeds against a known non-negative basis, recovery of the
-    true basis by what was handed to the solver:
-
-    ============================  ==========  ===========
-    candidate                     disjoint    overlapping
-    ============================  ==========  ===========
-    ``abs(v)``                    0.9162      0.8112
-    projected ``v``               0.9467      0.8774
-    signed ``v``                  **0.9930**  **0.9526**
-    ============================  ==========  ===========
-
-    with the normalized Stiefel defect falling from 0.53 to 0.11 and 0.64 to
-    0.42 respectively. The signed candidate also beat fitting from the data
-    outright on overlapping supports (0.9526 against 0.9032).
-
-    This only holds with a backend that implements the sign-blind fidelity.
-    Against the older entrywise-only fidelity the same comparison ran the other
-    way -- signed 0.745 against 0.916 for ``abs`` -- because anchoring a
-    non-negative solution to a signed target charges it for negative entries it
-    cannot reach; those charges are constant, so they do not steer the solve and
-    the optimum degenerates toward ``max(0, X0)``. Older backends therefore get
-    the rectified candidate, detected by whether the backend accepts the
-    ``fidelity`` keyword.
-
-    When the solver is not enforcing non-negativity there is nothing to choose:
-    the rectified candidate already carries whatever sign the caller asked for.
-    """
-    # Retained for import compatibility.  The prox always receives the signed
-    # iterate now (see simlr_sparseness); the fidelity is fixed to "anchor"
-    # explicitly rather than inferred from the backend's signature.
-    return v_rectified if not nonneg else v_signed
-
-
-def _backend_has_sign_blind_fidelity() -> bool:
-    """Whether the installed backend selects a sign-blind fidelity for signed
-    targets. Cached, since it is a static property of the installed version."""
-    global _SIGN_BLIND_FIDELITY
-    if _SIGN_BLIND_FIDELITY is None:
-        fn = load_nsa_flow()
-        if fn is None:
-            _SIGN_BLIND_FIDELITY = False
-        else:
-            try:
-                import inspect
-                _SIGN_BLIND_FIDELITY = (
-                    'fidelity' in inspect.signature(fn).parameters)
-            except (TypeError, ValueError):
-                _SIGN_BLIND_FIDELITY = False
-    return _SIGN_BLIND_FIDELITY
 
 
 _SIGN_BLIND_FIDELITY = None
@@ -699,8 +650,6 @@ def positivity_diagnostics(v: torch.Tensor) -> Dict[str, Any]:
 
 def optimize_indicator_matrix(m: torch.Tensor, 
                               preprocess: bool = True, 
-                              max_iter: int = 20, 
-                              tol: float = 1e-4, 
                               verbose: bool = False) -> torch.Tensor:
     """
     Mask a matrix down to an optimal one-per-row/column selection of entries.
@@ -716,11 +665,6 @@ def optimize_indicator_matrix(m: torch.Tensor,
         The input matrix (usually a cross-covariance or projection).
     preprocess : bool, default=True
         Whether to flip row signs so each row carries mostly positive mass.
-    max_iter : int, default=20
-        Unused; retained for backwards compatibility. The assignment is solved
-        exactly in one step, so no iteration is required.
-    tol : float, default=1e-4
-        Unused; retained for backwards compatibility.
     verbose : bool, default=False
         Whether to print the achieved objective value.
 
@@ -1163,11 +1107,17 @@ def project_to_partially_orthonormal_nonnegative(x: torch.Tensor,
 #: has to be fixed or the objective is meaningless. For the scale-invariant
 #: ones fixing it is free and removes a null direction.
 #:
-#: ``regression`` is the exception and must be left alone: its minimiser is
-#: ``V* = X^T u (u^T u)^{-1}``, whose column norms are determined by the data.
-#: The previous code unit-normalised **every** energy on every sweep, which
-#: deleted the very scale the default objective was trying to find.
-GAUGE_FREE_ENERGIES = frozenset({"regression", "recon_r2", "recon"})
+#: ``recon`` (the unprofiled residual) is the exception and must be left
+#: alone: its minimiser ``V* = X^T u (u^T u)^{-1}`` has column norms set by the
+#: data, and unit-normalising it deletes that scale.
+#:
+#: ``recon_r2`` -- and ``regression``, which resolves to it -- is NOT gauge-free:
+#: it profiles out the per-column scale analytically, so it is exactly
+#: invariant to ``V diag(d)`` (0.99147 for d = 1, 3 and (1, 10, 0.1)). It was
+#: listed here from the time ``regression`` meant the unprofiled residual; with
+#: the column scale invisible to the energy and unpinned, `gd` drifted column
+#: norms from 1 to 2-10 in two steps and returned a basis of arbitrary scale.
+GAUGE_FREE_ENERGIES = frozenset({"recon"})
 
 
 def energy_needs_unit_columns(energy_type: Optional[str]) -> bool:
@@ -1354,7 +1304,6 @@ def simlr_sparseness(v: torch.Tensor,
                      positivity: str = 'either',
                      sparseness: Optional[Union[float, List[Optional[float]]]] = None,
                      constraint_weight: Optional[float] = None,
-                     constraint_iterations: int = 1,
                      sparseness_alg: str = 'soft',
                      energy_type: Optional[str] = None,
                      modality_index: Optional[int] = None,
@@ -1381,11 +1330,6 @@ def simlr_sparseness(v: torch.Tensor,
         # (e.g. SparseGraphResolvent) that implement `@` but not `.to()`.
         v_out = _apply_smoothing(v_out, smoothing_matrix)
 
-    if constraint_iterations != 1:
-        warnings.warn(
-            f"simlr_sparseness: constraint_iterations={constraint_iterations!r} is ignored.",
-            DeprecationWarning, stacklevel=2,
-        )
 
     q_val = _resolve_quantile(sparseness, modality_index=modality_index)
 
@@ -1462,7 +1406,7 @@ def simlr_sparseness(v: torch.Tensor,
     out = projected.to(orig_dtype)
     if smoothing_matrix is not None:
         sm_key = (id(smoothing_matrix), out.shape, out.dtype, out.device)
-        sm_bucket = _SMOOTHING_CACHE.setdefault(sm_key, [])
+        sm_bucket = _cache_bucket(_SMOOTHING_CACHE, sm_key)
         sm_bucket.append((smoothing_matrix, out.detach().clone(), out.detach().clone()))
         if len(sm_bucket) > _CACHE_MAXSIZE:
             sm_bucket.pop(0)

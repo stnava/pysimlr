@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import pandas as pd
 import time
-from typing import List, Dict, Any, Optional, Union, Tuple, Callable
+from typing import List, Dict, Any, Callable
 from .metrics import calculate_all_metrics
 from ..simlr import predict_simlr
 from ..deep import predict_deep

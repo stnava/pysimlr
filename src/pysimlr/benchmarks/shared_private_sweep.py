@@ -1,7 +1,4 @@
-import torch
-import numpy as np
 import pandas as pd
-from typing import List, Dict, Any, Optional
 from .runner import run_single_experiment
 from .synthetic_cases import build_case
 
@@ -50,7 +47,7 @@ def tune_shared_private(case_kind: str = "shared_plus_private",
             print(f"Tuning SP: ortho_weight={ow}, var_weight={vw}...")
             
             exp = run_single_experiment(
-                "shared_private", 
+                "ned_shared_private", 
                 case, 
                 seed=seed,
                 iterations=100,

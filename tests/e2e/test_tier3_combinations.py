@@ -15,14 +15,12 @@ Exercises:
 - Classical SiMLR projections + Neuroimaging NNH DataFrame feature extension.
 """
 
-import pytest
 import torch
 import numpy as np
 import pandas as pd
 
 from pysimlr import (
     simlr,
-    deep_simr,
     lend_simr,
     ned_simr,
     flow_simr,
@@ -31,12 +29,9 @@ from pysimlr import (
     multiscale_svd,
     sparse_distance_matrix,
     fit_structural_models,
-    create_path_graph,
     simlr_path,
     permutation_test,
-    apply_simlr_matrices,
-    FlowConditionalInference,
-    adjusted_rvcoef,
+    apply_simlr_matrices
 )
 
 
@@ -282,11 +277,11 @@ def test_combo_simlr_path_with_permutation_test(synthetic_three_views):
 
 
 def test_combo_deep_simr_with_interpretability_pipeline(synthetic_two_views):
-    """Verify deep_simr end-to-end training generates complete interpretability contract."""
+    """Verify lend_simr end-to-end training generates complete interpretability contract."""
     x1 = synthetic_two_views["x1"]
     x2 = synthetic_two_views["x2"]
 
-    res = deep_simr(
+    res = lend_simr(
         [x1, x2],
         k=2,
         iterations=6,

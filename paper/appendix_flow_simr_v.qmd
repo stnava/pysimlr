@@ -1,8 +1,12 @@
 ---
 title: "Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)"
-aliases:
-  - appendix_flow_simlr_v.html
 ---
+
+```{python}
+#| echo: false
+#| output: false
+from paper_numbers import N, RAW
+```
 
 ## Model Formulation
 
@@ -48,7 +52,7 @@ To prevent rectangular prior collapse, `Flow-SiMR-V` detaches $\mathbf{Z}_{m,\te
 1. **OLEE basis update ($\mathbf{V}_m$):** Updated exclusively by the cross-view alignment energy $\mathcal{L}_{\text{align}}$ and within-view relative reconstruction loss $\mathcal{L}_{\text{recon}}$, while detaching $\mathbf{Z}_{m,\text{lin}}$ in the prior term ($\operatorname{sg}(\mathbf{Z}_{m,\text{lin}}) = \mathbf{Z}_{m,\text{lin}}.\text{detach}()$).
 2. **Bijective flow update ($f_{\text{flow},m}$):** Trained via $\mathcal{L}_{\text{NLL}}(f_{\text{flow},m}(\operatorname{sg}(\mathbf{Z}_{m,\text{lin}}))) + \mathcal{L}_{\text{align}} + \mathcal{L}_{\text{recon}}$, initialized with zero scale and translation weights ($s_\ell = 0, t_\ell = 0$) at epoch $0$ so $f_{\text{flow},m}^{(0)}(\mathbf{Z}_{m,\text{lin}}) = \mathbf{Z}_{m,\text{lin}}$.
 
-In the `ADNI-MCI` 1,214-configuration sweep ($N = 1,084$, $k = 3$, `Protocol B`), `Flow-SiMR-V` with detached-prior optimization reaches an out-of-sample `CogPC1` $R^2$ of $0.2341$ (`Mean11_RidgeCV` $= 0.1054$, and $0.1930 \pm 0.0048$ across the 3-seed benchmark), ranking third overall across all 12 benchmark datasets.
+In the `ADNI-MCI` hyperparameter sweep ($N = 1,084$, $k = 3$, `Protocol B`, `{python} N.sweep_n` configurations), the best `Flow-SiMR-V` configuration reaches an out-of-sample `CogPC1` $R^2$ of `{python} N.sweep_flow_best`; across the 3-seed benchmark its linear score on `ADNI-MCI` is `{python} N.adni_Flow_SiMR_V`, and its mean Friedman rank on the linear probe over all 12 datasets is `{python} N.rank_lin_Flow_SiMR_V`.
 
 ---
 

@@ -4,7 +4,6 @@ Unit tests for deep statistical ranking and inference engine.
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from pysimlr.benchmarks.deep_ranking import (
     friedman_test,

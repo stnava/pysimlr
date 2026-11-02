@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 from pysimlr import simlr, predict_simlr
 
 def test_preprocessing_provenance():

@@ -36,7 +36,7 @@ warnings.filterwarnings("ignore")
 SEED = 42
 torch.manual_seed(SEED)
 
-case = build_case(kind="nonlinear_shared", n_samples=1000, seed=SEED)
+case = build_case(kind="nonlinear", n_samples=1000, seed=SEED)
 ```
 
 ### 3.1 Initial View Analysis
@@ -58,12 +58,12 @@ We execute a high-fidelity sweep across architectures. All models are trained to
 #| output: true
 
 # High-fidelity settings
-model_types = ["linear", "lend", "ned", "shared_private"]
+model_types = ["simlr", "lend", "ned", "ned_shared_private"]
 sparsities = [0.2, 0.35, 0.5, 0.65, 0.8]
 
 sweep_results = sweep_benchmark(
     model_types=model_types,
-    case_kind="nonlinear_shared",
+    case_kind="nonlinear",
     sparsities=sparsities,
     n_seeds=1, # 95% CI calculation requires multiple seeds
     budget_by_unit={"iterations": 200, "epochs": 500},

@@ -4,8 +4,7 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 from typing import List, Tuple, Optional, Dict, Any, Union
-from .consensus import compute_shared_consensus, mai_score_or_zero
-from .utils import basis_rank_report, align_column_signs
+from .utils import basis_rank_report
 from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY
 
 
@@ -14,7 +13,6 @@ from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY
 #: rotation of the k latent coordinates -- measured, the same data under three
 #: rotations gave 0.0348, 0.1319 and 0.0000, while the others were constant to
 #: four decimals. It ranked a planted pure-noise view above a signal view.
-from .consensus import MAI_METRICS, VALID_MAI_METRICS
 from .deep import _ModalityWeightingMixin, _MultiViewModelMixin, _linear_encoders
 
 
@@ -425,7 +423,8 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
 
             total_loss = beta * recon_loss + sim_loss_total + gamma * mse_recon_loss
             
-            # Add orthogonality penalty for encoder basis V (both actual enc.v and raw enc.v_raw)
+            # Orthogonality penalty on the activated basis enc.v and the raw weights
+            # enc.v_raw (a regulariser; see the same term in deep._train_loop).
             if hasattr(model, 'linear_encoders'):
                 total_loss += 0.05 * sum(orthogonality_defect(enc.v) for enc in model.linear_encoders)
                 total_loss += 0.05 * sum(orthogonality_defect(enc.v_raw) for enc in model.linear_encoders)
@@ -660,7 +659,6 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
                  dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False,
                  first_layer_mode: str = "scheduled", nsa_iterations: int = 1,
-                 retraction_type: str = "soft_polar",
                  force_fallback: bool = False):
         super().__init__()
         self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
@@ -674,11 +672,10 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
         self.is_flow = True
         self.first_layer_mode = first_layer_mode
         self.nsa_iterations = nsa_iterations
-        self.retraction_type = retraction_type
         self.force_fallback = force_fallback
         
         self.linear_encoders = _linear_encoders(input_dims, latent_dim, nsa_w, positivity, sparseness,
-                                                use_nsa, first_layer_mode, nsa_iterations, retraction_type)
+                                                use_nsa, first_layer_mode, nsa_iterations)
         
         # flows now operate on the low-dimensional projected space of size latent_dim (K)
         self.flows = nn.ModuleList([
@@ -802,7 +799,6 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 nsa_iterations: int = 1,
                 stabilization_start_epoch: Optional[int] = None,
                 stabilization_ramp_epochs: Optional[int] = None,
-                retraction_type: str = 'soft_polar',
                 force_fallback: bool = False,
                 initialization_type: str = 'pca',
                 random_state: Optional[int] = None,
@@ -862,7 +858,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             prune_threshold=prune_threshold, dynamic_weights=dynamic_weights,
             mai_metric=mai_metric, dynamic_weights_start=dynamic_weights_start,
             use_rank_mai=use_rank_mai, first_layer_mode=first_layer_mode,
-            nsa_iterations=nsa_iterations, retraction_type=retraction_type,
+            nsa_iterations=nsa_iterations,
             force_fallback=force_fallback),
         data_matrices, k, iterations=iterations, batch_size=batch_size,
         learning_rate=learning_rate, weight_decay=weight_decay, sim_weight=sim_weight,
@@ -1129,10 +1125,3 @@ def flow_whiten_matrix(
     return res
 
 
-flow_whitener = flow_whiten_matrix
-
-# Backward-compatibility aliases
-FlowSiMLRModel = FlowSiMRModel
-FlowSiMLRVModel = FlowSiMRVModel
-flow_simlr = flow_simr
-flow_simlr_v = flow_simr_v
