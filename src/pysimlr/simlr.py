@@ -1403,7 +1403,13 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         The optimizer to use; the default and the benchmark behind it are in
         `pysimlr.defaults`. Before 0.4.0 the default was `armijo_gradient`.
     energy_type : str, default=DEFAULT_ENERGY_TYPE ("nc")
-        The similarity/reconstruction objective to minimize.
+        The similarity/reconstruction objective to minimize. Scale-free
+        energies (`similarity.SCALE_FREE_ENERGIES`, including `nc`, `align`,
+        `procrustes`, `recon_r2`, and ICA contrasts) are weighted equally
+        with weight 1/M across the M modalities, avoiding arbitrary
+        initialization-dependent weight spreads (previously up to 279x across
+        views) and bounding total energy min >= -1 for `nc`. Other energies
+        are calibrated relative to their initial empirical energy.
     mixing_algorithm : str, default="svd"
         The algorithm used to mix projections ("svd", "pca", "ica", "avg", "newton").
 
@@ -1661,11 +1667,15 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             if negentropy_weight != 0.0:
                 neg_e0 = abs(calculate_simlr_energy(
                     curr_v_mats[idx_m], torch_mats[idx_m], u_m, "negentropy").item())
+                # For scale-free energies normalizing_weights[idx_m] is 1/M, so neg_weights
+                # scales relative to |E0| / M.
                 neg_weights[idx_m] = (abs(sim_e) * normalizing_weights[idx_m] / neg_e0
                                       if neg_e0 > 1e-12 else 0.0)
             if torch_domains is not None and torch_domains[idx_m] is not None:
                 dom_e_raw = calculate_simlr_energy(curr_v_mats[idx_m], torch_mats[idx_m], u_m, "dat", lambda_val=domain_lambdas[idx_m], prior_matrix=torch_domains[idx_m]).item()
                 if abs(dom_e_raw) > 1e-10:
+                    # For scale-free energies normalizing_weights[idx_m] is 1/M, so domain_weights
+                    # scales relative to |E0| / M.
                     domain_weights[idx_m] = abs(sim_e * normalizing_weights[idx_m]) / abs(dom_e_raw)
                 else:
                     domain_weights[idx_m] = 1.0

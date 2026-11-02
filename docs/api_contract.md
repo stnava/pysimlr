@@ -130,6 +130,18 @@ Every `fit` result has the following keys, checked by `validate_result`:
 `predict` returns `u`, `latents`, `reconstructions` and `errors`, plus anything the
 method's own predictor adds. It also returns per-view `r2` and `mse`.
 
+### View weighting
+
+Multi-view similarity terms are combined using per-view weights (`res["normalizing_weights"]`).
+Scale-free terms (degree-0 homogeneous or bounded, defined in `similarity.SCALE_FREE_ENERGIES`:
+`nc`, `align`, `procrustes`, `recon_r2`, `logcosh`, `exp`, `kurtosis`, and `negentropy`) receive
+equal weight `1/M` across the `M` views (`res["normalizing_weights"] == [1/M]*M`). This eliminates
+arbitrary initialization-dependent view weight spreads (previously up to 279x across views, which
+could cause total energy to fall below -1) and aligns linear SiMLR with deep models which sum
+view terms unweighted. For `energy_type="nc"`, total energy is bounded below:
+`min(res["energy"]) >= -1 - 1e-6`. Other energies (such as `acc`) calibrate weights relative to
+initial energy or data operator-norm scale.
+
 All of these are computed in each method's preprocessed space: every view standardized
 with its training mean and standard deviation (`utils.preprocess_data`, `centerAndScale`).
 `simlr` additionally divides by a constant, which R² does not see. The two baselines use

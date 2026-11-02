@@ -501,19 +501,29 @@ def similarity_names() -> list:
     return sorted(SIMILARITY)
 
 
-#: Terms already expressed on a common, absolute per-view scale. Everything
-#: else is in the view's own units, so `simlr` divides each view by its own
-#: initial energy to make the sum meaningful -- a normalisation that is
-#: relative to iteration 0 and therefore says nothing absolute. These need no
-#: such treatment and must not receive it: dividing `recon_r2` by its own
-#: initial value would discard exactly the interpretation (fraction of
-#: variance unexplained) that it exists to provide.
-SELF_NORMALISED = frozenset({"recon_r2"})
+#: Terms already expressed on a common, absolute per-view scale (degree-0
+#: homogeneous or bounded standardized quantities). For these terms, `simlr`
+#: assigns equal weight 1/M across the M modalities, avoiding arbitrary
+#: initialization-dependent weight spreads (previously up to 279x).
+SCALE_FREE_ENERGIES = frozenset({
+    "align",
+    "exp",
+    "kurtosis",
+    "logcosh",
+    "nc",
+    "negentropy",
+    "procrustes",
+    "recon_r2",
+})
+SELF_NORMALISED = SCALE_FREE_ENERGIES
 
 
 def similarity_is_self_normalised(name: str) -> bool:
-    """True when per-view values are already comparable across views."""
-    return resolve_energy_name(name) in SELF_NORMALISED
+    """True when per-view values are scale-free across views."""
+    return resolve_energy_name(name) in SCALE_FREE_ENERGIES
+
+
+similarity_is_scale_free = similarity_is_self_normalised
 
 
 def similarity_needs_data(name: str) -> bool:
