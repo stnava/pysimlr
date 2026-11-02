@@ -51,11 +51,6 @@ def planted(n=300, k=3, dims=(60, 45), noise=0.05, seed=0):
 @pytest.mark.parametrize("energy,floor", [
     ("recon_r2", 0.55),
     ("align", 0.70),
-    pytest.param("nc", 0.85, marks=pytest.mark.xfail(strict=True, reason=(
-        "Defect penalty removed from the objective (amigo): nc support recovery on this "
-        "fixture 0.9783 -> 0.8131 (one fixture, one seed; the 20-cell paired comparison "
-        "moved positive-mode F1 the other way, 0.585 -> 0.613). Open item A3 in "
-        "docs/tracking_amigo.md."))),
 ])
 def test_the_pipeline_recovers_support_under_every_energy(energy, floor):
     r"""This test used to assert the opposite, and the opposite was an artifact.
@@ -98,6 +93,33 @@ def test_the_pipeline_recovers_support_under_every_energy(energy, floor):
         f"concluding anything about the energies -- that is the mistake this "
         f"test was originally written around."
     )
+
+
+@pytest.mark.parametrize("optimizer", ["lars", "hybrid_adam"])
+def test_nc_loadings_recover_the_planted_support(optimizer):
+    r"""Under the default energy ``nc`` the encoder's support is not identified;
+    the loadings' is.
+
+    This fixture's ``nc`` case used to assert that the encoder V recovers the
+    planted support (> 0.85). It passed only while V barely moved: with an
+    orthogonality-defect penalty in the objective the tuned learning rate
+    was 0.001 and V stayed at its initialisation (support 0.991 over seeds
+    0-9 under hybrid_adam). With the NSA-Flow projection alone the optimizer
+    moves, ``nc`` improves by ~7e-4, and V's support drifts to 0.787
+    (hybrid_adam) / 0.885 (lars) -- `nc` is nearly flat across supports
+    (GT2 below). The loadings (`pysimlr.loadings`, the regression of each
+    feature on the identified latent) recover it exactly: 1.0000 on all ten
+    seeds for both optimizers.
+    """
+    from pysimlr import api
+    for seed in range(3):
+        views, truth = planted(seed=seed)
+        torch.manual_seed(0)
+        np.random.seed(0)
+        res = api.fit("simlr", views, 3, iterations=25, optimizer_type=optimizer,
+                      energy_type="nc", positivity="positive", nsa_w=0.5)
+        got = support_recovery_score(res["loadings"], truth)
+        assert got > 0.99, (seed, got)
 
 
 # --------------------------------------------------------------------------

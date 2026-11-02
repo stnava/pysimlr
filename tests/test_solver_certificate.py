@@ -96,28 +96,6 @@ def test_face_residual_is_zero_on_a_stationary_face_and_flags_the_support():
     assert on1 == pytest.approx(on2, rel=1e-9)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Defect penalty removed from the objective (amigo): the face residual falls 0.86 "
-    "decades (0.0388 -> 0.0056 over 150 sweeps, 0.0053 over 600) instead of 2.8, and the "
-    "energy keeps moving (relative 1.2e-4 per 20 sweeps at 600), so the premise of a "
-    "settled energy fails here. Open item A3 in docs/tracking_amigo.md."))
-def test_face_residual_falls_where_the_energy_settles():
-    """Calibration (scripts/stationarity_residual_calibration.py): on this
-    fixture the residual fell 2.8 decades over 300 sweeps; the removed
-    full-projection residual fell to only 0.24-1.0 of its first value."""
-    import sys, os
-    sys.path.insert(0, os.path.dirname(__file__))
-    import test_parameters_are_live as live
-    res = simlr(live._views(0), k=live.K, iterations=150, positivity="positive",
-                tol=0.0, patience=150, random_state=0)
-    hist = res["grad_map_history"]
-    assert len(hist) == len(res["energy"])
-    assert all(np.isfinite(h) and h >= 0.0 for h in hist)
-    assert res["grad_map"] == hist[-1]
-    assert hist[-1] < 1e-2 * hist[0], (hist[0], hist[-1])
-    assert all("grad_map_E" in d and "off_support" in d for d in res["v_retraction"])
-
-
 @pytest.mark.skipif(load_lbfgsb() is None, reason="NSA-Flow backend not installed")
 def test_lbfgsb_never_returns_a_rank_deficient_basis():
     """A dead column collapsed test R^2 from 0.94 to 0.17 at one inner budget."""

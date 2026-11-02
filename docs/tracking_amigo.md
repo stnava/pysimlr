@@ -126,16 +126,21 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
     per-component stability.
   - Regenerate every cache from the final code. This also covers deep-fit drift of about 1e-7
     from D10.
-- **A3. Three measured regressions** from removing the defect penalty, recorded as strict xfails
-  with thresholds unchanged:
-  - `tests/e2e/test_tier1_features.py::test_simlr_stiefel_constraint_is_near_orthogonal`:
-    off-diagonal 1.26e-3 against 1.2e-4 (limit 1e-3).
-  - `tests/test_solver_certificate.py::test_face_residual_falls_where_the_energy_settles`:
-    0.86 decades instead of 2.8; the energy no longer settles.
-  - `tests/test_support_identifiability.py::test_the_pipeline_recovers_support_under_every_energy[nc]`:
-    0.9783 → 0.8131 on one fixture.
-
-  Decide per test: accept and re-baseline, or act. The second also bears on A7.
+- **A3. Resolved** (owner decisions).
+  - *Near-orthogonality at the strongest weight:* accepted. The new value, 1.26e-3, is
+    re-baselined to a limit of 2e-3.
+  - *Face-residual calibration test:* dropped. The `grad_map` diagnostic itself stays; see A7.
+  - *`nc` support recovery:* investigated over 10 fixture seeds, with the old code in a worktree.
+    - The drop comes from the objective, not `tol`: new code scores 0.885 at either `tol` and at
+      300 sweeps, against 0.940 for the old code.
+    - Under `hybrid_adam` the old fit kept the support (0.991) only because the tuned learning
+      rate was 0.001, so V stayed at its initialisation.
+    - Without the penalty V moves, `nc` improves by about 7e-4, and V's support drifts to 0.787.
+      `nc` is nearly flat across supports.
+    - The loadings recover the planted support exactly: 1.0000 on all 10 seeds with both
+      optimizers.
+    - The test now checks the loadings
+      (`test_support_identifiability.py::test_nc_loadings_recover_the_planted_support`).
 - **A4. ADNI rank. Owner decision: k = 3, with per-component stability shown.**
   `select_rank`, 20 half-sample refits per k (`docs/audit/evidence/adni_rank_selection.csv`):
 
@@ -156,6 +161,16 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   fixture. Keep it as a diagnostic, re-calibrate it, or drop it.
 - **A8. `loading_inference` cost and defaults.** The default `n_subsamples = 100` costs 100 refits.
   The permutation null is opt-in. Bootstrap percentiles from half-samples are conservative.
+
+- **A9. `lars` oscillates.** With the auto-tuned `learning_rate = 1.0`, on the support fixture
+  (old and new code alike), the total energy alternates between two states every sweep: -2.08
+  and -0.94. The fit reports "converged" after 11 sweeps only because the best value stops
+  improving. Investigate the step rule; this is a 2-cycle, not convergence.
+- **A10. `nc` per-view weights.** `nc` is not in `similarity.SELF_NORMALISED`, so each view's term
+  is weighted by 1/(|E0|·M), using its starting energy E0. Views with a poor start are
+  up-weighted, and the total can fall below -1, as the -2.08 above shows. For a bounded,
+  scale-free energy an equal 1/M weight is the natural choice. Changing it is a scientific
+  default, so it needs measuring before any change.
 
 ## On hold from the earlier plan
 
