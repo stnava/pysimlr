@@ -68,9 +68,9 @@ def convergence_report(model_type: str, res: Dict[str, Any],
     benchmark covered a third of the table and said nothing about the rest.
 
     The quantity is measured on the object every model has -- the per-view
-    basis ``V`` -- using the *same* scale-invariant gradient mapping
-    ``||P(V - ||V||^2 grad E) - V|| / ||V||`` that the linear path certifies
-    with. Measuring the same functional on the same object is what makes the
+    basis ``V`` -- using the *same* face residual `utils.stationarity_residual`
+    that `simlr` reports per sweep (the gradient mapping with P the convex
+    projection onto V's current support). Measuring the same functional on the same object is what makes the
     number comparable; a per-model notion of "converged" would reproduce the
     one-name-several-definitions problem this package has already hit three
     times.
@@ -96,7 +96,7 @@ def convergence_report(model_type: str, res: Dict[str, Any],
         ``energy_reduction``, ``solver_iters``. Values are ``None`` only when
         genuinely unavailable, never invented.
     """
-    from ..nsa_backend import load_gradient_mapping
+    from ..utils import stationarity_residual
     from ..similarity import SimilarityContext, resolve_energy_name, similarity_gradient
 
     # 1. already reported
@@ -126,16 +126,14 @@ def convergence_report(model_type: str, res: Dict[str, Any],
     used, defaults = rec.get("used", {}), rec.get("defaults", {})
     energy_type = used.get("energy_type", defaults.get("energy_type", energy_type))
     positivity = used.get("positivity", defaults.get("positivity", "either"))
-    gmap = load_gradient_mapping()
     vs, u = res.get("v"), res.get("u")
-    if gmap is None or not vs or u is None:
+    if not vs or u is None:
         return {"stop_reason": None, "certificate": None, "converged": None,
                 "grad_map": None, "energy_reduction": None, "solver_iters": None}
     u_t = u[0] if isinstance(u, list) else u
     u_t = torch.as_tensor(u_t).detach().float()
     name = resolve_energy_name(energy_type, path="deep")
     nonneg = positivity in ("positive", "hard", "nonnegative", "nonneg", "softplus")
-    proj = (lambda z: torch.clamp(z, min=0.0)) if nonneg else None
     terms = []
     for x, v in zip(train_mats, vs):
         v = torch.as_tensor(v).detach().float()
@@ -143,7 +141,7 @@ def convergence_report(model_type: str, res: Dict[str, Any],
         if x.shape[0] != u_t.shape[0] or v.shape[1] != u_t.shape[1]:
             continue
         g = x.t() @ similarity_gradient(name, x @ v, u_t, SimilarityContext(x=x, v=v), wrt="s")
-        terms.append(gmap(v, g, proj))
+        terms.append(stationarity_residual(v, g, nonneg=nonneg)[0])
     loss = res.get("loss_history") or []
     red = (float(loss[0]) - float(min(loss))) if len(loss) > 1 else None
     return {"stop_reason": "max_iter", "certificate": None, "converged": False,
@@ -434,7 +432,7 @@ def run_single_experiment(model_type: str,
         **{("solver_converged" if k == "converged" else k): v
            for k, v in convergence_report(
                model_type, res, train_mats,
-               params.get("energy_type", "acc")).items()},
+               params.get("energy_type", DEFAULT_ENERGY_TYPE)).items()},
         "model": model_type,
         "method": res["method"],
         "ignored_params": ",".join(sorted(res["parameters"]["ignored"])),

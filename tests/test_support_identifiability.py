@@ -165,9 +165,9 @@ def test_initialisation_already_carries_most_of_the_support():
 # GT4: optimisers must actually differ, and must actually optimise
 # --------------------------------------------------------------------------
 def test_optimisers_are_not_silently_equivalent():
-    """Two optimisers must produce different bases and finite stationarity
-    residuals (the removed torch L-BFGS once matched SiMLR to four decimals on
-    every benchmark metric)."""
+    """Two optimisers must produce different bases, lower the energy and
+    report finite stationarity residuals (the removed torch L-BFGS once
+    matched SiMLR to four decimals on every benchmark metric)."""
     views, _truth = planted(dims=(40, 30))
     out = {}
     for opt in ("lars", "nsa_lbfgsb"):
@@ -177,18 +177,18 @@ def test_optimisers_are_not_silently_equivalent():
                   energy_type="acc", positivity="positive",
                   constraint="orthox0.5")
         out[opt] = (torch.cat([v.detach() for v in r["v"]]),
-                    float(r["grad_map"]))
+                    float(r["energy_reduction"]), float(r["grad_map"]))
 
     delta = float((out["lars"][0] - out["nsa_lbfgsb"][0]).norm())
     assert delta > 1e-6, (
         "two different optimisers produced bit-identical bases; at least one "
         "is not running"
     )
-    # Both report finite, comparable prox-gradient residuals under the
-    # projection simlr applies. Which ends closer to stationarity is not
-    # fixed: with the residual corrected (0.4.0) lars reached 0.26 and
-    # nsa_lbfgsb 0.87 here; the old step-size residual favoured nsa_lbfgsb.
-    assert all(np.isfinite(g) and g > 0 for _, g in out.values()), out
+    # Both make progress from the start and report a finite face residual
+    # (`utils.stationarity_residual`); which ends closer to stationarity is
+    # not fixed.
+    assert all(np.isfinite(d) and d > 0 for _, d, _ in out.values()), out
+    assert all(np.isfinite(g) and g >= 0 for _, _, g in out.values()), out
 
 
 def test_better_optimisation_does_not_silently_improve_support():

@@ -414,7 +414,9 @@ def test_adversarial_consensus_single_sample_n1_all_algorithms(alg):
     x1 = torch.randn(1, 5)
     x2 = torch.randn(1, 5)
 
-    u = compute_shared_consensus([x1, x2], mixing_algorithm=alg, k=2, training=False)
+    # avg/newton average corresponding columns and cannot reduce width 5 to 2.
+    k = 2 if alg in ("svd", "pca") else None
+    u = compute_shared_consensus([x1, x2], mixing_algorithm=alg, k=k, training=False)
     assert not torch.isnan(u).any(), f"NaN detected in N=1 consensus with algorithm '{alg}'!"
     assert not torch.isinf(u).any(), f"Inf detected in N=1 consensus with algorithm '{alg}'!"
     assert u.shape[0] == 1
@@ -426,13 +428,13 @@ def test_adversarial_consensus_identical_rows_n2_and_n5(alg):
     # N=2 identical samples
     x1_id2 = torch.ones(2, 4) * 4.0
     x2_id2 = torch.ones(2, 4) * 4.0
-    u2 = compute_shared_consensus([x1_id2, x2_id2], mixing_algorithm=alg, k=2)
+    u2 = compute_shared_consensus([x1_id2, x2_id2], mixing_algorithm=alg, k=(2 if alg in ("svd", "pca") else None))
     assert not torch.isnan(u2).any(), f"NaN on N=2 identical rows with '{alg}'!"
 
     # N=5 identical samples
     x1_id5 = torch.ones(5, 4) * -2.0
     x2_id5 = torch.ones(5, 4) * -2.0
-    u5 = compute_shared_consensus([x1_id5, x2_id5], mixing_algorithm=alg, k=2)
+    u5 = compute_shared_consensus([x1_id5, x2_id5], mixing_algorithm=alg, k=(2 if alg in ("svd", "pca") else None))
     assert not torch.isnan(u5).any(), f"NaN on N=5 identical rows with '{alg}'!"
 
 
@@ -445,7 +447,8 @@ def test_adversarial_consensus_zero_variance_columns_and_zero_views():
     # View 2 is completely zero
     x2_zero = torch.zeros(20, 4)
 
-    u = compute_shared_consensus([x1, x2_zero], k=2)
+    # Reducing width-4 projections to k=2 needs a concatenating mixing.
+    u = compute_shared_consensus([x1, x2_zero], mixing_algorithm="svd", k=2)
     assert not torch.isnan(u).any()
     assert u.shape == (20, 2)
 

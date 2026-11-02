@@ -10,12 +10,11 @@ Targeting:
 - Single sample input (N=1) behavior and ActNorm data-dependent initialization constraints.
 - Force fallback toggle: contract and mathematical behavior equivalence.
 - Autograd gradient flow and parameter optimization.
-- FlowWhitener invertibility in latent space.
 """
 
 import pytest
 import torch
-from pysimlr import NormalizingFlow, FlowWhitener
+from pysimlr import NormalizingFlow
 
 
 @pytest.mark.parametrize("dim", [2, 3, 8, 17, 32, 64])
@@ -271,26 +270,3 @@ def test_adversarial_gradient_flow_and_optimization(force_fallback):
 
     optimizer.step()
     optimizer.zero_grad()
-
-
-def test_adversarial_flow_whitener_latent_invertibility():
-    """Verify FlowWhitener exact latent invertibility (output_space='z') achieves < 1e-5."""
-    torch.manual_seed(707)
-    n, p = 30, 4
-    x = torch.randn(n, p)
-
-    whitener = FlowWhitener(
-        K=4,
-        max_iter=15,
-        batch_size=15,
-        base_distribution="GaussianPCA",
-        pca_latent_dimension=p,
-        output_space="z"
-    )
-    whitener.fit(x)
-
-    z = whitener.transform(x, output_space="z")
-    x_rec = whitener.inverse_transform(z, input_space="z")
-
-    max_diff = torch.max(torch.abs(x - x_rec)).item()
-    assert max_diff < 1e-5, f"FlowWhitener latent inversion error too large: {max_diff}"

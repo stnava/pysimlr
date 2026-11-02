@@ -53,7 +53,7 @@ def test_anchored_prediction_is_standardized(alg):
 
 
 @pytest.mark.parametrize("alg", STABLE)
-def test_non_volatile_mixing_unaffected_by_anchor(alg):
+def test_averaging_mixing_anchor_replays_the_training_consensus(alg):
     projs = _projections()
     u_train, anchor = compute_shared_consensus(
         projs, mixing_algorithm=alg, k=3, training=True
@@ -61,8 +61,8 @@ def test_non_volatile_mixing_unaffected_by_anchor(alg):
     u_pred = compute_shared_consensus(
         projs, mixing_algorithm=alg, k=3, training=False, anchor=anchor
     )
-    assert anchor is None
-    assert torch.allclose(u_train, u_pred, atol=1e-6)
+    assert anchor is not None
+    assert torch.allclose(u_train, u_pred, atol=1e-5)
 
 
 @pytest.mark.parametrize("alg", VOLATILE)

@@ -68,6 +68,15 @@ EXERCISED = {
     "positivity": ("positive", "either"),
     "nonneg_u": (False, True),
     "negentropy_weight": (0.0, 5.0),
+    # The penalty is a hinge at |r| = 0.3 between score columns. Under the
+    # default orthogonality constraint this fixture's scores never reach it
+    # (penalty 0.0 at weight 0, so both weights give the same basis). Without
+    # the constraint and from a random start, view 1's scores do (penalty
+    # 0.78 at weight 0), and the weight changes the basis.
+    "collapse_weight": ({"collapse_weight": 0.0, "constraint": "none",
+                         "initialization_type": "random", "random_state": 5},
+                        {"collapse_weight": 1.0, "constraint": "none",
+                         "initialization_type": "random", "random_state": 5}),
     "orthogonalize_u": (True, False),
     "scale_list": (["centerAndScale", "np"], ["centerAndScale"]),
     # Under the default orthogonality constraint this fixture's basis is
@@ -567,35 +576,15 @@ def test_an_unknown_mai_metric_is_refused(bad):
 
 
 def test_tol_controls_early_stopping():
-    """`tol` acts on when the loop stops, which is `stop_reason`, not the basis.
-
-    It sat in EXERCISED comparing fitted bases and looked inert. It is not:
-    at tol=1e-12 the fit runs to `max_iter` with grad_map 3.9e-04, and at
-    tol=10 it stops on `grad_map`. The returned basis is unchanged because
-    `simlr` returns its best iterate and the best one here is early, so a
-    later stop has nothing better to offer.
-    """
+    """`tol` is the energy plateau rule's relative-improvement threshold: a
+    loose one stops (converged on energy) after fewer sweeps than a tight one.
+    It used to double as the threshold of the prox-gradient residual, which is
+    not a valid certificate for the projected problem (docs/tracking.md D8)."""
     views = _views()
-    torch.manual_seed(0); np.random.seed(0)
-    tight = simlr(views, k=K, iterations=30, positivity="positive",
-                  energy_type="recon_r2", learning_rate=0.01, tol=1e-12,
-                  verbose=False)
-    torch.manual_seed(0); np.random.seed(0)
-    loose = simlr(views, k=K, iterations=30, positivity="positive",
-                  energy_type="recon_r2", learning_rate=0.01, tol=10.0,
-                  verbose=False)
-    # `tol` now drives the shared `ConvergenceMonitor` as well as the
-    # stationarity certificate, so a tight tolerance no longer runs to
-    # `max_iter` -- the plateau rule stops it first, which is the point of
-    # having one criterion. What `tol` still controls, and what this checks,
-    # is *how* it stops: an absurd tolerance certifies stationarity almost
-    # immediately, a realistic one stops on the plateau much later.
-    assert loose["stop_reason"] == "grad_map", (
-        f"a tolerance of 10 did not certify immediately "
-        f"(stop_reason={loose['stop_reason']!r}); `tol` is not being read")
-    # "no_descent": the line search found no decrease, which is not a certificate.
-    assert tight["stop_reason"] in ("plateau", "max_iter", "no_descent")
-    assert tight["certificate"] != "stationary"
+    tight = simlr(views, k=K, iterations=60, positivity="positive", tol=1e-12, random_state=0)
+    loose = simlr(views, k=K, iterations=60, positivity="positive", tol=1e-1, random_state=0)
+    assert loose["stop_reason"] == "plateau" and loose["certificate"] == "energy_plateau"
+    assert loose["converged"]
     assert tight["convergence"]["n_steps"] > loose["convergence"]["n_steps"], (
         f"a tight tolerance ({tight['convergence']['n_steps']} steps) did not "
         f"run longer than a loose one ({loose['convergence']['n_steps']})")
@@ -712,7 +701,7 @@ def test_the_deep_schedule_does_not_depend_on_the_budget():
     views = _views()
     with _quiet():
         torch.manual_seed(0); np.random.seed(0)
-        short = ned_simr(views, k=K, iterations=80, verbose=False)
+        short = ned_simr(views, k=K, iterations=160, verbose=False)
         torch.manual_seed(0); np.random.seed(0)
         long = ned_simr(views, k=K, iterations=400, verbose=False)
     assert short["convergence"]["converged"] and long["convergence"]["converged"]

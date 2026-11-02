@@ -344,13 +344,12 @@ def test_linear_loo_prediction_does_not_depend_on_the_batch():
 #: list, one reason, the same settings as every other method: no per-optimizer
 #: defaults or tolerances.
 _ROUNDING_UNSTABLE = {
-    "simlr_lbfgsb": (
-        "L-BFGS-B is a smooth method applied to 'acc', -sum|U'XV|, whose "
-        "absolute values have kinks. Its Wolfe line search fails at a kink "
-        "(stop='line_search' after 19 of 20 gradients in one run, 'max_iter' in "
-        "the other) and the two paths branch: inputs 1e-8 apart give bases "
-        "0.16 apart after one sweep. The oracle is exact and float64 since 0.4.0; "
-        "smooth energies (recon_r2, logcosh) are far less sensitive."),
+    "ned": (
+        "Not a shift bug: a +1e-6 perturbation moves NED's R^2 exactly as far "
+        "as the +20 shift (0.0036 on component 1, both runs giving the same "
+        "fit). That is float32 training amplifying input rounding. The latent "
+        "collapse penalty reduces it: with collapse weight 0 the same 1e-6 "
+        "perturbation moves R^2 by 0.084."),
 }
 
 

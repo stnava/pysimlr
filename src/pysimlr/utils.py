@@ -503,6 +503,89 @@ def l1_normalize_features(features: torch.Tensor) -> torch.Tensor:
     col_l1_norms[col_l1_norms == 0] = 1.0
     return features / col_l1_norms
 
+def correlation_penalty(z: torch.Tensor, threshold: Optional[float] = None,
+                        eps: float = 1e-8) -> torch.Tensor:
+    """Dimensional-collapse penalty on the columns of ``z`` (each view's scores).
+
+    Sum over distinct column pairs of ``(max(|r| - t, 0) / (1 - t))**2``, with
+    ``r`` their correlation and ``t = threshold``
+    (`defaults.DEFAULT_COLLAPSE_THRESHOLD`): 0 for correlations up to ``t``, 1
+    for each fully collinear pair, scale-free. Used by the linear and deep
+    objectives because a consensus that mixing orthogonalises (`newton`,
+    `svd`) cannot show collapse and "nc" scores a collapsed latent as well as
+    a full-rank one.
+
+    Summed so one collapsed pair costs the same at any ``k`` (the mean charged
+    it 2/(k(k-1)); at k = 5 "nc" still merged two columns). Thresholded so
+    moderate correlations the true factors have are not penalised: the plain
+    squared-correlation form cut `nonneg_parts` support recovery from 1.000 to
+    0.917 (hybrid_adam). t = 0.3 kept every check at its best: support 1.000,
+    full rank at k = 5 on 5-feature views, narrow-view outcome R^2 0.947, no NED
+    collapse (t = 0.5 left a rank-4 basis at k = 5; powers 4 and 8 failed the
+    k = 5 case or the narrow view).
+    """
+    from .defaults import DEFAULT_COLLAPSE_THRESHOLD
+    t = DEFAULT_COLLAPSE_THRESHOLD if threshold is None else float(threshold)
+    n, d = z.shape
+    if n < 2 or d < 2:
+        return torch.zeros((), device=z.device, dtype=z.dtype)
+    zc = z - z.mean(dim=0)
+    zs = zc / (zc.norm(dim=0, keepdim=True) + eps)
+    r = torch.triu(zs.t() @ zs, diagonal=1).abs()
+    return torch.sum((torch.relu(r - t) / (1.0 - t)) ** 2)
+
+
+def stationarity_residual(v: torch.Tensor, grad: torch.Tensor,
+                          nonneg: bool = False) -> Tuple[float, float]:
+    r"""First-order stationarity of a sparse basis on its current face.
+
+    Returns ``(on_face, off_support)``:
+
+    ``on_face``
+        The scale-invariant gradient mapping
+        :math:`\lVert P_S(V - t\nabla E) - V\rVert_F / \lVert V\rVert_F`,
+        :math:`t = \lVert V\rVert_F^2`, with :math:`P_S` the *convex*
+        projection onto the face the iterate occupies: entries outside its
+        support zeroed, and clamped at 0 under non-negativity. It is zero
+        exactly where the support-restricted problem is stationary.
+    ``off_support``
+        Per column, the largest admissible gradient step on a coordinate
+        outside the support, :math:`t\,|(\nabla E)_j|` (only increasing moves
+        under non-negativity), over the smallest kept :math:`|v|`; the maximum
+        over columns. Above 1, one gradient step would admit a coordinate larger
+        than the smallest one kept, so the support is not settled.
+
+    Why the face: the residual `simlr` used to report took P to be the full
+    projection (quantile sparsity and the NSA-Flow retraction), which is not
+    convex, and it did not vanish at stationary points: over 300 sweeps it fell
+    only to 0.24-1.0 of its first value. This one fell by >= 2 decades in 7 of
+    8 calibration runs whose energy had settled (relative range < 1e-4 over the
+    last 50 sweeps; 1.74 decades in the eighth), and stayed high where the
+    energy kept moving (scripts/stationarity_residual_calibration.py,
+    docs/audit/evidence/stationarity_residual_calibration.csv).
+    """
+    v = v.detach().double()
+    g = grad.detach().double()
+    vn = v.norm()
+    if float(vn) == 0.0:
+        return float("inf"), float("inf")
+    t = float(vn) ** 2
+    mask = (v.abs() > 1e-12).to(v.dtype)
+    z = (v - t * g) * mask
+    if nonneg:
+        z = z.clamp_min(0.0)
+    on_face = float((z - v).norm() / vn)
+    step = -t * g
+    admissible = step.clamp_min(0.0) if nonneg else step.abs()
+    off = 0.0
+    for j in range(v.shape[1]):
+        keep = mask[:, j] > 0
+        if bool(keep.all()) or not bool(keep.any()):
+            continue
+        off = max(off, float(admissible[~keep, j].max() / v[keep, j].abs().min()))
+    return on_face, off
+
+
 def orthogonality_defect(a: torch.Tensor, normalized: bool = True) -> torch.Tensor:
     r"""
     Trace-normalised orthogonality defect: ``||G - I/k||_F^2``, ``G = A'A/tr(A'A)``.

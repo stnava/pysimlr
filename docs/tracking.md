@@ -1,10 +1,10 @@
 # Tracking Summary
-current phase: v0.4.0 (leave-one-out default, audit items closed, duplicate code removed); v0.3.0 released -- one method interface (`pysimlr.fit`/`predict`, `MultiViewSiMR`), one vocabulary and one defaults module, no broad exception handlers, batch-invariant prediction, standardized-space reconstruction R^2; nsa_flow>=3.5.1. Manuscript correction (D5) in progress, not part of the release.
-next WP: commit D7 (on instruction); then D5/D6 paper -- regenerate caches under the current code (DEFAULT_TOPOLOGY="loo"); then rebuild the paper and list the conclusions that moved for owner review. Paper sources and caches are uncommitted.
+current phase: v0.4.0 plus D7 (e254f05). D8 (default objective, collapse penalty, stopping rule, SiMLR-LBFGSB dropped from the paper, ANTsTorch whitener removed) and D9 (NSALBFGSB proximal-quartic subproblem fixing rounding instability; simlr_lbfgsb removed from _ROUNDING_UNSTABLE) done in the working tree, uncommitted. Paper caches and _freeze cleared.
+next WP: commit D8/D9 (on instruction); regenerate all paper caches; rebuild; list the conclusions that moved for owner review.
 blockers: none
-active work: D5 (uncommitted: paper/03_experiments.qmd, paper/appendix_operational.qmd, paper/paper_numbers.py, paper/results_cache/*, paper/_freeze, docs/manuscript; the owner's own pre-existing manuscript edits are in the same files, snapshot in the session scratchpad)
+active work: D8 + D9 (uncommitted); D5 paper sources (uncommitted; the owner's own manuscript edits are in the same files)
 device: Apple Silicon (macOS 27 arm64), CPU only; venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
-last updated: 2026-11-01
+last updated: 2026-11-02
 
 ---
 
@@ -12,8 +12,140 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D9 (NSALBFGSB rounding-instability root cause and proximal-quartic fix, 2026-11-02)
+status: done in the working tree, uncommitted (on top of D8; paper unchanged per owner decision)
+- Root cause (verified vs refuted): instrumented the exact 3-view reproduction (`test_api_registry._views(n=60)`,
+  `k=3`, `iterations=20`, `1e-8` float32 input perturbations, 3 seeds) and the +20 constant-shift test.
+  Candidates refuted as primary cause: outer quantile projection (`sparseness=None` still gave gaps
+  `5.82e-02` positive / `9.94e-01` either; `sparseness=None, constraint="none"` gave `2.26e-02` /
+  `3.24e-01`; support XOR was 0 on the sweeps where divergence grew by `1e4x`), dead-column step
+  rejection (`last_rejected` fired 0 times across all 57-63 step calls), inner-solve exception handler
+  (0 exceptions/warnings), C++ `_native` extension (`_native=None` gave identical `5.82e-02` /
+  `8.31e-01`), and missing-callable fallback (0 runtime triggers). Verified cause: `_smooth_objective(V)`
+  with consensus `u` fixed is indefinite around the incoming iterate `V_0` (finite-difference Hessian
+  eigenvalues: 7/16 to 18/30 negative on `_views`, down to `-9.22`; 30/60 negative on `buried`, down to
+  `-32.44`), combining the exact 0-homogeneous radial-tangential saddle `+-||grad_{v_j} E||_2 / ||v_j||_2`
+  of column normalisation with `4 W_orth <V_0^T V_0 - I, D^T D>` and `correlation_penalty` non-convexity.
+  Even when zero discrete line-search or active-set branches differed (`alpha=(1.0, 1.0)`, `fix_xor=0`),
+  running 20 unanchored quasi-Newton steps collapsed L-BFGS scaling `theta = y'y / s'y` from `32.1` to
+  `0.00344`, drifted column norms `1.0 -> 7.42`, and amplified a `7.69e-07` difference to `2.13`
+  (`2.77e6x`) in a single inner solve. Even smooth `logcosh` diverged to `0.653` without an anchor.
+- Fix (`src/pysimlr/optimizers.py`, `NSALBFGSB.step`): replaced the unanchored inner objective with the
+  column-scale-invariant proximal-quartic alternating-minimisation subproblem
+  `Phi(V; V_0) = E(V) + (mu_2 / 2)||V - V_0||_F^2 + (mu_4 / 4)||V - V_0||_F^4`, where
+  `mu_2 = 2.5 / s_0^2`, `mu_4 = 64.0 / (s_0^2 ||V_0||_F^2)`, and `s_0^2 = ||V_0||_F^2 / k`. Both value
+  and gradient vanish at `V = V_0`, so fixed-point stationarity, the outer energy, and package defaults
+  are unchanged (`hybrid_adam` bit-identical: `[9.57e-08, 2.60e-07, 6.29e-07]` positive,
+  `[3.07e-06, 5.15e-07, 7.53e-07]` either). `mu_2` convexifies local negative curvature and pins the
+  column-norm gauge; `mu_4` bounds single-sweep excursions against the frozen consensus near
+  `||V - V_0||_F <= 0.25 ||V_0||_F` (purely quadratic `mu_2` alone still allowed `||V - V_0||_F = 1.13`
+  on `buried` into `-7.49` curvature). Also replaced the silent plain-step fallback on missing
+  energy/gradient callables with `ValueError`.
+- Measured results (report: `docs/simlr_lbfgsb_d9_report.html`): `nsa_lbfgsb` perturbation gaps drop
+  from `[5.82e-02, 8.49e-02, 9.47e-02]` to `[7.46e-07, 7.46e-07, 3.23e-10]` (`positive`) and from
+  `[4.29e-01, 4.22e-01, 8.31e-01]` to `[1.39e-06, 2.83e-06, 1.05e-06]` (`either`). All 7 supported
+  energies (`nc`, `recon_r2`, `align`, `procrustes`, `exp`, `logcosh`, `acc`) have max gap `<= 5.42e-06`
+  (down from `7.44e-03 .. 7.67e-01`). `+20` constant-shift max `|dR^2|` drops `1.43e-02 -> 6.45e-08`
+  (`hybrid_adam` `5.83e-08`). Isolated fit timings (`n=5`, `k=3, iter=20`): `nsa_lbfgsb`
+  `818.8 / 825.5 / 831.1 ms` min/median/max (`hybrid_adam` `412.9 / 414.3 / 418.3 ms`).
+- Tests: `"simlr_lbfgsb"` removed from `tests/test_api_registry.py::_ROUNDING_UNSTABLE`; added
+  `test_lbfgsb_refuses_missing_energy_or_gradient_callable` and
+  `test_lbfgsb_is_reproducible_under_float32_input_perturbations[{positive,either}]` in
+  `tests/test_solver_certificate.py`. `SiMLR-LBFGSB` remains out of `paper/` per D8 owner decision.
+verification: pytest -m "" 1578 passed, 4 xfailed, 0 failed; antsxqc.lint 0 findings.
+
+## D8 (Default objective, collapse penalty, stopping rule, SiMLR-LBFGSB dropped, 2026-11-02)
+status: done in the working tree, uncommitted (on top of e254f05)
+owner decisions: remove the ANTsTorch whitener; choose energy, optimizer and mixing jointly under
+both positivity settings; "nc with newton", collapses to be fixed; DEFAULT_ENERGY_TYPE = "nc"; settle
+the stopping tolerance; fix or drop SiMLR-LBFGSB; deal with the oscillating alternation.
+- Default selection (scripts/default_selection_benchmark.py; evidence
+  docs/audit/evidence/default_selection_grid.csv): 4 energies x 5 optimizers x 4 mixings x
+  {positive, either} x {buried-private, linear} generators, 5 seeds, latent R^2. Every top cell is
+  "nc": nsa_lbfgsb/newton 0.983, nsa_lbfgsb/avg 0.976, hybrid_adam/avg 0.971, hybrid_adam/newton
+  0.969 (worst cell 0.915); best logcosh 0.860, acc 0.750, exp 0.569. Follow-up checks (scripts/default_followup_checks.py;
+  docs/audit/evidence/default_followup_checks.csv): nc newton combos 0/5 NED collapses, ADNI held-out
+  ~0.16-0.17 against acc ~0.153; nc/hybrid_adam/avg had 1 collapse, so newton is kept. Defaults:
+  energy "nc", optimizer hybrid_adam, mixing newton.
+- Collapse: newton/svd mixing orthogonalises the consensus u, so a collapse in the per-view scores
+  XV was invisible to a u-based penalty, and "nc" is rank-blind. New `utils.correlation_penalty`, a
+  hinge on pairwise score correlations, sum over pairs of ((|r|-t)_+/(1-t))^2 with t = 0.3
+  (DEFAULT_COLLAPSE_THRESHOLD), weight 1.0 (DEFAULT_COLLAPSE_WEIGHT, `simlr(collapse_weight=)`).
+  Applied to each view's scores (linear: in the oracle and in every reported energy) and to the
+  latents (deep; it replaces the u-covariance term). Variants measured: mean over pairs diluted at
+  k=5 (rank 4); squared |r| cut nonneg_parts support recovery 1.000 -> 0.917; power 4 fixed support but
+  raised "unusable projection" at k=p=5; power 8 gave rank 4 and narrow R^2 0.823; hinge t=0.5 gave rank
+  4; hinge t=0.3 passed every check (support 1.000). It also reduces NED's rounding sensitivity: a
+  1e-6 input perturbation moves R^2 by 0.0036 with it, 0.084 without.
+- Oscillation (issue 5): resolved by the two items above. The stress tests in
+  test_milestone1_adversarial_stress.py pass and their strict xfails are removed. Consensus damping
+  (u <- (1-b)u + b u_new) was measured and refuted: at b = 1, 0.5, 0.25, 0.1 the stress range stayed
+  0.004-0.006, the median residual rose 0.54 -> ~0.72 and recovery fell 0.969 -> 0.903. Not added.
+- Stopping rule (issue 2): the prox-gradient residual with a fixed step ||V||^2 is not a valid
+  certificate for the non-convex quantile projection, so `tol` has one meaning, the relative-
+  improvement plateau. A plateau stop reports certificate="energy_plateau", converged=True;
+  no_descent and max_iter stop uncertified. The residual is no longer computed: `grad_map`,
+  `grad_map_history` and the per-view `grad_map_E` diagnostics are removed (owner instruction), and
+  simlr no longer needs nsa_flow's gradient_mapping (nsa_lbfgsb still uses it inside its own solve).
+- Scripts use the package defaults: run_deep_benchmark.py, paper_brca_loadings.py, the three
+  benchmark_*_simlr_vs_* scripts and real_data_method_comparison.py no longer pass energy "acc" or
+  mixing "svd"; experiment_iteration_vs_init.py takes --energy (default the package default; the
+  DEFAULT_TOPOLOGY evidence was measured with acc). New `defaults.DEFAULT_MIXING_ALGORITHM = "newton"`
+  replaces the literal in the simlr/deep/flow signatures (no behaviour change).
+  `consensus.compute_shared_consensus` keeps its own "svd" default: switching it to newton failed 4
+  direct-call tests (newton with k=None returns the full width instead of the inferred rank; with
+  training=True it returns no anchor; the graph topology mismatches shapes). Package callers always
+  pass k and the mixing, so fits are unaffected; the newton branch's gaps are open.
+  run_adni_mci_grid_sweep.py keeps its explicit design grid (it crosses energies and mixings on
+  purpose), but its MAI arms use only acc/align/procrustes with svd mixing, so they exclude the default.
+- SiMLR-LBFGSB (issue 3): not reproducible under "nc" either, with subspace gaps 0.04-0.49 for inputs
+  1e-8 apart (hybrid_adam ~1e-8). Dropped from the paper (model lists, bar charts, label maps, prose,
+  paper_numbers keys, scripts/paper_adni_ablations.py, run_adni_mci_grid_sweep.py,
+  real_data_design_sweep.py, run_deep_benchmark.py). It stays in the library, recorded in
+  test_api_registry._ROUNDING_UNSTABLE. The methods text now names hybrid_adam, not L-BFGS-B.
+- Whitener removed (`FlowWhitener`, `flow_whiten_matrix`, `_lamnr_flows_function`; tests deleted).
+  ANTsTorch apply_lamnr_flows_whitener.py:161 solves with L^T instead of L in the forward map; the
+  inverse (line 171) is correct. Not edited (external repo); noted in docs/api_contract.md.
+tests: new tests/test_collapse_penalty.py; test_tol_controls_early_stopping rewritten for the plateau
+rule; test_degradation_tracks_rank_loss replaced by test_no_rank_loss_at_any_constraint_weight
+(effective rank > 2.8 at orthox 0, 0.1, 0.5); the collapse_weight liveness fixture is unconstrained
+with a random start (the default fixture's scores never reach |r| = 0.3). New strict xfails:
+`ned` in the +20-shift R^2 test (rounding, not shift: a 1e-6 perturbation gives the same 0.0036);
+test_ned_advantage_contract (both models on package defaults: SiMLR latent recovery 0.745 against
+NED 0.675, NED 0.070 below, the clause allows 0.05; NED held-out R^2 still leads, 0.882 against
+0.710). Owner decision pending.
+Follow-up (owner review of D8, same day):
+- Newton/avg consensus (`consensus.compute_shared_consensus`): averaging mixings now raise a clear
+  ValueError for unequal widths or a width other than k (they ignored k and failed in torch.stack),
+  and return an exact linear anchor (replay error <= 5e-7), so anchored prediction is batch-invariant.
+  Default mixing is DEFAULT_MIXING_ALGORITHM. Real predict paths were already batch-invariant via the
+  frozen map (|u_full - u_half| <= 9e-8); trained bases bit-identical before/after for simlr, ned,
+  lend, ned_shared_private, flow_v. Tests: tests/test_consensus_newton.py; reduction tests pass
+  mixing_algorithm="svd" explicitly.
+- Stationarity residual restored as a diagnostic with a valid definition,
+  `utils.stationarity_residual`: gradient mapping with P the convex projection onto the iterate's
+  current face (support mask, clamp under positivity) plus an off-support ratio. Calibration
+  (scripts/stationarity_residual_calibration.py, 32 runs x 300 sweeps; evidence
+  docs/audit/evidence/stationarity_residual_calibration.csv): >= 2 decades of decrease in 7 of 8 runs
+  whose energy settled (1.74 in the eighth); stays high where the energy keeps moving (lars either).
+  `grad_map`, `grad_map_history`, per-view `grad_map_E`/`off_support` are back; the benchmark runner
+  uses the same helper for every model (its "acc" energy fallback is now the package default).
+- Collapse threshold (owner: "a magic number"): candidates measured
+  (scripts/collapse_candidates_benchmark.py; docs/audit/evidence/collapse_candidates.csv).
+  C2, scoring "nc" on the polar factor of the scores, failed (narrow-view R^2 0.523, grid min 0.250).
+  Linear: without a penalty narrow views collapse (R^2 0.301); the 0.3 hinge fixes it (0.947) but
+  lowers buried/either recovery (0.878 vs 0.933). Correlated planted factors (rho 0-0.7): linear
+  recovery identical with and without the hinge, and recovered score correlation is ~0.03-0.15 for
+  every candidate, so the orthogonal newton consensus, not the hinge, decorrelates the scores.
+  Deep: without any penalty NED collapses on 6 of 20 (data seed, start seed) pairs, with the hinge on
+  0 of 20. A first measurement with one start per data seed (0/5 either way) wrongly suggested the
+  old u-covariance loss was the cause and the deep penalty could go; it was removed and restored the
+  same day. OPEN: root-cause the linear narrow-view collapse (owner decision: root cause first);
+  the hinge stays until then.
+verification: pytest -m "" 1578 passed, 4 xfailed, 0 failed (includes D9); antsxqc.lint 0 findings.
+
 ## D7 (Defect fixes, shim removal, housekeeping, 2026-11-01)
-status: done in the working tree, uncommitted (on top of 4be858c)
+status: done, committed e254f05
 owner decisions: fix the gd anomaly, the unseeded start, the stationarity certificate and the
 late-bound callbacks; remove the "nsa_flow" optimizer; remove compatibility shims and do all
 housekeeping "brutally".

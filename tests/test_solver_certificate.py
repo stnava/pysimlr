@@ -60,28 +60,46 @@ def test_iterations_actually_binds():
     """The old energy test fired at iteration 3 regardless of `iterations`."""
     short = simlr(_views(), k=3, iterations=3, positivity="positive")
     long = simlr(_views(), k=3, iterations=60, positivity="positive")
-    assert len(long["grad_map_history"]) > len(short["grad_map_history"]), (
+    assert len(long["energy"]) > len(short["energy"]), (
         "the loop stops at the same sweep no matter the budget"
     )
 
 
-@needs_backend
-def test_certificate_is_finite_and_tracks_the_raw_gradient():
-    """Scoring the retracted direction returned a constant; guard against it."""
-    res = simlr(_views(), k=3, iterations=20, positivity="positive")
-    hist = [g for g in res["grad_map_history"] if np.isfinite(g)]
-    assert len(hist) >= 2
-    assert len(set(np.round(hist, 9))) > 1, (
-        "grad_map is constant across sweeps, so it is not measuring the iterate"
-    )
-    # Deliberately not asserted monotone. Alternating minimisation optimises
-    # each V_i against a fixed u and then recomputes u, which is not monotone
-    # in the joint objective, and the certificate makes that visible: on the
-    # 3-view case it falls from 6.6 to 2.4e-3, while on this small random
-    # problem it rises from 5.7e-3 to 0.76. Reporting it is the point;
-    # requiring it to fall would be asserting a property the algorithm has not
-    # got, and would have to be "fixed" by weakening the measurement.
-    assert all(np.isfinite(g) and g >= 0.0 for g in hist)
+def test_face_residual_is_zero_on_a_stationary_face_and_flags_the_support():
+    """`utils.stationarity_residual`: zero where the gradient vanishes on the
+    support, whatever it is off the support; the off-support ratio reports
+    a coordinate the gradient would admit."""
+    from pysimlr.utils import stationarity_residual
+    v = torch.tensor([[1.0, 0.0], [0.5, 2.0], [0.0, 1.0]], dtype=torch.float64)
+    g = torch.zeros_like(v)
+    g[2, 0] = -0.4          # off the support of column 0, pointing inward
+    on, off = stationarity_residual(v, g, nonneg=True)
+    assert on == 0.0
+    t = float(v.norm() ** 2)
+    assert off == pytest.approx(t * 0.4 / 0.5)
+    g[0, 0] = 0.1           # on the support: no longer stationary
+    assert stationarity_residual(v, g, nonneg=True)[0] > 0.0
+    # scale invariance of the face residual for a 1/scale gradient
+    on1 = stationarity_residual(v, g)[0]
+    on2 = stationarity_residual(3.0 * v, g / 3.0)[0]
+    assert on1 == pytest.approx(on2, rel=1e-9)
+
+
+def test_face_residual_falls_where_the_energy_settles():
+    """Calibration (scripts/stationarity_residual_calibration.py): on this
+    fixture the residual fell 2.8 decades over 300 sweeps; the removed
+    full-projection residual fell to only 0.24-1.0 of its first value."""
+    import sys, os
+    sys.path.insert(0, os.path.dirname(__file__))
+    import test_parameters_are_live as live
+    res = simlr(live._views(0), k=live.K, iterations=150, positivity="positive",
+                tol=0.0, patience=150, random_state=0)
+    hist = res["grad_map_history"]
+    assert len(hist) == len(res["energy"])
+    assert all(np.isfinite(h) and h >= 0.0 for h in hist)
+    assert res["grad_map"] == hist[-1]
+    assert hist[-1] < 1e-2 * hist[0], (hist[0], hist[-1])
+    assert all("grad_map_E" in d and "off_support" in d for d in res["v_retraction"])
 
 
 @pytest.mark.skipif(load_lbfgsb() is None, reason="NSA-Flow backend not installed")
@@ -169,3 +187,46 @@ def test_lbfgsb_scores_a_degenerate_trial_point_as_infinite():
     out = opt.step(0, v, torch.ones_like(v), full_energy_function=energy)
     assert torch.isfinite(out).all()
     assert (out.norm(dim=0) > 0).all()
+
+
+@pytest.mark.skipif(load_lbfgsb() is None, reason="NSA-Flow backend not installed")
+def test_lbfgsb_refuses_missing_energy_or_gradient_callable():
+    """NSALBFGSB.step must raise rather than silently taking an unconstrained step."""
+    from pysimlr.optimizers import create_optimizer
+
+    v = torch.rand(8, 3)
+    opt = create_optimizer("nsa_lbfgsb", [v])
+    with pytest.raises(ValueError, match="requires both an energy function and gradient_function"):
+        opt.step(0, v, torch.ones_like(v), full_energy_function=lambda z: 1.0)
+
+    opt.gradient_function = lambda z: torch.ones_like(z)
+    with pytest.raises(ValueError, match="requires both an energy function and gradient_function"):
+        opt.step(0, v, torch.ones_like(v), full_energy_function=None)
+
+
+@pytest.mark.skipif(load_lbfgsb() is None, reason="NSA-Flow backend not installed")
+@pytest.mark.parametrize("positivity", ["positive", "either"])
+def test_lbfgsb_is_reproducible_under_float32_input_perturbations(positivity):
+    """Inputs 1e-8 apart used to diverge to 0.06-0.83 subspace gaps under
+    unanchored quasi-Newton steps over the indefinite block objective."""
+    rng = np.random.default_rng(0)
+    u = rng.standard_normal((60, 2))
+    views = [
+        torch.tensor(np.abs(u @ rng.standard_normal((2, p))) + 0.2 * rng.standard_normal((60, p))).float()
+        for p in (10, 8, 6)
+    ]
+    kw = dict(k=3, iterations=20, optimizer_type="nsa_lbfgsb",
+              positivity=positivity, random_state=0, verbose=False)
+    base = simlr(views, **kw)["v"]
+    for seed in range(3):
+        g = torch.Generator().manual_seed(100 + seed)
+        pert = [v + 1e-8 * torch.randn(v.shape, generator=g) for v in views]
+        got = simlr(pert, **kw)["v"]
+        for va, vb in zip(base, got):
+            qa, _ = torch.linalg.qr(va.double())
+            qb, _ = torch.linalg.qr(vb.double())
+            subspace_gap = float(torch.linalg.matrix_norm(qa @ qa.T - qb @ qb.T, ord=2))
+            assert subspace_gap < 1e-4, (
+                f"nsa_lbfgsb ({positivity}, seed={seed}) subspace gap {subspace_gap:.2e} >= 1e-4"
+            )
+

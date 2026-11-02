@@ -52,11 +52,14 @@ def test_an_anchor_is_captured_for_the_volatile_algorithms(alg):
 
 
 @pytest.mark.parametrize("alg", FIXED)
-def test_no_anchor_is_captured_where_none_is_needed(alg):
-    """``newton`` and ``avg`` are fixed functions of their input, so there is no
-    arbitrary basis to pin and nothing to store."""
+def test_averaging_mixings_capture_an_anchor_too(alg):
+    """``newton`` and ``avg`` have no arbitrary basis to pin, but they used to
+    store nothing, so a prediction without the frozen map re-derived the
+    consensus from the prediction batch. They now capture their exact linear
+    map like every other mixing (tests/test_consensus_newton.py)."""
     mats, _ = _case()
-    assert _fit(mats, alg)["consensus_anchor"] is None
+    anchor = _fit(mats, alg)["consensus_anchor"]
+    assert anchor is not None and anchor.ndim == 2
 
 
 @pytest.mark.parametrize("alg", VOLATILE + FIXED)

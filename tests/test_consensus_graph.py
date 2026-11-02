@@ -112,8 +112,10 @@ def test_consensus_graph_training_anchor_generation():
     projections = [torch.randn(n, 3), torch.randn(n, 4)]
     path_graph = {0: [1], 1: [0]}
 
+    # Widths 3 and 4 can only be combined by a concatenating mixing.
     res = compute_shared_consensus(
         projections,
+        mixing_algorithm="svd",
         topology="graph",
         path_graph=path_graph,
         k=k,

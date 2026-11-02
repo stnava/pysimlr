@@ -322,7 +322,7 @@ def nnh_embed(blaster: pd.DataFrame,
         Boolean mask to select training samples.
     connect_cog : Optional[List[str]], default=None
         List of cognitive/outcome variables to include in the embedding.
-    energy : str, default=DEFAULT_ENERGY_TYPE ("acc")
+    energy : str, default=DEFAULT_ENERGY_TYPE ("nc")
         Energy function type for SiMLR.
     nsimlr : int, default=5
         The rank (K) of the latent embedding.

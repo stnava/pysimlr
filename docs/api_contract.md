@@ -98,7 +98,7 @@ Every `fit` result has the following keys, checked by `validate_result`:
 | `u` | `(n, k)` tensor. For linear `loo`/`graph` topologies it is the first view's consensus; all views' consensus is in `u_per_modality`. |
 | `v` | one `(p_m, k)` block per view |
 | `latents` | per-view first-layer projections (`[u]` for the joint baselines) |
-| `convergence` | `converged`, `stop_reason`, `n_steps`, `max_steps`, `tol`, `patience`, `best`, `final` (closed-form baselines: `stop_reason="closed_form"`; `simlr` stops with `stop_reason="no_descent"` and no certificate when no view's line search finds a decrease) |
+| `convergence` | `converged`, `stop_reason`, `n_steps`, `max_steps`, `tol`, `patience`, `best`, `final` (closed-form baselines: `stop_reason="closed_form"`; `simlr` converges on the energy plateau rule (`tol`, `patience`; `certificate="energy_plateau"`), stops uncertified with `stop_reason="no_descent"` when no view's line search finds a decrease; it computes no stationarity residual -- the `grad_map`/`grad_map_history` keys were removed because the prox-gradient residual is not a valid certificate for the non-convex sparsity projection) |
 | rank diagnostics | `effective_rank`, `numerical_rank`, `condition_number`, `max_column_overlap` per view; for the joint baselines `joint_*` with `basis_is_joint=True` |
 | `sparseness`, `scale_list`, `provenance_list`, `random_state` | |
 
@@ -165,9 +165,12 @@ method. All parameters are explicit, so `clone`, `get_params` and `GridSearchCV`
 
 - Method-name aliases (`linear`, `shared_private`, `nedpp`, `flow_simr_v`, `nsaflow`, ...):
   use the registered names above.
-- `deep_simr`, `flow_simlr`, `flow_simlr_v`, `FlowSiMLRModel`, `FlowSiMLRVModel`,
-  `flow_whitener`: use `lend_simr`, `flow_simr`, `flow_simr_v`, `FlowSiMRModel`,
-  `FlowSiMRVModel`, `flow_whiten_matrix`.
+- `deep_simr`, `flow_simlr`, `flow_simlr_v`, `FlowSiMLRModel`, `FlowSiMLRVModel`: use
+  `lend_simr`, `flow_simr`, `flow_simr_v`, `FlowSiMRModel`, `FlowSiMRVModel`.
+- `FlowWhitener`, `flow_whiten_matrix` and `flow_whitener`: the ANTsTorch LAMNr-Flows whitener
+  wrapper. Nothing in pysimlr used it, and its "whitened_full" forward map is not white upstream
+  (`apply_lamnr_flows_whitener.py:161` solves with L^T where L belongs; output covariance off the
+  identity by 3.2 in simulation). Use ANTsTorch directly once that is fixed.
 - Energies `regression`, `gauss`, `normalized_correlation` raise naming the replacement
   (`recon_r2` linear / `align` deep, `exp`, `nc`); `recon` is refused as a linear objective.
 - Optimizers `torch_lbfgs` and `nsa_flow` and the `simlr_lbfgs` method.

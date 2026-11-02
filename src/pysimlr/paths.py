@@ -44,7 +44,7 @@ def simlr_path(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         Number of optimization iterations per path step.
     optimizer_type : str, default="hybrid_adam"
         The optimizer to use (e.g., "hybrid_adam", "lars").
-    energy_type : str, default=DEFAULT_ENERGY_TYPE ("acc")
+    energy_type : str, default=DEFAULT_ENERGY_TYPE ("nc")
         Similarity term (`pysimlr.defaults`, `similarity.SIMILARITY`).
     verbose : bool, default=False
         Whether to print progress.

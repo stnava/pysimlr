@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PySiMLR D9 Diagnostic &amp; Reproducibility Report — NSALBFGSB (simlr_lbfgsb)</title>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --ink: #0f172a;
+    --muted: #475569;
+    --border: #e2e8f0;
+    --accent: #0f766e;
+    --accent-soft: #ccfbf1;
+    --bad: #b91c1c;
+    --bad-soft: #fee2e2;
+    --good: #15803d;
+    --good-soft: #dcfce7;
+    --warn: #b45309;
+    --warn-soft: #fef3c7;
+    --code-bg: #f1f5f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 24px 64px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+  }
+  .container {
+    max-width: 1120px;
+    margin: 0 auto;
+  }
+  header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: #f8fafc;
+    padding: 28px 32px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+  }
+  header h1 {
+    margin: 0 0 8px;
+    font-size: 1.55rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  header p {
+    margin: 0;
+    color: #cbd5e1;
+    font-size: 0.95rem;
+  }
+  .meta-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 16px;
+    font-size: 0.82rem;
+    color: #94a3b8;
+  }
+  .meta-chip {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .kpi {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  }
+  .kpi .label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .kpi .val {
+    font-size: 1.55rem;
+    font-weight: 700;
+    margin: 6px 0 4px;
+    color: var(--good);
+  }
+  .kpi .sub {
+    font-size: 0.83rem;
+    color: var(--muted);
+  }
+  section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  }
+  h2 {
+    margin: 0 0 14px;
+    font-size: 1.18rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+  }
+  h3 {
+    margin: 18px 0 8px;
+    font-size: 1rem;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    margin: 12px 0;
+  }
+  th, td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #f8fafc;
+    font-weight: 600;
+    color: #334155;
+  }
+  code, pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.84rem;
+  }
+  code {
+    background: var(--code-bg);
+    padding: 2px 5px;
+    border-radius: 4px;
+  }
+  pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 14px 16px;
+    border-radius: 8px;
+    overflow-x: auto;
+    line-height: 1.45;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 600;
+  }
+  .badge-good { background: var(--good-soft); color: var(--good); }
+  .badge-bad  { background: var(--bad-soft);  color: var(--bad);  }
+  .badge-warn { background: var(--warn-soft); color: var(--warn); }
+  .two-col {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+    gap: 20px;
+    align-items: start;
+  }
+  .formula-box {
+    background: #f0fdfa;
+    border-left: 4px solid var(--accent);
+    padding: 14px 18px;
+    border-radius: 6px;
+    margin: 14px 0;
+    font-size: 0.92rem;
+  }
+  svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .num { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>D9: Rounding-Stability Root Cause &amp; Proximal-Quartic Fix for <code>NSALBFGSB</code> (<code>simlr_lbfgsb</code>)</h1>
+    <p>Measured root-cause verification, candidate-hypothesis audit, and before/after reproducibility evaluation under float32 input perturbations and constant shifts.</p>
+    <div class="meta-bar">
+      <span class="meta-chip">Date: 2026-11-02</span>
+      <span class="meta-chip">Host: Apple Silicon (macOS 27 arm64, CPU)</span>
+      <span class="meta-chip">Env: torch 2.13.0 · numpy 2.0.1 · nsa_flow 3.5.1 (333a064)</span>
+      <span class="meta-chip">Pytest: 1578 passed, 4 xfailed, 0 failed</span>
+      <span class="meta-chip">Lint: antsxqc.lint 0 findings</span>
+    </div>
+  </header>
+
+  <div class="kpi-grid">
+    <div class="kpi">
+      <div class="label">Perturbation Gap (positive)</div>
+      <div class="val num">7.46e-07</div>
+      <div class="sub">Max over 3 seeds (was <code>9.47e-02</code>; 127,000&times; lower; <code>hybrid_adam</code> <code>6.29e-07</code>)</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Perturbation Gap (either)</div>
+      <div class="val num">2.83e-06</div>
+      <div class="sub">Max over 3 seeds (was <code>8.31e-01</code>; 294,000&times; lower; <code>hybrid_adam</code> <code>3.07e-06</code>)</div>
+    </div>
+    <div class="kpi">
+      <div class="label">+20 Shift |&Delta;R&sup2;| (simlr_lbfgsb)</div>
+      <div class="val num">6.45e-08</div>
+      <div class="sub">Was <code>1.43e-02</code> (failed <code>atol=1e-3</code>); removed from <code>_ROUNDING_UNSTABLE</code></div>
+    </div>
+    <div class="kpi">
+      <div class="label">All 7 Supported Energies</div>
+      <div class="val num">&le; 5.42e-06</div>
+      <div class="sub">Max gap across <code>nc</code>, <code>recon_r2</code>, <code>align</code>, <code>procrustes</code>, <code>exp</code>, <code>logcosh</code>, <code>acc</code></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>1. Hypothesis Audit (Verified vs Refuted)</h2>
+    <p>Every candidate cause listed in <code>/tmp/simlr_lbfgsb.md</code> was instrumented on the exact reproduction fixture (<code>tests/test_api_registry._views(n=60)</code>, <code>k=3</code>, <code>iterations=20</code>, <code>energy_type="nc"</code>, <code>mixing_algorithm="newton"</code>) and on the <code>+20</code> constant-shift test before any code was modified.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Candidate</th>
+          <th>Status</th>
+          <th>Measured Evidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. Non-smooth outer quantile projection</strong> (<code>simlr_sparseness</code>)</td>
+          <td><span class="badge badge-bad">Refuted as primary</span></td>
+          <td>With <code>sparseness=None</code>, max perturbation gap remains <code class="num">5.82e-02</code> (<code>positive</code>) and <code class="num">9.94e-01</code> (<code>either</code>). With <code>sparseness=None, constraint="none"</code>, gap is still <code class="num">2.26e-02</code> / <code class="num">3.24e-01</code>. Support XOR is <code>0</code> on the initial sweeps where divergence already grows by <code>10&sup4;&times;</code>.</td>
+        </tr>
+        <tr>
+          <td><strong>2. Dead-column step rejection</strong> (<code>last_rejected</code>)</td>
+          <td><span class="badge badge-bad">Refuted</span></td>
+          <td><code>last_rejected == False</code> on all 57–63 <code>NSALBFGSB.step</code> calls in both unperturbed and perturbed runs.</td>
+        </tr>
+        <tr>
+          <td><strong>3. Caught inner-solve exceptions</strong> (<code>ZeroDivisionError</code>, etc.)</td>
+          <td><span class="badge badge-bad">Refuted</span></td>
+          <td><code>0</code> inner-solve exceptions and <code>0</code> <code>RuntimeWarning</code>s emitted on the reproduction runs.</td>
+        </tr>
+        <tr>
+          <td><strong>4. Inner solver threshold / active-set branching</strong></td>
+          <td><span class="badge badge-warn">Secondary amplifier</span></td>
+          <td>Disabling the C++ extension (<code>_native = None</code>) leaves gaps at <code class="num">5.82e-02</code> / <code class="num">8.31e-01</code>. Under <code>lower=0.0</code>, <code>nsa_flow/lbfgsb.py</code> computes <code>a_max &gt; 1.0</code> so ties at breakpoint <code>a_i = 1.0</code> occasionally jump <code>alpha=1.0</code> vs <code>4.0</code>; however, under <code>positivity="either"</code> (<code>lower=None</code>, no bounds), a single inner solve still amplifies <code class="num">7.69e-07</code> to <code class="num">2.13</code> (<code class="num">2.77e+06&times;</code>) with <strong>zero</strong> branch differences (<code>alpha=(1.0, 1.0)</code>, <code>fix_xor=0</code>, <code>reset=False</code>, <code>push=True</code> on every inner step).</td>
+        </tr>
+        <tr>
+          <td><strong>6. Plain-step fallback on missing callables</strong></td>
+          <td><span class="badge badge-bad">Refuted at runtime</span></td>
+          <td><code>0</code> fallback calls during <code>simlr</code>; hardened to raise <code>ValueError</code> instead of taking an unconstrained step.</td>
+        </tr>
+        <tr>
+          <td><strong>Root Cause: Unanchored quasi-Newton on an indefinite block objective</strong></td>
+          <td><span class="badge badge-good">Verified</span></td>
+          <td>Direct finite-difference Hessian eigendecompositions of <code>_smooth_objective(V)</code> at <code>V_0</code> show <strong>7/16 to 18/30 negative eigenvalues</strong> (down to <code class="num">-9.215</code> on <code>_views</code> and <code class="num">-32.444</code> on <code>buried</code>). Unanchored L-BFGS-B steps roll down negative-curvature and radial directions, collapsing inverse-Hessian scaling <code>&theta; = y&top;y / s&top;y</code> from <code class="num">32.1</code> to <code class="num">0.00344</code>, drifting column norms from <code>1.0</code> to <code>7.42</code>, and amplifying <code>float32</code> rounding by up to <code class="num">2.8e+06&times;</code> in one sweep.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>2. Mathematical Mechanism &amp; Proximal-Quartic Formulation</h2>
+    <p>Inside each block sweep (consensus <code>u</code> held fixed), <code>_smooth_objective(V)</code> is indefinite around the incoming constrained iterate <code>V_0</code> for two structural reasons:</p>
+    <ul>
+      <li><strong>0-Homogeneous Radial-Tangential Saddle:</strong> Column normalisation <code>w_j = v_j / ||v_j||_2</code> (and scale-free similarities <code>nc</code> and <code>correlation_penalty</code>) satisfy Euler's identity <code>&nabla;&sup2;_{v_j v_j} E(V) v_j = -&nabla;_{v_j} E(V)</code>, producing an exact 2&times;2 saddle with eigenvalues <code>&plusmn;||&nabla;_{v_j} E||_2 / ||v_j||_2</code> whenever the block gradient is non-zero.</li>
+      <li><strong>Off-Stiefel Cross-Column Curvature:</strong> <code>orthogonality_defect(V) = ||V&top;V - I||_F&sup2;</code> contributes <code>4 W_orth &lang;V_0&top;V_0 - I, D&top;D&rang;</code> on <code>span(V_0)&perp;</code> (measured at <code class="num">-32.44</code> when <code>W_orth &approx; 833</code> and off-diagonal correlation is <code>0.01</code>), while <code>nc</code> and <code>correlation_penalty</code> are non-convex in angle.</li>
+    </ul>
+
+    <div class="formula-box">
+      <strong>Proximal-Quartic Alternating Minimization Subproblem (<code>NSALBFGSB.step</code>):</strong><br>
+      <code>&Phi;(V; V_0) = E(V) + (&mu;_2 / 2) ||V - V_0||_F&sup2; + (&mu;_4 / 4) ||V - V_0||_F&#8308;</code>,&nbsp;&nbsp;
+      <code>&mu;_2 = 2.5 / s_0&sup2;</code>,&nbsp;&nbsp;
+      <code>&mu;_4 = 64.0 / (s_0&sup2; ||V_0||_F&sup2;)</code>,&nbsp;&nbsp;
+      <code>s_0&sup2; = ||V_0||_F&sup2; / k</code>.<br>
+      At <code>V = V_0</code>, both the regulariser value and gradient vanish identically (<code>&Phi;(V_0; V_0) = E(V_0)</code>, <code>&nabla;&Phi;(V_0; V_0) = &nabla;E(V_0)</code>), leaving fixed-point stationarity, outer energy values, and package defaults unchanged. <code>&mu;_2</code> convexifies local negative curvature and pins the radial column-norm gauge; <code>&mu;_4</code> provides a <code>C&infin;</code> soft trust region near relative excursion <code>||V - V_0||_F / ||V_0||_F &approx; 0.25</code> against stale-consensus overshoot.
+    </div>
+
+    <div class="two-col">
+      <div>
+        <h3>Measured Hessian Spectrum of <code>_smooth_objective(V_0)</code></h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Fixture / Call</th>
+              <th>Neg / Total Eigs</th>
+              <th class="num">&lambda;<sub>min</sub></th>
+              <th class="num">&lambda;<sub>max</sub></th>
+              <th>Unanchored ||v<sub>end</sub>||<sub>col</sub></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>_views</code> (<code>k=2, either</code>, Call 1)</td>
+              <td class="num">7 / 16</td>
+              <td class="num">-0.137</td>
+              <td class="num">+24.95</td>
+              <td class="num">[7.42, 7.34]</td>
+            </tr>
+            <tr>
+              <td><code>_views</code> (<code>k=2, either</code>, Call 4)</td>
+              <td class="num">8 / 16</td>
+              <td class="num">-2.394</td>
+              <td class="num">+23.76</td>
+              <td class="num">[7.24, 6.28]</td>
+            </tr>
+            <tr>
+              <td><code>_views</code> (<code>k=3, positive</code>, Call 3)</td>
+              <td class="num">18 / 30</td>
+              <td class="num">-9.215</td>
+              <td class="num">+683.92</td>
+              <td class="num">[0.46, 0.45, 0.37]</td>
+            </tr>
+            <tr>
+              <td><code>buried</code> (<code>k=2, either</code>, Call 3)</td>
+              <td class="num">30 / 60</td>
+              <td class="num">-22.969</td>
+              <td class="num">+3060.64</td>
+              <td class="num">[0.94, 0.91]</td>
+            </tr>
+            <tr>
+              <td><code>buried</code> (<code>k=2, either</code>, Call 9)</td>
+              <td class="num">30 / 60</td>
+              <td class="num">-32.444</td>
+              <td class="num">+3059.87</td>
+              <td class="num">[1.01, 0.78]</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div>
+        <h3>Log<sub>10</sub> Subspace Gap Under <code>1e-8</code> Input Perturbation</h3>
+        <svg viewBox="0 0 480 235" role="img" aria-label="Log10 subspace perturbation gap comparison">
+          <rect x="0" y="0" width="480" height="235" fill="#f8fafc" rx="8"/>
+          <!-- Grid lines: y maps log10 from 0 (y=25) to -8 (y=185), 20px per decade -->
+          <line x1="135" y1="25"  x2="455" y2="25"  stroke="#cbd5e1" stroke-dasharray="3,3"/>
+          <line x1="135" y1="65"  x2="455" y2="65"  stroke="#cbd5e1" stroke-dasharray="3,3"/>
+          <line x1="135" y1="105" x2="455" y2="105" stroke="#0f766e" stroke-width="1.2" stroke-dasharray="5,3"/>
+          <line x1="135" y1="145" x2="455" y2="145" stroke="#cbd5e1" stroke-dasharray="3,3"/>
+          <line x1="135" y1="185" x2="455" y2="185" stroke="#cbd5e1" stroke-dasharray="3,3"/>
+          <text x="130" y="29"  font-size="10" fill="#475569" text-anchor="end">10⁰</text>
+          <text x="130" y="69"  font-size="10" fill="#475569" text-anchor="end">10⁻²</text>
+          <text x="130" y="109" font-size="10" fill="#0f766e" font-weight="600" text-anchor="end">10⁻⁴ gate</text>
+          <text x="130" y="149" font-size="10" fill="#475569" text-anchor="end">10⁻⁶</text>
+          <text x="130" y="189" font-size="10" fill="#475569" text-anchor="end">10⁻⁸</text>
+
+          <!-- Bars measured from bottom y=195 (10^-8.5): height = (log10(val) + 8.5) * 20 -->
+          <!-- 1. nsa_lbfgsb BEFORE (positive): 9.47e-2 -> log10=-1.02 -> h=149.5, y=45.5 -->
+          <rect x="155" y="45.5" width="38" height="149.5" fill="#dc2626" rx="3"/>
+          <text x="174" y="40" font-size="9.5" fill="#b91c1c" text-anchor="middle" font-weight="600">9.5e-2</text>
+
+          <!-- 2. nsa_lbfgsb AFTER (positive): 7.46e-7 -> log10=-6.13 -> h=47.4, y=147.6 -->
+          <rect x="198" y="147.6" width="38" height="47.4" fill="#16a34a" rx="3"/>
+          <text x="217" y="142" font-size="9.5" fill="#15803d" text-anchor="middle" font-weight="600">7.5e-7</text>
+
+          <!-- 3. hybrid_adam (positive): 6.29e-7 -> log10=-6.20 -> h=46.0, y=149.0 -->
+          <rect x="241" y="149.0" width="38" height="46.0" fill="#0284c7" rx="3"/>
+          <text x="260" y="143" font-size="9.5" fill="#0369a1" text-anchor="middle" font-weight="600">6.3e-7</text>
+
+          <!-- 4. nsa_lbfgsb BEFORE (either): 8.31e-1 -> log10=-0.08 -> h=168.4, y=26.6 -->
+          <rect x="310" y="26.6" width="38" height="168.4" fill="#dc2626" rx="3"/>
+          <text x="329" y="21" font-size="9.5" fill="#b91c1c" text-anchor="middle" font-weight="600">8.3e-1</text>
+
+          <!-- 5. nsa_lbfgsb AFTER (either): 2.83e-6 -> log10=-5.55 -> h=59.0, y=136.0 -->
+          <rect x="353" y="136.0" width="38" height="59.0" fill="#16a34a" rx="3"/>
+          <text x="372" y="130" font-size="9.5" fill="#15803d" text-anchor="middle" font-weight="600">2.8e-6</text>
+
+          <!-- 6. hybrid_adam (either): 3.07e-6 -> log10=-5.51 -> h=59.8, y=135.2 -->
+          <rect x="396" y="135.2" width="38" height="59.8" fill="#0284c7" rx="3"/>
+          <text x="415" y="129" font-size="9.5" fill="#0369a1" text-anchor="middle" font-weight="600">3.1e-6</text>
+
+          <line x1="135" y1="195" x2="455" y2="195" stroke="#475569" stroke-width="1"/>
+          <text x="217" y="213" font-size="11" fill="#0f172a" font-weight="600" text-anchor="middle">positivity="positive"</text>
+          <text x="372" y="213" font-size="11" fill="#0f172a" font-weight="600" text-anchor="middle">positivity="either"</text>
+          <text x="295" y="229" font-size="9.5" fill="#475569" text-anchor="middle">Red: L-BFGS-B before · Green: L-BFGS-B after (D9) · Blue: hybrid_adam reference</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Before / After Quantitative Verification</h2>
+    <h3>3.1 Exact Reproduction Table (<code>1e-8</code> Input Perturbations, 3 Seeds)</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Optimizer</th>
+          <th>Positivity</th>
+          <th class="num">Seed 100 Gap</th>
+          <th class="num">Seed 101 Gap</th>
+          <th class="num">Seed 102 Gap</th>
+          <th class="num">Max Gap</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>hybrid_adam</code> (unchanged)</td>
+          <td><code>positive</code></td>
+          <td class="num">9.57e-08</td>
+          <td class="num">2.60e-07</td>
+          <td class="num">6.29e-07</td>
+          <td class="num">6.29e-07</td>
+          <td><span class="badge badge-good">Bit-identical</span></td>
+        </tr>
+        <tr>
+          <td><code>hybrid_adam</code> (unchanged)</td>
+          <td><code>either</code></td>
+          <td class="num">3.07e-06</td>
+          <td class="num">5.15e-07</td>
+          <td class="num">7.53e-07</td>
+          <td class="num">3.07e-06</td>
+          <td><span class="badge badge-good">Bit-identical</span></td>
+        </tr>
+        <tr>
+          <td><code>nsa_lbfgsb</code> (before D9)</td>
+          <td><code>positive</code></td>
+          <td class="num">5.82e-02</td>
+          <td class="num">8.49e-02</td>
+          <td class="num">9.47e-02</td>
+          <td class="num">9.47e-02</td>
+          <td><span class="badge badge-bad">Unstable</span></td>
+        </tr>
+        <tr>
+          <td><strong><code>nsa_lbfgsb</code> (after D9)</strong></td>
+          <td><code>positive</code></td>
+          <td class="num"><strong>7.46e-07</strong></td>
+          <td class="num"><strong>7.46e-07</strong></td>
+          <td class="num"><strong>3.23e-10</strong></td>
+          <td class="num"><strong>7.46e-07</strong></td>
+          <td><span class="badge badge-good">Pass (&lt; 1e-4)</span></td>
+        </tr>
+        <tr>
+          <td><code>nsa_lbfgsb</code> (before D9)</td>
+          <td><code>either</code></td>
+          <td class="num">4.29e-01</td>
+          <td class="num">4.22e-01</td>
+          <td class="num">8.31e-01</td>
+          <td class="num">8.31e-01</td>
+          <td><span class="badge badge-bad">Unstable</span></td>
+        </tr>
+        <tr>
+          <td><strong><code>nsa_lbfgsb</code> (after D9)</strong></td>
+          <td><code>either</code></td>
+          <td class="num"><strong>1.39e-06</strong></td>
+          <td class="num"><strong>2.83e-06</strong></td>
+          <td class="num"><strong>1.05e-06</strong></td>
+          <td class="num"><strong>2.83e-06</strong></td>
+          <td><span class="badge badge-good">Pass (&lt; 1e-4)</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>3.2 All 7 Supported Similarity Energies &amp; Constant-Shift Test</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Check / Energy</th>
+          <th class="num">Before D9</th>
+          <th class="num">After D9 (<code>c2=2.5, c4=64.0</code>)</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>+20</code> Constant Shift max |&Delta;R&sup2;| (<code>simlr_lbfgsb</code>)</td>
+          <td class="num">1.43e-02</td>
+          <td class="num"><strong>6.45e-08</strong></td>
+          <td><code>test_reconstruction_r2_is_in_one_space_for_every_method</code> passes natively (<code>hybrid_adam</code>: <code class="num">5.83e-08</code>).</td>
+        </tr>
+        <tr>
+          <td><code>nc</code> (default, seed 100)</td>
+          <td class="num">4.29e-01</td>
+          <td class="num"><strong>1.39e-06</strong></td>
+          <td>Max over <code>{positive, either}</code> at <code>1e-8</code> perturbation (3-seed max: <code class="num">8.31e-01</code> &rarr; <code class="num">2.83e-06</code>)</td>
+        </tr>
+        <tr>
+          <td><code>recon_r2</code> (seed 100)</td>
+          <td class="num">7.44e-03</td>
+          <td class="num"><strong>6.43e-07</strong></td>
+          <td>Max over <code>{positive, either}</code> at <code>1e-8</code> perturbation</td>
+        </tr>
+        <tr>
+          <td><code>align</code> (seed 100)</td>
+          <td class="num">5.65e-01</td>
+          <td class="num"><strong>6.56e-07</strong></td>
+          <td>Max over <code>{positive, either}</code> at <code>1e-8</code> perturbation</td>
+        </tr>
+        <tr>
+          <td><code>procrustes</code> (seed 100)</td>
+          <td class="num">6.52e-01</td>
+          <td class="num"><strong>3.32e-06</strong></td>
+          <td>Max over <code>{positive, either}</code> at <code>1e-8</code> perturbation</td>
+        </tr>
+        <tr>
+          <td><code>exp</code> (seed 100)</td>
+          <td class="num">4.77e-02</td>
+          <td class="num"><strong>6.47e-07</strong></td>
+          <td>Max over <code>{positive, either}</code> at <code>1e-8</code> perturbation</td>
+        </tr>
+        <tr>
+          <td><code>logcosh</code> (seed 100)</td>
+          <td class="num">6.53e-01</td>
+          <td class="num"><strong>6.03e-07</strong></td>
+          <td>Smooth energy, yet unanchored quasi-Newton diverged to <code>0.653</code>; proximal-quartic drops to <code>6.03e-07</code></td>
+        </tr>
+        <tr>
+          <td><code>acc</code> (<code>-&Sigma;|U'XV|</code>, seed 100)</td>
+          <td class="num">7.67e-01</td>
+          <td class="num"><strong>5.42e-06</strong></td>
+          <td>Even with absolute-value kinks, proximal-quartic anchor stabilises the fit</td>
+        </tr>
+        <tr>
+          <td>Isolated fit wall-clock (<code>n=5</code> repeats, <code>k=3, iter=20</code>)</td>
+          <td class="num">—</td>
+          <td class="num">818.8 / 825.5 / 831.1 ms</td>
+          <td>min / median / max on Apple Silicon CPU (<code>hybrid_adam</code>: <code class="num">412.9 / 414.3 / 418.3 ms</code>)</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+</body>
+</html>

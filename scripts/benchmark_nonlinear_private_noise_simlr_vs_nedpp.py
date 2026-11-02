@@ -30,7 +30,7 @@ def generate_shared_private_data(n_samples=1000, noise=0.1):
     return norm(x1), norm(x2), u_shared, y.numpy()
 
 def fit_simlr(train_data, **kwargs):
-    return simlr(train_data, iterations=100, energy_type="acc", **kwargs)
+    return simlr(train_data, iterations=100, **kwargs)
 
 def fit_ned(train_data, **kwargs):
     return ned_simr(train_data, iterations=150, warmup_epochs=20, device="cpu", verbose=False, **kwargs)

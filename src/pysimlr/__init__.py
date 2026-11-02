@@ -126,8 +126,6 @@ from .flows import (
     FlowDecoderWrapper,
     FlowConditionalInference,
     NormalizingFlow,
-    FlowWhitener,
-    flow_whiten_matrix,
 )
 from .consensus import (
     compute_shared_consensus
@@ -245,8 +243,6 @@ __all__ = [
     'FlowDecoderWrapper',
     'FlowConditionalInference',
     'NormalizingFlow',
-    'FlowWhitener',
-    'flow_whiten_matrix',
     'compute_shared_consensus',
     'fit',
     'predict',

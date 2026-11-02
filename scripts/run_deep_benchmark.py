@@ -285,7 +285,6 @@ def calculate_v_recovery(res: dict, true_v: list) -> float:
 MODEL_LABELS = {
     "pca": "PCA",
     "simlr": "SiMLR",
-    "simlr_lbfgsb": "SiMLR-LBFGSB",
     "nsa_pipeline": "NSAFlow-PCA",
     "lend": "LEND",
     "ned": "NED",
@@ -347,14 +346,13 @@ def run_experiment_task(task_args: tuple) -> dict:
     else:
         positivity = "positive" if is_nonneg_regime else "either"
 
-    # Standardized protocol across all cohorts and models (no per-model special-casing)
-    energy_type = "acc"
-    mixing_alg = "svd"
+    # Standardized protocol across all cohorts and models (no per-model
+    # special-casing). The objective, mixing and NSA-Flow weight are the
+    # package defaults (pysimlr.defaults: DEFAULT_ENERGY_TYPE,
+    # DEFAULT_MIXING_ALGORITHM, DEFAULT_NSA_W), so the paper's numbers come
+    # from the same settings a user gets.
     params = {
-        "energy_type": energy_type,
-        "mixing_algorithm": mixing_alg,
         "positivity": positivity,
-        "nsa_w": 0.5,
         "nsa_iterations": 2,
         "consolidate": False,
     }

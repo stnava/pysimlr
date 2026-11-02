@@ -195,7 +195,7 @@ def synthetic_f1(**params) -> dict:
     """NonnegParts (seed 42), the benchmark's case, through the benchmark runner."""
     case = build_case(seed=42, kind="nonneg_parts", private_scale=0.5)
     t0 = time.perf_counter()
-    out = run_single_experiment("simlr_lbfgsb", case, seed=42, iterations=LINEAR_ITERS, **params)
+    out = run_single_experiment("simlr", case, seed=42, iterations=LINEAR_ITERS, **params)
     secs = time.perf_counter() - t0
     vs = [np.asarray(v.detach().cpu(), dtype=np.float64) for v in out["result"]["v"]]
     stack = np.vstack(vs)
@@ -213,12 +213,12 @@ def synthetic_f1(**params) -> dict:
 # experiments
 # ---------------------------------------------------------------------------
 def w_sweep() -> pd.DataFrame:
-    """`simlr_lbfgsb`, V >= 0, k = 3, no quantile threshold: w alone sets sparsity."""
+    """`simlr`, V >= 0, k = 3, no quantile threshold: w alone sets sparsity."""
     data = protocol_b(42)
     rows = []
     for w in (0.01, 0.05, 0.10, 0.20, 0.35, 0.50, 0.65, 0.80, 0.90, 0.95):
         s = synthetic_f1(nsa_w=w, positivity="positive", sparseness=None)
-        res, secs = fit_adni(data, "simlr_lbfgsb", nsa_w=w, positivity="positive", sparseness=None,
+        res, secs = fit_adni(data, "simlr", nsa_w=w, positivity="positive", sparseness=None,
                              random_state=42)
         vs = mri_basis(res); ev = evaluate(data, vs); b = basis_summary(vs)
         rows.append({"w": w, "Synth_Support_F1": s["f1"], "Synth_R2": s["r2"], "Synth_Defect_D": s["defect"],
@@ -234,14 +234,14 @@ def w_sweep() -> pd.DataFrame:
 
 
 def k_sweep() -> pd.DataFrame:
-    """Unthresholded non-negative `simlr_lbfgsb` (w = 0.5) at k in {2,3,5,8,12}:
+    """Unthresholded non-negative `simlr` (w = 0.5) at k in {2,3,5,8,12}:
     column-centred with a PCA start (varimax off) vs row-centred with an ICA start."""
     rows = []
     for regime, row_center, init in (("Col-Centered (PCA Init)", False, "pca"),
                                      ("Row-Centered (ICA Init)", True, "ica")):
         data = protocol_b(42, row_center=row_center)
         for k in (2, 3, 5, 8, 12):
-            res, secs = fit_adni(data, "simlr_lbfgsb", k=k, positivity="positive", sparseness=None,
+            res, secs = fit_adni(data, "simlr", k=k, positivity="positive", sparseness=None,
                                  initialization_type=init, varimax=False, random_state=42)
             vs = mri_basis(res); ev = evaluate(data, vs); b = basis_summary(vs)
             pca, _ = fit_adni(data, "pca", k=k)
@@ -259,13 +259,13 @@ def k_sweep() -> pd.DataFrame:
 
 
 def quantile_sweep() -> pd.DataFrame:
-    """`simlr_lbfgsb` (w = 0.5, k = 3, default varimax) across quantile sparseness."""
+    """`simlr` (w = 0.5, k = 3, default varimax) across quantile sparseness."""
     data = protocol_b(42)
     rows = []
     for pos in ("positive", "either"):
         for q in (None, 0.50, 0.70, 0.80, 0.85, 0.90):
             t0 = time.perf_counter()
-            res, _ = fit_adni(data, "simlr_lbfgsb", positivity=pos, sparseness=q, random_state=42)
+            res, _ = fit_adni(data, "simlr", positivity=pos, sparseness=q, random_state=42)
             secs = time.perf_counter() - t0
             vs = mri_basis(res); ev = evaluate(data, vs); b = basis_summary(vs)
             s = synthetic_f1(positivity=pos, sparseness=q)
@@ -285,7 +285,7 @@ def quantile_sweep() -> pd.DataFrame:
 
 def rowmean_factorial() -> pd.DataFrame:
     """2 x 2 x 2 x 2: column vs row+column centring, PCA vs ICA start, signed vs
-    V >= 0, the initializer alone vs the fitted `simlr_lbfgsb` (w = 0.5, k = 3,
+    V >= 0, the initializer alone vs the fitted `simlr` (w = 0.5, k = 3,
     varimax off, no quantile threshold)."""
     rows = []
     for prep_lbl, row_center in (("Col-Centered (Standard)", False),
@@ -301,7 +301,7 @@ def rowmean_factorial() -> pd.DataFrame:
                             views, K, initialization_type=init, positivity=pos, sparseness=None,
                             varimax=False, generator=torch.Generator().manual_seed(42))]
                     else:
-                        res, _ = fit_adni(data, "simlr_lbfgsb", positivity=pos, sparseness=None,
+                        res, _ = fit_adni(data, "simlr", positivity=pos, sparseness=None,
                                           initialization_type=init, varimax=False, random_state=42)
                         vs = mri_basis(res)
                     secs = time.perf_counter() - t0
@@ -320,7 +320,7 @@ def rowmean_factorial() -> pd.DataFrame:
 
 
 CONTROL_MODELS = (("Flow-SiMR-V", "flow_v"), ("LEND", "lend"), ("NEDPP", "ned_shared_private"),
-                  ("SiMLR", "simlr"), ("SiMLR-LBFGSB", "simlr_lbfgsb"), ("NSAFlow-PCA", "nsa_pipeline"),
+                  ("SiMLR", "simlr"), ("NSAFlow-PCA", "nsa_pipeline"),
                   ("PCA", "pca"))
 
 
@@ -355,7 +355,7 @@ def axis_controls(workers: int) -> pd.DataFrame:
 
 def feature_loadings() -> dict:
     """Bases of the MRI views for the figure: joint PCA blocks, unrotated and
-    varimax-rotated non-negative `simlr_lbfgsb` (q = None), the row-centred ICA
+    varimax-rotated non-negative `simlr` (q = None), the row-centred ICA
     start, and non-negative q in {0.80, 0.85, 0.90} (seed 42)."""
     col = protocol_b(42); row = protocol_b(42, row_center=True)
     out = {f"view{i}_names": col["names"][i] for i in (0, 1, 2)}
@@ -367,14 +367,14 @@ def feature_loadings() -> dict:
         return vs
 
     store("pca", col, fit_adni(col, "pca")[0])
-    store("col_pca_simr", col, fit_adni(col, "simlr_lbfgsb", positivity="positive", sparseness=None,
+    store("col_pca_simr", col, fit_adni(col, "simlr", positivity="positive", sparseness=None,
                                         varimax=False, random_state=42)[0])
-    store("varimax_simr", col, fit_adni(col, "simlr_lbfgsb", positivity="positive", sparseness=None,
+    store("varimax_simr", col, fit_adni(col, "simlr", positivity="positive", sparseness=None,
                                         varimax=True, random_state=42)[0])
-    store("row_ica_simr", row, fit_adni(row, "simlr_lbfgsb", positivity="positive", sparseness=None,
+    store("row_ica_simr", row, fit_adni(row, "simlr", positivity="positive", sparseness=None,
                                         initialization_type="ica", varimax=False, random_state=42)[0])
     for q in (0.80, 0.85, 0.90):
-        res, _ = fit_adni(col, "simlr_lbfgsb", positivity="positive", sparseness=q, random_state=42)
+        res, _ = fit_adni(col, "simlr", positivity="positive", sparseness=q, random_state=42)
         vs = mri_basis(res); ev = evaluate(col, vs); b = basis_summary(vs)
         if abs(q - 0.85) < 1e-9:
             store("col_pca_q85_simr", col, vs)
@@ -399,9 +399,9 @@ def feature_loadings() -> dict:
                           "dkt_active_regions": [int((np.abs(dkt[:, j]) >= TOL).sum()) for j in range(dkt.shape[1])]}
     out["summaries"] = summaries
     for key, data, method, kw in (("pca", col, "pca", {}),
-                                  ("col_pca_simr", col, "simlr_lbfgsb", dict(positivity="positive", sparseness=None, varimax=False, random_state=42)),
-                                  ("varimax_simr", col, "simlr_lbfgsb", dict(positivity="positive", sparseness=None, varimax=True, random_state=42)),
-                                  ("row_ica_simr", row, "simlr_lbfgsb", dict(positivity="positive", sparseness=None, initialization_type="ica", varimax=False, random_state=42))):
+                                  ("col_pca_simr", col, "simlr", dict(positivity="positive", sparseness=None, varimax=False, random_state=42)),
+                                  ("varimax_simr", col, "simlr", dict(positivity="positive", sparseness=None, varimax=True, random_state=42)),
+                                  ("row_ica_simr", row, "simlr", dict(positivity="positive", sparseness=None, initialization_type="ica", varimax=False, random_state=42))):
         summaries[key]["cog_pc1_r2"] = evaluate(data, mri_basis(fit_adni(data, method, **kw)[0]))["cog_pc1_r2"]
     summaries["col_pca_q85_simr"]["cog_pc1_r2"] = out["Col-Centered + PCA + Non-Neg + Quantile (q=0.85)"]["r2_pc1"]
     return out

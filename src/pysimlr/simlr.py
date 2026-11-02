@@ -7,11 +7,11 @@ from .svd import ba_svd
 from .utils import basis_rank_report
 from .optimizers import create_optimizer, SIMLR_OPTIMIZER_DEFAULTS
 from .sparsification import simlr_sparseness, DEFAULT_SPARSENESS, energy_needs_unit_columns
-from .utils import (adjusted_rvcoef, safe_svd,
+from .utils import (adjusted_rvcoef, safe_svd, correlation_penalty, stationarity_residual,
                     l1_normalize_features, orthogonality_defect,
                     orthogonality_summary, preprocess_data)
 from .consensus import compute_shared_consensus
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM
 
 #: The default `simlr` constraint. Named so that "did the caller choose this
 #: weight, or inherit it?" is answerable -- which decides whether an `nsa_w`
@@ -1130,7 +1130,7 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
         Input data matrix (N x P) for the current modality.
     u : torch.Tensor
         Shared latent space (N x K).
-    energy_type : str, default=DEFAULT_ENERGY_TYPE ("acc")
+    energy_type : str, default=DEFAULT_ENERGY_TYPE ("nc")
         Similarity term (`pysimlr.defaults`, `similarity.SIMILARITY`).
         - 'regression': Reconstruction MSE (||X - UV^T||^2).
         - 'acc': Maximum absolute covariance (canonical correlation).
@@ -1183,7 +1183,7 @@ def calculate_simlr_gradient(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor,
         The view-specific data matrix (n x p_i).
     u : torch.Tensor
         The shared consensus latent matrix (n x k).
-    energy_type : str, default=DEFAULT_ENERGY_TYPE ("acc")
+    energy_type : str, default=DEFAULT_ENERGY_TYPE ("nc")
         Similarity term (`pysimlr.defaults`, `similarity.SIMILARITY`).
         Options: `SUPPORTED_ENERGY_TYPES`.
     lambda_val : float, default=0.0
@@ -1299,11 +1299,12 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           initialization_type: str = "pca",
           random_state: Optional[int] = None,
           negentropy_weight: float = 0.0,
+          collapse_weight: float = DEFAULT_COLLAPSE_WEIGHT,
           nonneg_u: bool = False,
           optimizer_type: str = DEFAULT_LINEAR_OPTIMIZER,
           energy_type: str = DEFAULT_ENERGY_TYPE,
           constraint: str = DEFAULT_CONSTRAINT,
-          mixing_algorithm: str = "newton",
+          mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
           positivity: str = "either",
           smoothing_matrices: Optional[List[torch.Tensor]] = None,
           domain_matrices: Optional[List[Union[torch.Tensor, np.ndarray]]] = None,
@@ -1431,6 +1432,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         Needs `initialization_type="random"` to be meaningful as an
         identifiability claim: under the default PCA start every run begins
         from the same basis.
+    collapse_weight : float, default=DEFAULT_COLLAPSE_WEIGHT (1.0)
+        Weight on `utils.correlation_penalty` of each view's scores ``X V``,
+        added to the objective. Disjoint loadings on correlated features can
+        still give collinear scores, which an orthogonalised consensus hides
+        and "nc" does not penalise. ``0`` disables it.
     initialization_type : str, default="pca"
         One of `INITIALIZATION_TYPES`: ``"pca"`` (deterministic, the
         historical behaviour), ``"random"``, ``"gcca"``, ``"nndsvd"``,
@@ -1448,7 +1454,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     optimizer_type : str, default=DEFAULT_LINEAR_OPTIMIZER ("hybrid_adam")
         The optimizer to use; the default and the benchmark behind it are in
         `pysimlr.defaults`. Before 0.4.0 the default was `armijo_gradient`.
-    energy_type : str, default=DEFAULT_ENERGY_TYPE ("acc")
+    energy_type : str, default=DEFAULT_ENERGY_TYPE ("nc")
         The similarity/reconstruction objective to minimize.
     constraint : str, default="Stiefel"
         The manifold constraint on basis matrices ("Stiefel", "Grassmann", "NewtonSchulz").
@@ -1494,7 +1500,13 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         Preprocessing methods to apply to input data. ``None`` means
         ``["centerAndScale", "np"]``.
     tol : float, default=1e-6
-        Convergence tolerance for the optimization.
+        Relative-improvement threshold of the energy plateau rule: the fit
+        stops, converged (``certificate="energy_plateau"``), after `patience`
+        sweeps that improve the best energy by less than `tol` relative. This
+        is the only stopping tolerance. A stationarity residual on the iterate's
+        current face (`utils.stationarity_residual`) is reported per sweep in
+        ``grad_map_history`` (and ``grad_map``, its last value) as a diagnostic;
+        it does not stop the fit.
     patience : int, optional
         Iterations without relative improvement above `tol` before stopping.
         ``None`` means `utils.CONVERGENCE_PATIENCE`.
@@ -1689,11 +1701,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     if torch_domains is not None and domain_lambdas is None:
         domain_lambdas = [1.0] * n_modalities
     
-    from .nsa_backend import load_gradient_mapping
-    _grad_mapping = load_gradient_mapping()
-    if _grad_mapping is None:
-        raise ImportError("simlr's stationarity certificate needs nsa_flow.diagnostics."
-                          "gradient_mapping (nsa_flow>=3.5.1).")
     _want_nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg',
                                   'softplus')
 
@@ -1708,7 +1715,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         max_steps=iterations)
     certificate = None
     prev_total_energy = float('inf')
-    prev_grad_map = float('inf')
     converged_iter = iterations
     # Alternating minimization is not monotone in the joint objective: each V_i
     # is optimized against a fixed u_i, and then u is recomputed from the new
@@ -1771,6 +1777,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             calculate_simlr_energy(v_mats[idx_m], torch_mats[idx_m],
                                    init_u[idx_m] if isinstance(init_u, list) else init_u,
                                    energy_type).item() * normalizing_weights[idx_m]
+            + collapse_weight * float(correlation_penalty(torch_mats[idx_m] @ v_mats[idx_m].to(torch_mats[idx_m].dtype)))
             for idx_m in range(n_modalities)
         )
 
@@ -1833,6 +1840,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             if negentropy_weight != 0.0:
                 e = e + (calculate_simlr_energy(w64, x64, u64, "negentropy")
                          * negentropy_weight * neg_weights[i])
+            if collapse_weight != 0.0:
+                e = e + collapse_weight * correlation_penalty(x64 @ w64)
             return e
 
         def smooth_energy_fn(v_cand):
@@ -1871,12 +1880,12 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     for raw_it in range(total_sweeps):
         is_warm_start = (raw_it == 0)
         it = raw_it - 1
-        cert_terms = []
         # Views whose optimizer step returned the iterate unchanged (the line
         # search found no decrease). Such a step has a fixed-point residual of
         # exactly 0 without the iterate being stationary, so it must not count
         # toward the certificate.
         zero_step_views = 0
+        sweep_grad_map = []
         projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
         cur_mod_w = _update_simlr_mai(projections, max(0, it), max(1, iterations))
         u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph, modality_weights=cur_mod_w)
@@ -1897,29 +1906,13 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                         else sparseness)
             smooth_energy_fn, smooth_gradient_fn, composite_energy_fn, _projection = \
                 _view_oracles(i, u_i, _loop_sp)
-            raw_grad_holder = [None]
             _exact = smooth_gradient_fn(v_mats[i])
-            raw_grad_holder[0] = _exact.detach().clone()
+            # Stationarity diagnostic of the iterate entering this sweep, on its
+            # current face (`utils.stationarity_residual`). Reported, not used
+            # to stop: convergence is the energy plateau rule.
+            gm_E, gm_off = stationarity_residual(v_mats[i], -_exact, nonneg=_want_nonneg)
+            sweep_grad_map.append(gm_E)
             total_grad = project_gradient(_exact, v_mats[i], constraint_type).contiguous()
-            # Stationarity certificate: the prox-gradient residual of the
-            # current iterate under the projection actually applied,
-            # ||P(V - ||V||^2 grad E) - V|| / ||V||. It depends only on V, so a
-            # line search that takes a tiny step cannot make a non-stationary
-            # point look converged (the step-size residual could: a zero or
-            # microscopic accepted step read as a fixed point). It used the
-            # descent direction as the gradient (an uphill step) and a bare
-            # clamp in place of P.
-            # A probe point the projection refuses (it can collapse a tiny view
-            # to rank deficiency) certifies nothing: recorded as +inf, noted.
-            try:
-                gm_E = float(_grad_mapping(v_mats[i], -raw_grad_holder[0], _projection))
-                probe_failed = None
-            except RuntimeError as exc:
-                gm_E, probe_failed = float("inf"), f"{type(exc).__name__}: {str(exc)[:120]}"
-            if not is_warm_start and gm_E <= tol:
-                cert_terms.append(gm_E)
-                retraction_diags[i] = {"skipped": "stationary", "grad_map_E": gm_E}
-                continue
             v_before = v_mats[i].detach().clone()
             # Two oracles, the same for every optimizer: the objective E(P(v))
             # for line searches (passed to `step`), and the smooth part E(v)
@@ -1938,9 +1931,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                           / torch.linalg.norm(v_before).clamp_min(1e-300))
             retraction_diags[i]["fixed_point_residual"] = resid
             retraction_diags[i]["grad_map_E"] = gm_E
-            if probe_failed:
-                retraction_diags[i]["certificate_probe_failed"] = probe_failed
-            cert_terms.append(gm_E)
+            retraction_diags[i]["off_support"] = gm_off
             if zero_step:
                 retraction_diags[i]["zero_step"] = True
                 zero_step_views += 1
@@ -1951,6 +1942,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 calculate_simlr_energy(v_mats[idx_m], torch_mats[idx_m],
                                        u[idx_m] if isinstance(u, list) else u,
                                        energy_type).item() * normalizing_weights[idx_m]
+                + collapse_weight * float(correlation_penalty(torch_mats[idx_m] @ v_mats[idx_m].to(torch_mats[idx_m].dtype)))
                 for idx_m in range(n_modalities)
             )
             best_v_mats = [v.clone() for v in v_mats]
@@ -1961,8 +1953,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         for i in range(n_modalities):
             u_i = u[i] if isinstance(u, list) else u
             total_energy += calculate_simlr_energy(v_mats[i], torch_mats[i], u_i, energy_type).item() * normalizing_weights[i]
+            if collapse_weight != 0.0:
+                total_energy += collapse_weight * float(correlation_penalty(torch_mats[i] @ v_mats[i].to(torch_mats[i].dtype)))
             
         energy_history.append(total_energy)
+        grad_map_history.append(max(sweep_grad_map) if sweep_grad_map else float("nan"))
 
         iterate_is_degenerate = any(
             not bool((v.detach().abs() > 1e-12).any(dim=0).all()) for v in v_mats
@@ -1975,9 +1970,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         if iterate_is_degenerate:
             n_degenerate_iterates += 1
         
-        this_grad_map = max(cert_terms) if cert_terms else float("nan")
-        grad_map_history.append(this_grad_map)
-
         plateaued = monitor.update(total_energy)
 
         if zero_step_views == n_modalities:
@@ -1988,26 +1980,22 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             if verbose: print(f"No descent step at iteration {it}")
             break
 
-        if cert_terms and monitor.certify("grad_map", this_grad_map, tol):
-            stop_reason, certificate = "grad_map", "stationary"
-            converged_iter = it + 1
-            if verbose: print(f"Stationary at iteration {it}: grad_map {this_grad_map:.3e}")
-            break
-
+        # Convergence is the energy plateau rule, governed by `tol`. The face
+        # residual in `grad_map_history` is a diagnostic only; whether it can
+        # certify is open (it falls >= 2 decades where the energy settles, see
+        # utils.stationarity_residual).
         if plateaued:
             if monitor.stop_reason != "converged":
                 break
             stop_reason = "plateau"
-            certificate = ("numerical_floor"
-                           if cert_terms and this_grad_map <= 1e3 * tol else None)
+            certificate = "energy_plateau"
             converged_iter = it + 1
             if verbose:
                 print(f"Plateau at iteration {it}: energy {total_energy}, "
-                      f"grad_map {this_grad_map:.3e}, certificate {certificate}")
+                      f"certificate {certificate}")
             break
 
         prev_total_energy = total_energy
-        prev_grad_map = this_grad_map
         
         if verbose and it % 10 == 0: print(f"Iteration {it}: Total Energy {total_energy}")
         
@@ -2101,9 +2089,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "convergence": {**monitor.report(), "stop_reason": stop_reason},
         "certificate": certificate,
         "converged": certificate is not None,
+        "n_degenerate_iterates": n_degenerate_iterates,
         "grad_map": (grad_map_history[-1] if grad_map_history else None),
         "grad_map_history": grad_map_history,
-        "n_degenerate_iterates": n_degenerate_iterates,
         "energy_start": (energy_history[0] if energy_history else init_total_energy),
         "energy_reduction": ((energy_history[0] - best_total_energy)
                              if energy_history else 0.0),
@@ -2607,7 +2595,7 @@ def decompose_energy(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr
         List of data matrices (one for each modality).
     simlr_result : Dict[str, Any]
         The result dictionary from a fitted SiMLR model.
-    energy_type : str, default=DEFAULT_ENERGY_TYPE ("acc")
+    energy_type : str, default=DEFAULT_ENERGY_TYPE ("nc")
         The energy function type to evaluate.
 
     Returns

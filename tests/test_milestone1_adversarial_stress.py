@@ -141,12 +141,6 @@ def test_stress_bidirectional_armijo_inverts_uphill_gradient():
     assert e_next < e_init, f"BidirectionalArmijo failed to invert uphill gradient: init={e_init}, next={e_next}"
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Since the line search uses the exact gradient (0.4.0 oracle fix) this run "
-    "reaches a better objective (best -1.629 vs -1.116 at 40 iterations) but "
-    "oscillates between -1.29 and -1.63 before settling: each view takes a full "
-    "line-search step against a consensus that then moves. The settling bound "
-    "is kept; damping the alternation is an open item (docs/tracking.md D6)."))
 def test_stress_simlr_armijo_monotonic_correlation_ascent():
     """Verify full SiMLR with armijo_gradient improves cross-view correlation on ill-conditioned data, with a bounded, settling objective.
 
@@ -198,12 +192,6 @@ def test_stress_simlr_armijo_monotonic_correlation_ascent():
     assert res["best_energy"] == pytest.approx(float(energies.min()), rel=1e-9)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Since the line search uses the exact gradient (0.4.0 oracle fix) this run "
-    "reaches a better objective (best -1.629 vs -1.116 at 40 iterations) but "
-    "oscillates between -1.29 and -1.63 before settling: each view takes a full "
-    "line-search step against a consensus that then moves. The settling bound "
-    "is kept; damping the alternation is an open item (docs/tracking.md D6)."))
 def test_stress_simlr_bidirectional_armijo_acc_correlation_ascent():
     """Verify full SiMLR with bidirectional_armijo_gradient improves cross-view correlation (acc), with a bounded, settling objective."""
     torch.manual_seed(42)

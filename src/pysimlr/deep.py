@@ -6,7 +6,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Sequence, Union, Tuple, Callable
 import contextlib
 import warnings
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM
 class larslow(optim.Optimizer):
     """Layer-wise Adaptive Rate Scaling (LARS) optimizer for deep SiMLR."""
     def __init__(self, params, lr, weight_decay=1e-4, momentum=0.9, trust_coefficient=0.001):
@@ -58,7 +58,7 @@ def _get_optimizer(model, optimizer_type, learning_rate, weight_decay):
                      f"choose one of ('adam', 'lars', 'larslow').")
 
 from .consensus import compute_shared_consensus
-from .utils import (preprocess_data,
+from .utils import (preprocess_data, correlation_penalty,
                     orthogonality_defect, safe_svd, basis_rank_report)
 from .interpretability import build_first_layer_contract, build_interpretability_report
 
@@ -770,7 +770,7 @@ class LENDSiMRModel(_MultiViewModelMixin, nn.Module):
     """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: Sequence[int] = (128, 64), 
                  dropout: float = 0.1, nsa_w: float = DEFAULT_NSA_W, positivity: str = "either", 
-                 sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
+                 sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
                  topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False):
         super().__init__()
@@ -832,7 +832,7 @@ class NEDSiMRModel(_MultiViewModelMixin, nn.Module):
     """
     def __init__(self, input_dims: List[int], latent_dim: int, hidden_dims: Sequence[int] = (128, 64), 
                  dropout: float = 0.1, nsa_w: float = DEFAULT_NSA_W, positivity: str = "either", 
-                 sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
+                 sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
                  topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False):
         super().__init__()
@@ -908,7 +908,7 @@ class NEDSharedPrivateSiMRModel(_MultiViewModelMixin, nn.Module):
     """
     def __init__(self, input_dims: List[int], shared_latent_dim: int, private_latent_dim: int,
                  hidden_dims: Sequence[int] = (128, 64), dropout: float = 0.1, nsa_w: float = DEFAULT_NSA_W,
-                 positivity: str = "either", sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = "newton",
+                 positivity: str = "either", sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
                  topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False):
         super().__init__()
@@ -1033,7 +1033,8 @@ def calculate_sim_loss(latents: List[torch.Tensor],
         Weights for the different loss components:
         - "sim": Similarity loss weight.
         - "var": Variance penalty weight (VICReg-style).
-        - "collapse": Covariance penalty weight to prevent dimensional collapse.
+        - "collapse": Weight of the latent correlation penalty
+          (`utils.correlation_penalty`) against dimensional collapse.
         - "u_var": Variance penalty for the shared consensus U.
 
     Returns
@@ -1110,17 +1111,19 @@ def calculate_sim_loss(latents: List[torch.Tensor],
         u_target = u_shared[i].detach() if is_loo else u_shared.detach()
         sim_loss = sim_loss + similarity_energy(sim_name, z, u_target, ctx)
 
+    # Dimensional collapse is penalised on the latents themselves
+    # (`utils.correlation_penalty`). It was measured on the mixed consensus
+    # `u`, which `newton` (and `svd`) mixing orthogonalise, so it read ~0 while
+    # the latents had collapsed. Without any collapse penalty NED still
+    # collapses: 6 of 20 (data seed, start seed) pairs on the
+    # tests/test_collapse_penalty fixture (|r| 0.76-0.98), against 0/20 with
+    # this one. (An earlier 0/5 without it used one start per data seed and
+    # was not representative.)
+    collapse_loss = torch.stack([correlation_penalty(z) for z in latents]).mean()
     if is_loo:
-        # For LOO, average the collapse and variance penalties across all leave-one-out consensus spaces
-        collapse_loss = torch.tensor(0.0, device=device)
         u_var_penalty = torch.tensor(0.0, device=device)
         for u in u_shared:
-            u_c = u - torch.mean(u, dim=0)
-            cov_u = (u_c.t() @ u_c) / (n - 1)
-            mask = ~torch.eye(u.shape[1], device=device).bool()
-            collapse_loss += torch.mean(cov_u[mask]**2)
             u_var_penalty += _variance_penalty(u)
-        collapse_loss /= len(u_shared)
         u_var_penalty /= len(u_shared)
         
         u_std_mean = torch.mean(torch.stack([torch.mean(_safe_std(u, dim=0)) for u in u_shared])).item()
@@ -1133,12 +1136,16 @@ def calculate_sim_loss(latents: List[torch.Tensor],
         u_c = u_shared - torch.mean(u_shared, dim=0)
         cov_u = (u_c.t() @ u_c) / (n - 1)
         mask = ~torch.eye(u_shared.shape[1], device=device).bool()
-        collapse_loss = torch.mean(cov_u[mask]**2)
         u_var_penalty = _variance_penalty(u_shared)
         u_std_mean = torch.mean(_safe_std(u_shared, dim=0)).item()
         u_off_diag_cov = torch.norm(cov_u[mask]).item()
     
     weights = {} if weights is None else weights
+    unknown = sorted(set(weights) - {"sim", "var", "collapse", "u_var"})
+    if unknown:
+        raise ValueError(
+            f"unknown loss weight(s) {unknown}; calculate_sim_loss uses 'sim', "
+            f"'var', 'collapse' and 'u_var'.")
     total_loss = (weights.get("sim", 1.0) * sim_loss + 
                   weights.get("var", 1.0) * var_penalty + 
                   weights.get("collapse", 1.0) * collapse_loss + 
@@ -1216,7 +1223,7 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     penalty_weights = {
         "sim": sim_weight,
         "var": 1.0,
-        "collapse": 1.0,
+        "collapse": DEFAULT_COLLAPSE_WEIGHT,
         "u_var": 1.0
     }
     
@@ -1622,7 +1629,7 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iter
               hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
               sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5,
               positivity: str = "either", nsa_w: float = DEFAULT_NSA_W, energy_type: str = DEFAULT_ENERGY_TYPE,
-              mixing_algorithm: str = "newton", topology: str = DEFAULT_TOPOLOGY,
+              mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, topology: str = DEFAULT_TOPOLOGY,
               path_graph: Optional[Dict[int, List[int]]] = None,
               prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
               mai_metric: str = "procrustes_r2", device: Optional[str] = None,
@@ -1649,7 +1656,7 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, itera
              hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
              sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5,
              positivity: str = "either", nsa_w: float = DEFAULT_NSA_W, energy_type: str = DEFAULT_ENERGY_TYPE,
-             mixing_algorithm: str = "newton", topology: str = DEFAULT_TOPOLOGY,
+             mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, topology: str = DEFAULT_TOPOLOGY,
              path_graph: Optional[Dict[int, List[int]]] = None,
              prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
              mai_metric: str = "procrustes_r2", device: Optional[str] = None,
@@ -1678,7 +1685,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
                             sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5,
                             positivity: str = "either", nsa_w: float = DEFAULT_NSA_W,
                             hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
-                            energy_type: str = DEFAULT_ENERGY_TYPE, mixing_algorithm: str = "newton",
+                            energy_type: str = DEFAULT_ENERGY_TYPE, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
                             topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None,
                             prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
                             mai_metric: str = "procrustes_r2",

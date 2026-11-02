@@ -134,7 +134,7 @@ def eval_task(task):
         params["mai_metric"] = mai_label
         params["use_rank_mai"] = False
 
-    if model_type in ("simlr", "simlr_lbfgsb"):
+    if model_type == "simlr":
         params["iterations"] = 25
     elif model_type in ("lend", "ned", "ned_shared_private", "flow_v"):
         params["iterations"] = 80
@@ -214,7 +214,6 @@ def build_task_list():
     lin_models = [
         ("Linear", "simlr", "SiMLR", "armijo_gradient"),
         ("Linear", "simlr", "SiMLR-BiArmijo", "bidirectional_armijo_gradient"),
-        ("Linear", "simlr_lbfgsb", "SiMLR-LBFGSB", "nsa_lbfgsb"),
         ("Linear", "simlr", "SiMLR-HybridAdam", "hybrid_adam"),
         ("Linear", "simlr", "SiMLR-LARS", "lars"),
         ("Linear", "simlr", "SiMLR-Lookahead", "lookahead"),

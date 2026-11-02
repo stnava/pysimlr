@@ -2,10 +2,9 @@ import warnings
 import torch
 import torch.nn as nn
 import numpy as np
-import pandas as pd
 from typing import List, Tuple, Optional, Dict, Any, Union
 from .utils import basis_rank_report
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM
 
 
 #: MAI similarity metrics. `trace` was removed: tr(Z' u_loo) is the only one
@@ -296,7 +295,7 @@ class FlowSiMRModel(_ModalityWeightingMixin, nn.Module):
     """
     Normalizing Flow SiMR Model.
     """
-    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, hidden_dim: int = 64, mixing_algorithm: str = "newton", scale_bound: float = 2.0, topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False, force_fallback: bool = False):
+    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, hidden_dim: int = 64, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, scale_bound: float = 2.0, topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False, force_fallback: bool = False):
         super().__init__()
         self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
                                     prune_threshold, dynamic_weights, mai_metric, use_rank_mai, dynamic_weights_start)
@@ -598,7 +597,7 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               num_layers: int = 4,
               hidden_dim: int = 64,
               energy_type: str = DEFAULT_ENERGY_TYPE,
-              mixing_algorithm: str = "newton",
+              mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
               topology: str = DEFAULT_TOPOLOGY,
               path_graph: Optional[Dict[int, List[int]]] = None,
               prune_threshold: Optional[float] = None,
@@ -651,7 +650,7 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
     Normalizing Flow SiMR Model with Pre-pended Linear Encoder Matrix V (Flow-SiMR-V).
     """
     def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, 
-                 hidden_dim: int = 64, mixing_algorithm: str = 'newton', scale_bound: float = 2.0,
+                 hidden_dim: int = 64, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, scale_bound: float = 2.0,
                  nsa_w: float = DEFAULT_NSA_W, positivity: str = 'either', 
                  sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, use_nsa: bool = True,
                  topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None,
@@ -777,7 +776,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 num_layers: int = 4,
                 hidden_dim: int = 64,
                 energy_type: str = DEFAULT_ENERGY_TYPE,
-                mixing_algorithm: str = 'newton',
+                mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
                 topology: str = DEFAULT_TOPOLOGY,
                 path_graph: Optional[Dict[int, List[int]]] = None,
                 prune_threshold: Optional[float] = None,
@@ -871,257 +870,3 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         init_kwargs=dict(initialization_type=initialization_type,
                          domain_matrices=domain_matrices, n_candidates=n_candidates,
                          perturbation_scale=perturbation_scale, varimax=varimax))
-
-
-def _lamnr_flows_function(name: str):
-    """Import `name` from antstorch's LAMNr-Flows module, which older
-    antstorch releases exported from the package root instead."""
-    with preserve_matplotlib_backend():
-        import antstorch
-        try:
-            from antstorch import lamnr_flows
-        except ImportError:
-            lamnr_flows = None
-    fn = getattr(lamnr_flows, name, None) or getattr(antstorch, name, None)
-    if fn is None:
-        raise ImportError(f"antstorch provides no {name!r} in lamnr_flows or at the package root")
-    return fn
-
-
-class FlowWhitener:
-    """
-    Normalizing Flow Whitener backed by ANTsTorch's lamnr_flows_whitener.
-    
-    Transforms single- or multi-modal data matrices into whitened representations
-    via bijective normalizing flows with GaussianPCA or DiagGaussian base distributions.
-    """
-    def __init__(
-        self,
-        K: int = 16,
-        max_iter: int = 500,
-        base_distribution: str = "GaussianPCA",
-        pca_latent_dimension: Optional[int] = None,
-        output_space: str = "whitened",
-        device: str = "cpu",
-        batch_size: int = 256,
-        seed: int = 0,
-        **kwargs
-    ):
-        self.K = K
-        self.max_iter = max_iter
-        self.base_distribution = base_distribution
-        self.pca_latent_dimension = pca_latent_dimension
-        self.output_space = output_space
-        self.device = device
-        self.batch_size = batch_size
-        self.seed = seed
-        self.kwargs = kwargs
-        self.trainer_output: Optional[Dict[str, Any]] = None
-        self.models: Optional[List[nn.Module]] = None
-
-    def _convert_input(self, data_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]]):
-        is_single = not isinstance(data_matrices, (list, tuple))
-        raw_list = [data_matrices] if is_single else list(data_matrices)
-        df_list = []
-        meta_list = []
-        for i, m in enumerate(raw_list):
-            if isinstance(m, pd.DataFrame):
-                df_list.append(m.copy())
-                meta_list.append({"kind": "dataframe", "columns": m.columns, "index": m.index})
-            elif isinstance(m, torch.Tensor):
-                arr = m.detach().cpu().numpy()
-                cols = [f"dim_{j}" for j in range(arr.shape[1])]
-                df_list.append(pd.DataFrame(np.ascontiguousarray(arr).copy(), columns=cols))
-                meta_list.append({"kind": "tensor", "device": m.device, "dtype": m.dtype})
-            elif isinstance(m, np.ndarray):
-                cols = [f"dim_{j}" for j in range(m.shape[1])]
-                df_list.append(pd.DataFrame(np.ascontiguousarray(m).copy(), columns=cols))
-                meta_list.append({"kind": "numpy", "dtype": m.dtype})
-            else:
-                arr = np.asarray(m)
-                cols = [f"dim_{j}" for j in range(arr.shape[1])]
-                df_list.append(pd.DataFrame(np.ascontiguousarray(arr).copy(), columns=cols))
-                meta_list.append({"kind": "numpy", "dtype": arr.dtype})
-        return df_list, is_single, meta_list
-
-    def _convert_output(self, dfs: Union[pd.DataFrame, List[pd.DataFrame]], is_single: bool, meta_list: List[Dict[str, Any]]):
-        df_list = [dfs] if isinstance(dfs, pd.DataFrame) else list(dfs)
-        out_list = []
-        for df, meta in zip(df_list, meta_list):
-            if meta["kind"] == "dataframe":
-                out_list.append(df)
-            elif meta["kind"] == "tensor":
-                t = torch.tensor(df.values, dtype=meta["dtype"], device=meta["device"])
-                out_list.append(t)
-            elif meta["kind"] == "numpy":
-                arr = np.asarray(df.values, dtype=meta["dtype"])
-                out_list.append(arr)
-            else:
-                out_list.append(df.values)
-        return out_list[0] if is_single else out_list
-
-    def fit(self, data_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]]) -> "FlowWhitener":
-        lamnr_flows_whitener = _lamnr_flows_function("lamnr_flows_whitener")
-
-        df_list, _, _ = self._convert_input(data_matrices)
-        whitener_kwargs = dict(self.kwargs)
-        whitener_kwargs.setdefault("early_stop_enabled", False)
-        whitener_kwargs.setdefault("val_interval", max(20, self.max_iter // 5) if self.max_iter > 20 else 10)
-        whitener_kwargs.setdefault("val_batch_size", self.batch_size)
-
-        train_kwargs = dict(
-            K=self.K,
-            max_iter=self.max_iter,
-            base_distribution=self.base_distribution,
-            batch_size=self.batch_size,
-            seed=self.seed,
-            **whitener_kwargs
-        )
-        if self.pca_latent_dimension is not None:
-            train_kwargs["pca_latent_dimension"] = self.pca_latent_dimension
-
-        self.trainer_output = lamnr_flows_whitener(df_list, **train_kwargs)
-        self.models = self.trainer_output.get("models", None)
-        return self
-
-    def transform(
-        self,
-        data_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]],
-        output_space: Optional[str] = None,
-        direction: str = "forward",
-        **kwargs
-    ) -> Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Any]]:
-        if self.trainer_output is None:
-            raise RuntimeError("FlowWhitener must be fitted before calling transform.")
-        apply_lamnr_flows_whitener = _lamnr_flows_function("apply_lamnr_flows_whitener")
-
-        df_list, is_single, meta_list = self._convert_input(data_matrices)
-        target_space = output_space if output_space is not None else self.output_space
-        applied = apply_lamnr_flows_whitener(
-            self.trainer_output,
-            df_list,
-            direction=direction,
-            output_space=target_space,
-            device=self.device,
-            **kwargs
-        )
-        return self._convert_output(applied, is_single, meta_list)
-
-    def inverse_transform(
-        self,
-        whitened_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]],
-        input_space: Optional[str] = None,
-        **kwargs
-    ) -> Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Any]]:
-        if self.trainer_output is None:
-            raise RuntimeError("FlowWhitener must be fitted before calling inverse_transform.")
-        apply_lamnr_flows_whitener = _lamnr_flows_function("apply_lamnr_flows_whitener")
-
-        df_list, is_single, meta_list = self._convert_input(whitened_matrices)
-        target_space = input_space if input_space is not None else self.output_space
-        applied = apply_lamnr_flows_whitener(
-            self.trainer_output,
-            df_list,
-            direction="inverse",
-            input_space=target_space,
-            device=self.device,
-            **kwargs
-        )
-        return self._convert_output(applied, is_single, meta_list)
-
-    def fit_transform(
-        self,
-        data_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]],
-        output_space: Optional[str] = None,
-        **kwargs
-    ) -> Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Any]]:
-        self.fit(data_matrices)
-        return self.transform(data_matrices, output_space=output_space, **kwargs)
-
-
-def flow_whiten_matrix(
-    data_matrices: Union[torch.Tensor, np.ndarray, pd.DataFrame, List[Union[torch.Tensor, np.ndarray, pd.DataFrame]]],
-    K: int = 16,
-    max_iter: int = 500,
-    base_distribution: str = "GaussianPCA",
-    pca_latent_dimension: Optional[int] = None,
-    output_space: str = "whitened",
-    device: str = "cpu",
-    batch_size: int = 256,
-    seed: int = 0,
-    **kwargs
-) -> Dict[str, Any]:
-    """
-    Whiten data matrices using ANTsTorch normalizing flows (Flow-Whitening).
-
-    Parameters
-    ----------
-    data_matrices : torch.Tensor, np.ndarray, pd.DataFrame, or list thereof
-        Single matrix or list of multi-view data matrices.
-    K : int, default=16
-        Number of normalizing flow coupling layers.
-    max_iter : int, default=500
-        Maximum training iterations for the flow whitener.
-    base_distribution : str, default='GaussianPCA'
-        Base distribution ('GaussianPCA' or 'DiagGaussian').
-    pca_latent_dimension : int, optional
-        Latent dimension for GaussianPCA base distribution.
-    output_space : str, default='whitened'
-        Output representation ('whitened', 'z', or 'whitened_full').
-    device : str, default='cpu'
-        PyTorch device ('cpu' or 'cuda').
-    batch_size : int, default=256
-        Batch size for training.
-    seed : int, default=0
-        Random seed for reproducibility.
-
-    Returns
-    -------
-    dict
-        A dictionary containing:
-        - "whitened_views": Transformed views in original input container type (list or single).
-        - "whitened_matrix": Transformed matrix if single input was provided.
-        - "whitened_dfs": Whitened pandas DataFrames.
-        - "models": List of trained normalizing flow models.
-        - "trainer_output": Complete ANTsTorch training output dictionary.
-        - "metrics": Training metrics (best step, best metric, etc.).
-        - "whitener": Fitted FlowWhitener instance.
-    """
-    whitener = FlowWhitener(
-        K=K,
-        max_iter=max_iter,
-        base_distribution=base_distribution,
-        pca_latent_dimension=pca_latent_dimension,
-        output_space=output_space,
-        device=device,
-        batch_size=batch_size,
-        seed=seed,
-        **kwargs
-    )
-    whitener.fit(data_matrices)
-    whitened_out = whitener.transform(data_matrices, output_space=output_space)
-    
-    df_list, is_single, _ = whitener._convert_input(data_matrices)
-    apply_lamnr_flows_whitener = _lamnr_flows_function("apply_lamnr_flows_whitener")
-    dfs_out = apply_lamnr_flows_whitener(
-        whitener.trainer_output,
-        df_list,
-        direction="forward",
-        output_space=output_space,
-        device=device
-    )
-
-    res = {
-        "whitened_views": whitened_out,
-        "whitened_dfs": dfs_out,
-        "models": whitener.models,
-        "trainer_output": whitener.trainer_output,
-        "metrics": whitener.trainer_output.get("metrics", {}),
-        "whitener": whitener,
-    }
-    if is_single:
-        res["whitened_matrix"] = whitened_out
-
-    return res
-
-

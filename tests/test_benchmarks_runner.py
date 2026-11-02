@@ -41,6 +41,13 @@ def test_run_single_experiment():
     assert "metrics" in res_sp
     assert res_sp["metrics"]["model"] == "ned_shared_private"
 
+    # Every model fills the stationarity column with the same functional
+    # (`utils.stationarity_residual`); simlr's was empty for a while.
+    import math
+    for r in (res_linear, res_lend, res_ned, res_sp):
+        g = r["metrics"]["grad_map"]
+        assert g is not None and math.isfinite(g) and g >= 0.0, (r["metrics"]["model"], g)
+
 def test_run_seeded_benchmark():
     df = run_seeded_benchmark("simlr", case_kind="nonlinear", n_samples=50, n_seeds=2, iterations=1)
     assert isinstance(df, pd.DataFrame)

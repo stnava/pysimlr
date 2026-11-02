@@ -374,32 +374,19 @@ def test_loo_iteration_improves_on_a_wrong_initialization():
     assert np.mean(gains["loo"]) > np.mean(gains["star"]) + 0.1, gains
 
 
-def test_degradation_tracks_rank_loss():
-    """The pathology `orthox0` actually exhibits, stated as the relationship.
-
-    An unconstrained fit is not merely unhelpful here, it returns fewer
-    components than asked for, and the loss of latent recovery follows the
-    loss of rank. Asserting "no degradation" at w=0 hid that behind a
-    threshold.
-    """
+def test_no_rank_loss_at_any_constraint_weight():
+    """`orthox0` (no orthogonality constraint) used to return fewer components
+    than asked for -- effective rank 1.83 of 3 under "acc" -- and latent
+    recovery tracked the lost rank. The collapse penalty on each view's scores
+    (`utils.correlation_penalty`) now keeps the basis full rank whatever the
+    constraint weight."""
     import numpy as np
     from pysimlr.simlr import simlr
     z, x = _coupled(0)
-    # Measured under "star", where the pathology was recorded. Under the
-    # default "loo" orthox0 loses less rank (2.64 of 3 against 3.00 at w=0.5).
-    def fit(c):
-        return simlr(x, k=3, iterations=20, constraint=c, energy_type="acc",
-                     optimizer_type="lars", mixing_algorithm="newton", topology="star")
-    ranks = {c: float(np.mean(fit(c)["effective_rank"]))
-             for c in ("orthox0", "orthox0.1", "orthox0.5")}
-    assert ranks["orthox0"] < ranks["orthox0.1"] < ranks["orthox0.5"], (
-        f"rank no longer increases with the constraint weight: {ranks}")
-    r_weak, r_ok = ranks["orthox0"], ranks["orthox0.5"]
-    assert r_weak < r_ok - 0.5, (
-        f"w=0 no longer loses rank relative to w=0.5 ({r_weak:.2f} against "
-        f"{r_ok:.2f}); if the projection now keeps the basis full rank at "
-        f"w=0, the degradation recorded above should be re-measured")
-    assert r_ok > 2.8, f"w=0.5 lost rank ({r_ok:.2f} of 3)"
+    for c in ("orthox0", "orthox0.1", "orthox0.5"):
+        r = simlr(x, k=3, iterations=20, constraint=c, random_state=0)
+        rank = float(np.mean(r["effective_rank"]))
+        assert rank > 2.8, f"{c}: effective rank {rank:.2f} of 3"
 
 
 def test_prox_w_and_smoothing_are_idempotent():

@@ -8,7 +8,7 @@ prevalence. Replaces the pre-rendered ``paper/figures/fig_brca_trimodal_waterfal
 (``scripts/generate_brca_waterfall.py``), whose numbers had no cache.
 
 Descriptive fit on all 822 tumours (no held-out score is reported from it):
-`LEND`, k = 3, 45 epochs, energy "acc", SVD mixing, signed basis, w = 0.5,
+`LEND`, k = 3, 45 epochs, package-default energy, mixing and w, signed basis,
 2 NSA iterations, random_state = 42; each view standardized.
 
 Usage: python scripts/paper_brca_loadings.py [--out DIR]
@@ -69,8 +69,8 @@ def main():
         x = d[t].astype(np.float64)
         sd = x.std(0, ddof=1)
         xs.append(torch.tensor((x - x.mean(0)) / np.where(sd > 0, sd, 1.0)).float())
-    res = pysimlr.fit("lend", xs, 3, iterations=45, energy_type="acc", mixing_algorithm="svd",
-                      positivity="either", nsa_w=0.5, nsa_iterations=2, random_state=42)
+    res = pysimlr.fit("lend", xs, 3, iterations=45,
+                      positivity="either", nsa_iterations=2, random_state=42)
     out = {"n": int(len(y)), "er_positive_fraction": float(y.mean()), "views": {}}
     for i, t in enumerate(assays):
         v = res["v"][i].detach().numpy().astype(np.float64)

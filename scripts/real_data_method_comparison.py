@@ -53,8 +53,8 @@ def run_gcca(views_tr, views_te):
     v_mats = initialize_simlr(views_tr, K, initialization_type="gcca")
     zs_tr = [x @ v for x, v in zip(views_tr, v_mats)]
     zs_te = [x @ v for x, v in zip(views_te, v_mats)]
-    u_tr, anchor = compute_shared_consensus(zs_tr, mixing_algorithm="svd", k=K, training=True)
-    u_te = compute_shared_consensus(zs_te, mixing_algorithm="svd", k=K, training=False, anchor=anchor)
+    u_tr, anchor = compute_shared_consensus(zs_tr, k=K, training=True)
+    u_te = compute_shared_consensus(zs_te, k=K, training=False, anchor=anchor)
     return u_tr, u_te
 
 

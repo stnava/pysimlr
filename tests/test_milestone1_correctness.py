@@ -173,7 +173,8 @@ def test_m1_consensus_single_sample_n1_no_nan():
     torch.manual_seed(42)
     x1 = torch.randn(1, 6)
     x2 = torch.randn(1, 6)
-    u = compute_shared_consensus([x1, x2], k=2, topology="star", training=False)
+    # Reducing width-6 projections to k=2 needs a concatenating mixing.
+    u = compute_shared_consensus([x1, x2], mixing_algorithm="svd", k=2, topology="star", training=False)
     assert not torch.isnan(u).any(), "Consensus U contains NaNs on N=1!"
     assert u.shape == (1, 2)
 

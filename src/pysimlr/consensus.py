@@ -4,6 +4,7 @@ import warnings
 from typing import List, Optional, Union, Dict, Any, Tuple
 from .utils import align_column_signs
 from .utils import newton_schulz_orthogonalize, safe_svd
+from .defaults import DEFAULT_MIXING_ALGORITHM
 
 
 def align_anchor_columns(new_anchor: torch.Tensor,
@@ -44,8 +45,12 @@ def align_anchor_columns(new_anchor: torch.Tensor,
     signs = torch.where(dots < 0.0, -ones, ones)
     return torch.where(ref_norm < eps, ones, signs)
 
+#: Mixings that average corresponding columns across views.
+_AVERAGING_MIXINGS = ("avg", "newton")
+
+
 def compute_shared_consensus(projections: List[torch.Tensor], 
-                            mixing_algorithm: str = "svd", 
+                            mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, 
                             k: Optional[int] = None,
                             orthogonalize: bool = False,
                             training: bool = False,
@@ -88,7 +93,25 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         # `capture_consensus_map`.
         return apply_consensus_map(projections, frozen_map)
         
-    len(projections)
+    if mixing_algorithm in _AVERAGING_MIXINGS:
+        # Averaging mixings pair column l of every view with column l of every
+        # other view, so every projection must have the same width and that
+        # width is the rank. They cannot reduce a wider projection to `k`
+        # (only the concatenating mixings, svd/pca/ica, fit a basis that can);
+        # they used to return the full width and ignore `k`, and unequal widths
+        # failed inside `torch.stack` with a shape error.
+        widths = sorted({int(p.shape[1]) for p in projections})
+        if len(widths) != 1:
+            raise ValueError(
+                f"mixing_algorithm={mixing_algorithm!r} averages corresponding "
+                f"columns, so all projections need the same width; got widths "
+                f"{[int(p.shape[1]) for p in projections]}. Use 'svd', 'pca' or "
+                f"'ica' to combine projections of different widths.")
+        if k is not None and int(k) != widths[0]:
+            raise ValueError(
+                f"mixing_algorithm={mixing_algorithm!r} cannot reduce projections "
+                f"of width {widths[0]} to k={k}: it averages corresponding columns. "
+                f"Pass projections of width k, or use 'svd', 'pca' or 'ica'.")
     if k is None:
         k = projections[0].shape[1]
         
@@ -110,7 +133,12 @@ def compute_shared_consensus(projections: List[torch.Tensor],
     # Core consensus logic separated into a helper to reuse for LOO
     def _get_u(proj_list, return_anchor=False):
         local_big_p = torch.cat(proj_list, dim=1)
-        volatile = mixing_algorithm in ["svd", "pca", "ica"]
+        # Every mixing has a linear anchor (U = big_p @ anchor for the batch it
+        # was derived on), so prediction can replay it instead of re-deriving a
+        # batch-dependent consensus. "avg"/"newton" had none and re-orthogonalised
+        # the prediction batch; the package's predict paths use `frozen_map`
+        # and were not affected (measured: |u_full - u_half| <= 9e-8).
+        volatile = mixing_algorithm in ["svd", "pca", "ica", "avg", "newton"]
         if not training and volatile and anchor is not None and len(proj_list) == len(projections):
             # Reuse the learned anchor so prediction does not re-derive a fresh
             # (arbitrarily rotated/sign-flipped) SVD basis. This branch must fall
@@ -118,18 +146,24 @@ def compute_shared_consensus(projections: List[torch.Tensor],
             # here produced a U on a different scale than the training-time U.
             local_u = local_big_p @ anchor
             local_anchor = anchor
-        elif mixing_algorithm == "avg":
+        elif mixing_algorithm in _AVERAGING_MIXINGS:
             # Signs aligned before averaging; see `utils.align_column_signs`.
             # A latent is defined only up to a sign per component, so two views
             # can recover the same factors with opposite signs and the mean
             # then cancels them. Measured on a planted signal: per-view latents
             # at R^2 0.784 and 0.785, their plain average at 0.023.
-            local_u = torch.mean(torch.stack(align_column_signs(proj_list)), dim=0)
-            local_anchor = None
-        elif mixing_algorithm == "newton":
-            local_u = torch.mean(torch.stack(align_column_signs(proj_list)), dim=0)
-            local_u = newton_schulz_orthogonalize(local_u, iterations=10)
-            local_anchor = None
+            aligned = align_column_signs(proj_list)
+            local_u = torch.mean(torch.stack(aligned), dim=0)
+            # The mean is big_p @ A with A = [diag(s_1); ...; diag(s_M)] / M.
+            signs = [torch.where((a * p).sum(dim=0) < 0, -1.0, 1.0).to(p.dtype)
+                     for a, p in zip(aligned, proj_list)]
+            local_anchor = torch.cat([torch.diag(sg) for sg in signs], dim=0) / len(proj_list)
+            if mixing_algorithm == "newton":
+                mean_u = local_u
+                local_u = newton_schulz_orthogonalize(mean_u, iterations=10)
+                # Newton-Schulz iterates X <- X p(X^T X), so its result is
+                # mean_u @ W for a k x k W; recover W to keep the anchor exact.
+                local_anchor = local_anchor @ (torch.linalg.pinv(mean_u) @ local_u)
         elif mixing_algorithm == "ica":
             avg_p = local_big_p.detach().cpu().numpy()
             with warnings.catch_warnings():
