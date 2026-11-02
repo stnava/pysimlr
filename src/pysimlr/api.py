@@ -31,12 +31,18 @@ Every result carries ``method``, ``family``, ``parameters``, ``u`` (an
 ``random_state`` and rank diagnostics -- per view (``effective_rank``,
 ``numerical_rank``, ``condition_number``, ``max_column_overlap``), or
 ``joint_*`` with ``basis_is_joint=True`` for the baselines that fit one basis
-on the concatenated views. `validate_result` checks it.
+on the concatenated views, and the interpretation keys ``structure`` and
+``loadings`` (one ``(p_m, k)`` block per view; see `pysimlr.loadings`).
+`validate_result` checks it.
 
-When a linear fit returns a per-view list of consensus matrices (the
-``"loo"`` and ``"graph"`` topologies), ``u`` is the first view's consensus,
-as the benchmark runner has always scored it, and the full list is in
-``u_per_modality``.
+``v`` is the encoder that scores new subjects; ``structure`` (feature-latent
+correlations) and ``loadings`` (their OLEE summary) are what to read feature
+by feature, because ``v`` is weakly identified in the low-variance directions
+of each view.
+
+For `simlr`, ``u`` is the star consensus of the fitted views under every
+topology; the per-view consensus targets of the ``"loo"`` and ``"graph"``
+topologies are in ``u_per_modality``.
 """
 from __future__ import annotations
 
@@ -60,7 +66,8 @@ FAMILIES = ("linear", "deep", "flow", "baseline")
 
 #: Keys every `fit` result carries.
 CONTRACT_KEYS = ("method", "family", "parameters", "u", "v", "latents", "convergence",
-                 "sparseness", "scale_list", "provenance_list", "random_state")
+                 "sparseness", "scale_list", "provenance_list", "random_state",
+                 "structure", "loadings")
 RANK_KEYS = ("effective_rank", "numerical_rank", "condition_number", "max_column_overlap")
 CONVERGENCE_KEYS = ("converged", "stop_reason", "certificate", "grad_map", "n_steps",
                     "max_steps", "tol", "patience", "best", "final")
@@ -433,6 +440,10 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
     }
     if spec.family in ("deep", "flow"):
         res["convergence"]["grad_map"] = _basis_grad_map(res, view_list)
+    from .loadings import loadings as _loadings
+    lo = _loadings(res, view_list)
+    res["structure"], res["loadings"] = lo["structure"], lo["loadings"]
+    res["loading_margin"], res["loading_rotation"] = lo["loading_margin"], lo["loading_rotation"]
     validate_result(res, n=view_list[0].shape[0], k=int(k), n_views=len(view_list))
     return res
 
@@ -536,6 +547,14 @@ def validate_result(result: Dict[str, Any], n: Optional[int] = None, k: Optional
         raise ValueError(f"u has shape {tuple(u.shape)}, expected {(n, k)}.")
     if n_views is not None and len(result["v"]) != n_views:
         raise ValueError(f"v has {len(result['v'])} blocks for {n_views} views.")
+    for key in ("structure", "loadings"):
+        blocks = result[key]
+        if n_views is not None and len(blocks) != n_views:
+            raise ValueError(f"{key} has {len(blocks)} blocks for {n_views} views.")
+        for i, b in enumerate(blocks):
+            if b.ndim != 2 or (k is not None and b.shape[1] != k) or not torch.isfinite(b).all():
+                raise ValueError(f"{key}[{i}] must be a finite (p_m, {k}) tensor; "
+                                 f"got shape {tuple(b.shape)}.")
 
 
 def parameter_summary(result: Dict[str, Any]) -> Dict[str, Any]:

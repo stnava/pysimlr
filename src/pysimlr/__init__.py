@@ -140,6 +140,12 @@ from .api import (
     parameter_summary,
     METHODS,
 )
+from .loadings import (
+    loadings,
+    loading_inference,
+    structure_coefficients,
+    olee_loadings,
+)
 from .interpretability import (
     summarize_basis_matrix,
     build_first_layer_contract,
@@ -170,6 +176,10 @@ __all__ = [
     '__version__',
     'simlr',
     'predict_simlr',
+    'loadings',
+    'loading_inference',
+    'structure_coefficients',
+    'olee_loadings',
     'predict_shared_latent',
     'reconstruct_from_learned_maps',
     'estimate_rank',
