@@ -485,7 +485,7 @@ def run_deep_benchmark(
     n_seeds: int = 3,
     workers: int = 8,
     iterations: Optional[int] = None,
-    epochs: int = 45,
+    epochs: Optional[int] = None,
     sparsity: Optional[float] = 0.5,
     out_filename: str = "deep_ranking_benchmark.csv",
 ) -> pd.DataFrame:
@@ -519,7 +519,7 @@ def run_operating_point_suite(
     n_seeds: int = 3,
     workers: int = 8,
     iterations: Optional[int] = None,
-    epochs: int = 45,
+    epochs: Optional[int] = None,
 ) -> pd.DataFrame:
     """Run all three operating points (None, 0.5, 0.8) across all 12 cohorts
     plus paired positivity='positive' vs 'either' on real biomedical cohorts."""
@@ -561,7 +561,7 @@ def run_operating_point_suite(
 def run_deep_consistency(
     n_seeds: int = 3,
     workers: int = 8,
-    epochs: int = 45,
+    epochs: Optional[int] = None,
     out_csv: str = "docs/audit/evidence/deep_default_consistency.csv",
 ) -> pd.DataFrame:
     """Run synthetic benchmark once across deep families for Rule R13 consistency check."""
@@ -586,18 +586,18 @@ def run_deep_consistency(
     summary = df.groupby("Method")["converged"].agg(["count", "mean"])
     print(summary)
 
-    # R13: if any family has convergence < 0.9, re-run with package default 150 epochs
+    # R13: if any family has convergence < 0.9, re-run with package default 300 epochs
     rerun_tasks = []
     for model_type, model_label in deep_models:
         fam_conv = df[df["Method"] == model_type]["converged"].mean()
         if fam_conv < 0.9:
-            print(f"[R13 Trigger] Family {model_type} convergence {fam_conv:.2f} < 0.9 (epochs: {epochs}). Re-running at epochs: 150...")
+            print(f"[R13 Trigger] Family {model_type} convergence {fam_conv:.2f} < 0.9 (epochs: {epochs}). Re-running at epochs: 300...")
             for reg in synthetic_regimes:
                 for seed in range(42, 42 + n_seeds):
-                    rerun_tasks.append((reg, "synthetic", model_type, model_label, seed, None, 150, 0.5, "default"))
+                    rerun_tasks.append((reg, "synthetic", model_type, model_label, seed, None, 300, 0.5, "default"))
 
     if rerun_tasks:
-        df_rerun = _execute_tasks(rerun_tasks, workers=workers, label="Deep Consistency R13 Re-run (epochs: 150)")
+        df_rerun = _execute_tasks(rerun_tasks, workers=workers, label="Deep Consistency R13 Re-run (epochs: 300)")
         rerun_methods = set(t[2] for t in rerun_tasks)
         df = pd.concat([df[~df["Method"].isin(rerun_methods)], df_rerun], ignore_index=True)
         print("\n=== Post-R13 Deep Consistency Convergence Summary ===")
@@ -615,7 +615,7 @@ if __name__ == "__main__":
     parser.add_argument("--seeds", type=int, default=3, help="Number of seeds (default: 3)")
     parser.add_argument("--workers", type=int, default=8, help="Worker processes (default: 8)")
     parser.add_argument("--iterations", type=int, default=None, help="SiMLR iterations (default: None, package default)")
-    parser.add_argument("--epochs", type=int, default=45, help="Deep epochs (default: 45)")
+    parser.add_argument("--epochs", type=int, default=None, help="Deep epochs (default: None, package default)")
     parser.add_argument("--suite", action="store_true", help="Run full operating-point (None, 0.5, 0.8) and positivity suite")
     parser.add_argument("--consistency", action="store_true", help="Run B3 deep consistency evaluation (R13)")
     parser.add_argument("--out", default="docs/audit/evidence/deep_default_consistency.csv", help="Output CSV path")
