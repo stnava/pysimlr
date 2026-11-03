@@ -1,6 +1,6 @@
 # Tracking Summary
-current phase: v0.8.0 released from `main` (88ecbf8 + release commit). The paper (D2) continues on `amigo-paper`; the visualization spec is next on `main`.
-next WP: visualization spec (docs: vvv.md request; P0-P2 plus interpretable-feature plots) in `pysimlr.plotting`; D2 paper on `amigo-paper` after merging `main`.
+current phase: v0.9.0 released from `main` (full visualization suite). Next: MAI measurement revision (null-calibrated / held-out MAI, null-floor gating, max_cc metric).
+next WP: MAI revision on `main`; D2 paper on `amigo-paper` (merge `main` first).
 blockers: none
 active work: `amigo` (handoff spec `/tmp/amigo_handoff_v3.md`); the owner's uncommitted paper and manuscript edits in the main working tree
 device: Apple Silicon (macOS 27 arm64), CPU only; venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
@@ -11,6 +11,26 @@ last updated: 2026-11-02
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D15 (v0.9.0 release: visualization suite, 2026-11-03)
+status: done (`1f40318`; this release commit)
+- **`pysimlr.plotting`** implements the visualization spec (P0-P2) plus interpretable-feature
+  facilities:
+  - `feature_table` (data);
+  - `plot_top_features` and `plot_feature_groups`;
+  - `plot_latent_coupling` (training vs held-out);
+  - `plot_convergence` (deep components);
+  - `plot_basis_diagnostics` and `plot_rank_selection`;
+  - `plot_modality_weights` and `plot_flow_warping`;
+  - `plot_variance_explained` and `plot_fit_summary`;
+  - `plot_benchmark_uncertainty`.
+- **One rotation rule** (`_aligned_frame`) for every plot, the Okabe-Ito palette, and an orange
+  "NOT converged" banner on unconverged fits.
+- **Removed:** `plot_structure_intervals`, `plot_component_stability` and `plot_view_agreement`
+  (replaced by the above).
+- **Gallery:** `docs/plotting_gallery.html`, 31 reviewed figures in 7 sections from
+  `scripts/plotting_gallery.py`.
+- **Verification:** see the release commit body.
 
 ## D14 (v0.8.0 release, 2026-11-03)
 status: done (this release commit; `main` at 88ecbf8 before it)
