@@ -250,10 +250,11 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   - *Decision Rule R5 evaluation*:
     - Condition: Retain `simlr_lbfgsb` if at least one grid point achieves non-inferiority to `hybrid_adam` (mean $\Delta \text{latent\_r2} \ge -0.05$, mean $\Delta \text{support\_f1} \ge -0.10$, and per-cell guards $\ge -0.05$ and $-0.10$ respectively); otherwise drop `simlr_lbfgsb` and `nsa_lbfgsb`.
     - Result: 0 of 9 grid points meet non-inferiority (all 9 fail the per-cell $\Delta \text{latent\_r2}$ guard by $\approx -0.968$).
+    - The R5 guard failed on one cell (`buried_either_s0`, R² 0.015 against 0.979, in all 9 constant settings); not isolated, because the method was dropped.
     - *Verdict*: **DROP** `simlr_lbfgsb` and `nsa_lbfgsb` per Decision Rule R5.
   - *Action taken*:
     - `src/pysimlr/api.py`: Removed `simlr_lbfgsb` from registered specs and presets. Added to `REMOVED_METHODS` raising `ValueError` directing users to `'simlr'` with default optimizer `'hybrid_adam'`.
-    - `src/pysimlr/optimizers.py`: Removed `NSALBFGSB` class and `nsa_lbfgsb` from optimizer registry. Added to `REMOVED_OPTIMIZERS`. Updated `LEARNING_RATE_FREE_OPTIMIZERS = frozenset()`.
+    - `src/pysimlr/optimizers.py` & `src/pysimlr/simlr.py`: Removed `NSALBFGSB` class and `nsa_lbfgsb` from optimizer registry. Added to `REMOVED_OPTIMIZERS`. Removed `LEARNING_RATE_FREE_OPTIMIZERS`, `gradient_function` hook, and `smooth_energy_fn`.
     - Migrated tests and documentation across test suite, scripts, and contract docs.
 - **D6. NED rounding sensitivity (Decision Rule R6, WP-8).** Evaluated float32 training divergence
   under $10^{-8}$ Gaussian input noise using `scripts/ned_rounding.py` across data seeds {42, 2, 1}

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """WP-7 (D5): NSALBFGSB Proximal-Quartic Calibration and Decision Rule R5 Evaluation.
 
+Runs only at f8db84b^ (the commit immediately preceding the removal of simlr_lbfgsb and nsa_lbfgsb).
+
 Grid definition:
   - quad_coeff in {1.0, 2.5, 5.0}
   - quartic_coeff in {16.0, 64.0, 256.0}

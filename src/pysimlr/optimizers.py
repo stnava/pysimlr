@@ -11,9 +11,6 @@ from abc import ABC, abstractmethod
 #: :meth:`SimlrOptimizer.filter_params`, so it must stay in sync with the
 #: optimizer implementations below.
 
-#: Optimizers that never read `learning_rate`. `simlr` skips the
-#: learning-rate probes for them.
-LEARNING_RATE_FREE_OPTIMIZERS = frozenset()
 
 SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
     'learning_rate': 0.001,
