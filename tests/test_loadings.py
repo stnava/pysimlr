@@ -188,3 +188,22 @@ def test_select_rank_recovers_a_planted_rank():
     views, k_true = _planted(0)
     out = pysimlr.select_rank("simlr", views, [2, 3, 4], n_subsamples=10, random_state=0)
     assert k_true == 3 and out["k"] == 3
+
+
+def test_loading_inference_does_not_depend_on_n_jobs():
+    views = _small(n=80)
+    kw = dict(n_subsamples=3, n_permutations=1, iterations=5, random_state=0)
+    a = pysimlr.loading_inference("simlr", views, 2, n_jobs=1, **kw)
+    b = pysimlr.loading_inference("simlr", views, 2, n_jobs=2, **kw)
+    for key in ("ci_low", "ci_high", "selection_frequency", "selected"):
+        for x, y in zip(a[key], b[key]):
+            assert torch.equal(x, y), key
+    assert a["component_stability"] == b["component_stability"]
+    assert a["null_max_abs"] == b["null_max_abs"]
+    with pytest.raises(ValueError, match="n_jobs"):
+        pysimlr.loading_inference("simlr", views, 2, n_jobs=0, **kw)
+    sa = pysimlr.select_rank("simlr", views, [1, 2], n_subsamples=2, iterations=5,
+                             random_state=0, n_jobs=1)
+    sb = pysimlr.select_rank("simlr", views, [1, 2], n_subsamples=2, iterations=5,
+                             random_state=0, n_jobs=2)
+    assert sa == sb
