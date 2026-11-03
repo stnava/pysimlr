@@ -1,0 +1,10 @@
+{
+ "cli": "scripts/run_adni_mci_grid_sweep.py",
+ "seconds": 1238.3,
+ "end_utc": "2026-11-03T16:59:14.052226Z",
+ "host": "d-172-18-65-193.vpn.net.virginia.edu",
+ "pysimlr": "0.10.0",
+ "torch": "2.13.0",
+ "n_configurations": 1025,
+ "n_failed": 0
+}

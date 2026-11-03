@@ -1,16 +1,26 @@
 {
-  "cli": "scripts/paper_adni_ablations.py --only loadings",
-  "start_utc": "2026-11-03T13:22:54.981469Z",
-  "end_utc": "2026-11-03T13:23:10.624888Z",
+  "cli": "scripts/paper_adni_ablations.py --workers 8",
+  "start_utc": "2026-11-03T15:14:50.149776Z",
+  "end_utc": "2026-11-03T15:18:35.327066Z",
   "host": "d-172-18-65-193.vpn.net.virginia.edu",
   "python": "3.12.12",
   "torch": "2.13.0",
-  "pysimlr": "0.7.0",
+  "pysimlr": "0.9.0",
   "device": "cpu",
   "experiments": [
-    "loadings"
+    "controls",
+    "k",
+    "loadings",
+    "quantile",
+    "rowmean",
+    "w"
   ],
   "seconds": {
-    "loadings": 15.643264958052896
+    "controls": 52.4983731249813,
+    "k": 36.006972791976295,
+    "loadings": 20.73020379198715,
+    "quantile": 53.41826233302709,
+    "rowmean": 19.226572458981536,
+    "w": 43.29500529204961
   }
 }
