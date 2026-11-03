@@ -329,7 +329,7 @@ window.Quarto = {
 <p>This appendix documents the computational environment, replication structure, and non-parametric statistical testing procedures used to generate all tables, figures, and hypothesis tests in the manuscript.</p>
 <section id="building-the-manuscript" class="level2" data-number="D.1">
 <h2 data-number="D.1" class="anchored" data-anchor-id="building-the-manuscript"><span class="header-section-number">D.1</span> Building the Manuscript</h2>
-<p>The manuscript is written in Quarto and compiles to HTML and PDF formats. All benchmark result caches are stored in <code>paper/results_cache/</code> (<code>deep_ranking_benchmark.csv</code>, <code>operating_points_05_08_benchmark.csv</code>, and <code>adni_mci_1214_grid_sweep.csv</code>), permitting a deterministic build from cached empirical runs:</p>
+<p>The manuscript is written in Quarto and compiles to HTML and PDF formats. All benchmark result caches are stored in <code>paper/results_cache/</code>, each written by a committed script (<code>scripts/run_deep_benchmark.py</code>, <code>scripts/run_adni_mci_grid_sweep.py</code>, <code>scripts/paper_adni_ablations.py</code>, <code>scripts/paper_brca_loadings.py</code>) and accompanied by a provenance file. Every number in the text is computed from these caches at build time (<code>paper/paper_numbers.py</code>), so the manuscript is rebuilt deterministically from them:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/stnava/pysimlr.git</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> pysimlr</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="at">-e</span> <span class="st">".[dev]"</span></span>
@@ -340,9 +340,9 @@ window.Quarto = {
 <p>All statistical hypothesis tests, ranking matrices, and permutation null distributions are computed by <code>src/pysimlr/benchmarks/deep_ranking.py</code>:</p>
 <ul>
 <li>Non-parametric Friedman omnibus test <span class="citation" data-cites="friedman1937use">(<a href="#ref-friedman1937use" role="doc-biblioref">Friedman 1937</a>)</span> and Iman–Davenport <span class="math inline">\(F\)</span>-distribution extension <span class="citation" data-cites="Demsar2006 Iman1980">(<a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>; <a href="#ref-Iman1980" role="doc-biblioref">Iman and Davenport 1980</a>)</span>.</li>
-<li>Two-tailed Nemenyi Critical Difference (<span class="math inline">\(CD = 3.468\)</span> at <span class="math inline">\(\alpha = 0.05\)</span> for <span class="math inline">\(k = 9, B = 12\)</span>) <span class="citation" data-cites="Nemenyi1963 Demsar2006">(<a href="#ref-Nemenyi1963" role="doc-biblioref">Nemenyi 1963</a>; <a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>)</span>.</li>
+<li>Two-tailed Nemenyi Critical Difference (<span class="math inline">\(CD =\)</span> 2.600 at <span class="math inline">\(\alpha = 0.05\)</span> for <span class="math inline">\(k =\)</span> 7, <span class="math inline">\(B = 12\)</span>) <span class="citation" data-cites="Nemenyi1963 Demsar2006">(<a href="#ref-Nemenyi1963" role="doc-biblioref">Nemenyi 1963</a>; <a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>)</span>.</li>
 <li>Pairwise Wilcoxon signed-rank tests <span class="citation" data-cites="Wilcoxon1945">(<a href="#ref-Wilcoxon1945" role="doc-biblioref">Wilcoxon 1945</a>)</span> with Holm–Bonferroni step-down adjustments <span class="citation" data-cites="Holm1979">(<a href="#ref-Holm1979" role="doc-biblioref">Holm 1979</a>)</span>.</li>
-<li>Quasi-Newton (<code>L-BFGS</code>, <code>L-BFGS-B</code> <span class="citation" data-cites="byrd1995limited nocedal2006">(<a href="#ref-byrd1995limited" role="doc-biblioref">Byrd et al. 1995</a>; <a href="#ref-nocedal2006" role="doc-biblioref">Nocedal and Wright 2006</a>)</span>) and adaptive first-order (<code>Adam</code>, <code>AdamW</code> <span class="citation" data-cites="kingma2014adam loshchilov2019">(<a href="#ref-kingma2014adam" role="doc-biblioref">Kingma and Ba 2015</a>; <a href="#ref-loshchilov2019" role="doc-biblioref">Loshchilov and Hutter 2019</a>)</span>) solvers implemented on top of PyTorch <span class="citation" data-cites="paszke2019">(<a href="#ref-paszke2019" role="doc-biblioref"><span class="nocase">Paszke et al.</span> 2019</a>)</span>, NumPy <span class="citation" data-cites="harris2020">(<a href="#ref-harris2020" role="doc-biblioref"><span class="nocase">Harris et al.</span> 2020</a>)</span>, SciPy <span class="citation" data-cites="virtanen2020">(<a href="#ref-virtanen2020" role="doc-biblioref"><span class="nocase">Virtanen et al.</span> 2020</a>)</span>, and Scikit-Learn <span class="citation" data-cites="pedregosa2011">(<a href="#ref-pedregosa2011" role="doc-biblioref"><span class="nocase">Pedregosa et al.</span> 2011</a>)</span>.</li>
+<li>Adaptive first-order (<code>Adam</code>, <code>AdamW</code> <span class="citation" data-cites="kingma2014adam loshchilov2019">(<a href="#ref-kingma2014adam" role="doc-biblioref">Kingma and Ba 2015</a>; <a href="#ref-loshchilov2019" role="doc-biblioref">Loshchilov and Hutter 2019</a>)</span>) and Riemannian manifold solvers implemented on top of PyTorch <span class="citation" data-cites="paszke2019">(<a href="#ref-paszke2019" role="doc-biblioref"><span class="nocase">Paszke et al.</span> 2019</a>)</span>, NumPy <span class="citation" data-cites="harris2020">(<a href="#ref-harris2020" role="doc-biblioref"><span class="nocase">Harris et al.</span> 2020</a>)</span>, SciPy <span class="citation" data-cites="virtanen2020">(<a href="#ref-virtanen2020" role="doc-biblioref"><span class="nocase">Virtanen et al.</span> 2020</a>)</span>, and Scikit-Learn <span class="citation" data-cites="pedregosa2011">(<a href="#ref-pedregosa2011" role="doc-biblioref"><span class="nocase">Pedregosa et al.</span> 2011</a>)</span>.</li>
 <li>Benchmark cohorts span clinical cardiology (<code>Heart</code> <span class="citation" data-cites="detrano1989international">(<a href="#ref-detrano1989international" role="doc-biblioref">Detrano et al. 1989</a>)</span>), metabolic progression (<code>Diabetes</code> <span class="citation" data-cites="efron2004least">(<a href="#ref-efron2004least" role="doc-biblioref">Efron et al. 2004</a>)</span>), handwritten pattern descriptors (<code>mfeat</code> <span class="citation" data-cites="vanbreukelen2006">(<a href="#ref-vanbreukelen2006" role="doc-biblioref">Breukelen et al. 1998</a>)</span>), transcriptomic/multi-omic cancer benchmarks <span class="citation" data-cites="golub1999molecular tcga2012breast tcga2013kirc wang2014 tenenhaus2011 tenenhaus2014 zhao2017 abdi2013">(<a href="#ref-golub1999molecular" role="doc-biblioref"><span class="nocase">Golub et al.</span> 1999</a>; <a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-tcga2013kirc" role="doc-biblioref">The Cancer Genome Atlas Research Network 2013</a>; <a href="#ref-wang2014" role="doc-biblioref">Wang et al. 2014</a>; <a href="#ref-tenenhaus2011" role="doc-biblioref">Tenenhaus and Tenenhaus 2011</a>; <a href="#ref-tenenhaus2014" role="doc-biblioref">Tenenhaus et al. 2014</a>; <a href="#ref-zhao2017" role="doc-biblioref">Zhao et al. 2017</a>; <a href="#ref-abdi2013" role="doc-biblioref">Abdi et al. 2013</a>)</span>, and Alzheimer’s neuroimaging (<code>ADNI-MCI</code> <span class="citation" data-cites="mueller2005 jack2008alzheimer ADNI">(<a href="#ref-mueller2005" role="doc-biblioref">Mueller et al. 2005</a>; <a href="#ref-jack2008alzheimer" role="doc-biblioref"><span class="nocase">Jack et al.</span> 2008</a>; <a href="#ref-ADNI" role="doc-biblioref"><span class="nocase">Weiner et al.</span> 2017</a>)</span>).</li>
 </ul>
 <p>The test suite <code>tests/test_deep_ranking_stats.py</code> verifies the statistical calculations:</p>
@@ -350,8 +350,8 @@ window.Quarto = {
 </section>
 <section id="replication-structure-and-the-permutation-resolution-floor" class="level2" data-number="D.3">
 <h2 data-number="D.3" class="anchored" data-anchor-id="replication-structure-and-the-permutation-resolution-floor"><span class="header-section-number">D.3</span> Replication Structure and the Permutation Resolution Floor</h2>
-<p>The deep ranking benchmark evaluates nine architectures across 12 multi-view datasets across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> independent random seeds (<span class="math inline">\(324\)</span> baseline fits and <span class="math inline">\(1,215\)</span> operating-point fits):</p>
-<div id="tbl-replication-design" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="1">
+<p>The deep ranking benchmark evaluates seven architectures across 12 multi-view datasets across <span class="math inline">\(N_{\text{seeds}} = 3\)</span> independent random seeds (252 fits at <span class="math inline">\(q = 0.5\)</span>, 756 across the three sparsity levels, and 189 paired non-negative reruns on three cohorts):</p>
+<div id="tbl-replication-design" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="2">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-replication-design-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ranking_benchmark.csv</code>). Each block corresponds to an independent dataset evaluated across three random seeds controlling train/test partitioning and parameter initialization.
@@ -381,96 +381,96 @@ Table&nbsp;D.1: Replication structure of the 12-dataset benchmark (<code>deep_ra
 <td style="text-align: left;">ADNI-MCI</td>
 <td style="text-align: left;">Real</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">9</td>
-<td style="text-align: right;">27</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">21</td>
 <td style="text-align: right;">0.25</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Diabetes</td>
 <td style="text-align: left;">Real</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">9</td>
-<td style="text-align: right;">27</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">21</td>
 <td style="text-align: right;">0.25</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Heart</td>
 <td style="text-align: left;">Real</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">9</td>
-<td style="text-align: right;">27</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">21</td>
 <td style="text-align: right;">0.25</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Linear</td>
 <td style="text-align: left;">Synthetic</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">9</td>
-<td style="text-align: right;">27</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">21</td>
 <td style="text-align: right;">0.25</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">MultiOmics</td>
 <td style="text-align: left;">Real</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">9</td>
-<td style="text-align: right;">27</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">21</td>
 <td style="text-align: right;">0.25</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NonnegParts</td>
 <td style="text-align: left;">Synthetic</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">9</td>
-<td style="text-align: right;">27</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">21</td>
 <td style="text-align: right;">0.25</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">NonnegPartsWeak</td>
 <td style="text-align: left;">Synthetic</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">9</td>
-<td style="text-align: right;">27</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">21</td>
 <td style="text-align: right;">0.25</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Polynomial</td>
 <td style="text-align: left;">Synthetic</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">9</td>
-<td style="text-align: right;">27</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">21</td>
 <td style="text-align: right;">0.25</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Shared+Private</td>
 <td style="text-align: left;">Synthetic</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">9</td>
-<td style="text-align: right;">27</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">21</td>
 <td style="text-align: right;">0.25</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Sine</td>
 <td style="text-align: left;">Synthetic</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">9</td>
-<td style="text-align: right;">27</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">21</td>
 <td style="text-align: right;">0.25</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">TCGA-KIRC</td>
 <td style="text-align: left;">Real</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">9</td>
-<td style="text-align: right;">27</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">21</td>
 <td style="text-align: right;">0.25</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">mfeat</td>
 <td style="text-align: left;">Real</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: right;">9</td>
-<td style="text-align: right;">27</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">21</td>
 <td style="text-align: right;">0.25</td>
 </tr>
 </tbody>
@@ -488,7 +488,7 @@ p_{\text{perm}} = \frac{1}{2^B} \sum_{\mathbf{s} \in \{-1, +1\}^B} \mathbb{I}\le
 </section>
 <section id="software-environment" class="level2 unnumbered">
 <h2 class="unnumbered anchored" data-anchor-id="software-environment">Software Environment</h2>
-<div id="tbl-software-environment" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="2">
+<div id="tbl-software-environment" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="3">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-software-environment-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 Table&nbsp;D.2: Software environment and runtime dependencies under which the benchmark and manuscript are compiled.
@@ -512,11 +512,11 @@ Table&nbsp;D.2: Software environment and runtime dependencies under which the be
 </tr>
 <tr class="odd">
 <td style="text-align: left;">NumPy</td>
-<td style="text-align: left;">2.3.5</td>
+<td style="text-align: left;">2.5.4</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">SciPy</td>
-<td style="text-align: left;">1.15.3</td>
+<td style="text-align: left;">1.18.1</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Scikit-Learn</td>
@@ -543,9 +543,6 @@ Abdi, Hervé, Lynne J. Williams, and Dominique Valentin. 2013. <span>“Multiple
 </div>
 <div id="ref-vanbreukelen2006" class="csl-entry" role="listitem">
 Breukelen, Martijn van, Robert P. W. Duin, David M. J. Tax, and J. E. den Hartog. 1998. <span>“Handwritten Digit Recognition by Combined Classifiers.”</span> <em>Kybernetika</em> 34 (4): 381–86.
-</div>
-<div id="ref-byrd1995limited" class="csl-entry" role="listitem">
-Byrd, Richard H., Peihuang Lu, Jorge Nocedal, and Ciyou Zhu. 1995. <span>“A Limited Memory Algorithm for Bound Constrained Optimization.”</span> <em>SIAM Journal on Scientific Computing</em> 16 (5): 1190–208. <a href="https://doi.org/10.1137/0916069">https://doi.org/10.1137/0916069</a>.
 </div>
 <div id="ref-Demsar2006" class="csl-entry" role="listitem">
 Demšar, Janez. 2006. <span>“Statistical Comparisons of Classifiers over Multiple Data Sets.”</span> <em>Journal of Machine Learning Research</em> 7: 1–30.
@@ -585,9 +582,6 @@ Mueller, Susanne G., Michael W. Weiner, Leon J. Thal, et al. 2005. <span>“Ways
 </div>
 <div id="ref-Nemenyi1963" class="csl-entry" role="listitem">
 Nemenyi, Peter B. 1963. <span>“Distribution-Free Multiple Comparisons.”</span> PhD thesis, Princeton University.
-</div>
-<div id="ref-nocedal2006" class="csl-entry" role="listitem">
-Nocedal, Jorge, and Stephen J. Wright. 2006. <em>Numerical Optimization</em>. 2nd ed. Springer.
 </div>
 <div id="ref-paszke2019" class="csl-entry" role="listitem">
 <span class="nocase">Paszke, Adam, Sam Gross, Francisco Massa, et al.</span> 2019. <span>“<span>PyTorch</span>: An Imperative Style, High-Performance Deep Learning Library.”</span> <em>Advances in Neural Information Processing Systems</em> 32: 8024–35.

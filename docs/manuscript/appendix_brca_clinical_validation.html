@@ -233,7 +233,7 @@ window.Quarto = {
   <ul>
   <li><a href="#multi-omic-integration-strategy" id="toc-multi-omic-integration-strategy" class="nav-link active" data-scroll-target="#multi-omic-integration-strategy"><span class="header-section-number">A.1</span> Multi-Omic Integration Strategy</a></li>
   <li><a href="#performance-results" id="toc-performance-results" class="nav-link" data-scroll-target="#performance-results"><span class="header-section-number">A.2</span> Performance Results</a></li>
-  <li><a href="#tri-modal-molecular-driver-recovery" id="toc-tri-modal-molecular-driver-recovery" class="nav-link" data-scroll-target="#tri-modal-molecular-driver-recovery"><span class="header-section-number">A.3</span> Tri-Modal Molecular Driver Recovery</a></li>
+  <li><a href="#tri-modal-molecular-driver-recovery-and-multi-view-fingerprints" id="toc-tri-modal-molecular-driver-recovery-and-multi-view-fingerprints" class="nav-link" data-scroll-target="#tri-modal-molecular-driver-recovery-and-multi-view-fingerprints"><span class="header-section-number">A.3</span> Tri-Modal Molecular Driver Recovery and Multi-View Fingerprints</a></li>
   </ul>
 </nav>
     </div>
@@ -290,18 +290,18 @@ window.Quarto = {
 
 <section id="multi-omic-integration-strategy" class="level2" data-number="A.1">
 <h2 data-number="A.1" class="anchored" data-anchor-id="multi-omic-integration-strategy"><span class="header-section-number">A.1</span> Multi-Omic Integration Strategy</h2>
-<p>We evaluate the nine benchmark architectures on the three-view <code>TCGA-BRCA</code> breast invasive carcinoma cohort (<span class="math inline">\(N = 822\)</span> primary tumors with complete multi-omic profiles and clinical receptor status) <span class="citation" data-cites="tcga2012breast perou2000 parker2009supervised curtis2012 weinstein2013">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-perou2000" role="doc-biblioref"><span class="nocase">Perou et al.</span> 2000</a>; <a href="#ref-parker2009supervised" role="doc-biblioref"><span class="nocase">Parker et al.</span> 2009</a>; <a href="#ref-curtis2012" role="doc-biblioref"><span class="nocase">Curtis et al.</span> 2012</a>; <a href="#ref-weinstein2013" role="doc-biblioref">Weinstein et al. 2013</a>)</span>. The dataset integrates three molecular assay platforms filtered at <span class="math inline">\(\ge 98\%\)</span> completeness:</p>
+<p>We evaluate the seven benchmark architectures on the three-view <code>TCGA-BRCA</code> breast invasive carcinoma cohort (<span class="math inline">\(N = 822\)</span> primary tumors with complete multi-omic profiles and clinical receptor status) <span class="citation" data-cites="tcga2012breast perou2000 parker2009supervised curtis2012 weinstein2013">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-perou2000" role="doc-biblioref"><span class="nocase">Perou et al.</span> 2000</a>; <a href="#ref-parker2009supervised" role="doc-biblioref"><span class="nocase">Parker et al.</span> 2009</a>; <a href="#ref-curtis2012" role="doc-biblioref"><span class="nocase">Curtis et al.</span> 2012</a>; <a href="#ref-weinstein2013" role="doc-biblioref">Weinstein et al. 2013</a>)</span>. The dataset integrates three molecular assay platforms filtered at <span class="math inline">\(\ge 98\%\)</span> completeness:</p>
 <ul>
 <li><strong>RNA-Seq (<code>rna</code>):</strong> <span class="math inline">\(p_1 = 200\)</span> top-variance mRNA sequencing gene expression transcripts (Illumina HiSeqV2).</li>
 <li><strong>Copy Number Variation (<code>cnv</code>):</strong> <span class="math inline">\(p_2 = 150\)</span> somatic GISTIC2 gene-level copy-number scores.</li>
 <li><strong>Proteomics (<code>rppa</code>):</strong> <span class="math inline">\(p_3 = 150\)</span> Reverse Phase Protein Array targeted proteomic and phosphoproteomic markers.</li>
 </ul>
-<p>The downstream clinical target is binary Estrogen Receptor (ER) status (Positive vs.&nbsp;Negative, <span class="math inline">\(76.4\%\)</span> ER+ prevalence), evaluated across three independent <span class="math inline">\(70/30\)</span> stratified train/test splits (<code>Seeds 42, 43, 44</code>, standardized strictly inside each training fold).</p>
+<p>The downstream clinical target is binary Estrogen Receptor (ER) status (Positive vs.&nbsp;Negative, 76.4% ER+ prevalence), evaluated across three independent <span class="math inline">\(70/30\)</span> stratified train/test splits (<code>Seeds 42, 43, 44</code>, standardized strictly inside each training fold).</p>
 </section>
 <section id="performance-results" class="level2" data-number="A.2">
 <h2 data-number="A.2" class="anchored" data-anchor-id="performance-results"><span class="header-section-number">A.2</span> Performance Results</h2>
 <p><a href="#tbl-brca-appendix-results" class="quarto-xref">Table&nbsp;<span>A.1</span></a> reports out-of-sample ER status classification accuracy across both primary evaluation probes: global consensus coordinates (<span class="math inline">\(\mathbf{U}\)</span>) and the linear entrypoint projection (<span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span>), alongside Stiefel frame defect <span class="math inline">\(D(\mathbf{V}_m)\)</span>, sparsity, and execution runtime computed directly from <code>paper/results_cache/deep_ranking_benchmark.csv</code>.</p>
-<div id="tbl-brca-appendix-results" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="1">
+<div id="tbl-brca-appendix-results" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="2" data-message="false">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-brca-appendix-results-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 Table&nbsp;A.1: TCGA-BRCA 3-view multi-omics classification benchmark (<span class="math inline">\(N = 822\)</span>, <span class="math inline">\(p = [200, 150, 150]\)</span>, 3 seeds) computed from <code>deep_ranking_benchmark.csv</code>.
@@ -313,8 +313,8 @@ Table&nbsp;A.1: TCGA-BRCA 3-view multi-omics classification benchmark (<span cla
 <col style="width: 21%">
 <col style="width: 21%">
 <col style="width: 18%">
-<col style="width: 12%">
-<col style="width: 12%">
+<col style="width: 13%">
+<col style="width: 13%">
 </colgroup>
 <thead>
 <tr class="header">
@@ -333,71 +333,55 @@ Table&nbsp;A.1: TCGA-BRCA 3-view multi-omics classification benchmark (<span cla
 <td style="text-align: left;">0.919 ± 0.021</td>
 <td style="text-align: right;">0.3479</td>
 <td style="text-align: left;">50.0%</td>
-<td style="text-align: left;">0.059s</td>
+<td style="text-align: left;">0.074s</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.915 ± 0.018</td>
-<td style="text-align: left;">0.921 ± 0.015</td>
-<td style="text-align: right;">0</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">0.919 ± 0.012</td>
+<td style="text-align: left;">0.909 ± 0.017</td>
+<td style="text-align: right;">0.0029</td>
 <td style="text-align: left;">50.0%</td>
-<td style="text-align: left;">5.800s</td>
+<td style="text-align: left;">7.554s</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.917 ± 0.013</td>
-<td style="text-align: left;">0.927 ± 0.022</td>
-<td style="text-align: right;">0.0008</td>
-<td style="text-align: left;">50.0%</td>
-<td style="text-align: left;">2.168s</td>
-</tr>
-<tr class="even">
 <td style="text-align: left;">PCA</td>
 <td style="text-align: left;">0.922 ± 0.016</td>
 <td style="text-align: left;">0.915 ± 0.018</td>
 <td style="text-align: right;">0.2388</td>
 <td style="text-align: left;">0.0%</td>
-<td style="text-align: left;">0.009s</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">NEDPP</td>
-<td style="text-align: left;">0.934 ± 0.010</td>
-<td style="text-align: left;">0.927 ± 0.011</td>
-<td style="text-align: right;">0.0011</td>
-<td style="text-align: left;">50.0%</td>
-<td style="text-align: left;">3.160s</td>
+<td style="text-align: left;">0.012s</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;">NED</td>
-<td style="text-align: left;">0.929 ± 0.015</td>
-<td style="text-align: left;">0.926 ± 0.013</td>
-<td style="text-align: right;">0.0008</td>
+<td style="text-align: left;">NEDPP</td>
+<td style="text-align: left;">0.882 ± 0.048</td>
+<td style="text-align: left;">0.919 ± 0.011</td>
+<td style="text-align: right;">0.0011</td>
 <td style="text-align: left;">50.0%</td>
-<td style="text-align: left;">2.294s</td>
+<td style="text-align: left;">12.646s</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;">SiMLR-LBFGS</td>
-<td style="text-align: left;">0.917 ± 0.019</td>
-<td style="text-align: left;">0.921 ± 0.015</td>
-<td style="text-align: right;">0</td>
+<td style="text-align: left;">NED</td>
+<td style="text-align: left;">0.915 ± 0.011</td>
+<td style="text-align: left;">0.923 ± 0.015</td>
+<td style="text-align: right;">0.001</td>
 <td style="text-align: left;">50.0%</td>
-<td style="text-align: left;">6.489s</td>
+<td style="text-align: left;">10.450s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">SiMLR</td>
-<td style="text-align: left;">0.915 ± 0.015</td>
-<td style="text-align: left;">0.921 ± 0.015</td>
-<td style="text-align: right;">0.0002</td>
+<td style="text-align: left;">0.781 ± 0.009</td>
+<td style="text-align: left;">0.813 ± 0.027</td>
+<td style="text-align: right;">0</td>
 <td style="text-align: left;">50.0%</td>
-<td style="text-align: left;">0.650s</td>
+<td style="text-align: left;">2.927s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.914 ± 0.012</td>
+<td style="text-align: left;">0.903 ± 0.028</td>
 <td style="text-align: left;">0.927 ± 0.007</td>
-<td style="text-align: right;">0.0014</td>
+<td style="text-align: right;">0.0034</td>
 <td style="text-align: left;">50.0%</td>
-<td style="text-align: left;">7.889s</td>
+<td style="text-align: left;">9.883s</td>
 </tr>
 </tbody>
 </table>
@@ -405,23 +389,62 @@ Table&nbsp;A.1: TCGA-BRCA 3-view multi-omics classification benchmark (<span cla
 </figure>
 </div>
 </section>
-<section id="tri-modal-molecular-driver-recovery" class="level2" data-number="A.3">
-<h2 data-number="A.3" class="anchored" data-anchor-id="tri-modal-molecular-driver-recovery"><span class="header-section-number">A.3</span> Tri-Modal Molecular Driver Recovery</h2>
-<p>The linear entrypoint maps the 500 multi-omic features directly onto the low-dimensional latent coordinates via <span class="math inline">\(\mathbf{V}_m\)</span>. <a href="#fig-brca-trimodal-waterfall" class="quarto-xref">Figure&nbsp;<span>A.1</span></a> displays the top 15 feature weights <span class="math inline">\(|\mathbf{V}_m|\)</span> on the ER-aligned component learned by <code>LEND</code> across the three molecular modalities.</p>
+<section id="tri-modal-molecular-driver-recovery-and-multi-view-fingerprints" class="level2" data-number="A.3">
+<h2 data-number="A.3" class="anchored" data-anchor-id="tri-modal-molecular-driver-recovery-and-multi-view-fingerprints"><span class="header-section-number">A.3</span> Tri-Modal Molecular Driver Recovery and Multi-View Fingerprints</h2>
+<p>The linear entrypoint maps the 500 multi-omic features directly onto the low-dimensional latent coordinates, while <code>pysimlr.loading_inference</code> refits the full pipeline across 100 half-sample splits and 20 cross-view permutations to separate reproducible drivers from in-sample selection noise. <a href="#fig-brca-trimodal-waterfall" class="quarto-xref">Figure&nbsp;<span>A.1</span></a> displays <code>pysimlr.plot_top_features</code> on the ER-aligned component learned by <code>LEND</code> across the three molecular modalities (<code>brca_er_loadings.json</code> from <code>scripts/paper_brca_loadings.py</code>), <a href="#fig-brca-feature-chord" class="quarto-xref">Figure&nbsp;<span>A.2</span></a> maps the stability-selected and interval-significant biomarkers across all three views onto components <code>C1–C3</code> via <code>pysimlr.plot_feature_chord</code>, and <a href="#fig-brca-view-radar" class="quarto-xref">Figure&nbsp;<span>A.3</span></a> summarizes each assay’s training and held-out coupling, held-out reconstruction <span class="math inline">\(R^2\)</span>, normalized effective rank, and sparsity via <code>pysimlr.plot_view_radar</code>.</p>
+<div id="cell-fig-brca-trimodal-waterfall" class="cell" data-execution_count="3">
+<div class="cell-output cell-output-display">
 <div id="fig-brca-trimodal-waterfall" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-brca-trimodal-waterfall-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="figures/fig_brca_trimodal_waterfall.png" class="img-fluid figure-img" style="width:100.0%">
+<img src="appendix_brca_clinical_validation_files/figure-html/fig-brca-trimodal-waterfall-output-1.png" width="1365" height="691" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-brca-trimodal-waterfall-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;A.1: Tri-Modal Feature Weights for ER-Status (<code>TCGA-BRCA</code>, <span class="math inline">\(N=822\)</span>). <code>LEND</code> identifies coordinated molecular drivers across modalities on the ER-aligned basis component. (Left) RNA-Seq weights isolating luminal hormone-receptor transcripts (<code>PGR</code>, <code>PIP</code>, <code>GRPR</code>, <code>ELOVL2</code>, <code>LTF</code>, <code>S100A8/A9</code>). (Center) CNV regional weights isolating the 17q23 (<code>RPS6KB1</code>, <code>PTRH2</code>, <code>VMP1</code>, <code>MIR21</code>) and 8p11-p12 (<code>ZNF703</code>, <code>ERLIN2</code>, <code>BRF2</code>, <code>RAB11FIP1</code>, <code>GPR124</code>) breast cancer amplicons. (Right) Proteomics (RPPA) weights led by <code>ER-alpha-R-V</code>, <code>GATA3-M-V</code>, <code>HER2-M-V</code>, <code>AR-R-V</code>, <code>PR-R-V</code>, and <code>ER-alpha_pS118-R-V</code>.
+Figure&nbsp;A.1: Top 15 structure coefficients (<code>pysimlr.plot_top_features</code>) with 95% subsample intervals and the cross-view permutation null band on the ER-aligned <code>LEND</code> component of each <code>TCGA-BRCA</code> view (<span class="math inline">\(N = 822\)</span>, <code>loading_inference</code> with 100 half-sample refits and 20 permutations; <code>brca_er_loadings.json</code> from <code>scripts/paper_brca_loadings.py</code>). Filled dots mark stability-selected features or 95% intervals excluding zero; hollow rings include zero; bold labels mark Meinshausen–Bühlmann stability-selected drivers (threshold = 0.80, expected false selections <span class="math inline">\(\le 1.0\)</span>).
 </figcaption>
 </figure>
 </div>
+</div>
+</div>
+<div class="columns">
+<div class="column" style="width:54%;">
+<div id="cell-fig-brca-feature-chord" class="cell" data-execution_count="4">
+<div class="cell-output cell-output-display">
+<div id="fig-brca-feature-chord" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-brca-feature-chord-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_brca_clinical_validation_files/figure-html/fig-brca-feature-chord-output-1.png" width="975" height="927" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-brca-feature-chord-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;A.2: Tri-modal feature-to-component chord diagram (<code>pysimlr.plot_feature_chord</code>) across <code>TCGA-BRCA</code> mRNA, copy number, and RPPA proteomics. Only biomarkers whose 95% subsample interval excludes zero or that pass stability selection are drawn; ribbon width tracks <span class="math inline">\(|\text{structure}|\)</span> and lower opacity indicates negative correlation.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div><div class="column" style="width:4%;">
+
+</div><div class="column" style="width:42%;">
+<div id="cell-fig-brca-view-radar" class="cell" data-execution_count="5">
+<div class="cell-output cell-output-display">
+<div id="fig-brca-view-radar" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-brca-view-radar-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_brca_clinical_validation_files/figure-html/fig-brca-view-radar-output-1.png" width="676" height="598" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-brca-view-radar-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;A.3: Overlaid three-view quality fingerprint (<code>pysimlr.plot_view_radar</code>) on a stratified 70/30 <code>TCGA-BRCA</code> split (<code>Seed 42</code>), comparing training and held-out consensus coupling, held-out reconstruction <span class="math inline">\(R^2\)</span>, normalized basis rank (<span class="math inline">\(\text{rank}/k\)</span>), and encoder sparsity across mRNA, copy number, and RPPA proteomics.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+</div>
 <ol type="1">
-<li><strong>Proteomics (<code>rppa</code>):</strong> <code>ER-alpha-R-V</code> (<span class="math inline">\(|V| = 0.290\)</span>) and <code>GATA3-M-V</code> (<span class="math inline">\(|V| = 0.268\)</span>) carry the two largest loading magnitudes, followed by <code>HER2-M-V</code> (<span class="math inline">\(0.205\)</span>), androgen receptor <code>AR-R-V</code> (<span class="math inline">\(0.203\)</span>), <code>Cyclin_E1-M-V</code> (<span class="math inline">\(0.200\)</span>), progesterone receptor <code>PR-R-V</code> (<span class="math inline">\(0.164\)</span>), and phosphorylated <code>ER-alpha_pS118-R-V</code> (<span class="math inline">\(0.131\)</span>) <span class="citation" data-cites="tcga2012breast">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>)</span>.</li>
-<li><strong>Transcriptomics (<code>rna</code>):</strong> In the mRNA view, the ER-aligned component highlights progesterone receptor <code>PGR</code>, prolactin-induced protein <code>PIP</code>, gastrin-releasing peptide receptor <code>GRPR</code>, <code>ELOVL2</code>, and luminal/basal discriminators <code>LTF</code> and <code>S100A8</code>/<code>S100A9</code> <span class="citation" data-cites="perou2000 parker2009supervised">(<a href="#ref-perou2000" role="doc-biblioref"><span class="nocase">Perou et al.</span> 2000</a>; <a href="#ref-parker2009supervised" role="doc-biblioref"><span class="nocase">Parker et al.</span> 2009</a>)</span>.</li>
-<li><strong>Copy Number Variation (<code>cnv</code>):</strong> In the somatic copy-number view, the basis isolates the 8p11-p12 luminal amplicon (<code>ZNF703</code>, <code>ERLIN2</code>, <code>BRF2</code>, <code>RAB11FIP1</code>, <code>GPR124</code>) alongside the 17q23 amplicon (<code>RPS6KB1</code>, <code>PTRH2</code>, <code>VMP1</code>, <code>MIR21</code>, <code>TUBD1</code>) <span class="citation" data-cites="tcga2012breast curtis2012">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-curtis2012" role="doc-biblioref"><span class="nocase">Curtis et al.</span> 2012</a>)</span>.</li>
+<li><strong>Proteomics (<code>rppa</code>):</strong> the largest structure coefficients on component 1 (<span class="math inline">\(|r|\)</span> with ER 0.60) are <code>ER-alpha-R-V</code> (0.726), <code>GATA3-M-V</code> (0.691), <code>Bcl-2-M-V</code> (0.576), <code>PREX1-R-E</code> (0.545), <code>ER-alpha_pS118-R-V</code> (0.518), <code>P-Cadherin-R-C</code> (-0.486), with stability-selected features: <code>AR-R-V</code>, <code>Bcl-2-M-V</code>, <code>ER-alpha-R-V</code>, <code>GATA3-M-V</code>, <code>HER2-M-V</code>.</li>
+<li><strong>Transcriptomics (<code>rna</code>):</strong> the largest structure coefficients on component 1 (<span class="math inline">\(|r|\)</span> with ER 0.60) are <code>ESR1</code> (0.693), <code>VGLL1</code> (-0.626), <code>AGR3</code> (0.625), <code>A2ML1</code> (-0.620), <code>CST9</code> (0.618), <code>PROM1</code> (-0.606), with stability-selected features: <code>A2ML1</code>, <code>AGR2</code>, <code>AGR3</code>, <code>ESR1</code>, <code>SLC44A4</code>, <code>TFF3</code>, <code>VGLL1</code>.</li>
+<li><strong>Copy Number Variation (<code>cnv</code>):</strong> the largest structure coefficients on component 1 (<span class="math inline">\(|r|\)</span> with ER 0.60) are <code>ERLIN2</code> (0.535), <code>ZNF703</code> (0.535), <code>PROSC</code> (0.532), <code>GPR124</code> (0.526), <code>RAB11FIP1</code> (0.524), <code>BRF2</code> (0.522), with stability-selected features: none.</li>
 </ol>
 
 

@@ -231,9 +231,12 @@ window.Quarto = {
     <h2 id="toc-title">Table of contents</h2>
    
   <ul>
-  <li><a href="#effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95" id="toc-effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95" class="nav-link active" data-scroll-target="#effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95"><span class="header-section-number">B.1</span> Effect of the Approximate Stiefel Weight <span class="math inline">\(w \in [0.01, 0.95]\)</span></a></li>
+  <li><a href="#effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95" id="toc-effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95" class="nav-link active" data-scroll-target="#effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95"><span class="header-section-number">B.1</span> Effect of the Approximate Stiefel Weight <span class="math inline">\(w \in [0.01, 0.95]\)</span></a>
+  <ul class="collapse">
+  <li><a href="#basis-health-and-rank-selection-stability-diagnostics-on-adni-mci" id="toc-basis-health-and-rank-selection-stability-diagnostics-on-adni-mci" class="nav-link" data-scroll-target="#basis-health-and-rank-selection-stability-diagnostics-on-adni-mci"><span class="header-section-number">B.1.1</span> Basis Health and Rank-Selection Stability Diagnostics on <code>ADNI-MCI</code></a></li>
+  </ul></li>
   <li><a href="#preprocessing-controls-subject-row-mean-removal-ica-initialization-and-orthogonal-varimax-rotation" id="toc-preprocessing-controls-subject-row-mean-removal-ica-initialization-and-orthogonal-varimax-rotation" class="nav-link" data-scroll-target="#preprocessing-controls-subject-row-mean-removal-ica-initialization-and-orthogonal-varimax-rotation"><span class="header-section-number">B.2</span> Preprocessing Controls: Subject Row-Mean Removal, ICA Initialization, and Orthogonal Varimax Rotation</a></li>
-  <li><a href="#fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-1214-sweep-summary" id="toc-fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-1214-sweep-summary" class="nav-link" data-scroll-target="#fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-1214-sweep-summary"><span class="header-section-number">B.3</span> Fine-Grained Quantile Sparsity (<span class="math inline">\(q \in [\text{None}, 0.90]\)</span>) and <code>ADNI-MCI</code> 1,214-Sweep Summary</a></li>
+  <li><a href="#fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-sweep-summary" id="toc-fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-sweep-summary" class="nav-link" data-scroll-target="#fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-sweep-summary"><span class="header-section-number">B.3</span> Fine-Grained Quantile Sparsity (<span class="math inline">\(q \in [\text{None}, 0.90]\)</span>) and <code>ADNI-MCI</code> Sweep Summary</a></li>
   <li><a href="#synthetic-per-regime-breakdown-and-pairwise-wilcoxon-tests" id="toc-synthetic-per-regime-breakdown-and-pairwise-wilcoxon-tests" class="nav-link" data-scroll-target="#synthetic-per-regime-breakdown-and-pairwise-wilcoxon-tests"><span class="header-section-number">B.4</span> Synthetic Per-Regime Breakdown and Pairwise Wilcoxon Tests</a></li>
   <li><a href="#computational-complexity-summary" id="toc-computational-complexity-summary" class="nav-link" data-scroll-target="#computational-complexity-summary"><span class="header-section-number">B.5</span> Computational Complexity Summary</a></li>
   </ul>
@@ -290,11 +293,11 @@ window.Quarto = {
 </header>
 
 
-<p>This appendix provides the complete empirical ablation tables referenced in Chapters 2–4—covering the <code>nsa_flow</code> trade-off weight <span class="math inline">\(w \in [0.01, 0.95]\)</span>, in-fold subject row-mean removal and deterministic ICA initialization, fine-grained quantile sparsity <span class="math inline">\(q \in [\text{None}, 0.90]\)</span>, the <span class="math inline">\(1,214\)</span>-configuration <code>ADNI-MCI</code> grid sweep, synthetic per-regime breakdowns, and pairwise Wilcoxon rank-sum tests—followed by computational complexity bounds.</p>
+<p>This appendix provides the complete empirical ablation tables referenced in Chapters 2–4—covering the <code>nsa_flow</code> trade-off weight <span class="math inline">\(w \in [0.01, 0.95]\)</span>, in-fold subject row-mean removal and deterministic ICA initialization, fine-grained quantile sparsity <span class="math inline">\(q \in [\text{None}, 0.90]\)</span>, the 1,025-configuration <code>ADNI-MCI</code> grid sweep, synthetic per-regime breakdowns, and Wilcoxon signed-rank tests against <code>PCA</code>—followed by computational complexity bounds.</p>
 <section id="effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95" class="level2" data-number="B.1">
 <h2 data-number="B.1" class="anchored" data-anchor-id="effect-of-the-approximate-stiefel-weight-w-in-0.01-0.95"><span class="header-section-number">B.1</span> Effect of the Approximate Stiefel Weight <span class="math inline">\(w \in [0.01, 0.95]\)</span></h2>
-<p><a href="#tbl-app-w-sweep" class="quarto-xref">Table&nbsp;<span>B.1</span></a> and <a href="#fig-w-sweep" class="quarto-xref">Figure&nbsp;<span>B.1</span></a> evaluate <code>SiMLR-LBFGSB</code> (<span class="math inline">\(\mathbf{V}_m \ge 0, k = 3\)</span>) across ten values of <span class="math inline">\(w \in [0.01, 0.95]\)</span> on synthetic <code>NonnegParts</code> and clinical <code>ADNI-MCI</code> (<code>Protocol B</code>).</p>
-<div id="tbl-app-w-sweep" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="1">
+<p><a href="#tbl-app-w-sweep" class="quarto-xref">Table&nbsp;<span>B.1</span></a> and <a href="#fig-w-sweep" class="quarto-xref">Figure&nbsp;<span>B.1</span></a> evaluate <code>SiMLR</code> (<span class="math inline">\(\mathbf{V}_m \ge 0, k = 3\)</span>) across ten values of <span class="math inline">\(w \in [0.01, 0.95]\)</span> on synthetic <code>NonnegParts</code> and clinical <code>ADNI-MCI</code> (<code>Protocol B</code>).</p>
+<div id="tbl-app-w-sweep" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="2">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-w-sweep-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 Table&nbsp;B.1: Sensitivity of basis orthogonality defect <span class="math inline">\(D(V)\)</span>, effective rank, sparsity, runtime, and out-of-sample accuracy across ten values of the <code>nsa_flow</code> weight <span class="math inline">\(w \in [0.01, 0.95]\)</span> (<code>ablation_w_sweep.csv</code>).
@@ -328,138 +331,170 @@ Table&nbsp;B.1: Sensitivity of basis orthogonality defect <span class="math inli
 <tbody>
 <tr class="odd">
 <td style="text-align: left;">0.01</td>
-<td style="text-align: right;">0.639</td>
-<td style="text-align: right;">0.00868</td>
-<td style="text-align: left;">50.9%</td>
-<td style="text-align: right;">0.24425</td>
-<td style="text-align: right;">2.02</td>
-<td style="text-align: left;">22.5%</td>
-<td style="text-align: right;">0.1323</td>
-<td style="text-align: left;">2.80s</td>
+<td style="text-align: right;">0.595</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">85.0%</td>
+<td style="text-align: right;">0.00997</td>
+<td style="text-align: right;">2.98</td>
+<td style="text-align: left;">94.4%</td>
+<td style="text-align: right;">0.2016</td>
+<td style="text-align: left;">2.28s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">0.05</td>
-<td style="text-align: right;">0.656</td>
-<td style="text-align: right;">7e-05</td>
-<td style="text-align: left;">62.3%</td>
-<td style="text-align: right;">0.05693</td>
-<td style="text-align: right;">2.69</td>
-<td style="text-align: left;">52.2%</td>
-<td style="text-align: right;">0.1753</td>
-<td style="text-align: left;">2.39s</td>
+<td style="text-align: right;">0.595</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">85.0%</td>
+<td style="text-align: right;">0.00147</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: left;">93.2%</td>
+<td style="text-align: right;">0.2146</td>
+<td style="text-align: left;">1.61s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">0.10</td>
-<td style="text-align: right;">0.729</td>
-<td style="text-align: right;">2e-05</td>
-<td style="text-align: left;">64.4%</td>
-<td style="text-align: right;">0.01867</td>
-<td style="text-align: right;">2.89</td>
-<td style="text-align: left;">55.1%</td>
-<td style="text-align: right;">0.1657</td>
-<td style="text-align: left;">2.92s</td>
+<td style="text-align: right;">0.595</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">85.0%</td>
+<td style="text-align: right;">0.00063</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: left;">92.8%</td>
+<td style="text-align: right;">0.2259</td>
+<td style="text-align: left;">1.25s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">0.20</td>
-<td style="text-align: right;">0.682</td>
+<td style="text-align: right;">0.595</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">63.5%</td>
-<td style="text-align: right;">0.01606</td>
-<td style="text-align: right;">2.91</td>
-<td style="text-align: left;">49.6%</td>
-<td style="text-align: right;">0.1697</td>
-<td style="text-align: left;">3.30s</td>
+<td style="text-align: left;">85.0%</td>
+<td style="text-align: right;">0.00015</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: left;">92.6%</td>
+<td style="text-align: right;">0.2118</td>
+<td style="text-align: left;">1.32s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">0.35</td>
-<td style="text-align: right;">0.71</td>
+<td style="text-align: right;">0.595</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">65.5%</td>
-<td style="text-align: right;">0.00151</td>
-<td style="text-align: right;">2.99</td>
-<td style="text-align: left;">63.1%</td>
-<td style="text-align: right;">0.1505</td>
-<td style="text-align: left;">3.51s</td>
+<td style="text-align: left;">85.0%</td>
+<td style="text-align: right;">1e-05</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: left;">92.5%</td>
+<td style="text-align: right;">0.2009</td>
+<td style="text-align: left;">0.97s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">0.50*</td>
-<td style="text-align: right;">0.687</td>
+<td style="text-align: right;">0.595</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">65.5%</td>
-<td style="text-align: right;">0.00062</td>
+<td style="text-align: left;">85.0%</td>
+<td style="text-align: right;">5e-05</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: left;">64.8%</td>
-<td style="text-align: right;">0.1587</td>
-<td style="text-align: left;">4.01s</td>
+<td style="text-align: left;">93.3%</td>
+<td style="text-align: right;">0.2147</td>
+<td style="text-align: left;">1.83s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">0.65</td>
-<td style="text-align: right;">0.594</td>
+<td style="text-align: right;">0.595</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">85.0%</td>
 <td style="text-align: right;">3e-05</td>
-<td style="text-align: left;">64.4%</td>
-<td style="text-align: right;">9e-05</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: left;">62.4%</td>
-<td style="text-align: right;">0.1401</td>
-<td style="text-align: left;">4.55s</td>
+<td style="text-align: left;">93.7%</td>
+<td style="text-align: right;">0.2167</td>
+<td style="text-align: left;">2.36s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">0.80</td>
-<td style="text-align: right;">0.702</td>
+<td style="text-align: right;">0.595</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">62.5%</td>
-<td style="text-align: right;">4e-05</td>
+<td style="text-align: left;">85.0%</td>
+<td style="text-align: right;">1e-05</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: left;">66.6%</td>
-<td style="text-align: right;">0.1746</td>
-<td style="text-align: left;">4.58s</td>
+<td style="text-align: left;">93.5%</td>
+<td style="text-align: right;">0.2175</td>
+<td style="text-align: left;">4.30s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">0.90</td>
-<td style="text-align: right;">0.692</td>
+<td style="text-align: right;">0.595</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">67.3%</td>
+<td style="text-align: left;">85.0%</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: left;">68.1%</td>
-<td style="text-align: right;">0.1501</td>
-<td style="text-align: left;">7.28s</td>
+<td style="text-align: left;">93.5%</td>
+<td style="text-align: right;">0.2174</td>
+<td style="text-align: left;">6.64s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">0.95</td>
-<td style="text-align: right;">0.726</td>
+<td style="text-align: right;">0.595</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">65.4%</td>
-<td style="text-align: right;">1e-05</td>
+<td style="text-align: left;">85.0%</td>
+<td style="text-align: right;">0</td>
 <td style="text-align: right;">3</td>
-<td style="text-align: left;">66.5%</td>
-<td style="text-align: right;">0.1323</td>
-<td style="text-align: left;">9.85s</td>
+<td style="text-align: left;">93.4%</td>
+<td style="text-align: right;">0.2158</td>
+<td style="text-align: left;">12.82s</td>
 </tr>
 </tbody>
 </table>
 </div>
 </figure>
 </div>
-<div id="cell-fig-w-sweep" class="cell" data-message="false" data-execution_count="2">
+<div id="cell-fig-w-sweep" class="cell" data-message="false" data-execution_count="3">
 <div class="cell-output cell-output-display">
 <div id="fig-w-sweep" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-w-sweep-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="appendix_operational_files/figure-html/fig-w-sweep-output-1.png" width="3426" height="1117" class="figure-img">
+<img src="appendix_operational_files/figure-html/fig-w-sweep-output-1.png" width="2751" height="751" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-w-sweep-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;B.1: Continuous trade-off between cross-view fidelity (<span class="math inline">\(1 - w\)</span>) and Stiefel orthogonality (<span class="math inline">\(w\)</span>) across <span class="math inline">\(w \in [0.01, 0.95]\)</span> (<code>ablation_w_sweep.csv</code>). (A) Synthetic <code>NonnegParts</code> ground-truth support recovery (<span class="math inline">\(F_1\)</span>, blue) and Gram orthogonality defect <span class="math inline">\(D(V)\)</span> (red, log scale). (B) <code>ADNI-MCI</code> Gram defect <span class="math inline">\(D(V)\)</span> and effective rank (<span class="math inline">\(\text{EffRank} \in [1, 3]\)</span>). (C) <code>ADNI-MCI</code> out-of-sample cognitive prediction (<code>CogPC1</code> <span class="math inline">\(R^2\)</span>, green) and cortical sparsity (<span class="math inline">\(v_2..v_k\)</span>, purple), showing a broad stable plateau across <span class="math inline">\(w \in [0.20, 0.85]\)</span> centered at the default <span class="math inline">\(w = 0.50\)</span>.
+Figure&nbsp;B.1: Continuous trade-off between cross-view fidelity (<span class="math inline">\(1 - w\)</span>) and Stiefel orthogonality (<span class="math inline">\(w\)</span>) across <span class="math inline">\(w \in [0.01, 0.95]\)</span> (<code>ablation_w_sweep.csv</code>), plotted on separate single-metric panels without secondary axes. (A) Synthetic <code>NonnegParts</code> ground-truth support recovery (<span class="math inline">\(F_1\)</span>). (B) Normalized Gram orthogonality defect <span class="math inline">\(D(V)\)</span> (log scale) for both <code>NonnegParts</code> and <code>ADNI-MCI</code>. (C) <code>ADNI-MCI</code> basis effective rank (<span class="math inline">\(\text{EffRank} \in [1, 3]\)</span>). (D) <code>ADNI-MCI</code> out-of-sample <code>CogPC1</code> <span class="math inline">\(R^2\)</span>, showing a broad plateau across <span class="math inline">\(w \in [0.20, 0.85]\)</span> centered at the default <span class="math inline">\(w = 0.50\)</span>.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<section id="basis-health-and-rank-selection-stability-diagnostics-on-adni-mci" class="level3" data-number="B.1.1">
+<h3 data-number="B.1.1" class="anchored" data-anchor-id="basis-health-and-rank-selection-stability-diagnostics-on-adni-mci"><span class="header-section-number">B.1.1</span> Basis Health and Rank-Selection Stability Diagnostics on <code>ADNI-MCI</code></h3>
+<p>To verify optimization conditioning and component identifiability directly on the four-view <code>ADNI-MCI</code> cohort (<code>Protocol B</code>), <a href="#fig-adni-basis-diagnostics" class="quarto-xref">Figure&nbsp;<span>B.2</span></a> applies <code>pysimlr.plot_basis_diagnostics</code> (<span class="math inline">\(k = 3\)</span>, <span class="math inline">\(q = 0.85\)</span>), reporting per-view effective rank against <span class="math inline">\(k\)</span>, maximum column cosine overlap, <span class="math inline">\(\log_{10}\)</span> condition number, and achieved sparsity alongside the median <code>loading_margin</code>. <a href="#fig-adni-rank-selection" class="quarto-xref">Figure&nbsp;<span>B.3</span></a> applies <code>pysimlr.plot_rank_selection</code> to the 20-subsample <code>select_rank</code> evidence (<code>docs/audit/evidence/adni_rank_selection.csv</code>), contrasting non-negative estimation (<code>positivity="positive"</code>, where <span class="math inline">\(k = 2\)</span> clears the <span class="math inline">\(0.90\)</span> identification bar on all components while <span class="math inline">\(k = 3\)</span> exposes an under-identified Component 2 at <span class="math inline">\(0.803\)</span>) against unconstrained signed estimation (<code>positivity="either"</code>, where no candidate <span class="math inline">\(k \in \{2, 3, 4, 5\}\)</span> clears <span class="math inline">\(0.90\)</span>).</p>
+<div id="cell-fig-adni-basis-diagnostics" class="cell" data-message="false" data-execution_count="4">
+<div class="cell-output cell-output-display">
+<div id="fig-adni-basis-diagnostics" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-adni-basis-diagnostics-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_operational_files/figure-html/fig-adni-basis-diagnostics-output-1.png" width="1442" height="475" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-adni-basis-diagnostics-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;B.2: Per-view basis health (<code>pysimlr.plot_basis_diagnostics</code>) on <code>ADNI-MCI</code> (<code>Protocol B</code>, <code>SiMLR</code>, <span class="math inline">\(k = 3\)</span>, <code>positivity='positive'</code>, <span class="math inline">\(q = 0.85\)</span>): effective and numerical rank against <span class="math inline">\(k = 3\)</span>, maximum column overlap, <span class="math inline">\(\log_{10}\)</span> condition number, and achieved sparsity against the requested <span class="math inline">\(0.85\)</span> level with median OLEE loading margins.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div id="cell-fig-adni-rank-selection" class="cell" data-message="false" data-execution_count="5">
+<div class="cell-output cell-output-display">
+<div id="fig-adni-rank-selection" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-adni-rank-selection-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_operational_files/figure-html/fig-adni-rank-selection-output-1.png" width="2351" height="912" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-adni-rank-selection-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;B.3: Component stability across candidate ranks <span class="math inline">\(k \in \{2, 3, 4, 5\}\)</span> (<code>pysimlr.plot_rank_selection</code>, 20 half-sample refits on <code>ADNI-MCI</code> from <code>docs/audit/evidence/adni_rank_selection.csv</code>). (A) Under non-negative estimation (<code>positivity='positive'</code>), <span class="math inline">\(k = 2\)</span> clears the <span class="math inline">\(0.90\)</span> identification bar across all components (<span class="math inline">\(0.961, 0.997\)</span>), whereas at <span class="math inline">\(k = 3\)</span> the weakest component drops to <span class="math inline">\(0.803\)</span>. (B) Under signed estimation (<code>positivity='either'</code>), no candidate <span class="math inline">\(k\)</span> clears <span class="math inline">\(0.90\)</span> across all components.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
 </section>
+</section>
 <section id="preprocessing-controls-subject-row-mean-removal-ica-initialization-and-orthogonal-varimax-rotation" class="level2" data-number="B.2">
 <h2 data-number="B.2" class="anchored" data-anchor-id="preprocessing-controls-subject-row-mean-removal-ica-initialization-and-orthogonal-varimax-rotation"><span class="header-section-number">B.2</span> Preprocessing Controls: Subject Row-Mean Removal, ICA Initialization, and Orthogonal Varimax Rotation</h2>
-<p>On neuroimaging cohorts where cortical regions share a positive global correlation floor, <a href="#tbl-app-rowmean-ica" class="quarto-xref">Table&nbsp;<span>B.2</span></a> and <a href="#fig-rowmean-k-ablation" class="quarto-xref">Figure&nbsp;<span>B.2</span></a> compare unrotated column centering against in-fold subject row-mean centering, deterministic FastICA <span class="citation" data-cites="hyvarinen2000independent">(<a href="#ref-hyvarinen2000independent" role="doc-biblioref">Hyvärinen and Oja 2000</a>)</span> initialization, and latent rank scaling <span class="math inline">\(k \in \{2, 3, 5, 8, 12\}\)</span>. While subject row-mean removal and FastICA initialization were originally used to diagnose and eliminate the unrotated Component 1 density effect (<code>Col + PCA, varimax = False, q = None</code>), <code>pysimlr v0.2.17</code> incorporates exact orthogonal Varimax subspace rotation (<code>varimax = True</code> by default inside <code>nsa_flow</code>) prior to non-negative retraction, achieving <span class="math inline">\(66.1\%\)</span> unthresholded sparsity (<span class="math inline">\([24, 12, 26]\)</span> active DKT parcels) directly on standard column-centered data without discarding global atrophy severity.</p>
-<div id="tbl-app-rowmean-ica" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="3">
+<p>On neuroimaging cohorts where cortical regions share a positive global correlation floor, <a href="#tbl-app-rowmean-ica" class="quarto-xref">Table&nbsp;<span>B.2</span></a> and <a href="#fig-rowmean-k-ablation" class="quarto-xref">Figure&nbsp;<span>B.4</span></a> compare column centering with in-fold subject row-mean centering, PCA with deterministic FastICA <span class="citation" data-cites="hyvarinen2000independent">(<a href="#ref-hyvarinen2000independent" role="doc-biblioref">Hyvärinen and Oja 2000</a>)</span> initialization, signed with non-negative bases, and the initializer alone with the fitted model (<code>SiMLR</code>, <span class="math inline">\(k = 3\)</span>, <span class="math inline">\(w = 0.50\)</span>, no Varimax, no quantile threshold; <code>scripts/paper_adni_ablations.py</code>). With non-negative bases, row-mean centering changes cortical sparsity from 93% to 62% and <code>CogPC1</code> <span class="math inline">\(R^2\)</span> from 0.196 to 0.003. Varimax rotation on column-centered data gives 67% sparsity on the 62 DKT regions with [2, 0, 60] active regions per component, against 67% and [60, 1, 1] without rotation.</p>
+<div id="tbl-app-rowmean-ica" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="6">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-rowmean-ica-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 Table&nbsp;B.2: Factorial ablation of column vs.&nbsp;subject row-mean centering, PCA vs.&nbsp;ICA initialization, and positivity constraints on <code>ADNI-MCI</code> (<span class="math inline">\(N = 1,084, k = 3, w = 0.50\)</span>, <code>ablation_rowmean_ica_positivity.csv</code>).
@@ -495,9 +530,9 @@ Table&nbsp;B.2: Factorial ablation of column vs.&nbsp;subject row-mean centering
 <td style="text-align: left;">Signed</td>
 <td style="text-align: left;">Init</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">1.3% (0.7%)</td>
-<td style="text-align: left;">0.1628 (0.1628)</td>
-<td style="text-align: right;">0.0769</td>
+<td style="text-align: left;">0.0% (0.0%)</td>
+<td style="text-align: left;">0.1627 (0.1657)</td>
+<td style="text-align: right;">0.0782</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Col</td>
@@ -505,109 +540,109 @@ Table&nbsp;B.2: Factorial ablation of column vs.&nbsp;subject row-mean centering
 <td style="text-align: left;">Signed</td>
 <td style="text-align: left;">SiMR</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">3.3% (1.6%)</td>
-<td style="text-align: left;">0.1714 (0.1719)</td>
-<td style="text-align: right;">0.0833</td>
+<td style="text-align: left;">0.0% (0.0%)</td>
+<td style="text-align: left;">0.1044 (0.1085)</td>
+<td style="text-align: right;">0.0282</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Col</td>
 <td style="text-align: left;">PCA</td>
 <td style="text-align: left;">V&gt;=0</td>
 <td style="text-align: left;">Init</td>
-<td style="text-align: right;">0.00186</td>
-<td style="text-align: left;">57.8% (37.1%)</td>
-<td style="text-align: left;">0.1638 (0.1638)</td>
-<td style="text-align: right;">0.0768</td>
+<td style="text-align: right;">0.00182</td>
+<td style="text-align: left;">57.2% (45.3%)</td>
+<td style="text-align: left;">0.1768 (0.1867)</td>
+<td style="text-align: right;">0.081</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Col</td>
 <td style="text-align: left;">PCA</td>
 <td style="text-align: left;">V&gt;=0</td>
-<td style="text-align: left;">SiMR</td>
-<td style="text-align: right;">8e-05</td>
-<td style="text-align: left;">63.0% (35.8%)</td>
-<td style="text-align: left;">0.1892 (0.1895)</td>
-<td style="text-align: right;">0.0889</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">Col</td>
-<td style="text-align: left;">ICA</td>
-<td style="text-align: left;">Signed</td>
-<td style="text-align: left;">Init</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">3.3% (5.3%)</td>
-<td style="text-align: left;">0.1410 (0.1490)</td>
-<td style="text-align: right;">0.0683</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">Col</td>
-<td style="text-align: left;">ICA</td>
-<td style="text-align: left;">Signed</td>
 <td style="text-align: left;">SiMR</td>
 <td style="text-align: right;">4e-05</td>
-<td style="text-align: left;">1.9% (1.4%)</td>
-<td style="text-align: left;">0.1737 (0.1719)</td>
-<td style="text-align: right;">0.085</td>
+<td style="text-align: left;">93.1% (87.4%)</td>
+<td style="text-align: left;">0.1958 (0.2088)</td>
+<td style="text-align: right;">0.0932</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Col</td>
 <td style="text-align: left;">ICA</td>
-<td style="text-align: left;">V&gt;=0</td>
-<td style="text-align: left;">Init</td>
-<td style="text-align: right;">0.01607</td>
-<td style="text-align: left;">63.8% (72.3%)</td>
-<td style="text-align: left;">0.1476 (0.1615)</td>
-<td style="text-align: right;">0.0651</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">Col</td>
-<td style="text-align: left;">ICA</td>
-<td style="text-align: left;">V&gt;=0</td>
-<td style="text-align: left;">SiMR</td>
-<td style="text-align: right;">5e-05</td>
-<td style="text-align: left;">62.4% (39.3%)</td>
-<td style="text-align: left;">0.1213 (0.1215)</td>
-<td style="text-align: right;">0.0602</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">Row+Col</td>
-<td style="text-align: left;">PCA</td>
 <td style="text-align: left;">Signed</td>
 <td style="text-align: left;">Init</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">1.8% (1.2%)</td>
-<td style="text-align: left;">0.1399 (0.1580)</td>
-<td style="text-align: right;">0.0684</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">Row+Col</td>
-<td style="text-align: left;">PCA</td>
-<td style="text-align: left;">Signed</td>
-<td style="text-align: left;">SiMR</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">2.4% (2.4%)</td>
-<td style="text-align: left;">0.1399 (0.1532)</td>
+<td style="text-align: left;">0.0% (0.0%)</td>
+<td style="text-align: left;">0.1456 (0.1474)</td>
 <td style="text-align: right;">0.072</td>
 </tr>
+<tr class="even">
+<td style="text-align: left;">Col</td>
+<td style="text-align: left;">ICA</td>
+<td style="text-align: left;">Signed</td>
+<td style="text-align: left;">SiMR</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0% (0.0%)</td>
+<td style="text-align: left;">0.1053 (0.1084)</td>
+<td style="text-align: right;">0.0007</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Col</td>
+<td style="text-align: left;">ICA</td>
+<td style="text-align: left;">V&gt;=0</td>
+<td style="text-align: left;">Init</td>
+<td style="text-align: right;">0.01466</td>
+<td style="text-align: left;">61.5% (61.3%)</td>
+<td style="text-align: left;">0.1471 (0.1432)</td>
+<td style="text-align: right;">0.0681</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Col</td>
+<td style="text-align: left;">ICA</td>
+<td style="text-align: left;">V&gt;=0</td>
+<td style="text-align: left;">SiMR</td>
+<td style="text-align: right;">5e-05</td>
+<td style="text-align: left;">91.4% (96.9%)</td>
+<td style="text-align: left;">0.1989 (0.2049)</td>
+<td style="text-align: right;">0.0958</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Row+Col</td>
+<td style="text-align: left;">PCA</td>
+<td style="text-align: left;">Signed</td>
+<td style="text-align: left;">Init</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0% (0.0%)</td>
+<td style="text-align: left;">0.1351 (0.1364)</td>
+<td style="text-align: right;">0.0968</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Row+Col</td>
+<td style="text-align: left;">PCA</td>
+<td style="text-align: left;">Signed</td>
+<td style="text-align: left;">SiMR</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0% (0.0%)</td>
+<td style="text-align: left;">-0.0415 (-0.0380)</td>
+<td style="text-align: right;">-0.0357</td>
+</tr>
 <tr class="odd">
 <td style="text-align: left;">Row+Col</td>
 <td style="text-align: left;">PCA</td>
 <td style="text-align: left;">V&gt;=0</td>
 <td style="text-align: left;">Init</td>
-<td style="text-align: right;">0.00258</td>
-<td style="text-align: left;">58.7% (56.2%)</td>
-<td style="text-align: left;">0.1348 (0.1497)</td>
-<td style="text-align: right;">0.066</td>
+<td style="text-align: right;">0.00245</td>
+<td style="text-align: left;">59.3% (30.9%)</td>
+<td style="text-align: left;">0.0786 (0.0785)</td>
+<td style="text-align: right;">0.0697</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Row+Col</td>
 <td style="text-align: left;">PCA</td>
 <td style="text-align: left;">V&gt;=0</td>
 <td style="text-align: left;">SiMR</td>
-<td style="text-align: right;">0.00465</td>
-<td style="text-align: left;">62.0% (52.9%)</td>
-<td style="text-align: left;">0.1689 (0.1776)</td>
-<td style="text-align: right;">0.0813</td>
+<td style="text-align: right;">0.00448</td>
+<td style="text-align: left;">62.4% (67.0%)</td>
+<td style="text-align: left;">0.0032 (0.0158)</td>
+<td style="text-align: right;">0.0106</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Row+Col</td>
@@ -615,64 +650,64 @@ Table&nbsp;B.2: Factorial ablation of column vs.&nbsp;subject row-mean centering
 <td style="text-align: left;">Signed</td>
 <td style="text-align: left;">Init</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">1.7% (1.8%)</td>
-<td style="text-align: left;">0.1400 (0.1581)</td>
-<td style="text-align: right;">0.0684</td>
+<td style="text-align: left;">0.0% (0.0%)</td>
+<td style="text-align: left;">0.1321 (0.1348)</td>
+<td style="text-align: right;">0.0972</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Row+Col</td>
 <td style="text-align: left;">ICA</td>
 <td style="text-align: left;">Signed</td>
 <td style="text-align: left;">SiMR</td>
-<td style="text-align: right;">5e-05</td>
-<td style="text-align: left;">2.8% (2.5%)</td>
-<td style="text-align: left;">0.1489 (0.1567)</td>
-<td style="text-align: right;">0.0761</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">0.0% (0.0%)</td>
+<td style="text-align: left;">-0.0177 (-0.0096)</td>
+<td style="text-align: right;">-0.0259</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Row+Col</td>
 <td style="text-align: left;">ICA</td>
 <td style="text-align: left;">V&gt;=0</td>
 <td style="text-align: left;">Init</td>
-<td style="text-align: right;">0.02073</td>
-<td style="text-align: left;">60.4% (58.2%)</td>
-<td style="text-align: left;">0.1286 (0.1594)</td>
-<td style="text-align: right;">0.0623</td>
+<td style="text-align: right;">0.01849</td>
+<td style="text-align: left;">61.9% (65.2%)</td>
+<td style="text-align: left;">0.1173 (0.1181)</td>
+<td style="text-align: right;">0.095</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Row+Col</td>
 <td style="text-align: left;">ICA</td>
 <td style="text-align: left;">V&gt;=0</td>
 <td style="text-align: left;">SiMR</td>
-<td style="text-align: right;">6e-05</td>
-<td style="text-align: left;">67.1% (69.4%)</td>
-<td style="text-align: left;">0.1408 (0.1531)</td>
-<td style="text-align: right;">0.0727</td>
+<td style="text-align: right;">0.00108</td>
+<td style="text-align: left;">53.8% (62.8%)</td>
+<td style="text-align: left;">0.0623 (0.0679)</td>
+<td style="text-align: right;">0.0583</td>
 </tr>
 </tbody>
 </table>
 </div>
 </figure>
 </div>
-<div id="cell-fig-rowmean-k-ablation" class="cell" data-message="false" data-execution_count="4">
+<div id="cell-fig-rowmean-k-ablation" class="cell" data-message="false" data-execution_count="7">
 <div class="cell-output cell-output-display">
 <div id="fig-rowmean-k-ablation" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-rowmean-k-ablation-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="appendix_operational_files/figure-html/fig-rowmean-k-ablation-output-1.png" width="3394" height="1234" class="figure-img">
+<img src="appendix_operational_files/figure-html/fig-rowmean-k-ablation-output-1.png" width="3586" height="1276" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-rowmean-k-ablation-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;B.2: Resolution of the unthresholded <code>ADNI-MCI</code> Component 1 density effect via subject row-mean removal and latent rank scaling (<code>ablation_rowmean_ica_positivity.csv</code> and <code>ablation_k_sparsity_sweep.csv</code>). (A) Under unthresholded column centering (<code>q = None</code>), Component 1 (<span class="math inline">\(v_1\)</span>, blue) absorbs the global cortical thickness floor (<span class="math inline">\(3.2\%\)</span> sparse) while Components <span class="math inline">\(2..k\)</span> (<span class="math inline">\(v_2..v_k\)</span>, teal) remain <span class="math inline">\(21.0\%\)</span> sparse; removing each subject’s mean cortical thickness or applying quantile thresholding (<span class="math inline">\(q = 0.80\)</span>) restores <span class="math inline">\(53.2\%\)</span>–<span class="math inline">\(81.5\%\)</span> sparsity on <span class="math inline">\(v_1\)</span>. (B) Scaling latent rank <span class="math inline">\(k \in \{2, 3, 5, 8, 12\}\)</span> systematically increases natural unthresholded non-negative sparsity toward the theoretical disjoint limit <span class="math inline">\(1 - 1/k\)</span>.
+Figure&nbsp;B.4: Component sparsity under column vs.&nbsp;row-mean centering, Varimax rotation and quantile thresholding, and natural non-negative sparsity against latent rank <span class="math inline">\(k\)</span> (<code>ablation_rowmean_ica_positivity.csv</code>, <code>adni_mci_feature_loadings.json</code> and <code>ablation_k_sparsity_sweep.csv</code>). (A) Fraction of zero loadings in Component 1 (<span class="math inline">\(v_1\)</span>, blue) and Components <span class="math inline">\(2..k\)</span> (<span class="math inline">\(v_2..v_k\)</span>, teal) on the 62 DKT cortical-thickness regions for five regimes. (B) Unthresholded non-negative sparsity across <span class="math inline">\(k \in \{2, 3, 5, 8, 12\}\)</span>, against the disjoint-support limit <span class="math inline">\(1 - 1/k\)</span>.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
 </section>
-<section id="fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-1214-sweep-summary" class="level2" data-number="B.3">
-<h2 data-number="B.3" class="anchored" data-anchor-id="fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-1214-sweep-summary"><span class="header-section-number">B.3</span> Fine-Grained Quantile Sparsity (<span class="math inline">\(q \in [\text{None}, 0.90]\)</span>) and <code>ADNI-MCI</code> 1,214-Sweep Summary</h2>
-<p><a href="#tbl-app-quantile-grid" class="quarto-xref">Table&nbsp;<span>B.3</span></a> reports the complete quantile <code>sparseness</code> progression from <span class="math inline">\(q = \text{None}\)</span> to <span class="math inline">\(q = 0.90\)</span> on <code>ADNI-MCI</code> and <code>NonnegParts</code>, and <a href="#tbl-app-adni-sweep" class="quarto-xref">Table&nbsp;<span>B.4</span></a> reports the top configuration per model family across the <span class="math inline">\(1,214\)</span>-configuration <code>ADNI-MCI</code> grid sweep.</p>
-<div id="tbl-app-quantile-grid" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="5">
+<section id="fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-sweep-summary" class="level2" data-number="B.3">
+<h2 data-number="B.3" class="anchored" data-anchor-id="fine-grained-quantile-sparsity-q-in-textnone-0.90-and-adni-mci-sweep-summary"><span class="header-section-number">B.3</span> Fine-Grained Quantile Sparsity (<span class="math inline">\(q \in [\text{None}, 0.90]\)</span>) and <code>ADNI-MCI</code> Sweep Summary</h2>
+<p><a href="#tbl-app-quantile-grid" class="quarto-xref">Table&nbsp;<span>B.3</span></a> reports the complete quantile <code>sparseness</code> progression from <span class="math inline">\(q = \text{None}\)</span> to <span class="math inline">\(q = 0.90\)</span> on <code>ADNI-MCI</code> and <code>NonnegParts</code>, and <a href="#tbl-app-adni-sweep" class="quarto-xref">Table&nbsp;<span>B.4</span></a> reports the top configuration per model family across the 1,025-configuration <code>ADNI-MCI</code> grid sweep (1,025 completed).</p>
+<div id="tbl-app-quantile-grid" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="8">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-quantile-grid-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 Table&nbsp;B.3: Fine-grained quantile <code>sparseness</code> ablation across <span class="math inline">\(q \in [\text{None}, 0.90]\)</span> on <code>ADNI-MCI</code> (<span class="math inline">\(N = 1,084\)</span>) and synthetic <code>NonnegParts</code> (<code>ablation_quantile_sparseness.csv</code>).
@@ -705,132 +740,132 @@ Table&nbsp;B.3: Fine-grained quantile <code>sparseness</code> ablation across <s
 <tr class="odd">
 <td style="text-align: left;">positive</td>
 <td style="text-align: left;">None</td>
-<td style="text-align: right;">8e-05</td>
-<td style="text-align: left;">63.0% (35.8%)</td>
-<td style="text-align: left;">(55,7,12)</td>
-<td style="text-align: right;">0.1892</td>
-<td style="text-align: right;">0.0889</td>
-<td style="text-align: right;">0.941</td>
+<td style="text-align: right;">5e-05</td>
+<td style="text-align: left;">93.3% (95.0%)</td>
+<td style="text-align: left;">(2,1,1)</td>
+<td style="text-align: right;">0.2147</td>
+<td style="text-align: right;">0.0963</td>
+<td style="text-align: right;">0.595</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">positive</td>
 <td style="text-align: left;">0.50</td>
-<td style="text-align: right;">1e-05</td>
-<td style="text-align: left;">74.5% (61.5%)</td>
-<td style="text-align: left;">(31,3,7)</td>
-<td style="text-align: right;">0.1602</td>
-<td style="text-align: right;">0.0751</td>
-<td style="text-align: right;">0.915</td>
+<td style="text-align: right;">5e-05</td>
+<td style="text-align: left;">93.3% (95.0%)</td>
+<td style="text-align: left;">(2,1,1)</td>
+<td style="text-align: right;">0.2147</td>
+<td style="text-align: right;">0.0963</td>
+<td style="text-align: right;">0.595</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">positive</td>
 <td style="text-align: left;">0.70</td>
-<td style="text-align: right;">0.00063</td>
-<td style="text-align: left;">76.9% (72.0%)</td>
-<td style="text-align: left;">(19,10,5)</td>
-<td style="text-align: right;">0.1689</td>
-<td style="text-align: right;">0.0793</td>
-<td style="text-align: right;">0.88</td>
+<td style="text-align: right;">8e-05</td>
+<td style="text-align: left;">92.8% (89.0%)</td>
+<td style="text-align: left;">(2,1,1)</td>
+<td style="text-align: right;">0.2038</td>
+<td style="text-align: right;">0.0945</td>
+<td style="text-align: right;">0.573</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">positive</td>
 <td style="text-align: left;">0.80</td>
-<td style="text-align: right;">3e-05</td>
-<td style="text-align: left;">85.8% (81.9%)</td>
-<td style="text-align: left;">(12,3,3)</td>
-<td style="text-align: right;">0.1735</td>
-<td style="text-align: right;">0.0807</td>
-<td style="text-align: right;">0.562</td>
+<td style="text-align: right;">0.00017</td>
+<td style="text-align: left;">93.2% (95.0%)</td>
+<td style="text-align: left;">(2,1,1)</td>
+<td style="text-align: right;">0.1861</td>
+<td style="text-align: right;">0.0882</td>
+<td style="text-align: right;">0.489</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">positive</td>
 <td style="text-align: left;">0.85</td>
-<td style="text-align: right;">0.00062</td>
-<td style="text-align: left;">88.0% (85.5%)</td>
-<td style="text-align: left;">(9,9,9)</td>
-<td style="text-align: right;">0.1923</td>
-<td style="text-align: right;">0.0897</td>
-<td style="text-align: right;">0.46</td>
+<td style="text-align: right;">0.0002</td>
+<td style="text-align: left;">93.1% (96.1%)</td>
+<td style="text-align: left;">(1,9,1)</td>
+<td style="text-align: right;">0.204</td>
+<td style="text-align: right;">0.0942</td>
+<td style="text-align: right;">0.414</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">positive</td>
 <td style="text-align: left;">0.90</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">92.3% (91.0%)</td>
-<td style="text-align: left;">(6,6,3)</td>
-<td style="text-align: right;">0.1595</td>
-<td style="text-align: right;">0.0773</td>
-<td style="text-align: right;">0.279</td>
+<td style="text-align: right;">0.00028</td>
+<td style="text-align: left;">95.6% (94.8%)</td>
+<td style="text-align: left;">(1,1,4)</td>
+<td style="text-align: right;">0.0961</td>
+<td style="text-align: right;">0.0448</td>
+<td style="text-align: right;">0.275</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">either</td>
 <td style="text-align: left;">None</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: left;">3.3% (1.6%)</td>
+<td style="text-align: left;">0.0% (0.0%)</td>
 <td style="text-align: left;">(62,62,62)</td>
-<td style="text-align: right;">0.1714</td>
-<td style="text-align: right;">0.0833</td>
+<td style="text-align: right;">0.1044</td>
+<td style="text-align: right;">0.0282</td>
 <td style="text-align: right;">0.333</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">either</td>
 <td style="text-align: left;">0.50</td>
-<td style="text-align: right;">0.00023</td>
-<td style="text-align: left;">58.5% (55.7%)</td>
+<td style="text-align: right;">1e-05</td>
+<td style="text-align: left;">50.0% (50.0%)</td>
 <td style="text-align: left;">(31,31,31)</td>
-<td style="text-align: right;">0.1968</td>
-<td style="text-align: right;">0.0938</td>
-<td style="text-align: right;">0.621</td>
+<td style="text-align: right;">0.1665</td>
+<td style="text-align: right;">0.051</td>
+<td style="text-align: right;">0.377</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">either</td>
 <td style="text-align: left;">0.70</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">75.7% (75.9%)</td>
+<td style="text-align: right;">1e-05</td>
+<td style="text-align: left;">69.9% (69.9%)</td>
 <td style="text-align: left;">(19,19,19)</td>
-<td style="text-align: right;">0.2089</td>
-<td style="text-align: right;">0.0943</td>
-<td style="text-align: right;">0.791</td>
+<td style="text-align: right;">0.1713</td>
+<td style="text-align: right;">0.0504</td>
+<td style="text-align: right;">0.44</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">either</td>
 <td style="text-align: left;">0.80</td>
-<td style="text-align: right;">0.00035</td>
-<td style="text-align: left;">85.0% (84.2%)</td>
+<td style="text-align: right;">2e-05</td>
+<td style="text-align: left;">80.1% (80.1%)</td>
 <td style="text-align: left;">(12,12,12)</td>
-<td style="text-align: right;">0.1699</td>
-<td style="text-align: right;">0.0773</td>
-<td style="text-align: right;">0.551</td>
+<td style="text-align: right;">0.162</td>
+<td style="text-align: right;">0.041</td>
+<td style="text-align: right;">0.321</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">either</td>
 <td style="text-align: left;">0.85</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">86.6% (86.5%)</td>
+<td style="text-align: right;">9e-05</td>
+<td style="text-align: left;">85.1% (85.1%)</td>
 <td style="text-align: left;">(9,9,9)</td>
-<td style="text-align: right;">0.1722</td>
-<td style="text-align: right;">0.0808</td>
-<td style="text-align: right;">0.436</td>
+<td style="text-align: right;">0.1814</td>
+<td style="text-align: right;">0.0772</td>
+<td style="text-align: right;">0.283</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">either</td>
 <td style="text-align: left;">0.90</td>
-<td style="text-align: right;">6e-05</td>
-<td style="text-align: left;">90.6% (90.2%)</td>
+<td style="text-align: right;">0.00144</td>
+<td style="text-align: left;">90.1% (90.1%)</td>
 <td style="text-align: left;">(6,6,6)</td>
-<td style="text-align: right;">0.1514</td>
-<td style="text-align: right;">0.0716</td>
-<td style="text-align: right;">0.266</td>
+<td style="text-align: right;">0.1937</td>
+<td style="text-align: right;">0.088</td>
+<td style="text-align: right;">0.262</td>
 </tr>
 </tbody>
 </table>
 </div>
 </figure>
 </div>
-<div id="tbl-app-adni-sweep" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="6">
+<div id="tbl-app-adni-sweep" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="9">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-adni-sweep-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;B.4: Summary of the 1,214-configuration <code>ADNI-MCI</code> Protocol B sweep (<span class="math inline">\(N = 1,084\)</span>, Seed 42, <span class="math inline">\(k = 3\)</span>) computed from <code>adni_mci_1214_grid_sweep.csv</code>.
+Table&nbsp;B.4: Summary of the <code>ADNI-MCI</code> Protocol B hyperparameter sweep (<span class="math inline">\(N = 1,084\)</span>, Seed 42, <span class="math inline">\(k = 3\)</span>) computed from <code>adni_mci_1214_grid_sweep.csv</code>. Peak values are maxima over many configurations on one split and are optimistic.
 </figcaption>
 <div aria-describedby="tbl-app-adni-sweep-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="cell caption-top table table-sm table-striped small">
@@ -856,184 +891,157 @@ Table&nbsp;B.4: Summary of the 1,214-configuration <code>ADNI-MCI</code> Protoco
 </thead>
 <tbody>
 <tr class="odd">
-<td style="text-align: left;">Linear</td>
-<td style="text-align: left;">SiMLR-Lookahead</td>
-<td style="text-align: right;">35</td>
-<td style="text-align: right;">0.2407</td>
-<td style="text-align: right;">0.0939</td>
-<td style="text-align: left;">0.166 ± 0.023</td>
-<td style="text-align: left;">2.07s</td>
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: right;">150</td>
+<td style="text-align: right;">0.2552</td>
+<td style="text-align: right;">0.1206</td>
+<td style="text-align: left;">0.190 ± 0.036</td>
+<td style="text-align: left;">7.79s</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;">Deep</td>
-<td style="text-align: left;">NEDPP</td>
-<td style="text-align: right;">150</td>
-<td style="text-align: right;">0.2357</td>
-<td style="text-align: right;">0.1074</td>
-<td style="text-align: left;">0.195 ± 0.020</td>
-<td style="text-align: left;">14.32s</td>
+<td style="text-align: left;">Linear</td>
+<td style="text-align: left;">SiMLR</td>
+<td style="text-align: right;">63</td>
+<td style="text-align: right;">0.2453</td>
+<td style="text-align: right;">0.1092</td>
+<td style="text-align: left;">0.187 ± 0.026</td>
+<td style="text-align: left;">1.10s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Flow</td>
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: right;">120</td>
-<td style="text-align: right;">0.2341</td>
-<td style="text-align: right;">0.1054</td>
-<td style="text-align: left;">0.181 ± 0.027</td>
-<td style="text-align: left;">16.80s</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">Linear</td>
-<td style="text-align: left;">SiMLR-LARS</td>
-<td style="text-align: right;">35</td>
-<td style="text-align: right;">0.2296</td>
-<td style="text-align: right;">0.1073</td>
-<td style="text-align: left;">0.172 ± 0.014</td>
-<td style="text-align: left;">1.23s</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">Linear</td>
-<td style="text-align: left;">SiMLR-BiArmijo</td>
-<td style="text-align: right;">35</td>
-<td style="text-align: right;">0.2277</td>
-<td style="text-align: right;">0.0778</td>
-<td style="text-align: left;">0.171 ± 0.019</td>
-<td style="text-align: left;">2.92s</td>
+<td style="text-align: right;">150</td>
+<td style="text-align: right;">0.2414</td>
+<td style="text-align: right;">0.113</td>
+<td style="text-align: left;">0.197 ± 0.030</td>
+<td style="text-align: left;">15.81s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Deep</td>
 <td style="text-align: left;">NED</td>
 <td style="text-align: right;">150</td>
-<td style="text-align: right;">0.2237</td>
-<td style="text-align: right;">0.1069</td>
-<td style="text-align: left;">0.185 ± 0.016</td>
-<td style="text-align: left;">8.69s</td>
+<td style="text-align: right;">0.2362</td>
+<td style="text-align: right;">0.109</td>
+<td style="text-align: left;">0.193 ± 0.020</td>
+<td style="text-align: left;">6.26s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Linear</td>
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: right;">35</td>
-<td style="text-align: right;">0.2212</td>
-<td style="text-align: right;">0.0643</td>
-<td style="text-align: left;">0.159 ± 0.026</td>
-<td style="text-align: left;">4.74s</td>
+<td style="text-align: left;">SiMLR-BiArmijo</td>
+<td style="text-align: right;">63</td>
+<td style="text-align: right;">0.2352</td>
+<td style="text-align: right;">0.1077</td>
+<td style="text-align: left;">0.192 ± 0.024</td>
+<td style="text-align: left;">3.36s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Linear</td>
+<td style="text-align: left;">SiMLR-LARS</td>
+<td style="text-align: right;">63</td>
+<td style="text-align: right;">0.2338</td>
+<td style="text-align: right;">0.104</td>
+<td style="text-align: left;">0.181 ± 0.023</td>
+<td style="text-align: left;">0.76s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Linear</td>
+<td style="text-align: left;">SiMLR-Lookahead</td>
+<td style="text-align: right;">63</td>
+<td style="text-align: right;">0.2291</td>
+<td style="text-align: right;">0.1014</td>
+<td style="text-align: left;">0.183 ± 0.025</td>
+<td style="text-align: left;">1.69s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Deep</td>
-<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">NEDPP</td>
 <td style="text-align: right;">150</td>
-<td style="text-align: right;">0.219</td>
-<td style="text-align: right;">0.1059</td>
-<td style="text-align: left;">0.180 ± 0.023</td>
-<td style="text-align: left;">25.58s</td>
+<td style="text-align: right;">0.2288</td>
+<td style="text-align: right;">0.1069</td>
+<td style="text-align: left;">0.190 ± 0.019</td>
+<td style="text-align: left;">8.51s</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;">Linear</td>
-<td style="text-align: left;">SiMLR-LBFGS</td>
-<td style="text-align: right;">35</td>
-<td style="text-align: right;">0.2177</td>
-<td style="text-align: right;">0.0613</td>
-<td style="text-align: left;">0.164 ± 0.021</td>
-<td style="text-align: left;">4.89s</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">Linear</td>
-<td style="text-align: left;">SiMLR</td>
-<td style="text-align: right;">35</td>
-<td style="text-align: right;">0.2151</td>
-<td style="text-align: right;">0.0703</td>
-<td style="text-align: left;">0.171 ± 0.016</td>
-<td style="text-align: left;">0.96s</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">Linear</td>
-<td style="text-align: left;">SiMLR-NSAFlow</td>
-<td style="text-align: right;">35</td>
-<td style="text-align: right;">0.1911</td>
-<td style="text-align: right;">0.0866</td>
-<td style="text-align: left;">0.166 ± 0.007</td>
-<td style="text-align: left;">1.77s</td>
-</tr>
-<tr class="even">
 <td style="text-align: left;">Linear</td>
 <td style="text-align: left;">SiMLR-HybridAdam</td>
-<td style="text-align: right;">35</td>
-<td style="text-align: right;">0.1894</td>
-<td style="text-align: right;">0.041</td>
-<td style="text-align: left;">0.158 ± 0.016</td>
-<td style="text-align: left;">0.95s</td>
+<td style="text-align: right;">63</td>
+<td style="text-align: right;">0.2261</td>
+<td style="text-align: right;">0.1091</td>
+<td style="text-align: left;">0.188 ± 0.023</td>
+<td style="text-align: left;">1.87s</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td style="text-align: left;">Baseline</td>
 <td style="text-align: left;">NSAFlow-PCA</td>
 <td style="text-align: right;">1</td>
-<td style="text-align: right;">0.1891</td>
-<td style="text-align: right;">0.0823</td>
-<td style="text-align: left;">0.189</td>
-<td style="text-align: left;">0.35s</td>
+<td style="text-align: right;">0.1876</td>
+<td style="text-align: right;">0.0799</td>
+<td style="text-align: left;">0.188</td>
+<td style="text-align: left;">0.33s</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td style="text-align: left;">Baseline</td>
 <td style="text-align: left;">PCA</td>
 <td style="text-align: right;">1</td>
-<td style="text-align: right;">0.1786</td>
-<td style="text-align: right;">0.0813</td>
-<td style="text-align: left;">0.179</td>
-<td style="text-align: left;">0.29s</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">Deep</td>
-<td style="text-align: left;">LEND-LARS</td>
-<td style="text-align: right;">18</td>
-<td style="text-align: right;">0.1628</td>
-<td style="text-align: right;">0.0782</td>
-<td style="text-align: left;">0.163 ± 0.000</td>
-<td style="text-align: left;">3.12s</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">Deep</td>
-<td style="text-align: left;">LEND-LARSLOW</td>
-<td style="text-align: right;">18</td>
-<td style="text-align: right;">0.1628</td>
-<td style="text-align: right;">0.0782</td>
-<td style="text-align: left;">0.163 ± 0.000</td>
-<td style="text-align: left;">3.31s</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">Deep</td>
-<td style="text-align: left;">NEDPP-LARSLOW</td>
-<td style="text-align: right;">18</td>
-<td style="text-align: right;">0.1627</td>
-<td style="text-align: right;">0.0782</td>
-<td style="text-align: left;">0.163 ± 0.000</td>
-<td style="text-align: left;">7.69s</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">Deep</td>
-<td style="text-align: left;">NEDPP-LARS</td>
-<td style="text-align: right;">18</td>
-<td style="text-align: right;">0.1627</td>
-<td style="text-align: right;">0.0782</td>
-<td style="text-align: left;">0.163 ± 0.000</td>
-<td style="text-align: left;">7.53s</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">Deep</td>
-<td style="text-align: left;">NED-LARSLOW</td>
-<td style="text-align: right;">18</td>
-<td style="text-align: right;">0.1627</td>
-<td style="text-align: right;">0.0782</td>
-<td style="text-align: left;">0.163 ± 0.000</td>
-<td style="text-align: left;">4.00s</td>
+<td style="text-align: right;">0.1779</td>
+<td style="text-align: right;">0.081</td>
+<td style="text-align: left;">0.178</td>
+<td style="text-align: left;">0.28s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Deep</td>
 <td style="text-align: left;">NED-LARS</td>
 <td style="text-align: right;">18</td>
-<td style="text-align: right;">0.1627</td>
-<td style="text-align: right;">0.0782</td>
-<td style="text-align: left;">0.163 ± 0.000</td>
-<td style="text-align: left;">3.71s</td>
+<td style="text-align: right;">0.1585</td>
+<td style="text-align: right;">0.0789</td>
+<td style="text-align: left;">0.158 ± 0.000</td>
+<td style="text-align: left;">4.45s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">NED-LARSLOW</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">0.1585</td>
+<td style="text-align: right;">0.0789</td>
+<td style="text-align: left;">0.158 ± 0.000</td>
+<td style="text-align: left;">6.90s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">LEND-LARS</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">0.1585</td>
+<td style="text-align: right;">0.0789</td>
+<td style="text-align: left;">0.158 ± 0.000</td>
+<td style="text-align: left;">3.35s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">LEND-LARSLOW</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">0.1585</td>
+<td style="text-align: right;">0.0789</td>
+<td style="text-align: left;">0.158 ± 0.000</td>
+<td style="text-align: left;">3.32s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">NEDPP-LARSLOW</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">0.1585</td>
+<td style="text-align: right;">0.0789</td>
+<td style="text-align: left;">0.158 ± 0.000</td>
+<td style="text-align: left;">5.22s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Deep</td>
+<td style="text-align: left;">NEDPP-LARS</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">0.1585</td>
+<td style="text-align: right;">0.0789</td>
+<td style="text-align: left;">0.158 ± 0.000</td>
+<td style="text-align: left;">5.21s</td>
 </tr>
 </tbody>
 </table>
@@ -1043,8 +1051,8 @@ Table&nbsp;B.4: Summary of the 1,214-configuration <code>ADNI-MCI</code> Protoco
 </section>
 <section id="synthetic-per-regime-breakdown-and-pairwise-wilcoxon-tests" class="level2" data-number="B.4">
 <h2 data-number="B.4" class="anchored" data-anchor-id="synthetic-per-regime-breakdown-and-pairwise-wilcoxon-tests"><span class="header-section-number">B.4</span> Synthetic Per-Regime Breakdown and Pairwise Wilcoxon Tests</h2>
-<p><a href="#tbl-app-synthetic-breakdown" class="quarto-xref">Table&nbsp;<span>B.5</span></a> and <a href="#fig-cmc-recovery" class="quarto-xref">Figure&nbsp;<span>B.3</span></a> report the 3-seed performance across each of the six synthetic ground-truth regimes, and <a href="#tbl-app-wilcoxon" class="quarto-xref">Table&nbsp;<span>B.6</span></a> reports pairwise Wilcoxon signed-rank tests against <code>PCA</code> across the <span class="math inline">\(N = 36\)</span> dataset-seed pairs.</p>
-<div id="tbl-app-synthetic-breakdown" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="7">
+<p><a href="#tbl-app-synthetic-breakdown" class="quarto-xref">Table&nbsp;<span>B.5</span></a> and <a href="#fig-cmc-recovery" class="quarto-xref">Figure&nbsp;<span>B.5</span></a> report the 3-seed performance across each of the six synthetic ground-truth regimes, and <a href="#tbl-app-wilcoxon" class="quarto-xref">Table&nbsp;<span>B.6</span></a> reports Wilcoxon signed-rank tests of each model against <code>PCA</code> over the 12 datasets, with seeds averaged within each dataset and Holm adjustment across models.</p>
+<div id="tbl-app-synthetic-breakdown" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="10">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-synthetic-breakdown-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 Table&nbsp;B.5: Out-of-sample performance across the six synthetic ground-truth regimes (<code>deep_ranking_benchmark.csv</code>). Entries show <code>Linear XV R2 (CMC or Support F1)</code>.
@@ -1052,7 +1060,7 @@ Table&nbsp;B.5: Out-of-sample performance across the six synthetic ground-truth 
 <div aria-describedby="tbl-app-synthetic-breakdown-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="cell caption-top table table-sm table-striped small">
 <colgroup>
-<col style="width: 11%">
+<col style="width: 10%">
 <col style="width: 15%">
 <col style="width: 15%">
 <col style="width: 15%">
@@ -1073,56 +1081,38 @@ Table&nbsp;B.5: Out-of-sample performance across the six synthetic ground-truth 
 </thead>
 <tbody>
 <tr class="odd">
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.971 (CMC=0.96)</td>
-<td style="text-align: left;">0.881 (CMC=0.89)</td>
-<td style="text-align: left;">0.928 (CMC=0.92)</td>
-<td style="text-align: left;">0.474 (CMC=0.26)</td>
-<td style="text-align: left;">0.916 (F1=0.99)</td>
-<td style="text-align: left;">0.353 (F1=0.61)</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">SiMLR-LBFGS</td>
-<td style="text-align: left;">0.971 (CMC=0.96)</td>
-<td style="text-align: left;">0.879 (CMC=0.89)</td>
-<td style="text-align: left;">0.928 (CMC=0.92)</td>
-<td style="text-align: left;">0.472 (CMC=0.26)</td>
-<td style="text-align: left;">0.916 (F1=0.97)</td>
-<td style="text-align: left;">0.350 (F1=0.61)</td>
-</tr>
-<tr class="odd">
 <td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.973 (CMC=0.88)</td>
-<td style="text-align: left;">0.882 (CMC=0.90)</td>
-<td style="text-align: left;">0.936 (CMC=0.87)</td>
-<td style="text-align: left;">0.633 (CMC=0.36)</td>
-<td style="text-align: left;">0.918 (F1=0.94)</td>
-<td style="text-align: left;">0.514 (F1=0.63)</td>
+<td style="text-align: left;">0.975 (CMC=0.97)</td>
+<td style="text-align: left;">0.885 (CMC=0.89)</td>
+<td style="text-align: left;">0.943 (CMC=0.92)</td>
+<td style="text-align: left;">0.787 (CMC=0.68)</td>
+<td style="text-align: left;">0.922 (F1=0.87)</td>
+<td style="text-align: left;">0.728 (F1=0.69)</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.972 (CMC=0.97)</td>
-<td style="text-align: left;">0.881 (CMC=0.89)</td>
-<td style="text-align: left;">0.936 (CMC=0.92)</td>
-<td style="text-align: left;">0.706 (CMC=0.44)</td>
-<td style="text-align: left;">0.916 (F1=0.88)</td>
-<td style="text-align: left;">0.462 (F1=0.53)</td>
+<td style="text-align: left;">0.972 (CMC=0.96)</td>
+<td style="text-align: left;">0.878 (CMC=0.91)</td>
+<td style="text-align: left;">0.941 (CMC=0.93)</td>
+<td style="text-align: left;">0.948 (CMC=0.86)</td>
+<td style="text-align: left;">0.917 (F1=0.87)</td>
+<td style="text-align: left;">0.719 (F1=0.59)</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">SiMLR</td>
-<td style="text-align: left;">0.970 (CMC=0.96)</td>
-<td style="text-align: left;">0.882 (CMC=0.89)</td>
-<td style="text-align: left;">0.928 (CMC=0.92)</td>
-<td style="text-align: left;">0.478 (CMC=0.25)</td>
-<td style="text-align: left;">0.920 (F1=0.68)</td>
-<td style="text-align: left;">0.451 (F1=0.49)</td>
+<td style="text-align: left;">0.973 (CMC=0.97)</td>
+<td style="text-align: left;">0.878 (CMC=0.89)</td>
+<td style="text-align: left;">0.940 (CMC=0.93)</td>
+<td style="text-align: left;">0.948 (CMC=0.88)</td>
+<td style="text-align: left;">0.933 (F1=0.58)</td>
+<td style="text-align: left;">0.758 (F1=0.64)</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NSAFlow-PCA</td>
 <td style="text-align: left;">0.968 (CMC=0.99)</td>
-<td style="text-align: left;">0.862 (CMC=0.92)</td>
+<td style="text-align: left;">0.861 (CMC=0.92)</td>
 <td style="text-align: left;">0.921 (CMC=0.94)</td>
-<td style="text-align: left;">0.294 (CMC=0.15)</td>
+<td style="text-align: left;">0.293 (CMC=0.15)</td>
 <td style="text-align: left;">0.890 (F1=0.64)</td>
 <td style="text-align: left;">0.114 (F1=0.36)</td>
 </tr>
@@ -1137,140 +1127,122 @@ Table&nbsp;B.5: Out-of-sample performance across the six synthetic ground-truth 
 </tr>
 <tr class="even">
 <td style="text-align: left;">NEDPP</td>
-<td style="text-align: left;">0.971 (CMC=0.72)</td>
-<td style="text-align: left;">0.884 (CMC=0.61)</td>
-<td style="text-align: left;">0.942 (CMC=0.71)</td>
-<td style="text-align: left;">0.447 (CMC=0.24)</td>
-<td style="text-align: left;">0.916 (F1=0.81)</td>
-<td style="text-align: left;">0.370 (F1=0.47)</td>
+<td style="text-align: left;">0.975 (CMC=0.93)</td>
+<td style="text-align: left;">0.881 (CMC=0.83)</td>
+<td style="text-align: left;">0.947 (CMC=0.82)</td>
+<td style="text-align: left;">0.761 (CMC=0.57)</td>
+<td style="text-align: left;">0.920 (F1=0.71)</td>
+<td style="text-align: left;">0.443 (F1=0.45)</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">NED</td>
-<td style="text-align: left;">0.973 (CMC=0.76)</td>
-<td style="text-align: left;">0.880 (CMC=0.63)</td>
-<td style="text-align: left;">0.942 (CMC=0.64)</td>
-<td style="text-align: left;">0.439 (CMC=0.36)</td>
-<td style="text-align: left;">0.916 (F1=0.81)</td>
-<td style="text-align: left;">0.391 (F1=0.45)</td>
+<td style="text-align: left;">0.975 (CMC=0.96)</td>
+<td style="text-align: left;">0.879 (CMC=0.86)</td>
+<td style="text-align: left;">0.947 (CMC=0.81)</td>
+<td style="text-align: left;">0.780 (CMC=0.58)</td>
+<td style="text-align: left;">0.920 (F1=0.75)</td>
+<td style="text-align: left;">0.347 (F1=0.46)</td>
 </tr>
 </tbody>
 </table>
 </div>
 </figure>
 </div>
-<div id="cell-fig-cmc-recovery" class="cell" data-message="false" data-execution_count="8">
+<div id="cell-fig-cmc-recovery" class="cell" data-message="false" data-execution_count="11">
 <div class="cell-output cell-output-display">
 <div id="fig-cmc-recovery" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-cmc-recovery-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="appendix_operational_files/figure-html/fig-cmc-recovery-output-1.png" width="3119" height="1050" class="figure-img">
+<img src="appendix_operational_files/figure-html/fig-cmc-recovery-output-1.png" width="2123" height="783" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cmc-recovery-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;B.3: Latent manifold recovery (<code>CMC_Latent_U</code>, higher is better ↑) across the six synthetic ground-truth generative regimes (<code>Linear</code>, <code>Polynomial</code>, <code>Sine</code>, <code>Shared+Private</code>, <code>NonnegParts</code>, and <code>NonnegPartsWeak</code>) computed from <code>deep_ranking_benchmark.csv</code>.
+Figure&nbsp;B.5: Latent manifold recovery (<code>CMC_Latent_U</code>, mean <span class="math inline">\(\pm\)</span> SE across seeds via <code>pysimlr.plot_benchmark</code>) across the six synthetic ground-truth generative regimes (<code>Linear</code>, <code>Polynomial</code>, <code>Sine</code>, <code>Shared+Private</code>, <code>NonnegParts</code>, and <code>NonnegPartsWeak</code>) computed from <code>deep_ranking_benchmark.csv</code>.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
-<div id="tbl-app-wilcoxon" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="9">
+<div id="tbl-app-wilcoxon" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="12">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-wilcoxon-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;B.6: Pairwise Wilcoxon signed-rank tests and win/tie/loss counts against single-matrix <code>PCA</code> across all 36 dataset-seed evaluations (<code>deep_ranking_benchmark.csv</code>).
+Table&nbsp;B.6: Each model against single-matrix <code>PCA</code> over the 12 datasets (<code>deep_ranking_benchmark.csv</code>, <span class="math inline">\(q = 0.5\)</span>). Seeds are averaged within a dataset before testing, so each dataset is one paired block. Wins/ties/losses count datasets; <span class="math inline">\(p\)</span> is the two-sided Wilcoxon signed-rank test, Holm-adjusted across the six models of each column (<code>deep_ranking.wilcoxon_vs_reference</code>).
 </figcaption>
 <div aria-describedby="tbl-app-wilcoxon-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="cell caption-top table table-sm table-striped small">
 <colgroup>
-<col style="width: 13%">
-<col style="width: 18%">
-<col style="width: 12%">
-<col style="width: 13%">
+<col style="width: 14%">
 <col style="width: 17%">
-<col style="width: 11%">
 <col style="width: 13%">
+<col style="width: 13%">
+<col style="width: 16%">
+<col style="width: 12%">
+<col style="width: 12%">
 </colgroup>
 <thead>
 <tr class="header">
 <th style="text-align: left;">Model vs PCA</th>
-<th style="text-align: left;">XV Wins/Ties/Losses</th>
+<th style="text-align: left;">XV W/T/L (of 12)</th>
 <th style="text-align: right;">XV Mean Δ ↑</th>
-<th style="text-align: right;">XV Wilcoxon p</th>
-<th style="text-align: left;">U Wins/Ties/Losses</th>
+<th style="text-align: right;">XV p (Holm)</th>
+<th style="text-align: left;">U W/T/L (of 12)</th>
 <th style="text-align: right;">U Mean Δ ↑</th>
-<th style="text-align: right;">U Wilcoxon p</th>
+<th style="text-align: right;">U p (Holm)</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
 <td style="text-align: left;">LEND</td>
-<td style="text-align: left;">30 / 0 / 6</td>
-<td style="text-align: right;">0.0889</td>
-<td style="text-align: right;">0.0001</td>
-<td style="text-align: left;">24 / 2 / 10</td>
-<td style="text-align: right;">0.0482</td>
-<td style="text-align: right;">0.0034</td>
+<td style="text-align: left;">9.0 / 0.0 / 3.0</td>
+<td style="text-align: right;">0.1075</td>
+<td style="text-align: right;">0.33</td>
+<td style="text-align: left;">8.0 / 0.0 / 4.0</td>
+<td style="text-align: right;">0.0777</td>
+<td style="text-align: right;">1</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NEDPP</td>
-<td style="text-align: left;">29 / 1 / 6</td>
-<td style="text-align: right;">0.0654</td>
-<td style="text-align: right;">0.0001</td>
-<td style="text-align: left;">9 / 0 / 27</td>
-<td style="text-align: right;">-0.0871</td>
-<td style="text-align: right;">0.0001</td>
+<td style="text-align: left;">10.0 / 0.0 / 2.0</td>
+<td style="text-align: right;">0.0914</td>
+<td style="text-align: right;">0.256</td>
+<td style="text-align: left;">3.0 / 0.0 / 9.0</td>
+<td style="text-align: right;">-0.0088</td>
+<td style="text-align: right;">1</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">29 / 2 / 5</td>
-<td style="text-align: right;">0.0912</td>
-<td style="text-align: right;">0.0001</td>
-<td style="text-align: left;">22 / 1 / 13</td>
-<td style="text-align: right;">0.0479</td>
-<td style="text-align: right;">0.0183</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">SiMLR-LBFGS</td>
-<td style="text-align: left;">28 / 3 / 5</td>
-<td style="text-align: right;">0.0614</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">16 / 0 / 20</td>
-<td style="text-align: right;">-0.0065</td>
-<td style="text-align: right;">0.3962</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">28 / 3 / 5</td>
-<td style="text-align: right;">0.0616</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">15 / 1 / 20</td>
-<td style="text-align: right;">-0.0063</td>
-<td style="text-align: right;">0.2654</td>
+<td style="text-align: left;">9.0 / 0.0 / 3.0</td>
+<td style="text-align: right;">0.1234</td>
+<td style="text-align: right;">0.212</td>
+<td style="text-align: left;">8.0 / 0.0 / 4.0</td>
+<td style="text-align: right;">0.0908</td>
+<td style="text-align: right;">1</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NED</td>
-<td style="text-align: left;">30 / 1 / 5</td>
-<td style="text-align: right;">0.0656</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">11 / 2 / 23</td>
-<td style="text-align: right;">-0.0648</td>
-<td style="text-align: right;">0.0018</td>
+<td style="text-align: left;">10.0 / 1.0 / 1.0</td>
+<td style="text-align: right;">0.0893</td>
+<td style="text-align: right;">0.059</td>
+<td style="text-align: left;">2.0 / 0.0 / 10.0</td>
+<td style="text-align: right;">0.0138</td>
+<td style="text-align: right;">1</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">SiMLR</td>
-<td style="text-align: left;">27 / 3 / 6</td>
-<td style="text-align: right;">0.0681</td>
-<td style="text-align: right;">0.0002</td>
-<td style="text-align: left;">16 / 1 / 19</td>
-<td style="text-align: right;">-0.0045</td>
-<td style="text-align: right;">0.6524</td>
+<td style="text-align: left;">9.0 / 0.0 / 3.0</td>
+<td style="text-align: right;">0.1044</td>
+<td style="text-align: right;">0.532</td>
+<td style="text-align: left;">7.0 / 0.0 / 5.0</td>
+<td style="text-align: right;">0.0923</td>
+<td style="text-align: right;">1</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NSAFlow-PCA</td>
-<td style="text-align: left;">16 / 1 / 19</td>
-<td style="text-align: right;">0.0002</td>
-<td style="text-align: right;">0.7494</td>
-<td style="text-align: left;">15 / 4 / 17</td>
+<td style="text-align: left;">6.0 / 0.0 / 6.0</td>
+<td style="text-align: right;">-0.0002</td>
+<td style="text-align: right;">0.91</td>
+<td style="text-align: left;">6.0 / 1.0 / 5.0</td>
 <td style="text-align: right;">0.0004</td>
-<td style="text-align: right;">0.837</td>
+<td style="text-align: right;">1</td>
 </tr>
 </tbody>
 </table>

@@ -291,8 +291,8 @@ window.Quarto = {
 
 <section id="study-design-biomedical-cohorts-and-synthetic-ground-truth-regimes" class="level2" data-number="3.1">
 <h2 data-number="3.1" class="anchored" data-anchor-id="study-design-biomedical-cohorts-and-synthetic-ground-truth-regimes"><span class="header-section-number">3.1</span> Study Design, Biomedical Cohorts, and Synthetic Ground-Truth Regimes</h2>
-<p>We evaluate the nine architectures defined in Chapter 2 across twelve multi-view benchmarks: six real biomedical and clinical cohorts (<code>ADNI-MCI</code>, <code>MultiOmics</code> [TCGA-BRCA], <code>TCGA-KIRC</code>, <code>Heart</code>, <code>Diabetes</code>, and <code>mfeat</code>) and six synthetic generative regimes with known ground-truth latent coordinates <span class="math inline">\(\mathbf{U}^*\)</span> and feature supports <span class="math inline">\(\mathbf{V}_m^*\)</span> (<a href="#tbl-benchmark-cohorts" class="quarto-xref">Table&nbsp;<span>3.1</span></a>). Every model is evaluated across three independent 70/30 stratified or random train/test splits (seeds <span class="math inline">\(42, 43, 44\)</span>) across three <code>nsa_flow</code> quantile sparsity levels (<span class="math inline">\(q \in \{\text{None}, 0.5, 0.8\}\)</span>, totaling <span class="math inline">\(1,215\)</span> cross-validation fits), supplemented by a <span class="math inline">\(1,214\)</span>-configuration hyperparameter sweep on <code>ADNI-MCI</code> (<span class="math inline">\(N = 1,084\)</span>). To prevent data leakage, all feature standardization (<code>StandardScaler</code>), column completeness filtering (<span class="math inline">\(\ge 98\%\)</span>), and demographic covariate adjustments (Frisch–Waugh–Lovell residualization <span class="citation" data-cites="frisch1933partial lovell1963seasonal">(<a href="#ref-frisch1933partial" role="doc-biblioref">Frisch and Waugh 1933</a>; <a href="#ref-lovell1963seasonal" role="doc-biblioref">Lovell 1963</a>)</span> of age, biological sex, and education inside <code>ADNI-MCI</code>) are fitted strictly within each training split and applied out-of-sample to the held-out test split.</p>
-<div id="tbl-benchmark-cohorts" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="1">
+<p>We evaluate the seven benchmarked architectures defined in Chapter 2 across twelve multi-view benchmarks: six real biomedical and clinical cohorts (<code>ADNI-MCI</code>, <code>MultiOmics</code> [TCGA-BRCA], <code>TCGA-KIRC</code>, <code>Heart</code>, <code>Diabetes</code>, and <code>mfeat</code>) and six synthetic generative regimes with known ground-truth latent coordinates <span class="math inline">\(\mathbf{U}^*\)</span> and feature supports <span class="math inline">\(\mathbf{V}_m^*\)</span> (<a href="#tbl-benchmark-cohorts" class="quarto-xref">Table&nbsp;<span>3.1</span></a>). Every model is evaluated across three independent 70/30 stratified or random train/test splits (seeds <span class="math inline">\(42, 43, 44\)</span>) across three <code>nsa_flow</code> quantile sparsity levels (<span class="math inline">\(q \in \{\text{None}, 0.5, 0.8\}\)</span>, 756 train/test fits), plus 189 paired reruns with non-negative loadings on the three high-dimensional cohorts and a 1,025-configuration hyperparameter sweep on <code>ADNI-MCI</code> (<span class="math inline">\(N = 1,084\)</span>, one seed). To prevent data leakage, all feature standardization (<code>StandardScaler</code>), column completeness filtering (<span class="math inline">\(\ge 98\%\)</span>), and demographic covariate adjustments (Frisch–Waugh–Lovell residualization <span class="citation" data-cites="frisch1933partial lovell1963seasonal">(<a href="#ref-frisch1933partial" role="doc-biblioref">Frisch and Waugh 1933</a>; <a href="#ref-lovell1963seasonal" role="doc-biblioref">Lovell 1963</a>)</span> of age, biological sex, and education inside <code>ADNI-MCI</code>) are fitted strictly within each training split and applied out-of-sample to the held-out test split.</p>
+<div id="tbl-benchmark-cohorts" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="2" data-message="false">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-benchmark-cohorts-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical/biomedical datasets and six synthetic ground-truth generative regimes). Best out-of-sample scores across seeds 42–44 are computed directly from <code>deep_ranking_benchmark.csv</code>.
@@ -305,7 +305,7 @@ Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical
 <col style="width: 5%">
 <col style="width: 15%">
 <col style="width: 18%">
-<col style="width: 25%">
+<col style="width: 24%">
 </colgroup>
 <thead>
 <tr class="header">
@@ -324,7 +324,7 @@ Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical
 <td style="text-align: right;">1,084</td>
 <td style="text-align: left;">4 [160, 160, 62, 11]</td>
 <td style="text-align: left;">CogPC1 R2 (MRI Only)</td>
-<td style="text-align: left;">LEND (0.242 vs PCA 0.152)</td>
+<td style="text-align: left;">NED (0.209 vs PCA 0.152)</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">MultiOmics (BRCA)</td>
@@ -332,7 +332,7 @@ Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical
 <td style="text-align: right;">822</td>
 <td style="text-align: left;">3 [200, 150, 150]</td>
 <td style="text-align: left;">ER Status Accuracy</td>
-<td style="text-align: left;">NED (0.929 vs PCA 0.915)</td>
+<td style="text-align: left;">Flow-SiMR-V (0.927 vs PCA 0.915)</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">TCGA-KIRC</td>
@@ -348,7 +348,7 @@ Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical
 <td style="text-align: right;">442</td>
 <td style="text-align: left;">2 [5, 5]</td>
 <td style="text-align: left;">1-Yr Progression R2</td>
-<td style="text-align: left;">SiMLR-LBFGSB (0.396 vs PCA 0.351)</td>
+<td style="text-align: left;">NSAFlow-PCA (0.381 vs PCA 0.351)</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Heart</td>
@@ -364,7 +364,7 @@ Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical
 <td style="text-align: right;">2,000</td>
 <td style="text-align: left;">4 [76, 64, 6, 47]</td>
 <td style="text-align: left;">10-Class Accuracy</td>
-<td style="text-align: left;">NEDPP (0.964 vs PCA 0.727)</td>
+<td style="text-align: left;">NEDPP (0.972 vs PCA 0.727)</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Linear</td>
@@ -372,7 +372,7 @@ Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical
 <td style="text-align: right;">1,000</td>
 <td style="text-align: left;">3 [100, 80, 60]</td>
 <td style="text-align: left;">Latent R2 &amp; Support F1</td>
-<td style="text-align: left;">LEND (0.974 vs PCA 0.968)</td>
+<td style="text-align: left;">NEDPP (0.975 vs PCA 0.968)</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Polynomial</td>
@@ -380,7 +380,7 @@ Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical
 <td style="text-align: right;">1,000</td>
 <td style="text-align: left;">3 [120, 80, 50]</td>
 <td style="text-align: left;">Latent R2 &amp; CMC</td>
-<td style="text-align: left;">NED (0.889 vs PCA 0.864)</td>
+<td style="text-align: left;">LEND (0.885 vs PCA 0.864)</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Sine</td>
@@ -388,7 +388,7 @@ Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical
 <td style="text-align: right;">1,000</td>
 <td style="text-align: left;">3 [120, 80, 50]</td>
 <td style="text-align: left;">Latent R2 &amp; CMC</td>
-<td style="text-align: left;">NED (0.944 vs PCA 0.921)</td>
+<td style="text-align: left;">NEDPP (0.947 vs PCA 0.921)</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Shared+Private</td>
@@ -396,7 +396,7 @@ Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical
 <td style="text-align: right;">1,000</td>
 <td style="text-align: left;">3 [160, 60, 30]</td>
 <td style="text-align: left;">Latent R2 &amp; Support F1</td>
-<td style="text-align: left;">Flow-SiMR-V (0.604 vs PCA 0.291)</td>
+<td style="text-align: left;">SiMLR (0.948 vs PCA 0.291)</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">NonnegParts</td>
@@ -404,7 +404,7 @@ Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical
 <td style="text-align: right;">400</td>
 <td style="text-align: left;">3 [120, 45, 30]</td>
 <td style="text-align: left;">Dominant Factor R2 &amp; F1</td>
-<td style="text-align: left;">SiMLR (0.918 vs PCA 0.893)</td>
+<td style="text-align: left;">SiMLR (0.933 vs PCA 0.893)</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NonnegWeak</td>
@@ -412,7 +412,7 @@ Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical
 <td style="text-align: right;">400</td>
 <td style="text-align: left;">3 [120, 45, 30]</td>
 <td style="text-align: left;">Weak Factor u3 R2 &amp; F1</td>
-<td style="text-align: left;">LEND (0.575 vs PCA 0.125)</td>
+<td style="text-align: left;">SiMLR (0.758 vs PCA 0.125)</td>
 </tr>
 </tbody>
 </table>
@@ -423,11 +423,11 @@ Table&nbsp;3.1: Summary of the twelve multi-view benchmark cohorts (six clinical
 </section>
 <section id="global-12-dataset-benchmark-subspace-capacity-vs.-single-axis-interpretability" class="level2" data-number="3.2">
 <h2 data-number="3.2" class="anchored" data-anchor-id="global-12-dataset-benchmark-subspace-capacity-vs.-single-axis-interpretability"><span class="header-section-number">3.2</span> Global 12-Dataset Benchmark: Subspace Capacity vs.&nbsp;Single-Axis Interpretability</h2>
-<p>Across the <span class="math inline">\(B = 12\)</span> dataset blocks and nine architectures, block-averaged non-parametric Friedman <span class="citation" data-cites="friedman1937use">(<a href="#ref-friedman1937use" role="doc-biblioref">Friedman 1937</a>)</span> and Iman–Davenport <span class="citation" data-cites="Iman1980">(<a href="#ref-Iman1980" role="doc-biblioref">Iman and Davenport 1980</a>)</span> omnibus tests confirm statistically significant differentiation on both the linear subspace probe (<span class="math inline">\(\chi_F^2 = 31.49, p = 1.15 \times 10^{-4}\)</span>; <span class="math inline">\(F_F = 5.37, p = 1.98 \times 10^{-5}\)</span>) and the multi-modal consensus probe (<span class="math inline">\(\chi_F^2 = 20.87, p = 0.0075\)</span>; <span class="math inline">\(F_F = 3.06, p = 0.0044\)</span>, Nemenyi Critical Difference <span class="math inline">\(CD = 3.468\)</span> at <span class="math inline">\(\alpha = 0.05\)</span> <span class="citation" data-cites="Demsar2006 Nemenyi1963 benavoli2016should">(<a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>; <a href="#ref-Nemenyi1963" role="doc-biblioref">Nemenyi 1963</a>; <a href="#ref-benavoli2016should" role="doc-biblioref">Benavoli et al. 2016</a>)</span>). <a href="#tbl-global-leaderboard" class="quarto-xref">Table&nbsp;<span>3.2</span></a> summarizes the global metrics across all nine models, accompanied by the Demšar Critical Difference diagram (<a href="#fig-cd-diagram" class="quarto-xref">Figure&nbsp;<span>3.1</span></a>), the multi-objective speed–accuracy and support–consensus Pareto frontiers (<a href="#fig-pareto-frontier" class="quarto-xref">Figure&nbsp;<span>3.2</span></a>), and the three-probe performance profile (<a href="#fig-three-probes" class="quarto-xref">Figure&nbsp;<span>3.3</span></a>).</p>
-<div id="tbl-global-leaderboard" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="2">
+<p>Across the <span class="math inline">\(B = 12\)</span> dataset blocks and seven architectures, block-averaged non-parametric Friedman <span class="citation" data-cites="friedman1937use">(<a href="#ref-friedman1937use" role="doc-biblioref">Friedman 1937</a>)</span> and Iman–Davenport <span class="citation" data-cites="Iman1980">(<a href="#ref-Iman1980" role="doc-biblioref">Iman and Davenport 1980</a>)</span> omnibus tests differentiate the seven models on both the linear subspace probe (<span class="math inline">\(\chi_F^2 =\)</span> 15.31, <span class="math inline">\(p =\)</span> <span class="math inline">\(1.80 \times 10^{-2}\)</span>; <span class="math inline">\(F_F =\)</span> 2.97, <span class="math inline">\(p =\)</span> <span class="math inline">\(1.25 \times 10^{-2}\)</span>) and the multi-modal consensus probe (<span class="math inline">\(\chi_F^2 =\)</span> 13.77, <span class="math inline">\(p =\)</span> <span class="math inline">\(3.23 \times 10^{-2}\)</span>; <span class="math inline">\(F_F =\)</span> 2.60, <span class="math inline">\(p =\)</span> <span class="math inline">\(2.53 \times 10^{-2}\)</span>; Nemenyi Critical Difference <span class="math inline">\(CD =\)</span> 2.600 at <span class="math inline">\(\alpha = 0.05\)</span> <span class="citation" data-cites="Demsar2006 Nemenyi1963 benavoli2016should">(<a href="#ref-Demsar2006" role="doc-biblioref">Demšar 2006</a>; <a href="#ref-Nemenyi1963" role="doc-biblioref">Nemenyi 1963</a>; <a href="#ref-benavoli2016should" role="doc-biblioref">Benavoli et al. 2016</a>)</span>). <a href="#tbl-global-leaderboard" class="quarto-xref">Table&nbsp;<span>3.2</span></a> summarizes the global metrics across all seven models, accompanied by the Demšar Critical Difference diagram (<a href="#fig-cd-diagram" class="quarto-xref">Figure&nbsp;<span>3.1</span></a>), the multi-objective speed–accuracy and support–consensus Pareto frontiers (<a href="#fig-pareto-frontier" class="quarto-xref">Figure&nbsp;<span>3.2</span></a>), and the three-probe performance profile (<a href="#fig-three-probes" class="quarto-xref">Figure&nbsp;<span>3.4</span></a>).</p>
+<div id="tbl-global-leaderboard" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="3" data-message="false">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-global-leaderboard-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;3.2: Global 12-dataset benchmark leaderboard across all nine architectures (mean across 12 cohorts and 3 random seeds at the canonical discovery operating point <span class="math inline">\(q = 0.5\)</span>, paired with synthetic ground-truth recovery metrics). Directional arrows indicate optimization direction (↑ higher is better, ↓ lower is better).
+Table&nbsp;3.2: Global 12-dataset benchmark leaderboard across all benchmarked architectures (each cohort weighted equally, means over 3 random seeds, at the discovery operating point <span class="math inline">\(q = 0.5\)</span>, paired with synthetic ground-truth recovery metrics). Directional arrows indicate optimization direction (↑ higher is better, ↓ lower is better).
 </figcaption>
 <div aria-describedby="tbl-global-leaderboard-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="cell caption-top table table-sm table-striped small">
@@ -455,91 +455,71 @@ Table&nbsp;3.2: Global 12-dataset benchmark leaderboard across all nine architec
 </thead>
 <tbody>
 <tr class="odd">
-<td style="text-align: left;">LEND</td>
-<td style="text-align: right;">3.79</td>
-<td style="text-align: right;">0.703</td>
-<td style="text-align: left;">0.680 (-0.023)</td>
-<td style="text-align: right;">0.676</td>
-<td style="text-align: right;">0.807</td>
-<td style="text-align: right;">0.621</td>
-<td style="text-align: left;">46.7%</td>
+<td style="text-align: left;">NED</td>
+<td style="text-align: right;">3.04</td>
+<td style="text-align: right;">0.734</td>
+<td style="text-align: left;">0.719 (-0.014)</td>
+<td style="text-align: right;">0.662</td>
+<td style="text-align: right;">0.762</td>
+<td style="text-align: right;">0.539</td>
+<td style="text-align: left;">42.5%</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;">NED</td>
-<td style="text-align: right;">3.88</td>
-<td style="text-align: right;">0.686</td>
-<td style="text-align: left;">0.656 (-0.030)</td>
-<td style="text-align: right;">0.558</td>
-<td style="text-align: right;">0.556</td>
-<td style="text-align: right;">0.558</td>
-<td style="text-align: left;">45.3%</td>
+<td style="text-align: left;">NEDPP</td>
+<td style="text-align: right;">3.21</td>
+<td style="text-align: right;">0.736</td>
+<td style="text-align: left;">0.715 (-0.021)</td>
+<td style="text-align: right;">0.639</td>
+<td style="text-align: right;">0.701</td>
+<td style="text-align: right;">0.52</td>
+<td style="text-align: left;">42.3%</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;">NEDPP</td>
-<td style="text-align: right;">3.92</td>
-<td style="text-align: right;">0.69</td>
-<td style="text-align: left;">0.661 (-0.029)</td>
-<td style="text-align: right;">0.56</td>
-<td style="text-align: right;">0.58</td>
-<td style="text-align: right;">0.559</td>
-<td style="text-align: left;">45.4%</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: right;">3.29</td>
+<td style="text-align: right;">0.752</td>
+<td style="text-align: left;">0.732 (-0.020)</td>
+<td style="text-align: right;">0.726</td>
+<td style="text-align: right;">0.839</td>
+<td style="text-align: right;">0.605</td>
+<td style="text-align: left;">44.1%</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: right;">4.25</td>
-<td style="text-align: right;">0.705</td>
-<td style="text-align: left;">0.683 (-0.022)</td>
-<td style="text-align: right;">0.672</td>
-<td style="text-align: right;">0.8</td>
-<td style="text-align: right;">0.59</td>
-<td style="text-align: left;">46.4%</td>
+<td style="text-align: right;">3.67</td>
+<td style="text-align: right;">0.768</td>
+<td style="text-align: left;">0.745 (-0.023)</td>
+<td style="text-align: right;">0.739</td>
+<td style="text-align: right;">0.873</td>
+<td style="text-align: right;">0.656</td>
+<td style="text-align: left;">43.8%</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">SiMLR</td>
-<td style="text-align: right;">4.46</td>
-<td style="text-align: right;">0.687</td>
-<td style="text-align: left;">0.656 (-0.031)</td>
-<td style="text-align: right;">0.631</td>
-<td style="text-align: right;">0.729</td>
-<td style="text-align: right;">0.559</td>
-<td style="text-align: left;">47.1%</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: right;">4.62</td>
-<td style="text-align: right;">0.685</td>
-<td style="text-align: left;">0.658 (-0.027)</td>
-<td style="text-align: right;">0.629</td>
-<td style="text-align: right;">0.726</td>
-<td style="text-align: right;">0.665</td>
-<td style="text-align: left;">48.6%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">SiMLR-LBFGS</td>
-<td style="text-align: right;">4.67</td>
-<td style="text-align: right;">0.685</td>
-<td style="text-align: left;">0.660 (-0.025)</td>
-<td style="text-align: right;">0.628</td>
-<td style="text-align: right;">0.727</td>
-<td style="text-align: right;">0.659</td>
-<td style="text-align: left;">48.4%</td>
+<td style="text-align: right;">4.04</td>
+<td style="text-align: right;">0.749</td>
+<td style="text-align: left;">0.733 (-0.016)</td>
+<td style="text-align: right;">0.74</td>
+<td style="text-align: right;">0.897</td>
+<td style="text-align: right;">0.52</td>
+<td style="text-align: left;">47.5%</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NSAFlow-PCA</td>
-<td style="text-align: right;">7.67</td>
-<td style="text-align: right;">0.632</td>
-<td style="text-align: left;">0.586 (-0.046)</td>
-<td style="text-align: right;">0.635</td>
+<td style="text-align: right;">5.29</td>
+<td style="text-align: right;">0.644</td>
+<td style="text-align: left;">0.600 (-0.044)</td>
+<td style="text-align: right;">0.648</td>
 <td style="text-align: right;">0.717</td>
 <td style="text-align: right;">0.55</td>
-<td style="text-align: left;">47.5%</td>
+<td style="text-align: left;">46.8%</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">PCA</td>
-<td style="text-align: right;">7.75</td>
-<td style="text-align: right;">0.632</td>
-<td style="text-align: left;">0.589 (-0.044)</td>
-<td style="text-align: right;">0.635</td>
+<td style="text-align: right;">5.46</td>
+<td style="text-align: right;">0.644</td>
+<td style="text-align: left;">0.601 (-0.044)</td>
+<td style="text-align: right;">0.648</td>
 <td style="text-align: right;">0.71</td>
 <td style="text-align: right;">0.308</td>
 <td style="text-align: left;">0.0%</td>
@@ -549,63 +529,77 @@ Table&nbsp;3.2: Global 12-dataset benchmark leaderboard across all nine architec
 </div>
 </figure>
 </div>
-<div id="cell-fig-cd-diagram" class="cell" data-message="false" data-execution_count="3">
+<div id="cell-fig-cd-diagram" class="cell" data-message="false" data-execution_count="4">
 <div class="cell-output cell-output-display">
 <div id="fig-cd-diagram" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-cd-diagram-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="03_experiments_files/figure-html/fig-cd-diagram-output-1.png" width="3115" height="1050" class="figure-img">
+<img src="03_experiments_files/figure-html/fig-cd-diagram-output-1.png" width="3079" height="1060" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cd-diagram-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.1: Demšar (2006) Critical Difference diagram across the <span class="math inline">\(B = 12\)</span> benchmark dataset blocks (<span class="math inline">\(N = 36\)</span> dataset-seed evaluations) for the linear entrypoint probe (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>, Friedman <span class="math inline">\(\chi_F^2 = 31.49, p = 1.15 \times 10^{-4}\)</span>; Iman–Davenport <span class="math inline">\(F_F = 5.37, p = 1.98 \times 10^{-5}\)</span>). Horizontal axis plots mean rank (lower is better, <span class="math inline">\(1 =\)</span> best). Bold horizontal bars connect cliques of architectures whose rank differences are smaller than the Nemenyi Critical Difference (<span class="math inline">\(CD = 3.468\)</span> at <span class="math inline">\(\alpha = 0.05\)</span>). Green stars (<code>*</code>) indicate models on the 5-objective non-dominated Pareto frontier.
+Figure&nbsp;3.1: Demšar (2006) Critical Difference diagram across the <span class="math inline">\(B = 12\)</span> benchmark dataset blocks (seeds averaged within each dataset) for the linear entrypoint probe (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>; Friedman and Iman–Davenport statistics in the text). Horizontal axis plots mean rank (lower is better, <span class="math inline">\(1 =\)</span> best). Bold horizontal bars connect cliques of architectures whose rank differences are smaller than the Nemenyi Critical Difference (<span class="math inline">\(\alpha = 0.05\)</span>). Green stars (<code>*</code>) indicate models on the 5-objective non-dominated Pareto frontier.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
-<div id="cell-fig-pareto-frontier" class="cell" data-message="false" data-execution_count="4">
+<div id="cell-fig-pareto-frontier" class="cell" data-message="false" data-execution_count="5">
 <div class="cell-output cell-output-display">
 <div id="fig-pareto-frontier" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-pareto-frontier-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="03_experiments_files/figure-html/fig-pareto-frontier-output-1.png" width="3394" height="1324" class="figure-img">
+<img src="03_experiments_files/figure-html/fig-pareto-frontier-output-1.png" width="3404" height="1336" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-pareto-frontier-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.2: Multi-objective Pareto trade-off envelopes across the nine benchmark architectures. (A) Out-of-sample multi-modal consensus performance (<span class="math inline">\(\mathbf{U}\)</span>) versus wall-clock execution time (<code>Fit_Seconds</code>, log scale), highlighting the 2D speed–accuracy Pareto frontier (green dashed envelope connecting <code>PCA</code>, <code>NSAFlow-PCA</code>, <code>SiMLR-LBFGS</code>, and <code>LEND</code>). (B) Ground-truth feature support recovery on <span class="math inline">\(\mathbf{V}_m\)</span> (<code>Jaccard F1</code>) versus latent manifold recovery on <span class="math inline">\(\mathbf{U}\)</span> (<code>CMC</code>) across the six synthetic ground-truth regimes. Green stars denote architectures that are non-dominated across the full 5-objective vector.
+Figure&nbsp;3.2: Multi-objective Pareto trade-off envelopes across the benchmarked architectures. (A) Out-of-sample multi-modal consensus performance (<span class="math inline">\(\mathbf{U}\)</span>) versus wall-clock execution time (<code>Fit_Seconds</code>, log scale), with the 2D speed–accuracy Pareto frontier as a green dashed envelope. (B) Ground-truth feature support recovery on <span class="math inline">\(\mathbf{V}_m\)</span> (<code>Jaccard F1</code>) versus latent manifold recovery on <span class="math inline">\(\mathbf{U}\)</span> (<code>CMC</code>) across the six synthetic ground-truth regimes. Green stars denote architectures that are non-dominated across the full 5-objective vector.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
-<div id="cell-fig-three-probes" class="cell" data-message="false" data-execution_count="5">
+<div id="cell-fig-benchmark-uncertainty" class="cell" data-message="false" data-execution_count="6">
+<div class="cell-output cell-output-display">
+<div id="fig-benchmark-uncertainty" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-benchmark-uncertainty-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="03_experiments_files/figure-html/fig-benchmark-uncertainty-output-1.png" width="1222" height="691" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-benchmark-uncertainty-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3.3: Out-of-sample linear entrypoint comparison across the 12 benchmark dataset blocks with uncertainty (<code>pysimlr.plot_benchmark_uncertainty</code>, seeds averaged per dataset block, 2,000 bootstrap resamples). Left: mean linear entrypoint score (<span class="math inline">\(\mathbf{X}\mathbf{V}\)</span>) with 95% bootstrap interval and per-cohort dots. Right: paired difference (<code>method − PCA</code>) across the 12 cohorts; solid colored intervals exclude zero.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div id="cell-fig-three-probes" class="cell" data-message="false" data-execution_count="7">
 <div class="cell-output cell-output-display">
 <div id="fig-three-probes" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-three-probes-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="03_experiments_files/figure-html/fig-three-probes-output-1.png" width="3208" height="1139" class="figure-img">
+<img src="03_experiments_files/figure-html/fig-three-probes-output-1.png" width="2183" height="823" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-three-probes-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.3: Global 12-dataset comparison across the three complementary evaluation probes at the canonical discovery operating point (<span class="math inline">\(q = 0.5\)</span>): Subspace Fidelity (<code>Ridge(XV)</code>, blue), Single-Axis Interpretability (<code>RandomForest(XV)</code>, teal), and Shared Patient Consensus (<code>Ridge(U)</code>, amber). Single-matrix <code>PCA</code> suffers double the axis-sensitive Random Forest degradation (<span class="math inline">\(\Delta = -0.044\)</span>) compared to coordinate-aligned SiMR models (<code>SiMLR-LBFGSB</code> <span class="math inline">\(\Delta = -0.022\)</span>, <code>Flow-SiMR-V</code> <span class="math inline">\(\Delta = -0.024\)</span>) because dense eigenvectors mix biological mechanisms across coordinates.
+Figure&nbsp;3.4: Global 12-dataset comparison (<code>pysimlr.plot_benchmark</code>, mean <span class="math inline">\(\pm\)</span> SE over cohort blocks) across the three complementary evaluation probes at the discovery operating point (<span class="math inline">\(q = 0.5\)</span>): Subspace Fidelity (<code>Ridge(XV)</code>, blue), Single-Axis Interpretability (<code>RandomForest(XV)</code>, orange), and Shared Patient Consensus (<code>Ridge(U)</code>, green).
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
-<p>Three empirical principles emerge from <a href="#tbl-global-leaderboard" class="quarto-xref">Table&nbsp;<span>3.2</span></a> and Figures <a href="#fig-cd-diagram" class="quarto-xref"><span>3.1</span></a>–<a href="#fig-three-probes" class="quarto-xref"><span>3.3</span></a>:</p>
+<p>Three empirical principles emerge from <a href="#tbl-global-leaderboard" class="quarto-xref">Table&nbsp;<span>3.2</span></a> and Figures <a href="#fig-cd-diagram" class="quarto-xref"><span>3.1</span></a>–<a href="#fig-three-probes" class="quarto-xref"><span>3.4</span></a>:</p>
 <ol type="1">
-<li><strong>Multi-View Alignment Outperforms Single-Matrix Factorization When Views Differ in Scale or Private Variance</strong>: <code>LEND</code> (mean Friedman rank <span class="math inline">\(3.79\)</span>), <code>NED</code> (<span class="math inline">\(3.88\)</span>), <code>NEDPP</code> (<span class="math inline">\(3.92\)</span>), and <code>Flow-SiMR-V</code> (<span class="math inline">\(4.25\)</span>) lead the linear entrypoint ranking ahead of concatenated <code>PCA</code> (<span class="math inline">\(7.75\)</span>) and <code>NSAFlow-PCA</code> (<span class="math inline">\(7.67\)</span>). On heterogeneous cohorts such as <code>mfeat</code> (<span class="math inline">\(p = [76, 64, 6, 47]\)</span>) and <code>Shared+Private</code> (<span class="math inline">\(p = [160, 60, 30]\)</span>), concatenated <code>PCA</code> rotates toward the highest-dimensional view (<code>mfeat</code> linear accuracy <span class="math inline">\(0.727\)</span>, <code>Shared+Private</code> <span class="math inline">\(R^2 = 0.618\)</span>), whereas cross-view alignment equalizes view contributions (<code>mfeat</code> accuracy <span class="math inline">\(0.964\)</span> for <code>NEDPP</code> and <span class="math inline">\(0.948\)</span> for <code>SiMLR-LBFGSB</code>; <code>Shared+Private</code> <span class="math inline">\(R^2 = 0.956\)</span> for <code>LEND</code>).</li>
-<li><strong>Coordinate-Aligned <code>nsa_flow</code> Projections Prevent the Random Forest Axis Drop</strong>: As established in <a href="01_intro_background.html#eq-subspace-invariance" class="quarto-xref">Equation&nbsp;<span>1.2</span></a>, ridge regression on <span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> is insensitive to orthogonal or oblique column mixing <span class="math inline">\(\mathbf{V}_m \mathbf{M}\)</span>, hiding the fact that dense <code>PCA</code> mixes distinct biological mechanisms across columns. When evaluated with coordinate-splitting decision trees (<code>RandomForest</code>), <code>PCA</code> suffers an average score drop of <span class="math inline">\(\Delta = -0.044\)</span> across the 12 cohorts—collapsing completely on weak sparse factors (<code>NonnegPartsWeak</code> linear <span class="math inline">\(R^2 = 0.125 \to\)</span> Random Forest <span class="math inline">\(R^2 = 0.000\)</span>) and dropping by <span class="math inline">\(71\%\)</span> on <code>ADNI-MCI</code> (<span class="math inline">\(0.152 \to 0.044\)</span>). In contrast, <code>Flow-SiMR-V</code> (<span class="math inline">\(\Delta = -0.022\)</span>) and <code>LEND</code> (<span class="math inline">\(\Delta = -0.023\)</span>) cut the axis-mixing penalty in half.</li>
-<li><strong>Operating Points Match Intrinsic Biological Density (<span class="math inline">\(q = 0.5\)</span> vs.&nbsp;<span class="math inline">\(q = 0.8\)</span>)</strong>: <a href="#fig-operating-point-and-support" class="quarto-xref">Figure&nbsp;<span>3.4</span></a> demonstrates how the quantile threshold <span class="math inline">\(q\)</span> acts as a tunable lens on feature support recovery. Across the <span class="math inline">\(1,215\)</span>-fit operating-point evaluation, moderate sparsity (<span class="math inline">\(q = 0.5\)</span>) achieves the highest overall linear predictive score (<span class="math inline">\(0.680\)</span>) and highest Random Forest axis score (<span class="math inline">\(0.651\)</span>) while recovering <span class="math inline">\(F_1 = 0.989\)</span> (<code>SiMLR-LBFGSB</code> on <code>NonnegParts</code>) and <span class="math inline">\(F_1 = 0.709\)</span>–<span class="math inline">\(1.000\)</span> on <span class="math inline">\(50\%\)</span>-sparse ground-truth pathways (<code>Linear</code>). When the underlying biology is concentrated in focal <span class="math inline">\(20\%\)</span>-active modules (<code>NonnegPartsWeak</code> and <code>Shared+Private</code>), increasing the quantile threshold to <span class="math inline">\(q = 0.8\)</span> raises support recovery to <span class="math inline">\(F_1 = 0.797\)</span> while preserving <span class="math inline">\(99.1\%\)</span> of peak subspace accuracy (<span class="math inline">\(0.674\)</span> vs.&nbsp;<span class="math inline">\(0.680\)</span>).</li>
+<li><strong>Multi-View Alignment Against Single-Matrix Factorization</strong>: The leading mean Friedman ranks on the linear entrypoint probe are <code>NED</code> (3.04), <code>NEDPP</code> (3.21), <code>LEND</code> (3.29), <code>Flow-SiMR-V</code> (3.67), against <code>PCA</code> (5.46) and <code>NSAFlow-PCA</code> (5.29) (<a href="#fig-benchmark-uncertainty" class="quarto-xref">Figure&nbsp;<span>3.3</span></a>). On heterogeneous cohorts such as <code>mfeat</code> (<span class="math inline">\(p = [76, 64, 6, 47]\)</span>) and <code>Shared+Private</code> (<span class="math inline">\(p = [160, 60, 30]\)</span>), concatenated <code>PCA</code> reaches a linear score of 0.727 (<code>mfeat</code> accuracy) and 0.291 (<code>Shared+Private</code> <span class="math inline">\(R^2\)</span>), against 0.972 (<code>NEDPP</code>) and 0.948 (<code>SiMLR</code>) for the best multi-view model. Over the 12 datasets (seeds averaged, Wilcoxon signed-rank against <code>PCA</code> with Holm adjustment, Appendix B), the linear score differs from <code>PCA</code> at <span class="math inline">\(p &lt; 0.05\)</span> for 0 of 6 models (none).</li>
+<li><strong>Coordinate Alignment and the Random Forest Axis Drop</strong>: As established in <a href="01_intro_background.html#eq-subspace-invariance" class="quarto-xref">Equation&nbsp;<span>1.2</span></a>, ridge regression on <span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span> is insensitive to orthogonal or oblique column mixing <span class="math inline">\(\mathbf{V}_m \mathbf{M}\)</span>, hiding the fact that dense <code>PCA</code> mixes distinct mechanisms across columns. With coordinate-splitting decision trees (<code>RandomForest</code>), <code>PCA</code> loses -0.044 on average across the 12 cohorts (Random Forest minus linear score), falling from 0.125 to -0.000 on the weak sparse factors of <code>NonnegPartsWeak</code> and from 0.152 to 0.044 on <code>ADNI-MCI</code> (71% lower). The smallest drops are <code>NED</code> (-0.014), <code>SiMLR</code> (-0.016).</li>
+<li><strong>Operating Points and Feature Density (<span class="math inline">\(q = 0.5\)</span> vs.&nbsp;<span class="math inline">\(q = 0.8\)</span>)</strong>: <a href="#fig-operating-point-and-support" class="quarto-xref">Figure&nbsp;<span>3.5</span></a> shows the quantile threshold <span class="math inline">\(q\)</span> as a lens on feature support recovery without conflating scales on secondary axes. Across the 756 default-positivity fits, the mean linear score is 0.716, 0.718 and 0.718 at <span class="math inline">\(q = \text{None}\)</span>, <span class="math inline">\(0.5\)</span> and <span class="math inline">\(0.8\)</span>, and the mean Random Forest axis score is 0.689, 0.692 and 0.692; at <span class="math inline">\(q = 0.8\)</span>, 57.8% of loadings are zero while 100.0% of the best linear score is retained. At <span class="math inline">\(q = 0.5\)</span>, support recovery on the <span class="math inline">\(50\%\)</span>-sparse <code>Linear</code> regime ranges from <span class="math inline">\(F_1 =\)</span> 0.500 (<code>PCA</code>) to 1.000 (<code>NSAFlow-PCA</code>), and reaches 0.875 on <code>NonnegParts</code> (<code>Flow-SiMR-V</code>). On the focal <span class="math inline">\(20\%\)</span>-active modules, the best <span class="math inline">\(F_1\)</span> at <span class="math inline">\(q = 0.8\)</span> is 0.833 on <code>NonnegPartsWeak</code> (<code>Flow-SiMR-V</code>) and 0.806 on <code>Shared+Private</code> (<code>Flow-SiMR-V</code>).</li>
 </ol>
-<div id="cell-fig-operating-point-and-support" class="cell" data-message="false" data-execution_count="6">
+<div id="cell-fig-operating-point-and-support" class="cell" data-message="false" data-execution_count="8">
 <div class="cell-output cell-output-display">
 <div id="fig-operating-point-and-support" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-operating-point-and-support-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="03_experiments_files/figure-html/fig-operating-point-and-support-output-1.png" width="3319" height="1229" class="figure-img">
+<img src="03_experiments_files/figure-html/fig-operating-point-and-support-output-1.png" width="2343" height="863" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-operating-point-and-support-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.4: Operating-point trade-off across 1,215 model fits spanning unthresholded (<code>q = None</code>), moderate discovery (<code>q = 0.5</code>), and focal biomarker panel (<code>q = 0.8</code>) regimes. (A) Moderate sparsity (<code>q = 0.5</code>) maximizes both linear subspace fidelity (<span class="math inline">\(0.679\)</span>) and Random Forest axis interpretability (<span class="math inline">\(0.651\)</span>), while focal sparsity (<code>q = 0.8</code>) compresses the active feature footprint to <span class="math inline">\(38.1\%\)</span> (<span class="math inline">\(61.9\%\)</span> zeros) with less than <span class="math inline">\(1\%\)</span> loss in predictive score. (B) Ground-truth feature support recovery (<span class="math inline">\(F_1\)</span>) peaks when the chosen quantile <span class="math inline">\(q\)</span> matches the intrinsic biological pathway sparsity (<span class="math inline">\(q = 0.5\)</span> for <span class="math inline">\(50\%\)</span>-sparse <code>Linear</code>; <span class="math inline">\(q = 0.8\)</span> for <span class="math inline">\(80\%\)</span>-sparse <code>NonnegPartsWeak</code> and <code>Shared+Private</code>).
+Figure&nbsp;3.5: Operating-point trade-off (<code>pysimlr.plot_benchmark</code>, mean <span class="math inline">\(\pm\)</span> SE with direct line-end labels, no secondary axes) across the default-positivity fits at unthresholded (<code>q = None</code>), moderate (<code>q = 0.5</code>), and focal (<code>q = 0.8</code>) quantile sparsity. (A) Out-of-sample linear subspace (<code>Ridge(XV)</code>) and single-axis (<code>RandomForest(XV)</code>) scores across the 12 cohort blocks. (B) Ground-truth feature support recovery (<span class="math inline">\(F_1\)</span>) on the sparse synthetic regimes across <span class="math inline">\(q\)</span>.
 </figcaption>
 </figure>
 </div>
@@ -614,11 +608,11 @@ Figure&nbsp;3.4: Operating-point trade-off across 1,215 model fits spanning unth
 </section>
 <section id="clinical-neuroimaging-in-adni-mci-n-1084-predicting-cognitive-decline-and-mapping-braak-staging-from-mri-alone" class="level2" data-number="3.3">
 <h2 data-number="3.3" class="anchored" data-anchor-id="clinical-neuroimaging-in-adni-mci-n-1084-predicting-cognitive-decline-and-mapping-braak-staging-from-mri-alone"><span class="header-section-number">3.3</span> Clinical Neuroimaging in <code>ADNI-MCI</code> (<span class="math inline">\(N = 1,084\)</span>): Predicting Cognitive Decline and Mapping Braak Staging from MRI Alone</h2>
-<p>A primary clinical test of multi-modal representation learning is whether aligning structural neuroimaging with multi-domain cognitive batteries during training yields an anatomical basis that better predicts cognitive severity in new patients who have only undergone an MRI scan (<code>Protocol B</code>). Across <span class="math inline">\(N = 1,084\)</span> participants with Mild Cognitive Impairment, <a href="#tbl-adni-mci-summary" class="quarto-xref">Table&nbsp;<span>3.3</span></a> compares all nine benchmark models on held-out MRI-only prediction of composite cognitive impairment (<code>CogPC1</code> <span class="math inline">\(R^2\)</span>, after in-fold adjustment for age, sex, and education), single-axis Random Forest prediction, and mean ridge regression <span class="math inline">\(R^2\)</span> across all eleven individual neuropsychological scales (<code>ADAS11</code>, <code>ADAS13</code>, <code>ADASQ4</code>, <code>MMSE</code>, <code>CDRSB</code>, <code>TRABSCOR</code>, <code>FAQ</code>, and four <code>RAVLT</code> memory scales).</p>
-<div id="tbl-adni-mci-summary" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="7">
+<p>A primary clinical test of multi-modal representation learning is whether aligning structural neuroimaging with multi-domain cognitive batteries during training yields an anatomical basis that better predicts cognitive severity in new patients who have only undergone an MRI scan (<code>Protocol B</code>). Across <span class="math inline">\(N = 1,084\)</span> participants with Mild Cognitive Impairment, <a href="#tbl-adni-mci-summary" class="quarto-xref">Table&nbsp;<span>3.3</span></a> compares all seven benchmark models on held-out MRI-only prediction of composite cognitive impairment (<code>CogPC1</code> <span class="math inline">\(R^2\)</span>, after in-fold adjustment for age, sex, and education), single-axis Random Forest prediction, and mean ridge regression <span class="math inline">\(R^2\)</span> across all eleven individual neuropsychological scales (<code>ADAS11</code>, <code>ADAS13</code>, <code>ADASQ4</code>, <code>MMSE</code>, <code>CDRSB</code>, <code>TRABSCOR</code>, <code>FAQ</code>, and four <code>RAVLT</code> memory scales).</p>
+<div id="tbl-adni-mci-summary" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="9" data-message="false">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-adni-mci-summary-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;3.3: Out-of-sample MRI-only prediction of cognitive impairment on <code>ADNI-MCI</code> (<span class="math inline">\(N = 1,084\)</span>, <code>Protocol B</code> training alignment between 3 MRI views and 11 cognitive scales; cognitive views withheld at test time). Scores compare the 3-seed benchmark (<code>q = 0.5</code>) and the 1,214-configuration sweep (<code>Seed 42</code>).
+Table&nbsp;3.3: Out-of-sample MRI-only prediction of cognitive impairment on <code>ADNI-MCI</code> (<span class="math inline">\(N = 1,084\)</span>, <code>Protocol B</code>: training alignment between 3 MRI views and 11 cognitive scales; cognitive views withheld at test time). 3-seed means <span class="math inline">\(\pm\)</span> SD across seeds from the benchmark (<span class="math inline">\(q = 0.5\)</span>, default positivity) alongside the best configuration per model in the single-seed hyperparameter sweep.
 </figcaption>
 <div aria-describedby="tbl-adni-mci-summary-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="cell caption-top table table-sm table-striped small">
@@ -644,83 +638,65 @@ Table&nbsp;3.3: Out-of-sample MRI-only prediction of cognitive impairment on <co
 </thead>
 <tbody>
 <tr class="odd">
+<td style="text-align: left;">NED</td>
+<td style="text-align: left;">0.209 ± 0.023</td>
+<td style="text-align: right;">0.149</td>
+<td style="text-align: right;">0.131</td>
+<td style="text-align: right;">0.236</td>
+<td style="text-align: right;">0.109</td>
+<td style="text-align: left;">48.6%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">NEDPP</td>
+<td style="text-align: left;">0.197 ± 0.016</td>
+<td style="text-align: right;">0.134</td>
+<td style="text-align: right;">0.125</td>
+<td style="text-align: right;">0.229</td>
+<td style="text-align: right;">0.107</td>
+<td style="text-align: left;">48.6%</td>
+</tr>
+<tr class="odd">
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.239 ± 0.010</td>
-<td style="text-align: right;">0.184</td>
-<td style="text-align: right;">0.202</td>
-<td style="text-align: right;">0.234</td>
-<td style="text-align: right;">0.105</td>
-<td style="text-align: left;">54.7%</td>
+<td style="text-align: left;">0.180 ± 0.035</td>
+<td style="text-align: right;">0.141</td>
+<td style="text-align: right;">0.144</td>
+<td style="text-align: right;">0.241</td>
+<td style="text-align: right;">0.113</td>
+<td style="text-align: left;">48.6%</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.227 ± 0.023</td>
-<td style="text-align: right;">0.165</td>
-<td style="text-align: right;">0.193</td>
-<td style="text-align: right;">0.219</td>
-<td style="text-align: right;">0.106</td>
-<td style="text-align: left;">53.6%</td>
+<td style="text-align: left;">0.170 ± 0.023</td>
+<td style="text-align: right;">0.122</td>
+<td style="text-align: right;">0.164</td>
+<td style="text-align: right;">0.255</td>
+<td style="text-align: right;">0.121</td>
+<td style="text-align: left;">48.6%</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;">NEDPP</td>
-<td style="text-align: left;">0.206 ± 0.024</td>
-<td style="text-align: right;">0.149</td>
-<td style="text-align: right;">0.159</td>
-<td style="text-align: right;">0.236</td>
-<td style="text-align: right;">0.107</td>
-<td style="text-align: left;">51.6%</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">NED</td>
-<td style="text-align: left;">0.196 ± 0.011</td>
-<td style="text-align: right;">0.139</td>
-<td style="text-align: right;">0.148</td>
-<td style="text-align: right;">0.224</td>
-<td style="text-align: right;">0.107</td>
-<td style="text-align: left;">51.6%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">SiMLR</td>
-<td style="text-align: left;">0.170 ± 0.014</td>
-<td style="text-align: right;">0.106</td>
-<td style="text-align: right;">0.153</td>
-<td style="text-align: right;">0.215</td>
-<td style="text-align: right;">0.07</td>
-<td style="text-align: left;">56.7%</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">SiMLR-LBFGS</td>
-<td style="text-align: left;">0.167 ± 0.009</td>
-<td style="text-align: right;">0.115</td>
-<td style="text-align: right;">0.148</td>
-<td style="text-align: right;">0.218</td>
-<td style="text-align: right;">0.061</td>
-<td style="text-align: left;">56.6%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.165 ± 0.012</td>
-<td style="text-align: right;">0.125</td>
-<td style="text-align: right;">0.153</td>
-<td style="text-align: right;">0.221</td>
-<td style="text-align: right;">0.064</td>
-<td style="text-align: left;">56.6%</td>
-</tr>
-<tr class="even">
 <td style="text-align: left;">NSAFlow-PCA</td>
-<td style="text-align: left;">0.159 ± 0.003</td>
+<td style="text-align: left;">0.159 ± 0.004</td>
 <td style="text-align: right;">0.021</td>
 <td style="text-align: right;">0.158</td>
-<td style="text-align: right;">0.189</td>
-<td style="text-align: right;">0.082</td>
+<td style="text-align: right;">0.188</td>
+<td style="text-align: right;">0.08</td>
 <td style="text-align: left;">50.7%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">SiMLR</td>
+<td style="text-align: left;">0.158 ± 0.046</td>
+<td style="text-align: right;">0.154</td>
+<td style="text-align: right;">0.143</td>
+<td style="text-align: right;">0.245</td>
+<td style="text-align: right;">0.109</td>
+<td style="text-align: left;">48.6%</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">PCA</td>
 <td style="text-align: left;">0.152 ± 0.004</td>
 <td style="text-align: right;">0.044</td>
 <td style="text-align: right;">0.151</td>
-<td style="text-align: right;">0.179</td>
+<td style="text-align: right;">0.178</td>
 <td style="text-align: right;">0.081</td>
 <td style="text-align: left;">0.0%</td>
 </tr>
@@ -729,36 +705,124 @@ Table&nbsp;3.3: Out-of-sample MRI-only prediction of cognitive impairment on <co
 </div>
 </figure>
 </div>
-<p>Comparing the unsupervised anatomical baselines against cognitive-aligned SiMR models in <a href="#tbl-adni-mci-summary" class="quarto-xref">Table&nbsp;<span>3.3</span></a> and <a href="#fig-adni-neuroanatomy-flagship" class="quarto-xref">Figure&nbsp;<span>3.5</span></a> yields three core clinical and neurobiological insights:</p>
+<p>Comparing the unsupervised anatomical baselines against cognitive-aligned SiMR models in <a href="#tbl-adni-mci-summary" class="quarto-xref">Table&nbsp;<span>3.3</span></a> and Figures <a href="#fig-adni-view-chord" class="quarto-xref"><span>3.6</span></a>–<a href="#fig-adni-scores" class="quarto-xref"><span>3.11</span></a> yields four findings:</p>
 <ol type="1">
-<li><strong>Supervising MRI Factor Discovery with Cognitive Batteries Improves Out-of-Sample MRI Prediction by <span class="math inline">\(+65.8\%\)</span></strong>: Unsupervised <code>PCA</code> on the <span class="math inline">\(382\)</span> structural MRI features explains <span class="math inline">\(R^2 = 0.152 \pm 0.004\)</span> of out-of-sample cognitive variance on the linear probe and collapses to <span class="math inline">\(R^2 = 0.044\)</span> on the single-axis Random Forest probe because its leading component reflects global head and brain size rather than focal neurodegeneration. Aligning the MRI projections against the 11-scale cognitive battery during training raises out-of-sample MRI-only <code>CogPC1</code> prediction to <span class="math inline">\(R^2 = 0.252 \pm 0.008\)</span> (<code>LEND</code>), <span class="math inline">\(0.231 \pm 0.015\)</span> (<code>Flow-SiMR-V</code>, with Random Forest axis <span class="math inline">\(R^2 = 0.197\)</span>, a <span class="math inline">\(4.5\times\)</span> improvement over <code>PCA</code>), and <span class="math inline">\(0.241\)</span> for linear <code>SiMLR</code> solvers in the <span class="math inline">\(1,214\)</span>-configuration sweep, while raising mean prediction across all eleven individual cognitive scales by <span class="math inline">\(+32.1\%\)</span> (<span class="math inline">\(R^2 = 0.107\)</span> vs.&nbsp;<span class="math inline">\(0.081\)</span> for <code>PCA</code>; peaking on <code>ADAS13</code> <span class="math inline">\(R^2 = 0.195\)</span>, <code>ADAS11</code> <span class="math inline">\(0.165\)</span>, and <code>MMSE</code> <span class="math inline">\(0.141\)</span>).</li>
-<li><strong>Orthogonal Varimax Subspace Rotation and Quantile-Sparsified Non-Negative SiMR (<span class="math inline">\(q = 0.85\)</span>) Isolate Three Classical Braak Neurofibrillary Networks</strong>: As shown in <a href="#fig-adni-neuroanatomy-flagship" class="quarto-xref">Figure&nbsp;<span>3.5</span></a>, dense <code>PCA</code> (Panel A1) assigns nearly uniform negative weights (<span class="math inline">\(\approx -0.15\)</span>) across all <span class="math inline">\(62\)</span> DKT cortical thickness parcels on Component 1 (<span class="math inline">\(0\%\)</span> sparsity), mixing temporoparietal association areas with primary motor and visual cortices. Under unrotated PCA initialization without quantile thresholding (Panel A2, <code>varimax = False, q = None</code>), Component 1 absorbs this positive global correlation floor across <span class="math inline">\(53/62\)</span> regions (<span class="math inline">\(15\%\)</span> overall sparsity). Enabling default orthogonal Varimax subspace rotation (<code>varimax = True</code> in <code>pysimlr v0.2.17</code>, Panel A3) rotates the <span class="math inline">\(3\)</span>-dimensional subspace before non-negative <code>nsa_flow</code> retraction, immediately raising unthresholded sparsity from <span class="math inline">\(15\%\)</span> to <span class="math inline">\(66\%\)</span> with balanced active supports (<span class="math inline">\([24, 12, 26]\)</span> DKT parcels across <span class="math inline">\(\mathbf{v}_1, \mathbf{v}_2, \mathbf{v}_3\)</span>) without requiring manual subject row-mean centering. Combining non-negative <code>nsa_flow</code> (<span class="math inline">\(w = 0.50\)</span>) with <code>sparseness = 0.85</code> (Panels A4 and B) further restricts each latent axis to <span class="math inline">\(9/62\)</span> active DKT regions (<span class="math inline">\(88\%\)</span> overall sparsity, Gram defect <span class="math inline">\(D = 8.2 \times 10^{-5}\)</span>) while achieving higher out-of-sample cognitive accuracy (<span class="math inline">\(R^2 = 0.192\)</span>) than dense <code>PCA</code> (<span class="math inline">\(0.190\)</span>):
+<li><strong>Supervising MRI Factor Discovery with Cognitive Batteries Improves Out-of-Sample MRI Prediction</strong>: Unsupervised <code>PCA</code> on the <span class="math inline">\(382\)</span> structural MRI features explains <span class="math inline">\(R^2 =\)</span> 0.152 <span class="math inline">\(\pm\)</span> 0.004 of out-of-sample cognitive variance (<code>CogPC1</code>) on the linear probe and 0.044 on the single-axis Random Forest probe. Aligning the MRI projections with the 11-scale cognitive battery during training gives, for the four leading models (3-seed means <span class="math inline">\(\pm\)</span> SD), <code>NED</code> (0.209 <span class="math inline">\(\pm\)</span> 0.023), <code>NEDPP</code> (0.197 <span class="math inline">\(\pm\)</span> 0.016), <code>Flow-SiMR-V</code> (0.180 <span class="math inline">\(\pm\)</span> 0.035), <code>LEND</code> (0.170 <span class="math inline">\(\pm\)</span> 0.023); the best is +37.3% over <code>PCA</code>. The best single-axis Random Forest score is 0.154 (<code>SiMLR</code>), 3.5 times that of <code>PCA</code>. In the single-seed sweep the best configuration reaches 0.2552 (<code>LEND</code>) and the best linear-family configuration 0.2453 (<code>SiMLR</code>), against 0.1779 for <code>PCA</code>; mean prediction across all eleven scales reaches 0.121 (<code>LEND</code>) against 0.081 for <code>PCA</code> (+48.8%). These sweep peaks are maxima over many configurations on one split and are optimistic.</li>
+<li><strong>Varimax Rotation and Quantile Sparsity on Cortical Thickness</strong>: <a href="#fig-adni-neuroanatomy-flagship" class="quarto-xref">Figure&nbsp;<span>3.9</span></a> shows the 62 DKT cortical-thickness loadings (single seed, <code>Protocol B</code>, <code>SiMLR</code>, <span class="math inline">\(w = 0.50\)</span>). Dense <code>PCA</code> (Panel A1) has 0% zero loadings. Non-negative SiMR without rotation or quantile thresholding (Panel A2, <code>varimax = False, q = None</code>) is 67% sparse with [60, 1, 1] active regions per component; with Varimax rotation (Panel A3, <code>varimax = True, q = None</code>) it is 67% sparse with [2, 0, 60]. With <code>sparseness = 0.85</code> (Panels A4 and B) each component keeps [2, 60, 0] regions (67% sparse, Gram defect <span class="math inline">\(D =\)</span> <span class="math inline">\(5.94 \times 10^{-1}\)</span>) with out-of-sample <code>CogPC1</code> <span class="math inline">\(R^2 =\)</span> 0.204, against 0.178 for <code>PCA</code> on the same split. The leading regions of each component are:
 <ul>
-<li><strong>Component 1 (<span class="math inline">\(\mathbf{v}_1\)</span>, Temporoparietal Association Network — Braak Stages IV–V)</strong>: Concentrates weight in <code>left_middle_temporal</code> (<span class="math inline">\(+0.670\)</span>), <code>left_supramarginal</code> (<span class="math inline">\(+0.454\)</span>), <code>right_middle_temporal</code> (<span class="math inline">\(+0.341\)</span>), <code>right_pars_opercularis</code> (<span class="math inline">\(+0.319\)</span>), and <code>left_superior_frontal</code> (<span class="math inline">\(+0.209\)</span>). Thinning across these heteromodal temporoparietal and inferior frontal hubs marks the clinical transition from isolated amnestic impairment to language, semantic, and praxis decline <span class="citation" data-cites="braak1991neuropathological dickerson2009cortical buckner2005">(<a href="#ref-braak1991neuropathological" role="doc-biblioref">Braak and Braak 1991</a>; <a href="#ref-dickerson2009cortical" role="doc-biblioref"><span class="nocase">Dickerson et al.</span> 2009</a>; <a href="#ref-buckner2005" role="doc-biblioref">Buckner et al. 2005</a>)</span>.</li>
-<li><strong>Component 2 (<span class="math inline">\(\mathbf{v}_2\)</span>, Medial Temporal Amnestic Core — Braak Stages I–III)</strong>: Isolates bilateral entorhinal cortex (<code>left_entorhinal</code> <span class="math inline">\(+0.680\)</span>, <code>right_entorhinal</code> <span class="math inline">\(+0.226\)</span>) and precuneal/cuneal posterior hubs (<code>right_cuneus</code> <span class="math inline">\(+0.698\)</span>), coupled with subcortical hippocampal volume loss in View 0 (<code>right_hippocampus</code> <span class="math inline">\(+0.369\)</span>). This circuit directly reflects early transentorhinal tau neurofibrillary pathology responsible for episodic memory encoding failure on <code>RAVLT</code> and <code>ADASQ4</code> <span class="citation" data-cites="braak1991neuropathological jack2018nia rey1964examen">(<a href="#ref-braak1991neuropathological" role="doc-biblioref">Braak and Braak 1991</a>; <a href="#ref-jack2018nia" role="doc-biblioref"><span class="nocase">Jack et al.</span> 2018</a>; <a href="#ref-rey1964examen" role="doc-biblioref">Rey 1964</a>)</span>.</li>
-<li><strong>Component 3 (<span class="math inline">\(\mathbf{v}_3\)</span>, Frontocingulate Salience Network)</strong>: Targets <code>left_rostral_middle_frontal</code> (<span class="math inline">\(+0.631\)</span>), <code>right_caudal_anterior_cingulate</code> (<span class="math inline">\(+0.478\)</span>), and bilateral insular cortex (<code>left_insula</code> <span class="math inline">\(+0.434\)</span>, <code>right_insula</code> <span class="math inline">\(+0.429\)</span>). Atrophy in this anterior cingulate–insular salience network <span class="citation" data-cites="seeley2009neurodegenerative menon2010saliency">(<a href="#ref-seeley2009neurodegenerative" role="doc-biblioref">Seeley et al. 2009</a>; <a href="#ref-menon2010saliency" role="doc-biblioref">Menon and Uddin 2010</a>)</span> governs executive set-shifting deficits (<code>TRABSCOR</code> <span class="citation" data-cites="reitan1958validity">(<a href="#ref-reitan1958validity" role="doc-biblioref">Reitan 1958</a>)</span>) and everyday functional decline (<code>FAQ</code> <span class="citation" data-cites="pfeffer1982measurement">(<a href="#ref-pfeffer1982measurement" role="doc-biblioref">Pfeffer et al. 1982</a>)</span>).</li>
+<li><strong>Component 1 (<span class="math inline">\(\mathbf{v}_1\)</span>, stability 0.975)</strong>: <code>right_cuneus</code> (+0.504), <code>left_cuneus</code> (+0.446).</li>
+<li><strong>Component 2 (<span class="math inline">\(\mathbf{v}_2\)</span>, not identified, stability 0.803 &lt; 0.90)</strong>: <code>left_fusiform</code> (+0.822), <code>left_middle_temporal</code> (+0.804), <code>left_inferior_temporal</code> (+0.798), <code>right_middle_temporal</code> (+0.795), <code>left_supramarginal</code> (+0.782).</li>
+<li><strong>Component 3 (<span class="math inline">\(\mathbf{v}_3\)</span>, stability 0.996)</strong>: <code>{python} N.fl_q85_c3_top</code>.</li>
 </ul></li>
-<li><strong>Spared Primary Sensorimotor Cortex and Support-Shuffled / PCA-Rotated Score Controls Confirm True Anatomical Localization</strong>: Across all three components, primary motor cortex (<code>right_precentral</code> <span class="math inline">\(+0.0016\)</span>, <code>left_precentral</code> <span class="math inline">\(\le 10^{-5}\)</span>) and primary somatosensory cortex (<code>left_postcentral</code> <span class="math inline">\(\le 10^{-5}\)</span>, <code>right_postcentral</code> <span class="math inline">\(\le 10^{-5}\)</span>) receive effectively zero weight (<a href="#fig-adni-neuroanatomy-flagship" class="quarto-xref">Figure&nbsp;<span>3.5</span></a> B). Because primary sensorimotor neocortex is pathologically spared until end-stage Alzheimer’s disease <span class="citation" data-cites="braak1991neuropathological dickerson2009cortical">(<a href="#ref-braak1991neuropathological" role="doc-biblioref">Braak and Braak 1991</a>; <a href="#ref-dickerson2009cortical" role="doc-biblioref"><span class="nocase">Dickerson et al.</span> 2009</a>)</span>, its automatic exclusion provides an internal neurobiological control. To further separate coordinate-level axis alignment and anatomical support localization from pure subspace capacity, we evaluate two algorithmic negative controls across all 3 seeds on <code>ADNI-MCI</code> (<code>adni_mci_axis_alignment_controls.csv</code> via <code>axis_alignment_control_metrics</code>): (i) a <strong>PCA-Rotated Score Control</strong> that rotates the learned scores <span class="math inline">\(\mathbf{Z} = [\mathbf{X}_m \mathbf{V}_m]\)</span> by their in-fold principal-component eigenvectors <span class="math inline">\(\mathbf{Q} \in \mathrm{O}(Mk)\)</span> (<span class="math inline">\(\operatorname{span}(\mathbf{Z}\mathbf{Q}) = \operatorname{span}(\mathbf{Z})\)</span>), which leaves the linear probe identically unchanged to machine precision (<code>Flow-SiMR-V</code> <span class="math inline">\(0.2403 \to 0.2403\)</span>; <code>LEND</code> <span class="math inline">\(0.2418 \to 0.2418\)</span>; <code>SiMLR-LBFGSB</code> <span class="math inline">\(0.1650 \to 0.1650\)</span>) while reducing single-axis Random Forest accuracy when localized axes are mixed (<code>SiMLR-LBFGSB</code> <span class="math inline">\(0.1123 \to 0.0879\)</span>, <code>LEND</code> non-negative <span class="math inline">\(0.1617 \to 0.1416\)</span>); and (ii) a <strong>Support-Shuffled Basis Control</strong> that permutes the row indices of each <span class="math inline">\(\mathbf{V}_m\)</span> within view <span class="math inline">\(m\)</span> (<span class="math inline">\(\mathbf{V}_m[\pi_m, :]\)</span>, preserving exact sparsity, weight magnitudes, and Stiefel orthogonality <span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m\)</span>), which collapses the Random Forest <code>CogPC1</code> <span class="math inline">\(R^2\)</span> by <span class="math inline">\(60\%\)</span>–<span class="math inline">\(65\%\)</span> (<code>Flow-SiMR-V</code> <span class="math inline">\(0.1798 \to 0.0627\)</span>, <span class="math inline">\(\Delta = -0.1171\)</span>; <code>LEND</code> <span class="math inline">\(0.1725 \to 0.0690\)</span>, <span class="math inline">\(\Delta = -0.1035\)</span>; <code>NEDPP</code> <span class="math inline">\(0.1563 \to 0.0668\)</span>, <span class="math inline">\(\Delta = -0.0895\)</span>) and linear <span class="math inline">\(R^2\)</span> from <span class="math inline">\(0.240\)</span>–<span class="math inline">\(0.242\)</span> to <span class="math inline">\(0.151\)</span>–<span class="math inline">\(0.157\)</span> (the unstructured <code>PCA</code> baseline floor of <span class="math inline">\(0.151\)</span>). This confirms that the <span class="math inline">\(+3.8\times\)</span> to <span class="math inline">\(+4.5\times\)</span> Random Forest advantage on <code>ADNI-MCI</code> arises directly from localizing true neuroanatomical circuits rather than generic sparsity or basis conditioning.</li>
+<li><strong>Support-Shuffled and PCA-Rotated Score Controls</strong>: The largest weight on primary motor or somatosensory cortex (<code>precentral</code>, <code>postcentral</code>) at <span class="math inline">\(q = 0.85\)</span> is 0.732. To separate coordinate-level axis alignment and anatomical support localization from subspace capacity, two negative controls are evaluated across 3 seeds on <code>ADNI-MCI</code> (<code>adni_mci_axis_alignment_controls.csv</code>, <code>axis_alignment_control_metrics</code>): (i) a <strong>PCA-Rotated Score Control</strong> rotates the learned scores <span class="math inline">\(\mathbf{Z} = [\mathbf{X}_m \mathbf{V}_m]\)</span> by their in-fold principal-component eigenvectors, which leaves the linear probe unchanged (largest difference <span class="math inline">\(2.83 \times 10^{-7}\)</span>) and lowers the single-axis Random Forest score for 2 of 5 models; (ii) a <strong>Support-Shuffled Basis Control</strong> permutes the rows of each <span class="math inline">\(\mathbf{V}_m\)</span> within its view, preserving sparsity, weight magnitudes and <span class="math inline">\(\mathbf{V}_m^\top \mathbf{V}_m\)</span>, and lowers the Random Forest <code>CogPC1</code> <span class="math inline">\(R^2\)</span> for 5 of 5 models: <code>Flow-SiMR-V</code> (0.140 <span class="math inline">\(\to\)</span> 0.090), <code>LEND</code> (0.119 <span class="math inline">\(\to\)</span> 0.115), <code>NEDPP</code> (0.145 <span class="math inline">\(\to\)</span> 0.091), <code>NSAFlow-PCA</code> (0.060 <span class="math inline">\(\to\)</span> -0.057), <code>SiMLR</code> (0.112 <span class="math inline">\(\to\)</span> 0.056). Unshuffled Random Forest scores are 1.4–3.3 times that of <code>PCA</code>.</li>
+<li><strong>Rank Selection, Component Identifiability, and Display Policy</strong>: Evaluating latent rank selection via <code>select_rank</code> across 20 half-sample refits (<code>adni_rank_selection.csv</code>) reveals that component identifiability depends critically on rank <span class="math inline">\(k\)</span> and non-negativity. At <span class="math inline">\(k = 3\)</span> under non-negativity, component stabilities are 0.975 (<span class="math inline">\(0.975\)</span>), 0.803 (<span class="math inline">\(0.803\)</span>), and 0.996 (<span class="math inline">\(0.996\)</span>). Component 2 is unstable (<span class="math inline">\(0.803 &lt; 0.90\)</span>) and therefore classified as <strong>not identified</strong> (<code>all_stable=False</code>). In contrast, at <span class="math inline">\(k = 2\)</span> under positivity, both components achieve full stability and identifiability (<code>all_stable=True</code>, stabilities 0.961 [<span class="math inline">\(0.961\)</span>] and 0.997 [<span class="math inline">\(0.997\)</span>]). Under signed estimation (<code>positivity="either"</code>), stabilities at <span class="math inline">\(k = 3\)</span> drop to 0.993 (<span class="math inline">\(0.993\)</span>), 0.568 (<span class="math inline">\(0.568\)</span>), and 0.792 (<span class="math inline">\(0.792\)</span>), failing identification on components 2 and 3.
+<ul>
+<li><strong>Signed Displays Protocol</strong>: Across all displays in this manuscript: (i) feature maps display only features whose 95% bootstrap confidence interval (from whole-pipeline refits in <code>loading_inference</code>) strictly excludes zero; (ii) named biomarker panels report features selected via Meinshausen–Bühlmann stability selection at threshold <span class="math inline">\(\pi_{\text{thr}} = 0.80\)</span> with expected false selections <span class="math inline">\(E[\text{false}] \le 1.0\)</span>; and (iii) non-negative displays present hard-assignment OLEE loadings accompanied by the <code>loading_margin</code> certainty metric.</li>
+</ul></li>
 </ol>
-<div id="cell-fig-adni-neuroanatomy-flagship" class="cell" data-message="false" data-execution_count="8">
+<div id="cell-fig-adni-view-chord" class="cell" data-message="false" data-execution_count="10">
+<div class="cell-output cell-output-display">
+<div id="fig-adni-view-chord" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-adni-view-chord-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="03_experiments_files/figure-html/fig-adni-view-chord-output-1.png" width="1288" height="481" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-adni-view-chord-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3.6: Held-out multi-view component coupling on <code>ADNI-MCI</code> (<code>pysimlr.plot_view_chord</code>, <span class="math inline">\(N_{\text{test}} = 326\)</span>, <code>Protocol B</code>, <code>SiMLR</code>, <span class="math inline">\(k = 3\)</span>, <span class="math inline">\(q = 0.85\)</span>). Each view (<code>Volume</code>, <code>Thickness</code>, <code>DKT Cortex</code>, <code>Cognition</code>) occupies a fixed arc with one slot per partner view; ribbons fill their slots in proportion to held-out Pearson <span class="math inline">\(r\)</span> between view scores, so selective coupling appears as empty arc rather than stretched ribbons.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="columns">
+<div class="column" style="width:56%;">
+<div id="cell-fig-adni-latent-coupling" class="cell" data-message="false" data-execution_count="11">
+<div class="cell-output cell-output-display">
+<div id="fig-adni-latent-coupling" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-adni-latent-coupling-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="03_experiments_files/figure-html/fig-adni-latent-coupling-output-1.png" width="1574" height="521" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-adni-latent-coupling-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3.7: Training (hollow rings) versus held-out (filled dots) view-to-consensus coupling dumbbells and the held-out view-by-view correlation matrix (<code>pysimlr.plot_latent_coupling</code>) on <code>ADNI-MCI</code> (<code>Protocol B</code>).
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div><div class="column" style="width:4%;">
+
+</div><div class="column" style="width:40%;">
+<div id="cell-fig-adni-component-radar" class="cell" data-message="false" data-execution_count="12">
+<div class="cell-output cell-output-display">
+<div id="fig-adni-component-radar" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-adni-component-radar-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="03_experiments_files/figure-html/fig-adni-component-radar-output-1.png" width="879" height="950" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-adni-component-radar-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3.8: Held-out component coupling profile of each <code>ADNI-MCI</code> view (<code>pysimlr.plot_component_radar</code>); the grey polygon marks the mean over views.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div id="cell-fig-adni-neuroanatomy-flagship" class="cell" data-message="false" data-execution_count="13">
 <div class="cell-output cell-output-display">
 <div id="fig-adni-neuroanatomy-flagship" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-adni-neuroanatomy-flagship-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="03_experiments_files/figure-html/fig-adni-neuroanatomy-flagship-output-1.png" width="3573" height="2524" class="figure-img">
+<img src="03_experiments_files/figure-html/fig-adni-neuroanatomy-flagship-output-1.png" width="2391" height="1671" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-adni-neuroanatomy-flagship-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.5: Neuroanatomical localization and cognitive prediction on <code>ADNI-MCI</code> (<span class="math inline">\(N = 1,084\)</span>, <code>Protocol B</code> MRI-only evaluation). (A1–A4) Cortical thickness loading matrices across the 62 DKT regions comparing (A1) Dense PCA (<span class="math inline">\(0\%\)</span> sparse, diffuse global sign-mixing), (A2) Unrotated PCA+NSA (<span class="math inline">\(q = \text{None}\)</span>, <span class="math inline">\(15\%\)</span> sparse, Component 1 absorbs global thickness floor across <span class="math inline">\(53/62\)</span> regions), (A3) Default Varimax+NSA (<code>pysimlr v0.2.17</code>, <span class="math inline">\(q = \text{None}\)</span>, <span class="math inline">\(66\%\)</span> sparse, balanced regional supports without manual row-centering), and (A4) Focal Quantile-Thresholded Non-Negative SiMR (<span class="math inline">\(q = 0.85\)</span>, <span class="math inline">\(88\%\)</span> sparse, <span class="math inline">\(9/62\)</span> active regions per axis, <span class="math inline">\(R^2 = 0.192\)</span>). (B) Exact regional weights of the three isolated Alzheimer’s networks in Focal SiMR (<span class="math inline">\(q = 0.85\)</span>): Network 1 captures the Temporoparietal Association circuit (Braak IV–V), Network 2 captures the Medial Temporal Amnestic Core (Braak I–III), and Network 3 captures the Frontocingulate Salience network, while pathologically spared Primary Sensorimotor regions (<code>precentral</code> and <code>postcentral</code> gyri) receive zero weight.
+Figure&nbsp;3.9: Cortical-thickness loadings on <code>ADNI-MCI</code> (<span class="math inline">\(N = 1,084\)</span>, <code>Protocol B</code>, single seed, <code>SiMLR</code>, <span class="math inline">\(w = 0.50\)</span>) across the 62 DKT regions. (A1) Dense PCA; (A2) non-negative SiMR without rotation or quantile thresholding (<code>varimax = False</code>, <span class="math inline">\(q = \text{None}\)</span>); (A3) with Varimax rotation (<code>varimax = True</code>, <span class="math inline">\(q = \text{None}\)</span>); (A4) with quantile sparsity <span class="math inline">\(q = 0.85\)</span>. Panel titles give each matrix’s fraction of zero loadings and out-of-sample <code>CogPC1</code> <span class="math inline">\(R^2\)</span>. (B) The four largest loadings of each component at <span class="math inline">\(q = 0.85\)</span>, and the primary sensorimotor regions (<code>precentral</code>, <code>postcentral</code>).
 </figcaption>
 </figure>
+</div>
+</div>
+</div>
+<div class="columns">
+<div class="column" style="width:48%;">
+<div id="cell-fig-adni-lobes" class="cell" data-message="false" data-execution_count="14">
+<div class="cell-output cell-output-display">
+<div id="fig-adni-lobes" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-adni-lobes-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="03_experiments_files/figure-html/fig-adni-lobes-output-1.png" width="733" height="501" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-adni-lobes-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3.10: Lobe-level summary (<code>pysimlr.plot_feature_groups</code>, mean <span class="math inline">\(|\text{structure}|\)</span>) across the 62 DKT cortical parcels grouped into Temporal, Parietal, Frontal, Cingulate, Occipital, and Insula lobes on <code>ADNI-MCI</code> (<code>Protocol B</code>).
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div><div class="column" style="width:4%;">
+
+</div><div class="column" style="width:48%;">
+<div id="cell-fig-adni-scores" class="cell" data-message="false" data-execution_count="15">
+<div class="cell-output cell-output-display">
+<div id="fig-adni-scores" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-adni-scores-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="03_experiments_files/figure-html/fig-adni-scores-output-1.png" width="714" height="664" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-adni-scores-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3.11: Subject scores in the rotated frame <span class="math inline">\(\mathbf{u}\mathbf{R}\)</span> (<code>pysimlr.plot_scores</code>, identified Components 1 and 3) shaded by <code>CogPC1</code> impairment severity, with marginal KDE densities and ringed held-out MCI participants (<span class="math inline">\(N_{\text{test}} = 326\)</span>).
+</figcaption>
+</figure>
+</div>
+</div>
 </div>
 </div>
 </div>
 </section>
 <section id="multi-omic-oncology-tcga-brca-tcga-kirc-and-patient-level-clinical-attribution" class="level2" data-number="3.4">
 <h2 data-number="3.4" class="anchored" data-anchor-id="multi-omic-oncology-tcga-brca-tcga-kirc-and-patient-level-clinical-attribution"><span class="header-section-number">3.4</span> Multi-Omic Oncology (<code>TCGA-BRCA</code>, <code>TCGA-KIRC</code>) and Patient-Level Clinical Attribution</h2>
-<p>To verify that the same architectural principles generalize beyond neuroimaging to molecular oncology and clinical tabular medicine, <a href="#tbl-real-cohorts-summary" class="quarto-xref">Table&nbsp;<span>3.4</span></a> compares all nine models across the six real cohorts, <a href="#fig-multiomics-and-patient-attribution" class="quarto-xref">Figure&nbsp;<span>3.6</span></a> illustrates cross-cohort performance alongside exact patient-level clinical risk decomposition (<code>Diabetes</code> Patient #1 and <code>Heart</code> Patient #122 in <a href="#fig-heart-audit" class="quarto-xref">Figure&nbsp;<span>3.7</span></a>), and <a href="#fig-nsa-v-interpretability" class="quarto-xref">Figure&nbsp;<span>3.8</span></a> demonstrates how <code>nsa_flow</code> preserves localized hierarchical basis weights across modalities.</p>
-<div id="tbl-real-cohorts-summary" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="9">
+<p>To verify that the same architectural principles generalize beyond neuroimaging to molecular oncology and clinical tabular medicine, <a href="#tbl-real-cohorts-summary" class="quarto-xref">Table&nbsp;<span>3.4</span></a> compares all seven models across the six real cohorts, <a href="#fig-multiomics-and-patient-attribution" class="quarto-xref">Figure&nbsp;<span>3.12</span></a> reports cross-cohort linear entrypoint scores (<code>pysimlr.plot_benchmark</code>), <a href="#fig-diabetes-top-features" class="quarto-xref">Figure&nbsp;<span>3.13</span></a> and <a href="#fig-heart-audit" class="quarto-xref">Figure&nbsp;<span>3.14</span></a> map reproducible feature-to-component structure (<code>pysimlr.plot_top_features</code> and <code>pysimlr.plot_feature_chord</code>), and <a href="#fig-nsa-v-interpretability" class="quarto-xref">Figure&nbsp;<span>3.15</span></a> displays the hard-assigned OLEE loadings <span class="math inline">\(\mathbf{L}_m\)</span> across <code>Heart</code> and <code>Diabetes</code> modalities.</p>
+<div id="tbl-real-cohorts-summary" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="16" data-message="false">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-real-cohorts-summary-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 Table&nbsp;3.4: Out-of-sample linear entrypoint performance (<code>XV</code>, top) and multi-modal consensus performance (<code>U</code>, bottom) across all six real biomedical cohorts (3-seed mean from <code>deep_ranking_benchmark.csv</code>, higher is better ↑).
@@ -788,66 +852,48 @@ Table&nbsp;3.4: Out-of-sample linear entrypoint performance (<code>XV</code>, to
 <tbody>
 <tr class="odd">
 <td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.242 (0.205)</td>
-<td style="text-align: left;">0.923 (0.919)</td>
-<td style="text-align: left;">0.690 (0.697)</td>
-<td style="text-align: left;">0.380 (0.346)</td>
-<td style="text-align: left;">0.815 (0.833)</td>
-<td style="text-align: left;">0.909 (0.789)</td>
+<td style="text-align: left;">0.170 (0.164)</td>
+<td style="text-align: left;">0.909 (0.919)</td>
+<td style="text-align: left;">0.690 (0.610)</td>
+<td style="text-align: left;">0.320 (0.302)</td>
+<td style="text-align: left;">0.819 (0.756)</td>
+<td style="text-align: left;">0.876 (0.818)</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.237 (0.212)</td>
-<td style="text-align: left;">0.922 (0.917)</td>
-<td style="text-align: left;">0.683 (0.693)</td>
-<td style="text-align: left;">0.383 (0.350)</td>
-<td style="text-align: left;">0.815 (0.822)</td>
-<td style="text-align: left;">0.893 (0.799)</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.166 (0.149)</td>
-<td style="text-align: left;">0.921 (0.917)</td>
-<td style="text-align: left;">0.690 (0.676)</td>
-<td style="text-align: left;">0.396 (0.322)</td>
-<td style="text-align: left;">0.837 (0.830)</td>
-<td style="text-align: left;">0.948 (0.753)</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">SiMLR-LBFGS</td>
-<td style="text-align: left;">0.164 (0.147)</td>
-<td style="text-align: left;">0.921 (0.917)</td>
-<td style="text-align: left;">0.688 (0.676)</td>
-<td style="text-align: left;">0.396 (0.322)</td>
-<td style="text-align: left;">0.837 (0.826)</td>
-<td style="text-align: left;">0.946 (0.752)</td>
+<td style="text-align: left;">0.180 (0.144)</td>
+<td style="text-align: left;">0.927 (0.903)</td>
+<td style="text-align: left;">0.678 (0.676)</td>
+<td style="text-align: left;">0.335 (0.292)</td>
+<td style="text-align: left;">0.826 (0.793)</td>
+<td style="text-align: left;">0.892 (0.741)</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">SiMLR</td>
-<td style="text-align: left;">0.175 (0.154)</td>
-<td style="text-align: left;">0.921 (0.915)</td>
-<td style="text-align: left;">0.683 (0.674)</td>
-<td style="text-align: left;">0.383 (0.347)</td>
-<td style="text-align: left;">0.819 (0.830)</td>
-<td style="text-align: left;">0.946 (0.757)</td>
+<td style="text-align: left;">0.158 (0.143)</td>
+<td style="text-align: left;">0.813 (0.781)</td>
+<td style="text-align: left;">0.589 (0.608)</td>
+<td style="text-align: left;">0.352 (0.313)</td>
+<td style="text-align: left;">0.819 (0.804)</td>
+<td style="text-align: left;">0.825 (0.773)</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NEDPP</td>
-<td style="text-align: left;">0.219 (0.172)</td>
-<td style="text-align: left;">0.929 (0.866)</td>
-<td style="text-align: left;">0.693 (0.686)</td>
-<td style="text-align: left;">0.368 (0.272)</td>
-<td style="text-align: left;">0.819 (0.822)</td>
-<td style="text-align: left;">0.964 (0.625)</td>
+<td style="text-align: left;">0.197 (0.125)</td>
+<td style="text-align: left;">0.919 (0.882)</td>
+<td style="text-align: left;">0.693 (0.690)</td>
+<td style="text-align: left;">0.311 (0.079)</td>
+<td style="text-align: left;">0.811 (0.804)</td>
+<td style="text-align: left;">0.972 (0.804)</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">NED</td>
-<td style="text-align: left;">0.195 (0.145)</td>
-<td style="text-align: left;">0.929 (0.927)</td>
-<td style="text-align: left;">0.690 (0.697)</td>
-<td style="text-align: left;">0.380 (0.307)</td>
-<td style="text-align: left;">0.811 (0.833)</td>
-<td style="text-align: left;">0.959 (0.708)</td>
+<td style="text-align: left;">0.209 (0.131)</td>
+<td style="text-align: left;">0.923 (0.915)</td>
+<td style="text-align: left;">0.686 (0.669)</td>
+<td style="text-align: left;">0.355 (0.245)</td>
+<td style="text-align: left;">0.815 (0.796)</td>
+<td style="text-align: left;">0.971 (0.836)</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">NSAFlow-PCA</td>
@@ -872,48 +918,70 @@ Table&nbsp;3.4: Out-of-sample linear entrypoint performance (<code>XV</code>, to
 </div>
 </figure>
 </div>
-<div id="cell-fig-multiomics-and-patient-attribution" class="cell" data-message="false" data-execution_count="10">
+<div id="cell-fig-multiomics-and-patient-attribution" class="cell" data-message="false" data-execution_count="17">
 <div class="cell-output cell-output-display">
 <div id="fig-multiomics-and-patient-attribution" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-multiomics-and-patient-attribution-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="03_experiments_files/figure-html/fig-multiomics-and-patient-attribution-output-1.png" width="3407" height="1264" class="figure-img">
+<img src="03_experiments_files/figure-html/fig-multiomics-and-patient-attribution-output-1.png" width="3106" height="1313" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-multiomics-and-patient-attribution-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.6: Multi-cohort biomedical performance and exact patient-level feature attribution. (A) Out-of-sample linear entrypoint scores across the six real cohorts comparing best SiMR architectures (<code>LEND</code>, <code>Flow-SiMR-V</code>, <code>SiMLR-LBFGSB</code>) against dense <code>PCA</code>. (B) Exact additive patient-level risk attribution (<span class="math inline">\(c_{ij} = x_{ij} v_{jl}\)</span>) on the Diabetes cohort (Patient #1), decomposing the patient’s progression score directly into standardized clinical vitals without post-hoc Monte Carlo perturbation.
+Figure&nbsp;3.12: <strong>Multi-Cohort Linear Entrypoint Performance (<code>pysimlr.plot_benchmark</code>).</strong> Out-of-sample linear entrypoint scores across the six real biomedical cohorts (<code>ADNI-MCI</code>, <code>TCGA-BRCA</code>, <code>TCGA-KIRC</code>, <code>Diabetes</code>, <code>Heart</code>, <code>mfeat</code>) comparing top SiMR architectures (<code>LEND</code>, <code>Flow-SiMR-V</code>, <code>SiMLR</code>) against dense <code>PCA</code> (3-seed means and error bars from <code>deep_ranking_benchmark.csv</code>).
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div id="cell-fig-diabetes-top-features" class="cell" data-message="false" data-execution_count="18">
+<div class="cell-output cell-output-display">
+<div id="fig-diabetes-top-features" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-diabetes-top-features-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="03_experiments_files/figure-html/fig-diabetes-top-features-output-1.png" width="936" height="424" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-diabetes-top-features-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3.13: <strong>Diabetes Multi-View Feature Structure and Stability (<code>pysimlr.plot_top_features</code>).</strong> Top features per view (<code>Systemic Vitals</code> and <code>Serum Biomarkers</code>) on Component 1 of <code>LEND</code>, plotting feature-to-score structure correlations <span class="math inline">\(r(\mathbf{x}_{mj}, (\mathbf{U}\mathbf{R})_1)\)</span> with 95% subsample intervals (<span class="math inline">\(n_{\text{sub}} = 50\)</span>), permutation null floor (<span class="math inline">\(n_{\text{perm}} = 20\)</span>), and stability-selected features highlighted in bold (<code>results_cache/nsa_v_loadings.json</code>).
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
 <div class="columns">
-<div class="column" style="width:48%;">
+<div class="column" style="width:49%;">
+<div id="cell-fig-heart-audit" class="cell" data-message="false" data-execution_count="19">
+<div class="cell-output cell-output-display">
 <div id="fig-heart-audit" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-heart-audit-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="figures/heart_waterfall.png" class="img-fluid figure-img" style="width:100.0%">
+<img src="03_experiments_files/figure-html/fig-heart-audit-output-1.png" width="975" height="927" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-heart-audit-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.7: <strong>Cardiology Patient-Level Risk Decomposition (<code>Heart</code> Cohort, Patient #122).</strong> Exact additive feature contributions <span class="math inline">\(c_{ij} = x_{ij} v_{jl}\)</span> on the linear entrypoint decompose individual coronary artery disease risk directly into standardized clinical vitals and ECG indicators (<code>ca</code> fluoroscopy vessels, <code>thal</code> thallium defect, <code>oldpeak</code> ST depression, <code>exang</code> exercise angina).
+Figure&nbsp;3.14: <strong>Cardiology Multi-View Feature-to-Component Chord (<code>pysimlr.plot_feature_chord</code>, <code>Heart</code> Cohort).</strong> Ribbons link clinical vitals (<code>cp</code> chest pain, <code>sex</code>, <code>age</code>, <code>restecg</code>) and cardiophysiological stress indicators (<code>thal</code> thallium defect, <code>ca</code> fluoroscopy vessels, <code>exang</code> exercise angina, <code>oldpeak</code>, <code>thalach</code>) to components <code>C1</code> and <code>C2</code>, filtered by subsample stability selection (<code>results_cache/nsa_v_loadings.json</code>).
 </figcaption>
 </figure>
 </div>
-</div><div class="column" style="width:4%;">
+</div>
+</div>
+</div><div class="column" style="width:2%;">
 
-</div><div class="column" style="width:48%;">
+</div><div class="column" style="width:49%;">
+<div id="cell-fig-nsa-v-interpretability" class="cell" data-execution_count="20">
+<div class="cell-output cell-output-display">
 <div id="fig-nsa-v-interpretability" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-nsa-v-interpretability-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="figures/nsa_v_interpretability.png" class="img-fluid figure-img" style="width:100.0%">
+<img src="03_experiments_files/figure-html/fig-nsa-v-interpretability-output-1.png" width="2686" height="2603" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-nsa-v-interpretability-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3.8: <strong>Hierarchical Sparse Basis Localization (<code>varimax + nsa_flow</code>).</strong> Orthogonal Varimax subspace rotation paired with Non-Negative Stiefel Approximating Flow (<span class="math inline">\(q = 0.50\)</span>) partitions every clinical and biomarker view of <code>Heart</code> and <code>Diabetes</code> into balanced, non-overlapping physiological subnetworks (<code>L1</code> vs.&nbsp;<code>L2</code>, Gini <span class="math inline">\(G \in [0.51, 0.77]\)</span>), eliminating the unrotated <code>"Component 1 = Mean"</code> imbalance.
+Figure&nbsp;3.15: <strong>Hierarchical Sparse Basis Localization (<code>nsa_flow</code>).</strong> <code>LEND</code> OLEE loadings <span class="math inline">\(\mathbf{L}_m\)</span> of each <code>Heart</code> and <code>Diabetes</code> view (<code>results_cache/nsa_v_loadings.json</code>); G is the Gini coefficient of each component and average loading margins are reported.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
-<p>In <code>MultiOmics</code> (<code>TCGA-BRCA</code>, <span class="math inline">\(N = 822\)</span>), <code>Flow-SiMR-V</code>, <code>LEND</code>, and <code>NEDPP</code> achieve <span class="math inline">\(92.7\% \pm 0.7\%\)</span> out-of-sample Estrogen Receptor classification accuracy (vs.&nbsp;<span class="math inline">\(91.5\%\)</span> for <code>PCA</code>), while the sparse non-negative dictionaries <span class="math inline">\(\mathbf{V}_m\)</span> isolate the canonical luminal breast cancer signaling cascade across all three molecular layers (detailed in Appendix A): estrogen receptor alpha (<code>ER-alpha</code>) and phosphorylated <code>ER-alpha_pS118</code> in RPPA proteomics, master luminal transcription factors <code>GATA3</code>, <code>PGR</code>, and <code>ESR1</code> in mRNA transcriptomics <span class="citation" data-cites="perou2000 parker2009supervised">(<a href="#ref-perou2000" role="doc-biblioref"><span class="nocase">Perou et al.</span> 2000</a>; <a href="#ref-parker2009supervised" role="doc-biblioref"><span class="nocase">Parker et al.</span> 2009</a>)</span>, and focal chromosomal amplifications at <code>17q23</code> and <code>8p11-p12</code> in somatic copy-number variation <span class="citation" data-cites="tcga2012breast curtis2012">(<a href="#ref-tcga2012breast" role="doc-biblioref">The Cancer Genome Atlas Network 2012</a>; <a href="#ref-curtis2012" role="doc-biblioref"><span class="nocase">Curtis et al.</span> 2012</a>)</span>. In <code>TCGA-KIRC</code> (<span class="math inline">\(N = 467\)</span>), adding non-linear decoding in <code>LEND</code> improves pathologic stage classification on the consensus embedding <span class="math inline">\(\mathbf{U}\)</span> to <span class="math inline">\(71.4\% \pm 0.4\%\)</span> (vs.&nbsp;<span class="math inline">\(67.1\%\)</span> for <code>PCA</code>), capturing non-linear metabolic and hypoxia-inducible interactions across transcriptomic and proteomic layers <span class="citation" data-cites="tcga2013kirc">(<a href="#ref-tcga2013kirc" role="doc-biblioref">The Cancer Genome Atlas Research Network 2013</a>)</span>. Finally, on compact clinical cohorts (<code>Diabetes</code> <span class="math inline">\(R^2 = 0.396\)</span> for <code>SiMLR-LBFGSB</code> vs.&nbsp;<span class="math inline">\(0.351\)</span> for <code>PCA</code>; <code>Heart</code> accuracy <span class="math inline">\(0.848\)</span> for <code>NSAFlow-PCA</code>), pairing orthogonal Varimax subspace rotation with <code>nsa_flow</code> (<span class="math inline">\(q = 0.50\)</span>) cleanly separates each modality into balanced physiological subnetworks (<a href="#fig-nsa-v-interpretability" class="quarto-xref">Figure&nbsp;<span>3.8</span></a>)—isolating resting hemodynamics (<code>trestbps</code> <span class="math inline">\(0.91\)</span>, <code>restecg</code> <span class="math inline">\(0.42\)</span>) from chest-pain and demographic profile (<code>cp</code> <span class="math inline">\(0.70\)</span>, <code>sex</code> <span class="math inline">\(0.63\)</span>, <code>age</code> <span class="math inline">\(0.32\)</span>) in <code>Heart</code> View 1, exercise ST/heart-rate response (<code>oldpeak</code> <span class="math inline">\(0.73\)</span>, <code>thalach</code> <span class="math inline">\(0.50\)</span>, <code>slope</code> <span class="math inline">\(0.46\)</span>) from perfusion/vessel burden (<code>thal</code> <span class="math inline">\(0.75\)</span>, <code>exang</code> <span class="math inline">\(0.57\)</span>, <code>ca</code> <span class="math inline">\(0.34\)</span>) in <code>Heart</code> View 2, adiposity/blood pressure (<code>bp</code> <span class="math inline">\(0.73\)</span>, <code>bmi</code> <span class="math inline">\(0.68\)</span>) from age/sex (<code>age</code> <span class="math inline">\(0.78\)</span>, <code>sex</code> <span class="math inline">\(0.62\)</span>) in <code>Diabetes</code> View 1, and the glycemic/triglyceride triad (<code>s5</code> <span class="math inline">\(0.63\)</span>, <code>s6</code> <span class="math inline">\(0.56\)</span>, <code>s4</code> <span class="math inline">\(0.54\)</span>) from lipoprotein cholesterol (<code>s2</code> <span class="math inline">\(0.71\)</span>, <code>s1</code> <span class="math inline">\(0.70\)</span>) in <code>Diabetes</code> View 2—while the linear entrypoint <span class="math inline">\(\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m\)</span> decomposes any individual patient’s risk score into exact feature-level clinical contributions <span class="math inline">\(c_{m,i,j,l} = x_{m,i,j} v_{m,j,l}\)</span> without post-hoc Monte Carlo approximations <span class="citation" data-cites="Wachter_2017 karimi2021algorithmic pearl2009causality">(<a href="#ref-Wachter_2017" role="doc-biblioref">Wachter et al. 2018</a>; <a href="#ref-karimi2021algorithmic" role="doc-biblioref">Karimi et al. 2021</a>; <a href="#ref-pearl2009causality" role="doc-biblioref">Pearl 2009</a>)</span> (<a href="#fig-multiomics-and-patient-attribution" class="quarto-xref">Figure&nbsp;<span>3.6</span></a> B and <a href="#fig-heart-audit" class="quarto-xref">Figure&nbsp;<span>3.7</span></a>). Complete parameter sensitivity ablations—including the <span class="math inline">\(w \in [0.01, 0.95]\)</span> trade-off curve, row-mean/ICA preprocessing controls, latent rank <span class="math inline">\(k \in \{2, 3, 5, 8\}\)</span> scaling, and pairwise Wilcoxon rank-sum tests—are provided in Appendix B.</p>
+</div>
+</div>
+<p>In <code>MultiOmics</code> (<code>TCGA-BRCA</code>, <span class="math inline">\(N = 822\)</span>), out-of-sample Estrogen Receptor classification accuracy on the linear entrypoint is 92.7% <span class="math inline">\(\pm\)</span> 0.7% (<code>Flow-SiMR-V</code>), 90.9% <span class="math inline">\(\pm\)</span> 1.7% (<code>LEND</code>) and 91.9% <span class="math inline">\(\pm\)</span> 1.1% (<code>NEDPP</code>), against 91.5% <span class="math inline">\(\pm\)</span> 1.8% for <code>PCA</code> (3-seed means <span class="math inline">\(\pm\)</span> SD); the sparse non-negative dictionaries <span class="math inline">\(\mathbf{V}_m\)</span>, tri-modal feature chord, and view-level quality radar are examined in Appendix A. In <code>TCGA-KIRC</code> (<span class="math inline">\(N = 467\)</span>), pathologic stage classification on the consensus embedding <span class="math inline">\(\mathbf{U}\)</span> is 61.0% <span class="math inline">\(\pm\)</span> 3.9% for <code>LEND</code> against 67.1% <span class="math inline">\(\pm\)</span> 1.5% for <code>PCA</code>. On compact clinical cohorts, <code>Diabetes</code> reaches <span class="math inline">\(R^2 =\)</span> 0.352 for <code>SiMLR</code> against 0.351 for <code>PCA</code>, and <code>Heart</code> reaches accuracy 0.848 for <code>NSAFlow-PCA</code> and 0.819 for <code>SiMLR</code>. <a href="#fig-diabetes-top-features" class="quarto-xref">Figure&nbsp;<span>3.13</span></a>, <a href="#fig-heart-audit" class="quarto-xref">Figure&nbsp;<span>3.14</span></a>, and <a href="#fig-nsa-v-interpretability" class="quarto-xref">Figure&nbsp;<span>3.15</span></a> show the stability-selected structure correlations, multi-view feature-to-component chord, and OLEE loadings <span class="math inline">\(\mathbf{L}_m\)</span> across <code>Heart</code> and <code>Diabetes</code>; while the linear entrypoint <span class="math inline">\(\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m\)</span> maps individual observations into the latent consensus space, the OLEE loadings <span class="math inline">\(\mathbf{L}_m\)</span> decompose individual patient profiles into exact additive risk attributions <span class="math inline">\(c_{m,i,j,l} = x_{m,i,j} l_{m,j,l}\)</span> without post-hoc Monte Carlo approximations <span class="citation" data-cites="Wachter_2017 karimi2021algorithmic pearl2009causality">(<a href="#ref-Wachter_2017" role="doc-biblioref">Wachter et al. 2018</a>; <a href="#ref-karimi2021algorithmic" role="doc-biblioref">Karimi et al. 2021</a>; <a href="#ref-pearl2009causality" role="doc-biblioref">Pearl 2009</a>)</span>. Complete parameter sensitivity ablations—the <span class="math inline">\(w \in [0.01, 0.95]\)</span> trade-off curve, basis diagnostics, stability rank selection across <span class="math inline">\(k\)</span>, and synthetic noise recovery—are in Appendix B.</p>
 
 
 <div id="refs" class="references csl-bib-body hanging-indent" role="list">
@@ -926,23 +994,11 @@ Avants, Brian B., Nicholas J. Tustison, Gang Song, Philip A. Cook, Arno Klein, a
 <div id="ref-benavoli2016should" class="csl-entry" role="listitem">
 Benavoli, Alessio, Giorgio Corani, Janez Demšar, and Marco Zaffalon. 2016. <span>“Should We Really Use Post-Hoc Tests Based on Mean-Ranks?”</span> <em>Journal of Machine Learning Research</em> 17 (5): 1–10.
 </div>
-<div id="ref-braak1991neuropathological" class="csl-entry" role="listitem">
-Braak, Heiko, and Eva Braak. 1991. <span>“Neuropathological Stageing of <span>Alzheimer</span>-Related Changes.”</span> <em>Acta Neuropathologica</em> 82 (4): 239–59. <a href="https://doi.org/10.1007/BF00308809">https://doi.org/10.1007/BF00308809</a>.
-</div>
-<div id="ref-buckner2005" class="csl-entry" role="listitem">
-Buckner, Randy L., Abraham Z. Snyder, Benjamin J. Shannon, et al. 2005. <span>“Molecular, Structural, and Functional Characterization of <span class="nocase">Alzheimer’s</span> Disease: Evidence for a Relationship Between Default Activity, Amyloid, and Memory.”</span> <em>Journal of Neuroscience</em> 25 (34): 7709–17. <a href="https://doi.org/10.1523/JNEUROSCI.2177-05.2005">https://doi.org/10.1523/JNEUROSCI.2177-05.2005</a>.
-</div>
-<div id="ref-curtis2012" class="csl-entry" role="listitem">
-<span class="nocase">Curtis, Christina, Sohrab P. Shah, Suet-Feung Chin, et al.</span> 2012. <span>“The Genomic and Transcriptomic Architecture of 2,000 Breast Tumours Reveals Novel Subgroups.”</span> <em>Nature</em> 486 (7403): 346–52. <a href="https://doi.org/10.1038/nature10983">https://doi.org/10.1038/nature10983</a>.
-</div>
 <div id="ref-Demsar2006" class="csl-entry" role="listitem">
 Demšar, Janez. 2006. <span>“Statistical Comparisons of Classifiers over Multiple Data Sets.”</span> <em>Journal of Machine Learning Research</em> 7: 1–30.
 </div>
 <div id="ref-desikan2006automated" class="csl-entry" role="listitem">
 Desikan, Rahul S., Florent Ségonne, Bruce Fischl, et al. 2006. <span>“An Automated Labeling System for Subdividing the Human Cerebral Cortex on <span>MRI</span> Scans into Gyral Based Regions of Interest.”</span> <em>NeuroImage</em> 31 (3): 968–80. <a href="https://doi.org/10.1016/j.neuroimage.2006.01.021">https://doi.org/10.1016/j.neuroimage.2006.01.021</a>.
-</div>
-<div id="ref-dickerson2009cortical" class="csl-entry" role="listitem">
-<span class="nocase">Dickerson, Bradford C., Akram Bakkour, David H. Salat, et al.</span> 2009. <span>“The Cortical Signature of <span class="nocase">Alzheimer’s</span> Disease: Regionally Specific Cortical Thinning Relates to Symptom Severity in Very Mild to Mild <span>AD</span> Dementia and Is Detectable in Asymptomatic Amyloid-Positive Individuals.”</span> <em>Cerebral Cortex</em> 19 (3): 497–510. <a href="https://doi.org/10.1093/cercor/bhn113">https://doi.org/10.1093/cercor/bhn113</a>.
 </div>
 <div id="ref-folstein1975mini" class="csl-entry" role="listitem">
 Folstein, Marshal F., Susan E. Folstein, and Paul R. McHugh. 1975. <span>“<span>‘Mini-Mental State’</span>: A Practical Method for Grading the Cognitive State of Patients for the Clinician.”</span> <em>Journal of Psychiatric Research</em> 12 (3): 189–98. <a href="https://doi.org/10.1016/0022-3956(75)90026-6">https://doi.org/10.1016/0022-3956(75)90026-6</a>.
@@ -955,9 +1011,6 @@ Frisch, Ragnar, and Frederick V. Waugh. 1933. <span>“Partial Time Regressions 
 </div>
 <div id="ref-Iman1980" class="csl-entry" role="listitem">
 Iman, Ronald L., and James M. Davenport. 1980. <span>“Approximations of the Critical Region of the <span>Friedman</span> Statistic.”</span> <em>Communications in Statistics - Theory and Methods</em> 9 (6): 571–95. <a href="https://doi.org/10.1080/03610928008827904">https://doi.org/10.1080/03610928008827904</a>.
-</div>
-<div id="ref-jack2018nia" class="csl-entry" role="listitem">
-<span class="nocase">Jack, Clifford R., David A. Bennett, Kaj Blennow, et al.</span> 2018. <span>“<span>NIA-AA</span> Research Framework: Toward a Biological Definition of <span class="nocase">Alzheimer’s</span> Disease.”</span> <em>Alzheimer’s &amp; Dementia</em> 14 (4): 535–62. <a href="https://doi.org/10.1016/j.jalz.2018.02.018">https://doi.org/10.1016/j.jalz.2018.02.018</a>.
 </div>
 <div id="ref-jack2008alzheimer" class="csl-entry" role="listitem">
 <span class="nocase">Jack, Clifford R., Matt A. Bernstein, Nick C. Fox, et al.</span> 2008. <span>“The <span class="nocase">Alzheimer’s Disease Neuroimaging Initiative</span> (<span>ADNI</span>): <span>MRI</span> Methods.”</span> <em>Journal of Magnetic Resonance Imaging</em> 27 (4): 685–91. <a href="https://doi.org/10.1002/jmri.21049">https://doi.org/10.1002/jmri.21049</a>.
@@ -974,9 +1027,6 @@ Lovell, Michael C. 1963. <span>“Seasonal Adjustment of Economic Time Series an
 <div id="ref-Marek2011" class="csl-entry" role="listitem">
 <span class="nocase">Marek, Kenneth, Danna Jennings, Shirley Lasch, et al.</span> 2011. <span>“The <span class="nocase">Parkinson’s Progression Markers Initiative</span> (<span>PPMI</span>).”</span> <em>Progress in Neurobiology</em> 95 (4): 629–35. <a href="https://doi.org/10.1016/j.pneurobio.2011.09.005">https://doi.org/10.1016/j.pneurobio.2011.09.005</a>.
 </div>
-<div id="ref-menon2010saliency" class="csl-entry" role="listitem">
-Menon, Vinod, and Lucina Q. Uddin. 2010. <span>“Saliency, Switching, Attention and Control: A Network Model of Insula Function.”</span> <em>Brain Structure and Function</em> 214 (5-6): 655–67. <a href="https://doi.org/10.1007/s00429-010-0262-0">https://doi.org/10.1007/s00429-010-0262-0</a>.
-</div>
 <div id="ref-morris1993clinical" class="csl-entry" role="listitem">
 Morris, John C. 1993. <span>“The <span>Clinical Dementia Rating</span> (<span>CDR</span>): Current Version and Scoring Rules.”</span> <em>Neurology</em> 43 (11): 2412–14. <a href="https://doi.org/10.1212/WNL.43.11.2412-a">https://doi.org/10.1212/WNL.43.11.2412-a</a>.
 </div>
@@ -986,14 +1036,8 @@ Mueller, Susanne G., Michael W. Weiner, Leon J. Thal, et al. 2005. <span>“Ways
 <div id="ref-Nemenyi1963" class="csl-entry" role="listitem">
 Nemenyi, Peter B. 1963. <span>“Distribution-Free Multiple Comparisons.”</span> PhD thesis, Princeton University.
 </div>
-<div id="ref-parker2009supervised" class="csl-entry" role="listitem">
-<span class="nocase">Parker, Joel S., Michael Mullins, Maggie C. U. Cheang, et al.</span> 2009. <span>“Supervised Risk Predictor of Breast Cancer Based on Intrinsic Subtypes.”</span> <em>Journal of Clinical Oncology</em> 27 (8): 1160–67. <a href="https://doi.org/10.1200/JCO.2008.18.1370">https://doi.org/10.1200/JCO.2008.18.1370</a>.
-</div>
 <div id="ref-pearl2009causality" class="csl-entry" role="listitem">
 Pearl, Judea. 2009. <em>Causality: Models, Reasoning, and Inference</em>. 2nd ed. Cambridge University Press. <a href="https://doi.org/10.1017/CBO9780511803161">https://doi.org/10.1017/CBO9780511803161</a>.
-</div>
-<div id="ref-perou2000" class="csl-entry" role="listitem">
-<span class="nocase">Perou, Charles M., Therese Sørlie, Michael B. Eisen, et al.</span> 2000. <span>“Molecular Portraits of Human Breast Tumours.”</span> <em>Nature</em> 406 (6797): 747–52. <a href="https://doi.org/10.1038/35021093">https://doi.org/10.1038/35021093</a>.
 </div>
 <div id="ref-pfeffer1982measurement" class="csl-entry" role="listitem">
 Pfeffer, Robert I., Tom T. Kurosaki, C. H. Harrah, J. M. Chance, and S. Filos. 1982. <span>“Measurement of Functional Activities in Older Adults in the Community.”</span> <em>Journal of Gerontology</em> 37 (3): 323–29. <a href="https://doi.org/10.1093/geronj/37.3.323">https://doi.org/10.1093/geronj/37.3.323</a>.
@@ -1006,9 +1050,6 @@ Rey, André. 1964. <span>“L’examen Clinique En Psychologie.”</span> <em>Pr
 </div>
 <div id="ref-rosen1984new" class="csl-entry" role="listitem">
 Rosen, Wilma G., Richard C. Mohs, and Kenneth L. Davis. 1984. <span>“A New Rating Scale for <span class="nocase">Alzheimer’s</span> Disease.”</span> <em>American Journal of Psychiatry</em> 141 (11): 1356–64. <a href="https://doi.org/10.1176/ajp.141.11.1356">https://doi.org/10.1176/ajp.141.11.1356</a>.
-</div>
-<div id="ref-seeley2009neurodegenerative" class="csl-entry" role="listitem">
-Seeley, William W., Richard K. Crawford, Juan Zhou, Bruce L. Miller, and Michael D. Greicius. 2009. <span>“Neurodegenerative Diseases Target Large-Scale Human Brain Networks.”</span> <em>Neuron</em> 62 (1): 42–52. <a href="https://doi.org/10.1016/j.neuron.2009.03.024">https://doi.org/10.1016/j.neuron.2009.03.024</a>.
 </div>
 <div id="ref-smith2013functional" class="csl-entry" role="listitem">
 <span class="nocase">Smith, Stephen M., Christian F. Beckmann, Jesper Andersson, et al.</span> 2013. <span>“Resting-State <span class="nocase">fMRI</span> in the <span>Human Connectome Project</span>.”</span> <em>NeuroImage</em> 80: 144–68. <a href="https://doi.org/10.1016/j.neuroimage.2013.05.039">https://doi.org/10.1016/j.neuroimage.2013.05.039</a>.

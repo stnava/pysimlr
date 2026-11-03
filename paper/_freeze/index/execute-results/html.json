@@ -1,0 +1,12 @@
+{
+  "hash": "5f206c7eb4902bb928a26ba7e2fc5cb3",
+  "result": {
+    "engine": "jupyter",
+    "markdown": "# Abstract {.unnumbered}\n\n\n\nIntegrating structural neuroimaging, cognitive assessments, and multi-omic profiles requires latent representations that remain both clinically predictive and anatomically or molecularly localizable. Classical linear factorizations such as principal component analysis and canonical correlation analysis disperse biological variance across dense, sign-mixed combinations of features, whereas end-to-end deep neural networks obscure how individual brain regions or genes drive patient-level predictions. We introduce the Similarity-driven Multi-view Representation (SiMR) framework, which couples a sparse, non-negative, approximately orthogonal linear input projection (`nsa_flow`) with interchangeable linear (`SiMLR`), non-linear decoder (`LEND`), and invertible normalizing-flow (`Flow-SiMR-V`) alignment modules. Across $1,084$ participants with Mild Cognitive Impairment from the Alzheimer's Disease Neuroimaging Initiative (`ADNI-MCI`) and eleven additional multi-omic, clinical, and synthetic benchmarks, aligning baseline cortical thickness and subcortical volumes with eleven neuropsychological scales during training improves out-of-sample cognitive prediction from structural magnetic resonance imaging alone from $R^2 =$ 0.152 (principal component analysis) to $R^2 =$ 0.209 (`NED`), while non-negative quantile-sparse projections restrict each latent axis to 2 of 62 cortical regions. Crucially, evaluating learned representations across both multi-variable linear probes and single-axis decision trees demonstrates that while linear regression is algebraically invariant to post-hoc column mixing, coordinate-aligned SiMR projections preserve 3.5-fold higher single-factor predictive utility on `ADNI-MCI` ($R^2 =$ 0.154 for `SiMLR` versus 0.044 for principal component analysis), and recover ground-truth feature supports with $F_1$ between 0.500 and 1.000 at moderate ($50\\%$) feature sparsity.\n\n",
+    "supporting": [
+      "index_files/figure-html"
+    ],
+    "filters": [],
+    "includes": {}
+  }
+}

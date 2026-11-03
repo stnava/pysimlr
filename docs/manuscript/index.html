@@ -9,7 +9,7 @@
 <meta name="author" content="Brian B. Avants">
 <meta name="author" content="Nicholas J. Tustison">
 <meta name="author" content="James R. Stone">
-<meta name="dcterms.date" content="2026-10-19">
+<meta name="dcterms.date" content="2026-11-03">
 
 <title>Deep SiMLR: Auditable Multi-Modal Integration for Biomedical Discovery</title>
 <style>
@@ -261,7 +261,7 @@ window.Quarto = {
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">October 19, 2026</p>
+      <p class="date">November 3, 2026</p>
     </div>
   </div>
   
@@ -275,7 +275,7 @@ window.Quarto = {
 
 <section id="abstract" class="level1 unnumbered">
 <h1 class="unnumbered">Abstract</h1>
-<p>Integrating structural neuroimaging, cognitive assessments, and multi-omic profiles requires latent representations that remain both clinically predictive and anatomically or molecularly localizable. Classical linear factorizations such as principal component analysis and canonical correlation analysis disperse biological variance across dense, sign-mixed combinations of features, whereas end-to-end deep neural networks obscure how individual brain regions or genes drive patient-level predictions. We introduce the Similarity-driven Multi-view Representation (SiMR) framework, which couples a sparse, non-negative, approximately orthogonal linear input projection (<code>nsa_flow</code>) with interchangeable linear (<code>SiMLR</code>), non-linear decoder (<code>LEND</code>), and invertible normalizing-flow (<code>Flow-SiMR-V</code>) alignment modules. Across <span class="math inline">\(1,084\)</span> participants with Mild Cognitive Impairment from the Alzheimer’s Disease Neuroimaging Initiative (<code>ADNI-MCI</code>) and eleven additional multi-omic, clinical, and synthetic benchmarks, aligning baseline cortical thickness and subcortical volumes with eleven neuropsychological scales during training improves out-of-sample cognitive prediction from structural magnetic resonance imaging alone from <span class="math inline">\(R^2 = 0.152\)</span> to <span class="math inline">\(R^2 = 0.252\)</span> while isolating focal temporoparietal, medial temporal, and frontocingulate networks that recapitulate Braak neurofibrillary staging and spare primary sensorimotor cortex. Crucially, evaluating learned representations across both multi-variable linear probes and single-axis decision trees demonstrates that while linear regression is algebraically invariant to post-hoc column mixing, coordinate-aligned SiMR projections preserve more than fourfold higher single-factor predictive utility (<span class="math inline">\(R^2 = 0.197\)</span> versus <span class="math inline">\(0.044\)</span>) and recover up to <span class="math inline">\(84.7\%\)</span> of ground-truth biological pathways under moderate (<span class="math inline">\(50\%\)</span>) feature sparsity.</p>
+<p>Integrating structural neuroimaging, cognitive assessments, and multi-omic profiles requires latent representations that remain both clinically predictive and anatomically or molecularly localizable. Classical linear factorizations such as principal component analysis and canonical correlation analysis disperse biological variance across dense, sign-mixed combinations of features, whereas end-to-end deep neural networks obscure how individual brain regions or genes drive patient-level predictions. We introduce the Similarity-driven Multi-view Representation (SiMR) framework, which couples a sparse, non-negative, approximately orthogonal linear input projection (<code>nsa_flow</code>) with interchangeable linear (<code>SiMLR</code>), non-linear decoder (<code>LEND</code>), and invertible normalizing-flow (<code>Flow-SiMR-V</code>) alignment modules. Across <span class="math inline">\(1,084\)</span> participants with Mild Cognitive Impairment from the Alzheimer’s Disease Neuroimaging Initiative (<code>ADNI-MCI</code>) and eleven additional multi-omic, clinical, and synthetic benchmarks, aligning baseline cortical thickness and subcortical volumes with eleven neuropsychological scales during training improves out-of-sample cognitive prediction from structural magnetic resonance imaging alone from <span class="math inline">\(R^2 =\)</span> 0.152 (principal component analysis) to <span class="math inline">\(R^2 =\)</span> 0.209 (<code>NED</code>), while non-negative quantile-sparse projections restrict each latent axis to 2 of 62 cortical regions. Crucially, evaluating learned representations across both multi-variable linear probes and single-axis decision trees demonstrates that while linear regression is algebraically invariant to post-hoc column mixing, coordinate-aligned SiMR projections preserve 3.5-fold higher single-factor predictive utility on <code>ADNI-MCI</code> (<span class="math inline">\(R^2 =\)</span> 0.154 for <code>SiMLR</code> versus 0.044 for principal component analysis), and recover ground-truth feature supports with <span class="math inline">\(F_1\)</span> between 0.500 and 1.000 at moderate (<span class="math inline">\(50\%\)</span>) feature sparsity.</p>
 
 
 </section>

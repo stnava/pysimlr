@@ -240,13 +240,14 @@ window.Quarto = {
   <li><a href="#why-end-to-end-gaussian-prior-gradients-collapse-mathbfv_m" id="toc-why-end-to-end-gaussian-prior-gradients-collapse-mathbfv_m" class="nav-link" data-scroll-target="#why-end-to-end-gaussian-prior-gradients-collapse-mathbfv_m"><span class="header-section-number">C.2.1</span> Why End-to-End Gaussian Prior Gradients Collapse <span class="math inline">\(\mathbf{V}_m\)</span></a></li>
   <li><a href="#detached-prior-subspace-decoupled-optimization" id="toc-detached-prior-subspace-decoupled-optimization" class="nav-link" data-scroll-target="#detached-prior-subspace-decoupled-optimization"><span class="header-section-number">C.2.2</span> Detached-Prior Subspace-Decoupled Optimization</a></li>
   </ul></li>
-  <li><a href="#performance-visualizations" id="toc-performance-visualizations" class="nav-link" data-scroll-target="#performance-visualizations"><span class="header-section-number">C.3</span> Performance Visualizations</a>
+  <li><a href="#performance-and-diagnostic-visualizations" id="toc-performance-and-diagnostic-visualizations" class="nav-link" data-scroll-target="#performance-and-diagnostic-visualizations"><span class="header-section-number">C.3</span> Performance and Diagnostic Visualizations</a>
   <ul class="collapse">
   <li><a href="#conditional-clinical-imputation-true-vs.-imputed-serums" id="toc-conditional-clinical-imputation-true-vs.-imputed-serums" class="nav-link" data-scroll-target="#conditional-clinical-imputation-true-vs.-imputed-serums"><span class="header-section-number">C.3.1</span> Conditional Clinical Imputation (True vs.&nbsp;Imputed Serums)</a></li>
-  <li><a href="#patient-level-linear-attribution" id="toc-patient-level-linear-attribution" class="nav-link" data-scroll-target="#patient-level-linear-attribution"><span class="header-section-number">C.3.2</span> Patient-Level Linear Attribution</a></li>
-  <li><a href="#latent-trajectory-interpolation" id="toc-latent-trajectory-interpolation" class="nav-link" data-scroll-target="#latent-trajectory-interpolation"><span class="header-section-number">C.3.3</span> Latent Trajectory Interpolation</a></li>
+  <li><a href="#flow-warping-stacked-term-convergence-and-dynamic-modality-weights" id="toc-flow-warping-stacked-term-convergence-and-dynamic-modality-weights" class="nav-link" data-scroll-target="#flow-warping-stacked-term-convergence-and-dynamic-modality-weights"><span class="header-section-number">C.3.2</span> Flow Warping, Stacked Term Convergence, and Dynamic Modality Weights</a></li>
+  <li><a href="#input-boundary-feature-structure-across-three-cardiovascular-views" id="toc-input-boundary-feature-structure-across-three-cardiovascular-views" class="nav-link" data-scroll-target="#input-boundary-feature-structure-across-three-cardiovascular-views"><span class="header-section-number">C.3.3</span> Input-Boundary Feature Structure Across Three Cardiovascular Views</a></li>
+  <li><a href="#latent-trajectory-interpolation" id="toc-latent-trajectory-interpolation" class="nav-link" data-scroll-target="#latent-trajectory-interpolation"><span class="header-section-number">C.3.4</span> Latent Trajectory Interpolation</a></li>
   </ul></li>
-  <li><a href="#orthogonality-and-sparsity-diagnostics-across-real-world-cohorts" id="toc-orthogonality-and-sparsity-diagnostics-across-real-world-cohorts" class="nav-link" data-scroll-target="#orthogonality-and-sparsity-diagnostics-across-real-world-cohorts"><span class="header-section-number">C.4</span> Orthogonality and Sparsity Diagnostics Across Real-World Cohorts</a></li>
+  <li><a href="#orthogonality-coherence-and-support-overlap-diagnostics-across-real-world-cohorts" id="toc-orthogonality-coherence-and-support-overlap-diagnostics-across-real-world-cohorts" class="nav-link" data-scroll-target="#orthogonality-coherence-and-support-overlap-diagnostics-across-real-world-cohorts"><span class="header-section-number">C.4</span> Orthogonality, Coherence, and Support Overlap Diagnostics Across Real-World Cohorts</a></li>
   </ul>
 </nav>
     </div>
@@ -337,60 +338,113 @@ window.Quarto = {
 <li><strong>OLEE basis update (<span class="math inline">\(\mathbf{V}_m\)</span>):</strong> Updated exclusively by the cross-view alignment energy <span class="math inline">\(\mathcal{L}_{\text{align}}\)</span> and within-view relative reconstruction loss <span class="math inline">\(\mathcal{L}_{\text{recon}}\)</span>, while detaching <span class="math inline">\(\mathbf{Z}_{m,\text{lin}}\)</span> in the prior term (<span class="math inline">\(\operatorname{sg}(\mathbf{Z}_{m,\text{lin}}) = \mathbf{Z}_{m,\text{lin}}.\text{detach}()\)</span>).</li>
 <li><strong>Bijective flow update (<span class="math inline">\(f_{\text{flow},m}\)</span>):</strong> Trained via <span class="math inline">\(\mathcal{L}_{\text{NLL}}(f_{\text{flow},m}(\operatorname{sg}(\mathbf{Z}_{m,\text{lin}}))) + \mathcal{L}_{\text{align}} + \mathcal{L}_{\text{recon}}\)</span>, initialized with zero scale and translation weights (<span class="math inline">\(s_\ell = 0, t_\ell = 0\)</span>) at epoch <span class="math inline">\(0\)</span> so <span class="math inline">\(f_{\text{flow},m}^{(0)}(\mathbf{Z}_{m,\text{lin}}) = \mathbf{Z}_{m,\text{lin}}\)</span>.</li>
 </ol>
-<p>In the <code>ADNI-MCI</code> 1,214-configuration sweep (<span class="math inline">\(N = 1,084\)</span>, <span class="math inline">\(k = 3\)</span>, <code>Protocol B</code>), <code>Flow-SiMR-V</code> with detached-prior optimization reaches an out-of-sample <code>CogPC1</code> <span class="math inline">\(R^2\)</span> of <span class="math inline">\(0.2341\)</span> (<code>Mean11_RidgeCV</code> <span class="math inline">\(= 0.1054\)</span>, and <span class="math inline">\(0.1930 \pm 0.0048\)</span> across the 3-seed benchmark), ranking third overall across all 12 benchmark datasets.</p>
+<p>In the <code>ADNI-MCI</code> hyperparameter sweep (<span class="math inline">\(N = 1,084\)</span>, <span class="math inline">\(k = 3\)</span>, <code>Protocol B</code>, 1,025 configurations), the best <code>Flow-SiMR-V</code> configuration reaches an out-of-sample <code>CogPC1</code> <span class="math inline">\(R^2\)</span> of 0.2414; across the 3-seed benchmark its linear score on <code>ADNI-MCI</code> is 0.180, and its mean Friedman rank on the linear probe over all 12 datasets is 3.67.</p>
 <hr>
 </section>
 </section>
-<section id="performance-visualizations" class="level2" data-number="C.3">
-<h2 data-number="C.3" class="anchored" data-anchor-id="performance-visualizations"><span class="header-section-number">C.3</span> Performance Visualizations</h2>
+<section id="performance-and-diagnostic-visualizations" class="level2" data-number="C.3">
+<h2 data-number="C.3" class="anchored" data-anchor-id="performance-and-diagnostic-visualizations"><span class="header-section-number">C.3</span> Performance and Diagnostic Visualizations</h2>
 <section id="conditional-clinical-imputation-true-vs.-imputed-serums" class="level3" data-number="C.3.1">
 <h3 data-number="C.3.1" class="anchored" data-anchor-id="conditional-clinical-imputation-true-vs.-imputed-serums"><span class="header-section-number">C.3.1</span> Conditional Clinical Imputation (True vs.&nbsp;Imputed Serums)</h3>
-<p>Because <code>Flow-SiMR-V</code> preserves invertibility on the <span class="math inline">\(k\)</span>-dimensional bottleneck space, it supports conditional cross-view inference via the Gaussian Schur complement in latent space. In <a href="#fig-flow-imputation" class="quarto-xref">Figure&nbsp;<span>C.1</span></a>, we train <code>Flow-SiMR-V</code> on the Diabetes dataset under a 70/30 split, withhold the blood serum view on test patients, and impute serum triglycerides (<code>s5</code>) from vitals alone.</p>
-<div id="cell-fig-flow-imputation" class="cell" data-message="false" data-execution_count="1">
+<p>Because <code>Flow-SiMR-V</code> preserves invertibility on the <span class="math inline">\(k\)</span>-dimensional bottleneck space, it supports conditional cross-view inference via the Gaussian Schur complement in latent space. In <a href="#fig-flow-imputation" class="quarto-xref">Figure&nbsp;<span>C.1</span></a>, we train <code>Flow-SiMR-V</code> on the Diabetes dataset under a 70/30 split, withhold the blood serum view on test patients, and evaluate serum triglyceride (<code>s5</code>) imputation from vitals alone via <code>pysimlr.plot_predictions</code>.</p>
+<div id="cell-fig-flow-imputation" class="cell" data-message="false" data-execution_count="2">
 <div class="cell-output cell-output-display">
 <div id="fig-flow-imputation" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-flow-imputation-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="appendix_flow_simr_v_files/figure-html/fig-flow-imputation-output-1.png" width="567" height="470" class="figure-img">
+<img src="appendix_flow_simr_v_files/figure-html/fig-flow-imputation-output-1.png" width="562" height="532" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-flow-imputation-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;C.1: Invertible normalizing flows enable accurate conditional cross-view imputation from vitals to blood serum via latent Gaussian conditioning. Scatter plot compares True vs.&nbsp;Imputed Serum triglyceride levels (<code>s5</code>) for <span class="math inline">\(N_{\text{test}} = 133\)</span> held-out test patients in the Diabetes dataset (70/30 train/test split, <span class="math inline">\(k = 2\)</span>). The horizontal axis plots true standardized serum levels; the vertical axis plots imputed levels decoded through the <code>Flow-SiMR-V</code> Schur complement solver. Red dashed line indicates the identity reference (<span class="math inline">\(y = x\)</span>). Preserving latent invertibility allows unobserved biological views to be recovered from observed physical measurements.
+Figure&nbsp;C.1: Conditional cross-view imputation (<code>pysimlr.plot_predictions</code>) from systemic vitals to blood serum triglyceride levels (<code>s5</code>) for <span class="math inline">\(N_{\text{test}} = 133\)</span> held-out test patients in the Diabetes cohort (70/30 train/test split, <span class="math inline">\(k = 2\)</span>), decoded through the <code>Flow-SiMR-V</code> Schur complement solver.
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
 </section>
-<section id="patient-level-linear-attribution" class="level3" data-number="C.3.2">
-<h3 data-number="C.3.2" class="anchored" data-anchor-id="patient-level-linear-attribution"><span class="header-section-number">C.3.2</span> Patient-Level Linear Attribution</h3>
-<p>Prepending the linear encoder matrix <span class="math inline">\(\mathbf{V}_m\)</span> ensures that the normalizing flow coupling layers do not obscure feature importance at the input boundary. <a href="#fig-flow-attribution" class="quarto-xref">Figure&nbsp;<span>C.2</span></a> displays the local feature contributions <span class="math inline">\(\mathbf{x}_{m,i} \odot \mathbf{v}_{m,l}\)</span> for a patient in the Heart Disease cohort.</p>
-<div id="cell-fig-flow-attribution" class="cell" data-message="false" data-execution_count="2">
+<section id="flow-warping-stacked-term-convergence-and-dynamic-modality-weights" class="level3" data-number="C.3.2">
+<h3 data-number="C.3.2" class="anchored" data-anchor-id="flow-warping-stacked-term-convergence-and-dynamic-modality-weights"><span class="header-section-number">C.3.2</span> Flow Warping, Stacked Term Convergence, and Dynamic Modality Weights</h3>
+<p>To audit how the downstream normalizing flow transforms the linear first-layer projection <span class="math inline">\(\mathbf{X}_m \mathbf{V}_m \mathbf{R}\)</span> into the aligned latent coordinates <span class="math inline">\(\mathbf{Z}_m \mathbf{R}\)</span>, <a href="#fig-flow-warping" class="quarto-xref">Figure&nbsp;<span>C.2</span></a> applies <code>pysimlr.plot_flow_warping</code> on <code>Diabetes</code> (<span class="math inline">\(k = 2\)</span>, <code>dynamic_weights=True</code>): monotone binned median traces and high Spearman <span class="math inline">\(\rho\)</span> confirm that the coupling layers bend densities smoothly without folding or inverting the sign semantics of <span class="math inline">\(\mathbf{V}_m\)</span>. <a href="#fig-flow-convergence" class="quarto-xref">Figure&nbsp;<span>C.3</span></a> and <a href="#fig-flow-weights" class="quarto-xref">Figure&nbsp;<span>C.4</span></a> display the corresponding stacked objective-term trajectories (<code>pysimlr.plot_convergence</code>, separating total loss, cross-view similarity, and reconstruction onto independent scales without secondary axes) and degree-of-freedom-corrected MAI view weights (<code>pysimlr.plot_modality_weights</code>).</p>
+<div id="cell-fig-flow-warping" class="cell" data-message="false" data-execution_count="3">
+<div class="cell-output cell-output-display">
+<div id="fig-flow-warping" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-flow-warping-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_flow_simr_v_files/figure-html/fig-flow-warping-output-1.png" width="738" height="697" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-flow-warping-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;C.2: First-layer linear projection <span class="math inline">\((\mathbf{X}_m \mathbf{V}_m \mathbf{R})_j\)</span> against the post-flow latent <span class="math inline">\((\mathbf{Z}_m \mathbf{R})_j\)</span> (<code>pysimlr.plot_flow_warping</code>) on the two-view Diabetes cohort (<code>flow_v</code>, <span class="math inline">\(k = 2\)</span>). Monotone binned median traces and Spearman rank correlations in each panel header confirm that downstream coupling layers preserve the directional sign reading of the linear entrypoint.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="columns">
+<div class="column" style="width:48%;">
+<div id="cell-fig-flow-convergence" class="cell" data-message="false" data-execution_count="4">
+<div class="cell-output cell-output-display">
+<div id="fig-flow-convergence" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-flow-convergence-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_flow_simr_v_files/figure-html/fig-flow-convergence-output-1.png" width="716" height="628" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-flow-convergence-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;C.3: Stacked three-panel optimization diagnostic (<code>pysimlr.plot_convergence</code>) for <code>Flow-SiMR-V</code>, separating total objective loss, similarity alignment, and relative reconstruction onto independent vertical scales.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div><div class="column" style="width:4%;">
+
+</div><div class="column" style="width:48%;">
+<div id="cell-fig-flow-weights" class="cell" data-message="false" data-execution_count="5">
+<div class="cell-output cell-output-display">
+<div id="fig-flow-weights" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-flow-weights-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="appendix_flow_simr_v_files/figure-html/fig-flow-weights-output-1.png" width="1111" height="400" class="figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-flow-weights-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;C.4: Dynamic view weights against the uniform <span class="math inline">\(1/M\)</span> baseline and epoch-wise MAI trajectories (<code>pysimlr.plot_modality_weights</code>) for <code>Flow-SiMR-V</code> with <code>dynamic_weights=True</code>.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="input-boundary-feature-structure-across-three-cardiovascular-views" class="level3" data-number="C.3.3">
+<h3 data-number="C.3.3" class="anchored" data-anchor-id="input-boundary-feature-structure-across-three-cardiovascular-views"><span class="header-section-number">C.3.3</span> Input-Boundary Feature Structure Across Three Cardiovascular Views</h3>
+<p>Prepending <span class="math inline">\(\mathbf{V}_m\)</span> preserves direct feature-level interpretability across downstream normalizing flow coupling layers. <a href="#fig-flow-attribution" class="quarto-xref">Figure&nbsp;<span>C.5</span></a> displays <code>pysimlr.plot_top_features</code> across the three views of the <code>Heart</code> cohort (<code>flow_v</code>, <span class="math inline">\(k = 2\)</span>).</p>
+<div id="cell-fig-flow-attribution" class="cell" data-message="false" data-execution_count="6">
 <div class="cell-output cell-output-display">
 <div id="fig-flow-attribution" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-flow-attribution-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="appendix_flow_simr_v_files/figure-html/fig-flow-attribution-output-1.png" width="2096" height="1229" class="figure-img">
+<img src="appendix_flow_simr_v_files/figure-html/fig-flow-attribution-output-1.png" width="1365" height="394" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-flow-attribution-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;C.2: Normalizing flow architectures retain direct input-boundary feature attribution by restricting non-linearity to downstream latent transforms. Horizontal bar chart shows elementwise linear attributions <span class="math inline">\(\mathbf{x}_{m,i} \odot \mathbf{v}_{m,l}\)</span> for Patient #1 on View 1 of the Heart Disease cohort (<span class="math inline">\(N = 303\)</span>, features <code>age</code>, <code>sex</code>, <code>cp</code>, <code>trestbps</code>). The horizontal axis plots linear contribution values; the vertical axis lists features. Red bars denote positive risk contributions (<code>cp</code> chest pain); blue bars denote negative contributions. Prepending the linear dictionary <span class="math inline">\(\mathbf{V}_m\)</span> guarantees that normalizing flow coupling layers do not obscure input-boundary transparency.
+Figure&nbsp;C.5: Per-view input-boundary feature structure (<code>pysimlr.plot_top_features</code>) learned by <code>Flow-SiMR-V</code> across the three cardiovascular views of the Heart Disease cohort (<span class="math inline">\(N = 297\)</span>, <span class="math inline">\(k = 2\)</span>).
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
 </section>
-<section id="latent-trajectory-interpolation" class="level3" data-number="C.3.3">
-<h3 data-number="C.3.3" class="anchored" data-anchor-id="latent-trajectory-interpolation"><span class="header-section-number">C.3.3</span> Latent Trajectory Interpolation</h3>
-<p>Tracing a straight-line interpolation in the shared latent space between a low-risk and high-risk patient and inverting it through <span class="math inline">\(f_{\text{flow},m}^{-1}\)</span> and <span class="math inline">\(\mathbf{V}_m^\top\)</span> defines a smooth trajectory in feature space (<a href="#fig-flow-geodesic" class="quarto-xref">Figure&nbsp;<span>C.3</span></a>).</p>
-<div id="cell-fig-flow-geodesic" class="cell" data-message="false" data-execution_count="3">
+<section id="latent-trajectory-interpolation" class="level3" data-number="C.3.4">
+<h3 data-number="C.3.4" class="anchored" data-anchor-id="latent-trajectory-interpolation"><span class="header-section-number">C.3.4</span> Latent Trajectory Interpolation</h3>
+<p>Tracing a straight-line interpolation in the shared latent space between a low-risk and high-risk patient and inverting it through <span class="math inline">\(f_{\text{flow},m}^{-1}\)</span> and <span class="math inline">\(\mathbf{V}_m^\top\)</span> defines a smooth trajectory in feature space (<a href="#fig-flow-geodesic" class="quarto-xref">Figure&nbsp;<span>C.6</span></a>).</p>
+<div id="cell-fig-flow-geodesic" class="cell" data-message="false" data-execution_count="7">
 <div class="cell-output cell-output-display">
 <div id="fig-flow-geodesic" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-flow-geodesic-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="appendix_flow_simr_v_files/figure-html/fig-flow-geodesic-output-1.png" width="2068" height="1289" class="figure-img">
+<img src="appendix_flow_simr_v_files/figure-html/fig-flow-geodesic-output-1.png" width="1387" height="827" class="figure-img">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-flow-geodesic-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;C.3: Invertible flow geodesics trace continuous biomarker evolution curves between low-risk and high-risk clinical phenotypes. Decoded biomarker trajectories along a straight-line latent interpolation path between Patient #0 (low-risk, <span class="math inline">\(\alpha = 0.0\)</span>) and Patient #10 (high-risk, <span class="math inline">\(\alpha = 1.0\)</span>) on the Diabetes cohort (<span class="math inline">\(k = 2\)</span>). The horizontal axis plots the latent trajectory coordinate <span class="math inline">\(\alpha \in [0, 1]\)</span>; the vertical axis plots standardized feature levels. Colored trajectories track Body Mass Index (<code>bmi</code>, red circles), Blood Pressure (<code>bp</code>, blue squares), and Age (<code>age</code>, green triangles) decoded through <span class="math inline">\(f_{\text{flow},0}^{-1}\)</span> and <span class="math inline">\(\mathbf{V}_0^\top\)</span>.
+Figure&nbsp;C.6: Invertible flow geodesics trace continuous biomarker evolution curves between low-risk and high-risk clinical phenotypes. Decoded biomarker trajectories along a straight-line latent interpolation path between Patient #0 (low-risk, <span class="math inline">\(\alpha = 0.0\)</span>) and Patient #10 (high-risk, <span class="math inline">\(\alpha = 1.0\)</span>) on the Diabetes cohort (<span class="math inline">\(k = 2\)</span>). Colored trajectories track Body Mass Index (<code>bmi</code>, blue circles), Blood Pressure (<code>bp</code>, orange squares), and Age (<code>age</code>, green triangles) decoded through <span class="math inline">\(f_{\text{flow},0}^{-1}\)</span> and <span class="math inline">\(\mathbf{V}_0^\top\)</span>.
 </figcaption>
 </figure>
 </div>
@@ -399,23 +453,25 @@ Figure&nbsp;C.3: Invertible flow geodesics trace continuous biomarker evolution 
 <hr>
 </section>
 </section>
-<section id="orthogonality-and-sparsity-diagnostics-across-real-world-cohorts" class="level2" data-number="C.4">
-<h2 data-number="C.4" class="anchored" data-anchor-id="orthogonality-and-sparsity-diagnostics-across-real-world-cohorts"><span class="header-section-number">C.4</span> Orthogonality and Sparsity Diagnostics Across Real-World Cohorts</h2>
-<p><a href="#tbl-flow-orth-diagnostics" class="quarto-xref">Table&nbsp;<span>C.1</span></a> reports the per-view Stiefel Frame Defect <span class="math inline">\(D(\mathbf{V}_m)\)</span>, Signed Lobe Crosstalk <span class="math inline">\(\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1\)</span>, and Strictly Linear Probe Accuracy (<span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span>) across the six real-world cohorts from <code>paper/results_cache/deep_ranking_benchmark.csv</code>.</p>
-<div id="tbl-flow-orth-diagnostics" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-execution_count="4" data-message="false">
+<section id="orthogonality-coherence-and-support-overlap-diagnostics-across-real-world-cohorts" class="level2" data-number="C.4">
+<h2 data-number="C.4" class="anchored" data-anchor-id="orthogonality-coherence-and-support-overlap-diagnostics-across-real-world-cohorts"><span class="header-section-number">C.4</span> Orthogonality, Coherence, and Support Overlap Diagnostics Across Real-World Cohorts</h2>
+<p><a href="#tbl-flow-orth-diagnostics" class="quarto-xref">Table&nbsp;<span>C.1</span></a> reports the per-view Stiefel Frame Defect <span class="math inline">\(D(\mathbf{V}_m)\)</span>, OLEE Loading Column Coherence <span class="math inline">\(\text{Coh}(\mathbf{L}_m)\)</span>, Support Overlap for the encoder (<span class="math inline">\(\text{Overlap}(\mathbf{V}_m)\)</span>) and loadings (<span class="math inline">\(\text{Overlap}(\mathbf{L}_m)\)</span>), and Strictly Linear Probe Accuracy (<span class="math inline">\(\mathbf{X}_m \mathbf{V}_m\)</span>) across the six real-world cohorts from <code>paper/results_cache/deep_ranking_benchmark.csv</code>.</p>
+<div id="tbl-flow-orth-diagnostics" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="8">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-flow-orth-diagnostics-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\mathbf{V}_m)\)</span>), Signed Lobe Crosstalk, and Linear OLEE Basis Performance across the Real-World Biomedical Cohorts (3 seeds) computed from <code>deep_ranking_benchmark.csv</code>.
+Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\mathbf{V}_m)\)</span>), Column Coherence (<span class="math inline">\(\text{Coh}(\mathbf{L}_m)\)</span>), Support Overlap (<span class="math inline">\(\text{Overlap}(\mathbf{V}_m)\)</span> and <span class="math inline">\(\text{Overlap}(\mathbf{L}_m)\)</span>), and Linear OLEE Basis Performance across the Real-World Biomedical Cohorts (3 seeds) computed from <code>deep_ranking_benchmark.csv</code>.
 </figcaption>
 <div aria-describedby="tbl-flow-orth-diagnostics-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <table class="cell caption-top table table-sm table-striped small">
 <colgroup>
+<col style="width: 9%">
+<col style="width: 12%">
+<col style="width: 19%">
+<col style="width: 13%">
+<col style="width: 12%">
 <col style="width: 11%">
-<col style="width: 15%">
-<col style="width: 25%">
-<col style="width: 17%">
-<col style="width: 17%">
 <col style="width: 11%">
+<col style="width: 9%">
 </colgroup>
 <thead>
 <tr class="header">
@@ -423,7 +479,9 @@ Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\m
 <th style="text-align: left;">Architecture</th>
 <th style="text-align: left;">Linear OLEE Probe (XV)</th>
 <th style="text-align: right;">Frame Defect D</th>
-<th style="text-align: right;">Lobe Crosstalk</th>
+<th style="text-align: right;">Coherence (L)</th>
+<th style="text-align: right;">Overlap (V)</th>
+<th style="text-align: right;">Overlap (L)</th>
 <th style="text-align: left;">Sparsity</th>
 </tr>
 </thead>
@@ -431,57 +489,51 @@ Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\m
 <tr class="odd">
 <td style="text-align: left;">Heart</td>
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.815 ± 0.023</td>
+<td style="text-align: left;">0.826 ± 0.017</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.69</td>
+<td style="text-align: right;">0.4774</td>
 <td style="text-align: left;">0.0%</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Heart</td>
 <td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.815 ± 0.023</td>
+<td style="text-align: left;">0.819 ± 0.017</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.687</td>
+<td style="text-align: right;">0.6324</td>
 <td style="text-align: left;">0.0%</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;">Heart</td>
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.837 ± 0.032</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">0.0%</td>
-</tr>
-<tr class="even">
 <td style="text-align: left;">Heart</td>
 <td style="text-align: left;">NSAFlow-PCA</td>
 <td style="text-align: left;">0.848 ± 0.006</td>
-<td style="text-align: right;">0.64563</td>
+<td style="text-align: right;">0.64564</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.237</td>
+<td style="text-align: right;">0.4773</td>
 <td style="text-align: left;">32.1%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">Diabetes</td>
-<td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.383 ± 0.077</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">0.0%</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Diabetes</td>
-<td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.380 ± 0.082</td>
+<td style="text-align: left;">Flow-SiMR-V</td>
+<td style="text-align: left;">0.335 ± 0.071</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.8226</td>
+<td style="text-align: right;">0.4231</td>
 <td style="text-align: left;">0.0%</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Diabetes</td>
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.396 ± 0.110</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">0.320 ± 0.044</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.7797</td>
+<td style="text-align: right;">0.3694</td>
 <td style="text-align: left;">0.0%</td>
 </tr>
 <tr class="even">
@@ -490,126 +542,118 @@ Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\m
 <td style="text-align: left;">0.381 ± 0.051</td>
 <td style="text-align: right;">0.01342</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.1486</td>
+<td style="text-align: right;">0.5115</td>
 <td style="text-align: left;">28.3%</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">MultiOmics</td>
 <td style="text-align: left;">Flow-SiMR-V</td>
 <td style="text-align: left;">0.927 ± 0.007</td>
-<td style="text-align: right;">0.00144</td>
+<td style="text-align: right;">0.00339</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.3993</td>
+<td style="text-align: right;">0.7113</td>
 <td style="text-align: left;">50.0%</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">MultiOmics</td>
 <td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.927 ± 0.022</td>
-<td style="text-align: right;">0.00075</td>
+<td style="text-align: left;">0.909 ± 0.017</td>
+<td style="text-align: right;">0.0029</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.4701</td>
+<td style="text-align: right;">0.682</td>
 <td style="text-align: left;">50.0%</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;">MultiOmics</td>
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.921 ± 0.015</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">50.0%</td>
-</tr>
-<tr class="even">
 <td style="text-align: left;">MultiOmics</td>
 <td style="text-align: left;">NSAFlow-PCA</td>
 <td style="text-align: left;">0.919 ± 0.021</td>
 <td style="text-align: right;">0.34791</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.3055</td>
+<td style="text-align: right;">0.6634</td>
 <td style="text-align: left;">50.0%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">TCGA-KIRC</td>
-<td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.676 ± 0.018</td>
-<td style="text-align: right;">0.00061</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">50.1%</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">TCGA-KIRC</td>
-<td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.664 ± 0.036</td>
-<td style="text-align: right;">0.00076</td>
+<td style="text-align: left;">Flow-SiMR-V</td>
+<td style="text-align: left;">0.678 ± 0.016</td>
+<td style="text-align: right;">0.01259</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.3293</td>
+<td style="text-align: right;">0.7117</td>
 <td style="text-align: left;">50.0%</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">TCGA-KIRC</td>
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.686 ± 0.015</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">0.690 ± 0.011</td>
+<td style="text-align: right;">0.00618</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: right;">0</td>
+<td style="text-align: right;">0.2939</td>
+<td style="text-align: right;">0.6373</td>
 <td style="text-align: left;">50.0%</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">TCGA-KIRC</td>
 <td style="text-align: left;">NSAFlow-PCA</td>
-<td style="text-align: left;">0.674 ± 0.019</td>
-<td style="text-align: right;">0.75851</td>
+<td style="text-align: left;">0.669 ± 0.015</td>
+<td style="text-align: right;">0.69215</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.3996</td>
+<td style="text-align: right;">0.6586</td>
 <td style="text-align: left;">50.4%</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">ADNI-MCI</td>
 <td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.238 ± 0.015</td>
-<td style="text-align: right;">0.0006</td>
+<td style="text-align: left;">0.180 ± 0.035</td>
+<td style="text-align: right;">0.00309</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.482</td>
+<td style="text-align: right;">0.7342</td>
 <td style="text-align: left;">48.6%</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">ADNI-MCI</td>
 <td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.252 ± 0.007</td>
-<td style="text-align: right;">0.00034</td>
+<td style="text-align: left;">0.170 ± 0.023</td>
+<td style="text-align: right;">0.00059</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.462</td>
+<td style="text-align: right;">0.7182</td>
 <td style="text-align: left;">48.6%</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;">ADNI-MCI</td>
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.168 ± 0.012</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">48.6%</td>
-</tr>
-<tr class="even">
 <td style="text-align: left;">ADNI-MCI</td>
 <td style="text-align: left;">NSAFlow-PCA</td>
 <td style="text-align: left;">0.159 ± 0.004</td>
-<td style="text-align: right;">0.40578</td>
+<td style="text-align: right;">0.40577</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.3665</td>
+<td style="text-align: right;">0.8377</td>
 <td style="text-align: left;">50.7%</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">mfeat</td>
-<td style="text-align: left;">Flow-SiMR-V</td>
-<td style="text-align: left;">0.914 ± 0.047</td>
-<td style="text-align: right;">0.00058</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: left;">48.2%</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">mfeat</td>
-<td style="text-align: left;">LEND</td>
-<td style="text-align: left;">0.905 ± 0.034</td>
-<td style="text-align: right;">0.00135</td>
+<td style="text-align: left;">Flow-SiMR-V</td>
+<td style="text-align: left;">0.892 ± 0.010</td>
+<td style="text-align: right;">0.00285</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.5612</td>
+<td style="text-align: right;">0.6686</td>
 <td style="text-align: left;">48.2%</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">mfeat</td>
-<td style="text-align: left;">SiMLR-LBFGSB</td>
-<td style="text-align: left;">0.943 ± 0.008</td>
+<td style="text-align: left;">LEND</td>
+<td style="text-align: left;">0.876 ± 0.020</td>
+<td style="text-align: right;">0.00216</td>
 <td style="text-align: right;">0</td>
-<td style="text-align: right;">0</td>
+<td style="text-align: right;">0.6391</td>
+<td style="text-align: right;">0.6939</td>
 <td style="text-align: left;">48.2%</td>
 </tr>
 <tr class="even">
@@ -618,6 +662,8 @@ Table&nbsp;C.1: Empirical Orthogonality Defect (<span class="math inline">\(D(\m
 <td style="text-align: left;">0.706 ± 0.009</td>
 <td style="text-align: right;">0.3488</td>
 <td style="text-align: right;">0</td>
+<td style="text-align: right;">0.4313</td>
+<td style="text-align: right;">0.7072</td>
 <td style="text-align: left;">50.3%</td>
 </tr>
 </tbody>
