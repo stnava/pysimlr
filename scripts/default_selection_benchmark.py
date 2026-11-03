@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.join(REPO, "src"))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 
 ENERGIES = ["acc", "nc", "logcosh", "exp"]
-OPTIMIZERS = ["hybrid_adam", "lars", "nsa_lbfgsb", "armijo_gradient", "adam"]
+OPTIMIZERS = ["hybrid_adam", "lars", "armijo_gradient", "adam"]
 MIXINGS = ["newton", "svd", "avg", "pca"]
 POSITIVITY = ["positive", "either"]
 GENERATORS = ["buried", "linear"]

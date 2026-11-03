@@ -6,7 +6,6 @@ import scipy.sparse as sp
 from pysimlr.optimizers import (
     ArmijoGradient,
     HybridAdam,
-    NSALBFGSB,
     backtracking_linesearch,
 )
 from pysimlr.simlr import simlr, predict_shared_latent
@@ -76,23 +75,7 @@ class TestOptimizerDescentAndMomentumReset:
         assert torch.all(opt.state[0]["m"] < 0)
         assert torch.all(v_next < v)
 
-    def test_nsalbfgsb_positivity_derivation(self):
-        """F1.6: NSALBFGSB derives self.nonneg from positivity parameter."""
-        v = [torch.randn(10, 2)]
-        try:
-            opt_either = NSALBFGSB("nsa_lbfgsb", v, positivity="either")
-            assert opt_either.nonneg is False, "positivity='either' should set nonneg=False"
 
-            opt_pos = NSALBFGSB("nsa_lbfgsb", v, positivity="positive")
-            assert opt_pos.nonneg is True, "positivity='positive' should set nonneg=True"
-
-            opt_nonneg = NSALBFGSB("nsa_lbfgsb", v, positivity="nonnegative")
-            assert opt_nonneg.nonneg is True, "positivity='nonnegative' should set nonneg=True"
-
-            opt_hard = NSALBFGSB("nsa_lbfgsb", v, positivity="hard")
-            assert opt_hard.nonneg is True, "positivity='hard' should set nonneg=True"
-        except ImportError:
-            pytest.skip("nsa_flow backend not available for NSALBFGSB instantiation")
 
 
 class TestSimlrCalibrationAndEnergyTracking:

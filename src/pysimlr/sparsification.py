@@ -1159,7 +1159,7 @@ def enforce_column_floor(v: torch.Tensor,
     region. Measured on Heart and Diabetes, dead-column rejections per fit:
 
     ==============  ==============  =========  ==============
-    energy          gauge fixed     ``lars``   ``nsa_lbfgsb``
+    energy          gauge fixed     ``lars``   quasi-Newton
     ==============  ==============  =========  ==============
     ``regression``  no              0          25 / 27
     ``acc``         yes             0          0

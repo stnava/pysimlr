@@ -48,7 +48,7 @@ views_train = [X1[:90], X2[:90]]
 views_test = [X1[90:], X2[90:]]
 
 print(pysimlr.method_names())
-# ['simlr', 'simlr_lbfgsb', 'lend', 'ned', 'ned_shared_private',
+# ['simlr', 'lend', 'ned', 'ned_shared_private',
 #  'flow_v', 'pca', 'nsa_pipeline']
 
 # Benchmark loop: one call shape, no per-method branch.
@@ -68,8 +68,8 @@ The registry calls these functions; they take the same names directly.
 ```python
 from pysimlr import simlr, lend_simr, flow_simr_v
 
-# Linear SiMLR: non-negative, 50%-sparse dictionaries, bound-constrained L-BFGS-B.
-res_lin = simlr(views_train, k=3, iterations=30, optimizer_type="nsa_lbfgsb",
+# Linear SiMLR: non-negative, 50%-sparse dictionaries, hybrid Adam optimizer.
+res_lin = simlr(views_train, k=3, iterations=30, optimizer_type="hybrid_adam",
                 positivity="positive", sparseness=0.5)
 V1, V2 = res_lin["v"]            # (60, 3) and (40, 3)
 

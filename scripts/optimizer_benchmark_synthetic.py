@@ -49,7 +49,7 @@ import torch
 from pysimlr.simlr import simlr
 
 OPTIMIZERS = ["armijo_gradient", "bidirectional_armijo_gradient", "lookahead", "bidirectional_lookahead",
-              "lars", "hybrid_adam", "adam", "nadam", "rmsprop", "gd", "nsa_lbfgsb",
+              "lars", "hybrid_adam", "adam", "nadam", "rmsprop", "gd",
               "torch_adamw", "torch_adagrad", "torch_nadam"]
 
 
@@ -108,7 +108,7 @@ def blocked_tests(df, metric):
 
 
 def run_config(energy="acc", mixing="newton", positivity="positive", optimizers=OPTIMIZERS,
-               seeds=5, iterations=25, ref_iterations=300, ref_optimizers=("lars", "nsa_lbfgsb", "hybrid_adam")):
+               seeds=5, iterations=25, ref_iterations=300, ref_optimizers=("lars", "hybrid_adam")):
     """One objective / mixing / positivity setting: every optimizer on every seed,
     with the reference optimum E_ref estimated per seed for this setting."""
     from sklearn.cross_decomposition import CCA
@@ -155,9 +155,9 @@ def main():
     ap.add_argument("--seeds", type=int, default=5)
     ap.add_argument("--iterations", type=int, default=25)
     ap.add_argument("--ref-iterations", type=int, default=300)
-    ap.add_argument("--ref-optimizers", nargs="*", default=["lars", "nsa_lbfgsb", "hybrid_adam"],
-                    help="optimizers run for --ref-iterations to estimate E_ref (the three that reached "
-                         "the lowest energies over all 14 at 5 seeds); the budget runs also count")
+    ap.add_argument("--ref-optimizers", nargs="*", default=["lars", "hybrid_adam"],
+                    help="optimizers run for --ref-iterations to estimate E_ref (the two that reached "
+                         "the lowest energies); the budget runs also count")
     ap.add_argument("--optimizers", nargs="*", default=OPTIMIZERS)
     ap.add_argument("--energies", nargs="*", default=["acc"])
     ap.add_argument("--mixings", nargs="*", default=["newton"])

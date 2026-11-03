@@ -78,6 +78,8 @@ def test_only_registered_names_resolve_and_unknown_names_list_the_registry():
     for removed in ("linear", "shared_private", "flow_simr_v", "nsaflow"):
         with pytest.raises(ValueError, match="registered"):
             api.resolve_method(removed)
+    with pytest.raises(ValueError, match="was dropped per empirical decision rule R5; use 'simlr'"):
+        api.resolve_method("simlr_lbfgsb")
     with pytest.raises(ValueError, match="registered"):
         api.resolve_method("nope")
 
@@ -87,9 +89,6 @@ def test_describe_method_reports_defaults_and_budget_unit():
     assert d["family"] == "deep" and d["budget_unit"] == "epochs"
     assert d["parameters"]["iterations"] == 150
     assert "random_state" in d["parameters"]
-    lb = pysimlr.describe_method("simlr_lbfgsb")
-    assert lb["presets"] == {"optimizer_type": "nsa_lbfgsb"}
-    assert "optimizer_type" not in lb["parameters"]
 
 
 # --------------------------------------------------------------------------
@@ -128,30 +127,9 @@ def test_a_parameter_for_another_method_is_recorded_and_warned():
     assert "hidden_dims" not in res["parameters"]["used"]
 
 
-def test_preset_methods_accept_only_what_their_optimizer_reads():
-    """`simlr_lbfgs`/`simlr_lbfgsb` used to accept every first-order optimizer
-    key (e.g. rmsprop_beta) and record it as used although L-BFGS never reads
-    it. Their extras must be keys their fixed optimizer class actually reads."""
-    import ast
-    import pathlib
-    src = (pathlib.Path(api.__file__).parent / "optimizers.py").read_text()
-    classes = {n.name: n for n in ast.parse(src).body if isinstance(n, ast.ClassDef)}
-
-    def read_keys(cls):
-        out = set()
-        for n in ast.walk(cls):
-            if isinstance(n, ast.Subscript) and ast.unparse(n.value) in ("self.params", "params") \
-                    and isinstance(n.slice, ast.Constant):
-                out.add(n.slice.value)
-            if isinstance(n, ast.Call) and ast.unparse(n.func) in ("self.params.get", "params.get") \
-                    and n.args and isinstance(n.args[0], ast.Constant):
-                out.add(n.args[0].value)
-        return out | read_keys_base
-    read_keys_base = set()
-    assert set(api.NSA_LBFGSB_KEYS) - {"nonneg"} <= read_keys(classes["NSALBFGSB"])
-    assert "nonneg" in ast.unparse(classes["NSALBFGSB"])
-    assert "rmsprop_beta" not in api.METHODS["simlr_lbfgsb"].accepts
-    assert "optimizer_type" not in api.METHODS["simlr_lbfgsb"].accepts
+def test_removed_method_simlr_lbfgsb_raises_on_fit():
+    with pytest.raises(ValueError, match="was dropped per empirical decision rule R5; use 'simlr'"):
+        pysimlr.fit("simlr_lbfgsb", _views(), k=K)
 
 
 def test_strict_raises_on_a_parameter_this_method_cannot_use():
@@ -162,12 +140,6 @@ def test_strict_raises_on_a_parameter_this_method_cannot_use():
 def test_a_parameter_no_method_has_is_a_typo_and_raises():
     with pytest.raises(TypeError, match="iteratons"):
         pysimlr.fit("simlr", _views(), K, iteratons=2)
-
-
-def test_a_preset_is_reported_and_cannot_be_overridden_silently():
-    res = _quiet_fit("simlr_lbfgsb", _views(), iterations=2, optimizer_type="adam")
-    assert res["parameters"]["used"]["optimizer_type"] == "nsa_lbfgsb"
-    assert "optimizer_type" in res["parameters"]["ignored"]
 
 
 def test_the_record_separates_requested_used_and_defaults():

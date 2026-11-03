@@ -11,7 +11,7 @@ import pytest
 import torch
 
 from pysimlr.simlr import simlr
-from pysimlr.nsa_backend import load_gradient_mapping, load_lbfgsb
+from pysimlr.nsa_backend import load_gradient_mapping
 
 needs_backend = pytest.mark.skipif(
     load_gradient_mapping() is None, reason="NSA-Flow backend not installed"
@@ -94,37 +94,6 @@ def test_face_residual_is_zero_on_a_stationary_face_and_flags_the_support():
     on1 = stationarity_residual(v, g)[0]
     on2 = stationarity_residual(3.0 * v, g / 3.0)[0]
     assert on1 == pytest.approx(on2, rel=1e-9)
-
-
-@pytest.mark.skipif(load_lbfgsb() is None, reason="NSA-Flow backend not installed")
-def test_lbfgsb_never_returns_a_rank_deficient_basis():
-    """A dead column collapsed test R^2 from 0.94 to 0.17 at one inner budget."""
-    for budget in (5, 10, 20, 50):
-        res = simlr(_views(seed=3), k=3, iterations=10, positivity="positive",
-                    optimizer_type="nsa_lbfgsb", max_iter=budget)
-        for v in res["v"]:
-            live = (v.detach().abs() > 1e-12).any(dim=0)
-            assert bool(live.all()), f"dead component at max_iter={budget}"
-
-
-@pytest.mark.skipif(load_lbfgsb() is None, reason="NSA-Flow backend not installed")
-def test_lbfgsb_survives_a_failing_inner_solve():
-    """The backend raises ZeroDivisionError when the Cauchy path is flat."""
-    from pysimlr.optimizers import create_optimizer
-
-    opt = create_optimizer("nsa_lbfgsb", [torch.rand(8, 3)])
-
-    def boom(*_args, **_kwargs):
-        raise ZeroDivisionError("float division by zero")
-
-    opt._minimize = boom
-    opt.gradient_function = lambda v: torch.zeros_like(v)
-    v = torch.rand(8, 3)
-    with pytest.warns(RuntimeWarning, match="inner solve failed"):
-        out = opt.step(0, v, torch.zeros_like(v), full_energy_function=lambda z: 1.0)
-    assert torch.equal(out, v), "a failed inner solve must keep the iterate"
-
-
 # --- rank preservation ------------------------------------------------------
 
 def test_column_floor_revives_a_dead_column_and_leaves_healthy_ones():
@@ -162,65 +131,4 @@ def test_projection_survives_a_rank_deficient_iterate():
     out = simlr_sparseness(v, constraint_type="ortho", positivity="positive",
                            constraint_weight=0.5, energy_type="recon")
     assert (out.norm(dim=0) > 0).all(), "projection returned a rank-deficient basis"
-
-
-@pytest.mark.skipif(load_lbfgsb() is None, reason="NSA-Flow backend not installed")
-def test_lbfgsb_scores_a_degenerate_trial_point_as_infinite():
-    """Under V >= 0 a long step lands on the zero corner; reject, don't crash."""
-    from pysimlr.optimizers import create_optimizer
-    opt = create_optimizer("nsa_lbfgsb", [torch.rand(8, 3)])
-    opt.gradient_function = lambda v: torch.ones_like(v)
-    seen = {}
-
-    def energy(v):
-        seen["called_with_zero"] = seen.get("called_with_zero", False) or bool(
-            (v.abs() < 1e-12).all())
-        raise RuntimeError("unusable projection")
-
-    v = torch.rand(8, 3)
-    out = opt.step(0, v, torch.ones_like(v), full_energy_function=energy)
-    assert torch.isfinite(out).all()
-    assert (out.norm(dim=0) > 0).all()
-
-
-@pytest.mark.skipif(load_lbfgsb() is None, reason="NSA-Flow backend not installed")
-def test_lbfgsb_refuses_missing_energy_or_gradient_callable():
-    """NSALBFGSB.step must raise rather than silently taking an unconstrained step."""
-    from pysimlr.optimizers import create_optimizer
-
-    v = torch.rand(8, 3)
-    opt = create_optimizer("nsa_lbfgsb", [v])
-    with pytest.raises(ValueError, match="requires both an energy function and gradient_function"):
-        opt.step(0, v, torch.ones_like(v), full_energy_function=lambda z: 1.0)
-
-    opt.gradient_function = lambda z: torch.ones_like(z)
-    with pytest.raises(ValueError, match="requires both an energy function and gradient_function"):
-        opt.step(0, v, torch.ones_like(v), full_energy_function=None)
-
-
-@pytest.mark.skipif(load_lbfgsb() is None, reason="NSA-Flow backend not installed")
-@pytest.mark.parametrize("positivity", ["positive", "either"])
-def test_lbfgsb_is_reproducible_under_float32_input_perturbations(positivity):
-    """Inputs 1e-8 apart used to diverge to 0.06-0.83 subspace gaps under
-    unanchored quasi-Newton steps over the indefinite block objective."""
-    rng = np.random.default_rng(0)
-    u = rng.standard_normal((60, 2))
-    views = [
-        torch.tensor(np.abs(u @ rng.standard_normal((2, p))) + 0.2 * rng.standard_normal((60, p))).float()
-        for p in (10, 8, 6)
-    ]
-    kw = dict(k=3, iterations=20, optimizer_type="nsa_lbfgsb",
-              positivity=positivity, random_state=0, verbose=False)
-    base = simlr(views, **kw)["v"]
-    for seed in range(3):
-        g = torch.Generator().manual_seed(100 + seed)
-        pert = [v + 1e-8 * torch.randn(v.shape, generator=g) for v in views]
-        got = simlr(pert, **kw)["v"]
-        for va, vb in zip(base, got):
-            qa, _ = torch.linalg.qr(va.double())
-            qb, _ = torch.linalg.qr(vb.double())
-            subspace_gap = float(torch.linalg.matrix_norm(qa @ qa.T - qb @ qb.T, ord=2))
-            assert subspace_gap < 1e-4, (
-                f"nsa_lbfgsb ({positivity}, seed={seed}) subspace gap {subspace_gap:.2e} >= 1e-4"
-            )
 

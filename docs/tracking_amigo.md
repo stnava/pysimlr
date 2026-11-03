@@ -46,6 +46,7 @@ item that is in progress or on hold.
 | `eabab15` | Re-measure after equal view weights. |
 | `708c9c6` | View-weighting remediation (R1 at default budget). |
 | `394144c` | Keep `acc` view scale under Decision Rule R9 (WP-1b). |
+| `84df107` | Drop `simlr_lbfgsb` and `nsa_lbfgsb` per Decision Rule R5 (WP-7). |
 
 ## Why: feature identifiability (measured)
 
@@ -192,18 +193,85 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
 
 ## On hold from the earlier plan
 
-- **D2/D4. Collapse: objective or optimizer?**
-  - Linear narrow-view fixture: under calibrated weights R² was 0.301 without penalty; under equal weights cw=0 R² is 0.608 (vs 0.962 with cw=1).
-  - Deep: 6/20 (data seed, start seed) pairs collapse without the penalty.
-  - Planned test: compare the energy at the planted solution with the energy at the collapsed
-    one. This decides the 0.3 hinge threshold.
-- **D3. Correlated factors.** The newton consensus decorrelates the scores; true ρ = 0.7 comes
-  back as recovered ρ 0.03-0.15. Is this a gauge freedom or a defect? Report subspace R² against
-  column recovery.
-- **D5. D9 proximal constants** (2.5 / 64) are uncalibrated: run a 3×3 grid, or drop
-  `simlr_lbfgsb` if it never beats `hybrid_adam`.
-- **D6. NED rounding sensitivity** (`_ROUNDING_UNSTABLE`): find the first epoch where the
-  trajectories diverge, and the operation that causes it.
+- **D2. Linear narrow-view collapse (Decision Rule R2, WP-2).** Evidence: `docs/audit/evidence/collapse_diagnosis.csv`.
+  Auto learning rate stops with `no_descent` at sweep 5 (lr 0.3 at cw=0; grid endpoint 1.0 at cw=1).
+
+  | fit | converged | best_energy | outcome R² | \|score corr\| |
+  |---|---|---|---|---|
+  | cw=0, lr 0.1 | yes | −0.697 | 0.357 | 0.976 |
+  | cw=0, lr 0.03 | yes | −0.697 | 0.266 | 0.979 |
+  | **cw=0, lr 0.01** | **yes** | **−0.885** | **0.940** | **0.672** |
+  | cw=1, lr 0.03 | yes | −0.183 | 0.962 | 0.591 |
+  | cw=1, lr 0.01 | yes | −0.213 | 0.958 | 0.565 |
+  | planted P(V_true) | — | −0.677 (pure similarity) | 0.988 | 0.428 |
+
+  Collapse is a step-size basin effect. The unpenalised objective's lowest converged energy (−0.885, lr 0.01) is non-collapsed (|corr| 0.672, R² 0.940).
+  R2 re-applied with the lowest-energy fits: condition 1 passes (−0.018, guard −0.05), condition 2 passes on 20 default cells (latent R² worst −0.0014, loadings F1 worst −0.0031), condition 3 fails (0.672 ≥ 0.5) → keep `DEFAULT_COLLAPSE_WEIGHT = 1.0`.
+  The penalty costs pure similarity −0.885 → −0.213 for +0.018 outcome R²; see P1.
+  Sanity-check deviation: post-update `u` at `V(cw=0, lr=0.1)` gave residual 6.12e-5 (> 1e-6), so the test checks iteration 0 (0.0); recomputing with the previous sweep's `u` (`best_iteration = 10`) gives residual 0.0 (< 1e-6), verifying the one-sweep `u` logging lag.
+- **D4. Deep collapse (Decision Rule R3, WP-5).** Evaluated deep collapse on the NED fixture
+  (n = 200, 2 views with 20 features, `ned_simr(iterations=100, batch_size=32, warmup_epochs=10)`)
+  using `scripts/deep_collapse_diagnosis.py` (evidence: `docs/audit/evidence/deep_collapse_diagnosis.csv`).
+  - *Step 1 (collapse rates across 20 data seeds 1..5 × start seeds 1..4)*:
+    - With penalty (`hinge`, `DEFAULT_COLLAPSE_WEIGHT = 1.0`): **0/20** pairs collapsed (|corr(u)| >= 0.5, max |r| = 0.194, mean |r| = 0.081).
+    - Without penalty (`none`, `pysimlr.deep.correlation_penalty` patched to zero per Rule 8): **7/20** pairs collapsed (35%, |corr(u)| between 0.765 and 0.981, mean 0.895; latent |corr(z0)| >= 0.997).
+    - Collapsing pairs: (1, 4), (2, 4), (3, 2), (3, 4), (4, 3), (5, 1), (5, 2).
+  - *Step 2 (determinism & onset timing)*:
+    - Determinism verified bit-identical (`max param diff = 0.0`, `max u diff = 0.0`).
+    - Prefix sweeps at iterations in {10, 20, 40, 100} on the 7 collapsing pairs pinpoint onset:
+      - At iteration 10 (end of warmup, autoencoder reconstruction only): **0/7** collapsed (mean |corr(u)| = 0.135, range 0.011 to 0.266).
+      - At iteration 20 (10 epochs after "nc" similarity activated): **7/7** collapsed (mean |corr(u)| = 0.816, range 0.600 to 0.934; latent |corr(z0)| jumped to mean 0.985).
+      - Onset diagnosis: dimensional collapse originates in the similarity phase (epochs 10-20), not during the reconstruction warmup phase.
+  - *Step 3 (energy evaluation & constructibility)*:
+    - A planted warm start is not constructible for the MLP model.
+    - Evaluated similarity against model's returned consensus (u_per_modality; recomputed matches final training similarity to <= 1e-5).
+    - Penalised fits (n=20): mean sim_loss = -1.9269 (min -1.9970, max -1.7079), mean total_unpen = -1.9195.
+    - Unpenalised fits: uncollapsed (n=13) mean sim_loss = -1.9355, total_unpen = -1.9282; collapsed (n=7) mean sim_loss = -1.4804, total_unpen = -1.4730 (incurring hinge collapse loss 0.9958).
+  - *Decision Rule R3 evaluation*:
+    - Condition: Keep the deep penalty unless the count without it is 0/20 and the count with it is no better.
+    - Measured: without penalty 7/20, with penalty 0/20 -> keep 1.0.
+- **D3. Correlated factors (Decision Rule R4, WP-6).** Status: **OPEN**.
+  Evidence: `docs/audit/evidence/correlated_factors.csv` (40 fits across rho in {0.0, 0.3, 0.5, 0.7}, seeds 0-4).
+  Headline finding: the collapse penalty threshold (0.30) clips correlated factors under `avg`, saturating consensus score correlation at 0.288 (rho = 0.5) and 0.302 (rho = 0.7), while `newton` decorrelates scores to 0.000.
+  Subspace R2 falls from 0.9877 (rho = 0.0) to 0.9670 (rho = 0.7) for `newton` (drop 0.0207) and from 0.9874 to 0.9665 for `avg` (drop 0.0209).
+  Applied literally, R4 condition 1 fails because the drop of 0.0207 > 0.02; because the drop is the same for avg (0.0209), it comes from the generator, not the mixing method.
+  Decision D3 remains open pending threshold investigation in P1.
+- **D5. simlr_lbfgsb calibration vs drop (Decision Rule R5, WP-7).** Executed 3×3 proximal
+  hyperparameter grid search using `scripts/lbfgsb_calibration.py` (evidence:
+  `docs/audit/evidence/lbfgsb_calibration.csv`):
+  - *Grid points*: `_PROX_QUAD_COEFF` $\in \{1.0, 2.5, 5.0\}$ × `_PROX_QUARTIC_COEFF` $\in \{16.0, 64.0, 256.0\}$.
+  - *Evaluation design*: 12 cells ({buried, linear} × {either, positive} × seeds 0–2) at default budget (300 iterations), totaling 108 fits in parallel (`ProcessPoolExecutor(max_workers=6)`).
+  - *Baseline*: `hybrid_adam` equal-arm baseline from `docs/audit/evidence/view_weighting_selection.csv` (mean latent R² 0.9859 on buried, 0.9840 on linear; support F1 0.7088 on buried, 0.7303 on linear).
+  - *Measured calibration results*:
+    - Across all 9 grid points, `simlr_lbfgsb` suffers severe collapse on the buried-signal cells (`buried_either`, `buried_positive`): mean latent R² collapses to $0.0108 - 0.0153$ (individual cell latent R² $\approx 0.009 - 0.021$).
+    - Non-inferiority cell guard: paired cell $\Delta \text{latent\_r2}$ on buried structure reaches $-0.9635$ to $-0.9684 \ll -0.05$ guard across all 9 grid points.
+    - Non-inferiority mean difference: mean $\Delta \text{latent\_r2}$ across all 12 cells ranges from $-0.485$ to $-0.488 \ll -0.05$.
+    - Perturbation reproducibility (D9 metric, 1e-8 input noise, QR projector diff norm): 5 of 9 grid points fail the $10^{-4}$ gate (mean perturbation gap up to $0.0048$, max $0.0416$).
+  - *Decision Rule R5 evaluation*:
+    - Condition: Retain `simlr_lbfgsb` if at least one grid point achieves non-inferiority to `hybrid_adam` (mean $\Delta \text{latent\_r2} \ge -0.05$, mean $\Delta \text{support\_f1} \ge -0.10$, and per-cell guards $\ge -0.05$ and $-0.10$ respectively); otherwise drop `simlr_lbfgsb` and `nsa_lbfgsb`.
+    - Result: 0 of 9 grid points meet non-inferiority (all 9 fail the per-cell $\Delta \text{latent\_r2}$ guard by $\approx -0.968$).
+    - The R5 guard failed on one cell (`buried_either_s0`, R² 0.015 against 0.979, in all 9 constant settings); not isolated, because the method was dropped.
+    - *Verdict*: **DROP** `simlr_lbfgsb` and `nsa_lbfgsb` per Decision Rule R5.
+  - *Action taken*:
+    - `src/pysimlr/api.py`: Removed `simlr_lbfgsb` from registered specs and presets. Added to `REMOVED_METHODS` raising `ValueError` directing users to `'simlr'` with default optimizer `'hybrid_adam'`.
+    - `src/pysimlr/optimizers.py` & `src/pysimlr/simlr.py`: Removed `NSALBFGSB` class and `nsa_lbfgsb` from optimizer registry. Added to `REMOVED_OPTIMIZERS`. Removed `LEARNING_RATE_FREE_OPTIMIZERS`, `gradient_function` hook, and `smooth_energy_fn`.
+    - Migrated tests and documentation across test suite, scripts, and contract docs.
+- **D6. NED rounding sensitivity (Decision Rule R6, WP-8).** Evaluated float32 training divergence
+  under $10^{-8}$ Gaussian input noise using `scripts/ned_rounding.py` across data seeds {42, 2, 1}
+  × model initialization seeds {0, 42} at 100 epochs (evidence: `docs/audit/evidence/ned_rounding.csv`).
+  - *Divergence onset and continuous amplification*:
+    - Across tested cells, Euclidean parameter distance grows continuously from initial $d(1) \approx 6.6\times 10^{-7} - 4.2\times 10^{-5}$ to macroscopic values (e.g. $e^* = 27$ with $d(27) = 1.18\times 10^{-2}$ and final $d(100) = 0.257$ on data 42 / model 0; $e^* = 37$ with $d(37) = 1.03\times 10^{-2}$ on data 2 / model 0; $e^* = 75$ with $d(75) = 1.46\times 10^{-2}$ on data 2 / model 42).
+    - Relative amplification factors reach $10^3\times - 2.57\times 10^7\times$.
+    - Empirical Lyapunov exponent $\lambda \in [0.0005, 0.2693]/\text{epoch}$ (mean $\lambda = 0.1004/\text{epoch}$, doubling time $2.57 - 17.7$ epochs on diverging cells).
+  - *Candidate operation instrumentation*:
+    - *Candidate 1 (Consensus sign alignment)*: 0 sign mismatches across all runs up to $e^*$ (`(sgn1 != sgn2).sum() == 0`).
+    - *Candidate 2 (Top-k / quantile sparsity ties)*: 0 mask differences across all views and epochs (`torch.equal(mask1, mask2)` is True). Quantile boundary tie gap $\min |V_{(n_{keep})} - V_{(n_{keep}+1)}| \ge 6.87\times 10^{-5} \gg 10^{-8}$.
+    - *Candidate 3 (Best-epoch selection)*: Both runs selected identical best epochs at and preceding $e^*$ (loss differences $< 3\times 10^{-4}$); no early-stopping bifurcation occurred.
+    - *Candidate 4 (Gradient clipping)*: 0 clipping threshold discrepancies across all batches (no batch had $g_{norm,1} > 1.0 \ne g_{norm,2} > 1.0$).
+  - *Decision Rule R6 evaluation*:
+    - Condition: If divergence is a discrete tie-break that can be deterministically resolved to $< 10^{-4}$ in parameters with the suite green, implement it and remove `ned` from `_ROUNDING_UNSTABLE` (Branch A); otherwise document the measured amplification and keep `ned` listed (Branch B).
+    - Measured outcome: 0 of 4 discrete candidates exhibited tie-breaks. Parameter distance reaches $\approx 1.5\times 10^{-2} - 0.257 \gg 10^{-4}$ driven by continuous float32 gradient amplification through nonlinear MLP decoders during Adam optimization.
+    - *Verdict*: **Branch B selected**. `ned` remains listed in `_ROUNDING_UNSTABLE` in `tests/test_api_registry.py`.
 - **T2. Change requested in ANTsTorch** (a different repository, not edited from here):
   - Make `create_real_nvp_normalizing_flow_model` a lazy (PEP 562) export of
     `antstorch/__init__.py`, so importing it does not load ITK/ANTsPy/matplotlib (~2.6 s).

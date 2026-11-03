@@ -248,12 +248,8 @@ ALL_OPTIMIZERS = ["lars", "adam", "nadam", "rmsprop", "gd", "hybrid_adam",
                   "lookahead", "bidirectional_lookahead",
                   "torch_adamw", "torch_adagrad", "torch_nadam"]
 
-#: `nsa_lbfgsb` chooses its own step by line search inside the backend, so a
-#: caller-supplied `learning_rate` genuinely has nothing to set. Every other
-#: optimizer documents the parameter and must honour it.
-LR_EXEMPT_OPTIMIZERS = {"nsa_lbfgsb": "L-BFGS-B picks its step by line search "
-                                      "in the backend; `max_iter` is its live "
-                                      "budget control"}
+#: Every optimizer documents the parameter and must honour it.
+LR_EXEMPT_OPTIMIZERS = {}
 
 
 @pytest.mark.parametrize("opt", ALL_OPTIMIZERS)

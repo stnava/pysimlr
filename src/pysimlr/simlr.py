@@ -1569,10 +1569,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # short fit ended within ~0.4% of its initialisation and no energy,
     # constraint or regulariser could change the answer.
     opt_params.setdefault("learning_rate", "auto")
-    from .optimizers import LEARNING_RATE_FREE_OPTIMIZERS
-    if optimizer_type in LEARNING_RATE_FREE_OPTIMIZERS and opt_params["learning_rate"] == "auto":
-        # Nothing to tune: these optimizers never read the learning rate.
-        opt_params["learning_rate"] = SIMLR_OPTIMIZER_DEFAULTS["learning_rate"]
     if isinstance(opt_params.get("learning_rate", None), str):
         if opt_params["learning_rate"] != "auto":
             raise ValueError(
@@ -1629,8 +1625,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     nsa_w = check_nsa_w(nsa_w)
     constraint_type = "ortho" if nsa_w > 0.0 else "none"
     constraint_weight = nsa_w
-    # `positivity` reaches the optimizer: without it the bound-constrained
-    # `nsa_lbfgsb` ran with no lower bound under positivity="positive".
+    # `positivity` reaches the optimizer for bound-constrained solvers.
     opt_params["positivity"] = positivity
     optimizer = create_optimizer(optimizer_type, v_mats, **opt_params)
     
@@ -1756,7 +1751,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     _gauge = energy_needs_unit_columns(energy_type)
 
     def _view_oracles(i, u_i, _loop_sp):
-        """Objective, smooth energy, exact gradient and projection for view
+        """Objective, exact gradient and projection for view
         `i`. Built per view so each closure captures its own view index, data
         and consensus: defined directly in the sweep loop they read the loop's
         `i` and data when *called*, so an optimizer that kept a callback past
@@ -1796,10 +1791,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 e = e + collapse_weight * correlation_penalty(x64 @ w64)
             return e
 
-        def smooth_energy_fn(v_cand):
-            with torch.no_grad():
-                return float(_smooth_objective(v_cand.detach().double()))
-
         def _projection(v_cand):
             """The constraint set's projection P, exactly as applied after each step."""
             v_in = v_cand.to(orig_dtype)
@@ -1820,7 +1811,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             """The objective itself, E(P(v)): the smooth energy at the
             constrained point the step will actually produce. Line searches
             test trial points against this, in float64."""
-            return smooth_energy_fn(_projection(v_cand))
+            with torch.no_grad():
+                return float(_smooth_objective(_projection(v_cand).detach().double()))
 
         def smooth_gradient_fn(v_curr):
             """Descent direction ``-grad E(v)`` at `v_curr`, in its dtype."""
@@ -1833,7 +1825,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # constraints: for an orthogonal projector P, <grad, P grad> =
         # |P grad|^2, so a line search along it still tests the true slope.
         # The oracle above stays the exact gradient.
-        return smooth_energy_fn, smooth_gradient_fn, composite_energy_fn, _projection, _last_proj
+        return smooth_gradient_fn, composite_energy_fn, _projection, _last_proj
 
     total_sweeps = (iterations + 1) if iterations > 0 else 0
     for raw_it in range(total_sweeps):
@@ -1858,7 +1850,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             _loop_sp = (None if (_want_nonneg and k > 1 and _q_mod is not None
                                  and _q_mod < 1.0 - 1.0 / k)
                         else sparseness)
-            smooth_energy_fn, smooth_gradient_fn, composite_energy_fn, _projection, _last_proj = \
+            smooth_gradient_fn, composite_energy_fn, _projection, _last_proj = \
                 _view_oracles(i, u_i, _loop_sp)
             _exact = smooth_gradient_fn(v_mats[i])
             # Stationarity diagnostic of the iterate entering this sweep, on its
@@ -1871,13 +1863,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 sweep_grad_map.append(gm_E)
             total_grad = _exact.contiguous()
             v_before = v_mats[i].detach().clone()
-            # Two oracles, the same for every optimizer: the objective E(P(v))
-            # for line searches (passed to `step`), and the smooth part E(v)
-            # with its exact gradient for quasi-Newton solvers, whose curvature
-            # pairs need a gradient that is the derivative of the function.
-            if hasattr(optimizer, "gradient_function"):
-                optimizer.gradient_function = smooth_gradient_fn
-                optimizer.smooth_energy_function = smooth_energy_fn
             v_updated = optimizer.step(i, v_mats[i], total_grad, composite_energy_fn)
             zero_step = bool(torch.equal(v_updated, v_before))
 

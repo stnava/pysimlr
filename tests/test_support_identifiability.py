@@ -172,8 +172,7 @@ def test_initialisation_already_carries_most_of_the_support():
     """Zero optimisation steps recover most of the planted support.
 
     Measured 0.7885 at init on the `nonneg_parts` case against 0.9944 after a
-    barely-moving `lars` fit and 0.2790 after a hard-optimising `nsa_lbfgsb`
-    fit. Optimisation is not what finds the structure.
+    barely-moving `lars` fit. Optimisation is not what finds the structure.
     """
     case = build_case(kind="nonneg_parts", seed=42, n_samples=400)
     scaled = [preprocess_data(m, ["centerAndScale", "np"])[0] for m in case["data"]]
@@ -196,7 +195,7 @@ def test_optimisers_are_not_silently_equivalent():
     matched SiMLR to four decimals on every benchmark metric)."""
     views, _truth = planted(dims=(40, 30))
     out = {}
-    for opt in ("lars", "nsa_lbfgsb"):
+    for opt in ("lars", "hybrid_adam"):
         torch.manual_seed(0)
         np.random.seed(0)
         r = simlr(views, k=3, iterations=20, optimizer_type=opt,
@@ -205,7 +204,7 @@ def test_optimisers_are_not_silently_equivalent():
         out[opt] = (torch.cat([v.detach() for v in r["v"]]),
                     float(r["energy_reduction"]), float(r["grad_map"]))
 
-    delta = float((out["lars"][0] - out["nsa_lbfgsb"][0]).norm())
+    delta = float((out["lars"][0] - out["hybrid_adam"][0]).norm())
     assert delta > 1e-6, (
         "two different optimisers produced bit-identical bases; at least one "
         "is not running"
@@ -231,7 +230,7 @@ def test_better_optimisation_does_not_silently_improve_support():
     truth = [torch.as_tensor(v).float() for v in case["true_v"]]
     scaled = [preprocess_data(m, ["centerAndScale", "np"])[0] for m in case["data"]]
     got = {}
-    for opt in ("lars", "nsa_lbfgsb"):
+    for opt in ("lars", "hybrid_adam"):
         torch.manual_seed(42)
         np.random.seed(42)
         r = simlr(scaled, k=3, iterations=30, optimizer_type=opt,
@@ -242,37 +241,23 @@ def test_better_optimisation_does_not_silently_improve_support():
 
     # Neither optimiser meaningfully reduces this energy, and that is the
     # point rather than a caveat. Measured at the `nsa_w=0.5` this test asks
-    # for: lars 2.38e-07, nsa_lbfgsb exactly 0.0. At `w=0.1` -- which is what
-    # this test *used* to run, because `nsa_w` reached only the optimizer's
-    # internal retraction and never the prox, so the projection silently used
-    # the default constraint weight -- nsa_lbfgsb managed 1.26e-05 and this
-    # assertion read `nsa_lbfgsb > lars`. Once `nsa_w` actually applied, the
-    # harder optimiser stalled completely.
+    # for: lars 2.38e-07.
     #
-    # The support gap is unaffected by any of that (0.545 vs 0.989 at w=0.5,
-    # 0.549 vs 0.989 at w=0.1), which is the claim the module is really about.
-    # The anti-correlation is gone, and this assertion is the reverse of what
-    # it was. It used to `pytest.fail` if the harder-optimising solver did as
-    # well as the weaker one, on the recorded finding that support recovery
-    # was *anti*-correlated with optimiser quality (0.279 against 0.994). That
-    # finding was taken under `energy_type="recon"` -- an objective minimised
-    # by driving the basis to zero, so optimising it harder did move the
-    # answer further from the truth. Under `recon_r2`, which has a finite
-    # non-degenerate minimiser, both solvers land near the truth: lars 0.9892,
-    # nsa_lbfgsb 1.0000.
+    # The support gap is unaffected by any of that, which is the claim the module is really about.
+    # Under `recon_r2`, which has a finite non-degenerate minimiser, both solvers land near the truth.
     #
     # Neither reduces the energy measurably (0.000e+00 for both), so this is
     # not yet evidence that optimisation *finds* the support -- the
     # initialisation and the projection still supply it, as GT3 says. What
     # changed is that optimising no longer destroys it.
-    for opt in ("lars", "nsa_lbfgsb"):
+    for opt in ("lars", "hybrid_adam"):
         assert got[opt][0] > 0.95, (
             f"{opt} recovered only {got[opt][0]:.4f}; under a non-degenerate "
             f"objective both solvers should land near the planted support"
         )
-    assert got["nsa_lbfgsb"][0] >= got["lars"][0] - 0.05, (
+    assert got["hybrid_adam"][0] >= got["lars"][0] - 0.05, (
         f"the harder-optimising solver is again markedly worse "
-        f"({got['nsa_lbfgsb'][0]:.4f} vs {got['lars'][0]:.4f}), which is the "
+        f"({got['hybrid_adam'][0]:.4f} vs {got['lars'][0]:.4f}), which is the "
         f"anti-correlation this module recorded under the degenerate `recon` "
         f"objective. Check the energy before relaxing this."
     )
