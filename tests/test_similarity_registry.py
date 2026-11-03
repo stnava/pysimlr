@@ -216,7 +216,7 @@ def test_tiny_n_is_refused_for_moment_terms(n):
     u = torch.randn(n, 3, generator=g)
     ctx = SimilarityContext(x=x, v=v)
     for name in similarity_names():
-        if similarity_needs_data(name):   # a reconstruction, not a moment
+        if name in ("recon", "recon_r2"):   # a reconstruction, not a moment
             similarity_energy(name, x @ v, u, ctx)
             continue
         with pytest.raises(ValueError, match="at least 3 rows"):

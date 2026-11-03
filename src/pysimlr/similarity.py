@@ -60,6 +60,7 @@ __all__ = [
     "SimilarityContext", "SIMILARITY", "similarity_names",
     "similarity_energy", "similarity_gradient", "describe_similarity",
     "REJECTED_ENERGY_NAMES", "resolve_energy_name",
+    "energy_nc_ridge",
 ]
 
 
@@ -292,6 +293,38 @@ def energy_nc(s: torch.Tensor, u: torch.Tensor,
     return -num / den
 
 
+def _energy_nc_ridge_impl(s: torch.Tensor, u: torch.Tensor,
+                          ctx: Optional[SimilarityContext] = None,
+                          lam: float = 0.5) -> torch.Tensor:
+    r"""Negative normalised correlation with ridge penalty on loadings.
+
+    Denominator is :math:`\sqrt{(1-\lambda)\lVert s_c\rVert^2 + \lambda c \lVert V\rVert^2}`,
+    where :math:`c = \lVert X\rVert_F^2 / p` and :math:`\lambda = 0.5` is fixed.
+    """
+    _check_rows(s, "nc_ridge")
+    c_ctx = _require(ctx, "x", "v", name="nc_ridge")
+    eps = c_ctx.eps if c_ctx is not None else 1e-10
+    uc, sc = _centre(u), _centre(s)
+    x = c_ctx.x
+    v = c_ctx.v
+    c = torch.sum(x * x) / x.shape[1]
+    den2 = (1.0 - lam) * torch.sum(sc * sc) + lam * c * torch.sum(v * v)
+    num = torch.sum(uc * sc)
+    den = torch.linalg.vector_norm(uc) * torch.sqrt(den2) + eps
+    return -num / den
+
+
+def energy_nc_ridge(s: torch.Tensor, u: torch.Tensor,
+                    ctx: Optional[SimilarityContext] = None) -> torch.Tensor:
+    r"""Negative normalised correlation with ridge penalty on loadings.
+
+    Denominator is :math:`\sqrt{(1-\lambda)\lVert s_c\rVert^2 + \lambda c \lVert V\rVert^2}`,
+    where :math:`c = \lVert X\rVert_F^2 / p` and :math:`\lambda = 0.5` is fixed.
+    """
+    return _energy_nc_ridge_impl(s, u, ctx, lam=0.5)
+
+
+
 def energy_procrustes(s: torch.Tensor, u: torch.Tensor,
                       ctx: Optional[SimilarityContext] = None) -> torch.Tensor:
     r"""Negative Procrustes correlation, :math:`-\mathrm{tr}(u^\top s)/\lVert u^\top s\rVert_F`.
@@ -440,6 +473,8 @@ SIMILARITY: Dict[str, tuple] = {
             "-sum|u's|/(n-1) : absolute cross covariance"),
     "nc": (energy_nc, False,
            "-<u,s>/(||u|| ||s||) : normalised correlation, scale invariant"),
+    "nc_ridge": (energy_nc_ridge, True,
+                 "-<u,s>/sqrt((1-lam)||sc||^2 + lam*c*||v||^2) : normalised correlation with ridge on loadings"),
     "procrustes": (energy_procrustes, False,
                    "-tr(u's)/||u's||_F : rewards component-wise correspondence"),
     "negentropy": (energy_negentropy, False,
@@ -576,7 +611,8 @@ def similarity_gradient(name: str, s: torch.Tensor, u: torch.Tensor,
             c = _require(ctx, "x", "v", name=key)
             v = c.v.detach().clone().requires_grad_(True)
             local = SimilarityContext(x=c.x.detach(), v=v, eps=c.eps)
-            e = fn(s.detach(), u_det, local)
+            s_in = local.x @ v if local.x is not None else s.detach()
+            e = fn(s_in, u_det, local)
             (g,) = torch.autograd.grad(e, v)
             return g.detach()
         t = s.detach().clone().requires_grad_(True)
