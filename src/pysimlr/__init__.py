@@ -22,9 +22,7 @@ def _configure_matplotlib_backend() -> None:
 
     Called lazily, the first time a plotting entry point is actually used.
     Importing matplotlib at package import time cost roughly a second -- it
-    arrives via pysimlr.benchmarks.plotting, which pulls in seaborn,
-    scipy.stats and ipywidgets -- which defeated the point of deferring the
-    other heavy scientific imports.
+    defeated the point of deferring the other heavy scientific imports.
     """
     import matplotlib
     if "DISPLAY" not in os.environ or os.environ.get("MPLBACKEND") == "Agg":
@@ -176,6 +174,15 @@ from .utils import (
 )
 
 __all__ = [
+    'plot_loadings',
+    'plot_structure_intervals',
+    'plot_component_stability',
+    'plot_scores',
+    'plot_view_agreement',
+    'plot_convergence',
+    'plot_view_correlations',
+    'plot_latent_recovery',
+    'plot_benchmark',
     'fit_fused_ridge',
     'predict_fused_ridge',
     'fused_ridge_cv',
@@ -306,23 +313,32 @@ __all__ = [
 ]
 
 #: Attributes served on first access instead of at import time, because their
-#: modules pull in matplotlib/seaborn. Maps attribute name -> submodule.
+#: modules pull in matplotlib. Maps attribute name -> submodule.
 _LAZY_ATTRS = {
-    'plot_lend_simr_architecture': 'visualization',
-    'plot_ned_simr_architecture': 'visualization',
-    'plot_ned_shared_private_architecture': 'visualization',
-    'plot_nsa_flow_architecture': 'visualization',
-    'plot_flow_simr_architecture': 'visualization',
-    'plot_path_model': 'visualization',
-    'generate_all_architecture_graphs': 'visualization',
+    'plot_lend_simr_architecture': 'diagrams',
+    'plot_ned_simr_architecture': 'diagrams',
+    'plot_ned_shared_private_architecture': 'diagrams',
+    'plot_nsa_flow_architecture': 'diagrams',
+    'plot_flow_simr_architecture': 'diagrams',
+    'plot_path_model': 'diagrams',
+    'generate_all_architecture_graphs': 'diagrams',
     'plot_fused_coefficients': 'plotting',
     'plot_coefficient_paths': 'plotting',
     'plot_fused_ridge_cv': 'plotting',
     'plot_predictions': 'plotting',
+    'plot_loadings': 'plotting',
+    'plot_structure_intervals': 'plotting',
+    'plot_component_stability': 'plotting',
+    'plot_scores': 'plotting',
+    'plot_view_agreement': 'plotting',
+    'plot_convergence': 'plotting',
+    'plot_view_correlations': 'plotting',
+    'plot_latent_recovery': 'plotting',
+    'plot_benchmark': 'plotting',
 }
 
 #: Submodules exposed as attributes but not imported eagerly.
-_LAZY_MODULES = ('visualization', 'viz', 'benchmarks', 'plotting')
+_LAZY_MODULES = ('diagrams', 'benchmarks', 'plotting')
 
 
 def __getattr__(name: str) -> Any:

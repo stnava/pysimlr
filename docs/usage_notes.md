@@ -145,39 +145,65 @@ per view, in the training standardisation.
   energy at the start of the fit, so their relative view weights depend on the initialisation.
   Prefer `nc` unless you need these specifically.
 
-## Fused ridge (per-group regression with shared structure)
+## Fused ridge (multi-task regression with fused coefficients)
 
-`fit_fused_ridge` fits one ridge coefficient vector per group, such as strata, sites or
-ordered exposure thresholds, and pulls neighbouring groups' coefficients together:
+`fit_fused_ridge` fits one coefficient vector per *task* and pulls neighbouring tasks'
+coefficients together (penalty λ₁Σ‖w_t‖² + λ₂Σ_{neighbours}‖w_a − w_b‖²). The tasks are built
+in one of two ways:
+
+- **`thresholds=` (the `ANTsR::fusedRidge` model):** one binary task per outcome threshold,
+  1[y ≥ c_t], on all rows (`family="binomial"` by default). As λ₂ grows, neighbouring
+  thresholds share slopes.
+- **`groups=`:** one task per stratum, site or exposure level. Pass a label per row, or
+  boolean masks, which may overlap. `family="gaussian"` by default.
 
 ```python
-cv = pysimlr.fused_ridge_cv(X, y, groups, lambda1s=(0.01, 0.1, 1.0), lambda2s=(0, 0.1, 1, 10))
-fit = cv["result"]                                     # refit at the CV-chosen (lambda1, lambda2)
-yhat = pysimlr.predict_fused_ridge(fit, X_new, group=groups_new)
-pysimlr.plot_coefficient_paths(fit)                    # how coefficients change across groups
-pysimlr.plot_fused_coefficients(fit); pysimlr.plot_fused_ridge_cv(cv)
+cv = pysimlr.fused_ridge_cv(X, y, thresholds=np.quantile(y, [.25, .5, .75]),
+                            lambda1s=(0.01, 0.1), lambda2s=(0, 0.5, 5), top_ks=(None, 10, 20))
+fit = cv["result"]                       # refit at the CV-chosen (lambda1, lambda2, top_k)
+p = pysimlr.predict_fused_ridge(fit, X_new, type="response")   # P(y >= c_t), one column per t
+pysimlr.plot_coefficient_paths(fit); pysimlr.plot_fused_coefficients(fit); pysimlr.plot_fused_ridge_cv(cv)
 ```
 
-- **`groups`** is either a label per row, or a list of boolean masks. Masks may overlap, for
-  example nested "exposure above percentile q" strata.
-- **`fusion`** is `"chain"` (neighbours in group order, the default), `"all"`, or a list of
-  `(a, b)` edges.
-- **The penalties:** `lambda2 = 0` fits independent per-group ridges; a large `lambda2` fits one
-  shared ridge.
-- **Intercepts and solver:** each group has its own unpenalised intercept, and the problem is
-  solved exactly.
+- **Families:** `gaussian`, `binomial` and `poisson`.
+- **Covariates:** `covariates=` are unpenalised, and every task has its own intercept.
+- **Scale:** features are standardised with the sample sd, as in R's `scale`. `coef` is on the
+  original scale; `coef_std` is the standardised one.
+- **`top_k`, as ANTsR's `topK`:**
+  - in the fit, it takes each task's K largest standardised |coefficients|, takes the union,
+    and refits on those features;
+  - in `predict_fused_ridge(..., top_k=K)`, it keeps each task's K largest coefficients
+    without refitting;
+  - in `fused_ridge_cv`, selection happens inside each training fold.
+- **Agreement with ANTsR:** the objective and solution match `ANTsR::fusedRidgeDirect` (to
+  about 1e-3, tested), and `top_k` selects the same features as `ANTsR::fusedRidge(topK=)`.
+  ANTsR's two backends scale the penalty differently, so their coefficients differ from each
+  other at the same λ.
 
 ## Plotting
 
-New plots live in `pysimlr.plotting` and follow one convention:
-- they take a result object;
-- they accept `ax=None` and return the Figure (no `show`, no saving);
-- they use matplotlib only;
-- they plot interpretable quantities, with signed values on a symmetric diverging scale.
+All plots live in `pysimlr.plotting` (also importable from `pysimlr` directly), and they follow
+one convention:
+- each takes a result object;
+- it accepts `ax=None` and returns the Figure (no `show`, no saving);
+- matplotlib only;
+- it plots interpretable quantities, with signed values on a symmetric diverging scale.
 
-The older `pysimlr.visualization`, `pysimlr.viz` and `pysimlr.benchmarks.plotting` modules
-predate this convention. Several of their plots show `res["v"]`, which should not be
-interpreted (see above).
+| plot | shows | input |
+|---|---|---|
+| `plot_loadings(res, view)` | loadings, features × components (rotated frame) | `fit` result |
+| `plot_structure_intervals(inf, view, component)` | structure coefficients with 95% intervals; selected features in bold | `loading_inference` result |
+| `plot_component_stability(rank)` | per-component stability per k, with reference lines at 0.9 and 0.8 | `select_rank` result |
+| `plot_scores(res, new_views=)` | subject scores `u @ R`, with held-out subjects projected | `fit` result |
+| `plot_view_agreement(res, component)` | each view's scores against the consensus, with r | `fit` result |
+| `plot_convergence(res)` | the objective history, with the stop reason; flags unconverged fits | `fit` result |
+| `plot_view_correlations(views)` | adjusted RV between views | views |
+| `plot_latent_recovery(res, z_true)` | \|corr\| of components with planted latents | `fit` result |
+| `plot_fused_coefficients`, `plot_coefficient_paths`, `plot_fused_ridge_cv` | fused ridge | `fit_fused_ridge` / `fused_ridge_cv` results |
+| `plot_benchmark(df, x, y, by, kind)` | one benchmark metric against a setting, per method | results DataFrame |
+| `plot_predictions(y, yhat)` | predicted against observed, with r | arrays |
+
+Nothing plots the encoder `v`. The architecture diagrams are in `pysimlr.diagrams`.
 
 ## Known limitations (being worked on)
 

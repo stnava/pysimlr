@@ -1,8 +1,8 @@
 # pysimlr: amigo branch tracking
 
 Branch `amigo`, from `main` at `b10c993` (D10 merged fast-forward; not pushed).
-Last updated 2026-11-02.
-Verification at the branch tip: `pytest -m ""` 1593 passed, 7 strict xfailed, 0 failed;
+Last updated 2026-11-03.
+Verification at the branch tip: `pytest -m ""` 1673 passed, 3 strict xfailed, 0 failed;
 `antsxqc.lint src/pysimlr` 0 findings. Each commit below was verified on its own in a clean
 worktree.
 
@@ -75,6 +75,8 @@ item that is in progress or on hold.
 | `18f2396` | Record ae5eb07, 18db280, 80f9536, d357e2f and final R14 READY (D1). |
 | `2f0dbba` | Merge branch 'main' (22900ec) into amigo (fused_ridge and standard plotting). |
 | `f8258f3` | Update R13 diagnosis, Caveat 9, and post-22900ec suite count (B4, R13, R14). |
+| `e2ad5bc` | Record 22900ec and final amigo commit hashes (D1). |
+| `88ecbf8` | Merge main into amigo (0491375 fused_ridge, e713f93 plotting, 60ba439 simlr no_descent recovery). |
 
 ## Inventory and Phase Status
 
@@ -94,7 +96,7 @@ item that is in progress or on hold.
 | B | B2 | Two-stage linear default grid (Rules R11, R12) | DONE (`9aa7c99`, `c1eb7f8`, `1bf6e62`) | `docs/audit/evidence/default_selection_stage1.csv`, `..._stage2.csv` |
 | B | B3 | Deep consistency (Rule R13) | DONE (`7eede2d`, `80f9536`, `1818896`) | `docs/audit/evidence/deep_budget_check.csv` (18/18 flow_v, 18/18 ned, 18/18 ned_shared_private, 17/18 lend >= 0.90; PASS) |
 | B | B4 | Benchmark readiness (Rule R14) | DONE (`2af7df4`, `fb78eff`, `1818896`, `f8258f3`) | `docs/benchmark_readiness.md` (overall verdict: READY for both LINEAR and DEEP) |
-| D | D1 | Comprehensive tracking update | DONE (`0381e64`, `18f2396`, current) | `docs/tracking_amigo.md` (records ae5eb07, 18db280, 80f9536, d357e2f, 22900ec, R14 READY) |
+| D | D1 | Comprehensive tracking update | DONE (`0381e64`, `18f2396`, `e2ad5bc`, `88ecbf8`) | `docs/tracking_amigo.md` (records main merge 0491375, e713f93, 60ba439) |
 | D | D2 | Paper worktree, displays, caches, build | PLANNED | `amigo-paper` worktree |
 
 ## Why: feature identifiability (measured)

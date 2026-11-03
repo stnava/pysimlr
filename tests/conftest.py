@@ -54,7 +54,7 @@ _MEDIUM_FILES = {
     "test_alternative_initializations.py",
     "test_api_registry.py",
     "test_benchmark_reporting.py",
-    "test_benchmarks_plotting.py",
+    "test_plotting.py",
     "test_benchmarks_runner.py",
     "test_benchmarks_sp_sweep.py",
     "test_collapse_penalty.py",
@@ -92,7 +92,6 @@ _MEDIUM_FILES = {
     "test_tier2_boundaries.py",
     "test_tier3_combinations.py",
     "test_tier4_scenarios.py",
-    "test_viz.py",
 }
 
 

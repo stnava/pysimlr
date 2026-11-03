@@ -1,3 +1,5 @@
+"""Architecture diagrams for the pysimlr model families (figure art, not result plots;
+result plots live in `pysimlr.plotting`)."""
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
@@ -201,96 +203,6 @@ def plot_nsa_flow_architecture(save_path=None, base_fontsize=11):
     _draw_arrow(ax, 70, 52, 80, 52)
     ax.text(35, 80, "Stiefel Manifold\nConstraints", ha='center', fontsize=base_fontsize, fontweight='bold')
     if save_path: plt.savefig(save_path, bbox_inches='tight', dpi=300)
-    return fig
-
-def plot_energy(energy_history: List[float], title: str = "Optimization Energy") -> plt.Figure:
-    """
-    Plot the optimization energy (loss) history.
-
-    Parameters
-    ----------
-    energy_history : List[float]
-        A list of energy/loss values over iterations or epochs.
-    title : str, default="Optimization Energy"
-        The title for the plot.
-
-    Returns
-    -------
-    plt.Figure
-        The generated Matplotlib figure.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-    """
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(energy_history, lw=2, color='tab:blue')
-    ax.set_xlabel("Iteration / Epoch"); ax.set_ylabel("Energy / Loss")
-    ax.set_title(title); ax.grid(True, alpha=0.3)
-    return fig
-
-def plot_latent_2d(u: torch.Tensor, labels: Optional[np.ndarray] = None, title: str = "Shared Latent Space") -> plt.Figure:
-    """
-    Visualize the shared latent consensus (U) in a 2D scatter plot.
-
-    Parameters
-    ----------
-    u : torch.Tensor
-        The shared latent consensus matrix (samples x 2 or more). Only the 
-        first two dimensions are plotted.
-    labels : np.ndarray, optional
-        Categorical or continuous labels for coloring the points.
-    title : str, default="Shared Latent Space"
-        The title for the plot.
-
-    Returns
-    -------
-    plt.Figure
-        The generated Matplotlib figure.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-    """
-    u_np = u.detach().cpu().numpy() if isinstance(u, torch.Tensor) else u
-    fig, ax = plt.subplots(figsize=(8, 8))
-    if labels is not None:
-        scatter = ax.scatter(u_np[:, 0], u_np[:, 1], c=labels, cmap='viridis', alpha=0.6)
-        plt.colorbar(scatter, ax=ax)
-    else:
-        ax.scatter(u_np[:, 0], u_np[:, 1], alpha=0.6)
-    ax.set_xlabel("Latent 1"); ax.set_ylabel("Latent 2")
-    ax.set_title(title); ax.grid(True, alpha=0.3)
-    return fig
-
-def plot_v_matrix(v: torch.Tensor, title: str = "Feature Importance (V Matrix)") -> plt.Figure:
-    """
-    Generate a heatmap of the basis matrix V.
-
-    Parameters
-    ----------
-    v : torch.Tensor
-        The basis matrix (features x components).
-    title : str, default="Feature Importance (V Matrix)"
-        The title for the plot.
-
-    Returns
-    -------
-    plt.Figure
-        The generated Matplotlib figure.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
-    """
-    v_np = v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
-    fig, ax = plt.subplots(figsize=(10, 6))
-    import seaborn as sns
-    sns.heatmap(v_np, cmap='coolwarm', center=0, ax=ax)
-    ax.set_title(title)
     return fig
 
 def plot_flow_simr_architecture(save_path=None, base_fontsize=11):

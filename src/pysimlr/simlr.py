@@ -1257,6 +1257,17 @@ def _prepare_fit_inputs(data_matrices, k, scale_list, positivity, initialization
     return torch_mats, provenance_list, v0
 
 
+#: A sweep in which every view's step is rejected means the learning rate is
+#: too large for the line search to recover (it backtracks at most 10 halvings
+#: from the remembered step); it is not a stationary point. `simlr` divides the
+#: rate by 10, resets each view's step memory and retries, and stops with
+#: "no_descent" only once the rate would fall below this floor. Before, with
+#: learning_rate="auto" choosing 1.0 on small data, 7 of 10 default fits on an
+#: 80-subject case stopped after a few sweeps
+#: (docs/audit/evidence/linesearch_cap_check.csv).
+NO_DESCENT_LR_FLOOR = 1e-6
+
+
 def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           k: int,
           iterations: int = DEFAULT_SIMLR_ITERATIONS,
@@ -1647,6 +1658,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # `positivity` reaches the optimizer for bound-constrained solvers.
     opt_params["positivity"] = positivity
     optimizer = create_optimizer(optimizer_type, v_mats, **opt_params)
+    lr_reductions = 0
     
     torch_domains = [torch.as_tensor(dm).float() if dm is not None else None for dm in domain_matrices] if domain_matrices else None
     if domain_lambdas is not None and not isinstance(domain_lambdas, (list, tuple)):
@@ -1939,6 +1951,18 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         if iterate_is_degenerate:
             n_degenerate_iterates += 1
         
+        if zero_step_views == n_modalities:
+            _lr_now = optimizer.params.get("learning_rate")
+            if isinstance(_lr_now, (int, float)) and 0.1 * _lr_now >= NO_DESCENT_LR_FLOOR:
+                _lr_new = 0.1 * float(_lr_now)
+                optimizer.params["learning_rate"] = _lr_new
+                for _st in optimizer.state:
+                    if "last_step_size" in _st:
+                        _st["last_step_size"] = torch.tensor(_lr_new)
+                lr_reductions += 1
+                if verbose: print(f"No descent at iteration {it}; learning rate -> {_lr_new:g}")
+                continue    # not a plateau step: the iterate did not move
+
         plateaued = monitor.update(total_energy)
 
         if zero_step_views == n_modalities:
@@ -2058,6 +2082,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "converged_iter": converged_iter,
         "stop_reason": stop_reason,
         "convergence": {**monitor.report(), "stop_reason": stop_reason,
+                        "learning_rate_reductions": lr_reductions,
+                        "learning_rate_final": optimizer.params.get("learning_rate"),
                         "converged": stop_reason == "converged", "certificate": certificate,
                         "grad_map": (grad_map_history[-1] if grad_map_history else None)},
         "certificate": certificate,

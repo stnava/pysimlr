@@ -40,7 +40,7 @@ from sklearn.metrics import r2_score
 from pysimlr import simlr, predict_simlr
 from pysimlr.deep import lend_simr, ned_simr, ned_simr_shared_private, predict_deep
 from pysimlr.benchmarks.synthetic_cases import build_case
-from pysimlr.viz import plot_view_correlations, plot_latent_consensus
+from pysimlr.plotting import plot_view_correlations
 
 # Global plot settings
 plt.rcParams['figure.figsize'] = (10, 6)
