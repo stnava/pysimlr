@@ -1,0 +1,177 @@
+{
+ "Heart": {
+  "Clinical Vitals": {
+   "rows": [
+    "age",
+    "sex",
+    "cp",
+    "trestbps",
+    "chol",
+    "fbs",
+    "restecg"
+   ],
+   "v": [
+    [
+     0.7834538029236124,
+     0.0
+    ],
+    [
+     0.0,
+     0.9910929014453385
+    ],
+    [
+     0.0,
+     0.041588924086791906
+    ],
+    [
+     0.46756622547146987,
+     0.0005035247270257585
+    ],
+    [
+     0.295828588812404,
+     0.0
+    ],
+    [
+     0.0,
+     0.1265107448433247
+    ],
+    [
+     0.28296185171177,
+     0.0
+    ]
+   ]
+  },
+  "Cardiophysiological": {
+   "rows": [
+    "thalach",
+    "exang",
+    "oldpeak",
+    "slope",
+    "ca",
+    "thal"
+   ],
+   "v": [
+    [
+     0.0007154985291175271,
+     0.0
+    ],
+    [
+     0.0,
+     0.5171987492182052
+    ],
+    [
+     0.6833697630601759,
+     0.0
+    ],
+    [
+     0.7300720889041943,
+     0.0
+    ],
+    [
+     0.0,
+     0.5022634343381721
+    ],
+    [
+     0.0,
+     0.6929912671411875
+    ]
+   ]
+  }
+ },
+ "Diabetes": {
+  "Systemic Vitals": {
+   "rows": [
+    "age",
+    "sex",
+    "bmi",
+    "bp"
+   ],
+   "v": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.999994076053367
+    ],
+    [
+     0.9213378711967333,
+     0.0034420717849945564
+    ],
+    [
+     0.38876281599282586,
+     0.0
+    ]
+   ]
+  },
+  "Serum Biomarkers": {
+   "rows": [
+    "s1",
+    "s2",
+    "s3",
+    "s4",
+    "s5",
+    "s6"
+   ],
+   "v": [
+    [
+     0.695035850187148,
+     0.0
+    ],
+    [
+     0.7157795175306411,
+     0.0
+    ],
+    [
+     0.06771151481270397,
+     0.0
+    ],
+    [
+     0.0,
+     0.4500034948978349
+    ],
+    [
+     0.0,
+     0.6088435516532364
+    ],
+    [
+     0.0,
+     0.6533042049382562
+    ]
+   ]
+  }
+ },
+ "provenance": {
+  "cli": "scripts/paper_nsa_v_loadings.py",
+  "utc": "2026-11-03T13:32:25.183493Z",
+  "host": "d-172-18-65-193.vpn.net.virginia.edu",
+  "pysimlr": "0.7.0",
+  "torch": "2.13.0",
+  "n": {
+   "Heart": 297,
+   "Diabetes": 442
+  },
+  "parameters": {
+   "Heart": {
+    "iterations": 150,
+    "energy_type": "nc",
+    "mixing_algorithm": "newton",
+    "positivity": "positive",
+    "sparseness": 0.5,
+    "nsa_iterations": 3,
+    "random_state": 42
+   },
+   "Diabetes": {
+    "iterations": 150,
+    "energy_type": "logcosh",
+    "mixing_algorithm": "newton",
+    "positivity": "positive",
+    "sparseness": 0.5,
+    "nsa_iterations": 3,
+    "random_state": 42
+   }
+  },
+  "postprocessing": "pysimlr.svd.varimax, then nsa_flow(w=0.5, nonneg, max_iter=200), then per-column q=0.5 quantile"
+ }
+}

@@ -1,0 +1,16 @@
+{
+  "cli": "scripts/paper_adni_ablations.py --only loadings",
+  "start_utc": "2026-11-03T13:22:54.981469Z",
+  "end_utc": "2026-11-03T13:23:10.624888Z",
+  "host": "d-172-18-65-193.vpn.net.virginia.edu",
+  "python": "3.12.12",
+  "torch": "2.13.0",
+  "pysimlr": "0.7.0",
+  "device": "cpu",
+  "experiments": [
+    "loadings"
+  ],
+  "seconds": {
+    "loadings": 15.643264958052896
+  }
+}
