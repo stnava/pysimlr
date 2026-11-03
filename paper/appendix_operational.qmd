@@ -10,7 +10,7 @@ This appendix provides the complete empirical ablation tables referenced in Chap
 
 ## Effect of the Approximate Stiefel Weight $w \in [0.01, 0.95]$
 
-@tbl-app-w-sweep and @fig-w-sweep evaluate `SiMLR-LBFGSB` ($\mathbf{V}_m \ge 0, k = 3$) across ten values of $w \in [0.01, 0.95]$ on synthetic `NonnegParts` and clinical `ADNI-MCI` (`Protocol B`).
+@tbl-app-w-sweep and @fig-w-sweep evaluate `SiMLR` ($\mathbf{V}_m \ge 0, k = 3$) across ten values of $w \in [0.01, 0.95]$ on synthetic `NonnegParts` and clinical `ADNI-MCI` (`Protocol B`).
 
 ```{python}
 #| warning: false
@@ -111,7 +111,7 @@ plt.show()
 
 ## Preprocessing Controls: Subject Row-Mean Removal, ICA Initialization, and Orthogonal Varimax Rotation
 
-On neuroimaging cohorts where cortical regions share a positive global correlation floor, @tbl-app-rowmean-ica and @fig-rowmean-k-ablation compare column centering with in-fold subject row-mean centering, PCA with deterministic FastICA [@hyvarinen2000independent] initialization, signed with non-negative bases, and the initializer alone with the fitted model (`SiMLR-LBFGSB`, $k = 3$, $w = 0.50$, no Varimax, no quantile threshold; `scripts/paper_adni_ablations.py`). With non-negative bases, row-mean centering changes cortical sparsity from `{python} N.rm_col_pca_pos_sp` to `{python} N.rm_row_pca_pos_sp` and `CogPC1` $R^2$ from `{python} N.rm_col_pca_pos_r2` to `{python} N.rm_row_pca_pos_r2`. Varimax rotation on column-centered data gives `{python} N.fl_varimax_simr_sp` sparsity on the 62 DKT regions with `{python} N.fl_varimax_simr_active` active regions per component, against `{python} N.fl_col_pca_simr_sp` and `{python} N.fl_col_pca_simr_active` without rotation.
+On neuroimaging cohorts where cortical regions share a positive global correlation floor, @tbl-app-rowmean-ica and @fig-rowmean-k-ablation compare column centering with in-fold subject row-mean centering, PCA with deterministic FastICA [@hyvarinen2000independent] initialization, signed with non-negative bases, and the initializer alone with the fitted model (`SiMLR`, $k = 3$, $w = 0.50$, no Varimax, no quantile threshold; `scripts/paper_adni_ablations.py`). With non-negative bases, row-mean centering changes cortical sparsity from `{python} N.rm_col_pca_pos_sp` to `{python} N.rm_row_pca_pos_sp` and `CogPC1` $R^2$ from `{python} N.rm_col_pca_pos_r2` to `{python} N.rm_row_pca_pos_r2`. Varimax rotation on column-centered data gives `{python} N.fl_varimax_simr_sp` sparsity on the 62 DKT regions with `{python} N.fl_varimax_simr_active` active regions per component, against `{python} N.fl_col_pca_simr_sp` and `{python} N.fl_col_pca_simr_active` without rotation.
 
 ```{python}
 #| warning: false
@@ -347,7 +347,7 @@ if not os.path.exists(csv_path):
 df = pd.read_csv(csv_path)
 df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
 
-models = ["SiMLR-LBFGSB", "LEND", "Flow-SiMR-V", "SiMLR", "NSAFlow-PCA", "PCA", "NEDPP", "NED"]
+models = ["LEND", "Flow-SiMR-V", "SiMLR", "NSAFlow-PCA", "PCA", "NEDPP", "NED"]
 syn_dsets = ["Linear", "Polynomial", "Sine", "Shared+Private", "NonnegParts", "NonnegPartsWeak"]
 
 rows = []
@@ -393,7 +393,7 @@ piv_c = df[df["Dataset"].isin(syn_dsets)].pivot_table(index="Dataset", columns="
 fig, ax = plt.subplots(figsize=(10.5, 3.6), dpi=300)
 x = np.arange(len(syn_dsets))
 w = 0.18
-ax.bar(x - 1.5*w, piv_c["SiMLR-LBFGSB"], w, label="SiMLR-LBFGSB", color="#0284c7", edgecolor="#0f172a", lw=0.7)
+ax.bar(x - 1.5*w, piv_c["SiMLR"], w, label="SiMLR", color="#0284c7", edgecolor="#0f172a", lw=0.7)
 ax.bar(x - 0.5*w, piv_c["LEND"], w, label="LEND", color="#0d9488", edgecolor="#0f172a", lw=0.7)
 ax.bar(x + 0.5*w, piv_c["Flow-SiMR-V"], w, label="Flow-SiMR-V", color="#7c3aed", edgecolor="#0f172a", lw=0.7)
 ax.bar(x + 1.5*w, piv_c["PCA"], w, label="Dense PCA", color="#94a3b8", edgecolor="#0f172a", lw=0.7)
@@ -427,7 +427,7 @@ if not os.path.exists(csv_path):
 
 df = pd.read_csv(csv_path)
 df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
-models = ["LEND", "NEDPP", "Flow-SiMR-V", "SiMLR-LBFGSB", "NED", "SiMLR", "NSAFlow-PCA"]
+models = ["LEND", "NEDPP", "Flow-SiMR-V", "NED", "SiMLR", "NSAFlow-PCA"]
 xv = wilcoxon_vs_reference(df, "Strictly_Linear_Metric", "PCA", models=models).set_index("Model")
 u = wilcoxon_vs_reference(df, "Predictive_Metric", "PCA", models=models).set_index("Model")
 

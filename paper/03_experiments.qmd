@@ -312,7 +312,6 @@ offsets_a = {
     "PCA": (-28, -3),
     "NSAFlow-PCA": (8, 5),
     "SiMLR": (8, -4),
-    "SiMLR-LBFGSB": (-40, -14),
     "LEND": (-14, 9),
     "NED": (-28, -10),
     "NEDPP": (8, 4),
@@ -345,7 +344,6 @@ for m in syn_sub.index:
 
 offsets_b = {
     "SiMLR": (8, -2),
-    "SiMLR-LBFGSB": (-78, 6),
     "NSAFlow-PCA": (-48, -15),
     "LEND": (8, 6),
     "NED": (-30, -3),
@@ -389,7 +387,7 @@ df_op = op_default()  # default positivity only
 
 sub05 = df_op[df_op["Sparseness_Target"] == 0.5]
 piv_probes = sub05.groupby("Model")[["Strictly_Linear_Metric", "Axis_Sensitive_Metric", "Predictive_Metric"]].mean()
-model_order = ["LEND", "Flow-SiMR-V", "SiMLR-LBFGSB", "SiMLR", "NEDPP", "NED", "NSAFlow-PCA", "PCA"]
+model_order = ["LEND", "Flow-SiMR-V", "SiMLR", "NEDPP", "NED", "NSAFlow-PCA", "PCA"]
 piv_probes = piv_probes.reindex([m for m in model_order if m in piv_probes.index])
 
 fig, ax1 = plt.subplots(figsize=(10.8, 3.9), dpi=300)
@@ -570,7 +568,7 @@ print(tabulate(rows, headers=headers, tablefmt="pipe"))
 Comparing the unsupervised anatomical baselines against cognitive-aligned SiMR models in @tbl-adni-mci-summary and @fig-adni-neuroanatomy-flagship yields three findings:
 
 1. **Supervising MRI Factor Discovery with Cognitive Batteries Improves Out-of-Sample MRI Prediction**: Unsupervised `PCA` on the $382$ structural MRI features explains $R^2 =$ `{python} N.adni_pca` $\pm$ `{python} N.adni_pca_sd` of out-of-sample cognitive variance (`CogPC1`) on the linear probe and `{python} N.adni_pca_rf` on the single-axis Random Forest probe. Aligning the MRI projections with the 11-scale cognitive battery during training gives, for the four leading models (3-seed means $\pm$ SD), `{python} N.adni_ranked`; the best is `{python} N.adni_gain_pct` over `PCA`. The best single-axis Random Forest score is `{python} N.adni_rf_best` (`{python} N.adni_rf_best_model`), `{python} N.adni_rf_ratio` times that of `PCA`. In the single-seed sweep the best configuration reaches `{python} N.sweep_best_r2` (`{python} N.sweep_best_model`) and the best linear-family configuration `{python} N.sweep_linear_best_r2` (`{python} N.sweep_linear_best_model`), against `{python} N.sweep_pca_r2` for `PCA`; mean prediction across all eleven scales reaches `{python} N.sweep_m11_best` (`{python} N.sweep_m11_best_model`) against `{python} N.sweep_m11_pca` for `PCA` (`{python} N.sweep_m11_gain`). These sweep peaks are maxima over many configurations on one split and are optimistic.
-2. **Varimax Rotation and Quantile Sparsity on Cortical Thickness**: @fig-adni-neuroanatomy-flagship shows the 62 DKT cortical-thickness loadings (single seed, `Protocol B`, `SiMLR-LBFGSB`, $w = 0.50$). Dense `PCA` (Panel A1) has `{python} N.fl_pca_sp` zero loadings. Non-negative SiMR without rotation or quantile thresholding (Panel A2, `varimax = False, q = None`) is `{python} N.fl_col_pca_simr_sp` sparse with `{python} N.fl_col_pca_simr_active` active regions per component; with Varimax rotation (Panel A3, `varimax = True, q = None`) it is `{python} N.fl_varimax_simr_sp` sparse with `{python} N.fl_varimax_simr_active`. With `sparseness = 0.85` (Panels A4 and B) each component keeps `{python} N.fl_col_pca_q85_simr_active` regions (`{python} N.fl_col_pca_q85_simr_sp` sparse, Gram defect $D =$ `{python} N.fl_q85_D`) with out-of-sample `CogPC1` $R^2 =$ `{python} N.fl_col_pca_q85_simr_r2`, against `{python} N.fl_pca_r2` for `PCA` on the same split. The leading regions of each component are:
+2. **Varimax Rotation and Quantile Sparsity on Cortical Thickness**: @fig-adni-neuroanatomy-flagship shows the 62 DKT cortical-thickness loadings (single seed, `Protocol B`, `SiMLR`, $w = 0.50$). Dense `PCA` (Panel A1) has `{python} N.fl_pca_sp` zero loadings. Non-negative SiMR without rotation or quantile thresholding (Panel A2, `varimax = False, q = None`) is `{python} N.fl_col_pca_simr_sp` sparse with `{python} N.fl_col_pca_simr_active` active regions per component; with Varimax rotation (Panel A3, `varimax = True, q = None`) it is `{python} N.fl_varimax_simr_sp` sparse with `{python} N.fl_varimax_simr_active`. With `sparseness = 0.85` (Panels A4 and B) each component keeps `{python} N.fl_col_pca_q85_simr_active` regions (`{python} N.fl_col_pca_q85_simr_sp` sparse, Gram defect $D =$ `{python} N.fl_q85_D`) with out-of-sample `CogPC1` $R^2 =$ `{python} N.fl_col_pca_q85_simr_r2`, against `{python} N.fl_pca_r2` for `PCA` on the same split. The leading regions of each component are:
    * **Component 1 ($\mathbf{v}_1$)**: `{python} N.fl_q85_c1_top`.
    * **Component 2 ($\mathbf{v}_2$)**: `{python} N.fl_q85_c2_top`.
    * **Component 3 ($\mathbf{v}_3$)**: `{python} N.fl_q85_c3_top`.
@@ -580,7 +578,7 @@ Comparing the unsupervised anatomical baselines against cognitive-aligned SiMR m
 #| warning: false
 #| message: false
 #| label: fig-adni-neuroanatomy-flagship
-#| fig-cap: "Cortical-thickness loadings on `ADNI-MCI` ($N = 1,084$, `Protocol B`, single seed, `SiMLR-LBFGSB`, $w = 0.50$) across the 62 DKT regions. (A1) Dense PCA; (A2) non-negative SiMR without rotation or quantile thresholding (`varimax = False`, $q = \\text{None}$); (A3) with Varimax rotation (`varimax = True`, $q = \\text{None}$); (A4) with quantile sparsity $q = 0.85$. Panel titles give each matrix's fraction of zero loadings and out-of-sample `CogPC1` $R^2$. (B) The four largest loadings of each component at $q = 0.85$, and the primary sensorimotor regions (`precentral`, `postcentral`)."
+#| fig-cap: "Cortical-thickness loadings on `ADNI-MCI` ($N = 1,084$, `Protocol B`, single seed, `SiMLR`, $w = 0.50$) across the 62 DKT regions. (A1) Dense PCA; (A2) non-negative SiMR without rotation or quantile thresholding (`varimax = False`, $q = \\text{None}$); (A3) with Varimax rotation (`varimax = True`, $q = \\text{None}$); (A4) with quantile sparsity $q = 0.85$. Panel titles give each matrix's fraction of zero loadings and out-of-sample `CogPC1` $R^2$. (B) The four largest loadings of each component at $q = 0.85$, and the primary sensorimotor regions (`precentral`, `postcentral`)."
 #| out-width: 100%
 #| echo: false
 import os
@@ -716,7 +714,7 @@ if not os.path.exists(csv_path):
 df = pd.read_csv(csv_path)
 df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
 
-models = ["LEND", "Flow-SiMR-V", "SiMLR-LBFGSB", "SiMLR", "NEDPP", "NED", "NSAFlow-PCA", "PCA"]
+models = ["LEND", "Flow-SiMR-V", "SiMLR", "NEDPP", "NED", "NSAFlow-PCA", "PCA"]
 real_dsets = ["ADNI-MCI", "MultiOmics", "TCGA-KIRC", "Diabetes", "Heart", "mfeat"]
 
 rows = []
@@ -740,7 +738,7 @@ print(tabulate(rows, headers=headers, tablefmt="pipe"))
 #| warning: false
 #| message: false
 #| label: fig-multiomics-and-patient-attribution
-#| fig-cap: "Multi-cohort biomedical performance and exact patient-level feature attribution. (A) Out-of-sample linear entrypoint scores across the six real cohorts comparing best SiMR architectures (`LEND`, `Flow-SiMR-V`, `SiMLR-LBFGSB`) against dense `PCA`. (B) Exact additive patient-level risk attribution ($c_{ij} = x_{ij} v_{jl}$) on the Diabetes cohort (Patient #1), decomposing the patient's progression score directly into standardized clinical vitals without post-hoc Monte Carlo perturbation."
+#| fig-cap: "Multi-cohort biomedical performance and exact patient-level feature attribution. (A) Out-of-sample linear entrypoint scores across the six real cohorts comparing best SiMR architectures (`LEND`, `Flow-SiMR-V`, `SiMLR`) against dense `PCA`. (B) Exact additive patient-level risk attribution ($c_{ij} = x_{ij} v_{jl}$) on the Diabetes cohort (Patient #1), decomposing the patient's progression score directly into standardized clinical vitals without post-hoc Monte Carlo perturbation."
 #| out-width: 100%
 #| echo: false
 import os
@@ -769,7 +767,7 @@ x = np.arange(len(real_dsets))
 w = 0.20
 ax1.bar(x - 1.5*w, piv_r["LEND"], w, label="LEND", color="#0284c7", edgecolor="#0f172a", lw=0.7)
 ax1.bar(x - 0.5*w, piv_r["Flow-SiMR-V"], w, label="Flow-SiMR-V", color="#0d9488", edgecolor="#0f172a", lw=0.7)
-ax1.bar(x + 0.5*w, piv_r["SiMLR-LBFGSB"], w, label="SiMLR-LBFGSB", color="#7c3aed", edgecolor="#0f172a", lw=0.7)
+ax1.bar(x + 0.5*w, piv_r["SiMLR"], w, label="SiMLR", color="#7c3aed", edgecolor="#0f172a", lw=0.7)
 ax1.bar(x + 1.5*w, piv_r["PCA"], w, label="Dense PCA", color="#94a3b8", edgecolor="#0f172a", lw=0.7)
 
 ax1.set_xticks(x)
@@ -784,7 +782,7 @@ ax1.legend(loc="upper left", ncol=2, fontsize=8.0, frameon=True)
 np.random.seed(42)
 data = load_diabetes()
 X_scaled = StandardScaler().fit_transform(data.data)
-res_db = simlr([X_scaled[:, :5], X_scaled[:, 5:]], k=2, optimizer_type="nsa_lbfgsb", positivity="positive", sparseness=0.5, random_state=42)
+res_db = simlr([X_scaled[:, :5], X_scaled[:, 5:]], k=2, positivity="positive", sparseness=0.5, random_state=42)
 v_db = np.asarray(res_db["v"][0])
 x_sample = X_scaled[0, :5]
 impact = x_sample * v_db[:, 0]
@@ -859,4 +857,4 @@ plt.show()
 :::
 ::::
 
-In `MultiOmics` (`TCGA-BRCA`, $N = 822$), out-of-sample Estrogen Receptor classification accuracy on the linear entrypoint is `{python} N.brca_Flow_SiMR_V_pm` (`Flow-SiMR-V`), `{python} N.brca_LEND_pm` (`LEND`) and `{python} N.brca_NEDPP_pm` (`NEDPP`), against `{python} N.brca_PCA_pm` for `PCA` (3-seed means $\pm$ SD); the sparse non-negative dictionaries $\mathbf{V}_m$ are examined feature by feature in Appendix A. In `TCGA-KIRC` ($N = 467$), pathologic stage classification on the consensus embedding $\mathbf{U}$ is `{python} N.kirc_LEND_u_pm` for `LEND` against `{python} N.kirc_PCA_u_pm` for `PCA`. On compact clinical cohorts, `Diabetes` reaches $R^2 =$ `{python} N.diab_SiMLR_LBFGSB` for `SiMLR-LBFGSB` against `{python} N.diab_pca` for `PCA`, and `Heart` reaches accuracy `{python} N.heart_NSAFlow_PCA` for `NSAFlow-PCA` and `{python} N.heart_SiMLR` for `SiMLR`. @fig-nsa-v-interpretability shows the Varimax-rotated `nsa_flow` loadings ($q = 0.50$) of each `Heart` and `Diabetes` view, and the linear entrypoint $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ decomposes any individual patient's score into exact feature-level contributions $c_{m,i,j,l} = x_{m,i,j} v_{m,j,l}$ without post-hoc Monte Carlo approximations [@Wachter_2017; @karimi2021algorithmic; @pearl2009causality] (@fig-multiomics-and-patient-attribution B and @fig-heart-audit). Complete parameter sensitivity ablations—the $w \in [0.01, 0.95]$ trade-off curve, row-mean/ICA preprocessing controls, latent rank $k \in \{2, 3, 5, 8, 12\}$ scaling, and Wilcoxon signed-rank tests against `PCA`—are in Appendix B.
+In `MultiOmics` (`TCGA-BRCA`, $N = 822$), out-of-sample Estrogen Receptor classification accuracy on the linear entrypoint is `{python} N.brca_Flow_SiMR_V_pm` (`Flow-SiMR-V`), `{python} N.brca_LEND_pm` (`LEND`) and `{python} N.brca_NEDPP_pm` (`NEDPP`), against `{python} N.brca_PCA_pm` for `PCA` (3-seed means $\pm$ SD); the sparse non-negative dictionaries $\mathbf{V}_m$ are examined feature by feature in Appendix A. In `TCGA-KIRC` ($N = 467$), pathologic stage classification on the consensus embedding $\mathbf{U}$ is `{python} N.kirc_LEND_u_pm` for `LEND` against `{python} N.kirc_PCA_u_pm` for `PCA`. On compact clinical cohorts, `Diabetes` reaches $R^2 =$ `{python} N.diab_SiMLR` for `SiMLR` against `{python} N.diab_pca` for `PCA`, and `Heart` reaches accuracy `{python} N.heart_NSAFlow_PCA` for `NSAFlow-PCA` and `{python} N.heart_SiMLR` for `SiMLR`. @fig-nsa-v-interpretability shows the Varimax-rotated `nsa_flow` loadings ($q = 0.50$) of each `Heart` and `Diabetes` view, and the linear entrypoint $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ decomposes any individual patient's score into exact feature-level contributions $c_{m,i,j,l} = x_{m,i,j} v_{m,j,l}$ without post-hoc Monte Carlo approximations [@Wachter_2017; @karimi2021algorithmic; @pearl2009causality] (@fig-multiomics-and-patient-attribution B and @fig-heart-audit). Complete parameter sensitivity ablations—the $w \in [0.01, 0.95]$ trade-off curve, row-mean/ICA preprocessing controls, latent rank $k \in \{2, 3, 5, 8, 12\}$ scaling, and Wilcoxon signed-rank tests against `PCA`—are in Appendix B.

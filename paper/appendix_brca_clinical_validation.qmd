@@ -62,7 +62,7 @@ agg = sub.groupby("Model").agg({
     "Fit_Seconds": "mean"
 })
 
-order = ["NSAFlow-PCA", "SiMLR-LBFGSB", "LEND", "PCA", "NEDPP", "NED", "SiMLR", "Flow-SiMR-V"]
+order = ["NSAFlow-PCA", "LEND", "PCA", "NEDPP", "NED", "SiMLR", "Flow-SiMR-V"]
 rows = []
 for m in order:
     if m not in agg.index:

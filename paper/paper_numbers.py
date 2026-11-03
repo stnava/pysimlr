@@ -211,9 +211,9 @@ def build():
         put(f"f1_{key}_q08_best", float(f1.loc["0.8", ds].max()))
         put(f"f1_{key}_q08_best_model", f"`{f1.loc['0.8', ds].idxmax()}`", str)
         put(f"f1_{key}_q05_best", float(f1.loc["0.5", ds].max()))
-    lbfgsb = f1.xs("SiMLR-LBFGSB", level="Model")
-    put("f1_lbfgsb_np", float(lbfgsb.loc[("0.5", "NonnegParts")]))
-    put("f1_lbfgsb_npw", float(lbfgsb.loc[("0.5", "NonnegPartsWeak")]))
+    simlr_f1 = f1.xs("SiMLR", level="Model")
+    put("f1_simlr_np", float(simlr_f1.loc[("0.5", "NonnegParts")]))
+    put("f1_simlr_npw", float(simlr_f1.loc[("0.5", "NonnegPartsWeak")]))
     for m in ("NED", "NEDPP"):
         put(f"f1_{m}_np", float(f1.loc[("0.5", "NonnegParts", m)]))
         put(f"f1_{m}_npw", float(f1.loc[("0.5", "NonnegPartsWeak", m)]))

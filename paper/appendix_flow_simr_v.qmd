@@ -253,7 +253,7 @@ df = pd.read_csv(csv_path)
 df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR", "NSAFlow-Turnkey": "NSAFlow-PCA"})
 
 real_dsets = ["Heart", "Diabetes", "MultiOmics", "TCGA-KIRC", "ADNI-MCI", "mfeat"]
-target_models = ["Flow-SiMR-V", "LEND", "SiMLR-LBFGSB", "NSAFlow-PCA"]
+target_models = ["Flow-SiMR-V", "LEND", "NSAFlow-PCA"]
 
 rows = []
 for ds in real_dsets:
