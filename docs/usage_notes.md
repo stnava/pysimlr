@@ -213,6 +213,48 @@ index (MAI): the leave-one-out agreement of the view's latent with the other vie
 - **Cost:** about 10 ms per update with floors at n=1000 and M=6, against 1–2 ms without.
   Floors run on 1 update in 10.
 
+## Adding a modality to a fitted model (`pysimlr.extend`)
+
+New modalities often arrive after a model is fitted. `pysimlr.extend(res, views, new_views)`
+adds them without refitting, for any method. It returns a new result and never changes `res`.
+`views` are the original views for the subjects that have the new modality, as a list or a dict
+by view name; `new_views` is `{"pet": X_pet, ...}`.
+
+- **`how="anchored"` (the default)** freezes the model.
+  - **How it works:** each new view gets a linear encoder fitted to the model's own consensus,
+    under the fit's energy, positivity, sparseness and NSA-Flow weight.
+  - **Same component frame:** the new view's `structure` and `loadings` use the model's rotation,
+    so components keep their numbers and meaning.
+  - **Checks:** a held-out coupling check warns when the new view does not align with the model.
+  - **Unchanged predictions:** predictions from the original views are unchanged, bit for bit.
+- **`how="reembed"`** is ANTsR's algorithm (`extend_simlr_embedding_with_new_modalities`), with
+  every option.
+  - **How it works:** it fits a new joint embedding of the existing views' scores and the new
+    views' features.
+  - **Output:** the result is a new model (`reembedded`). The original model does not gain the
+    new view.
+- **`predict` from any subset of views:**
+  - **Input:** `pysimlr.predict(res, {"view0": X0, "pet": X_pet})`, or a list with `None` for a
+    missing view. This works for every result, extended or not.
+  - **The consensus:** a precision-weighted average of each available view's map to the training
+    consensus.
+  - **All original views present:** the original, exact consensus is used.
+
+**Evidence** (`scripts/extend_check.py`, `docs/audit/evidence/extend_check.csv`): a planted
+design with three views, 5 seeds; anchored extension with C compared with a full refit on all
+three views.
+
+| method | latent R², A + B | A + B + C, anchored | full refit | C alone |
+|---|---|---|---|---|
+| `simlr` | 0.969 | 0.974 | 0.976 | 0.908 |
+| `ned` | 0.795 | 0.830 | 0.858 | 0.863 |
+
+- **Linear `simlr`:** anchored is within 0.002–0.003 of the refit on every seed.
+- **Deep models:** an anchored extension is only as good as the frozen model. On one seed the
+  frozen `ned` model was weak (0.67), and the refit gained 0.25. Extending can't repair a weak
+  model; refit when the original model is weak.
+- **The new view's encoder is linear,** even for deep and flow models.
+
 ## Fused ridge (multi-task regression with fused coefficients)
 
 `fit_fused_ridge` fits one coefficient vector per *task* and pulls neighbouring tasks'

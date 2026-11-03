@@ -12,6 +12,43 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D19 (pysimlr.extend: adding unseen modalities to a fitted model, 2026-11-03)
+status: done (branch `feat/extend`, not merged)
+- **`pysimlr.extend(result, views, new_views, how="anchored" | "reembed")`,** for any method.
+  - **anchored:**
+    - the model is frozen; each new view gets a linear encoder fitted to the model's consensus
+      under the fit's energy and constraints;
+    - its `structure`, `loadings` and `loading_margin` are in the original frame;
+    - a held-out coupling warning (Fisher-z bar), and a certificate against the least-squares
+      bound (`BOUND_GAP_TOL` 0.01).
+  - **reembed:** ANTsR's algorithm with every option; existing scores come from `predict`, so
+    deep and flow models are handled.
+- **`predict` from any subset of views** (dict by name, or `None` entries), extended or not:
+  precision-weighted per-view affine maps to the training consensus. With all original views
+  present, the output is bit-identical to before.
+- **Rule** (anchored within 0.05 of a full refit on average, no seed worse by more than 0.10):
+  - simlr: **ACCEPT**, mean −0.0022, worst −0.0027.
+  - ned: **REJECT** as a default for deep models, mean −0.028, worst −0.249. On that seed the
+    frozen A + B model was weak (0.668) and the refit reached 0.929. Anchoring inherits the
+    frozen model's quality.
+  - `how="anchored"` stays the general default; the default for deep models is the owner's call.
+- **Anomaly found and fixed:** every encoder fit stopped `no_descent` after 4–16 steps. The NSA
+  retraction is not a convex projection, so a stall certifies nothing (the gradient map does not
+  shrink), and counting it as converged was wrong. Endpoints are certified against the
+  least-squares bound instead:
+  - simlr gaps 0.002–0.004, certified;
+  - ned gaps 0.011–0.013, reported not converged.
+- **Not done:**
+  - **ANTsR parity:** ANTsR 0.6.7's `extend_simlr_embedding_with_new_modalities` errors inside
+    its own fit on a clean two-block input ("arguments imply differing number of rows: 1, 12,
+    7"); its projection step works. External repo, not edited.
+  - **`nnh.extend_simlr_embedding_with_new_modalities`** (the ANTsPyMM data-frame port) is left
+    as it was rather than rerouted through `reembed`.
+  - **No gallery figure:** extended views are not appended to `latents`, so the chord and radar
+    plots don't show them yet.
+- **Verification:** `tests/test_extend.py` (10 tests); full suite 1742 passed, 3 xfailed; `antsxqc.lint` 0 findings. Module: `src/pysimlr/extension.py` (`extend.py` would shadow the `extend` function).
+
+
 ## D18 (v0.11.0 release: plotting redesign, 2026-11-03)
 status: done (`3474e9d`, `9d354fb`; this release commit)
 - **`pysimlr.plotting` redesigned.** The owner rejected the v0.9.0 gallery; this version was

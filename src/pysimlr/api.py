@@ -500,9 +500,20 @@ def predict(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
     (``centerAndScale``; `simlr` also divides by a constant, which R^2 ignores).
     ``r2`` is therefore held-out variance explained relative to the training
     mean, on the same per-feature scale for every method.
+
+    ``views`` may also be a dict keyed by view name (``result["view_names"]``,
+    or ``view0 ...``, plus any views added by `pysimlr.extend`), or a list
+    with ``None`` for a missing view. Then ``u`` is built from the available
+    views only (`pysimlr.extension.predict_views`) and ``latents``, ``r2``,
+    ``mse`` and ``reconstructions`` are dicts keyed by view name.
     """
     if "method" not in result:
         raise ValueError("predict needs a result from pysimlr.fit (it carries 'method').")
+    # A subset of views (a dict, or None for a missing view) or extended views
+    # (`pysimlr.extend`): the consensus is built from the views available.
+    if isinstance(views, dict) or (isinstance(views, (list, tuple)) and any(v is None for v in views)):
+        from .extension import predict_views
+        return predict_views(result, views)
     spec = resolve_method(result["method"])
     view_list = as_views(views)
     out = spec.predict(view_list, result)
