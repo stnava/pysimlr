@@ -59,7 +59,7 @@ import torch
 __all__ = [
     "SimilarityContext", "SIMILARITY", "similarity_names",
     "similarity_energy", "similarity_gradient", "describe_similarity",
-    "REJECTED_ENERGY_NAMES", "resolve_energy_name",
+    "REJECTED_ENERGY_NAMES", "resolve_energy_name", "check_fit_energy", "AUXILIARY_ENERGIES",
 ]
 
 
@@ -426,6 +426,18 @@ def energy_kurtosis(s, u, ctx=None):
     return _ica_contrast(s, u, "kurtosis", ctx.eps if ctx else 1e-10)
 
 
+#: Registry entries that are auxiliary terms, not fit objectives. Each is a
+#: function of the view alone (no dependence on ``u``), so as ``energy_type``
+#: every view would optimise independently with no cross-view coupling.
+#: `check_fit_energy` refuses them; they remain available to the terms that
+#: use them (``negentropy_weight``).
+AUXILIARY_ENERGIES = {
+    "negentropy": ("it has no dependence on the consensus u, so each view would "
+                   "run its own ICA with no cross-view coupling. Use it as an auxiliary "
+                   "term (negentropy_weight > 0) beside a similarity energy"),
+}
+
+
 #: name -> (function, needs-data, one-line description). The single source of
 #: truth: adding a similarity is an entry here, not an edit in two modules that
 #: can drift apart.
@@ -494,6 +506,15 @@ def resolve_energy_name(name: str, path: Optional[str] = None) -> str:
             "by driving V to zero. Pass 'recon_r2', the same residual with the "
             "column scale profiled out.")
     return name
+
+
+def check_fit_energy(name: str, path: Optional[str] = None) -> str:
+    """`resolve_energy_name`, plus refusal of `AUXILIARY_ENERGIES` as a fit's
+    ``energy_type``. Called at every fit entry point."""
+    key = resolve_energy_name(name, path)
+    if key in AUXILIARY_ENERGIES:
+        raise ValueError(f"energy_type={key!r} is not a fit objective: {AUXILIARY_ENERGIES[key]}.")
+    return key
 
 
 def similarity_names() -> list:

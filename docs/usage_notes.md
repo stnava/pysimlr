@@ -63,8 +63,12 @@ stable:
 
 - **`res["structure"]`:** one matrix per view (features × k) of correlations between each
   feature and each shared component (structure coefficients).
-- **`res["loadings"]`:** the two-stage loadings. These are the structure coefficients in a
-  varimax-rotated, sign-anchored basis.
+- **`res["loadings"]`:** the two-stage loadings, the OLEE summary of `structure`.
+- **Both are in a varimax-rotated, sign-anchored frame.** The rotation is
+  `R = res["loading_rotation"]`, and `structure` is exactly corr(X, `u @ R`). `res["u"]`,
+  `res["latents"]` and `predict(...)["u"]` are *not* rotated. To pair component j of the loadings
+  with subject scores, use `res["u"] @ R` (or `predict(res, new)["u"] @ R`). Do not rotate
+  `structure` again.
   - With `positivity="positive"` each feature is hard-assigned to one component, so supports are
     disjoint, and `res["loading_margin"]` gives the assignment margin.
   - With signed fits (`positivity="either"`, the default) the loadings are dense, and
@@ -129,8 +133,14 @@ per view, in the training standardisation.
 ## Choosing an energy
 
 - **`nc` (the default)** and the other scale-free energies (`align`, `procrustes`, `recon_r2`,
-  and the ICA contrasts `logcosh`, `exp`, `kurtosis`, `negentropy`) weight views equally, 1/M.
-  For `nc` the total energy is bounded below by −1.
+  and the contrasts `logcosh`, `exp`, `kurtosis`) weight views equally, 1/M. For `nc` the
+  total energy is bounded below by −1.
+- **`logcosh`, `exp` and `kurtosis` are not negentropy.** They apply a contrast to the k × k
+  cross-correlation between a view's scores and the consensus. They are coupling energies, like
+  `nc`.
+- **`negentropy` is not a fit objective.** It has no dependence on the consensus, so as an
+  `energy_type` each view would run its own ICA with no coupling, and pysimlr refuses it. Use it
+  as an auxiliary term (`negentropy_weight > 0`) beside a similarity energy.
 - **`acc` and `recon` are not scale-free.** Each view is weighted by 1/(|E0|·M), where E0 is its
   energy at the start of the fit, so their relative view weights depend on the initialisation.
   Prefer `nc` unless you need these specifically.
