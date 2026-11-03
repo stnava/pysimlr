@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: v0.10.0 released from `main` (calibrated MAI with the ADNI regression fixed; efficiency review; select_rank extensions).
+current phase: v0.11.0 released from `main` (plotting redesign: one visual system, chord and radar figures; learning-rate study, no default changed).
 next WP: D2 paper on `amigo-paper` (merge `main` first); open findings in D17 (NSA-Flow failure on k = p narrow views at lr 0.3; MPS SVD round-trip, waits on the nsa_flow device option).
 blockers: none
 active work: `amigo` / `amigo-paper` (D2); the owner's uncommitted paper and manuscript edits in the main working tree
@@ -11,6 +11,31 @@ last updated: 2026-11-03
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D18 (v0.11.0 release: plotting redesign, 2026-11-03)
+status: done (`3474e9d`, `9d354fb`; this release commit)
+- **`pysimlr.plotting` redesigned.** The owner rejected the v0.9.0 gallery; this version was
+  accepted.
+  - **`theme()`:** one visual system, with a type hierarchy, a header band with a reading line
+    and a status line, hairline axes and ringed markers.
+  - **`VIEW_COLORS`:** fixed categorical slots, validated for colour-vision deficiency
+    (adjacent dE >= 9.1). One blue ramp for magnitude; blue-neutral-red for signed values.
+  - **No second y-axis anywhere.**
+- **New figures:**
+  - `plot_view_chord`: per-pair slots filled in proportion to r, so weak coupling shows as
+    empty arc;
+  - `plot_component_radar`;
+  - `plot_view_radar`;
+  - `plot_feature_chord`.
+- **Layout changes callers must expect:**
+  - `plot_latent_coupling` has two panels;
+  - `plot_view_correlations` draws a chord, or a matrix when given `ax`;
+  - axes titles are left-aligned (read them with `get_title("left")`).
+- **Gallery:** `docs/plotting_gallery.html`, a planted four-view study with sub-coupling,
+  captions computed from the fit, 30 figures.
+- **Also in this release (`9d354fb`):** the learning-rate default study (D17, not adopted);
+  every fit reports `learning_rate`.
+- **Verification:** 1731 passed, 3 xfailed; `antsxqc.lint` 0 findings; no `.antsxqc-allow`.
 
 ## D17 (learning-rate default, per-component MAI, device-sync audit: three null results, 2026-11-03)
 status: done (this commit); no default changed
