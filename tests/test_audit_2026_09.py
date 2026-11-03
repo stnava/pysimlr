@@ -100,40 +100,7 @@ def test_orthogonality_term_gradient_matches_its_energy():
     assert _cos(-fd, step) > 0.9999
 
 
-def test_the_oracle_simlr_hands_its_optimizer_is_consistent():
-    """A4 at the source, and the 0.4.0 oracle fix: inside a real `simlr`
-    sweep (constraint "ortho", so the orthogonality term is live), the smooth
-    energy and the gradient given to the quasi-Newton solver must describe one
-    function in float64. They used to score the projected point in float32
-    while returning a tangent-projected gradient: slopes 2-14x off."""
-    import importlib
-    O = importlib.import_module("pysimlr.optimizers")
-    simlr = importlib.import_module("pysimlr.simlr").simlr
-    seen = []
-    orig = O.NSALBFGSB.step
 
-    def spy(self, i, v, g, f=None):
-        if not seen:
-            E, grad = self.smooth_energy_function, self.gradient_function
-            v0 = v.detach().double()
-            d = torch.randn(v0.shape, generator=torch.Generator().manual_seed(3), dtype=v0.dtype)
-            d /= d.norm()
-            h = 1e-5
-            fd = (E(v0 + h * d) - E(v0 - h * d)) / (2 * h)
-            seen.append((float((-grad(v0) * d).sum()), fd))
-        return orig(self, i, v, g, f)
-
-    O.NSALBFGSB.step = spy
-    try:
-        g = torch.Generator().manual_seed(0)
-        z = torch.randn(50, 2, generator=g)
-        views = [z @ torch.randn(2, p, generator=g) + 0.3 * torch.randn(50, p, generator=g) for p in (8, 6)]
-        simlr(views, k=2, iterations=1, optimizer_type="nsa_lbfgsb", nsa_w=0.3,
-              energy_type="acc", random_state=0)
-    finally:
-        O.NSALBFGSB.step = orig
-    slope, fd = seen[0]
-    assert slope == pytest.approx(fd, rel=1e-5, abs=1e-12)
 
 
 def test_one_orthogonality_defect_for_energy_losses_and_reports():
@@ -154,29 +121,3 @@ def test_one_orthogonality_defect_for_energy_losses_and_reports():
             assert other not in src.replace("import", ""), (module.__name__, other)
 
 
-def test_view_callbacks_stay_bound_to_their_view():
-    """The energy and gradient callbacks are built per view; called after the
-    sweep they must still evaluate their own view. Defined in the loop they read
-    the loop index late, and view 0's gradient computed with view 2's data
-    raised a shape mismatch."""
-    import importlib
-    O = importlib.import_module("pysimlr.optimizers")
-    simlr = importlib.import_module("pysimlr.simlr").simlr
-    kept = {}
-    orig = O.NSALBFGSB.step
-
-    def spy(self, i, v, g, f=None):
-        kept.setdefault(i, (self.smooth_energy_function, self.gradient_function, v.detach().clone()))
-        return orig(self, i, v, g, f)
-
-    O.NSALBFGSB.step = spy
-    try:
-        g = torch.Generator().manual_seed(0)
-        z = torch.randn(40, 2, generator=g)
-        views = [z @ torch.randn(2, p, generator=g) + 0.3 * torch.randn(40, p, generator=g) for p in (8, 6, 4)]
-        simlr(views, k=2, iterations=1, optimizer_type="nsa_lbfgsb", random_state=0)
-    finally:
-        O.NSALBFGSB.step = orig
-    for i, (E, grad, v) in kept.items():
-        assert grad(v).shape == v.shape, i
-        assert np.isfinite(E(v)), i

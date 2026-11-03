@@ -46,6 +46,7 @@ item that is in progress or on hold.
 | `eabab15` | Re-measure after equal view weights. |
 | `708c9c6` | View-weighting remediation (R1 at default budget). |
 | `394144c` | Keep `acc` view scale under Decision Rule R9 (WP-1b). |
+| `84df107` | Drop `simlr_lbfgsb` and `nsa_lbfgsb` per Decision Rule R5 (WP-7). |
 
 ## Why: feature identifiability (measured)
 
@@ -255,8 +256,25 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
     - Condition 2: Newton loses the column correlation that avg keeps: MET (Newton score corr 0.0000 vs Avg 0.3015).
     - *Verdict*: Added "Limitations" paragraph to `docs/api_contract.md`: newton represents the subspace, not correlated axes, and `mixing_algorithm="avg"` keeps them.
     - *Code change*: **No code change either way (`mixing_algorithm="newton"` remains default)**.
-- **D5. D9 proximal constants** (2.5 / 64) are uncalibrated: run a 3×3 grid, or drop
-  `simlr_lbfgsb` if it never beats `hybrid_adam`.
+- **D5. simlr_lbfgsb calibration vs drop (Decision Rule R5, WP-7).** Executed 3×3 proximal
+  hyperparameter grid search using `scripts/lbfgsb_calibration.py` (evidence:
+  `docs/audit/evidence/lbfgsb_calibration.csv`):
+  - *Grid points*: `_PROX_QUAD_COEFF` $\in \{1.0, 2.5, 5.0\}$ × `_PROX_QUARTIC_COEFF` $\in \{16.0, 64.0, 256.0\}$.
+  - *Evaluation design*: 12 cells ({buried, linear} × {either, positive} × seeds 0–2) at default budget (300 iterations), totaling 108 fits in parallel (`ProcessPoolExecutor(max_workers=6)`).
+  - *Baseline*: `hybrid_adam` equal-arm baseline from `docs/audit/evidence/view_weighting_selection.csv` (mean latent R² 0.9859 on buried, 0.9840 on linear; support F1 0.7088 on buried, 0.7303 on linear).
+  - *Measured calibration results*:
+    - Across all 9 grid points, `simlr_lbfgsb` suffers severe collapse on the buried-signal cells (`buried_either`, `buried_positive`): mean latent R² collapses to $0.0108 - 0.0153$ (individual cell latent R² $\approx 0.009 - 0.021$).
+    - Non-inferiority cell guard: paired cell $\Delta \text{latent\_r2}$ on buried structure reaches $-0.9635$ to $-0.9684 \ll -0.05$ guard across all 9 grid points.
+    - Non-inferiority mean difference: mean $\Delta \text{latent\_r2}$ across all 12 cells ranges from $-0.485$ to $-0.488 \ll -0.05$.
+    - Perturbation reproducibility (D9 metric, 1e-8 input noise, QR projector diff norm): 5 of 9 grid points fail the $10^{-4}$ gate (mean perturbation gap up to $0.0048$, max $0.0416$).
+  - *Decision Rule R5 evaluation*:
+    - Condition: Retain `simlr_lbfgsb` if at least one grid point achieves non-inferiority to `hybrid_adam` (mean $\Delta \text{latent\_r2} \ge -0.05$, mean $\Delta \text{support\_f1} \ge -0.10$, and per-cell guards $\ge -0.05$ and $-0.10$ respectively); otherwise drop `simlr_lbfgsb` and `nsa_lbfgsb`.
+    - Result: 0 of 9 grid points meet non-inferiority (all 9 fail the per-cell $\Delta \text{latent\_r2}$ guard by $\approx -0.968$).
+    - *Verdict*: **DROP** `simlr_lbfgsb` and `nsa_lbfgsb` per Decision Rule R5.
+  - *Action taken*:
+    - `src/pysimlr/api.py`: Removed `simlr_lbfgsb` from registered specs and presets. Added to `REMOVED_METHODS` raising `ValueError` directing users to `'simlr'` with default optimizer `'hybrid_adam'`.
+    - `src/pysimlr/optimizers.py`: Removed `NSALBFGSB` class and `nsa_lbfgsb` from optimizer registry. Added to `REMOVED_OPTIMIZERS`. Updated `LEARNING_RATE_FREE_OPTIMIZERS = frozenset()`.
+    - Migrated tests and documentation across test suite, scripts, and contract docs.
 - **D6. NED rounding sensitivity** (`_ROUNDING_UNSTABLE`): find the first epoch where the
   trajectories diverge, and the operation that causes it.
 - **T2. Change requested in ANTsTorch** (a different repository, not edited from here):

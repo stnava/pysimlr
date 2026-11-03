@@ -227,7 +227,7 @@ def test_every_model_reports_the_axis_sensitive_metric():
     from pysimlr.benchmarks.runner import run_single_experiment
     from pysimlr.benchmarks.synthetic_cases import build_case
     case = build_case(kind="linear", n_samples=160, seed=42)
-    for model_type in ("simlr", "simlr_lbfgsb", "pca"):
+    for model_type in ("simlr", "pca"):
         m = run_single_experiment(model_type, case, seed=42, iterations=3)["metrics"]
         assert "first_layer_axis_test_r2" in m, (
             f"{model_type} reports no axis-sensitive metric, so the benchmark "

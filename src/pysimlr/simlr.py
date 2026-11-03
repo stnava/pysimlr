@@ -1629,8 +1629,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     nsa_w = check_nsa_w(nsa_w)
     constraint_type = "ortho" if nsa_w > 0.0 else "none"
     constraint_weight = nsa_w
-    # `positivity` reaches the optimizer: without it the bound-constrained
-    # `nsa_lbfgsb` ran with no lower bound under positivity="positive".
+    # `positivity` reaches the optimizer for bound-constrained solvers.
     opt_params["positivity"] = positivity
     optimizer = create_optimizer(optimizer_type, v_mats, **opt_params)
     

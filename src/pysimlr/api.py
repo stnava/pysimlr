@@ -293,13 +293,6 @@ def _simlr_extra(keys=None) -> Dict[str, Any]:
     return extra
 
 
-#: Hyperparameters the preset optimizer reads (`NSALBFGSB` for nsa_lbfgsb;
-#: checked against its source in
-#: test_api_registry). Anything else passed to these methods is reported as
-#: ignored instead of being accepted and never read.
-NSA_LBFGSB_KEYS = ("lbfgsb_tol", "max_iter", "nonneg")
-
-
 def _frozen(d: Mapping[str, Any]) -> Mapping[str, Any]:
     return types.MappingProxyType(dict(d))
 
@@ -307,10 +300,6 @@ def _frozen(d: Mapping[str, Any]) -> Mapping[str, Any]:
 _SPECS = [
     MethodSpec("simlr", "linear", simlr, _predict_linear, "iterations",
                "Linear SiMLR: one sparse, NSA-Flow-constrained basis per view.", extra_params=_frozen(_simlr_extra())),
-    MethodSpec("simlr_lbfgsb", "linear", simlr, _predict_linear, "iterations",
-               "`simlr` with nsa_flow's bound-constrained L-BFGS-B (optimizer_type fixed).",
-               presets=_frozen({"optimizer_type": "nsa_lbfgsb"}),
-               extra_params=_frozen(_simlr_extra(NSA_LBFGSB_KEYS))),
     MethodSpec("lend", "deep", lend_simr, _predict_deep, "epochs",
                "LEND: linear first layer, nonlinear decoders."),
     MethodSpec("ned", "deep", ned_simr, _predict_deep, "epochs",
@@ -330,6 +319,10 @@ _SPECS = [
 METHODS: Mapping[str, MethodSpec] = types.MappingProxyType({s.name: s for s in _SPECS})
 _ALL_PARAMS = frozenset().union(*(s.accepts for s in _SPECS))
 
+REMOVED_METHODS: Mapping[str, str] = types.MappingProxyType({
+    "simlr_lbfgsb": "was dropped per empirical decision rule R5; use 'simlr' (default optimizer 'hybrid_adam').",
+})
+
 
 def method_names(family: Optional[Union[str, Iterable[str]]] = None) -> List[str]:
     """Registered method names, optionally restricted to one or more families."""
@@ -344,6 +337,8 @@ def method_names(family: Optional[Union[str, Iterable[str]]] = None) -> List[str
 
 def resolve_method(name: str) -> MethodSpec:
     """The spec for a registered method name (there are no aliases)."""
+    if name in REMOVED_METHODS:
+        raise ValueError(f"method {name!r} was removed: {REMOVED_METHODS[name]}")
     if name not in METHODS:
         raise ValueError(f"unknown method {name!r}; registered: {list(METHODS)}.")
     return METHODS[name]

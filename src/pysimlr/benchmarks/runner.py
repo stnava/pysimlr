@@ -252,10 +252,8 @@ def run_single_experiment(model_type: str,
     # Models without a separate first layer score their latents directly.
     # This used to test `model_type` against a hardcoded list, so every model
     # added to the benchmark silently defaulted its axis-sensitive metric to
-    # 0.0 until someone remembered to extend the list -- `simlr_lbfgsb` scored
-    # exactly 0.0000 on all 90 of its tasks that way, against ~0.60 for every
-    # other model. The condition that matters is whether first-layer scores
-    # exist, not which model produced them.
+    # 0.0 until someone remembered to extend the list. The condition that matters
+    # is whether first-layer scores exist, not which model produced them.
     if fl_scores_train is None and pred_train.get("latents") is not None:
         fl_scores_train = pred_train.get("latents")
         fl_scores_test = pred_test.get("latents")

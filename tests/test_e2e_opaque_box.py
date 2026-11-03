@@ -157,7 +157,7 @@ class TestTier1FeatureCoverage:
         # 2. Three views
         views3 = clean_three_views["views"]
         k3 = clean_three_views["k"]
-        res3 = simlr(views3, k=k3, iterations=8, optimizer_type="nsa_lbfgsb")
+        res3 = simlr(views3, k=k3, iterations=8, optimizer_type="hybrid_adam")
         assert len(res3["v"]) == 3
         for i, dim in enumerate(clean_three_views["dims"]):
             assert res3["v"][i].shape == (dim, k3)
@@ -261,7 +261,7 @@ class TestTier1FeatureCoverage:
         k = clean_two_views["k"]
 
         # Single-view fit & transform
-        single_est = MultiViewSiMR(n_components=k, iterations=8, optimizer_type="nsa_lbfgsb", random_state=42)
+        single_est = MultiViewSiMR(n_components=k, iterations=8, optimizer_type="hybrid_adam", random_state=42)
         single_est.fit(x1_np)
         assert hasattr(single_est, "components_")
         assert hasattr(single_est, "loadings_")
@@ -277,7 +277,7 @@ class TestTier1FeatureCoverage:
         assert rec_single.shape == x1_np.shape
 
         # Multi-view fit & transform
-        multi_est = MultiViewSiMR(n_components=k, iterations=8, optimizer_type="nsa_lbfgsb", random_state=42)
+        multi_est = MultiViewSiMR(n_components=k, iterations=8, optimizer_type="hybrid_adam", random_state=42)
         multi_est.fit([x1_np, x2_np])
         assert isinstance(multi_est.components_, list)
         assert len(multi_est.components_) == 2
@@ -420,7 +420,7 @@ class TestTier2BoundariesAndCornerCases:
         k = clean_two_views["k"]
 
         # 1. Single-view MultiViewSiMR batch invariance
-        single_est = MultiViewSiMR(n_components=k, iterations=8, optimizer_type="nsa_lbfgsb", random_state=42)
+        single_est = MultiViewSiMR(n_components=k, iterations=8, optimizer_type="hybrid_adam", random_state=42)
         single_est.fit(x1.numpy())
         batch_x1 = x1[:5].numpy()
         z_batch = single_est.transform(batch_x1)
@@ -550,7 +550,7 @@ class TestTier3CrossFeatureInteractions:
             assert wv.shape == (clean_three_views["n"], k_pca)
 
         # 2. SiMLR alignment on whitened representations
-        res = simlr(whitened_views, k=k_simlr, iterations=10, optimizer_type="nsa_lbfgsb")
+        res = simlr(whitened_views, k=k_simlr, iterations=10, optimizer_type="hybrid_adam")
         assert len(res["v"]) == 3
         for v in res["v"]:
             assert v.shape == (k_pca, k_simlr)
@@ -621,7 +621,7 @@ class TestTier3CrossFeatureInteractions:
 
         pipe = Pipeline([
             ("scaler", StandardScaler()),
-            ("simlr", MultiViewSiMR(n_components=2, iterations=8, optimizer_type="nsa_lbfgsb", random_state=42)),
+            ("simlr", MultiViewSiMR(n_components=2, iterations=8, optimizer_type="hybrid_adam", random_state=42)),
             ("clf", LogisticRegression(C=1.0, solver="lbfgs")),
         ])
 
@@ -734,7 +734,7 @@ class TestTier4RealWorldWorkloads:
             y_tr, y_te = y[train_idx], y[test_idx]
 
             # Fit multi-view estimator strictly inside training fold (zero test leakage)
-            simlr_model = MultiViewSiMR(n_components=k, iterations=10, optimizer_type="nsa_lbfgsb", random_state=42)
+            simlr_model = MultiViewSiMR(n_components=k, iterations=10, optimizer_type="hybrid_adam", random_state=42)
             z_tr = simlr_model.fit_transform([x1_tr, x2_tr])
             z_te = simlr_model.transform([x1_te, x2_te])
 

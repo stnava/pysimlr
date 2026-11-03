@@ -58,7 +58,7 @@ def test_lookahead_uses_the_supplied_period_and_interpolation():
 def test_defaults_cover_every_key_the_optimizers_read():
     for key in ("learning_rate", "beta1", "beta2", "rmsprop_beta", "epsilon",
                 "weight_decay", "amsgrad", "momentum", "decay_rate",
-                "lookahead_k", "alpha", "lbfgsb_tol"):
+                "lookahead_k", "alpha"):
         assert key in SIMLR_OPTIMIZER_DEFAULTS, key
 
 

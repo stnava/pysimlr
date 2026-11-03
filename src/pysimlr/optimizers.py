@@ -11,11 +11,9 @@ from abc import ABC, abstractmethod
 #: :meth:`SimlrOptimizer.filter_params`, so it must stay in sync with the
 #: optimizer implementations below.
 
-#: Optimizers that never read `learning_rate` (L-BFGS-B has its own line
-#: search). `simlr` skips the
-#: learning-rate probes for them: every candidate scored identically, so
-#: `learning_rate="auto"` cost seven wasted fits per call.
-LEARNING_RATE_FREE_OPTIMIZERS = frozenset({"nsa_lbfgsb"})
+#: Optimizers that never read `learning_rate`. `simlr` skips the
+#: learning-rate probes for them.
+LEARNING_RATE_FREE_OPTIMIZERS = frozenset()
 
 SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
     'learning_rate': 0.001,
@@ -29,11 +27,9 @@ SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
     'decay_rate': 1e-3,    # LARS weight decay
     'lookahead_k': 5,      # Lookahead slow-weight period (was 'k', which collided with simlr's rank)
     'alpha': 0.5,          # Lookahead slow-weight interpolation
-    'max_iter': 20,        # NSA L-BFGS-B maximum iterations per step
     'reparameterize': True, # Quadratic reparameterization for non-negativity
     'positivity': 'either', # Positivity constraint type
     'nonneg': None,         # Explicit nonneg flag for bound-constrained solvers
-    'lbfgsb_tol': 1e-9,     # nsa_lbfgsb solver tolerance (was 'tol', which collided with simlr's convergence tol)
 }
 
 class SimlrOptimizer(ABC):
@@ -757,242 +753,17 @@ class TorchNativeOptimizer(SimlrOptimizer):
         optimizer.step()
         return v_param.detach().clone()
 
-class NSALBFGSB(SimlrOptimizer):
-    r"""Bound-constrained L-BFGS-B, delegated to NSA-Flow's pure-torch solver.
-
-    Why this rather than ``torch_lbfgs``
-    ------------------------------------
-    ``torch.optim.LBFGS`` is unconstrained. SiMLR's feasible set under a
-    non-negative ``positivity`` is ``V >= 0``, and the existing path handles
-    that by taking an unconstrained step and re-projecting afterwards. That is
-    projected gradient wearing a quasi-Newton hat: the curvature information is
-    built from iterates that keep being clipped, and the active set can only
-    change by whatever the projection happens to do after the fact.
-
-    L-BFGS-B builds the bound into the step. Its generalized Cauchy point
-    minimises the quadratic model along the piecewise-linear projected steepest
-    descent path, so it can activate or release many bounds in a single
-    iteration, then minimises over the free variables with the limited-memory
-    Hessian. On these objectives about half the coordinates sit at zero, which
-    is exactly the regime where identifying the active set in one shot matters.
-
-    NSA-Flow deprecated its own ``torch_lbfgs`` path on measured evidence when
-    it introduced this solver; pysimlr's copy of that path additionally warns
-    that its line search reuses a stale gradient unless a ``gradient_function``
-    is supplied. Both point the same way.
-
-    Proximal-quartic inner subproblem
-    ---------------------------------
-    Each outer sweep holds the consensus ``u`` fixed and hands ``step`` a
-    smooth block objective :math:`E(V)` with its exact ``float64`` gradient.
-    Around the incoming constrained iterate :math:`V_0`, :math:`E(V)` is
-    indefinite: 0-homogeneous column normalisation :math:`v_j / \|v_j\|_2`
-    carries radial-tangential Hessian eigenvalues
-    :math:`\pm \|\nabla_{v_j} E\|_2 / \|v_j\|_2`, and ``orthogonality_defect``
-    plus ``correlation_penalty`` contribute indefinite cross-column curvature
-    away from exact Stiefel frames (measured eigenvalues down to ``-32.4``).
-    Running 20 unanchored quasi-Newton steps over those saddles drives the
-    L-BFGS scaling :math:`\theta = y^\top y / s^\top y` down by four orders of
-    magnitude and amplifies ``1e-8`` float32 input perturbations into
-    ``0.06--0.83`` subspace gaps.
-
-    ``step`` therefore minimises the proximal-quartic subproblem anchored at
-    :math:`V_0`,
-
-    .. math::
-
-        \Phi(V; V_0) = E(V)
-            + \frac{\mu_2}{2}\|V - V_0\|_F^2
-            + \frac{\mu_4}{4}\|V - V_0\|_F^4,
-
-    with column-scale-invariant weights :math:`\mu_2 = 2.5 / s_0^2` and
-    :math:`\mu_4 = 64.0 / (s_0^2 \|V_0\|_F^2)`, where
-    :math:`s_0^2 = \|V_0\|_F^2 / k`. At :math:`V = V_0` both the value and the
-    gradient of the regulariser vanish identically, so fixed-point stationarity
-    and the outer objective are unchanged; :math:`\mu_2` convexifies local
-    negative curvature and :math:`\mu_4` bounds single-sweep excursions against
-    the frozen consensus near :math:`\|V - V_0\|_F \lesssim 0.25 \|V_0\|_F`.
-
-    Notes
-    -----
-    Requires the NSA-Flow backend. `create_optimizer` raises a clear error when
-    it is missing rather than silently substituting a different algorithm.
-    `step` likewise raises ``ValueError`` if either the energy or gradient
-    callable is missing rather than silently taking an unconstrained step.
-
-    SiMLR passes a *descent direction* (``descent_gradient``), and the sign
-    convention here is that the step ascends it; the objective handed to
-    L-BFGS-B is therefore ``full_energy_function`` with gradient
-    ``-gradient_function``, augmented by the proximal-quartic anchor above.
-    """
-
-    #: Dimensionless quadratic proximal weight :math:`c_2` in
-    #: :math:`\mu_2 = c_2 / (\|V_0\|_F^2 / k)`.
-    _PROX_QUAD_COEFF: float = 2.5
-    #: Dimensionless quartic trust-region weight :math:`c_4` in
-    #: :math:`\mu_4 = c_4 / ((\|V_0\|_F^2 / k) \|V_0\|_F^2)` (engages near
-    #: relative excursion :math:`\|V - V_0\|_F / \|V_0\|_F \approx 0.25`).
-    _PROX_QUARTIC_COEFF: float = 64.0
-
-    def __init__(self, optimizer_type: str, v_mats: List[torch.Tensor], **params):
-        super().__init__(optimizer_type, v_mats, **params)
-        from .nsa_backend import load_lbfgsb, load_gradient_mapping
-        self._minimize = load_lbfgsb()
-        self._grad_mapping = load_gradient_mapping()
-        if self._minimize is None:
-            raise ImportError(
-                "optimizer_type='nsa_lbfgsb' needs the NSA-Flow backend "
-                "(nsa_flow.lbfgsb.lbfgsb_minimize), which is not importable."
-            )
-        self.gradient_function: Optional[Callable] = None
-        #: Smooth part of the energy, set by `simlr` with `gradient_function`;
-        #: L-BFGS-B minimises this pair (a smooth function and its exact
-        #: gradient), not the projected objective passed to `step`.
-        self.smooth_energy_function: Optional[Callable] = None
-        # Budget per outer sweep, in gradient evaluations. SiMLR calls `step`
-        # once per modality per sweep, so this is an inner budget and is kept
-        # small; the outer loop supplies the rest of the iteration.
-        self.max_grad = int(self.params.get("max_iter", 20) or 20)
-        if "nonneg" in params and params["nonneg"] is not None:
-            self.nonneg = bool(params["nonneg"])
-        else:
-            positivity = params.get("positivity", None)
-            if positivity == "either":
-                self.nonneg = False
-            elif positivity in {"positive", "hard", "nonnegative"}:
-                self.nonneg = True
-            else:
-                self.nonneg = False
-
-    def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor,
-             full_energy_function: Optional[Callable] = None) -> torch.Tensor:
-        grad_fn = self.gradient_function
-        if self.smooth_energy_function is not None:
-            full_energy_function = self.smooth_energy_function
-        if full_energy_function is None or grad_fn is None:
-            raise ValueError(
-                "NSALBFGSB.step requires both an energy function and "
-                "gradient_function; refusing to fall back to an unconstrained step."
-            )
-
-        v0 = v_current.detach().double()
-        k_cols = max(1, v0.shape[1] if v0.ndim > 1 else 1)
-        v0_norm_sq = max(float((v0 * v0).sum()), 1e-12)
-        col_scale_sq = max(v0_norm_sq / k_cols, 1e-12)
-        mu2 = self._PROX_QUAD_COEFF / col_scale_sq
-        mu4 = self._PROX_QUARTIC_COEFF / (col_scale_sq * v0_norm_sq)
-
-        # A line search probes points the caller never asked for, and under a
-        # V >= 0 bound a long step lands exactly on the zero corner: the whole
-        # basis becomes 0, which is feasible but rank-deficient, so the
-        # projection inside the energy refuses it and the exception propagated
-        # out of the solve. Captured at the point of failure the trial point
-        # was `colnorms=[0.00e+00, 0.00e+00]`.
-        #
-        # An invalid trial point is scored +inf, which is the standard way to
-        # tell a line search to back off. Reviving it instead would hand
-        # L-BFGS-B a different point than the one it asked to evaluate, and its
-        # curvature estimate is built from exactly those (point, value) pairs.
-        INVALID = float("inf")
-
-        def _degenerate(v):
-            return not bool((v.detach().abs() > 1e-12).any(dim=0).all())
-
-        def fun_grad(v):
-            if _degenerate(v):
-                return INVALID, torch.zeros_like(v)
-            try:
-                diff = v - v0
-                q = float((diff * diff).sum())
-                f_prox = 0.5 * mu2 * q + 0.25 * mu4 * q * q
-                g_prox = (mu2 + mu4 * q) * diff
-                return (
-                    float(full_energy_function(v)) + f_prox,
-                    ((-grad_fn(v)) + g_prox).contiguous(),
-                )
-            except (RuntimeError, ValueError):
-                return INVALID, torch.zeros_like(v)
-
-        def fun(v):
-            if _degenerate(v):
-                return INVALID
-            try:
-                diff = v - v0
-                q = float((diff * diff).sum())
-                f_prox = 0.5 * mu2 * q + 0.25 * mu4 * q * q
-                return float(full_energy_function(v)) + f_prox
-            except (RuntimeError, ValueError):
-                return INVALID
-
-        certificate = None
-        if self._grad_mapping is not None:
-            proj = (lambda z: torch.clamp(z, min=0.0)) if self.nonneg else None
-            certificate = lambda x, g: self._grad_mapping(x, g, proj)
-
-        try:
-            # float64: the curvature pairs (s, y) are differences of nearby
-            # iterates and gradients, which float32 reduces to rounding noise.
-            res = self._minimize(
-                v0,
-                fun_grad,
-                fun=fun,
-                lower=0.0 if self.nonneg else None,
-                max_grad=self.max_grad,
-                tol=float(self.params["lbfgsb_tol"]),
-                certificate=certificate,
-            )
-        except (ZeroDivisionError, FloatingPointError, RuntimeError) as exc:
-            # The backend's Cauchy-point search divides by the curvature of the
-            # quadratic model along the projected path, which is zero when that
-            # path is flat -- reachable on these objectives, where the energy
-            # moves by ~1e-5 over a whole solve. Observed as
-            # ZeroDivisionError at nsa_flow/lbfgsb.py:248 on the 3-view case.
-            # An upstream numerical edge case must not take down a benchmark
-            # run, so this modality keeps its iterate and the sweep continues.
-            warnings.warn(
-                f"nsa_lbfgsb inner solve failed for modality {i} "
-                f"({type(exc).__name__}: {exc}); keeping the current iterate "
-                f"for this sweep.",
-                RuntimeWarning, stacklevel=2,
-            )
-            self.last_result = None
-            self.last_rejected = True
-            return v_current.detach().clone()
-        self.last_result = res
-        v_next = res["x"].detach().clone().reshape(v_current.shape).to(v_current.dtype)
-
-        # Reject a step that kills a component.
-        #
-        # The inner solve minimises this modality's energy with the consensus
-        # `u` held fixed, so running it to high accuracy optimises against a
-        # stale target -- the standard alternating-minimisation hazard. On the
-        # 3-view case that shows up as a rank-deficient basis: at an inner
-        # budget of 20 gradients one view's column went to zero and test
-        # R-squared fell from 0.94 to 0.17, while budgets of 10 and 50 were
-        # fine. The dependence on the budget is not monotone, so it is a
-        # degenerate attractor rather than an under-solved step, and no choice
-        # of `max_grad` avoids it in general.
-        #
-        # A basis with a dead column is not a feasible iterate for a rank-k
-        # problem, so it is refused outright and the modality keeps the
-        # iterate it came in with.
-        live_before = (v_current.detach().abs() > 1e-12).any(dim=0)
-        live_after = (v_next.abs() > 1e-12).any(dim=0)
-        if bool((live_before & ~live_after).any()):
-            self.last_rejected = True
-            return v_current.detach().clone()
-        self.last_rejected = False
-        return v_next
-
 
 #: Optimizer names that no longer exist, with the reason and the replacement.
 REMOVED_OPTIMIZERS = {
     "torch_lbfgs": ("it rarely left its start and was once certified stationary there; "
-                    "use 'nsa_lbfgsb'."),
+                    "use 'hybrid_adam'."),
     "nsa_flow": ("it was gradient descent with a fixed step followed by a second "
                  "NSA-Flow projection (the constraint is already applied after every "
                  "step) and fell back to an SVD polar factor without warning; use 'gd' "
                  "or any other optimizer."),
+    "nsa_lbfgsb": ("was dropped per empirical decision rule R5; use 'hybrid_adam' "
+                   "or another registered optimizer."),
 }
 
 
@@ -1014,7 +785,6 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
         - 'lookahead': `Lookahead`
         - 'bidirectional_lookahead': `BidirectionalLookahead`
         - 'torch_adamw', 'torch_adagrad', 'torch_nadam': `TorchNativeOptimizer`
-        - 'nsa_lbfgsb': `NSALBFGSB`, bound-constrained L-BFGS-B (needs NSA-Flow)
         - 'lars': `LARS`
     v_mats : List[torch.Tensor]
         Initial basis matrices for each modality.
@@ -1046,7 +816,6 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
         "torch_adamw": TorchNativeOptimizer,
         "torch_adagrad": TorchNativeOptimizer,
         "torch_nadam": TorchNativeOptimizer,
-        "nsa_lbfgsb": NSALBFGSB,
         "lars": LARS
     }
     if optimizer_type in REMOVED_OPTIMIZERS:

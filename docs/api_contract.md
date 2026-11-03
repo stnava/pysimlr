@@ -8,7 +8,6 @@ Implemented in `src/pysimlr/api.py`; scikit-learn layer in `src/pysimlr/sklearn.
 | name | family | native fit | budget unit |
 |---|---|---|---|
 | `simlr` | linear | `simlr` | iterations (sweeps) |
-| `simlr_lbfgsb` | linear | `simlr`, `optimizer_type="nsa_lbfgsb"` fixed; accepts only the keys L-BFGS-B reads | iterations |
 | `lend` | deep | `lend_simr` | epochs |
 | `ned` | deep | `ned_simr` | epochs |
 | `ned_shared_private` | deep | `ned_simr_shared_private` | epochs |
@@ -44,7 +43,7 @@ hyperparameters (`SIMLR_OPTIMIZER_KEYS`).
 |---|---|
 | Accepted by this method | Forwarded; listed in `parameters["used"]`. |
 | Accepted only by another method | Not forwarded; listed in `parameters["ignored"]` with the reason; a `RuntimeWarning` deduplicated per call site by Python's default warning filter; `strict=True` raises `TypeError`. |
-| Fixed by a preset (`simlr_lbfgsb`'s `optimizer_type`) | As above, with reason "fixed by method". |
+| Fixed by a preset | As above, with reason "fixed by method". |
 | Accepted by no method | `TypeError`: it can only be a misspelling. |
 
 The native entry points raise `TypeError` on any unknown keyword. Renamed `simlr` keywords
@@ -60,7 +59,6 @@ raise with the new name.
 | seed | `random_state` | `init_seed`; sklearn's global seeding |
 | RMSProp decay | `rmsprop_beta` | optimizer `beta`, which collided with the flow models' NLL weight `beta` |
 | Lookahead period | `lookahead_k` | optimizer `k`, which collided with the rank `k` |
-| L-BFGS-B tolerance | `lbfgsb_tol` | optimizer `tol`, which collided with the convergence `tol` |
 
 Schedule offsets keep their `_epoch(s)` suffix: `warmup_epochs`, `stabilization_start_epoch`,
 `stabilization_ramp_epochs` and `shared_warmup_epochs`. They are measured in the method's
@@ -216,7 +214,7 @@ method. All parameters are explicit, so `clone`, `get_params` and `GridSearchCV`
   identity by 3.2 in simulation). Use ANTsTorch directly once that is fixed.
 - Energies `regression`, `gauss`, `normalized_correlation` raise naming the replacement
   (`recon_r2` linear / `align` deep, `exp`, `nc`); `recon` is refused as a linear objective.
-- Optimizers `torch_lbfgs` and `nsa_flow` and the `simlr_lbfgs` method.
+- Optimizers `torch_lbfgs`, `nsa_flow`, and `nsa_lbfgsb`, and methods `simlr_lbfgs` and `simlr_lbfgsb` (dropped per empirical decision rule R5; use `'simlr'` with default optimizer `'hybrid_adam'`).
 - `simlr(constraint=...)`, `parse_constraint`, `project_gradient` and the 13 constraint type
   strings (`Stiefel`, `Grassmann`, `NewtonSchulz`, `ortho*`, `nsaflow*`): every non-`none` type
   ran the same NSA-Flow retraction. Use `nsa_w` (0 = no orthogonality constraint).
