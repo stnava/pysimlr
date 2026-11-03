@@ -4,7 +4,7 @@ import torch.nn as nn
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Any, Union
 from .utils import basis_rank_report
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM, DEFAULT_TOL, DEFAULT_COLLAPSE_THRESHOLD, check_collapse_threshold, check_nsa_w
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM, DEFAULT_TOL, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_DEEP_ITERATIONS, check_collapse_threshold, check_nsa_w
 
 
 #: MAI similarity metrics. `trace` was removed: tr(Z' u_loo) is the only one
@@ -599,6 +599,8 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
             stabilization_start_epoch=stabilization_start_epoch,
             stabilization_ramp_epochs=stabilization_ramp_epochs, tol=tol, patience=patience,
             collapse_threshold=collapse_threshold)
+        from .utils import warn_if_unconverged
+        warn_if_unconverged(conv_report, model_type)
         model.eval()
         with torch.no_grad():
             v_mats, retraction_diagnostics = None, None
@@ -651,7 +653,7 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
 
 def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               k: int,
-              iterations: int = 150,
+              iterations: int = DEFAULT_DEEP_ITERATIONS,
               batch_size: int = 64,
               learning_rate: float = 1e-3,
               weight_decay: float = 1e-4,
@@ -832,7 +834,7 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
 
 def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 k: int,
-                iterations: int = 150,
+                iterations: int = DEFAULT_DEEP_ITERATIONS,
                 batch_size: int = 64,
                 learning_rate: float = 5e-4,
                 weight_decay: float = 1e-4,

@@ -35,3 +35,19 @@ def test_auxiliary_energies_are_refused_as_fit_objectives(method):
 def test_negentropy_still_works_as_an_auxiliary_term():
     r = api.fit("simlr", _views(), 2, negentropy_weight=5.0, iterations=3, random_state=0)
     assert r["convergence"]["n_steps"] >= 1
+
+
+def test_an_unconverged_fit_warns_and_a_converged_one_does_not():
+    import warnings
+    import pysimlr
+    with pytest.warns(pysimlr.ConvergenceWarning, match="max_iter"):
+        api.fit("simlr", _views(), 2, iterations=1, learning_rate=0.01, random_state=0)
+    with pytest.warns(pysimlr.ConvergenceWarning, match="raise iterations"):
+        api.fit("ned", _views(), 2, iterations=2, random_state=0)
+    g = torch.Generator().manual_seed(3)
+    z = torch.randn(80, 2, generator=g)
+    views = [z @ torch.randn(2, p, generator=g) + 0.1 * torch.randn(80, p, generator=g) for p in (8, 6)]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", pysimlr.ConvergenceWarning)
+        r = api.fit("simlr", views, 2, random_state=0)  # auto learning rate: the probes must not warn
+    assert r["convergence"]["converged"]
