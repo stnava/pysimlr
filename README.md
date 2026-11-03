@@ -174,7 +174,7 @@ make clean
 
 ### Repository Structure
 
-* `src/pysimlr/`: Core package (`api.py` -- the method registry, `fit` and `predict`; `simlr.py`, `deep.py`, `flows.py`, `sparsification.py`, `optimizers.py`, `sklearn.py`, `interpretability.py`, `consensus.py`, `benchmarks/`). The interface contract is in `docs/api_contract.md`.
+* `src/pysimlr/`: Core package (`api.py` -- the method registry, `fit` and `predict`; `simlr.py`, `deep.py`, `flows.py`, `sparsification.py`, `optimizers.py`, `sklearn.py`, `interpretability.py`, `consensus.py`, `benchmarks/`). The interface contract is in `docs/api_contract.md`; practical fitting and interpretation notes are in `docs/usage_notes.md`.
 * `tests/`: Unit, statistical calibration, optimizer correctness, and end-to-end tests.
 * `paper/`: Quarto book manuscript (`index.qmd`, `01_intro_background.qmd`, `02_methods.qmd`, `03_experiments.qmd`, `04_discussion.qmd`, `appendix_*.qmd`, `references.bib`, and cached empirical tables in `paper/results_cache/`).
 * `docs/`: Quarto tutorials (`docs/*.qmd`) and rendered manuscript (`docs/manuscript/`).
