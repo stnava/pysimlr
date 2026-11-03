@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.abspath("../src"))
 
 from pysimlr.benchmarks.synthetic_cases import build_case
 from pysimlr.benchmarks.runner import run_single_experiment, sweep_benchmark, get_best_per_model
-from pysimlr.plotting import plot_benchmark, plot_view_correlations, plot_view_agreement
+from pysimlr.plotting import plot_benchmark, plot_view_correlations, plot_latent_coupling
 
 warnings.filterwarnings("ignore")
 SEED = 42
@@ -117,6 +117,6 @@ We examine how well the most predictive latent dimension (Dimension 0) is captur
 best_ned_row = best_df[best_df["model"] == "ned"].iloc[0]
 best_ned_res = run_single_experiment("ned", case, sparsity=best_ned_row["sparsity"], iterations=200)
 
-plot_view_agreement(best_ned_res["result"], component=0)
+plot_latent_coupling(best_ned_res["result"])
 plt.show()
 ```

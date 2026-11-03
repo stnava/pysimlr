@@ -189,19 +189,31 @@ one convention:
 - matplotlib only;
 - it plots interpretable quantities, with signed values on a symmetric diverging scale.
 
-| plot | shows | input |
+| function | shows | input |
 |---|---|---|
-| `plot_loadings(res, view)` | loadings, features × components (rotated frame) | `fit` result |
-| `plot_structure_intervals(inf, view, component)` | structure coefficients with 95% intervals; selected features in bold | `loading_inference` result |
-| `plot_component_stability(rank)` | per-component stability per k, with reference lines at 0.9 and 0.8 | `select_rank` result |
-| `plot_scores(res, new_views=)` | subject scores `u @ R`, with held-out subjects projected | `fit` result |
-| `plot_view_agreement(res, component)` | each view's scores against the consensus, with r | `fit` result |
-| `plot_convergence(res)` | the objective history, with the stop reason; flags unconverged fits | `fit` result |
+| `feature_table(res, inf=)` | **data**, one row per view × feature × component: structure, loading, CI, `excludes_zero`, `selected`, `selection_frequency`, stability | `fit` (+ `loading_inference`) |
+| `plot_top_features(res, inf=, component=)` | a component's top features, one panel per view: CIs, permutation null, selected in bold, stability badge | `fit` (+ inference) |
+| `plot_feature_groups(res, groups, inf=)` | groups (lobes, networks, pathways) × components: mean or max \|structure\|, or counts of significant (CI excludes 0) or stability-selected features | `fit` (+ inference) |
+| `plot_loadings(res, view)` | loadings, features × components (rotated frame) | `fit` |
+| `plot_latent_coupling(res, pred=)` | view-vs-consensus r per component, training and held-out (with the change), and view-vs-view | `fit` (+ `predict`) |
+| `plot_convergence(res)` | the objective history (deep and flow: total, sim and recon); flags unconverged fits | `fit` |
+| `plot_basis_diagnostics(res)` | effective rank against k, column overlap, conditioning, sparsity and margin | `fit` |
+| `plot_rank_selection(sel)` | every component's stability at each k; the weakest-component curve; the 0.9 and 0.8 bars; the selected k | `select_rank` |
+| `plot_variance_explained(res, views, pred=)` | reconstruction R², training against held-out; structure captured per component | `fit` (+ `predict`) |
+| `plot_modality_weights(res)` | view weights against 1/M, and MAI, with flow_v trajectories | `simlr` / `flow_v` fit |
+| `plot_flow_warping(res, views)` | the linear first layer against the latent the model uses (Spearman), per view and component | deep or flow `fit` |
+| `plot_scores(res, new_views=)` | subject scores `u @ R`, with held-out subjects projected | `fit` |
 | `plot_view_correlations(views)` | adjusted RV between views | views |
-| `plot_latent_recovery(res, z_true)` | \|corr\| of components with planted latents | `fit` result |
-| `plot_fused_coefficients`, `plot_coefficient_paths`, `plot_fused_ridge_cv` | fused ridge | `fit_fused_ridge` / `fused_ridge_cv` results |
-| `plot_benchmark(df, x, y, by, kind)` | one benchmark metric against a setting, per method | results DataFrame |
-| `plot_predictions(y, yhat)` | predicted against observed, with r | arrays |
+| `plot_latent_recovery(res, z_true)` | \|corr\| of components with planted latents | `fit` |
+| `plot_fit_summary(res, views, pred=, inf=)` | a one-call diagnostic sheet | `fit` (+ `predict`, inference) |
+| `plot_benchmark(df, x, y)` | a metric against a setting, per method (mean ± SE) | results DataFrame |
+| `plot_benchmark_uncertainty(df, baseline=)` | per-method score with a bootstrap CI over splits; paired difference against a baseline | long DataFrame (method, split, score) |
+| `plot_fused_coefficients`, `plot_coefficient_paths`, `plot_fused_ridge_cv` | fused ridge | `fit_fused_ridge` / `fused_ridge_cv` |
+| `plot_predictions(y, yhat)` | predicted against observed | arrays |
+
+Multi-view plots colour views with the Okabe–Ito palette. A plot of an unconverged fit is
+titled in orange with its stop reason. Stability badges are black at ≥ 0.9, amber at ≥ 0.8 and
+red below; change them with `bars=`.
 
 Nothing plots the encoder `v`. The architecture diagrams are in `pysimlr.diagrams`.
 
