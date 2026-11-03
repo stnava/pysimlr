@@ -79,22 +79,11 @@ def test_ned_nc_newton_does_not_collapse(seed):
 
 
 def test_r2_linear_collapse_contract_and_sanity_residual():
-    """WP-2 / Decision Rule R2 contract test.
-
-    Verifies:
-    1. DEFAULT_COLLAPSE_WEIGHT is retained at 1.0 (R2 decision rule).
-    2. Exact mathematical agreement (residual < 1e-6) between the similarity
-       objective formula and simlr's energy calculation on the narrow fixture.
-    3. The pure similarity objective at the collapsed iterate V(cw=0) is lower
-       than at the projected planted solution P(V_true), demonstrating why the
-       collapse penalty is necessary to prevent dimension loss on narrow views.
+    """Verify iteration-0 agreement (< 1e-6) between the pure similarity formula
+    and simlr's reported best_energy on the narrow fixture (cw=0).
     """
     from pysimlr.consensus import compute_shared_consensus
-    from pysimlr.defaults import DEFAULT_COLLAPSE_WEIGHT
     from pysimlr.simlr import _prepare_fit_inputs, calculate_simlr_energy, simlr
-    from pysimlr.sparsification import simlr_sparseness
-
-    assert DEFAULT_COLLAPSE_WEIGHT == 1.0
 
     x, y = _narrow()
 

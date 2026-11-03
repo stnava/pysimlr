@@ -193,27 +193,22 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
 
 ## On hold from the earlier plan
 
-- **D2. Linear narrow-view collapse (Decision Rule R2, WP-2).** Evaluated linear narrow-view collapse
-  on the corrected equal-weights objective using `scripts/collapse_diagnosis.py`
-  (evidence: `docs/audit/evidence/collapse_diagnosis.csv`).
-  - *Step 0 (convergence & learning rate)*: The default auto learning rate at cw=1 hit the `LR_PROBE_GRID`
-    upper endpoint (1.0), early stopping at sweep 5 with `stop_reason="no_descent"` (recorded as an R11 data point);
-    cw=0 chose 0.3, also stopping at sweep 5 (`no_descent`). Fixed-LR sweeps identified the largest converged fits:
-    cw=0 converged at lr=0.1 (sweep 25, best energy -0.696744, outcome R² 0.3565, score corr -0.9758);
-    cw=1 converged at lr=0.03 (sweep 55, best energy -0.183079, outcome R² 0.9618, score corr -0.5908).
-  - *Sanity check*: Formula evaluation of pure similarity objective matches `simlr`'s internal energy calculation
-    with exact mathematical agreement at initialization (residual = 0.0 < 1e-6) and 6.12e-05 at the converged iterate
-    (due to alternating-step lag in logging).
-  - *Energies*: Pure similarity objective ($E_{sim} = \frac{1}{M} \sum_m \text{nc}(X_m V_m, u_m)$ with LOO Newton consensus) evaluated at:
-    - $V(cw=0)$: -0.696805 (collapsed state, outcome R² = 0.3565, score corr = -0.9758)
-    - $P(V_{true})$: -0.676536 (planted solution mapped into preprocessed space and projected, outcome R² = 0.9884, score corr = -0.4280)
-    - $V(cw=1)$: -0.192974 (penalized fit, outcome R² = 0.9618, score corr = -0.5908)
-    Crucially, $E(V(cw=0)) < E(P(V_{true}))$, proving that the unpenalized similarity objective mathematically prefers the collapsed state over the ground truth.
-  - *Decision Rule R2 evaluation*:
-    1. Narrow outcome R² non-inferiority: cw=0 outcome R² (0.3565) vs cw=1 (0.9618) loses by 0.6053 (guard 0.05) -> FAILS.
-    2. Cell latent R² and loadings F1 on 20 default cells: latent R² mean paired difference +0.0002 (sd 0.0010), worst cell -0.0014 (guard 0.05); loadings F1 mean paired difference +0.0004 (sd 0.0017), worst cell -0.0031 (guard 0.10) -> HOLDS.
-    3. Narrow score correlation at cw=0: |-0.9758| = 0.9758 (< 0.5) -> FAILS.
-    *Verdict*: Keep `DEFAULT_COLLAPSE_WEIGHT = 1.0` for linear. `DEFAULT_COLLAPSE_THRESHOLD` stays 0.3 with derivation open.
+- **D2. Linear narrow-view collapse (Decision Rule R2, WP-2).** Evidence: `docs/audit/evidence/collapse_diagnosis.csv`.
+  Auto learning rate stops with `no_descent` at sweep 5 (lr 0.3 at cw=0; grid endpoint 1.0 at cw=1).
+
+  | fit | converged | best_energy | outcome R² | \|score corr\| |
+  |---|---|---|---|---|
+  | cw=0, lr 0.1 | yes | −0.697 | 0.357 | 0.976 |
+  | cw=0, lr 0.03 | yes | −0.697 | 0.266 | 0.979 |
+  | **cw=0, lr 0.01** | **yes** | **−0.885** | **0.940** | **0.672** |
+  | cw=1, lr 0.03 | yes | −0.183 | 0.962 | 0.591 |
+  | cw=1, lr 0.01 | yes | −0.213 | 0.958 | 0.565 |
+  | planted P(V_true) | — | −0.677 (pure similarity) | 0.988 | 0.428 |
+
+  Collapse is a step-size basin effect. The unpenalised objective's lowest converged energy (−0.885, lr 0.01) is non-collapsed (|corr| 0.672, R² 0.940).
+  R2 re-applied with the lowest-energy fits: condition 1 passes (−0.018, guard −0.05), condition 2 passes on 20 default cells (latent R² worst −0.0014, loadings F1 worst −0.0031), condition 3 fails (0.672 ≥ 0.5) → keep `DEFAULT_COLLAPSE_WEIGHT = 1.0`.
+  The penalty costs pure similarity −0.885 → −0.213 for +0.018 outcome R²; see P1.
+  Sanity-check deviation: post-update `u` at `V(cw=0, lr=0.1)` gave residual 6.12e-5 (> 1e-6), so the test checks iteration 0 (0.0); recomputing with the previous sweep's `u` (`best_iteration = 10`) gives residual 0.0 (< 1e-6), verifying the one-sweep `u` logging lag.
 - **D4. Deep collapse (Decision Rule R3, WP-5).** Evaluated deep collapse on the NED fixture
   (n = 200, 2 views with 20 features, `ned_simr(iterations=100, batch_size=32, warmup_epochs=10)`)
   using `scripts/deep_collapse_diagnosis.py` (evidence: `docs/audit/evidence/deep_collapse_diagnosis.csv`).
