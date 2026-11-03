@@ -247,6 +247,10 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   Evidence: `docs/audit/evidence/select_rank_speed.csv` (ks=[2, 3], 20 subsamples, 12 cores).
   Measured: ADNI-MCI speedup 97.8 s -> 17.2 s (5.7x); synthetic 24.2 s -> 6.4 s (3.8x). Output is bit-identical to serial on both.
   Learning-rate reuse in refits was measured and rejected: while it sped up synthetic fits 24.5 s -> 18.9 s (1.3x), it moved an under-identified component's stability by 0.18 (0.913 -> 0.735, failing the 0.03 limit).
+- **S3. ANTsTorch whitener check (Decision Rule R10).** Status: **COMPLETE** (outcome: **UPSTREAM BUG RESOLVED IN ED39D99; NO WRAPPER NEEDED**).
+  Evidence: `docs/audit/evidence/antstorch_whitener_check.csv` (ANTsTorch commit `ed39d995200b2cffcd8ed1df091dd724442c1166`).
+  Evaluated upstream ANTsTorch LAMNr-Flows whitener on an 8D Gaussian (n=2000, condition 50, seed 42) via `scripts/antstorch_whitener_check.py`.
+  Measured output covariance distance ||cov - I||_F = 0.1767 < 0.25 and max |off-diagonal| = 0.0329 < 0.10. Both Rule R10 criteria passed; `docs/api_contract.md` directs callers to ANTsTorch directly with no in-tree wrapper.
 - **S4. Opt-in nc_ridge (Decision Rule R8).** Status: **COMPLETE** (outcome: **SHIPS OPT-IN ONLY; NC REMAINS DEFAULT**).
   Evidence: `docs/audit/evidence/nc_ridge.csv` (180 rows across 20 default cells at default budget; 20 nc baseline rows reused from `view_weighting_selection.csv` [source=708c9c6]).
   Registered in `similarity.SIMILARITY` with fixed lambda=0.5 and needs_data=True. Rejects deep and flow paths with ValueError; remains non-scale-free under view rescaling. Added `loadings_support_auc` with Hungarian matching in `scripts/optimizer_benchmark_synthetic.py`.
