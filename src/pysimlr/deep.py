@@ -285,7 +285,8 @@ def _nsa_raw_parameter(module):
 #: rotations gave 0.0348, 0.1319 and 0.0000, while the others were constant to
 #: four decimals. It ranked a planted pure-noise view above a signal view.
 from .consensus import (check_mai_metric,
-                        loo_mai_scores, mai_gated_target)
+                        loo_mai_calibrated, mai_gated_target, view_dofs, MAI_FLOOR_EVERY,
+                        MAI_RAMP_STEPS)
 
 
 def _mlp(in_dim: int, out_dim: int, hidden_dims: Sequence[int], dropout: float) -> nn.Sequential:
@@ -316,7 +317,7 @@ def _linear_encoders(input_dims, latent_dim, nsa_w, positivity, sparseness, use_
 
 class _ModalityWeightingMixin:
     """`update_mai`, shared by every deep and flow multi-view model: reweights
-    the views by leave-one-out agreement (`consensus.loo_mai_scores`). It was
+    the views by calibrated leave-one-out agreement (`consensus.loo_mai_calibrated`). It was
     copied into each model class; one definition keeps the copies from drifting.
     """
 
@@ -336,6 +337,8 @@ class _ModalityWeightingMixin:
         self.use_rank_mai = use_rank_mai
         self.dynamic_weights_start = dynamic_weights_start
         self.register_buffer("mai", torch.ones(n_views) / n_views)
+        self.register_buffer("mai_floor", torch.zeros(n_views))
+        self._mai_calls = 0
         self.register_buffer("modality_weights", torch.ones(n_views) / n_views)
         self.register_buffer("consensus_anchor", torch.zeros(n_views * latent_dim, latent_dim))
 
@@ -364,10 +367,12 @@ class _ModalityWeightingMixin:
         """Move `modality_weights` from uniform toward MAI-gated targets.
 
         Scores are smoothed by an EMA (0.9); the gate steepens over 30 epochs.
-        The transition from uniform runs over 20 epochs from
-        `dynamic_weights_start` when one is set, otherwise from 33% to 66% of
-        the run (it was `(epoch - 10) / 20`, which left MAI inert on runs of
-        10 epochs or fewer).
+        The transition from uniform runs over `consensus.MAI_RAMP_STEPS` (20)
+        epochs from `dynamic_weights_start`, or from epoch 10 when none is set.
+        It ran from 33% to 66% of the budget, which at the 300-epoch default
+        left fits that converge earlier with near-uniform weights. Scores are
+        null-calibrated and dof-corrected, and the gate is centred on each
+        view's null floor (`consensus.loo_mai_calibrated`, `mai_gated_target`).
         """
         if not getattr(self, "dynamic_weights", False):
             return
@@ -379,15 +384,26 @@ class _ModalityWeightingMixin:
             if dynamic_weights_start is not None and epoch < dynamic_weights_start:
                 self.modality_weights.copy_(uniform_w)
                 return
-            mais = loo_mai_scores(latents, metric, use_rank=getattr(self, "use_rank_mai", False))
-            self.mai.copy_(0.9 * self.mai + 0.1 * torch.tensor(mais, device=self.mai.device))
+            encs = self._first_layer_encoders() if hasattr(self, "_first_layer_encoders") else None
+            v_list = [e.v for e in encs] if encs and all(hasattr(e, "v") for e in encs) else None
+            n = int(latents[0].shape[0])
+            calls = getattr(self, "_mai_calls", 0)
+            scores, floors = loo_mai_calibrated(
+                [z.detach() for z in latents], metric,
+                dofs=view_dofs(v_list, n, metric) if v_list is not None else None,
+                use_rank=getattr(self, "use_rank_mai", False),
+                n_perm=20 if calls % MAI_FLOOR_EVERY == 0 else 0, seed=calls)
+            self._mai_calls = calls + 1
+            first = calls == 0
+            s_t = torch.tensor(scores, device=self.mai.device, dtype=self.mai.dtype)
+            self.mai.copy_(s_t if first else 0.9 * self.mai + 0.1 * s_t)
+            if floors is not None:
+                f_t = torch.tensor(floors, device=self.mai.device, dtype=self.mai.dtype)
+                self.mai_floor.copy_(f_t if first else 0.9 * self.mai_floor + 0.1 * f_t)
             steepness = 5.0 + 10.0 * min(1.0, epoch / 30.0)
-            target_w = mai_gated_target(self.mai, steepness)
-            if dynamic_weights_start is not None:
-                rho = max(0.0, min(1.0, (epoch - dynamic_weights_start) / 20.0))
-            else:
-                warm = 0.33 * max(1, total_epochs)
-                rho = max(0.0, min(1.0, (epoch - warm) / max(1.0, warm)))
+            target_w = mai_gated_target(self.mai, steepness, self.mai_floor)
+            start = 10 if dynamic_weights_start is None else dynamic_weights_start
+            rho = max(0.0, min(1.0, (epoch - start) / float(MAI_RAMP_STEPS)))
             self.modality_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
 
 

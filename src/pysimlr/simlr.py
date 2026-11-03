@@ -1755,20 +1755,30 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         )
 
     mai_ema = torch.ones(n_modalities, dtype=orig_dtype) / n_modalities
+    mai_floor = torch.zeros(n_modalities, dtype=orig_dtype)
     mai_mod_weights = torch.ones(n_modalities, dtype=orig_dtype) / n_modalities
+    _mai_calls = [0]
 
     def _update_simlr_mai(projs, step_idx, max_steps):
         # Scores and gate shared with the deep and flow models
-        # (`consensus.loo_mai_scores`, `mai_gated_target`); the schedule is
+        # (`consensus.loo_mai_calibrated`, `mai_gated_target`); the schedule is
         # per sweep here: EMA 0.8, gate and transition both over half the run.
         if not dynamic_weights:
             return None
-        from .consensus import loo_mai_scores, mai_gated_target
+        from .consensus import MAI_FLOOR_EVERY, MAI_RAMP_STEPS, loo_mai_calibrated, mai_gated_target, view_dofs
         with torch.no_grad():
-            mai_t = torch.tensor(loo_mai_scores(projs, mai_metric, use_rank=use_rank_mai), dtype=orig_dtype)
-            mai_ema.copy_(0.8 * mai_ema + 0.2 * mai_t)
-            half = max(1.0, float(max_steps) * 0.5)
-            target_w = mai_gated_target(mai_ema, 5.0 + 10.0 * min(1.0, max(0, step_idx) / half))
+            first = _mai_calls[0] == 0
+            scores, floors = loo_mai_calibrated(
+                projs, mai_metric, dofs=view_dofs(v_mats, int(projs[0].shape[0]), mai_metric), use_rank=use_rank_mai,
+                n_perm=20 if _mai_calls[0] % MAI_FLOOR_EVERY == 0 else 0, seed=_mai_calls[0])
+            _mai_calls[0] += 1
+            mai_t = torch.tensor(scores, dtype=orig_dtype)
+            mai_ema.copy_(mai_t if first else 0.8 * mai_ema + 0.2 * mai_t)
+            if floors is not None:
+                f_t = torch.tensor(floors, dtype=orig_dtype)
+                mai_floor.copy_(f_t if first else 0.8 * mai_floor + 0.2 * f_t)
+            half = float(min(max(1.0, 0.5 * float(max_steps)), MAI_RAMP_STEPS))
+            target_w = mai_gated_target(mai_ema, 5.0 + 10.0 * min(1.0, max(0, step_idx) / half), mai_floor)
             uniform_w = torch.ones_like(target_w) / len(target_w)
             rho = min(1.0, max(0.0, float(step_idx) / half))
             mai_mod_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)

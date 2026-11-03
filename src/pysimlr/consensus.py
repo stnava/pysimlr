@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import warnings
-from typing import List, Optional, Union, Dict, Any, Tuple
+from typing import List, Optional, Union, Dict, Any, Sequence, Tuple
 from .utils import align_column_signs
 from .utils import newton_schulz_orthogonalize, safe_svd
 from .defaults import DEFAULT_MIXING_ALGORITHM, DEFAULT_TOPOLOGY
@@ -355,7 +355,22 @@ def compute_shared_consensus(projections: List[torch.Tensor],
 #: on the arbitrary rotation of the latent coordinates (measured 0.0348, 0.1319
 #: and 0.0000 for one pair under three rotations), and on `flow_simr_v` it
 #: ranked a planted pure-noise view above a signal view (0.276 vs 0.246).
-MAI_METRICS = ("procrustes_r2", "procrustes_r2_sharp", "cca", "rvcoef")
+MAI_METRICS = ("procrustes_r2", "procrustes_r2_sharp", "cca", "rvcoef", "max_cc")
+
+#: Metrics on a correlation scale (r); the others are on an R^2 scale. The
+#: degrees-of-freedom correction squares an r-scale score, adjusts it as an
+#: R^2, and takes the root again.
+_R_SCALE_MAI = frozenset({"cca", "max_cc"})
+
+
+def _orthobasis(x: torch.Tensor, rtol: float = 1e-6) -> torch.Tensor:
+    """Orthonormal basis of the centred column space of ``x``, rank-adaptive:
+    directions with singular value below ``rtol * s_max`` are dropped, so a
+    view whose latent has rank r < k is scored on its r real directions."""
+    xc = x - x.mean(dim=0, keepdim=True)
+    u, sv, _ = torch.linalg.svd(xc, full_matrices=False)
+    keep = sv > rtol * (sv.max() if sv.numel() else 0.0)
+    return u[:, keep]
 
 
 def mai_score(z: torch.Tensor, u_loo: torch.Tensor, metric: str) -> float:
@@ -370,6 +385,15 @@ def mai_score(z: torch.Tensor, u_loo: torch.Tensor, metric: str) -> float:
     ``procrustes_r2_sharp`` multiplies it by the spectral sharpness
     ``s_1 / sum(s)`` of ``z`` itself (isotropic noise has a flat spectrum).
     ``cca`` is the mean singular value; ``rvcoef`` the RV coefficient.
+    ``max_cc`` is the first canonical correlation, sigma_1(Q_z' Q_u) with Q
+    orthonormal bases of the (rank-adaptive) column spaces: the strongest
+    single direction the view shares with the consensus. Every other metric
+    aggregates over all k directions, so a view that shares one component
+    strongly and nothing else (a sub-coupling) is down-weighted by them, and
+    their value depends on how the view's variance is spread over columns,
+    which differs when views have very different rank or width. Whitening
+    (rather than standardising each column) keeps it invariant to the
+    latents' arbitrary rotation, the property `trace` failed.
 
     One implementation for the linear, deep and flow models, which carried
     six copies of this code.
@@ -388,6 +412,11 @@ def mai_score(z: torch.Tensor, u_loo: torch.Tensor, metric: str) -> float:
         return r2
     if metric == "cca":
         return float(s.mean().item())
+    if metric == "max_cc":
+        qz, qu = _orthobasis(z), _orthobasis(u_loo)
+        if qz.shape[1] == 0 or qu.shape[1] == 0:
+            return 0.0
+        return float(torch.linalg.svdvals(qz.t() @ qu)[0].clamp(max=1.0).item())
     num = torch.norm(cross, p="fro") ** 2
     den = torch.norm(z.t() @ z, p="fro") * torch.norm(u_loo.t() @ u_loo, p="fro")
     return float((num / (den + 1e-8)).item())
@@ -454,12 +483,129 @@ def loo_mai_scores(latents: List[torch.Tensor], metric: str,
     return mais
 
 
-def mai_gated_target(mai: torch.Tensor, steepness: float) -> torch.Tensor:
-    """Target modality weights from smoothed MAI scores: each score times a
-    sigmoid gate centred on the mean score, renormalised to sum to one."""
-    gate = torch.sigmoid(steepness * (mai - mai.mean()))
-    raw = mai * gate
-    return raw / (raw.sum() + 1e-8)
+def mai_dof_adjust(score: float, metric: str, n: int, dof: Optional[float], k: int = 1) -> float:
+    """Remove the agreement a view's latent can reach by fitting alone.
+
+    A latent column is a projection with ``dof`` free coefficients, fitted on
+    the same n rows the agreement is scored on, so even unrelated data reach
+    R^2 ~ dof / (n - 1). Adjusted as an R^2:
+    1 - (1 - R^2)(n - 1)/(n - dof - 1), clipped to [0, 1]; r-scale metrics are
+    squared first and rooted after. With dof >= n - 1 the view can fit
+    anything, and it scores 0. ``dof=None`` returns the score unchanged.
+    ``cca`` is the mean of k singular values of unit-norm latents, so it lies
+    in [0, 1/k]; it is adjusted as the correlation k * cca and scaled back.
+    """
+    if dof is None:
+        return float(score)
+    scale = float(k) if metric == "cca" else 1.0
+    r2 = (scale * float(score)) ** 2 if metric in _R_SCALE_MAI else float(score)
+    if n - dof - 1 <= 0:
+        return 0.0
+    adj = min(1.0, max(0.0, 1.0 - (1.0 - r2) * (n - 1) / (n - dof - 1)))
+    return float(np.sqrt(adj)) / scale if metric in _R_SCALE_MAI else adj
+
+
+def loo_mai_calibrated(latents: List[torch.Tensor], metric: str, dofs: Optional[Sequence[float]] = None,
+                       use_rank: bool = False, n_perm: int = 20, quantile: float = 0.95,
+                       seed: int = 0) -> Tuple[List[float], List[float]]:
+    """Leave-one-out MAI, degrees-of-freedom corrected, with a per-view null floor.
+
+    Returns ``(scores, floors)``; ``floors`` is ``None`` when ``n_perm=0``
+    (the caller reuses earlier floors; see `MAI_FLOOR_EVERY`). ``scores`` are `loo_mai_scores` adjusted by
+    `mai_dof_adjust` with each view's ``dofs`` (effective coefficients per
+    latent column; ``None`` skips the correction). ``floors`` are the
+    ``quantile`` of the same adjusted metric with the rows of the consensus
+    permuted ``n_perm`` times: what the metric gives with no shared signal, at
+    this n, k, rank and metric (for example sigma_1 of random matrices is near
+    sqrt(k / n), not 0). Gate on the floor (`mai_gated_target`), not on the
+    mean: a view is kept because it beats chance, not because it beats the
+    other views.
+    """
+    check_mai_metric(metric)
+    if use_rank:
+        latents = [torch.argsort(torch.argsort(p, dim=0), dim=0).to(p.dtype) for p in latents]
+    norm = []
+    for p in latents:
+        pc = p - p.mean(dim=0, keepdim=True); pn = torch.norm(pc, p="fro")
+        norm.append(pc / pn if pn > 1e-8 else torch.zeros_like(pc))
+    n = int(norm[0].shape[0]); M = len(norm); k = int(norm[0].shape[1])
+    want_floor = int(n_perm) > 0
+    dofs = [None] * M if dofs is None else list(dofs)
+    g = torch.Generator().manual_seed(int(seed))
+    scores, floors = [], []
+    for i in range(M):
+        others = [norm[j] for j in range(M) if j != i]
+        if not others:
+            scores.append(1.0); floors.append(0.0); continue
+        u = torch.mean(torch.stack(align_column_signs(others)), dim=0)
+        un = torch.norm(u, p="fro")
+        if un <= 1e-8:
+            scores.append(0.0); floors.append(0.0); continue
+        u = u / un
+        scores.append(mai_dof_adjust(mai_score_or_zero(norm[i], u, metric, i), metric, n, dofs[i], k))
+        if not want_floor:
+            continue
+        if metric == "max_cc":
+            # Permuting u's rows permutes its basis rows: build both bases once,
+            # and each null draw is one k x k singular value.
+            qz, qu = _orthobasis(norm[i]), _orthobasis(u)
+            raw = ([] if qz.shape[1] == 0 or qu.shape[1] == 0 else
+                   [float(torch.linalg.svdvals(qz.t() @ qu[torch.randperm(n, generator=g)])[0])
+                    for _ in range(int(n_perm))])
+        else:
+            raw = [mai_score_or_zero(norm[i], u[torch.randperm(n, generator=g)], metric, i)
+                   for _ in range(int(n_perm))]
+        null = [mai_dof_adjust(r, metric, n, dofs[i], k) for r in raw]
+        floors.append(float(np.quantile(null, quantile)) if null else 0.0)
+    return scores, (floors if want_floor else None)
+
+
+#: MAI weights move from uniform to their target over this many updates (sweeps
+#: for simlr, epochs for the deep and flow fits, after a 10-epoch warmup). It
+#: was half the budget: at the 300 default a simlr fit converges in ~50 sweeps
+#: and its weights went only a third of the way.
+MAI_RAMP_STEPS = 20
+
+#: Null floors change slowly with the latents; recompute them every this many
+#: MAI updates and reuse them in between (the permutations dominate the cost).
+MAI_FLOOR_EVERY = 10
+
+
+def view_dofs(v_mats: Sequence[torch.Tensor], n: int, metric: str = "procrustes_r2") -> List[float]:
+    """Effective coefficients behind each view's score, from its first-layer basis.
+
+    For the aggregate metrics, the mean number of non-zero entries per column
+    (each latent column is one fitted projection). For ``max_cc``, the number of
+    features any column uses: the first canonical direction combines all k
+    columns, so it is a projection on their union (per-column counts let a
+    p > n noise view keep r ~ 1). Not capped: a view with n - 1 or more can fit
+    any target, and `mai_dof_adjust` scores it 0.
+    """
+    out = []
+    for v in v_mats:
+        nz = v.detach().abs() > 1e-12
+        out.append(float(nz.any(dim=1).sum().item()) if metric == "max_cc"
+                   else float(nz.sum(dim=0).double().mean().item()))
+    return out
+
+
+def mai_gated_target(mai: torch.Tensor, steepness: float, floor: torch.Tensor) -> torch.Tensor:
+    """Target modality weights: each view's score above its null floor, times a
+    sigmoid gate centred on that floor, renormalised to sum to one.
+
+    Gating on the floor (from `loo_mai_calibrated`) keeps every view that beats
+    chance and suppresses only those that do not. The previous gate centred on
+    the mean score always suppressed some view, even when every view was
+    coupled, and passed half the views when none was. If no view exceeds its
+    floor the weights are uniform, with a warning.
+    """
+    excess = (mai - floor).clamp(min=0.0)
+    raw = excess * torch.sigmoid(steepness * (mai - floor))
+    if float(raw.sum()) <= 1e-8:
+        warnings.warn("no view's MAI exceeds its null floor; modality weights left uniform.",
+                      RuntimeWarning, stacklevel=2)
+        return torch.ones_like(mai) / len(mai)
+    return raw / raw.sum()
 
 
 def capture_consensus_map(projections: List[torch.Tensor],

@@ -547,7 +547,7 @@ def test_the_complete_graph_reproduces_leave_one_out():
 # --------------------------------------------------------------------------
 # MAI metrics: live, valid, and gauge-invariant
 # --------------------------------------------------------------------------
-MAI_METRICS = ["procrustes_r2", "procrustes_r2_sharp", "cca", "rvcoef"]
+MAI_METRICS = ["procrustes_r2", "procrustes_r2_sharp", "cca", "rvcoef", "max_cc"]
 
 
 def test_the_mai_metric_list_matches_the_library():
@@ -584,6 +584,7 @@ def test_every_mai_metric_ranks_a_pure_noise_view_last():
 
 
 def test_mai_metrics_are_invariant_to_the_latent_gauge():
+    from pysimlr.consensus import mai_score
     """The property that disqualified `trace`.
 
     The k latent coordinates carry an arbitrary rotation Q. A similarity
@@ -602,7 +603,8 @@ def test_mai_metrics_are_invariant_to_the_latent_gauge():
         return {"procrustes_r2": float(s.sum()) ** 2,
                 "cca": float(s.mean()),
                 "rvcoef": float((c.norm() ** 2) /
-                                ((Z.t() @ Z).norm() * (U.t() @ U).norm() + 1e-8))}
+                                ((Z.t() @ Z).norm() * (U.t() @ U).norm() + 1e-8)),
+                "max_cc": mai_score(Z, U, "max_cc")}
 
     base = scores(Z, U)
     for seed in (1, 2, 3):
