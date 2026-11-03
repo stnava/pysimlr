@@ -124,11 +124,25 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         else:
             norm_projs.append(torch.randn_like(p_safe) * 1e-4)
             
+    unweighted_projs = norm_projs
+    weight_vals = None
     if modality_weights is not None:
-        scaled_projs = []
-        for i, p in enumerate(norm_projs):
-            scaled_projs.append(p * modality_weights[i].item())
-        norm_projs = scaled_projs
+        # One host transfer per call (was one .item() per view): the zero-weight
+        # guard below needs the values on the host.
+        mw = modality_weights.detach() if torch.is_tensor(modality_weights) else torch.as_tensor(modality_weights)
+        weight_vals = [float(w) for w in mw.cpu().tolist()][:len(norm_projs)]
+        norm_projs = [p * w for p, w in zip(norm_projs, weight_vals)]
+
+    def _neighbourhood(indices):
+        """Weighted projections of ``indices``; unweighted if their weights sum
+        to 0. All-zero weights carry no information about the mix, and a zero
+        neighbourhood gave a zero consensus whose SVD/ICA returned NaN (on
+        ADNI's bipartite graph, where the gate zeroed every MRI view)."""
+        if weight_vals is not None and sum(weight_vals[j] for j in indices) <= 1e-12:
+            warnings.warn(f"views {sorted(indices)} all have modality weight 0; their consensus "
+                          f"uses them unweighted.", RuntimeWarning, stacklevel=3)
+            return [unweighted_projs[j] for j in indices]
+        return [orig_norm_projs[j] for j in indices]
 
     # Core consensus logic separated into a helper to reuse for LOO
     def _get_u(proj_list, return_anchor=False):
@@ -195,8 +209,15 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                     # A FastICA failure propagates: it used to be replaced by
                     # the first k averaged projection columns and an identity
                     # anchor, a different consensus with no warning.
-                    u_np = ica.fit_transform(avg_p)
-                    local_anchor = torch.from_numpy(ica.components_.T).to(local_big_p.device).to(local_big_p.dtype)
+                    # Fit on the non-constant columns. A view weighted 0 by
+                    # MAI contributes all-zero columns, and FastICA's whitening
+                    # returned NaN on them. Those columns get zero anchor rows,
+                    # so big_p @ anchor is unchanged.
+                    keep = np.ptp(avg_p, axis=0) > 0
+                    u_np = ica.fit_transform(avg_p[:, keep])
+                    comp = np.zeros((avg_p.shape[1], ica.components_.shape[0]), dtype=ica.components_.dtype)
+                    comp[keep] = ica.components_.T
+                    local_anchor = torch.from_numpy(comp).to(local_big_p.device).to(local_big_p.dtype)
                 else:
                     u_np = avg_p[:, :k]
                     local_anchor = torch.eye(local_big_p.shape[1], k, device=local_big_p.device).to(local_big_p.dtype)
@@ -301,6 +322,8 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         )
 
     if topology == "star":
+        if weight_vals is not None and sum(weight_vals) <= 1e-12:
+            norm_projs = _neighbourhood(list(range(len(norm_projs))))
         if training:
             u, new_anchor = _get_u(norm_projs, return_anchor=True)
             return u, new_anchor
@@ -315,7 +338,8 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         # a different estimator, and a different return type.
         u_list = []
         for i in range(len(orig_norm_projs)):
-            loo_projs = [p for j, p in enumerate(orig_norm_projs) if j != i and j in valid_indices]
+            loo_idx = [j for j in range(len(orig_norm_projs)) if j != i and j in valid_indices]
+            loo_projs = _neighbourhood(loo_idx) if loo_idx else []
             if len(loo_projs) == 0:
                 u_list.append(orig_norm_projs[i])
             else:
@@ -334,7 +358,8 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         u_list = []
         for i in range(len(orig_norm_projs)):
             neighbors = path_graph.get(i, [])
-            neighbor_projs = [orig_norm_projs[j] for j in neighbors if j in valid_indices]
+            nb_idx = [j for j in neighbors if j in valid_indices]
+            neighbor_projs = _neighbourhood(nb_idx) if nb_idx else []
             if len(neighbor_projs) == 0:
                 u_list.append(orig_norm_projs[i])
             else:
@@ -491,23 +516,25 @@ def mai_dof_adjust(score: float, metric: str, n: int, dof: Optional[float], k: i
     R^2 ~ dof / (n - 1). Adjusted as an R^2:
     1 - (1 - R^2)(n - 1)/(n - dof - 1), clipped to [0, 1]; r-scale metrics are
     squared first and rooted after. With dof >= n - 1 the view can fit
-    anything, and it scores 0. ``dof=None`` returns the score unchanged.
+    anything, so its agreement says nothing either way: the score is NaN (not
+    assessable), and `mai_gated_target` gives the view its uniform share
+    rather than 0. ``dof=None`` returns the score unchanged.
     ``cca`` is the mean of k singular values of unit-norm latents, so it lies
     in [0, 1/k]; it is adjusted as the correlation k * cca and scaled back.
     """
     if dof is None:
         return float(score)
+    if n - dof - 1 <= 0:
+        return float("nan")
     scale = float(k) if metric == "cca" else 1.0
     r2 = (scale * float(score)) ** 2 if metric in _R_SCALE_MAI else float(score)
-    if n - dof - 1 <= 0:
-        return 0.0
     adj = min(1.0, max(0.0, 1.0 - (1.0 - r2) * (n - 1) / (n - dof - 1)))
     return float(np.sqrt(adj)) / scale if metric in _R_SCALE_MAI else adj
 
 
 def loo_mai_calibrated(latents: List[torch.Tensor], metric: str, dofs: Optional[Sequence[float]] = None,
                        use_rank: bool = False, n_perm: int = 20, quantile: float = 0.95,
-                       seed: int = 0) -> Tuple[List[float], List[float]]:
+                       seed: int = 0, n_fit: Optional[int] = None) -> Tuple[List[float], List[float]]:
     """Leave-one-out MAI, degrees-of-freedom corrected, with a per-view null floor.
 
     Returns ``(scores, floors)``; ``floors`` is ``None`` when ``n_perm=0``
@@ -529,6 +556,13 @@ def loo_mai_calibrated(latents: List[torch.Tensor], metric: str, dofs: Optional[
         pc = p - p.mean(dim=0, keepdim=True); pn = torch.norm(pc, p="fro")
         norm.append(pc / pn if pn > 1e-8 else torch.zeros_like(pc))
     n = int(norm[0].shape[0]); M = len(norm); k = int(norm[0].shape[1])
+    # The dof correction removes the agreement a basis gains by being fitted,
+    # which scales with the rows it was fitted on. The deep and flow models
+    # score MAI on a mini-batch (64 rows by default) but fit on the whole
+    # training set: correcting with the batch n scored any view with ~64+
+    # non-zero loadings per column as not assessable and most others as 0
+    # (ADNI-MCI: dof 80/80/31, n_fit 758). Scores and floors stay on the batch.
+    n_adj = int(n_fit) if n_fit is not None else n
     want_floor = int(n_perm) > 0
     dofs = [None] * M if dofs is None else list(dofs)
     g = torch.Generator().manual_seed(int(seed))
@@ -542,7 +576,7 @@ def loo_mai_calibrated(latents: List[torch.Tensor], metric: str, dofs: Optional[
         if un <= 1e-8:
             scores.append(0.0); floors.append(0.0); continue
         u = u / un
-        scores.append(mai_dof_adjust(mai_score_or_zero(norm[i], u, metric, i), metric, n, dofs[i], k))
+        scores.append(mai_dof_adjust(mai_score_or_zero(norm[i], u, metric, i), metric, n_adj, dofs[i], k))
         if not want_floor:
             continue
         if metric == "max_cc":
@@ -555,8 +589,10 @@ def loo_mai_calibrated(latents: List[torch.Tensor], metric: str, dofs: Optional[
         else:
             raw = [mai_score_or_zero(norm[i], u[torch.randperm(n, generator=g)], metric, i)
                    for _ in range(int(n_perm))]
-        null = [mai_dof_adjust(r, metric, n, dofs[i], k) for r in raw]
-        floors.append(float(np.quantile(null, quantile)) if null else 0.0)
+        null = [mai_dof_adjust(r, metric, n_adj, dofs[i], k) for r in raw]
+        null = [x for x in null if np.isfinite(x)]
+        floors.append(float(np.quantile(null, quantile)) if null else
+                      (float("nan") if not np.isfinite(scores[-1]) else 0.0))
     return scores, (floors if want_floor else None)
 
 
@@ -585,27 +621,57 @@ def view_dofs(v_mats: Sequence[torch.Tensor], n: int, metric: str = "procrustes_
     for v in v_mats:
         nz = v.detach().abs() > 1e-12
         out.append(float(nz.any(dim=1).sum().item()) if metric == "max_cc"
-                   else float(nz.sum(dim=0).double().mean().item()))
+                   else float(nz.sum(dim=0).float().mean().item()))
     return out
+
+
+def mai_ema(prev: torch.Tensor, new: torch.Tensor, decay: float, first: bool) -> torch.Tensor:
+    """Exponential moving average of MAI scores or floors, NaN-aware: a view
+    not assessable now (NaN) is NaN, and one that becomes assessable restarts
+    from its new value instead of averaging with NaN forever."""
+    if first:
+        return new
+    blend = decay * prev + (1.0 - decay) * new
+    return torch.where(torch.isnan(new), new, torch.where(torch.isnan(prev), new, blend))
+
+
+#: Every view keeps at least this fraction of its uniform share 1/M of the
+#: weight: w = MAI_MIN_SHARE / M + (1 - MAI_MIN_SHARE) * target. With 0.5 and
+#: M = 4 the weights stay in [0.125, 0.625]. Binary or near-binary weights
+#: ([0, 0, 0, 1]) and an all-zero vector are therefore impossible. They hand
+#: the consensus to one view on the strength of a noisy in-batch score (ADNI-MCI:
+#: a 0.006 excess over the floor took all the weight) and leave a view's
+#: graph neighbourhood empty.
+MAI_MIN_SHARE = 0.5
 
 
 def mai_gated_target(mai: torch.Tensor, steepness: float, floor: torch.Tensor) -> torch.Tensor:
     """Target modality weights: each view's score above its null floor, times a
-    sigmoid gate centred on that floor, renormalised to sum to one.
+    sigmoid gate centred on that floor, renormalised, then mixed with uniform
+    so every view keeps at least ``MAI_MIN_SHARE / M`` (see `MAI_MIN_SHARE`).
 
-    Gating on the floor (from `loo_mai_calibrated`) keeps every view that beats
-    chance and suppresses only those that do not. The previous gate centred on
-    the mean score always suppressed some view, even when every view was
-    coupled, and passed half the views when none was. If no view exceeds its
-    floor the weights are uniform, with a warning.
+    Gating on the floor (from `loo_mai_calibrated`) favours every view that
+    beats chance over those that do not. The previous gate centred on the mean
+    score always suppressed some view, even when every view was coupled, and
+    passed half the views when none was. If no view exceeds its floor the
+    weights are uniform, with a warning. A NaN score or floor (a view with
+    dof >= n - 1, not assessable) keeps the uniform share 1/M.
     """
-    excess = (mai - floor).clamp(min=0.0)
-    raw = excess * torch.sigmoid(steepness * (mai - floor))
+    M = len(mai)
+    uniform = torch.ones_like(mai) / M
+    ok = torch.isfinite(mai) & torch.isfinite(floor)
+    if not bool(ok.any()):
+        return uniform
+    excess = (mai[ok] - floor[ok]).clamp(min=0.0)
+    raw = excess * torch.sigmoid(steepness * (mai[ok] - floor[ok]))
     if float(raw.sum()) <= 1e-8:
         warnings.warn("no view's MAI exceeds its null floor; modality weights left uniform.",
                       RuntimeWarning, stacklevel=2)
-        return torch.ones_like(mai) / len(mai)
-    return raw / raw.sum()
+        return uniform
+    target = uniform.clone()
+    # Not-assessable views keep 1/M; the assessable ones share the rest.
+    target[ok] = raw / raw.sum() * (float(ok.sum()) / M)
+    return MAI_MIN_SHARE * uniform + (1.0 - MAI_MIN_SHARE) * target
 
 
 def capture_consensus_map(projections: List[torch.Tensor],
@@ -634,7 +700,8 @@ def capture_consensus_map(projections: List[torch.Tensor],
     """
     proj_rms, normed = [], []
     for p in projections:
-        p = torch.nan_to_num(p.detach().double(), nan=0.0, posinf=0.0, neginf=0.0)
+        # float64 on the CPU: one solve per fit, and MPS has no float64.
+        p = torch.nan_to_num(p.detach().cpu().double(), nan=0.0, posinf=0.0, neginf=0.0)
         rms = float(torch.norm(p, p="fro") / np.sqrt(max(1, p.shape[0])))
         proj_rms.append(rms)
         normed.append(p / (rms + 1e-8))
@@ -644,7 +711,7 @@ def capture_consensus_map(projections: List[torch.Tensor],
     targets = list(u) if isinstance(u, (list, tuple)) else [u]
     maps, offsets, resid = [], [], 0.0
     for t in targets:
-        t = t.detach().double()
+        t = t.detach().cpu().double()
         b = t.mean(dim=0, keepdim=True)
         r = torch.linalg.lstsq(zc, t - b, driver="gelsd").solution
         maps.append(r)
@@ -658,9 +725,10 @@ def apply_consensus_map(projections: List[torch.Tensor],
                         frozen: Dict[str, Any]) -> Union[torch.Tensor, List[torch.Tensor]]:
     """Replay `capture_consensus_map` row-wise on new projections."""
     dtype, device = projections[0].dtype, projections[0].device
-    normed = [torch.nan_to_num(p.double(), nan=0.0, posinf=0.0, neginf=0.0) / (rms + 1e-8)
+    work = torch.device("cpu") if device.type == "mps" else device     # MPS has no float64
+    normed = [torch.nan_to_num(p.to(work).double(), nan=0.0, posinf=0.0, neginf=0.0) / (rms + 1e-8)
               for p, rms in zip(projections, frozen["proj_rms"])]
-    zc = torch.cat(normed, dim=1) - frozen["mu"].to(device)
-    outs = [(zc @ r.to(device) + b.to(device)).to(dtype)
+    zc = torch.cat(normed, dim=1) - frozen["mu"].to(work)
+    outs = [(zc @ r.to(work) + b.to(work)).to(device=device, dtype=dtype)
             for r, b in zip(frozen["maps"], frozen["offsets"])]
     return outs if frozen["is_list"] else outs[0]

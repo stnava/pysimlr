@@ -19,7 +19,7 @@ def _probe(code):
 def test_heavy_optional_modules_are_not_imported_eagerly():
     r = _probe(
         "import sys, pysimlr; "
-        "print(','.join(m for m in ('matplotlib','seaborn','sklearn','nsa_flow') "
+        "print(','.join(m for m in ('matplotlib','seaborn','sklearn','nsa_flow','pandas','scipy') "
         "if m in sys.modules))"
     )
     assert r.returncode == 0, r.stderr
@@ -62,3 +62,12 @@ def test_nsa_backend_is_reported_for_provenance():
     if rep["available"]:
         assert rep["module"] in ("nsa_flow", "nsa")
         assert rep["entry_point"] is not None
+
+
+def test_lazy_pandas_and_scipy_names_resolve():
+    """`nnh`/`sparse` and utils' pandas load on first use (0.2 s each eagerly)."""
+    import pysimlr
+    from pysimlr import utils
+
+    assert callable(pysimlr.nnh_embed) and callable(pysimlr.create_graph_laplacian)
+    assert utils.pd.DataFrame({"a": [1]}).shape == (1, 1)

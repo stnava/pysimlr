@@ -485,7 +485,9 @@ def test_mai_downweights_a_pure_noise_view(fn):
     views = _deep_views()
     with _quiet():
         torch.manual_seed(0); np.random.seed(0)
-        res = fn(views, k=K, iterations=12, dynamic_weights=True, verbose=False)
+        # 32 epochs: the weights ramp from uniform over MAI_RAMP_STEPS=20 epochs
+        # after a 10-epoch start, so at 12 they were 10% of the way (spread 0.015).
+        res = fn(views, k=K, iterations=32, dynamic_weights=True, verbose=False)
     w = np.asarray(res["modality_weights"], dtype=float)
     assert w.shape == (3,)
     assert w[2] == pytest.approx(w.min()), (

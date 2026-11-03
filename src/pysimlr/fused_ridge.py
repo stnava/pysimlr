@@ -113,8 +113,16 @@ def _weight(mu, family):
 
 
 # ----------------------------------------------------------------------------- solver
+#: Newton systems up to this size (T * (p + q) unknowns) are solved dense. The
+#: task blocks X_t' D X_t are dense, so SuperLU on the sparse form fills in and
+#: was ~110 ms per step at T=5, p=300 (35 s of a 39 s CV), against a few ms for
+#: a dense Cholesky solve. 4000 unknowns is a 128 MB float64 matrix.
+DENSE_SOLVE_MAX = 4000
+
+
 def _solve(Xs, Cs, ys, masks, family, lambda1, lambda2, edges, max_iter, tol):
     """Newton on the penalised objective. Returns (W (T,p), V (T,q), objective, n_steps, stop)."""
+    import scipy.linalg
     from scipy import sparse
     from scipy.sparse.linalg import spsolve
     T = len(masks); p = Xs.shape[1]; q = Cs.shape[1]; d = p + q
@@ -157,7 +165,15 @@ def _solve(Xs, Cs, ys, masks, family, lambda1, lambda2, edges, max_iter, tol):
             g[t * d:(t + 1) * d] += scale[t] * (Xt[t].T @ (mu - yt[t]))
             blocks.append(scale[t] * (Xt[t].T * _weight(mu, family)) @ Xt[t])
         H = sparse.block_diag(blocks) + Hpen + 1e-12 * sparse.identity(T * d)
-        step = np.asarray(spsolve(sparse.csc_matrix(H), -g))
+        if T * d <= DENSE_SOLVE_MAX:
+            Hd = H.toarray()
+            try:      # H is positive definite whenever the covariates have full rank
+                step = scipy.linalg.cho_solve(scipy.linalg.cho_factor(Hd, check_finite=False), -g,
+                                              check_finite=False)
+            except np.linalg.LinAlgError:   # rank-deficient covariates: same system, LDL'
+                step = scipy.linalg.solve(Hd, -g, assume_a="sym", check_finite=False)
+        else:
+            step = np.asarray(spsolve(sparse.csc_matrix(H), -g))
         if not np.all(np.isfinite(step)):
             stop = "non_finite"; break
         a, f_new = 1.0, objective(theta + step)
