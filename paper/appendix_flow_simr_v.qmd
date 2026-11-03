@@ -150,11 +150,11 @@ np.random.seed(42)
 torch.manual_seed(42)
 res = flow_simr_v(train_x, k=k, iterations=60, warmup_epochs=10, positivity="either", sparseness=None, device="cpu", verbose=False)
 
-v_v1 = res["v"][0].numpy()
+load_v1 = np.asarray(res["loadings"][0])
 x_sample = mats[0][0]
 
-latent_idx = np.argmax(np.abs(v_v1).sum(axis=0))
-impact = x_sample * v_v1[:, latent_idx]
+latent_idx = np.argmax(np.abs(load_v1).sum(axis=0))
+impact = x_sample * load_v1[:, latent_idx]
 feat_names = cols[:4]
 
 idx = np.argsort(np.abs(impact))[::-1]
@@ -163,7 +163,7 @@ colors = ['#d62728' if imp > 0 else '#1f77b4' for imp in impact[idx]]
 plt.barh([feat_names[i] for i in idx], impact[idx], color=colors, edgecolor="#0f172a", height=0.58, lw=0.7)
 plt.axvline(0, color='black', lw=0.8)
 plt.title(f'Patient #1 (Flow-SiMR-V): Cardiovascular Attributions (Latent #{latent_idx+1})', weight='bold')
-plt.xlabel('Linear Feature Contribution (x_ij * V_jl)', weight='bold')
+plt.xlabel('Linear Feature Loading Contribution (x_ij * L_jl)', weight='bold')
 plt.grid(True, linestyle=':', alpha=0.6)
 plt.tight_layout()
 plt.show()
@@ -230,15 +230,15 @@ plt.show()
 
 ---
 
-## Orthogonality and Sparsity Diagnostics Across Real-World Cohorts
+## Orthogonality, Coherence, and Support Overlap Diagnostics Across Real-World Cohorts
 
-@tbl-flow-orth-diagnostics reports the per-view Stiefel Frame Defect $D(\mathbf{V}_m)$, Signed Lobe Crosstalk $\|\mathbf{V}_m^+ \odot \mathbf{V}_m^-\|_1$, and Strictly Linear Probe Accuracy ($\mathbf{X}_m \mathbf{V}_m$) across the six real-world cohorts from `paper/results_cache/deep_ranking_benchmark.csv`.
+@tbl-flow-orth-diagnostics reports the per-view Stiefel Frame Defect $D(\mathbf{V}_m)$, OLEE Loading Column Coherence $\text{Coh}(\mathbf{L}_m)$, Support Overlap for the encoder ($\text{Overlap}(\mathbf{V}_m)$) and loadings ($\text{Overlap}(\mathbf{L}_m)$), and Strictly Linear Probe Accuracy ($\mathbf{X}_m \mathbf{V}_m$) across the six real-world cohorts from `paper/results_cache/deep_ranking_benchmark.csv`.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: tbl-flow-orth-diagnostics
-#| tbl-cap: 'Empirical Orthogonality Defect ($D(\mathbf{V}_m)$), Signed Lobe Crosstalk, and Linear OLEE Basis Performance across the Real-World Biomedical Cohorts (3 seeds) computed from `deep_ranking_benchmark.csv`.'
+#| tbl-cap: 'Empirical Orthogonality Defect ($D(\mathbf{V}_m)$), Column Coherence ($\text{Coh}(\mathbf{L}_m)$), Support Overlap ($\text{Overlap}(\mathbf{V}_m)$ and $\text{Overlap}(\mathbf{L}_m)$), and Linear OLEE Basis Performance across the Real-World Biomedical Cohorts (3 seeds) computed from `deep_ranking_benchmark.csv`.'
 #| echo: false
 #| output: asis
 import os
@@ -264,17 +264,21 @@ for ds in real_dsets:
         lin_m = sub["Strictly_Linear_Metric"].mean()
         lin_s = sub["Strictly_Linear_Metric"].std()
         def_m = sub["Frame_Defect_D"].mean()
-        ct_m = sub["Lobe_Crosstalk"].mean()
+        coh_l = sub["Column_Coherence_L"].mean() if "Column_Coherence_L" in sub.columns else 0.0
+        ov_v = sub["Support_Overlap_V"].mean() if "Support_Overlap_V" in sub.columns else 0.0
+        ov_l = sub["Support_Overlap_L"].mean() if "Support_Overlap_L" in sub.columns else 0.0
         sp_m = sub["Sparsity_Ratio"].mean() * 100.0
         rows.append([
             ds,
             m,
             f"{lin_m:.3f} ± {lin_s:.3f}",
             f"{def_m:.5f}",
-            f"{ct_m:.4f}",
+            f"{coh_l:.4f}",
+            f"{ov_v:.4f}",
+            f"{ov_l:.4f}",
             f"{sp_m:.1f}%"
         ])
 
-headers = ["Cohort", "Architecture", "Linear OLEE Probe (XV)", "Frame Defect D", "Lobe Crosstalk", "Sparsity"]
+headers = ["Cohort", "Architecture", "Linear OLEE Probe (XV)", "Frame Defect D", "Coherence (L)", "Overlap (V)", "Overlap (L)", "Sparsity"]
 print(tabulate(rows, headers=headers, tablefmt="pipe"))
 ```

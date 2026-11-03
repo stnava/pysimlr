@@ -8,21 +8,30 @@ To maintain consistent notation across neuroimaging, multi-omics, and statistica
 |:---|:---|
 | $M, N, p_m, k$ | Number of views $M \ge 2$, sample count $N$, input dimension $p_m$ of view $m$, and shared latent rank $k \ll \min_m p_m$. |
 | $\mathbf{X}_m \in \mathbb{R}^{N \times p_m}$ | Standardized data matrix for modality $m$, centered and scaled strictly within each training fold. |
-| $\mathbf{V}_m \in \mathbb{R}_{\ge 0}^{p_m \times k}$ | Non-negative, sparse, approximately orthogonal feature-to-factor projection matrix for modality $m$. |
+| $\mathbf{V}_m \in \mathbb{R}_{\ge 0}^{p_m \times k}$ | Non-negative, sparse, approximately orthogonal feature-to-factor projection matrix (scoring rule) for modality $m$. |
 | $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ | Linear entrypoint latent scores ($\mathbb{R}^{N \times k}$) mapping raw features directly onto $k$ interpretable axes. |
 | $\mathbf{U} \in \mathbb{R}^{N \times k}$ | Shared multi-modal subject consensus embedding (`SiMLR` and `LEND`, where $\mathbf{U}^\top \mathbf{U} = \mathbf{I}_k$). |
-| $D(\mathbf{V}_m) \in [0, \frac{k-1}{k}]$ | Scale-invariant approximate Stiefel orthogonality and column norm-balance defect (`nsa_flow`). |
+| $\mathbf{C}_m \in \mathbb{R}^{p_m \times k}$ | Structure coefficients $\operatorname{corr}(\mathbf{X}_m, \mathbf{U}\mathbf{R})$ quantifying feature-to-latent correlations under canonical rotation $\mathbf{R}$. |
+| $\mathbf{L}_m \in \mathbb{R}^{p_m \times k}$ | Two-stage OLEE loadings: Frobenius-nearest orthogonal factor matrix with disjoint supports under non-negativity. |
+| $\mathbf{R} \in \mathrm{O}(k)$ | Stacked-view Varimax rotation matrix fixing latent rotational indeterminacy with positive dominant loading sign. |
+| $D(\mathbf{V}_m) \in [0, \frac{k-1}{k}]$ | Stiefel orthogonality and column norm-balance defect diagnostic ($D(\mathbf{V}_m) = 0$ intrinsically under retraction). |
 | $w \in (0,1), \; q \in [0,1)$ | `nsa_flow` fidelity-orthogonality balance weight $w$ and post-optimization quantile sparsity threshold $q$. |
 
 : Mathematical notation for the SiMR multi-view representation framework. {#tbl-notation}
 
 ## Unified Multi-View Objective and the Benchmark Architectures
 
-Let $\{\mathbf{X}_m \in \mathbb{R}^{N \times p_m}\}_{m=1}^M$ denote $M$ data modalities acquired on the same $N$ subjects during training. Every architecture within the SiMR family maps each view $m$ into a $k$-dimensional latent space exclusively through the linear entrypoint $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ while optimizing a composite objective combining cross-modal alignment $\mathcal{L}_{\text{align}}$, within-view geometric or reconstruction preservation $\mathcal{L}_{\text{within}}$, and manifold regularization $\mathcal{R}(\mathbf{V}_m)$:
+Let $\{\mathbf{X}_m \in \mathbb{R}^{N \times p_m}\}_{m=1}^M$ denote $M$ data modalities acquired on the same $N$ subjects during training. Every architecture within the SiMR family maps each view $m$ into a $k$-dimensional latent space exclusively through the linear entrypoint $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ while optimizing a composite objective combining within-view geometric or reconstruction preservation $\mathcal{L}_{\text{within}}$ and cross-modal alignment $\mathcal{L}_{\text{align}}$ across the views:
 
 $$
-\min_{\{\mathbf{V}_m\}_{m=1}^M, \, \Theta} \; \sum_{m=1}^M \mathcal{L}_{\text{within}}(\mathbf{X}_m, \mathbf{V}_m; \Theta) + \lambda_{\text{align}} \, \mathcal{L}_{\text{align}}\!\left(\{\mathbf{X}_m \mathbf{V}_m\}_{m=1}^M; \Theta\right) + \sum_{m=1}^M \mathcal{R}(\mathbf{V}_m)
+\min_{\{\mathbf{V}_m \in \mathcal{M}_m\}_{m=1}^M, \, \Theta} \; \sum_{m=1}^M \alpha_m \, \mathcal{L}_{\text{within}}(\mathbf{X}_m, \mathbf{V}_m; \Theta) + \lambda_{\text{align}} \sum_{m=1}^M \alpha_m \, \mathcal{L}_{\text{align}}\!\left(\mathbf{X}_m \mathbf{V}_m, \mathbf{U}_{-m}; \Theta\right)
 $$ {#eq-unified-simr}
+
+Here $\Theta$ denotes architecture-specific alignment parameters: the shared orthonormal subject basis $\mathbf{U} \in \operatorname{St}(N, k)$ in `SiMLR` [@avants2021], the non-linear decoder weights $\{\phi_m\}$ in `LEND`, or the invertible coupling network parameters $\{\psi_m\}$ in `Flow-SiMR-V` [@dinh2016density]. In this variational formulation, three structural design principles govern the optimization:
+
+1. **Projection-Only Objective**: In the linear `SiMLR` iteration, the extrinsic manifold defect penalty was removed from the alternating objective ($\mathcal{R}(\mathbf{V}_m) = 0$). Instead, $\mathbf{V}_m$ is constrained to the manifold $\mathcal{M}_m$ (the Stiefel manifold $\operatorname{St}(p_m, k)$ or non-negative orthant $\mathbb{R}_{\ge 0}^{p_m \times k}$) strictly through geometric retraction (e.g., polar retraction or `nsa_flow` projection). Because retraction enforces orthogonality directly, the frame defect $D(\mathbf{V}_m) = 0$ is guaranteed intrinsically without adding an artificial penalty parameter that warps the energy landscape ($d(0) = 0$ at initialization).
+2. **Equal View Weighting for Scale-Free Energies**: The view-weight coefficients $\alpha_m$ are set to equal weights $\alpha_m = 1/M$ for all scale-free energies (`nc`, `align`, `logcosh`, `exp`, `kurtosis`, and `negentropy`). This guarantees scale-free invariance across heterogeneous modalities and bounds the total alignment energy strictly by $\min E \ge -1$. For non-scale-free energies with dimensional scales (`acc` and `recon`), initialization-relative scaling $\alpha_m = 1 / |E_{m,0}|$ is retained: candidate operator-norm scalings were evaluated under Decision Rule R9 and rejected, as they caused significant representation degradation across five per-cell benchmark guards (losing up to $0.1441$ in latent $R^2$ and $0.2037$ in support F1).
+3. **Refusal of Negentropy as Fit Objective**: While negentropy measures departure from Gaussianity within individual projections, it contains no mathematical coupling to the cross-modal consensus $\mathbf{U}$. Consequently, `energy_type="negentropy"` is rejected as a primary fit objective; it is supported strictly as an auxiliary regularization penalty via `negentropy_weight`.
 
 Here $\Theta$ denotes architecture-specific alignment parameters: the shared orthonormal subject basis $\mathbf{U} \in \operatorname{St}(N, k)$ in `SiMLR` [@avants2021], the non-linear decoder weights $\{\phi_m\}$ in `LEND`, or the invertible coupling network parameters $\{\psi_m\}$ in `Flow-SiMR-V` [@dinh2016density]. To evaluate which mathematical components drive predictive performance and biological localization, we compare architectures spanning classical linear factorizations, deep multi-modal encoders, and the SiMR family (@tbl-nine-models).
 
@@ -135,6 +144,49 @@ Holding the linear entrypoint $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{
 $$
 \mathcal{L}_{\text{Flow-SiMR-V}} = \sum_{m=1}^M \frac{1}{2N} \left\| f_{\psi_m}\!\left(\operatorname{sg}(\mathbf{X}_m \mathbf{V}_m)\right) \right\|_F^2 + \lambda_{\text{align}} \sum_{m < m'} \frac{1}{N} \left\| f_{\psi_m}(\mathbf{X}_m \mathbf{V}_m) - f_{\psi_{m'}}(\mathbf{X}_{m'} \mathbf{V}_{m'}) \right\|_F^2
 $$ {#eq-flow-simr-v}
+
+## Identifiable Two-Stage Loadings and the OLEE Contract
+
+A crucial distinction in multi-modal learning is that between the *linear encoder* $\mathbf{V}_m$ and the *feature loadings* used for scientific interpretation. In all SiMR models, the encoder $\mathbf{V}_m$ serves as the mathematical scoring rule for out-of-sample subjects ($\mathbf{z}_{m,\text{lin}} = \mathbf{x}_{m,\text{test}} \mathbf{V}_m$). However, $\mathbf{V}_m$ is *not* the appropriate object for feature-by-feature biological interpretation. Under correlation-based objectives such as normalized correlation (`nc`), the cross-modal scores fix $\mathbf{V}_m$ only in directions where $\mathbf{X}_m$ has substantial variance; in low-variance directions, $\mathbf{V}_m$ is weakly identified. On synthetic benchmark cells, refitting on $98\%$ subsamples moved $\mathbf{V}_m$ by a mean subspace distance of $\sin^2\theta = 0.28$, while the shared consensus $\mathbf{U}$ moved by only $0.004$ and the structure coefficients moved by $0.001$. This reflects the classical statistical instability of canonical weights versus canonical structure coefficients [@hotelling1936relations].
+
+To ensure reproducible biomarker discovery, `pysimlr` computes an identifiable, two-stage loading summary from the consensus $\mathbf{U}$:
+
+1. **Structure Coefficients ($\mathbf{C}_m$)**: For each view $m$, feature-to-latent correlations are computed directly against the rotated consensus:
+   $$
+   C_{m, fj} = \operatorname{corr}\!\left(\mathbf{x}_{m,f}, (\mathbf{u}\mathbf{R})_j\right)
+   $$
+   where $\mathbf{R} \in \mathrm{O}(k)$ is the orthogonal Varimax rotation matrix [@kaiser1958varimax] computed on the stacked structure matrices of all views. This stacked Varimax rotation resolves the rotational indeterminacy of the latent subspace $\operatorname{span}(\mathbf{U})$, establishing a canonical basis up to column sign; column signs are fixed so that dominant loadings are positive ($\sum \text{cube} \ge 0$). Structure coefficients reflect true bivariate association and are invariant to affine scaling, ensuring consistency across mixings.
+2. **Orthogonal Loading Estimation Equation (OLEE) Contract**: The interpretable factor loadings $\mathbf{L}_m$ are derived from $\mathbf{C}_m$ through the OLEE contract:
+   - Under non-negative constraints (`positivity="positive"`), each feature is assigned hard to the single component with which it correlates most positively, retaining that positive correlation value ($L_{m, fj} = C_{m, fj}$ if $j = \arg\max_l C_{m, fl}$ and $C_{m, fj} > 0$, else $0$). This produces the unique Frobenius-nearest non-negative matrix with strictly disjoint supports and mutually orthogonal columns. The difference between the maximal and second-maximal correlation is reported as the `loading_margin`, quantifying assignment certainty.
+   - Under unconstrained or signed fits, $\mathbf{L}_m$ is obtained as the polar factor of $\mathbf{C}_m$ rescaled to match the column norms of $\mathbf{C}_m$, providing the nearest orthogonal column basis of equal scale.
+
+Because the consensus $\mathbf{U}$ is fitted in-sample, raw empirical correlations $|C_{m,fj}|$ can exhibit selection inflation under the null (reaching $0.4$–$0.5$ when ~0.07 is expected). Therefore, feature attribution and hypothesis testing in SiMR are gated on whole-pipeline subsample refits via `loading_inference`, which computes conservative bootstrap confidence intervals and Meinshausen–Bühlmann stability selection [@meinshausen2010stability].
+
+## Latent Rank Selection and Out-of-Sample Inference
+
+Determining the appropriate latent rank $k$ is a classic challenge in latent variable modeling. In SiMR, rank selection is performed via `select_rank`, which evaluates candidate ranks $k \in \{2, \dots, K_{\max}\}$ using subsample refits executed in parallel across CPU cores (`n_jobs`):
+
+* **Per-Component Stability**: For each candidate rank $k$, `select_rank` fits $B$ subsamples (typically $50\%$ splits) and aligns each subsample's structure matrix to the full-sample reference fit via orthogonal Procrustes matching. The stability of component $j$ is defined as the median Pearson correlation between the aligned subsample column and the reference column across all $B$ refits.
+* **Identification Gate**: A component is deemed scientifically identified only if its stability meets or exceeds the threshold of $0.90$. If any component in candidate rank $k$ falls below $0.90$, that component is flagged as "not identified," guarding against over-factoring and spurious biological claims.
+
+At test time, out-of-sample inference is executed via `pysimlr.predict(result, X_test)`. New patient observations are standardized using the stored training scaling parameters and projected strictly through the linear encoders $\mathbf{Z}_{m,\text{test}} = \mathbf{X}_{m,\text{test}}\mathbf{V}_m$, from which consensus predictions $\mathbf{U}_{\text{test}}$ and downstream clinical predictions $\hat{\mathbf{y}}$ are generated without data leakage.
+
+## Budget Policy, Convergence Monitoring, and Shipped Defaults
+
+To guarantee reproducible, reliable optimization across all model families, SiMR enforces a unified compute budget and automated convergence monitoring:
+
+* **Unified Iteration Cap**: Linear `SiMLR` runs with a default budget of $300$ sweeps (`DEFAULT_SIMLR_ITERATIONS = 300`), which provides ample headroom above empirical convergence (median ~73 sweeps). Deep and normalizing-flow architectures (`LEND`, `NED`, `Flow-SiMR-V`) run with a unified default budget of $300$ epochs (`DEFAULT_DEEP_ITERATIONS = 300`).
+* **Plateau Early Stopping**: Convergence is continuously tracked across iterations using relative energy plateaus. Optimization terminates when the relative change in energy satisfies the dimensionless tolerance `DEFAULT_TOL = 1e-4` with a patience window of 10 sweeps/epochs.
+* **Convergence Warning**: If an optimization run reaches the maximum iteration limit without satisfying `DEFAULT_TOL`, `pysimlr` emits an explicit `pysimlr.ConvergenceWarning`. This ensures that unconverged states are surfaced transparently rather than silently reported as optimal fits.
+* **Evidence-Based Defaults**: Following extensive two-stage factorial benchmarks across synthetic generative regimes (Stage 1 with 1,664 fits and Stage 2 with 180 fits under Decision Rules R11 and R12), the shipped package defaults were confirmed:
+  - Similarity Energy: Normalized Correlation (`energy_type="nc"`)
+  - Linear Optimizer: Hybrid Adam with line search (`optimizer_type="hybrid_adam"`)
+  - Consensus Polar Solver: Sylvester Polar Newton iteration (`mixing_algorithm="newton"`)
+  - Consensus Topology: Leave-One-Out (`topology="loo"`)
+  - Orthogonality Weight: $w = 0.50$ (`nsa_w = 0.50`, with `MAX_NSA_W = 0.99`)
+  - Dimensional Collapse Prevention: `collapse_weight = 1.0` with `collapse_threshold = 0.3` (Decision Rule R15)
+
+In extensive B2 benchmark evaluations, this default combination achieved a $100\%$ convergence rate ($1.000 \ge 0.90$), a mean latent recovery of $R^2 = 0.9883$, and a loadings support recovery of $0.7740$, outperforming or matching all competing candidate combinations.
 
 ## Clinical Deployment Protocols: Multi-Modal Fusion vs. Single-View Bipartite Translation
 

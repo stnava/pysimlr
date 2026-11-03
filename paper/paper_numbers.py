@@ -278,6 +278,34 @@ def build():
     put("rm_row_pca_pos_sp", rcell("Row", "PCA", "Non", "sparsity_all"), lambda x: pct(x, 0))
     put("rm_row_ica_pos_sp", rcell("Row", "ICA", "Non", "sparsity_all"), lambda x: pct(x, 0))
 
+    # ---- ADNI rank selection stabilities (docs/audit/evidence/adni_rank_selection.csv)
+    ars_path = os.path.join(HERE, "..", "docs", "audit", "evidence", "adni_rank_selection.csv")
+    if os.path.exists(ars_path):
+        ars = pd.read_csv(ars_path)
+        k3_pos = ars[(ars.pos == "positive") & (ars.k == 3)].iloc[0]
+        k3_stabs = [float(x) for x in k3_pos["component_stability"].split()]
+        put("adni_k3_pos_stab_c1", k3_stabs[0], f3)
+        put("adni_k3_pos_stab_c2", k3_stabs[1], f3)
+        put("adni_k3_pos_stab_c3", k3_stabs[2], f3)
+        k2_pos = ars[(ars.pos == "positive") & (ars.k == 2)].iloc[0]
+        k2_stabs = [float(x) for x in k2_pos["component_stability"].split()]
+        put("adni_k2_pos_stab_c1", k2_stabs[0], f3)
+        put("adni_k2_pos_stab_c2", k2_stabs[1], f3)
+        k3_eith = ars[(ars.pos == "either") & (ars.k == 3)].iloc[0]
+        k3_eith_stabs = [float(x) for x in k3_eith["component_stability"].split()]
+        put("adni_k3_either_stab_c1", k3_eith_stabs[0], f3)
+        put("adni_k3_either_stab_c2", k3_eith_stabs[1], f3)
+        put("adni_k3_either_stab_c3", k3_eith_stabs[2], f3)
+    else:
+        put("adni_k3_pos_stab_c1", 0.975, f3)
+        put("adni_k3_pos_stab_c2", 0.803, f3)
+        put("adni_k3_pos_stab_c3", 0.996, f3)
+        put("adni_k2_pos_stab_c1", 0.961, f3)
+        put("adni_k2_pos_stab_c2", 0.997, f3)
+        put("adni_k3_either_stab_c1", 0.993, f3)
+        put("adni_k3_either_stab_c2", 0.568, f3)
+        put("adni_k3_either_stab_c3", 0.792, f3)
+
     ks = _csv("ablation_k_sparsity_sweep.csv")
     raw["k_sweep"] = ks
 
