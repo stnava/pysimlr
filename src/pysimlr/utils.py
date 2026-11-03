@@ -6,7 +6,7 @@ import re
 import time
 import numpy as np
 from typing import List, Optional, Union, Dict, Any, Tuple
-from .defaults import DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_TOL
+from .defaults import DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_TOL, check_collapse_threshold
 
 def set_seed_based_on_time() -> int:
     """
@@ -525,7 +525,7 @@ def correlation_penalty(z: torch.Tensor, threshold: Optional[float] = None,
     collapse (t = 0.5 left a rank-4 basis at k = 5; powers 4 and 8 failed the
     k = 5 case or the narrow view).
     """
-    t = DEFAULT_COLLAPSE_THRESHOLD if threshold is None else float(threshold)
+    t = DEFAULT_COLLAPSE_THRESHOLD if threshold is None else check_collapse_threshold(threshold)
     n, d = z.shape
     if n < 2 or d < 2:
         return torch.zeros((), device=z.device, dtype=z.dtype)

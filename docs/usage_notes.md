@@ -140,12 +140,17 @@ per view, in the training standardisation.
 - **Correlated factors are not represented as such.**
   - With the default `newton` mixing, consensus scores are decorrelated. The shared *subspace* is
     recovered, but correlated factor axes are not.
-  - `mixing_algorithm="avg"` keeps factor correlation. In one benchmark, the recovered
-    correlation saturated near the collapse threshold (`DEFAULT_COLLAPSE_THRESHOLD = 0.3`), but
-    part of that evidence came from unconverged fits, and it is under evaluation. Until then,
-    treat recovered score correlations near or above 0.3 with caution.
+  - `mixing_algorithm="avg"` keeps factor correlation, but only up to about the collapse
+    threshold, `collapse_threshold` (default 0.3). On converged fits with true factor
+    correlation 0.5-0.7, the recovered score correlation peaked at 0.31 with threshold 0.3, 0.51
+    with 0.5, and 0.69 with 0.7.
+  - If you expect correlated factors, pass a higher `collapse_threshold` (for example 0.5-0.7)
+    with `mixing_algorithm="avg"`. The cost: on narrow views a higher threshold lets components
+    collapse. At 0.7, a narrow-view test case's score correlation rose to 0.89 and its outcome
+    R² fell by 0.10. Check score correlations and stability when you raise it.
 - **The collapse penalty.** It prevents components collapsing onto each other on narrow views,
-  but on such views it also costs similarity. Whether its threshold is right is under evaluation.
+  but on such views it also costs similarity. Its threshold is the trade-off described above;
+  its weight (`collapse_weight`, linear only) stays at 1.0.
 - **The default combination** of energy, optimizer and mixing is being re-confirmed at the full
   iteration budget. The current choice comes from a 25-iteration benchmark.
 - **Removed in 0.6.0:** the `simlr_lbfgsb` method and the `nsa_lbfgsb` optimizer. They were not

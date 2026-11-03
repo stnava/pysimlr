@@ -5,7 +5,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Sequence, Union, Tuple, Callable
 import contextlib
 import warnings
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM, DEFAULT_TOL, check_nsa_w
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_MIXING_ALGORITHM, DEFAULT_TOL, check_collapse_threshold, check_nsa_w
 class larslow(optim.Optimizer):
     """Layer-wise Adaptive Rate Scaling (LARS) optimizer for deep SiMLR."""
     def __init__(self, params, lr, weight_decay=1e-4, momentum=0.9, trust_coefficient=0.001):
@@ -1014,7 +1014,8 @@ def calculate_sim_loss(latents: List[torch.Tensor],
                        u_shared: Union[torch.Tensor, List[torch.Tensor]], 
                        energy_type: str = DEFAULT_ENERGY_TYPE,
                        weights: Optional[Dict[str, float]] = None,
-                       compute_diagnostics: bool = True) -> Tuple[torch.Tensor, Dict[str, float]]:
+                       compute_diagnostics: bool = True,
+                       collapse_threshold: Optional[float] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
     """
     Calculate similarity and regularization losses for deep SiMLR models.
 
@@ -1123,7 +1124,8 @@ def calculate_sim_loss(latents: List[torch.Tensor],
     # tests/test_collapse_penalty fixture (|r| 0.76-0.98), against 0/20 with
     # this one. (An earlier 0/5 without it used one start per data seed and
     # was not representative.)
-    collapse_loss = torch.stack([correlation_penalty(z) for z in latents]).mean()
+    collapse_loss = torch.stack([correlation_penalty(z, threshold=collapse_threshold)
+                                 for z in latents]).mean()
     if is_loo:
         u_var_penalty = torch.tensor(0.0, device=device)
         for u in u_shared:
@@ -1193,7 +1195,7 @@ def _update_first_layer_schedule(model, epoch: int, epochs: int, stabilization_s
     return {"basis_drift": 0.0, "projection_alpha": 1.0}
 
 
-def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=DEFAULT_TOL, patience=10, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, freeze_private_epochs: int = 0):
+def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=DEFAULT_TOL, patience=10, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, freeze_private_epochs: int = 0, collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD):
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     loss_history, recon_history, sim_history = [], [], []
     projection_alpha_history, basis_drift_history = [], []
@@ -1273,7 +1275,7 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
                 shared_latents, reconstructions, u_shared = res[0], res[1], res[2]
                 
                 recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
-                sim_loss_total, diagnostics = calculate_sim_loss(shared_latents, u_shared, energy_type, weights=penalty_weights, compute_diagnostics=False)
+                sim_loss_total, diagnostics = calculate_sim_loss(shared_latents, u_shared, energy_type, weights=penalty_weights, compute_diagnostics=False, collapse_threshold=collapse_threshold)
                 
                 total_loss = recon_loss + sim_loss_total
                 
@@ -1523,9 +1525,11 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
               initialization_type: str, random_state: Optional[int],
               domain_matrices, n_candidates: int, perturbation_scale: float,
               varimax: Optional[bool], tol: float, patience: int,
-              freeze_private_epochs: int = 0) -> Dict[str, Any]:
+              freeze_private_epochs: int = 0,
+              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
     """Shared body of `lend_simr`, `ned_simr` and `ned_simr_shared_private`."""
     nsa_w = check_nsa_w(nsa_w)
+    collapse_threshold = check_collapse_threshold(collapse_threshold)
     if optimizer_type not in DEEP_OPTIMIZER_TYPES:
         raise ValueError(f"optimizer_type={optimizer_type!r} is not a deep-path optimizer; "
                          f"choose one of {DEEP_OPTIMIZER_TYPES}.")
@@ -1550,7 +1554,7 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
             energy_type, warmup_epochs, verbose, device, tol=tol, patience=patience,
             stabilization_start_epoch=stabilization_start_epoch,
             stabilization_ramp_epochs=stabilization_ramp_epochs,
-            freeze_private_epochs=freeze_private_epochs)
+            freeze_private_epochs=freeze_private_epochs, collapse_threshold=collapse_threshold)
         model.eval()
         with torch.no_grad():
             eval_mats = [m.to(device) for m in torch_mats]
@@ -1696,7 +1700,8 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iter
               domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
               n_candidates: int = 5, perturbation_scale: float = 0.05,
               varimax: Optional[bool] = None,
-              tol: float = DEFAULT_TOL, patience: int = 10) -> Dict[str, Any]:
+              tol: float = DEFAULT_TOL, patience: int = 10,
+              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
     return _fit_first_layer_model("lend_simr", LENDSiMRModel, **locals())
 
 
@@ -1723,7 +1728,8 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, itera
              domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
              n_candidates: int = 5, perturbation_scale: float = 0.05,
              varimax: Optional[bool] = None,
-             tol: float = DEFAULT_TOL, patience: int = 10) -> Dict[str, Any]:
+             tol: float = DEFAULT_TOL, patience: int = 10,
+             collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
     return _fit_first_layer_model("ned_simr", NEDSiMRModel, **locals())
 
 
@@ -1756,7 +1762,8 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
                             random_state: Optional[int] = None,
                             domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
                             n_candidates: int = 5, perturbation_scale: float = 0.05,
-                            varimax: Optional[bool] = None) -> Dict[str, Any]:
+                            varimax: Optional[bool] = None,
+                            collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
     hidden_dims = tuple(DEFAULT_HIDDEN_DIMS if hidden_dims is None else hidden_dims)
     if private_k is None:
         private_k = max(1, k // 2)
@@ -1783,7 +1790,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         initialization_type=initialization_type, random_state=random_state,
         domain_matrices=domain_matrices, n_candidates=n_candidates,
         perturbation_scale=perturbation_scale, varimax=varimax, tol=tol, patience=patience,
-        freeze_private_epochs=shared_warmup_epochs)
+        freeze_private_epochs=shared_warmup_epochs, collapse_threshold=collapse_threshold)
 
 
 ned_simr_shared_private.__doc__ = (
