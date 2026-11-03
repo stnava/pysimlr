@@ -1530,6 +1530,8 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
     """Shared body of `lend_simr`, `ned_simr` and `ned_simr_shared_private`."""
     nsa_w = check_nsa_w(nsa_w)
     collapse_threshold = check_collapse_threshold(collapse_threshold)
+    from .similarity import check_fit_energy
+    check_fit_energy(energy_type, path="deep")
     if optimizer_type not in DEEP_OPTIMIZER_TYPES:
         raise ValueError(f"optimizer_type={optimizer_type!r} is not a deep-path optimizer; "
                          f"choose one of {DEEP_OPTIMIZER_TYPES}.")

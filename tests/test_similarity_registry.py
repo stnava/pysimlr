@@ -157,6 +157,12 @@ def test_homogeneity_degrees_are_what_the_gauge_rule_assumes():
             continue
         e1 = float(similarity_energy(name, s, u, ctx))
         e8 = float(similarity_energy(name, 8.0 * s, u, ctx))
+        # Also at simlr's internal scale: view scores there have variance
+        # ~1e-8. An absolute floor in `_std` once broke the scale-free terms
+        # at that scale while this test, run only at unit scale, passed.
+        e_small = float(similarity_energy(name, 1e-4 * s, u, ctx))
+        if name in expected_scale_free:
+            assert abs(e_small - e1) < 1e-6 * max(1.0, abs(e1)), (name, e1, e_small)
         # Tolerance 1e-6, not machine epsilon: the standardising `eps` inside
         # sqrt(var + eps) makes the scale-free terms invariant only to about
         # 1e-7, which is the price of a denominator that stays differentiable

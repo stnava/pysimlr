@@ -571,6 +571,8 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
                        _shuffled_loader, _init_generator, _freeze_consensus)
     nsa_w = check_nsa_w(nsa_w)
     collapse_threshold = check_collapse_threshold(collapse_threshold)
+    from .similarity import check_fit_energy
+    check_fit_energy(energy_type, path="deep")
     if optimizer_type not in DEEP_OPTIMIZER_TYPES:
         raise ValueError(f"optimizer_type={optimizer_type!r} is not a flow-path optimizer; "
                          f"choose one of {DEEP_OPTIMIZER_TYPES}.")

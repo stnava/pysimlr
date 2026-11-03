@@ -13,6 +13,7 @@ import numpy as np
 
 import pysimlr
 from pysimlr.similarity import (
+    AUXILIARY_ENERGIES,
     SCALE_FREE_ENERGIES,
     SIMILARITY,
     SimilarityContext,
@@ -23,7 +24,7 @@ from pysimlr.simlr import simlr
 
 
 @pytest.mark.parametrize("m_views", [2, 3, 4])
-@pytest.mark.parametrize("energy", sorted(SCALE_FREE_ENERGIES))
+@pytest.mark.parametrize("energy", sorted(SCALE_FREE_ENERGIES - set(AUXILIARY_ENERGIES)))
 def test_scale_free_energies_have_equal_normalizing_weights(m_views, energy):
     """Every verified scale-free energy must assign normalizing_weights == [1/M] * M."""
     torch.manual_seed(42)

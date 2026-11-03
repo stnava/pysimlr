@@ -149,11 +149,16 @@ def loadings(result: Dict[str, Any], views: Any, u: Optional[torch.Tensor] = Non
     xs, _ = _preprocess_views(view_list, result["scale_list"], result["provenance_list"])
     c0 = structure_coefficients(xs, u)
     rot = varimax_rotation(c0)
-    c = [(ci.double() @ rot).float() for ci in c0]
+    # Correlations with the rotated scores themselves, not C0 @ R: the two agree
+    # only when u's columns are uncorrelated with equal variance (orthogonal
+    # mixings). Under "avg" they differed by up to 0.07, so "structure describes
+    # u @ R" held only approximately.
+    u_rot = torch.as_tensor(u).detach().double() @ rot
+    c = structure_coefficients(xs, u_rot)
     load, margin = olee_loadings(c, _result_positivity(result))
     return {"structure": c, "loadings": load, "loading_margin": margin,
             "loading_rotation": rot.float(),
-            "communality": [(ci.double() ** 2).sum(1).float() for ci in c0]}
+            "communality": [(ci.double() ** 2).sum(1).float() for ci in c]}
 
 
 def _procrustes(a: np.ndarray, ref: np.ndarray) -> np.ndarray:

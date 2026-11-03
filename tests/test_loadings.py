@@ -208,3 +208,14 @@ def test_loading_inference_does_not_depend_on_n_jobs():
                              random_state=0, n_jobs=2)
     assert sa == sb
 
+@pytest.mark.parametrize("mixing", ["newton", "avg"])
+def test_structure_is_the_correlation_with_the_rotated_scores(mixing):
+    """`structure` is corr(X, u @ R) exactly, for every mixing. C0 @ R agrees
+    only when u's columns are uncorrelated with equal variance."""
+    from pysimlr.api import _preprocess_views
+    views = _small(n=120)
+    res = pysimlr.fit("simlr", views, 2, iterations=10, random_state=0, mixing_algorithm=mixing)
+    xs, _ = _preprocess_views(views, res["scale_list"], res["provenance_list"])
+    u_rot = res["u"].double() @ res["loading_rotation"].double()
+    for got, want in zip(res["structure"], structure_coefficients(xs, u_rot)):
+        assert torch.allclose(got, want, atol=1e-6)
