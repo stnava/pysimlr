@@ -213,24 +213,23 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   (n = 200, 2 views with 20 features, `ned_simr(iterations=100, batch_size=32, warmup_epochs=10)`)
   using `scripts/deep_collapse_diagnosis.py` (evidence: `docs/audit/evidence/deep_collapse_diagnosis.csv`).
   - *Step 1 (collapse rates across 20 data seeds 1..5 × start seeds 1..4)*:
-    - With penalty (`hinge`, `DEFAULT_COLLAPSE_WEIGHT = 1.0`): **0/20** pairs collapsed ($|corr(u)| \ge 0.5$, max $|r| = 0.194$, mean $|r| = 0.081$).
-    - Without penalty (`none`, `pysimlr.deep.correlation_penalty` patched to zero per Rule 8): **7/20** pairs collapsed (35%, $|corr(u)|$ between 0.765 and 0.981, mean 0.895; latent $|corr(z_0)| \ge 0.997$).
+    - With penalty (`hinge`, `DEFAULT_COLLAPSE_WEIGHT = 1.0`): **0/20** pairs collapsed (|corr(u)| >= 0.5, max |r| = 0.194, mean |r| = 0.081).
+    - Without penalty (`none`, `pysimlr.deep.correlation_penalty` patched to zero per Rule 8): **7/20** pairs collapsed (35%, |corr(u)| between 0.765 and 0.981, mean 0.895; latent |corr(z0)| >= 0.997).
     - Collapsing pairs: (1, 4), (2, 4), (3, 2), (3, 4), (4, 3), (5, 1), (5, 2).
   - *Step 2 (determinism & onset timing)*:
     - Determinism verified bit-identical (`max param diff = 0.0`, `max u diff = 0.0`).
-    - Prefix sweeps at iterations $\in \{10, 20, 40, 100\}$ on the 7 collapsing pairs pinpoint onset:
-      - At iteration 10 (end of warmup, autoencoder reconstruction only): **0/7** collapsed (mean $|corr(u)| = 0.135$, range 0.011 to 0.266).
-      - At iteration 20 (10 epochs after `"nc"` similarity activated): **7/7** collapsed (mean $|corr(u)| = 0.816$, range 0.600 to 0.934; latent $|corr(z_0)|$ jumped to mean 0.985).
-      - Conclusive diagnosis: dimensional collapse originates in the **similarity phase** (epochs 10-20), not during the reconstruction warmup phase.
-  - *Step 3 (energy comparison & constructibility)*:
-    - Model-parameter planted warm start is **non-constructible** in closed form due to multi-layer nonlinear MLP heads (`ModalityDecoder`: 2 $\to$ 128 $\to$ 64 $\to$ 2 with ReLU activations and Dropout) and decoders in `NEDSiMRModel`.
-    - Representation-space evaluation under unpenalized loss (`weights={"collapse": 0.0}`):
-      - Ground-truth planted latents achieve lower unpenalized loss (total $-1.9926$, $E_{sim} = -2.0000$).
-      - Collapsed unpenalized fits achieve total $+0.0062$ ($E_{sim} = -0.0012$, incurring an unweighted hinge collapse loss of $0.9958$).
-      - While the pure similarity objective mathematically favors orthogonal representations, unregularized neural network optimization encounters a spurious collapsed attractor from which it cannot escape without the collapse penalty.
+    - Prefix sweeps at iterations in {10, 20, 40, 100} on the 7 collapsing pairs pinpoint onset:
+      - At iteration 10 (end of warmup, autoencoder reconstruction only): **0/7** collapsed (mean |corr(u)| = 0.135, range 0.011 to 0.266).
+      - At iteration 20 (10 epochs after "nc" similarity activated): **7/7** collapsed (mean |corr(u)| = 0.816, range 0.600 to 0.934; latent |corr(z0)| jumped to mean 0.985).
+      - Onset diagnosis: dimensional collapse originates in the similarity phase (epochs 10-20), not during the reconstruction warmup phase.
+  - *Step 3 (energy evaluation & constructibility)*:
+    - A planted warm start is not constructible for the MLP model.
+    - Evaluated similarity against model's returned consensus (u_per_modality; recomputed matches final training similarity to <= 1e-5).
+    - Penalised fits (n=20): mean sim_loss = -1.9269 (min -1.9970, max -1.7079), mean total_unpen = -1.9195.
+    - Unpenalised fits: uncollapsed (n=13) mean sim_loss = -1.9355, total_unpen = -1.9282; collapsed (n=7) mean sim_loss = -1.4804, total_unpen = -1.4730 (incurring hinge collapse loss 0.9958).
   - *Decision Rule R3 evaluation*:
     - Condition: Keep the deep penalty unless the count without it is 0/20 and the count with it is no better.
-    - Measured: without penalty 7/20, with penalty 0/20.
+    - Measured: without penalty 7/20, with penalty 0/20 -> keep 1.0.
 - **D3. Correlated factors (Decision Rule R4, WP-6).** Evaluated consensus representation under
   correlated factors using `scripts/correlated_factors.py` across $\rho \in \{0.0, 0.3, 0.5, 0.7\}$, seeds 0–4,
   and mixing algorithms `newton` vs `avg` (40 fits at default budget `DEFAULT_SIMLR_ITERATIONS = 300`,
