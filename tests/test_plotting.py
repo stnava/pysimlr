@@ -44,6 +44,10 @@ CALLS = {
     "plot_basis_diagnostics": lambda f: (f["sig"],),
     "plot_rank_selection": lambda f: (f["rank"],),
     "plot_latent_coupling": lambda f: (f["sig"],),
+    "plot_view_chord": lambda f: (f["sig"],),
+    "plot_component_radar": lambda f: (f["sig"],),
+    "plot_view_radar": lambda f: (f["sig"], f["tr"]),
+    "plot_feature_chord": lambda f: (f["sig"],),
     "plot_modality_weights": lambda f: (f["flow"],),
     "plot_flow_warping": lambda f: (f["flow"], f["tr"]),
     "plot_view_correlations": lambda f: (f["tr"],),
@@ -64,7 +68,7 @@ FUSED = {"plot_fused_coefficients", "plot_coefficient_paths", "plot_fused_ridge_
 
 
 def test_every_public_function_is_covered():
-    assert set(plotting.__all__) == set(CALLS) | FUSED | {"feature_table"}
+    assert set(plotting.__all__) == set(CALLS) | FUSED | {"feature_table", "theme"}
 
 
 @pytest.mark.parametrize("name", sorted(CALLS))
@@ -98,9 +102,13 @@ def test_latent_coupling_is_corr_of_rotated_view_and_consensus_scores(fits):
     R = res["loading_rotation"].double().numpy(); U = res["u"].double().numpy() @ R
     want = np.corrcoef((res["latents"][0].double().numpy() @ R)[:, 0], U[:, 0])[0, 1]
     fig = pysimlr.plot_latent_coupling(res, pred=fits["pred"])
-    texts = [t.get_text() for t in fig.axes[0].texts]
-    assert f"{want:.2f}" == texts[0]
-    assert len(fig.axes) >= 3                                       # training, held-out, view-vs-view
+    vals = fig._pysimlr_values
+    assert vals["training"][0, 0] == pytest.approx(want, abs=1e-6)
+    held = np.corrcoef((fits["pred"]["latents"][0].double().numpy() @ R)[:, 0],
+                       fits["pred"]["u"].double().numpy() @ R[:, 0])[0, 1]
+    assert vals["held_out"][0, 0] == pytest.approx(held, abs=1e-6)
+    assert f"{held:.2f}" in [t.get_text() for t in fig.axes[0].texts]   # the held-out value is printed
+    assert len(fig.axes) >= 2                                       # per-view coupling, view-vs-view
     plt.close(fig)
     fig = pysimlr.plot_latent_coupling(fits["pca"])                  # joint basis: says so
     assert "joint latent" in fig.axes[0].texts[0].get_text()
@@ -111,14 +119,14 @@ def test_convergence_cards_and_flags(fits):
     for key, needle in (("short", "NOT converged"), ("sig", "Converged"), ("pca", "no iteration history")):
         fig = pysimlr.plot_convergence(fits[key])
         ax = fig.axes[0]
-        txt = ax.get_title() + " ".join(t.get_text() for t in ax.texts)
+        txt = ax.get_title("left") + " ".join(t.get_text() for t in ax.texts)
         assert needle in txt, (key, txt)
         plt.close(fig)
 
 
 def test_top_features_mark_selection_and_stability(fits):
     fig = pysimlr.plot_top_features(fits["sig"], inf=fits["inf"], top_n=5)
-    assert len(fig.axes) == 2 and "stability" in fig.axes[0].get_title()
+    assert len(fig.axes) == 2 and "stability" in fig.axes[0].get_title("left")
     assert any(abs(l.get_xdata()[0]) == pytest.approx(fits["inf"]["null_max_abs"])
                for l in fig.axes[0].get_lines() if l.get_linestyle() == "--")
     plt.close(fig)
@@ -126,13 +134,15 @@ def test_top_features_mark_selection_and_stability(fits):
 
 def test_flow_warping_of_simlr_is_the_identity(fits):
     fig = pysimlr.plot_flow_warping(fits["sig"], fits["tr"], components=(0,))
-    assert "Spearman 1.00" in fig.axes[0].get_title()
+    assert "Spearman 1.00" in fig.axes[0].get_title("left")
     plt.close(fig)
 
 
 def test_benchmark_uncertainty_flags_a_real_paired_difference(fits):
     fig = pysimlr.plot_benchmark_uncertainty(fits["splits"], baseline="ridge")
-    solid = [c for c in fig.axes[1].collections if c.get_linestyle()[0][1] is None]
+    from matplotlib.collections import LineCollection
+    solid = [c for c in fig.axes[1].collections
+             if isinstance(c, LineCollection) and c.get_linestyle()[0][1] is None]
     assert len(solid) >= 1                                           # simlr - ridge excludes 0
     plt.close(fig)
     with pytest.raises(ValueError, match="baseline"):
@@ -159,3 +169,55 @@ def test_old_plotting_modules_are_gone():
     for mod in ("pysimlr.viz", "pysimlr.visualization", "pysimlr.benchmarks.plotting"):
         with pytest.raises(ModuleNotFoundError):
             __import__(mod)
+
+
+def test_view_chord_draws_the_pairwise_correlation_of_view_scores(fits):
+    res = fits["sig"]; R = res["loading_rotation"].double().numpy()
+    Z = [z.double().numpy() @ R for z in res["latents"]]
+    fig = pysimlr.plot_view_chord(res)
+    P = fig._pysimlr_values["pairwise"]
+    for j in range(P.shape[0]):
+        assert P[j, 0, 1] == pytest.approx(np.corrcoef(Z[0][:, j], Z[1][:, j])[0, 1], abs=1e-6)
+    assert len(fig.axes) == P.shape[0]                              # one chord per component
+    plt.close(fig)
+    fig = pysimlr.plot_view_chord(fits["pca"])                       # joint basis: says so
+    assert "joint latent" in fig.axes[0].texts[0].get_text()
+    plt.close(fig)
+
+
+def test_radars_plot_the_coupling_and_fingerprint_values(fits):
+    res = fits["sig"]
+    fig = pysimlr.plot_component_radar(res, pred=fits["pred"])
+    C = fig._pysimlr_values["coupling"]
+    R = res["loading_rotation"].double().numpy()
+    want = np.corrcoef((fits["pred"]["latents"][1].double().numpy() @ R)[:, 1],
+                       fits["pred"]["u"].double().numpy() @ R[:, 1])[0, 1]
+    assert C[1, 1] == pytest.approx(want, abs=1e-6)
+    plt.close(fig)
+    fig = pysimlr.plot_view_radar(res, fits["tr"], pred=fits["pred"])
+    v = fig._pysimlr_values
+    assert {"coupling\ntraining", "coupling\nheld-out", "R\u00b2\ntraining", "R\u00b2\nheld-out"} <= set(v["spokes"])
+    assert np.all((v["values"] >= 0) & (v["values"] <= 1))
+    assert "weight \u00d7 M" not in v["spokes"]                     # uniform weights are not a spoke
+    plt.close(fig)
+    with pytest.raises(ValueError, match="three quantities"):
+        pysimlr.plot_view_radar({**fits["pca"], "effective_rank": None, "v": None})
+
+
+def test_feature_chord_draws_only_supported_features_with_inference(fits):
+    res, inf = fits["sig"], fits["inf"]
+    fig = pysimlr.plot_feature_chord(res, inf=inf, top_n=4)
+    tab = pysimlr.feature_table(res, inf)
+    ok = set(zip(tab[tab.selected | tab.excludes_zero].view, tab[tab.selected | tab.excludes_zero].feature_name))
+    for m, name, _ in fig._pysimlr_values["features"]:
+        assert (m, name) in ok
+    plt.close(fig)
+
+
+def test_every_figure_is_drawn_in_the_theme(fits):
+    import matplotlib as mpl
+    before = mpl.rcParams["axes.facecolor"]
+    fig = pysimlr.plot_scores(fits["sig"], color_by=np.arange(70.0))
+    assert fig.get_facecolor()[:3] == pytest.approx(mpl.colors.to_rgb(plotting._SURFACE))
+    assert mpl.rcParams["axes.facecolor"] == before                 # the caller's style is untouched
+    plt.close(fig)

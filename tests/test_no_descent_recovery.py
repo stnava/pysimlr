@@ -32,3 +32,15 @@ def test_without_the_retry_the_same_fit_stops_with_no_descent(monkeypatch):
         warnings.simplefilter("ignore")
         r = pysimlr.fit("simlr", _toy(0), 2, positivity="positive", random_state=0)
     assert r["stop_reason"] == "no_descent" and r["convergence"]["learning_rate_reductions"] == 0
+
+
+def test_every_fit_reports_its_learning_rate():
+    """A fixed-rate fit had no `learning_rate` key; only "auto" fits reported one."""
+    import numpy as np
+    from pysimlr.simlr import simlr
+    g = np.random.default_rng(0)
+    z = g.normal(size=(60, 2))
+    views = [z @ g.normal(size=(2, p)) + 0.3 * g.normal(size=(60, p)) for p in (12, 10)]
+    r = simlr(views, k=2, iterations=5, learning_rate=0.05, random_state=0)
+    assert r["learning_rate"] == 0.05
+    assert r["convergence"]["learning_rate_final"] <= 0.05

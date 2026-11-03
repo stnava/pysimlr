@@ -2122,6 +2122,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "consolidated": consolidate,
         "sparseness": sparseness,
         "random_state": random_state,
+        # The rate the fit started from (the "auto" branch overwrites it with
+        # the probe's choice); `convergence["learning_rate_final"]` is the
+        # rate after any no-descent reductions.
+        "learning_rate": opt_params.get("learning_rate"),
         "initialization_type": initialization_type,
         "modality_weights": mai_mod_weights.detach().cpu().numpy(),
         "mai": mai_ema.detach().cpu().numpy(),
