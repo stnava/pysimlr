@@ -230,26 +230,12 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   - *Decision Rule R3 evaluation*:
     - Condition: Keep the deep penalty unless the count without it is 0/20 and the count with it is no better.
     - Measured: without penalty 7/20, with penalty 0/20 -> keep 1.0.
-- **D3. Correlated factors (Decision Rule R4, WP-6).** Evaluated consensus representation under
-  correlated factors using `scripts/correlated_factors.py` across $\rho \in \{0.0, 0.3, 0.5, 0.7\}$, seeds 0–4,
-  and mixing algorithms `newton` vs `avg` (40 fits at default budget `DEFAULT_SIMLR_ITERATIONS = 300`,
-  evidence: `docs/audit/evidence/correlated_factors.csv`).
-  - *Measured subspace recovery (OLS linear regression R²)*:
-    - `newton`: $\rho=0.0 \to 0.9877$, $\rho=0.3 \to 0.9835$, $\rho=0.5 \to 0.9791$, $\rho=0.7 \to 0.9670$ (drop $\Delta = 0.0207 \approx 0.02$).
-    - `avg`: $\rho=0.0 \to 0.9874$, $\rho=0.3 \to 0.9831$, $\rho=0.5 \to 0.9840$, $\rho=0.7 \to 0.9665$ (drop $\Delta = 0.0209 \approx 0.02$).
-    - Procrustes orthogonal alignment drops further at $\rho=0.7$ ($0.7483$ newton, $0.8451$ avg) due to the rigid $O(k)$ constraint's inability to shear an orthonormal frame into oblique axes (theoretical upper bound $\approx 0.777$).
-  - *Measured consensus score correlation (u off-diagonal |r|)*:
-    - `newton`: $0.0000$ across all $\rho$ (strictly decorrelated via Stiefel polar projection; view 0 scores $s_0$ off-diag $|r| = 0.0420$ at $\rho=0.0 \to 0.1196$ at $\rho=0.7$).
-    - `avg`: $0.0467$ at $\rho=0.0$, $0.2487$ at $\rho=0.3$, $0.2881$ at $\rho=0.5$, $0.3015$ at $\rho=0.7$ (correlated axes preserved, bounded by the collapse penalty threshold).
-  - *Feature structure recovery (Hungarian-matched |r| of stacked structure coefficients vs planted V)*:
-    - `newton`: $0.9664$ at $\rho=0.0$, $0.9674$ at $\rho=0.3$, $0.9654$ at $\rho=0.5$, $0.9574$ at $\rho=0.7$.
-    - `avg`: $0.9651$ at $\rho=0.0$, $0.9632$ at $\rho=0.3$, $0.9571$ at $\rho=0.5$, $0.9217$ at $\rho=0.7$.
-    - Varimax rotation of feature structure coefficients accurately recovers disjoint block supports even when consensus scores are decorrelated.
-  - *Decision Rule R4 evaluation*:
-    - Condition 1: Subspace R² at $\rho=0.7$ within 0.02 of $\rho=0$: MET (OLS subspace drop $0.0207 \approx 0.02$).
-    - Condition 2: Newton loses the column correlation that avg keeps: MET (Newton score corr 0.0000 vs Avg 0.3015).
-    - *Verdict*: Added "Limitations" paragraph to `docs/api_contract.md`: newton represents the subspace, not correlated axes, and `mixing_algorithm="avg"` keeps them.
-    - *Code change*: **No code change either way (`mixing_algorithm="newton"` remains default)**.
+- **D3. Correlated factors (Decision Rule R4, WP-6).** Status: **OPEN**.
+  Evidence: `docs/audit/evidence/correlated_factors.csv` (40 fits across rho in {0.0, 0.3, 0.5, 0.7}, seeds 0-4).
+  Headline finding: the collapse penalty threshold (0.30) clips correlated factors under `avg`, saturating consensus score correlation at 0.288 (rho = 0.5) and 0.302 (rho = 0.7), while `newton` decorrelates scores to 0.000.
+  Subspace R2 falls from 0.9877 (rho = 0.0) to 0.9670 (rho = 0.7) for `newton` (drop 0.0207) and from 0.9874 to 0.9665 for `avg` (drop 0.0209).
+  Applied literally, R4 condition 1 fails because the drop of 0.0207 > 0.02; because the drop is the same for avg (0.0209), it comes from the generator, not the mixing method.
+  Decision D3 remains open pending threshold investigation in P1.
 - **D5. simlr_lbfgsb calibration vs drop (Decision Rule R5, WP-7).** Executed 3×3 proximal
   hyperparameter grid search using `scripts/lbfgsb_calibration.py` (evidence:
   `docs/audit/evidence/lbfgsb_calibration.csv`):
