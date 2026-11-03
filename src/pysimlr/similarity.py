@@ -106,7 +106,12 @@ def _std(z: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     population parameter, and because it is what the deep path already used --
     matching it keeps the identity-equivalence test exact.
     """
-    return torch.sqrt(z.var(dim=0, keepdim=True, unbiased=False) + eps)
+    # The floor is relative to the columns' own mean variance, not absolute:
+    # inside `simlr` view scores have variance ~1e-8, where an absolute 1e-6
+    # floor shrank the "standardised" scores to sd 0.11-0.17 and distorted
+    # every energy built on this (align, logcosh, exp, kurtosis, negentropy).
+    var = z.var(dim=0, keepdim=True, unbiased=False)
+    return torch.sqrt(var + eps * (var.mean() + 1e-30))
 
 
 #: Rows needed before a centred, standardised cross-moment means anything.
