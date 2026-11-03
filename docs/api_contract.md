@@ -212,9 +212,10 @@ method. All parameters are explicit, so `clone`, `get_params` and `GridSearchCV`
 - `deep_simr`, `flow_simlr`, `flow_simlr_v`, `FlowSiMLRModel`, `FlowSiMLRVModel`: use
   `lend_simr`, `flow_simr`, `flow_simr_v`, `FlowSiMRModel`, `FlowSiMRVModel`.
 - `FlowWhitener`, `flow_whiten_matrix` and `flow_whitener`: the ANTsTorch LAMNr-Flows whitener
-  wrapper. Nothing in pysimlr used it, and its "whitened_full" forward map is not white upstream
-  (`apply_lamnr_flows_whitener.py:161` solves with L^T where L belongs; output covariance off the
-  identity by 3.2 in simulation). Use ANTsTorch directly once that is fixed.
+  wrapper. Nothing in pysimlr used it. The upstream whitener defect in ANTsTorch was fixed in
+  commit `ed39d99` (`apply_lamnr_flows_whitener.py:161` solves with L); on an 8D Gaussian (n = 2000,
+  condition ~ 50), output covariance reaches ‖cov − I‖_F = 0.1767 < 0.25 and max |off-diagonal| = 0.0329 < 0.1
+  (`scripts/antstorch_whitener_check.py`, Rule R10). Call ANTsTorch directly (`lamnr_flows_whitener`).
 - Energies `regression`, `gauss`, `normalized_correlation` raise naming the replacement
   (`recon_r2` linear / `align` deep, `exp`, `nc`); `recon` is refused as a linear objective.
 - Optimizers `torch_lbfgs`, `nsa_flow`, and `nsa_lbfgsb`, and methods `simlr_lbfgs` and `simlr_lbfgsb` (`nsa_lbfgsb` and `simlr_lbfgsb` in 0.6.0: not competitive with `hybrid_adam`; use `'simlr'` with the default optimizer `'hybrid_adam'`).
