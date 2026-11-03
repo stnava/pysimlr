@@ -72,6 +72,9 @@ item that is in progress or on hold.
 | `0381e64` | Comprehensive amigo update (D1). |
 | `9822946` | Merge branch 'main' into amigo (80f9536 DEFAULT_DEEP_ITERATIONS=300; d357e2f ConvergenceWarning). |
 | `1818896` | Benchmark readiness statement at 300 deep budget (R13, R14). |
+| `18f2396` | Record ae5eb07, 18db280, 80f9536, d357e2f and final R14 READY (D1). |
+| `2f0dbba` | Merge branch 'main' (22900ec) into amigo (fused_ridge and standard plotting). |
+| `f8258f3` | Update R13 diagnosis, Caveat 9, and post-22900ec suite count (B4, R13, R14). |
 
 ## Inventory and Phase Status
 
@@ -90,8 +93,8 @@ item that is in progress or on hold.
 | B | B1 | Package-default linear budget | DONE (`da59700`) | `--iterations None` in all harnesses |
 | B | B2 | Two-stage linear default grid (Rules R11, R12) | DONE (`9aa7c99`, `c1eb7f8`, `1bf6e62`) | `docs/audit/evidence/default_selection_stage1.csv`, `..._stage2.csv` |
 | B | B3 | Deep consistency (Rule R13) | DONE (`7eede2d`, `80f9536`, `1818896`) | `docs/audit/evidence/deep_budget_check.csv` (18/18 flow_v, 18/18 ned, 18/18 ned_shared_private, 17/18 lend >= 0.90; PASS) |
-| B | B4 | Benchmark readiness (Rule R14) | DONE (`2af7df4`, `fb78eff`, `1818896`) | `docs/benchmark_readiness.md` (overall verdict: READY for both LINEAR and DEEP) |
-| D | D1 | Comprehensive tracking update | DONE (`0381e64`, current) | `docs/tracking_amigo.md` (records ae5eb07, 18db280, 80f9536, d357e2f, R14 READY) |
+| B | B4 | Benchmark readiness (Rule R14) | DONE (`2af7df4`, `fb78eff`, `1818896`, `f8258f3`) | `docs/benchmark_readiness.md` (overall verdict: READY for both LINEAR and DEEP) |
+| D | D1 | Comprehensive tracking update | DONE (`0381e64`, `18f2396`, current) | `docs/tracking_amigo.md` (records ae5eb07, 18db280, 80f9536, d357e2f, 22900ec, R14 READY) |
 | D | D2 | Paper worktree, displays, caches, build | PLANNED | `amigo-paper` worktree |
 
 ## Why: feature identifiability (measured)
@@ -331,7 +334,7 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   1. R11 default pair: WITHDRAWN by reviewer (top-endpoint hits reflect probe large-step bias, not grid defect).
   2. R12 winner convergence: PASS (incumbent conv_rate = 1.000 >= 0.9).
   3. R13 deep convergence: PASS at 300 epochs (flow_v=1.000, ned=1.000, ned_shared_private=1.000, lend=0.944 >= 0.90 in `docs/audit/evidence/deep_budget_check.csv`).
-  4. Test suite: PASS (1655 passed, 3 strict xfailed in clean worktree).
+  4. Test suite: PASS (1663 passed, 3 strict xfailed in clean worktree post-22900ec).
   5. Evidence paths: PASS (all cited paths verified tracked in git via git ls-files --error-unmatch).
   Caveat added: commit 18db280 relative _std floor fix; linear results for align/logcosh/exp/kurtosis/negentropy measured before 18db280 are invalid.
   Verdict: READY for both LINEAR and DEEP paradigms per Rule R14.
@@ -341,6 +344,8 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
 - **M2. Merge main (80f9536 & d357e2f).** Status: **COMPLETE (9822946)**.
   - `80f9536`: Unified deep budget `DEFAULT_DEEP_ITERATIONS = 300` across all deep and flow entry points (`lend_simr`, `ned_simr`, `ned_shared_private`, `flow_simr`, `flow_simr_v`), matching the linear budget (300). Diagnosis: 20 warmup epochs left 130 steps at budget 150, leaving still-improving fits incomplete. At 300 epochs, all 4 deep families achieve >= 0.90 convergence (`flow_v` 1.000, `ned` 1.000, `ned_shared_private` 1.000, `lend` 0.944) with non-inferior predictive accuracy and latent recovery. Evidence: `scripts/deep_budget_check.py`, `docs/audit/evidence/deep_budget_check.csv`.
   - `d357e2f`: ConvergenceWarning (`pysimlr.ConvergenceWarning`) emitted when a fit finishes with stop_reason in `{max_iter, no_descent, non_finite}`. Wired through `utils.warn_if_unconverged` across `simlr`, `_fit_deep`, `_fit_flow`, and `nsa_pipeline`. Full test suite passes with warnings raised on intentionally short / non-converging test fits.
+- **M3. Merge main (22900ec).** Status: **COMPLETE (2f0dbba)**.
+  - `22900ec`: Fused ridge regression (`pysimlr.fused_ridge`) with exact sparse block solver for multi-task / grouped penalised GLMs with fusion graph; standard plotting module (`pysimlr.plotting`) with result-object inspection functions (`plot_fused_coefficients`, `plot_coefficient_paths`, `plot_fused_ridge_cv`, `plot_predictions`). All 5 main commits (`ae5eb07`, `18db280`, `80f9536`, `d357e2f`, `22900ec`) merged and verified on amigo. Clean test suite passes with 1663 passed, 3 strict xfailed, 0 failed; antsxqc.lint 0 findings.
 - **D5. simlr_lbfgsb calibration vs drop (Decision Rule R5, WP-7).** Executed 3x3 proximal
   hyperparameter grid search using `scripts/lbfgsb_calibration.py` (evidence:
   `docs/audit/evidence/lbfgsb_calibration.csv`):
