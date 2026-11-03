@@ -145,6 +145,39 @@ per view, in the training standardisation.
   energy at the start of the fit, so their relative view weights depend on the initialisation.
   Prefer `nc` unless you need these specifically.
 
+## View weights (`dynamic_weights=True`, MAI)
+
+Off by default. When on, each view's weight in the consensus follows its modality alignment
+index (MAI): the leave-one-out agreement of the view's latent with the other views' consensus.
+- **The score is corrected for degrees of freedom.** A view with many non-zero loadings can
+  agree with anything by fitting. Each score is adjusted like an R² for the view's effective
+  coefficients; with as many coefficients as rows, it scores 0.
+- **Weights are gated against a null floor, not the mean MAI.** The floor is the 95th
+  percentile of the same score with the consensus rows permuted (20 permutations, recomputed
+  every 10 updates). A view at or below its floor gets weight 0. If no view clears its floor,
+  the weights stay uniform with a `RuntimeWarning`.
+- **The ramp from uniform to target weights takes 20 updates.**
+- **Choosing `mai_metric`:**
+  - `procrustes_r2` (the default) scores agreement across all k components. It gives the best
+    latent recovery.
+  - `max_cc` is the first canonical correlation between the view's latent and the consensus,
+    on rank-adaptive orthonormal bases. It keeps views coupled through only some components
+    (sub-coupled views), narrow views (small p or low rank), and views with very different
+    p_k. The cost is lower overall recovery when an uncoupled-but-noisy component gets
+    weight.
+- **Evidence:** a planted design with two fully coupled views, one sub-coupled view, one
+  narrow view (p=4) and a p > n noise view, at n=150
+  (`scripts/mai_calibration_check.py`, `docs/audit/evidence/mai_calibration_check.csv`).
+  Final weights for A / B / C / D / E:
+
+  | arm | A | B | C (sub-coupled) | D (narrow) | E (noise) | latent R² |
+  |---|---|---|---|---|---|---|
+  | previous (raw score, mean gate) | 0.35 | 0.35 | 0.00 | 0.00 | 0.30 | 0.91 |
+  | `procrustes_r2` | 0.41 | 0.41 | 0.09 | 0.08 | 0.01 | 0.91 |
+  | `max_cc` | 0.27 | 0.27 | 0.27 | 0.19 | 0.00 | 0.85 |
+- **Cost:** about 10 ms per update with floors at n=1000 and M=6, against 1–2 ms without.
+  Floors run on 1 update in 10.
+
 ## Fused ridge (multi-task regression with fused coefficients)
 
 `fit_fused_ridge` fits one coefficient vector per *task* and pulls neighbouring tasks'
@@ -189,19 +222,31 @@ one convention:
 - matplotlib only;
 - it plots interpretable quantities, with signed values on a symmetric diverging scale.
 
-| plot | shows | input |
+| function | shows | input |
 |---|---|---|
-| `plot_loadings(res, view)` | loadings, features × components (rotated frame) | `fit` result |
-| `plot_structure_intervals(inf, view, component)` | structure coefficients with 95% intervals; selected features in bold | `loading_inference` result |
-| `plot_component_stability(rank)` | per-component stability per k, with reference lines at 0.9 and 0.8 | `select_rank` result |
-| `plot_scores(res, new_views=)` | subject scores `u @ R`, with held-out subjects projected | `fit` result |
-| `plot_view_agreement(res, component)` | each view's scores against the consensus, with r | `fit` result |
-| `plot_convergence(res)` | the objective history, with the stop reason; flags unconverged fits | `fit` result |
+| `feature_table(res, inf=)` | **data**, one row per view × feature × component: structure, loading, CI, `excludes_zero`, `selected`, `selection_frequency`, stability | `fit` (+ `loading_inference`) |
+| `plot_top_features(res, inf=, component=)` | a component's top features, one panel per view: CIs, permutation null, selected in bold, stability badge | `fit` (+ inference) |
+| `plot_feature_groups(res, groups, inf=)` | groups (lobes, networks, pathways) × components: mean or max \|structure\|, or counts of significant (CI excludes 0) or stability-selected features | `fit` (+ inference) |
+| `plot_loadings(res, view)` | loadings, features × components (rotated frame) | `fit` |
+| `plot_latent_coupling(res, pred=)` | view-vs-consensus r per component, training and held-out (with the change), and view-vs-view | `fit` (+ `predict`) |
+| `plot_convergence(res)` | the objective history (deep and flow: total, sim and recon); flags unconverged fits | `fit` |
+| `plot_basis_diagnostics(res)` | effective rank against k, column overlap, conditioning, sparsity and margin | `fit` |
+| `plot_rank_selection(sel)` | every component's stability at each k; the weakest-component curve; the 0.9 and 0.8 bars; the selected k | `select_rank` |
+| `plot_variance_explained(res, views, pred=)` | reconstruction R², training against held-out; structure captured per component | `fit` (+ `predict`) |
+| `plot_modality_weights(res)` | view weights against 1/M, and MAI, with flow_v trajectories | `simlr` / `flow_v` fit |
+| `plot_flow_warping(res, views)` | the linear first layer against the latent the model uses (Spearman), per view and component | deep or flow `fit` |
+| `plot_scores(res, new_views=)` | subject scores `u @ R`, with held-out subjects projected | `fit` |
 | `plot_view_correlations(views)` | adjusted RV between views | views |
-| `plot_latent_recovery(res, z_true)` | \|corr\| of components with planted latents | `fit` result |
-| `plot_fused_coefficients`, `plot_coefficient_paths`, `plot_fused_ridge_cv` | fused ridge | `fit_fused_ridge` / `fused_ridge_cv` results |
-| `plot_benchmark(df, x, y, by, kind)` | one benchmark metric against a setting, per method | results DataFrame |
-| `plot_predictions(y, yhat)` | predicted against observed, with r | arrays |
+| `plot_latent_recovery(res, z_true)` | \|corr\| of components with planted latents | `fit` |
+| `plot_fit_summary(res, views, pred=, inf=)` | a one-call diagnostic sheet | `fit` (+ `predict`, inference) |
+| `plot_benchmark(df, x, y)` | a metric against a setting, per method (mean ± SE) | results DataFrame |
+| `plot_benchmark_uncertainty(df, baseline=)` | per-method score with a bootstrap CI over splits; paired difference against a baseline | long DataFrame (method, split, score) |
+| `plot_fused_coefficients`, `plot_coefficient_paths`, `plot_fused_ridge_cv` | fused ridge | `fit_fused_ridge` / `fused_ridge_cv` |
+| `plot_predictions(y, yhat)` | predicted against observed | arrays |
+
+Multi-view plots colour views with the Okabe–Ito palette. A plot of an unconverged fit is
+titled in orange with its stop reason. Stability badges are black at ≥ 0.9, amber at ≥ 0.8 and
+red below; change them with `bars=`.
 
 Nothing plots the encoder `v`. The architecture diagrams are in `pysimlr.diagrams`.
 
