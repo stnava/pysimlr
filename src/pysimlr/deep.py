@@ -38,9 +38,35 @@ class larslow(optim.Optimizer):
                 p.sub_(buf)
         return loss
 
+def _device_type(params) -> str:
+    first = next(iter(params), None)
+    return "cpu" if first is None else first.device.type
+
+
+def _foreach(params) -> Optional[bool]:
+    """``foreach=True`` for gradient clipping, except on MPS, where
+    ``clip_grad_norm_(foreach=True)`` raises (every deep fit on
+    ``device="mps"`` failed). ``None`` lets torch choose."""
+    return None if _device_type(params) == "mps" else True
+
+
+def _sum_on_host(losses: List[torch.Tensor]) -> float:
+    """Sum per-step losses kept on the device with one transfer per epoch, in
+    the same order and float64 arithmetic as the per-step ``.item()`` it
+    replaces (one device sync per step)."""
+    return float(sum(torch.stack(losses).detach().cpu().tolist())) if losses else 0.0
+
+
 def _get_optimizer(model, optimizer_type, learning_rate, weight_decay):
     if optimizer_type == "adam":
-        return optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay, foreach=True)
+        # On MPS/CUDA the fused kernel: the default single-tensor Adam reads each
+        # parameter's step counter with .item(), a sync per parameter per step
+        # (measured on MPS: 4.9 ms against 0.84 ms per step for 40 tensors). On
+        # the CPU foreach, unchanged, so CPU fits are bit-identical.
+        params = list(model.parameters())
+        accel = _device_type(params) in ("mps", "cuda")
+        return optim.Adam(params, lr=learning_rate, weight_decay=weight_decay,
+                          **({"fused": True} if accel else {"foreach": True}))
     if optimizer_type == "larslow":
         return larslow(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     if optimizer_type == "lars":
@@ -1173,7 +1199,9 @@ def calculate_sim_loss(latents: List[torch.Tensor],
                   weights.get("u_var", 1.0) * u_var_penalty)
     
     if not compute_diagnostics:
-        return total_loss, {"sim_loss": sim_loss.item()}
+        # A detached tensor, not a float: the training loops call this every
+        # step, and .item() is a device sync (on MPS/CUDA it stalls the queue).
+        return total_loss, {"sim_loss": sim_loss.detach()}
 
     diagnostics = {
         "sim_loss": sim_loss.item(),
@@ -1256,7 +1284,7 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     all_params = list(model.parameters())
     
     for epoch in range(epochs):
-        model.train(); epoch_loss, epoch_recon, epoch_sim = 0.0, 0.0, 0.0
+        model.train(); step_loss, step_recon, step_sim = [], [], []
         
         # PR3: Private encoder warmup strategy
         if freeze_private_epochs > 0 and hasattr(model, "private_encoders"):
@@ -1327,12 +1355,14 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
                     enc._step_v_cache = None
             
             if torch.isnan(total_loss): continue
-            total_loss.backward(); torch.nn.utils.clip_grad_norm_(all_params, max_norm=1.0, foreach=True); optimizer.step()
+            total_loss.backward(); torch.nn.utils.clip_grad_norm_(all_params, max_norm=1.0, foreach=_foreach(all_params)); optimizer.step()
             if hasattr(model, 'update_mai'):
                 model.update_mai(shared_latents, epoch, epochs)
-            epoch_loss += total_loss.item(); epoch_recon += recon_loss.item(); epoch_sim += diagnostics["sim_loss"]
-            
-        epoch_loss /= len(dataloader); epoch_recon /= len(dataloader); epoch_sim /= len(dataloader)
+            step_loss.append(total_loss.detach()); step_recon.append(recon_loss.detach()); step_sim.append(diagnostics["sim_loss"])
+
+        epoch_loss = _sum_on_host(step_loss) / len(dataloader)
+        epoch_recon = _sum_on_host(step_recon) / len(dataloader)
+        epoch_sim = _sum_on_host(step_sim) / len(dataloader)
         loss_history.append(epoch_loss); recon_history.append(epoch_recon); sim_history.append(epoch_sim)
         # ReduceLROnPlateau is metric-driven, unlike the cosine it replaced.
         scheduler.step(epoch_loss)
@@ -1399,14 +1429,15 @@ def _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=None):
               if encoders is not None and idx < len(encoders)
               else DEFAULT_SPARSENESS)
         try:
-            v_f = simlr_sparseness(v.double(), constraint_type="orth",
+            # float64 on the CPU: once per fit; MPS has no float64.
+            v_f = simlr_sparseness(v.detach().cpu().double(), constraint_type="orth",
                                    positivity=positivity,
                                    sparseness=sq,
                                    constraint_weight=nsa_w,
                                    energy_type=energy_type,
                                    modality_index=idx,
                                    unit_columns=True,
-                                   retraction_diagnostics=d).to(v.dtype)
+                                   retraction_diagnostics=d).to(device=v.device, dtype=v.dtype)
         except (ImportError, RuntimeError) as exc:
             v_f, d = v, {"error": repr(exc)[:200]}
         out.append(torch.nan_to_num(v_f, nan=0.0, posinf=0.0, neginf=0.0)); diags.append(d)

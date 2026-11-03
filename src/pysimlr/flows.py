@@ -12,7 +12,7 @@ from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFA
 #: rotation of the k latent coordinates -- measured, the same data under three
 #: rotations gave 0.0348, 0.1319 and 0.0000, while the others were constant to
 #: four decimals. It ranked a planted pure-noise view above a signal view.
-from .deep import _ModalityWeightingMixin, _MultiViewModelMixin, _linear_encoders
+from .deep import _ModalityWeightingMixin, _MultiViewModelMixin, _foreach, _linear_encoders, _sum_on_host
 
 
 class preserve_matplotlib_backend:
@@ -444,7 +444,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
     _all_params = list(model.parameters())
     for epoch in range(epochs):
         model.train()
-        epoch_loss, epoch_recon, epoch_sim = 0.0, 0.0, 0.0
+        step_loss, step_recon, step_sim = [], [], []
         valid_batches = 0
         
         # Update first-layer projection schedule (straight-through estimation)
@@ -491,7 +491,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
                 
             total_loss.backward()
 
-            total_norm = torch.nn.utils.clip_grad_norm_(_all_params, max_norm=1.0, foreach=True)
+            total_norm = torch.nn.utils.clip_grad_norm_(_all_params, max_norm=1.0, foreach=_foreach(_all_params))
             if not bool(torch.isfinite(total_norm)):
                 nonfinite_grad_steps += 1
                 optimizer.zero_grad(set_to_none=True)
@@ -503,14 +503,14 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
             if hasattr(model, 'update_mai'):
                 model.update_mai(latents, epoch, epochs, dynamic_weights_start=dynamic_weights_start)
             
-            epoch_loss += total_loss.item()
-            epoch_recon += recon_loss.item()
-            epoch_sim += diagnostics["sim_loss"]
-            
+            step_loss.append(total_loss.detach())
+            step_recon.append(recon_loss.detach())
+            step_sim.append(diagnostics["sim_loss"])
+
         denom = max(1, valid_batches)
-        epoch_loss /= denom
-        epoch_recon /= denom
-        epoch_sim /= denom
+        epoch_loss = _sum_on_host(step_loss) / denom
+        epoch_recon = _sum_on_host(step_recon) / denom
+        epoch_sim = _sum_on_host(step_sim) / denom
         loss_history.append(epoch_loss)
         if epoch >= _warm and np.isfinite(epoch_loss) and epoch_loss < _best_loss:
             _best_loss, _best_epoch = epoch_loss, epoch

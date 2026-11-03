@@ -585,7 +585,7 @@ def view_dofs(v_mats: Sequence[torch.Tensor], n: int, metric: str = "procrustes_
     for v in v_mats:
         nz = v.detach().abs() > 1e-12
         out.append(float(nz.any(dim=1).sum().item()) if metric == "max_cc"
-                   else float(nz.sum(dim=0).double().mean().item()))
+                   else float(nz.sum(dim=0).float().mean().item()))
     return out
 
 
@@ -634,7 +634,8 @@ def capture_consensus_map(projections: List[torch.Tensor],
     """
     proj_rms, normed = [], []
     for p in projections:
-        p = torch.nan_to_num(p.detach().double(), nan=0.0, posinf=0.0, neginf=0.0)
+        # float64 on the CPU: one solve per fit, and MPS has no float64.
+        p = torch.nan_to_num(p.detach().cpu().double(), nan=0.0, posinf=0.0, neginf=0.0)
         rms = float(torch.norm(p, p="fro") / np.sqrt(max(1, p.shape[0])))
         proj_rms.append(rms)
         normed.append(p / (rms + 1e-8))
@@ -644,7 +645,7 @@ def capture_consensus_map(projections: List[torch.Tensor],
     targets = list(u) if isinstance(u, (list, tuple)) else [u]
     maps, offsets, resid = [], [], 0.0
     for t in targets:
-        t = t.detach().double()
+        t = t.detach().cpu().double()
         b = t.mean(dim=0, keepdim=True)
         r = torch.linalg.lstsq(zc, t - b, driver="gelsd").solution
         maps.append(r)
@@ -658,9 +659,10 @@ def apply_consensus_map(projections: List[torch.Tensor],
                         frozen: Dict[str, Any]) -> Union[torch.Tensor, List[torch.Tensor]]:
     """Replay `capture_consensus_map` row-wise on new projections."""
     dtype, device = projections[0].dtype, projections[0].device
-    normed = [torch.nan_to_num(p.double(), nan=0.0, posinf=0.0, neginf=0.0) / (rms + 1e-8)
+    work = torch.device("cpu") if device.type == "mps" else device     # MPS has no float64
+    normed = [torch.nan_to_num(p.to(work).double(), nan=0.0, posinf=0.0, neginf=0.0) / (rms + 1e-8)
               for p, rms in zip(projections, frozen["proj_rms"])]
-    zc = torch.cat(normed, dim=1) - frozen["mu"].to(device)
-    outs = [(zc @ r.to(device) + b.to(device)).to(dtype)
+    zc = torch.cat(normed, dim=1) - frozen["mu"].to(work)
+    outs = [(zc @ r.to(work) + b.to(work)).to(device=device, dtype=dtype)
             for r, b in zip(frozen["maps"], frozen["offsets"])]
     return outs if frozen["is_list"] else outs[0]
