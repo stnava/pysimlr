@@ -140,6 +140,7 @@ from .api import (
     parameter_summary,
     METHODS,
 )
+from .fused_ridge import fit_fused_ridge, predict_fused_ridge, fused_ridge_cv
 from .loadings import (
     loadings,
     loading_inference,
@@ -175,6 +176,13 @@ from .utils import (
 )
 
 __all__ = [
+    'fit_fused_ridge',
+    'predict_fused_ridge',
+    'fused_ridge_cv',
+    'plot_fused_coefficients',
+    'plot_coefficient_paths',
+    'plot_fused_ridge_cv',
+    'plot_predictions',
     'ConvergenceWarning',
     '__version__',
     'simlr',
@@ -307,10 +315,14 @@ _LAZY_ATTRS = {
     'plot_flow_simr_architecture': 'visualization',
     'plot_path_model': 'visualization',
     'generate_all_architecture_graphs': 'visualization',
+    'plot_fused_coefficients': 'plotting',
+    'plot_coefficient_paths': 'plotting',
+    'plot_fused_ridge_cv': 'plotting',
+    'plot_predictions': 'plotting',
 }
 
 #: Submodules exposed as attributes but not imported eagerly.
-_LAZY_MODULES = ('visualization', 'viz', 'benchmarks')
+_LAZY_MODULES = ('visualization', 'viz', 'benchmarks', 'plotting')
 
 
 def __getattr__(name: str) -> Any:

@@ -145,6 +145,40 @@ per view, in the training standardisation.
   energy at the start of the fit, so their relative view weights depend on the initialisation.
   Prefer `nc` unless you need these specifically.
 
+## Fused ridge (per-group regression with shared structure)
+
+`fit_fused_ridge` fits one ridge coefficient vector per group, such as strata, sites or
+ordered exposure thresholds, and pulls neighbouring groups' coefficients together:
+
+```python
+cv = pysimlr.fused_ridge_cv(X, y, groups, lambda1s=(0.01, 0.1, 1.0), lambda2s=(0, 0.1, 1, 10))
+fit = cv["result"]                                     # refit at the CV-chosen (lambda1, lambda2)
+yhat = pysimlr.predict_fused_ridge(fit, X_new, group=groups_new)
+pysimlr.plot_coefficient_paths(fit)                    # how coefficients change across groups
+pysimlr.plot_fused_coefficients(fit); pysimlr.plot_fused_ridge_cv(cv)
+```
+
+- **`groups`** is either a label per row, or a list of boolean masks. Masks may overlap, for
+  example nested "exposure above percentile q" strata.
+- **`fusion`** is `"chain"` (neighbours in group order, the default), `"all"`, or a list of
+  `(a, b)` edges.
+- **The penalties:** `lambda2 = 0` fits independent per-group ridges; a large `lambda2` fits one
+  shared ridge.
+- **Intercepts and solver:** each group has its own unpenalised intercept, and the problem is
+  solved exactly.
+
+## Plotting
+
+New plots live in `pysimlr.plotting` and follow one convention:
+- they take a result object;
+- they accept `ax=None` and return the Figure (no `show`, no saving);
+- they use matplotlib only;
+- they plot interpretable quantities, with signed values on a symmetric diverging scale.
+
+The older `pysimlr.visualization`, `pysimlr.viz` and `pysimlr.benchmarks.plotting` modules
+predate this convention. Several of their plots show `res["v"]`, which should not be
+interpreted (see above).
+
 ## Known limitations (being worked on)
 
 - **Correlated factors are not represented as such.**
