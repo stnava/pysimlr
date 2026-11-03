@@ -406,6 +406,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
                      tol: float = DEFAULT_TOL, patience: int = 10,
                      collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD):
     loss_history, recon_history, sim_history = [], [], []
+    model._n_fit = getattr(dataloader, "n", None)       # rows the bases are fitted on (MAI dof)
     nonfinite_grad_steps = 0
     model.weight_history = []
     model.mai_history = []

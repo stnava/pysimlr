@@ -1765,7 +1765,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # per sweep here: EMA 0.8, gate and transition both over half the run.
         if not dynamic_weights:
             return None
-        from .consensus import MAI_FLOOR_EVERY, MAI_RAMP_STEPS, loo_mai_calibrated, mai_gated_target, view_dofs
+        from .consensus import MAI_FLOOR_EVERY, MAI_RAMP_STEPS, loo_mai_calibrated, mai_ema as _ema, mai_gated_target, view_dofs
         with torch.no_grad():
             first = _mai_calls[0] == 0
             scores, floors = loo_mai_calibrated(
@@ -1773,10 +1773,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 n_perm=20 if _mai_calls[0] % MAI_FLOOR_EVERY == 0 else 0, seed=_mai_calls[0])
             _mai_calls[0] += 1
             mai_t = torch.tensor(scores, dtype=orig_dtype)
-            mai_ema.copy_(mai_t if first else 0.8 * mai_ema + 0.2 * mai_t)
+            mai_ema.copy_(_ema(mai_ema, mai_t, 0.8, first))
             if floors is not None:
                 f_t = torch.tensor(floors, dtype=orig_dtype)
-                mai_floor.copy_(f_t if first else 0.8 * mai_floor + 0.2 * f_t)
+                mai_floor.copy_(_ema(mai_floor, f_t, 0.8, first))
             half = float(min(max(1.0, 0.5 * float(max_steps)), MAI_RAMP_STEPS))
             target_w = mai_gated_target(mai_ema, 5.0 + 10.0 * min(1.0, max(0, step_idx) / half), mai_floor)
             uniform_w = torch.ones_like(target_w) / len(target_w)

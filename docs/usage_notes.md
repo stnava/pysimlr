@@ -168,31 +168,48 @@ per view, in the training standardisation.
 Off by default. When on, each view's weight in the consensus follows its modality alignment
 index (MAI): the leave-one-out agreement of the view's latent with the other views' consensus.
 - **The score is corrected for degrees of freedom.** A view with many non-zero loadings can
-  agree with anything by fitting. Each score is adjusted like an R² for the view's effective
-  coefficients; with as many coefficients as rows, it scores 0.
+  agree with anything by fitting. Each score is adjusted like an R² for the view's non-zero
+  loadings per column, against the rows the bases were fitted on. The deep and flow models
+  score on a mini-batch but fit on the whole training set, so they correct with the
+  training-set size.
+- **A view that can fit anything is not assessable.** That is a view with dof ≥ n − 1. It
+  keeps the uniform share 1/M and is neither favoured nor suppressed. MAI cannot tell signal
+  from noise in such a view in-sample.
 - **Weights are gated against a null floor, not the mean MAI.** The floor is the 95th
   percentile of the same score with the consensus rows permuted (20 permutations, recomputed
-  every 10 updates). A view at or below its floor gets weight 0. If no view clears its floor,
-  the weights stay uniform with a `RuntimeWarning`.
+  every 10 updates). If no view clears its floor, the weights stay uniform with a
+  `RuntimeWarning`.
+- **No binary weights.** Every view keeps at least half its uniform share:
+  w = 0.5/M + 0.5 · target (`consensus.MAI_MIN_SHARE`). With 4 views the weights stay in
+  [0.125, 0.625], so one view cannot take the consensus on a noisy score, and a view's graph
+  neighbourhood is never empty. If a neighbourhood's weights do sum to 0, its consensus uses
+  the views unweighted, with a warning.
 - **The ramp from uniform to target weights takes 20 updates.**
 - **Choosing `mai_metric`:**
   - `procrustes_r2` (the default) scores agreement across all k components. It gives the best
     latent recovery.
   - `max_cc` is the first canonical correlation between the view's latent and the consensus,
     on rank-adaptive orthonormal bases. It keeps views coupled through only some components
-    (sub-coupled views), narrow views (small p or low rank), and views with very different
-    p_k. The cost is lower overall recovery when an uncoupled-but-noisy component gets
-    weight.
-- **Evidence:** a planted design with two fully coupled views, one sub-coupled view, one
-  narrow view (p=4) and a p > n noise view, at n=150
-  (`scripts/mai_calibration_check.py`, `docs/audit/evidence/mai_calibration_check.csv`).
-  Final weights for A / B / C / D / E:
+    (sub-coupled views) at full weight. Its dof is the union support, so a wide view is
+    more often not assessable.
+- **Evidence:** a planted design with two fully coupled views (A, B), one sub-coupled view
+  (C), one narrow view (D, p=4) and a p > n noise view (E), at n=150, 5 seeds
+  (`scripts/mai_calibration_check.py`, `docs/audit/evidence/mai_calibration_check.csv`). Mean
+  final weights:
 
-  | arm | A | B | C (sub-coupled) | D (narrow) | E (noise) | latent R² |
+  | arm | A | B | C | D | E | latent R² |
   |---|---|---|---|---|---|---|
-  | previous (raw score, mean gate) | 0.35 | 0.35 | 0.00 | 0.00 | 0.30 | 0.91 |
-  | `procrustes_r2` | 0.41 | 0.41 | 0.09 | 0.08 | 0.01 | 0.91 |
-  | `max_cc` | 0.27 | 0.27 | 0.27 | 0.19 | 0.00 | 0.85 |
+  | previous (raw score, mean gate) | 0.35 | 0.35 | 0.00 | 0.00 | 0.30 | 0.908 |
+  | `procrustes_r2`, no floor | 0.41 | 0.41 | 0.09 | 0.08 | 0.01 | 0.906 |
+  | `procrustes_r2`, floor 0.25 | 0.35 | 0.35 | 0.12 | 0.11 | 0.06 | 0.896 |
+  | `procrustes_r2`, floor 0.5 (default) | 0.30 | 0.30 | 0.15 | 0.14 | 0.11 | 0.879 |
+  | `max_cc`, floor 0.5 | 0.21 | 0.21 | 0.21 | 0.18 | 0.20 | 0.853 |
+
+  - **The floor trades about 0.03 latent R² on this design** for weights that cannot go
+    binary.
+  - **Under `max_cc`, E is not assessable** (union support ≥ n − 1), so it keeps its uniform
+    share.
+  - **In the all-coupled control, every arm is uniform** (within 0.01).
 - **Cost:** about 10 ms per update with floors at n=1000 and M=6, against 1–2 ms without.
   Floors run on 1 update in 10.
 

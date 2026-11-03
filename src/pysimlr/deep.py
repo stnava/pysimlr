@@ -311,7 +311,7 @@ def _nsa_raw_parameter(module):
 #: rotations gave 0.0348, 0.1319 and 0.0000, while the others were constant to
 #: four decimals. It ranked a planted pure-noise view above a signal view.
 from .consensus import (check_mai_metric,
-                        loo_mai_calibrated, mai_gated_target, view_dofs, MAI_FLOOR_EVERY,
+                        loo_mai_calibrated, mai_ema, mai_gated_target, view_dofs, MAI_FLOOR_EVERY,
                         MAI_RAMP_STEPS)
 
 
@@ -418,14 +418,15 @@ class _ModalityWeightingMixin:
                 [z.detach() for z in latents], metric,
                 dofs=view_dofs(v_list, n, metric) if v_list is not None else None,
                 use_rank=getattr(self, "use_rank_mai", False),
-                n_perm=20 if calls % MAI_FLOOR_EVERY == 0 else 0, seed=calls)
+                n_perm=20 if calls % MAI_FLOOR_EVERY == 0 else 0, seed=calls,
+                n_fit=getattr(self, "_n_fit", None))
             self._mai_calls = calls + 1
             first = calls == 0
             s_t = torch.tensor(scores, device=self.mai.device, dtype=self.mai.dtype)
-            self.mai.copy_(s_t if first else 0.9 * self.mai + 0.1 * s_t)
+            self.mai.copy_(mai_ema(self.mai, s_t, 0.9, first))
             if floors is not None:
                 f_t = torch.tensor(floors, device=self.mai.device, dtype=self.mai.dtype)
-                self.mai_floor.copy_(f_t if first else 0.9 * self.mai_floor + 0.1 * f_t)
+                self.mai_floor.copy_(mai_ema(self.mai_floor, f_t, 0.9, first))
             steepness = 5.0 + 10.0 * min(1.0, epoch / 30.0)
             target_w = mai_gated_target(self.mai, steepness, self.mai_floor)
             start = 10 if dynamic_weights_start is None else dynamic_weights_start
@@ -1241,6 +1242,7 @@ def _update_first_layer_schedule(model, epoch: int, epochs: int, stabilization_s
 
 def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=DEFAULT_TOL, patience=10, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, freeze_private_epochs: int = 0, collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD):
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
+    model._n_fit = getattr(dataloader, "n", None)       # rows the bases are fitted on (MAI dof)
     loss_history, recon_history, sim_history = [], [], []
     projection_alpha_history, basis_drift_history = [], []
     # One criterion for every method in the package; see
