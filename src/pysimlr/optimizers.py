@@ -844,8 +844,42 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
 LR_PROBE_GRID = (1.0, 0.3, 0.1, 0.03, 0.01, 0.003, 0.001)
 
 
+def extend_probe_grid(grid: Sequence[float] = LR_PROBE_GRID,
+                      upper_steps: int = 0,
+                      lower_steps: int = 0) -> Tuple[float, ...]:
+    """Extend the geometric learning rate probe grid by half-decades (R11).
+
+    Parameters
+    ----------
+    grid : sequence of float
+        Base probe grid (must be strictly decreasing).
+    upper_steps : int
+        Number of half-decades to extend above the upper bound (max 2: 3.0, 10.0).
+    lower_steps : int
+        Number of half-decades to extend below the lower bound (max 2: 0.0003, 0.0001).
+
+    Returns
+    -------
+    tuple of float
+        Extended grid, strictly decreasing.
+    """
+    upper_steps = max(0, min(2, upper_steps))
+    lower_steps = max(0, min(2, lower_steps))
+    prefix = []
+    if upper_steps == 1:
+        prefix = [3.0]
+    elif upper_steps == 2:
+        prefix = [10.0, 3.0]
+    suffix = []
+    if lower_steps == 1:
+        suffix = [0.0003]
+    elif lower_steps == 2:
+        suffix = [0.0003, 0.0001]
+    return tuple(prefix + list(grid) + suffix)
+
+
 def tune_learning_rate(fit: Callable[..., Dict[str, Any]],
-                       candidates: Sequence[float] = LR_PROBE_GRID,
+                       candidates: Optional[Sequence[float]] = None,
                        probe_iterations: int = 3,
                        energy_key: Union[str, Sequence[str]] = ("best_energy", "energy", "loss_history"),
                        verbose: bool = False) -> Tuple[float, Dict[float, float]]:
@@ -914,6 +948,8 @@ def tune_learning_rate(fit: Callable[..., Dict[str, Any]],
     wrong way. Candidates producing a non-finite or rank-deficient basis are
     rejected rather than scored.
     """
+    if candidates is None:
+        candidates = LR_PROBE_GRID
     scores: Dict[float, float] = {}
     first_error: Optional[BaseException] = None
     for lr in candidates:
