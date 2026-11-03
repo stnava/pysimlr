@@ -480,8 +480,12 @@ import pysimlr
 from paper_numbers import op_default
 
 df = op_default().copy()
-q_map = {"None": "q = None", 0.5: "q = 0.5", 0.8: "q = 0.8"}
-df["Operating point"] = df["Sparseness_Target"].map(q_map)
+def _q_lbl(v):
+    if pd.isna(v) or str(v) == "None":
+        return "q = None"
+    return f"q = {float(v):.1f}"
+
+df["Operating point"] = df["Sparseness_Target"].map(_q_lbl)
 q_cats = ["q = None", "q = 0.5", "q = 0.8"]
 
 blk_q = df.groupby(["Operating point", "Dataset", "Model"], as_index=False)[
@@ -499,12 +503,12 @@ long_q["Probe"] = long_q["Probe"].map({
 })
 long_q["Operating point"] = pd.Categorical(long_q["Operating point"], categories=q_cats, ordered=True)
 long_q = long_q.sort_values(["Probe", "Operating point"])
-long_q["Operating point"] = long_q["Operating point"].astype(str)
+long_q["Operating point"] = long_q["Operating point"].astype(object)
 
 syn_q = df[df["Dataset"].isin(["Linear", "NonnegParts", "NonnegPartsWeak", "Shared+Private"])].copy()
 syn_q["Operating point"] = pd.Categorical(syn_q["Operating point"], categories=q_cats, ordered=True)
 syn_q = syn_q.sort_values(["Dataset", "Operating point"])
-syn_q["Operating point"] = syn_q["Operating point"].astype(str)
+syn_q["Operating point"] = syn_q["Operating point"].astype(object)
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.6, 4.2), dpi=200, layout="constrained")
 pysimlr.plot_benchmark(long_q, x="Operating point", y="Score", by="Probe", kind="line", ax=ax1)
@@ -924,15 +928,17 @@ sub_r = df[df["Dataset"].isin(real_map.keys()) & df["Model"].isin(["LEND", "Flow
 sub_r["Cohort"] = pd.Categorical(sub_r["Dataset"].map(real_map), categories=list(real_map.values()), ordered=True)
 sub_r["Model"] = pd.Categorical(sub_r["Model"], categories=["LEND", "Flow-SiMR-V", "SiMLR", "PCA"], ordered=True)
 sub_r = sub_r.sort_values(["Cohort", "Model"])
+sub_r["Cohort"] = sub_r["Cohort"].astype(object)
+sub_r["Model"] = sub_r["Model"].astype(object)
 
 with theme():
-    fig, ax1 = plt.subplots(figsize=(10.2, 4.2), dpi=300)
+    fig, ax1 = plt.subplots(figsize=(10.2, 4.3), dpi=300, layout="constrained")
     pysimlr.plot_benchmark(sub_r, x="Cohort", y="Strictly_Linear_Metric", by="Model", kind="bar", ax=ax1)
     ax1.set_xlabel("")
     ax1.set_ylabel("Out-of-sample linear probe score (↑)")
     ax1.set_title("")
     _header(fig, "Multi-cohort out-of-sample linear entrypoint scores",
-            "3-seed mean ± SD across six real cohorts · higher is better", top=0.82)
+            "3-seed mean ± SE across six real cohorts · higher is better")
     plt.show()
 ```
 
@@ -1002,8 +1008,7 @@ def _gini(x):
     return 0.0 if x.sum() == 0 else float(np.sum((2 * np.arange(1, n + 1) - n - 1) * x) / (n * x.sum()))
 
 with theme():
-    fig, axes = plt.subplots(2, 2, figsize=(8.6, 8.2), dpi=300)
-    fig.subplots_adjust(hspace=0.34, wspace=0.38)
+    fig, axes = plt.subplots(2, 2, figsize=(8.8, 8.6), dpi=300, layout="constrained")
     for ax, (cohort, view) in zip(axes.ravel(), [(c, v) for c in ("Heart", "Diabetes") for v in NSAV[c]]):
         d = NSAV[cohort][view]
         v = np.array(d.get("loadings", d.get("v")), float)
@@ -1015,7 +1020,7 @@ with theme():
         margin_str = f" · margin {margin.mean():.2f}" if margin is not None else ""
         ax.set_title(f"{cohort}: {view}{margin_str}", loc="left", fontsize=9.8)
     _header(fig, "OLEE sparse basis loadings",
-            "Gini sparsity G and mean winner-vs-runner-up loading margin per view", top=0.91)
+            "Gini sparsity G and mean winner-vs-runner-up loading margin per view")
     plt.show()
 ```
 :::
