@@ -171,7 +171,7 @@ writes `method` and `ignored_params` into every metrics row.
 
 ### Limitations: Correlated factors and consensus representation
 
-When generative factors are correlated, newton decorrelates consensus scores; avg retains correlation, which in one benchmark saturated near the collapse threshold (0.30), measured on fits that were partly unconverged; this is under evaluation (docs/tracking_amigo.md, D3).
+When generative factors are correlated, newton decorrelates consensus scores; avg retains correlation, with converged fits reaching pairwise score correlations between 0.19 and 0.31 at rho in {0.5, 0.7} rather than saturating at the 0.30 collapse threshold (docs/tracking_amigo.md, D3).
 
 ## scikit-learn
 

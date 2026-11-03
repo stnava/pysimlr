@@ -230,12 +230,17 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   - *Decision Rule R3 evaluation*:
     - Condition: Keep the deep penalty unless the count without it is 0/20 and the count with it is no better.
     - Measured: without penalty 7/20, with penalty 0/20 -> keep 1.0.
-- **D3. Correlated factors (Decision Rule R4, WP-6).** Status: **OPEN**.
-  Evidence: `docs/audit/evidence/correlated_factors.csv` (40 fits across rho in {0.0, 0.3, 0.5, 0.7}, seeds 0-4).
-  Headline finding: the collapse penalty threshold (0.30) clips correlated factors under `avg`, saturating consensus score correlation at 0.288 (rho = 0.5) and 0.302 (rho = 0.7), while `newton` decorrelates scores to 0.000.
-  Subspace R2 falls from 0.9877 (rho = 0.0) to 0.9670 (rho = 0.7) for `newton` (drop 0.0207) and from 0.9874 to 0.9665 for `avg` (drop 0.0209).
-  Applied literally, R4 condition 1 fails because the drop of 0.0207 > 0.02; because the drop is the same for avg (0.0209), it comes from the generator, not the mixing method.
-  Decision D3 remains open pending threshold investigation in P1.
+- **D3. Correlated factors (Decision Rule R4, WP-6).** Status: **COMPLETE** (resolved by P1).
+  Evidence: `docs/audit/evidence/correlated_factors.csv` and `docs/audit/evidence/collapse_threshold_selection.csv`.
+  Clipping claim withdrawn: fixed learning_rate=0.01 refits in P1 show converged avg fits at t=0.3 reach pairwise score correlations between 0.188 and 0.309 (mean 0.234 at rho=0.7), disproving uniform 0.30 saturation, which was an artifact of early stops under auto learning rate.
+  Subspace R2 drop from rho=0.0 to rho=0.7 is 0.0207 for newton and 0.0209 for avg; newton decorrelates scores while avg retains correlation.
+  P1 Rule R15 confirmed threshold 0.30 is optimal across all evaluation criteria.
+- **P1. Collapse threshold selection (Decision Rule R15).** Status: **COMPLETE** (outcome: **KEEP 0.3**).
+  Evidence: `docs/audit/evidence/collapse_threshold_selection.csv` (150 rows across t in {0.3, 0.5, 0.7}).
+  Narrow fixture outcome R2 at lr=0.01: t=0.3 is 0.9582, t=0.5 is 0.9323 (diff -0.0260), t=0.7 is 0.8561 (diff -0.1022, fails -0.05 guard).
+  Default cells: t=0.5 fails non-inferiority on latent R2 (min diff -0.3752) and support (min diff -0.2987); t=0.7 is non-inferior on cells.
+  Structure Hungarian |r| at rho=0.7: t=0.3 is 0.9575, t=0.5 is 0.9561 (diff -0.0013), t=0.7 is 0.9573 (diff -0.0002); neither beats 0.3 by > 0.005.
+  Decision Rule R15: keep DEFAULT_COLLAPSE_THRESHOLD = 0.3.
 - **D5. simlr_lbfgsb calibration vs drop (Decision Rule R5, WP-7).** Executed 3×3 proximal
   hyperparameter grid search using `scripts/lbfgsb_calibration.py` (evidence:
   `docs/audit/evidence/lbfgsb_calibration.csv`):
