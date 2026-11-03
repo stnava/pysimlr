@@ -59,11 +59,20 @@ def varimax_nsa_quantile(v, q=0.5, w=0.5):
     return y
 
 
+def _arr(x, nd=6):
+    a = x.detach().cpu().numpy() if hasattr(x, "detach") else np.asarray(x)
+    return np.round(a.astype(np.float64), nd).tolist() if a.dtype.kind == "f" else a.tolist()
+
+
 def fit_cohort(frame, views, energy_type="nc"):
     xs = [torch.from_numpy(StandardScaler().fit_transform(frame[c].values.astype(float))).float()
           for c in views.values()]
-    res = pysimlr.fit("lend", xs, 2, energy_type=energy_type, mixing_algorithm="newton",
-                      positivity="positive", sparseness=0.5, random_state=42)
+    inf = pysimlr.loading_inference(
+        "lend", xs, 2, n_subsamples=50, n_permutations=20,
+        energy_type=energy_type, mixing_algorithm="newton",
+        positivity="positive", sparseness=0.5, random_state=42, n_jobs=8
+    )
+    res = inf["result"]
     out = {}
     for i, (name, cols) in enumerate(views.items()):
         load = res["loadings"][i].detach().cpu().numpy().astype(np.float64)
@@ -75,7 +84,31 @@ def fit_cohort(frame, views, energy_type="nc"):
             "loading_margin": margin_list,
             "v": load.tolist(),
         }
-    return out, res["parameters"]["used"], res.get("convergence", {})
+    bundle = {
+        "view_names": list(views.keys()),
+        "feature_names": list(views.values()),
+        "res": {
+            "method": res.get("method", "lend"),
+            "convergence": res.get("convergence", {}),
+            "loading_rotation": _arr(res["loading_rotation"]),
+            "u": _arr(res["u"]),
+            "latents": [_arr(z) for z in res["latents"]],
+            "structure": [_arr(c) for c in res["structure"]],
+            "loadings": [_arr(l) for l in res["loadings"]],
+            "loading_margin": [_arr(m) if m is not None else None for m in res["loading_margin"]],
+            "v": [_arr(v) for v in res["v"]],
+            "effective_rank": _arr(res["effective_rank"]),
+        },
+        "inf": {
+            "ci_low": [_arr(c) for c in inf["ci_low"]],
+            "ci_high": [_arr(c) for c in inf["ci_high"]],
+            "selected": [_arr(s) for s in inf["selected"]],
+            "selection_frequency": [_arr(f) for f in inf["selection_frequency"]],
+            "component_stability": inf["component_stability"],
+            "null_max_abs": float(inf["null_max_abs"]) if inf.get("null_max_abs") is not None else None,
+        },
+    }
+    return out, res["parameters"]["used"], res.get("convergence", {}), bundle
 
 
 def main():
@@ -84,9 +117,10 @@ def main():
     a = ap.parse_args()
     heart = pd.read_csv(os.path.join(REPO, "data", "heart_cleveland.csv"))
     diab = load_diabetes(as_frame=True).frame
-    heart_v, heart_p, heart_c = fit_cohort(heart, HEART_VIEWS, "nc")
-    diab_v, diab_p, diab_c = fit_cohort(diab, DIAB_VIEWS, "nc")
+    heart_v, heart_p, heart_c, heart_b = fit_cohort(heart, HEART_VIEWS, "nc")
+    diab_v, diab_p, diab_c, diab_b = fit_cohort(diab, DIAB_VIEWS, "nc")
     out = {"Heart": heart_v, "Diabetes": diab_v,
+           "plot_bundles": {"Heart": heart_b, "Diabetes": diab_b},
            "convergence": {"Heart": heart_c, "Diabetes": diab_c},
            "provenance": {"cli": " ".join(sys.argv), "utc": datetime.datetime.utcnow().isoformat() + "Z",
                           "host": platform.node(), "pysimlr": pysimlr.__version__, "torch": torch.__version__,

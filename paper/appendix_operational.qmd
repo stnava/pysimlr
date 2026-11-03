@@ -54,7 +54,7 @@ print(tabulate(rows, headers=headers, tablefmt="pipe"))
 #| warning: false
 #| message: false
 #| label: fig-w-sweep
-#| fig-cap: "Continuous trade-off between cross-view fidelity ($1 - w$) and Stiefel orthogonality ($w$) across $w \\in [0.01, 0.95]$ (`ablation_w_sweep.csv`). (A) Synthetic `NonnegParts` ground-truth support recovery ($F_1$, blue) and Gram orthogonality defect $D(V)$ (red, log scale). (B) `ADNI-MCI` Gram defect $D(V)$ and effective rank ($\\text{EffRank} \\in [1, 3]$). (C) `ADNI-MCI` out-of-sample cognitive prediction (`CogPC1` $R^2$, green) and cortical sparsity ($v_2..v_k$, purple), showing a broad stable plateau across $w \\in [0.20, 0.85]$ centered at the default $w = 0.50$."
+#| fig-cap: "Continuous trade-off between cross-view fidelity ($1 - w$) and Stiefel orthogonality ($w$) across $w \\in [0.01, 0.95]$ (`ablation_w_sweep.csv`), plotted on separate single-metric panels without secondary axes. (A) Synthetic `NonnegParts` ground-truth support recovery ($F_1$). (B) Normalized Gram orthogonality defect $D(V)$ (log scale) for both `NonnegParts` and `ADNI-MCI`. (C) `ADNI-MCI` basis effective rank ($\\text{EffRank} \\in [1, 3]$). (D) `ADNI-MCI` out-of-sample `CogPC1` $R^2$, showing a broad plateau across $w \\in [0.20, 0.85]$ centered at the default $w = 0.50$."
 #| out-width: 100%
 #| echo: false
 import os
@@ -70,50 +70,112 @@ if not os.path.exists(csv_path):
 df_w = pd.read_csv(csv_path)
 
 with theme():
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(13.5, 4.0), dpi=300)
-    plt.subplots_adjust(wspace=0.58)
+    fig, axes = plt.subplots(1, 4, figsize=(13.6, 3.6), dpi=200, constrained_layout=True)
+    ax1, ax2, ax3, ax4 = axes
 
-    # Panel A: Synthetic F1 and Defect D
-    ax1_t = ax1.twinx()
-    ax1_t.spines["right"].set_visible(True)
-    ax1_t.grid(False)
-    l1 = ax1.plot(df_w["w"], df_w["Synth_Support_F1"], "o-", color=VIEW_COLORS[0], lw=1.8, markersize=5.0, label="Support F1 ↑")
-    l2 = ax1_t.plot(df_w["w"], df_w["Synth_Defect_D"], "s--", color="#e34948", lw=1.6, markersize=4.8, label="Defect D(V) ↓")
-    ax1_t.set_yscale("log")
-    ax1.axvline(0.50, color="#898781", linestyle=":", lw=1.1)
-    ax1.set_xlabel("Orthogonality Weight w")
-    ax1.set_ylabel("Support Recovery F1 (↑)", color=VIEW_COLORS[0], labelpad=2)
-    ax1_t.set_ylabel("Synth Defect D(V) (Log ↓)", color="#e34948", labelpad=3)
-    ax1.set_title("A. Synthetic Support vs. D(V)")
-    ax1.grid(True)
+    def _mark(ax, x, y, col, marker="o", label=None):
+        ax.plot(x, y, "-", color=col, lw=2.0, label=label)
+        ax.scatter(x, y, s=38, facecolor=col, edgecolor="#fcfcfb", linewidth=1.2, zorder=3, marker=marker)
 
-    # Panel B: ADNI Defect D and Effective Rank
-    ax2_t = ax2.twinx()
-    ax2_t.spines["right"].set_visible(True)
-    ax2_t.grid(False)
-    l3 = ax2.plot(df_w["w"], df_w["ADNI_Defect_D"], "s-", color="#e34948", lw=1.8, markersize=5.0, label="ADNI D(V) ↓")
-    l4 = ax2_t.plot(df_w["w"], df_w["ADNI_EffRank"], "^--", color=VIEW_COLORS[2], lw=1.6, markersize=5.0, label="EffRank ↑")
+    _mark(ax1, df_w["w"], df_w["Synth_Support_F1"], VIEW_COLORS[0])
+    ax1.axvline(0.50, color="#898781", linestyle=":", lw=1.0)
+    ax1.set_xlabel("Orthogonality weight w")
+    ax1.set_ylabel("Support recovery F1 (↑)")
+    ax1.set_title("A. Synthetic support F1")
+    ax1.yaxis.grid(True)
+
+    _mark(ax2, df_w["w"], df_w["Synth_Defect_D"], VIEW_COLORS[1], "s", label="NonnegParts")
+    _mark(ax2, df_w["w"], df_w["ADNI_Defect_D"], VIEW_COLORS[0], "o", label="ADNI-MCI")
     ax2.set_yscale("log")
-    ax2.axvline(0.50, color="#898781", linestyle=":", lw=1.1)
-    ax2.set_xlabel("Orthogonality Weight w")
-    ax2.set_ylabel("ADNI Defect D(V) (Log ↓)", color="#e34948", labelpad=2)
-    ax2_t.set_ylabel("Effective Rank (Max 3.0 ↑)", color=VIEW_COLORS[2], labelpad=3)
-    ax2.set_title("B. ADNI Conditioning & Rank")
-    ax2.grid(True)
+    ax2.axvline(0.50, color="#898781", linestyle=":", lw=1.0)
+    ax2.set_xlabel("Orthogonality weight w")
+    ax2.set_ylabel("Gram defect D(V) (log ↓)")
+    ax2.set_title("B. Orthogonality defect")
+    ax2.yaxis.grid(True)
+    ax2.legend(loc="upper right")
 
-    # Panel C: ADNI CogPC1 R2 and Sparsity
-    ax3_t = ax3.twinx()
-    ax3_t.spines["right"].set_visible(True)
-    ax3_t.grid(False)
-    l5 = ax3.plot(df_w["w"], df_w["ADNI_CogPC1_R2"], "o-", color=VIEW_COLORS[2], lw=1.8, markersize=5.0, label="CogPC1 R² ↑")
-    l6 = ax3_t.plot(df_w["w"], df_w["ADNI_Sparsity_v2_k"] * 100.0, "d--", color=VIEW_COLORS[6], lw=1.6, markersize=4.8, label="Sparsity v₂..ₖ % ↑")
-    ax3.axvline(0.50, color="#898781", linestyle=":", lw=1.1)
-    ax3.set_xlabel("Orthogonality Weight w")
-    ax3.set_ylabel("ADNI MRI→CogPC1 R² (↑)", color=VIEW_COLORS[2], labelpad=2)
-    ax3_t.set_ylabel("Cortical Sparsity v₂..ₖ % (↑)", color=VIEW_COLORS[6], labelpad=3)
-    ax3.set_title("C. ADNI Stability Plateau")
-    ax3.grid(True)
+    _mark(ax3, df_w["w"], df_w["ADNI_EffRank"], VIEW_COLORS[2], "^")
+    ax3.axhline(3.0, color="#898781", lw=0.9)
+    ax3.axvline(0.50, color="#898781", linestyle=":", lw=1.0)
+    ax3.set_xlabel("Orthogonality weight w")
+    ax3.set_ylabel("Effective rank (k = 3 ↑)")
+    ax3.set_title("C. ADNI basis rank")
+    ax3.yaxis.grid(True)
 
+    _mark(ax4, df_w["w"], df_w["ADNI_CogPC1_R2"], VIEW_COLORS[0], "o")
+    ax4.axvline(0.50, color="#898781", linestyle=":", lw=1.0)
+    ax4.set_xlabel("Orthogonality weight w")
+    ax4.set_ylabel("Held-out CogPC1 R² (↑)")
+    ax4.set_title("D. ADNI predictive plateau")
+    ax4.yaxis.grid(True)
+
+    plt.show()
+```
+
+### Basis Health and Rank-Selection Stability Diagnostics on `ADNI-MCI`
+
+To verify optimization conditioning and component identifiability directly on the four-view `ADNI-MCI` cohort (`Protocol B`), @fig-adni-basis-diagnostics applies `pysimlr.plot_basis_diagnostics` ($k = 3$, $q = 0.85$), reporting per-view effective rank against $k$, maximum column cosine overlap, $\log_{10}$ condition number, and achieved sparsity alongside the median `loading_margin`. @fig-adni-rank-selection applies `pysimlr.plot_rank_selection` to the 20-subsample `select_rank` evidence (`docs/audit/evidence/adni_rank_selection.csv`), contrasting non-negative estimation (`positivity="positive"`, where $k = 2$ clears the $0.90$ identification bar on all components while $k = 3$ exposes an under-identified Component 2 at $0.803$) against unconstrained signed estimation (`positivity="either"`, where no candidate $k \in \{2, 3, 4, 5\}$ clears $0.90$).
+
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-adni-basis-diagnostics
+#| fig-cap: "Per-view basis health (`pysimlr.plot_basis_diagnostics`) on `ADNI-MCI` (`Protocol B`, `SiMLR`, $k = 3$, `positivity='positive'`, $q = 0.85$): effective and numerical rank against $k = 3$, maximum column overlap, $\\log_{10}$ condition number, and achieved sparsity against the requested $0.85$ level with median OLEE loading margins."
+#| out-width: 100%
+#| echo: false
+import os, re, sys
+import numpy as np
+import pandas as pd
+import torch
+import matplotlib.pyplot as plt
+import pysimlr
+
+_repo_root = os.path.abspath(os.path.join(os.getcwd(), "..")) if "paper" in os.getcwd() else os.getcwd()
+sys.path.insert(0, os.path.join(_repo_root, "scripts"))
+import paper_adni_ablations as _paa
+
+_d_adni = _paa.protocol_b(42, row_center=False)
+_res_adni, _ = _paa.fit_adni(_d_adni, "simlr", k=3, positivity="positive", sparseness=0.85, random_state=42)
+fig = pysimlr.plot_basis_diagnostics(_res_adni, view_names=["Volume", "Thickness", "DKT Cortex", "Cognition"])
+plt.show()
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-adni-rank-selection
+#| fig-cap: "Component stability across candidate ranks $k \\in \\{2, 3, 4, 5\\}$ (`pysimlr.plot_rank_selection`, 20 half-sample refits on `ADNI-MCI` from `docs/audit/evidence/adni_rank_selection.csv`). (A) Under non-negative estimation (`positivity='positive'`), $k = 2$ clears the $0.90$ identification bar across all components ($0.961, 0.997$), whereas at $k = 3$ the weakest component drops to $0.803$. (B) Under signed estimation (`positivity='either'`), no candidate $k$ clears $0.90$ across all components."
+#| out-width: 100%
+#| echo: false
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import pysimlr
+from pysimlr.plotting import theme
+
+_ars_p = "../docs/audit/evidence/adni_rank_selection.csv"
+if not os.path.exists(_ars_p):
+    _ars_p = "docs/audit/evidence/adni_rank_selection.csv"
+_ars = pd.read_csv(_ars_p)
+
+def _to_rank_res(pos_kind):
+    sub = _ars[_ars["pos"] == pos_kind].sort_values("k")
+    tbl = []
+    chosen = None
+    for _, r in sub.iterrows():
+        st = [float(v) for v in str(r["component_stability"]).split()]
+        ok = bool(r["all_stable"])
+        if ok:
+            chosen = int(r["k"])
+        tbl.append({"k": int(r["k"]), "component_stability": st, "basis_degenerate": False})
+    return {"criterion": "component", "k": chosen, "criteria": {"component": chosen}, "table": tbl}
+
+with theme():
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.6, 4.4), dpi=200, constrained_layout=True)
+    pysimlr.plot_rank_selection(_to_rank_res("positive"), ax=ax1)
+    ax1.set_title("A. Non-negative (positivity='positive'): k = 2 identified")
+    pysimlr.plot_rank_selection(_to_rank_res("either"), ax=ax2)
+    ax2.set_title("B. Signed (positivity='either'): no k passes 0.90")
     plt.show()
 ```
 
@@ -382,14 +444,13 @@ print(tabulate(rows, headers=headers, tablefmt="pipe"))
 #| warning: false
 #| message: false
 #| label: fig-cmc-recovery
-#| fig-cap: "Latent manifold recovery (`CMC_Latent_U`, higher is better ↑) across the six synthetic ground-truth generative regimes (`Linear`, `Polynomial`, `Sine`, `Shared+Private`, `NonnegParts`, and `NonnegPartsWeak`) computed from `deep_ranking_benchmark.csv`."
+#| fig-cap: "Latent manifold recovery (`CMC_Latent_U`, mean $\\pm$ SE across seeds via `pysimlr.plot_benchmark`) across the six synthetic ground-truth generative regimes (`Linear`, `Polynomial`, `Sine`, `Shared+Private`, `NonnegParts`, and `NonnegPartsWeak`) computed from `deep_ranking_benchmark.csv`."
 #| out-width: 100%
 #| echo: false
 import os
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
-from pysimlr.plotting import theme, VIEW_COLORS
+import pysimlr
 
 csv_path = "results_cache/deep_ranking_benchmark.csv"
 if not os.path.exists(csv_path):
@@ -399,26 +460,18 @@ df = pd.read_csv(csv_path)
 df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
 
 syn_dsets = ["Linear", "Polynomial", "Sine", "Shared+Private", "NonnegParts", "NonnegPartsWeak"]
-piv_c = df[df["Dataset"].isin(syn_dsets)].pivot_table(index="Dataset", columns="Model", values="CMC_Latent_U", aggfunc="mean").reindex(syn_dsets)
+keep_models = ["SiMLR", "LEND", "Flow-SiMR-V", "PCA"]
+sub_syn = df[df["Dataset"].isin(syn_dsets) & df["Model"].isin(keep_models)].copy()
+sub_syn["Regime"] = pd.Categorical(sub_syn["Dataset"], categories=syn_dsets, ordered=True)
+sub_syn = sub_syn.sort_values(["Regime", "Model"])
+sub_syn["Regime"] = sub_syn["Regime"].astype(str)
 
-with theme():
-    fig, ax = plt.subplots(figsize=(10.5, 3.6), dpi=300)
-    x = np.arange(len(syn_dsets))
-    w = 0.18
-    ax.bar(x - 1.5*w, piv_c["SiMLR"], w, label="SiMLR", color=VIEW_COLORS[0])
-    ax.bar(x - 0.5*w, piv_c["LEND"], w, label="LEND", color=VIEW_COLORS[2])
-    ax.bar(x + 0.5*w, piv_c["Flow-SiMR-V"], w, label="Flow-SiMR-V", color=VIEW_COLORS[6])
-    ax.bar(x + 1.5*w, piv_c["PCA"], w, label="Dense PCA", color="#b7b5ac")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(syn_dsets, fontsize=8.8)
-    ax.set_ylabel("Latent Manifold CMC (↑)")
-    ax.set_title("Ground-Truth Latent Coordinate Recovery Across Six Synthetic Regimes")
-    ax.set_ylim(0.0, 1.08)
-    ax.grid(True, axis="y")
-    ax.legend(loc="upper right", ncol=4, fontsize=8.2)
-    plt.tight_layout()
-    plt.show()
+fig, ax = plt.subplots(figsize=(10.5, 3.8), dpi=200, layout="constrained")
+pysimlr.plot_benchmark(sub_syn, x="Regime", y="CMC_Latent_U", by="Model", kind="bar", ax=ax)
+ax.set_ylabel("Latent manifold CMC (↑)")
+ax.set_title("Ground-truth latent coordinate recovery across six synthetic regimes")
+ax.set_ylim(0.0, 1.08)
+plt.show()
 ```
 
 ```{python}

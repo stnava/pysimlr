@@ -56,27 +56,26 @@ In the `ADNI-MCI` hyperparameter sweep ($N = 1,084$, $k = 3$, `Protocol B`, `{py
 
 ---
 
-## Performance Visualizations
+## Performance and Diagnostic Visualizations
 
 ### Conditional Clinical Imputation (True vs. Imputed Serums)
 
-Because `Flow-SiMR-V` preserves invertibility on the $k$-dimensional bottleneck space, it supports conditional cross-view inference via the Gaussian Schur complement in latent space. In @fig-flow-imputation, we train `Flow-SiMR-V` on the Diabetes dataset under a 70/30 split, withhold the blood serum view on test patients, and impute serum triglycerides (`s5`) from vitals alone.
+Because `Flow-SiMR-V` preserves invertibility on the $k$-dimensional bottleneck space, it supports conditional cross-view inference via the Gaussian Schur complement in latent space. In @fig-flow-imputation, we train `Flow-SiMR-V` on the Diabetes dataset under a 70/30 split, withhold the blood serum view on test patients, and evaluate serum triglyceride (`s5`) imputation from vitals alone via `pysimlr.plot_predictions`.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-flow-imputation
-#| fig-cap: 'Invertible normalizing flows enable accurate conditional cross-view imputation from vitals to blood serum via latent Gaussian conditioning. Scatter plot compares True vs. Imputed Serum triglyceride levels (`s5`) for $N_{\text{test}} = 133$ held-out test patients in the Diabetes dataset (70/30 train/test split, $k = 2$). The horizontal axis plots true standardized serum levels; the vertical axis plots imputed levels decoded through the `Flow-SiMR-V` Schur complement solver. Red dashed line indicates the identity reference ($y = x$). Preserving latent invertibility allows unobserved biological views to be recovered from observed physical measurements.'
-#| out-width: 100%
+#| fig-cap: 'Conditional cross-view imputation (`pysimlr.plot_predictions`) from systemic vitals to blood serum triglyceride levels (`s5`) for $N_{\text{test}} = 133$ held-out test patients in the Diabetes cohort (70/30 train/test split, $k = 2$), decoded through the `Flow-SiMR-V` Schur complement solver.'
+#| out-width: 72%
 #| echo: false
-import matplotlib
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
 from sklearn.datasets import load_diabetes
 from sklearn.preprocessing import StandardScaler
+import pysimlr
 from pysimlr.flows import flow_simr_v
-from pysimlr.plotting import theme, VIEW_COLORS
 
 data = load_diabetes()
 X = StandardScaler().fit_transform(data.data)
@@ -104,73 +103,99 @@ with torch.no_grad():
 true_s5 = test_x[1][:, 4].numpy()
 imputed_s5 = imputed_x2[:, 4].numpy()
 
-with theme():
-    plt.figure(figsize=(6, 5), dpi=300)
-    plt.scatter(true_s5, imputed_s5, alpha=0.65, color=VIEW_COLORS[0], edgecolor="#fcfcfb", lw=0.6)
-    min_val = min(true_s5.min(), imputed_s5.min())
-    max_val = max(true_s5.max(), imputed_s5.max())
-    plt.plot([min_val, max_val], [min_val, max_val], '--', color="#e34948", lw=1.5, label='Identity Reference')
-    plt.xlabel('True Serum Levels (s5)')
-    plt.ylabel('Imputed Serum Levels (s5)')
-    plt.title('Conditional Cross-View Imputation (Diabetes Serums)')
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
+fig = pysimlr.plot_predictions(true_s5, imputed_s5, title="Conditional cross-view serum imputation (s5)")
+plt.show()
 ```
 
-### Patient-Level Linear Attribution
+### Flow Warping, Stacked Term Convergence, and Dynamic Modality Weights
 
-Prepending the linear encoder matrix $\mathbf{V}_m$ preserves direct feature attribution at the input boundary across downstream normalizing flow coupling layers. @fig-flow-attribution displays the local feature contributions $\mathbf{x}_{m,i} \odot \mathbf{l}_{m,l}$ for a patient in the Heart Disease cohort.
+To audit how the downstream normalizing flow transforms the linear first-layer projection $\mathbf{X}_m \mathbf{V}_m \mathbf{R}$ into the aligned latent coordinates $\mathbf{Z}_m \mathbf{R}$, @fig-flow-warping applies `pysimlr.plot_flow_warping` on `Diabetes` ($k = 2$, `dynamic_weights=True`): monotone binned median traces and high Spearman $\rho$ confirm that the coupling layers bend densities smoothly without folding or inverting the sign semantics of $\mathbf{V}_m$. @fig-flow-convergence and @fig-flow-weights display the corresponding stacked objective-term trajectories (`pysimlr.plot_convergence`, separating total loss, cross-view similarity, and reconstruction onto independent scales without secondary axes) and degree-of-freedom-corrected MAI view weights (`pysimlr.plot_modality_weights`).
+
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-flow-warping
+#| fig-cap: 'First-layer linear projection $(\mathbf{X}_m \mathbf{V}_m \mathbf{R})_j$ against the post-flow latent $(\mathbf{Z}_m \mathbf{R})_j$ (`pysimlr.plot_flow_warping`) on the two-view Diabetes cohort (`flow_v`, $k = 2$). Monotone binned median traces and Spearman rank correlations in each panel header confirm that downstream coupling layers preserve the directional sign reading of the linear entrypoint.'
+#| out-width: 82%
+#| echo: false
+import matplotlib.pyplot as plt
+import pysimlr
+
+res_fv = pysimlr.fit("flow_v", train_x, 2, positivity="positive", dynamic_weights=True, random_state=42)
+fig = pysimlr.plot_flow_warping(res_fv, train_x, components=(0, 1), view_names=["Systemic Vitals", "Blood Serums"])
+plt.show()
+```
+
+:::: {.columns}
+::: {.column width="48%"}
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-flow-convergence
+#| fig-cap: 'Stacked three-panel optimization diagnostic (`pysimlr.plot_convergence`) for `Flow-SiMR-V`, separating total objective loss, similarity alignment, and relative reconstruction onto independent vertical scales.'
+#| out-width: 100%
+#| echo: false
+import matplotlib.pyplot as plt
+import pysimlr
+
+fig = pysimlr.plot_convergence(res_fv)
+plt.show()
+```
+:::
+::: {.column width="4%"}
+:::
+::: {.column width="48%"}
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-flow-weights
+#| fig-cap: 'Dynamic view weights against the uniform $1/M$ baseline and epoch-wise MAI trajectories (`pysimlr.plot_modality_weights`) for `Flow-SiMR-V` with `dynamic_weights=True`.'
+#| out-width: 100%
+#| echo: false
+import matplotlib.pyplot as plt
+import pysimlr
+
+fig = pysimlr.plot_modality_weights(res_fv, view_names=["Systemic Vitals", "Blood Serums"])
+plt.show()
+```
+:::
+::::
+
+### Input-Boundary Feature Structure Across Three Cardiovascular Views
+
+Prepending $\mathbf{V}_m$ preserves direct feature-level interpretability across downstream normalizing flow coupling layers. @fig-flow-attribution displays `pysimlr.plot_top_features` across the three views of the `Heart` cohort (`flow_v`, $k = 2$).
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-flow-attribution
-#| fig-cap: 'Normalizing flow architectures retain direct input-boundary feature attribution by restricting non-linearity to downstream latent transforms. Horizontal bar chart shows elementwise linear attributions $\mathbf{x}_{m,i} \odot \mathbf{l}_{m,l}$ for Patient #1 on View 1 of the Heart Disease cohort ($N = 303$, features `age`, `sex`, `cp`, `trestbps`). The horizontal axis plots linear contribution values; the vertical axis lists features. Red bars denote positive risk contributions (`cp` chest pain); blue bars denote negative contributions. Prepending the linear dictionary $\mathbf{V}_m$ preserves input-boundary transparency across the linear entrypoint.'
+#| fig-cap: 'Per-view input-boundary feature structure (`pysimlr.plot_top_features`) learned by `Flow-SiMR-V` across the three cardiovascular views of the Heart Disease cohort ($N = 297$, $k = 2$).'
 #| out-width: 100%
 #| echo: false
-import matplotlib
+import os
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from pysimlr.flows import flow_simr_v
-from pysimlr.plotting import theme, VIEW_COLORS
-import os
+import pysimlr
 
 local_heart = '../data/heart_cleveland.csv' if os.path.exists('../data/heart_cleveland.csv') else 'data/heart_cleveland.csv'
 cols = ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal', 'num']
 df_h = pd.read_csv(local_heart)
 
 X_h = StandardScaler().fit_transform(df_h.drop('num', axis=1))
-mats = [X_h[:, :4], X_h[:, 4:8], X_h[:, 8:]]
-k = 2
-
-train_x = [torch.tensor(m).float() for m in mats]
-np.random.seed(42)
-torch.manual_seed(42)
-res = flow_simr_v(train_x, k=k, positivity="either", sparseness=None, device="cpu", verbose=False)
-
-load_v1 = np.asarray(res["loadings"][0])
-x_sample = mats[0][0]
-
-latent_idx = np.argmax(np.abs(load_v1).sum(axis=0))
-impact = x_sample * load_v1[:, latent_idx]
-feat_names = cols[:4]
-
-idx = np.argsort(np.abs(impact))[::-1]
-with theme():
-    plt.figure(figsize=(7, 4.2), dpi=300)
-    colors = ['#e34948' if imp > 0 else VIEW_COLORS[0] for imp in impact[idx]]
-    plt.barh([feat_names[i] for i in idx], impact[idx], color=colors, height=0.58)
-    plt.axvline(0, color='#52514e', lw=0.8)
-    plt.title(f'Patient #1 (Flow-SiMR-V): Cardiovascular Attributions (Latent #{latent_idx+1})')
-    plt.xlabel('Linear Feature Loading Contribution (x_ij * L_jl)')
-    plt.grid(True, axis="x")
-    plt.tight_layout()
-    plt.show()
+mats_h = [torch.tensor(X_h[:, :4]).float(), torch.tensor(X_h[:, 4:8]).float(), torch.tensor(X_h[:, 8:]).float()]
+res_hf = pysimlr.fit("flow_v", mats_h, 2, positivity="either", random_state=42)
+fig = pysimlr.plot_top_features(
+    res_hf,
+    component=0,
+    kind="structure",
+    view_names=["Demographics & Symptoms", "Metabolic & ECG", "Stress & Fluoroscopy"],
+    feature_names=[cols[:4], cols[4:8], cols[8:13]],
+    top_n=5,
+)
+plt.show()
 ```
 
 ### Latent Trajectory Interpolation
@@ -181,10 +206,9 @@ Tracing a straight-line interpolation in the shared latent space between a low-r
 #| warning: false
 #| message: false
 #| label: fig-flow-geodesic
-#| fig-cap: 'Invertible flow geodesics trace continuous biomarker evolution curves between low-risk and high-risk clinical phenotypes. Decoded biomarker trajectories along a straight-line latent interpolation path between Patient #0 (low-risk, $\alpha = 0.0$) and Patient #10 (high-risk, $\alpha = 1.0$) on the Diabetes cohort ($k = 2$). The horizontal axis plots the latent trajectory coordinate $\alpha \in [0, 1]$; the vertical axis plots standardized feature levels. Colored trajectories track Body Mass Index (`bmi`, red circles), Blood Pressure (`bp`, blue squares), and Age (`age`, green triangles) decoded through $f_{\text{flow},0}^{-1}$ and $\mathbf{V}_0^\top$.'
-#| out-width: 100%
+#| fig-cap: 'Invertible flow geodesics trace continuous biomarker evolution curves between low-risk and high-risk clinical phenotypes. Decoded biomarker trajectories along a straight-line latent interpolation path between Patient #0 (low-risk, $\alpha = 0.0$) and Patient #10 (high-risk, $\alpha = 1.0$) on the Diabetes cohort ($k = 2$). Colored trajectories track Body Mass Index (`bmi`, blue circles), Blood Pressure (`bp`, orange squares), and Age (`age`, green triangles) decoded through $f_{\text{flow},0}^{-1}$ and $\mathbf{V}_0^\top$.'
+#| out-width: 80%
 #| echo: false
-import matplotlib
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
@@ -198,12 +222,12 @@ X = StandardScaler().fit_transform(data.data)
 mats = [X[:, :5], X[:, 5:]]
 k = 2
 
-train_x = [torch.tensor(m).float() for m in mats]
+train_x_full = [torch.tensor(m).float() for m in mats]
 np.random.seed(42)
 torch.manual_seed(42)
-res = flow_simr_v(train_x, k=k, positivity="either", sparseness=None, device="cpu", verbose=False)
+res_geo = flow_simr_v(train_x_full, k=k, positivity="either", sparseness=None, device="cpu", verbose=False)
 
-u = res["u"]
+u = res_geo["u"]
 patient_a_u = u[0]
 patient_b_u = u[10]
 
@@ -212,8 +236,8 @@ alphas = np.linspace(0, 1, steps)
 latent_path = torch.stack([patient_a_u + alpha * (patient_b_u - patient_a_u) for alpha in alphas])
 
 with torch.no_grad():
-    z_path = res["model"].flows[0].inverse(latent_path)
-    v_vitals = res["model"].linear_encoders[0].v
+    z_path = res_geo["model"].flows[0].inverse(latent_path)
+    v_vitals = res_geo["model"].linear_encoders[0].v
     x_path = z_path @ v_vitals.t()
 
 bmi_curve = x_path[:, 2].numpy()
@@ -221,15 +245,15 @@ bp_curve = x_path[:, 3].numpy()
 age_curve = x_path[:, 0].numpy()
 
 with theme():
-    plt.figure(figsize=(7, 4.4), dpi=300)
-    plt.plot(alphas, bmi_curve, 'o-', color='#e34948', lw=1.8, label='BMI')
-    plt.plot(alphas, bp_curve, 's-', color=VIEW_COLORS[0], lw=1.8, label='Blood Pressure')
-    plt.plot(alphas, age_curve, '^-', color=VIEW_COLORS[2], lw=1.8, label='Age')
-    plt.xlabel('Latent Trajectory Coordinate (Low-Risk -> High-Risk)')
-    plt.ylabel('Attributed Feature Level (Standardized)')
-    plt.title('Latent Trajectory Interpolation (Flow-SiMR-V)')
-    plt.legend()
-    plt.grid(True)
+    fig, ax = plt.subplots(figsize=(7.0, 4.2), dpi=200)
+    ax.plot(alphas, bmi_curve, 'o-', color=VIEW_COLORS[0], markeredgecolor="#fcfcfb", markeredgewidth=1.1, lw=2.0, label='BMI')
+    ax.plot(alphas, bp_curve, 's-', color=VIEW_COLORS[1], markeredgecolor="#fcfcfb", markeredgewidth=1.1, lw=2.0, label='Blood Pressure')
+    ax.plot(alphas, age_curve, '^-', color=VIEW_COLORS[2], markeredgecolor="#fcfcfb", markeredgewidth=1.1, lw=2.0, label='Age')
+    ax.set_xlabel('Latent trajectory coordinate α (low-risk → high-risk)')
+    ax.set_ylabel('Decoded standardized feature level')
+    ax.set_title('Latent trajectory interpolation (Flow-SiMR-V)')
+    ax.yaxis.grid(True)
+    ax.legend(loc="best")
     plt.tight_layout()
     plt.show()
 ```

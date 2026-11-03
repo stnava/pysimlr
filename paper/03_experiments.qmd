@@ -374,138 +374,149 @@ with theme():
 ```{python}
 #| warning: false
 #| message: false
-#| label: fig-three-probes
-#| fig-cap: "Global 12-dataset comparison across the three complementary evaluation probes at the discovery operating point ($q = 0.5$, each cohort weighted equally): Subspace Fidelity (`Ridge(XV)`, blue), Single-Axis Interpretability (`RandomForest(XV)`, orange), and Shared Patient Consensus (`Ridge(U)`, green). Per-model differences between the Random Forest and linear scores are given in the text."
+#| label: fig-benchmark-uncertainty
+#| fig-cap: "Out-of-sample linear entrypoint comparison across the 12 benchmark dataset blocks with uncertainty (`pysimlr.plot_benchmark_uncertainty`, seeds averaged per dataset block, 2,000 bootstrap resamples). Left: mean linear entrypoint score ($\\mathbf{X}\\mathbf{V}$) with 95% bootstrap interval and per-cohort dots. Right: paired difference (`method − PCA`) across the 12 cohorts; solid colored intervals exclude zero."
 #| out-width: 100%
 #| echo: false
 import os
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
-from pysimlr.plotting import theme, VIEW_COLORS
+import pysimlr
 
-csv_op = "results_cache/operating_points_05_08_benchmark.csv"
-if not os.path.exists(csv_op):
-    csv_op = "paper/results_cache/operating_points_05_08_benchmark.csv"
+csv_main = "results_cache/deep_ranking_benchmark.csv"
+if not os.path.exists(csv_main):
+    csv_main = "paper/results_cache/deep_ranking_benchmark.csv"
 
+df_main = pd.read_csv(csv_main)
+df_main["Model"] = df_main["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+df_blocks = df_main.groupby(["Model", "Dataset"], as_index=False)["Strictly_Linear_Metric"].mean()
+model_ord = ["Flow-SiMR-V", "LEND", "SiMLR", "NEDPP", "NED", "PCA", "NSAFlow-PCA"]
+df_blocks["Model"] = pd.Categorical(df_blocks["Model"], categories=model_ord, ordered=True)
+df_blocks = df_blocks.sort_values(["Model", "Dataset"])
+df_blocks["Model"] = df_blocks["Model"].astype(str)
+
+fig = pysimlr.plot_benchmark_uncertainty(
+    df_blocks,
+    method="Model",
+    split="Dataset",
+    score="Strictly_Linear_Metric",
+    baseline="PCA",
+    metric_label="linear entrypoint score (XV)",
+)
+plt.show()
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-three-probes
+#| fig-cap: "Global 12-dataset comparison (`pysimlr.plot_benchmark`, mean $\\pm$ SE over cohort blocks) across the three complementary evaluation probes at the discovery operating point ($q = 0.5$): Subspace Fidelity (`Ridge(XV)`, blue), Single-Axis Interpretability (`RandomForest(XV)`, orange), and Shared Patient Consensus (`Ridge(U)`, green)."
+#| out-width: 100%
+#| echo: false
+import pandas as pd
+import matplotlib.pyplot as plt
+import pysimlr
 from paper_numbers import op_default
-df_op = op_default()  # default positivity only
 
+df_op = op_default()
 sub05 = df_op[df_op["Sparseness_Target"] == 0.5]
-piv_probes = sub05.groupby("Model")[["Strictly_Linear_Metric", "Axis_Sensitive_Metric", "Predictive_Metric"]].mean()
-model_order = ["LEND", "Flow-SiMR-V", "SiMLR", "NEDPP", "NED", "NSAFlow-PCA", "PCA"]
-piv_probes = piv_probes.reindex([m for m in model_order if m in piv_probes.index])
+per_block = sub05.groupby(["Model", "Dataset"], as_index=False)[
+    ["Strictly_Linear_Metric", "Axis_Sensitive_Metric", "Predictive_Metric"]
+].mean()
+model_order = ["Flow-SiMR-V", "LEND", "SiMLR", "NEDPP", "NED", "NSAFlow-PCA", "PCA"]
+probe_map = {
+    "Strictly_Linear_Metric": "1. Ridge(XV)",
+    "Axis_Sensitive_Metric": "2. RandomForest(XV)",
+    "Predictive_Metric": "3. Ridge(U)",
+}
+long_probes = per_block.melt(
+    id_vars=["Model", "Dataset"],
+    value_vars=list(probe_map.keys()),
+    var_name="Probe",
+    value_name="Score",
+)
+long_probes["Probe"] = long_probes["Probe"].map(probe_map)
+long_probes["Model"] = pd.Categorical(long_probes["Model"], categories=model_order, ordered=True)
+long_probes = long_probes.sort_values(["Probe", "Model"])
+long_probes["Model"] = long_probes["Model"].astype(str)
 
-with theme():
-    fig, ax1 = plt.subplots(figsize=(10.8, 3.9), dpi=300)
+fig, ax1 = plt.subplots(figsize=(10.8, 4.0), dpi=200, layout="constrained")
+pysimlr.plot_benchmark(long_probes, x="Model", y="Score", by="Probe", kind="bar", ax=ax1)
+ax1.set_xlabel("")
+ax1.set_ylabel("Mean out-of-sample score (↑)")
+ax1.set_title("Three-probe performance profile across 12 benchmarks (q = 0.5)")
+ax1.set_ylim(0.50, 0.84)
 
-    x = np.arange(len(piv_probes))
-    width = 0.25
-    b1 = ax1.bar(x - width, piv_probes["Strictly_Linear_Metric"], width, label="1. Subspace Fidelity: Ridge(XV) ↑", color=VIEW_COLORS[0])
-    b2 = ax1.bar(x, piv_probes["Axis_Sensitive_Metric"], width, label="2. Single-Axis Interpretability: RandomForest(XV) ↑", color=VIEW_COLORS[1])
-    b3 = ax1.bar(x + width, piv_probes["Predictive_Metric"], width, label="3. Multi-Modal Consensus: Ridge(U) ↑", color=VIEW_COLORS[2])
-
-    for bars in (b1, b2, b3):
-        for bar in bars:
-            h = bar.get_height()
-            ax1.text(bar.get_x() + bar.get_width() / 2, h + 0.004, f"{h:.2f}", ha="center", va="bottom", fontsize=7.5, color="#52514e")
-
-    ax1.set_ylabel("Mean Out-of-Sample Score (↑)")
-    ax1.set_title("Three-Probe Performance Profile Across 12 Benchmarks (Operating Point q = 0.5)")
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(piv_probes.index, rotation=15, ha="right")
-    ax1.set_ylim(0.50, 0.82)
-    ax1.grid(True, axis="y")
-    ax1.legend(loc="upper right", ncol=3)
-
-    pca_idx = list(piv_probes.index).index("PCA")
-    _drop = piv_probes["Axis_Sensitive_Metric"] - piv_probes["Strictly_Linear_Metric"]
-    ax1.annotate(f"PCA axis-mixing drop\n(RF − linear = {_drop['PCA']:+.3f}; SiMLR {_drop['SiMLR']:+.3f})",
-                 xy=(pca_idx, piv_probes.loc["PCA", "Axis_Sensitive_Metric"]),
-                 xytext=(pca_idx - 2.6, 0.535),
-                 arrowprops=dict(arrowstyle="->", color="#d03b3b", lw=1.3),
-                 fontsize=8.3, weight="semibold", color="#d03b3b",
-                 bbox=dict(boxstyle="round,pad=0.3", fc="#fcfcfb", ec="#ef8478", lw=0.9))
-
-    plt.tight_layout()
-    plt.show()
+piv_probes = per_block.groupby("Model")[["Strictly_Linear_Metric", "Axis_Sensitive_Metric"]].mean()
+pca_idx = model_order.index("PCA")
+_drop = piv_probes["Axis_Sensitive_Metric"] - piv_probes["Strictly_Linear_Metric"]
+ax1.annotate(
+    f"PCA axis-mixing drop\n(RF − linear = {_drop['PCA']:+.3f}; SiMLR {_drop['SiMLR']:+.3f})",
+    xy=(pca_idx, piv_probes.loc["PCA", "Axis_Sensitive_Metric"]),
+    xytext=(pca_idx - 2.7, 0.535),
+    arrowprops=dict(arrowstyle="->", color="#d03b3b", lw=1.3),
+    fontsize=8.3, weight="semibold", color="#d03b3b",
+    bbox=dict(boxstyle="round,pad=0.3", fc="#fcfcfb", ec="#ef8478", lw=0.9),
+)
+plt.show()
 ```
 
 Three empirical principles emerge from @tbl-global-leaderboard and Figures [-@fig-cd-diagram]–[-@fig-three-probes]:
 
-1. **Multi-View Alignment Against Single-Matrix Factorization**: The leading mean Friedman ranks on the linear entrypoint probe are `{python} N.rank_lin_top4`, against `PCA` (`{python} N.rank_lin_PCA`) and `NSAFlow-PCA` (`{python} N.rank_lin_NSAFlow_PCA`). On heterogeneous cohorts such as `mfeat` ($p = [76, 64, 6, 47]$) and `Shared+Private` ($p = [160, 60, 30]$), concatenated `PCA` reaches a linear score of `{python} N.mfeat_pca` (`mfeat` accuracy) and `{python} N.sp_pca` (`Shared+Private` $R^2$), against `{python} N.mfeat_best` (`{python} N.mfeat_best_model`) and `{python} N.sp_best` (`{python} N.sp_best_model`) for the best multi-view model. Over the 12 datasets (seeds averaged, Wilcoxon signed-rank against `PCA` with Holm adjustment, Appendix B), the linear score differs from `PCA` at $p < 0.05$ for `{python} N.wilcoxon_n_sig` of 6 models (`{python} N.wilcoxon_sig`).
+1. **Multi-View Alignment Against Single-Matrix Factorization**: The leading mean Friedman ranks on the linear entrypoint probe are `{python} N.rank_lin_top4`, against `PCA` (`{python} N.rank_lin_PCA`) and `NSAFlow-PCA` (`{python} N.rank_lin_NSAFlow_PCA`) (@fig-benchmark-uncertainty). On heterogeneous cohorts such as `mfeat` ($p = [76, 64, 6, 47]$) and `Shared+Private` ($p = [160, 60, 30]$), concatenated `PCA` reaches a linear score of `{python} N.mfeat_pca` (`mfeat` accuracy) and `{python} N.sp_pca` (`Shared+Private` $R^2$), against `{python} N.mfeat_best` (`{python} N.mfeat_best_model`) and `{python} N.sp_best` (`{python} N.sp_best_model`) for the best multi-view model. Over the 12 datasets (seeds averaged, Wilcoxon signed-rank against `PCA` with Holm adjustment, Appendix B), the linear score differs from `PCA` at $p < 0.05$ for `{python} N.wilcoxon_n_sig` of 6 models (`{python} N.wilcoxon_sig`).
 2. **Coordinate Alignment and the Random Forest Axis Drop**: As established in @eq-subspace-invariance, ridge regression on $\mathbf{X}_m \mathbf{V}_m$ is insensitive to orthogonal or oblique column mixing $\mathbf{V}_m \mathbf{M}$, hiding the fact that dense `PCA` mixes distinct mechanisms across columns. With coordinate-splitting decision trees (`RandomForest`), `PCA` loses `{python} N.drop_pca` on average across the 12 cohorts (Random Forest minus linear score), falling from `{python} N.npw_pca` to `{python} N.npw_pca_rf` on the weak sparse factors of `NonnegPartsWeak` and from `{python} N.adni_pca` to `{python} N.adni_pca_rf` on `ADNI-MCI` (`{python} N.adni_pca_rf_drop_pct` lower). The smallest drops are `{python} N.drop_best_models`.
-3. **Operating Points and Feature Density ($q = 0.5$ vs. $q = 0.8$)**: @fig-operating-point-and-support shows the quantile threshold $q$ as a lens on feature support recovery. Across the `{python} N.n_default_fits` default-positivity fits, the mean linear score is `{python} N.op_lin_None`, `{python} N.op_lin_05` and `{python} N.op_lin_08` at $q = \text{None}$, $0.5$ and $0.8$, and the mean Random Forest axis score is `{python} N.op_rf_None`, `{python} N.op_rf_05` and `{python} N.op_rf_08`; at $q = 0.8$, `{python} N.op_sparsity_08` of loadings are zero while `{python} N.op_retained_08` of the best linear score is retained. At $q = 0.5$, support recovery on the $50\%$-sparse `Linear` regime ranges from $F_1 =$ `{python} N.f1_linear_q05_min` (`{python} N.f1_linear_q05_min_model`) to `{python} N.f1_linear_q05_max` (`{python} N.f1_linear_q05_max_model`), and reaches `{python} N.f1_np_q05_best` on `NonnegParts` (`{python} N.f1_np_q05_best_model`). On the focal $20\%$-active modules, the best $F_1$ at $q = 0.8$ is `{python} N.f1_npw_q08_best` on `NonnegPartsWeak` (`{python} N.f1_npw_q08_best_model`) and `{python} N.f1_sp_q08_best` on `Shared+Private` (`{python} N.f1_sp_q08_best_model`).
+3. **Operating Points and Feature Density ($q = 0.5$ vs. $q = 0.8$)**: @fig-operating-point-and-support shows the quantile threshold $q$ as a lens on feature support recovery without conflating scales on secondary axes. Across the `{python} N.n_default_fits` default-positivity fits, the mean linear score is `{python} N.op_lin_None`, `{python} N.op_lin_05` and `{python} N.op_lin_08` at $q = \text{None}$, $0.5$ and $0.8$, and the mean Random Forest axis score is `{python} N.op_rf_None`, `{python} N.op_rf_05` and `{python} N.op_rf_08`; at $q = 0.8$, `{python} N.op_sparsity_08` of loadings are zero while `{python} N.op_retained_08` of the best linear score is retained. At $q = 0.5$, support recovery on the $50\%$-sparse `Linear` regime ranges from $F_1 =$ `{python} N.f1_linear_q05_min` (`{python} N.f1_linear_q05_min_model`) to `{python} N.f1_linear_q05_max` (`{python} N.f1_linear_q05_max_model`), and reaches `{python} N.f1_np_q05_best` on `NonnegParts` (`{python} N.f1_np_q05_best_model`). On the focal $20\%$-active modules, the best $F_1$ at $q = 0.8$ is `{python} N.f1_npw_q08_best` on `NonnegPartsWeak` (`{python} N.f1_npw_q08_best_model`) and `{python} N.f1_sp_q08_best` on `Shared+Private` (`{python} N.f1_sp_q08_best_model`).
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-operating-point-and-support
-#| fig-cap: "Operating-point trade-off across the default-positivity fits at unthresholded (`q = None`), moderate (`q = 0.5`), and focal (`q = 0.8`) quantile sparsity. (A) Mean linear subspace and Random Forest axis scores and the fraction of zero loadings at each $q$ (each cohort weighted equally). (B) Ground-truth feature support recovery ($F_1$) on the synthetic regimes as a function of $q$."
+#| fig-cap: "Operating-point trade-off (`pysimlr.plot_benchmark`, mean $\\pm$ SE with direct line-end labels, no secondary axes) across the default-positivity fits at unthresholded (`q = None`), moderate (`q = 0.5`), and focal (`q = 0.8`) quantile sparsity. (A) Out-of-sample linear subspace (`Ridge(XV)`) and single-axis (`RandomForest(XV)`) scores across the 12 cohort blocks. (B) Ground-truth feature support recovery ($F_1$) on the sparse synthetic regimes across $q$."
 #| out-width: 100%
 #| echo: false
-import os
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
-
-csv_path = "results_cache/operating_points_05_08_benchmark.csv"
-if not os.path.exists(csv_path):
-    csv_path = "paper/results_cache/operating_points_05_08_benchmark.csv"
-
+import pysimlr
 from paper_numbers import op_default
-from pysimlr.plotting import theme, VIEW_COLORS
-df = op_default()  # default positivity only
 
-with theme():
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.2, 4.2), dpi=300)
+df = op_default().copy()
+q_map = {"None": "q = None", 0.5: "q = 0.5", 0.8: "q = 0.8"}
+df["Operating point"] = df["Sparseness_Target"].map(q_map)
+q_cats = ["q = None", "q = 0.5", "q = 0.8"]
 
-    q_order = ["None", 0.5, 0.8]
-    q_labels = ["q = None\n(Soft Polish)", "q = 0.5\n(Discovery)", "q = 0.8\n(Focal Panel)"]
-    agg_q = df.groupby("Sparseness_Target")[["Sparsity_Ratio", "Strictly_Linear_Metric", "Axis_Sensitive_Metric"]].mean().reindex(q_order)
+blk_q = df.groupby(["Operating point", "Dataset", "Model"], as_index=False)[
+    ["Strictly_Linear_Metric", "Axis_Sensitive_Metric"]
+].mean()
+long_q = blk_q.melt(
+    id_vars=["Operating point", "Dataset", "Model"],
+    value_vars=["Strictly_Linear_Metric", "Axis_Sensitive_Metric"],
+    var_name="Probe",
+    value_name="Score",
+)
+long_q["Probe"] = long_q["Probe"].map({
+    "Strictly_Linear_Metric": "Ridge(XV)",
+    "Axis_Sensitive_Metric": "RandomForest(XV)",
+})
+long_q["Operating point"] = pd.Categorical(long_q["Operating point"], categories=q_cats, ordered=True)
+long_q = long_q.sort_values(["Probe", "Operating point"])
+long_q["Operating point"] = long_q["Operating point"].astype(str)
 
-    ax1_twin = ax1.twinx()
-    ax1_twin.spines["right"].set_visible(True)
-    p1 = ax1.plot(range(3), agg_q["Strictly_Linear_Metric"], "o-", color=VIEW_COLORS[0], lw=2.2, markersize=6.5, markeredgecolor="#fcfcfb", markeredgewidth=1.1, label="Linear Subspace (XV ↑)")
-    p2 = ax1.plot(range(3), agg_q["Axis_Sensitive_Metric"], "s--", color=VIEW_COLORS[1], lw=2.0, markersize=6.0, markeredgecolor="#fcfcfb", markeredgewidth=1.1, label="Single-Axis Tree (RF XV ↑)")
-    p3 = ax1_twin.plot(range(3), agg_q["Sparsity_Ratio"] * 100, "^-.", color=VIEW_COLORS[2], lw=2.0, markersize=6.0, markeredgecolor="#fcfcfb", markeredgewidth=1.1, label="Achieved Sparsity % (↑)")
+syn_q = df[df["Dataset"].isin(["Linear", "NonnegParts", "NonnegPartsWeak", "Shared+Private"])].copy()
+syn_q["Operating point"] = pd.Categorical(syn_q["Operating point"], categories=q_cats, ordered=True)
+syn_q = syn_q.sort_values(["Dataset", "Operating point"])
+syn_q["Operating point"] = syn_q["Operating point"].astype(str)
 
-    ax1.set_xticks(range(3))
-    ax1.set_xticklabels(q_labels)
-    ax1.set_ylabel("Mean Out-of-Sample Score (↑)")
-    ax1_twin.set_ylabel("Basis Sparsity % (↑)", color=VIEW_COLORS[2])
-    ax1.set_ylim(0.65, 0.75)
-    ax1_twin.set_ylim(5, 70)
-    ax1.set_title("A. Predictive Fidelity vs. Sparsity Operating Point")
-    ax1.grid(True)
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.6, 4.2), dpi=200, layout="constrained")
+pysimlr.plot_benchmark(long_q, x="Operating point", y="Score", by="Probe", kind="line", ax=ax1)
+ax1.set_xlim(-0.15, 2.75)
+ax1.set_ylabel("Out-of-sample score (↑)")
+ax1.set_title("A. Predictive fidelity across operating points")
 
-    lines_1 = p1 + p2 + p3
-    ax1.legend(lines_1, [l.get_label() for l in lines_1], loc="lower center")
-
-    syn_df = df[df["Case_Type"] == "synthetic"]
-    syn_agg = syn_df.groupby(["Dataset", "Sparseness_Target"])["Support_Recovery_V"].mean().unstack()[q_order]
-
-    styles = {
-        "Linear": (VIEW_COLORS[0], "o-", "Linear (50% Sparse ±)"),
-        "NonnegParts": (VIEW_COLORS[2], "s-", "NonnegParts (66.7% Non-Neg)"),
-        "NonnegPartsWeak": (VIEW_COLORS[1], "^-", "NonnegPartsWeak (80% Non-Neg)"),
-        "Shared+Private": (VIEW_COLORS[6], "d-", "Shared+Private (80% Sparse ±)")
-    }
-
-    for ds, (col, sty, lbl) in styles.items():
-        if ds in syn_agg.index:
-            ax2.plot(range(3), syn_agg.loc[ds], sty, color=col, lw=2.0, markersize=6.0, markeredgecolor="#fcfcfb", markeredgewidth=1.1, label=lbl)
-
-    ax2.set_xticks(range(3))
-    ax2.set_xticklabels(q_labels)
-    ax2.set_ylabel("Pathway Support Recovery (Jaccard F1 ↑)")
-    ax2.set_title("B. Ground-Truth Pathway Recovery Across Densities")
-    ax2.set_ylim(0.15, 0.88)
-    ax2.grid(True)
-    ax2.legend(loc="lower right")
-
-    plt.tight_layout()
-    plt.show()
+pysimlr.plot_benchmark(syn_q, x="Operating point", y="Support_Recovery_V", by="Dataset", kind="line", ax=ax2)
+ax2.set_xlim(-0.15, 3.05)
+ax2.set_ylabel("Pathway support recovery F1 (↑)")
+ax2.set_title("B. Ground-truth support recovery across q")
+plt.show()
 ```
 
 ## Clinical Neuroimaging in `ADNI-MCI` ($N = 1,084$): Predicting Cognitive Decline and Mapping Braak Staging from MRI Alone
@@ -575,7 +586,7 @@ headers = [
 print(tabulate(rows, headers=headers, tablefmt="pipe"))
 ```
 
-Comparing the unsupervised anatomical baselines against cognitive-aligned SiMR models in @tbl-adni-mci-summary and @fig-adni-neuroanatomy-flagship yields four findings:
+Comparing the unsupervised anatomical baselines against cognitive-aligned SiMR models in @tbl-adni-mci-summary and Figures [-@fig-adni-view-chord]–[-@fig-adni-scores] yields four findings:
 
 1. **Supervising MRI Factor Discovery with Cognitive Batteries Improves Out-of-Sample MRI Prediction**: Unsupervised `PCA` on the $382$ structural MRI features explains $R^2 =$ `{python} N.adni_pca` $\pm$ `{python} N.adni_pca_sd` of out-of-sample cognitive variance (`CogPC1`) on the linear probe and `{python} N.adni_pca_rf` on the single-axis Random Forest probe. Aligning the MRI projections with the 11-scale cognitive battery during training gives, for the four leading models (3-seed means $\pm$ SD), `{python} N.adni_ranked`; the best is `{python} N.adni_gain_pct` over `PCA`. The best single-axis Random Forest score is `{python} N.adni_rf_best` (`{python} N.adni_rf_best_model`), `{python} N.adni_rf_ratio` times that of `PCA`. In the single-seed sweep the best configuration reaches `{python} N.sweep_best_r2` (`{python} N.sweep_best_model`) and the best linear-family configuration `{python} N.sweep_linear_best_r2` (`{python} N.sweep_linear_best_model`), against `{python} N.sweep_pca_r2` for `PCA`; mean prediction across all eleven scales reaches `{python} N.sweep_m11_best` (`{python} N.sweep_m11_best_model`) against `{python} N.sweep_m11_pca` for `PCA` (`{python} N.sweep_m11_gain`). These sweep peaks are maxima over many configurations on one split and are optimistic.
 2. **Varimax Rotation and Quantile Sparsity on Cortical Thickness**: @fig-adni-neuroanatomy-flagship shows the 62 DKT cortical-thickness loadings (single seed, `Protocol B`, `SiMLR`, $w = 0.50$). Dense `PCA` (Panel A1) has `{python} N.fl_pca_sp` zero loadings. Non-negative SiMR without rotation or quantile thresholding (Panel A2, `varimax = False, q = None`) is `{python} N.fl_col_pca_simr_sp` sparse with `{python} N.fl_col_pca_simr_active` active regions per component; with Varimax rotation (Panel A3, `varimax = True, q = None`) it is `{python} N.fl_varimax_simr_sp` sparse with `{python} N.fl_varimax_simr_active`. With `sparseness = 0.85` (Panels A4 and B) each component keeps `{python} N.fl_col_pca_q85_simr_active` regions (`{python} N.fl_col_pca_q85_simr_sp` sparse, Gram defect $D =$ `{python} N.fl_q85_D`) with out-of-sample `CogPC1` $R^2 =$ `{python} N.fl_col_pca_q85_simr_r2`, against `{python} N.fl_pca_r2` for `PCA` on the same split. The leading regions of each component are:
@@ -589,6 +600,67 @@ Comparing the unsupervised anatomical baselines against cognitive-aligned SiMR m
 ```{python}
 #| warning: false
 #| message: false
+#| label: fig-adni-view-chord
+#| fig-cap: "Held-out multi-view component coupling on `ADNI-MCI` (`pysimlr.plot_view_chord`, $N_{\\text{test}} = 326$, `Protocol B`, `SiMLR`, $k = 3$, $q = 0.85$). Each view (`Volume`, `Thickness`, `DKT Cortex`, `Cognition`) occupies a fixed arc with one slot per partner view; ribbons fill their slots in proportion to held-out Pearson $r$ between view scores, so selective coupling appears as empty arc rather than stretched ribbons."
+#| out-width: 100%
+#| echo: false
+import os, sys
+import torch
+import matplotlib.pyplot as plt
+import pysimlr
+
+_repo_root = os.path.abspath(os.path.join(os.getcwd(), "..")) if "paper" in os.getcwd() else os.getcwd()
+sys.path.insert(0, os.path.join(_repo_root, "scripts"))
+import paper_adni_ablations as _paa
+
+_d_adni = _paa.protocol_b(42, row_center=False)
+_res_adni, _ = _paa.fit_adni(_d_adni, "simlr", k=3, positivity="positive", sparseness=0.85, random_state=42)
+_te_adni = [torch.tensor(m).float() for m in _d_adni["x_te"]] + [torch.tensor(_d_adni["y_te"]).float()]
+_pred_adni = pysimlr.predict(_res_adni, _te_adni)
+_adni_vnames = ["Volume", "Thickness", "DKT Cortex", "Cognition"]
+
+fig = pysimlr.plot_view_chord(_res_adni, pred=_pred_adni, view_names=_adni_vnames)
+plt.show()
+```
+
+:::: {.columns}
+::: {.column width="56%"}
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-adni-latent-coupling
+#| fig-cap: "Training (hollow rings) versus held-out (filled dots) view-to-consensus coupling dumbbells and the held-out view-by-view correlation matrix (`pysimlr.plot_latent_coupling`) on `ADNI-MCI` (`Protocol B`)."
+#| out-width: 100%
+#| echo: false
+import matplotlib.pyplot as plt
+import pysimlr
+
+fig = pysimlr.plot_latent_coupling(_res_adni, pred=_pred_adni, view_names=_adni_vnames)
+plt.show()
+```
+:::
+::: {.column width="4%"}
+:::
+::: {.column width="40%"}
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-adni-component-radar
+#| fig-cap: "Held-out component coupling profile of each `ADNI-MCI` view (`pysimlr.plot_component_radar`); the grey polygon marks the mean over views."
+#| out-width: 100%
+#| echo: false
+import matplotlib.pyplot as plt
+import pysimlr
+
+fig = pysimlr.plot_component_radar(_res_adni, pred=_pred_adni, view_names=_adni_vnames)
+plt.show()
+```
+:::
+::::
+
+```{python}
+#| warning: false
+#| message: false
 #| label: fig-adni-neuroanatomy-flagship
 #| fig-cap: "Cortical-thickness loadings on `ADNI-MCI` ($N = 1,084$, `Protocol B`, single seed, `SiMLR`, $w = 0.50$) across the 62 DKT regions. (A1) Dense PCA; (A2) non-negative SiMR without rotation or quantile thresholding (`varimax = False`, $q = \\text{None}$); (A3) with Varimax rotation (`varimax = True`, $q = \\text{None}$); (A4) with quantile sparsity $q = 0.85$. Panel titles give each matrix's fraction of zero loadings and out-of-sample `CogPC1` $R^2$. (B) The four largest loadings of each component at $q = 0.85$, and the primary sensorimotor regions (`precentral`, `postcentral`)."
 #| out-width: 100%
@@ -598,7 +670,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-from pysimlr.plotting import theme, VIEW_COLORS, _cmap
+from pysimlr.plotting import theme, VIEW_COLORS, _cmap, _colorbar
 
 json_path = "results_cache/adni_mci_feature_loadings.json"
 if not os.path.exists(json_path):
@@ -623,7 +695,7 @@ _st2 = float(RAW["adni_k3_pos_stab_c2"])
 _st3 = float(RAW["adni_k3_pos_stab_c3"])
 
 with theme():
-    fig = plt.figure(figsize=(11.8, 8.3), dpi=300, constrained_layout=True)
+    fig = plt.figure(figsize=(11.8, 8.2), dpi=200, layout="constrained")
     gs = fig.add_gridspec(2, 4, height_ratios=[1.05, 1.0])
 
     ax1 = fig.add_subplot(gs[0, 0])
@@ -632,30 +704,36 @@ with theme():
     ax4 = fig.add_subplot(gs[0, 3], sharey=ax1)
     ax_bars = fig.add_subplot(gs[1, :])
 
-    im1 = ax1.imshow(mat_pca[order_idx, :], aspect="auto", cmap=_cmap("div"), vmin=-0.45, vmax=0.45, interpolation="nearest")
-    ax1.set_xticks([0, 1, 2])
-    ax1.set_xticklabels(["L₁", "L₂", "L₃"])
     _s = f_data["summaries"]
     def _title(key, label):
         return f"{label}\n({100 * _s[key]['dkt_sparsity']:.0f}% zero | R² = {_s[key]['cog_pc1_r2']:.3f})"
-    ax1.set_title(_title("pca", "A1. Dense PCA"), fontsize=9.0)
-    plt.colorbar(im1, ax=ax1, fraction=0.045, pad=0.03)
 
-    im2 = ax2.imshow(mat_col[order_idx, :], aspect="auto", cmap=_cmap("seq"), vmin=0.0, vmax=0.55, interpolation="nearest")
-    ax2.set_xticks([0, 1, 2])
-    ax2.set_xticklabels(["L₁", "L₂", "L₃"])
+    im1 = ax1.pcolormesh(np.arange(4) - 0.5, np.arange(63) - 0.5, mat_pca[order_idx, :], cmap=_cmap("div"), vmin=-0.45, vmax=0.45, edgecolors="#fcfcfb", linewidth=0.5)
+    ax1.set_ylim(61.5, -0.5)
+    ax1.set_xticks([0, 1, 2]); ax1.set_xticklabels(["L₁", "L₂", "L₃"])
+    ax1.set_title(_title("pca", "A1. Dense PCA"), fontsize=9.0)
+    _colorbar(fig, im1, ax1, "loading")
+
+    im2 = ax2.pcolormesh(np.arange(4) - 0.5, np.arange(63) - 0.5, mat_col[order_idx, :], cmap=_cmap("seq"), vmin=0.0, vmax=0.55, edgecolors="#fcfcfb", linewidth=0.5)
+    ax2.set_ylim(61.5, -0.5)
+    ax2.set_xticks([0, 1, 2]); ax2.set_xticklabels(["L₁", "L₂", "L₃"])
     ax2.set_title(_title("col_pca_simr", "A2. Unrotated NSA (q = None)"), fontsize=8.8)
 
-    im3 = ax3.imshow(mat_varimax[order_idx, :], aspect="auto", cmap=_cmap("seq"), vmin=0.0, vmax=0.55, interpolation="nearest")
-    ax3.set_xticks([0, 1, 2])
-    ax3.set_xticklabels(["L₁", "L₂", "L₃"])
+    im3 = ax3.pcolormesh(np.arange(4) - 0.5, np.arange(63) - 0.5, mat_varimax[order_idx, :], cmap=_cmap("seq"), vmin=0.0, vmax=0.55, edgecolors="#fcfcfb", linewidth=0.5)
+    ax3.set_ylim(61.5, -0.5)
+    ax3.set_xticks([0, 1, 2]); ax3.set_xticklabels(["L₁", "L₂", "L₃"])
     ax3.set_title(_title("varimax_simr", "A3. Varimax + NSA (q = None)"), fontsize=8.8)
 
-    im4 = ax4.imshow(mat_q85[order_idx, :], aspect="auto", cmap=_cmap("seq"), vmin=0.0, vmax=0.68, interpolation="nearest")
+    im4 = ax4.pcolormesh(np.arange(4) - 0.5, np.arange(63) - 0.5, mat_q85[order_idx, :], cmap=_cmap("seq"), vmin=0.0, vmax=0.68, edgecolors="#fcfcfb", linewidth=0.5)
+    ax4.set_ylim(61.5, -0.5)
     ax4.set_xticks([0, 1, 2])
     ax4.set_xticklabels([f"L₁\n({_st1:.2f})", f"L₂ (not ident.\n{_st2:.2f} < 0.90)", f"L₃\n({_st3:.2f})"], fontsize=7.2)
     ax4.set_title(_title("col_pca_q85_simr", "A4. NSA, q = 0.85"), fontsize=9.0)
-    plt.colorbar(im4, ax=ax4, fraction=0.045, pad=0.03)
+    _colorbar(fig, im4, ax4, "loading")
+
+    for ax_p in (ax1, ax2, ax3, ax4):
+        for sp_v in ax_p.spines.values():
+            sp_v.set_visible(False)
 
     palette = list(VIEW_COLORS[:3])
     signature_regions = []
@@ -689,9 +767,10 @@ with theme():
         cols_b.append(col_hex)
         labels_b.append(disp_nm if comp is None else f"{disp_nm} (L{comp + 1})")
 
-    ax_bars.barh(y_b, vals_b, color=cols_b, height=0.64)
+    ax_bars.hlines(y_b, 0, vals_b, color=cols_b, lw=2.2, alpha=0.65)
+    ax_bars.scatter(vals_b, y_b, s=48, c=cols_b, edgecolors="#fcfcfb", linewidths=1.3, zorder=3)
     for idx_i, val_i in enumerate(vals_b):
-        ax_bars.text(val_i + 0.012, idx_i, f"{val_i:.3f}", va="center", fontsize=8.4, color="#0b0b0b")
+        ax_bars.text(val_i + 0.014, idx_i, f"{val_i:.3f}", va="center", fontsize=8.2, color="#52514e")
 
     ax_bars.invert_yaxis()
     ax_bars.set_yticks(y_b)
@@ -699,7 +778,7 @@ with theme():
     ax_bars.set_xlim(0, max(vals_b) * 1.25 + 0.05)
     ax_bars.set_xlabel("Non-negative cortical-thickness loading (q = 0.85)")
     ax_bars.set_title("B. Four largest loadings per component, and primary sensorimotor regions")
-    ax_bars.grid(True, axis="x")
+    ax_bars.xaxis.grid(True)
 
     legend_patches = [Patch(facecolor=palette[j], label=f"Component {j + 1}") for j in range(mat_q85.shape[1])]
     legend_patches.append(Patch(facecolor="#898781", label="Primary sensorimotor (largest weight)"))
@@ -708,9 +787,73 @@ with theme():
     plt.show()
 ```
 
+:::: {.columns}
+::: {.column width="48%"}
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-adni-lobes
+#| fig-cap: "Lobe-level summary (`pysimlr.plot_feature_groups`, mean $|\\text{structure}|$) across the 62 DKT cortical parcels grouped into Temporal, Parietal, Frontal, Cingulate, Occipital, and Insula lobes on `ADNI-MCI` (`Protocol B`)."
+#| out-width: 100%
+#| echo: false
+import matplotlib.pyplot as plt
+import pysimlr
+
+def _dkt_lobe(nm):
+    s = nm.replace("left_", "").replace("right_", "")
+    if any(k in s for k in ("entorhinal", "fusiform", "parahippocampal", "temporal")):
+        return "Temporal"
+    if any(k in s for k in ("cingulate",)):
+        return "Cingulate"
+    if any(k in s for k in ("parietal", "precuneus", "supramarginal", "postcentral")):
+        return "Parietal"
+    if any(k in s for k in ("cuneus", "occipital", "lingual", "pericalcarine")):
+        return "Occipital"
+    if "insula" in s:
+        return "Insula"
+    return "Frontal"
+
+_dkt_groups = [_dkt_lobe(nm) for nm in _d_adni["names"][2]]
+_all_adni_names = list(_d_adni["names"]) + [[f"cog_{i}" for i in range(_d_adni["y_tr"].shape[1])]]
+fig = pysimlr.plot_feature_groups(
+    _res_adni,
+    _dkt_groups,
+    view=2,
+    feature_names=_all_adni_names,
+    statistic="mean_abs",
+    view_names=_adni_vnames,
+)
+plt.show()
+```
+:::
+::: {.column width="4%"}
+:::
+::: {.column width="48%"}
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-adni-scores
+#| fig-cap: "Subject scores in the rotated frame $\\mathbf{u}\\mathbf{R}$ (`pysimlr.plot_scores`, identified Components 1 and 3) shaded by `CogPC1` impairment severity, with marginal KDE densities and ringed held-out MCI participants ($N_{\\text{test}} = 326$)."
+#| out-width: 100%
+#| echo: false
+import matplotlib.pyplot as plt
+import pysimlr
+
+fig = pysimlr.plot_scores(
+    _res_adni,
+    components=(0, 2),
+    color_by=_d_adni["pc1_tr"],
+    new_views=_te_adni,
+    color_label="CogPC1 severity",
+)
+plt.show()
+```
+:::
+::::
+
 ## Multi-Omic Oncology (`TCGA-BRCA`, `TCGA-KIRC`) and Patient-Level Clinical Attribution
 
-To verify that the same architectural principles generalize beyond neuroimaging to molecular oncology and clinical tabular medicine, @tbl-real-cohorts-summary compares all `{python} N.n_models_word` models across the six real cohorts, @fig-multiomics-and-patient-attribution illustrates cross-cohort performance alongside exact patient-level clinical risk decomposition (`Diabetes` Patient #1 and `Heart` Patient #122 in @fig-heart-audit), and @fig-nsa-v-interpretability demonstrates how `nsa_flow` preserves localized hierarchical basis weights across modalities.
+To verify that the same architectural principles generalize beyond neuroimaging to molecular oncology and clinical tabular medicine, @tbl-real-cohorts-summary compares all `{python} N.n_models_word` models across the six real cohorts, @fig-multiomics-and-patient-attribution reports cross-cohort linear entrypoint scores (`pysimlr.plot_benchmark`), @fig-diabetes-top-features and @fig-heart-audit map reproducible feature-to-component structure (`pysimlr.plot_top_features` and `pysimlr.plot_feature_chord`), and @fig-nsa-v-interpretability displays the hard-assigned OLEE loadings $\mathbf{L}_m$ across `Heart` and `Diabetes` modalities.
 
 ```{python}
 #| warning: false
@@ -754,17 +897,14 @@ print(tabulate(rows, headers=headers, tablefmt="pipe"))
 #| warning: false
 #| message: false
 #| label: fig-multiomics-and-patient-attribution
-#| fig-cap: "Multi-cohort biomedical performance and exact patient-level feature attribution. (A) Out-of-sample linear entrypoint scores across the six real cohorts comparing best SiMR architectures (`LEND`, `Flow-SiMR-V`, `SiMLR`) against dense `PCA`. (B) Exact additive patient-level risk attribution ($c_{ij} = x_{ij} v_{jl}$) on the Diabetes cohort (Patient #1), decomposing the patient's progression score directly into standardized clinical vitals without post-hoc Monte Carlo perturbation."
+#| fig-cap: "**Multi-Cohort Linear Entrypoint Performance (`pysimlr.plot_benchmark`).** Out-of-sample linear entrypoint scores across the six real biomedical cohorts (`ADNI-MCI`, `TCGA-BRCA`, `TCGA-KIRC`, `Diabetes`, `Heart`, `mfeat`) comparing top SiMR architectures (`LEND`, `Flow-SiMR-V`, `SiMLR`) against dense `PCA` (3-seed means and error bars from `deep_ranking_benchmark.csv`)."
 #| out-width: 100%
 #| echo: false
 import os
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.datasets import load_diabetes
-from sklearn.preprocessing import StandardScaler
-from pysimlr import simlr
-from pysimlr.plotting import theme, VIEW_COLORS
+import pysimlr
+from pysimlr.plotting import theme, _header
 
 csv_path = "results_cache/deep_ranking_benchmark.csv"
 if not os.path.exists(csv_path):
@@ -772,133 +912,88 @@ if not os.path.exists(csv_path):
 
 df = pd.read_csv(csv_path)
 df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
+real_map = {
+    "ADNI-MCI": "ADNI-MCI (R²)",
+    "MultiOmics": "TCGA-BRCA (Acc)",
+    "TCGA-KIRC": "TCGA-KIRC (Acc)",
+    "Diabetes": "Diabetes (R²)",
+    "Heart": "Heart (Acc)",
+    "mfeat": "mfeat (Acc)",
+}
+sub_r = df[df["Dataset"].isin(real_map.keys()) & df["Model"].isin(["LEND", "Flow-SiMR-V", "SiMLR", "PCA"])].copy()
+sub_r["Cohort"] = pd.Categorical(sub_r["Dataset"].map(real_map), categories=list(real_map.values()), ordered=True)
+sub_r["Model"] = pd.Categorical(sub_r["Model"], categories=["LEND", "Flow-SiMR-V", "SiMLR", "PCA"], ordered=True)
+sub_r = sub_r.sort_values(["Cohort", "Model"])
 
 with theme():
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.2, 4.1), dpi=300, gridspec_kw={"width_ratios": [1.3, 1.0]}, constrained_layout=True)
-
-    real_dsets = ["ADNI-MCI", "MultiOmics", "TCGA-KIRC", "Diabetes", "Heart", "mfeat"]
-    disp_names = ["ADNI-MCI\n(MRI→Cog)", "TCGA-BRCA\n(ER Acc)", "TCGA-KIRC\n(Stage Acc)", "Diabetes\n(Prog R²)", "Heart\n(CAD Acc)", "mfeat\n(Digit Acc)"]
-
-    piv_r = df[df["Dataset"].isin(real_dsets)].pivot_table(index="Dataset", columns="Model", values="Strictly_Linear_Metric", aggfunc="mean").reindex(real_dsets)
-
-    x = np.arange(len(real_dsets))
-    w = 0.20
-    ax1.bar(x - 1.5*w, piv_r["LEND"], w, label="LEND", color=VIEW_COLORS[0])
-    ax1.bar(x - 0.5*w, piv_r["Flow-SiMR-V"], w, label="Flow-SiMR-V", color=VIEW_COLORS[2])
-    ax1.bar(x + 0.5*w, piv_r["SiMLR"], w, label="SiMLR", color=VIEW_COLORS[6])
-    ax1.bar(x + 1.5*w, piv_r["PCA"], w, label="Dense PCA", color="#b7b5ac")
-
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(disp_names, fontsize=8.2)
-    ax1.set_ylabel("Out-of-Sample Linear Probe Score (↑)")
-    ax1.set_title("A. Multi-View SiMR vs. Dense PCA Across Real Cohorts")
-    ax1.set_ylim(0.10, 1.05)
-    ax1.grid(True, axis="y")
-    ax1.legend(loc="upper left", ncol=2, fontsize=8.0)
-
-    # Panel B: Exact Patient-Level Feature Attribution on Diabetes
-    np.random.seed(42)
-    data = load_diabetes()
-    X_scaled = StandardScaler().fit_transform(data.data)
-    res_db = simlr([X_scaled[:, :5], X_scaled[:, 5:]], k=2, positivity="positive", sparseness=0.5, random_state=42)
-    load_db = np.asarray(res_db["loadings"][0])
-    x_sample = X_scaled[0, :5]
-    impact = x_sample * load_db[:, 0]
-    feat_names = ["Age", "Sex", "Body Mass Index", "Mean Blood Pressure", "Total Cholesterol"]
-
-    idx = np.argsort(np.abs(impact))[::-1]
-    colors = ["#e34948" if impact[i] >= 0 else VIEW_COLORS[0] for i in idx]
-    y_pos = np.arange(len(idx))
-    ax2.barh(y_pos, impact[idx], color=colors, height=0.58)
-
-    min_imp = float(np.min(impact))
-    max_imp = float(np.max(impact))
-    span = max(max_imp - min_imp, 0.5)
-    ax2.set_xlim(min_imp - 0.30 * span, max_imp + 0.30 * span)
-
-    for pos_i, orig_i in enumerate(idx):
-        val_i = float(impact[orig_i])
-        if val_i >= 0:
-            ax2.text(val_i + 0.03 * span, pos_i, f"{val_i:+.2f}", va="center", ha="left", fontsize=8.4, weight="semibold", color="#0b0b0b")
-        else:
-            ax2.text(val_i - 0.03 * span, pos_i, f"{val_i:+.2f}", va="center", ha="right", fontsize=8.4, weight="semibold", color="#0b0b0b")
-
-    ax2.invert_yaxis()
-    ax2.set_yticks(y_pos)
-    ax2.set_yticklabels([feat_names[i] for i in idx], fontsize=8.5)
-    ax2.axvline(0, color="#52514e", lw=0.8)
-    ax2.set_xlabel("Exact Additive Contribution (x_ij · load_jl)")
-    ax2.set_title("B. Exact Patient-Level Risk Attribution (Patient #1)")
-    ax2.grid(True, axis="x")
-
+    fig, ax1 = plt.subplots(figsize=(10.2, 4.2), dpi=300)
+    pysimlr.plot_benchmark(sub_r, x="Cohort", y="Strictly_Linear_Metric", by="Model", kind="bar", ax=ax1)
+    ax1.set_xlabel("")
+    ax1.set_ylabel("Out-of-sample linear probe score (↑)")
+    ax1.set_title("")
+    _header(fig, "Multi-cohort out-of-sample linear entrypoint scores",
+            "3-seed mean ± SD across six real cohorts · higher is better", top=0.82)
     plt.show()
 ```
 
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-diabetes-top-features
+#| fig-cap: "**Diabetes Multi-View Feature Structure and Stability (`pysimlr.plot_top_features`).** Top features per view (`Systemic Vitals` and `Serum Biomarkers`) on Component 1 of `LEND`, plotting feature-to-score structure correlations $r(\\mathbf{x}_{mj}, (\\mathbf{U}\\mathbf{R})_1)$ with 95% subsample intervals ($n_{\\text{sub}} = 50$), permutation null floor ($n_{\\text{perm}} = 20$), and stability-selected features highlighted in bold (`results_cache/nsa_v_loadings.json`)."
+#| out-width: 100%
+#| echo: false
+import json, os
+import matplotlib.pyplot as plt
+import pysimlr
+from paper_numbers import CACHE
+
+_nsav = json.load(open(os.path.join(CACHE, "nsa_v_loadings.json")))
+_db_b = _nsav["plot_bundles"]["Diabetes"]
+fig = pysimlr.plot_top_features(
+    _db_b["res"], inf=_db_b["inf"], component=0,
+    view_names=_db_b["view_names"], feature_names=_db_b["feature_names"], top_n=6
+)
+plt.show()
+```
+
 :::: {.columns}
-::: {.column width="48%"}
+::: {.column width="49%"}
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-heart-audit
 #| echo: false
 #| out-width: 100%
-#| fig-cap: "**Cardiology Patient-Level Risk Decomposition (`Heart` Cohort, Patient #122).** Exact additive feature contributions $c_{ij} = x_{ij} l_{jl}$ from the `LEND` OLEE loadings (`results_cache/nsa_v_loadings.json`) decompose individual coronary artery disease risk directly into standardized clinical vitals and ECG indicators (`thal` thallium defect, `exang` exercise angina, `sex`, `ca` fluoroscopy vessels, `cp` chest pain)."
+#| fig-cap: "**Cardiology Multi-View Feature-to-Component Chord (`pysimlr.plot_feature_chord`, `Heart` Cohort).** Ribbons link clinical vitals (`cp` chest pain, `sex`, `age`, `restecg`) and cardiophysiological stress indicators (`thal` thallium defect, `ca` fluoroscopy vessels, `exang` exercise angina, `oldpeak`, `thalach`) to components `C1` and `C2`, filtered by subsample stability selection (`results_cache/nsa_v_loadings.json`)."
 import json, os
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
+import pysimlr
 from paper_numbers import CACHE
-from pysimlr.plotting import theme, VIEW_COLORS
 
 _nsav = json.load(open(os.path.join(CACHE, "nsa_v_loadings.json")))
-_heart_csv = "../data/heart_cleveland.csv" if os.path.exists("../data/heart_cleveland.csv") else "data/heart_cleveland.csv"
-_df_h = pd.read_csv(_heart_csv)
-_X_h = StandardScaler().fit_transform(_df_h.drop("num", axis=1))
-_y_h = (_df_h["num"].values > 0).astype(float)
-_L_h = np.vstack([_nsav["Heart"]["Clinical Vitals"]["loadings"], _nsav["Heart"]["Cardiophysiological"]["loadings"]])
-_cols_h = _nsav["Heart"]["Clinical Vitals"]["rows"] + _nsav["Heart"]["Cardiophysiological"]["rows"]
-_corrs_h = [np.corrcoef((_X_h @ _L_h)[:, j], _y_h)[0, 1] for j in range(_L_h.shape[1])]
-_j_h = int(np.argmax(np.abs(_corrs_h)))
-_sgn_h = 1.0 if _corrs_h[_j_h] >= 0 else -1.0
-_imp_h = _X_h[122] * (_sgn_h * _L_h[:, _j_h])
-_order_h = np.argsort(np.abs(_imp_h))[::-1][:8]
-
-with theme():
-    fig, ax = plt.subplots(figsize=(5.6, 5.2), dpi=300)
-    y_h = np.arange(len(_order_h))
-    cols_bar = ["#e34948" if _imp_h[i] >= 0 else VIEW_COLORS[0] for i in _order_h]
-    ax.barh(y_h, _imp_h[_order_h], color=cols_bar, height=0.58)
-    span_h = max(float(np.max(_imp_h[_order_h]) - np.min(_imp_h[_order_h])), 0.6)
-    ax.set_xlim(float(np.min(_imp_h[_order_h])) - 0.28 * span_h, float(np.max(_imp_h[_order_h])) + 0.28 * span_h)
-    for pos_i, orig_i in enumerate(_order_h):
-        val_i = float(_imp_h[orig_i])
-        ha_i = "left" if val_i >= 0 else "right"
-        off_i = 0.03 * span_h if val_i >= 0 else -0.03 * span_h
-        ax.text(val_i + off_i, pos_i, f"{val_i:+.2f}", va="center", ha=ha_i, fontsize=8.4, weight="semibold", color="#0b0b0b")
-    ax.invert_yaxis()
-    ax.set_yticks(y_h)
-    ax.set_yticklabels([_cols_h[i] for i in _order_h], fontsize=9.0)
-    ax.axvline(0.0, color="#52514e", lw=0.8)
-    ax.set_xlabel("Additive Risk Contribution (x_ij · L_jl)")
-    ax.set_title("Heart Cohort: Patient #122 CAD Attribution")
-    ax.grid(True, axis="x")
-    plt.tight_layout()
-    plt.show()
+_hb = _nsav["plot_bundles"]["Heart"]
+fig = pysimlr.plot_feature_chord(
+    _hb["res"], inf=_hb["inf"],
+    view_names=_hb["view_names"], feature_names=_hb["feature_names"], top_n=7
+)
+plt.show()
 ```
 :::
-::: {.column width="4%"}
+::: {.column width="2%"}
 :::
-::: {.column width="48%"}
+::: {.column width="49%"}
 ```{python}
 #| label: fig-nsa-v-interpretability
 #| echo: false
-#| fig-cap: "**Hierarchical Sparse Basis Localization (`nsa_flow`).** `LEND` OLEE loadings $\\mathbf{L}_m$ of each `Heart` and `Diabetes` view after non-negative `nsa_flow` retraction ($w = 0.50$, $q = 0.50$); G is the Gini coefficient of each component and average loading margins are reported. Computed at build time from `results_cache/nsa_v_loadings.json` (`scripts/paper_nsa_v_loadings.py`)."
+#| out-width: 100%
+#| fig-cap: "**Hierarchical Sparse Basis Localization (`nsa_flow`).** `LEND` OLEE loadings $\\mathbf{L}_m$ of each `Heart` and `Diabetes` view (`results_cache/nsa_v_loadings.json`); G is the Gini coefficient of each component and average loading margins are reported."
 import json, os
 import numpy as np
 import matplotlib.pyplot as plt
 from paper_numbers import CACHE
-from pysimlr.plotting import theme, _cmap
+from pysimlr.plotting import theme, _cmap, _matrix, _header
+
 NSAV = json.load(open(os.path.join(CACHE, "nsa_v_loadings.json")))
 
 def _gini(x):
@@ -907,26 +1002,23 @@ def _gini(x):
     return 0.0 if x.sum() == 0 else float(np.sum((2 * np.arange(1, n + 1) - n - 1) * x) / (n * x.sum()))
 
 with theme():
-    fig, axes = plt.subplots(2, 2, figsize=(9, 8.5))
+    fig, axes = plt.subplots(2, 2, figsize=(8.6, 8.2), dpi=300)
+    fig.subplots_adjust(hspace=0.34, wspace=0.38)
     for ax, (cohort, view) in zip(axes.ravel(), [(c, v) for c in ("Heart", "Diabetes") for v in NSAV[c]]):
         d = NSAV[cohort][view]
-        v = np.array(d.get("loadings", d.get("v")))
-        margin = np.array(d["loading_margin"]) if "loading_margin" in d and d["loading_margin"] is not None else None
+        v = np.array(d.get("loadings", d.get("v")), float)
+        margin = np.array(d["loading_margin"], float) if "loading_margin" in d and d["loading_margin"] is not None else None
         order = np.lexsort((-v.max(1), v.argmax(1), (v.max(1) <= 1e-4).astype(int)))
         v, rows = v[order], [d["rows"][i] for i in order]
-        ax.imshow(v, cmap=_cmap("seq"), vmin=0, vmax=0.95, aspect="auto")
-        ax.grid(False)
-        for (i, j), val in np.ndenumerate(v):
-            ax.text(j, i, f"{val:.2f}", ha="center", va="center", fontsize=8.5,
-                    color="white" if val > 0.55 else "#0b0b0b")
-        ax.set_xticks(range(v.shape[1]), [f"L{j + 1}\nG={_gini(v[:, j]):.2f}" for j in range(v.shape[1])])
-        ax.set_yticks(range(len(rows)), rows)
-        margin_str = f" (margin {margin.mean():.2f})" if margin is not None else ""
-        ax.set_title(f"{cohort}: {view}{margin_str}", fontsize=10.5)
-    plt.tight_layout()
+        cols = [f"L{j + 1} (G={_gini(v[:, j]):.2f})" for j in range(v.shape[1])]
+        _matrix(ax, v, _cmap("seq"), 0.0, 0.95, fmt="{:.2f}", rows=rows, cols=cols)
+        margin_str = f" · margin {margin.mean():.2f}" if margin is not None else ""
+        ax.set_title(f"{cohort}: {view}{margin_str}", loc="left", fontsize=9.8)
+    _header(fig, "OLEE sparse basis loadings",
+            "Gini sparsity G and mean winner-vs-runner-up loading margin per view", top=0.91)
     plt.show()
 ```
 :::
 ::::
 
-In `MultiOmics` (`TCGA-BRCA`, $N = 822$), out-of-sample Estrogen Receptor classification accuracy on the linear entrypoint is `{python} N.brca_Flow_SiMR_V_pm` (`Flow-SiMR-V`), `{python} N.brca_LEND_pm` (`LEND`) and `{python} N.brca_NEDPP_pm` (`NEDPP`), against `{python} N.brca_PCA_pm` for `PCA` (3-seed means $\pm$ SD); the sparse non-negative dictionaries $\mathbf{V}_m$ are examined feature by feature in Appendix A. In `TCGA-KIRC` ($N = 467$), pathologic stage classification on the consensus embedding $\mathbf{U}$ is `{python} N.kirc_LEND_u_pm` for `LEND` against `{python} N.kirc_PCA_u_pm` for `PCA`. On compact clinical cohorts, `Diabetes` reaches $R^2 =$ `{python} N.diab_SiMLR` for `SiMLR` against `{python} N.diab_pca` for `PCA`, and `Heart` reaches accuracy `{python} N.heart_NSAFlow_PCA` for `NSAFlow-PCA` and `{python} N.heart_SiMLR` for `SiMLR`. @fig-nsa-v-interpretability shows the Varimax-rotated `nsa_flow` loadings ($q = 0.50$) of each `Heart` and `Diabetes` view; while the linear entrypoint $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ maps individual observations into the latent consensus space, the OLEE loadings $\mathbf{L}_m$ decompose individual patient profiles into exact additive risk attributions $c_{m,i,j,l} = x_{m,i,j} l_{m,j,l}$ without post-hoc Monte Carlo approximations [@Wachter_2017; @karimi2021algorithmic; @pearl2009causality] (@fig-multiomics-and-patient-attribution B and @fig-heart-audit). Complete parameter sensitivity ablations—the $w \in [0.01, 0.95]$ trade-off curve, row-mean/ICA preprocessing controls, latent rank $k \in \{2, 3, 5, 8, 12\}$ scaling, and Wilcoxon signed-rank tests against `PCA`—are in Appendix B.
+In `MultiOmics` (`TCGA-BRCA`, $N = 822$), out-of-sample Estrogen Receptor classification accuracy on the linear entrypoint is `{python} N.brca_Flow_SiMR_V_pm` (`Flow-SiMR-V`), `{python} N.brca_LEND_pm` (`LEND`) and `{python} N.brca_NEDPP_pm` (`NEDPP`), against `{python} N.brca_PCA_pm` for `PCA` (3-seed means $\pm$ SD); the sparse non-negative dictionaries $\mathbf{V}_m$, tri-modal feature chord, and view-level quality radar are examined in Appendix A. In `TCGA-KIRC` ($N = 467$), pathologic stage classification on the consensus embedding $\mathbf{U}$ is `{python} N.kirc_LEND_u_pm` for `LEND` against `{python} N.kirc_PCA_u_pm` for `PCA`. On compact clinical cohorts, `Diabetes` reaches $R^2 =$ `{python} N.diab_SiMLR` for `SiMLR` against `{python} N.diab_pca` for `PCA`, and `Heart` reaches accuracy `{python} N.heart_NSAFlow_PCA` for `NSAFlow-PCA` and `{python} N.heart_SiMLR` for `SiMLR`. @fig-diabetes-top-features, @fig-heart-audit, and @fig-nsa-v-interpretability show the stability-selected structure correlations, multi-view feature-to-component chord, and OLEE loadings $\mathbf{L}_m$ across `Heart` and `Diabetes`; while the linear entrypoint $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ maps individual observations into the latent consensus space, the OLEE loadings $\mathbf{L}_m$ decompose individual patient profiles into exact additive risk attributions $c_{m,i,j,l} = x_{m,i,j} l_{m,j,l}$ without post-hoc Monte Carlo approximations [@Wachter_2017; @karimi2021algorithmic; @pearl2009causality]. Complete parameter sensitivity ablations—the $w \in [0.01, 0.95]$ trade-off curve, basis diagnostics, stability rank selection across $k$, and synthetic noise recovery—are in Appendix B.

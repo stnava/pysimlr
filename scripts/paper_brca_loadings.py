@@ -73,7 +73,8 @@ def main():
     inf = pysimlr.loading_inference(
         "lend", xs, 3,
         positivity="either", nsa_iterations=2, random_state=42,
-        fraction=0.5, threshold=0.8, expected_false=1.0, n_jobs=8
+        fraction=0.5, threshold=0.8, expected_false=1.0,
+        n_permutations=20, n_jobs=8
     )
     res = inf["result"]
     u = res["u"].double()
@@ -83,12 +84,71 @@ def main():
     corrs = [abs(float(np.corrcoef(u_rot[:, c], y)[0, 1])) for c in range(3)]
     best_c = int(np.argmax(corrs))
 
+    def _arr(x, nd=6):
+        a = x.detach().cpu().numpy() if hasattr(x, "detach") else np.asarray(x)
+        return np.round(a.astype(np.float64), nd).tolist() if a.dtype.kind == "f" else a.tolist()
+
+    # Held-out 70/30 stratified split (Seed 42) for view-radar / coupling diagnostics
+    from sklearn.model_selection import StratifiedShuffleSplit
+    tr_idx, te_idx = next(StratifiedShuffleSplit(n_splits=1, test_size=0.30, random_state=42).split(np.zeros(len(y)), y))
+    xs_tr = [torch.tensor((d[t][tr_idx].astype(np.float64) - d[t][tr_idx].mean(0)) /
+                          np.where(d[t][tr_idx].std(0, ddof=1) > 0, d[t][tr_idx].std(0, ddof=1), 1.0)).float()
+             for t in assays]
+    xs_te = [torch.tensor((d[t][te_idx].astype(np.float64) - d[t][tr_idx].mean(0)) /
+                          np.where(d[t][tr_idx].std(0, ddof=1) > 0, d[t][tr_idx].std(0, ddof=1), 1.0)).float()
+             for t in assays]
+    res_split = pysimlr.fit("lend", xs_tr, 3, positivity="either", nsa_iterations=2, random_state=42)
+    pred_tr = pysimlr.predict(res_split, xs_tr)
+    pred_te = pysimlr.predict(res_split, xs_te)
+
     out = {
         "n": int(len(y)),
         "er_positive_fraction": float(y.mean()),
         "er_component": best_c + 1,
         "er_abs_corr": corrs[best_c],
         "convergence": res.get("convergence", {}),
+        "null_max_abs": float(inf["null_max_abs"]) if inf.get("null_max_abs") is not None else None,
+        "plot_bundle": {
+            "feature_names": [col_names[t] for t in assays],
+            "res": {
+                "method": res.get("method", "lend"),
+                "convergence": res.get("convergence", {}),
+                "loading_rotation": _arr(res["loading_rotation"]),
+                "u": _arr(res["u"]),
+                "latents": [_arr(z) for z in res["latents"]],
+                "structure": [_arr(c) for c in res["structure"]],
+                "loadings": [_arr(l) for l in res["loadings"]],
+                "v": [_arr(v) for v in res["v"]],
+                "effective_rank": _arr(res["effective_rank"]),
+            },
+            "inf": {
+                "ci_low": [_arr(c) for c in inf["ci_low"]],
+                "ci_high": [_arr(c) for c in inf["ci_high"]],
+                "selected": [_arr(s) for s in inf["selected"]],
+                "selection_frequency": [_arr(f) for f in inf["selection_frequency"]],
+                "component_stability": inf["component_stability"],
+                "null_max_abs": float(inf["null_max_abs"]) if inf.get("null_max_abs") is not None else None,
+            },
+            "split": {
+                "res": {
+                    "method": res_split.get("method", "lend"),
+                    "convergence": res_split.get("convergence", {}),
+                    "loading_rotation": _arr(res_split["loading_rotation"]),
+                    "u": _arr(res_split["u"]),
+                    "latents": [_arr(z) for z in res_split["latents"]],
+                    "structure": [_arr(c) for c in res_split["structure"]],
+                    "loadings": [_arr(l) for l in res_split["loadings"]],
+                    "v": [_arr(v) for v in res_split["v"]],
+                    "effective_rank": _arr(res_split["effective_rank"]),
+                },
+                "train_r2": [float(v) for v in pred_tr["r2"]],
+                "pred": {
+                    "u": _arr(pred_te["u"]),
+                    "latents": [_arr(z) for z in pred_te["latents"]],
+                    "r2": [float(v) for v in pred_te["r2"]],
+                },
+            },
+        },
         "views": {}
     }
 
