@@ -83,6 +83,7 @@ def _differs(a, b):
     ("positivity", ["positive", "either"]),
     ("negentropy_weight", [0.0, 5.0]),
     ("nonneg_u", [False, True]),
+    ("collapse_threshold", [0.0, 0.9]),
 ])
 def test_changing_a_knob_changes_the_fitted_basis(knob, values):
     """Each setting must produce a distinct basis.
@@ -291,3 +292,27 @@ def test_the_learning_rate_exemptions_are_still_exemptions():
         assert not _differs(lo, hi), (
             f"{opt} now responds to learning_rate ({why}); move it into "
             f"ALL_OPTIMIZERS")
+
+
+@pytest.mark.parametrize("method", ["ned", "flow_v"])
+def test_collapse_threshold_reaches_the_deep_and_flow_penalty(method, monkeypatch):
+    """`collapse_threshold` must reach `correlation_penalty` on every path that
+    charges it, not only the linear one."""
+    import pysimlr.deep as deep
+    seen, real = [], deep.correlation_penalty
+
+    def spy(z, threshold=None, **kw):
+        seen.append(threshold)
+        return real(z, threshold=threshold, **kw)
+
+    monkeypatch.setattr(deep, "correlation_penalty", spy)
+    api.fit(method, _views(), K, iterations=2, random_state=0, collapse_threshold=0.6)
+    assert seen and all(t == 0.6 for t in seen)
+
+
+@pytest.mark.parametrize("method", ["simlr", "ned", "flow_v"])
+@pytest.mark.parametrize("bad", [-0.1, 1.0])
+def test_collapse_threshold_outside_unit_interval_is_rejected(method, bad):
+    with pytest.raises(ValueError, match="collapse_threshold"):
+        api.fit(method, _views(), K, iterations=1, random_state=0, collapse_threshold=bad)
+

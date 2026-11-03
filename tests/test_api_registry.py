@@ -195,6 +195,8 @@ EXERCISED = {
     "topology": {f: ("star", "loo") for f in ("linear", "deep", "flow")},
     "dynamic_weights": {"deep": (False, True), "flow": (False, True)},
     "consolidate": {"baseline": (False, True)},
+    # 0 charges any non-zero score correlation; 0.9 charges almost none.
+    "collapse_threshold": {f: (0.0, 0.9) for f in ("linear", "deep", "flow")},
 }
 
 #: param -> reason it is not in EXERCISED for some or all families.

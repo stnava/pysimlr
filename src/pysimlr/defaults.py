@@ -77,8 +77,22 @@ DEFAULT_COLLAPSE_WEIGHT = 1.0
 
 #: Correlation below which `utils.correlation_penalty` charges nothing; above
 #: it the cost rises quadratically to 1 per fully collinear column pair. 0.3
-#: from the comparison recorded in that function's docstring.
+#: from the comparison recorded in that function's docstring. It is a trade-off,
+#: settable per fit as ``collapse_threshold``: it protects narrow views (at 0.7
+#: the narrow fixture's score correlation rose to 0.89 and outcome R^2 fell
+#: 0.10), but it also caps the score correlation that correlated factors can
+#: keep under ``mixing_algorithm="avg"`` at about the threshold (converged fits:
+#: max 0.31 at 0.3, 0.51 at 0.5, 0.69 at 0.7;
+#: docs/audit/evidence/collapse_threshold_selection.csv).
 DEFAULT_COLLAPSE_THRESHOLD = 0.3
+
+
+def check_collapse_threshold(collapse_threshold) -> float:
+    """`collapse_threshold` as a float in ``[0, 1)``, else `ValueError`."""
+    t = float(collapse_threshold)
+    if not 0.0 <= t < 1.0:
+        raise ValueError(f"collapse_threshold must be in [0, 1); got {t}.")
+    return t
 
 
 #: The relative tolerance of the energy/loss plateau rule, for every method.

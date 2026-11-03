@@ -11,8 +11,8 @@ from .utils import (adjusted_rvcoef, safe_svd, correlation_penalty, stationarity
                     orthogonality_summary, preprocess_data)
 from .consensus import compute_shared_consensus
 from .defaults import (DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER,
-                       DEFAULT_COLLAPSE_WEIGHT, DEFAULT_MIXING_ALGORITHM, DEFAULT_SIMLR_ITERATIONS,
-                       DEFAULT_TOL, check_nsa_w)
+                       DEFAULT_COLLAPSE_WEIGHT, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_MIXING_ALGORITHM,
+                       DEFAULT_SIMLR_ITERATIONS, DEFAULT_TOL, check_collapse_threshold, check_nsa_w)
 
 #: How the default NSA-Flow weight `DEFAULT_NSA_W` was chosen.
 #:
@@ -1264,6 +1264,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           random_state: Optional[int] = None,
           negentropy_weight: float = 0.0,
           collapse_weight: float = DEFAULT_COLLAPSE_WEIGHT,
+          collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
           nonneg_u: bool = False,
           optimizer_type: str = DEFAULT_LINEAR_OPTIMIZER,
           energy_type: str = DEFAULT_ENERGY_TYPE,
@@ -1415,6 +1416,14 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         added to the objective. Disjoint loadings on correlated features can
         still give collinear scores, which an orthogonalised consensus hides
         and "nc" does not penalise. ``0`` disables it.
+    collapse_threshold : float, default=DEFAULT_COLLAPSE_THRESHOLD (0.3)
+        Score correlation, in ``[0, 1)``, below which the collapse penalty
+        charges nothing. This is a trade-off: a low threshold protects narrow
+        views from collapse, but it also caps how much correlation correlated
+        factors can keep. Under ``mixing_algorithm="avg"``, converged fits kept
+        at most about the threshold (0.31 at 0.3, 0.51 at 0.5, 0.69 at 0.7).
+        Raise it when the factors are expected to correlate; see
+        `defaults.DEFAULT_COLLAPSE_THRESHOLD`.
     initialization_type : str, default="pca"
         One of `INITIALIZATION_TYPES`: ``"pca"`` (deterministic, the
         historical behaviour), ``"random"``, ``"gcca"``, ``"nndsvd"``,
@@ -1575,6 +1584,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # line-search optimizers move V by about `lr` of its norm per sweep, so a
     # short fit ended within ~0.4% of its initialisation and no energy,
     # constraint or regulariser could change the answer.
+    collapse_threshold = check_collapse_threshold(collapse_threshold)
     opt_params.setdefault("learning_rate", "auto")
     if isinstance(opt_params.get("learning_rate", None), str):
         if opt_params["learning_rate"] != "auto":
@@ -1726,7 +1736,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             calculate_simlr_energy(v_mats[idx_m], torch_mats[idx_m],
                                    init_u[idx_m] if isinstance(init_u, list) else init_u,
                                    energy_type).item() * normalizing_weights[idx_m]
-            + collapse_weight * float(correlation_penalty(torch_mats[idx_m] @ v_mats[idx_m].to(torch_mats[idx_m].dtype)))
+            + collapse_weight * float(correlation_penalty(torch_mats[idx_m] @ v_mats[idx_m].to(torch_mats[idx_m].dtype), threshold=collapse_threshold))
             for idx_m in range(n_modalities)
         )
 
@@ -1795,7 +1805,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 e = e + (calculate_simlr_energy(w64, x64, u64, "negentropy")
                          * negentropy_weight * neg_weights[i])
             if collapse_weight != 0.0:
-                e = e + collapse_weight * correlation_penalty(x64 @ w64)
+                e = e + collapse_weight * correlation_penalty(x64 @ w64, threshold=collapse_threshold)
             return e
 
         def _projection(v_cand):
@@ -1899,7 +1909,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 calculate_simlr_energy(v_mats[idx_m], torch_mats[idx_m],
                                        u[idx_m] if isinstance(u, list) else u,
                                        energy_type).item() * normalizing_weights[idx_m]
-                + collapse_weight * float(correlation_penalty(torch_mats[idx_m] @ v_mats[idx_m].to(torch_mats[idx_m].dtype)))
+                + collapse_weight * float(correlation_penalty(torch_mats[idx_m] @ v_mats[idx_m].to(torch_mats[idx_m].dtype), threshold=collapse_threshold))
                 for idx_m in range(n_modalities)
             )
             best_v_mats = [v.clone() for v in v_mats]
@@ -1911,7 +1921,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             u_i = u[i] if isinstance(u, list) else u
             total_energy += calculate_simlr_energy(v_mats[i], torch_mats[i], u_i, energy_type).item() * normalizing_weights[i]
             if collapse_weight != 0.0:
-                total_energy += collapse_weight * float(correlation_penalty(torch_mats[i] @ v_mats[i].to(torch_mats[i].dtype)))
+                total_energy += collapse_weight * float(correlation_penalty(torch_mats[i] @ v_mats[i].to(torch_mats[i].dtype), threshold=collapse_threshold))
             
         energy_history.append(total_energy)
         grad_map_history.append(max(sweep_grad_map) if sweep_grad_map else float("nan"))

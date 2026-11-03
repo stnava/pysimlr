@@ -77,6 +77,8 @@ EXERCISED = {
                          "initialization_type": "random", "random_state": 5},
                         {"collapse_weight": 1.0, "nsa_w": 0.0,
                          "initialization_type": "random", "random_state": 5}),
+    # 0 charges any non-zero score correlation; 0.9 charges almost none.
+    "collapse_threshold": (0.0, 0.9),
     "orthogonalize_u": (True, False),
     "scale_list": (["centerAndScale", "np"], ["centerAndScale"]),
     # Under the default orthogonality constraint this fixture's basis is

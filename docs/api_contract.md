@@ -171,7 +171,11 @@ writes `method` and `ignored_params` into every metrics row.
 
 ### Limitations: Correlated factors and consensus representation
 
-When generative factors are correlated, newton decorrelates consensus scores; avg retains correlation, but the collapse penalty caps recoverable score correlation at about t: in converged fits, maximum score correlation reaches 0.302 (rho=0.5) and 0.309 (rho=0.7) for t=0.3, 0.499 (rho=0.5) and 0.509 (rho=0.7) for t=0.5, and 0.647 (rho=0.5) and 0.692 (rho=0.7) for t=0.7 (docs/tracking_amigo.md, D3).
+When generative factors are correlated, newton decorrelates consensus scores. avg keeps
+correlation only up to about the collapse threshold, `collapse_threshold` (default 0.3; converged
+fits peaked at 0.31, 0.51 and 0.69 for thresholds 0.3, 0.5 and 0.7). Raising it lets correlated
+factors keep more correlation, but it weakens the protection against collapse on narrow views
+(docs/tracking_amigo.md, D3; docs/audit/evidence/collapse_threshold_selection.csv).
 
 ## scikit-learn
 

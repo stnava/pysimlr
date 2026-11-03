@@ -4,7 +4,7 @@ import torch.nn as nn
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Any, Union
 from .utils import basis_rank_report
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM, DEFAULT_TOL, check_nsa_w
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM, DEFAULT_TOL, DEFAULT_COLLAPSE_THRESHOLD, check_collapse_threshold, check_nsa_w
 
 
 #: MAI similarity metrics. `trace` was removed: tr(Z' u_loo) is the only one
@@ -403,7 +403,8 @@ class FlowConditionalInference:
         return mu_cond
 
 def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epochs: int, sim_weight: float, energy_type: str, warmup_epochs: int, verbose: bool, device: torch.device, beta: float = 0.05, gamma: float = 2.0, dynamic_weights_start: Optional[int] = None, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None,
-                     tol: float = DEFAULT_TOL, patience: int = 10):
+                     tol: float = DEFAULT_TOL, patience: int = 10,
+                     collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD):
     loss_history, recon_history, sim_history = [], [], []
     nonfinite_grad_steps = 0
     model.weight_history = []
@@ -469,7 +470,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
                     nll = -torch.mean(log_prior + log_det)
                     recon_loss += nll
 
-                sim_loss_total, diagnostics = calculate_sim_loss(latents, u_shared, energy_type, weights=penalty_weights, compute_diagnostics=False)
+                sim_loss_total, diagnostics = calculate_sim_loss(latents, u_shared, energy_type, weights=penalty_weights, compute_diagnostics=False, collapse_threshold=collapse_threshold)
 
                 # Hybrid zero-padded MSE reconstruction loss
                 mse_recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
@@ -557,7 +558,8 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
               dynamic_weights_start: Optional[int], stabilization_start_epoch: Optional[int],
               stabilization_ramp_epochs: Optional[int], random_state: Optional[int],
               tol: float, patience: int, positivity: str = "either", nsa_w: float = DEFAULT_NSA_W,
-              sparseness=None, init_kwargs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+              sparseness=None, init_kwargs: Optional[Dict[str, Any]] = None,
+              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
     """Shared body of `flow_simr` and `flow_simr_v`.
 
     ``init_kwargs`` is given only for the models with a linear first layer
@@ -568,6 +570,7 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
                        _finalize_bases, _resolve_device, _resolve_seed, _seeded_rng,
                        _shuffled_loader, _init_generator, _freeze_consensus)
     nsa_w = check_nsa_w(nsa_w)
+    collapse_threshold = check_collapse_threshold(collapse_threshold)
     if optimizer_type not in DEEP_OPTIMIZER_TYPES:
         raise ValueError(f"optimizer_type={optimizer_type!r} is not a flow-path optimizer; "
                          f"choose one of {DEEP_OPTIMIZER_TYPES}.")
@@ -592,7 +595,8 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
             warmup_epochs, verbose, device, beta=beta, gamma=gamma,
             dynamic_weights_start=dynamic_weights_start,
             stabilization_start_epoch=stabilization_start_epoch,
-            stabilization_ramp_epochs=stabilization_ramp_epochs, tol=tol, patience=patience)
+            stabilization_ramp_epochs=stabilization_ramp_epochs, tol=tol, patience=patience,
+            collapse_threshold=collapse_threshold)
         model.eval()
         with torch.no_grad():
             v_mats, retraction_diagnostics = None, None
@@ -671,7 +675,8 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               force_fallback: bool = False,
               random_state: Optional[int] = None,
               tol: float = DEFAULT_TOL,
-              patience: int = 10) -> Dict[str, Any]:
+              patience: int = 10,
+              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
     """
     Flow-based Similarity-driven Multi-view Representation (Flow-SiMR).
 
@@ -699,7 +704,8 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         warmup_epochs=warmup_epochs, energy_type=energy_type, optimizer_type=optimizer_type,
         device=device, verbose=verbose, beta=beta, gamma=gamma,
         dynamic_weights_start=dynamic_weights_start, stabilization_start_epoch=None,
-        stabilization_ramp_epochs=None, random_state=random_state, tol=tol, patience=patience)
+        stabilization_ramp_epochs=None, random_state=random_state, tol=tol, patience=patience,
+        collapse_threshold=collapse_threshold)
 
 
 class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
@@ -863,7 +869,8 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 perturbation_scale: float = 0.05,
                 varimax: Optional[bool] = None,
                 tol: float = DEFAULT_TOL,
-                patience: int = 10) -> Dict[str, Any]:
+                patience: int = 10,
+              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
     """
     Flow-SiMR-V: a linear, NSA-Flow-projected first layer ``V_m`` per view
     followed by a RealNVP flow.
@@ -926,4 +933,5 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         tol=tol, patience=patience, positivity=positivity, nsa_w=nsa_w, sparseness=sparseness,
         init_kwargs=dict(initialization_type=initialization_type,
                          domain_matrices=domain_matrices, n_candidates=n_candidates,
-                         perturbation_scale=perturbation_scale, varimax=varimax))
+                         perturbation_scale=perturbation_scale, varimax=varimax),
+        collapse_threshold=collapse_threshold)
