@@ -194,8 +194,11 @@ def fit_adni(data: dict, method: str, k: int = K, **params) -> tuple:
 def synthetic_f1(**params) -> dict:
     """NonnegParts (seed 42), the benchmark's case, through the benchmark runner."""
     case = build_case(seed=42, kind="nonneg_parts", private_scale=0.5)
+    kw_exp = dict(params)
+    if LINEAR_ITERS is not None:
+        kw_exp["iterations"] = LINEAR_ITERS
     t0 = time.perf_counter()
-    out = run_single_experiment("simlr", case, seed=42, iterations=LINEAR_ITERS, **params)
+    out = run_single_experiment("simlr", case, seed=42, **kw_exp)
     secs = time.perf_counter() - t0
     vs = [np.asarray(v.detach().cpu(), dtype=np.float64) for v in out["result"]["v"]]
     stack = np.vstack(vs)

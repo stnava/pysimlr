@@ -71,7 +71,7 @@ def main():
         xs.append(torch.tensor((x - x.mean(0)) / np.where(sd > 0, sd, 1.0)).float())
 
     inf = pysimlr.loading_inference(
-        "lend", xs, 3, iterations=None,
+        "lend", xs, 3,
         positivity="either", nsa_iterations=2, random_state=42,
         fraction=0.5, threshold=0.8, expected_false=1.0, n_jobs=8
     )

@@ -62,7 +62,7 @@ def varimax_nsa_quantile(v, q=0.5, w=0.5):
 def fit_cohort(frame, views, energy_type="nc"):
     xs = [torch.from_numpy(StandardScaler().fit_transform(frame[c].values.astype(float))).float()
           for c in views.values()]
-    res = pysimlr.fit("lend", xs, 2, iterations=None, energy_type=energy_type, mixing_algorithm="newton",
+    res = pysimlr.fit("lend", xs, 2, energy_type=energy_type, mixing_algorithm="newton",
                       positivity="positive", sparseness=0.5, random_state=42)
     out = {}
     for i, (name, cols) in enumerate(views.items()):
