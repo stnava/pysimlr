@@ -230,16 +230,17 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   - *Decision Rule R3 evaluation*:
     - Condition: Keep the deep penalty unless the count without it is 0/20 and the count with it is no better.
     - Measured: without penalty 7/20, with penalty 0/20 -> keep 1.0.
-- **D3. Correlated factors (Decision Rule R4, WP-6).** Status: **COMPLETE** (resolved by P1).
+- **D3. Correlated factors (Decision Rule R4, WP-6).** Status: **explained: the penalty caps score correlation at about t**.
   Evidence: `docs/audit/evidence/correlated_factors.csv` and `docs/audit/evidence/collapse_threshold_selection.csv`.
-  Clipping claim withdrawn: fixed learning_rate=0.01 refits in P1 show converged avg fits at t=0.3 reach pairwise score correlations between 0.188 and 0.309 (mean 0.234 at rho=0.7), disproving uniform 0.30 saturation, which was an artifact of early stops under auto learning rate.
+  Clipping is confirmed: maximum score correlation of converged `avg` fits tracks $t$: 0.302 ($\rho=0.5$) and 0.309 ($\rho=0.7$) for $t=0.3$; 0.499 ($\rho=0.5$) and 0.509 ($\rho=0.7$) for $t=0.5$; 0.647 ($\rho=0.5$) and 0.692 ($\rho=0.7$) for $t=0.7$. The penalty caps recoverable score correlation at about $t$.
   Subspace R2 drop from rho=0.0 to rho=0.7 is 0.0207 for newton and 0.0209 for avg; newton decorrelates scores while avg retains correlation.
-  P1 Rule R15 confirmed threshold 0.30 is optimal across all evaluation criteria.
+  Trade-off: $t=0.3$ protects narrow views (at $t=0.7$ narrow |score corr| is 0.89 and outcome $R^2$ is -0.10), but caps correlated factors at about 0.3 under `avg`. Note that R15's criterion (ii) used `newton`, which cannot show threshold effect (reviewer design flaw).
 - **P1. Collapse threshold selection (Decision Rule R15).** Status: **COMPLETE** (outcome: **KEEP 0.3**).
   Evidence: `docs/audit/evidence/collapse_threshold_selection.csv` (150 rows across t in {0.3, 0.5, 0.7}).
-  Narrow fixture outcome R2 at lr=0.01: t=0.3 is 0.9582, t=0.5 is 0.9323 (diff -0.0260), t=0.7 is 0.8561 (diff -0.1022, fails -0.05 guard).
-  Default cells: t=0.5 fails non-inferiority on latent R2 (min diff -0.3752) and support (min diff -0.2987); t=0.7 is non-inferior on cells.
+  Narrow fixture outcome R2 at lr=0.01: t=0.3 is 0.9582, t=0.5 is 0.9323 (diff -0.0260), t=0.7 is 0.8561 (diff -0.1022, fails -0.05 guard). The narrow t=0.5 fit is unconverged too (11 steps).
+  Default cells: t=0.5 default-cell failure is one unconverged fit (`buried_positive_s0` stopped with `no_descent` at 25 steps, R2=0.6045; the other 19 cells match t=0.3). Candidate t=0.7 is non-inferior on cells. Scan correction: 1 low-R2 bound hit (not 3). No re-run needed: t=0.5 also fails criterion (ii).
   Structure Hungarian |r| at rho=0.7: t=0.3 is 0.9575, t=0.5 is 0.9561 (diff -0.0013), t=0.7 is 0.9573 (diff -0.0002); neither beats 0.3 by > 0.005.
+  Trade-off: t=0.3 protects narrow views (at t=0.7 narrow |score corr| is 0.89 and outcome R2 is -0.10), but caps correlated factors at about 0.3 under `avg`. Note that R15's criterion (ii) used `newton`, which cannot show threshold effect (reviewer design flaw).
   Decision Rule R15: keep DEFAULT_COLLAPSE_THRESHOLD = 0.3.
 - **D5. simlr_lbfgsb calibration vs drop (Decision Rule R5, WP-7).** Executed 3×3 proximal
   hyperparameter grid search using `scripts/lbfgsb_calibration.py` (evidence:
