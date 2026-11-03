@@ -36,36 +36,43 @@ def _feature_names(result: Dict[str, Any], p: int):
     return list(names) if names is not None else [f"x{i}" for i in range(p)]
 
 
-def plot_fused_coefficients(result: Dict[str, Any], ax=None, max_features: Optional[int] = 40):
-    """Heatmap of a fused ridge's coefficients: groups (rows) x features (columns).
+def _task_labels(result: Dict[str, Any]):
+    pre = "y >= " if result.get("model") == "thresholds" else ""
+    return [f"{pre}{t:g}" if isinstance(t, float) else f"{pre}{t}" for t in result["tasks"]]
 
-    With more than ``max_features`` features, shows those with the largest
-    maximum absolute coefficient.
+
+def plot_fused_coefficients(result: Dict[str, Any], ax=None, max_features: Optional[int] = 40):
+    """Heatmap of a fused ridge's standardised coefficients: tasks (rows) x features.
+
+    Tasks are groups (strata) or outcome thresholds. With more than
+    ``max_features`` features, shows those with the largest maximum
+    |coefficient|; with ``top_k``, only the selected features.
     """
-    w = np.asarray(result["coef"]); names = _feature_names(result, w.shape[1])
-    cols = np.arange(w.shape[1])
-    if max_features is not None and w.shape[1] > max_features:
-        cols = np.sort(np.argsort(-np.abs(w).max(0))[:max_features])
+    w = np.asarray(result["coef_std"]); names = _feature_names(result, w.shape[1])
+    cols = np.asarray(result.get("selected_features", range(w.shape[1])))
+    if max_features is not None and len(cols) > max_features:
+        cols = np.sort(cols[np.argsort(-np.abs(w[:, cols]).max(0))[:max_features]])
     fig, ax = _figure(ax, figsize=(max(6.0, 0.25 * len(cols) + 2), max(3.0, 0.3 * w.shape[0] + 1.5)))
     vmax = float(np.abs(w[:, cols]).max()) or 1.0
     im = ax.imshow(w[:, cols], aspect="auto", cmap=_DIVERGING, vmin=-vmax, vmax=vmax)
     ax.set_xticks(range(len(cols))); ax.set_xticklabels([names[c] for c in cols], rotation=90, fontsize=8)
-    ax.set_yticks(range(w.shape[0])); ax.set_yticklabels([str(g) for g in result["groups"]], fontsize=8)
-    ax.set_xlabel("feature"); ax.set_ylabel("group")
-    ax.set_title(f"Fused ridge coefficients (lambda1={result['lambda1']:g}, lambda2={result['lambda2']:g})")
-    fig.colorbar(im, ax=ax, label="coefficient")
+    ax.set_yticks(range(w.shape[0])); ax.set_yticklabels(_task_labels(result), fontsize=8)
+    ax.set_xlabel("feature"); ax.set_ylabel("threshold" if result.get("model") == "thresholds" else "group")
+    ax.set_title(f"Fused ridge ({result['family']}, lambda1={result['lambda1']:g}, "
+                 f"lambda2={result['lambda2']:g}" + (f", top_k={result['top_k']}" if result.get("top_k") else "") + ")")
+    fig.colorbar(im, ax=ax, label="standardised coefficient")
     return fig
 
 
 def plot_coefficient_paths(result: Dict[str, Any], features: Optional[Sequence] = None,
                            top: int = 8, ax=None):
-    """Each feature's coefficient across groups (in group order).
+    """Each feature's standardised coefficient across tasks (groups or thresholds, in order).
 
     ``features`` are names or column indices; by default the ``top`` features
-    by maximum absolute coefficient. This is where fusion shows: with
-    larger lambda2 the paths flatten toward one shared value.
+    by maximum |coefficient|. Fusion shows here: with larger lambda2 the paths
+    flatten toward one shared value.
     """
-    w = np.asarray(result["coef"]); names = _feature_names(result, w.shape[1])
+    w = np.asarray(result["coef_std"]); names = _feature_names(result, w.shape[1])
     if features is None:
         cols = list(np.argsort(-np.abs(w).max(0))[:top])
     else:
@@ -75,25 +82,27 @@ def plot_coefficient_paths(result: Dict[str, Any], features: Optional[Sequence] 
     for c in cols:
         ax.plot(x, w[:, c], marker="o", lw=1.5, label=names[c])
     ax.axhline(0.0, color="0.6", lw=0.8)
-    ax.set_xticks(x); ax.set_xticklabels([str(g) for g in result["groups"]], rotation=45, fontsize=8)
-    ax.set_xlabel("group"); ax.set_ylabel("coefficient")
+    ax.set_xticks(x); ax.set_xticklabels(_task_labels(result), rotation=45, fontsize=8)
+    ax.set_xlabel("threshold" if result.get("model") == "thresholds" else "group")
+    ax.set_ylabel("standardised coefficient")
     ax.set_title(f"Coefficient paths (lambda2={result['lambda2']:g})")
     ax.legend(fontsize=7, ncol=2, frameon=False)
     return fig
 
 
 def plot_fused_ridge_cv(cv: Dict[str, Any], ax=None):
-    """Cross-validated MSE over the (lambda1, lambda2) grid, best cell marked."""
-    mse = np.asarray(cv["mse"])
+    """Cross-validated mean loss over (lambda1, lambda2) at the chosen top_k; best cell marked."""
+    k = list(cv["top_ks"]).index(cv["best"][2])
+    loss = np.asarray(cv["loss"])[:, :, k]
     fig, ax = _figure(ax)
-    im = ax.imshow(mse, aspect="auto", cmap="viridis_r")
+    im = ax.imshow(loss, aspect="auto", cmap="viridis_r")
     ax.set_xticks(range(len(cv["lambda2s"]))); ax.set_xticklabels([f"{v:g}" for v in cv["lambda2s"]])
     ax.set_yticks(range(len(cv["lambda1s"]))); ax.set_yticklabels([f"{v:g}" for v in cv["lambda1s"]])
     i = list(cv["lambda1s"]).index(cv["best"][0]); j = list(cv["lambda2s"]).index(cv["best"][1])
     ax.scatter([j], [i], marker="*", s=200, color="white", edgecolor="black")
     ax.set_xlabel("lambda2 (fusion)"); ax.set_ylabel("lambda1 (ridge)")
-    ax.set_title("Cross-validated MSE")
-    fig.colorbar(im, ax=ax, label="MSE")
+    ax.set_title(f"Cross-validated {cv['family']} loss (top_k={cv['best'][2]})")
+    fig.colorbar(im, ax=ax, label="mean held-out loss")
     return fig
 
 
