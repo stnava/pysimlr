@@ -70,7 +70,7 @@ from pysimlr.utils import basis_rank_report, orthogonality_defect
 
 ADNI_CSV = os.path.join(REPO, "data", "adni", "adni_mci_cognitive_merged.csv")
 K = 3
-LINEAR_ITERS, DEEP_EPOCHS = 25, 45
+LINEAR_ITERS, DEEP_EPOCHS = None, None
 TOL = 1e-6
 PATH_GRAPH = {0: [3], 1: [3], 2: [3], 3: [0, 1, 2]}
 
@@ -336,7 +336,13 @@ def _control_task(task):
         [torch.tensor(x).float() for x in data["x_tr"]], [torch.tensor(x).float() for x in data["x_te"]],
         res["v"][:3], data["pc1_tr"], data["pc1_te"], is_classification=False, random_state=seed,
         basis_is_joint=joint)
-    return {**{k: float(v) for k, v in m.items()}, "Model": label, "Positivity": pos, "Seed": seed}
+    conv = res.get("convergence", {})
+    return {
+        **{k: float(v) for k, v in m.items()},
+        "Model": label, "Positivity": pos, "Seed": seed,
+        "stop_reason": conv.get("stop_reason", "converged" if conv.get("converged", True) else "max_iter"),
+        "converged": conv.get("converged", True),
+    }
 
 
 def axis_controls(workers: int) -> pd.DataFrame:
@@ -361,23 +367,36 @@ def feature_loadings() -> dict:
     out = {f"view{i}_names": col["names"][i] for i in (0, 1, 2)}
 
     def store(key, data, res_or_vs, extra=False):
-        vs = res_or_vs if isinstance(res_or_vs, list) else mri_basis(res_or_vs)
+        if isinstance(res_or_vs, dict) and "loadings" in res_or_vs:
+            vs = [np.asarray(l.detach().cpu() if hasattr(l, "detach") else l, dtype=np.float64) for l in res_or_vs["loadings"][:3]]
+        elif isinstance(res_or_vs, list):
+            vs = res_or_vs
+        else:
+            vs = mri_basis(res_or_vs)
         for i in (0, 2):
             out[f"view{i}_{key}"] = vs[i].tolist()
         return vs
 
-    store("pca", col, fit_adni(col, "pca")[0])
-    store("col_pca_simr", col, fit_adni(col, "simlr", positivity="positive", sparseness=None,
-                                        varimax=False, random_state=42)[0])
-    store("varimax_simr", col, fit_adni(col, "simlr", positivity="positive", sparseness=None,
-                                        varimax=True, random_state=42)[0])
-    store("row_ica_simr", row, fit_adni(row, "simlr", positivity="positive", sparseness=None,
-                                        initialization_type="ica", varimax=False, random_state=42)[0])
+    res_pca, _ = fit_adni(col, "pca")
+    store("pca", col, res_pca)
+    res_col, _ = fit_adni(col, "simlr", positivity="positive", sparseness=None,
+                          varimax=False, random_state=42)
+    store("col_pca_simr", col, res_col)
+    res_vmx, _ = fit_adni(col, "simlr", positivity="positive", sparseness=None,
+                          varimax=True, random_state=42)
+    store("varimax_simr", col, res_vmx)
+    res_ica, _ = fit_adni(row, "simlr", positivity="positive", sparseness=None,
+                          initialization_type="ica", varimax=False, random_state=42)
+    store("row_ica_simr", row, res_ica)
+
+    res_q85 = None
     for q in (0.80, 0.85, 0.90):
         res, _ = fit_adni(col, "simlr", positivity="positive", sparseness=q, random_state=42)
-        vs = mri_basis(res); ev = evaluate(col, vs); b = basis_summary(vs)
+        vs = [np.asarray(l.detach().cpu() if hasattr(l, "detach") else l, dtype=np.float64) for l in res["loadings"][:3]]
+        ev = evaluate(col, mri_basis(res)); b = basis_summary(vs)
         if abs(q - 0.85) < 1e-9:
-            store("col_pca_q85_simr", col, vs)
+            res_q85 = res
+            store("col_pca_q85_simr", col, res)
         dkt = vs[2]
         comps = []
         for j in range(dkt.shape[1]):
@@ -385,10 +404,16 @@ def feature_loadings() -> dict:
             comps.append({"component": j + 1, "active_regions": int((np.abs(dkt[:, j]) >= TOL).sum()),
                           "regions": [[col["names"][2][i], float(dkt[i, j])] for i in order
                                       if abs(dkt[i, j]) >= TOL]})
+        margin_dkt = res.get("loading_margin", [None, None, None])[2]
+        mean_margin = float(margin_dkt.mean()) if margin_dkt is not None else float("nan")
+        conv = res.get("convergence", {})
         out[f"Col-Centered + PCA + Non-Neg + Quantile (q={q:.2f})"] = {
             "r2_pc1": ev["cog_pc1_r2"], "r2_mean11": ev["mean11_r2"], "defect_D": b["defect_D"],
             "sparsity_all": b["sparsity_all"], "sparsity_v1": b["sparsity_v1"],
             "sparsity_v2_k": b["sparsity_v2_k"], "view": "T1w Cortical Thickness (62 DKT Regions)",
+            "mean_loading_margin": mean_margin,
+            "stop_reason": conv.get("stop_reason", "converged" if conv.get("converged", True) else "max_iter"),
+            "converged": conv.get("converged", True),
             "components": comps}
     summaries = {}
     for key, data in (("pca", col), ("col_pca_simr", col), ("varimax_simr", col), ("row_ica_simr", row),
@@ -398,12 +423,19 @@ def feature_loadings() -> dict:
         summaries[key] = {"dkt_sparsity": float((np.abs(dkt) < TOL).mean()),
                           "dkt_active_regions": [int((np.abs(dkt[:, j]) >= TOL).sum()) for j in range(dkt.shape[1])]}
     out["summaries"] = summaries
-    for key, data, method, kw in (("pca", col, "pca", {}),
-                                  ("col_pca_simr", col, "simlr", dict(positivity="positive", sparseness=None, varimax=False, random_state=42)),
-                                  ("varimax_simr", col, "simlr", dict(positivity="positive", sparseness=None, varimax=True, random_state=42)),
-                                  ("row_ica_simr", row, "simlr", dict(positivity="positive", sparseness=None, initialization_type="ica", varimax=False, random_state=42))):
-        summaries[key]["cog_pc1_r2"] = evaluate(data, mri_basis(fit_adni(data, method, **kw)[0]))["cog_pc1_r2"]
+    for key, data, res_obj in (("pca", col, res_pca),
+                               ("col_pca_simr", col, res_col),
+                               ("varimax_simr", col, res_vmx),
+                               ("row_ica_simr", row, res_ica)):
+        summaries[key]["cog_pc1_r2"] = evaluate(data, mri_basis(res_obj))["cog_pc1_r2"]
+        conv = res_obj.get("convergence", {})
+        summaries[key]["stop_reason"] = conv.get("stop_reason", "converged" if conv.get("converged", True) else "max_iter")
+        summaries[key]["converged"] = conv.get("converged", True)
     summaries["col_pca_q85_simr"]["cog_pc1_r2"] = out["Col-Centered + PCA + Non-Neg + Quantile (q=0.85)"]["r2_pc1"]
+    if res_q85 is not None:
+        conv_q85 = res_q85.get("convergence", {})
+        summaries["col_pca_q85_simr"]["stop_reason"] = conv_q85.get("stop_reason", "converged" if conv_q85.get("converged", True) else "max_iter")
+        summaries["col_pca_q85_simr"]["converged"] = conv_q85.get("converged", True)
     return out
 
 

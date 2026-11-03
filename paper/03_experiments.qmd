@@ -618,7 +618,7 @@ ax_bars = fig.add_subplot(gs[1, :])
 
 im1 = ax1.imshow(mat_pca[order_idx, :], aspect="auto", cmap="RdBu_r", vmin=-0.45, vmax=0.45, interpolation="nearest")
 ax1.set_xticks([0, 1, 2])
-ax1.set_xticklabels(["v₁", "v₂", "v₃"], fontsize=8.8, weight="bold")
+ax1.set_xticklabels(["L₁", "L₂", "L₃"], fontsize=8.8, weight="bold")
 _s = f_data["summaries"]
 def _title(key, label):
     return f"{label}\n({100 * _s[key]['dkt_sparsity']:.0f}% zero | R² = {_s[key]['cog_pc1_r2']:.3f})"
@@ -627,17 +627,17 @@ plt.colorbar(im1, ax=ax1, fraction=0.045, pad=0.03)
 
 im2 = ax2.imshow(mat_col[order_idx, :], aspect="auto", cmap="YlGnBu", vmin=0.0, vmax=0.55, interpolation="nearest")
 ax2.set_xticks([0, 1, 2])
-ax2.set_xticklabels(["v₁", "v₂", "v₃"], fontsize=8.8, weight="bold")
+ax2.set_xticklabels(["L₁", "L₂", "L₃"], fontsize=8.8, weight="bold")
 ax2.set_title(_title("col_pca_simr", "A2. Unrotated NSA (q = None)"), fontsize=8.6, weight="bold")
 
 im3 = ax3.imshow(mat_varimax[order_idx, :], aspect="auto", cmap="YlGnBu", vmin=0.0, vmax=0.55, interpolation="nearest")
 ax3.set_xticks([0, 1, 2])
-ax3.set_xticklabels(["v₁", "v₂", "v₃"], fontsize=8.8, weight="bold")
+ax3.set_xticklabels(["L₁", "L₂", "L₃"], fontsize=8.8, weight="bold")
 ax3.set_title(_title("varimax_simr", "A3. Varimax + NSA (q = None)"), fontsize=8.6, weight="bold")
 
 im4 = ax4.imshow(mat_q85[order_idx, :], aspect="auto", cmap="YlGnBu", vmin=0.0, vmax=0.68, interpolation="nearest")
 ax4.set_xticks([0, 1, 2])
-ax4.set_xticklabels(["v₁", "v₂", "v₃"], fontsize=8.8, weight="bold")
+ax4.set_xticklabels(["L₁\n(0.95)", "L₂ (not ident.\n0.80 < 0.9)", "L₃\n(1.00)"], fontsize=7.2, weight="bold")
 ax4.set_title(_title("col_pca_q85_simr", "A4. NSA, q = 0.85"), fontsize=8.8, weight="bold")
 plt.colorbar(im4, ax=ax4, fraction=0.045, pad=0.03)
 
@@ -673,7 +673,7 @@ for disp_nm, key_nm, comp, col_hex in signature_regions:
     idx_r = raw_names.index(key_nm)
     vals_b.append(mat_q85[idx_r, comp] if comp is not None else np.max(mat_q85[idx_r, :]))
     cols_b.append(col_hex)
-    labels_b.append(disp_nm if comp is None else f"{disp_nm} (v{comp + 1})")
+    labels_b.append(disp_nm if comp is None else f"{disp_nm} (L{comp + 1})")
 
 ax_bars.barh(y_b, vals_b, color=cols_b, edgecolor="#0f172a", height=0.68, lw=0.7)
 for idx_i, val_i in enumerate(vals_b):
@@ -828,7 +828,7 @@ plt.show()
 ```{python}
 #| label: fig-nsa-v-interpretability
 #| echo: false
-#| fig-cap: "**Hierarchical Sparse Basis Localization (`varimax + nsa_flow`).** `LEND` loadings of each `Heart` and `Diabetes` view after Varimax rotation, the non-negative `nsa_flow` retraction ($w = 0.50$) and a per-component $q = 0.50$ quantile threshold; G is the Gini coefficient of each component. Computed at build time from `results_cache/nsa_v_loadings.json` (`scripts/paper_nsa_v_loadings.py`)."
+#| fig-cap: "**Hierarchical Sparse Basis Localization (`nsa_flow`).** `LEND` OLEE loadings $\\mathbf{L}_m$ of each `Heart` and `Diabetes` view after non-negative `nsa_flow` retraction ($w = 0.50$, $q = 0.50$); G is the Gini coefficient of each component and average loading margins are reported. Computed at build time from `results_cache/nsa_v_loadings.json` (`scripts/paper_nsa_v_loadings.py`)."
 import json, os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -843,7 +843,8 @@ def _gini(x):
 fig, axes = plt.subplots(2, 2, figsize=(9, 8.5))
 for ax, (cohort, view) in zip(axes.ravel(), [(c, v) for c in ("Heart", "Diabetes") for v in NSAV[c]]):
     d = NSAV[cohort][view]
-    v = np.array(d["v"])
+    v = np.array(d.get("loadings", d.get("v")))
+    margin = np.array(d["loading_margin"]) if "loading_margin" in d and d["loading_margin"] is not None else None
     order = np.lexsort((-v.max(1), v.argmax(1), (v.max(1) <= 1e-4).astype(int)))
     v, rows = v[order], [d["rows"][i] for i in order]
     ax.imshow(v, cmap="viridis", vmin=0, vmax=0.95, aspect="auto")
@@ -852,7 +853,8 @@ for ax, (cohort, view) in zip(axes.ravel(), [(c, v) for c in ("Heart", "Diabetes
                 color="black" if val > 0.5 else "white")
     ax.set_xticks(range(v.shape[1]), [f"L{j + 1}\nG={_gini(v[:, j]):.2f}" for j in range(v.shape[1])])
     ax.set_yticks(range(len(rows)), rows)
-    ax.set_title(f"{cohort}: {view}", fontsize=11, fontweight="bold")
+    margin_str = f" (margin {margin.mean():.2f})" if margin is not None else ""
+    ax.set_title(f"{cohort}: {view}{margin_str}", fontsize=11, fontweight="bold")
 plt.tight_layout()
 plt.show()
 ```

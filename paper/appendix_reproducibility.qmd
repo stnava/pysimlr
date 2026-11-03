@@ -24,9 +24,9 @@ quarto render paper
 All statistical hypothesis tests, ranking matrices, and permutation null distributions are computed by `src/pysimlr/benchmarks/deep_ranking.py`:
 
 * Non-parametric Friedman omnibus test [@friedman1937use] and Iman–Davenport $F$-distribution extension [@Demsar2006; @Iman1980].
-* Two-tailed Nemenyi Critical Difference ($CD =$ `{python} N.cd` at $\alpha = 0.05$ for $k = 9, B = 12$) [@Nemenyi1963; @Demsar2006].
+* Two-tailed Nemenyi Critical Difference ($CD =$ `{python} N.cd` at $\alpha = 0.05$ for $k =$ `{python} N.n_models`, $B = 12$) [@Nemenyi1963; @Demsar2006].
 * Pairwise Wilcoxon signed-rank tests [@Wilcoxon1945] with Holm–Bonferroni step-down adjustments [@Holm1979].
-* Quasi-Newton (`L-BFGS-B` [@byrd1995limited; @nocedal2006]) and adaptive first-order (`Adam`, `AdamW` [@kingma2014adam; @loshchilov2019]) solvers implemented on top of PyTorch [@paszke2019], NumPy [@harris2020], SciPy [@virtanen2020], and Scikit-Learn [@pedregosa2011].
+* Adaptive first-order (`Adam`, `AdamW` [@kingma2014adam; @loshchilov2019]) and Riemannian manifold solvers implemented on top of PyTorch [@paszke2019], NumPy [@harris2020], SciPy [@virtanen2020], and Scikit-Learn [@pedregosa2011].
 * Benchmark cohorts span clinical cardiology (`Heart` [@detrano1989international]), metabolic progression (`Diabetes` [@efron2004least]), handwritten pattern descriptors (`mfeat` [@vanbreukelen2006]), transcriptomic/multi-omic cancer benchmarks [@golub1999molecular; @tcga2012breast; @tcga2013kirc; @wang2014; @tenenhaus2011; @tenenhaus2014; @zhao2017; @abdi2013], and Alzheimer's neuroimaging (`ADNI-MCI` [@mueller2005; @jack2008alzheimer; @ADNI]).
 
 The test suite `tests/test_deep_ranking_stats.py` verifies the statistical calculations:

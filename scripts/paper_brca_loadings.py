@@ -69,28 +69,75 @@ def main():
         x = d[t].astype(np.float64)
         sd = x.std(0, ddof=1)
         xs.append(torch.tensor((x - x.mean(0)) / np.where(sd > 0, sd, 1.0)).float())
-    res = pysimlr.fit("lend", xs, 3, iterations=45,
-                      positivity="either", nsa_iterations=2, random_state=42)
-    out = {"n": int(len(y)), "er_positive_fraction": float(y.mean()), "views": {}}
+
+    inf = pysimlr.loading_inference(
+        "lend", xs, 3, iterations=None,
+        positivity="either", nsa_iterations=2, random_state=42,
+        fraction=0.5, threshold=0.8, expected_false=1.0, n_jobs=8
+    )
+    res = inf["result"]
+    u = res["u"].double()
+    rot = res["loading_rotation"].double()
+    u_rot = (u @ rot).numpy()
+
+    corrs = [abs(float(np.corrcoef(u_rot[:, c], y)[0, 1])) for c in range(3)]
+    best_c = int(np.argmax(corrs))
+
+    out = {
+        "n": int(len(y)),
+        "er_positive_fraction": float(y.mean()),
+        "er_component": best_c + 1,
+        "er_abs_corr": corrs[best_c],
+        "convergence": res.get("convergence", {}),
+        "views": {}
+    }
+
     for i, t in enumerate(assays):
-        v = res["v"][i].detach().numpy().astype(np.float64)
-        z = xs[i].numpy() @ v
-        corrs = [abs(float(np.corrcoef(z[:, c], y)[0, 1])) for c in range(v.shape[1])]
-        c = int(np.argmax(corrs))
-        w = np.abs(v[:, c])
-        top = np.argsort(-w)[:15]
+        st = inf["structure"][i].detach().cpu().numpy().astype(np.float64)
+        ci_lo = inf["ci_low"][i].detach().cpu().numpy().astype(np.float64)
+        ci_hi = inf["ci_high"][i].detach().cpu().numpy().astype(np.float64)
+        sel = inf["selected"][i].detach().cpu().numpy()
+        freq = inf["selection_frequency"][i].detach().cpu().numpy()
+        stab = inf["component_stability"][i]
+
+        st_c = st[:, best_c]
+        lo_c = ci_lo[:, best_c]
+        hi_c = ci_hi[:, best_c]
+        excl = (lo_c > 0) | (hi_c < 0)
+
         names = col_names[t]
-        out["views"][t] = {"component": c + 1, "abs_corr_with_er": corrs[c], "p": int(v.shape[0]),
-                           "top": [[names[j], float(w[j])] for j in top]}
-    out["provenance"] = {"cli": " ".join(sys.argv), "utc": datetime.datetime.utcnow().isoformat() + "Z",
-                         "host": platform.node(), "pysimlr": pysimlr.__version__, "torch": torch.__version__,
-                         "parameters": res["parameters"]["used"]}
+        top = np.argsort(-np.abs(st_c))[:15]
+
+        out["views"][t] = {
+            "component": best_c + 1,
+            "abs_corr_with_er": corrs[best_c],
+            "p": int(st.shape[0]),
+            "component_stability": [float(s) for s in stab],
+            "stability_selected_count": int(sel.sum()),
+            "selected_features": [names[j] for j in range(len(names)) if sel[j]],
+            "q": int(inf["q"][i]),
+            "expected_false_selections": float(inf["expected_false_selections"][i]),
+            "top": [
+                [names[j], float(st_c[j]), float(lo_c[j]), float(hi_c[j]), bool(excl[j])]
+                for j in top
+            ]
+        }
+
+    out["provenance"] = {
+        "cli": " ".join(sys.argv),
+        "utc": datetime.datetime.utcnow().isoformat() + "Z",
+        "host": platform.node(),
+        "pysimlr": pysimlr.__version__,
+        "torch": torch.__version__,
+        "parameters": res["parameters"]["used"]
+    }
     os.makedirs(a.out, exist_ok=True)
     with open(os.path.join(a.out, "brca_er_loadings.json"), "w") as f:
         json.dump(out, f, indent=1, default=str)
     for t in assays:
         vv = out["views"][t]
-        print(t, "component", vv["component"], f"|r|={vv['abs_corr_with_er']:.2f}", [n for n, _ in vv["top"][:6]])
+        print(t, "component", vv["component"], f"|r|={vv['abs_corr_with_er']:.2f}",
+              [n for n, _, _, _, _ in vv["top"][:6]])
 
 
 if __name__ == "__main__":
