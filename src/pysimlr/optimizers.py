@@ -10,8 +10,6 @@ from abc import ABC, abstractmethod
 #: from this mapping are rejected with a warning by
 #: :meth:`SimlrOptimizer.filter_params`, so it must stay in sync with the
 #: optimizer implementations below.
-
-
 SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
     'learning_rate': 0.001,
     'beta1': 0.9,          # Adam / Nadam / HybridAdam first moment
