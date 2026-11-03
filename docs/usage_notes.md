@@ -145,6 +145,39 @@ per view, in the training standardisation.
   energy at the start of the fit, so their relative view weights depend on the initialisation.
   Prefer `nc` unless you need these specifically.
 
+## View weights (`dynamic_weights=True`, MAI)
+
+Off by default. When on, each view's weight in the consensus follows its modality alignment
+index (MAI): the leave-one-out agreement of the view's latent with the other views' consensus.
+- **The score is corrected for degrees of freedom.** A view with many non-zero loadings can
+  agree with anything by fitting. Each score is adjusted like an R² for the view's effective
+  coefficients; with as many coefficients as rows, it scores 0.
+- **Weights are gated against a null floor, not the mean MAI.** The floor is the 95th
+  percentile of the same score with the consensus rows permuted (20 permutations, recomputed
+  every 10 updates). A view at or below its floor gets weight 0. If no view clears its floor,
+  the weights stay uniform with a `RuntimeWarning`.
+- **The ramp from uniform to target weights takes 20 updates.**
+- **Choosing `mai_metric`:**
+  - `procrustes_r2` (the default) scores agreement across all k components. It gives the best
+    latent recovery.
+  - `max_cc` is the first canonical correlation between the view's latent and the consensus,
+    on rank-adaptive orthonormal bases. It keeps views coupled through only some components
+    (sub-coupled views), narrow views (small p or low rank), and views with very different
+    p_k. The cost is lower overall recovery when an uncoupled-but-noisy component gets
+    weight.
+- **Evidence:** a planted design with two fully coupled views, one sub-coupled view, one
+  narrow view (p=4) and a p > n noise view, at n=150
+  (`scripts/mai_calibration_check.py`, `docs/audit/evidence/mai_calibration_check.csv`).
+  Final weights for A / B / C / D / E:
+
+  | arm | A | B | C (sub-coupled) | D (narrow) | E (noise) | latent R² |
+  |---|---|---|---|---|---|---|
+  | previous (raw score, mean gate) | 0.35 | 0.35 | 0.00 | 0.00 | 0.30 | 0.91 |
+  | `procrustes_r2` | 0.41 | 0.41 | 0.09 | 0.08 | 0.01 | 0.91 |
+  | `max_cc` | 0.27 | 0.27 | 0.27 | 0.19 | 0.00 | 0.85 |
+- **Cost:** about 10 ms per update with floors at n=1000 and M=6, against 1–2 ms without.
+  Floors run on 1 update in 10.
+
 ## Fused ridge (multi-task regression with fused coefficients)
 
 `fit_fused_ridge` fits one coefficient vector per *task* and pulls neighbouring tasks'
