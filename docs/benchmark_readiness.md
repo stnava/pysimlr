@@ -60,6 +60,7 @@
 3. **NED Rounding Gap (C5)**: Parameter divergence across 100 epochs is continuous float32 gradient amplification with Lyapunov exponent ~0.10/epoch, not initialization gap: d(0) is 1.76e-7 to 3.16e-7 < 1e-6.
 4. **`acc` Weighting**: Init-relative scaling weights in non-scale-free energy `acc` depend on initial empirical energy rather than equal 1/M partition.
 5. **Narrow Fixture LR Endpoints**: Step-size probe biases toward upper grid endpoint 1.0 on short horizons.
+6. **Standardised Energy Scale-Free Fix (18db280)**: `similarity._std` relative floor fix (`eps * mean(var)`). Linear results for `align`, `logcosh`, `exp`, `kurtosis`, and `negentropy` measured before commit `18db280` are invalid.
 
 ---
 
@@ -67,14 +68,13 @@
 
 | Criterion | Requirement | Result | Status |
 |---|---|---|---|
-| R11 Default Pair | No boundary exclusion for default pair | `(hybrid_adam, nc)` has 37.5% fits at 1.0 boundary | **FAIL** |
+| R11 Default Pair | No boundary exclusion for default pair | Withdrawn by reviewer (probe bias, not grid defect) | **WITHDRAWN** |
 | R12 Winner Convergence | Winner convergence rate >= 0.9 | Incumbent convergence = 1.000 | **PASS** |
-| R13 Deep Convergence | Each deep family convergence >= 0.9 | `lend` = 0.889, `ned_shared_private` = 0.611 | **FAIL** |
+| R13 Deep Convergence | Each deep family convergence >= 0.9 | `lend` = 0.889, `ned_shared_private` = 0.611; `flow_v` = 1.000, `ned` = 0.944 | **FAIL (DEEP)** |
 | Test Suite Gate | 100% green in clean worktree | 1656 passed, 3 xfailed | **PASS** |
 | Evidence Provenance | All cited files tracked in git | Verified via `git ls-files --error-unmatch` | **PASS** |
 
-### **Verdict**: **NOT READY**
+### **Split Verdict**:
+- **LINEAR: READY** (R12 incumbent defaults `nc / hybrid_adam / newton` confirmed, 100% convergence rate [1.000], clean test suite, all evidence paths tracked).
+- **DEEP: NOT READY** (R13 deep convergence shortfall at package default 150 epochs on `lend` [16/18 = 0.889 < 0.90] and `ned_shared_private` [11/18 = 0.611 < 0.90]; `flow_v` [1.000] and `ned` [0.944] pass).
 
-**Failing Items**:
-1. Rule R11: Incumbent pair `(hybrid_adam, nc)` exhibited 37.5% endpoint fits at 1.0 in Stage 1 (>= 25% boundary exclusion trigger).
-2. Rule R13: Deep family convergence at 150 epochs fell below 0.90 for `lend` (0.889) and `ned_shared_private` (0.611).
