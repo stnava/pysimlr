@@ -1,6 +1,6 @@
 # Tracking Summary
 current phase: v0.10.0 released from `main` (calibrated MAI with the ADNI regression fixed; efficiency review; select_rank extensions).
-next WP: learning-rate default (`learning_rate="auto"` vs fixed rates, scripts/learning_rate_selection.py, not yet run); per-component MAI weights (opt-in); inner-loop device-sync audit; D2 paper on `amigo-paper` (merge `main` first).
+next WP: D2 paper on `amigo-paper` (merge `main` first); open findings in D17 (NSA-Flow failure on k = p narrow views at lr 0.3; MPS SVD round-trip, waits on the nsa_flow device option).
 blockers: none
 active work: `amigo` / `amigo-paper` (D2); the owner's uncommitted paper and manuscript edits in the main working tree
 device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
@@ -11,6 +11,52 @@ last updated: 2026-11-03
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D17 (learning-rate default, per-component MAI, device-sync audit: three null results, 2026-11-03)
+status: done (this commit); no default changed
+- **Learning-rate default** (`scripts/learning_rate_selection.py`,
+  `docs/audit/evidence/learning_rate_selection.csv`).
+  - **Run:** 13 optimizers × 4 arms × 38 fresh cells, plus ADNI-MCI held-out; 2,000 rows,
+    0 errors.
+  - **What the rule selected:**
+    - fixed 0.3 for `hybrid_adam`: mean ΔR² +0.0013, worst −0.0049, 0.77× the time, ADNI
+      within one SD;
+    - fixed 0.3 for the lookahead pair;
+    - fixed 1.0 for the armijo pair (their probe chose 1.0 in 38/38 cells);
+    - a 3-rate probe grid for seven optimizers;
+    - all 7 rates for rmsprop.
+  - **Not adopted.** The fixed defaults fail existing contract tests:
+    - Stiefel near-orthogonality: 0.0032 > 0.002;
+    - an NSA-Flow "unusable projection" on a k = p = 5 positive view;
+    - short-budget energy progress for bidirectional_armijo.
+
+    The 3-rate grid fails three short-budget tests and saves only ~5% for `hybrid_adam`.
+    `"auto"` over 7 rates stays.
+  - **Landed:** every fit now reports its starting `learning_rate`, not only `"auto"` fits.
+  - **Open:** an explicit `learning_rate=0.3` makes NSA-Flow fail on 1 of 5 seeds of the
+    k = p = 5 narrow-view fixture.
+- **Per-component MAI weights** (`mai_mode="component"`).
+  - **Construction:** canonical directions of each view against its LOO consensus, with
+    k × k operators. Gauge-equivariant, and reduces to today's per-view weights.
+  - **Planted design, 5 seeds:**
+    - R² +0.0085 vs view mode (worst −0.010);
+    - the sub-coupled view keeps its coupled direction (g ≈ 0.32);
+    - the control stays uniform.
+  - **Not adopted under the pre-registered rule:**
+    - the noise view's directions cannot be 0: it is not assessable at p ≥ n − 1;
+    - the cost is 2.5× view mode against a 1.5× budget.
+  - The gain is smaller than the no-binary floor costs (0.906 → 0.879). Code not committed.
+- **Inner-loop device syncs.**
+  - **Made sync-free:** Newton–Schulz (device-side stopping masks) and the
+    `_apply_quantile_sparseness` guards. Values are bit-identical, gradients within float32
+    rounding, and CPU fits bit-identical.
+  - **No gain on MPS:** ned n=2000, 20 epochs: 29.2 and 30.3 s before, 29.5 and 50.4 s after.
+    The cost is the CPU round-trip of the SVD in each first-layer basis access (MPS has no
+    SVD); removing it needs an approximate polar step, which changes results. This waits on
+    the nsa_flow device option. Not committed.
+  - **Kept:** the one `isnan(total_loss)` sync per step; a device-side skip would change
+    Adam's state.
+- **Verification:** 1723 passed, 3 xfailed; `antsxqc.lint` 0 findings.
 
 ## D16 (v0.10.0 release: MAI calibration and regression fix, efficiency review, 2026-11-03)
 status: done (`7da65e7`, `9a9b336`, `f037094`, `010b6c2`, `87af391`, `25a3c49`, `0be8943`; this release commit)
