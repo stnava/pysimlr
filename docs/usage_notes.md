@@ -255,7 +255,17 @@ one convention:
 - each takes a result object;
 - it accepts `ax=None` and returns the Figure (no `show`, no saving);
 - matplotlib only;
-- it plots interpretable quantities, with signed values on a symmetric diverging scale.
+- it plots interpretable quantities, with signed values on a symmetric diverging scale;
+- it is drawn in one visual system, `pysimlr.plotting.theme()`:
+  - views take fixed, colour-vision-safe categorical colours (`VIEW_COLORS`) and are always
+    labelled as well as coloured;
+  - magnitude uses one blue ramp, and signed values a blue–red scale around a neutral midpoint;
+  - figures have hairline axes and a left-aligned title with a one-line reading.
+
+  Wrap your own figures in `with pysimlr.plotting.theme():` to match.
+
+The gallery `docs/plotting_gallery.html` (`scripts/plotting_gallery.py`) shows every figure on
+a planted four-view study.
 
 | function | shows | input |
 |---|---|---|
@@ -264,6 +274,10 @@ one convention:
 | `plot_feature_groups(res, groups, inf=)` | groups (lobes, networks, pathways) × components: mean or max \|structure\|, or counts of significant (CI excludes 0) or stability-selected features | `fit` (+ inference) |
 | `plot_loadings(res, view)` | loadings, features × components (rotated frame) | `fit` |
 | `plot_latent_coupling(res, pred=)` | view-vs-consensus r per component, training and held-out (with the change), and view-vs-view | `fit` (+ `predict`) |
+| `plot_view_chord(res, pred=)` | one chord diagram per component: which views share it (ribbon fills its slot in proportion to r) | `fit` (+ `predict`) |
+| `plot_component_radar(res, pred=)` | each view's coupling across components, one radar per view; a sub-coupled view is a spike | `fit` (+ `predict`) |
+| `plot_view_radar(res, views, pred=)` | a fingerprint per view: coupling and R², training and held-out, rank, sparsity, weight | `fit` (+ `predict`) |
+| `plot_feature_chord(res, inf=)` | features of every view joined to the components they build (width = \|structure\|) | `fit` (+ inference) |
 | `plot_convergence(res)` | the objective history (deep and flow: total, sim and recon); flags unconverged fits | `fit` |
 | `plot_basis_diagnostics(res)` | effective rank against k, column overlap, conditioning, sparsity and margin | `fit` |
 | `plot_rank_selection(sel)` | every component's stability at each k; the weakest-component curve; the 0.9 and 0.8 bars; the selected k | `select_rank` |
@@ -271,7 +285,7 @@ one convention:
 | `plot_modality_weights(res)` | view weights against 1/M, and MAI, with flow_v trajectories | `simlr` / `flow_v` fit |
 | `plot_flow_warping(res, views)` | the linear first layer against the latent the model uses (Spearman), per view and component | deep or flow `fit` |
 | `plot_scores(res, new_views=)` | subject scores `u @ R`, with held-out subjects projected | `fit` |
-| `plot_view_correlations(views)` | adjusted RV between views | views |
+| `plot_view_correlations(views)` | adjusted RV between views, as a chord (a matrix when drawn into `ax`) | views |
 | `plot_latent_recovery(res, z_true)` | \|corr\| of components with planted latents | `fit` |
 | `plot_fit_summary(res, views, pred=, inf=)` | a one-call diagnostic sheet | `fit` (+ `predict`, inference) |
 | `plot_benchmark(df, x, y)` | a metric against a setting, per method (mean ± SE) | results DataFrame |
