@@ -2,7 +2,7 @@
 import torch
 import numpy as np
 from typing import List, Optional, Union, Dict, Any
-from .svd import ba_svd
+from .svd import ba_svd, top_right_singular_vectors
 from .utils import basis_rank_report
 from .optimizers import create_optimizer, SIMLR_OPTIMIZER_DEFAULTS
 from .sparsification import simlr_sparseness, DEFAULT_SPARSENESS, energy_needs_unit_columns
@@ -768,7 +768,7 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
                         fitted, q_data, nonneg=True, only_if_denser=True)
                 return fitted.to(x.dtype)
 
-    u, s, v = ba_svd(x, nu=0, nv=k)
+    v = top_right_singular_vectors(x, k)
     if v.shape[1] < k:
         padding = torch.randn(v.shape[0], k - v.shape[1],
                               dtype=v.dtype, device=v.device) * 1e-4
