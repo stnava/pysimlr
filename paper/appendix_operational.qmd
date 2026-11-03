@@ -413,7 +413,7 @@ plt.show()
 #| warning: false
 #| message: false
 #| label: tbl-app-wilcoxon
-#| tbl-cap: "Each model against single-matrix `PCA` over the 12 datasets (`deep_ranking_benchmark.csv`, $q = 0.5$). Seeds are averaged within a dataset before testing, so each dataset is one paired block. Wins/ties/losses count datasets; $p$ is the two-sided Wilcoxon signed-rank test, Holm-adjusted across the eight models of each column (`deep_ranking.wilcoxon_vs_reference`)."
+#| tbl-cap: "Each model against single-matrix `PCA` over the 12 datasets (`deep_ranking_benchmark.csv`, $q = 0.5$). Seeds are averaged within a dataset before testing, so each dataset is one paired block. Wins/ties/losses count datasets; $p$ is the two-sided Wilcoxon signed-rank test, Holm-adjusted across the six models of each column (`deep_ranking.wilcoxon_vs_reference`)."
 #| echo: false
 #| output: asis
 import os
