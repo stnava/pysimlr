@@ -267,10 +267,20 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   - Decision Rule R6: because d(0) < 1e-6 and no discrete tie-breaks occurred, amplification is continuous chaotic gradient amplification (Branch B).
   - Verdict: Branch B confirmed; ned remains listed in _ROUNDING_UNSTABLE in tests/test_api_registry.py.
 - **T2. Change requested in ANTsTorch** (a different repository, not edited from here):
-  - Make `create_real_nvp_normalizing_flow_model` a lazy (PEP 562) export of
-    `antstorch/__init__.py`, so importing it does not load ITK/ANTsPy/matplotlib (~2.6 s).
-  - pysimlr then returns to `from antstorch import ...` and deletes
-    `flows._load_antstorch_real_nvp_builder` and `tests/test_flow_antstorch_loader.py`.
+  - Request to ANTsTorch maintainers, precise enough to apply blind:
+    In `antstorch/__init__.py`, provide a PEP 562 `__getattr__` for `create_real_nvp_normalizing_flow_model`, imported from `lamnr_flows/architectures/create_normalizing_flow_model.py`:
+    ```python
+    def __getattr__(name: str):
+        if name == "create_real_nvp_normalizing_flow_model":
+            from .lamnr_flows.architectures.create_normalizing_flow_model import (
+                create_real_nvp_normalizing_flow_model,
+            )
+            return create_real_nvp_normalizing_flow_model
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    ```
+  - Benefit: about 2.6 s faster import time by avoiding eager imports of ITK, ANTsPy, and matplotlib when loading normalizing flow models.
+  - pysimlr follow-up once it lands: delete `flows._load_antstorch_real_nvp_builder` and `tests/test_flow_antstorch_loader.py`, reverting `src/pysimlr/flows.py` to `from antstorch import create_real_nvp_normalizing_flow_model`.
+  - Invariant: do NOT edit ANTsTorch from pysimlr.
 - **Release.** v0.5.0 after the paper phase, on instruction.
 
 ## Caveats

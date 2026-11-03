@@ -678,6 +678,9 @@ class LARS(SimlrOptimizer):
     gradient norm, which is helpful for training with large gradients or 
     varying parameter scales.
 
+    Note that LARS is not a default optimizer: at `learning_rate=1.0` it
+    entered a period-2 energy cycle on `tests/test_support_identifiability.planted`.
+
     Parameters
     ----------
     optimizer_type : str
@@ -685,7 +688,9 @@ class LARS(SimlrOptimizer):
     v_mats : List[torch.Tensor]
         Initial matrices.
     learning_rate : float, default=0.01
-        Global learning rate.
+        Global learning rate. LARS is not a default optimizer; at
+        `learning_rate=1.0` it entered a period-2 energy cycle on
+        `tests/test_support_identifiability.planted`.
     decay_rate : float, default=1e-3
         Weight decay (L2 regularization) factor.
 

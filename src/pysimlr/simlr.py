@@ -1486,8 +1486,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         sweeps that improve the best energy by less than `tol` relative. This
         is the only stopping tolerance. A stationarity residual on the iterate's
         current face (`utils.stationarity_residual`) is reported per sweep in
-        ``grad_map_history`` (and ``grad_map``, its last value) as a diagnostic;
-        it does not stop the fit.
+        ``grad_map_history`` (and ``grad_map``, its last value) as a diagnostic
+        only; it does not stop the fit and does not certify convergence (on its
+        old calibration fixture it falls 0.86 decades, against 2.8 before).
     patience : int, optional
         Iterations without relative improvement above `tol` before stopping.
         ``None`` means `utils.CONVERGENCE_PATIENCE`.
@@ -1515,6 +1516,12 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           minimization is not monotone in the joint objective -- `u` is
           recomputed after each sweep over the views, so the energy typically
           drops steeply and then drifts slowly upward.
+        - "grad_map": Final basis face stationarity residual (diagnostic only;
+          does not certify convergence, falling 0.86 decades vs 2.8 before on
+          its old calibration fixture).
+        - "grad_map_history": Sweep-by-sweep maximum basis face stationarity
+          residual across views (diagnostic only; does not certify
+          convergence).
 
     Raises
     ------
@@ -1931,9 +1938,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             break
 
         # Convergence is the energy plateau rule, governed by `tol`. The face
-        # residual in `grad_map_history` is a diagnostic only; whether it can
-        # certify is open (it falls >= 2 decades where the energy settles, see
-        # utils.stationarity_residual).
+        # residual in `grad_map_history` is a diagnostic only and does not
+        # certify convergence (it falls 0.86 decades, against 2.8 before on its
+        # old calibration fixture; see utils.stationarity_residual).
         if plateaued:
             if monitor.stop_reason != "converged":
                 break
