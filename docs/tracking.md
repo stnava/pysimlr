@@ -1,6 +1,6 @@
 # Tracking Summary
-current phase: v0.6.0 released from `main` (merge of `amigo` at `03886cb`). Work continues on `amigo` (tracked in `docs/tracking_amigo.md`).
-next WP: on `amigo`, C5 (NED epoch-0 gap), then the collapse threshold (P1), the small items (S1-S4), benchmark readiness (B1-B4), tracking and paper (D1-D2).
+current phase: v0.7.0 released from `main` (parallel refits, `collapse_threshold` parameter). Work continues on `amigo` (tracked in `docs/tracking_amigo.md`).
+next WP: on `amigo`, P1-fix and merge of `main`, then S3-S4 (whitener check, `nc_ridge`), benchmark readiness (B1-B4), tracking and paper (D1-D2).
 blockers: none
 active work: `amigo` (handoff spec `/tmp/amigo_handoff_v3.md`); the owner's uncommitted paper and manuscript edits in the main working tree
 device: Apple Silicon (macOS 27 arm64), CPU only; venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
@@ -11,6 +11,25 @@ last updated: 2026-11-02
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D13 (v0.7.0 release: parallel refits and `collapse_threshold`, 2026-11-02)
+status: done (`4a29d74`, `364dc67`; this release commit)
+- **`n_jobs`** on `loading_inference` and `select_rank` (`4a29d74`):
+  - refits and permutation fits run in worker processes, one torch thread each;
+  - every index is drawn in the parent, so the output is identical for every `n_jobs`;
+  - `select_rank` shares one worker pool across candidates;
+  - measured, ks [2, 3] with 20 subsamples on 12 cores: ADNI-MCI 97.8 s -> 17.2 s, synthetic
+    24.2 s -> 6.4 s (`docs/audit/evidence/select_rank_speed.csv`);
+  - rejected: reusing the reference fit's tuned learning rate. It was 1.3x faster, but it moved
+    an under-identified component's stability from 0.913 to 0.735.
+- **`collapse_threshold`** on `simlr`, `lend`, `ned`, `ned_shared_private` and `flow_v`
+  (`364dc67`):
+  - default 0.3, range [0, 1);
+  - the trade-off: converged `avg` fits keep score correlation up to about the threshold (0.31,
+    0.51 and 0.69 at 0.3, 0.5 and 0.7), while a high threshold lets narrow views collapse (at
+    0.7 the score correlation was 0.89 and outcome R^2 fell 0.10)
+    (`docs/audit/evidence/collapse_threshold_selection.csv`).
+- **Verification:** see the release commit body.
 
 ## D12 (v0.6.0 release: `amigo` WP-2..WP-8 and phase C corrections, 2026-11-02)
 status: done (merge of `amigo` at `03886cb` into `main`; this release commit)
