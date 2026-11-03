@@ -97,7 +97,7 @@ The linear entrypoint maps the 500 multi-omic features directly onto the low-dim
 
 ```{python}
 #| label: fig-brca-trimodal-waterfall
-#| fig-cap: "Top 15 structure coefficients with 95% confidence intervals on the ER-aligned `LEND` component of each `TCGA-BRCA` view ($N = 822$, `loading_inference` with 100 half-sample refits; `brca_er_loadings.json` from `scripts/paper_brca_loadings.py`). Filled red circles mark 95% intervals excluding zero; open circles include zero. Bold feature labels mark stability-selected features (threshold = 0.80, expected false selections $\le 1.0$)."
+#| fig-cap: "Top 15 structure coefficients with 95% confidence intervals on the ER-aligned `LEND` component of each `TCGA-BRCA` view ($N = 822$, `loading_inference` with 100 half-sample refits; `brca_er_loadings.json` from `scripts/paper_brca_loadings.py`). Filled red circles mark 95% intervals excluding zero; open circles include zero. Bold feature labels mark stability-selected features (threshold = 0.80, expected false selections $\\le 1.0$)."
 #| echo: false
 #| out-width: 100%
 import matplotlib.pyplot as plt
