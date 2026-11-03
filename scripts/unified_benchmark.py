@@ -98,7 +98,7 @@ def run_experiment_task(task_args):
         "stop_reason": res.get("convergence", {}).get("stop_reason") if res else metrics.get("stop_reason")
     }
 
-def run_unified_benchmark(version="v22", n_seeds=5, iterations=None, epochs=150, use_nsa=True, workers=None):
+def run_unified_benchmark(version="v22", n_seeds=5, iterations=None, epochs=None, use_nsa=True, workers=None):
     regimes = [
         ("Linear", {"kind": "linear"}), 
         ("Polynomial", {"kind": "nonlinear", "regime": "polynomial"}), 
@@ -161,7 +161,7 @@ if __name__ == "__main__":
                         help="Results-cache version tag; names the output CSV.")
     parser.add_argument("--n-seeds", type=int, default=10)
     parser.add_argument("--iterations", type=int, default=None)
-    parser.add_argument("--epochs", type=int, default=150)
+    parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--no-nsa", action="store_false", dest="use_nsa")
     parser.set_defaults(use_nsa=True)
     parser.add_argument("--workers", type=int, default=None)
