@@ -79,19 +79,40 @@ inf["ci_low"], inf["ci_high"]   # 95% percentile intervals per view
 inf["selected"]              # stability-selected features (threshold 0.8, expected_false 1)
 
 sel = pysimlr.select_rank("simlr", views, [2, 3, 4], n_subsamples=20, random_state=0)
-sel["k"]       # largest k whose every component has stability >= 0.9, or None
+sel["k"]       # largest k whose every component has stability >= min_stability (default 0.9), or None
 sel["table"]   # per-k component_stability, min_stability, all_stable
 ```
 
-- **How the refits work.** `loading_inference` refits the whole pipeline on half-samples, aligns
-  each refit by Procrustes, and reports percentile intervals and per-component stability. The
-  default of 100 refits is costly on large data; `select_rank` uses 20 refits per candidate k.
-- **Report only stable components.** A component with stability below 0.9 is not identified by
-  the data: report it as such, or drop it.
+- **How the refits work.**
+  - `loading_inference` refits the whole pipeline on random subsamples (`fraction=0.5` by
+    default), aligns each refit by Procrustes, and reports percentile intervals.
+  - Its per-component stability is the median correlation between each aligned refit component
+    and the full-data component.
+  - The default of 100 refits is costly on large data; `select_rank` uses 20 refits per
+    candidate k.
+- **Stability is a graded measure, not a pass/fail test.**
+  - Each refit sees half the rows, so stability describes reproducibility at about n/2. That is
+    pessimistic when power is low: a real component in a small or noisy sample can sit around
+    0.8.
+  - The `select_rank` default `min_stability=0.9` is a conservative choice, not a derived
+    threshold. In lower-power settings 0.8 is a reasonable bar: pass it explicitly
+    (`select_rank(..., min_stability=0.8)`).
+  - Whichever threshold you use, state it, and report every component's stability value.
+  - Interpret components well below the threshold cautiously, rather than treating them as
+    established.
+- **Changing `fraction`.** A larger fraction raises the stability values, but partly because each
+  refit then shares more rows with the full-data fit. So the numbers become more optimistic, not
+  more informative. Keep the default unless you have a reason, and report the fraction with the
+  results.
+- **Stability selection needs `fraction=0.5`.** The `selected` features and
+  `expected_false_selections` rely on the Meinshausen–Bühlmann bound, which holds only for
+  half-samples (and `threshold > 0.5`). With any other fraction, treat `selected` as a ranking
+  without error control.
 - **Signed displays.** Show only features whose interval excludes 0, and name features from
   `selected`.
-- **`select_rank` can return `None`.** That means no candidate k is fully stable: try a smaller
-  k, or `positivity="positive"`.
+- **`select_rank` can return `None`.** No candidate k met `min_stability`. Inspect `sel["table"]`:
+  - try a smaller k, or a lower `min_stability` if the setting is low-power (state it);
+  - or try `positivity="positive"`.
 
 ## New samples
 
