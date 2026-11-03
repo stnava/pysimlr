@@ -298,6 +298,61 @@ def run_paired_trace(
     }
 
 
+def measure_epoch0(
+    data_seed: int = 42,
+    model_seed: int = 0,
+    perturbation_eps: float = 1e-8,
+    pert_seed: int = 999,
+) -> Dict[str, Any]:
+    """Measure Euclidean parameter distance at epoch 0 (after initialization, before training)."""
+    warnings.simplefilter("ignore")
+    torch.set_num_threads(1)
+
+    x_unpert, _ = make_ned_fixture(data_seed=data_seed)
+
+    torch.manual_seed(pert_seed)
+    eps_noise = [torch.randn_like(x) for x in x_unpert]
+    x_pert = [x + perturbation_eps * e for x, e in zip(x_unpert, eps_noise)]
+
+    r1 = ned_simr(x_unpert, k=2, iterations=0, random_state=model_seed)
+    r2 = ned_simr(x_pert, k=2, iterations=0, random_state=model_seed)
+
+    p1 = torch.cat([p.detach().flatten() for p in r1["model"].parameters()])
+    p2 = torch.cat([p.detach().flatten() for p in r2["model"].parameters()])
+    d0 = torch.norm(p1 - p2).item()
+
+    anc1 = getattr(r1["model"], "consensus_anchor", None)
+    anc2 = getattr(r2["model"], "consensus_anchor", None)
+    anc_dist = (
+        torch.norm(anc1.detach() - anc2.detach()).item()
+        if anc1 is not None and anc2 is not None
+        else 0.0
+    )
+
+    return {
+        "group": "epoch0",
+        "data_seed": data_seed,
+        "model_seed": model_seed,
+        "epoch": 0,
+        "param_distance": d0,
+        "relative_amplification": d0 / perturbation_eps,
+        "loss_unperturbed": float("nan"),
+        "loss_perturbed": float("nan"),
+        "anchor_distance": anc_dist,
+        "sign_mismatches": 0,
+        "sparsity_mask_diffs": 0,
+        "min_sparsity_tie_gap": float("nan"),
+        "best_epoch_unperturbed": -1,
+        "best_epoch_perturbed": -1,
+        "grad_clip_discrepancies": 0,
+        "lyapunov_exponent": float("nan"),
+        "doubling_time_epochs": float("nan"),
+        "r6_branch": "Branch B",
+        "source": "measured",
+        "notes": f"Epoch 0 (initialisation): d(0)={d0:.6e}, relative_amp={d0/perturbation_eps:.1f}x",
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="WP-8 (D6): NED rounding sensitivity diagnosis under Decision Rule R6."
@@ -321,6 +376,12 @@ def main():
         help="Training epoch budget E (default 100)",
     )
     parser.add_argument(
+        "--groups",
+        nargs="+",
+        default=["all"],
+        help="Groups to execute: epoch0, trace, all (default 'all'; merges into --out when subset)",
+    )
+    parser.add_argument(
         "--data-seeds",
         type=int,
         nargs="+",
@@ -336,8 +397,12 @@ def main():
     )
     args = parser.parse_args()
 
+    groups = set(args.groups)
+    run_epoch0 = "epoch0" in groups or "all" in groups
+    run_trace = "trace" in groups or "all" in groups
+
     print("=" * 80)
-    print("WP-8 (D6): NED Rounding Sensitivity Diagnosis & Decision Rule R6")
+    print(f"WP-8 (D6): NED Rounding Sensitivity Diagnosis & Decision Rule R6 (groups={sorted(groups)})")
     print("=" * 80)
     print(f"Output CSV path: {args.out}")
     print(f"HTML report:     {'<disabled>' if not args.html else args.html}")
@@ -345,122 +410,160 @@ def main():
     print(f"Grid:            data_seeds={args.data_seeds} x model_seeds={args.model_seeds}")
 
     all_records = []
+    epoch0_records = []
+
+    if run_epoch0:
+        print("\n--- Measuring Epoch 0 (initialisation before training) ---")
+        for ds in args.data_seeds:
+            for ms in args.model_seeds:
+                res_e0 = measure_epoch0(data_seed=ds, model_seed=ms)
+                epoch0_records.append(res_e0)
+                print(f"  Cell data_seed={ds}, model_seed={ms}: d(0) = {res_e0['param_distance']:.6e} ({res_e0['relative_amplification']:.1f}x)")
+
+        max_d0 = max(r["param_distance"] for r in epoch0_records)
+        print(f"\n  Decision Rule R6 evaluation on epoch-0 distance:")
+        print(f"    Max measured d(0) = {max_d0:.6e} vs threshold 1.00e-06")
+        if max_d0 >= 1e-6:
+            print("    => d(0) >= 1e-6: amplification starts at initialisation.")
+        else:
+            print("    => d(0) < 1e-6: amplification does NOT start at initialisation; verdict stays: keep ned in _ROUNDING_UNSTABLE (Branch B).")
+
     summary_results = []
+    if run_trace:
+        print("\n--- Running 100-epoch paired traces ---")
+        for ds in args.data_seeds:
+            for ms in args.model_seeds:
+                print(f"\nEvaluating paired fit: data_seed={ds}, model_seed={ms}...")
+                res = run_paired_trace(data_seed=ds, model_seed=ms, epochs=args.epochs)
+                summary_results.append(res)
 
-    for ds in args.data_seeds:
-        for ms in args.model_seeds:
-            print(f"\nEvaluating paired fit: data_seed={ds}, model_seed={ms}...")
-            res = run_paired_trace(data_seed=ds, model_seed=ms, epochs=args.epochs)
-            summary_results.append(res)
+                print(f"  First jump epoch e* = {res['e_star']}")
+                print(f"  Param distance: start={res['d_start']:.2e}, end={res['d_end']:.2e}, max={res['max_distance']:.2e}")
+                print(f"  Total amplification: {res['total_amplification']:.2e}x")
+                print(f"  Lyapunov exponent: {res['lyapunov_exponent']:.4f}/epoch (doubling every {res['doubling_time_epochs']:.2f} epochs)")
+                print(f"  Candidate checks (up to e*={res['e_star']}):")
+                print(f"    - Sign alignment mismatches: {res['sign_mismatches']}")
+                print(f"    - Sparsity mask diffs:        {res['mask_diffs']} (min tie gap: {res['min_tie_gap']:.4e})")
+                print(f"    - Best-epoch selection:      run1={res['best_epoch_run1']} vs run2={res['best_epoch_run2']} (mismatch={res['best_epoch_mismatch']})")
+                print(f"    - Gradient clipping diffs:   {res['clip_discrepancies']}")
+                print(f"  => Rule R6 evaluation: {res['rule_branch']}")
 
-            print(f"  First jump epoch e* = {res['e_star']}")
-            print(f"  Param distance: start={res['d_start']:.2e}, end={res['d_end']:.2e}, max={res['max_distance']:.2e}")
-            print(f"  Total amplification: {res['total_amplification']:.2e}x")
-            print(f"  Lyapunov exponent: {res['lyapunov_exponent']:.4f}/epoch (doubling every {res['doubling_time_epochs']:.2f} epochs)")
-            print(f"  Candidate checks (up to e*={res['e_star']}):")
-            print(f"    - Sign alignment mismatches: {res['sign_mismatches']}")
-            print(f"    - Sparsity mask diffs:        {res['mask_diffs']} (min tie gap: {res['min_tie_gap']:.4e})")
-            print(f"    - Best-epoch selection:      run1={res['best_epoch_run1']} vs run2={res['best_epoch_run2']} (mismatch={res['best_epoch_mismatch']})")
-            print(f"    - Gradient clipping diffs:   {res['clip_discrepancies']}")
-            print(f"  => Rule R6 evaluation: {res['rule_branch']}")
-
-            # Summary row for evidence CSV
-            all_records.append({
-                "group": "summary",
-                "data_seed": ds,
-                "model_seed": ms,
-                "epoch": res["e_star"] if res["e_star"] is not None else -1,
-                "param_distance": res["d_end"],
-                "relative_amplification": res["total_amplification"],
-                "loss_unperturbed": res["losses_run1"][-1],
-                "loss_perturbed": res["losses_run2"][-1],
-                "anchor_distance": res["anchor_distances"][-1] if res["anchor_distances"] else float("nan"),
-                "sign_mismatches": res["sign_mismatches"],
-                "sparsity_mask_diffs": res["mask_diffs"],
-                "min_sparsity_tie_gap": res["min_tie_gap"],
-                "best_epoch_unperturbed": res["best_epoch_run1"],
-                "best_epoch_perturbed": res["best_epoch_run2"],
-                "grad_clip_discrepancies": res["clip_discrepancies"],
-                "lyapunov_exponent": res["lyapunov_exponent"],
-                "doubling_time_epochs": res["doubling_time_epochs"],
-                "r6_branch": res["rule_branch"],
-                "source": "measured",
-                "notes": f"Summary: e*={res['e_star']}, amp={res['total_amplification']:.1e}x, lyap={res['lyapunov_exponent']:.3f}",
-            })
-
-            # Epoch trace rows
-            for ep_idx, (p_d, a_d, l1, l2) in enumerate(
-                zip(res["param_distances"], res["anchor_distances"], res["losses_run1"], res["losses_run2"]), 1
-            ):
+                # Summary row for evidence CSV
                 all_records.append({
-                    "group": "epoch_trace",
+                    "group": "summary",
                     "data_seed": ds,
                     "model_seed": ms,
-                    "epoch": ep_idx,
-                    "param_distance": p_d,
-                    "relative_amplification": p_d / 1e-8,
-                    "loss_unperturbed": l1,
-                    "loss_perturbed": l2,
-                    "anchor_distance": a_d,
-                    "sign_mismatches": 0,
-                    "sparsity_mask_diffs": 0,
-                    "min_sparsity_tie_gap": float("nan"),
-                    "best_epoch_unperturbed": -1,
-                    "best_epoch_perturbed": -1,
-                    "grad_clip_discrepancies": 0,
-                    "lyapunov_exponent": float("nan"),
-                    "doubling_time_epochs": float("nan"),
+                    "epoch": res["e_star"] if res["e_star"] is not None else -1,
+                    "param_distance": res["d_end"],
+                    "relative_amplification": res["total_amplification"],
+                    "loss_unperturbed": res["losses_run1"][-1],
+                    "loss_perturbed": res["losses_run2"][-1],
+                    "anchor_distance": res["anchor_distances"][-1] if res["anchor_distances"] else float("nan"),
+                    "sign_mismatches": res["sign_mismatches"],
+                    "sparsity_mask_diffs": res["mask_diffs"],
+                    "min_sparsity_tie_gap": res["min_tie_gap"],
+                    "best_epoch_unperturbed": res["best_epoch_run1"],
+                    "best_epoch_perturbed": res["best_epoch_run2"],
+                    "grad_clip_discrepancies": res["clip_discrepancies"],
+                    "lyapunov_exponent": res["lyapunov_exponent"],
+                    "doubling_time_epochs": res["doubling_time_epochs"],
                     "r6_branch": res["rule_branch"],
                     "source": "measured",
-                    "notes": f"Trace ep {ep_idx}: dist={p_d:.2e}",
+                    "notes": f"Summary: e*={res['e_star']}, amp={res['total_amplification']:.1e}x, lyap={res['lyapunov_exponent']:.3f}",
                 })
 
-    # Rule R6 final synthesis record
-    n_branch_a = sum(1 for r in summary_results if r["rule_branch"] == "Branch A")
-    n_branch_b = sum(1 for r in summary_results if r["rule_branch"] == "Branch B")
-    final_branch = "Branch A" if n_branch_a > 0 else "Branch B"
-    final_notes = (
-        f"Rule R6 outcome: {final_branch} selected ({n_branch_b}/{len(summary_results)} cells confirmed Branch B "
-        f"continuous chaotic gradient amplification, 0 discrete tie-breaks identified; ned remains in _ROUNDING_UNSTABLE)"
-    )
+                # Epoch trace rows
+                for ep_idx, (p_d, a_d, l1, l2) in enumerate(
+                    zip(res["param_distances"], res["anchor_distances"], res["losses_run1"], res["losses_run2"]), 1
+                ):
+                    all_records.append({
+                        "group": "epoch_trace",
+                        "data_seed": ds,
+                        "model_seed": ms,
+                        "epoch": ep_idx,
+                        "param_distance": p_d,
+                        "relative_amplification": p_d / 1e-8,
+                        "loss_unperturbed": l1,
+                        "loss_perturbed": l2,
+                        "anchor_distance": a_d,
+                        "sign_mismatches": 0,
+                        "sparsity_mask_diffs": 0,
+                        "min_sparsity_tie_gap": float("nan"),
+                        "best_epoch_unperturbed": -1,
+                        "best_epoch_perturbed": -1,
+                        "grad_clip_discrepancies": 0,
+                        "lyapunov_exponent": float("nan"),
+                        "doubling_time_epochs": float("nan"),
+                        "r6_branch": res["rule_branch"],
+                        "source": "measured",
+                        "notes": f"Trace ep {ep_idx}: dist={p_d:.2e}",
+                    })
 
-    all_records.append({
-        "group": "rule_evaluation",
-        "data_seed": -1,
-        "model_seed": -1,
-        "epoch": -1,
-        "param_distance": float("nan"),
-        "relative_amplification": float("nan"),
-        "loss_unperturbed": float("nan"),
-        "loss_perturbed": float("nan"),
-        "anchor_distance": float(np.nanmean([r["anchor_distances"][-1] for r in summary_results])) if summary_results else float("nan"),
-        "sign_mismatches": sum(r["sign_mismatches"] for r in summary_results),
-        "sparsity_mask_diffs": sum(r["mask_diffs"] for r in summary_results),
-        "min_sparsity_tie_gap": min(r["min_tie_gap"] for r in summary_results),
-        "best_epoch_unperturbed": -1,
-        "best_epoch_perturbed": -1,
-        "grad_clip_discrepancies": sum(r["clip_discrepancies"] for r in summary_results),
-        "lyapunov_exponent": float(np.mean([r["lyapunov_exponent"] for r in summary_results])),
-        "doubling_time_epochs": float(np.mean([r["doubling_time_epochs"] for r in summary_results])),
-        "r6_branch": final_branch,
-        "source": "measured",
-        "notes": final_notes,
-    })
+        # Rule R6 final synthesis record
+        n_branch_a = sum(1 for r in summary_results if r["rule_branch"] == "Branch A")
+        n_branch_b = sum(1 for r in summary_results if r["rule_branch"] == "Branch B")
+        final_branch = "Branch A" if n_branch_a > 0 else "Branch B"
+        final_notes = (
+            f"Rule R6 outcome: {final_branch} selected ({n_branch_b}/{len(summary_results)} cells confirmed Branch B "
+            f"continuous chaotic gradient amplification, 0 discrete tie-breaks identified; ned remains in _ROUNDING_UNSTABLE)"
+        )
 
-    df = pd.DataFrame(all_records)
+        all_records.append({
+            "group": "rule_evaluation",
+            "data_seed": -1,
+            "model_seed": -1,
+            "epoch": -1,
+            "param_distance": float("nan"),
+            "relative_amplification": float("nan"),
+            "loss_unperturbed": float("nan"),
+            "loss_perturbed": float("nan"),
+            "anchor_distance": float(np.nanmean([r["anchor_distances"][-1] for r in summary_results])) if summary_results else float("nan"),
+            "sign_mismatches": sum(r["sign_mismatches"] for r in summary_results),
+            "sparsity_mask_diffs": sum(r["mask_diffs"] for r in summary_results),
+            "min_sparsity_tie_gap": min(r["min_tie_gap"] for r in summary_results),
+            "best_epoch_unperturbed": -1,
+            "best_epoch_perturbed": -1,
+            "grad_clip_discrepancies": sum(r["clip_discrepancies"] for r in summary_results),
+            "lyapunov_exponent": float(np.mean([r["lyapunov_exponent"] for r in summary_results])),
+            "doubling_time_epochs": float(np.mean([r["doubling_time_epochs"] for r in summary_results])),
+            "r6_branch": final_branch,
+            "source": "measured",
+            "notes": final_notes,
+        })
+        print("\n" + "=" * 80)
+        print(final_notes)
+        print("=" * 80)
+
+    new_records = epoch0_records + all_records
+    df_new = pd.DataFrame(new_records)
+
     if args.out and args.out.strip():
         try:
             os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-            df.to_csv(args.out, index=False)
-            print(f"\nWrote evidence CSV ({len(df)} rows) to: {args.out}")
+            if os.path.exists(args.out) and not (run_trace and run_epoch0):
+                existing_df = pd.read_csv(args.out)
+                drop_groups = []
+                if run_epoch0:
+                    drop_groups.append("epoch0")
+                if run_trace:
+                    drop_groups.extend(["summary", "epoch_trace", "rule_evaluation"])
+                kept_df = existing_df[~existing_df["group"].isin(drop_groups)]
+                df_all = pd.concat([kept_df, df_new], ignore_index=True)
+            else:
+                df_all = df_new
+
+            group_order = {"summary": 0, "epoch0": 1, "epoch_trace": 2, "rule_evaluation": 3}
+            df_all["_ord"] = df_all["group"].map(lambda g: group_order.get(g, 99))
+            df_all = df_all.sort_values(
+                ["_ord", "data_seed", "model_seed", "epoch"], kind="mergesort"
+            ).drop(columns=["_ord"]).reset_index(drop=True)
+
+            df_all.to_csv(args.out, index=False)
+            print(f"\nWrote evidence CSV ({len(df_all)} rows) to: {args.out}")
         except Exception as exc:
             print(f"\nWarning: could not write CSV to {args.out}: {exc}")
     else:
         print("\nNo output CSV path specified (--out ''), skipping CSV write.")
-
-    print("\n" + "=" * 80)
-    print(final_notes)
-    print("=" * 80)
 
 
 if __name__ == "__main__":
