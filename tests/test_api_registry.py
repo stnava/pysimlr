@@ -87,7 +87,8 @@ def test_only_registered_names_resolve_and_unknown_names_list_the_registry():
 def test_describe_method_reports_defaults_and_budget_unit():
     d = pysimlr.describe_method("lend")
     assert d["family"] == "deep" and d["budget_unit"] == "epochs"
-    assert d["parameters"]["iterations"] == 150
+    from pysimlr.defaults import DEFAULT_DEEP_ITERATIONS
+    assert d["parameters"]["iterations"] == DEFAULT_DEEP_ITERATIONS == 300
     assert "random_state" in d["parameters"]
 
 

@@ -504,6 +504,33 @@ def l1_normalize_features(features: torch.Tensor) -> torch.Tensor:
     col_l1_norms[col_l1_norms == 0] = 1.0
     return features / col_l1_norms
 
+class ConvergenceWarning(UserWarning):
+    """A fit stopped without reaching its plateau (see `warn_if_unconverged`)."""
+
+
+#: Stop reasons that mean the returned fit has not converged.
+UNCONVERGED_STOP_REASONS = frozenset({"max_iter", "no_descent", "non_finite"})
+
+
+def warn_if_unconverged(convergence: dict, method: str) -> None:
+    """Warn when a fit ended without converging.
+
+    The result still carries ``convergence`` / ``stop_reason``; this makes the
+    case visible to a caller who does not look. Called once per user-facing fit
+    (not for the learning-rate probes, which are short by design).
+    """
+    reason = (convergence or {}).get("stop_reason")
+    if reason not in UNCONVERGED_STOP_REASONS:
+        return
+    import warnings
+    steps, cap = convergence.get("n_steps"), convergence.get("max_steps")
+    hint = ("pass a smaller fixed learning_rate (e.g. 0.01) and keep the converged fit with the "
+            "lowest best_energy" if reason == "no_descent" else "raise iterations")
+    warnings.warn(f"{method}: fit did not converge (stop_reason={reason!r}, {steps}/{cap} steps); "
+                  f"results may depend on the budget or step size. To fix: {hint}. "
+                  f"See result['convergence'].", ConvergenceWarning, stacklevel=3)
+
+
 def correlation_penalty(z: torch.Tensor, threshold: Optional[float] = None,
                         eps: float = 1e-8) -> torch.Tensor:
     """Dimensional-collapse penalty on the columns of ``z`` (each view's scores).

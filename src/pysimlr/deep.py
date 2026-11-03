@@ -5,7 +5,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Sequence, Union, Tuple, Callable
 import contextlib
 import warnings
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_MIXING_ALGORITHM, DEFAULT_TOL, check_collapse_threshold, check_nsa_w
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_DEEP_ITERATIONS, DEFAULT_MIXING_ALGORITHM, DEFAULT_TOL, check_collapse_threshold, check_nsa_w
 class larslow(optim.Optimizer):
     """Layer-wise Adaptive Rate Scaling (LARS) optimizer for deep SiMLR."""
     def __init__(self, params, lr, weight_decay=1e-4, momentum=0.9, trust_coefficient=0.001):
@@ -1557,6 +1557,8 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
             stabilization_start_epoch=stabilization_start_epoch,
             stabilization_ramp_epochs=stabilization_ramp_epochs,
             freeze_private_epochs=freeze_private_epochs, collapse_threshold=collapse_threshold)
+        from .utils import warn_if_unconverged
+        warn_if_unconverged(conv_report, model_type)
         model.eval()
         with torch.no_grad():
             eval_mats = [m.to(device) for m in torch_mats]
@@ -1684,7 +1686,7 @@ def _fit_first_layer_model(name: str, model_cls, data_matrices, k, hidden_dims, 
         **fit_kwargs)
 
 
-def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iterations: int = 150,
+def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iterations: int = DEFAULT_DEEP_ITERATIONS,
               batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4,
               sim_weight: float = 1.0, warmup_epochs: Optional[int] = None,
               hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
@@ -1712,7 +1714,7 @@ lend_simr.__doc__ = ("Fit a Linear Encoded Nonlinear Decoding (LEND) model: a li
                      + _DEEP_COMMON_DOC)
 
 
-def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iterations: int = 150,
+def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iterations: int = DEFAULT_DEEP_ITERATIONS,
              batch_size: int = 64, learning_rate: float = 5e-4, weight_decay: float = 1e-4,
              sim_weight: float = 1.0, warmup_epochs: Optional[int] = None,
              hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
@@ -1741,7 +1743,7 @@ ned_simr.__doc__ = ("Fit a Nonlinear Encoded Decoding (NED) model: a linear firs
 
 
 def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int,
-                            private_k: Optional[int] = None, iterations: int = 150,
+                            private_k: Optional[int] = None, iterations: int = DEFAULT_DEEP_ITERATIONS,
                             batch_size: int = 64, learning_rate: float = 5e-4,
                             weight_decay: float = 1e-4, sim_weight: float = 1.0,
                             warmup_epochs: Optional[int] = None,

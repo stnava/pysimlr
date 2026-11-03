@@ -157,6 +157,7 @@ from .interpretability import (
     build_interpretability_report,
 )
 from .utils import (
+    ConvergenceWarning,
     set_seed_based_on_time,
     multigrep,
     get_names_from_dataframe,
@@ -174,6 +175,7 @@ from .utils import (
 )
 
 __all__ = [
+    'ConvergenceWarning',
     '__version__',
     'simlr',
     'predict_simlr',
