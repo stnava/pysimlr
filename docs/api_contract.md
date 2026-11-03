@@ -199,7 +199,7 @@ method. All parameters are explicit, so `clone`, `get_params` and `GridSearchCV`
 `SiMLREstimator`, `SiMLR`, `SiMLRTransformer`, `LENDTransformer`, `NEDTransformer` and
 `FlowSiMLRTransformer` were removed in 0.3.0.
 
-## Removed in 0.4.0 (no aliases; each raises or is gone)
+## Removed since 0.3.0 (in 0.4.0 or 0.5.0; no aliases; each raises or is gone)
 
 - Method-name aliases (`linear`, `shared_private`, `nedpp`, `flow_simr_v`, `nsaflow`, ...):
   use the registered names above.
