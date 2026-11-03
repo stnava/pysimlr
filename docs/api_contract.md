@@ -171,6 +171,11 @@ results carry the map in `consensus_map`.
 `parameter_summary(result)` flattens the record for a results table. The benchmark runner
 writes `method` and `ignored_params` into every metrics row.
 
+### Limitations: Correlated factors and consensus representation
+
+When underlying generative factors are correlated ($\rho > 0$), `mixing_algorithm="newton"` (the default) represents the subspace, not correlated axes, and `mixing_algorithm="avg"` keeps them.
+Specifically, Newton consensus orthogonalizes the shared latent scores $U$ via Newton–Schulz polar retraction onto the Stiefel manifold ($U^T U \approx I$), decorrelating consensus score columns to $0.0000$ regardless of true factor correlation $\rho$. However, Newton consensus accurately represents the underlying latent subspace: least-squares linear subspace $R^2$ against true latents is $0.9877$ at $\rho=0.0$ and $0.9670$ at $\rho=0.7$ (a drop of $0.0207 \approx 0.02$), while Varimax rotation of feature structure coefficients accurately recovers the disjoint generative loadings with Hungarian-matched $|r| = 0.9574$ at $\rho=0.7$ ($0.9664$ at $\rho=0.0$). In contrast, `mixing_algorithm="avg"` preserves oblique score correlations (recovering consensus score correlation $0.3015$ at $\rho=0.7$, constrained by the collapse threshold) with comparable subspace recovery ($R^2 = 0.9874$ at $\rho=0.0$ and $0.9665$ at $\rho=0.7$, drop $0.0209$).
+
 ## scikit-learn
 
 `MultiViewSiMR(method="simlr", n_components=2, ...)` is one estimator for every registered
