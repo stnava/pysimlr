@@ -83,8 +83,9 @@ inf["ci_low"], inf["ci_high"]   # 95% percentile intervals per view
 inf["selected"]              # stability-selected features (threshold 0.8, expected_false 1)
 
 sel = pysimlr.select_rank("simlr", views, [2, 3, 4], n_subsamples=20, random_state=0)
-sel["k"]       # largest k whose every component has stability >= min_stability (default 0.9), or None
-sel["table"]   # per-k component_stability, min_stability, all_stable
+sel["k"]          # selected k under criterion (default "component"), or None
+sel["criteria"]   # all five rules from the same refits: component, subspace, oos_r2, oos_r2_1se, oos_coupling
+sel["table"]      # per-k stability, subspace cosines, out-of-bag R^2 and coupling, effective rank
 ```
 
 - **How the refits work.**
@@ -92,10 +93,26 @@ sel["table"]   # per-k component_stability, min_stability, all_stable
     default), aligns each refit by Procrustes, and reports percentile intervals.
   - Its per-component stability is the median correlation between each aligned refit component
     and the full-data component.
+  - Every subsample refit also evaluates `predict` on its unused `1 - fraction` rows (zero extra
+    fits), giving held-out reconstruction `oos_r2` and held-out leave-one-view-out score
+    correlation `oos_coupling`.
   - The default of 100 refits is costly on large data; `select_rank` uses 20 refits per
     candidate k.
   - Pass `n_jobs=-1` (all cores) or `n_jobs=4` to run the refits in parallel. Results are
     identical to serial. On ADNI-MCI, `select_rank` over k ∈ {2, 3} took 17 s instead of 98 s.
+- **Which `criterion` to read.** One `select_rank` call populates `sel["criteria"]` with all five:
+  - `"component"` (default): every varimax-rotated axis has stability ≥ `min_stability`. Use this
+    when naming and interpreting individual components `C1..Ck`.
+  - `"subspace"`: the smallest Grassmannian principal cosine of the stacked structure span is
+    ≥ `min_stability`. Stays high when real components share near-equal singular values and rotate
+    within a stable `k`-dimensional subspace.
+  - `"oos_r2_1se"` and `"oos_r2"`: smallest `k` within 1 SE of the peak out-of-bag held-out
+    reconstruction R² (and the peak itself, when > 0). Use these when choosing a subspace rank for
+    downstream prediction (for example ridge or `fused_ridge` on `u @ R`).
+  - `"oos_coupling"`: largest `k` whose every component generalizes across views out of sample
+    above `min_oos_coupling` (default: one-sided α = 0.01 Fisher-z null bar).
+  - Check `basis_degenerate` (`min_effective_rank < k - 0.5`) in `sel["table"]`: when `True` at
+    larger `k`, basis columns are merging and `nsa_w` should be raised (for example `0.75`).
 - **Stability is a graded measure, not a pass/fail test.**
   - Each refit sees half the rows, so stability describes reproducibility at about n/2. That is
     pessimistic when power is low: a real component in a small or noisy sample can sit around
@@ -116,7 +133,8 @@ sel["table"]   # per-k component_stability, min_stability, all_stable
   without error control.
 - **Signed displays.** Show only features whose interval excludes 0, and name features from
   `selected`.
-- **`select_rank` can return `None`.** No candidate k met `min_stability`. Inspect `sel["table"]`:
+- **`select_rank` can return `None`.** No candidate k met the requested criterion. Inspect
+  `sel["table"]` and `sel["criteria"]`:
   - try a smaller k, or a lower `min_stability` if the setting is low-power (state it);
   - or try `positivity="positive"`.
 
@@ -150,31 +168,48 @@ per view, in the training standardisation.
 Off by default. When on, each view's weight in the consensus follows its modality alignment
 index (MAI): the leave-one-out agreement of the view's latent with the other views' consensus.
 - **The score is corrected for degrees of freedom.** A view with many non-zero loadings can
-  agree with anything by fitting. Each score is adjusted like an R² for the view's effective
-  coefficients; with as many coefficients as rows, it scores 0.
+  agree with anything by fitting. Each score is adjusted like an R² for the view's non-zero
+  loadings per column, against the rows the bases were fitted on. The deep and flow models
+  score on a mini-batch but fit on the whole training set, so they correct with the
+  training-set size.
+- **A view that can fit anything is not assessable.** That is a view with dof ≥ n − 1. It
+  keeps the uniform share 1/M and is neither favoured nor suppressed. MAI cannot tell signal
+  from noise in such a view in-sample.
 - **Weights are gated against a null floor, not the mean MAI.** The floor is the 95th
   percentile of the same score with the consensus rows permuted (20 permutations, recomputed
-  every 10 updates). A view at or below its floor gets weight 0. If no view clears its floor,
-  the weights stay uniform with a `RuntimeWarning`.
+  every 10 updates). If no view clears its floor, the weights stay uniform with a
+  `RuntimeWarning`.
+- **No binary weights.** Every view keeps at least half its uniform share:
+  w = 0.5/M + 0.5 · target (`consensus.MAI_MIN_SHARE`). With 4 views the weights stay in
+  [0.125, 0.625], so one view cannot take the consensus on a noisy score, and a view's graph
+  neighbourhood is never empty. If a neighbourhood's weights do sum to 0, its consensus uses
+  the views unweighted, with a warning.
 - **The ramp from uniform to target weights takes 20 updates.**
 - **Choosing `mai_metric`:**
   - `procrustes_r2` (the default) scores agreement across all k components. It gives the best
     latent recovery.
   - `max_cc` is the first canonical correlation between the view's latent and the consensus,
     on rank-adaptive orthonormal bases. It keeps views coupled through only some components
-    (sub-coupled views), narrow views (small p or low rank), and views with very different
-    p_k. The cost is lower overall recovery when an uncoupled-but-noisy component gets
-    weight.
-- **Evidence:** a planted design with two fully coupled views, one sub-coupled view, one
-  narrow view (p=4) and a p > n noise view, at n=150
-  (`scripts/mai_calibration_check.py`, `docs/audit/evidence/mai_calibration_check.csv`).
-  Final weights for A / B / C / D / E:
+    (sub-coupled views) at full weight. Its dof is the union support, so a wide view is
+    more often not assessable.
+- **Evidence:** a planted design with two fully coupled views (A, B), one sub-coupled view
+  (C), one narrow view (D, p=4) and a p > n noise view (E), at n=150, 5 seeds
+  (`scripts/mai_calibration_check.py`, `docs/audit/evidence/mai_calibration_check.csv`). Mean
+  final weights:
 
-  | arm | A | B | C (sub-coupled) | D (narrow) | E (noise) | latent R² |
+  | arm | A | B | C | D | E | latent R² |
   |---|---|---|---|---|---|---|
-  | previous (raw score, mean gate) | 0.35 | 0.35 | 0.00 | 0.00 | 0.30 | 0.91 |
-  | `procrustes_r2` | 0.41 | 0.41 | 0.09 | 0.08 | 0.01 | 0.91 |
-  | `max_cc` | 0.27 | 0.27 | 0.27 | 0.19 | 0.00 | 0.85 |
+  | previous (raw score, mean gate) | 0.35 | 0.35 | 0.00 | 0.00 | 0.30 | 0.908 |
+  | `procrustes_r2`, no floor | 0.41 | 0.41 | 0.09 | 0.08 | 0.01 | 0.906 |
+  | `procrustes_r2`, floor 0.25 | 0.35 | 0.35 | 0.12 | 0.11 | 0.06 | 0.896 |
+  | `procrustes_r2`, floor 0.5 (default) | 0.30 | 0.30 | 0.15 | 0.14 | 0.11 | 0.879 |
+  | `max_cc`, floor 0.5 | 0.21 | 0.21 | 0.21 | 0.18 | 0.20 | 0.853 |
+
+  - **The floor trades about 0.03 latent R² on this design** for weights that cannot go
+    binary.
+  - **Under `max_cc`, E is not assessable** (union support ≥ n − 1), so it keeps its uniform
+    share.
+  - **In the all-coupled control, every arm is uniform** (within 0.01).
 - **Cost:** about 10 ms per update with floors at n=1000 and M=6, against 1–2 ms without.
   Floors run on 1 update in 10.
 

@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -73,27 +73,10 @@ from .svd import (
     varimax,
     varimax_rotation,
 )
-from .sparse import (
-    sparse_distance_matrix,
-    sparse_distance_matrix_xy,
-    sparse_dist,
-    SparseGraphResolvent,
-    create_grid_graph_laplacian,
-    create_graph_laplacian,
-    create_laplacian_resolvent_operator,
-    create_spatial_smoothing_operator,
-    create_smoothing_operator
-)
 from .regression import (
     smooth_matrix_prediction,
     smooth_regression,
     build_nsa_pipeline,
-)
-from .nnh import (
-    nnh_embed,
-    extend_simlr_embedding_with_new_modalities,
-    apply_simlr_matrices,
-    apply_simlr_matrices_dtfix
 )
 from .structural import (
     fit_structural_models,
@@ -140,6 +123,7 @@ from .api import (
 )
 from .fused_ridge import fit_fused_ridge, predict_fused_ridge, fused_ridge_cv
 from .loadings import (
+    RANK_CRITERIA,
     loadings,
     loading_inference,
     select_rank,
@@ -174,6 +158,7 @@ from .utils import (
 )
 
 __all__ = [
+    'RANK_CRITERIA',
     'feature_table',
     'plot_basis_diagnostics',
     'plot_rank_selection',
@@ -321,7 +306,7 @@ __all__ = [
 ]
 
 #: Attributes served on first access instead of at import time, because their
-#: modules pull in matplotlib. Maps attribute name -> submodule.
+#: modules pull in matplotlib, scipy or pandas. Maps attribute name -> submodule.
 _LAZY_ATTRS = {
     'plot_lend_simr_architecture': 'diagrams',
     'plot_ned_simr_architecture': 'diagrams',
@@ -351,6 +336,20 @@ _LAZY_ATTRS = {
     'plot_view_correlations': 'plotting',
     'plot_latent_recovery': 'plotting',
     'plot_benchmark': 'plotting',
+    # scipy and pandas: ~0.2 s each, needed only by these.
+    'sparse_distance_matrix': 'sparse',
+    'sparse_distance_matrix_xy': 'sparse',
+    'sparse_dist': 'sparse',
+    'SparseGraphResolvent': 'sparse',
+    'create_grid_graph_laplacian': 'sparse',
+    'create_graph_laplacian': 'sparse',
+    'create_laplacian_resolvent_operator': 'sparse',
+    'create_spatial_smoothing_operator': 'sparse',
+    'create_smoothing_operator': 'sparse',
+    'nnh_embed': 'nnh',
+    'extend_simlr_embedding_with_new_modalities': 'nnh',
+    'apply_simlr_matrices': 'nnh',
+    'apply_simlr_matrices_dtfix': 'nnh',
 }
 
 #: Submodules exposed as attributes but not imported eagerly.

@@ -1,7 +1,20 @@
+from __future__ import annotations
+
 import warnings
 
 import torch
-import pandas as pd
+
+
+class _LazyPandas:
+    """`pandas` on first use: only the save/load and data-frame helpers here
+    need it, and importing it eagerly was 0.2 s of every ``import pysimlr``."""
+
+    def __getattr__(self, name):
+        import pandas
+        return getattr(pandas, name)
+
+
+pd = _LazyPandas()
 import re
 import time
 import numpy as np

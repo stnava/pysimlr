@@ -1,16 +1,69 @@
 # Tracking Summary
-current phase: v0.9.0 released from `main` (full visualization suite). Next: MAI measurement revision (null-calibrated / held-out MAI, null-floor gating, max_cc metric).
-next WP: MAI revision on `main`; D2 paper on `amigo-paper` (merge `main` first).
+current phase: v0.10.0 released from `main` (calibrated MAI with the ADNI regression fixed; efficiency review; select_rank extensions).
+next WP: learning-rate default (`learning_rate="auto"` vs fixed rates, scripts/learning_rate_selection.py, not yet run); per-component MAI weights (opt-in); inner-loop device-sync audit; D2 paper on `amigo-paper` (merge `main` first).
 blockers: none
-active work: `amigo` (handoff spec `/tmp/amigo_handoff_v3.md`); the owner's uncommitted paper and manuscript edits in the main working tree
-device: Apple Silicon (macOS 27 arm64), CPU only; venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
-last updated: 2026-11-02
+active work: `amigo` / `amigo-paper` (D2); the owner's uncommitted paper and manuscript edits in the main working tree
+device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
+last updated: 2026-11-03
 
 ---
 
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D16 (v0.10.0 release: MAI calibration and regression fix, efficiency review, 2026-11-03)
+status: done (`7da65e7`, `9a9b336`, `f037094`, `010b6c2`, `87af391`, `25a3c49`, `0be8943`; this release commit)
+- **MAI (`7da65e7`, fixed in `87af391`):**
+  - **Calibration:** scores are dof-corrected, with dof counted against the rows the bases were
+    fitted on (`n_fit`); a view with dof >= n - 1 is not assessable and keeps 1/M.
+  - **Gate:** on a permutation null floor (95th percentile, 20 permutations, every 10 updates).
+  - **No binary weights:** every view keeps at least half its uniform share
+    (`MAI_MIN_SHARE = 0.5`, owner's choice).
+  - **New metric `max_cc`.**
+- **Regression, reported by the amigo-paper agent:** `7da65e7` failed 159 of 1,025 cells of
+  the ADNI-MCI sweep (bipartite graph; deep/flow; svd/pca/ica) with NaN. Causes:
+  - batch-n dof correction (MRI views zeroed);
+  - a binary [0, 0, 0, 1] gate;
+  - NaN from zero-weight neighbourhoods and FastICA on zero columns.
+
+  After `87af391`, the failing class runs 324/324 ok
+  (`docs/audit/evidence/adni_mci_mai_regression_check.csv`). Forced [0, 0, 0, 1] weights are
+  finite in 36/36 model × mixing × topology cells.
+- **MAI evidence** (`mai_calibration_check.csv`, planted design, 5 seeds):
+  - `procrustes_r2` with floor 0.5: noise view 0.107, sub-coupled 0.150, narrow 0.143; latent
+    R² 0.879.
+  - No floor gave R² 0.906; the old mean gate 0.908, but gave the noise view 0.30 and the
+    sub-coupled and narrow views 0.
+  - **Correction:** the `max_cc` 0.000 for the noise view reported at `7da65e7` came from the
+    dof >= n - 1 rule, not from evidence.
+- **select_rank extensions (`9a9b336`, owner):** subspace, out-of-bag R²/coupling, basis
+  diagnostics.
+- **Efficiency review** (CPU unless stated):
+  - **`fused_ridge_cv`:** 38.6 s -> 5.0 s with a dense Cholesky Newton solve below 4000
+    unknowns. Coefficients equal to 4e-17 (`f037094`).
+  - **Deep/flow on MPS:** they failed outright; now run (`010b6c2`):
+    - clip foreach;
+    - float64 steps moved to the CPU;
+    - fused Adam on MPS/CUDA;
+    - per-step loss syncs reduced to one per epoch.
+
+    CPU results are bit-identical. MPS is still 1.5-5x slower than the CPU at n 500-5000,
+    p up to 20000: the steps are launch-bound with k = 3-5.
+  - **Truncated init SVD:** ARPACK for min(n, p) >= 1000, 10x faster at 2000 x 2000.
+    Equivalence: mean ΔR² −0.0002, worst −0.0056, converged 32/32 (`25a3c49`).
+  - **Lazy pandas/scipy:** import 1.0 s -> 0.6 s (`0be8943`).
+- **Rejected in the review:**
+  - early-stopping the learning-rate probe grid: it changed the pick in 5 of 32 cells;
+  - running the probes in parallel: slower, 9.1 s vs 7.9 s.
+- **Open:**
+  - **The learning-rate default.** On 64 planted cells, fixed 0.3 matched `"auto"` (mean ΔR²
+    +0.0006, worst −0.0034) at about 0.67x the time. This must be confirmed on fresh cells
+    and every optimizer before any change; the 3-sweep probe scores are not unimodal.
+  - **Per-component MAI weights.**
+  - **An inner-loop device-sync audit:** `_apply_quantile_sparseness` `bool()` guards,
+    `isnan(total_loss)`, MAI scoring.
+- **Verification:** 1722 passed, 3 xfailed; `antsxqc.lint` 0 findings; no `.antsxqc-allow`.
 
 ## D15 (v0.9.0 release: visualization suite, 2026-11-03)
 status: done (`1f40318`; this release commit)

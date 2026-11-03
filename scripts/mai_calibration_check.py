@@ -41,7 +41,9 @@ def views(seed, control=False, n=150):
 def arm_setup(arm):
     import pysimlr.consensus as C
     if not hasattr(C, "_new"):
-        C._new = (C.loo_mai_calibrated, C.mai_gated_target)
+        C._new = (C.loo_mai_calibrated, C.mai_gated_target, C.MAI_MIN_SHARE)
+    arm, _, share = arm.partition("@")
+    C.MAI_MIN_SHARE = float(share) if share else C._new[2]
     if arm.startswith("old"):
         def old_scores(latents, metric, dofs=None, use_rank=False, n_perm=20, quantile=0.95, seed=0):
             return C.loo_mai_scores(latents, metric, use_rank=use_rank), None
@@ -50,7 +52,7 @@ def arm_setup(arm):
             return raw / (raw.sum() + 1e-8)
         C.loo_mai_calibrated, C.mai_gated_target = old_scores, old_gate
     else:
-        C.loo_mai_calibrated, C.mai_gated_target = C._new
+        C.loo_mai_calibrated, C.mai_gated_target = C._new[:2]
 
 
 def task(t):
@@ -61,7 +63,7 @@ def task(t):
     import pysimlr
     from optimizer_benchmark_synthetic import latent_r2
     z, vs = views(seed, control=(case == "control"))
-    metric = arm.split("/")[1]
+    metric = arm.split("/")[1].split("@")[0]
     r = pysimlr.fit("simlr", vs, 3, dynamic_weights=True, mai_metric=metric, positivity="positive",
                     random_state=seed)
     w = np.asarray(r["modality_weights"], float)
@@ -76,7 +78,8 @@ def main():
     ap.add_argument("--out", default=os.path.join(REPO, "docs/audit/evidence/mai_calibration_check.csv"))
     a = ap.parse_args()
     tasks = [(c, s, arm) for c in ("design", "control") for s in range(5)
-             for arm in ("old/procrustes_r2", "new/procrustes_r2", "new/max_cc")]
+             for arm in ("old/procrustes_r2", "new/procrustes_r2@0", "new/procrustes_r2@0.25",
+                         "new/procrustes_r2", "new/max_cc@0", "new/max_cc")]
     with ProcessPoolExecutor(a.workers) as ex:
         df = pd.DataFrame(list(ex.map(task, tasks)))
     df.to_csv(a.out, index=False)

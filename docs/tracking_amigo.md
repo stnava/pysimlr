@@ -2,7 +2,7 @@
 
 Branch `amigo`, from `main` at `b10c993` (D10 merged fast-forward; not pushed).
 Last updated 2026-11-03.
-Verification at the branch tip: `pytest -m ""` 1673 passed, 3 strict xfailed, 0 failed;
+Verification at the branch tip: `pytest -m ""` 1722 passed, 3 strict xfailed, 0 failed;
 `antsxqc.lint src/pysimlr` 0 findings. Each commit below was verified on its own in a clean
 worktree.
 
@@ -78,6 +78,7 @@ item that is in progress or on hold.
 | `e2ad5bc` | Record 22900ec and final amigo commit hashes (D1). |
 | `88ecbf8` | Merge main into amigo (0491375 fused_ridge, e713f93 plotting, 60ba439 simlr no_descent recovery). |
 | `14433e4` | Merge main into amigo (1f40318 visualization suite, 25b9c33 v0.9.0, 7da65e7 null-calibrated MAI). |
+| `b8079b8` | Merge main (v0.10.0, a82b9ed: 87af391 MAI fix, 9a9b336 select_rank extensions, f037094, 010b6c2, 25a3c49, 0be8943). |
 
 ## Inventory and Phase Status
 
@@ -97,7 +98,7 @@ item that is in progress or on hold.
 | B | B2 | Two-stage linear default grid (Rules R11, R12) | DONE (`9aa7c99`, `c1eb7f8`, `1bf6e62`) | `docs/audit/evidence/default_selection_stage1.csv`, `..._stage2.csv` |
 | B | B3 | Deep consistency (Rule R13) | DONE (`7eede2d`, `80f9536`, `1818896`) | `docs/audit/evidence/deep_budget_check.csv` (18/18 flow_v, 18/18 ned, 18/18 ned_shared_private, 17/18 lend >= 0.90; PASS) |
 | B | B4 | Benchmark readiness (Rule R14) | DONE (`2af7df4`, `fb78eff`, `1818896`, `f8258f3`) | `docs/benchmark_readiness.md` (overall verdict: READY for both LINEAR and DEEP) |
-| D | D1 | Comprehensive tracking update | DONE (`0381e64`, `18f2396`, `e2ad5bc`, `88ecbf8`, `14433e4`) | `docs/tracking_amigo.md` (records main merges through 7da65e7; suite 1698 passed) |
+| D | D1 | Comprehensive tracking update | DONE (`0381e64`, `18f2396`, `e2ad5bc`, `88ecbf8`, `14433e4`, `b8079b8`) | `docs/tracking_amigo.md` (records main merges through a82b9ed v0.10.0; suite 1722 passed) |
 | D | D2 | Paper worktree, displays, caches, build | PLANNED | `amigo-paper` worktree |
 
 ## Why: feature identifiability (measured)
@@ -349,6 +350,10 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   - `d357e2f`: ConvergenceWarning (`pysimlr.ConvergenceWarning`) emitted when a fit finishes with stop_reason in `{max_iter, no_descent, non_finite}`. Wired through `utils.warn_if_unconverged` across `simlr`, `_fit_deep`, `_fit_flow`, and `nsa_pipeline`. Full test suite passes with warnings raised on intentionally short / non-converging test fits.
 - **M3. Merge main (22900ec).** Status: **COMPLETE (2f0dbba)**.
   - `22900ec`: Fused ridge regression (`pysimlr.fused_ridge`) with exact sparse block solver for multi-task / grouped penalised GLMs with fusion graph; standard plotting module (`pysimlr.plotting`) with result-object inspection functions (`plot_fused_coefficients`, `plot_coefficient_paths`, `plot_fused_ridge_cv`, `plot_predictions`). All 5 main commits (`ae5eb07`, `18db280`, `80f9536`, `d357e2f`, `22900ec`) merged and verified on amigo. Clean test suite passes with 1663 passed, 3 strict xfailed, 0 failed; antsxqc.lint 0 findings.
+- **M4. Merge main (0491375, e713f93, 60ba439, 1f40318, 25b9c33, 7da65e7).** Status: **COMPLETE (88ecbf8, 14433e4)**.
+  - Visualization suite and v0.9.0 release with null-calibrated MAI. Suite passed with 1698 passed, 3 strict xfailed.
+- **M5. Merge main (a82b9ed, v0.10.0).** Status: **COMPLETE (b8079b8)**.
+  - Upstream main release v0.10.0 (a82b9ed) merges critical fixes and enhancements: 87af391 (calibrated MAI on mini-batches, no binary weights with MAI_MIN_SHARE = 0.5 floor, dof corrected against training size, dof >= n - 1 keeps uniform share 1/M, zero-weight NaN guard resolving ADNI MCI grid sweep failures), 9a9b336 (select_rank extensions: subspace, out-of-bag R2/coupling, basis diagnostics), f037094 (fused_ridge: dense Cholesky Newton solve below 4000 unknowns), 010b6c2 (MPS fix for deep/flow fits without per-step device syncs), 25a3c49 (truncated top-k SVD initialization for large-p views), and 0be8943 (lazy import of pandas and scipy in package __init__). Full test suite passes with 1722 passed, 3 strict xfailed, 0 failed; antsxqc.lint src/pysimlr has 0 findings.
 - **D5. simlr_lbfgsb calibration vs drop (Decision Rule R5, WP-7).** Executed 3x3 proximal
   hyperparameter grid search using `scripts/lbfgsb_calibration.py` (evidence:
   `docs/audit/evidence/lbfgsb_calibration.csv`):
