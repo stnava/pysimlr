@@ -23,7 +23,7 @@ We will cover:
 1. **Data Simulation**: Using our benchmark tools to create ground-truth multi-view datasets.
 2. **Rank Estimation**: Choosing the optimal number of components ($k$).
 3. **Guided SiMLR**: Using prior matrices to bias the decomposition.
-4. **Advanced Visualization**: Using `pysimlr.viz` and `pysimlr.visualization` to explore consensus spaces, feature signatures, and convergence dynamics.
+4. **Advanced Visualization**: Using `pysimlr.plotting` to explore consensus spaces, feature signatures, and convergence dynamics.
 5. **Statistical Significance**: Using permutation tests to verify modality alignment.
 
 ## 1. Simulation Setup
@@ -41,9 +41,9 @@ import numpy as np
 import pandas as pd
 from pysimlr import (simlr, safe_pca, nnh_embed, decompose_energy, 
                      estimate_rank, simlr_perm, predict_simlr)
-from pysimlr.viz import (plot_view_correlations, plot_latent_consensus, 
-                         plot_feature_signatures, plot_convergence_dynamics)
-from pysimlr.visualization import plot_energy, plot_v_matrix, plot_latent_2d
+import pysimlr
+from pysimlr.plotting import (plot_view_correlations, plot_view_agreement, plot_convergence,
+                              plot_scores, plot_loadings)
 from pysimlr.benchmarks.synthetic_cases import build_linear_footprint_case
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -89,17 +89,15 @@ We will use the **HybridAdam** optimizer, which provides maximum numerical stabi
 ```{python}
 # Run Guided SiMLR
 # Note: we use default scale_list=["centerAndScale", "np"]
-results = simlr(
-    data_matrices=data_matrices,
-    k=k,
+results = pysimlr.fit(
+    "simlr", data_matrices, k,
     iterations=100,
     energy_type="acc",
     nsa_w=0.0,
     domain_matrices=d_matrices,
-    domain_lambdas=0.1,       
+    domain_lambdas=0.1,
     optimizer_type="hybrid_adam",
-    positivities=['positive','positive','positive'],
-    verbose=False
+    positivity="positive",
 )
 
 print(f"Guided SiMLR completed in {results['converged_iter']} iterations.")
@@ -114,7 +112,7 @@ First, let's verify that our optimization process was stable and minimized the t
 
 ```{python}
 # Plot the total energy history across iterations
-fig_energy = plot_energy(results['energy'], title="SiMLR Optimization Trajectory")
+fig_energy = plot_convergence(results)
 plt.show()
 ```
 
@@ -122,17 +120,14 @@ plt.show()
 The consensus matrix $U$ represents the shared latent space across all views. We can visualize how the samples cluster or distribute in this learned space, and how well the views agree with each other.
 
 ```{python}
-# Plot the shared latent space using plot_latent_2d
-fig_latent = plot_latent_2d(results['u'], title="Shared Latent Space (2D View)")
+# Plot the subject scores in the rotated frame
+fig_latent = plot_scores(results)   # u @ R, the frame of the loadings
 plt.show()
 
-# Visualize consensus vs modality-specific projections for the first dimension
-# We re-preprocess data manually here just for visualization consistency
+# Each view's scores against the consensus, first rotated component
 from pysimlr.utils import preprocess_data
 scaled_data = [preprocess_data(m, ["centerAndScale", "np"])[0] for m in data_matrices]
-proj = [x @ v for x, v in zip(scaled_data, results['v'])]
-
-plot_latent_consensus(results['u'], proj, dim_idx=0)
+plot_view_agreement(results, component=0)
 plt.show()
 
 # Examine pairwise view correlations in the data space
@@ -155,13 +150,8 @@ plt.title("Global Contribution by Modality")
 plt.ylabel("Absolute Energy Contribution")
 plt.show()
 
-# Plot the feature mapping (V matrix) for the first view
-fig_v = plot_v_matrix(results['v'][0], title="Feature Importance Map (View 1 V-Matrix)")
-plt.show()
-
-# Use the advanced feature signatures plot to see how features align with components
-# We plot the first 50 features of View 1
-plot_feature_signatures(results['v'][0][:50, :], feature_names=[f"F{i}" for i in range(50)])
+# Interpret loadings, not the encoder V (V is weakly identified; see docs/usage_notes.md)
+fig_l = plot_loadings(results, view=0)
 plt.show()
 ```
 

@@ -182,15 +182,28 @@ pysimlr.plot_coefficient_paths(fit); pysimlr.plot_fused_coefficients(fit); pysim
 
 ## Plotting
 
-New plots live in `pysimlr.plotting` and follow one convention:
-- they take a result object;
-- they accept `ax=None` and return the Figure (no `show`, no saving);
-- they use matplotlib only;
-- they plot interpretable quantities, with signed values on a symmetric diverging scale.
+All plots live in `pysimlr.plotting` (also importable from `pysimlr` directly), and they follow
+one convention:
+- each takes a result object;
+- it accepts `ax=None` and returns the Figure (no `show`, no saving);
+- matplotlib only;
+- it plots interpretable quantities, with signed values on a symmetric diverging scale.
 
-The older `pysimlr.visualization`, `pysimlr.viz` and `pysimlr.benchmarks.plotting` modules
-predate this convention. Several of their plots show `res["v"]`, which should not be
-interpreted (see above).
+| plot | shows | input |
+|---|---|---|
+| `plot_loadings(res, view)` | loadings, features × components (rotated frame) | `fit` result |
+| `plot_structure_intervals(inf, view, component)` | structure coefficients with 95% intervals; selected features in bold | `loading_inference` result |
+| `plot_component_stability(rank)` | per-component stability per k, with reference lines at 0.9 and 0.8 | `select_rank` result |
+| `plot_scores(res, new_views=)` | subject scores `u @ R`, with held-out subjects projected | `fit` result |
+| `plot_view_agreement(res, component)` | each view's scores against the consensus, with r | `fit` result |
+| `plot_convergence(res)` | the objective history, with the stop reason; flags unconverged fits | `fit` result |
+| `plot_view_correlations(views)` | adjusted RV between views | views |
+| `plot_latent_recovery(res, z_true)` | \|corr\| of components with planted latents | `fit` result |
+| `plot_fused_coefficients`, `plot_coefficient_paths`, `plot_fused_ridge_cv` | fused ridge | `fit_fused_ridge` / `fused_ridge_cv` results |
+| `plot_benchmark(df, x, y, by, kind)` | one benchmark metric against a setting, per method | results DataFrame |
+| `plot_predictions(y, yhat)` | predicted against observed, with r | arrays |
+
+Nothing plots the encoder `v`. The architecture diagrams are in `pysimlr.diagrams`.
 
 ## Known limitations (being worked on)
 

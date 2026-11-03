@@ -41,8 +41,7 @@ sys.path.insert(0, os.path.abspath("../src"))
 
 from pysimlr.benchmarks.synthetic_cases import build_case
 from pysimlr.benchmarks.runner import run_single_experiment, sweep_benchmark, get_best_per_model
-from pysimlr.benchmarks.plotting import (plot_pareto_recovery_vs_r2, plot_sparsity_sensitivity, 
-                               plot_stability_diagnostics, plot_v_heatmaps, plot_latent_correlation)
+from pysimlr.plotting import plot_benchmark, plot_loadings
 
 warnings.filterwarnings("ignore")
 SEED = 42
@@ -107,7 +106,7 @@ A critical challenge in deep integrative models is **Latent Collapse**, where th
 
 ```{python}
 #| label: viz-stability
-plot_stability_diagnostics(df_summary)
+plot_benchmark(df_summary, x="sparsity", y="collapsed_dims", kind="bar")
 plt.show()
 ```
 
@@ -128,8 +127,9 @@ for m_type in ["simlr", "lend", "ned"]:
         best_results[m_type] = res["result"]
 
 if best_results:
-    plot_v_heatmaps(best_results, modality_idx=0)
-    plt.show()
+    for name, res in best_results.items():   # loadings, not the encoder v
+        plot_loadings(res, view=0).suptitle(name)
+        plt.show()
 ```
 
 ## 6. Discussion

@@ -27,10 +27,7 @@ sys.path.insert(0, os.path.abspath("../src"))
 
 from pysimlr.benchmarks.synthetic_cases import build_case
 from pysimlr.benchmarks.runner import run_single_experiment, sweep_benchmark, get_best_per_model
-from pysimlr.benchmarks.plotting import (plot_pareto_recovery_vs_r2, plot_sparsity_sensitivity, 
-                               plot_stability_diagnostics, plot_v_heatmaps, 
-                               plot_sparsity_vs_orthogonality)
-from pysimlr.viz import plot_view_correlations, plot_latent_consensus
+from pysimlr.plotting import plot_benchmark, plot_view_correlations, plot_view_agreement
 
 warnings.filterwarnings("ignore")
 SEED = 42
@@ -95,7 +92,7 @@ As we increase sparsity pressure, the model must work harder to stay on the Stie
 
 ```{python}
 #| label: viz-geometry
-plot_sparsity_vs_orthogonality(df_summary)
+plot_benchmark(df_summary, x="sparsity", y="orthogonality_defect")
 plt.show()
 ```
 
@@ -107,7 +104,7 @@ We utilize variance-based diagnostics to ensure all latent dimensions capture me
 
 ```{python}
 #| label: viz-stability
-plot_stability_diagnostics(df_summary)
+plot_benchmark(df_summary, x="sparsity", y="collapsed_dims", kind="bar")
 plt.show()
 ```
 
@@ -120,10 +117,6 @@ We examine how well the most predictive latent dimension (Dimension 0) is captur
 best_ned_row = best_df[best_df["model"] == "ned"].iloc[0]
 best_ned_res = run_single_experiment("ned", case, sparsity=best_ned_row["sparsity"], iterations=200)
 
-plot_latent_consensus(
-    best_ned_res["metrics"]["u_pred"] if "u_pred" in best_ned_res["metrics"] else best_ned_res["result"]["u"], 
-    best_ned_res["result"]["latents"],
-    modality_names=["Linear", "Polynomial", "Exponential"]
-)
+plot_view_agreement(best_ned_res["result"], component=0)
 plt.show()
 ```

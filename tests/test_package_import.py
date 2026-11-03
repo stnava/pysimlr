@@ -33,7 +33,7 @@ def test_plotting_entry_points_still_resolve():
     assert callable(pysimlr.plot_path_model)
     assert callable(pysimlr.generate_all_architecture_graphs)
     assert pysimlr.benchmarks.__name__.endswith("benchmarks")
-    assert pysimlr.viz.__name__.endswith("viz")
+    assert pysimlr.plotting.__name__.endswith("plotting")
 
 
 def test_every_public_name_resolves():
