@@ -350,31 +350,85 @@ def plot_basis_diagnostics(res: Dict[str, Any], view_names=None, figsize=None):
     return fig
 
 
-def plot_rank_selection(rank_result: Dict[str, Any], ax=None, bars: Sequence[float] = STABILITY_BARS):
-    """Stability of every component at each candidate k (a `pysimlr.select_rank` result).
+def plot_rank_selection(rank_result: Dict[str, Any], ax=None, bars: Sequence[float] = STABILITY_BARS,
+                        criterion: Optional[str] = None):
+    """Rank-selection diagnostic for any `pysimlr.select_rank` criterion.
 
-    Points: each component's stability; vertical bars: their range; bold line:
-    the weakest component (what ``select_rank`` compares with ``min_stability``);
-    dashed: the median. Reference lines at the conservative (0.9) and low-power
-    (0.8) bars; the selected k is starred.
+    ``criterion`` defaults to ``rank_result["criterion"]`` (``"component"`` if
+    absent): component stability, Grassmannian subspace cosines
+    (``"subspace"``), out-of-bag held-out :math:`R^2` +- SE (``"oos_r2"``,
+    ``"oos_r2_1se"``), or out-of-bag cross-view coupling (``"oos_coupling"``).
+    Candidates with ``basis_degenerate=True`` have their tick coloured orange.
     """
-    fig, ax = _figure(ax, figsize=(5.5, 4.0))
-    ks, mins, meds = [], [], []
-    for r in rank_result["table"]:
-        s = np.asarray(r["component_stability"], float); k = r["k"]
-        ks.append(k); mins.append(s.min()); meds.append(np.median(s))
-        ax.vlines(k, s.min(), s.max(), color="0.7", lw=4, zorder=1)
-        ax.scatter(np.full(len(s), k), s, color=[_stability_color(v, bars) for v in s], s=28, zorder=2)
-    ax.plot(ks, mins, color="black", lw=2, marker="o", label="weakest component")
-    ax.plot(ks, meds, color="0.4", lw=1, ls="--", label="median")
-    for i, b in enumerate(bars):
-        ax.axhline(b, color="0.3", lw=1, ls=":" if i else "-.", label=f"{b:g}")
-    chosen = rank_result.get("k")
-    if chosen is not None:
-        ax.scatter([chosen], [mins[ks.index(chosen)]], marker="*", s=300, color=OKABE_ITO[1],
-                   edgecolor="black", zorder=3, label=f"selected k = {chosen}")
-    ax.set_xticks(ks); ax.set_ylim(0, 1.03); ax.set_xlabel("k"); ax.set_ylabel("component stability")
-    ax.set_title("Rank selection by component stability"); ax.legend(fontsize=7, frameon=False, loc="lower left")
+    from .loadings import RANK_CRITERIA
+    crit = criterion or rank_result.get("criterion", "component")
+    if crit not in RANK_CRITERIA:
+        raise ValueError(f"criterion must be one of {RANK_CRITERIA}; got {crit!r}.")
+    table = rank_result["table"]
+    chosen = (rank_result.get("criteria") or {}).get(crit, rank_result.get("k") if criterion is None else None)
+    fig, ax = _figure(ax, figsize=(5.8, 4.0))
+    ks = [r["k"] for r in table]
+    if crit in ("oos_r2", "oos_r2_1se"):
+        ys = np.asarray([np.nan if r.get("oos_r2") is None else r["oos_r2"] for r in table], float)
+        se = np.asarray([0.0 if r.get("oos_r2_se") is None else r["oos_r2_se"] for r in table], float)
+        ax.errorbar(ks, ys, yerr=se, color=OKABE_ITO[0], lw=1.8, marker="o", capsize=3, label="out-of-bag R^2 +- SE")
+        ax.axhline(0.0, color="0.5", lw=0.8, ls=":")
+        if np.any(np.isfinite(ys)):
+            bi = int(np.nanargmax(ys))
+            if ys[bi] > 0:
+                ax.axhline(ys[bi] - se[bi], color="0.35", lw=1, ls="--", label="peak - 1 SE")
+        if chosen is not None and chosen in ks:
+            ax.scatter([chosen], [ys[ks.index(chosen)]], marker="*", s=300, color=OKABE_ITO[1],
+                       edgecolor="black", zorder=3, label=f"selected k = {chosen}")
+        ax.set_ylabel("held-out reconstruction R^2")
+        ax.set_title(f"Rank selection by {crit}")
+    elif crit == "oos_coupling":
+        mins, meds, thr = [], [], None
+        for r in table:
+            cp = r.get("oos_coupling")
+            if cp is None:
+                mins.append(np.nan); meds.append(np.nan); continue
+            s = np.asarray(cp, float); k = r["k"]
+            mins.append(s.min()); meds.append(np.median(s)); thr = r.get("oos_coupling_threshold", thr)
+            ax.vlines(k, s.min(), s.max(), color="0.7", lw=4, zorder=1)
+            ax.scatter(np.full(len(s), k), s, color=OKABE_ITO[0], s=28, zorder=2)
+        ax.plot(ks, mins, color="black", lw=2, marker="o", label="weakest component")
+        ax.plot(ks, meds, color="0.4", lw=1, ls="--", label="median")
+        ax.axhline(0.0, color="0.6", lw=0.8)
+        if thr is not None:
+            ax.axhline(thr, color="0.3", lw=1, ls="-.", label=f"null bar ({thr:.2f})")
+        if chosen is not None and chosen in ks:
+            ax.scatter([chosen], [mins[ks.index(chosen)]], marker="*", s=300, color=OKABE_ITO[1],
+                       edgecolor="black", zorder=3, label=f"selected k = {chosen}")
+        ax.set_ylabel("out-of-bag view coupling (r)")
+        ax.set_title("Rank selection by held-out coupling")
+    else:
+        key = "subspace_stability" if crit == "subspace" else "component_stability"
+        mins, meds = [], []
+        for r in table:
+            s = np.asarray(r[key], float); k = r["k"]
+            mins.append(s.min()); meds.append(np.median(s))
+            ax.vlines(k, s.min(), s.max(), color="0.7", lw=4, zorder=1)
+            ax.scatter(np.full(len(s), k), s, color=[_stability_color(v, bars) for v in s], s=28, zorder=2)
+        ax.plot(ks, mins, color="black", lw=2, marker="o",
+                label="min principal cosine" if crit == "subspace" else "weakest component")
+        ax.plot(ks, meds, color="0.4", lw=1, ls="--", label="median")
+        if crit == "component" and all("min_subspace_stability" in r for r in table):
+            ax.plot(ks, [r["min_subspace_stability"] for r in table], color=OKABE_ITO[0], lw=1.2, ls=":",
+                    marker="s", ms=4, label="subspace min cosine")
+        for i, b in enumerate(bars):
+            ax.axhline(b, color="0.3", lw=1, ls=":" if i else "-.", label=f"{b:g}")
+        if chosen is not None and chosen in ks:
+            ax.scatter([chosen], [mins[ks.index(chosen)]], marker="*", s=300, color=OKABE_ITO[1],
+                       edgecolor="black", zorder=3, label=f"selected k = {chosen}")
+        ax.set_ylim(0, 1.03)
+        ax.set_ylabel("subspace principal cosine" if crit == "subspace" else "component stability")
+        ax.set_title("Rank selection by " + ("subspace stability" if crit == "subspace" else "component stability"))
+    ax.set_xticks(ks); ax.set_xlabel("k")
+    for lbl, r in zip(ax.get_xticklabels(), table):
+        if r.get("basis_degenerate"):
+            lbl.set_color(_UNCONVERGED)
+    ax.legend(fontsize=7, frameon=False, loc="best")
     return fig
 
 

@@ -7,6 +7,8 @@ objective with an orthogonality-defect penalty) with matched-column |r| 0.60 /
 0.89, while `loadings` moved 0.0002 / 0.0001 with matched-column |r| 0.9999.
 The thresholds below sit between the two.
 """
+import warnings
+
 import numpy as np
 import pytest
 import torch
@@ -219,3 +221,71 @@ def test_structure_is_the_correlation_with_the_rotated_scores(mixing):
     u_rot = res["u"].double() @ res["loading_rotation"].double()
     for got, want in zip(res["structure"], structure_coefficients(xs, u_rot)):
         assert torch.allclose(got, want, atol=1e-6)
+
+
+def test_select_rank_reports_all_criteria_and_diagnostics():
+    views = _small(n=90)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        out = pysimlr.select_rank("simlr", views, [2, 1, 2], n_subsamples=4, iterations=8, random_state=0)
+    assert out["criterion"] == "component"
+    assert set(out["criteria"]) == set(pysimlr.RANK_CRITERIA)
+    assert out["k"] == out["criteria"]["component"]
+    assert [r["k"] for r in out["table"]] == [1, 2]
+    for r in out["table"]:
+        k = r["k"]
+        assert len(r["subspace_stability"]) == k
+        assert np.all(np.diff(r["subspace_stability"]) <= 1e-12)
+        assert r["min_subspace_stability"] == pytest.approx(r["subspace_stability"][-1])
+        assert r["subspace_stable"] == (r["min_subspace_stability"] >= 0.9)
+        assert r["oos_r2"] is not None and r["oos_r2_se"] >= 0.0
+        assert len(r["oos_r2_per_view"]) == len(views)
+        assert len(r["oos_coupling"]) == k
+        assert r["min_oos_coupling"] == pytest.approx(min(r["oos_coupling"]))
+        assert r["all_coupled"] == (r["min_oos_coupling"] >= r["oos_coupling_threshold"])
+        assert 0.0 <= r["converged_fraction"] <= 1.0
+        assert r["basis_degenerate"] == (r["min_effective_rank"] < k - 0.5)
+    for crit in pysimlr.RANK_CRITERIA:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            c_out = pysimlr.select_rank("simlr", views, [1, 2], criterion=crit, n_subsamples=4,
+                                        iterations=8, random_state=0)
+        assert c_out["k"] == out["criteria"][crit]
+
+
+def test_select_rank_recovers_isotropic_subspace_and_rejects_pure_noise():
+    rng = np.random.default_rng(7)
+    n = 120
+    # Uncoupled pure noise: every criterion returns None (no false rank).
+    null_views = [torch.tensor(rng.standard_normal((n, p))).float() for p in (24, 20, 18)]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        null_sel = pysimlr.select_rank("pca", null_views, [1, 2, 3], n_subsamples=8, random_state=0)
+    for crit in pysimlr.RANK_CRITERIA:
+        assert null_sel["criteria"][crit] is None, (crit, null_sel["criteria"])
+    # Isotropic k_true = 4: intermediate k < 4 rotates axes, k = 4 recovers subspace and coupling, k = 5 drops.
+    z = rng.standard_normal((n, 4))
+    iso_views = [
+        torch.tensor(z @ np.linalg.qr(rng.standard_normal((p, 4)))[0].T
+                     + 0.35 * rng.standard_normal((n, p))).float()
+        for p in (28, 24, 20)
+    ]
+    sel = pysimlr.select_rank("pca", iso_views, [2, 4, 5], criterion="oos_coupling",
+                              n_subsamples=10, random_state=0)
+    assert sel["k"] == 4
+    assert sel["criteria"]["subspace"] == 4
+    assert sel["criteria"]["oos_r2_1se"] == 4
+
+
+def test_select_rank_single_view_and_argument_validation():
+    v1 = [_small(n=60)[0]]
+    out = pysimlr.select_rank("pca", v1, [1, 2], criterion="oos_r2_1se", n_subsamples=4, random_state=0)
+    assert out["criteria"]["oos_coupling"] is None
+    assert out["table"][0]["oos_coupling"] is None
+    assert out["table"][0]["oos_r2"] is not None
+    with pytest.raises(ValueError, match="criterion"):
+        pysimlr.select_rank("pca", v1, [1, 2], criterion="unknown")
+    with pytest.raises(ValueError, match="ks"):
+        pysimlr.select_rank("pca", v1, [])
+    with pytest.raises(ValueError, match="ks"):
+        pysimlr.select_rank("pca", v1, [0, 1])

@@ -140,6 +140,7 @@ from .api import (
 )
 from .fused_ridge import fit_fused_ridge, predict_fused_ridge, fused_ridge_cv
 from .loadings import (
+    RANK_CRITERIA,
     loadings,
     loading_inference,
     select_rank,
@@ -174,6 +175,7 @@ from .utils import (
 )
 
 __all__ = [
+    'RANK_CRITERIA',
     'feature_table',
     'plot_basis_diagnostics',
     'plot_rank_selection',

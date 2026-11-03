@@ -83,8 +83,9 @@ inf["ci_low"], inf["ci_high"]   # 95% percentile intervals per view
 inf["selected"]              # stability-selected features (threshold 0.8, expected_false 1)
 
 sel = pysimlr.select_rank("simlr", views, [2, 3, 4], n_subsamples=20, random_state=0)
-sel["k"]       # largest k whose every component has stability >= min_stability (default 0.9), or None
-sel["table"]   # per-k component_stability, min_stability, all_stable
+sel["k"]          # selected k under criterion (default "component"), or None
+sel["criteria"]   # all five rules from the same refits: component, subspace, oos_r2, oos_r2_1se, oos_coupling
+sel["table"]      # per-k stability, subspace cosines, out-of-bag R^2 and coupling, effective rank
 ```
 
 - **How the refits work.**
@@ -92,10 +93,26 @@ sel["table"]   # per-k component_stability, min_stability, all_stable
     default), aligns each refit by Procrustes, and reports percentile intervals.
   - Its per-component stability is the median correlation between each aligned refit component
     and the full-data component.
+  - Every subsample refit also evaluates `predict` on its unused `1 - fraction` rows (zero extra
+    fits), giving held-out reconstruction `oos_r2` and held-out leave-one-view-out score
+    correlation `oos_coupling`.
   - The default of 100 refits is costly on large data; `select_rank` uses 20 refits per
     candidate k.
   - Pass `n_jobs=-1` (all cores) or `n_jobs=4` to run the refits in parallel. Results are
     identical to serial. On ADNI-MCI, `select_rank` over k ∈ {2, 3} took 17 s instead of 98 s.
+- **Which `criterion` to read.** One `select_rank` call populates `sel["criteria"]` with all five:
+  - `"component"` (default): every varimax-rotated axis has stability ≥ `min_stability`. Use this
+    when naming and interpreting individual components `C1..Ck`.
+  - `"subspace"`: the smallest Grassmannian principal cosine of the stacked structure span is
+    ≥ `min_stability`. Stays high when real components share near-equal singular values and rotate
+    within a stable `k`-dimensional subspace.
+  - `"oos_r2_1se"` and `"oos_r2"`: smallest `k` within 1 SE of the peak out-of-bag held-out
+    reconstruction R² (and the peak itself, when > 0). Use these when choosing a subspace rank for
+    downstream prediction (for example ridge or `fused_ridge` on `u @ R`).
+  - `"oos_coupling"`: largest `k` whose every component generalizes across views out of sample
+    above `min_oos_coupling` (default: one-sided α = 0.01 Fisher-z null bar).
+  - Check `basis_degenerate` (`min_effective_rank < k - 0.5`) in `sel["table"]`: when `True` at
+    larger `k`, basis columns are merging and `nsa_w` should be raised (for example `0.75`).
 - **Stability is a graded measure, not a pass/fail test.**
   - Each refit sees half the rows, so stability describes reproducibility at about n/2. That is
     pessimistic when power is low: a real component in a small or noisy sample can sit around
@@ -116,7 +133,8 @@ sel["table"]   # per-k component_stability, min_stability, all_stable
   without error control.
 - **Signed displays.** Show only features whose interval excludes 0, and name features from
   `selected`.
-- **`select_rank` can return `None`.** No candidate k met `min_stability`. Inspect `sel["table"]`:
+- **`select_rank` can return `None`.** No candidate k met the requested criterion. Inspect
+  `sel["table"]` and `sel["criteria"]`:
   - try a smaller k, or a lower `min_stability` if the setting is low-power (state it);
   - or try `positivity="positive"`.
 

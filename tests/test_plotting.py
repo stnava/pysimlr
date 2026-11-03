@@ -146,6 +146,15 @@ def test_feature_groups_counts_need_inference(fits):
         plt.close(pysimlr.plot_feature_groups(fits["sig"], ["a"] * 6 + ["b"] * 6, inf=fits["inf"], statistic=stat))
 
 
+def test_rank_selection_plots_every_criterion(fits):
+    for crit in pysimlr.RANK_CRITERIA:
+        fig = pysimlr.plot_rank_selection(fits["rank"], criterion=crit)
+        assert isinstance(fig, matplotlib.figure.Figure)
+        plt.close(fig)
+    with pytest.raises(ValueError, match="criterion"):
+        pysimlr.plot_rank_selection(fits["rank"], criterion="nope")
+
+
 def test_old_plotting_modules_are_gone():
     for mod in ("pysimlr.viz", "pysimlr.visualization", "pysimlr.benchmarks.plotting"):
         with pytest.raises(ModuleNotFoundError):
