@@ -92,6 +92,54 @@ def support_f1(v, true_sup):
     return best
 
 
+def loadings_support_auc(v, true_sup):
+    """Mean AUROC of |loadings| against true support over views and components.
+
+    Matches components to planted factors using Hungarian matching
+    (`scipy.optimize.linear_sum_assignment`) to maximize total AUROC.
+    Accepts either a single view (v: (p, k), true_sup: list of sets) or a list
+    of views (v: list of (p_m, k), true_sup: list of lists of sets).
+    """
+    from scipy.optimize import linear_sum_assignment
+    from sklearn.metrics import roc_auc_score
+
+    # Normalize to list of views
+    if isinstance(v, (list, tuple)) and len(v) > 0 and (hasattr(v[0], "shape") or isinstance(v[0], (list, tuple))):
+        views_v = [np.abs(np.asarray(vm, float)) for vm in v]
+        views_sup = list(true_sup)
+    else:
+        views_v = [np.abs(np.asarray(v, float))]
+        views_sup = [list(true_sup)]
+
+    k_est = views_v[0].shape[1]
+    k_true = len(views_sup[0])
+
+    cost = np.zeros((k_est, k_true), dtype=float)
+    for j in range(k_est):
+        for c in range(k_true):
+            aucs = []
+            for vm, supm in zip(views_v, views_sup):
+                p = vm.shape[0]
+                true_idx = set(supm[c])
+                y_true = np.zeros(p, dtype=int)
+                for idx in true_idx:
+                    if 0 <= idx < p:
+                        y_true[idx] = 1
+                score = vm[:, j]
+                n_pos = int(y_true.sum())
+                n_neg = p - n_pos
+                if n_pos == 0 or n_neg == 0:
+                    aucs.append(0.5)
+                else:
+                    aucs.append(float(roc_auc_score(y_true, score)))
+            cost[j, c] = -np.mean(aucs)
+
+    row_ind, col_ind = linear_sum_assignment(cost)
+    matched_aucs = -cost[row_ind, col_ind]
+    return float(np.mean(matched_aucs))
+
+
+
 def blocked_tests(df, metric):
     """Repeated-measures F (seeds as blocks) and Friedman p across optimizers."""
     from scipy.stats import f as f_dist, friedmanchisquare

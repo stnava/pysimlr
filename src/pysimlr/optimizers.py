@@ -678,6 +678,9 @@ class LARS(SimlrOptimizer):
     gradient norm, which is helpful for training with large gradients or 
     varying parameter scales.
 
+    Note that LARS is not a default optimizer: at `learning_rate=1.0` it
+    entered a period-2 energy cycle on `tests/test_support_identifiability.planted`.
+
     Parameters
     ----------
     optimizer_type : str
@@ -685,7 +688,9 @@ class LARS(SimlrOptimizer):
     v_mats : List[torch.Tensor]
         Initial matrices.
     learning_rate : float, default=0.01
-        Global learning rate.
+        Global learning rate. LARS is not a default optimizer; at
+        `learning_rate=1.0` it entered a period-2 energy cycle on
+        `tests/test_support_identifiability.planted`.
     decay_rate : float, default=1e-3
         Weight decay (L2 regularization) factor.
 
@@ -840,7 +845,7 @@ LR_PROBE_GRID = (1.0, 0.3, 0.1, 0.03, 0.01, 0.003, 0.001)
 
 
 def tune_learning_rate(fit: Callable[..., Dict[str, Any]],
-                       candidates: Sequence[float] = LR_PROBE_GRID,
+                       candidates: Optional[Sequence[float]] = None,
                        probe_iterations: int = 3,
                        energy_key: Union[str, Sequence[str]] = ("best_energy", "energy", "loss_history"),
                        verbose: bool = False) -> Tuple[float, Dict[float, float]]:
@@ -909,6 +914,8 @@ def tune_learning_rate(fit: Callable[..., Dict[str, Any]],
     wrong way. Candidates producing a non-finite or rank-deficient basis are
     rejected rather than scored.
     """
+    if candidates is None:
+        candidates = LR_PROBE_GRID
     scores: Dict[float, float] = {}
     first_error: Optional[BaseException] = None
     for lr in candidates:

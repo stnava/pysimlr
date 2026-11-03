@@ -208,7 +208,6 @@ def test_loading_inference_does_not_depend_on_n_jobs():
                              random_state=0, n_jobs=2)
     assert sa == sb
 
-
 @pytest.mark.parametrize("mixing", ["newton", "avg"])
 def test_structure_is_the_correlation_with_the_rotated_scores(mixing):
     """`structure` is corr(X, u @ R) exactly, for every mixing. C0 @ R agrees

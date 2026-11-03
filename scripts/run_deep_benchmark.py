@@ -368,8 +368,14 @@ def run_experiment_task(task_args: tuple) -> dict:
     if "private_k" in case and "private_k" in api.resolve_method(model_type).accepts:
         params["private_k"] = case["private_k"]
 
+    budget_by_unit = {}
+    if iterations is not None:
+        budget_by_unit["iterations"] = iterations
+    if epochs is not None:
+        budget_by_unit["epochs"] = epochs
+
     exp_res = run_single_experiment(model_type, case, sparsity=sparsity, seed=seed,
-                                    budget_by_unit={"iterations": iterations, "epochs": epochs},
+                                    budget_by_unit=budget_by_unit,
                                     **params)
     metrics = exp_res["metrics"]
     res = exp_res["result"]
@@ -427,6 +433,10 @@ def run_experiment_task(task_args: tuple) -> dict:
         "Method": metrics.get("method"),
         "Ignored_Params": metrics.get("ignored_params"),
         "normalizing_weights": res.get("normalizing_weights") if res else None,
+        "budget": res.get("convergence", {}).get("max_steps") if res else None,
+        "converged": metrics.get("solver_converged"),
+        "n_steps": res.get("convergence", {}).get("n_steps") if res else metrics.get("solver_iters"),
+        "stop_reason": metrics.get("stop_reason"),
     }
 
 
@@ -474,8 +484,8 @@ def _execute_tasks(tasks: list, workers: int = 8, label: str = "Deep Benchmark")
 def run_deep_benchmark(
     n_seeds: int = 3,
     workers: int = 8,
-    iterations: int = 25,
-    epochs: int = 45,
+    iterations: Optional[int] = None,
+    epochs: Optional[int] = None,
     sparsity: Optional[float] = 0.5,
     out_filename: str = "deep_ranking_benchmark.csv",
 ) -> pd.DataFrame:
@@ -508,8 +518,8 @@ def run_deep_benchmark(
 def run_operating_point_suite(
     n_seeds: int = 3,
     workers: int = 8,
-    iterations: int = 25,
-    epochs: int = 45,
+    iterations: Optional[int] = None,
+    epochs: Optional[int] = None,
 ) -> pd.DataFrame:
     """Run all three operating points (None, 0.5, 0.8) across all 12 cohorts
     plus paired positivity='positive' vs 'either' on real biomedical cohorts."""
@@ -548,16 +558,77 @@ def run_operating_point_suite(
     return df_all
 
 
+def run_deep_consistency(
+    n_seeds: int = 3,
+    workers: int = 8,
+    epochs: Optional[int] = None,
+    out_csv: str = "docs/audit/evidence/deep_default_consistency.csv",
+) -> pd.DataFrame:
+    """Run synthetic benchmark once across deep families for Rule R13 consistency check."""
+    synthetic_regimes = ["Linear", "Polynomial", "Sine", "Shared+Private",
+                         "NonnegParts", "NonnegPartsWeak"]
+    deep_models = [
+        ("lend", "LEND"),
+        ("ned", "NED"),
+        ("flow_v", "Flow-SiMLR-V"),
+        ("ned_shared_private", "NEDPP"),
+    ]
+    tasks = []
+    for reg in synthetic_regimes:
+        for model_type, model_label in deep_models:
+            for seed in range(42, 42 + n_seeds):
+                tasks.append((reg, "synthetic", model_type, model_label, seed, None, epochs, 0.5, "default"))
+
+    print(f"Running Deep Consistency Evaluation: {len(tasks)} tasks (epochs: {epochs})...", flush=True)
+    df = _execute_tasks(tasks, workers=workers, label=f"Deep Consistency (epochs: {epochs})")
+
+    print(f"\n=== Deep Consistency Convergence Summary (epochs: {epochs}) ===")
+    summary = df.groupby("Method")["converged"].agg(["count", "mean"])
+    print(summary)
+
+    # R13: if any family has convergence < 0.9, re-run with package default 300 epochs
+    rerun_tasks = []
+    for model_type, model_label in deep_models:
+        fam_conv = df[df["Method"] == model_type]["converged"].mean()
+        if fam_conv < 0.9:
+            print(f"[R13 Trigger] Family {model_type} convergence {fam_conv:.2f} < 0.9 (epochs: {epochs}). Re-running at epochs: 300...")
+            for reg in synthetic_regimes:
+                for seed in range(42, 42 + n_seeds):
+                    rerun_tasks.append((reg, "synthetic", model_type, model_label, seed, None, 300, 0.5, "default"))
+
+    if rerun_tasks:
+        df_rerun = _execute_tasks(rerun_tasks, workers=workers, label="Deep Consistency R13 Re-run (epochs: 300)")
+        rerun_methods = set(t[2] for t in rerun_tasks)
+        df = pd.concat([df[~df["Method"].isin(rerun_methods)], df_rerun], ignore_index=True)
+        print("\n=== Post-R13 Deep Consistency Convergence Summary ===")
+        print(df.groupby("Method")["converged"].agg(["count", "mean"]))
+
+    out_path = os.path.join(os.path.dirname(__file__), "..", out_csv)
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    df.to_csv(out_path, index=False)
+    print(f"\n[DONE] Saved {len(df)} consistency records to {out_path}")
+    return df
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Deep Method Ranking Benchmark")
     parser.add_argument("--seeds", type=int, default=3, help="Number of seeds (default: 3)")
     parser.add_argument("--workers", type=int, default=8, help="Worker processes (default: 8)")
-    parser.add_argument("--iterations", type=int, default=25, help="SiMLR iterations (default: 25)")
-    parser.add_argument("--epochs", type=int, default=45, help="Deep epochs (default: 45)")
+    parser.add_argument("--iterations", type=int, default=None, help="SiMLR iterations (default: None, package default)")
+    parser.add_argument("--epochs", type=int, default=None, help="Deep epochs (default: None, package default)")
     parser.add_argument("--suite", action="store_true", help="Run full operating-point (None, 0.5, 0.8) and positivity suite")
+    parser.add_argument("--consistency", action="store_true", help="Run B3 deep consistency evaluation (R13)")
+    parser.add_argument("--out", default="docs/audit/evidence/deep_default_consistency.csv", help="Output CSV path")
     args = parser.parse_args()
 
-    if args.suite:
+    if args.consistency:
+        run_deep_consistency(
+            n_seeds=args.seeds,
+            workers=args.workers,
+            epochs=args.epochs,
+            out_csv=args.out,
+        )
+    elif args.suite:
         run_operating_point_suite(
             n_seeds=args.seeds,
             workers=args.workers,

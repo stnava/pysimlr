@@ -121,7 +121,7 @@ Every `fit` result has the following keys, checked by `validate_result`:
 | `loadings` | one `(p_m, k)` block per view: the OLEE summary of `structure`, with orthogonal columns. `positivity="positive"`: each feature assigned to the component it correlates with most positively (disjoint supports); otherwise the polar factor of `structure` at its column norms. |
 | `loading_rotation`, `loading_margin` | the `k x k` rotation `R` (the columns of `structure`/`loadings` describe `u @ R`); per feature, top minus second positive correlation (positive only, else `None`). |
 | `latents` | per-view first-layer projections (`[u]` for the joint baselines) |
-| `convergence` | `converged`, `stop_reason`, `certificate`, `grad_map`, `n_steps`, `max_steps`, `tol`, `patience`, `best`, `final`. `stop_reason` is one of `api.STOP_REASONS` for every method: `converged` (the energy plateau rule fired, `certificate="energy_plateau"`; NSA-Flow: its own certificate), `max_iter` (budget exhausted), `no_descent` (`simlr`: no view's line search found a decrease), `non_finite`, `closed_form` (PCA). `converged` is `stop_reason == "converged"`. `grad_map` is the face residual `utils.stationarity_residual` of the basis, a diagnostic not a stop rule: per sweep for `simlr`, post hoc on the returned `V` and `u` for deep/flow (`api._basis_grad_map`), 0 for PCA |
+| `convergence` | `converged`, `stop_reason`, `certificate`, `grad_map`, `n_steps`, `max_steps`, `tol`, `patience`, `best`, `final`. `stop_reason` is one of `api.STOP_REASONS` for every method: `converged` (the energy plateau rule fired, `certificate="energy_plateau"`; NSA-Flow: its own certificate), `max_iter` (budget exhausted), `no_descent` (`simlr`: no view's line search found a decrease), `non_finite`, `closed_form` (PCA). `converged` is `stop_reason == "converged"`. `grad_map` is the face residual `utils.stationarity_residual` of the basis, a diagnostic only, not a stop rule, and does not certify convergence (on its old calibration fixture it falls 0.86 decades, against 2.8 before): per sweep for `simlr`, post hoc on the returned `V` and `u` for deep/flow (`api._basis_grad_map`), 0 for PCA |
 | rank diagnostics | `effective_rank`, `numerical_rank`, `condition_number`, `max_column_overlap` per view; for the joint baselines `joint_*` with `basis_is_joint=True` |
 | `sparseness`, `scale_list`, `provenance_list`, `random_state` | |
 
@@ -212,9 +212,10 @@ method. All parameters are explicit, so `clone`, `get_params` and `GridSearchCV`
 - `deep_simr`, `flow_simlr`, `flow_simlr_v`, `FlowSiMLRModel`, `FlowSiMLRVModel`: use
   `lend_simr`, `flow_simr`, `flow_simr_v`, `FlowSiMRModel`, `FlowSiMRVModel`.
 - `FlowWhitener`, `flow_whiten_matrix` and `flow_whitener`: the ANTsTorch LAMNr-Flows whitener
-  wrapper. Nothing in pysimlr used it, and its "whitened_full" forward map is not white upstream
-  (`apply_lamnr_flows_whitener.py:161` solves with L^T where L belongs; output covariance off the
-  identity by 3.2 in simulation). Use ANTsTorch directly once that is fixed.
+  wrapper. Nothing in pysimlr used it. The upstream whitener defect in ANTsTorch was fixed in
+  commit `ed39d99` (`apply_lamnr_flows_whitener.py:161` solves with L); on an 8D Gaussian (n = 2000,
+  condition ~ 50), output covariance reaches ‖cov − I‖_F = 0.1767 < 0.25 and max |off-diagonal| = 0.0329 < 0.1
+  (`scripts/antstorch_whitener_check.py`, `docs/audit/evidence/antstorch_whitener_check.csv`, Rule R10). Call ANTsTorch directly (`lamnr_flows_whitener`).
 - Energies `regression`, `gauss`, `normalized_correlation` raise naming the replacement
   (`recon_r2` linear / `align` deep, `exp`, `nc`); `recon` is refused as a linear objective.
 - Optimizers `torch_lbfgs`, `nsa_flow`, and `nsa_lbfgsb`, and methods `simlr_lbfgs` and `simlr_lbfgsb` (`nsa_lbfgsb` and `simlr_lbfgsb` in 0.6.0: not competitive with `hybrid_adam`; use `'simlr'` with the default optimizer `'hybrid_adam'`).

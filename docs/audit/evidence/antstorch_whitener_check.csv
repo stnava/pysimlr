@@ -1,0 +1,2 @@
+antstorch_commit,seed,n,p,condition_number,frobenius_cov_minus_I,threshold_frobenius,max_abs_off_diag,threshold_max_abs_off_diag,outcome,rule_r10_pass
+ed39d995200b2cffcd8ed1df091dd724442c1166,42,2000,8,50.0,0.17671094178515026,0.25,0.032925690913033274,0.1,PASSED,True
