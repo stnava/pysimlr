@@ -53,6 +53,8 @@ def test_removed_optimizers_raise_with_a_reason():
         assert name in REMOVED_OPTIMIZERS
         with pytest.raises(ValueError, match="removed in 0.4.0"):
             create_optimizer(name, [torch.randn(10, 2)])
+    with pytest.raises(ValueError, match="removed in 0.6.0: it was not competitive"):
+        create_optimizer("nsa_lbfgsb", [torch.randn(10, 2)])
 
 def test_linesearch_error_handling():
     def broken_energy(v):

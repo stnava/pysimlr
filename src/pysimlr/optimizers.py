@@ -762,9 +762,13 @@ REMOVED_OPTIMIZERS = {
                  "NSA-Flow projection (the constraint is already applied after every "
                  "step) and fell back to an SVD polar factor without warning; use 'gd' "
                  "or any other optimizer."),
-    "nsa_lbfgsb": ("was dropped per empirical decision rule R5; use 'hybrid_adam' "
-                   "or another registered optimizer."),
+    "nsa_lbfgsb": ("it was not competitive with 'hybrid_adam' on the default-selection "
+                   "benchmark (docs/tracking_amigo.md, D5); use 'hybrid_adam' or another "
+                   "registered optimizer."),
 }
+
+#: Release in which each entry of `REMOVED_OPTIMIZERS` was removed (default 0.4.0).
+_REMOVED_IN = {"nsa_lbfgsb": "0.6.0"}
 
 
 def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) -> SimlrOptimizer:
@@ -819,7 +823,8 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
         "lars": LARS
     }
     if optimizer_type in REMOVED_OPTIMIZERS:
-        raise ValueError(f"optimizer_type={optimizer_type!r} was removed in 0.4.0: "
+        raise ValueError(f"optimizer_type={optimizer_type!r} was removed in "
+                         f"{_REMOVED_IN.get(optimizer_type, '0.4.0')}: "
                          f"{REMOVED_OPTIMIZERS[optimizer_type]}")
     if optimizer_type not in mapping:
         raise ValueError(

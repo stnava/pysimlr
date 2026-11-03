@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: v0.4.0 plus D7 (e254f05), D8/D9 (33e05f8 on `main`), and D10 on branch `perf/fast-test-suite` (library hot-path and test-suite speedup: default pytest 136.40s -> 19.75/19.77/19.91s min/median/max; full suite 199.86s -> 32.80s). Paper caches and _freeze cleared.
-next WP: merge `perf/fast-test-suite` to `main` (on instruction); regenerate all paper caches; rebuild; list the conclusions that moved for owner review.
+current phase: v0.6.0 released from `main` (merge of `amigo` at `03886cb`). Work continues on `amigo` (tracked in `docs/tracking_amigo.md`).
+next WP: on `amigo`, C5 (NED epoch-0 gap), then the collapse threshold (P1), the small items (S1-S4), benchmark readiness (B1-B4), tracking and paper (D1-D2).
 blockers: none
-active work: D10 committed on `perf/fast-test-suite`; D5 paper sources (uncommitted; the owner's own manuscript edits are in the same files)
+active work: `amigo` (handoff spec `/tmp/amigo_handoff_v3.md`); the owner's uncommitted paper and manuscript edits in the main working tree
 device: Apple Silicon (macOS 27 arm64), CPU only; venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
 last updated: 2026-11-02
 
@@ -11,6 +11,61 @@ last updated: 2026-11-02
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D12 (v0.6.0 release: `amigo` WP-2..WP-8 and phase C corrections, 2026-11-02)
+status: done (merge of `amigo` at `03886cb` into `main`; this release commit)
+- **Removed:** the `simlr_lbfgsb` method and the `nsa_lbfgsb` optimizer, along with their
+  oracle plumbing. They were not competitive with `hybrid_adam`: on the 12-cell grid, no prox
+  setting was non-inferior (rule R5, `f8db84b`, `75077c5`). Both names raise errors naming the
+  replacement and the release.
+- **Diagnostics with evidence** (in `docs/tracking_amigo.md`; scripts under `scripts/`, CSVs
+  under `docs/audit/evidence/`):
+  - **Linear narrow-view collapse:** a step-size basin. The lowest-energy unpenalised fit is not
+    collapsed. Collapse weight 1.0 kept, on the score-correlation criterion (R2; `9c3279d`,
+    corrected `8a6d595`).
+  - **Deep collapse:** 7/20 collapse without the penalty, 0/20 with it, onset after warmup.
+    Collapsed fits have worse similarity. Penalty kept (R3; `0d98ff2`, evaluator fixed
+    `489e0fd`).
+  - **Correlated factors:** newton decorrelates consensus scores; `avg` keeps correlation,
+    saturating near 0.30 on partly unconverged fits. D3 open (R4; `b1a1afe`, `992b143`,
+    `03886cb`).
+  - **NED rounding:** continuous float32 amplification. No discrete tie-break found, so `ned`
+    stays rounding-unstable (R6; `ae61cf0`).
+- **Release fixes:**
+  - the removal messages give the correct release (0.6.0 for `nsa_lbfgsb`) and no internal
+    rule IDs;
+  - the README optimizer list is corrected;
+  - the usage notes are updated (removals; the correlated-factor caveat).
+- **Verification:** see the release commit body.
+
+## D11 (v0.5.0 release: `amigo` milestones 0-1 and usage notes, 2026-11-02)
+status: done (`main` fast-forwarded to `793ab7f`; usage notes `a5732bd`; this release commit)
+- API:
+  - one stop vocabulary (`api.STOP_REASONS`);
+  - `nsa_w` is the single orthogonality weight, capped at 0.99 (`defaults.MAX_NSA_W`);
+  - `constraint` and `parse_constraint` removed;
+  - leave-one-out consensus by default;
+  - `grad_map` reported by every family (`3a88f5f`, `9f2a5d4`).
+- Objective:
+  - the similarity energy is minimised subject to the NSA-Flow projection; the defect penalty is
+    removed (`d3e5590`);
+  - `DEFAULT_TOL = 1e-4` for every method, with 300 sweeps (`5cc49d8`);
+  - scale-free energies (`nc`, `align`, `procrustes`, `recon_r2`, ICA contrasts) weight views
+    equally, 1/M. The old init-relative weights spread up to 279x on synthetic fits and 70x on
+    ADNI. `acc` and `recon` keep the 1/(|E0| M) calibration (`acd08fe`, `708c9c6`, `394144c`;
+    rules R1 and R9 in `docs/tracking_amigo.md`).
+- Interpretation:
+  - every fit carries `structure` (structure coefficients), two-stage `loadings` (varimax,
+    sign-anchored; hard assignment under positivity) and `loading_margin`;
+  - `loading_inference` gives half-sample intervals, component stability and stability selection;
+  - `select_rank` picks k by per-component stability (`580bb91`, `792e9a6`, `9cdf093`).
+- Benchmarks: `lobe_crosstalk` (identically 0) replaced by column coherence and support overlap
+  (`5c77d60`).
+- Docs: `docs/usage_notes.md`, covering defaults, convergence checks, interpretation and known
+  limitations.
+- Verification at `a5732bd`: full suite 1638 passed, 3 xfailed; `antsxqc.lint` 0 findings.
+- Not in this release: the later `amigo` commits, including the `simlr_lbfgsb`/`nsa_lbfgsb`
+  removal and the WP-2..WP-8 diagnostics. Their write-ups are being corrected (phase C).
 
 ## D10 (Library hot-path and test-suite speedup on `perf/fast-test-suite`, 2026-11-02)
 status: committed on branch `perf/fast-test-suite` (off `main` `33e05f8`)

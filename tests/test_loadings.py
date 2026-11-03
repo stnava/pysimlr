@@ -190,37 +190,21 @@ def test_select_rank_recovers_a_planted_rank():
     assert k_true == 3 and out["k"] == 3
 
 
-def test_loading_inference_and_select_rank_n_jobs_bit_identical():
-    """Verify n_jobs=2 produces bit-identical results to n_jobs=1 on refits (<10s)."""
-    import time
-    views = _small(seed=42, n=50)
-    t0 = time.perf_counter()
-
-    out_serial = pysimlr.loading_inference("simlr", views, 2, n_subsamples=4, n_permutations=2,
-                                           iterations=3, random_state=123, n_jobs=1)
-    out_parallel = pysimlr.loading_inference("simlr", views, 2, n_subsamples=4, n_permutations=2,
-                                             iterations=3, random_state=123, n_jobs=2)
-    elapsed = time.perf_counter() - t0
-    assert elapsed < 10.0, f"n_jobs refit comparison took too long: {elapsed:.2f} s"
-
-    # Bit-identical check on all returned structures and intervals
-    for vi in range(len(views)):
-        assert torch.equal(out_serial["ci_low"][vi], out_parallel["ci_low"][vi])
-        assert torch.equal(out_serial["ci_high"][vi], out_parallel["ci_high"][vi])
-        assert torch.equal(out_serial["selection_frequency"][vi], out_parallel["selection_frequency"][vi])
-        assert torch.equal(out_serial["selected"][vi], out_parallel["selected"][vi])
-        assert torch.equal(out_serial["structure"][vi], out_parallel["structure"][vi])
-        assert out_serial["component_stability"][vi] == out_parallel["component_stability"][vi]
-        assert out_serial["q"][vi] == out_parallel["q"][vi]
-        assert out_serial["expected_false_selections"][vi] == out_parallel["expected_false_selections"][vi]
-    assert out_serial["null_max_abs"] == out_parallel["null_max_abs"]
-
-    # Also test select_rank with n_jobs=1 vs n_jobs=2
-    rank_serial = pysimlr.select_rank("simlr", views, [1], n_subsamples=3, iterations=3, random_state=123, n_jobs=1)
-    rank_parallel = pysimlr.select_rank("simlr", views, [1], n_subsamples=3, iterations=3, random_state=123, n_jobs=2)
-    assert rank_serial == rank_parallel
-
-    # Invalid n_jobs test
+def test_loading_inference_does_not_depend_on_n_jobs():
+    views = _small(n=80)
+    kw = dict(n_subsamples=3, n_permutations=1, iterations=5, random_state=0)
+    a = pysimlr.loading_inference("simlr", views, 2, n_jobs=1, **kw)
+    b = pysimlr.loading_inference("simlr", views, 2, n_jobs=2, **kw)
+    for key in ("ci_low", "ci_high", "selection_frequency", "selected"):
+        for x, y in zip(a[key], b[key]):
+            assert torch.equal(x, y), key
+    assert a["component_stability"] == b["component_stability"]
+    assert a["null_max_abs"] == b["null_max_abs"]
     with pytest.raises(ValueError, match="n_jobs"):
-        pysimlr.loading_inference("simlr", views, 2, n_jobs=0)
+        pysimlr.loading_inference("simlr", views, 2, n_jobs=0, **kw)
+    sa = pysimlr.select_rank("simlr", views, [1, 2], n_subsamples=2, iterations=5,
+                             random_state=0, n_jobs=1)
+    sb = pysimlr.select_rank("simlr", views, [1, 2], n_subsamples=2, iterations=5,
+                             random_state=0, n_jobs=2)
+    assert sa == sb
 

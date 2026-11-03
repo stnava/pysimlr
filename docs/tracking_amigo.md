@@ -166,7 +166,7 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
 - **A7. `grad_map` under projection-only fits.** It no longer falls 2 decades on the calibration
   fixture. Keep it as a diagnostic, re-calibrate it, or drop it.
 - **A8. `loading_inference` cost and defaults.** The default `n_subsamples = 100` costs 100 refits.
-  The permutation null is opt-in. Bootstrap percentiles from half-samples are conservative.
+  The permutation null is opt-in. Bootstrap percentiles from half-samples are conservative. See S1 below.
 
 - **A9. `lars` oscillates.** With the auto-tuned `learning_rate = 1.0`, on the support fixture
   (old and new code alike), the total energy alternates between two states every sweep: -2.08
@@ -242,6 +242,11 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   Structure Hungarian |r| at rho=0.7: t=0.3 is 0.9575, t=0.5 is 0.9561 (diff -0.0013), t=0.7 is 0.9573 (diff -0.0002); neither beats 0.3 by > 0.005.
   Trade-off: t=0.3 protects narrow views (at t=0.7 narrow |score corr| is 0.89 and outcome R2 is -0.10), but caps correlated factors at about 0.3 under `avg`. Note that R15's criterion (ii) used `newton`, which cannot show threshold effect (reviewer design flaw).
   Decision Rule R15: keep DEFAULT_COLLAPSE_THRESHOLD = 0.3.
+- **S1. Parallel refits for loading_inference and select_rank (A8, Rule R16).** Status: **done on main (4a29d74)**.
+  Subsample refits and permutation fits execute in worker processes (`n_jobs=-1`: all cores, one torch thread per worker; `select_rank` shares one worker pool across candidate ranks).
+  Evidence: `docs/audit/evidence/select_rank_speed.csv` (ks=[2, 3], 20 subsamples, 12 cores).
+  Measured: ADNI-MCI speedup 97.8 s -> 17.2 s (5.7x); synthetic 24.2 s -> 6.4 s (3.8x). Output is bit-identical to serial on both.
+  Learning-rate reuse in refits was measured and rejected: while it sped up synthetic fits 24.5 s -> 18.9 s (1.3x), it moved an under-identified component's stability by 0.18 (0.913 -> 0.735, failing the 0.03 limit).
 - **D5. simlr_lbfgsb calibration vs drop (Decision Rule R5, WP-7).** Executed 3×3 proximal
   hyperparameter grid search using `scripts/lbfgsb_calibration.py` (evidence:
   `docs/audit/evidence/lbfgsb_calibration.csv`):

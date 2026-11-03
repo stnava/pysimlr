@@ -320,7 +320,8 @@ METHODS: Mapping[str, MethodSpec] = types.MappingProxyType({s.name: s for s in _
 _ALL_PARAMS = frozenset().union(*(s.accepts for s in _SPECS))
 
 REMOVED_METHODS: Mapping[str, str] = types.MappingProxyType({
-    "simlr_lbfgsb": "was dropped per empirical decision rule R5; use 'simlr' (default optimizer 'hybrid_adam').",
+    "simlr_lbfgsb": ("in 0.6.0; it was not competitive with 'hybrid_adam' on the default-selection "
+                     "benchmark (docs/tracking_amigo.md, D5). Use 'simlr' (default optimizer 'hybrid_adam')."),
 })
 
 

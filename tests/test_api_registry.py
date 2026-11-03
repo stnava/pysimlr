@@ -78,7 +78,7 @@ def test_only_registered_names_resolve_and_unknown_names_list_the_registry():
     for removed in ("linear", "shared_private", "flow_simr_v", "nsaflow"):
         with pytest.raises(ValueError, match="registered"):
             api.resolve_method(removed)
-    with pytest.raises(ValueError, match="was dropped per empirical decision rule R5; use 'simlr'"):
+    with pytest.raises(ValueError, match="in 0.6.0; it was not competitive.*Use 'simlr'"):
         api.resolve_method("simlr_lbfgsb")
     with pytest.raises(ValueError, match="registered"):
         api.resolve_method("nope")
@@ -128,7 +128,7 @@ def test_a_parameter_for_another_method_is_recorded_and_warned():
 
 
 def test_removed_method_simlr_lbfgsb_raises_on_fit():
-    with pytest.raises(ValueError, match="was dropped per empirical decision rule R5; use 'simlr'"):
+    with pytest.raises(ValueError, match="in 0.6.0; it was not competitive.*Use 'simlr'"):
         pysimlr.fit("simlr_lbfgsb", _views(), k=K)
 
 

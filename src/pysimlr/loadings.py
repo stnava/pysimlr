@@ -50,9 +50,7 @@ These are point estimates. ``U`` was fitted on the same rows, which inflates
 and claims therefore come from `loading_inference`, which refits the whole
 pipeline.
 """
-import concurrent.futures
-import os
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 import torch
@@ -164,87 +162,17 @@ def _procrustes(a: np.ndarray, ref: np.ndarray) -> np.ndarray:
     return uu @ vh
 
 
-def _resolve_n_jobs(n_jobs: int) -> int:
-    """Resolve n_jobs into an effective number of worker processes."""
-    n_jobs = int(n_jobs)
-    if n_jobs == 0:
-        raise ValueError("n_jobs == 0 has no meaning; use 1 for serial or -1 for all CPUs.")
-    if n_jobs < 0:
-        cpus = os.cpu_count() or 1
-        resolved = cpus + 1 + n_jobs
-        return max(1, resolved)
-    return n_jobs
-
-
-def _subsample_worker(args: Tuple[Any, ...]) -> Tuple[np.ndarray, List[np.ndarray]]:
-    """Worker for a single subsample refit in `loading_inference`."""
-    views_np, idx, method, k, random_state, stacked_ref, qs, params = args
-    from .api import fit
-    sub = [torch.from_numpy(x[idx]) for x in views_np]
-    r = fit(method, sub, k, random_state=random_state, **params)
-    st = np.vstack([c.double().numpy() for c in r["structure"]])
-    al = st @ _procrustes(st, stacked_ref)
-    chosen = []
-    for vi, c in enumerate(r["structure"]):
-        h = (c.double() ** 2).sum(1).numpy()
-        s = np.zeros(h.shape[0], bool)
-        s[np.argsort(-h)[:qs[vi]]] = True
-        chosen.append(s)
-    return al, chosen
-
-
-def _perm_worker(args: Tuple[Any, ...]) -> float:
-    """Worker for a single permutation refit in `loading_inference`."""
-    views_np, perm_draw, method, k, random_state, params = args
-    from .api import fit
-    perm = [torch.from_numpy(views_np[0])] + [
-        torch.from_numpy(x[p]) for x, p in zip(views_np[1:], perm_draw)
-    ]
-    r = fit(method, perm, k, random_state=random_state, **params)
-    return max(float(c.abs().max()) for c in r["structure"])
-
-
 def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 100,
                       fraction: float = 0.5, threshold: float = 0.8,
                       expected_false: float = 1.0,
-                      n_permutations: int = 0, random_state: int = 0,
-                      n_jobs: int = 1,
-                      **params: Any) -> Dict[str, Any]:
+                      n_permutations: int = 0, random_state: int = 0, n_jobs: int = 1,
+                      _executor: Any = None, **params: Any) -> Dict[str, Any]:
     r"""Uncertainty and selection for `structure`, by refitting the whole pipeline.
 
     Each of ``n_subsamples`` refits uses a random ``fraction`` of the rows
     (without replacement). Its structure coefficients are rotated onto the
     reference fit's (orthogonal Procrustes on all views stacked), since the
     latent space fixes components only up to rotation.
-
-    Parameters
-    ----------
-    method : str
-        The fitting method (e.g. ``"simlr"``, ``"lend"``, ``"ned"``).
-    views : Any
-        Sequence of view matrices.
-    k : int
-        Latent rank.
-    n_subsamples : int, default=100
-        Number of subsample refits.
-    fraction : float, default=0.5
-        Fraction of rows drawn per subsample (without replacement).
-    threshold : float, default=0.8
-        Selection frequency threshold in stability selection.
-    expected_false : float, default=1.0
-        Tolerated expected false selections per view.
-    n_permutations : int, default=0
-        Number of permutation null fits for max |structure|.
-    random_state : int, default=0
-        Random seed for reproducibility.
-    n_jobs : int, default=1
-        Number of parallel worker processes to use for refits via
-        `concurrent.futures.ProcessPoolExecutor`. If 1 (default), refits run
-        serially in the parent process. Subsample indices are drawn in the
-        parent process beforehand, ensuring parallel runs produce results
-        exactly bit-identical to serial runs.
-    **params : Any
-        Additional parameters passed to `fit`.
 
     Returns
     -------
@@ -265,6 +193,13 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         rows of every view but the first permuted independently, i.e. no
         shared signal).
 
+    Speed. ``n_jobs`` runs the refits (and permutation fits) in worker
+    processes (``-1``: all cores). All subsample indices are drawn in the parent
+    in a fixed order, so the result does not depend on ``n_jobs``. Each refit
+    tunes its own learning rate; reusing the reference fit's instead was
+    measured and rejected: 1.3x faster, but it moved an under-identified
+    component's stability by 0.18 (``docs/audit/evidence/select_rank_speed.csv``).
+
     ``q_m``, the number of features each refit selects in view ``m``, is set
     from the tolerated number of false selections (``expected_false``, per
     view) by inverting the bound: ``q_m = floor(sqrt(expected_false *
@@ -277,56 +212,37 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         raise ValueError(f"fraction must be in (0, 1); got {fraction}.")
     if not 0.5 < threshold <= 1.0:
         raise ValueError(f"threshold must be in (0.5, 1]; got {threshold}.")
-    if expected_false <= 0:
-        raise ValueError(f"expected_false must be positive; got {expected_false}.")
-    effective_n_jobs = _resolve_n_jobs(n_jobs)
     view_list = as_views(views)
     n = view_list[0].shape[0]
     rng = np.random.default_rng(random_state)
     ref = fit(method, view_list, k, random_state=random_state, **params)
     c_ref = [c.double().numpy() for c in ref["structure"]]
     stacked_ref = np.vstack(c_ref)
+    if expected_false <= 0:
+        raise ValueError(f"expected_false must be positive; got {expected_false}.")
     qs = [max(1, min(c.shape[0], int(np.floor(np.sqrt(expected_false * (2 * threshold - 1) * c.shape[0])))))
           for c in c_ref]
     sizes = np.cumsum([0] + [c.shape[0] for c in c_ref])
+    aligned, chosen = [], [[] for _ in c_ref]
     m = max(k + 2, int(round(fraction * n)))
-
-    # Deterministically pre-draw all subsample and permutation indices in the parent process
-    sub_indices = [
-        np.sort(rng.choice(n, m, replace=False))
-        for _ in range(int(n_subsamples))
-    ]
-    if n_permutations > 0:
-        perm_draws = [
-            [rng.permutation(n) for _ in view_list[1:]]
-            for _ in range(int(n_permutations))
-        ]
-    else:
-        perm_draws = []
-
-    views_np = [x.numpy() for x in view_list]
-    sub_tasks = [
-        (views_np, idx, method, k, random_state, stacked_ref, qs, params)
-        for idx in sub_indices
-    ]
-    perm_tasks = [
-        (views_np, p_draw, method, k, random_state, params)
-        for p_draw in perm_draws
-    ]
-
-    total_tasks = len(sub_tasks) + len(perm_tasks)
-    max_workers = min(effective_n_jobs, max(1, total_tasks))
-
-    if effective_n_jobs > 1 and total_tasks > 0:
-        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-            sub_results = list(executor.map(_subsample_worker, sub_tasks)) if sub_tasks else []
-            null = list(executor.map(_perm_worker, perm_tasks)) if perm_tasks else []
-    else:
-        sub_results = [_subsample_worker(t) for t in sub_tasks]
-        null = [_perm_worker(t) for t in perm_tasks]
-
-    aligned = [res[0] for res in sub_results]
-    chosen = [[res[1][vi] for res in sub_results] for vi in range(len(c_ref))]
+    refit_params = dict(params)
+    # Draw every index in the parent, in a fixed order, before any refit runs:
+    # the result is then the same for every n_jobs.
+    sub_idx = [np.sort(rng.choice(n, m, replace=False)) for _ in range(int(n_subsamples))]
+    perm_idx = [[rng.permutation(n) for _ in view_list[1:]] for _ in range(int(n_permutations))]
+    tasks = [(method, [x[torch.as_tensor(idx)] for x in view_list], k, random_state, refit_params)
+             for idx in sub_idx]
+    tasks += [(method, [view_list[0]] + [x[torch.as_tensor(pi)] for x, pi in zip(view_list[1:], pis)],
+               k, random_state, refit_params) for pis in perm_idx]
+    structures = _run_fits(tasks, n_jobs, _executor)
+    for st_list in structures[:len(sub_idx)]:
+        st = np.vstack(st_list)
+        aligned.append(st @ _procrustes(st, stacked_ref))
+        for vi, c in enumerate(st_list):
+            h = (c ** 2).sum(1)
+            sel = np.zeros(h.shape[0], bool)
+            sel[np.argsort(-h)[:qs[vi]]] = True
+            chosen[vi].append(sel)
     al = np.stack(aligned)                      # (B, p_total, k)
     lo, hi = np.percentile(al, 2.5, axis=0), np.percentile(al, 97.5, axis=0)
     out = {"result": ref, "structure": ref["structure"], "ci_low": [], "ci_high": [],
@@ -346,14 +262,54 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         out["selected"].append(torch.as_tensor(freq >= threshold))
         out["expected_false_selections"].append(qs[vi] ** 2 / ((2 * threshold - 1) * c.shape[0]))
     if n_permutations > 0:
+        null = [max(float(np.abs(c).max()) for c in st_list)
+                for st_list in structures[len(sub_idx):]]
         out["null_max_abs"] = float(np.percentile(null, 95))
     return out
 
 
+def _fit_structure(task):
+    """One refit, returning its structure coefficients as float64 arrays.
+    Module level so worker processes can import it."""
+    from .api import fit
+    method, views, k, random_state, params = task
+    r = fit(method, views, k, random_state=random_state, **params)
+    return [c.double().numpy() for c in r["structure"]]
+
+
+def _worker_init():
+    torch.set_num_threads(1)
+
+
+def _n_workers(n_jobs: int) -> int:
+    import os
+    if n_jobs is None or n_jobs == 0 or n_jobs < -1:
+        raise ValueError(f"n_jobs must be a positive integer or -1; got {n_jobs}.")
+    return (os.cpu_count() or 1) if n_jobs == -1 else int(n_jobs)
+
+
+def _pool(workers: int):
+    from concurrent.futures import ProcessPoolExecutor
+    return ProcessPoolExecutor(max_workers=workers, initializer=_worker_init)
+
+
+def _run_fits(tasks, n_jobs: int, executor=None):
+    """Run `_fit_structure` over ``tasks`` serially or in worker processes,
+    returning results in task order. A caller-owned ``executor`` is reused
+    (`select_rank` shares one across candidates: worker start-up, which
+    imports torch and pysimlr, was a large share of the time)."""
+    workers = min(_n_workers(n_jobs), len(tasks))
+    if executor is not None:
+        return list(executor.map(_fit_structure, tasks))
+    if workers <= 1:
+        return [_fit_structure(t) for t in tasks]
+    with _pool(workers) as ex:
+        return list(ex.map(_fit_structure, tasks))
+
+
 def select_rank(method: str, views: Any, ks: Sequence[int], *, n_subsamples: int = 20,
                 fraction: float = 0.5, min_stability: float = 0.9, random_state: int = 0,
-                n_jobs: int = 1,
-                **params: Any) -> Dict[str, Any]:
+                n_jobs: int = 1, **params: Any) -> Dict[str, Any]:
     """Choose ``k`` by component stability under whole-pipeline refits.
 
     For every ``k`` in ``ks``, `loading_inference` refits ``method`` on
@@ -365,43 +321,32 @@ def select_rank(method: str, views: Any, ks: Sequence[int], *, n_subsamples: int
     stability-based model selection (Ben-Hur et al. 2002; Lange et al. 2004)
     applied to the latent components.
 
-    Parameters
-    ----------
-    method : str
-        Method name passed to `fit`.
-    views : Any
-        Sequence of view matrices.
-    ks : Sequence[int]
-        Candidate rank dimensions to evaluate.
-    n_subsamples : int, default=20
-        Number of subsample refits per candidate rank.
-    fraction : float, default=0.5
-        Fraction of rows drawn per subsample.
-    min_stability : float, default=0.9
-        Threshold on median component correlation to declare a component stable.
-    random_state : int, default=0
-        Random seed for reproducibility.
-    n_jobs : int, default=1
-        Number of parallel worker processes to use for refits. Forwarded to
-        `loading_inference`.
-    **params : Any
-        Additional parameters passed to `fit`.
-
     Returns
     -------
     dict
         ``k``: the largest candidate whose every component has stability
         >= ``min_stability``, or ``None`` if no candidate does; ``table``: one
         row per candidate with ``k``, ``component_stability`` (length k),
-        ``min_stability`` and ``all_stable``.
+        ``min_stability`` and ``all_stable``. ``n_jobs`` is as in
+        `loading_inference`; one worker pool serves every candidate.
     """
-    _resolve_n_jobs(n_jobs)
+    import contextlib
     rows = []
-    for k in sorted(int(x) for x in ks):
-        inf = loading_inference(method, views, k, n_subsamples=n_subsamples, fraction=fraction,
-                                random_state=random_state, n_jobs=n_jobs, **params)
-        cs = np.nanmedian(np.asarray(inf["component_stability"], float), axis=0)
-        rows.append({"k": k, "component_stability": [float(x) for x in cs],
-                     "min_stability": float(np.min(cs)), "all_stable": bool(np.all(cs >= min_stability))})
+    workers = _n_workers(n_jobs)
+    with (_pool(workers) if workers > 1 else contextlib.nullcontext()) as ex:
+        for k in sorted(int(x) for x in ks):
+            rows.append(_rank_row(method, views, k, n_subsamples, fraction, min_stability,
+                                  random_state, n_jobs, ex, params))
     stable = [r["k"] for r in rows if r["all_stable"]]
     return {"k": max(stable) if stable else None, "table": rows}
+
+
+def _rank_row(method, views, k, n_subsamples, fraction, min_stability, random_state,
+              n_jobs, executor, params):
+    """One `select_rank` table row: component stability at rank ``k``."""
+    inf = loading_inference(method, views, k, n_subsamples=n_subsamples, fraction=fraction,
+                            random_state=random_state, n_jobs=n_jobs, _executor=executor,
+                            **params)
+    cs = np.nanmedian(np.asarray(inf["component_stability"], float), axis=0)
+    return {"k": k, "component_stability": [float(x) for x in cs],
+            "min_stability": float(np.min(cs)), "all_stable": bool(np.all(cs >= min_stability))}

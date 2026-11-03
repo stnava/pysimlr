@@ -10,7 +10,7 @@ $$
 
 Holding this linear input boundary fixed, `pysimlr` provides three interchangeable cross-modal alignment topologies:
 
-1. **Linear Consensus (`simlr`)**: Alternating optimization of the feature dictionaries $\{\mathbf{V}_m\}_{m=1}^M$ via `nsa_flow` (`L-BFGS-B`, `L-BFGS`, `Lookahead`, or `LARS`) and a shared orthonormal subject embedding $\mathbf{U} \in \operatorname{St}(N, k)$ via Sylvester-differentiable polar decomposition and within-view similarity graphs $\mathbf{S}_m$.
+1. **Linear Consensus (`simlr`)**: Alternating optimization of the feature dictionaries $\{\mathbf{V}_m\}_{m=1}^M$ via `nsa_flow` (optimizer `hybrid_adam` by default; `adam`, `nadam`, `lookahead`, `lars` and others are available) and a shared orthonormal subject embedding $\mathbf{U} \in \operatorname{St}(N, k)$ via Sylvester-differentiable polar decomposition and within-view similarity graphs $\mathbf{S}_m$.
 2. **Linear Entrypoint with Non-Linear Decoders (`lend_simr` / `LEND`, `ned_simr` / `NED`, `ned_simr_shared_private` / `NEDPP`)**: Couples linear `nsa_flow`-regularized encoders $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ with modality-specific multilayer perceptron decoders $g_{\phi_m}(\mathbf{U}) \to \mathbf{X}_m$, capturing curved cross-modal manifolds during training while keeping test-time projection strictly linear.
 3. **Detached-Prior Normalizing Flows (`flow_simr_v` / `Flow-SiMR-V`, `flow_simr`)**: Routes the linear projections $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ through invertible RealNVP affine coupling flows $f_{\psi_m} : \mathbb{R}^k \to \mathbb{R}^k$ with detached Gaussian prior gradients ($\operatorname{sg}(\mathbf{X}_m \mathbf{V}_m)$) to prevent rectangular subspace collapse and support exact conditional cross-view imputation (`FlowConditionalInference`).
 
@@ -174,7 +174,7 @@ make clean
 
 ### Repository Structure
 
-* `src/pysimlr/`: Core package (`api.py` -- the method registry, `fit` and `predict`; `simlr.py`, `deep.py`, `flows.py`, `sparsification.py`, `optimizers.py`, `sklearn.py`, `interpretability.py`, `consensus.py`, `benchmarks/`). The interface contract is in `docs/api_contract.md`.
+* `src/pysimlr/`: Core package (`api.py` -- the method registry, `fit` and `predict`; `simlr.py`, `deep.py`, `flows.py`, `sparsification.py`, `optimizers.py`, `sklearn.py`, `interpretability.py`, `consensus.py`, `benchmarks/`). The interface contract is in `docs/api_contract.md`; practical fitting and interpretation notes are in `docs/usage_notes.md`.
 * `tests/`: Unit, statistical calibration, optimizer correctness, and end-to-end tests.
 * `paper/`: Quarto book manuscript (`index.qmd`, `01_intro_background.qmd`, `02_methods.qmd`, `03_experiments.qmd`, `04_discussion.qmd`, `appendix_*.qmd`, `references.bib`, and cached empirical tables in `paper/results_cache/`).
 * `docs/`: Quarto tutorials (`docs/*.qmd`) and rendered manuscript (`docs/manuscript/`).
