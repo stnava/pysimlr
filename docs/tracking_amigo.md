@@ -275,8 +275,22 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
     - `src/pysimlr/api.py`: Removed `simlr_lbfgsb` from registered specs and presets. Added to `REMOVED_METHODS` raising `ValueError` directing users to `'simlr'` with default optimizer `'hybrid_adam'`.
     - `src/pysimlr/optimizers.py`: Removed `NSALBFGSB` class and `nsa_lbfgsb` from optimizer registry. Added to `REMOVED_OPTIMIZERS`. Updated `LEARNING_RATE_FREE_OPTIMIZERS = frozenset()`.
     - Migrated tests and documentation across test suite, scripts, and contract docs.
-- **D6. NED rounding sensitivity** (`_ROUNDING_UNSTABLE`): find the first epoch where the
-  trajectories diverge, and the operation that causes it.
+- **D6. NED rounding sensitivity (Decision Rule R6, WP-8).** Evaluated float32 training divergence
+  under $10^{-8}$ Gaussian input noise using `scripts/ned_rounding.py` across data seeds {42, 2, 1}
+  × model initialization seeds {0, 42} at 100 epochs (evidence: `docs/audit/evidence/ned_rounding.csv`).
+  - *Divergence onset and continuous amplification*:
+    - Across tested cells, Euclidean parameter distance grows continuously from initial $d(1) \approx 6.6\times 10^{-7} - 4.2\times 10^{-5}$ to macroscopic values (e.g. $e^* = 27$ with $d(27) = 1.18\times 10^{-2}$ and final $d(100) = 0.257$ on data 42 / model 0; $e^* = 37$ with $d(37) = 1.03\times 10^{-2}$ on data 2 / model 0; $e^* = 75$ with $d(75) = 1.46\times 10^{-2}$ on data 2 / model 42).
+    - Relative amplification factors reach $10^3\times - 2.57\times 10^7\times$.
+    - Empirical Lyapunov exponent $\lambda \in [0.0005, 0.2693]/\text{epoch}$ (mean $\lambda = 0.1004/\text{epoch}$, doubling time $2.57 - 17.7$ epochs on diverging cells).
+  - *Candidate operation instrumentation*:
+    - *Candidate 1 (Consensus sign alignment)*: 0 sign mismatches across all runs up to $e^*$ (`(sgn1 != sgn2).sum() == 0`).
+    - *Candidate 2 (Top-k / quantile sparsity ties)*: 0 mask differences across all views and epochs (`torch.equal(mask1, mask2)` is True). Quantile boundary tie gap $\min |V_{(n_{keep})} - V_{(n_{keep}+1)}| \ge 6.87\times 10^{-5} \gg 10^{-8}$.
+    - *Candidate 3 (Best-epoch selection)*: Both runs selected identical best epochs at and preceding $e^*$ (loss differences $< 3\times 10^{-4}$); no early-stopping bifurcation occurred.
+    - *Candidate 4 (Gradient clipping)*: 0 clipping threshold discrepancies across all batches (no batch had $g_{norm,1} > 1.0 \ne g_{norm,2} > 1.0$).
+  - *Decision Rule R6 evaluation*:
+    - Condition: If divergence is a discrete tie-break that can be deterministically resolved to $< 10^{-4}$ in parameters with the suite green, implement it and remove `ned` from `_ROUNDING_UNSTABLE` (Branch A); otherwise document the measured amplification and keep `ned` listed (Branch B).
+    - Measured outcome: 0 of 4 discrete candidates exhibited tie-breaks. Parameter distance reaches $\approx 1.5\times 10^{-2} - 0.257 \gg 10^{-4}$ driven by continuous float32 gradient amplification through nonlinear MLP decoders during Adam optimization.
+    - *Verdict*: **Branch B selected**. `ned` remains listed in `_ROUNDING_UNSTABLE` in `tests/test_api_registry.py`.
 - **T2. Change requested in ANTsTorch** (a different repository, not edited from here):
   - Make `create_real_nvp_normalizing_flow_model` a lazy (PEP 562) export of
     `antstorch/__init__.py`, so importing it does not load ITK/ANTsPy/matplotlib (~2.6 s).
