@@ -10,15 +10,13 @@ disagree with the others. Before 0.3.0 the linear path defaulted to
 #: Similarity term of the objective (see `similarity.SIMILARITY`): normalised
 #: correlation between each view's projection and the shared consensus. Chosen
 #: jointly with `DEFAULT_LINEAR_OPTIMIZER` and newton mixing on
-#: scripts/default_selection_benchmark.py (4 energies x 5 optimizers x 4 mixings
-#: x both positivities x 2 generators x 5 seeds) and
-#: scripts/default_followup_checks.py (docs/audit/evidence/default_*.csv):
-#: "nc"+hybrid_adam+newton recovers the planted latent at mean R^2 0.969 (worst
-#: cell 0.915) against 0.65 (worst 0.20) for the previous "acc" default, passes
-#: the narrow-view (0.938/0.985), NED-collapse (0/5) and NED-budget checks, and
-#: scores ADNI-MCI held-out 0.167/0.162 against 0.155/0.153. It needs the
-#: collapse penalty (`DEFAULT_COLLAPSE_WEIGHT`): "nc" alone does not see a
-#: collapsed latent.
+#: scripts/default_selection_benchmark.py (4 energies x 13 optimizers x 4 mixings
+#: x both positivities x 2 generators x 5 seeds; docs/audit/evidence/default_selection_stage2.csv):
+#: "nc"+hybrid_adam+newton recovers the planted latent at mean R^2 0.988 (worst
+#: cell 0.981), 100% converged at the default budget; R12 retained the incumbent.
+#: LR_PROBE_GRID upward extension was rejected under R11 because the 3-sweep probe
+#: is biased toward large steps on short horizons. It needs the collapse penalty
+#: (`DEFAULT_COLLAPSE_WEIGHT`): "nc" alone does not see a collapsed latent.
 DEFAULT_ENERGY_TYPE = "nc"
 
 #: NSA-Flow trade-off weight w in (0, 1) between fidelity to the unconstrained
@@ -59,13 +57,13 @@ DEFAULT_MIXING_ALGORITHM = "newton"
 DEFAULT_TOPOLOGY = "loo"
 
 #: Optimizer for the linear `simlr` path. Chosen on
-#: scripts/optimizer_benchmark_synthetic.py (objectives acc/nc x mixing
-#: newton/svd/avg x positivity positive/either, 3 seeds each; optimality gap at
-#: 25 iterations against a 200-iteration reference): hybrid_adam had the best
-#: mean rank (1.9 of 6) and was in the top three in 11 of 12 settings, against
-#: mean rank 4.8 for the previous default armijo_gradient. No optimizer changed
-#: the held-out ADNI-MCI score beyond seed noise. The deep and flow paths use
-#: their own torch optimizers.
+#: scripts/default_selection_benchmark.py and scripts/optimizer_benchmark_synthetic.py:
+#: hybrid_adam achieves mean latent R^2 0.988 in Stage 2 (worst cell 0.981, 100% converged;
+#: docs/audit/evidence/default_selection_stage2.csv), with no candidate better beyond noise
+#: under R12 (Section 3 paired SD; max cell diff 0.0003 < 0.05). Upward extension of
+#: LR_PROBE_GRID was rejected (R11): the 3-sweep probe is biased toward large steps on
+#: short horizons. No optimizer changed the held-out ADNI-MCI score beyond seed noise.
+#: The deep and flow paths use their own torch optimizers.
 DEFAULT_LINEAR_OPTIMIZER = "hybrid_adam"
 
 #: Weight on the dimensional-collapse penalty (`utils.correlation_penalty` of

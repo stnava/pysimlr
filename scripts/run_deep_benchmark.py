@@ -579,10 +579,10 @@ def run_deep_consistency(
             for seed in range(42, 42 + n_seeds):
                 tasks.append((reg, "synthetic", model_type, model_label, seed, None, epochs, 0.5, "default"))
 
-    print(f"Running Deep Consistency Evaluation: {len(tasks)} tasks at epochs={epochs}...", flush=True)
-    df = _execute_tasks(tasks, workers=workers, label=f"Deep Consistency (epochs={epochs})")
+    print(f"Running Deep Consistency Evaluation: {len(tasks)} tasks (epochs: {epochs})...", flush=True)
+    df = _execute_tasks(tasks, workers=workers, label=f"Deep Consistency (epochs: {epochs})")
 
-    print(f"\n=== Deep Consistency Convergence Summary (epochs={epochs}) ===")
+    print(f"\n=== Deep Consistency Convergence Summary (epochs: {epochs}) ===")
     summary = df.groupby("Method")["converged"].agg(["count", "mean"])
     print(summary)
 
@@ -591,13 +591,13 @@ def run_deep_consistency(
     for model_type, model_label in deep_models:
         fam_conv = df[df["Method"] == model_type]["converged"].mean()
         if fam_conv < 0.9:
-            print(f"[R13 Trigger] Family {model_type} convergence {fam_conv:.2f} < 0.9 at epochs={epochs}. Re-running at epochs=150...")
+            print(f"[R13 Trigger] Family {model_type} convergence {fam_conv:.2f} < 0.9 (epochs: {epochs}). Re-running at epochs: 150...")
             for reg in synthetic_regimes:
                 for seed in range(42, 42 + n_seeds):
                     rerun_tasks.append((reg, "synthetic", model_type, model_label, seed, None, 150, 0.5, "default"))
 
     if rerun_tasks:
-        df_rerun = _execute_tasks(rerun_tasks, workers=workers, label="Deep Consistency R13 Re-run (epochs=150)")
+        df_rerun = _execute_tasks(rerun_tasks, workers=workers, label="Deep Consistency R13 Re-run (epochs: 150)")
         rerun_methods = set(t[2] for t in rerun_tasks)
         df = pd.concat([df[~df["Method"].isin(rerun_methods)], df_rerun], ignore_index=True)
         print("\n=== Post-R13 Deep Consistency Convergence Summary ===")

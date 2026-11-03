@@ -218,7 +218,12 @@ def evaluate_r12(df_stage2):
     ok = df_stage2[df_stage2["error"].isna()].copy()
     incumbent = ("nc", "hybrid_adam", "newton")
 
-    # Group by combination (energy, optimizer, mixing)
+    inc_grp = ok[(ok["energy"] == incumbent[0]) & (ok["optimizer"] == incumbent[1]) & (ok["mixing"] == incumbent[2])]
+    inc_indexed = inc_grp.set_index(["positivity", "generator", "seed"])
+    inc_r2 = inc_indexed["latent_r2"]
+    inc_loadings = inc_indexed["loadings_support"]
+    inc_cells = inc_grp.groupby(["positivity", "generator"])["latent_r2"].mean()
+
     combos = ok.groupby(["energy", "optimizer", "mixing"])
     summary = []
 
@@ -230,6 +235,25 @@ def evaluate_r12(df_stage2):
         mean_loadings = float(grp["loadings_support"].mean())
         med_sec = float(grp["seconds"].median())
 
+        grp_indexed = grp.set_index(["positivity", "generator", "seed"])
+        common = inc_indexed.index.intersection(grp_indexed.index)
+        cand_r2 = grp_indexed.loc[common, "latent_r2"]
+        cand_loadings = grp_indexed.loc[common, "loadings_support"]
+
+        diff_r2 = cand_r2 - inc_r2.loc[common]
+        paired_diff_mean = float(diff_r2.mean())
+        paired_diff_sd = float(diff_r2.std(ddof=1)) if len(diff_r2) >= 2 else 0.0
+        better_beyond_noise = (len(diff_r2) >= 2) and (paired_diff_mean > paired_diff_sd)
+
+        cell_diffs = cells - inc_cells
+        max_cell_diff = float(cell_diffs.max())
+
+        diff_loadings = cand_loadings - inc_loadings.loc[common]
+        mean_loadings_diff = float(diff_loadings.mean())
+        sd_loadings_diff = float(diff_loadings.std(ddof=1)) if len(diff_loadings) >= 2 else 0.0
+        loadings_worse = (mean_loadings_diff < -sd_loadings_diff) or (float(diff_loadings.min()) < -0.10)
+        loadings_non_inferior = not loadings_worse
+
         summary.append({
             "energy": energy,
             "optimizer": opt,
@@ -238,6 +262,11 @@ def evaluate_r12(df_stage2):
             "mean_r2": mean_r2,
             "worst_cell": worst_cell,
             "loadings_support": mean_loadings,
+            "paired_diff_mean": paired_diff_mean,
+            "paired_diff_sd": paired_diff_sd,
+            "better_beyond_noise": better_beyond_noise,
+            "max_cell_diff": max_cell_diff,
+            "loadings_non_inferior": loadings_non_inferior,
             "median_seconds": med_sec,
             "is_incumbent": (energy, opt, mixing) == incumbent,
         })
@@ -245,41 +274,20 @@ def evaluate_r12(df_stage2):
     s_df = pd.DataFrame(summary)
     inc_row = s_df[s_df["is_incumbent"]].iloc[0]
 
-    print("\n=== Stage 2 Summary ===")
-    print(s_df.sort_values("mean_r2", ascending=False).to_string(index=False))
+    print("\n=== Literal Section 3 R12 Stage 2 Table ===")
+    cols_display = ["energy", "optimizer", "mixing", "conv_rate", "mean_r2", "worst_cell",
+                    "paired_diff_mean", "paired_diff_sd", "max_cell_diff", "loadings_support", "median_seconds"]
+    print(s_df.sort_values("mean_r2", ascending=False)[cols_display].to_string(index=False))
 
-    # Check incumbent criteria
-    # 1. converges at >= 0.9
     inc_conv_ok = inc_row["conv_rate"] >= 0.9
-
-    # Paired comparisons against incumbent across common cells (positivity, generator, seed)
-    inc_grp = ok[(ok["energy"] == incumbent[0]) & (ok["optimizer"] == incumbent[1]) & (ok["mixing"] == incumbent[2])]
-    inc_indexed = inc_grp.set_index(["positivity", "generator", "seed"])["latent_r2"]
-
-    better_beyond_noise = []
-    cell_exceeds_05 = []
-
-    for _, cand in s_df[~s_df["is_incumbent"]].iterrows():
-        cand_key = (cand["energy"], cand["optimizer"], cand["mixing"])
-        cand_grp = ok[(ok["energy"] == cand_key[0]) & (ok["optimizer"] == cand_key[1]) & (ok["mixing"] == cand_key[2])]
-        cand_indexed = cand_grp.set_index(["positivity", "generator", "seed"])["latent_r2"]
-        common = inc_indexed.index.intersection(cand_indexed.index)
-        paired_diff = (cand_indexed.loc[common] - inc_indexed.loc[common]).mean()
-        if paired_diff > 0.02:
-            better_beyond_noise.append((cand_key, paired_diff))
-
-        # Check cell difference
-        cand_cells = cand_grp.groupby(["positivity", "generator"])["latent_r2"].mean()
-        inc_cells = inc_grp.groupby(["positivity", "generator"])["latent_r2"].mean()
-        for cell_idx in inc_cells.index:
-            if cand_cells.loc[cell_idx] - inc_cells.loc[cell_idx] > 0.05:
-                cell_exceeds_05.append((cand_key, cell_idx, float(cand_cells.loc[cell_idx] - inc_cells.loc[cell_idx])))
+    better_cands = s_df[~s_df["is_incumbent"] & s_df["better_beyond_noise"]]
+    cell_guard_fails = s_df[~s_df["is_incumbent"] & (s_df["max_cell_diff"] > 0.05)]
 
     print(f"\nIncumbent convergence: {inc_row['conv_rate']:.3f} (>= 0.9: {inc_conv_ok})")
-    print(f"Candidates better beyond noise (>0.02): {better_beyond_noise}")
-    print(f"Candidates with any cell >0.05 above incumbent: {cell_exceeds_05}")
+    print(f"Candidates better beyond noise (mean_diff > SD_diff): {len(better_cands)}")
+    print(f"Candidates where incumbent is > 0.05 below on any cell: {len(cell_guard_fails)}")
 
-    if inc_conv_ok and not better_beyond_noise and not cell_exceeds_05:
+    if inc_conv_ok and better_cands.empty and cell_guard_fails.empty:
         print("\n=> R12 DECISION: Incumbent STAYS.")
         return incumbent, "incumbent_retained", s_df
     else:
@@ -356,14 +364,28 @@ def main():
             raise FileNotFoundError(f"Stage 1 CSV not found at {stage1_path}. Run --stage1 first.")
         df_s1 = pd.read_csv(stage1_path)
         
-        # Drop combinations with convergence rate < 0.9
+        # Drop combinations with convergence rate < 0.9 and R11 boundary excluded pairs
         combo_cols = ["energy", "optimizer", "mixing"]
-        ok_s1 = df_s1[df_s1["error"].isna()]
-        conv_rates = ok_s1.groupby(combo_cols)["converged"].mean()
+        ok_s1 = df_s1[df_s1["error"].isna()].copy()
+
+        # Identify R11 excluded pairs (>= 25% boundary fits at 1.0 or 0.001)
+        excluded_pairs = []
+        for (opt, energy), grp in ok_s1.groupby(["optimizer", "energy"]):
+            n = len(grp)
+            up = (grp["learning_rate"] == 1.0).sum() / n
+            low = (grp["learning_rate"] == 0.001).sum() / n
+            if up >= 0.25 or low >= 0.25:
+                excluded_pairs.append((opt, energy))
+
+        cand_pool = ok_s1.copy()
+        for opt, energy in excluded_pairs:
+            cand_pool = cand_pool[~((cand_pool["optimizer"] == opt) & (cand_pool["energy"] == energy))]
+
+        conv_rates = cand_pool.groupby(combo_cols)["converged"].mean()
         valid_combos = conv_rates[conv_rates >= 0.9].index.tolist()
 
-        # Compute mean latent R^2 across cells
-        cell_means = ok_s1.groupby(combo_cols + ["positivity", "generator"])["latent_r2"].mean().unstack(["positivity", "generator"])
+        # Compute mean latent R^2 across cells for valid non-excluded combinations
+        cell_means = cand_pool.groupby(combo_cols + ["positivity", "generator"])["latent_r2"].mean().unstack(["positivity", "generator"])
         mean_over_cells = cell_means.mean(axis=1)
         mean_over_cells_valid = mean_over_cells.loc[mean_over_cells.index.isin(valid_combos)]
         top8 = mean_over_cells_valid.sort_values(ascending=False).head(8).index.tolist()

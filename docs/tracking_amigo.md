@@ -247,6 +247,24 @@ stable on the planted case (span instability 0.030 → 0.161). The loadings are 
   Evidence: `docs/audit/evidence/select_rank_speed.csv` (ks=[2, 3], 20 subsamples, 12 cores).
   Measured: ADNI-MCI speedup 97.8 s -> 17.2 s (5.7x); synthetic 24.2 s -> 6.4 s (3.8x). Output is bit-identical to serial on both.
   Learning-rate reuse in refits was measured and rejected: while it sped up synthetic fits 24.5 s -> 18.9 s (1.3x), it moved an under-identified component's stability by 0.18 (0.913 -> 0.735, failing the 0.03 limit).
+- **S4. Opt-in nc_ridge (Decision Rule R8).** Status: **COMPLETE** (outcome: **SHIPS OPT-IN ONLY; NC REMAINS DEFAULT**).
+  Evidence: `docs/audit/evidence/nc_ridge.csv` (180 rows across 20 default cells at default budget; 20 nc baseline rows reused from `view_weighting_selection.csv` [source=708c9c6]).
+  Registered in `similarity.SIMILARITY` with fixed lambda=0.5 and needs_data=True. Rejects deep and flow paths with ValueError; remains non-scale-free under view rescaling. Added `loadings_support_auc` with Hungarian matching in `scripts/optimizer_benchmark_synthetic.py`.
+  Loadings support on 20 default cells:
+  - Matched loadings support (AUROC on signed cells, F1 on positive cells): nc 0.8296 vs nc_ridge 0.8254 (diff -0.0042).
+  - Matched support F1: nc 0.6136 vs nc_ridge 0.6114 (diff -0.0023).
+  - Latent R2: mean nc 0.9883 vs nc_ridge 0.9832 (diff -0.0051, worst cell -0.0250).
+  - V instability: mean nc 0.3128 vs nc_ridge 0.1051 (diff -0.2077).
+  Both arms 100% converged (20/20). Per Rule R8, nc_ridge ships opt-in only; nc remains package default.
+- **B1. Package-default linear budget in benchmark harnesses.** Status: **COMPLETE**.
+  In `default_selection_benchmark.py`, `run_deep_benchmark.py`, and `unified_benchmark.py`, `--iterations` default changed to None, omitting the argument to use package-default sweeps (300 for simlr). Every row records resolved budget, converged, n_steps, and stop_reason. Captured kwargs tested via unit test in `tests/test_benchmark_budget_default.py`.
+- **B2. Linear defaults at the default budget (Decision Rules R11, R12).** Status: **COMPLETE** (outcome: **INCUMBENT DEFAULTS RETAINED: NC / HYBRID_ADAM / NEWTON**).
+  Evidence: `docs/audit/evidence/default_selection_stage1.csv` (1664 rows) and `docs/audit/evidence/default_selection_stage2.csv` (180 rows).
+  - Stage 1: 4 energies x 13 optimizers x 4 mixings x 2 positivities x 2 generators x seeds 0-1 (1664 fits at shipped base probe grid). 150 fits have latent R2 <= 0.05, of which 145/150 are converged (primarily exp [80] and logcosh [50] converging to solutions with no latent recovery in those cells, not unadapted baselines).
+  - Decision Rule R11: 25 (optimizer, energy) pairs exhibited >= 25% boundary fits on the base grid (1.0 or 0.001). Upward extension of LR_PROBE_GRID was evaluated and rejected: the 3-sweep probe is biased toward large steps on short horizons (at buried/positive/seed 0, incumbent hybrid_adam chose lr=3.0 and dropped to R2=0.846 vs >= 0.974 for alternatives). Package LR_PROBE_GRID remains strictly (1.0, 0.3, 0.1, 0.03, 0.01, 0.003, 0.001). All 25 boundary pairs are excluded from Stage 2.
+  - Stage 2: Top 8 valid non-excluded combinations (conv_rate >= 0.9) plus incumbent (nc, hybrid_adam, newton), evaluated across seeds 0-4 (reusing Stage-1 seeds 0-1), totaling 180 fits.
+  - Decision Rule R12: Incumbent achieved 100% convergence (1.000 >= 0.9), mean latent R2 0.9883, worst cell 0.9808, loadings support 0.7740. No candidate is better beyond noise on paired latent R2 (all paired diff means <= -0.0006, against required mean_diff > SD_diff). No candidate exceeds the incumbent by > 0.05 on any cell (max cell diff 0.0003 < 0.05).
+  - Verdict: Incumbent defaults stay: DEFAULT_ENERGY_TYPE = "nc", DEFAULT_LINEAR_OPTIMIZER = "hybrid_adam", DEFAULT_MIXING_ALGORITHM = "newton".
 - **D5. simlr_lbfgsb calibration vs drop (Decision Rule R5, WP-7).** Executed 3×3 proximal
   hyperparameter grid search using `scripts/lbfgsb_calibration.py` (evidence:
   `docs/audit/evidence/lbfgsb_calibration.csv`):
