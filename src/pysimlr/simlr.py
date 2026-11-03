@@ -2041,7 +2041,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # every later reconstruction was zero without any sign of failure.
         w_mats.append(torch.linalg.pinv(u_i) @ x)
 
-    return {
+    _result = {
         "u": u, "u_per_modality": u_per_modality, "v": v_mats, "w": w_mats, "energy": energy_history,
         # Per-view first-layer projections of the (preprocessed) training
         # data, the same quantity `predict_simlr` returns as "latents".
@@ -2084,6 +2084,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "mai": mai_ema.detach().cpu().numpy(),
         **basis_rank_report(v_mats, k),
     }
+    if not _probe_only:
+        from .utils import warn_if_unconverged
+        warn_if_unconverged(_result["convergence"], "simlr")
+    return _result
 
 
 def pairwise_matrix_similarity(mat_list: List[torch.Tensor], v_list: List[torch.Tensor]) -> Dict[str, float]:

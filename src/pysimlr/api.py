@@ -223,6 +223,8 @@ def nsa_pipeline(data_matrices, k: int, nsa_w: float = DEFAULT_NSA_W, consolidat
         "n_steps": getattr(est, "n_iter_", None), "max_steps": None, "tol": None,
         "patience": None, "best": float("nan"), "final": float("nan")}
     res["estimator"] = est
+    from .utils import warn_if_unconverged
+    warn_if_unconverged(res["convergence"], "nsa_pipeline")
     return res
 
 

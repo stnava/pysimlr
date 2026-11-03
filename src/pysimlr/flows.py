@@ -599,6 +599,8 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
             stabilization_start_epoch=stabilization_start_epoch,
             stabilization_ramp_epochs=stabilization_ramp_epochs, tol=tol, patience=patience,
             collapse_threshold=collapse_threshold)
+        from .utils import warn_if_unconverged
+        warn_if_unconverged(conv_report, model_type)
         model.eval()
         with torch.no_grad():
             v_mats, retraction_diagnostics = None, None

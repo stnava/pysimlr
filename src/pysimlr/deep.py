@@ -1557,6 +1557,8 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
             stabilization_start_epoch=stabilization_start_epoch,
             stabilization_ramp_epochs=stabilization_ramp_epochs,
             freeze_private_epochs=freeze_private_epochs, collapse_threshold=collapse_threshold)
+        from .utils import warn_if_unconverged
+        warn_if_unconverged(conv_report, model_type)
         model.eval()
         with torch.no_grad():
             eval_mats = [m.to(device) for m in torch_mats]
