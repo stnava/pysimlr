@@ -1,6 +1,6 @@
 # Tracking Summary
-current phase: v0.5.0 released from `main` (`793ab7f` plus usage notes `a5732bd`). Work continues on branch `amigo` (tracked in `docs/tracking_amigo.md`).
-next WP: on `amigo`, phase C corrections (C2-C5), then the collapse threshold (P1), the small items (S1-S4), benchmark readiness (B1-B4), tracking and paper (D1-D2). Merge `amigo` to `main` after phase C.
+current phase: v0.6.0 released from `main` (merge of `amigo` at `03886cb`). Work continues on `amigo` (tracked in `docs/tracking_amigo.md`).
+next WP: on `amigo`, C5 (NED epoch-0 gap), then the collapse threshold (P1), the small items (S1-S4), benchmark readiness (B1-B4), tracking and paper (D1-D2).
 blockers: none
 active work: `amigo` (handoff spec `/tmp/amigo_handoff_v3.md`); the owner's uncommitted paper and manuscript edits in the main working tree
 device: Apple Silicon (macOS 27 arm64), CPU only; venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
@@ -11,6 +11,32 @@ last updated: 2026-11-02
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D12 (v0.6.0 release: `amigo` WP-2..WP-8 and phase C corrections, 2026-11-02)
+status: done (merge of `amigo` at `03886cb` into `main`; this release commit)
+- **Removed:** the `simlr_lbfgsb` method and the `nsa_lbfgsb` optimizer, along with their
+  oracle plumbing. They were not competitive with `hybrid_adam`: on the 12-cell grid, no prox
+  setting was non-inferior (rule R5, `f8db84b`, `75077c5`). Both names raise errors naming the
+  replacement and the release.
+- **Diagnostics with evidence** (in `docs/tracking_amigo.md`; scripts under `scripts/`, CSVs
+  under `docs/audit/evidence/`):
+  - **Linear narrow-view collapse:** a step-size basin. The lowest-energy unpenalised fit is not
+    collapsed. Collapse weight 1.0 kept, on the score-correlation criterion (R2; `9c3279d`,
+    corrected `8a6d595`).
+  - **Deep collapse:** 7/20 collapse without the penalty, 0/20 with it, onset after warmup.
+    Collapsed fits have worse similarity. Penalty kept (R3; `0d98ff2`, evaluator fixed
+    `489e0fd`).
+  - **Correlated factors:** newton decorrelates consensus scores; `avg` keeps correlation,
+    saturating near 0.30 on partly unconverged fits. D3 open (R4; `b1a1afe`, `992b143`,
+    `03886cb`).
+  - **NED rounding:** continuous float32 amplification. No discrete tie-break found, so `ned`
+    stays rounding-unstable (R6; `ae61cf0`).
+- **Release fixes:**
+  - the removal messages give the correct release (0.6.0 for `nsa_lbfgsb`) and no internal
+    rule IDs;
+  - the README optimizer list is corrected;
+  - the usage notes are updated (removals; the correlated-factor caveat).
+- **Verification:** see the release commit body.
 
 ## D11 (v0.5.0 release: `amigo` milestones 0-1 and usage notes, 2026-11-02)
 status: done (`main` fast-forwarded to `793ab7f`; usage notes `a5732bd`; this release commit)

@@ -138,15 +138,16 @@ per view, in the training standardisation.
 - **Correlated factors are not represented as such.**
   - With the default `newton` mixing, consensus scores are decorrelated. The shared *subspace* is
     recovered, but correlated factor axes are not.
-  - `mixing_algorithm="avg"` keeps factor correlation, but only up to about 0.30: the collapse
-    penalty's threshold (`DEFAULT_COLLAPSE_THRESHOLD = 0.3`) clips stronger correlation. Treat
-    recovered score correlations above that as censored.
+  - `mixing_algorithm="avg"` keeps factor correlation. In one benchmark, the recovered
+    correlation saturated near the collapse threshold (`DEFAULT_COLLAPSE_THRESHOLD = 0.3`), but
+    part of that evidence came from unconverged fits, and it is under evaluation. Until then,
+    treat recovered score correlations near or above 0.3 with caution.
 - **The collapse penalty.** It prevents components collapsing onto each other on narrow views,
   but on such views it also costs similarity. Whether its threshold is right is under evaluation.
 - **The default combination** of energy, optimizer and mixing is being re-confirmed at the full
   iteration budget. The current choice comes from a 25-iteration benchmark.
-- **The `simlr_lbfgsb` method and the `nsa_lbfgsb` optimizer** are scheduled for removal: they
-  were not competitive with `hybrid_adam`. Do not build on them.
+- **Removed in 0.6.0:** the `simlr_lbfgsb` method and the `nsa_lbfgsb` optimizer. They were not
+  competitive with `hybrid_adam`, and using either name raises an error pointing to `simlr`.
 - **NED (`ned`) is sensitive to input rounding.** Inputs differing by 1e-8 give measurably
   different fits, because float32 training amplifies the difference. Compare NED fits across
   seeds, not across tiny input changes.

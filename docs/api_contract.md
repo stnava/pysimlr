@@ -201,7 +201,7 @@ method. All parameters are explicit, so `clone`, `get_params` and `GridSearchCV`
 `SiMLREstimator`, `SiMLR`, `SiMLRTransformer`, `LENDTransformer`, `NEDTransformer` and
 `FlowSiMLRTransformer` were removed in 0.3.0.
 
-## Removed since 0.3.0 (in 0.4.0 or 0.5.0; no aliases; each raises or is gone)
+## Removed since 0.3.0 (in 0.4.0, 0.5.0 or 0.6.0; no aliases; each raises or is gone)
 
 - Method-name aliases (`linear`, `shared_private`, `nedpp`, `flow_simr_v`, `nsaflow`, ...):
   use the registered names above.
@@ -213,7 +213,7 @@ method. All parameters are explicit, so `clone`, `get_params` and `GridSearchCV`
   identity by 3.2 in simulation). Use ANTsTorch directly once that is fixed.
 - Energies `regression`, `gauss`, `normalized_correlation` raise naming the replacement
   (`recon_r2` linear / `align` deep, `exp`, `nc`); `recon` is refused as a linear objective.
-- Optimizers `torch_lbfgs`, `nsa_flow`, and `nsa_lbfgsb`, and methods `simlr_lbfgs` and `simlr_lbfgsb` (dropped per empirical decision rule R5; use `'simlr'` with default optimizer `'hybrid_adam'`).
+- Optimizers `torch_lbfgs`, `nsa_flow`, and `nsa_lbfgsb`, and methods `simlr_lbfgs` and `simlr_lbfgsb` (`nsa_lbfgsb` and `simlr_lbfgsb` in 0.6.0: not competitive with `hybrid_adam`; use `'simlr'` with the default optimizer `'hybrid_adam'`).
 - `simlr(constraint=...)`, `parse_constraint`, `project_gradient` and the 13 constraint type
   strings (`Stiefel`, `Grassmann`, `NewtonSchulz`, `ortho*`, `nsaflow*`): every non-`none` type
   ran the same NSA-Flow retraction. Use `nsa_w` (0 = no orthogonality constraint).
