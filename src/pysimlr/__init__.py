@@ -336,6 +336,10 @@ _LAZY_ATTRS = {
     'plot_view_correlations': 'plotting',
     'plot_latent_recovery': 'plotting',
     'plot_benchmark': 'plotting',
+    'plot_view_chord': 'plotting',
+    'plot_component_radar': 'plotting',
+    'plot_view_radar': 'plotting',
+    'plot_feature_chord': 'plotting',
     # scipy and pandas: ~0.2 s each, needed only by these.
     'sparse_distance_matrix': 'sparse',
     'sparse_distance_matrix_xy': 'sparse',
