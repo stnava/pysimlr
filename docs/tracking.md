@@ -1,6 +1,6 @@
 # Tracking Summary
-current phase: v0.7.0 released from `main` (parallel refits, `collapse_threshold` parameter). Work continues on `amigo` (tracked in `docs/tracking_amigo.md`).
-next WP: on `amigo`, P1-fix and merge of `main`, then S3-S4 (whitener check, `nc_ridge`), benchmark readiness (B1-B4), tracking and paper (D1-D2).
+current phase: v0.8.0 released from `main` (88ecbf8 + release commit). The paper (D2) continues on `amigo-paper`; the visualization spec is next on `main`.
+next WP: visualization spec (docs: vvv.md request; P0-P2 plus interpretable-feature plots) in `pysimlr.plotting`; D2 paper on `amigo-paper` after merging `main`.
 blockers: none
 active work: `amigo` (handoff spec `/tmp/amigo_handoff_v3.md`); the owner's uncommitted paper and manuscript edits in the main working tree
 device: Apple Silicon (macOS 27 arm64), CPU only; venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
@@ -11,6 +11,33 @@ last updated: 2026-11-02
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D14 (v0.8.0 release, 2026-11-03)
+status: done (this release commit; `main` at 88ecbf8 before it)
+- **Breaking:**
+  - `energy_type="negentropy"` is refused (use `negentropy_weight`);
+  - `fused_ridge` is one multi-task GLM (`groups=` strata or `thresholds=`, the ANTsR model;
+    gaussian, binomial and poisson; covariates; `top_k`);
+  - `pysimlr.viz`, `pysimlr.visualization` and `pysimlr.benchmarks.plotting` are removed in
+    favour of `pysimlr.plotting` (interpretation plots, none of `v`), with the diagrams in
+    `pysimlr.diagrams`.
+- **Fixes:**
+  - `similarity._std` now has a relative floor; the absolute 1e-6 floor had broken `align`,
+    `logcosh`, `exp`, `kurtosis` and `negentropy` at simlr's internal scale (`18db280`);
+  - `structure` is exactly corr(X, u R) under every mixing (`ae5eb07`);
+  - a sweep in which every view's line search fails now reduces the learning rate 10x and
+    retries instead of stopping with `no_descent`. On an 80-subject case 3/10 fits converged
+    before and 10/10 after; default cells and ADNI are unchanged (`60ba439`).
+- **Defaults:** `DEFAULT_DEEP_ITERATIONS = 300` for every deep and flow fit (`80f9536`);
+  `collapse_threshold` is a fit parameter (v0.7.0).
+- **Convergence:** `pysimlr.ConvergenceWarning` on every unconverged fit (`d357e2f`).
+- **From `amigo`:**
+  - B2 re-run at the shipped probe grid and after the `_std` fix: the defaults stay
+    `nc`/`hybrid_adam`/`newton` (mean latent R^2 0.988, 100% converged);
+  - the R10 whitener evidence;
+  - the benchmark readiness statement: READY for linear and deep;
+  - opt-in `nc_ridge`, and the D1 tracking.
+- **Verification:** see the release commit body.
 
 ## D13 (v0.7.0 release: parallel refits and `collapse_threshold`, 2026-11-02)
 status: done (`4a29d74`, `364dc67`; this release commit)
