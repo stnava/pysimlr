@@ -61,6 +61,7 @@ import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from pysimlr.plotting import theme, VIEW_COLORS
 
 csv_path = "results_cache/ablation_w_sweep.csv"
 if not os.path.exists(csv_path):
@@ -68,45 +69,52 @@ if not os.path.exists(csv_path):
 
 df_w = pd.read_csv(csv_path)
 
-fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(13.5, 4.0), dpi=300)
-plt.subplots_adjust(wspace=0.58)
+with theme():
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(13.5, 4.0), dpi=300)
+    plt.subplots_adjust(wspace=0.58)
 
-# Panel A: Synthetic F1 and Defect D
-ax1_t = ax1.twinx()
-l1 = ax1.plot(df_w["w"], df_w["Synth_Support_F1"], "o-", color="#0284c7", lw=2.0, markersize=5.5, label="Support F1 ↑")
-l2 = ax1_t.plot(df_w["w"], df_w["Synth_Defect_D"], "s--", color="#dc2626", lw=1.8, markersize=5.0, label="Defect D(V) ↓")
-ax1_t.set_yscale("log")
-ax1.axvline(0.50, color="#64748b", linestyle=":", lw=1.2)
-ax1.set_xlabel("Orthogonality Weight w", fontsize=9.0, weight="bold")
-ax1.set_ylabel("Support Recovery F1 (↑)", fontsize=8.8, weight="bold", color="#0284c7", labelpad=2)
-ax1_t.set_ylabel("Synth Defect D(V) (Log ↓)", fontsize=8.6, weight="bold", color="#dc2626", labelpad=3)
-ax1.set_title("A. Synthetic Support vs. D(V)", fontsize=9.5, weight="bold")
-ax1.grid(True, linestyle="--", alpha=0.35)
+    # Panel A: Synthetic F1 and Defect D
+    ax1_t = ax1.twinx()
+    ax1_t.spines["right"].set_visible(True)
+    ax1_t.grid(False)
+    l1 = ax1.plot(df_w["w"], df_w["Synth_Support_F1"], "o-", color=VIEW_COLORS[0], lw=1.8, markersize=5.0, label="Support F1 ↑")
+    l2 = ax1_t.plot(df_w["w"], df_w["Synth_Defect_D"], "s--", color="#e34948", lw=1.6, markersize=4.8, label="Defect D(V) ↓")
+    ax1_t.set_yscale("log")
+    ax1.axvline(0.50, color="#898781", linestyle=":", lw=1.1)
+    ax1.set_xlabel("Orthogonality Weight w")
+    ax1.set_ylabel("Support Recovery F1 (↑)", color=VIEW_COLORS[0], labelpad=2)
+    ax1_t.set_ylabel("Synth Defect D(V) (Log ↓)", color="#e34948", labelpad=3)
+    ax1.set_title("A. Synthetic Support vs. D(V)")
+    ax1.grid(True)
 
-# Panel B: ADNI Defect D and Effective Rank
-ax2_t = ax2.twinx()
-l3 = ax2.plot(df_w["w"], df_w["ADNI_Defect_D"], "s-", color="#dc2626", lw=2.0, markersize=5.5, label="ADNI D(V) ↓")
-l4 = ax2_t.plot(df_w["w"], df_w["ADNI_EffRank"], "^--", color="#0d9488", lw=1.8, markersize=5.5, label="EffRank ↑")
-ax2.set_yscale("log")
-ax2.axvline(0.50, color="#64748b", linestyle=":", lw=1.2)
-ax2.set_xlabel("Orthogonality Weight w", fontsize=9.0, weight="bold")
-ax2.set_ylabel("ADNI Defect D(V) (Log ↓)", fontsize=8.6, weight="bold", color="#dc2626", labelpad=2)
-ax2_t.set_ylabel("Effective Rank (Max 3.0 ↑)", fontsize=8.6, weight="bold", color="#0d9488", labelpad=3)
-ax2.set_title("B. ADNI Conditioning & Rank", fontsize=9.5, weight="bold")
-ax2.grid(True, linestyle="--", alpha=0.35)
+    # Panel B: ADNI Defect D and Effective Rank
+    ax2_t = ax2.twinx()
+    ax2_t.spines["right"].set_visible(True)
+    ax2_t.grid(False)
+    l3 = ax2.plot(df_w["w"], df_w["ADNI_Defect_D"], "s-", color="#e34948", lw=1.8, markersize=5.0, label="ADNI D(V) ↓")
+    l4 = ax2_t.plot(df_w["w"], df_w["ADNI_EffRank"], "^--", color=VIEW_COLORS[2], lw=1.6, markersize=5.0, label="EffRank ↑")
+    ax2.set_yscale("log")
+    ax2.axvline(0.50, color="#898781", linestyle=":", lw=1.1)
+    ax2.set_xlabel("Orthogonality Weight w")
+    ax2.set_ylabel("ADNI Defect D(V) (Log ↓)", color="#e34948", labelpad=2)
+    ax2_t.set_ylabel("Effective Rank (Max 3.0 ↑)", color=VIEW_COLORS[2], labelpad=3)
+    ax2.set_title("B. ADNI Conditioning & Rank")
+    ax2.grid(True)
 
-# Panel C: ADNI CogPC1 R2 and Sparsity
-ax3_t = ax3.twinx()
-l5 = ax3.plot(df_w["w"], df_w["ADNI_CogPC1_R2"], "o-", color="#059669", lw=2.0, markersize=5.5, label="CogPC1 R² ↑")
-l6 = ax3_t.plot(df_w["w"], df_w["ADNI_Sparsity_v2_k"] * 100.0, "d--", color="#7c3aed", lw=1.8, markersize=5.0, label="Sparsity v₂..ₖ % ↑")
-ax3.axvline(0.50, color="#64748b", linestyle=":", lw=1.2)
-ax3.set_xlabel("Orthogonality Weight w", fontsize=9.0, weight="bold")
-ax3.set_ylabel("ADNI MRI→CogPC1 R² (↑)", fontsize=8.6, weight="bold", color="#059669", labelpad=2)
-ax3_t.set_ylabel("Cortical Sparsity v₂..ₖ % (↑)", fontsize=8.6, weight="bold", color="#7c3aed", labelpad=3)
-ax3.set_title("C. ADNI Stability Plateau", fontsize=9.5, weight="bold")
-ax3.grid(True, linestyle="--", alpha=0.35)
+    # Panel C: ADNI CogPC1 R2 and Sparsity
+    ax3_t = ax3.twinx()
+    ax3_t.spines["right"].set_visible(True)
+    ax3_t.grid(False)
+    l5 = ax3.plot(df_w["w"], df_w["ADNI_CogPC1_R2"], "o-", color=VIEW_COLORS[2], lw=1.8, markersize=5.0, label="CogPC1 R² ↑")
+    l6 = ax3_t.plot(df_w["w"], df_w["ADNI_Sparsity_v2_k"] * 100.0, "d--", color=VIEW_COLORS[6], lw=1.6, markersize=4.8, label="Sparsity v₂..ₖ % ↑")
+    ax3.axvline(0.50, color="#898781", linestyle=":", lw=1.1)
+    ax3.set_xlabel("Orthogonality Weight w")
+    ax3.set_ylabel("ADNI MRI→CogPC1 R² (↑)", color=VIEW_COLORS[2], labelpad=2)
+    ax3_t.set_ylabel("Cortical Sparsity v₂..ₖ % (↑)", color=VIEW_COLORS[6], labelpad=3)
+    ax3.set_title("C. ADNI Stability Plateau")
+    ax3.grid(True)
 
-plt.show()
+    plt.show()
 ```
 
 ## Preprocessing Controls: Subject Row-Mean Removal, ICA Initialization, and Orthogonal Varimax Rotation
@@ -163,24 +171,15 @@ import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from pysimlr.plotting import theme, VIEW_COLORS
 
 csv_k = "results_cache/ablation_k_sparsity_sweep.csv"
 if not os.path.exists(csv_k):
     csv_k = "paper/results_cache/ablation_k_sparsity_sweep.csv"
 df_k = pd.read_csv(csv_k)
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.8, 4.1), dpi=300, constrained_layout=True)
-
-# Panel A: Component 1 vs Components 2..k Sparsity across 5 regimes
-regimes = [
-    "Col + PCA\n(varimax=F)",
-    "Col + Varimax\n(q = None)",
-    "Row + PCA\n(q = None)",
-    "Row + ICA\n(q = None)",
-    "Col, q = 0.80\n(default varimax)"
-]
 # Bar heights from the caches: DKT (view 2) loadings of each regime.
-import json, numpy as np
+import json
 _fl_path = "results_cache/adni_mci_feature_loadings.json"
 if not os.path.exists(_fl_path):
     _fl_path = "paper/results_cache/adni_mci_feature_loadings.json"
@@ -204,40 +203,51 @@ for i, m in enumerate(_mats):
     else:          # q = 0.80: all three MRI views
         v1_sp.append(100 * _q80["sparsity_v1"]); v2k_sp.append(100 * _q80["sparsity_v2_k"])
 
-x = np.arange(len(regimes))
-w = 0.36
-b1 = ax1.bar(x - w/2, v1_sp, w, label="Component 1 (v₁ Sparsity %)", color="#0284c7", edgecolor="#0f172a", lw=0.7)
-b2 = ax1.bar(x + w/2, v2k_sp, w, label="Components 2..k (v₂..ₖ Sparsity %)", color="#0d9488", edgecolor="#0f172a", lw=0.7)
+regimes = [
+    "Col + PCA\n(varimax=F)",
+    "Col + Varimax\n(q = None)",
+    "Row + PCA\n(q = None)",
+    "Row + ICA\n(q = None)",
+    "Col, q = 0.80\n(default varimax)"
+]
 
-for bars in (b1, b2):
-    for bar in bars:
-        h = bar.get_height()
-        ax1.text(bar.get_x() + bar.get_width()/2, h + 1.4, f"{h:.1f}%", ha="center", va="bottom", fontsize=7.0, weight="bold")
+with theme():
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.8, 4.1), dpi=300, constrained_layout=True)
 
-ax1.set_xticks(x)
-ax1.set_xticklabels(regimes, fontsize=8.3, weight="bold")
-ax1.set_ylim(0, 105)
-ax1.set_ylabel("Cortical Basis Sparsity % (↑)", fontsize=9.2, weight="bold")
-ax1.set_title("A. Component 1 vs. Components 2..k Sparsity", fontsize=9.8, weight="bold")
-ax1.grid(True, axis="y", linestyle="--", alpha=0.35)
-ax1.legend(loc="upper left", fontsize=8.2, frameon=True)
+    x = np.arange(len(regimes))
+    w = 0.36
+    b1 = ax1.bar(x - w/2, v1_sp, w, label="Component 1 (v₁ Sparsity %)", color=VIEW_COLORS[0])
+    b2 = ax1.bar(x + w/2, v2k_sp, w, label="Components 2..k (v₂..ₖ Sparsity %)", color=VIEW_COLORS[2])
 
-# Panel B: Latent Rank k Sweep
-for prep_lbl, col, mk in [("Col-Centered (PCA Init)", "#0284c7", "o-"), ("Row-Centered (ICA Init)", "#059669", "s--")]:
-    sub_k = df_k[df_k["Regime"] == prep_lbl]
-    ax2.plot(sub_k["k"], sub_k["Sparsity_All"] * 100.0, mk, color=col, lw=2.1, markersize=6.5, label=f"{prep_lbl} All v₁..ₖ")
-    ax2.plot(sub_k["k"], sub_k["Sparsity_v2_k"] * 100.0, ":", color=col, lw=1.7, markersize=5.0, label=f"{prep_lbl} v₂..ₖ Only")
+    for bars in (b1, b2):
+        for bar in bars:
+            h = bar.get_height()
+            ax1.text(bar.get_x() + bar.get_width()/2, h + 1.4, f"{h:.1f}%", ha="center", va="bottom", fontsize=7.0, color="#52514e")
 
-ax2.set_xticks([2, 3, 5, 8, 12])
-ax2.set_xticklabels(["k=2", "k=3", "k=5", "k=8", "k=12"], fontsize=8.5, weight="bold")
-ax2.set_ylim(0, 100)
-ax2.set_xlabel("Latent Embedding Rank k", fontsize=9.2, weight="bold")
-ax2.set_ylabel("Unthresholded Sparsity % (↑)", fontsize=9.2, weight="bold")
-ax2.set_title("B. Natural Non-Negative Sparsity vs. Rank k", fontsize=9.8, weight="bold")
-ax2.grid(True, linestyle="--", alpha=0.35)
-ax2.legend(loc="lower right", fontsize=7.8, frameon=True)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(regimes, fontsize=8.3)
+    ax1.set_ylim(0, 105)
+    ax1.set_ylabel("Cortical Basis Sparsity % (↑)")
+    ax1.set_title("A. Component 1 vs. Components 2..k Sparsity")
+    ax1.grid(True, axis="y")
+    ax1.legend(loc="upper left", fontsize=8.0)
 
-plt.show()
+    # Panel B: Latent Rank k Sweep
+    for prep_lbl, col, mk in [("Col-Centered (PCA Init)", VIEW_COLORS[0], "o-"), ("Row-Centered (ICA Init)", VIEW_COLORS[2], "s--")]:
+        sub_k = df_k[df_k["Regime"] == prep_lbl]
+        ax2.plot(sub_k["k"], sub_k["Sparsity_All"] * 100.0, mk, color=col, lw=1.9, markersize=6.0, label=f"{prep_lbl} All v₁..ₖ")
+        ax2.plot(sub_k["k"], sub_k["Sparsity_v2_k"] * 100.0, ":", color=col, lw=1.6, markersize=4.8, label=f"{prep_lbl} v₂..ₖ Only")
+
+    ax2.set_xticks([2, 3, 5, 8, 12])
+    ax2.set_xticklabels(["k=2", "k=3", "k=5", "k=8", "k=12"], fontsize=8.5)
+    ax2.set_ylim(0, 100)
+    ax2.set_xlabel("Latent Embedding Rank k")
+    ax2.set_ylabel("Unthresholded Sparsity % (↑)")
+    ax2.set_title("B. Natural Non-Negative Sparsity vs. Rank k")
+    ax2.grid(True)
+    ax2.legend(loc="lower right", fontsize=7.8)
+
+    plt.show()
 ```
 
 ## Fine-Grained Quantile Sparsity ($q \in [\text{None}, 0.90]$) and `ADNI-MCI` Sweep Summary
@@ -379,6 +389,7 @@ import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from pysimlr.plotting import theme, VIEW_COLORS
 
 csv_path = "results_cache/deep_ranking_benchmark.csv"
 if not os.path.exists(csv_path):
@@ -390,23 +401,24 @@ df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": 
 syn_dsets = ["Linear", "Polynomial", "Sine", "Shared+Private", "NonnegParts", "NonnegPartsWeak"]
 piv_c = df[df["Dataset"].isin(syn_dsets)].pivot_table(index="Dataset", columns="Model", values="CMC_Latent_U", aggfunc="mean").reindex(syn_dsets)
 
-fig, ax = plt.subplots(figsize=(10.5, 3.6), dpi=300)
-x = np.arange(len(syn_dsets))
-w = 0.18
-ax.bar(x - 1.5*w, piv_c["SiMLR"], w, label="SiMLR", color="#0284c7", edgecolor="#0f172a", lw=0.7)
-ax.bar(x - 0.5*w, piv_c["LEND"], w, label="LEND", color="#0d9488", edgecolor="#0f172a", lw=0.7)
-ax.bar(x + 0.5*w, piv_c["Flow-SiMR-V"], w, label="Flow-SiMR-V", color="#7c3aed", edgecolor="#0f172a", lw=0.7)
-ax.bar(x + 1.5*w, piv_c["PCA"], w, label="Dense PCA", color="#94a3b8", edgecolor="#0f172a", lw=0.7)
+with theme():
+    fig, ax = plt.subplots(figsize=(10.5, 3.6), dpi=300)
+    x = np.arange(len(syn_dsets))
+    w = 0.18
+    ax.bar(x - 1.5*w, piv_c["SiMLR"], w, label="SiMLR", color=VIEW_COLORS[0])
+    ax.bar(x - 0.5*w, piv_c["LEND"], w, label="LEND", color=VIEW_COLORS[2])
+    ax.bar(x + 0.5*w, piv_c["Flow-SiMR-V"], w, label="Flow-SiMR-V", color=VIEW_COLORS[6])
+    ax.bar(x + 1.5*w, piv_c["PCA"], w, label="Dense PCA", color="#b7b5ac")
 
-ax.set_xticks(x)
-ax.set_xticklabels(syn_dsets, fontsize=8.8, weight="bold")
-ax.set_ylabel("Latent Manifold CMC (↑)", fontsize=9.5, weight="bold")
-ax.set_title("Ground-Truth Latent Coordinate Recovery Across Six Synthetic Regimes", fontsize=10.2, weight="bold")
-ax.set_ylim(0.0, 1.05)
-ax.grid(True, axis="y", linestyle="--", alpha=0.35)
-ax.legend(loc="upper right", ncol=4, fontsize=8.3, frameon=True)
-plt.tight_layout()
-plt.show()
+    ax.set_xticks(x)
+    ax.set_xticklabels(syn_dsets, fontsize=8.8)
+    ax.set_ylabel("Latent Manifold CMC (↑)")
+    ax.set_title("Ground-Truth Latent Coordinate Recovery Across Six Synthetic Regimes")
+    ax.set_ylim(0.0, 1.08)
+    ax.grid(True, axis="y")
+    ax.legend(loc="upper right", ncol=4, fontsize=8.2)
+    plt.tight_layout()
+    plt.show()
 ```
 
 ```{python}

@@ -76,6 +76,7 @@ import numpy as np
 from sklearn.datasets import load_diabetes
 from sklearn.preprocessing import StandardScaler
 from pysimlr.flows import flow_simr_v
+from pysimlr.plotting import theme, VIEW_COLORS
 
 data = load_diabetes()
 X = StandardScaler().fit_transform(data.data)
@@ -103,18 +104,19 @@ with torch.no_grad():
 true_s5 = test_x[1][:, 4].numpy()
 imputed_s5 = imputed_x2[:, 4].numpy()
 
-plt.figure(figsize=(6, 5))
-plt.scatter(true_s5, imputed_s5, alpha=0.6, color='#1f77b4', edgecolor='k')
-min_val = min(true_s5.min(), imputed_s5.min())
-max_val = max(true_s5.max(), imputed_s5.max())
-plt.plot([min_val, max_val], [min_val, max_val], 'r--', lw=1.5, label='Identity Reference')
-plt.xlabel('True Serum Levels (s5)')
-plt.ylabel('Imputed Serum Levels (s5)')
-plt.title('Conditional Cross-View Imputation (Diabetes Serums)')
-plt.legend()
-plt.grid(True, linestyle=':', alpha=0.6)
-plt.tight_layout()
-plt.show()
+with theme():
+    plt.figure(figsize=(6, 5), dpi=300)
+    plt.scatter(true_s5, imputed_s5, alpha=0.65, color=VIEW_COLORS[0], edgecolor="#fcfcfb", lw=0.6)
+    min_val = min(true_s5.min(), imputed_s5.min())
+    max_val = max(true_s5.max(), imputed_s5.max())
+    plt.plot([min_val, max_val], [min_val, max_val], '--', color="#e34948", lw=1.5, label='Identity Reference')
+    plt.xlabel('True Serum Levels (s5)')
+    plt.ylabel('Imputed Serum Levels (s5)')
+    plt.title('Conditional Cross-View Imputation (Diabetes Serums)')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
 ```
 
 ### Patient-Level Linear Attribution
@@ -135,6 +137,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from pysimlr.flows import flow_simr_v
+from pysimlr.plotting import theme, VIEW_COLORS
 import os
 
 local_heart = '../data/heart_cleveland.csv' if os.path.exists('../data/heart_cleveland.csv') else 'data/heart_cleveland.csv'
@@ -158,15 +161,16 @@ impact = x_sample * load_v1[:, latent_idx]
 feat_names = cols[:4]
 
 idx = np.argsort(np.abs(impact))[::-1]
-plt.figure(figsize=(7, 4.2), dpi=300)
-colors = ['#d62728' if imp > 0 else '#1f77b4' for imp in impact[idx]]
-plt.barh([feat_names[i] for i in idx], impact[idx], color=colors, edgecolor="#0f172a", height=0.58, lw=0.7)
-plt.axvline(0, color='black', lw=0.8)
-plt.title(f'Patient #1 (Flow-SiMR-V): Cardiovascular Attributions (Latent #{latent_idx+1})', weight='bold')
-plt.xlabel('Linear Feature Loading Contribution (x_ij * L_jl)', weight='bold')
-plt.grid(True, linestyle=':', alpha=0.6)
-plt.tight_layout()
-plt.show()
+with theme():
+    plt.figure(figsize=(7, 4.2), dpi=300)
+    colors = ['#e34948' if imp > 0 else VIEW_COLORS[0] for imp in impact[idx]]
+    plt.barh([feat_names[i] for i in idx], impact[idx], color=colors, height=0.58)
+    plt.axvline(0, color='#52514e', lw=0.8)
+    plt.title(f'Patient #1 (Flow-SiMR-V): Cardiovascular Attributions (Latent #{latent_idx+1})')
+    plt.xlabel('Linear Feature Loading Contribution (x_ij * L_jl)')
+    plt.grid(True, axis="x")
+    plt.tight_layout()
+    plt.show()
 ```
 
 ### Latent Trajectory Interpolation
@@ -187,6 +191,7 @@ import numpy as np
 from sklearn.datasets import load_diabetes
 from sklearn.preprocessing import StandardScaler
 from pysimlr.flows import flow_simr_v
+from pysimlr.plotting import theme, VIEW_COLORS
 
 data = load_diabetes()
 X = StandardScaler().fit_transform(data.data)
@@ -215,17 +220,18 @@ bmi_curve = x_path[:, 2].numpy()
 bp_curve = x_path[:, 3].numpy()
 age_curve = x_path[:, 0].numpy()
 
-plt.figure(figsize=(7, 4.4), dpi=300)
-plt.plot(alphas, bmi_curve, 'o-', color='#d62728', lw=2, label='BMI')
-plt.plot(alphas, bp_curve, 's-', color='#1f77b4', lw=2, label='Blood Pressure')
-plt.plot(alphas, age_curve, '^-', color='#2ca02c', lw=2, label='Age')
-plt.xlabel('Latent Trajectory Coordinate (Low-Risk -> High-Risk)', weight='bold')
-plt.ylabel('Attributed Feature Level (Standardized)', weight='bold')
-plt.title('Latent Trajectory Interpolation (Flow-SiMR-V)', weight='bold')
-plt.legend()
-plt.grid(True, linestyle=':', alpha=0.6)
-plt.tight_layout()
-plt.show()
+with theme():
+    plt.figure(figsize=(7, 4.4), dpi=300)
+    plt.plot(alphas, bmi_curve, 'o-', color='#e34948', lw=1.8, label='BMI')
+    plt.plot(alphas, bp_curve, 's-', color=VIEW_COLORS[0], lw=1.8, label='Blood Pressure')
+    plt.plot(alphas, age_curve, '^-', color=VIEW_COLORS[2], lw=1.8, label='Age')
+    plt.xlabel('Latent Trajectory Coordinate (Low-Risk -> High-Risk)')
+    plt.ylabel('Attributed Feature Level (Standardized)')
+    plt.title('Latent Trajectory Interpolation (Flow-SiMR-V)')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
 ```
 
 ---

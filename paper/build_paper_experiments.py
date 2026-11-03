@@ -40,12 +40,10 @@ from sklearn.metrics import r2_score
 from pysimlr import simlr, predict_simlr
 from pysimlr.deep import lend_simr, ned_simr, ned_simr_shared_private, predict_deep
 from pysimlr.benchmarks.synthetic_cases import build_case
-from pysimlr.plotting import plot_view_correlations
+from pysimlr.plotting import plot_view_correlations, theme
 
 # Global plot settings
 plt.rcParams['figure.figsize'] = (10, 6)
-plt.rcParams['axes.titlesize'] = 14
-sns.set_theme(style="whitegrid")
 torch.manual_seed(42)
 np.random.seed(42)
 ```

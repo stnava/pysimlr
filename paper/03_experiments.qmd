@@ -170,6 +170,7 @@ df_main["Model"] = df_main["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flo
 repo_root = os.path.abspath(os.path.join(os.getcwd(), "..")) if "paper" in os.getcwd() else os.getcwd()
 sys.path.insert(0, os.path.join(repo_root, "src"))
 from pysimlr.benchmarks.deep_ranking import build_ranking_blocks, friedman_test, compute_nemenyi_cd, compute_pareto_frontier
+from pysimlr.plotting import theme, VIEW_COLORS
 
 piv_xv, _ = build_ranking_blocks(df_main, metric_col="Strictly_Linear_Metric", floor_threshold=None)
 f_xv = friedman_test(piv_xv.values, higher_is_better=True)
@@ -189,75 +190,77 @@ pareto_df = compute_pareto_frontier(
     maximize=[True, True, True, True, False]
 )
 pareto_set = set(pareto_df[pareto_df["is_pareto_optimal"]]["Model"])
+n_m = len(ranks)
 
-fig, ax = plt.subplots(figsize=(10.5, 3.6), dpi=300)
-ax.set_xlim(0.3, 9.7)
-ax.set_ylim(0.0, 1.25)
-ax.axis("off")
+with theme():
+    fig, ax = plt.subplots(figsize=(10.5, 3.6), dpi=300)
+    ax.set_xlim(0.15, n_m + 0.85)
+    ax.set_ylim(0.0, 1.25)
+    ax.axis("off")
 
-# Number line 1..9
-y_axis = 0.92
-ax.plot([1, 9], [y_axis, y_axis], color="#0f172a", lw=1.8)
-for r_tick in range(1, 10):
-    ax.plot([r_tick, r_tick], [y_axis - 0.035, y_axis + 0.035], color="#0f172a", lw=1.4)
-    ax.text(r_tick, y_axis + 0.06, str(r_tick), ha="center", va="bottom", fontsize=9.5, weight="bold", color="#0f172a")
+    # Number line 1..n_m
+    y_axis = 0.92
+    ax.plot([1, n_m], [y_axis, y_axis], color="#0b0b0b", lw=1.4)
+    for r_tick in range(1, n_m + 1):
+        ax.plot([r_tick, r_tick], [y_axis - 0.035, y_axis + 0.035], color="#0b0b0b", lw=1.1)
+        ax.text(r_tick, y_axis + 0.06, str(r_tick), ha="center", va="bottom", fontsize=9.5, weight="semibold", color="#0b0b0b")
 
-# Nemenyi CD reference bar at top left
-cd_x0 = 1.0
-cd_y = 1.15
-ax.plot([cd_x0, cd_x0 + cd], [cd_y, cd_y], color="#dc2626", lw=2.4)
-ax.plot([cd_x0, cd_x0], [cd_y - 0.03, cd_y + 0.03], color="#dc2626", lw=1.8)
-ax.plot([cd_x0 + cd, cd_x0 + cd], [cd_y - 0.03, cd_y + 0.03], color="#dc2626", lw=1.8)
-ax.text(cd_x0 + cd / 2, cd_y + 0.035, f"Nemenyi CD = {cd:.2f} (α = 0.05)", ha="center", va="bottom", fontsize=9.0, weight="bold", color="#dc2626")
+    # Nemenyi CD reference bar at top left
+    cd_x0 = 1.0
+    cd_y = 1.15
+    ax.plot([cd_x0, cd_x0 + cd], [cd_y, cd_y], color="#e34948", lw=2.2)
+    ax.plot([cd_x0, cd_x0], [cd_y - 0.03, cd_y + 0.03], color="#e34948", lw=1.5)
+    ax.plot([cd_x0 + cd, cd_x0 + cd], [cd_y - 0.03, cd_y + 0.03], color="#e34948", lw=1.5)
+    ax.text(cd_x0 + cd / 2, cd_y + 0.035, f"Nemenyi CD = {cd:.2f} (α = 0.05)", ha="center", va="bottom", fontsize=9.0, weight="semibold", color="#e34948")
 
-# Split models into left (top 5) and right (bottom 4)
-n_left = 5
-left_models = list(ranks.index[:n_left])
-right_models = list(ranks.index[n_left:])
+    # Split models into left and right
+    n_left = (n_m + 1) // 2
+    left_models = list(ranks.index[:n_left])
+    right_models = list(ranks.index[n_left:])
 
-y_positions_left = np.linspace(0.62, 0.10, len(left_models))
-for idx_m, m in enumerate(left_models):
-    r_val = ranks[m]
-    y_m = y_positions_left[idx_m]
-    is_p = m in pareto_set
-    col_m = "#059669" if is_p else "#0f172a"
-    star = " *" if is_p else ""
-    ax.plot([r_val, r_val], [y_axis, y_m], color="#475569", lw=1.1, linestyle="-")
-    ax.plot([r_val, 0.85], [y_m, y_m], color="#475569", lw=1.1, linestyle="-")
-    ax.plot(r_val, y_axis, "o", color=col_m, markersize=6.5)
-    ax.text(0.80, y_m, f"{m}{star} ({r_val:.2f})", ha="right", va="center", fontsize=9.0, weight="bold", color=col_m)
+    y_positions_left = np.linspace(0.60, 0.12, len(left_models))
+    for idx_m, m in enumerate(left_models):
+        r_val = ranks[m]
+        y_m = y_positions_left[idx_m]
+        is_p = m in pareto_set
+        col_m = "#0ca30c" if is_p else "#0b0b0b"
+        star = " *" if is_p else ""
+        ax.plot([r_val, r_val], [y_axis, y_m], color="#898781", lw=0.9, linestyle="-")
+        ax.plot([r_val, 0.85], [y_m, y_m], color="#898781", lw=0.9, linestyle="-")
+        ax.plot(r_val, y_axis, "o", color=col_m, markeredgecolor="#fcfcfb", markeredgewidth=1.2, markersize=7.0)
+        ax.text(0.80, y_m, f"{m}{star} ({r_val:.2f})", ha="right", va="center", fontsize=9.0, weight="semibold", color=col_m)
 
-y_positions_right = np.linspace(0.62, 0.16, len(right_models))
-for idx_m, m in enumerate(right_models):
-    r_val = ranks[m]
-    y_m = y_positions_right[idx_m]
-    is_p = m in pareto_set
-    col_m = "#059669" if is_p else "#0f172a"
-    star = " *" if is_p else ""
-    ax.plot([r_val, r_val], [y_axis, y_m], color="#475569", lw=1.1, linestyle="-")
-    ax.plot([r_val, 9.15], [y_m, y_m], color="#475569", lw=1.1, linestyle="-")
-    ax.plot(r_val, y_axis, "o", color=col_m, markersize=6.5)
-    ax.text(9.20, y_m, f"({r_val:.2f}) {m}{star}", ha="left", va="center", fontsize=9.0, weight="bold", color=col_m)
+    y_positions_right = np.linspace(0.60, 0.18, len(right_models))
+    for idx_m, m in enumerate(right_models):
+        r_val = ranks[m]
+        y_m = y_positions_right[idx_m]
+        is_p = m in pareto_set
+        col_m = "#0ca30c" if is_p else "#0b0b0b"
+        star = " *" if is_p else ""
+        ax.plot([r_val, r_val], [y_axis, y_m], color="#898781", lw=0.9, linestyle="-")
+        ax.plot([r_val, n_m + 0.15], [y_m, y_m], color="#898781", lw=0.9, linestyle="-")
+        ax.plot(r_val, y_axis, "o", color=col_m, markeredgecolor="#fcfcfb", markeredgewidth=1.2, markersize=7.0)
+        ax.text(n_m + 0.20, y_m, f"({r_val:.2f}) {m}{star}", ha="left", va="center", fontsize=9.0, weight="semibold", color=col_m)
 
-# Clique bars
-r_vals = ranks.values
-cliques = []
-for i in range(len(r_vals)):
-    j = i
-    while j + 1 < len(r_vals) and (r_vals[j + 1] - r_vals[i]) <= cd:
-        j += 1
-    if j > i:
-        is_sub = any(c_i <= i and j <= c_j for c_i, c_j in cliques)
-        if not is_sub:
-            cliques.append((i, j))
+    # Clique bars
+    r_vals = ranks.values
+    cliques = []
+    for i in range(len(r_vals)):
+        j = i
+        while j + 1 < len(r_vals) and (r_vals[j + 1] - r_vals[i]) <= cd:
+            j += 1
+        if j > i:
+            is_sub = any(c_i <= i and j <= c_j for c_i, c_j in cliques)
+            if not is_sub:
+                cliques.append((i, j))
 
-clique_y_base = 0.81
-for c_idx, (i, j) in enumerate(cliques):
-    cy = clique_y_base - c_idx * 0.065
-    ax.plot([r_vals[i], r_vals[j]], [cy, cy], color="#1e293b", lw=4.0, solid_capstyle="round")
+    clique_y_base = 0.81
+    for c_idx, (i, j) in enumerate(cliques):
+        cy = clique_y_base - c_idx * 0.065
+        ax.plot([r_vals[i], r_vals[j]], [cy, cy], color="#0b0b0b", lw=3.6, solid_capstyle="round")
 
-plt.tight_layout()
-plt.show()
+    plt.tight_layout()
+    plt.show()
 ```
 
 ```{python}
@@ -283,6 +286,7 @@ df_main["Model"] = df_main["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flo
 repo_root = os.path.abspath(os.path.join(os.getcwd(), "..")) if "paper" in os.getcwd() else os.getcwd()
 sys.path.insert(0, os.path.join(repo_root, "src"))
 from pysimlr.benchmarks.deep_ranking import compute_pareto_frontier
+from pysimlr.plotting import theme, VIEW_COLORS
 
 agg_all = df_main.groupby("Model", as_index=False).agg({
     "Predictive_Metric": "mean",
@@ -298,85 +302,87 @@ p_df = compute_pareto_frontier(
 ).set_index("Model")
 syn_sub = df_main[df_main["Case_Type"] == "synthetic"].groupby("Model")[["CMC_Latent_U", "Support_Recovery_V"]].mean()
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.2, 4.3), dpi=300, constrained_layout=True)
+with theme():
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.2, 4.3), dpi=300, constrained_layout=True)
 
-# Panel A: Consensus U vs Fit_Seconds
-for m, row in p_df.iterrows():
-    is_p = bool(row["is_pareto_optimal"])
-    marker = "*" if is_p else "o"
-    sz = 150 if is_p else 75
-    col = "#059669" if is_p else "#475569"
-    ax1.scatter(row["Fit_Seconds"], row["Predictive_Metric"], marker=marker, s=sz, color=col, edgecolor="#0f172a", lw=0.8, zorder=4)
+    # Panel A: Consensus U vs Fit_Seconds
+    for m, row in p_df.iterrows():
+        is_p = bool(row["is_pareto_optimal"])
+        marker = "*" if is_p else "o"
+        sz = 150 if is_p else 75
+        col = "#0ca30c" if is_p else VIEW_COLORS[0]
+        ax1.scatter(row["Fit_Seconds"], row["Predictive_Metric"], marker=marker, s=sz, color=col, edgecolor="#fcfcfb", lw=1.2, zorder=4)
 
-offsets_a = {
-    "PCA": (-28, -3),
-    "NSAFlow-PCA": (8, 5),
-    "SiMLR": (8, -4),
-    "LEND": (-14, 9),
-    "NED": (-28, -10),
-    "NEDPP": (8, 4),
-    "Flow-SiMR-V": (-62, -14),
-}
-for m, row in p_df.iterrows():
-    dx, dy = offsets_a.get(m, (6, 4))
-    col_t = "#065f46" if row["is_pareto_optimal"] else "#1e293b"
-    ax1.annotate(m, (row["Fit_Seconds"], row["Predictive_Metric"]), xytext=(dx, dy), textcoords="offset points", fontsize=8.2, weight="bold", color=col_t)
+    offsets_a = {
+        "PCA": (-28, -3),
+        "NSAFlow-PCA": (8, 5),
+        "SiMLR": (8, -4),
+        "LEND": (-14, 9),
+        "NED": (-28, -10),
+        "NEDPP": (8, 4),
+        "Flow-SiMR-V": (-62, -14),
+    }
+    for m, row in p_df.iterrows():
+        dx, dy = offsets_a.get(m, (6, 4))
+        col_t = "#0b0b0b" if row["is_pareto_optimal"] else "#52514e"
+        ax1.annotate(m, (row["Fit_Seconds"], row["Predictive_Metric"]), xytext=(dx, dy), textcoords="offset points", fontsize=8.4, weight="semibold", color=col_t)
 
-front_a = p_df.loc[RAW["pareto_2d_models"]]  # 2D speed-accuracy frontier, computed in paper_numbers
-ax1.plot(front_a["Fit_Seconds"], front_a["Predictive_Metric"], "--", color="#059669", lw=1.6, alpha=0.8, label="2D Speed–Accuracy Envelope")
+    front_a = p_df.loc[RAW["pareto_2d_models"]]
+    ax1.plot(front_a["Fit_Seconds"], front_a["Predictive_Metric"], "--", color="#0ca30c", lw=1.6, alpha=0.85, label="2D Speed–Accuracy Envelope")
 
-ax1.set_xscale("log")
-ax1.set_xlim(0.0005, 13.5)
-ax1.set_ylim(0.535, 0.725)
-ax1.set_xlabel("Mean Fit Time in Seconds (Log Scale, ↓ Faster)", fontsize=9.5, weight="bold")
-ax1.set_ylabel("Out-of-Sample Consensus Score (U ↑)", fontsize=9.5, weight="bold")
-ax1.set_title("A. Consensus Accuracy vs. Fit Time", fontsize=10.2, weight="bold")
-ax1.grid(True, linestyle="--", alpha=0.35)
-ax1.legend(loc="lower left", fontsize=8.2, frameon=True)
+    ax1.set_xscale("log")
+    ax1.set_xlim(0.005, 35.0)
+    ax1.set_ylim(0.61, 0.765)
+    ax1.set_xlabel("Mean Fit Time in Seconds (Log Scale, ↓ Faster)")
+    ax1.set_ylabel("Out-of-Sample Consensus Score (U ↑)")
+    ax1.set_title("A. Consensus Accuracy vs. Fit Time")
+    ax1.grid(True)
+    ax1.legend(loc="lower left")
 
-# Panel B: Support F1 vs CMC on Synthetic Regimes
-for m in syn_sub.index:
-    is_p = bool(p_df.loc[m, "is_pareto_optimal"])
-    marker = "*" if is_p else "o"
-    sz = 150 if is_p else 75
-    col = "#059669" if is_p else "#475569"
-    ax2.scatter(syn_sub.loc[m, "CMC_Latent_U"], syn_sub.loc[m, "Support_Recovery_V"], marker=marker, s=sz, color=col, edgecolor="#0f172a", lw=0.8, zorder=4)
+    # Panel B: Support F1 vs CMC on Synthetic Regimes
+    for m in syn_sub.index:
+        is_p = bool(p_df.loc[m, "is_pareto_optimal"])
+        marker = "*" if is_p else "o"
+        sz = 150 if is_p else 75
+        col = "#0ca30c" if is_p else VIEW_COLORS[0]
+        ax2.scatter(syn_sub.loc[m, "CMC_Latent_U"], syn_sub.loc[m, "Support_Recovery_V"], marker=marker, s=sz, color=col, edgecolor="#fcfcfb", lw=1.2, zorder=4)
 
-offsets_b = {
-    "SiMLR": (8, -2),
-    "NSAFlow-PCA": (-48, -15),
-    "LEND": (8, 6),
-    "NED": (-30, -3),
-    "NEDPP": (7, 4),
-    "Flow-SiMR-V": (8, -6),
-    "PCA": (8, 4),
-}
-for m in syn_sub.index:
-    dx, dy = offsets_b.get(m, (6, 4))
-    col_t = "#065f46" if p_df.loc[m, "is_pareto_optimal"] else "#1e293b"
-    ax2.annotate(m, (syn_sub.loc[m, "CMC_Latent_U"], syn_sub.loc[m, "Support_Recovery_V"]), xytext=(dx, dy), textcoords="offset points", fontsize=8.2, weight="bold", color=col_t)
+    offsets_b = {
+        "SiMLR": (8, -2),
+        "NSAFlow-PCA": (-48, -15),
+        "LEND": (8, 6),
+        "NED": (-30, -3),
+        "NEDPP": (7, 4),
+        "Flow-SiMR-V": (8, -6),
+        "PCA": (8, 4),
+    }
+    for m in syn_sub.index:
+        dx, dy = offsets_b.get(m, (6, 4))
+        col_t = "#0b0b0b" if p_df.loc[m, "is_pareto_optimal"] else "#52514e"
+        ax2.annotate(m, (syn_sub.loc[m, "CMC_Latent_U"], syn_sub.loc[m, "Support_Recovery_V"]), xytext=(dx, dy), textcoords="offset points", fontsize=8.4, weight="semibold", color=col_t)
 
-ax2.set_xlim(0.32, 0.95)
-ax2.set_ylim(-0.04, 0.74)
-ax2.set_xlabel("Latent Manifold Recovery on U (CMC ↑)", fontsize=9.5, weight="bold")
-ax2.set_ylabel("Pathway Support Recovery on V (Jaccard F1 ↑)", fontsize=9.5, weight="bold")
-ax2.set_title("B. Sparse Support Recovery vs. Latent Manifold CMC", fontsize=10.2, weight="bold")
-ax2.grid(True, linestyle="--", alpha=0.35)
+    ax2.set_xlim(0.32, 0.95)
+    ax2.set_ylim(-0.04, 0.74)
+    ax2.set_xlabel("Latent Manifold Recovery on U (CMC ↑)")
+    ax2.set_ylabel("Pathway Support Recovery on V (Jaccard F1 ↑)")
+    ax2.set_title("B. Sparse Support Recovery vs. Latent Manifold CMC")
+    ax2.grid(True)
 
-plt.show()
+    plt.show()
 ```
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-three-probes
-#| fig-cap: "Global 12-dataset comparison across the three complementary evaluation probes at the discovery operating point ($q = 0.5$, each cohort weighted equally): Subspace Fidelity (`Ridge(XV)`, blue), Single-Axis Interpretability (`RandomForest(XV)`, teal), and Shared Patient Consensus (`Ridge(U)`, amber). Per-model differences between the Random Forest and linear scores are given in the text."
+#| fig-cap: "Global 12-dataset comparison across the three complementary evaluation probes at the discovery operating point ($q = 0.5$, each cohort weighted equally): Subspace Fidelity (`Ridge(XV)`, blue), Single-Axis Interpretability (`RandomForest(XV)`, orange), and Shared Patient Consensus (`Ridge(U)`, green). Per-model differences between the Random Forest and linear scores are given in the text."
 #| out-width: 100%
 #| echo: false
 import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from pysimlr.plotting import theme, VIEW_COLORS
 
 csv_op = "results_cache/operating_points_05_08_benchmark.csv"
 if not os.path.exists(csv_op):
@@ -390,38 +396,39 @@ piv_probes = sub05.groupby("Model")[["Strictly_Linear_Metric", "Axis_Sensitive_M
 model_order = ["LEND", "Flow-SiMR-V", "SiMLR", "NEDPP", "NED", "NSAFlow-PCA", "PCA"]
 piv_probes = piv_probes.reindex([m for m in model_order if m in piv_probes.index])
 
-fig, ax1 = plt.subplots(figsize=(10.8, 3.9), dpi=300)
+with theme():
+    fig, ax1 = plt.subplots(figsize=(10.8, 3.9), dpi=300)
 
-x = np.arange(len(piv_probes))
-width = 0.26
-b1 = ax1.bar(x - width, piv_probes["Strictly_Linear_Metric"], width, label="1. Subspace Fidelity: Ridge(XV) ↑", color="#0284c7", edgecolor="#0f172a", lw=0.7)
-b2 = ax1.bar(x, piv_probes["Axis_Sensitive_Metric"], width, label="2. Single-Axis Interpretability: RandomForest(XV) ↑", color="#0d9488", edgecolor="#0f172a", lw=0.7)
-b3 = ax1.bar(x + width, piv_probes["Predictive_Metric"], width, label="3. Multi-Modal Consensus: Ridge(U) ↑", color="#d97706", edgecolor="#0f172a", lw=0.7)
+    x = np.arange(len(piv_probes))
+    width = 0.25
+    b1 = ax1.bar(x - width, piv_probes["Strictly_Linear_Metric"], width, label="1. Subspace Fidelity: Ridge(XV) ↑", color=VIEW_COLORS[0])
+    b2 = ax1.bar(x, piv_probes["Axis_Sensitive_Metric"], width, label="2. Single-Axis Interpretability: RandomForest(XV) ↑", color=VIEW_COLORS[1])
+    b3 = ax1.bar(x + width, piv_probes["Predictive_Metric"], width, label="3. Multi-Modal Consensus: Ridge(U) ↑", color=VIEW_COLORS[2])
 
-for bars in (b1, b2, b3):
-    for bar in bars:
-        h = bar.get_height()
-        ax1.text(bar.get_x() + bar.get_width() / 2, h + 0.004, f"{h:.2f}", ha="center", va="bottom", fontsize=7.2, weight="bold", color="#1e293b")
+    for bars in (b1, b2, b3):
+        for bar in bars:
+            h = bar.get_height()
+            ax1.text(bar.get_x() + bar.get_width() / 2, h + 0.004, f"{h:.2f}", ha="center", va="bottom", fontsize=7.5, color="#52514e")
 
-ax1.set_ylabel("Mean Out-of-Sample Score (↑)", fontsize=9.8, weight="bold")
-ax1.set_title("Three-Probe Performance Profile Across 12 Benchmarks (Operating Point q = 0.5)", fontsize=10.5, weight="bold")
-ax1.set_xticks(x)
-ax1.set_xticklabels(piv_probes.index, fontsize=9.0, weight="bold", rotation=15, ha="right")
-ax1.set_ylim(0.50, 0.76)
-ax1.grid(True, axis="y", linestyle="--", alpha=0.35)
-ax1.legend(loc="upper right", frameon=True, fontsize=8.5, ncol=3)
+    ax1.set_ylabel("Mean Out-of-Sample Score (↑)")
+    ax1.set_title("Three-Probe Performance Profile Across 12 Benchmarks (Operating Point q = 0.5)")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(piv_probes.index, rotation=15, ha="right")
+    ax1.set_ylim(0.50, 0.82)
+    ax1.grid(True, axis="y")
+    ax1.legend(loc="upper right", ncol=3)
 
-pca_idx = list(piv_probes.index).index("PCA")
-_drop = piv_probes["Axis_Sensitive_Metric"] - piv_probes["Strictly_Linear_Metric"]
-ax1.annotate(f"PCA axis-mixing drop\n(RF − linear = {_drop['PCA']:+.3f}; SiMLR {_drop['SiMLR']:+.3f})",
-             xy=(pca_idx, piv_probes.loc["PCA", "Axis_Sensitive_Metric"]),
-             xytext=(pca_idx - 2.6, 0.535),
-             arrowprops=dict(arrowstyle="->", color="#dc2626", lw=1.5),
-             fontsize=8.3, weight="bold", color="#dc2626",
-             bbox=dict(boxstyle="round,pad=0.3", fc="#fef2f2", ec="#fca5a5", lw=1.0))
+    pca_idx = list(piv_probes.index).index("PCA")
+    _drop = piv_probes["Axis_Sensitive_Metric"] - piv_probes["Strictly_Linear_Metric"]
+    ax1.annotate(f"PCA axis-mixing drop\n(RF − linear = {_drop['PCA']:+.3f}; SiMLR {_drop['SiMLR']:+.3f})",
+                 xy=(pca_idx, piv_probes.loc["PCA", "Axis_Sensitive_Metric"]),
+                 xytext=(pca_idx - 2.6, 0.535),
+                 arrowprops=dict(arrowstyle="->", color="#d03b3b", lw=1.3),
+                 fontsize=8.3, weight="semibold", color="#d03b3b",
+                 bbox=dict(boxstyle="round,pad=0.3", fc="#fcfcfb", ec="#ef8478", lw=0.9))
 
-plt.tight_layout()
-plt.show()
+    plt.tight_layout()
+    plt.show()
 ```
 
 Three empirical principles emerge from @tbl-global-leaderboard and Figures [-@fig-cd-diagram]–[-@fig-three-probes]:
@@ -447,55 +454,58 @@ if not os.path.exists(csv_path):
     csv_path = "paper/results_cache/operating_points_05_08_benchmark.csv"
 
 from paper_numbers import op_default
+from pysimlr.plotting import theme, VIEW_COLORS
 df = op_default()  # default positivity only
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.2, 4.2), dpi=300)
+with theme():
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.2, 4.2), dpi=300)
 
-q_order = ["None", 0.5, 0.8]
-q_labels = ["q = None\n(Soft Polish)", "q = 0.5\n(Discovery)", "q = 0.8\n(Focal Panel)"]
-agg_q = df.groupby("Sparseness_Target")[["Sparsity_Ratio", "Strictly_Linear_Metric", "Axis_Sensitive_Metric"]].mean().reindex(q_order)
+    q_order = ["None", 0.5, 0.8]
+    q_labels = ["q = None\n(Soft Polish)", "q = 0.5\n(Discovery)", "q = 0.8\n(Focal Panel)"]
+    agg_q = df.groupby("Sparseness_Target")[["Sparsity_Ratio", "Strictly_Linear_Metric", "Axis_Sensitive_Metric"]].mean().reindex(q_order)
 
-ax1_twin = ax1.twinx()
-p1 = ax1.plot(range(3), agg_q["Strictly_Linear_Metric"], "o-", color="#0284c7", lw=2.3, markersize=7, label="Linear Subspace (XV ↑)")
-p2 = ax1.plot(range(3), agg_q["Axis_Sensitive_Metric"], "s--", color="#4f46e5", lw=2.1, markersize=6.5, label="Single-Axis Tree (RF XV ↑)")
-p3 = ax1_twin.plot(range(3), agg_q["Sparsity_Ratio"] * 100, "^-.", color="#059669", lw=2.1, markersize=6.5, label="Achieved Sparsity % (↑)")
+    ax1_twin = ax1.twinx()
+    ax1_twin.spines["right"].set_visible(True)
+    p1 = ax1.plot(range(3), agg_q["Strictly_Linear_Metric"], "o-", color=VIEW_COLORS[0], lw=2.2, markersize=6.5, markeredgecolor="#fcfcfb", markeredgewidth=1.1, label="Linear Subspace (XV ↑)")
+    p2 = ax1.plot(range(3), agg_q["Axis_Sensitive_Metric"], "s--", color=VIEW_COLORS[1], lw=2.0, markersize=6.0, markeredgecolor="#fcfcfb", markeredgewidth=1.1, label="Single-Axis Tree (RF XV ↑)")
+    p3 = ax1_twin.plot(range(3), agg_q["Sparsity_Ratio"] * 100, "^-.", color=VIEW_COLORS[2], lw=2.0, markersize=6.0, markeredgecolor="#fcfcfb", markeredgewidth=1.1, label="Achieved Sparsity % (↑)")
 
-ax1.set_xticks(range(3))
-ax1.set_xticklabels(q_labels, fontsize=9.0, weight="bold")
-ax1.set_ylabel("Mean Out-of-Sample Score (↑)", fontsize=9.8, weight="bold", color="#0f172a")
-ax1_twin.set_ylabel("Basis Sparsity % (↑)", fontsize=9.8, weight="bold", color="#059669")
-ax1.set_ylim(0.63, 0.69)
-ax1_twin.set_ylim(10, 75)
-ax1.set_title("A. Predictive Fidelity vs. Sparsity Operating Point", fontsize=10.2, weight="bold")
-ax1.grid(True, linestyle="--", alpha=0.35)
+    ax1.set_xticks(range(3))
+    ax1.set_xticklabels(q_labels)
+    ax1.set_ylabel("Mean Out-of-Sample Score (↑)")
+    ax1_twin.set_ylabel("Basis Sparsity % (↑)", color=VIEW_COLORS[2])
+    ax1.set_ylim(0.65, 0.75)
+    ax1_twin.set_ylim(5, 70)
+    ax1.set_title("A. Predictive Fidelity vs. Sparsity Operating Point")
+    ax1.grid(True)
 
-lines_1 = p1 + p2 + p3
-ax1.legend(lines_1, [l.get_label() for l in lines_1], loc="lower center", fontsize=8.0, frameon=True)
+    lines_1 = p1 + p2 + p3
+    ax1.legend(lines_1, [l.get_label() for l in lines_1], loc="lower center")
 
-syn_df = df[df["Case_Type"] == "synthetic"]
-syn_agg = syn_df.groupby(["Dataset", "Sparseness_Target"])["Support_Recovery_V"].mean().unstack()[q_order]
+    syn_df = df[df["Case_Type"] == "synthetic"]
+    syn_agg = syn_df.groupby(["Dataset", "Sparseness_Target"])["Support_Recovery_V"].mean().unstack()[q_order]
 
-styles = {
-    "Linear": ("#0284c7", "o-", "Linear (50% Sparse ±)"),
-    "NonnegParts": ("#0d9488", "s-", "NonnegParts (66.7% Non-Neg)"),
-    "NonnegPartsWeak": ("#d97706", "^-", "NonnegPartsWeak (80% Non-Neg)"),
-    "Shared+Private": ("#e11d48", "d-", "Shared+Private (80% Sparse ±)")
-}
+    styles = {
+        "Linear": (VIEW_COLORS[0], "o-", "Linear (50% Sparse ±)"),
+        "NonnegParts": (VIEW_COLORS[2], "s-", "NonnegParts (66.7% Non-Neg)"),
+        "NonnegPartsWeak": (VIEW_COLORS[1], "^-", "NonnegPartsWeak (80% Non-Neg)"),
+        "Shared+Private": (VIEW_COLORS[6], "d-", "Shared+Private (80% Sparse ±)")
+    }
 
-for ds, (col, sty, lbl) in styles.items():
-    if ds in syn_agg.index:
-        ax2.plot(range(3), syn_agg.loc[ds], sty, color=col, lw=2.1, markersize=6.5, label=lbl)
+    for ds, (col, sty, lbl) in styles.items():
+        if ds in syn_agg.index:
+            ax2.plot(range(3), syn_agg.loc[ds], sty, color=col, lw=2.0, markersize=6.0, markeredgecolor="#fcfcfb", markeredgewidth=1.1, label=lbl)
 
-ax2.set_xticks(range(3))
-ax2.set_xticklabels(q_labels, fontsize=9.0, weight="bold")
-ax2.set_ylabel("Pathway Support Recovery (Jaccard F1 ↑)", fontsize=9.8, weight="bold")
-ax2.set_title("B. Ground-Truth Pathway Recovery Across Densities", fontsize=10.2, weight="bold")
-ax2.set_ylim(0.15, 0.88)
-ax2.grid(True, linestyle="--", alpha=0.35)
-ax2.legend(loc="lower right", fontsize=8.0, frameon=True)
+    ax2.set_xticks(range(3))
+    ax2.set_xticklabels(q_labels)
+    ax2.set_ylabel("Pathway Support Recovery (Jaccard F1 ↑)")
+    ax2.set_title("B. Ground-Truth Pathway Recovery Across Densities")
+    ax2.set_ylim(0.15, 0.88)
+    ax2.grid(True)
+    ax2.legend(loc="lower right")
 
-plt.tight_layout()
-plt.show()
+    plt.tight_layout()
+    plt.show()
 ```
 
 ## Clinical Neuroimaging in `ADNI-MCI` ($N = 1,084$): Predicting Cognitive Decline and Mapping Braak Staging from MRI Alone
@@ -588,6 +598,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
+from pysimlr.plotting import theme, VIEW_COLORS, _cmap
 
 json_path = "results_cache/adni_mci_feature_loadings.json"
 if not os.path.exists(json_path):
@@ -607,91 +618,94 @@ max_val = np.max(mat_q85, axis=1)
 is_zero = (max_val <= 1e-5).astype(int)
 order_idx = np.lexsort((-max_val, comp_assign, is_zero))
 
-fig = plt.figure(figsize=(11.8, 8.3), dpi=300, constrained_layout=True)
-gs = fig.add_gridspec(2, 4, height_ratios=[1.05, 1.0])
+_st1 = float(RAW["adni_k3_pos_stab_c1"])
+_st2 = float(RAW["adni_k3_pos_stab_c2"])
+_st3 = float(RAW["adni_k3_pos_stab_c3"])
 
-ax1 = fig.add_subplot(gs[0, 0])
-ax2 = fig.add_subplot(gs[0, 1], sharey=ax1)
-ax3 = fig.add_subplot(gs[0, 2], sharey=ax1)
-ax4 = fig.add_subplot(gs[0, 3], sharey=ax1)
-ax_bars = fig.add_subplot(gs[1, :])
+with theme():
+    fig = plt.figure(figsize=(11.8, 8.3), dpi=300, constrained_layout=True)
+    gs = fig.add_gridspec(2, 4, height_ratios=[1.05, 1.0])
 
-im1 = ax1.imshow(mat_pca[order_idx, :], aspect="auto", cmap="RdBu_r", vmin=-0.45, vmax=0.45, interpolation="nearest")
-ax1.set_xticks([0, 1, 2])
-ax1.set_xticklabels(["L₁", "L₂", "L₃"], fontsize=8.8, weight="bold")
-_s = f_data["summaries"]
-def _title(key, label):
-    return f"{label}\n({100 * _s[key]['dkt_sparsity']:.0f}% zero | R² = {_s[key]['cog_pc1_r2']:.3f})"
-ax1.set_title(_title("pca", "A1. Dense PCA"), fontsize=8.8, weight="bold")
-plt.colorbar(im1, ax=ax1, fraction=0.045, pad=0.03)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[0, 1], sharey=ax1)
+    ax3 = fig.add_subplot(gs[0, 2], sharey=ax1)
+    ax4 = fig.add_subplot(gs[0, 3], sharey=ax1)
+    ax_bars = fig.add_subplot(gs[1, :])
 
-im2 = ax2.imshow(mat_col[order_idx, :], aspect="auto", cmap="YlGnBu", vmin=0.0, vmax=0.55, interpolation="nearest")
-ax2.set_xticks([0, 1, 2])
-ax2.set_xticklabels(["L₁", "L₂", "L₃"], fontsize=8.8, weight="bold")
-ax2.set_title(_title("col_pca_simr", "A2. Unrotated NSA (q = None)"), fontsize=8.6, weight="bold")
+    im1 = ax1.imshow(mat_pca[order_idx, :], aspect="auto", cmap=_cmap("div"), vmin=-0.45, vmax=0.45, interpolation="nearest")
+    ax1.set_xticks([0, 1, 2])
+    ax1.set_xticklabels(["L₁", "L₂", "L₃"])
+    _s = f_data["summaries"]
+    def _title(key, label):
+        return f"{label}\n({100 * _s[key]['dkt_sparsity']:.0f}% zero | R² = {_s[key]['cog_pc1_r2']:.3f})"
+    ax1.set_title(_title("pca", "A1. Dense PCA"), fontsize=9.0)
+    plt.colorbar(im1, ax=ax1, fraction=0.045, pad=0.03)
 
-im3 = ax3.imshow(mat_varimax[order_idx, :], aspect="auto", cmap="YlGnBu", vmin=0.0, vmax=0.55, interpolation="nearest")
-ax3.set_xticks([0, 1, 2])
-ax3.set_xticklabels(["L₁", "L₂", "L₃"], fontsize=8.8, weight="bold")
-ax3.set_title(_title("varimax_simr", "A3. Varimax + NSA (q = None)"), fontsize=8.6, weight="bold")
+    im2 = ax2.imshow(mat_col[order_idx, :], aspect="auto", cmap=_cmap("seq"), vmin=0.0, vmax=0.55, interpolation="nearest")
+    ax2.set_xticks([0, 1, 2])
+    ax2.set_xticklabels(["L₁", "L₂", "L₃"])
+    ax2.set_title(_title("col_pca_simr", "A2. Unrotated NSA (q = None)"), fontsize=8.8)
 
-im4 = ax4.imshow(mat_q85[order_idx, :], aspect="auto", cmap="YlGnBu", vmin=0.0, vmax=0.68, interpolation="nearest")
-ax4.set_xticks([0, 1, 2])
-ax4.set_xticklabels(["L₁\n(0.95)", "L₂ (not ident.\n0.80 < 0.9)", "L₃\n(1.00)"], fontsize=7.2, weight="bold")
-ax4.set_title(_title("col_pca_q85_simr", "A4. NSA, q = 0.85"), fontsize=8.8, weight="bold")
-plt.colorbar(im4, ax=ax4, fraction=0.045, pad=0.03)
+    im3 = ax3.imshow(mat_varimax[order_idx, :], aspect="auto", cmap=_cmap("seq"), vmin=0.0, vmax=0.55, interpolation="nearest")
+    ax3.set_xticks([0, 1, 2])
+    ax3.set_xticklabels(["L₁", "L₂", "L₃"])
+    ax3.set_title(_title("varimax_simr", "A3. Varimax + NSA (q = None)"), fontsize=8.8)
 
-# Panel B, from the data: the four largest loadings of each component, then
-# the primary sensorimotor regions.
-palette = ["#0284c7", "#0d9488", "#7c3aed"]
-signature_regions = []
-for j in range(mat_q85.shape[1]):
-    top = np.argsort(-mat_q85[:, j])[:4]
-    for i in top:
-        signature_regions.append((raw_names[i].replace("left_", "L ").replace("right_", "R ").replace("_", " "),
-                                  raw_names[i], j, palette[j % 3]))
-for nm in ("left_precentral", "right_precentral", "left_postcentral", "right_postcentral"):
-    signature_regions.append((nm.replace("left_", "L ").replace("right_", "R ").replace("_", " "), nm, None, "#94a3b8"))
-landmark_set = {key for _, key, _, _ in signature_regions}
-yticks, ylabels, last_pos = [], [], -6
-for plot_pos, orig_i in enumerate(order_idx):
-    nm = raw_names[orig_i]
-    if nm in landmark_set and (plot_pos - last_pos >= 5):
-        yticks.append(plot_pos)
-        ylabels.append(nm.replace("left_", "L ").replace("right_", "R ").replace("_", " "))
-        last_pos = plot_pos
+    im4 = ax4.imshow(mat_q85[order_idx, :], aspect="auto", cmap=_cmap("seq"), vmin=0.0, vmax=0.68, interpolation="nearest")
+    ax4.set_xticks([0, 1, 2])
+    ax4.set_xticklabels([f"L₁\n({_st1:.2f})", f"L₂ (not ident.\n{_st2:.2f} < 0.90)", f"L₃\n({_st3:.2f})"], fontsize=7.2)
+    ax4.set_title(_title("col_pca_q85_simr", "A4. NSA, q = 0.85"), fontsize=9.0)
+    plt.colorbar(im4, ax=ax4, fraction=0.045, pad=0.03)
 
-ax1.set_yticks(yticks)
-ax1.set_yticklabels(ylabels, fontsize=8.0, weight="bold")
-ax1.set_ylabel("62 DKT Cortical Parcels", fontsize=9.2, weight="bold")
-for ax_hide in (ax2, ax3, ax4):
-    plt.setp(ax_hide.get_yticklabels(), visible=False)
+    palette = list(VIEW_COLORS[:3])
+    signature_regions = []
+    for j in range(mat_q85.shape[1]):
+        top = np.argsort(-mat_q85[:, j])[:4]
+        for i in top:
+            signature_regions.append((raw_names[i].replace("left_", "L ").replace("right_", "R ").replace("_", " "),
+                                      raw_names[i], j, palette[j % 3]))
+    for nm in ("left_precentral", "right_precentral", "left_postcentral", "right_postcentral"):
+        signature_regions.append((nm.replace("left_", "L ").replace("right_", "R ").replace("_", " "), nm, None, "#898781"))
+    landmark_set = {key for _, key, _, _ in signature_regions}
+    yticks, ylabels, last_pos = [], [], -6
+    for plot_pos, orig_i in enumerate(order_idx):
+        nm = raw_names[orig_i]
+        if nm in landmark_set and (plot_pos - last_pos >= 5):
+            yticks.append(plot_pos)
+            ylabels.append(nm.replace("left_", "L ").replace("right_", "R ").replace("_", " "))
+            last_pos = plot_pos
 
-y_b = np.arange(len(signature_regions))
-vals_b, cols_b, labels_b = [], [], []
-for disp_nm, key_nm, comp, col_hex in signature_regions:
-    idx_r = raw_names.index(key_nm)
-    vals_b.append(mat_q85[idx_r, comp] if comp is not None else np.max(mat_q85[idx_r, :]))
-    cols_b.append(col_hex)
-    labels_b.append(disp_nm if comp is None else f"{disp_nm} (L{comp + 1})")
+    ax1.set_yticks(yticks)
+    ax1.set_yticklabels(ylabels, fontsize=8.0)
+    ax1.set_ylabel("62 DKT Cortical Parcels")
+    for ax_hide in (ax2, ax3, ax4):
+        plt.setp(ax_hide.get_yticklabels(), visible=False)
 
-ax_bars.barh(y_b, vals_b, color=cols_b, edgecolor="#0f172a", height=0.68, lw=0.7)
-for idx_i, val_i in enumerate(vals_b):
-    ax_bars.text(val_i + 0.012, idx_i, f"{val_i:.3f}", va="center", fontsize=8.4, weight="bold", color="#0f172a")
+    y_b = np.arange(len(signature_regions))
+    vals_b, cols_b, labels_b = [], [], []
+    for disp_nm, key_nm, comp, col_hex in signature_regions:
+        idx_r = raw_names.index(key_nm)
+        vals_b.append(mat_q85[idx_r, comp] if comp is not None else np.max(mat_q85[idx_r, :]))
+        cols_b.append(col_hex)
+        labels_b.append(disp_nm if comp is None else f"{disp_nm} (L{comp + 1})")
 
-ax_bars.invert_yaxis()
-ax_bars.set_yticks(y_b)
-ax_bars.set_yticklabels(labels_b, fontsize=8.5, weight="bold")
-ax_bars.set_xlim(0, max(vals_b) * 1.25 + 0.05)
-ax_bars.set_xlabel("Non-negative cortical-thickness loading (q = 0.85)", fontsize=9.5, weight="bold")
-ax_bars.set_title("B. Four largest loadings per component, and primary sensorimotor regions", fontsize=10.0, weight="bold")
-ax_bars.grid(True, axis="x", linestyle="--", alpha=0.35)
+    ax_bars.barh(y_b, vals_b, color=cols_b, height=0.64)
+    for idx_i, val_i in enumerate(vals_b):
+        ax_bars.text(val_i + 0.012, idx_i, f"{val_i:.3f}", va="center", fontsize=8.4, color="#0b0b0b")
 
-legend_patches = [Patch(facecolor=palette[j], edgecolor="#0f172a", label=f"Component {j + 1}") for j in range(mat_q85.shape[1])]
-legend_patches.append(Patch(facecolor="#94a3b8", edgecolor="#0f172a", label="Primary sensorimotor (largest weight)"))
-ax_bars.legend(handles=legend_patches, loc="lower right", fontsize=8.4, frameon=True)
+    ax_bars.invert_yaxis()
+    ax_bars.set_yticks(y_b)
+    ax_bars.set_yticklabels(labels_b, fontsize=8.5)
+    ax_bars.set_xlim(0, max(vals_b) * 1.25 + 0.05)
+    ax_bars.set_xlabel("Non-negative cortical-thickness loading (q = 0.85)")
+    ax_bars.set_title("B. Four largest loadings per component, and primary sensorimotor regions")
+    ax_bars.grid(True, axis="x")
 
-plt.show()
+    legend_patches = [Patch(facecolor=palette[j], label=f"Component {j + 1}") for j in range(mat_q85.shape[1])]
+    legend_patches.append(Patch(facecolor="#898781", label="Primary sensorimotor (largest weight)"))
+    ax_bars.legend(handles=legend_patches, loc="lower right")
+
+    plt.show()
 ```
 
 ## Multi-Omic Oncology (`TCGA-BRCA`, `TCGA-KIRC`) and Patient-Level Clinical Attribution
@@ -750,6 +764,7 @@ import matplotlib.pyplot as plt
 from sklearn.datasets import load_diabetes
 from sklearn.preprocessing import StandardScaler
 from pysimlr import simlr
+from pysimlr.plotting import theme, VIEW_COLORS
 
 csv_path = "results_cache/deep_ranking_benchmark.csv"
 if not os.path.exists(csv_path):
@@ -758,69 +773,119 @@ if not os.path.exists(csv_path):
 df = pd.read_csv(csv_path)
 df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.2, 4.1), dpi=300, gridspec_kw={"width_ratios": [1.3, 1.0]}, constrained_layout=True)
+with theme():
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.2, 4.1), dpi=300, gridspec_kw={"width_ratios": [1.3, 1.0]}, constrained_layout=True)
 
-real_dsets = ["ADNI-MCI", "MultiOmics", "TCGA-KIRC", "Diabetes", "Heart", "mfeat"]
-disp_names = ["ADNI-MCI\n(MRI→Cog)", "TCGA-BRCA\n(ER Acc)", "TCGA-KIRC\n(Stage Acc)", "Diabetes\n(Prog R²)", "Heart\n(CAD Acc)", "mfeat\n(Digit Acc)"]
+    real_dsets = ["ADNI-MCI", "MultiOmics", "TCGA-KIRC", "Diabetes", "Heart", "mfeat"]
+    disp_names = ["ADNI-MCI\n(MRI→Cog)", "TCGA-BRCA\n(ER Acc)", "TCGA-KIRC\n(Stage Acc)", "Diabetes\n(Prog R²)", "Heart\n(CAD Acc)", "mfeat\n(Digit Acc)"]
 
-piv_r = df[df["Dataset"].isin(real_dsets)].pivot_table(index="Dataset", columns="Model", values="Strictly_Linear_Metric", aggfunc="mean").reindex(real_dsets)
+    piv_r = df[df["Dataset"].isin(real_dsets)].pivot_table(index="Dataset", columns="Model", values="Strictly_Linear_Metric", aggfunc="mean").reindex(real_dsets)
 
-x = np.arange(len(real_dsets))
-w = 0.20
-ax1.bar(x - 1.5*w, piv_r["LEND"], w, label="LEND", color="#0284c7", edgecolor="#0f172a", lw=0.7)
-ax1.bar(x - 0.5*w, piv_r["Flow-SiMR-V"], w, label="Flow-SiMR-V", color="#0d9488", edgecolor="#0f172a", lw=0.7)
-ax1.bar(x + 0.5*w, piv_r["SiMLR"], w, label="SiMLR", color="#7c3aed", edgecolor="#0f172a", lw=0.7)
-ax1.bar(x + 1.5*w, piv_r["PCA"], w, label="Dense PCA", color="#94a3b8", edgecolor="#0f172a", lw=0.7)
+    x = np.arange(len(real_dsets))
+    w = 0.20
+    ax1.bar(x - 1.5*w, piv_r["LEND"], w, label="LEND", color=VIEW_COLORS[0])
+    ax1.bar(x - 0.5*w, piv_r["Flow-SiMR-V"], w, label="Flow-SiMR-V", color=VIEW_COLORS[2])
+    ax1.bar(x + 0.5*w, piv_r["SiMLR"], w, label="SiMLR", color=VIEW_COLORS[6])
+    ax1.bar(x + 1.5*w, piv_r["PCA"], w, label="Dense PCA", color="#b7b5ac")
 
-ax1.set_xticks(x)
-ax1.set_xticklabels(disp_names, fontsize=8.2, weight="bold")
-ax1.set_ylabel("Out-of-Sample Linear Probe Score (↑)", fontsize=9.5, weight="bold")
-ax1.set_title("A. Multi-View SiMR vs. Dense PCA Across Real Cohorts", fontsize=10.0, weight="bold")
-ax1.set_ylim(0.10, 1.05)
-ax1.grid(True, axis="y", linestyle="--", alpha=0.35)
-ax1.legend(loc="upper left", ncol=2, fontsize=8.0, frameon=True)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(disp_names, fontsize=8.2)
+    ax1.set_ylabel("Out-of-Sample Linear Probe Score (↑)")
+    ax1.set_title("A. Multi-View SiMR vs. Dense PCA Across Real Cohorts")
+    ax1.set_ylim(0.10, 1.05)
+    ax1.grid(True, axis="y")
+    ax1.legend(loc="upper left", ncol=2, fontsize=8.0)
 
-# Panel B: Exact Patient-Level Feature Attribution on Diabetes
-np.random.seed(42)
-data = load_diabetes()
-X_scaled = StandardScaler().fit_transform(data.data)
-res_db = simlr([X_scaled[:, :5], X_scaled[:, 5:]], k=2, positivity="positive", sparseness=0.5, random_state=42)
-load_db = np.asarray(res_db["loadings"][0])
-x_sample = X_scaled[0, :5]
-impact = x_sample * load_db[:, 0]
-feat_names = ["Age", "Sex", "Body Mass Index", "Mean Blood Pressure", "Total Cholesterol"]
+    # Panel B: Exact Patient-Level Feature Attribution on Diabetes
+    np.random.seed(42)
+    data = load_diabetes()
+    X_scaled = StandardScaler().fit_transform(data.data)
+    res_db = simlr([X_scaled[:, :5], X_scaled[:, 5:]], k=2, positivity="positive", sparseness=0.5, random_state=42)
+    load_db = np.asarray(res_db["loadings"][0])
+    x_sample = X_scaled[0, :5]
+    impact = x_sample * load_db[:, 0]
+    feat_names = ["Age", "Sex", "Body Mass Index", "Mean Blood Pressure", "Total Cholesterol"]
 
-idx = np.argsort(np.abs(impact))[::-1]
-colors = ["#dc2626" if impact[i] >= 0 else "#0284c7" for i in idx]
-y_pos = np.arange(len(idx))
-ax2.barh(y_pos, impact[idx], color=colors, edgecolor="#0f172a", height=0.58, lw=0.7)
+    idx = np.argsort(np.abs(impact))[::-1]
+    colors = ["#e34948" if impact[i] >= 0 else VIEW_COLORS[0] for i in idx]
+    y_pos = np.arange(len(idx))
+    ax2.barh(y_pos, impact[idx], color=colors, height=0.58)
 
-min_imp = float(np.min(impact))
-max_imp = float(np.max(impact))
-span = max(max_imp - min_imp, 0.5)
-ax2.set_xlim(min_imp - 0.30 * span, max_imp + 0.30 * span)
+    min_imp = float(np.min(impact))
+    max_imp = float(np.max(impact))
+    span = max(max_imp - min_imp, 0.5)
+    ax2.set_xlim(min_imp - 0.30 * span, max_imp + 0.30 * span)
 
-for pos_i, orig_i in enumerate(idx):
-    val_i = float(impact[orig_i])
-    if val_i >= 0:
-        ax2.text(val_i + 0.03 * span, pos_i, f"{val_i:+.2f}", va="center", ha="left", fontsize=8.4, weight="bold", color="#0f172a")
-    else:
-        ax2.text(val_i - 0.03 * span, pos_i, f"{val_i:+.2f}", va="center", ha="right", fontsize=8.4, weight="bold", color="#0f172a")
+    for pos_i, orig_i in enumerate(idx):
+        val_i = float(impact[orig_i])
+        if val_i >= 0:
+            ax2.text(val_i + 0.03 * span, pos_i, f"{val_i:+.2f}", va="center", ha="left", fontsize=8.4, weight="semibold", color="#0b0b0b")
+        else:
+            ax2.text(val_i - 0.03 * span, pos_i, f"{val_i:+.2f}", va="center", ha="right", fontsize=8.4, weight="semibold", color="#0b0b0b")
 
-ax2.invert_yaxis()
-ax2.set_yticks(y_pos)
-ax2.set_yticklabels([feat_names[i] for i in idx], fontsize=8.5, weight="bold")
-ax2.axvline(0, color="#0f172a", lw=0.9)
-ax2.set_xlabel("Exact Additive Contribution (x_ij · load_jl)", fontsize=9.5, weight="bold")
-ax2.set_title("B. Exact Patient-Level Risk Attribution (Patient #1)", fontsize=10.0, weight="bold")
-ax2.grid(True, axis="x", linestyle="--", alpha=0.35)
+    ax2.invert_yaxis()
+    ax2.set_yticks(y_pos)
+    ax2.set_yticklabels([feat_names[i] for i in idx], fontsize=8.5)
+    ax2.axvline(0, color="#52514e", lw=0.8)
+    ax2.set_xlabel("Exact Additive Contribution (x_ij · load_jl)")
+    ax2.set_title("B. Exact Patient-Level Risk Attribution (Patient #1)")
+    ax2.grid(True, axis="x")
 
-plt.show()
+    plt.show()
 ```
 
 :::: {.columns}
 ::: {.column width="48%"}
-![**Cardiology Patient-Level Risk Decomposition (`Heart` Cohort, Patient #122).** Exact additive feature contributions $c_{ij} = x_{ij} l_{jl}$ from the OLEE loadings decompose individual coronary artery disease risk directly into standardized clinical vitals and ECG indicators (`ca` fluoroscopy vessels, `thal` thallium defect, `oldpeak` ST depression, `exang` exercise angina).](figures/heart_waterfall.png){#fig-heart-audit width="100%"}
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-heart-audit
+#| echo: false
+#| out-width: 100%
+#| fig-cap: "**Cardiology Patient-Level Risk Decomposition (`Heart` Cohort, Patient #122).** Exact additive feature contributions $c_{ij} = x_{ij} l_{jl}$ from the `LEND` OLEE loadings (`results_cache/nsa_v_loadings.json`) decompose individual coronary artery disease risk directly into standardized clinical vitals and ECG indicators (`thal` thallium defect, `exang` exercise angina, `sex`, `ca` fluoroscopy vessels, `cp` chest pain)."
+import json, os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+from paper_numbers import CACHE
+from pysimlr.plotting import theme, VIEW_COLORS
+
+_nsav = json.load(open(os.path.join(CACHE, "nsa_v_loadings.json")))
+_heart_csv = "../data/heart_cleveland.csv" if os.path.exists("../data/heart_cleveland.csv") else "data/heart_cleveland.csv"
+_df_h = pd.read_csv(_heart_csv)
+_X_h = StandardScaler().fit_transform(_df_h.drop("num", axis=1))
+_y_h = (_df_h["num"].values > 0).astype(float)
+_L_h = np.vstack([_nsav["Heart"]["Clinical Vitals"]["loadings"], _nsav["Heart"]["Cardiophysiological"]["loadings"]])
+_cols_h = _nsav["Heart"]["Clinical Vitals"]["rows"] + _nsav["Heart"]["Cardiophysiological"]["rows"]
+_corrs_h = [np.corrcoef((_X_h @ _L_h)[:, j], _y_h)[0, 1] for j in range(_L_h.shape[1])]
+_j_h = int(np.argmax(np.abs(_corrs_h)))
+_sgn_h = 1.0 if _corrs_h[_j_h] >= 0 else -1.0
+_imp_h = _X_h[122] * (_sgn_h * _L_h[:, _j_h])
+_order_h = np.argsort(np.abs(_imp_h))[::-1][:8]
+
+with theme():
+    fig, ax = plt.subplots(figsize=(5.6, 5.2), dpi=300)
+    y_h = np.arange(len(_order_h))
+    cols_bar = ["#e34948" if _imp_h[i] >= 0 else VIEW_COLORS[0] for i in _order_h]
+    ax.barh(y_h, _imp_h[_order_h], color=cols_bar, height=0.58)
+    span_h = max(float(np.max(_imp_h[_order_h]) - np.min(_imp_h[_order_h])), 0.6)
+    ax.set_xlim(float(np.min(_imp_h[_order_h])) - 0.28 * span_h, float(np.max(_imp_h[_order_h])) + 0.28 * span_h)
+    for pos_i, orig_i in enumerate(_order_h):
+        val_i = float(_imp_h[orig_i])
+        ha_i = "left" if val_i >= 0 else "right"
+        off_i = 0.03 * span_h if val_i >= 0 else -0.03 * span_h
+        ax.text(val_i + off_i, pos_i, f"{val_i:+.2f}", va="center", ha=ha_i, fontsize=8.4, weight="semibold", color="#0b0b0b")
+    ax.invert_yaxis()
+    ax.set_yticks(y_h)
+    ax.set_yticklabels([_cols_h[i] for i in _order_h], fontsize=9.0)
+    ax.axvline(0.0, color="#52514e", lw=0.8)
+    ax.set_xlabel("Additive Risk Contribution (x_ij · L_jl)")
+    ax.set_title("Heart Cohort: Patient #122 CAD Attribution")
+    ax.grid(True, axis="x")
+    plt.tight_layout()
+    plt.show()
+```
 :::
 ::: {.column width="4%"}
 :::
@@ -833,6 +898,7 @@ import json, os
 import numpy as np
 import matplotlib.pyplot as plt
 from paper_numbers import CACHE
+from pysimlr.plotting import theme, _cmap
 NSAV = json.load(open(os.path.join(CACHE, "nsa_v_loadings.json")))
 
 def _gini(x):
@@ -840,23 +906,25 @@ def _gini(x):
     n = len(x)
     return 0.0 if x.sum() == 0 else float(np.sum((2 * np.arange(1, n + 1) - n - 1) * x) / (n * x.sum()))
 
-fig, axes = plt.subplots(2, 2, figsize=(9, 8.5))
-for ax, (cohort, view) in zip(axes.ravel(), [(c, v) for c in ("Heart", "Diabetes") for v in NSAV[c]]):
-    d = NSAV[cohort][view]
-    v = np.array(d.get("loadings", d.get("v")))
-    margin = np.array(d["loading_margin"]) if "loading_margin" in d and d["loading_margin"] is not None else None
-    order = np.lexsort((-v.max(1), v.argmax(1), (v.max(1) <= 1e-4).astype(int)))
-    v, rows = v[order], [d["rows"][i] for i in order]
-    ax.imshow(v, cmap="viridis", vmin=0, vmax=0.95, aspect="auto")
-    for (i, j), val in np.ndenumerate(v):
-        ax.text(j, i, f"{val:.2f}", ha="center", va="center", fontsize=9,
-                color="black" if val > 0.5 else "white")
-    ax.set_xticks(range(v.shape[1]), [f"L{j + 1}\nG={_gini(v[:, j]):.2f}" for j in range(v.shape[1])])
-    ax.set_yticks(range(len(rows)), rows)
-    margin_str = f" (margin {margin.mean():.2f})" if margin is not None else ""
-    ax.set_title(f"{cohort}: {view}{margin_str}", fontsize=11, fontweight="bold")
-plt.tight_layout()
-plt.show()
+with theme():
+    fig, axes = plt.subplots(2, 2, figsize=(9, 8.5))
+    for ax, (cohort, view) in zip(axes.ravel(), [(c, v) for c in ("Heart", "Diabetes") for v in NSAV[c]]):
+        d = NSAV[cohort][view]
+        v = np.array(d.get("loadings", d.get("v")))
+        margin = np.array(d["loading_margin"]) if "loading_margin" in d and d["loading_margin"] is not None else None
+        order = np.lexsort((-v.max(1), v.argmax(1), (v.max(1) <= 1e-4).astype(int)))
+        v, rows = v[order], [d["rows"][i] for i in order]
+        ax.imshow(v, cmap=_cmap("seq"), vmin=0, vmax=0.95, aspect="auto")
+        ax.grid(False)
+        for (i, j), val in np.ndenumerate(v):
+            ax.text(j, i, f"{val:.2f}", ha="center", va="center", fontsize=8.5,
+                    color="white" if val > 0.55 else "#0b0b0b")
+        ax.set_xticks(range(v.shape[1]), [f"L{j + 1}\nG={_gini(v[:, j]):.2f}" for j in range(v.shape[1])])
+        ax.set_yticks(range(len(rows)), rows)
+        margin_str = f" (margin {margin.mean():.2f})" if margin is not None else ""
+        ax.set_title(f"{cohort}: {view}{margin_str}", fontsize=10.5)
+    plt.tight_layout()
+    plt.show()
 ```
 :::
 ::::
