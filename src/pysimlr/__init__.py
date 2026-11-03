@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
 
 
 def _configure_matplotlib_backend() -> None:
