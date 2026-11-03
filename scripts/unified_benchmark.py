@@ -48,8 +48,13 @@ def run_experiment_task(task_args):
     
     regime_name, case_params, model_type, model_label, seed, energy_type, mixing_algorithm, iterations, epochs, use_nsa = task_args
     case = build_case(seed=seed, **case_params)
+    budget_by_unit = {}
+    if iterations is not None:
+        budget_by_unit["iterations"] = iterations
+    if epochs is not None:
+        budget_by_unit["epochs"] = epochs
     params = {
-        "budget_by_unit": {"iterations": iterations, "epochs": epochs},
+        "budget_by_unit": budget_by_unit,
         "energy_type": energy_type, 
         "mixing_algorithm": mixing_algorithm, 
         "use_nsa": use_nsa, 
@@ -86,10 +91,14 @@ def run_experiment_task(task_args):
         "Strictly Linear Train": float(metrics.get("first_layer_train_r2", 0.0)),
         "Strictly Linear Gap": float(metrics.get("first_layer_gen_gap", 0.0)),
         "Latent Recovery (U)": float(metrics.get("recovery", 0.0)),
-        "Feature Recovery (V)": v_rec
+        "Feature Recovery (V)": v_rec,
+        "budget": res.get("convergence", {}).get("max_steps") if res else None,
+        "converged": bool(res.get("convergence", {}).get("converged")) if res and "convergence" in res else None,
+        "n_steps": res.get("convergence", {}).get("n_steps") if res else None,
+        "stop_reason": res.get("convergence", {}).get("stop_reason") if res else metrics.get("stop_reason")
     }
 
-def run_unified_benchmark(version="v22", n_seeds=5, iterations=50, epochs=150, use_nsa=True, workers=None):
+def run_unified_benchmark(version="v22", n_seeds=5, iterations=None, epochs=150, use_nsa=True, workers=None):
     regimes = [
         ("Linear", {"kind": "linear"}), 
         ("Polynomial", {"kind": "nonlinear", "regime": "polynomial"}), 
@@ -116,7 +125,7 @@ def run_unified_benchmark(version="v22", n_seeds=5, iterations=50, epochs=150, u
     print(f"Starting FULL SYNTHETIC benchmark ({version}) with {len(tasks)} tasks, {n_seeds} seeds...")
     os.makedirs("paper/results_cache", exist_ok=True)
     out_file = f"paper/results_cache/unified_synthetic_{version}.csv"
-    header = ["Regime", "Model", "Seed", "Loss", "Consensus", "CMC", "SRE", "Predictive Accuracy (Y)", "Train Accuracy (Y)", "Gen Gap (Y)", "Strictly Linear Accuracy", "Axis-Sensitive Accuracy", "Strictly Linear Train", "Strictly Linear Gap", "Latent Recovery (U)", "Feature Recovery (V)"]
+    header = ["Regime", "Model", "Seed", "Loss", "Consensus", "CMC", "SRE", "Predictive Accuracy (Y)", "Train Accuracy (Y)", "Gen Gap (Y)", "Strictly Linear Accuracy", "Axis-Sensitive Accuracy", "Strictly Linear Train", "Strictly Linear Gap", "Latent Recovery (U)", "Feature Recovery (V)", "budget", "converged", "n_steps", "stop_reason"]
     
     with open(out_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=header); writer.writeheader()
@@ -151,7 +160,7 @@ if __name__ == "__main__":
     parser.add_argument("--version", type=str, default="v22",
                         help="Results-cache version tag; names the output CSV.")
     parser.add_argument("--n-seeds", type=int, default=10)
-    parser.add_argument("--iterations", type=int, default=100)
+    parser.add_argument("--iterations", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=150)
     parser.add_argument("--no-nsa", action="store_false", dest="use_nsa")
     parser.set_defaults(use_nsa=True)

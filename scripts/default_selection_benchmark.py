@@ -58,18 +58,40 @@ def run_one(task):
     import numpy as np
     import torch
     torch.set_num_threads(1)
-    from optimizer_benchmark_synthetic import latent_r2, support_f1
+    from optimizer_benchmark_synthetic import latent_r2, support_f1, loadings_support_auc
     from pysimlr.simlr import simlr
     row = dict(energy=energy, optimizer=opt, mixing=mixing, positivity=pos, generator=gen, seed=seed)
     try:
         z, views, sups = _case(gen, seed)
         k = z.shape[1]
         t = time.time()
-        r = simlr(views, k=k, iterations=iterations, energy_type=energy, optimizer_type=opt,
-                  mixing_algorithm=mixing, positivity=pos, random_state=seed)
-        row.update(seconds=time.time() - t, latent_r2=latent_r2(z, r["u"]),
-                   support_f1=float(np.mean([support_f1(v.detach(), s) for v, s in zip(r["v"], sups)])),
-                   stop=r["stop_reason"], error=None)
+        kwargs = dict(energy_type=energy, optimizer_type=opt,
+                      mixing_algorithm=mixing, positivity=pos, random_state=seed)
+        if iterations is not None:
+            kwargs["iterations"] = iterations
+        r = simlr(views, k=k, **kwargs)
+        conv = r.get("convergence", {})
+        res_budget = conv.get("max_steps", iterations if iterations is not None else 300)
+        v_sup = float(np.mean([support_f1(v.detach(), s) for v, s in zip(r["v"], sups)]))
+        if pos == "positive":
+            l_sup = float(np.mean([support_f1(np.asarray(b, float), s) for b, s in zip(r["loadings"], sups)]))
+        else:
+            l_sup = loadings_support_auc(r["loadings"], sups)
+        w = r.get("normalizing_weights")
+        w_spread = float(max(w) / max(min(w), 1e-12)) if w else 1.0
+        row.update(seconds=time.time() - t,
+                   latent_r2=latent_r2(z, r["u"]),
+                   v_support_f1=v_sup,
+                   support_f1=v_sup,
+                   loadings_support=l_sup,
+                   budget=res_budget,
+                   converged=bool(conv.get("converged", r.get("converged", False))),
+                   n_steps=int(conv.get("n_steps", 0)),
+                   stop_reason=conv.get("stop_reason", r.get("stop_reason")),
+                   learning_rate=r.get("learning_rate"),
+                   weight_spread=w_spread,
+                   stop=r.get("stop_reason"),
+                   error=None)
     except (RuntimeError, ValueError, FloatingPointError) as exc:  # recorded, never dropped
         row.update(error=f"{type(exc).__name__}: {str(exc)[:120]}")
     return row
@@ -78,7 +100,7 @@ def run_one(task):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--seeds", type=int, default=5)
-    ap.add_argument("--iterations", type=int, default=25)
+    ap.add_argument("--iterations", type=int, default=None)
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--out", default=None)
     a = ap.parse_args()

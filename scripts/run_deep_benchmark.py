@@ -368,8 +368,14 @@ def run_experiment_task(task_args: tuple) -> dict:
     if "private_k" in case and "private_k" in api.resolve_method(model_type).accepts:
         params["private_k"] = case["private_k"]
 
+    budget_by_unit = {}
+    if iterations is not None:
+        budget_by_unit["iterations"] = iterations
+    if epochs is not None:
+        budget_by_unit["epochs"] = epochs
+
     exp_res = run_single_experiment(model_type, case, sparsity=sparsity, seed=seed,
-                                    budget_by_unit={"iterations": iterations, "epochs": epochs},
+                                    budget_by_unit=budget_by_unit,
                                     **params)
     metrics = exp_res["metrics"]
     res = exp_res["result"]
@@ -427,6 +433,10 @@ def run_experiment_task(task_args: tuple) -> dict:
         "Method": metrics.get("method"),
         "Ignored_Params": metrics.get("ignored_params"),
         "normalizing_weights": res.get("normalizing_weights") if res else None,
+        "budget": res.get("convergence", {}).get("max_steps") if res else None,
+        "converged": metrics.get("solver_converged"),
+        "n_steps": res.get("convergence", {}).get("n_steps") if res else metrics.get("solver_iters"),
+        "stop_reason": metrics.get("stop_reason"),
     }
 
 
@@ -474,7 +484,7 @@ def _execute_tasks(tasks: list, workers: int = 8, label: str = "Deep Benchmark")
 def run_deep_benchmark(
     n_seeds: int = 3,
     workers: int = 8,
-    iterations: int = 25,
+    iterations: Optional[int] = None,
     epochs: int = 45,
     sparsity: Optional[float] = 0.5,
     out_filename: str = "deep_ranking_benchmark.csv",
@@ -508,7 +518,7 @@ def run_deep_benchmark(
 def run_operating_point_suite(
     n_seeds: int = 3,
     workers: int = 8,
-    iterations: int = 25,
+    iterations: Optional[int] = None,
     epochs: int = 45,
 ) -> pd.DataFrame:
     """Run all three operating points (None, 0.5, 0.8) across all 12 cohorts
@@ -552,7 +562,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Deep Method Ranking Benchmark")
     parser.add_argument("--seeds", type=int, default=3, help="Number of seeds (default: 3)")
     parser.add_argument("--workers", type=int, default=8, help="Worker processes (default: 8)")
-    parser.add_argument("--iterations", type=int, default=25, help="SiMLR iterations (default: 25)")
+    parser.add_argument("--iterations", type=int, default=None, help="SiMLR iterations (default: None, package default)")
     parser.add_argument("--epochs", type=int, default=45, help="Deep epochs (default: 45)")
     parser.add_argument("--suite", action="store_true", help="Run full operating-point (None, 0.5, 0.8) and positivity suite")
     args = parser.parse_args()
