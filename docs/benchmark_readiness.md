@@ -49,7 +49,7 @@
 
 - **Rule R11 (Probe Grid Extension)**: Evaluated on 1664 Stage-1 fits. 25 (optimizer, energy) pairs exhibited >= 25% boundary fits on the base grid (1.0 or 0.001). Upward extension was evaluated and rejected: the 3-sweep probe biases toward large steps on short horizons (at buried/positive/seed 0, lr=3.0 dropped R2 to 0.846 vs >= 0.974 for alternatives). Package `LR_PROBE_GRID` stays strictly `(1.0, 0.3, 0.1, 0.03, 0.01, 0.003, 0.001)`.
 - **Rule R12 (Linear Defaults Confirmation)**: Evaluated on 180 Stage-2 fits across top 8 valid candidates + incumbent across 5 seeds. Incumbent `("nc", "hybrid_adam", "newton")` converged at 1.0 (>= 0.9), mean latent R2 = 0.9883, worst cell = 0.9808, loadings support = 0.7740. No candidate was better beyond noise (all paired diff means <= -0.0006), and no candidate exceeded incumbent by > 0.05 on any cell (max cell diff 0.0003 < 0.05). Incumbent defaults stay.
-- **Rule R13 (Deep Consistency Check)**: Evaluated across deep families (`flow_v`, `ned`, `lend`, `ned_shared_private`). At legacy 45 epochs, families had convergence rates < 0.90. At package default `DEFAULT_DEEP_ITERATIONS = 300` (`docs/audit/evidence/deep_budget_check.csv`), all 4 deep families achieve >= 0.90 convergence: `flow_v` 18/18 (1.000), `ned` 18/18 (1.000), `ned_shared_private` 18/18 (1.000), and `lend` 17/18 (0.944 >= 0.90). Rule R13 passes across all deep families.
+- **Rule R13 (Deep Consistency Check)**: Evaluated across deep families (`flow_v`, `ned`, `lend`, `ned_shared_private`). At 150 epochs, 20 warmup epochs left 130 monitored steps and `lend` (16/18 = 0.889) and `ned_shared_private` (11/18 = 0.611) were still improving rather than stuck on a plateau; raising `DEFAULT_DEEP_ITERATIONS` to 300 gives `NEDPP` 18/18 (1.000), `LEND` 17/18 (0.944 >= 0.90), `NED` 18/18 (1.000), and `Flow-V` 18/18 (1.000), with metrics non-inferior in `docs/audit/evidence/deep_budget_check.csv`. Rule R13 passes across all deep families.
 - **Rule R15 (Collapse Threshold Selection)**: Evaluated across 150 fits in `docs/audit/evidence/collapse_threshold_selection.csv`. Score correlation tracks t (0.302 at 0.3, 0.509 at 0.5, 0.692 at 0.7). Narrow fixture R2 degrades from 0.958 at t=0.3 to 0.856 at t=0.7 (diff -0.102 fails 0.05 guard). Default t=0.3 is retained.
 
 ---
@@ -64,7 +64,7 @@
 6. **Pre-18db280 Standardized Energy Results Invalid**: `similarity._std` relative floor fix (`eps * mean(var)` in commit `18db280`, `docs/audit/evidence/std_floor_check.csv`). Linear results for `align`, `logcosh`, `exp`, `kurtosis`, and `negentropy` measured before commit `18db280` are invalid.
 7. **LEND Convergence at 300 Epochs**: At `DEFAULT_DEEP_ITERATIONS = 300`, `lend` achieves 17/18 (0.944) convergence, passing the >= 0.90 threshold with 1 max_iter stop on synthetic regimes.
 8. **Budget Units Differ**: Linear units are coordinate descent sweeps (300) while deep/flow units are mini-batch training epochs (300).
-9. **Deep Has No collapse_weight**: Deep and flow architectures enforce orthogonality through Riemannian flows or specialized heads and do not accept a linear `collapse_weight` parameter.
+9. **Deep collapse_weight Parameter**: Deep and flow architectures (`lend`, `ned`, `ned_shared_private`, `flow_simr`, `flow_simr_v`) evaluate `correlation_penalty(..., threshold=collapse_threshold)` at fixed weight `DEFAULT_COLLAPSE_WEIGHT = 1.0` (as verified in WP-5 / R3); they expose `collapse_threshold` but do not expose a user-configurable `collapse_weight` parameter.
 
 ---
 
@@ -75,7 +75,7 @@
 | R11 Default Pair | No boundary exclusion for default pair | Withdrawn by reviewer (probe bias, not grid defect) | **WITHDRAWN** |
 | R12 Winner Convergence | Winner convergence rate >= 0.9 | Incumbent convergence = 1.000 | **PASS** |
 | R13 Deep Convergence | Each deep family convergence >= 0.9 | `flow_v` = 1.000 (18/18), `ned` = 1.000 (18/18), `ned_shared_private` = 1.000 (18/18), `lend` = 0.944 (17/18) | **PASS** |
-| Test Suite Gate | 100% green in clean worktree | 1655 passed, 3 xfailed | **PASS** |
+| Test Suite Gate | 100% green in clean worktree | 1663 passed, 3 xfailed | **PASS** |
 | Evidence Provenance | All cited files tracked in git | Verified via `git ls-files --error-unmatch` | **PASS** |
 
 ### **Overall Verdict: READY**
