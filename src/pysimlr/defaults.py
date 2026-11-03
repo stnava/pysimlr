@@ -108,3 +108,12 @@ DEFAULT_TOL = 1e-4
 #: `simlr`'s sweep budget. At `DEFAULT_TOL` the measured fits stop after ~73;
 #: the rest is headroom for harder problems.
 DEFAULT_SIMLR_ITERATIONS = 300
+
+#: Epoch budget of every deep and flow fit (lend, ned, ned_shared_private,
+#: flow_simr, flow_simr_v); the plateau rule (`DEFAULT_TOL`) stops most fits
+#: well before it. At 150 the 20 warmup epochs left 130 steps, and on the
+#: R13 grid (6 synthetic regimes x 3 seeds) ned_shared_private converged on
+#: 11/18 and lend on 16/18. At 300: 18/18 and 17/18 (ned 17 -> 18; flow_v
+#: 18/18 at both), with predictive and latent metrics unchanged within noise
+#: (scripts/deep_budget_check.py, docs/audit/evidence/deep_budget_check.csv).
+DEFAULT_DEEP_ITERATIONS = 300
