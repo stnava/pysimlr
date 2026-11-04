@@ -136,7 +136,7 @@ import paper_adni_ablations as _paa
 
 _d_adni = _paa.protocol_b(42, row_center=False)
 _res_adni, _ = _paa.fit_adni(_d_adni, "simlr", k=3, positivity="positive", sparseness=0.85, random_state=42)
-fig = pysimlr.plot_basis_diagnostics(_res_adni, view_names=["Volume", "Thickness", "DKT Cortex", "Cognition"])
+fig = pysimlr.plot_basis_diagnostics(_res_adni, view_names=["Volume", "Vol/area", "DiReCT thickness", "Cognition"])
 plt.show()
 ```
 
@@ -181,7 +181,7 @@ with theme():
 
 ## Preprocessing Controls: Subject Row-Mean Removal, ICA Initialization, and Orthogonal Varimax Rotation
 
-On neuroimaging cohorts where cortical regions share a positive global correlation floor, @tbl-app-rowmean-ica and @fig-rowmean-k-ablation compare column centering with in-fold subject row-mean centering, PCA with deterministic FastICA [@hyvarinen2000independent] initialization, signed with non-negative bases, and the initializer alone with the fitted model (`SiMLR`, $k = 3$, $w = 0.50$, no Varimax, no quantile threshold; `scripts/paper_adni_ablations.py`). With non-negative bases, row-mean centering changes cortical sparsity from `{python} N.rm_col_pca_pos_sp` to `{python} N.rm_row_pca_pos_sp` and `CogPC1` $R^2$ from `{python} N.rm_col_pca_pos_r2` to `{python} N.rm_row_pca_pos_r2`. Varimax rotation on column-centered data gives `{python} N.fl_varimax_simr_sp` sparsity on the 62 DKT regions with `{python} N.fl_varimax_simr_active` active regions per component, against `{python} N.fl_col_pca_simr_sp` and `{python} N.fl_col_pca_simr_active` without rotation.
+On neuroimaging cohorts where cortical regions share a positive global correlation floor, @tbl-app-rowmean-ica and @fig-rowmean-k-ablation compare column centering with in-fold subject row-mean centering, PCA with deterministic FastICA [@hyvarinen2000independent] initialization, signed with non-negative bases, and the initializer alone with the fitted model (`SiMLR`, $k = 3$, $w = 0.50$, no Varimax, no quantile threshold; `scripts/paper_adni_ablations.py`). Row-mean centering applies to the three MRI views only; the eleven cognitive scales are on different units, and subtracting each subject's mean across them would remove overall severity from the outcome. With non-negative bases, row-mean centering changes cortical sparsity from `{python} N.rm_col_pca_pos_sp` to `{python} N.rm_row_pca_pos_sp` and `CogPC1` $R^2$ from `{python} N.rm_col_pca_pos_r2` to `{python} N.rm_row_pca_pos_r2`. Varimax rotation on column-centered data gives `{python} N.fl_varimax_simr_sp` sparsity on the 62 DKT regions with `{python} N.fl_varimax_simr_active` active regions per component, against `{python} N.fl_col_pca_simr_sp` and `{python} N.fl_col_pca_simr_active` without rotation.
 
 ```{python}
 #| warning: false

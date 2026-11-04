@@ -349,7 +349,7 @@ Table&nbsp;B.1: Sensitivity of basis orthogonality defect <span class="math inli
 <td style="text-align: right;">3</td>
 <td style="text-align: left;">93.2%</td>
 <td style="text-align: right;">0.2146</td>
-<td style="text-align: left;">1.61s</td>
+<td style="text-align: left;">1.63s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">0.10</td>
@@ -360,7 +360,7 @@ Table&nbsp;B.1: Sensitivity of basis orthogonality defect <span class="math inli
 <td style="text-align: right;">3</td>
 <td style="text-align: left;">92.8%</td>
 <td style="text-align: right;">0.2259</td>
-<td style="text-align: left;">1.25s</td>
+<td style="text-align: left;">1.31s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">0.20</td>
@@ -371,7 +371,7 @@ Table&nbsp;B.1: Sensitivity of basis orthogonality defect <span class="math inli
 <td style="text-align: right;">3</td>
 <td style="text-align: left;">92.6%</td>
 <td style="text-align: right;">0.2118</td>
-<td style="text-align: left;">1.32s</td>
+<td style="text-align: left;">1.29s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">0.35</td>
@@ -382,7 +382,7 @@ Table&nbsp;B.1: Sensitivity of basis orthogonality defect <span class="math inli
 <td style="text-align: right;">3</td>
 <td style="text-align: left;">92.5%</td>
 <td style="text-align: right;">0.2009</td>
-<td style="text-align: left;">0.97s</td>
+<td style="text-align: left;">0.98s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">0.50*</td>
@@ -393,7 +393,7 @@ Table&nbsp;B.1: Sensitivity of basis orthogonality defect <span class="math inli
 <td style="text-align: right;">3</td>
 <td style="text-align: left;">93.3%</td>
 <td style="text-align: right;">0.2147</td>
-<td style="text-align: left;">1.83s</td>
+<td style="text-align: left;">1.85s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">0.65</td>
@@ -404,7 +404,7 @@ Table&nbsp;B.1: Sensitivity of basis orthogonality defect <span class="math inli
 <td style="text-align: right;">3</td>
 <td style="text-align: left;">93.7%</td>
 <td style="text-align: right;">0.2167</td>
-<td style="text-align: left;">2.36s</td>
+<td style="text-align: left;">2.33s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">0.80</td>
@@ -415,7 +415,7 @@ Table&nbsp;B.1: Sensitivity of basis orthogonality defect <span class="math inli
 <td style="text-align: right;">3</td>
 <td style="text-align: left;">93.5%</td>
 <td style="text-align: right;">0.2175</td>
-<td style="text-align: left;">4.30s</td>
+<td style="text-align: left;">4.23s</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">0.90</td>
@@ -426,7 +426,7 @@ Table&nbsp;B.1: Sensitivity of basis orthogonality defect <span class="math inli
 <td style="text-align: right;">3</td>
 <td style="text-align: left;">93.5%</td>
 <td style="text-align: right;">0.2174</td>
-<td style="text-align: left;">6.64s</td>
+<td style="text-align: left;">6.49s</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">0.95</td>
@@ -437,7 +437,7 @@ Table&nbsp;B.1: Sensitivity of basis orthogonality defect <span class="math inli
 <td style="text-align: right;">3</td>
 <td style="text-align: left;">93.4%</td>
 <td style="text-align: right;">0.2158</td>
-<td style="text-align: left;">12.82s</td>
+<td style="text-align: left;">12.59s</td>
 </tr>
 </tbody>
 </table>
@@ -493,7 +493,7 @@ Figure&nbsp;B.3: Component stability across candidate ranks <span class="math in
 </section>
 <section id="preprocessing-controls-subject-row-mean-removal-ica-initialization-and-orthogonal-varimax-rotation" class="level2" data-number="B.2">
 <h2 data-number="B.2" class="anchored" data-anchor-id="preprocessing-controls-subject-row-mean-removal-ica-initialization-and-orthogonal-varimax-rotation"><span class="header-section-number">B.2</span> Preprocessing Controls: Subject Row-Mean Removal, ICA Initialization, and Orthogonal Varimax Rotation</h2>
-<p>On neuroimaging cohorts where cortical regions share a positive global correlation floor, <a href="#tbl-app-rowmean-ica" class="quarto-xref">Table&nbsp;<span>B.2</span></a> and <a href="#fig-rowmean-k-ablation" class="quarto-xref">Figure&nbsp;<span>B.4</span></a> compare column centering with in-fold subject row-mean centering, PCA with deterministic FastICA <span class="citation" data-cites="hyvarinen2000independent">(<a href="#ref-hyvarinen2000independent" role="doc-biblioref">Hyvärinen and Oja 2000</a>)</span> initialization, signed with non-negative bases, and the initializer alone with the fitted model (<code>SiMLR</code>, <span class="math inline">\(k = 3\)</span>, <span class="math inline">\(w = 0.50\)</span>, no Varimax, no quantile threshold; <code>scripts/paper_adni_ablations.py</code>). With non-negative bases, row-mean centering changes cortical sparsity from 93% to 62% and <code>CogPC1</code> <span class="math inline">\(R^2\)</span> from 0.196 to 0.003. Varimax rotation on column-centered data gives 67% sparsity on the 62 DKT regions with [2, 0, 60] active regions per component, against 67% and [60, 1, 1] without rotation.</p>
+<p>On neuroimaging cohorts where cortical regions share a positive global correlation floor, <a href="#tbl-app-rowmean-ica" class="quarto-xref">Table&nbsp;<span>B.2</span></a> and <a href="#fig-rowmean-k-ablation" class="quarto-xref">Figure&nbsp;<span>B.4</span></a> compare column centering with in-fold subject row-mean centering, PCA with deterministic FastICA <span class="citation" data-cites="hyvarinen2000independent">(<a href="#ref-hyvarinen2000independent" role="doc-biblioref">Hyvärinen and Oja 2000</a>)</span> initialization, signed with non-negative bases, and the initializer alone with the fitted model (<code>SiMLR</code>, <span class="math inline">\(k = 3\)</span>, <span class="math inline">\(w = 0.50\)</span>, no Varimax, no quantile threshold; <code>scripts/paper_adni_ablations.py</code>). Row-mean centering applies to the three MRI views only; the eleven cognitive scales are on different units, and subtracting each subject’s mean across them would remove overall severity from the outcome. With non-negative bases, row-mean centering changes cortical sparsity from 93% to 59% and <code>CogPC1</code> <span class="math inline">\(R^2\)</span> from 0.196 to 0.162. Varimax rotation on column-centered data gives 67% sparsity on the 62 DKT regions with [2, 0, 60] active regions per component, against 67% and [60, 1, 1] without rotation.</p>
 <div id="tbl-app-rowmean-ica" class="cell quarto-float quarto-figure quarto-figure-center anchored" data-message="false" data-execution_count="6">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-app-rowmean-ica-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -611,8 +611,8 @@ Table&nbsp;B.2: Factorial ablation of column vs.&nbsp;subject row-mean centering
 <td style="text-align: left;">Init</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0% (0.0%)</td>
-<td style="text-align: left;">0.1351 (0.1364)</td>
-<td style="text-align: right;">0.0968</td>
+<td style="text-align: left;">0.1652 (0.1672)</td>
+<td style="text-align: right;">0.079</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Row+Col</td>
@@ -621,8 +621,8 @@ Table&nbsp;B.2: Factorial ablation of column vs.&nbsp;subject row-mean centering
 <td style="text-align: left;">SiMR</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0% (0.0%)</td>
-<td style="text-align: left;">-0.0415 (-0.0380)</td>
-<td style="text-align: right;">-0.0357</td>
+<td style="text-align: left;">0.1096 (0.1114)</td>
+<td style="text-align: right;">0.0212</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Row+Col</td>
@@ -631,18 +631,18 @@ Table&nbsp;B.2: Factorial ablation of column vs.&nbsp;subject row-mean centering
 <td style="text-align: left;">Init</td>
 <td style="text-align: right;">0.00245</td>
 <td style="text-align: left;">59.3% (30.9%)</td>
-<td style="text-align: left;">0.0786 (0.0785)</td>
-<td style="text-align: right;">0.0697</td>
+<td style="text-align: left;">0.1792 (0.1781)</td>
+<td style="text-align: right;">0.078</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Row+Col</td>
 <td style="text-align: left;">PCA</td>
 <td style="text-align: left;">V&gt;=0</td>
 <td style="text-align: left;">SiMR</td>
-<td style="text-align: right;">0.00448</td>
-<td style="text-align: left;">62.4% (67.0%)</td>
-<td style="text-align: left;">0.0032 (0.0158)</td>
-<td style="text-align: right;">0.0106</td>
+<td style="text-align: right;">0.00074</td>
+<td style="text-align: left;">58.7% (57.9%)</td>
+<td style="text-align: left;">0.1625 (0.1627)</td>
+<td style="text-align: right;">0.0788</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Row+Col</td>
@@ -651,18 +651,18 @@ Table&nbsp;B.2: Factorial ablation of column vs.&nbsp;subject row-mean centering
 <td style="text-align: left;">Init</td>
 <td style="text-align: right;">0</td>
 <td style="text-align: left;">0.0% (0.0%)</td>
-<td style="text-align: left;">0.1321 (0.1348)</td>
-<td style="text-align: right;">0.0972</td>
+<td style="text-align: left;">0.1605 (0.1643)</td>
+<td style="text-align: right;">0.079</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Row+Col</td>
 <td style="text-align: left;">ICA</td>
 <td style="text-align: left;">Signed</td>
 <td style="text-align: left;">SiMR</td>
-<td style="text-align: right;">0</td>
+<td style="text-align: right;">1e-05</td>
 <td style="text-align: left;">0.0% (0.0%)</td>
-<td style="text-align: left;">-0.0177 (-0.0096)</td>
-<td style="text-align: right;">-0.0259</td>
+<td style="text-align: left;">0.1108 (0.1216)</td>
+<td style="text-align: right;">0.0262</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Row+Col</td>
@@ -671,18 +671,18 @@ Table&nbsp;B.2: Factorial ablation of column vs.&nbsp;subject row-mean centering
 <td style="text-align: left;">Init</td>
 <td style="text-align: right;">0.01849</td>
 <td style="text-align: left;">61.9% (65.2%)</td>
-<td style="text-align: left;">0.1173 (0.1181)</td>
-<td style="text-align: right;">0.095</td>
+<td style="text-align: left;">0.1639 (0.1701)</td>
+<td style="text-align: right;">0.0785</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Row+Col</td>
 <td style="text-align: left;">ICA</td>
 <td style="text-align: left;">V&gt;=0</td>
 <td style="text-align: left;">SiMR</td>
-<td style="text-align: right;">0.00108</td>
-<td style="text-align: left;">53.8% (62.8%)</td>
-<td style="text-align: left;">0.0623 (0.0679)</td>
-<td style="text-align: right;">0.0583</td>
+<td style="text-align: right;">0.00323</td>
+<td style="text-align: left;">56.5% (61.3%)</td>
+<td style="text-align: left;">0.1927 (0.1787)</td>
+<td style="text-align: right;">0.081</td>
 </tr>
 </tbody>
 </table>

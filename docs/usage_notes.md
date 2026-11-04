@@ -179,11 +179,17 @@ index (MAI): the leave-one-out agreement of the view's latent with the other vie
   percentile of the same score with the consensus rows permuted (20 permutations, recomputed
   every 10 updates). If no view clears its floor, the weights stay uniform with a
   `RuntimeWarning`.
-- **No binary weights.** Every view keeps at least half its uniform share:
-  w = 0.5/M + 0.5 · target (`consensus.MAI_MIN_SHARE`). With 4 views the weights stay in
-  [0.125, 0.625], so one view cannot take the consensus on a noisy score, and a view's graph
-  neighbourhood is never empty. If a neighbourhood's weights do sum to 0, its consensus uses
-  the views unweighted, with a warning.
+- **Weights are bounded to [0.01, 0.5]** (`consensus.MAI_WEIGHT_BOUNDS`). They are the nearest
+  weights to the gated target that sum to 1 and stay within those bounds.
+  - **No view supplies more than half the consensus,** so one view cannot take it over on a
+    noisy score.
+  - **A view with no evidence of coupling falls to 1%,** which effectively removes a trash
+    modality without ever reaching exactly 0.
+  - **With two views, the bounds force 0.5 / 0.5,** so MAI cannot reweight two views.
+  - **If only one view clears its null floor,** the consensus rests on that view (capped at
+    0.5) and a `RuntimeWarning` says so: the rest of the weight goes to views with no evidence.
+  - **If a neighbourhood's weights sum to 0,** its consensus uses the views unweighted, with a
+    warning.
 - **The ramp from uniform to target weights takes 20 updates.**
 - **Choosing `mai_metric`:**
   - `procrustes_r2` (the default) scores agreement across all k components. It gives the best
@@ -202,11 +208,13 @@ index (MAI): the leave-one-out agreement of the view's latent with the other vie
   | previous (raw score, mean gate) | 0.35 | 0.35 | 0.00 | 0.00 | 0.30 | 0.908 |
   | `procrustes_r2`, no floor | 0.41 | 0.41 | 0.09 | 0.08 | 0.01 | 0.906 |
   | `procrustes_r2`, floor 0.25 | 0.35 | 0.35 | 0.12 | 0.11 | 0.06 | 0.896 |
-  | `procrustes_r2`, floor 0.5 (default) | 0.30 | 0.30 | 0.15 | 0.14 | 0.11 | 0.879 |
-  | `max_cc`, floor 0.5 | 0.21 | 0.21 | 0.21 | 0.18 | 0.20 | 0.853 |
+  | `procrustes_r2`, floor 0.5 (v0.10–v0.12) | 0.30 | 0.30 | 0.15 | 0.14 | 0.11 | 0.879 |
+  | **`procrustes_r2`, bounds [0.01, 0.5] (default)** | 0.40 | 0.40 | 0.09 | 0.08 | 0.02 | 0.908 |
+  | `max_cc`, bounds [0.01, 0.5] | 0.22 | 0.22 | 0.22 | 0.15 | 0.20 | 0.856 |
 
-  - **The floor trades about 0.03 latent R² on this design** for weights that cannot go
-    binary.
+  - **The bounds recover the latent R² the half-share floor gave up** (0.908 against 0.879).
+    The noise view is at the 0.01 bound on 4 of 5 seeds. On the fifth its MAI clears its null
+    floor, and it gets 0.068.
   - **Under `max_cc`, E is not assessable** (union support ≥ n − 1), so it keeps its uniform
     share.
   - **In the all-coupled control, every arm is uniform** (within 0.01).
@@ -357,6 +365,26 @@ Nothing plots the encoder `v`. The architecture diagrams are in `pysimlr.diagram
 - **The collapse penalty.** It prevents components collapsing onto each other on narrow views,
   but on such views it also costs similarity. Its threshold is the trade-off described above;
   its weight (`collapse_weight`, linear only) stays at 1.0.
+- **Non-negative bases on a view dominated by one global factor.** Examples are cortical
+  thickness, where every region thins together, or any panel whose features are all positively
+  correlated.
+  - **Why the penalty breaks localisation here.** Any two non-negative region sums on such a
+    view correlate above the 0.3 threshold, so the penalty shrinks columns to one or two
+    features.
+  - **ADNI-MCI DiReCT thickness** (62 DKT regions, PC1 = 58% of variance;
+    `scripts/adni_global_factor_check.py` → `docs/audit/evidence/adni_global_factor_check.csv`,
+    10 half-samples). With the default, the predictive column kept ≥ 5 regions in 6/10
+    refits, and only one region was selected in ≥ 50% of them. With `collapse_weight=0` it kept
+    ≥ 5 regions in 9/10, three regions replicated in ≥ 50% (L entorhinal, L supramarginal, L superior frontal), and held-out CogPC1 R² was 0.224
+    against 0.210.
+  - **Regressing out the subject's mean thickness doesn't help.** The columns spread out, but the
+    predictive signal goes with the global factor (thickness-column R² ≈ 0).
+  - **What to do.** Before reading regional loadings on such a view, refit with
+    `collapse_weight=0` and check stability across refits.
+  - **What not to do.** Don't read hard-assigned (argmax) loadings on such a view. Structure
+    coefficients measure association, so nearly every region lands on the component that tracks
+    the global factor.
+  - **Why the default stays at 1.0.** This is evidence from one dataset.
 - **The default combination** of energy, optimizer and mixing is being re-confirmed at the full
   iteration budget. The current choice comes from a 25-iteration benchmark.
 - **Removed in 0.6.0:** the `simlr_lbfgsb` method and the `nsa_lbfgsb` optimizer. They were not

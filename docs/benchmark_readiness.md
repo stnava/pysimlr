@@ -75,7 +75,7 @@
 | R11 Default Pair | No boundary exclusion for default pair | Withdrawn by reviewer (probe bias, not grid defect) | **WITHDRAWN** |
 | R12 Winner Convergence | Winner convergence rate >= 0.9 | Incumbent convergence = 1.000 | **PASS** |
 | R13 Deep Convergence | Each deep family convergence >= 0.9 | `flow_v` = 1.000 (18/18), `ned` = 1.000 (18/18), `ned_shared_private` = 1.000 (18/18), `lend` = 0.944 (17/18) | **PASS** |
-| Test Suite Gate | 100% green in clean worktree | 1722 passed, 3 xfailed | **PASS** |
+| Test Suite Gate | 100% green in clean worktree | 1744 passed, 3 xfailed | **PASS** |
 | Evidence Provenance | All cited files tracked in git | Verified via `git ls-files --error-unmatch` | **PASS** |
 
 ### **Overall Verdict: READY**

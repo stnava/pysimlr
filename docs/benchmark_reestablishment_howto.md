@@ -60,7 +60,7 @@ Loaders for the first three and KIRC live in
 
 **Benchmark Status on MCI / MMSE**:
 - Historical unsupervised or imaging-only MCI predicting CDRSB/MMSE failed to clear covariates.
-- **Resolved & Systematically Integrated**: Formulated as a 4-view mediated architecture (Volume + Hierarchical Thickness + Native T1w Thickness + Cognitive Battery) predicting continuous CDR-SB and MMSE, `LEND-SiMR + MAI` achieves out-of-sample $R^2 = 0.2648 \pm 0.033$ ($\Delta R^2 = +0.2663$ over covariates, paired Wilcoxon $p = 9.77 \times 10^{-4}$), and `SiMLR [Mediated]` achieves $R^2 = 0.2443 \pm 0.053$ in 0.86s. The problem is systematically wired into:
+- **Resolved & Systematically Integrated**: Formulated as a 4-view mediated architecture (Volume + Volume/Surface-Area + DiReCT Cortical Thickness + Cognitive Battery) predicting continuous CDR-SB and MMSE, `LEND-SiMR + MAI` achieves out-of-sample $R^2 = 0.2648 \pm 0.033$ ($\Delta R^2 = +0.2663$ over covariates, paired Wilcoxon $p = 9.77 \times 10^{-4}$), and `SiMLR [Mediated]` achieves $R^2 = 0.2443 \pm 0.053$ in 0.86s. The problem is systematically wired into:
   - `scripts/benchmark_adni_mci_4view_mediation.py` (dedicated 10-seed paired replication runner)
   - `scripts/full_benchmark_pass.py` (executed in sequence with Heart, Diabetes, mfeat, ADNI-DX, ADNI-MCI-Mediation, TCGA-KIRC)
   - `scripts/run_v22_benchmarks.sh` (triggered automatically as part of the overall repository benchmark suite)

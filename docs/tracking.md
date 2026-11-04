@@ -1,9 +1,9 @@
 # Tracking Summary
-current phase: v0.12.0 released from `main` (pysimlr.extend: add unseen modalities to a fitted model; predict from any subset of views).
-next WP: D2 paper on `amigo-paper` (merge `main` first); open findings in D17 (NSA-Flow failure on k = p narrow views at lr 0.3; MPS SVD round-trip, waits on the nsa_flow device option).
+current phase: v0.12.0 + D20 on `main` (MAI weight bounds [0.01, 0.5]; ADNI Figure 3.9 and view names corrected).
+next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: `amigo` / `amigo-paper` (D2); the owner's uncommitted paper and manuscript edits in the main working tree
-device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
+active work: none; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.6.0 (editable, /Users/stnava/data/repos/nsa_flow; not on PyPI)
 last updated: 2026-11-04
 
 ---
@@ -11,6 +11,62 @@ last updated: 2026-11-04
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D20 (MAI weight bounds, ADNI Figure 3.9 corrected, open items closed, 2026-11-04)
+status: done (`a32ad62` code; paper and docs in the commit that adds this entry; branch `goal-work`)
+- **MAI weights bounded to [0.01, 0.5]** (`consensus.MAI_WEIGHT_BOUNDS`, capped-simplex
+  projection; replaces `MAI_MIN_SHARE`). No view can take more than half the consensus, and a
+  trash view keeps 0.01. A `RuntimeWarning` fires when fewer than two views clear their null floor.
+  - Rule, all four criteria pass: planted R² 0.908 (≥ 0.879); max weight ≤ 0.5; noise view at
+    0.010 on 4/5 seeds (0.068 on the seed where its MAI cleared the floor); ADNI failing class
+    324/324 ok, paired CogPC1 difference −0.0008 (`mai_calibration_check.csv`,
+    `adni_mci_mai_regression_check.csv`).
+- **Figure 3.9 was wrong.** It showed hard-assigned (argmax) loadings of DiReCT thickness:
+  - DiReCT thickness has one global factor (PC1 58% of variance; mean inter-region r 0.55);
+  - consensus C2 tracks it (r 0.87 with mean thickness), so argmax put 2 / 60 / 0 regions on
+    C1 / C2 / C3;
+  - the text's "about 9 regions per component" was false.
+  - **The new figure** (`scripts/paper_adni_attribution.py` → `adni_attribution.json`):
+    - C2 carries the held-out CogPC1 in every MRI view; vol/area C2 has R² 0.211 alone and
+      unique R² +0.054;
+    - its features replicate across 20 half-samples: entorhinal, temporal lobe, inferior
+      parietal at 0.75.
+- **Item 4: collapse penalty vs global-factor views**
+  (`scripts/adni_global_factor_check.py` → `adni_global_factor_check.csv`, 10 half-samples).
+  - **`collapse_weight=0` passes:**
+    - the predictive DiReCT column kept ≥ 5 regions in 9/10 refits (default: 6/10);
+    - 3 regions were selected in ≥ 50% of refits (default: 1);
+    - CogPC1 R² was 0.224 vs 0.210.
+  - **Regressing out mean thickness fails:** the signal goes with the global factor.
+  - **Package default unchanged** (evidence from one dataset). Usage notes say to set
+    `collapse_weight=0` before reading regional loadings on such views.
+- **Paper:**
+  - the ADNI views are renamed (vol/area is volume ÷ surface area, not thickness; DiReCT is
+    cortical thickness);
+  - abstract, intro, Chapter 3 item 2, discussion and appendix rewritten from the attribution
+    numbers (`attr_*` in `paper_numbers.py`);
+  - section title no longer claims Braak mapping;
+  - sensorimotor-weight sentence removed (it read the global factor).
+- **Row-mean ablation bug:** `protocol_b(row_center=True)` also row-centred the 11 cognitive
+  scales, removing overall severity from the outcome.
+  - Fixed: the MRI views only.
+  - Rerun: column centring 0.196, row centring 0.162 (PCA start) and 0.193 (ICA start).
+  - All ablation caches regenerated at `a32ad62`; JSON caches carry provenance, including the
+    git commit.
+- **Extended views in plots:** `extend` stores training latents, so the chord and radar plots
+  show the new views (`test_plots_show_extended_views`).
+- **Decisions on open items:**
+  - **Deep-model extend default stays `anchored`,** with the D19 caveat in the usage notes. The
+    ned rule failure came from a weak frozen model, and that is the user's choice to refit.
+  - **`learning_rate="auto"` stays** (D17: fixed 0.3 matched it only on planted cells).
+  - **nsa_flow 3.6.0** is installed but not on PyPI, so it can't be pinned.
+  - **MPS polar factor** (`scripts/mps_polar_timing.py` → `mps_polar_timing.csv`, n = 2000,
+    20 epochs, 2 repeats). `nsa_flow.polar_factor` in place of the SVD round-trip:
+    - speedups ned 6%, lend 0%;
+    - ned latents agree to min |r| 0.927;
+    - rule (≥ 15% faster and ≥ 0.99 agreement): **KEEP SVD.**
+- **Verification:** 1744 passed, 3 xfailed; `antsxqc.lint` 0 findings; the manuscript is
+  re-rendered with `make paper`.
 
 ## D19 (pysimlr.extend: adding unseen modalities to a fitted model, 2026-11-03)
 status: done (`2582c7c`; released in v0.12.0)

@@ -85,6 +85,24 @@ def op_default():
     return d
 
 
+def region_label(name):
+    """Readable ADNI region name: 'left_entorhinaldktcortex' -> 'L entorhinal (DKT cortex label)'."""
+    import re
+    side = "L " if name.startswith("left_") else ("R " if name.startswith("right_") else "")
+    n = re.sub(r"^(left|right)_", "", name)
+    m = re.match(r"(.*?)dkt(regions|cortex|lobes)$", n)
+    if m:
+        base, kind = m.groups()
+        if kind == "lobes":
+            base, s = base.rsplit("_", 1)
+            return f"{s.upper()} {base} lobe"
+        return f"{side}{base.replace('_', ' ')} ({'DKT parcellation' if kind == 'regions' else 'DKT cortex label'})"
+    m = re.match(r"(.*?)(mtl|cit168)$", n)
+    if m:
+        return f"{side}{m.group(1).replace('_', ' ')} ({m.group(2).upper()} atlas)"
+    return side + n.replace("_", " ")
+
+
 def build():
     n, raw = {}, {}
 
@@ -334,6 +352,38 @@ def build():
         top = comp["regions"][:5]
         put(f"fl_q85_c{j}_top", ", ".join(f"`{r}` ({v:+.3f})" for r, v in top), str)
         put(f"fl_q85_c{j}_n", comp["active_regions"], str)
+
+    # Feature attribution (scripts/paper_adni_attribution.py): which component carries the held-out
+    # CogPC1 prediction, why hard-assigned DiReCT loadings collapse onto it, and which regions
+    # replicate across 20 half-sample refits with and without the collapse penalty.
+    with open(os.path.join(CACHE, "adni_attribution.json")) as fh:
+        at = json.load(fh)
+    raw["attribution"] = at
+    put("attr_full_r2", at["full_r2"])
+    for c in at["components"]:
+        tag = {"volume": "vol", "vol_area": "va", "direct_thickness": "dkt"}[c["view"]]
+        put(f"attr_{tag}_c{c['component']}_r2", c["alone"])
+        put(f"attr_{tag}_c{c['component']}_unique", c["drop"], lambda x: f"{x:+.3f}")
+        put(f"attr_{tag}_c{c['component']}_n", c["nnz"], str)
+    put("attr_dkt_pc1", at["dkt_eigen_share"][0], lambda x: pct(x, 0))
+    put("attr_dkt_mean_corr", at["dkt_mean_corr"], lambda x: f"{x:.2f}")
+    put("attr_c2_global_r", at["consensus_vs_global"][1], lambda x: f"{x:.2f}")
+    put("attr_hard_counts", " / ".join(str(v) for v in at["dkt_loadings_counts"]), str)
+    for tag, key in (("cur", "halves"), ("nc", "halves_no_collapse")):
+        hv = at[key]
+        nnz = np.array([sum(h["2"]["support"]) for h in hv])
+        put(f"attr_{tag}_dkt_med_r2", float(np.median([h["2"]["r2"] for h in hv])))
+        put(f"attr_{tag}_dkt_degenerate", int((nnz <= 2).sum()), str)
+        put(f"attr_{tag}_dkt_med_n", float(np.median(nnz)), lambda x: f"{x:.0f}")
+        put(f"attr_{tag}_va_med_r2", float(np.median([h["1"]["r2"] for h in hv])))
+        for v, vt in (("1", "va"), ("2", "dkt")):
+            freq = np.mean([h[v]["support"] for h in hv], 0)
+            cut = 0.5 if vt == "va" else 0.4
+            top = [(at["names"][v][i], freq[i]) for i in np.argsort(-freq, kind="stable") if freq[i] >= cut][:6]
+            put(f"attr_{tag}_{vt}_top", "; ".join(f"{region_label(n)}: {f:.2f}" for n, f in top), str)
+    put("attr_n_halves", len(at["halves"]), str)
+    put("attr_nc_dkt_top_max", float(np.mean([h["2"]["support"] for h in at["halves_no_collapse"]], 0).max()),
+        lambda x: f"{x:.2f}")
 
     ctl = _csv("adni_mci_axis_alignment_controls.csv")
     cm = ctl.groupby(["Model", "Positivity"]).mean(numeric_only=True)
