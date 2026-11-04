@@ -250,7 +250,7 @@
 \title{Deep SiMLR: Auditable Multi-Modal Integration for Biomedical
 Discovery}
 \author{Brian B. Avants \and Nicholas J. Tustison \and James R. Stone}
-\date{2026-11-03}
+\date{2026-11-04}
 \begin{document}
 \maketitle
 
@@ -282,13 +282,14 @@ with interchangeable linear (\texttt{SiMLR}), non-linear decoder
 alignment modules. Across \(1,084\) participants with Mild Cognitive
 Impairment from the Alzheimer's Disease Neuroimaging Initiative
 (\texttt{ADNI-MCI}) and eleven additional multi-omic, clinical, and
-synthetic benchmarks, aligning baseline cortical thickness and
-subcortical volumes with eleven neuropsychological scales during
-training improves out-of-sample cognitive prediction from structural
-magnetic resonance imaging alone from \(R^2 =\) 0.152 (principal
-component analysis) to \(R^2 =\) 0.209 (\texttt{NED}), while
-non-negative quantile-sparse projections restrict each latent axis to 2
-of 62 cortical regions. Crucially, evaluating learned representations
+synthetic benchmarks, aligning baseline regional volumes,
+volume-to-surface-area ratios and DiReCT cortical thickness with eleven
+neuropsychological scales during training improves out-of-sample
+cognitive prediction from structural magnetic resonance imaging alone
+from \(R^2 =\) 0.152 (principal component analysis) to \(R^2 =\) 0.209
+(\texttt{NED}), and the component that carries this prediction loads on
+entorhinal, temporal and inferior parietal measures that replicate
+across half-sample refits. Crucially, evaluating learned representations
 across both multi-variable linear probes and single-axis decision trees
 demonstrates that while linear regression is algebraically invariant to
 post-hoc column mixing, coordinate-aligned SiMR projections preserve
@@ -611,8 +612,9 @@ components. \\
   test time, the best multi-view model (\texttt{NED}) improves
   out-of-sample composite cognitive prediction by +37.3\% over principal
   component analysis of the same MRI features (\(R^2 =\) 0.209
-  vs.~0.152), and quantile-sparse non-negative projections isolate three
-  cortical networks of 2 regions each.
+  vs.~0.152), and one non-negative component carries that prediction in
+  every MRI view, with entorhinal, temporal and inferior parietal
+  measures selected in most half-sample refits.
 \item
   \textbf{Actionable Operating-Point Characterization Across 12
   Benchmarks}: Through a 9-method comparison across six real biomedical
@@ -746,11 +748,13 @@ principles govern the optimization:
   operator-norm scalings lost up to \(0.1441\) in latent \(R^2\) and
   \(0.2037\) in support \(F_1\) across synthetic cells
   (\texttt{docs/audit/evidence/view\_weighting\_selection.csv}). When
-  opt-in Mutual Alignment Index weighting
-  (\texttt{dynamic\_weights=True}) is enabled, view agreement is
-  degree-of-freedom-corrected against the training sample size and
-  bounded below by half the uniform share
-  (\texttt{MAI\_MIN\_SHARE\ =\ 0.5}).
+  opt-in modality alignment index (MAI) weighting
+  (\texttt{dynamic\_weights=True}) is enabled, each view's leave-one-out
+  agreement with the consensus is degree-of-freedom-corrected against
+  the training sample size, gated against a permutation null floor, and
+  the weights are bounded to \([0.01, 0.5]\)
+  (\texttt{MAI\_WEIGHT\_BOUNDS}): no view supplies more than half the
+  consensus, and a view with no evidence of coupling falls to 1\%.
 \item
   \textbf{Refusal of Negentropy as Fit Objective}: While negentropy
   measures departure from Gaussianity within individual projections, it
@@ -1198,22 +1202,24 @@ available when evaluating a new patient (Stone 1974):
   embedding \(\mathbf{U}_{\text{test}}\).
 \item
   \textbf{Protocol B (Single-View Clinical Translation in
-  \texttt{ADNI-MCI})}: During training, the algorithm aligns structural
-  MRI (\(\mathbf{X}_1 \in \mathbb{R}^{N \times 62}\), DKT cortical
-  thickness and subcortical volumes (Desikan et al. 2006; Klein and
-  Tourville 2012; Tustison et al. 2014, 2010; Avants, Tustison, Wu, et
-  al. 2011; Avants, Tustison, et al. 2014)) with an 11-scale
+  \texttt{ADNI-MCI})}: During training, the algorithm aligns three
+  structural MRI views (Desikan et al. 2006; Klein and Tourville 2012;
+  Tustison et al. 2014, 2010; Avants, Tustison, Wu, et al. 2011; Avants,
+  Tustison, et al. 2014) (label volumes of 160 hierarchical segmentation
+  labels, \(\mathbf{X}_0\); the volume-to-surface-area ratio of the same
+  labels, \(\mathbf{X}_1\); and DiReCT cortical thickness in 62 DKT
+  cortical regions, \(\mathbf{X}_2\)) with an 11-scale
   neuropsychological battery
-  (\(\mathbf{X}_2 \in \mathbb{R}^{N \times 11}\)). At test time,
-  cognitive test scores \(\mathbf{X}_{2,\text{test}}\) are completely
+  (\(\mathbf{X}_3 \in \mathbb{R}^{N \times 11}\)). At test time,
+  cognitive test scores \(\mathbf{X}_{3,\text{test}}\) are completely
   withheld; predictions of composite cognitive status (\texttt{CogPC1})
   and individual clinical scales are generated solely from the patient's
-  baseline structural MRI scan via
-  \(\mathbf{Z}_{1,\text{test}} = \mathbf{X}_{1,\text{test}} \mathbf{V}_1\).
-  This protocol tests whether supervising anatomical representation
-  learning with multidimensional cognitive batteries during training
-  extracts a more clinically informative neuroanatomical basis than
-  unsupervised MRI decomposition.
+  baseline structural MRI via
+  \(\mathbf{Z}_{m,\text{test}} = \mathbf{X}_{m,\text{test}} \mathbf{V}_m\),
+  \(m = 0, 1, 2\). This protocol tests whether supervising anatomical
+  representation learning with multidimensional cognitive batteries
+  during training extracts a more clinically informative neuroanatomical
+  basis than unsupervised MRI decomposition.
 \end{itemize}
 
 \bookmarksetup{startatroot}
@@ -1318,21 +1324,26 @@ Factor u3 R2 \& F1 & SiMLR (0.758 vs PCA 0.125) \\
 
 In \texttt{ADNI-MCI} (\(N = 1,084\)) (Mueller et al. 2005; {Jack et al.}
 2008; {Weiner et al.} 2017), Views 0--2 capture \(382\) regional
-structural MRI features derived via the ANTs longitudinal and
-cross-sectional cortical thickness and Desikan--Killiany--Tourville
-(DKT) parcellation pipelines (Avants et al. 2008; Avants, Tustison,
-Song, et al. 2011; Tustison et al. 2014; Desikan et al. 2006; Klein and
-Tourville 2012; {Stone et al.} 2020, 2024; {Marek et al.} 2011; {Smith
-et al.} 2013), while View 3 comprises eleven neuropsychological scales
-(\texttt{ADAS11}, \texttt{ADAS13}, \texttt{ADASQ4} (Rosen et al. 1984),
-\texttt{MMSE} (Folstein et al. 1975), \texttt{CDRSB} (Morris 1993),
-\texttt{TRABSCOR} (Reitan 1958), \texttt{FAQ} (Pfeffer et al. 1982), and
-four Rey Auditory Verbal Learning Test sub-scores
-\texttt{RAVLT\_immediate}, \texttt{RAVLT\_learning},
-\texttt{RAVLT\_forgetting}, \texttt{RAVLT\_perc\_forgetting} (Rey
-1964)). Following \texttt{Protocol\ B}, the three MRI views align with
-the cognitive battery during training, but test-set predictions are
-generated exclusively from structural MRI. In \texttt{MultiOmics}
+structural MRI features from the ANTsPyT1w/ANTsPyMM pipelines: the
+volumes of 160 hierarchical segmentation labels (View 0: cortical,
+subcortical, ventricular, white-matter and cerebellar labels), the
+volume-to-surface-area ratio of the same 160 labels (View 1; for a
+cortical label it tracks thickness, otherwise it is a shape index), and
+DiReCT cortical thickness averaged in each of 62
+Desikan--Killiany--Tourville (DKT) cortical regions (View 2) (Avants et
+al. 2008; Avants, Tustison, Song, et al. 2011; Tustison et al. 2014;
+Desikan et al. 2006; Klein and Tourville 2012; {Stone et al.} 2020,
+2024; {Marek et al.} 2011; {Smith et al.} 2013), while View 3 comprises
+eleven neuropsychological scales (\texttt{ADAS11}, \texttt{ADAS13},
+\texttt{ADASQ4} (Rosen et al. 1984), \texttt{MMSE} (Folstein et al.
+1975), \texttt{CDRSB} (Morris 1993), \texttt{TRABSCOR} (Reitan 1958),
+\texttt{FAQ} (Pfeffer et al. 1982), and four Rey Auditory Verbal
+Learning Test sub-scores \texttt{RAVLT\_immediate},
+\texttt{RAVLT\_learning}, \texttt{RAVLT\_forgetting},
+\texttt{RAVLT\_perc\_forgetting} (Rey 1964)). Following
+\texttt{Protocol\ B}, the three MRI views align with the cognitive
+battery during training, but test-set predictions are generated
+exclusively from structural MRI. In \texttt{MultiOmics}
 (\texttt{TCGA-BRCA}, \(N = 822\)) (The Cancer Genome Atlas Network 2012)
 and \texttt{TCGA-KIRC} (\(N = 467\)) (The Cancer Genome Atlas Research
 Network 2013), mRNA expression (\(p_1 = 200\)), somatic copy-number
@@ -1577,9 +1588,8 @@ regimes across \(q\).}
 \end{figure}%
 
 \section{\texorpdfstring{Clinical Neuroimaging in \texttt{ADNI-MCI}
-(\(N = 1,084\)): Predicting Cognitive Decline and Mapping Braak Staging
-from MRI
-Alone}{Clinical Neuroimaging in ADNI-MCI (N = 1,084): Predicting Cognitive Decline and Mapping Braak Staging from MRI Alone}}\label{clinical-neuroimaging-in-adni-mci-n-1084-predicting-cognitive-decline-and-mapping-braak-staging-from-mri-alone}
+(\(N = 1,084\)): Predicting Cognition from MRI Alone and Attributing the
+Prediction}{Clinical Neuroimaging in ADNI-MCI (N = 1,084): Predicting Cognition from MRI Alone and Attributing the Prediction}}\label{clinical-neuroimaging-in-adni-mci-n-1084-predicting-cognition-from-mri-alone-and-attributing-the-prediction}
 
 A primary clinical test of multi-modal representation learning is
 whether aligning structural neuroimaging with multi-domain cognitive
@@ -1685,41 +1695,46 @@ findings:
   (+48.8\%). These sweep peaks are maxima over many configurations on
   one split and are optimistic.
 \item
-  \textbf{Varimax Rotation and Quantile Sparsity on Cortical Thickness}:
-  Figure~\ref{fig-adni-neuroanatomy-flagship} shows the 62 DKT
-  cortical-thickness loadings (single seed, \texttt{Protocol\ B},
-  \texttt{SiMLR}, \(w = 0.50\)). Dense \texttt{PCA} (Panel A1) has 0\%
-  zero loadings. Non-negative SiMR without rotation or quantile
-  thresholding (Panel A2, \texttt{varimax\ =\ False,\ q\ =\ None}) is
-  67\% sparse with {[}60, 1, 1{]} active regions per component; with
-  Varimax rotation (Panel A3, \texttt{varimax\ =\ True,\ q\ =\ None}) it
-  is 67\% sparse with {[}2, 0, 60{]}. With \texttt{sparseness\ =\ 0.85}
-  (Panels A4 and B) each component keeps {[}2, 60, 0{]} regions (67\%
-  sparse, Gram defect \(D =\) \(5.94 \times 10^{-1}\)) with
-  out-of-sample \texttt{CogPC1} \(R^2 =\) 0.204, against 0.178 for
-  \texttt{PCA} on the same split. The leading regions of each component
-  are:
-
-  \begin{itemize}
-  \tightlist
-  \item
-    \textbf{Component 1 (\(\mathbf{v}_1\), stability 0.975)}:
-    \texttt{right\_cuneus} (+0.504), \texttt{left\_cuneus} (+0.446).
-  \item
-    \textbf{Component 2 (\(\mathbf{v}_2\), not identified, stability
-    0.803 \textless{} 0.90)}: \texttt{left\_fusiform} (+0.822),
-    \texttt{left\_middle\_temporal} (+0.804),
-    \texttt{left\_inferior\_temporal} (+0.798),
-    \texttt{right\_middle\_temporal} (+0.795),
-    \texttt{left\_supramarginal} (+0.782).
-  \item
-    \textbf{Component 3 (\(\mathbf{v}_3\), stability 0.996)}:
-    \texttt{\{python\}\ N.fl\_q85\_c3\_top}.
-  \end{itemize}
+  \textbf{Which MRI Features Carry the Prediction}:
+  Figure~\ref{fig-adni-neuroanatomy-flagship} attributes the held-out
+  \texttt{CogPC1} prediction of the non-negative \(q = 0.85\) fit (all
+  nine MRI columns, \(R^2 =\) 0.204). Component 2 carries it in every
+  MRI view: alone it gives \(R^2 =\) 0.111 (volume), 0.211 (vol/area)
+  and 0.148 (DiReCT thickness), against at most 0.031 for any other
+  column, and only the vol/area column is not redundant with the rest
+  (unique \(R^2\) +0.054). Across 20 half-sample refits, the vol/area
+  component-2 basis selects these features in at least half of them
+  (fraction of refits): L entorhinal (DKT cortex label): 0.75; L
+  entorhinal (DKT parcellation): 0.75; L inferior parietal (DKT cortex
+  label): 0.75; R entorhinal (DKT cortex label): 0.75; L temporal lobe:
+  0.75; L caudal middle frontal (DKT cortex label): 0.65. These are
+  mostly entorhinal, temporal-lobe and inferior parietal measures, the
+  regions where atrophy is expected in prodromal Alzheimer's disease
+  ({Dickerson et al.} 2009; {Jack et al.} 2018). DiReCT thickness tells
+  the same story less clearly. Its first principal component explains
+  58\% of the variance across the 62 regions (mean inter-region
+  correlation 0.55), and consensus component 2 correlates 0.87 with
+  subject-mean thickness, so hard-assigning each region to its largest
+  structure coefficient places 2 / 60 / 0 regions on components 1 / 2 /
+  3: a display of the global factor, not of localisation (Panel B). The
+  thickness basis itself is unstable under the default collapse penalty:
+  it keeps two or fewer regions in 9 of 20 refits (median held-out
+  \(R^2\) 0.106). Non-negative region sums on positively correlated
+  features typically correlate above the penalty's threshold of 0.3, so
+  the penalty pushes those columns towards one or two regions. With
+  \texttt{collapse\_weight\ =\ 0} the predictive thickness basis keeps a
+  median of 9 regions (two or fewer in 1 refit), its median \(R^2\)
+  rises to 0.154, and its most frequent regions are (fraction of refits)
+  L entorhinal: 0.60; L supramarginal: 0.55; L superior frontal: 0.45; L
+  inferior parietal: 0.40; R entorhinal: 0.40 (Panel D). No single
+  thickness region replicates in more than 0.60 of refits, so the
+  thickness map is a pattern, not a list of identified regions
+  (\texttt{docs/audit/evidence/adni\_global\_factor\_check.csv}). For
+  reference, unthresholded non-negative fits are 67\% sparse on the DKT
+  view without rotation and 67\% with Varimax, against 0\% for dense
+  \texttt{PCA}.
 \item
-  \textbf{Support-Shuffled and PCA-Rotated Score Controls}: The largest
-  weight on primary motor or somatosensory cortex (\texttt{precentral},
-  \texttt{postcentral}) at \(q = 0.85\) is 0.732. To separate
+  \textbf{Support-Shuffled and PCA-Rotated Score Controls}: To separate
   coordinate-level axis alignment and anatomical support localization
   from subspace capacity, two negative controls are evaluated across 3
   seeds on \texttt{ADNI-MCI}
@@ -1781,11 +1796,12 @@ findings:
 \caption{\label{fig-adni-view-chord}Held-out multi-view component
 coupling on \texttt{ADNI-MCI} (\texttt{pysimlr.plot\_view\_chord},
 \(N_{\text{test}} = 326\), \texttt{Protocol\ B}, \texttt{SiMLR},
-\(k = 3\), \(q = 0.85\)). Each view (\texttt{Volume},
-\texttt{Thickness}, \texttt{DKT\ Cortex}, \texttt{Cognition}) occupies a
-fixed arc with one slot per partner view; ribbons fill their slots in
-proportion to held-out Pearson \(r\) between view scores, so selective
-coupling appears as empty arc rather than stretched ribbons.}
+\(k = 3\), \(q = 0.85\)). Each view (\texttt{Volume}, \texttt{Vol/area}
+= volume-to-surface-area ratio, \texttt{DiReCT\ thickness},
+\texttt{Cognition}) occupies a fixed arc with one slot per partner view;
+ribbons fill their slots in proportion to held-out Pearson \(r\) between
+view scores, so selective coupling appears as empty arc rather than
+stretched ribbons.}
 
 \end{figure}%
 
@@ -1828,17 +1844,21 @@ mean over views.}
 
 }
 
-\caption{\label{fig-adni-neuroanatomy-flagship}Cortical-thickness
-loadings on \texttt{ADNI-MCI} (\(N = 1,084\), \texttt{Protocol\ B},
-single seed, \texttt{SiMLR}, \(w = 0.50\)) across the 62 DKT regions.
-(A1) Dense PCA; (A2) non-negative SiMR without rotation or quantile
-thresholding (\texttt{varimax\ =\ False}, \(q = \text{None}\)); (A3)
-with Varimax rotation (\texttt{varimax\ =\ True}, \(q = \text{None}\));
-(A4) with quantile sparsity \(q = 0.85\). Panel titles give each
-matrix's fraction of zero loadings and out-of-sample \texttt{CogPC1}
-\(R^2\). (B) The four largest loadings of each component at
-\(q = 0.85\), and the primary sensorimotor regions (\texttt{precentral},
-\texttt{postcentral}).}
+\caption{\label{fig-adni-neuroanatomy-flagship}Which MRI features carry
+the held-out cognitive prediction on \texttt{ADNI-MCI}
+(\texttt{Protocol\ B}, \texttt{SiMLR}, \(k = 3\), non-negative,
+\(q = 0.85\), \(w = 0.50\); \(N_{\text{train}} = 758\),
+\(N_{\text{test}} = 326\); \texttt{paper\_adni\_attribution.py}). (A)
+Held-out \texttt{CogPC1} \(R^2\) of each MRI component alone;
+\emph{unique} is the loss in \(R^2\) when that column is dropped from
+all nine. (B) Variance spectrum of DiReCT thickness over the 62 DKT
+regions: one global factor, which consensus component 2 tracks;
+hard-assigning each region to its largest structure coefficient
+therefore puts almost every region on component 2. (C) Vol/area:
+fraction of 20 half-sample refits whose component-2 basis selects each
+feature (coloured: \(\ge 0.5\); dot: selected in the full fit). (D)
+DiReCT thickness: the same frequency under the default collapse penalty
+(hollow) and with \texttt{collapse\_weight\ =\ 0} (filled).}
 
 \end{figure}%
 
@@ -2087,13 +2107,15 @@ and the result explains \(R^2 =\) 0.152 of composite cognitive severity
 splits. Coupling structural MRI views to an 11-scale cognitive battery
 during training (\texttt{Protocol\ B}) with non-negative approximate
 Stiefel regularization (\texttt{nsa\_flow}, \(w = 0.50, q = 0.85\))
-gives three non-overlapping cortical components of 2 regions each (67\%
-zero loadings). Their leading regions (Chapter 3) span inferior
-parietal, temporal and frontal association cortex; whether they
-correspond to stages of neurofibrillary pathology (Braak and Braak 1991;
-{Dickerson et al.} 2009; {Jack et al.} 2018) is not tested here, and
-primary motor cortex is not excluded (largest sensorimotor weight
-0.732).
+concentrates the held-out prediction in one component (vol/area
+\(R^2 =\) 0.211 alone), whose replicated features are entorhinal,
+temporal-lobe and inferior parietal measures
+(Figure~\ref{fig-adni-neuroanatomy-flagship}). Whether this pattern
+corresponds to stages of neurofibrillary pathology (Braak and Braak
+1991; {Dickerson et al.} 2009; {Jack et al.} 2018) is not tested here.
+On DiReCT cortical thickness the same component tracks a global factor
+(58\% of the variance), and its regional basis replicates only when the
+collapse penalty is turned off (\texttt{collapse\_weight\ =\ 0}).
 
 For the machine learning researcher, our four-probe evaluation resolves
 why post-hoc rotation or unmixing steps (\texttt{ICA} (Hyvärinen and Oja
@@ -2157,10 +2179,11 @@ Empirical \& Mathematical Rationale
 \textbf{Multi-View Clinical Translation} (e.g., training on MRI +
 Cognition, deploying on MRI alone; \(N \sim 10^3\)) & \texttt{LEND} or
 \texttt{Flow-SiMR-V} & \(w = 0.50\), \(q = 0.50\) (discovery) or
-\(q = 0.85\) (focal Braak circuits) & On \texttt{ADNI-MCI} MRI-only
-cognitive prediction the best 3-seed linear score is 0.209
-(\texttt{NED}) and the best single-axis score 0.154 (\texttt{SiMLR});
-\(q = 0.85\) gives 2-region cortical components. \\
+\(q = 0.85\) (focal) & On \texttt{ADNI-MCI} MRI-only cognitive
+prediction the best 3-seed linear score is 0.209 (\texttt{NED}) and the
+best single-axis score 0.154 (\texttt{SiMLR}); at \(q = 0.85\) one
+component carries the prediction; on views dominated by a global factor
+set \texttt{collapse\_weight\ =\ 0} before reading regional loadings. \\
 \textbf{High-Dimensional Multi-Omics Pathway Discovery} (e.g., mRNA +
 CNV + RPPA; \(p_m \gg N\)) & \texttt{SiMLR} or \texttt{Flow-SiMR-V} &
 \(w = 0.50\), \(q = 0.50\), \texttt{positivity="positive"} &
@@ -2216,17 +2239,21 @@ trade-offs, or require careful preprocessing:
   Thickness}: On \texttt{ADNI-MCI}, non-negative \texttt{SiMLR} without
   rotation or quantile thresholding
   (\texttt{varimax\ =\ False,\ sparseness\ =\ None}) is 67\% sparse with
-  {[}60, 1, 1{]} active DKT regions per component
-  (Figure~\ref{fig-adni-neuroanatomy-flagship} A2); with Varimax
-  rotation it is 67\% sparse with {[}2, 0, 60{]} (A3). Subject row-mean
-  centering (Appendix B) gives 62\% sparsity but lowers \texttt{CogPC1}
-  \(R^2\) from 0.196 to 0.003 (PCA start) or 0.062 (ICA start). Quantile
-  thresholding at \(q = 0.85\) restricts each component to 2 regions
-  (67\% sparse, \texttt{CogPC1} \(R^2 =\) 0.204, A4).
+  {[}60, 1, 1{]} active DKT regions per component; with Varimax rotation
+  it is 67\% sparse with {[}2, 0, 60{]}. Subject row-mean centering of
+  the MRI views (Appendix B; the cognitive outcome is not row-centred)
+  gives 59\% sparsity and \texttt{CogPC1} \(R^2 =\) 0.162 (PCA start) or
+  0.193 (ICA start), against 0.196 with column centering. Sparsity alone
+  does not make the thickness basis interpretable: at \(q = 0.85\) the
+  components keep {[}2, 60, 0{]} regions, because the collapse penalty
+  reduces columns on a globally correlated view to one or two regions,
+  and the regional pattern appears only with
+  \texttt{collapse\_weight\ =\ 0}
+  (Figure~\ref{fig-adni-neuroanatomy-flagship} D).
 \item
   \textbf{Extreme Orthogonality Weights}: Moving the \texttt{nsa\_flow}
-  weight from \(w = 0.50\) to \(w = 0.95\) multiplies fit time by 7.0 on
-  \texttt{ADNI-MCI} and 3.4 on synthetic \texttt{NonnegParts}, and
+  weight from \(w = 0.50\) to \(w = 0.95\) multiplies fit time by 6.8 on
+  \texttt{ADNI-MCI} and 3.3 on synthetic \texttt{NonnegParts}, and
   changes \texttt{CogPC1} \(R^2\) from 0.215 to 0.216. At \(w = 0.01\)
   the effective rank is 2.98 of \(k = 3\) (Gram defect \(D =\) 0.010);
   at \(w = 0.10\) it is 3.00. Across \(w \in [0.20, 0.85]\),
@@ -2578,15 +2605,15 @@ ADNI Time ↓
 \bottomrule\noalign{}
 \endlastfoot
 0.01 & 0.595 & 0 & 85.0\% & 0.00997 & 2.98 & 94.4\% & 0.2016 & 2.28s \\
-0.05 & 0.595 & 0 & 85.0\% & 0.00147 & 3 & 93.2\% & 0.2146 & 1.61s \\
-0.10 & 0.595 & 0 & 85.0\% & 0.00063 & 3 & 92.8\% & 0.2259 & 1.25s \\
-0.20 & 0.595 & 0 & 85.0\% & 0.00015 & 3 & 92.6\% & 0.2118 & 1.32s \\
-0.35 & 0.595 & 0 & 85.0\% & 1e-05 & 3 & 92.5\% & 0.2009 & 0.97s \\
-0.50* & 0.595 & 0 & 85.0\% & 5e-05 & 3 & 93.3\% & 0.2147 & 1.83s \\
-0.65 & 0.595 & 0 & 85.0\% & 3e-05 & 3 & 93.7\% & 0.2167 & 2.36s \\
-0.80 & 0.595 & 0 & 85.0\% & 1e-05 & 3 & 93.5\% & 0.2175 & 4.30s \\
-0.90 & 0.595 & 0 & 85.0\% & 0 & 3 & 93.5\% & 0.2174 & 6.64s \\
-0.95 & 0.595 & 0 & 85.0\% & 0 & 3 & 93.4\% & 0.2158 & 12.82s \\
+0.05 & 0.595 & 0 & 85.0\% & 0.00147 & 3 & 93.2\% & 0.2146 & 1.63s \\
+0.10 & 0.595 & 0 & 85.0\% & 0.00063 & 3 & 92.8\% & 0.2259 & 1.31s \\
+0.20 & 0.595 & 0 & 85.0\% & 0.00015 & 3 & 92.6\% & 0.2118 & 1.29s \\
+0.35 & 0.595 & 0 & 85.0\% & 1e-05 & 3 & 92.5\% & 0.2009 & 0.98s \\
+0.50* & 0.595 & 0 & 85.0\% & 5e-05 & 3 & 93.3\% & 0.2147 & 1.85s \\
+0.65 & 0.595 & 0 & 85.0\% & 3e-05 & 3 & 93.7\% & 0.2167 & 2.33s \\
+0.80 & 0.595 & 0 & 85.0\% & 1e-05 & 3 & 93.5\% & 0.2175 & 4.23s \\
+0.90 & 0.595 & 0 & 85.0\% & 0 & 3 & 93.5\% & 0.2174 & 6.49s \\
+0.95 & 0.595 & 0 & 85.0\% & 0 & 3 & 93.4\% & 0.2158 & 12.59s \\
 \end{longtable}
 
 \begin{figure}[htbp]
@@ -2683,9 +2710,12 @@ in-fold subject row-mean centering, PCA with deterministic FastICA
 (Hyvärinen and Oja 2000) initialization, signed with non-negative bases,
 and the initializer alone with the fitted model (\texttt{SiMLR},
 \(k = 3\), \(w = 0.50\), no Varimax, no quantile threshold;
-\texttt{scripts/paper\_adni\_ablations.py}). With non-negative bases,
-row-mean centering changes cortical sparsity from 93\% to 62\% and
-\texttt{CogPC1} \(R^2\) from 0.196 to 0.003. Varimax rotation on
+\texttt{scripts/paper\_adni\_ablations.py}). Row-mean centering applies
+to the three MRI views only; the eleven cognitive scales are on
+different units, and subtracting each subject's mean across them would
+remove overall severity from the outcome. With non-negative bases,
+row-mean centering changes cortical sparsity from 93\% to 59\% and
+\texttt{CogPC1} \(R^2\) from 0.196 to 0.162. Varimax rotation on
 column-centered data gives 67\% sparsity on the 62 DKT regions with
 {[}2, 0, 60{]} active regions per component, against 67\% and {[}60, 1,
 1{]} without rotation.
@@ -2761,22 +2791,22 @@ Col & ICA & V\textgreater=0 & Init & 0.01466 & 61.5\% (61.3\%) & 0.1471
 (0.1432) & 0.0681 \\
 Col & ICA & V\textgreater=0 & SiMR & 5e-05 & 91.4\% (96.9\%) & 0.1989
 (0.2049) & 0.0958 \\
-Row+Col & PCA & Signed & Init & 0 & 0.0\% (0.0\%) & 0.1351 (0.1364) &
-0.0968 \\
-Row+Col & PCA & Signed & SiMR & 0 & 0.0\% (0.0\%) & -0.0415 (-0.0380) &
--0.0357 \\
+Row+Col & PCA & Signed & Init & 0 & 0.0\% (0.0\%) & 0.1652 (0.1672) &
+0.079 \\
+Row+Col & PCA & Signed & SiMR & 0 & 0.0\% (0.0\%) & 0.1096 (0.1114) &
+0.0212 \\
 Row+Col & PCA & V\textgreater=0 & Init & 0.00245 & 59.3\% (30.9\%) &
-0.0786 (0.0785) & 0.0697 \\
-Row+Col & PCA & V\textgreater=0 & SiMR & 0.00448 & 62.4\% (67.0\%) &
-0.0032 (0.0158) & 0.0106 \\
-Row+Col & ICA & Signed & Init & 0 & 0.0\% (0.0\%) & 0.1321 (0.1348) &
-0.0972 \\
-Row+Col & ICA & Signed & SiMR & 0 & 0.0\% (0.0\%) & -0.0177 (-0.0096) &
--0.0259 \\
+0.1792 (0.1781) & 0.078 \\
+Row+Col & PCA & V\textgreater=0 & SiMR & 0.00074 & 58.7\% (57.9\%) &
+0.1625 (0.1627) & 0.0788 \\
+Row+Col & ICA & Signed & Init & 0 & 0.0\% (0.0\%) & 0.1605 (0.1643) &
+0.079 \\
+Row+Col & ICA & Signed & SiMR & 1e-05 & 0.0\% (0.0\%) & 0.1108 (0.1216)
+& 0.0262 \\
 Row+Col & ICA & V\textgreater=0 & Init & 0.01849 & 61.9\% (65.2\%) &
-0.1173 (0.1181) & 0.095 \\
-Row+Col & ICA & V\textgreater=0 & SiMR & 0.00108 & 53.8\% (62.8\%) &
-0.0623 (0.0679) & 0.0583 \\
+0.1639 (0.1701) & 0.0785 \\
+Row+Col & ICA & V\textgreater=0 & SiMR & 0.00323 & 56.5\% (61.3\%) &
+0.1927 (0.1787) & 0.081 \\
 \end{longtable}
 
 \begin{figure}[htbp]
