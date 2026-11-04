@@ -134,9 +134,52 @@ def _result_positivity(result: Dict[str, Any]) -> str:
     return used.get("positivity", defaults.get("positivity", "either"))
 
 
+def _result_energy_type(result: Dict[str, Any]) -> str:
+    prm = result.get("parameters", {})
+    used, defaults = prm.get("used", {}), prm.get("defaults", {})
+    return str(used.get("energy_type", defaults.get("energy_type", "nc")))
+
+
+def view_coupling_signs(structure: Sequence[torch.Tensor],
+                        v_mats: Optional[Sequence[torch.Tensor]] = None,
+                        *, positivity: str = "either",
+                        energy_type: str = "nc") -> List[torch.Tensor]:
+    """Per-view ``(k,)`` coupling polarity (``+1`` or ``-1``) against ``u @ R``.
+
+    Under ``positivity="positive"`` with a column-sign-invariant similarity
+    (`similarity.SIGN_INVARIANT_ENERGIES`, e.g. ``"nc_abs"`` or ``"recon_r2"``),
+    a non-negative basis ``V_m >= 0`` can couple negatively to a rotated
+    consensus axis ``(u @ R)_j`` (for example regional hypoperfusion opposing
+    hyperconnectivity). Orienting ``structure[m][:, j]`` by the active-feature
+    third-moment sign before `olee_loadings` preserves disjoint non-negative
+    parcel loadings while recording ``-1.0`` here so the opposing biological
+    direction is explicit. Signed objectives (``"nc"``, etc.) and unconstrained
+    fits always return ``+1.0``.
+    """
+    from .similarity import SIGN_INVARIANT_ENERGIES
+    allow_flip = (positivity in _NONNEG) and (energy_type in SIGN_INVARIANT_ENERGIES)
+    signs: List[torch.Tensor] = []
+    for m, c in enumerate(structure):
+        c64 = torch.as_tensor(c).double()
+        k = int(c64.shape[1])
+        if not allow_flip:
+            signs.append(torch.ones(k, dtype=torch.float32))
+            continue
+        if (v_mats is not None and m < len(v_mats) and v_mats[m] is not None
+                and int(v_mats[m].shape[0]) == int(c64.shape[0])):
+            w_row = torch.as_tensor(v_mats[m]).detach().double().abs().sum(dim=1, keepdim=True)
+            if float(w_row.max()) <= 1e-12:
+                w_row = torch.ones((c64.shape[0], 1), dtype=torch.float64)
+        else:
+            w_row = torch.ones((c64.shape[0], 1), dtype=torch.float64)
+        skew = torch.sum(w_row * (c64 ** 3), dim=0)
+        signs.append(torch.where(skew < 0.0, -1.0, 1.0).float())
+    return signs
+
+
 def loadings(result: Dict[str, Any], views: Any, u: Optional[torch.Tensor] = None) -> Dict[str, Any]:
-    """`structure`, `loadings`, `loading_margin` and per-feature `communality`
-    for a `pysimlr.fit` result on ``views``.
+    """`structure`, `loadings`, `loading_margin`, `coupling_signs` and per-feature
+    `communality` for a `pysimlr.fit` result on ``views``.
 
     ``views`` are replayed through the fit's own preprocessing
     (``scale_list``, ``provenance_list``), so this works for every method. With
@@ -156,9 +199,14 @@ def loadings(result: Dict[str, Any], views: Any, u: Optional[torch.Tensor] = Non
     # u @ R" held only approximately.
     u_rot = torch.as_tensor(u).detach().double() @ rot
     c = structure_coefficients(xs, u_rot)
-    load, margin = olee_loadings(c, _result_positivity(result))
+    pos = _result_positivity(result)
+    etype = _result_energy_type(result)
+    v_list = None if result.get("basis_is_joint") else result.get("v")
+    csigns = view_coupling_signs(c, v_list, positivity=pos, energy_type=etype)
+    c_oriented = [ci * sg.to(ci.dtype).unsqueeze(0) for ci, sg in zip(c, csigns)]
+    load, margin = olee_loadings(c_oriented, pos)
     return {"structure": c, "loadings": load, "loading_margin": margin,
-            "loading_rotation": rot.float(),
+            "loading_rotation": rot.float(), "coupling_signs": csigns,
             "communality": [(ci.double() ** 2).sum(1).float() for ci in c]}
 
 

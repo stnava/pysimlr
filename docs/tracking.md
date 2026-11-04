@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: v0.13.0 on `main`; D21 (alternative feature maps) on `feat/feature-maps`.
+current phase: v0.13.0 + D21 (alternative feature maps, relevance cutoff) on `main`; D22 (calibrated subset consensus, nc_abs) merging from `fix/pos-sparse-calibrated-consensus`.
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
 active work: none; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
@@ -11,6 +11,19 @@ last updated: 2026-11-04
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D22 (Positive-sparse polarity coupling & DOF/OOF-calibrated subset consensus, 2026-11-04)
+status: done on branch `fix/pos-sparse-calibrated-consensus`
+- **Column-sign-invariant correlation energy `energy_nc_abs` & one-time `"nc"` + positive warning (`similarity.py`):**
+  - Added smooth, degree-0 scale-free, centring-invariant, column-sign-invariant `energy_nc_abs` (`-mean_j(sqrt(r_j^2 + tau^2) - tau)`) and `SIGN_INVARIANT_ENERGIES` (`acc`, `exp`, `kurtosis`, `logcosh`, `nc_abs`, `negentropy`, `recon_r2`).
+  - Kept `DEFAULT_ENERGY_TYPE = "nc"` (explicit opt-in for `"nc_abs"`), emitting a one-time `UserWarning` via `check_fit_energy` when signed `"nc"` is combined with non-negative `positivity` (`"positive"`, etc.).
+- **Polarity-oriented OLEE loadings (`loadings.py`, `api.py`):**
+  - Added `view_coupling_signs` (`result["coupling_signs"]`, `+1.0` or `-1.0` per view and component). Under non-negative `positivity` and `SIGN_INVARIANT_ENERGIES`, structure columns are oriented by active-feature third-moment sign before `olee_loadings`, preserving `loadings >= 0` with disjoint column supports when a view couples negatively to a shared axis; signed energies remain bit-identical (`+1.0`).
+- **DOF/OOF-calibrated per-component `subset_consensus` & pole-oriented anchored extension (`extension.py`):**
+  - Replaced raw OLS and uncalibrated scalar `R^2 / (1 - R^2)` weights in `_affine_map` / `subset_consensus` with GCV-stabilized ridge maps `_gcv_ridge_solve` and default per-component `(k,)` precision weights driven by `consensus.mai_dof_adjust` (with smooth `(n - 1) / (n - 1 + dof)` shrinkage when `dof` approaches or exceeds `n - 1`) or extension fold `oof_r2`.
+  - Updated `fit_anchored_encoder` step-0 initialization under non-negative `positivity` + `SIGN_INVARIANT_ENERGIES` to select the higher-variance `(X^T t)_+` vs `(-X^T t)_+` pole, and added stratified 5-fold OOF (`oof_r2`, `coupling`) in `_anchored_holdout` when `15 <= n < 60`.
+- **Verification:** `tests/test_pos_sparse_calibrated_consensus.py` (4 tests) + `tests/test_similarity_registry.py` (`nc_abs` + sign-invariance registry check) + `tests/test_extend.py` + `tests/test_olee_contract.py` + `tests/test_implementation_standards.py`; `antsxqc.lint src tests` 0 findings; 4-cohort blast benchmark confirmed `ExpArt` `ASL_Perfusion` consensus share rose `1.0% -> ~48%` (`DTI + rsfMRI_Conn` `98.4% -> <40%`) and zero-shot `Career Breachers (N=31)` `Consensus U` AUC rose to `0.78-0.80` (`U + Z_m` up to `0.874`).
+- Renumbered D20 -> D22 on merge into `main` (D20/D21 were taken by v0.13.0 work).
 
 ## D21 (alternative feature maps: partial / inverse correlation, relative weights, 2026-11-04)
 status: done (branch `feat/feature-maps`)

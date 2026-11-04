@@ -1597,7 +1597,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # constraint or regulariser could change the answer.
     collapse_threshold = check_collapse_threshold(collapse_threshold)
     from .similarity import check_fit_energy
-    check_fit_energy(energy_type, path="linear")
+    check_fit_energy(energy_type, path="linear", positivity=positivity if _internal is None else None)
     opt_params.setdefault("learning_rate", "auto")
     if isinstance(opt_params.get("learning_rate", None), str):
         if opt_params["learning_rate"] != "auto":

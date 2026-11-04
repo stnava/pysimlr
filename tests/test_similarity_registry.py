@@ -94,7 +94,7 @@ def test_identity_equivalence_linear_and_deep():
     x, v, u, s, ctx = _case()
     weights = {"sim": 1.0, "var": 0.0, "collapse": 0.0, "u_var": 0.0}
     from pysimlr.sparsification import energy_needs_unit_columns
-    for new in ("align", "acc", "nc", "procrustes", "logcosh"):
+    for new in ("align", "acc", "nc", "nc_abs", "procrustes", "logcosh"):
         old = new
         # The deep path fixes the gauge on its input before scoring, exactly as
         # the linear path does by returning V with unit columns -- `acc` is
@@ -150,7 +150,7 @@ def test_homogeneity_degrees_are_what_the_gauge_rule_assumes():
     # `exp` (verified bit-identical) and is now a documented alias, so a sweep
     # over the registry runs that contrast once instead of twice.
     # `negentropy` standardises each latent internally, so it is degree-0 too.
-    expected_scale_free = {"align", "nc", "procrustes",
+    expected_scale_free = {"align", "nc", "nc_abs", "procrustes",
                            "logcosh", "exp", "kurtosis", "negentropy"}
     for name in sorted(SIMILARITY):
         if similarity_needs_data(name):
@@ -183,6 +183,27 @@ def test_terms_are_centring_invariant():
         a = float(similarity_energy(name, s, u, ctx))
         b = float(similarity_energy(name, s + 7.0, u + 3.0, ctx))
         assert a == pytest.approx(b, rel=1e-8, abs=1e-10), f"{name} is not centring invariant"
+
+
+def test_column_sign_invariance_matches_registry_declaration():
+    """`SIGN_INVARIANT_ENERGIES` declares which objectives are invariant to
+    independent column sign flips ``s -> s diag(+-1)`` (and ``v -> v diag(+-1)``),
+    so non-negative encoders can orient anti-correlated biological poles without
+    touching signed objectives like ``nc`` or ``procrustes``."""
+    from pysimlr.similarity import SIGN_INVARIANT_ENERGIES, similarity_is_sign_invariant
+    x, v, u, s, ctx = _case()
+    flip = torch.tensor([1.0, -1.0, 1.0], dtype=s.dtype)
+    sf = s * flip
+    vf = v * flip
+    ctxf = SimilarityContext(x=x, v=vf)
+    for name in sorted(SIMILARITY):
+        if name == "recon":
+            continue
+        e_pos = float(similarity_energy(name, s, u, ctx))
+        e_flip = float(similarity_energy(name, sf, u, ctxf))
+        inv = abs(e_pos - e_flip) < 1e-9 * max(1.0, abs(e_pos))
+        assert inv == (name in SIGN_INVARIANT_ENERGIES) == similarity_is_sign_invariant(name), (
+            f"{name}: sign_invariant={inv}, declared={name in SIGN_INVARIANT_ENERGIES}")
 
 
 # --------------------------------------------------------------------------
