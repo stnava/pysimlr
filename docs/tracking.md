@@ -2,7 +2,7 @@
 current phase: v0.14.0 released from `main` (antsxviz house renderer: plot_brain_map, plot_feature_map_grid via antsxviz; D21–D23).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: none; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: D24 `feat/feature-relevance` (not merged); the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.6.0 (editable, /Users/stnava/data/repos/nsa_flow; not on PyPI)
 last updated: 2026-11-04
 
@@ -11,6 +11,42 @@ last updated: 2026-11-04
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D24 (feature_relevance: the relevance cutoff as a pysimlr feature, 2026-11-04)
+status: done on branch `feat/feature-relevance` (not merged)
+- **New:** `pysimlr.feature_relevance(result, train_views, test_views, outcome, outcome_test,
+  component, views, feature_names, view_names, groups, min_group_size, alpha, n_permutations,
+  n_permutations_test, n_refits, refit_permutations, refit_fraction, n_null_refits, random_state,
+  n_jobs)` in `src/pysimlr/relevance.py`.
+  - It covers the relative-weight share test against the fair share, held-out replication, refit
+    stability, the optional whole-model refit null, group tests and tiers 0 / 1 / 2.
+  - `loadings._relative_weight_map` is split into `_relative_weight_basis` and
+    `_relative_weight_shares`, which are shared with the permutation loop. The 15 feature-map
+    tests are unchanged and pass.
+  - A test that was not run is NaN, never a number.
+- **Plots:**
+  - `plotting.plot_feature_relevance(rel, view, label, separate, grouping, grouping_title,
+    brain, region_names, meshes, show_all, r_label, ...)` shows the forest, the group panel, the
+    separate panel and an optional brain row.
+  - `plot_brain_map(..., tiers=rel)` paints the tiers with categorical colourbar ticks.
+  - The region mapping is factored into `_region_index`, shared with `brain_rows`.
+- **ADNI:** the two scripts are thin callers.
+  - Equivalence with the original scripts: 222/222 features and 93/93 groups (max |diff| ~1e-16),
+    identical tiers.
+  - The figure regenerates in 18.3 s, including the fit.
+  - The forest now takes the view colour (orange for vol/area), as every other pysimlr plot does.
+- **Finding:** the share test measures concentration, not strength.
+  - The null share is about Beta(½, (p − 1)/2), so p is bounded by how evenly a signal spreads.
+    Four equal drivers among 24 features reach p ≈ 0.01 however strong.
+  - This is documented in the module docstring and in the usage notes.
+- **Tests:** `tests/test_feature_relevance.py`, 11 tests:
+  - vectorised p equals a loop;
+  - planted drivers reach tier 2 (checked on 7 seeds);
+  - a null view gives about α false positives;
+  - groups, no test views, missing view at test time, reproducibility of refits and null refits;
+  - errors, plots and tier rows.
+- **Change request:** antsxviz `surface_figure` has no colourbar ticks key; pysimlr relabels the
+  tier bar afterwards (`docs/change_requests/antsxviz.md`).
 
 ## D23 (antsxviz integration: brain maps via the ANTsX house renderer, 2026-11-04)
 status: done (branch `feat/antsxviz-integration`)

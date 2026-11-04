@@ -35,8 +35,11 @@ def fits():
     splits = pd.DataFrame({"method": np.repeat(["ridge", "simlr", "ned"], 6), "split": np.tile(range(6), 3),
                            "score": np.r_[0.10 + 0.01 * rng.random(6), 0.20 + 0.01 * rng.random(6),
                                           0.10 + 0.05 * rng.standard_normal(6)]})
+    rel = pysimlr.feature_relevance(sig, tr, te, component=0, views=(0,), n_permutations=200,
+                                    n_permutations_test=200, n_refits=0,
+                                    groups={"half": lambda n: "a" if int(n.split(".")[1]) < 6 else "b"})
     return dict(tr=tr, te=te, z=z[:70], sig=sig, pos=pos, short=short, flow=flow, pca=pca, inf=inf,
-                rank=rank, pred=pysimlr.predict(sig, te), bench=bench, splits=splits)
+                rank=rank, pred=pysimlr.predict(sig, te), bench=bench, splits=splits, rel=rel)
 
 
 CALLS = {
@@ -61,6 +64,7 @@ CALLS = {
     "plot_benchmark": lambda f: (f["bench"], "sparseness", "recovery"),
     "plot_benchmark_uncertainty": lambda f: (f["splits"],),
     "plot_predictions": lambda f: (f["z"][:, 0], f["z"][:, 1]),
+    "plot_feature_relevance": lambda f: (f["rel"], 0),
 }
 SINGLE_PANEL = {"plot_convergence", "plot_rank_selection", "plot_view_correlations", "plot_feature_groups",
                 "plot_loadings", "plot_scores", "plot_latent_recovery", "plot_benchmark", "plot_predictions"}

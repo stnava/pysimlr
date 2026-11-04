@@ -34,7 +34,7 @@ __all__ = [
     "plot_modality_weights", "plot_flow_warping", "plot_view_correlations",
     # interpretable features (never the encoder v)
     "plot_top_features", "plot_feature_chord", "plot_feature_groups", "plot_loadings",
-    "plot_variance_explained",
+    "plot_variance_explained", "plot_feature_relevance",
     # scores
     "plot_scores", "plot_latent_recovery",
     # one-call sheet
@@ -1332,21 +1332,12 @@ def cortical_region_name(name: str) -> Optional[str]:
     return f"{m.group(1)}_{m.group(2)}"
 
 
-def brain_rows(enc: Dict[str, Dict[str, Any]], region_names=None, notes: Optional[Dict[str, str]] = None,
-               view: int = 0):
-    """`feature_map_values` output as antsxviz ``rows``, restricted to cortical regions.
-
-    ``region_names``: a callable or dict mapping a feature name to a DKT region name
-    (or None for a feature that is not on the cortex); default `cortical_region_name`.
-    When two features map to one region (``dktcortex`` and ``dktregions`` variants),
-    the ``dktcortex`` one is kept. Returns ``(rows, dropped)``, where ``dropped`` lists
-    the features that cannot be drawn on cortex, so the caller can state them.
-    """
-    av = _require_antsxviz()
+def _region_index(names: Sequence[str], region_names, av):
+    """``(keep, dropped)``: ``keep`` lists ``(feature index, DKT region name)`` for features that
+    map to a cortical region (the ``dktcortex`` variant wins when two map to one region);
+    ``dropped`` lists the features that are not on the cortex."""
     to_region = region_names if callable(region_names) else (
         (lambda n: region_names.get(n)) if isinstance(region_names, dict) else cortical_region_name)
-    first = next(iter(enc.values()))
-    names = list(first["names"])
     chosen, dropped = {}, []                                  # region -> feature index
     for i, n in enumerate(names):
         r = to_region(n)
@@ -1364,7 +1355,58 @@ def brain_rows(enc: Dict[str, Dict[str, Any]], region_names=None, notes: Optiona
             dropped.append(names[chosen[r]]); chosen[r] = i  # the DKT cortex label wins
         else:
             dropped.append(n)
-    keep = sorted((i, r) for r, i in chosen.items())
+    return sorted((i, r) for r, i in chosen.items()), dropped
+
+
+_TIER_GREY = "#e4e3dd"
+_TIER_UNITS = "relevance tier"
+
+
+def _label_tier_colorbar(fig):
+    """Categorical ticks on the tier colorbar (antsxviz draws a continuous 0..vmax bar)."""
+    for ax in fig.axes:
+        if ax.get_ylabel() == _TIER_UNITS:
+            ax.set_yticks([1 / 3, 1.0, 5 / 3])
+            ax.set_yticklabels(["neither", "training\nonly", "replicated"])
+            ax.set_ylabel("")
+    return fig
+_TEXT_BG = dict(fc=_SURFACE, ec="none", pad=0.6)   # keeps a label legible over reference lines
+
+
+def _tier_colors(view: int):
+    """(neither, training only, replicated) colours for relevance tiers in a view's hue."""
+    from matplotlib.colors import to_rgb
+    dark = _view_color(view)
+    return _TIER_GREY, tuple(0.45 * np.array(to_rgb(dark)) + 0.55), dark
+
+
+def _tier_rows(rel: Dict[str, Any], view: int, region_names, av):
+    """antsxviz ``rows`` painting a view's relevance tiers (0 / 1 / 2) on the cortex."""
+    from matplotlib.colors import ListedColormap
+    f = rel["features"][rel["features"].view == view].reset_index(drop=True)
+    if f.empty:
+        raise ValueError(f"view {view} is not in this feature_relevance result.")
+    keep, dropped = _region_index(list(f.feature), region_names, av)
+    vals = {r: float(f.tier.iloc[i]) for i, r in keep}
+    rows = {"relevance tier": {"values": vals, "vmax": 2.0, "selected": [], "stability": None,
+                               "units": _TIER_UNITS, "note": None,
+                               "cmap": ListedColormap(list(_tier_colors(view)))}}
+    return rows, dropped
+
+
+def brain_rows(enc: Dict[str, Dict[str, Any]], region_names=None, notes: Optional[Dict[str, str]] = None,
+               view: int = 0):
+    """`feature_map_values` output as antsxviz ``rows``, restricted to cortical regions.
+
+    ``region_names``: a callable or dict mapping a feature name to a DKT region name
+    (or None for a feature that is not on the cortex); default `cortical_region_name`.
+    When two features map to one region (``dktcortex`` and ``dktregions`` variants),
+    the ``dktcortex`` one is kept. Returns ``(rows, dropped)``, where ``dropped`` lists
+    the features that cannot be drawn on cortex, so the caller can state them.
+    """
+    av = _require_antsxviz()
+    first = next(iter(enc.values()))
+    keep, dropped = _region_index(list(first["names"]), region_names, av)
     sub = {}
     for kind, e in enc.items():
         idx = [i for i, _ in keep]
@@ -1378,8 +1420,12 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
                    component: int = 0, view: int = 0, kinds: Sequence[str] = ("structure", "relative_weight"),
                    feature_names=None, view_names=None, region_names=None, title: Optional[str] = None,
                    subtitle: Optional[str] = None, notes: Optional[Dict[str, str]] = None, meshes=None,
-                   density: str = "41k", surface: str = "inflated"):
+                   density: str = "41k", surface: str = "inflated", tiers: Optional[Dict[str, Any]] = None):
     """Feature maps of one component painted on the fsaverage cortex, via antsxviz.
+
+    With ``tiers`` (a `pysimlr.feature_relevance` result) the brain shows that view's relevance
+    tiers instead of continuous maps: grey = neither, pale = p < alpha in training only, dark =
+    replicated (training and held-out).
 
     The brain twin of `plot_feature_map_grid`: both read `feature_map_values`, so
     values, the 0..max scale per map (`map_colormap`), selection outlines (>= 80% of
@@ -1390,6 +1436,20 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
     them across figures. Requires the ``viz`` extra (antsxviz).
     """
     av = _require_antsxviz()
+    if tiers is not None:
+        rows, dropped = _tier_rows(tiers, view, region_names, av)
+        if meshes is None:
+            meshes = av.load_fsaverage(density=density, surface=surface)
+        a = tiers["alpha"]
+        sub = subtitle if subtitle is not None else (
+            f"Relevance tiers (feature_relevance): dark = permutation p < {a:g} in training and held-out; "
+            f"pale = training only; grey = neither.")
+        if dropped:
+            sub += f" {len(dropped)} features are not cortical regions and are not drawn."
+        vname = tiers["view_names"][view] if view < len(tiers["view_names"]) else f"view {view}"
+        return _label_tier_colorbar(av.surface_figure(
+            rows, meshes, title=title or f"Component {tiers['component'] + 1} of {vname}: relevance tiers",
+            subtitle=sub))
     enc = feature_map_values(res, maps, inf, component, view, kinds, feature_names, view_names)
     rows, dropped = brain_rows(enc, region_names, notes, view)
     if not rows or not next(iter(rows.values()))["values"]:
@@ -1405,6 +1465,214 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
                 + (" ..." if len(dropped) > 6 else "") + ".")
     return av.surface_figure(rows, meshes, title=title or f"Component {component + 1} of {vname}: feature maps",
                              subtitle=sub)
+
+
+def _fp(p) -> str:
+    return "n/a" if p is None or not np.isfinite(p) else ("< 0.001" if p < 0.001 else f"{p:.3f}")
+
+
+def _crop_rgba(img, pad=6):
+    """Trim the transparent border of a rendered RGBA image."""
+    ys, xs = np.where(img[..., 3] > 0)
+    return img if not len(ys) else img[max(ys.min() - pad, 0):ys.max() + pad, max(xs.min() - pad, 0):xs.max() + pad]
+
+
+_BRAIN_VIEWS = (("left", "lateral", "L lateral"), ("left", "medial", "L medial"), ("both", "ventral", "ventral (R | L)"),
+                ("right", "medial", "R medial"), ("right", "lateral", "R lateral"))
+
+
+def _tier_brain_images(rel, view, region_names, meshes):
+    """Rendered, cropped surface views of a view's relevance tiers (one RGBA image per column)."""
+    from matplotlib.colors import ListedColormap
+    av = _require_antsxviz()
+    rows, dropped = _tier_rows(rel, view, region_names, av)
+    row = rows["relevance tier"]
+    if not row["values"]:
+        raise ValueError("no feature of this view is a DKT cortical region; pass region_names= to map them.")
+    if meshes is None:
+        meshes = av.load_fsaverage()
+    cmap = ListedColormap(list(_tier_colors(view)))
+
+    def render(hemi, v):
+        return _crop_rgba(av.render_surface(row["values"], meshes[hemi], hemi, v, cmap, (0.0, 2.0)))
+    imgs = []
+    for hemi, v, _ in _BRAIN_VIEWS:
+        if hemi == "both":
+            a, b = render("left", "ventral"), render("right", "ventral")
+            h = max(a.shape[0], b.shape[0])
+            imgs.append(np.concatenate([np.pad(im, ((0, h - im.shape[0]), (0, 0), (0, 0))) for im in (b, a)], axis=1))
+        else:
+            imgs.append(render(hemi, v))
+    return imgs, dropped
+
+
+def _draw_relevance_forest(ax, show, fair, cols, label, alpha, title, legend, r_label, room):
+    """Forest of shares: filled = training, ring = held-out; p values, refit frequency and held-out r."""
+    from matplotlib.patches import Patch
+    y = np.arange(len(show))
+    has_r = show["r_outcome_test"].notna().any()
+    top = 100 * np.nanmax(show[["share_train", "share_test"]].to_numpy(float)) if len(show) else 100 * fair
+    xmax = max(top, 100 * fair) / (1.0 - room - (0.08 if has_r else 0.0))   # room: axis fraction for the text
+    ax.axvline(100 * fair, color=_INK2, lw=1, ls="--", zorder=1)
+    ax.text(100 * fair, -1.0, " fair share", fontsize=8, color=_INK2, va="bottom")
+    if has_r:
+        ax.text(xmax, -1.0, r_label, fontsize=7.6, color=_INK2, ha="right", va="bottom")
+    for yi, (_, r) in zip(y, show.iterrows()):
+        c, st, ste = cols[int(r.tier)], 100 * r.share_train, 100 * r.share_test
+        if np.isfinite(ste):
+            ax.plot([st, ste], [yi, yi], color=_AXIS, lw=1.2, zorder=1)
+            ax.scatter(ste, yi, s=46, facecolor=_SURFACE, edgecolors=c if r.tier else _MUTED, linewidths=1.6,
+                       zorder=3)
+        ax.scatter(st, yi, s=58, color=c, edgecolors=_SURFACE, linewidths=1.2, zorder=3)
+        ref = r.refit_p05_freq
+        ax.annotate(f"p {_fp(r.p_train)} / {_fp(r.p_test)}"
+                    + (f"   refits {ref:.0%}" if r.tier == 2 and ref is not None and np.isfinite(ref) else ""),
+                    (np.nanmax([st, ste]), yi), xytext=(8, 0), textcoords="offset points", va="center", bbox=_TEXT_BG,
+                    fontsize=7.6, color=_INK if r.tier == 2 else _INK2)
+        if has_r and r.r_outcome_test is not None and np.isfinite(r.r_outcome_test):
+            strong = abs(r.r_outcome_test) >= 0.3
+            ax.text(xmax, yi, f"{r.r_outcome_test:+.2f}", va="center", ha="right", fontsize=8,
+                    color=_INK if strong else _INK2, weight="semibold" if strong else "normal")
+    ax.set_yticks(y)
+    ax.set_yticklabels([label(n) for n in show.feature], fontsize=8.3)
+    for lbl, t in zip(ax.get_yticklabels(), show.tier):
+        lbl.set_color(_INK if t == 2 else _INK2)
+        lbl.set_fontweight("semibold" if t == 2 else "normal")
+    ax.set_ylim(len(show) - 0.4, -1.6)
+    ax.set_xlim(0, xmax)
+    _clean(ax, grid="x")
+    ax.set_title(title, fontsize=10)
+    if legend:
+        ax.legend(handles=[Patch(color=cols[2], label=f"replicated (training and held-out p < {alpha:g})"),
+                           Patch(color=cols[1], label="training only")], loc="lower right", frameon=False, fontsize=8,
+                  bbox_to_anchor=(0.88, 0.0))
+
+
+def _draw_relevance_groups(ax, g, fair, cols, alpha, title):
+    """Group shares as a ratio to their fair share: bar = training, ring = held-out."""
+    g = g.sort_values("ratio_fair", ascending=True)
+    yy = np.arange(len(g))
+    full = "p_null_refit" in g and np.isfinite(g["p_null_refit"].astype(float)).any()
+    ax.axvline(1.0, color=_INK2, lw=1, ls="--")
+    hi = 1.0
+    for yi, (_, r) in zip(yy, g.iterrows()):
+        c = cols[int(r.tier)] if r.tier else "#c9c8c1"
+        test_ratio = r.share_test / (r.n * fair) if np.isfinite(r.share_test) else np.nan
+        ax.hlines(yi, 1.0, r.ratio_fair, color=c, lw=6, alpha=0.9)
+        if np.isfinite(test_ratio):
+            ax.scatter(test_ratio, yi, s=46, facecolor=_SURFACE, edgecolors=c if r.tier == 2 else _MUTED,
+                       linewidths=1.6, zorder=3)
+        end = np.nanmax([1.0, r.ratio_fair, test_ratio])   # past the bar, which starts at 1
+        hi = max(hi, end)
+        ax.annotate(f"{r.ratio_fair:.2f}x   p {_fp(r.p_train)} / {_fp(r.p_test)}"
+                    + (f" / {_fp(r.p_null_refit)}" if full else ""), (end, yi), xytext=(8, 0),
+                    textcoords="offset points", va="center", bbox=_TEXT_BG, fontsize=7.8, color=_INK if r.tier == 2 else _INK2)
+    ax.set_yticks(yy)
+    ax.set_yticklabels([f"{n} ({k})" for n, k in zip(g.name, g.n)], fontsize=9)
+    lo = min(0.4, float(np.nanmin(g.ratio_fair)) - 0.1) if len(g) else 0.4
+    ax.set_xlim(max(lo, 0.0), hi / 0.55)
+    ax.set_xlabel("share ÷ fair share (bar: training; ring: held-out)")
+    ax.set_title(title + ("  (p: training / held-out" + (" / refit null)" if full else ")")), fontsize=10)
+    _clean(ax, grid="x")
+
+
+@_themed
+def plot_feature_relevance(rel: Dict[str, Any], view: int = 0, *, label=None, separate=None,
+                           separate_title: str = "Measured separately (not regions)", grouping: Optional[str] = None,
+                           grouping_title: Optional[str] = None,
+                           brain: bool = False, region_names=None, meshes=None, show_all: bool = False,
+                           r_label: str = "r with outcome\n(held-out)", title: Optional[str] = None,
+                           subtitle: Optional[str] = None, figsize=None):
+    """Tiered relevance of one view's features, from `pysimlr.feature_relevance`.
+
+    Left: a forest of each feature's share of the component variance this view explains
+    (filled: training; ring: held-out), against the fair share 1/p, with permutation p in
+    training / held-out, the fraction of half-sample refits at p < alpha (tier 2 only) and,
+    when the result has it, each feature's held-out correlation with the outcome. Only tiers 1
+    and 2 are listed unless ``show_all``. Right: the groups of ``grouping`` (default: the first
+    grouping in the result) as a ratio to their fair share, and the features picked by
+    ``separate`` (a predicate on the feature name, e.g. whole-brain totals) in their own panel,
+    since a single global measure is on a different footing from a region.
+
+    Colour is the tier: dark = p < alpha in training and held-out, pale = training only,
+    grey = neither. ``brain=True`` adds the tiers painted on the fsaverage cortex
+    (antsxviz; ``region_names`` as in `plot_brain_map`). ``label`` maps a feature name to its
+    display label; ``grouping_title`` names the group panel (default: the grouping).
+    """
+    f = rel["features"]
+    f = f[f.view == view].copy()
+    if f.empty:
+        raise ValueError(f"view {view} is not in this feature_relevance result (views: "
+                         f"{sorted(rel['features'].view.unique().tolist())}).")
+    alpha, fair = float(rel["alpha"]), 1.0 / len(f)
+    vname = rel["view_names"][view] if view < len(rel["view_names"]) else f"view {view}"
+    label = label or str
+    cols = _tier_colors(view)
+    g = rel["groups"]
+    g = g[g.view == view] if len(g) else g
+    if len(g):
+        grouping = grouping or g.grouping.iloc[0]
+        if grouping not in set(g.grouping):
+            raise ValueError(f"grouping {grouping!r} not in the result (have {sorted(set(g.grouping))}).")
+        g = g[g.grouping == grouping].copy()
+        g["name"] = [s[len(grouping) + 1:] if s.startswith(grouping + " ") else s for s in g.group]
+    elif grouping is not None:
+        raise ValueError("this feature_relevance result has no groups; pass groups= to feature_relevance.")
+    is_sep = f.feature.map(separate).astype(bool) if separate is not None else np.zeros(len(f), bool)
+    main = f[~is_sep]
+    shown = main if show_all else main[main.tier > 0]
+    shown = shown.sort_values("share_train", ascending=False)
+    seps = f[is_sep].sort_values("share_train", ascending=False)
+
+    imgs, dropped = (_tier_brain_images(rel, view, region_names, meshes) if brain else (None, []))
+    right_panels = int(len(g) > 0) + int(len(seps) > 0)
+    n_rows = max(len(shown), 4)
+    if figsize is None:
+        figsize = (15.5 if right_panels else 9.5, 1.2 + 0.24 * n_rows + (3.4 if brain else 0.0) + 1.0)
+    s = rel["summary"]
+    srow = s[s.view == view].iloc[0] if "view" in s else None
+    n_main = len(main)
+    n1, n2 = int((main.tier > 0).sum()), int((main.tier == 2).sum())
+    if subtitle is None:
+        subtitle = (f"Share of the variance this view explains in component {rel['component'] + 1} (relative weights); "
+                    f"fair share = 1/{len(f)}. Rule: dark = permutation p < {alpha:g} in training AND held-out; "
+                    f"pale = training only; grey = neither. {rel['n_permutations']:,} training / "
+                    f"{rel['n_permutations_test']:,} held-out permutations, {rel['n_refits']} half-sample refits; "
+                    "p uncorrected.")
+        if srow is not None:
+            subtitle += f" n = {int(srow.n_train)} training, {int(srow.n_test)} held-out."
+        if dropped:
+            subtitle += f"\nBrain: {len(dropped)} features are not cortical regions and are not drawn."
+    fig = _new(figsize, title or f"{vname}, component {rel['component'] + 1}: relevance tiers", subtitle)
+    if brain:
+        gs = fig.add_gridspec(2, len(imgs), height_ratios=[1, max(1.6, 0.11 * n_rows)],
+                              width_ratios=[im.shape[1] / im.shape[0] for im in imgs])
+        for c, (im, (_, _, head)) in enumerate(zip(imgs, _BRAIN_VIEWS)):
+            ax = fig.add_subplot(gs[0, c])
+            ax.imshow(im)
+            ax.axis("off")
+            ax.set_title(head, fontsize=9.5, color=_INK2)
+        body = gs[1, :]
+    else:
+        body = fig.add_gridspec(1, 1)[0, 0]
+    sub = body.subgridspec(1, 2, width_ratios=[1.55, 1], wspace=0.08) if right_panels else body.subgridspec(1, 1)
+    ax = fig.add_subplot(sub[0, 0])
+    head = (f"{'All features' if show_all else f'Features with training p < {alpha:g}'}: {n1} of {n_main} "
+            f"(chance {alpha * n_main:.1f}); replicated held-out: {n2}")
+    _draw_relevance_forest(ax, shown, fair, cols, label, alpha, head, True, r_label, room=0.36)
+    ax.set_xlabel("% of explained variance (filled: training; ring: held-out)")
+    if right_panels:
+        heights = ([1.2 + 0.5 * len(g)] if len(g) else []) + ([1.4 + 0.45 * len(seps)] if len(seps) else [])
+        right = sub[0, 1].subgridspec(len(heights), 1, height_ratios=heights, hspace=0.35)
+        k = 0
+        if len(g):
+            _draw_relevance_groups(fig.add_subplot(right[k, 0]), g, fair, cols, alpha, grouping_title or grouping)
+            k += 1
+        if len(seps):
+            ax = fig.add_subplot(right[k, 0])
+            _draw_relevance_forest(ax, seps, fair, cols, label, alpha, separate_title, False, r_label, room=0.62)
+            ax.set_xlabel("% of explained variance")
+    return fig
 
 
 @_themed

@@ -294,16 +294,29 @@ def _relative_weight_map(xz: np.ndarray, tz: np.ndarray) -> np.ndarray:
     if live.sum() >= n:
         raise ValueError(f"relative_weight needs fewer features than rows; the view has "
                          f"{int(live.sum())} non-constant features and {n} rows. Use 'partial'.")
-    xl = xz[:, live]
+    zo, lam2 = _relative_weight_basis(xz[:, live])
+    beta = zo.T @ tz / np.sqrt(n)
+    out = np.zeros((p, tz.shape[1]))
+    out[live] = lam2 @ (beta ** 2)
+    return out
+
+
+def _relative_weight_basis(xl: np.ndarray):
+    """``(Z, Lambda**2)`` of Johnson's relative weights for a standardized, full-rank ``xl``
+    (n x p, p < n): Z = P Q' (SVD X = P D Q'), Lambda = Q D Q' / sqrt(n)."""
+    n = xl.shape[0]
     pp, d, qt = np.linalg.svd(xl, full_matrices=False)
     if d.min() <= d.max() * 1e-10:
         raise ValueError("relative_weight needs a full-rank view; it has collinear features. Use 'partial'.")
-    zo = pp @ qt
-    lam = qt.T @ np.diag(d) @ qt / np.sqrt(n)
-    beta = zo.T @ tz / np.sqrt(n)
-    out = np.zeros((p, tz.shape[1]))
-    out[live] = (lam ** 2) @ (beta ** 2)
-    return out
+    return pp @ qt, (qt.T @ np.diag(d) @ qt / np.sqrt(n)) ** 2
+
+
+def _relative_weight_shares(zo: np.ndarray, lam2: np.ndarray, targets: np.ndarray) -> np.ndarray:
+    """Relative-weight shares (columns sum to 1) for every column of ``targets`` (n x B) at
+    once: the (p x B) fraction of each target's explained variance owed to each feature."""
+    n = targets.shape[0]
+    w = lam2 @ ((zo.T @ _zscore(targets) / np.sqrt(n)) ** 2)
+    return w / w.sum(0, keepdims=True)
 
 
 def _view_scores(result: Dict[str, Any], xs: Sequence[np.ndarray], u_rot: np.ndarray,

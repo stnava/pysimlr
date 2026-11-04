@@ -31,3 +31,24 @@ Then:
 - check that exactly one unlabelled component remains per hemisphere and that its centroid is
   medial (|x| < 25 mm);
 - add that check as a test.
+
+
+---
+
+# Request: categorical colourbar ticks in `surface_figure` (from pysimlr D24)
+
+## Problem
+
+`surface_figure` always draws a continuous colourbar, `Normalize(0, vmax)`, with default ticks.
+A categorical row, such as relevance tiers 0 / 1 / 2 in a 3-colour `ListedColormap`, reads as
+0.25, 0.50, …
+
+## Current workaround
+
+pysimlr's `_label_tier_colorbar` finds the bar by its label and resets the ticks after the figure
+is built.
+
+## Requested fix
+
+Add an optional `"ticks": [(value, label), ...]` key to a row spec, and apply it to that row's
+colourbar. Rows without the key are unchanged. Once released, pysimlr drops the workaround.
