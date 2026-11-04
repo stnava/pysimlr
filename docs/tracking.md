@@ -61,6 +61,29 @@ status: done (branch `feat/feature-maps`)
     - Nor is it checked whether per-subject ADNI DKT values inherit the problem.
     - The renderer takes the hemisphere from the surface file, not from the label code.
     - Owner: ANTsPyT1w.
+- **Relevance cutoff (owner: "there is no hard cutoff, we cannot tell what is relevant").**
+  `scripts/adni_relevance_test.py` → `docs/audit/evidence/relevance/{features,groups}.csv`;
+  figure in `scripts/adni_relevance_figure.py` → `docs/figures/adni_volarea_relevance.png`.
+  - **Statistic:** each feature's (and each bilateral pair's and DKT lobe's) share of the
+    explained variance of the predictive component's MRI-only target, from relative weights.
+    The fair share is 1/p.
+  - **Four tests:**
+    - training permutations (100k);
+    - held-out replication on 326 subjects (50k permutations);
+    - 20 half-sample refits (20k each);
+    - a full-refit null: the view permuted against the others and the model refitted
+      (300 per view, so p ≥ 0.0033).
+  - **Vol/area:** 24 of 160 features at training p < 0.05, 24 held-out, 22 under the
+    full-refit null, against 8 by chance; 18 replicate.
+    - Lobes: temporal 1.88× (p < 0.001 / 0.007 / 0.003), parietal 1.79× (0.003 / 0.002 /
+      0.007), frontal 1.56×, occipital 0.64×.
+    - Bilateral superior temporal: 2.8×, p 0.001 / 0.001.
+    - Entorhinal has the largest share, but is borderline held-out (p 0.063) and passes in
+      30–50% of refits.
+  - **DiReCT:** 0 of 62 in training, 1 held-out (chance 3.1); no lobe passes. Its signal is
+    the global thickness factor.
+  - **Figure rule:** tiers, dark = training and held-out p < 0.05; pale = training only; grey
+    otherwise. L/R labels provisional pending the CIT168 investigation.
 - **Owner review:** "the plots should be the same whether on brain or not." The grid and brain
   views now share one encoding.
 - **Rule** (pre-set: AUC ≥ structure + 0.05 in ≥ 4/5 global-factor seeds; ≤ 0.02 worse without a
