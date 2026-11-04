@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: v0.12.0 + D20 on `main` (MAI weight bounds [0.01, 0.5]; ADNI Figure 3.9 and view names corrected).
+current phase: v0.13.0 released from `main` (MAI weight bounds [0.01, 0.5]; ADNI Figure 3.9, view names and row-mean ablation corrected).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
 active work: none; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
@@ -13,7 +13,7 @@ This file was created at v0.2.19; earlier history lives in git (`git log --oneli
 release commit bodies.
 
 ## D20 (MAI weight bounds, ADNI Figure 3.9 corrected, open items closed, 2026-11-04)
-status: done (`a32ad62` code; paper and docs in the commit that adds this entry; branch `goal-work`)
+status: done (`a32ad62` code, `e9bf886` paper and docs, `8a5d631` LaTeX source; released in v0.13.0)
 - **MAI weights bounded to [0.01, 0.5]** (`consensus.MAI_WEIGHT_BOUNDS`, capped-simplex
   projection; replaces `MAI_MIN_SHARE`). No view can take more than half the consensus, and a
   trash view keeps 0.01. A `RuntimeWarning` fires when fewer than two views clear their null floor.
