@@ -94,7 +94,24 @@ regressing it on X would only return the unstable encoder.
 
 **Use them with inference.** `loading_inference(..., maps=(...))` refits them with the same
 subsamples and reports intervals, selection frequency and each map's own component stability
-(`inf["maps"][kind]`). `plot_top_features(kind=...)` and `plot_feature_map_comparison` draw them.
+(`inf["maps"][kind]`).
+
+**Displays.** All of them read one shared encoding, `feature_map_values`:
+- **Values:** |map|, or for `relative_weight`, percent of the variance the view explains.
+- **Scale:** each map gets its own scale from 0 to its maximum, in `map_colormap(view)`.
+- **Selection:** ≥ 80% of refits.
+
+That way a table and a brain show the same thing:
+- `plot_feature_map_shift(res, inf=inf, view=m)`: rank change from structure to relative weight.
+  Read it first, because it answers "what moves once the global factor is shared out?"
+- `plot_feature_map_grid(res, inf=inf, view=m, split=..., groups=...)`: the tabular twin of a
+  brain map. `split` pairs hemispheres and `groups` orders by lobe.
+- `scripts/brain_region_maps.py`: the same encoding painted on the CIT168 template's DKT cortex,
+  lateral, medial and ventral, with selected regions outlined. It uses ANTsPy, pyvista and
+  sulceye's mesh extraction; pysimlr itself does not depend on them.
+  ADNI output: `docs/figures/adni_dkt_feature_maps.png` and `_grid.png`.
+- `plot_top_features(kind=...)` and `plot_feature_map_comparison` show one map or all of them at
+  once.
 
 **Evidence** (`scripts/feature_map_check.py` → `docs/audit/evidence/feature_map_check.csv`):
 

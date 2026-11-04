@@ -31,8 +31,28 @@ status: done (branch `feat/feature-maps`)
   - Refits are matched by the signed permutation nearest the structure Procrustes rotation;
     `relative_weight` takes no sign.
   - Output: per-map intervals, selection frequency and stability.
-- **Display.** `feature_table(maps=)`; `plot_top_features(kind=...)`, where for `relative_weight`
-  filled means selected in ≥ 80% of refits; and `plot_feature_map_comparison` (gallery figure 9).
+- **Display.**
+  - `feature_table(maps=)`.
+  - `plot_top_features(kind=...)`: relative weights in percent; filled means selected in ≥ 80% of
+    refits.
+  - `plot_feature_map_comparison`: per-feature selection fill; it drops component_partial when
+    that equals structure.
+  - `plot_feature_map_shift`: rank change (gallery figure 10).
+  - `plot_feature_map_grid`: the tabular twin of a brain map (gallery figure 11).
+  - All of these share `feature_map_values` and `map_colormap`.
+- **Brain rendering:** `scripts/brain_region_maps.py`.
+  - CIT168 DKT cortex, one solid mesh per hemisphere, lateral, medial and ventral views.
+  - Selected regions are outlined, using the same encoding as the grid.
+  - It lives in a script because sulceye depends on pysimlr.
+  - **Defects found while rendering, and fixed:**
+    - Template x is reversed relative to LPS: the left hemisphere is at −x.
+    - The open medial wall let cameras see the inside of the lateral cortex.
+    - Vertex scalar interpolation swept through the colormap; values are now per face.
+    - The cerebellum blob dominated medial views; it is excluded.
+    - Sulcal vertices went unlabelled; each now takes the nearest cortical label within 4 mm.
+    - A long note shrank its panel.
+- **Owner review:** "the plots should be the same whether on brain or not." The grid and brain
+  views now share one encoding.
 - **Rule** (pre-set: AUC ≥ structure + 0.05 in ≥ 4/5 global-factor seeds; ≤ 0.02 worse without a
   global factor; stability ≥ 0.8). Global-factor design PC1 = 70%; support AUC against
   structure's 0.79:

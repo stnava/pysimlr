@@ -194,3 +194,29 @@ def test_feature_table_and_plots_take_alternative_maps():
     plt.close(fig)
     with pytest.raises(ValueError, match="at least two"):
         pysimlr.plot_feature_map_comparison(res)
+
+
+def test_grid_shift_and_shared_encoding():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    xs = _views(n=200)
+    inf = pysimlr.loading_inference("simlr", xs, 2, n_subsamples=4, iterations=30, maps=("relative_weight",))
+    res = inf["result"]
+    names = [[f"{'left' if i % 2 == 0 else 'right'}_r{i // 2}" for i in range(x.shape[1])] for x in xs]
+    enc = pysimlr.feature_map_values(res, inf=inf, view=0, feature_names=names)
+    rw = enc["relative_weight"]
+    assert abs(np.nansum(rw["values"]) - 100.0) < 1e-6           # percent of explained variance
+    assert rw["vmax"] == np.nanmax(rw["values"]) and rw["selected"].dtype == bool
+    assert enc["structure"]["units"] == "|corr(x, u)|"
+    split = lambda n: (n.split("_", 1)[1], "L" if n.startswith("left") else "R")
+    groups = {f"r{i}": ("a" if i < 4 else "b") for i in range(9)}
+    fig = pysimlr.plot_feature_map_grid(res, inf=inf, view=0, feature_names=names, split=split, groups=groups)
+    ax = fig.axes[0]
+    assert [t.get_text() for t in ax.get_xticklabels()] == ["L", "R"]
+    assert len(ax.get_yticklabels()) == 9                         # 18 features -> 9 paired rows
+    plt.close(fig)
+    fig = pysimlr.plot_feature_map_shift(res, inf=inf, view=0, feature_names=names)
+    plt.close(fig)
+    cm = pysimlr.map_colormap(2)
+    assert cm(0.0)[:3] != cm(1.0)[:3]

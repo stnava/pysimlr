@@ -88,6 +88,10 @@ def op_default():
 def region_label(name):
     """Readable ADNI region name: 'left_entorhinaldktcortex' -> 'L entorhinal (DKT cortex label)'."""
     import re
+    tissues = {"csf": "CSF", "gm": "grey matter", "wm": "white matter", "deepgray": "deep grey matter",
+               "brainstem": "brainstem", "cerebellum": "cerebellum"}
+    if name.endswith("tissues") and name[:-len("tissues")] in tissues:
+        return f"{tissues[name[:-len('tissues')]]} (whole-brain total)"
     side = "L " if name.startswith("left_") else ("R " if name.startswith("right_") else "")
     n = re.sub(r"^(left|right)_", "", name)
     m = re.match(r"(.*?)dkt(regions|cortex|lobes)$", n)
