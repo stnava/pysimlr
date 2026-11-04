@@ -29,13 +29,12 @@ is not modified. Two ways (``how=``):
 Consensus from a subset of views
 --------------------------------
 With every original view present, `predict` uses the fit's frozen consensus
-map. With a subset (or with extended views), the consensus is a precision-
-weighted average of per-view affine maps fitted on the training rows,
-``u_hat = sum_m w_m (z_m B_m + b_m) / sum_m w_m`` over the available views m,
-with ``B_m, b_m`` the least-squares map from view m's latent to the training
-consensus and ``w_m = R^2_m / (1 - R^2_m)`` from that fit. A view that
-predicts the consensus well dominates; one that does not is down-weighted,
-never dropped.
+map. With a subset (or with extended views), the consensus is a per-component
+precision-weighted average of GCV-stabilized affine maps fitted on the training
+rows, ``u_hat[:, j] = sum_m w_{m,j} (z_m B_m + b_m)[:, j] / sum_m w_{m,j}`` over
+the available views m, with ``w_{m,j} = R^2_{eff,m,j} / (1 - R^2_{eff,m,j})``
+calibrated by basis degrees of freedom (`consensus.mai_dof_adjust`) or extension
+out-of-fold ``R^2`` so ``p >> n`` views cannot dominate by noise interpolation.
 """
 import copy
 import math
@@ -116,44 +115,144 @@ def split_views(result: Dict[str, Any], views: Any) -> Tuple[List[Optional[torch
 
 
 # ----------------------------------------------------------------------------- per-view consensus maps
-def _affine_map(z: torch.Tensor, u: torch.Tensor) -> Dict[str, Any]:
-    """Least-squares ``u ~ z B + b`` and the precision weight ``R^2 / (1 - R^2)``."""
+def _gcv_ridge_solve(zc: torch.Tensor, uc: torch.Tensor) -> torch.Tensor:
+    """Solve ``zc B ~ uc`` with generalized cross-validation relative ridge shrinkage."""
+    n, d = int(zc.shape[0]), int(zc.shape[1])
+    k = int(uc.shape[1])
+    if n < 2 or d == 0:
+        return torch.zeros((d, k), dtype=torch.float64, device=zc.device)
+    u_svd, s_svd, vh_svd = torch.linalg.svd(zc, full_matrices=False)
+    smax = float(s_svd[0].item()) if s_svd.numel() > 0 else 0.0
+    if smax <= 1e-15:
+        return torch.zeros((d, k), dtype=torch.float64, device=zc.device)
+    s2 = s_svd ** 2
+    scale = float(s2.mean().item())
+    ut_y = u_svd.T @ uc
+    y_norm2 = float((uc ** 2).sum().item())
+    proj_norm2 = float((ut_y ** 2).sum().item())
+    orth_res2 = max(0.0, y_norm2 - proj_norm2)
+    best_lam = 1e-8 * scale
+    best_gcv = float("inf")
+    for rel in (1e-8, 1e-5, 1e-3, 1e-2, 1e-1, 0.3, 1.0):
+        lam = rel * scale
+        filt = s2 / (s2 + lam)
+        df_eff = float(filt.sum().item())
+        denom = (1.0 - df_eff / float(n)) ** 2
+        if denom <= 1e-12:
+            continue
+        in_span_res2 = float((((1.0 - filt).unsqueeze(1) * ut_y) ** 2).sum().item())
+        gcv = (orth_res2 + in_span_res2) / (float(n) * denom)
+        if gcv < best_gcv:
+            best_gcv = gcv
+            best_lam = lam
+    coeff = (s_svd / (s2 + best_lam)).unsqueeze(1) * ut_y
+    return vh_svd.T @ coeff
+
+
+def _affine_map(z: torch.Tensor, u: torch.Tensor, *, dof: Optional[float] = None,
+                oof_r2: Optional[Sequence[float]] = None, r2_cap: float = 1.0 - 1e-4) -> Dict[str, Any]:
+    """GCV-stabilized ``u ~ z B + b`` and per-component DOF/OOF-calibrated precision weights."""
     z64, u64 = z.double(), u.double()
+    n, d = int(z64.shape[0]), int(z64.shape[1])
+    k = int(u64.shape[1])
     zm, um = z64.mean(0, keepdim=True), u64.mean(0, keepdim=True)
     zc, uc = z64 - zm, u64 - um
-    B = torch.linalg.lstsq(zc, uc, driver="gelsd").solution
+    B = _gcv_ridge_solve(zc, uc)
     res = uc - zc @ B
-    r2 = 1.0 - float((res ** 2).sum()) / max(float((uc ** 2).sum()), 1e-300)
-    r2 = min(max(r2, 0.0), 1.0 - 1e-6)
-    return {"B": B, "b": um - zm @ B, "r2": r2, "weight": r2 / (1.0 - r2)}
+    ss_tot = (uc ** 2).sum(0)
+    ss_res = (res ** 2).sum(0)
+    r2_total = 1.0 - float(ss_res.sum().item()) / max(float(ss_tot.sum().item()), 1e-300)
+    r2_total = min(max(r2_total, 0.0), 1.0 - 1e-6)
+    r2_col = torch.where(
+        ss_tot > 1e-300,
+        (1.0 - ss_res / ss_tot.clamp_min(1e-300)).clamp(0.0, 1.0 - 1e-6),
+        torch.zeros_like(ss_tot),
+    )
+    from .consensus import mai_dof_adjust
+    n_m1 = float(max(n - 1, 1))
+    df_b = float(min(d, max(n - 2, 0)))
+    dof_eff = max(float(dof), df_b) if dof is not None else df_b
+    gamma = n_m1 / (n_m1 + dof_eff)
+    if oof_r2 is not None:
+        r2_eff = torch.as_tensor(list(oof_r2), dtype=torch.float64, device=z64.device).reshape(k)
+        r2_eff = r2_eff.clamp(0.0, r2_cap)
+    else:
+        min_res_df = float(max(k, 5))
+        vals = []
+        for j in range(k):
+            rj = float(r2_col[j].item())
+            adj = mai_dof_adjust(rj, "procrustes_r2", n, dof_eff)
+            damped = gamma * rj
+            if math.isfinite(adj) and (float(n) - dof_eff - 1.0 >= min_res_df):
+                vals.append(adj)
+            elif math.isfinite(adj):
+                vals.append(min(adj, damped))
+            else:
+                vals.append(damped)
+        r2_eff = torch.as_tensor(vals, dtype=torch.float64, device=z64.device).clamp(0.0, r2_cap)
+    r2_fb = (gamma * r2_col).clamp(0.0, r2_cap)
+    w_vec = r2_eff / (1.0 - r2_eff)
+    w_fb = r2_fb / (1.0 - r2_fb)
+    return {
+        "B": B,
+        "b": um - zm @ B,
+        "r2": r2_total,
+        "r2_per_component": r2_eff.cpu().tolist(),
+        "weight": float(w_vec.mean().item()),
+        "weight_per_component": w_vec,
+        "weight_fallback": w_fb,
+        "dof": None if dof is None else float(dof),
+    }
 
 
 def consensus_maps(result: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Per original view, the affine map from its training latent to the training consensus."""
+    """Per original view, the DOF-calibrated affine map from its training latent to the training consensus."""
     cached = result.get("_view_maps")
     if cached is not None:
         return cached
+    from .consensus import view_dofs
     u = torch.as_tensor(result["u"])
     lat = result["latents"][:len(result["v"])]
     if len(lat) != len(result["v"]):
         raise ValueError(f"{result.get('method')} has a joint latent; per-view prediction from a subset "
                          f"of views is not defined.")
-    return [_affine_map(torch.as_tensor(z), u) for z in lat]
+    dofs = view_dofs(result["v"], int(u.shape[0]))
+    return [_affine_map(torch.as_tensor(z), u, dof=dofs[i]) for i, z in enumerate(lat)]
 
 
-def subset_consensus(latents: Dict[int, torch.Tensor], maps: Dict[int, Dict[str, Any]]) -> torch.Tensor:
-    """Precision-weighted average of the mapped latents of the available views."""
-    num, den = None, 0.0
+def subset_consensus(latents: Dict[Any, torch.Tensor], maps: Dict[Any, Dict[str, Any]]) -> torch.Tensor:
+    """Per-component precision-weighted average of the mapped latents of the available views."""
+    preds = []
+    w_cols = []
+    w_fbs = []
     for key, z in latents.items():
         mp = maps[key]
-        if mp["weight"] <= 0:
-            continue
         pred = z.double() @ mp["B"] + mp["b"]
-        num = pred * mp["weight"] if num is None else num + pred * mp["weight"]
-        den += mp["weight"]
-    if num is None:
+        k = int(pred.shape[1])
+        if "weight_per_component" in mp:
+            wc = torch.as_tensor(mp["weight_per_component"], dtype=torch.float64, device=pred.device).reshape(1, k)
+        else:
+            wc = torch.full((1, k), max(float(mp["weight"]), 0.0), dtype=torch.float64, device=pred.device)
+        if "weight_fallback" in mp:
+            wf = torch.as_tensor(mp["weight_fallback"], dtype=torch.float64, device=pred.device).reshape(1, k)
+        else:
+            wf = wc
+        if float(wc.max().item()) <= 0.0 and float(wf.max().item()) <= 0.0:
+            continue
+        preds.append(pred)
+        w_cols.append(wc.clamp_min(0.0))
+        w_fbs.append(wf.clamp_min(0.0))
+    if not preds:
         raise ValueError("none of the available views predicts the consensus (all weights are 0).")
-    return (num / den).float()
+    p_stack = torch.stack(preds, dim=0)
+    w_stack = torch.stack(w_cols, dim=0)
+    w_sum = w_stack.sum(dim=0)
+    fb_stack = torch.stack(w_fbs, dim=0)
+    fb_sum = fb_stack.sum(dim=0)
+    unif = torch.full_like(w_stack, 1.0 / float(len(preds)))
+    use_w = torch.where(w_sum > 0.0, w_stack, torch.where(fb_sum > 0.0, fb_stack, unif))
+    den = use_w.sum(dim=0).clamp_min(1e-300)
+    return ((p_stack * use_w).sum(dim=0) / den).float()
 
 
 def _fill_missing(result: Dict[str, Any], orig: List[Optional[torch.Tensor]]) -> List[torch.Tensor]:
@@ -180,7 +279,7 @@ def predict_views(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
     """
     from .api import predict as _predict
     orig, ext = split_views(result, views)
-    names = view_names(result); m = len(result["v"])
+    names = view_names(result)
     have = [i for i, t in enumerate(orig) if t is not None]
     base = _predict({k: v for k, v in result.items() if k not in ("extensions",)}, _fill_missing(result, orig)) \
         if have else None
@@ -236,24 +335,28 @@ def fit_anchored_encoder(x: torch.Tensor, target: torch.Tensor, *, energy_type: 
     target, energy_type)``; after every step ``V`` is projected exactly as
     `simlr` projects a view (`sparsification.simlr_sparseness`: NSA-Flow
     retraction with weight ``nsa_w``, ``positivity``, quantile
-    ``sparseness``). Starts from the cross-covariance ``x' target``. Stops when
+    ``sparseness``). Starts from the cross-covariance ``x' target`` (with each
+    column oriented to its stronger non-negative pole when ``positivity`` is
+    non-negative and ``energy_type`` is column-sign-invariant). Stops when
     the relative energy change stays below ``tol`` for ``patience`` steps
     (`utils.ConvergenceMonitor`), or when no step size decreases the energy.
 
     Certificate. The NSA-Flow retraction is not a convex projection, so a
     stalled step (``no_descent``) is not a stationarity certificate (the
-    gradient map does not shrink there). For ``energy_type="nc"`` there is an
-    objective bound instead: no linear encoder correlates with target column j
-    more than the least-squares fit of that column on ``x``. The fit is
+    gradient map does not shrink there). For ``energy_type`` in ``{"nc", "nc_abs"}``
+    there is an objective bound instead: no linear encoder correlates with target
+    column j more than the least-squares fit of that column on ``x``. The fit is
     ``converged`` if it stopped by plateau, or if its mean gap to that bound is
     at most ``BOUND_GAP_TOL``; ``bound_gap`` is recorded either way. With
     ``p >= n`` the bound is trivially 1 and certifies nothing.
     """
+    from .similarity import SIGN_INVARIANT_ENERGIES
     from .simlr import calculate_simlr_energy
     from .sparsification import simlr_sparseness
     from .utils import ConvergenceMonitor
     x64, t64 = x.double(), target.double()
     ctype = "ortho" if nsa_w and nsa_w > 0 else "none"
+    nonneg = positivity in ("positive", "hard", "nonnegative", "nonneg", "softplus")
 
     def project(v):
         return simlr_sparseness(v, constraint_type=ctype, positivity=positivity, sparseness=sparseness,
@@ -264,6 +367,10 @@ def fit_anchored_encoder(x: torch.Tensor, target: torch.Tensor, *, energy_type: 
         return float(calculate_simlr_energy(v, x64, t64, energy_type))
 
     v = x64.T @ (t64 - t64.mean(0))
+    if nonneg and energy_type in SIGN_INVARIANT_ENERGIES:
+        pos_pole = v.clamp_min(0.0).norm(dim=0, keepdim=True)
+        neg_pole = (-v).clamp_min(0.0).norm(dim=0, keepdim=True)
+        v = torch.where(neg_pole > pos_pole, -v, v)
     v = project(v / v.norm(dim=0, keepdim=True).clamp_min(1e-12))
     e = energy(v); hist = [e]; lr = float(learning_rate)
     mon = ConvergenceMonitor(tol=tol, patience=patience)
@@ -291,11 +398,15 @@ def fit_anchored_encoder(x: torch.Tensor, target: torch.Tensor, *, energy_type: 
         if mon.update(e):
             stop = "converged"; break
     gap = None
-    if energy_type == "nc" and x64.shape[1] < x64.shape[0]:
+    if energy_type in ("nc", "nc_abs") and x64.shape[1] < x64.shape[0]:
         tc = t64 - t64.mean(0)
         ls = x64 @ torch.linalg.lstsq(x64, tc).solution
-        bound = _corr_cols(ls, tc); got = _corr_cols(x64 @ v, tc)
-        gap = float(np.mean(bound - got))
+        bound = _corr_cols(ls, tc)
+        got = _corr_cols(x64 @ v, tc)
+        if energy_type == "nc_abs":
+            gap = float(np.mean(np.abs(bound) - np.abs(got)))
+        else:
+            gap = float(np.mean(bound - got))
     converged = stop == "converged" or (gap is not None and gap <= BOUND_GAP_TOL)
     return {"v": v.float(), "energy": hist, "convergence": {
         "converged": converged, "stop_reason": stop if stop != "converged" or converged else stop,
@@ -303,11 +414,78 @@ def fit_anchored_encoder(x: torch.Tensor, target: torch.Tensor, *, energy_type: 
         "bound_gap": gap, "certificate": "objective_bound" if (gap is not None and gap <= BOUND_GAP_TOL) else None}}
 
 
+def _anchored_holdout(x: torch.Tensor, target: torch.Tensor, R: torch.Tensor,
+                      scale_list: Sequence[str], settings: Dict[str, Any], *,
+                      holdout: float, rng: np.random.Generator) -> Tuple[Dict[str, Any], List[float]]:
+    """Held-out coupling check and per-component out-of-fold ``R^2`` for `_anchored`.
+
+    For ``n >= 60`` one ``holdout`` split already has ``>= 12`` test rows; for
+    smaller cohorts (``15 <= n < 60``, e.g. a 26-subject 7T bridge) non-overlapping
+    K-fold out-of-fold predictions score all ``n`` rows without inflating the
+    single-split variance.
+    """
+    from .similarity import SIGN_INVARIANT_ENERGIES
+    from .utils import preprocess_data
+    n, k = int(target.shape[0]), int(target.shape[1])
+    sign_inv = (settings.get("positivity") in ("positive", "hard", "nonnegative", "nonneg", "softplus")
+                and settings.get("energy_type") in SIGN_INVARIANT_ENERGIES)
+    if n < 60:
+        n_folds = min(5, max(3, int(round(1.0 / holdout))))
+        perm = rng.permutation(n)
+        folds = [perm[i::n_folds] for i in range(n_folds)]
+        z_oof_rot = torch.zeros((n, k), dtype=torch.float64)
+        u_oof_hat = torch.zeros((n, k), dtype=torch.float64)
+        for te in folds:
+            if len(te) == 0:
+                continue
+            tr = np.setdiff1d(np.arange(n), te)
+            xtr, ptr = preprocess_data(x[tr], scale_list)
+            fh = fit_anchored_encoder(xtr, target[tr], **settings)
+            xte = preprocess_data(x[te], scale_list, ptr)
+            ztr = (xtr.float() @ fh["v"]).double()
+            zte = (xte.float() @ fh["v"]).double()
+            if sign_inv:
+                r_tr = _corr_cols(ztr @ R, target[tr].double() @ R)
+                sgn = torch.as_tensor(np.where(r_tr < 0.0, -1.0, 1.0), dtype=torch.float64)
+            else:
+                sgn = torch.ones(k, dtype=torch.float64)
+            z_oof_rot[te] = (zte @ R) * sgn.unsqueeze(0)
+            mp_tr = _affine_map(ztr, target[tr])
+            u_oof_hat[te] = zte @ mp_tr["B"] + mp_tr["b"]
+        r = _corr_cols(z_oof_rot, target.double() @ R)
+        r_u = _corr_cols(u_oof_hat, target.double())
+        n_eval = n
+    else:
+        te = rng.choice(n, max(3, int(round(holdout * n))), replace=False)
+        tr = np.setdiff1d(np.arange(n), te)
+        xtr, ptr = preprocess_data(x[tr], scale_list)
+        fh = fit_anchored_encoder(xtr, target[tr], **settings)
+        xte = preprocess_data(x[te], scale_list, ptr)
+        ztr = (xtr.float() @ fh["v"]).double()
+        zte = (xte.float() @ fh["v"]).double()
+        if sign_inv:
+            r_tr = _corr_cols(ztr @ R, target[tr].double() @ R)
+            sgn_np = np.where(r_tr < 0.0, -1.0, 1.0)
+        else:
+            sgn_np = np.ones(k)
+        r = sgn_np * _corr_cols(zte @ R, target[te].double() @ R)
+        mp_tr = _affine_map(ztr, target[tr])
+        u_te_hat = zte @ mp_tr["B"] + mp_tr["b"]
+        r_u = _corr_cols(u_te_hat, target[te].double())
+        n_eval = int(len(te))
+    chance = 1.0 / float(max(n_eval - 1, 1))
+    oof_r2 = [max(0.0, max(0.0, float(rv)) ** 2 - chance) if math.isfinite(float(rv)) else 0.0
+              for rv in r_u]
+    hold = {"coupling": r.tolist(), "n": n_eval, "null_bar": _null_bar(n_eval)}
+    return hold, oof_r2
+
+
 def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, holdout: float = 0.2,
               energy_type: Optional[str] = None, positivity: Optional[str] = None, sparseness=None,
               nsa_w: Optional[float] = None, iterations: int = DEFAULT_SIMLR_ITERATIONS,
               random_state: int = 0, warn: bool = True) -> Dict[str, Any]:
-    from .loadings import olee_loadings, structure_coefficients
+    from .consensus import view_dofs
+    from .loadings import olee_loadings, structure_coefficients, view_coupling_signs
     from .similarity import check_fit_energy
     from .utils import preprocess_data
     if not isinstance(new_views, dict) or not new_views:
@@ -318,14 +496,17 @@ def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, 
         raise ValueError(f"new view names {clash} already exist in this result ({known}).")
     target = predict_views(result, views)["u"]
     n, k = target.shape
+    pos = positivity or _used(result, "positivity", "either")
     e_used = energy_type or _used(result, "energy_type", "nc")
     try:
-        e_used = check_fit_energy(e_used, path="linear")
+        e_used = check_fit_energy(e_used, path="linear", positivity=pos if warn else None)
     except ValueError:
         warnings.warn(f"energy {e_used!r} has no linear form; the new view's encoder is fitted with 'nc'.",
                       RuntimeWarning, stacklevel=3)
         e_used = "nc"
-    pos = positivity or _used(result, "positivity", "either")
+        if warn:
+            from .similarity import warn_if_signed_nc_with_positive
+            warn_if_signed_nc_with_positive(e_used, pos, stacklevel=3)
     sp = sparseness if sparseness is not None else _used(result, "sparseness", None)
     if isinstance(sp, (list, tuple)):
         sp = sp[0]
@@ -335,7 +516,7 @@ def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, 
     out = copy.copy(result)
     out["view_names"] = view_names(result)[:len(result["v"])]
     out["extensions"] = dict(result.get("extensions") or {})
-    for key in ("structure", "loadings", "loading_margin"):
+    for key in ("structure", "loadings", "loading_margin", "coupling_signs"):
         if out.get(key) is not None:
             out[key] = list(out[key])
     rng = np.random.default_rng(random_state)
@@ -346,30 +527,31 @@ def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, 
         xp, prov = preprocess_data(x, scale_list)
         settings = dict(energy_type=e_used, positivity=pos, sparseness=sp, nsa_w=w, iterations=iterations)
         hold = None
-        if holdout and 0 < holdout < 1 and n >= 20:
-            te = rng.choice(n, max(3, int(round(holdout * n))), replace=False)
-            tr = np.setdiff1d(np.arange(n), te)
-            xtr, ptr = preprocess_data(x[tr], scale_list)
-            fh = fit_anchored_encoder(xtr, target[tr], **settings)
-            xte = preprocess_data(x[te], scale_list, ptr)
-            r = _corr_cols((xte.float() @ fh["v"]).double() @ R, target[te].double() @ R)
-            hold = {"coupling": r.tolist(), "n": int(len(te)), "null_bar": _null_bar(len(te))}
-            if warn and float(np.nanmax(r)) < hold["null_bar"]:
+        oof_r2 = None
+        if holdout and 0 < holdout < 1 and n >= 15:
+            hold, oof_r2 = _anchored_holdout(x, target, R, scale_list, settings, holdout=holdout, rng=rng)
+            if warn and float(np.nanmax(hold["coupling"])) < hold["null_bar"]:
                 warnings.warn(f"new view {nm!r} does not align with the model: held-out coupling "
-                              f"{np.round(r, 3).tolist()} is below the null bar {hold['null_bar']:.3f} "
-                              f"on every component.", RuntimeWarning, stacklevel=3)
+                              f"{np.round(hold['coupling'], 3).tolist()} is below the null bar "
+                              f"{hold['null_bar']:.3f} on every component.", RuntimeWarning, stacklevel=3)
         fit = fit_anchored_encoder(xp, target, **settings)
         z = xp.float() @ fit["v"]
+        dof_ext = view_dofs([fit["v"]], int(n))[0]
         struct = structure_coefficients([xp], target.double() @ R)[0]
-        loads, margins = olee_loadings([struct], pos)
+        csign = view_coupling_signs([struct], [fit["v"]], positivity=pos, energy_type=e_used)[0]
+        struct_oriented = struct * csign.to(struct.dtype).unsqueeze(0)
+        loads, margins = olee_loadings([struct_oriented], pos)
+        raw_coup = _corr_cols(z.double() @ R, target.double() @ R)
         out["extensions"][nm] = {
             "v": fit["v"], "scale_list": list(scale_list), "provenance": prov,
-            "map": _affine_map(z, target), "energy_type": e_used, "positivity": pos, "sparseness": sp,
+            "map": _affine_map(z, target, dof=dof_ext, oof_r2=oof_r2),
+            "energy_type": e_used, "positivity": pos, "sparseness": sp,
             "nsa_w": w, "convergence": fit["convergence"], "energy": fit["energy"],
-            "coupling": _corr_cols(z.double() @ R, target.double() @ R).tolist(), "holdout": hold,
-            "n_subjects": int(n)}
+            "coupling": raw_coup.tolist(), "coupling_signs": csign,
+            "holdout": hold, "n_subjects": int(n)}
         for key, val in (("structure", struct), ("loadings", loads[0]),
-                         ("loading_margin", None if margins is None else margins[0])):
+                         ("loading_margin", None if margins is None else margins[0]),
+                         ("coupling_signs", csign)):
             if out.get(key) is not None:
                 out[key].append(val)
         if not fit["convergence"]["converged"]:

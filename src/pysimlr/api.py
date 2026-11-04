@@ -443,6 +443,7 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
     lo = _loadings(res, view_list)
     res["structure"], res["loadings"] = lo["structure"], lo["loadings"]
     res["loading_margin"], res["loading_rotation"] = lo["loading_margin"], lo["loading_rotation"]
+    res["coupling_signs"] = lo["coupling_signs"]
     validate_result(res, n=view_list[0].shape[0], k=int(k), n_views=len(view_list))
     return res
 

@@ -52,6 +52,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Optional
+import warnings
 
 import numpy as np
 import torch
@@ -60,7 +61,9 @@ __all__ = [
     "SimilarityContext", "SIMILARITY", "similarity_names",
     "similarity_energy", "similarity_gradient", "describe_similarity",
     "REJECTED_ENERGY_NAMES", "resolve_energy_name", "check_fit_energy", "AUXILIARY_ENERGIES",
-    "energy_nc_ridge",
+    "SIGN_INVARIANT_ENERGIES", "similarity_is_sign_invariant",
+    "warn_if_signed_nc_with_positive",
+    "energy_nc_abs", "energy_nc_ridge",
 ]
 
 
@@ -298,6 +301,27 @@ def energy_nc(s: torch.Tensor, u: torch.Tensor,
     return -num / den
 
 
+def energy_nc_abs(s: torch.Tensor, u: torch.Tensor,
+                  ctx: Optional[SimilarityContext] = None) -> torch.Tensor:
+    r"""Sign-invariant per-column correlation, :math:`-\frac{1}{k}\sum_j \lvert\mathrm{corr}(u_j, s_j)\rvert`.
+
+    Degree-0 homogeneous and invariant to independent column sign flips
+    :math:`s \mapsto s \mathrm{diag}(\pm 1)`. Under ``positivity="positive"`` a
+    non-negative basis :math:`V \ge 0` cannot negate a column to match an
+    anti-correlated biological pole (for instance regional hypoperfusion coupled
+    to hyperconnectivity on the same shared axis); signed ``nc`` penalises that
+    pole and drives ``V`` onto positively correlated noise, whereas ``nc_abs``
+    treats both coupling polarities symmetrically. Smoothly rounded at zero by
+    :math:`\sqrt{r_j^2 + \tau^2} - \tau` (:math:`\tau = 10^{-8}`) so the
+    gradient is defined everywhere.
+    """
+    _check_rows(s, "nc_abs")
+    sc, uc = _centre(s), _centre(u)
+    r = torch.mean((sc / _std(sc)) * (uc / _std(uc)), dim=0)
+    tau = 1e-8
+    return -torch.mean(torch.sqrt(r * r + tau * tau) - tau)
+
+
 def _energy_nc_ridge_impl(s: torch.Tensor, u: torch.Tensor,
                           ctx: Optional[SimilarityContext] = None,
                           lam: float = 0.5) -> torch.Tensor:
@@ -490,6 +514,8 @@ SIMILARITY: Dict[str, tuple] = {
             "-sum|u's|/(n-1) : absolute cross covariance"),
     "nc": (energy_nc, False,
            "-<u,s>/(||u|| ||s||) : normalised correlation, scale invariant"),
+    "nc_abs": (energy_nc_abs, False,
+               "-mean_j |corr(u_j, s_j)| : sign-invariant column correlation, scale invariant"),
     "nc_ridge": (energy_nc_ridge, True,
                  "-<u,s>/sqrt((1-lam)||sc||^2 + lam*c*||v||^2) : normalised correlation with ridge on loadings"),
     "procrustes": (energy_procrustes, False,
@@ -548,12 +574,41 @@ def resolve_energy_name(name: str, path: Optional[str] = None) -> str:
     return name
 
 
-def check_fit_energy(name: str, path: Optional[str] = None) -> str:
+_NONNEG_POSITIVITY = frozenset({"positive", "hard", "nonnegative", "nonneg", "softplus"})
+_WARNED_NC_POSITIVE: list = []
+
+
+def _reset_nc_positive_warning() -> None:
+    """Reset the one-time ``("nc", non-negative positivity)`` warning gate (for tests)."""
+    _WARNED_NC_POSITIVE.clear()
+
+
+def warn_if_signed_nc_with_positive(energy_type: str, positivity: Optional[str],
+                                    *, stacklevel: int = 3) -> None:
+    """Emit a one-time warning when signed ``"nc"`` is combined with non-negative ``positivity``."""
+    if energy_type != "nc" or positivity not in _NONNEG_POSITIVITY or _WARNED_NC_POSITIVE:
+        return
+    _WARNED_NC_POSITIVE.append(True)
+    warnings.warn(
+        f"energy_type='nc' optimizes signed correlation (+r) under positivity={positivity!r}: "
+        "a non-negative basis V >= 0 cannot flip sign when a view's biological signal couples "
+        "negatively to a shared axis, which can suppress opposing features. Consider passing "
+        "energy_type='nc_abs' for column-sign-invariant |r| alignment (with explicit "
+        "result['coupling_signs']).",
+        UserWarning,
+        stacklevel=stacklevel,
+    )
+
+
+def check_fit_energy(name: str, path: Optional[str] = None,
+                     *, positivity: Optional[str] = None) -> str:
     """`resolve_energy_name`, plus refusal of `AUXILIARY_ENERGIES` as a fit's
     ``energy_type``. Called at every fit entry point."""
     key = resolve_energy_name(name, path)
     if key in AUXILIARY_ENERGIES:
         raise ValueError(f"energy_type={key!r} is not a fit objective: {AUXILIARY_ENERGIES[key]}.")
+    if positivity is not None:
+        warn_if_signed_nc_with_positive(key, positivity, stacklevel=5)
     return key
 
 
@@ -572,8 +627,26 @@ SCALE_FREE_ENERGIES = frozenset({
     "kurtosis",
     "logcosh",
     "nc",
+    "nc_abs",
     "negentropy",
     "procrustes",
+    "recon_r2",
+})
+
+
+#: Terms invariant to independent column sign flips ``s -> s diag(+-1)`` (and
+#: ``v -> v diag(+-1)``). Under ``positivity="positive"`` an encoder ``V >= 0``
+#: fitted with one of these objectives can couple with either sign ``+-1`` to a
+#: shared component axis; `loadings` and `extension` orient structure and
+#: holdout checks by that coupling polarity while leaving signed objectives
+#: (``nc``, ``align``, ``procrustes``, ``nc_ridge``) untouched.
+SIGN_INVARIANT_ENERGIES = frozenset({
+    "acc",
+    "exp",
+    "kurtosis",
+    "logcosh",
+    "nc_abs",
+    "negentropy",
     "recon_r2",
 })
 
@@ -581,6 +654,11 @@ SCALE_FREE_ENERGIES = frozenset({
 def similarity_is_scale_free(name: str) -> bool:
     """True when per-view values are scale-free across views."""
     return resolve_energy_name(name) in SCALE_FREE_ENERGIES
+
+
+def similarity_is_sign_invariant(name: str) -> bool:
+    """True when the term is invariant to independent column sign flips."""
+    return resolve_energy_name(name) in SIGN_INVARIANT_ENERGIES
 
 
 def similarity_needs_data(name: str) -> bool:
