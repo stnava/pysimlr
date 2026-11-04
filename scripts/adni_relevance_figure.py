@@ -21,6 +21,9 @@ f["tier"] = np.where((f.p_train < .05) & (f.p_test < .05), 2, np.where(f.p_train
 dark = COLOR; light = tuple(0.45 * np.array(to_rgb(COLOR)) + 0.55)
 TIER_COL = {2: dark, 1: light, 0: "#d9d8d2"}
 fair = 1 / len(f)
+import paper_adni_ablations as paa                                   # held-out r with CogPC1, per feature
+_d = paa.protocol_b(42)
+RCOG = {n: float(np.corrcoef(_d["x_te"][1][:, i], _d["pc1_te"])[0, 1]) for i, n in enumerate(_d["names"][1])}
 
 
 def pretty(n):
@@ -49,45 +52,64 @@ for hemi, view, _ in cols:
 aspect = [im.shape[1] / im.shape[0] for im in imgs]
 
 with theme():
-    fig = _new((15.5, 11.2), "ADNI-MCI volume / surface area, predictive component 2: where its variance concentrates",
+    fig = _new((15.5, 11.6), "ADNI-MCI volume / surface area, predictive component 2: where its variance concentrates",
                "Share of the variance this view explains in the component (relative weights). Fair share = 1/160. "
                "Rule (set before plotting): dark = permutation p < 0.05 in training AND in 326 held-out subjects; "
                "pale = training only; grey = neither.\nSame test on DiReCT cortical thickness: 0 of 62 regions at p < 0.05 "
                "in training, 1 held-out (chance 3.1), no lobe significant: its signal is the global thickness factor, not a "
-               "region. L/R labels provisional (CIT168 DKT left/right check pending).")
+               "region. L/R labels provisional (CIT168 DKT left/right check pending).\n"
+               "Share and r answer different questions: a large share with a weak r (CSF) is a non-redundant slice of the "
+               "component, not a strong marker; relative weights split variance among correlated features, so an isolated "
+               "measure keeps its whole share.")
     gs = fig.add_gridspec(2, len(cols), height_ratios=[1, 2.3], width_ratios=aspect)
     for c, (im, (_, _, head)) in enumerate(zip(imgs, cols)):
         ax = fig.add_subplot(gs[0, c]); ax.imshow(im); ax.axis("off"); ax.set_title(head, fontsize=9.5, color=_INK2)
     sub = gs[1, :].subgridspec(1, 2, width_ratios=[1.55, 1], wspace=0.08)
 
-    # ---- forest: every feature passing in training, plus grey context rows
+    # ---- forest: regional features passing in training; whole-brain totals get their own panel
+    def draw_forest(ax, show, title, legend, room=2.9):
+        y = np.arange(len(show))
+        top = 100 * show[["share_train", "share_test"]].max().max()
+        xmax = top + room                                    # room for the p / refits text and the r column
+        ax.axvline(100 * fair, color=_INK2, lw=1, ls="--", zorder=1)
+        ax.text(100 * fair, -1.0, " fair share", fontsize=8, color=_INK2, va="bottom")
+        ax.text(xmax - 0.05, -1.0, "r with CogPC1\n(held-out)", fontsize=7.6, color=_INK2, ha="right", va="bottom")
+        for yi, (_, r) in zip(y, show.iterrows()):
+            c = TIER_COL[r.tier]
+            ax.plot([100 * r.share_train, 100 * r.share_test], [yi, yi], color=_AXIS, lw=1.2, zorder=1)
+            ax.scatter(100 * r.share_train, yi, s=58, color=c, edgecolors="#fcfcfb", linewidths=1.2, zorder=3)
+            ax.scatter(100 * r.share_test, yi, s=46, facecolor="#fcfcfb", edgecolors=c if r.tier else _MUTED,
+                       linewidths=1.6, zorder=3)
+            ax.text(100 * max(r.share_train, r.share_test) + 0.12, yi,
+                    f"p {fp(r.p_train)} / {fp(r.p_test)}"
+                    + (f"   refits {r.refit_p05_freq:.0%}" if r.tier == 2 and np.isfinite(r.refit_p05_freq) else ""),
+                    va="center", fontsize=7.6, color=_INK if r.tier == 2 else _INK2)
+            ax.text(xmax - 0.05, yi, f"{RCOG[r.feature]:+.2f}", va="center", ha="right", fontsize=8,
+                    color=_INK if abs(RCOG[r.feature]) >= 0.3 else _INK2,
+                    weight="semibold" if abs(RCOG[r.feature]) >= 0.3 else "normal")
+        ax.set_yticks(y); ax.set_yticklabels([pretty(n) for n in show.feature], fontsize=8.3)
+        for lbl, t in zip(ax.get_yticklabels(), show.tier):
+            lbl.set_color(_INK if t == 2 else _INK2); lbl.set_fontweight("semibold" if t == 2 else "normal")
+        ax.set_ylim(len(show) - 0.4, -1.6); ax.set_xlim(0, xmax)
+        _clean(ax, grid="x")
+        ax.set_title(title, fontsize=10)
+        if legend:
+            ax.legend(handles=[Patch(color=dark, label="replicated (train and held-out p < 0.05)"),
+                               Patch(color=light, label="training only")], loc="lower right", frameon=False,
+                      fontsize=8, bbox_to_anchor=(0.86, 0.0))
+
+    is_total = f.feature.str.endswith("tissues")
+    regions = f[~is_total & (f.tier > 0)].sort_values("share_train", ascending=False)
+    totals = f[is_total].sort_values("share_train", ascending=False)
     ax = fig.add_subplot(sub[0, 0])
-    show = f[f.tier > 0].sort_values("share_train", ascending=False)
-    y = np.arange(len(show))
-    ax.axvline(100 * fair, color=_INK2, lw=1, ls="--", zorder=1)
-    ax.text(100 * fair, -1.0, " fair share", fontsize=8, color=_INK2, va="bottom")
-    for yi, (_, r) in zip(y, show.iterrows()):
-        c = TIER_COL[r.tier]
-        ax.plot([100 * r.share_train, 100 * r.share_test], [yi, yi], color=_AXIS, lw=1.2, zorder=1)
-        ax.scatter(100 * r.share_train, yi, s=58, color=c, edgecolors="#fcfcfb", linewidths=1.2, zorder=3)
-        ax.scatter(100 * r.share_test, yi, s=46, facecolor="#fcfcfb", edgecolors=c if r.tier else _MUTED,
-                   linewidths=1.6, zorder=3)
-        ax.text(100 * max(r.share_train, r.share_test) + 0.12, yi,
-                f"p {fp(r.p_train)} / {fp(r.p_test)}" + (f"   refits {r.refit_p05_freq:.0%}" if r.tier == 2 else ""),
-                va="center", fontsize=7.6, color=_INK if r.tier == 2 else _INK2)
-    ax.set_yticks(y); ax.set_yticklabels([pretty(n) for n in show.feature], fontsize=8.3)
-    for lbl, t in zip(ax.get_yticklabels(), show.tier):
-        lbl.set_color(_INK if t == 2 else _INK2); lbl.set_fontweight("semibold" if t == 2 else "normal")
-    ax.set_ylim(len(show) - 0.4, -1.4); ax.set_xlim(0, 100 * show[["share_train", "share_test"]].max().max() + 2.2)
+    nreg = int((~is_total).sum())
+    draw_forest(ax, regions, f"Regions with training p < 0.05: {int((f.tier[~is_total] > 0).sum())} of {nreg} "
+                f"(chance: {0.05 * nreg:.0f}); replicated held-out: {int((f.tier[~is_total] == 2).sum())}", True)
     ax.set_xlabel("% of explained variance (filled: training fit; ring: held-out subjects)")
-    _clean(ax, grid="x")
-    ax.set_title(f"Features with training p < 0.05: {int((f.tier > 0).sum())} of {len(f)} "
-                 f"(chance: {0.05 * len(f):.0f}); replicated held-out: {int((f.tier == 2).sum())}", fontsize=10)
-    ax.legend(handles=[Patch(color=dark, label="replicated (train and held-out p < 0.05)"),
-                       Patch(color=light, label="training only")], loc="lower right", frameon=False, fontsize=8)
+    right = sub[0, 1].subgridspec(2, 1, height_ratios=[6, 2.6 + 0.35 * len(totals)], hspace=0.35)
 
     # ---- lobes
-    ax = fig.add_subplot(sub[0, 1])
+    ax = fig.add_subplot(right[0, 0])
     lb = g[g.group.str.startswith("lobe")].copy(); lb["name"] = lb.group.str.replace("lobe ", "")
     lb = lb.sort_values("ratio_fair", ascending=True)
     yy = np.arange(len(lb))
@@ -107,5 +129,10 @@ with theme():
     full = np.isfinite(lb.p_fullrefit_null).any()
     ax.set_title("DKT lobes  (p: training / held-out" + (" / full-refit null)" if full else ")"), fontsize=10)
     _clean(ax, grid="x")
+
+    # ---- whole-brain totals: on a different footing from regions (one number per brain)
+    ax = fig.add_subplot(right[1, 0])
+    draw_forest(ax, totals, "Whole-brain tissue totals (not regions)", False, room=4.3)
+    ax.set_xlabel("% of explained variance")
     out = os.path.join(W, "docs", "figures", "adni_volarea_relevance.png")
     fig.savefig(out, dpi=160); print("wrote", out)
