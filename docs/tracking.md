@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: v0.13.0 + D21–D22 on `main`; D23 (antsxviz integration) on `feat/antsxviz-integration`.
+current phase: v0.14.0 released from `main` (antsxviz house renderer: plot_brain_map, plot_feature_map_grid via antsxviz; D21–D23).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
 active work: none; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
@@ -48,6 +48,11 @@ status: done (branch `feat/antsxviz-integration`)
 - **Found and reported, not fixed (external):** antsxviz's fsaverage annotation leaves lateral
   parietal holes (1055 / 520 vertices; `max_hole=400`), which render grey in lateral views. See
   `docs/change_requests/antsxviz.md`.
+- **Release v0.14.0:** the `viz` extra requires `antsxviz>=0.1.1`. That version fills the lateral
+  parietal holes (91.6% of vertices labelled) and fetches its annotation through antsxdata
+  v0.4.0 (Figshare 10.6084/m9.figshare.34917999). `test_palette_matches_antsxviz` guards
+  pysimlr's palette against drift. ADNI figures were re-rendered and inspected; the holes are
+  gone. Full suite: 1774 passed, 3 xfailed; `antsxqc.lint` 0 findings.
 - **Tests:** `tests/test_brain_maps.py`, 4 tests: name mapping; the adapter against a stand-in
   antsxviz; the missing-extra ImportError; and an end-to-end render, skipped without
   antsxviz/assets, 3.4 s.

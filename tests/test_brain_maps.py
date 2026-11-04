@@ -82,3 +82,15 @@ def test_plot_brain_map_end_to_end():
     texts = " ".join(t.get_text() for t in fig.texts)
     assert "csftissues" in texts                                # the non-cortical feature is named, not hidden
     plt.close(fig)
+
+
+def test_palette_matches_antsxviz():
+    """pysimlr keeps its own palette (core install has no antsxviz); it must not drift from
+    the house renderer's, or a table and a brain from the same fit would differ in colour."""
+    av = pytest.importorskip("antsxviz")
+    import antsxviz.style as st
+    from pysimlr.plotting import VIEW_COLORS, map_colormap
+    assert list(VIEW_COLORS) == list(st.VIEW_COLORS)
+    x = np.linspace(0, 1, 21)
+    for v in range(len(VIEW_COLORS)):
+        assert np.allclose([map_colormap(v)(t) for t in x], [av.map_colormap(v)(t) for t in x], atol=0)
