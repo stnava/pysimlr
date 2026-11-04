@@ -40,17 +40,27 @@ status: done (branch `feat/feature-maps`)
   - `plot_feature_map_shift`: rank change (gallery figure 10).
   - `plot_feature_map_grid`: the tabular twin of a brain map (gallery figure 11).
   - All of these share `feature_map_values` and `map_colormap`.
-- **Brain rendering:** `scripts/brain_region_maps.py`.
-  - CIT168 DKT cortex, one solid mesh per hemisphere, lateral, medial and ventral views.
-  - Selected regions are outlined, using the same encoding as the grid.
-  - It lives in a script because sulceye depends on pysimlr.
-  - **Defects found while rendering, and fixed:**
-    - Template x is reversed relative to LPS: the left hemisphere is at −x.
-    - The open medial wall let cameras see the inside of the lateral cortex.
-    - Vertex scalar interpolation swept through the colormap; values are now per face.
-    - The cerebellum blob dominated medial views; it is excluded.
-    - Sulcal vertices went unlabelled; each now takes the nearest cortical label within 4 mm.
-    - A long note shrank its panel.
+- **Brain rendering:** `scripts/brain_region_maps.py`, on the fsaverage cortex.
+  - **Surface:** TemplateFlow 41k, inflated by Taubin smoothing of the white surface, with
+    sulcal-depth shading. GIFTI is read by a small XML parser, not nibabel. RAS → LPS
+    conversion verified: 100% of mid-thickness vertices fall inside the brain mask.
+  - **Labels:** CIT168 DKT registered to the fsaverage T1 with `syntx.registration` (SyN,
+    335 s; cached in ~/.cache/pysimlr). Each vertex takes the nearest label within 3 mm; then
+    small holes are filled and only the largest piece of each region is kept.
+    - Coverage: 89–91% of vertices; the rest is the medial wall.
+    - Centroids are anatomically placed (entorhinal: medial-inferior temporal; precentral:
+      central strip).
+  - **Replaced the first version,** which meshed the CIT168 label volume. The owner judged it
+    "aesthetically displeasing and anatomically incorrect". Defects fixed on the way: the
+    template's x reversal, the open medial wall, scalar interpolation, the cerebellum blob,
+    unlabelled sulci, and a long note shrinking its panel.
+  - **Open (upstream, not fixed):** in `CIT168_T1w_700um_pad_adni_dkt.nii.gz` every "left"
+    DKT label (1xxx) lies at physical −x, which is anatomical right in LPS. After registration
+    to fsaverage, all 1xxx labels land on fsaverage's right hemisphere.
+    - Either the template header or its labels are mirrored. That is not resolved.
+    - Nor is it checked whether per-subject ADNI DKT values inherit the problem.
+    - The renderer takes the hemisphere from the surface file, not from the label code.
+    - Owner: ANTsPyT1w.
 - **Owner review:** "the plots should be the same whether on brain or not." The grid and brain
   views now share one encoding.
 - **Rule** (pre-set: AUC ≥ structure + 0.05 in ≥ 4/5 global-factor seeds; ≤ 0.02 worse without a

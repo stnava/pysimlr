@@ -1,24 +1,30 @@
 #!/usr/bin/env python3
-"""Paint per-region values (DKT cortical parcels) on a template brain.
+"""Paint per-region values (DKT cortical parcels) on the fsaverage cortex.
 
-pysimlr itself does not depend on ANTsPy, pyvista or sulceye (sulceye depends on
-pysimlr), so brain rendering lives in this script. It uses:
-  * the CIT168 T1 template and its DKT labels (~/.antspyt1w, same grid);
-  * `sulceye.voxel.visualizer.extract_surface_mesh` (marching cubes, physical
-    coordinates) for one mesh per hemisphere;
-  * `sulceye.reporting.DKT_BASE_MAP` (region name -> left DKT id; right = +1000);
-  * pyvista off-screen rendering, composed in matplotlib with `pysimlr.plotting.theme`.
+pysimlr itself does not depend on ANTsPy, pyvista, syntx or sulceye (sulceye
+depends on pysimlr), so brain rendering lives in this script.
 
-Views per hemisphere: lateral, medial and ventral (entorhinal and parahippocampal
-cortex are only visible medially and ventrally).
+Surface: FreeSurfer fsaverage (41k vertices per hemisphere, TemplateFlow
+``tpl-fsaverage``), shown inflated (the white surface smoothed with a Taubin
+filter, which keeps vertex correspondence) and shaded by sulcal depth; ``pial``
+is also available. GIFTI geometry is read with a small XML parser (no nibabel);
+TemplateFlow's RAS coordinates are converted to ANTs' LPS (x, y negated) --
+verified: 100% of mid-thickness vertices fall inside the fsaverage brain mask.
+
+Labels: the CIT168 template's DKT parcellation (~/.antspyt1w), registered to the
+fsaverage T1 with `syntx.registration` (SyN) and warped with genericLabel; each
+vertex takes the nearest cortical label within 3 mm of its mid-thickness point
+(84% of vertices; the rest is mostly the medial wall). Region identity comes from
+the label (id mod 1000) and the hemisphere from the surface file: CIT168's
+"left" labels (1xxx) lie at physical -x, which in LPS is anatomical right, so a
+label's own hemisphere code is not trusted here (reported upstream, not fixed).
+The registration and vertex labels are cached in ~/.cache/pysimlr.
 
 Library use:
-    meshes = hemisphere_meshes()
-    fig = region_map_figure({"structure": vals_a, "relative weight": vals_b}, meshes, ...)
-where each ``vals`` maps an ADNI-style region name ("left_entorhinal") or a DKT
-id to a value. Regions without a value are drawn light grey.
+    meshes = fsaverage_meshes()
+    fig = region_map_figure(pysimlr.feature_map_values(...), meshes, view, title)
 
-Script use (ADNI-MCI, the Figure 3.9 fit; DiReCT thickness component 2):
+Script use (ADNI-MCI, the Figure 3.9 fit; DiReCT thickness, predictive component):
     python scripts/brain_region_maps.py --out docs/figures/adni_dkt_feature_maps.png
 """
 from __future__ import annotations
@@ -46,66 +52,153 @@ def dkt_id(name: str) -> int:
     return DKT_BASE_MAP[base] - 1000 + side
 
 
-def hemisphere_meshes(spacing: float = 1.0, sigma: float = 1.0):
-    """{'left'|'right': (verts (V,3) physical, faces (F,3), vertex DKT ids (V,))}."""
+FSAVG = os.path.expanduser("~/.cache/templateflow/tpl-fsaverage/")
+CACHE = os.path.expanduser("~/.cache/pysimlr/")
+
+
+def read_gifti_surface(path: str):
+    """(vertices (V,3) float, faces (F,3) int) from a GIFTI surface, RAS as stored."""
+    import base64
+    import zlib
+    s = open(path, "rb").read().decode("utf-8")
+    if not s:
+        raise FileNotFoundError(f"{path} is empty (a TemplateFlow placeholder); download it first.")
+    arrs = []
+    for m in re.finditer(r"<DataArray(.*?)>(.*?)</DataArray>", s, re.S):
+        attrs, body = m.groups()
+        enc = re.search(r'Encoding="([^"]+)"', attrs).group(1)
+        dt = {"NIFTI_TYPE_FLOAT32": "f4", "NIFTI_TYPE_INT32": "i4"}[re.search(r'DataType="([^"]+)"', attrs).group(1)]
+        nd = int(re.search(r'Dimensionality="(\d+)"', attrs).group(1))
+        dims = [int(re.search(fr'Dim{i}="(\d+)"', attrs).group(1)) for i in range(nd)]
+        big = re.search(r'Endian="BigEndian"', attrs) is not None
+        raw = base64.b64decode(re.search(r"<Data>(.*?)</Data>", body, re.S).group(1).strip())
+        if enc == "GZipBase64Binary":
+            raw = zlib.decompress(raw)
+        elif enc != "Base64Binary":
+            raise ValueError(f"unsupported GIFTI encoding {enc}")
+        arrs.append(np.frombuffer(raw, dtype=(">" if big else "<") + dt).reshape(dims))
+    return arrs[0].astype(float), arrs[1].astype(int)
+
+
+def _fsaverage_labels():
+    """DKT region id (1xxx left / 2xxx right by surface) per fsaverage-41k vertex, cached."""
+    path = CACHE + "fsaverage41k_dkt_from_cit168.npz"
+    if os.path.exists(path):
+        z = np.load(path)
+        return {"left": z["left"], "right": z["right"]}
     import ants
-    from sulceye.voxel.visualizer import extract_surface_mesh, sample_3d_image_at_physical_coords
-    lab = ants.image_read(DKT)
-    lab = ants.resample_image(lab, (spacing,) * 3, use_voxels=False, interp_type=1)
-    arr = lab.numpy()
-    # Physical x of every voxel; the midline is midway between the hemispheres' cortex.
-    idx = np.indices(arr.shape).reshape(3, -1).T
-    xs = (np.array(lab.origin) + (idx * np.array(lab.spacing)) @ np.array(lab.direction).T)[:, 0].reshape(arr.shape)
-    mid = 0.5 * (xs[(arr > 1000) & (arr < 1100)].mean() + xs[(arr > 2000) & (arr < 2100)].mean())
+    import syntx
+    from scipy.ndimage import distance_transform_edt
+    os.makedirs(CACHE, exist_ok=True)
+    fix = ants.image_read(FSAVG + "tpl-fsaverage_res-01_T1w.nii.gz")
+    fix = ants.iMath(fix * ants.image_read(FSAVG + "tpl-fsaverage_res-01_desc-brain_mask.nii.gz"), "Normalize")
+    mov = ants.iMath(ants.resample_image(ants.image_read(TEMPLATE), (1, 1, 1), use_voxels=False, interp_type=0),
+                     "Normalize")
+    reg = syntx.registration(fix, mov, type_of_transform="SyN")
+    lab = ants.apply_transforms(fix, ants.image_read(DKT), reg["fwdtransforms"], interpolator="genericLabel")
+    A = lab.numpy().astype(int)
+    o, sp, dm = np.array(lab.origin), np.array(lab.spacing), np.array(lab.direction)
+    ctx = (A > 1000) & (A < 2100) & ((A % 1000) < 100)
+    dist, near = distance_transform_edt(~ctx, return_indices=True)
     out = {}
-    for hemi, lo in (("left", 1000), ("right", 2000)):
-        # The cortical labels form an open shell (no labels on the medial wall), so a
-        # medial or ventral camera looks through the gap at the inside of the lateral
-        # cortex. Add this side's deep grey nuclei and ventricles (not cerebellum
-        # 6/7/8/45/46/47/630-632, brainstem 16, ventral DC 28/60, 4th ventricle 15
-        # or CSF 24), close and fill into a solid hemisphere; medial-wall vertices
-        # then carry no cortical label and render grey.
-        side = (xs < mid) if hemi == "left" else (xs >= mid)
-        drop = [6, 7, 8, 15, 16, 24, 28, 45, 46, 47, 60, 630, 631, 632]
-        sub = (arr > 0) & (arr < 1000) & ~np.isin(arr, drop) & side
-        solid = ((arr > lo) & (arr < lo + 100)) | sub
-        mask = lab.new_image_like(solid.astype(np.float32))
-        mask = ants.iMath(ants.iMath(mask, "MC", 5), "FillHoles")
-        m = ants.smooth_image(mask, sigma, sigma_in_physical_coordinates=False)
-        verts, faces, normals = extract_surface_mesh(m, step_size=1)
-        verts, faces, normals = _largest_component(verts, faces, normals)
-        # Each vertex takes the label of the nearest cortical voxel of this hemisphere
-        # (within 4 mm); medial-wall and subcortical vertices stay unlabelled (0).
-        from scipy.ndimage import distance_transform_edt
-        ctx = (arr > lo) & (arr < lo + 100)
-        dist, nearest = distance_transform_edt(~ctx, return_indices=True)
-        vox = np.round(((verts - np.array(lab.origin)) @ np.linalg.inv(np.array(lab.direction)).T)
-                       / np.array(lab.spacing)).astype(int)
-        vox = np.clip(vox, 0, np.array(arr.shape) - 1)
-        n_idx = tuple(nearest[(axis,) + tuple(vox.T)] for axis in range(3))
-        ids = arr[n_idx].astype(int)
-        ids[dist[tuple(vox.T)] * spacing > 4.0] = 0
-        out[hemi] = (verts, faces, ids)
+    for hemi, h, lo in (("left", "L", 1000), ("right", "R", 2000)):
+        pial, _ = read_gifti_surface(FSAVG + f"tpl-fsaverage_hemi-{h}_den-41k_pial.surf.gii")
+        white, _ = read_gifti_surface(FSAVG + f"tpl-fsaverage_hemi-{h}_den-41k_white.surf.gii")
+        mid = 0.5 * (pial + white) * np.array([-1.0, -1.0, 1.0])            # RAS -> LPS
+        iv = tuple(np.clip(np.round(((mid - o) @ np.linalg.inv(dm).T) / sp).astype(int), 0,
+                           np.array(A.shape) - 1).T)
+        ids = A[tuple(near[(ax,) + iv] for ax in range(3))] % 1000 + lo
+        ids[dist[iv] > 3] = 0
+        out[hemi] = ids
+    np.savez(path, **out)
     return out
 
 
-def _largest_component(verts, faces, normals):
-    """Drop the small disconnected islands marching cubes leaves near the surface."""
+def _clean_surface_labels(ids, faces, rounds: int = 3, max_hole: int = 400, min_island: int = 30):
+    """Tidy labels transferred from a volume onto a mesh. Fill unlabelled
+    components smaller than ``max_hole`` vertices from their labelled neighbours
+    (the medial wall, one large component, stays unlabelled), keep only the
+    largest connected piece of each region (DKT regions are contiguous patches)
+    and refill the rest from neighbours, then a few rounds of majority vote."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    n = len(ids)
+    i = np.r_[faces[:, 0], faces[:, 1], faces[:, 2], faces[:, 1], faces[:, 2], faces[:, 0]]
+    j = np.r_[faces[:, 1], faces[:, 2], faces[:, 0], faces[:, 0], faces[:, 1], faces[:, 2]]
+    adj = coo_matrix((np.ones(len(i)), (i, j)), shape=(n, n)).tocsr()
+    ids = ids.copy()
+    un = ids == 0
+    sub = adj[un][:, un]
+    ncomp, comp = connected_components(sub, directed=False)
+    sizes = np.bincount(comp, minlength=ncomp)
+    fill = np.zeros(n, bool)
+    fill[np.where(un)[0][sizes[comp] < max_hole]] = True
+    for _ in range(50):                                   # grow labels into the small holes
+        todo = np.where(fill & (ids == 0))[0]
+        if not len(todo):
+            break
+        for v in todo:
+            nb = ids[adj.indices[adj.indptr[v]:adj.indptr[v + 1]]]
+            nb = nb[nb > 0]
+            if len(nb):
+                ids[v] = np.bincount(nb).argmax()
+    # Islands: a region's connected piece smaller than ``min_island`` vertices is
+    # registration noise; clear it and let the neighbours grow back over it.
+    for lab_ in np.unique(ids[ids > 0]):
+        on = ids == lab_
+        nc, cc = connected_components(adj[on][:, on], directed=False)
+        sz = np.bincount(cc, minlength=nc)
+        # Each DKT region is one contiguous cortical patch: keep its largest piece.
+        small = np.where(on)[0][(sz[cc] < min_island) | (cc != sz.argmax())]
+        ids[small] = 0
+        fill[small] = True
+    for _ in range(50):
+        todo = np.where(fill & (ids == 0))[0]
+        if not len(todo):
+            break
+        for v in todo:
+            nb = ids[adj.indices[adj.indptr[v]:adj.indptr[v + 1]]]
+            nb = nb[nb > 0]
+            if len(nb):
+                ids[v] = np.bincount(nb).argmax()
+    for _ in range(rounds):                               # majority vote over each vertex's neighbours
+        new = ids.copy()
+        for v in np.where(ids > 0)[0]:
+            nb = ids[adj.indices[adj.indptr[v]:adj.indptr[v + 1]]]
+            nb = nb[nb > 0]
+            if len(nb):
+                vals, cnt = np.unique(np.r_[nb, ids[v]], return_counts=True)
+                new[v] = vals[cnt.argmax()]
+        ids = new
+    return ids
+
+
+def fsaverage_meshes(surface: str = "inflated", smooth_iter: int = 400):
+    """{'left'|'right': (verts LPS, faces, vertex DKT ids, sulcal shade in [0, 1])}."""
     import pyvista as pv
-    poly = pv.PolyData(verts, np.c_[np.full(len(faces), 3), faces].ravel())
-    poly.point_data["n"] = normals
-    big = poly.connectivity("largest").extract_surface(algorithm="dataset_surface")
-    return np.asarray(big.points), big.faces.reshape(-1, 4)[:, 1:], np.asarray(big.point_data["n"])
+    labels = _fsaverage_labels()
+    out = {}
+    for hemi, h in (("left", "L"), ("right", "R")):
+        white, faces = read_gifti_surface(FSAVG + f"tpl-fsaverage_hemi-{h}_den-41k_white.surf.gii")
+        pial, _ = read_gifti_surface(FSAVG + f"tpl-fsaverage_hemi-{h}_den-41k_pial.surf.gii")
+        cells = np.c_[np.full(len(faces), 3), faces].ravel()
+        w = pv.PolyData(white * np.array([-1.0, -1.0, 1.0]), cells)
+        infl = w.smooth_taubin(n_iter=smooth_iter, pass_band=0.0005, normalize_coordinates=True)
+        infl = infl.compute_normals(point_normals=True, cell_normals=False, auto_orient_normals=True)
+        # Sulcal depth: how far the folded surface lies inside its inflated version.
+        depth = -((w.points - infl.points) * infl.point_data["Normals"]).sum(1)
+        shade = np.clip((depth - np.percentile(depth, 5)) / np.ptp(np.percentile(depth, [5, 95])), 0, 1)
+        verts = np.asarray(infl.points) if surface == "inflated" else pial * np.array([-1.0, -1.0, 1.0])
+        out[hemi] = (verts, faces, _clean_surface_labels(labels[hemi], faces), shade)
+    return out
 
 
 def _cameras(verts, hemi):
-    """Camera (position, focal point, view-up) per view. In this template's physical
-    space the left hemisphere lies at -x, +y is posterior and +z superior (checked:
-    left superior frontal mean x -12.7, lateral occipital y +83, entorhinal z -29)."""
+    """Camera (position, focal point, view-up) per view in LPS (+x left, +y
+    posterior, +z superior)."""
     c = verts.mean(0)
-    span = np.ptp(verts, axis=0).max()
-    d = 2.6 * span
-    out_x = -1.0 if hemi == "left" else 1.0          # lateral side of this hemisphere
+    d = 2.6 * np.ptp(verts, axis=0).max()
+    out_x = 1.0 if hemi == "left" else -1.0          # lateral side of this hemisphere
     return {
         "lateral": (c + np.array([out_x * d, 0, 0]), c, (0, 0, 1)),
         "medial": (c - np.array([out_x * d, 0, 0]), c, (0, 0, 1)),
@@ -113,33 +206,33 @@ def _cameras(verts, hemi):
     }
 
 
-def render(values_by_id: dict, mesh, hemi: str, view: str, cmap, clim, selected=(), size=(700, 560)):
-    """One off-screen render of one hemisphere, returned as an RGBA array.
-    Regions in ``selected`` (DKT ids) get a dark outline."""
+def render(values_by_id: dict, mesh, hemi: str, view: str, cmap, clim, selected=(), size=(760, 600)):
+    """One off-screen render of one hemisphere as an RGBA array. Vertex colour is
+    the map colour (grey where a vertex has no value), darkened slightly in sulci
+    so the folding stays legible; regions in ``selected`` get a dark outline."""
     import pyvista as pv
-    verts, faces, ids = mesh
-    # One value per triangle (its majority vertex label), as cell data: region
-    # boundaries stay crisp, and no colour is interpolated between a valued region
-    # and an unvalued neighbour (vertex interpolation swept through the colormap).
-    fl = ids[faces]
-    face_id = np.where(fl[:, 1] == fl[:, 2], fl[:, 1], fl[:, 0])
-    vals = np.array([values_by_id.get(int(i), np.nan) for i in face_id], float)
+    verts, faces, ids, shade = mesh
+    vals = np.array([values_by_id.get(int(i), np.nan) for i in ids], float)
+    t = np.clip((vals - clim[0]) / max(clim[1] - clim[0], 1e-12), 0, 1)
+    rgb = np.asarray(cmap(np.nan_to_num(t)))[:, :3]
+    base = np.array([0.90, 0.895, 0.875])
+    rgb[~np.isfinite(vals)] = base
+    rgb *= (1.0 - 0.28 * shade)[:, None]                  # sulci darker, gyri lighter
     poly = pv.PolyData(verts, np.c_[np.full(len(faces), 3), faces].ravel())
-    poly.cell_data["v"] = vals
+    poly.point_data["rgb"] = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
     pl = pv.Plotter(off_screen=True, window_size=size)
     pl.set_background("white")
-    pl.add_mesh(poly, scalars="v", cmap=cmap, clim=clim, nan_color="#ecebe6", smooth_shading=True,
-                show_scalar_bar=False, ambient=0.25, diffuse=0.75, specular=0.08)
+    pl.add_mesh(poly, scalars="rgb", rgb=True, smooth_shading=True, ambient=0.3, diffuse=0.7, specular=0.05)
     for rid in selected:
-        cells = np.where(face_id == int(rid))[0]
-        if len(cells):
-            edge = poly.extract_cells(cells).extract_surface(algorithm="dataset_surface").extract_feature_edges(
+        inside = np.where(np.all(ids[faces] == int(rid), axis=1))[0]
+        if len(inside):
+            edge = poly.extract_cells(inside).extract_surface(algorithm="dataset_surface").extract_feature_edges(
                 boundary_edges=True, feature_edges=False, manifold_edges=False, non_manifold_edges=False)
             if edge.n_points:
-                pl.add_mesh(edge, color="#0b0b0b", line_width=3.5, render_lines_as_tubes=True)
+                pl.add_mesh(edge, color="#0b0b0b", line_width=4, render_lines_as_tubes=True)
     pos, foc, up = _cameras(verts, hemi)[view]
     pl.camera_position = [tuple(pos), tuple(foc), up]
-    pl.camera.zoom(1.35)
+    pl.camera.zoom(1.1 if view == "ventral" else 1.4)    # seen from below, the long axis is vertical
     img = pl.screenshot(return_img=True, transparent_background=True)
     pl.close()
     return img
@@ -186,7 +279,7 @@ def region_map_figure(enc: dict, meshes, view: int, title: str, notes: dict | No
     sys.path.insert(0, os.path.join(HERE, "..", "src"))
     from pysimlr.plotting import theme, _new, _INK, _INK2, _MUTED, _stability_color, map_colormap
     cmap = map_colormap(view)
-    cols = [("left", "lateral", "L lateral"), ("left", "medial", "L medial"), ("both", "ventral", "ventral"),
+    cols = [("left", "lateral", "L lateral"), ("left", "medial", "L medial"), ("both", "ventral", "ventral (R | L)"),
             ("right", "medial", "R medial"), ("right", "lateral", "R lateral")]
     imgs = {}
     for kind, e in enc.items():
@@ -201,7 +294,8 @@ def region_map_figure(enc: dict, meshes, view: int, title: str, notes: dict | No
                 b_ = _crop(render(by_id, meshes["right"], "right", "ventral", cmap, clim, sel))
                 h = max(a_.shape[0], b_.shape[0])
                 pad = lambda im: np.pad(im, ((0, h - im.shape[0]), (0, 0), (0, 0)))
-                row.append(np.concatenate([pad(a_), pad(b_)], axis=1))   # left hemisphere on the left
+                # Seen from below (anterior up), the left hemisphere is on the viewer's right.
+                row.append(np.concatenate([pad(b_), pad(a_)], axis=1))
             else:
                 row.append(_crop(render(by_id, meshes[hemi], hemi, view_, cmap, clim, sel)))
         imgs[kind] = row
@@ -258,7 +352,7 @@ def adni_figure(out: str):
     top = [rw["names"][i] for i in np.argsort(-rw["values"])[:4]]
     notes = {"relative_weight": "largest: " + ", ".join(pretty(n) for n in top)}
     title = f"ADNI-MCI {vn[2]}, component {j + 1}: association (structure) vs unique share (relative weight)"
-    fig = region_map_figure(enc, hemisphere_meshes(), 2, title, notes)
+    fig = region_map_figure(enc, fsaverage_meshes(), 2, title, notes)
     fig.savefig(out, dpi=170)
     grid = pysimlr.plot_feature_map_grid(res, inf=inf, component=j, view=2, feature_names=fnames, view_names=vn,
                                          split=split_hemisphere, groups=REGION_LOBE, value_fmt="{:.2f}")

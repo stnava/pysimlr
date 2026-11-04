@@ -106,10 +106,13 @@ That way a table and a brain show the same thing:
   Read it first, because it answers "what moves once the global factor is shared out?"
 - `plot_feature_map_grid(res, inf=inf, view=m, split=..., groups=...)`: the tabular twin of a
   brain map. `split` pairs hemispheres and `groups` orders by lobe.
-- `scripts/brain_region_maps.py`: the same encoding painted on the CIT168 template's DKT cortex,
-  lateral, medial and ventral, with selected regions outlined. It uses ANTsPy, pyvista and
-  sulceye's mesh extraction; pysimlr itself does not depend on them.
-  ADNI output: `docs/figures/adni_dkt_feature_maps.png` and `_grid.png`.
+- `scripts/brain_region_maps.py`: the same encoding painted on the fsaverage cortex.
+  - Shown inflated with sulcal shading, in lateral, medial and ventral views, with selected
+    regions outlined.
+  - DKT labels come from the CIT168 parcellation, registered to fsaverage with
+    `syntx.registration`.
+  - It uses ANTsPy, pyvista and syntx; pysimlr itself does not depend on them.
+  - ADNI output: `docs/figures/adni_dkt_feature_maps.png` and `_grid.png`.
 - `plot_top_features(kind=...)` and `plot_feature_map_comparison` show one map or all of them at
   once.
 
