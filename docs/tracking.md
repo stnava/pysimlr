@@ -84,6 +84,18 @@ status: done (branch `feat/feature-maps`)
     the global thickness factor.
   - **Figure rule:** tiers, dark = training and held-out p < 0.05; pale = training only; grey
     otherwise. L/R labels provisional pending the CIT168 investigation.
+  - **Fast path:** `python scripts/adni_relevance_test.py --figure` runs tests and figure in
+    25 s, against about 400 s before.
+    - Where the time went: profiling showed it was all model refits. Mesh build took 2.9 s, each
+      render 0.5 s, and permutations were negligible.
+    - Defaults are now `--refits 10 --full-null 0`.
+    - The full-refit null (300 per view) reproduced the permutation results (22 vs 24 features;
+      the same lobe conclusions) and doesn't enter the tiers, so it is opt-in.
+    - Permutations are vectorised with `Generator.permuted`. Verified: this draws the same
+      shuffles as the per-column loop, so p-values and all 222 tiers are bit-identical to the
+      full run.
+    - A null that wasn't run is reported as NaN and left off the figure, never shown as a
+      number.
 - **Owner review:** "the plots should be the same whether on brain or not." The grid and brain
   views now share one encoding.
 - **Rule** (pre-set: AUC ≥ structure + 0.05 in ≥ 4/5 global-factor seeds; ≤ 0.02 worse without a

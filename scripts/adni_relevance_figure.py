@@ -13,7 +13,7 @@ def fp(p):
 from pysimlr.plotting import theme, _new, _clean, _dots, _INK, _INK2, _MUTED, _AXIS, _GRID, VIEW_COLORS
 from paper_numbers import region_label
 
-R = os.path.join(W, "docs", "audit", "evidence", "relevance") + "/"
+R = os.environ.get("RELEVANCE_DIR", os.path.join(W, "docs", "audit", "evidence", "relevance")) + "/"
 fd, gd = pd.read_csv(R + "features.csv"), pd.read_csv(R + "groups.csv")
 VIEW, COLOR = "vol_area", VIEW_COLORS[0]
 f = fd[fd.view == VIEW].copy(); g = gd[gd.view == VIEW].copy()
@@ -99,11 +99,13 @@ with theme():
         ax.scatter(r.share_test / (r.n * fair), yi, s=46, facecolor="#fcfcfb", edgecolors=c if rep else _MUTED,
                    linewidths=1.6, zorder=3)
         ax.text(max(r.ratio_fair, r.share_test / (r.n * fair)) + 0.05, yi,
-                f"{r.ratio_fair:.2f}x   p {fp(r.p_train)} / {fp(r.p_test)} / {fp(r.p_fullrefit_null)}",
+                f"{r.ratio_fair:.2f}x   p {fp(r.p_train)} / {fp(r.p_test)}"
+                + (f" / {fp(r.p_fullrefit_null)}" if np.isfinite(r.p_fullrefit_null) else ""),
                 va="center", fontsize=7.8, color=_INK if rep else _INK2)
     ax.set_yticks(yy); ax.set_yticklabels([f"{n} ({k})" for n, k in zip(lb.name, lb.n)], fontsize=9)
     ax.set_xlim(0.4, 3.3); ax.set_xlabel("share ÷ fair share (bar: training; ring: held-out)")
-    ax.set_title("DKT lobes  (p: training / held-out / full-refit null)", fontsize=10)
+    full = np.isfinite(lb.p_fullrefit_null).any()
+    ax.set_title("DKT lobes  (p: training / held-out" + (" / full-refit null)" if full else ")"), fontsize=10)
     _clean(ax, grid="x")
     out = os.path.join(W, "docs", "figures", "adni_volarea_relevance.png")
     fig.savefig(out, dpi=160); print("wrote", out)

@@ -42,7 +42,8 @@ def perm_counts(zo, lam2, t, obs, groups, B, rng):
     """Counts of null >= observed for features and for each group (sums of features)."""
     ge = np.zeros(len(obs)); geg = {g: 0 for g in groups}
     for s in range(0, B, CHUNK):
-        nl = shares(zo, lam2, np.stack([t[rng.permutation(len(t))] for _ in range(min(CHUNK, B - s))], 1))
+        k = min(CHUNK, B - s)
+        nl = shares(zo, lam2, rng.permuted(np.tile(t[:, None], (1, k)), axis=0))     # k permutations at once
         ge += (nl >= obs[:, None]).sum(1)
         for g, idx in groups.items():
             geg[g] += int((nl[idx].sum(0) >= obs[idx].sum()).sum())
@@ -137,10 +138,21 @@ def refit_task(args):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser(description="ADNI relevance test (see module docstring)")
+    ap.add_argument("--refits", type=int, default=10, help="half-sample refits for stability (0: skip)")
+    ap.add_argument("--full-null", type=int, default=0,
+                    help="full-refit null fits per view (0: skip; 300 reproduced the permutation results)")
+    ap.add_argument("--b-train", type=int, default=B_TRAIN); ap.add_argument("--b-test", type=int, default=B_TEST)
+    ap.add_argument("--out", default=OUT); ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--figure", action="store_true", help="also draw docs/figures/adni_volarea_relevance.png")
+    a = ap.parse_args()
+    out_dir = a.out
+    T0 = time.time()
     torch.set_num_threads(1)
     import paper_adni_ablations as paa
     d = paa.protocol_b(42)
-    os.makedirs(OUT, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
     rng = np.random.default_rng(2026)
     res, dd = fit_and_target(d)
     j, signs, tr = analyse(res, dd, d["x_tr"][:3], d["pc1_tr"])
@@ -153,27 +165,29 @@ def main():
         bil, lob = groups_for(names)
         groups = {**bil, **lob}
         zo, lam2 = setup(tr[m][0][:, keep]); obs = shares(zo, lam2, tr[m][1][:, None])[:, 0]
-        p_tr, pg_tr = perm_counts(zo, lam2, tr[m][1], obs, groups, B_TRAIN, rng)
+        p_tr, pg_tr = perm_counts(zo, lam2, tr[m][1], obs, groups, a.b_train, rng)
         zo2, lam22 = setup(te[m][0][:, keep]); obs_te = shares(zo2, lam22, te[m][1][:, None])[:, 0]
-        p_te, pg_te = perm_counts(zo2, lam22, te[m][1], obs_te, groups, B_TEST, rng)
+        p_te, pg_te = perm_counts(zo2, lam22, te[m][1], obs_te, groups, a.b_test, rng)
         ref[m] = dict(names=names, keep=keep, obs=obs, p_tr=p_tr, obs_te=obs_te, p_te=p_te, groups=groups,
                       pg_tr=pg_tr, pg_te=pg_te)
-        print(f"{vname}: training and held-out done", flush=True)
+        print(f"{vname}: training and held-out done ({time.time() - T0:.0f} s)", flush=True)
     t0 = time.time()
-    tasks = [("refit", r, None) for r in range(N_REFIT)] + [("null", r, m) for m in VIEWS for r in range(N_NULL)]
+    tasks = [("refit", r, None) for r in range(a.refits)] + [("null", r, m) for m in VIEWS for r in range(a.full_null)]
     refit = {m: [] for m in VIEWS}; null = {m: [] for m in VIEWS}
-    with ProcessPoolExecutor(8) as ex:
-        for kind, key, out in ex.map(refit_task, tasks, chunksize=4):
-            if kind == "refit":
-                for m, v in out.items():
-                    refit[m].append(v)
-            else:
-                null[key[1]].append(out)
-    print(f"refits and full-refit null: {time.time() - t0:.0f} s", flush=True)
+    if tasks:
+        with ProcessPoolExecutor(min(a.workers, len(tasks))) as ex:
+            for kind, key, out in ex.map(refit_task, tasks, chunksize=max(1, len(tasks) // (4 * a.workers))):
+                if kind == "refit":
+                    for m, v in out.items():
+                        refit[m].append(v)
+                else:
+                    null[key[1]].append(out)
+    print(f"{a.refits} refits, {a.full_null} full-refit null fits per view: {time.time() - t0:.0f} s", flush=True)
     for m, vname in VIEWS.items():
         R_ = ref[m]; names = R_["names"]; fair = 1 / len(names)
-        nul = np.array(null[m])                                   # (N_NULL, p)
-        p_full = (1 + (nul >= R_["obs"][None, :]).sum(0)) / (len(nul) + 1)
+        nul = np.array(null[m]) if null[m] else np.full((0, len(names)), np.nan)   # (n_null, p)
+        p_full = ((1 + (nul >= R_["obs"][None, :]).sum(0)) / (len(nul) + 1) if len(nul)
+                  else np.full(len(names), np.nan))                 # NaN = not run, never a number
         freq = {nm: 0 for nm in names}; gfreq = {g: 0 for g in R_["groups"]}
         for (nm_r, obs_r, p_r, pg_r) in refit[m]:
             for nm, pp in zip(nm_r, p_r):
@@ -183,15 +197,22 @@ def main():
         for i, nm in enumerate(names):
             rows.append(dict(view=vname, feature=nm, share_train=R_["obs"][i], ratio_fair=R_["obs"][i] / fair,
                              p_train=R_["p_tr"][i], share_test=R_["obs_te"][i], p_test=R_["p_te"][i],
-                             refit_p05_freq=freq[nm] / len(refit[m]), p_fullrefit_null=p_full[i]))
+                             refit_p05_freq=freq[nm] / len(refit[m]) if refit[m] else np.nan,
+                             p_fullrefit_null=p_full[i]))
         for g, idx in R_["groups"].items():
             o = R_["obs"][idx].sum(); nl = nul[:, idx].sum(1)
             grows.append(dict(view=vname, group=g, n=len(idx), share_train=o, ratio_fair=o / (len(idx) * fair),
                               p_train=R_["pg_tr"][g], share_test=R_["obs_te"][idx].sum(), p_test=R_["pg_te"][g],
-                              refit_p05_freq=gfreq[g] / len(refit[m]),
-                              p_fullrefit_null=(1 + (nl >= o).sum()) / (len(nul) + 1)))
+                              refit_p05_freq=gfreq[g] / len(refit[m]) if refit[m] else np.nan,
+                              p_fullrefit_null=(1 + (nl >= o).sum()) / (len(nul) + 1) if len(nul) else np.nan))
     fd, gd = pd.DataFrame(rows), pd.DataFrame(grows)
-    fd.to_csv(OUT + "/features.csv", index=False); gd.to_csv(OUT + "/groups.csv", index=False)
+    fd.to_csv(out_dir + "/features.csv", index=False); gd.to_csv(out_dir + "/groups.csv", index=False)
+    print(f"tests done: {time.time() - T0:.0f} s total", flush=True)
+    if a.figure:
+        import runpy
+        os.environ["RELEVANCE_DIR"] = out_dir
+        runpy.run_path(os.path.join(W, "scripts", "adni_relevance_figure.py"), run_name="__main__")
+        print(f"figure done: {time.time() - T0:.0f} s total", flush=True)
     pd.set_option("display.width", 220); pd.set_option("display.max_rows", 200)
     for v in VIEWS.values():
         f = fd[fd.view == v]
