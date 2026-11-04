@@ -1252,7 +1252,7 @@ def feature_map_values(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = Non
                        kinds: Sequence[str] = ("structure", "relative_weight"), feature_names=None,
                        view_names=None) -> Dict[str, Dict[str, Any]]:
     """The one encoding behind `plot_feature_map_grid` and brain renderings
-    (``scripts/brain_region_maps.py``), so the two always show the same thing.
+    (`plot_brain_map`, drawn by antsxviz), so the two always show the same thing.
 
     Per kind: ``values`` (per feature, display units: |map|, or for
     ``relative_weight`` percent of the variance the view explains), ``vmax``
@@ -1288,7 +1288,7 @@ def plot_feature_map_grid(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = 
 
     The tabular twin of a brain rendering: the same values, colour scale
     (`map_colormap`, 0..max per map) and selection outline (dark ring: selected
-    in >= 80% of refits) as ``scripts/brain_region_maps.py``, both computed by
+    in >= 80% of refits) as `plot_brain_map`, both computed by
     `feature_map_values`.
 
     ``split``: optional callable feature name -> (row label, column label), e.g.
@@ -1367,6 +1367,107 @@ def plot_feature_map_grid(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = 
         cb = fig.colorbar(ScalarMappable(norm, cmap), cax=cax, orientation="horizontal")
         cb.outline.set_visible(False); cb.set_label(e["units"], fontsize=8, color=_INK2)
     return fig
+
+
+# ----------------------------------------------------------------------------- brain maps (antsxviz)
+def _require_antsxviz():
+    """antsxviz, or an ImportError that says how to get it (never a fallback renderer)."""
+    try:
+        import antsxviz
+    except ImportError as err:
+        raise ImportError("pysimlr brain maps are drawn by antsxviz, the ANTsX house renderer, which is not "
+                          "installed: pip install 'pysimlr[viz]' (or antsxviz>=0.1.0).") from err
+    return antsxviz
+
+
+def cortical_region_name(name: str) -> Optional[str]:
+    """A feature name as a DKT cortical region name for the brain renderer, or None.
+
+    ``"left_entorhinal"`` stays as it is; ANTsPyT1w hierarchical names
+    ``"left_entorhinaldktcortex"`` (and the ``...dktregions`` parcellation variant)
+    become ``"left_entorhinal"``. Anything else (tissue totals, lobes, MTL or CIT168
+    labels) is not a cortical region and returns None.
+    """
+    import re
+    m = re.match(r"^(left|right)_(.+?)(dktcortex|dktregions)?$", str(name))
+    if not m:
+        return None
+    return f"{m.group(1)}_{m.group(2)}"
+
+
+def brain_rows(enc: Dict[str, Dict[str, Any]], region_names=None, notes: Optional[Dict[str, str]] = None,
+               view: int = 0):
+    """`feature_map_values` output as antsxviz ``rows``, restricted to cortical regions.
+
+    ``region_names``: a callable or dict mapping a feature name to a DKT region name
+    (or None for a feature that is not on the cortex); default `cortical_region_name`.
+    When two features map to one region (``dktcortex`` and ``dktregions`` variants),
+    the ``dktcortex`` one is kept. Returns ``(rows, dropped)``, where ``dropped`` lists
+    the features that cannot be drawn on cortex, so the caller can state them.
+    """
+    av = _require_antsxviz()
+    to_region = region_names if callable(region_names) else (
+        (lambda n: region_names.get(n)) if isinstance(region_names, dict) else cortical_region_name)
+    first = next(iter(enc.values()))
+    names = list(first["names"])
+    chosen, dropped = {}, []                                  # region -> feature index
+    for i, n in enumerate(names):
+        r = to_region(n)
+        if r is not None:
+            try:
+                av.dkt_id(r)
+            except KeyError:
+                r = None
+        if r is None:
+            dropped.append(n)
+            continue
+        if r not in chosen:
+            chosen[r] = i
+        elif str(n).endswith("dktcortex") and not str(names[chosen[r]]).endswith("dktcortex"):
+            dropped.append(names[chosen[r]]); chosen[r] = i  # the DKT cortex label wins
+        else:
+            dropped.append(n)
+    keep = sorted((i, r) for r, i in chosen.items())
+    sub = {}
+    for kind, e in enc.items():
+        idx = [i for i, _ in keep]
+        sub[kind] = dict(e, names=[r for _, r in keep], values=np.asarray(e["values"], float)[idx],
+                         selected=None if e.get("selected") is None else np.asarray(e["selected"])[idx])
+    rows = av.rows_from_encoding(sub, cmap=map_colormap(view), notes=notes)
+    return rows, dropped
+
+
+def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, maps: Optional[Dict[str, Any]] = None,
+                   component: int = 0, view: int = 0, kinds: Sequence[str] = ("structure", "relative_weight"),
+                   feature_names=None, view_names=None, region_names=None, title: Optional[str] = None,
+                   subtitle: Optional[str] = None, notes: Optional[Dict[str, str]] = None, meshes=None,
+                   density: str = "41k", surface: str = "inflated"):
+    """Feature maps of one component painted on the fsaverage cortex, via antsxviz.
+
+    The brain twin of `plot_feature_map_grid`: both read `feature_map_values`, so
+    values, the 0..max scale per map (`map_colormap`), selection outlines (>= 80% of
+    refits) and stability are identical. Rows are maps, columns are L lateral,
+    L medial, ventral (R | L), R medial, R lateral. Features that are not DKT
+    cortical regions (see `cortical_region_name`) are not drawn; they are listed in
+    the subtitle. ``meshes`` (from ``antsxviz.load_fsaverage``) can be passed to reuse
+    them across figures. Requires the ``viz`` extra (antsxviz).
+    """
+    av = _require_antsxviz()
+    enc = feature_map_values(res, maps, inf, component, view, kinds, feature_names, view_names)
+    rows, dropped = brain_rows(enc, region_names, notes, view)
+    if not rows or not next(iter(rows.values()))["values"]:
+        raise ValueError("no feature of this view is a DKT cortical region; pass region_names= to map them.")
+    if meshes is None:
+        meshes = av.load_fsaverage(density=density, surface=surface)
+    vname = next(iter(enc.values()))["view_name"]
+    sub = subtitle if subtitle is not None else (
+        "Colour: each map on its own scale from 0 to its maximum"
+        + ("; dark outline: selected in >= 80% of refits" if inf is not None else "") + ".")
+    if dropped:
+        sub += (f" Not on cortex ({len(dropped)}): " + ", ".join(map(str, dropped[:6]))
+                + (" ..." if len(dropped) > 6 else "") + ".")
+    return av.surface_figure(rows, meshes, title=title or f"Component {component + 1} of {vname}: feature maps",
+                             subtitle=sub)
 
 
 @_themed

@@ -5,7 +5,7 @@ import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import to_rgb, ListedColormap
 from matplotlib.patches import Patch
-import brain_region_maps as brm
+import antsxviz
 
 
 def fp(p):
@@ -35,20 +35,29 @@ vals = {}
 for _, r in f.iterrows():
     m = re.match(r"^(left|right)_(.+)dktcortex$", r.feature)
     if m and r.tier > 0:
-        vals[brm.dkt_id(f"{m.group(1)}_{m.group(2)}")] = float(r.tier)
+        vals[antsxviz.dkt_id(f"{m.group(1)}_{m.group(2)}")] = float(r.tier)
 cmap = ListedColormap([light, dark])
-meshes = brm.fsaverage_meshes()
+meshes = antsxviz.load_fsaverage()
+
+
+def crop(img, pad=6):
+    """Trim the transparent border of a rendered RGBA image."""
+    ys, xs = np.where(img[..., 3] > 0)
+    return img if not len(ys) else img[max(ys.min() - pad, 0):ys.max() + pad, max(xs.min() - pad, 0):xs.max() + pad]
+
+
+def render(hemi, view):
+    return crop(antsxviz.render_surface(vals, meshes[hemi], hemi, view, cmap, (1, 2)))
 cols = [("left", "lateral", "L lateral"), ("left", "medial", "L medial"), ("both", "ventral", "ventral (R | L)"),
         ("right", "medial", "R medial"), ("right", "lateral", "R lateral")]
 imgs = []
 for hemi, view, _ in cols:
     if hemi == "both":
-        a = brm._crop(brm.render(vals, meshes["left"], "left", "ventral", cmap, (1, 2)))
-        b = brm._crop(brm.render(vals, meshes["right"], "right", "ventral", cmap, (1, 2)))
+        a, b = render("left", "ventral"), render("right", "ventral")
         h = max(a.shape[0], b.shape[0]); pad = lambda im: np.pad(im, ((0, h - im.shape[0]), (0, 0), (0, 0)))
         imgs.append(np.concatenate([pad(b), pad(a)], axis=1))
     else:
-        imgs.append(brm._crop(brm.render(vals, meshes[hemi], hemi, view, cmap, (1, 2))))
+        imgs.append(render(hemi, view))
 aspect = [im.shape[1] / im.shape[0] for im in imgs]
 
 with theme():
@@ -57,7 +66,7 @@ with theme():
                "Rule (set before plotting): dark = permutation p < 0.05 in training AND in 326 held-out subjects; "
                "pale = training only; grey = neither.\nSame test on DiReCT cortical thickness: 0 of 62 regions at p < 0.05 "
                "in training, 1 held-out (chance 3.1), no lobe significant: its signal is the global thickness factor, not a "
-               "region. L/R labels provisional (CIT168 DKT left/right check pending).\n"
+               "region. L/R verified: per-subject ADNI DKT labels are correct (antsxviz label_hemisphere_report).\n"
                "Share and r answer different questions: a large share with a weak r (CSF) is a non-redundant slice of the "
                "component, not a strong marker; relative weights split variance among correlated features, so an isolated "
                "measure keeps its whole share.")

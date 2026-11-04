@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: v0.13.0 + D21 (alternative feature maps, relevance cutoff) on `main`; D22 (calibrated subset consensus, nc_abs) merging from `fix/pos-sparse-calibrated-consensus`.
+current phase: v0.13.0 + D21–D22 on `main`; D23 (antsxviz integration) on `feat/antsxviz-integration`.
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
 active work: none; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
@@ -11,6 +11,39 @@ last updated: 2026-11-04
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D23 (antsxviz integration: brain maps via the ANTsX house renderer, 2026-11-04)
+status: done (branch `feat/antsxviz-integration`)
+- **New:** `pysimlr.plot_brain_map(res, inf, maps, component, view, kinds, feature_names, view_names,
+  region_names, title, subtitle, notes, meshes, density, surface)`. It draws the fsaverage
+  cortex through antsxviz 0.1.0 (`load_fsaverage`, `surface_figure`).
+  - Optional extra: `pip install 'pysimlr[viz]'`. antsxviz is imported only when called; if it's
+    missing, the ImportError names the extra. There is no fallback renderer.
+  - `brain_rows` adapts `feature_map_values` to antsxviz rows. `cortical_region_name` maps
+    `..._dktcortex` / `..._dktregions` names to DKT regions; the dktcortex variant wins.
+    Non-cortical features are returned and listed in the subtitle, never silently dropped.
+  - Kept in pysimlr: `feature_map_values`, `map_colormap` and `plot_feature_map_grid`.
+    antsxviz's change request leaves moving the grid as an owner decision.
+  - Palettes were checked identical: VIEW_COLORS and all four `map_colormap` ramps, max diff 0.0.
+- **Scripts:**
+  - `scripts/brain_region_maps.py` is now a thin antsxviz caller. About 370 lines of GIFTI,
+    label-transfer, mesh and render code were deleted.
+  - `adni_relevance_figure.py` and `adni_relevance_test.py` use antsxviz (`render_surface`,
+    `dkt_id`, `DKT_LOBES`). Lobe assignment is unchanged for all 222 ADNI features.
+- **antsxviz's audit settles the L/R question:**
+  - only `CIT168_..._dkt.nii.gz` is mirrored; the CIT168 T1 isn't (SyN CC 0.802 vs 0.798
+    mirrored);
+  - per-subject ADNI DKT labels are correct.
+
+  The relevance caption now says so.
+- **Found and reported, not fixed (external):** antsxviz's fsaverage annotation leaves lateral
+  parietal holes (1055 / 520 vertices; `max_hole=400`), which render grey in lateral views. See
+  `docs/change_requests/antsxviz.md`.
+- **Tests:** `tests/test_brain_maps.py`, 4 tests: name mapping; the adapter against a stand-in
+  antsxviz; the missing-extra ImportError; and an end-to-end render, skipped without
+  antsxviz/assets, 3.4 s.
+- **Figures regenerated and inspected:** `adni_dkt_feature_maps.png`, `_grid.png` and
+  `adni_volarea_relevance.png`.
 
 ## D22 (Positive-sparse polarity coupling & DOF/OOF-calibrated subset consensus, 2026-11-04)
 status: done on branch `fix/pos-sparse-calibrated-consensus`

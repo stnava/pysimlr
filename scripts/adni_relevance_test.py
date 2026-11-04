@@ -56,7 +56,7 @@ def base_name(n):
 
 
 def lobe_of(n):
-    from brain_region_maps import DKT_LOBES
+    from antsxviz import DKT_LOBES
     b = re.sub(r"dkt(cortex|regions)$", "", base_name(n)).strip("_")
     return next((lb for lb, regs in DKT_LOBES.items() if b in regs), None)
 

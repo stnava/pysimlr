@@ -36,6 +36,12 @@ dependencies = [
 nsa = [
     "nsa-flow"
 ]
+# Brain maps (pysimlr.plot_brain_map): the ANTsX house renderer. Optional so a
+# pysimlr install does not pull ANTsPy / pyvista; plot_brain_map raises an
+# ImportError naming this extra when it is missing.
+viz = [
+    "antsxviz>=0.1.0"
+]
 test = [
     "pytest",
     "pytest-cov",

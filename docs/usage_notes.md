@@ -106,13 +106,17 @@ That way a table and a brain show the same thing:
   Read it first, because it answers "what moves once the global factor is shared out?"
 - `plot_feature_map_grid(res, inf=inf, view=m, split=..., groups=...)`: the tabular twin of a
   brain map. `split` pairs hemispheres and `groups` orders by lobe.
-- `scripts/brain_region_maps.py`: the same encoding painted on the fsaverage cortex.
-  - Shown inflated with sulcal shading, in lateral, medial and ventral views, with selected
-    regions outlined.
-  - DKT labels come from the CIT168 parcellation, registered to fsaverage with
-    `syntx.registration`.
-  - It uses ANTsPy, pyvista and syntx; pysimlr itself does not depend on them.
-  - ADNI output: `docs/figures/adni_dkt_feature_maps.png` and `_grid.png`.
+- `plot_brain_map(res, inf=inf, component=j, view=m)`: the same encoding painted on the
+  fsaverage cortex (inflated, sulcal shading; lateral, medial and ventral views; selected regions
+  outlined).
+  - Drawn by antsxviz, the ANTsX house renderer. Install it with `pip install 'pysimlr[viz]'`;
+    without it the function raises an ImportError naming the extra.
+  - Feature names map to DKT cortical regions through `cortical_region_name`, or `region_names=`
+    if you pass one. Features that are not cortical regions (tissue totals, lobes) are listed in
+    the subtitle, never silently dropped.
+  - `brain_rows` returns the antsxviz rows for custom compositions.
+  - ADNI output: `scripts/brain_region_maps.py` → `docs/figures/adni_dkt_feature_maps.png` and
+    `_grid.png`.
 - `plot_top_features(kind=...)` and `plot_feature_map_comparison` show one map or all of them at
   once.
 
