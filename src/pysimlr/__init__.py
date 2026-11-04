@@ -122,6 +122,7 @@ from .api import (
     METHODS,
 )
 from .fused_ridge import fit_fused_ridge, predict_fused_ridge, fused_ridge_cv
+from .relevance import feature_relevance
 from .loadings import (
     RANK_CRITERIA,
     loadings,
@@ -173,6 +174,7 @@ __all__ = [
     'cortical_region_name',
     'brain_rows',
     'plot_brain_map',
+    'plot_feature_relevance',
     'map_colormap',
     'feature_map_values',
     'plot_feature_map_grid',
@@ -200,6 +202,7 @@ __all__ = [
     'loadings',
     'loading_inference',
     'feature_maps',
+    'feature_relevance',
     'FEATURE_MAP_KINDS',
     'select_rank',
     'structure_coefficients',
@@ -345,6 +348,7 @@ _LAZY_ATTRS = {
     'cortical_region_name': 'plotting',
     'brain_rows': 'plotting',
     'plot_brain_map': 'plotting',
+    'plot_feature_relevance': 'plotting',
     'map_colormap': 'plotting',
     'feature_map_values': 'plotting',
     'plot_feature_map_grid': 'plotting',

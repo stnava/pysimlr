@@ -155,6 +155,65 @@ That way a table and a brain show the same thing:
 - On wide or weakly identified views, `structure` remains the most stable map.
 - Nothing here changes `structure`, `loadings` or any default.
 
+## Which features are relevant: a hard cutoff (`pysimlr.feature_relevance`)
+
+A feature map is continuous and doesn't say which features matter. `feature_relevance` turns a
+component into a decision. The rule is stated before looking:
+
+```python
+rel = pysimlr.feature_relevance(res, train_views, test_views,      # None for a view missing at test
+                                outcome=y_train, outcome_test=y_test,  # picks the component; adds held-out r
+                                views=(1, 2), feature_names=names,
+                                groups={"lobe": lobe_of, "bilateral": pair_of})
+rel["features"], rel["groups"], rel["summary"]      # pandas frames
+fig = pysimlr.plotting.plot_feature_relevance(rel, view=1, grouping="lobe", brain=True,
+                                              separate=lambda n: n.endswith("tissues"))
+fig = pysimlr.plotting.plot_brain_map(None, view=1, tiers=rel)   # tiers on the cortex only
+```
+
+**Statistic.** For view m on component j:
+- The statistic is each feature's share of the variance the view explains in a target (relative
+  weights, normalised to sum to 1).
+- The target is the mean of the other views' sign-aligned scores on j.
+- The fair share is 1/p.
+
+**Tests.**
+- **Training:** the target is permuted against the features (`n_permutations`, default 100 000).
+- **Held-out:** the fitted model is applied to the test subjects and the test is rerun
+  (`n_permutations_test`, default 50 000).
+- **Refits:** half-sample refits, each with its own test (`n_refits`, default 10). They give the
+  fraction of refits with p < alpha.
+- **Optional refit null:** `n_null_refits` refits the whole model with the view's rows shuffled.
+  It is slow, and it is reported beside the tiers, not in them.
+- **Groups:** tested on the sum of their shares.
+- **p-values:** uncorrected. `summary` sets the counts against chance (alpha × p).
+
+**Tiers.**
+- 2 = p < alpha in training **and** held-out;
+- 1 = training only;
+- 0 = neither.
+
+**How to read it.**
+- The test measures **concentration, not strength**. A single feature's null share is about
+  Beta(½, (p − 1)/2), whatever the signal.
+  - With p = 160, a feature needs a share of about 2.4% (3.8× fair) for p < 0.05.
+  - When k features share a signal equally, each gets about 1/k. On the planted test, 4 strong
+    drivers among 24 features reach p ≈ 0.01–0.025 and no lower.
+  - More permutations sharpen p; they don't add power.
+- A diffuse signal passes no single feature. Use group tests for it (lobes, networks).
+- Read `r_outcome_test` for strength. CSF on ADNI has a large share but r = +0.17: it is a
+  non-redundant slice of the component, not a strong marker.
+
+**Evidence.**
+- **ADNI, exact equivalence.** On the Figure 3.9 fit, `feature_relevance` reproduces the original
+  scripts exactly: 222/222 features and 93/93 groups, max difference ~1e-16, identical tiers.
+  `scripts/adni_relevance_test.py` and `scripts/adni_relevance_figure.py` are now thin callers.
+  The figure takes about 18 s on 8 workers, including the fit.
+- **Planted.** In `tests/test_feature_relevance.py`, every driver reaches tier 2 and no noise
+  feature does, over 7 seeds. A pure-noise view of 60 features gives 1–4 at p < 0.05 in training
+  (chance is 3).
+
+
 ## Uncertainty and the choice of k
 
 ```python
