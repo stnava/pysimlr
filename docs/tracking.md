@@ -2,7 +2,7 @@
 current phase: v0.15.0 released from `main` (feature_relevance: hard relevance cutoff with held-out replication; D24).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: D25 `fix/wide-view-overfit-warning` (not merged); the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: D25 `fix/wide-view-overfit-warning` and D26 `fix/latent-scale` (stacked, not merged; D26 needs a refresh of the SiMLR rows of the paper's deep_ranking_benchmark cache); the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.6.0 (editable, /Users/stnava/data/repos/nsa_flow; not on PyPI)
 last updated: 2026-11-04
 
@@ -11,6 +11,35 @@ last updated: 2026-11-04
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D26 (linear SiMLR latents at the scale of u, 2026-11-04)
+status: done on branch `fix/latent-scale`, stacked on D25 (not merged)
+- **Defect.** `fit` and `predict` returned linear-SiMLR `latents` at the preprocessed-view scale.
+  - That scale is about 1e-3 the size of `u` (SD about 4–6e-4 on a 2-component example), and it
+    shrinks as the view grows.
+  - A downstream estimator with a fixed penalty shrank them to nothing. A default `RidgeCV` read-out
+    gave R² ≈ 0 on every NHANES outcome until its features were standardised.
+- **Fix.** `simlr._latent_scales` computes one divisor per view, stored as `result["latent_scale"]`
+  and applied by `predict_simlr`. Each view then has unit average column variance on the training
+  rows, keeping the relative size of its components.
+  - It is one constant per view, not per column, so every internal use is unchanged: correlations,
+    z-scoring, and the GCV ridge in `extension.consensus_maps` (penalty relative to the data's own
+    scale).
+  - Subset prediction gives the same `u` to 1e-6 (test).
+  - Results without `latent_scale` keep the old scale.
+  - Deep and flow latents were already of order 1 (0.7–2.2) and are untouched.
+- **Effect on the paper cache** (`deep_ranking_benchmark.csv`, seed 42, rerun at this commit).
+  - SiMLR rows whose metric fits a penalised estimator to latents moved:
+    - ADNI-MCI predictive 0.1254 → 0.1325;
+    - TCGA-KIRC strictly-linear 0.6170 → 0.6241;
+    - Linear strictly-linear 0.9727 → 0.9724;
+    - NonnegParts and NonnegPartsWeak ≤ 1e-5.
+  - Every other model, and SiMLR's Heart and mfeat rows, are bit-identical.
+  - The cached SiMLR first-layer numbers were biased low by up to about 0.007. Refresh the SiMLR
+    rows before quoting them.
+- **Tests:** `tests/test_latent_scale.py`, 4 tests: unit average variance and fit == predict;
+  divisor round-trip; subset `u` unchanged; old results keep their scale. Full suite: 1765 passed,
+  2 xfailed (before the new tests).
 
 ## D25 (wide views: training coupling reported and warned, 2026-11-04)
 status: done on branch `fix/wide-view-overfit-warning` (not merged)

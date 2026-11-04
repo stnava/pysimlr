@@ -2082,11 +2082,15 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # every later reconstruction was zero without any sign of failure.
         w_mats.append(torch.linalg.pinv(u_i) @ x)
 
+    _raw_latents = [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)]
+    _lat_scales = _latent_scales(_raw_latents)
     _result = {
         "u": u, "u_per_modality": u_per_modality, "v": v_mats, "w": w_mats, "energy": energy_history,
         # Per-view first-layer projections of the (preprocessed) training
-        # data, the same quantity `predict_simlr` returns as "latents".
-        "latents": [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)],
+        # data, the same quantity `predict_simlr` returns as "latents",
+        # divided by one constant per view (see `_latent_scales`).
+        "latents": [z / s for z, s in zip(_raw_latents, _lat_scales)],
+        "latent_scale": _lat_scales,
         "normalizing_weights": normalizing_weights, 
         "domain_weights": domain_weights, 
         "converged_iter": converged_iter,
@@ -2139,6 +2143,23 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         warn_if_unconverged(_result["convergence"], "simlr")
         warn_if_wide_views(_result, "simlr", _widths, int(torch_mats[0].shape[0]))
     return _result
+
+
+def _latent_scales(raw_latents: List[torch.Tensor]) -> List[float]:
+    """One divisor per view that puts its training latents at unit average column variance.
+
+    The preprocessing divides each view by its overall norm, so ``X_m V_m`` comes out about 1e-3 the
+    size of ``u`` and shrinks with the view's size; a downstream estimator with a fixed penalty (a
+    default ridge or lasso) then shrinks it to nothing. One constant per view (not per column) keeps
+    the relative size of the components and leaves every internal use unchanged: correlations, and the
+    GCV ridge of `extension.consensus_maps`, whose penalty is set relative to the data's own scale.
+    """
+    out = []
+    for z in raw_latents:
+        zc = z.detach().double() - z.detach().double().mean(0)
+        sd = float(zc.pow(2).mean().sqrt()) if zc.numel() else 0.0
+        out.append(sd if sd > 0 else 1.0)
+    return out
 
 
 def pairwise_matrix_similarity(mat_list: List[torch.Tensor], v_list: List[torch.Tensor]) -> Dict[str, float]:
@@ -2535,7 +2556,9 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         err = torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10)
         errors.append(err)
         
-    latents = [x @ v.to(x.dtype) for x, v in zip(torch_mats, simlr_result.get("v", []))]
+    v_list = simlr_result.get("v", [])
+    scales = simlr_result.get("latent_scale") or [1.0] * len(v_list)   # results saved before v0.16: internal scale
+    latents = [(x @ v.to(x.dtype)) / s for x, v, s in zip(torch_mats, v_list, scales)]
     return {"u": u_new, "latents": latents, "reconstructions": reconstructions, "errors": errors}
 
 
