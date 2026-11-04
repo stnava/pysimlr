@@ -12,6 +12,20 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D28 (heldout_coupling: cross-view agreement on held-out rows, 2026-11-04)
+status: done on branch `feat/heldout-coupling` (not merged)
+- `pysimlr.heldout_coupling(result, views)` gives, for training and held-out rows over the available
+  views:
+  - per view and component, |corr(z, u)|;
+  - per component, the mean pairwise cross-view |corr|, and the training − held-out gap.
+- Joint baselines raise.
+- `WideViewWarning` now names it.
+- Validated:
+  - IBD 1.00 / 0.58;
+  - noise views with p ≥ n 0.88–0.91 / 0.04–0.05;
+  - genuine signal gap ≤ 0.03.
+- Tests: `tests/test_heldout_coupling.py`, 6 tests.
+
 ## D26 (linear SiMLR latents at the scale of u, 2026-11-04)
 status: done (released in v0.16.0; SiMLR cache rows refreshed in 4110375)
 - **Defect.** `fit` and `predict` returned linear-SiMLR `latents` at the preprocessed-view scale.

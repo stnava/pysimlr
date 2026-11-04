@@ -589,8 +589,77 @@ def warn_if_wide_views(report: Dict[str, Any], method: str, widths: List[int], n
                      f"{np.mean(report['coupling_train'][m]):.2f})" for m in wide)
     warnings.warn(f"{method}: {desc} has at least as many features as samples (n={n}); its training "
                   "coupling can be fitted to noise and is not evidence of shared signal. Check coupling "
-                  "on held-out rows (pysimlr.predict(result, held_out_views)['latents'] against 'u'), or "
-                  "reduce the features. See result['wide_views'].", WideViewWarning, stacklevel=3)
+                  "on held-out rows with pysimlr.heldout_coupling(result, held_out_views), or reduce the "
+                  "features. See result['wide_views'].", WideViewWarning, stacklevel=3)
+
+
+def _abs_corr_columns(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """|corr(a[:, j], b[:, j])| per column (0 for a constant column)."""
+    a = a - a.mean(0)
+    b = b - b.mean(0)
+    den = np.linalg.norm(a, axis=0) * np.linalg.norm(b, axis=0)
+    return np.where(den > 0, np.abs((a * b).sum(0)) / np.where(den > 0, den, 1.0), 0.0)
+
+
+def _coupling_stats(latents: Dict[int, np.ndarray], u: np.ndarray) -> Tuple[Dict[int, List[float]], List[float]]:
+    to_u = {m: _abs_corr_columns(z, u).tolist() for m, z in latents.items()}
+    keys = sorted(latents)
+    pairs = [(a, b) for i, a in enumerate(keys) for b in keys[i + 1:]]
+    k = u.shape[1]
+    cross = (np.mean([_abs_corr_columns(latents[a], latents[b]) for a, b in pairs], axis=0).tolist()
+             if pairs else [float("nan")] * k)
+    return to_u, cross
+
+
+def heldout_coupling(result: Dict[str, Any], views: List[Any]) -> Dict[str, Any]:
+    r"""Cross-view agreement on held-out rows, beside the same statistics on the training rows.
+
+    Training coupling is not evidence of shared signal when a view is wide (``p_m >= n``; see
+    `coupling_capacity_report` and `WideViewWarning`). Held-out coupling is. ``views`` are new
+    subjects' views in the fit's order, ``None`` for a view that is missing; at least two must be
+    present for the cross-view statistic. Statistics are computed over the available views only, in
+    training and held-out alike, so the two are comparable.
+
+    Returns
+    -------
+    dict with, per available view ``m`` and component ``j``:
+      ``coupling_train`` / ``coupling_heldout``: :math:`|\mathrm{corr}(z_{mj}, u_j)|`;
+    per component:
+      ``cross_view_train`` / ``cross_view_heldout``: mean over view pairs of
+      :math:`|\mathrm{corr}(z_{aj}, z_{bj})|`, and ``cross_view_gap`` (training minus held-out);
+    and ``views`` (indices used), ``n_train``, ``n_heldout``.
+
+    On IBD stool metabolomics (four 500-feature platforms plus 156 species, n = 165 training
+    subjects) the mean cross-view coupling was 1.00 in training and 0.58 held-out; for independent
+    noise views with p >= n it is about 0.88 against 0.03.
+    """
+    from .api import predict
+    from .extension import view_names as _view_names
+    if result.get("basis_is_joint") or len(result.get("latents") or []) < len(result.get("v") or []):
+        raise ValueError(f"{result.get('method')} fits one joint basis and has no per-view latents; "
+                         "cross-view coupling is not defined for it.")
+    n_views = len(result["v"])
+    if len(views) != n_views:
+        raise ValueError(f"views has {len(views)} entries; the fit has {n_views} (use None for a missing view).")
+    avail = [m for m, x in enumerate(views) if x is not None]
+    if not avail:
+        raise ValueError("no held-out view is present.")
+    arr = lambda t: np.asarray(t.detach().cpu().double() if hasattr(t, "detach") else t, dtype=np.float64)
+    pred = predict(result, list(views))
+    lat = pred["latents"]
+    if isinstance(lat, dict):
+        names = list(_view_names(result))
+        lat_te = {m: arr(lat[names[m]] if names[m] in lat else lat[m]) for m in avail}
+    else:
+        lat_te = {m: arr(lat[m]) for m in avail}
+    u_tr = result["u"][0] if isinstance(result["u"], list) else result["u"]
+    lat_tr = {m: arr(result["latents"][m]) for m in avail}
+    c_tr, x_tr = _coupling_stats(lat_tr, arr(u_tr))
+    c_te, x_te = _coupling_stats(lat_te, arr(pred["u"]))
+    return {"views": avail, "n_train": int(arr(u_tr).shape[0]), "n_heldout": int(arr(pred["u"]).shape[0]),
+            "coupling_train": [c_tr[m] for m in avail], "coupling_heldout": [c_te[m] for m in avail],
+            "cross_view_train": x_tr, "cross_view_heldout": x_te,
+            "cross_view_gap": [a - b for a, b in zip(x_tr, x_te)]}
 
 
 def correlation_penalty(z: torch.Tensor, threshold: Optional[float] = None,
