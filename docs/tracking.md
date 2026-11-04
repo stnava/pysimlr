@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: v0.16.0 released from `main` (wide-view coupling warning D25; linear-SiMLR latents at the scale of u D26; paper SiMLR cache rows refreshed).
+current phase: branch `feat/shrunk-relative-weight-highdim` off v0.16.0 (D27: shrunk Johnson relative weights removing the p < n_sub ceiling + outcome-blind wide-view predictor gating `screen_wide_views` / `apply_view_screen`).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: none; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows (open); the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: D27 verified on branch `feat/shrunk-relative-weight-highdim`; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows (open); the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.6.0 (editable, /Users/stnava/data/repos/nsa_flow; not on PyPI)
 last updated: 2026-11-04
 
@@ -11,6 +11,40 @@ last updated: 2026-11-04
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D27 (shrunk Johnson relative weights for p >= n and outcome-blind wide-view predictor gating, 2026-11-04)
+status: done on branch `feat/shrunk-relative-weight-highdim`
+- **Problem.**
+  - Classical Johnson (2000) `relative_weight` in `loadings.py` and `relevance.py` required full-rank
+    `p < n` (and `p < n_sub` during half-sample `loading_inference` / `feature_relevance` refits),
+    emitting NaNs via `rcond=1e-10` eigenvalue gating whenever `p >= n` or `p >= n_sub`.
+  - Simultaneously, `D25` (`WideViewWarning`) showed that feeding unconstrained wide views (`p >= n`)
+    directly into `simlr` lets the solver couple within-view noise to consensus (`coupling_train` up to
+    0.88–1.00 vs held-out < 0.20), creating a need for strictly outcome-blind cross-view predictor gating.
+- **Part A — Joint Ledoit–Wolf Schur R² relative weights (`loadings.py`, `relevance.py`).**
+  - Added `_resolve_rw_shrinkage` and `_basis_from_svd` in `src/pysimlr/loadings.py`, upgrading
+    `_relative_weight_map`, `_relative_weight_basis`, `_relative_weight_shares`, and `feature_maps(...,
+    rw_shrinkage=0.0)` (`"auto"`, `"ledoit_wolf"`, float in `[0, 1)`, or per-view sequence), and wired
+    `loading_inference` (`map_options={"rw_shrinkage": "auto"}`) plus `feature_relevance(...,
+    shrinkage="auto")` in `src/pysimlr/relevance.py`.
+  - Shrinks the joint `[X, t_j]` correlation matrix with a single Ledoit–Wolf intensity `lambda_j` to `I`,
+    so `sum_f w_f = (1 - lambda_j)^2 r_Xt^T R_lambda^-1 r_Xt = 1 - 1 / (S_joint,lambda^-1)_tt` lies
+    strictly in `[0, 1)` to machine precision (`~1e-16`) via thin SVD (`O(min(n, p)^2 p)`), while keeping
+    `rw_shrinkage=0.0` bit-identical (`0.0` diff) on full-rank `p < n` views.
+- **Part B — Outcome-blind cross-view predictor gating (`screening.py`, `__init__.py`).**
+  - Added `pysimlr.screen_wide_views` and `pysimlr.apply_view_screen` in `src/pysimlr/screening.py`
+    (with no outcome parameter in the signature, preventing target leakage by construction).
+  - Combines row-permuted cross-view subspace communality (`p_perm`), exact finite-sample Westfall–Young
+    min-`p` omnibus view calibration across mean and max communality (`p_view`), half-sample stability
+    selection (`selection_frequency`), greedy within-view collinearity deduplication (`max_collinearity`),
+    and sample-adaptive width control (`max_width_ratio`).
+- **Tests:** `tests/test_shrunk_relative_weight_and_screening.py` (5 tests: exact Schur `R²_LW` identity
+  to `1e-12`, bit-identical `0.0` equivalence on `p < n`, wide-view `feature_maps` + half-sample
+  `loading_inference` with `p > n_sub`, wide-view `feature_relevance` at `p = 200 > n_train = 80`, and
+  `screen_wide_views` Type I suppression on pure-noise `D25` views + sparse driver recovery + collinear
+  pruning + `apply_view_screen`). Verified alongside `test_feature_maps.py`, `test_feature_relevance.py`,
+  `test_wide_view_warning.py`, `test_latent_scale.py`, and `test_implementation_standards.py` (47 passed,
+  0 lint findings).
 
 ## D26 (linear SiMLR latents at the scale of u, 2026-11-04)
 status: done (released in v0.16.0; SiMLR cache rows refreshed in 4110375)

@@ -281,34 +281,101 @@ def _component_partial_map(xz: np.ndarray, tz: np.ndarray) -> np.ndarray:
     return _corr_map(xz, tz) @ np.linalg.pinv(s_tt)
 
 
-def _relative_weight_map(xz: np.ndarray, tz: np.ndarray) -> np.ndarray:
+def _resolve_rw_shrinkage(xl: np.ndarray, d: np.ndarray, shrinkage: Any,
+                          joint: Optional[np.ndarray] = None) -> float:
+    """Resolve shrinkage intensity ``lam`` in ``[0, 1]`` for Johnson relative weights."""
+    if shrinkage == "auto":
+        if xl.shape[1] < xl.shape[0] and len(d) > 0 and d.min() > d.max() * 1e-10:
+            return 0.0
+        shrinkage = "ledoit_wolf"
+    if shrinkage == "ledoit_wolf":
+        from sklearn.covariance import LedoitWolf
+        arr = joint if joint is not None else xl
+        return float(LedoitWolf(assume_centered=True).fit(arr).shrinkage_)
+    if isinstance(shrinkage, (str, bool)):
+        raise ValueError(f"rw_shrinkage must be 'auto', 'ledoit_wolf' or a float in [0, 1); got {shrinkage!r}.")
+    lam = float(shrinkage)
+    if not 0.0 <= lam < 1.0:
+        raise ValueError(f"rw_shrinkage must be 'auto', 'ledoit_wolf' or a float in [0, 1); got {shrinkage!r}.")
+    if lam == 0.0:
+        if xl.shape[1] >= xl.shape[0]:
+            raise ValueError(f"relative_weight needs fewer features than rows; the view has "
+                             f"{xl.shape[1]} non-constant features and {xl.shape[0]} rows. "
+                             f"Use 'partial' or rw_shrinkage='auto'.")
+        if len(d) == 0 or d.min() <= d.max() * 1e-10:
+            raise ValueError("relative_weight needs a full-rank view; it has collinear features. "
+                             "Use 'partial' or rw_shrinkage='auto'.")
+    return lam
+
+
+def _basis_from_svd(pp: np.ndarray, d: np.ndarray, qt: np.ndarray, n: int, lam: float):
+    """``(Z_lam, Lambda_lam**2)`` from thin SVD ``xl = pp diag(d) qt`` at shrinkage ``lam``."""
+    if lam == 0.0:
+        return pp @ qt, (qt.T @ np.diag(d) @ qt / np.sqrt(n)) ** 2
+    s = d / np.sqrt(n)
+    d_lam = (1.0 - lam) * (s ** 2) + lam
+    zo = (pp * (s / np.sqrt(d_lam))[None, :]) @ qt
+    lam_mat = (qt.T * (np.sqrt(d_lam) - np.sqrt(lam))[None, :]) @ qt
+    lam_mat[np.diag_indices(qt.shape[1])] += np.sqrt(lam)
+    return zo, lam_mat ** 2
+
+
+def _relative_weight_map(xz: np.ndarray, tz: np.ndarray, shrinkage: Any = 0.0) -> np.ndarray:
     """Johnson's (2000) relative weights: each feature's share of R^2(t_j ~ X).
 
     X = P D Q' (SVD of the standardized view); Z = P Q' is its closest orthonormal
     counterpart, and Lambda = Q D Q' / sqrt(n) maps Z back to X. The weight of
     feature f is sum_l Lambda_fl^2 beta_l^2, beta the regression of t_j on Z; the
     weights are non-negative and sum to R^2.
+
+    With ``shrinkage='auto'`` (exact ``0.0`` when full-rank ``p < n``, else
+    ``'ledoit_wolf'``), ``'ledoit_wolf'`` or ``lam in (0, 1)``, uses the joint
+    shrunk correlation matrix ``S_lam = (1 - lam) corr([X, t_j]) + lam I`` via thin
+    SVD in ``O(min(n, p)^2 p)`` time, so the weights remain non-negative and sum
+    exactly to the Schur-complement multiple ``R^2_lam(t_j ~ X) in [0, 1)`` for any
+    view width ``p >= n``.
     """
     n, p = xz.shape
-    live = xz.std(0) > 0
-    if live.sum() >= n:
-        raise ValueError(f"relative_weight needs fewer features than rows; the view has "
-                         f"{int(live.sum())} non-constant features and {n} rows. Use 'partial'.")
-    zo, lam2 = _relative_weight_basis(xz[:, live])
-    beta = zo.T @ tz / np.sqrt(n)
     out = np.zeros((p, tz.shape[1]))
-    out[live] = lam2 @ (beta ** 2)
+    live = xz.std(0) > 0
+    if not live.any():
+        _resolve_rw_shrinkage(xz[:, :0], np.empty(0), 0.5 if shrinkage in ("auto", "ledoit_wolf") else shrinkage)
+        return out
+    xl = xz[:, live]
+    pp, d, qt = np.linalg.svd(xl, full_matrices=False)
+    is_full_narrow = xl.shape[1] < n and len(d) > 0 and d.min() > d.max() * 1e-10
+    if shrinkage not in ("ledoit_wolf", "auto") or (shrinkage == "auto" and is_full_narrow):
+        lam = _resolve_rw_shrinkage(xl, d, shrinkage)
+        zo, lam2 = _basis_from_svd(pp, d, qt, n, lam)
+        beta = (1.0 - lam) * (zo.T @ tz / np.sqrt(n)) if lam > 0.0 else (zo.T @ tz / np.sqrt(n))
+        out[live] = lam2 @ (beta ** 2)
+        return out
+    for j in range(tz.shape[1]):
+        if not tz[:, j].std() > 0:
+            continue
+        lam_j = _resolve_rw_shrinkage(xl, d, "ledoit_wolf", joint=np.column_stack([xl, tz[:, j]]))
+        if lam_j >= 1.0:
+            continue
+        zo_j, lam2_j = _basis_from_svd(pp, d, qt, n, lam_j)
+        beta_j = (1.0 - lam_j) * (zo_j.T @ tz[:, j] / np.sqrt(n))
+        out[live, j] = lam2_j @ (beta_j ** 2)
     return out
 
 
-def _relative_weight_basis(xl: np.ndarray):
-    """``(Z, Lambda**2)`` of Johnson's relative weights for a standardized, full-rank ``xl``
-    (n x p, p < n): Z = P Q' (SVD X = P D Q'), Lambda = Q D Q' / sqrt(n)."""
-    n = xl.shape[0]
+def _relative_weight_basis(xl: np.ndarray, shrinkage: Any = 0.0):
+    """``(Z, Lambda**2)`` of Johnson's relative weights for standardized ``xl`` (n x p).
+
+    At ``shrinkage=0.0`` (default), requires full-rank ``p < n``: ``Z = P Q'``
+    (SVD ``X = P D Q'``), ``Lambda = Q D Q' / sqrt(n)``. With ``shrinkage='auto'``,
+    ``'ledoit_wolf'`` or ``lam in (0, 1)``, uses ``R_lam = (1 - lam) R_XX + lam I_p``
+    so shares are defined for any ``p >= n`` or collinear view.
+    """
+    n, p = xl.shape
+    if p == 0:
+        return np.zeros((n, 0)), np.zeros((0, 0))
     pp, d, qt = np.linalg.svd(xl, full_matrices=False)
-    if d.min() <= d.max() * 1e-10:
-        raise ValueError("relative_weight needs a full-rank view; it has collinear features. Use 'partial'.")
-    return pp @ qt, (qt.T @ np.diag(d) @ qt / np.sqrt(n)) ** 2
+    lam = _resolve_rw_shrinkage(xl, d, shrinkage)
+    return _basis_from_svd(pp, d, qt, n, lam)
 
 
 def _relative_weight_shares(zo: np.ndarray, lam2: np.ndarray, targets: np.ndarray) -> np.ndarray:
@@ -316,7 +383,8 @@ def _relative_weight_shares(zo: np.ndarray, lam2: np.ndarray, targets: np.ndarra
     once: the (p x B) fraction of each target's explained variance owed to each feature."""
     n = targets.shape[0]
     w = lam2 @ ((zo.T @ _zscore(targets) / np.sqrt(n)) ** 2)
-    return w / w.sum(0, keepdims=True)
+    tot = w.sum(0, keepdims=True)
+    return w / tot if (tot > 0).all() else np.where(tot > 0, w / np.where(tot > 0, tot, 1.0), 0.0)
 
 
 def _view_scores(result: Dict[str, Any], xs: Sequence[np.ndarray], u_rot: np.ndarray,
@@ -337,7 +405,8 @@ def _view_scores(result: Dict[str, Any], xs: Sequence[np.ndarray], u_rot: np.nda
 
 def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEATURE_MAP_KINDS,
                  u: Optional[torch.Tensor] = None, target: str = "other_views",
-                 shrinkage: Any = "ledoit_wolf", control: Any = "pc1") -> Dict[str, List[torch.Tensor]]:
+                 shrinkage: Any = "ledoit_wolf", control: Any = "pc1",
+                 rw_shrinkage: Any = 0.0) -> Dict[str, List[torch.Tensor]]:
     r"""Alternative feature maps beside `structure`, all in the fit's rotated frame.
 
     `structure` (corr(x_f, u_j)) measures association: a feature that only
@@ -366,8 +435,12 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
         ``structure`` when the components are uncorrelated.
     ``relative_weight``
         Johnson's (2000) relative weights: each feature's non-negative share of
-        R^2(t_j ~ X_m); they sum to that R^2. Defined only for a full-rank view with
-        fewer features than rows; otherwise that view's map is NaN, with a warning.
+        R^2(t_j ~ X_m); they sum to that R^2. At default ``rw_shrinkage=0.0``,
+        defined only for a full-rank view with fewer features than rows (otherwise
+        that view's map is NaN, with a warning). Pass ``rw_shrinkage="auto"``
+        (classical when full-rank ``p < n``, joint Ledoit-Wolf Schur R^2 when
+        ``p >= n`` or collinear), ``"ledoit_wolf"`` or a float in ``[0, 1)`` (or a
+        per-view list) to compute shrunk relative weights on wide views.
 
     ``target="other_views"`` (default) sets t to the mean of the *other* views'
     standardized scores. The regression-based maps need this: a linear fit's own
@@ -403,6 +476,12 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
         controls = list(control)
     else:
         controls = [control] * len(xs)
+    if isinstance(rw_shrinkage, (list, tuple)):
+        if len(rw_shrinkage) != len(xs):
+            raise ValueError(f"rw_shrinkage has {len(rw_shrinkage)} entries; there are {len(xs)} views.")
+        rw_shrinkages = list(rw_shrinkage)
+    else:
+        rw_shrinkages = [rw_shrinkage] * len(xs)
     out: Dict[str, List[torch.Tensor]] = {k_: [] for k_ in kinds}
     for m, x in enumerate(xs):
         xz = _zscore(x)
@@ -424,9 +503,11 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
                 mp = _component_partial_map(xz, tz)
             else:
                 try:
-                    mp = _relative_weight_map(xz, tz)
+                    mp = _relative_weight_map(xz, tz, rw_shrinkages[m])
                 except ValueError as err:
-                    # Not defined on this view (p >= n or collinear): NaN, named, not a substitute map.
+                    if not ("fewer features than rows" in str(err) or "full-rank view" in str(err)):
+                        raise
+                    # Not defined on this view (p >= n or collinear at rw_shrinkage=0): NaN, named, not a substitute map.
                     warnings.warn(f"relative_weight is NaN for view {m}: {err}", RuntimeWarning, stacklevel=2)
                     mp = np.full((x.shape[1], tz.shape[1]), np.nan)
             out[k_].append(torch.as_tensor(mp).float())

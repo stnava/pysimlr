@@ -123,6 +123,7 @@ from .api import (
 )
 from .fused_ridge import fit_fused_ridge, predict_fused_ridge, fused_ridge_cv
 from .relevance import feature_relevance
+from .screening import apply_view_screen, screen_wide_views
 from .loadings import (
     RANK_CRITERIA,
     loadings,
@@ -200,6 +201,8 @@ __all__ = [
     'ConvergenceWarning',
     'WideViewWarning',
     'coupling_capacity_report',
+    'screen_wide_views',
+    'apply_view_screen',
     '__version__',
     'simlr',
     'predict_simlr',
