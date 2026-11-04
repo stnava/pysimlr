@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: v0.14.0 released from `main` (antsxviz house renderer: plot_brain_map, plot_feature_map_grid via antsxviz; D21–D23).
+current phase: v0.15.0 released from `main` (feature_relevance: hard relevance cutoff with held-out replication; D24).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: D24 `feat/feature-relevance` (not merged); the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: none; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.6.0 (editable, /Users/stnava/data/repos/nsa_flow; not on PyPI)
 last updated: 2026-11-04
 
@@ -13,7 +13,7 @@ This file was created at v0.2.19; earlier history lives in git (`git log --oneli
 release commit bodies.
 
 ## D24 (feature_relevance: the relevance cutoff as a pysimlr feature, 2026-11-04)
-status: done on branch `feat/feature-relevance` (not merged)
+status: done (released in v0.15.0; merge 2db6c71)
 - **New:** `pysimlr.feature_relevance(result, train_views, test_views, outcome, outcome_test,
   component, views, feature_names, view_names, groups, min_group_size, alpha, n_permutations,
   n_permutations_test, n_refits, refit_permutations, refit_fraction, n_null_refits, random_state,
