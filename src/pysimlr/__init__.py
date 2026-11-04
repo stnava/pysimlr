@@ -144,6 +144,8 @@ from .interpretability import (
 )
 from .utils import (
     ConvergenceWarning,
+    WideViewWarning,
+    coupling_capacity_report,
     set_seed_based_on_time,
     multigrep,
     get_names_from_dataframe,
@@ -196,6 +198,8 @@ __all__ = [
     'plot_fused_ridge_cv',
     'plot_predictions',
     'ConvergenceWarning',
+    'WideViewWarning',
+    'coupling_capacity_report',
     '__version__',
     'simlr',
     'predict_simlr',

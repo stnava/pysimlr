@@ -55,6 +55,31 @@ or narrow views it can choose 1.0, and the fit then stops with `no_descent` afte
   `learning_rate=0.01`.
 - Among the converged fits, keep the one with the lowest `res["best_energy"]`.
 
+## Wide views: training coupling is not evidence
+
+When a view has at least as many features as training samples (p ≥ n), its scores can be fitted to
+the other views' noise.
+- `simlr` reports `res["coupling_train"]`, |corr(view score, consensus)| per view and component;
+  `res["view_width_ratio"]` (p / n); and `res["wide_views"]`.
+- It warns (`pysimlr.WideViewWarning`) when any view is wide.
+
+Sparsity doesn't remove the problem, because the support is *chosen* from all p features. On IBD
+stool metabolomics (four 500-feature platforms plus 156 species, n = 165 training subjects, k = 5):
+
+| sparseness | training coupling | held-out coupling |
+|---|---|---|
+| 0.5 | 1.00 | 0.58 |
+| 0.8 | 0.99 | 0.57 |
+| 0.9 | 0.92 | 0.56 |
+| 0.95 | 0.83 | 0.61 |
+
+Independent noise views (three 120-feature views, n = 50) reach a training coupling of 0.88 and a
+held-out coupling of 0.03.
+
+For a wide view, judge coupling on held-out rows: `pysimlr.predict(res, held_out_views)["latents"]`
+against its `"u"`, or `plot_latent_coupling(res, pred)`. Alternatively, reduce the features before
+fitting.
+
 ## What to interpret: structure and loadings, not `v`
 
 `res["v"]` is the encoder. It is weakly identified in a view's low-variance directions, so two

@@ -2131,9 +2131,13 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "mai": mai_ema.detach().cpu().numpy(),
         **basis_rank_report(v_mats, k),
     }
+    from .utils import coupling_capacity_report, warn_if_wide_views
+    _widths = [int(x.shape[1]) for x in torch_mats]
+    _result.update(coupling_capacity_report(_result["latents"], u, _widths, int(torch_mats[0].shape[0])))
     if not _probe_only:
         from .utils import warn_if_unconverged
         warn_if_unconverged(_result["convergence"], "simlr")
+        warn_if_wide_views(_result, "simlr", _widths, int(torch_mats[0].shape[0]))
     return _result
 
 
