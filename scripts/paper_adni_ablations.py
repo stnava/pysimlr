@@ -16,8 +16,12 @@ script replaces them (2026-11-01). Its results are not the earlier numbers.
 
 Protocol B (shared by every ADNI experiment; the split and preprocessing of
 `scripts/run_adni_mci_grid_sweep.py`, parameterised by seed):
-  * views: 0 = regional volume, 1 = regional thickness, 2 = T1w DKT cortical
-    thickness (62 regions), 3 = 11 cognitive scales (training only);
+  * views: 0 = volume of 160 hierarchical labels (T1Hier_vol), 1 = volume /
+    surface area of the same labels (T1Hier_thk; antspyt1w get_data.py), 2 =
+    DiReCT cortical thickness in 62 DKT regions (T1w_mean), 3 = 11 cognitive
+    scales (training only);
+  * row-mean centering (rowmean ablation only) applies to the MRI views; the
+    cognitive outcome is never row-centred;
   * 70/30 split from ``np.random.default_rng(seed).permutation``;
   * age, sex and education residualized on the training split, then each view
     standardized with training statistics;
@@ -95,9 +99,9 @@ def protocol_b(seed: int = 42, row_center: bool = False) -> dict:
     tr, te = perm[: int(0.7 * n)], perm[int(0.7 * n):]
     pinv = np.linalg.pinv(cov[tr])
 
-    def prep(m):
+    def prep(m, rc):
         m = m.astype(np.float64)
-        if row_center:
+        if rc:
             # Per-subject mean over the view's features: computed within each
             # row, so it uses no other subject and cannot leak across the split.
             m = m - m.mean(axis=1, keepdims=True)
@@ -110,11 +114,13 @@ def protocol_b(seed: int = 42, row_center: bool = False) -> dict:
     raw = [df[cs].values for cs in cols]
     x_tr, x_te, rowmean_tr, rowmean_te = [], [], [], []
     for m in raw:
-        a, c = prep(m)
+        a, c = prep(m, row_center)
         x_tr.append(a); x_te.append(c)
         rm = m.astype(np.float64).mean(axis=1)
         rowmean_tr.append(rm[tr]); rowmean_te.append(rm[te])
-    y_tr, y_te = prep(df[cog_cols].values)
+    # The cognitive outcome is never row-centred: its columns are different scales,
+    # and subtracting each subject's mean across them removes overall severity.
+    y_tr, y_te = prep(df[cog_cols].values, False)
     pca_y = SkPCA(n_components=1).fit(y_tr)
     return {"x_tr": x_tr, "x_te": x_te, "y_tr": y_tr, "y_te": y_te,
             "pc1_tr": pca_y.transform(y_tr).ravel(), "pc1_te": pca_y.transform(y_te).ravel(),
@@ -461,6 +467,12 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     torch.set_num_threads(1)
     start = datetime.datetime.utcnow().isoformat() + "Z"
+    import subprocess
+    try:
+        commit = subprocess.run(["git", "-C", REPO, "rev-parse", "--short", "HEAD"], capture_output=True,
+                                text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        commit = None
     timings = {}
     for name in a.only:
         fname, fn = EXPERIMENTS[name]
@@ -469,6 +481,9 @@ def main():
         result = axis_controls(a.workers) if name == "controls" else fn()
         path = os.path.join(a.out, fname)
         if fname.endswith(".json"):
+            result = {**result, "provenance": {"cli": " ".join(sys.argv), "pysimlr": pysimlr.__version__,
+                                               "git_commit": commit, "torch": torch.__version__,
+                                               "written_utc": datetime.datetime.utcnow().isoformat() + "Z"}}
             with open(path, "w") as f:
                 json.dump(result, f)
         else:
@@ -477,6 +492,7 @@ def main():
     prov = {"cli": " ".join(sys.argv), "start_utc": start,
             "end_utc": datetime.datetime.utcnow().isoformat() + "Z", "host": platform.node(),
             "python": sys.version.split()[0], "torch": torch.__version__, "pysimlr": pysimlr.__version__,
+            "git_commit": commit,
             "device": "cpu", "experiments": a.only, "seconds": timings}
     with open(os.path.join(a.out, "provenance_adni_ablations.json"), "w") as f:
         json.dump(prov, f, indent=2)

@@ -635,30 +635,59 @@ def mai_ema(prev: torch.Tensor, new: torch.Tensor, decay: float, first: bool) ->
     return torch.where(torch.isnan(new), new, torch.where(torch.isnan(prev), new, blend))
 
 
-#: Every view keeps at least this fraction of its uniform share 1/M of the
-#: weight: w = MAI_MIN_SHARE / M + (1 - MAI_MIN_SHARE) * target. With 0.5 and
-#: M = 4 the weights stay in [0.125, 0.625]. Binary or near-binary weights
-#: ([0, 0, 0, 1]) and an all-zero vector are therefore impossible. They hand
-#: the consensus to one view on the strength of a noisy in-batch score (ADNI-MCI:
-#: a 0.006 excess over the floor took all the weight) and leave a view's
-#: graph neighbourhood empty.
-MAI_MIN_SHARE = 0.5
+#: Bounds on every view's modality weight. The upper bound keeps any single
+#: view from supplying more than half the consensus (on ADNI-MCI a 0.006
+#: excess over a null floor of 0 took all the weight); the lower bound lets a
+#: view with no evidence of coupling fall to 1% of it without ever reaching
+#: exactly 0. Weights are the Euclidean projection of the gated target onto
+#: {w : sum w = 1, lo <= w <= hi} (`capped_simplex`). With two views the
+#: bounds force 0.5 / 0.5: MAI cannot reweight two views.
+MAI_WEIGHT_BOUNDS = (0.01, 0.5)
 
 
-def mai_gated_target(mai: torch.Tensor, steepness: float, floor: torch.Tensor) -> torch.Tensor:
+def capped_simplex(target: torch.Tensor, lo: float, hi: float) -> torch.Tensor:
+    """Euclidean projection of ``target`` onto ``{w : sum w = 1, lo <= w <= hi}``.
+
+    ``w_i = clip(target_i - tau, lo, hi)`` with ``tau`` found by bisection
+    (the map tau -> sum w is monotone). Requires ``M lo <= 1 <= M hi``; with
+    one view the only weight is 1.
+    """
+    M = len(target)
+    if M == 1:
+        return torch.ones_like(target)
+    if M * lo > 1.0 + 1e-12 or M * hi < 1.0 - 1e-12:
+        raise ValueError(f"weight bounds ({lo}, {hi}) are infeasible for {M} views.")
+    t = target.double()
+    a, b = float(t.min()) - hi - 1.0, float(t.max()) - lo + 1.0
+    for _ in range(100):
+        tau = 0.5 * (a + b)
+        if float((t - tau).clamp(lo, hi).sum()) > 1.0:
+            a = tau
+        else:
+            b = tau
+    return (t - 0.5 * (a + b)).clamp(lo, hi).to(target.dtype)
+
+
+def mai_gated_target(mai: torch.Tensor, steepness: float, floor: torch.Tensor,
+                     bounds: Optional[Tuple[float, float]] = None) -> torch.Tensor:
     """Target modality weights: each view's score above its null floor, times a
-    sigmoid gate centred on that floor, renormalised, then mixed with uniform
-    so every view keeps at least ``MAI_MIN_SHARE / M`` (see `MAI_MIN_SHARE`).
+    sigmoid gate centred on that floor, normalised, then projected onto the
+    weight bounds (`MAI_WEIGHT_BOUNDS`, default ``(0.01, 0.5)``; see
+    `capped_simplex`).
 
     Gating on the floor (from `loo_mai_calibrated`) favours every view that
-    beats chance over those that do not. The previous gate centred on the mean
-    score always suppressed some view, even when every view was coupled, and
-    passed half the views when none was. If no view exceeds its floor the
+    beats chance over those that do not. If no view exceeds its floor the
     weights are uniform, with a warning. A NaN score or floor (a view with
-    dof >= n - 1, not assessable) keeps the uniform share 1/M.
+    dof >= n - 1, not assessable) gets the uniform share 1/M before the
+    projection. If fewer than two views exceed their floors, the consensus
+    rests on one view: the bound still caps it at ``hi``, and a warning says
+    the rest of the weight goes to views with no evidence of coupling.
     """
+    lo, hi = MAI_WEIGHT_BOUNDS if bounds is None else bounds
     M = len(mai)
     uniform = torch.ones_like(mai) / M
+    if M == 1:
+        return uniform
     ok = torch.isfinite(mai) & torch.isfinite(floor)
     if not bool(ok.any()):
         return uniform
@@ -668,10 +697,14 @@ def mai_gated_target(mai: torch.Tensor, steepness: float, floor: torch.Tensor) -
         warnings.warn("no view's MAI exceeds its null floor; modality weights left uniform.",
                       RuntimeWarning, stacklevel=2)
         return uniform
+    if int((raw > 1e-8).sum()) < 2 and M > 2:
+        warnings.warn("only one view's MAI exceeds its null floor: the consensus rests on that view, "
+                      f"capped at {hi:g}; the remaining weight goes to views with no evidence of "
+                      "coupling.", RuntimeWarning, stacklevel=2)
     target = uniform.clone()
     # Not-assessable views keep 1/M; the assessable ones share the rest.
     target[ok] = raw / raw.sum() * (float(ok.sum()) / M)
-    return MAI_MIN_SHARE * uniform + (1.0 - MAI_MIN_SHARE) * target
+    return capped_simplex(target, lo, hi)
 
 
 def capture_consensus_map(projections: List[torch.Tensor],

@@ -126,3 +126,16 @@ def test_reembed_keeps_every_antsr_option(study):
         pysimlr.extend(**base, mode="nope")
     with pytest.raises(ValueError, match="cor_threshold"):
         pysimlr.extend(**base, cor_threshold=1.5)
+
+
+def test_plots_show_extended_views(study):
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    s = study
+    fig = pysimlr.plot_view_chord(s["ext"], view_names=["A", "B", "C"])
+    assert fig._pysimlr_values["pairwise"].shape == (K, 3, 3)                 # C joins the chord
+    plt.close(fig)
+    pred = pysimlr.predict(s["ext"], {"view0": s["A"][s["te"]], "view1": s["B"][s["te"]], "C": s["C"][s["te"]]})
+    fig = pysimlr.plot_component_radar(s["ext"], pred=pred, view_names=["A", "B", "C"])
+    assert fig._pysimlr_values["coupling"].shape == (3, K)
+    plt.close(fig)

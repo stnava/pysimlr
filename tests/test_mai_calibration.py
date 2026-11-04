@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from pysimlr.consensus import (MAI_MIN_SHARE, compute_shared_consensus, loo_mai_calibrated,
+from pysimlr.consensus import (MAI_WEIGHT_BOUNDS, capped_simplex, compute_shared_consensus, loo_mai_calibrated,
                                mai_dof_adjust, mai_ema, mai_gated_target, mai_score, view_dofs)
 
 
@@ -49,14 +49,15 @@ def test_floors_are_none_without_permutations_and_above_zero_raw():
 
 
 def test_gate_favours_views_above_their_floor_and_never_goes_binary():
-    M = 4; lo, hi = MAI_MIN_SHARE / M, 1 - MAI_MIN_SHARE * (M - 1) / M
+    lo, hi = MAI_WEIGHT_BOUNDS
     mai = torch.tensor([0.9, 0.85, 0.3, 0.05]); floor = torch.tensor([0.1, 0.1, 0.1, 0.2])
     w = mai_gated_target(mai, 15.0, floor)
     assert float(w.sum()) == pytest.approx(1.0)
     assert float(w[3]) == pytest.approx(lo) and w[0] > w[2] > w[3]       # below floor: the minimum
-    # one view barely above a floor of 0 (ADNI-MCI: 0.006) cannot take all the weight
-    w = mai_gated_target(torch.tensor([0.0, 0.0, 0.0, 0.006]), 15.0, torch.zeros(4))
-    assert float(w.max()) == pytest.approx(hi) and float(w.min()) == pytest.approx(lo)
+    # one view barely above a floor of 0 (ADNI-MCI: 0.006) cannot take more than half
+    with pytest.warns(RuntimeWarning, match="only one view"):
+        w = mai_gated_target(torch.tensor([0.0, 0.0, 0.0, 0.006]), 15.0, torch.zeros(4))
+    assert float(w.max()) == pytest.approx(hi) and float(w.min()) >= lo - 1e-9
     eq = mai_gated_target(torch.full((4,), 0.8), 15.0, torch.full((4,), 0.1))
     assert torch.allclose(eq, torch.full((4,), 0.25))                 # all coupled: uniform
     with pytest.warns(RuntimeWarning, match="null floor"):
@@ -67,7 +68,9 @@ def test_gate_favours_views_above_their_floor_and_never_goes_binary():
 def test_not_assessable_views_keep_their_uniform_share():
     nan = float("nan")
     w = mai_gated_target(torch.tensor([nan, nan, 0.8, 0.0]), 15.0, torch.tensor([nan, nan, 0.1, 0.1]))
-    assert float(w[0]) == pytest.approx(0.25) and float(w[1]) == pytest.approx(0.25)
+    # 1/M before the projection onto MAI_WEIGHT_BOUNDS, which then shifts every
+    # weight equally (here by 0.0033, to lift view 3 to the lower bound)
+    assert float(w[0]) == pytest.approx(float(w[1])) and abs(float(w[0]) - 0.25) <= MAI_WEIGHT_BOUNDS[0]
     assert w[2] > w[3] > 0
     assert torch.allclose(mai_gated_target(torch.full((3,), nan), 15.0, torch.full((3,), nan)),
                           torch.full((3,), 1 / 3))
@@ -121,7 +124,8 @@ def test_simlr_ranks_a_wide_noise_view_last_and_keeps_sub_coupled_and_narrow_vie
         r = pysimlr.fit("simlr", vs, 3, dynamic_weights=True, positivity="positive", random_state=0)
     w = np.asarray(r["modality_weights"], float)
     assert w.argmin() == 4 and w[4] < 1 / 5 and min(w[2], w[3]) > w[4]
-    assert w.min() >= MAI_MIN_SHARE / 5 - 1e-6
+    lo, hi = MAI_WEIGHT_BOUNDS
+    assert w.min() >= lo - 1e-6 and w.max() <= hi + 1e-6
 
 
 def test_cca_is_adjusted_on_its_correlation_scale():
@@ -129,3 +133,16 @@ def test_cca_is_adjusted_on_its_correlation_scale():
     [0, 1] zeroed every view (all deep fits went uniform)."""
     assert mai_dof_adjust(0.3, "cca", 48, 4, k=3) == pytest.approx(
         np.sqrt(1 - (1 - 0.81) * 47 / 43) / 3)
+
+
+def test_capped_simplex_projection():
+    lo, hi = 0.01, 0.5
+    t = torch.tensor([0.7, 0.3, 0.0, 0.0])
+    w = capped_simplex(t, lo, hi)
+    assert float(w.sum()) == pytest.approx(1.0) and float(w.min()) >= lo - 1e-9 and float(w.max()) <= hi + 1e-9
+    assert float(w[0]) == pytest.approx(hi)
+    inside = torch.tensor([0.4, 0.3, 0.2, 0.1])
+    assert torch.allclose(capped_simplex(inside, lo, hi), inside)             # feasible: unchanged
+    assert torch.allclose(capped_simplex(torch.tensor([0.9, 0.1]), lo, hi), torch.tensor([0.5, 0.5]))
+    with pytest.raises(ValueError, match="infeasible"):
+        capped_simplex(torch.ones(150) / 150, lo, hi)                        # 150 * 0.01 > 1

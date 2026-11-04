@@ -11,6 +11,8 @@ and a control with five fully coupled views. Arms on simlr(dynamic_weights=True)
   old/procrustes_r2   raw scores, gate centred on mai.mean() (the previous code)
   new/procrustes_r2   dof-corrected scores, gate on the permutation floor
   new/max_cc          the same with the first canonical correlation
+  @floor0.5           the v0.10-v0.12 gate (w = 0.5/M + 0.5 target) instead of the
+                      bounded projection onto [0.01, 0.5] (consensus.MAI_WEIGHT_BOUNDS)
 Records final modality weights and latent R^2 of u on the planted latents.
 Usage: python scripts/mai_calibration_check.py [--workers 10]
 """
@@ -41,9 +43,25 @@ def views(seed, control=False, n=150):
 def arm_setup(arm):
     import pysimlr.consensus as C
     if not hasattr(C, "_new"):
-        C._new = (C.loo_mai_calibrated, C.mai_gated_target, C.MAI_MIN_SHARE)
-    arm, _, share = arm.partition("@")
-    C.MAI_MIN_SHARE = float(share) if share else C._new[2]
+        C._new = (C.loo_mai_calibrated, C.mai_gated_target)
+    arm, _, gate = arm.partition("@")
+    if gate.startswith("floor"):
+        share = float(gate[len("floor"):])
+
+        def floor_gate(mai, steepness, floor, share=share):
+            # The gate of v0.10-v0.12: w = share/M + (1 - share) * target.
+            import torch
+            M = len(mai); uniform = torch.ones_like(mai) / M
+            ok = torch.isfinite(mai) & torch.isfinite(floor)
+            if not bool(ok.any()):
+                return uniform
+            ex = (mai[ok] - floor[ok]).clamp(min=0.0); raw = ex * torch.sigmoid(steepness * (mai[ok] - floor[ok]))
+            if float(raw.sum()) <= 1e-8:
+                return uniform
+            t = uniform.clone(); t[ok] = raw / raw.sum() * (float(ok.sum()) / M)
+            return share * uniform + (1.0 - share) * t
+        C.loo_mai_calibrated, C.mai_gated_target = C._new[0], floor_gate
+        return
     if arm.startswith("old"):
         def old_scores(latents, metric, dofs=None, use_rank=False, n_perm=20, quantile=0.95, seed=0):
             return C.loo_mai_scores(latents, metric, use_rank=use_rank), None
@@ -52,7 +70,7 @@ def arm_setup(arm):
             return raw / (raw.sum() + 1e-8)
         C.loo_mai_calibrated, C.mai_gated_target = old_scores, old_gate
     else:
-        C.loo_mai_calibrated, C.mai_gated_target = C._new[:2]
+        C.loo_mai_calibrated, C.mai_gated_target = C._new
 
 
 def task(t):
@@ -78,8 +96,8 @@ def main():
     ap.add_argument("--out", default=os.path.join(REPO, "docs/audit/evidence/mai_calibration_check.csv"))
     a = ap.parse_args()
     tasks = [(c, s, arm) for c in ("design", "control") for s in range(5)
-             for arm in ("old/procrustes_r2", "new/procrustes_r2@0", "new/procrustes_r2@0.25",
-                         "new/procrustes_r2", "new/max_cc@0", "new/max_cc")]
+             for arm in ("old/procrustes_r2", "new/procrustes_r2@floor0.5", "new/procrustes_r2",
+                         "new/max_cc@floor0.5", "new/max_cc")]
     with ProcessPoolExecutor(a.workers) as ex:
         df = pd.DataFrame(list(ex.map(task, tasks)))
     df.to_csv(a.out, index=False)

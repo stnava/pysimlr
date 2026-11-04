@@ -289,7 +289,17 @@ def _aligned_frame(res: Dict[str, Any], pred: Optional[Dict[str, Any]] = None) -
     nsa_pipeline) whose single latent is shared by all views."""
     R = _np(res["loading_rotation"]).astype(float)
     src = res if pred is None else pred
-    lat = [_np(z).astype(float) @ R for z in src["latents"]]
+    raw = src["latents"]
+    if isinstance(raw, dict):                     # predict on a subset / extended views: by name
+        from .extension import view_names
+        raw = [raw[nm] for nm in view_names(res) if nm in raw]
+    else:
+        raw = list(raw)
+        if pred is None:                          # views added by pysimlr.extend, same subjects
+            n = _np(res["u"]).shape[0]
+            raw += [e["latent"] for e in (res.get("extensions") or {}).values()
+                    if e.get("latent") is not None and e["latent"].shape[0] == n]
+    lat = [_np(z).astype(float) @ R for z in raw]
     return {"R": R, "u": _np(src["u"]).astype(float) @ R, "latents": lat,
             "structure": [_np(c).astype(float) for c in res["structure"]],
             "loadings": [_np(c).astype(float) for c in res["loadings"]],

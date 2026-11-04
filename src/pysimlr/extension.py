@@ -367,6 +367,7 @@ def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, 
             "map": _affine_map(z, target), "energy_type": e_used, "positivity": pos, "sparseness": sp,
             "nsa_w": w, "convergence": fit["convergence"], "energy": fit["energy"],
             "coupling": _corr_cols(z.double() @ R, target.double() @ R).tolist(), "holdout": hold,
+            "latent": z.detach(),
             "n_subjects": int(n)}
         for key, val in (("structure", struct), ("loadings", loads[0]),
                          ("loading_margin", None if margins is None else margins[0])):
