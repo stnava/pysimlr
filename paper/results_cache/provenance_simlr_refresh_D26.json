@@ -1,0 +1,52 @@
+{
+ "cli": "scripts/refresh_simlr_cache_rows.py",
+ "git_commit": "00a6e8f",
+ "pysimlr": "0.15.0",
+ "written_utc": "2026-11-04T23:08:25.090301Z",
+ "reason": "D26: linear-SiMLR latents at the scale of u",
+ "n_tasks": 135,
+ "files": [
+  "deep_ranking_benchmark.csv",
+  "deep_ranking_benchmark_q05.csv",
+  "deep_ranking_benchmark_q_none.csv",
+  "deep_ranking_benchmark_q08.csv",
+  "operating_points_05_08_benchmark.csv"
+ ],
+ "max_abs_change": {
+  "deep_ranking_benchmark.csv": {
+   "Predictive_Metric": 0.007155776023864718,
+   "Train_Metric": 0.04963439702987671,
+   "Gen_Gap": 0.0544291734695434,
+   "Strictly_Linear_Metric": 0.007092198581560294,
+   "Axis_Sensitive_Metric": 0.014184397163120588
+  },
+  "deep_ranking_benchmark_q05.csv": {
+   "Predictive_Metric": 0.007155776023864718,
+   "Train_Metric": 0.04963439702987671,
+   "Gen_Gap": 0.0544291734695434,
+   "Strictly_Linear_Metric": 0.007092198581560294,
+   "Axis_Sensitive_Metric": 0.014184397163120588
+  },
+  "deep_ranking_benchmark_q_none.csv": {
+   "Predictive_Metric": 0.023416638374328613,
+   "Train_Metric": 0.1543444395065307,
+   "Gen_Gap": 0.1575700640678406,
+   "Strictly_Linear_Metric": 0.014184397163120588,
+   "Axis_Sensitive_Metric": 0.028368794326241176
+  },
+  "deep_ranking_benchmark_q08.csv": {
+   "Predictive_Metric": 0.02715641260147092,
+   "Train_Metric": 0.0589249134063721,
+   "Gen_Gap": 0.0401568412780762,
+   "Strictly_Linear_Metric": 0.0016666666666667052,
+   "Axis_Sensitive_Metric": 0.007279041668467601
+  },
+  "operating_points_05_08_benchmark.csv": {
+   "Predictive_Metric": 0.02715641260147092,
+   "Train_Metric": 0.1543444395065307,
+   "Gen_Gap": 0.1575700640678406,
+   "Strictly_Linear_Metric": 0.014184397163120588,
+   "Axis_Sensitive_Metric": 0.028368794326241176
+  }
+ }
+}

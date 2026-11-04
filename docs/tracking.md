@@ -2,7 +2,7 @@
 current phase: v0.15.0 released from `main` (feature_relevance: hard relevance cutoff with held-out replication; D24).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: D25 `fix/wide-view-overfit-warning` and D26 `fix/latent-scale` (stacked, not merged; D26 needs a refresh of the SiMLR rows of the paper's deep_ranking_benchmark cache); the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: none; D25/D26 merged to main (not pushed, not released); paper caches refreshed for D26, rendered book not yet re-rendered; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.6.0 (editable, /Users/stnava/data/repos/nsa_flow; not on PyPI)
 last updated: 2026-11-04
 
@@ -13,7 +13,7 @@ This file was created at v0.2.19; earlier history lives in git (`git log --oneli
 release commit bodies.
 
 ## D26 (linear SiMLR latents at the scale of u, 2026-11-04)
-status: done on branch `fix/latent-scale`, stacked on D25 (not merged)
+status: done (merged to main in 00a6e8f; SiMLR cache rows refreshed)
 - **Defect.** `fit` and `predict` returned linear-SiMLR `latents` at the preprocessed-view scale.
   - That scale is about 1e-3 the size of `u` (SD about 4–6e-4 on a 2-component example), and it
     shrinks as the view grows.
@@ -37,12 +37,37 @@ status: done on branch `fix/latent-scale`, stacked on D25 (not merged)
   - Every other model, and SiMLR's Heart and mfeat rows, are bit-identical.
   - The cached SiMLR first-layer numbers were biased low by up to about 0.007. Refresh the SiMLR
     rows before quoting them.
+- **Cache refresh.** `scripts/refresh_simlr_cache_rows.py` reran the 135 linear-SiMLR tasks of
+  `deep_ranking_benchmark{,_q05,_q_none,_q08}.csv` and `operating_points_05_08_benchmark.csv` with
+  their exact original task tuples, and spliced the rows in place.
+  - Provenance, including the largest change per metric and file, is in
+    `paper/results_cache/provenance_simlr_refresh_D26.json`.
+  - Attribution: the pre-D26 commit `a51aa66` reproduces the old rows exactly (difference 0) on the
+    three largest movers: ADNI-MCI q-none seed 42, ADNI-MCI q0.8 seed 44, TCGA-KIRC q-none seed 43.
+    So every change is D26's.
+  - Size of the changes:
+    - strictly-linear read-outs moved ≤ 0.014;
+    - ADNI-MCI, the only case whose `u` is built from aligned latents: predictive −0.015 to +0.027,
+      training +0.05 to +0.15.
+  - Of the 465 manuscript numbers in `paper_numbers`, 25 changed, all computed inline (no hard-coded
+    copies in the prose). Examples:
+    - `adni_SiMLR_u` 0.143 → 0.146;
+    - Friedman linear-probe p 1.80e-2 → 1.50e-2;
+    - SiMLR linear rank 4.04 → 4.21;
+    - `sp_best_model` SiMLR → Flow-SiMR-V, a near-tie at an unchanged value.
+- **Not caused by D26 (open):** `adni_mci_1214_grid_sweep.csv` (written 2026-11-03) is stale for
+  dynamic-weight rows.
+  - SiMLR-Lookahead with MAI `cca`/`rvcoef` reruns deterministically to a different value
+    (≤ 0.012, including the `v`-based RidgeCV and CogPC1 columns).
+  - The likely cause is `a32ad62` (MAI weight bounds, v0.13.0).
+  - Static-weight rows reproduce exactly.
+  - The axis-alignment controls read `res["v"]` and are unaffected.
 - **Tests:** `tests/test_latent_scale.py`, 4 tests: unit average variance and fit == predict;
   divisor round-trip; subset `u` unchanged; old results keep their scale. Full suite: 1765 passed,
   2 xfailed (before the new tests).
 
 ## D25 (wide views: training coupling reported and warned, 2026-11-04)
-status: done on branch `fix/wide-view-overfit-warning` (not merged)
+status: done (merged to main in 00a6e8f)
 - **Defect.** A view with p ≥ n can couple to noise during training, and nothing in the result said
   so. Found while screening public data.
   - IBD metabolome + microbiome (p = 500 per platform, n = 165 training subjects): training
