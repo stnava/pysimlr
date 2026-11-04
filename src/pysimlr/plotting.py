@@ -1279,94 +1279,31 @@ def feature_map_values(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = Non
     return out
 
 
-@_themed
 def plot_feature_map_grid(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = None,
                           inf: Optional[Dict[str, Any]] = None, component: int = 0, view: int = 0,
                           kinds: Sequence[str] = ("structure", "relative_weight"), split=None, groups=None,
                           feature_names=None, view_names=None, value_fmt: str = "{:.2f}", figsize=None):
     """Feature maps of one component as coloured tables, one block per map.
 
-    The tabular twin of a brain rendering: the same values, colour scale
-    (`map_colormap`, 0..max per map) and selection outline (dark ring: selected
-    in >= 80% of refits) as `plot_brain_map`, both computed by
-    `feature_map_values`.
+    The tabular twin of `plot_brain_map`: both read `feature_map_values`, so values,
+    the 0..max scale per map (`map_colormap`), selection rings (>= 80% of refits) and
+    stability are identical. Drawn by antsxviz (``region_table_figure``), the ANTsX
+    house renderer, which needs the ``viz`` extra.
 
     ``split``: optional callable feature name -> (row label, column label), e.g.
-    ``"left_entorhinal" -> ("entorhinal", "L")``, so paired features (hemispheres)
-    share a row and each map block gets one column per column label. ``groups``:
-    optional dict row label -> group (lobe, network); rows are ordered by group,
-    then by the last map's largest value.
+    ``antsxviz.split_hemisphere`` so hemispheres share a row. ``groups``: optional
+    dict row label -> group (lobe, network); rows are ordered by group, then by the
+    last map's largest value. Works for any features, not only brain regions.
     """
-    from matplotlib.patches import Rectangle
-    from matplotlib.colors import Normalize
-    from matplotlib.cm import ScalarMappable
+    av = _require_antsxviz()
     enc = feature_map_values(res, maps, inf, component, view, kinds, feature_names, view_names)
-    names = enc[kinds[0]]["names"]
-    keys = [split(n) if split is not None else (n, "") for n in names]
-    cols = list(dict.fromkeys(c for _, c in keys))
-    rows = list(dict.fromkeys(r for r, _ in keys))
-    at = {k: i for i, k in enumerate(keys)}
-    last = enc[kinds[-1]]["values"]
-    rmax = {r: max((last[at[(r, c)]] for c in cols if (r, c) in at), default=0.0) for r in rows}
-    # Groups in the order the ``groups`` mapping lists them (e.g. anatomical), then any others.
-    gorder = list(dict.fromkeys(list((groups or {}).values()) + [(groups or {}).get(r, "") for r in rows]))
-    rows.sort(key=lambda r: (gorder.index((groups or {}).get(r, "")), -np.nan_to_num(rmax[r])))
-    # Each group gets its own header line, so group names never sit on a feature's label.
-    layout = []                                   # (y position, row label or None, group header or None)
-    prev = object()
-    for r in rows:
-        g = (groups or {}).get(r, "")
-        if groups and g != prev:
-            layout.append((None, g)); prev = g
-        layout.append((r, None))
-    ypos = {r: y for y, (r, _) in enumerate(layout) if r is not None}
-    cmap = map_colormap(view)
-    nr, nc = len(layout), len(cols)
+    rows = av.rows_from_encoding(enc, cmap=map_colormap(view))
     sub = ("Colour: each map on its own scale from 0 to its maximum"
            + ("; dark ring: selected in ≥ 80% of refits" if inf is not None else "") + ".")
-    fig = _new(figsize or (max(8.6, 1.35 + 1.25 * nc * len(kinds) + 1.6), 0.26 * nr + 2.6),
-               f"Component {component + 1} of {enc[kinds[0]]['view_name']}: feature maps", sub, _status_line(res))
-    gs = fig.add_gridspec(2, len(kinds), height_ratios=[nr, 0.6])
-    for b, k_ in enumerate(kinds):
-        e = enc[k_]
-        ax = fig.add_subplot(gs[0, b])
-        norm = Normalize(0, e["vmax"])
-        for r in rows:
-            ri = ypos[r]
-            for ci, c in enumerate(cols):
-                i = at.get((r, c))
-                if i is None or not np.isfinite(e["values"][i]):
-                    continue
-                v = e["values"][i]
-                fc = cmap(norm(v))
-                sel = e["selected"] is not None and bool(e["selected"][i])
-                ax.add_patch(Rectangle((ci + 0.04, ri + 0.06), 0.92, 0.88, facecolor=fc,
-                                       edgecolor=_INK if sel else _SURFACE, lw=1.8 if sel else 0.6, zorder=2))
-                ax.text(ci + 0.5, ri + 0.5, value_fmt.format(v), ha="center", va="center", fontsize=7.2,
-                        color=_SURFACE if (0.2126 * fc[0] + 0.7152 * fc[1] + 0.0722 * fc[2]) < 0.45 else _INK,
-                        zorder=3,
-                        weight="semibold" if sel else "normal")
-        ax.set_xlim(0, nc); ax.set_ylim(nr, 0)
-        ax.set_xticks(np.arange(nc) + 0.5); ax.set_xticklabels(cols if split is not None else [""])
-        ax.xaxis.tick_top(); ax.tick_params(length=0)
-        ax.set_yticks([ypos[r] + 0.5 for r in rows])
-        ax.set_yticklabels(rows if b == 0 else [], fontsize=8.2)
-        for sp in ax.spines.values():
-            sp.set_visible(False)
-        st = e["stability"]
-        ax.set_title(e["label"] + (f"  ·  stability {st:.2f}" if st is not None else ""), fontsize=9.6,
-                     color=_stability_color(st) if st is not None else _INK, pad=18)
-        for y, (r, g) in enumerate(layout):
-            if g is not None:
-                if b == 0:
-                    ax.text(-0.02, y + 0.62, g, transform=ax.get_yaxis_transform(), ha="right", va="center",
-                            fontsize=8.6, color=_INK, weight="semibold")
-                if y:
-                    ax.axhline(y + 0.15, color=_GRID, lw=0.9, zorder=1)
-        cax = fig.add_subplot(gs[1, b])
-        cb = fig.colorbar(ScalarMappable(norm, cmap), cax=cax, orientation="horizontal")
-        cb.outline.set_visible(False); cb.set_label(e["units"], fontsize=8, color=_INK2)
-    return fig
+    vname = next(iter(enc.values()))["view_name"]
+    return av.region_table_figure(rows, split=split, groups=groups,
+                                  title=f"Component {component + 1} of {vname}: feature maps", subtitle=sub,
+                                  value_fmt=value_fmt, figsize=figsize)
 
 
 # ----------------------------------------------------------------------------- brain maps (antsxviz)
@@ -1462,7 +1399,7 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
     vname = next(iter(enc.values()))["view_name"]
     sub = subtitle if subtitle is not None else (
         "Colour: each map on its own scale from 0 to its maximum"
-        + ("; dark outline: selected in >= 80% of refits" if inf is not None else "") + ".")
+        + ("; dark outline: selected in ≥ 80% of refits" if inf is not None else "") + ".")
     if dropped:
         sub += (f" Not on cortex ({len(dropped)}): " + ", ".join(map(str, dropped[:6]))
                 + (" ..." if len(dropped) > 6 else "") + ".")

@@ -22,8 +22,17 @@ status: done (branch `feat/antsxviz-integration`)
   - `brain_rows` adapts `feature_map_values` to antsxviz rows. `cortical_region_name` maps
     `..._dktcortex` / `..._dktregions` names to DKT regions; the dktcortex variant wins.
     Non-cortical features are returned and listed in the subtitle, never silently dropped.
-  - Kept in pysimlr: `feature_map_values`, `map_colormap` and `plot_feature_map_grid`.
-    antsxviz's change request leaves moving the grid as an owner decision.
+  - Kept in pysimlr: `feature_map_values` and `map_colormap`.
+- **`plot_feature_map_grid` moved to antsxviz** (owner: "if it is general enough, it belongs in
+  antsxviz").
+  - It was general enough: antsxviz's `region_table_figure` passes non-DKT feature names through
+    unchanged and takes `split=None` and arbitrary `groups`.
+  - It produced the same table as pysimlr's on the gallery's synthetic cortex: values, colours,
+    rings, lobe headers and stability.
+  - pysimlr's grid is now a 15-line wrapper: `feature_map_values` → `rows_from_encoding` →
+    `region_table_figure`. 77 lines of drawing code were removed. It needs the `viz` extra and
+    raises an ImportError naming it.
+  - This resolves the TODO(human) in antsxviz's `docs/change_requests/pysimlr.md`.
   - Palettes were checked identical: VIEW_COLORS and all four `map_colormap` ramps, max diff 0.0.
 - **Scripts:**
   - `scripts/brain_region_maps.py` is now a thin antsxviz caller. About 370 lines of GIFTI,

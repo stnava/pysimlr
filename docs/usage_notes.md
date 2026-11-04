@@ -105,7 +105,8 @@ That way a table and a brain show the same thing:
 - `plot_feature_map_shift(res, inf=inf, view=m)`: rank change from structure to relative weight.
   Read it first, because it answers "what moves once the global factor is shared out?"
 - `plot_feature_map_grid(res, inf=inf, view=m, split=..., groups=...)`: the tabular twin of a
-  brain map. `split` pairs hemispheres and `groups` orders by lobe.
+  brain map. `split` pairs hemispheres and `groups` orders by lobe. It works for any features and
+  is drawn by antsxviz (`region_table_figure`), so it needs the `viz` extra.
 - `plot_brain_map(res, inf=inf, component=j, view=m)`: the same encoding painted on the
   fsaverage cortex (inflated, sulcal shading; lateral, medial and ventral views; selected regions
   outlined).
