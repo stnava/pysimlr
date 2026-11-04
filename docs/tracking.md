@@ -1,10 +1,10 @@
 # Tracking Summary
-current phase: v0.11.0 released from `main` (plotting redesign: one visual system, chord and radar figures; learning-rate study, no default changed).
+current phase: v0.12.0 released from `main` (pysimlr.extend: add unseen modalities to a fitted model; predict from any subset of views).
 next WP: D2 paper on `amigo-paper` (merge `main` first); open findings in D17 (NSA-Flow failure on k = p narrow views at lr 0.3; MPS SVD round-trip, waits on the nsa_flow device option).
 blockers: none
 active work: `amigo` / `amigo-paper` (D2); the owner's uncommitted paper and manuscript edits in the main working tree
 device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.5.1 (333a064, editable, /Users/stnava/data/repos/nsa_flow)
-last updated: 2026-11-03
+last updated: 2026-11-04
 
 ---
 
@@ -13,7 +13,7 @@ This file was created at v0.2.19; earlier history lives in git (`git log --oneli
 release commit bodies.
 
 ## D19 (pysimlr.extend: adding unseen modalities to a fitted model, 2026-11-03)
-status: done (branch `feat/extend`, not merged)
+status: done (`2582c7c`; released in v0.12.0)
 - **`pysimlr.extend(result, views, new_views, how="anchored" | "reembed")`,** for any method.
   - **anchored:**
     - the model is frozen; each new view gets a linear encoder fitted to the model's consensus
