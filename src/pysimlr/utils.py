@@ -544,6 +544,55 @@ def warn_if_unconverged(convergence: dict, method: str) -> None:
                   f"See result['convergence'].", ConvergenceWarning, stacklevel=3)
 
 
+class WideViewWarning(UserWarning):
+    """A view has at least as many features as samples, so its training coupling can be fitted to noise
+    (see `coupling_capacity_report`)."""
+
+
+def coupling_capacity_report(latents: List[torch.Tensor], u: torch.Tensor, widths: List[int],
+                             n: int) -> Dict[str, Any]:
+    r"""Training coupling and whether it can be trusted.
+
+    ``coupling_train[m][j]`` is :math:`|\mathrm{corr}(X_m v_{mj}, u_j)|` on the training rows.
+    A view with :math:`p_m \ge n` features can make its scores match the other views' noise:
+    with an unpenalised basis any target is reachable exactly, and selecting a sparse support
+    from :math:`p_m` candidates keeps most of that freedom. Measured on IBD stool metabolomics
+    (four 500-feature platforms plus 156 species, n = 165 training subjects, k = 5), the training
+    coupling was 1.00 / 0.99 / 0.92 / 0.83 at sparseness 0.5 / 0.8 / 0.9 / 0.95 while held-out
+    coupling stayed at 0.56-0.61. So for such views the training coupling says nothing about
+    shared signal; held-out coupling (`pysimlr.predict` on new rows) does.
+
+    Returns ``coupling_train`` (per view, per component), ``view_width_ratio`` (:math:`p_m / n`)
+    and ``wide_views`` (indices with :math:`p_m \ge n`).
+    """
+    uu = u[0] if isinstance(u, list) else u
+    uu = uu.detach().double()
+    uc = uu - uu.mean(0)
+    coup = []
+    for z in latents:
+        zc = z.detach().double() - z.detach().double().mean(0)
+        num = (zc * uc).sum(0)
+        den = zc.norm(dim=0) * uc.norm(dim=0)
+        coup.append([float(c) for c in (num.abs() / den.clamp_min(1e-300))])
+    ratio = [float(p) / float(n) for p in widths]
+    return {"coupling_train": coup, "view_width_ratio": ratio,
+            "wide_views": [m for m, p in enumerate(widths) if p >= n]}
+
+
+def warn_if_wide_views(report: Dict[str, Any], method: str, widths: List[int], n: int) -> None:
+    """Warn when a view is at least as wide as the sample (see `coupling_capacity_report`)."""
+    wide = report.get("wide_views") or []
+    if not wide:
+        return
+    import warnings
+    desc = ", ".join(f"view {m} (p={widths[m]}, training coupling "
+                     f"{np.mean(report['coupling_train'][m]):.2f})" for m in wide)
+    warnings.warn(f"{method}: {desc} has at least as many features as samples (n={n}); its training "
+                  "coupling can be fitted to noise and is not evidence of shared signal. Check coupling "
+                  "on held-out rows (pysimlr.predict(result, held_out_views)['latents'] against 'u'), or "
+                  "reduce the features. See result['wide_views'].", WideViewWarning, stacklevel=3)
+
+
 def correlation_penalty(z: torch.Tensor, threshold: Optional[float] = None,
                         eps: float = 1e-8) -> torch.Tensor:
     """Dimensional-collapse penalty on the columns of ``z`` (each view's scores).
