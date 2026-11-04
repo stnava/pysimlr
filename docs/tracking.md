@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: v0.15.0 released from `main` (feature_relevance: hard relevance cutoff with held-out replication; D24).
+current phase: v0.16.0 released from `main` (wide-view coupling warning D25; linear-SiMLR latents at the scale of u D26; paper SiMLR cache rows refreshed).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: none; D25/D26 merged to main (not pushed, not released); paper caches refreshed for D26, rendered book not yet re-rendered; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: none; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows (open); the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.6.0 (editable, /Users/stnava/data/repos/nsa_flow; not on PyPI)
 last updated: 2026-11-04
 
@@ -13,7 +13,7 @@ This file was created at v0.2.19; earlier history lives in git (`git log --oneli
 release commit bodies.
 
 ## D26 (linear SiMLR latents at the scale of u, 2026-11-04)
-status: done (merged to main in 00a6e8f; SiMLR cache rows refreshed)
+status: done (released in v0.16.0; SiMLR cache rows refreshed in 4110375)
 - **Defect.** `fit` and `predict` returned linear-SiMLR `latents` at the preprocessed-view scale.
   - That scale is about 1e-3 the size of `u` (SD about 4–6e-4 on a 2-component example), and it
     shrinks as the view grows.
@@ -67,7 +67,7 @@ status: done (merged to main in 00a6e8f; SiMLR cache rows refreshed)
   2 xfailed (before the new tests).
 
 ## D25 (wide views: training coupling reported and warned, 2026-11-04)
-status: done (merged to main in 00a6e8f)
+status: done (released in v0.16.0)
 - **Defect.** A view with p ≥ n can couple to noise during training, and nothing in the result said
   so. Found while screening public data.
   - IBD metabolome + microbiome (p = 500 per platform, n = 165 training subjects): training
