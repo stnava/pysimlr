@@ -349,20 +349,41 @@ def _joint_card(fig, ax, res, what):
 
 
 # ----------------------------------------------------------------------------- feature data
+_MAP_LABELS = {"structure": "structure  corr(x, u R)", "partial": "partial correlation (inverse corr.)",
+               "global_partial": "structure beyond the global factor", "component_partial":
+               "component-partial pattern", "relative_weight": "relative weight (share of R²)"}
+
+
+def _maps_of(inf, maps):
+    """{kind: (map per view, inference entry or None)} from an explicit `feature_maps`
+    output and/or ``inf["maps"]``; an explicit map wins."""
+    out = {}
+    for kk, e in ((inf or {}).get("maps") or {}).items():
+        out[kk] = (e["map"], e)
+    for kk, mv in (maps or {}).items():
+        out[kk] = (mv, None)
+    return out
+
+
 def feature_table(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None,
-                  view_names=None, feature_names=None):
+                  view_names=None, feature_names=None, maps: Optional[Dict[str, Any]] = None):
     """One row per (view, feature, component): the interpretable quantities of a fit.
 
     Columns: ``view``, ``view_name``, ``feature``, ``feature_name``,
     ``component`` (1-based), ``structure`` (corr(x, u R)), ``loading``, and,
     with a `pysimlr.loading_inference` result ``inf``: ``ci_low``, ``ci_high``,
     ``excludes_zero``, ``selected`` (stability selection), ``selection_frequency``
-    and ``component_stability``. Sort, filter or group it however the study
-    needs; every feature plot here draws from it.
+    and ``component_stability``. Alternative feature maps (``maps``, from
+    `pysimlr.feature_maps`, and any in ``inf["maps"]`` from
+    ``loading_inference(maps=...)``) add a column named by kind and, with
+    inference, ``<kind>_ci_low``, ``<kind>_ci_high``,
+    ``<kind>_selection_frequency`` and ``<kind>_stability``. Sort, filter or
+    group it however the study needs; every feature plot here draws from it.
     """
     import pandas as pd
     F = _aligned_frame(res)
     vn = _view_names(view_names, len(F["structure"]))
+    extra = _maps_of(inf, maps)
     rows = []
     for m, C in enumerate(F["structure"]):
         p, k = C.shape
@@ -377,6 +398,15 @@ def feature_table(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None,
                          selected=_np(inf["selected"][m]).astype(bool),
                          selection_frequency=_np(inf["selection_frequency"][m]).astype(float),
                          component_stability=float(inf["component_stability"][m][j]))
+            for kk, (mv, e) in extra.items():
+                if kk == "structure" and "structure" in d:
+                    kk = "structure_other_views"
+                d[kk] = _np(mv[m])[:, j].astype(float)
+                if e is not None:
+                    d[f"{kk}_ci_low"] = _np(e["ci_low"][m])[:, j].astype(float)
+                    d[f"{kk}_ci_high"] = _np(e["ci_high"][m])[:, j].astype(float)
+                    d[f"{kk}_selection_frequency"] = _np(e["selection_frequency"][m]).astype(float)
+                    d[f"{kk}_stability"] = float(e["component_stability"][m][j])
             rows.append(pd.DataFrame(d))
     return pd.concat(rows, ignore_index=True)
 
@@ -1008,24 +1038,35 @@ def plot_view_correlations(views, names: Optional[Sequence[str]] = None, ax=None
 def _draw_top_features(ax, tab, m, component, kind, top_n, rank_by, null, bars, color):
     d = tab[(tab.view == m) & (tab.component == component + 1)].copy()
     val = d[kind].to_numpy()
-    if rank_by == "selection" and "selection_frequency" in d:
-        order = np.lexsort((-np.abs(val), -d["selection_frequency"].to_numpy()))[:top_n]
+    is_struct = kind == "structure"
+    lo_c, hi_c = ("ci_low", "ci_high") if is_struct else (f"{kind}_ci_low", f"{kind}_ci_high")
+    freq_c = "selection_frequency" if is_struct else f"{kind}_selection_frequency"
+    stab_c = "component_stability" if is_struct else f"{kind}_stability"
+    if rank_by == "selection" and freq_c in d:
+        order = np.lexsort((-np.abs(val), -d[freq_c].to_numpy()))[:top_n]
     else:
-        order = np.argsort(-np.abs(val))[:top_n]
+        order = np.argsort(-np.nan_to_num(np.abs(val), nan=-1.0))[:top_n]
     d = d.iloc[order[::-1]]; y = np.arange(len(d))
-    lim = max(1.0 if kind == "structure" else 0.0, float(np.nanmax(np.abs(d[kind]))) * 1.08 if len(d) else 1.0)
-    if "ci_high" in d and kind == "structure":
-        lim = max(lim, float(np.nanmax(np.abs(np.r_[d.ci_low, d.ci_high]))) * 1.05)
-    if null is not None and kind == "structure":
+    vmax = float(np.nanmax(np.abs(d[kind]))) if len(d) and np.isfinite(d[kind]).any() else 1.0
+    lim = max(1.0 if is_struct else 0.0, vmax * 1.08)
+    has_ci = lo_c in d and kind != "loading"
+    if has_ci:
+        lim = max(lim, float(np.nanmax(np.abs(np.r_[d[lo_c], d[hi_c]]))) * 1.05)
+    if null is not None and is_struct:
         ax.axvspan(-null, null, color=_GRID, alpha=0.55, lw=0, zorder=0)
         for sgn in (-1, 1):
             ax.axvline(sgn * null, color=_MUTED, ls="--", lw=0.8, zorder=0)
         ax.text(null, len(d) - 0.35, " permutation null", fontsize=7.5, color=_MUTED, va="top")
     ax.axvline(0, color=_AXIS, lw=0.9, zorder=1)
-    has_ci = "ci_low" in d and kind == "structure"
     if has_ci:
-        sel = d.selected.to_numpy(); exc = d.excludes_zero.to_numpy(); strong = sel | exc
-        ax.hlines(y, d.ci_low, d.ci_high, color=np.where(strong, color, _AXIS).tolist(), lw=2.2, zorder=2,
+        if kind == "relative_weight":
+            # Non-negative shares: an interval "excluding 0" says nothing, so mark
+            # stability selection (selected in >= 80% of refits) instead.
+            strong = (d[freq_c] >= 0.8).to_numpy() if freq_c in d else np.zeros(len(d), bool)
+        else:
+            exc = ((d[lo_c] > 0) | (d[hi_c] < 0)).to_numpy()
+            strong = (d.selected.to_numpy() | exc) if is_struct else exc
+        ax.hlines(y, d[lo_c], d[hi_c], color=np.where(strong, color, _AXIS).tolist(), lw=2.2, zorder=2,
                   alpha=0.55)
         _dots(ax, d[kind][strong], y[strong], color, s=50)
         _dots(ax, d[kind][~strong], y[~strong], _MUTED, s=40, hollow=True)
@@ -1033,17 +1074,18 @@ def _draw_top_features(ax, tab, m, component, kind, top_n, rank_by, null, bars, 
         ax.hlines(y, 0, d[kind], color=color, lw=2.0, alpha=0.5, zorder=2)
         _dots(ax, d[kind], y, color, s=50)
     ax.set_yticks(y); ax.set_yticklabels(d.feature_name)
-    if "selected" in d:
+    if is_struct and "selected" in d:
         for lbl, s_ in zip(ax.get_yticklabels(), d.selected):
             if s_:
                 lbl.set_fontweight("bold"); lbl.set_color(_INK)
-    ax.set_xlim(-lim, lim); ax.set_ylim(-0.7, len(d) - 0.3)
+    nonneg = kind == "relative_weight"
+    ax.set_xlim(0 if nonneg else -lim, lim); ax.set_ylim(-0.7, len(d) - 0.3)
     title = f"{d.view_name.iloc[0]}"
     tcolor = _INK
-    if "component_stability" in d:
-        st = float(d.component_stability.iloc[0]); title += f"  ·  stability {st:.2f}"; tcolor = _stability_color(st, bars)
+    if stab_c in d and np.isfinite(d[stab_c].iloc[0]):
+        st = float(d[stab_c].iloc[0]); title += f"  ·  stability {st:.2f}"; tcolor = _stability_color(st, bars)
     ax.set_title(title, fontsize=10.5, color=tcolor)
-    ax.set_xlabel("structure  corr(x, u R)" if kind == "structure" else "loading")
+    ax.set_xlabel("loading" if kind == "loading" else _MAP_LABELS.get(kind, kind))
     _clean(ax, grid="x")
 
 
@@ -1051,10 +1093,15 @@ def _draw_top_features(ax, tab, m, component, kind, top_n, rank_by, null, bars, 
 def plot_top_features(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, component: int = 0,
                       kind: str = "structure", views: Optional[Sequence[int]] = None, view_names=None,
                       feature_names=None, top_n: int = 15, rank_by: str = "magnitude",
-                      bars: Sequence[float] = STABILITY_BARS, figsize=None):
+                      bars: Sequence[float] = STABILITY_BARS, figsize=None,
+                      maps: Optional[Dict[str, Any]] = None):
     """The features that define one component, one panel per view.
 
-    ``kind="structure"`` (default; defined for every method) or ``"loadings"``.
+    ``kind="structure"`` (default; defined for every method), ``"loadings"``, or
+    an alternative map from `pysimlr.feature_maps` (``"partial"``,
+    ``"global_partial"``, ``"component_partial"``, ``"relative_weight"``),
+    taken from ``maps=`` or from ``inf["maps"]`` (then with its own intervals and
+    stability; filled dots mark intervals that exclude 0).
     With ``inf = pysimlr.loading_inference(...)``: 95% subsample intervals,
     filled dots for stability-selected features or intervals excluding 0
     (selected names in bold), the permutation null as a grey band
@@ -1062,20 +1109,98 @@ def plot_top_features(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None,
     primary ink / serious / critical against ``bars``. ``rank_by="selection"``
     ranks by selection frequency instead of magnitude.
     """
-    if kind not in ("structure", "loading", "loadings"):
-        raise ValueError("kind must be 'structure' or 'loadings'.")
-    kind = "loading" if kind.startswith("loading") else "structure"
-    tab = feature_table(res, inf, view_names, feature_names)
+    tab = feature_table(res, inf, view_names, feature_names, maps=maps)
+    kind = "loading" if kind in ("loading", "loadings") else kind
+    if kind not in tab.columns or kind in ("view", "feature", "component"):
+        avail = ["structure", "loadings"] + sorted(_maps_of(inf, maps))
+        raise ValueError(f"kind {kind!r} is not available; choose from {avail} "
+                         "(alternative maps come from maps= or loading_inference(maps=...)).")
     vs = list(range(len(res["structure"]))) if views is None else list(views)
-    sub = ("Filled: selected or 95% interval excludes 0; hollow: interval includes 0; grey band: permutation null."
-           if inf is not None else ("Hard-assigned loadings." if kind == "loading" else
-                                    "Structure coefficients: correlation of each feature with the component's scores."))
+    if kind == "structure":
+        sub = ("Filled: selected or 95% interval excludes 0; hollow: interval includes 0; grey band: permutation null."
+               if inf is not None else "Structure coefficients: correlation of each feature with the component's scores.")
+    elif kind == "loading":
+        sub = "Hard-assigned loadings."
+    else:
+        lbl = _MAP_LABELS.get(kind, kind)
+        sub = lbl[:1].upper() + lbl[1:] + " against the other views' scores."
+        if f"{kind}_ci_low" in tab.columns:
+            sub += (" Filled: selected in ≥ 80% of refits." if kind == "relative_weight"
+                    else " Filled: 95% interval excludes 0.")
     fig = _new(figsize or (3.9 * len(vs) + 0.6, 0.27 * top_n + 2.2), f"What defines component {component + 1}",
                sub, _status_line(res))
     axes = np.atleast_1d(fig.subplots(1, len(vs)))
     null = inf.get("null_max_abs") if inf is not None else None
     for ax, m in zip(axes, vs):
         _draw_top_features(ax, tab, m, component, kind, top_n, rank_by, null, bars, _view_color(m))
+    return fig
+
+
+@_themed
+def plot_feature_map_comparison(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = None,
+                                inf: Optional[Dict[str, Any]] = None, component: int = 0, view: int = 0,
+                                kinds: Optional[Sequence[str]] = None, top_n: int = 8, view_names=None,
+                                feature_names=None, bars: Sequence[float] = STABILITY_BARS, figsize=None):
+    """One component of one view read through several feature maps side by side.
+
+    Rows are the union of each map's ``top_n`` features; columns are maps. Dot
+    size and shade are |map| / max |map| within that map, and the numbers are each
+    map's ranks (top 10). With ``inf = loading_inference(..., maps=...)`` each
+    column header carries that map's component stability, coloured against
+    ``bars``. ``structure`` is the fit's own column; the alternatives come from
+    ``maps`` (`pysimlr.feature_maps`) or ``inf["maps"]``.
+    """
+    tab = feature_table(res, inf, view_names, feature_names, maps=maps)
+    avail = _maps_of(inf, maps)
+    kinds = list(kinds) if kinds is not None else ["structure"] + [k_ for k_ in avail if k_ != "structure"]
+    if len(kinds) < 2:
+        raise ValueError("plot_feature_map_comparison needs at least two maps; pass maps= or "
+                         "inf from loading_inference(maps=...).")
+    for k_ in kinds:
+        if k_ not in tab.columns:
+            raise ValueError(f"map {k_!r} is not available; pass it in maps= or loading_inference(maps=...).")
+    d = tab[(tab.view == view) & (tab.component == component + 1)].reset_index(drop=True)
+    mags = {k_: np.nan_to_num(np.abs(d[k_].to_numpy()), nan=0.0) for k_ in kinds}
+    ranks = {k_: np.argsort(np.argsort(-mags[k_])) for k_ in kinds}
+    rows = []
+    for k_ in kinds:
+        for i in np.argsort(-mags[k_])[:top_n]:
+            if i not in rows:
+                rows.append(int(i))
+    rows.sort(key=lambda i: np.mean([ranks[k_][i] for k_ in kinds]))
+    color = _view_color(view)
+    fig = _new(figsize or (1.45 * len(kinds) + 3.6, 0.36 * len(rows) + 2.4),
+               f"Component {component + 1} of {d.view_name.iloc[0]}, read through {len(kinds)} feature maps",
+               "Dot size and shade: |map| / max |map| within that map; number: rank (top 10).",
+               _status_line(res))
+    ax = fig.subplots(1, 1)
+    for x, k_ in enumerate(kinds):
+        top = mags[k_].max() or 1.0
+        for y, i in enumerate(rows):
+            v = mags[k_][i] / top
+            ax.scatter(x, y, s=18 + 300 * v ** 1.5, color=color, alpha=0.22 + 0.78 * v, edgecolors="none", zorder=2)
+            if ranks[k_][i] < 10:
+                ax.text(x, y, str(ranks[k_][i] + 1), ha="center", va="center", fontsize=7.2, zorder=3,
+                        color=_SURFACE if v > 0.6 else _INK2)
+    heads = []
+    for k_ in kinds:
+        h = {"structure": "structure", "structure_other_views": "structure\n(other views)",
+             "partial": "partial\n(inverse corr.)", "global_partial": "global-\npartial",
+             "component_partial": "component-\npartial", "relative_weight": "relative\nweight"}.get(k_, k_)
+        sc = "component_stability" if k_ == "structure" else f"{k_}_stability"
+        if sc in d and np.isfinite(d[sc].iloc[0]):
+            h += f"\nstab. {float(d[sc].iloc[0]):.2f}"
+        heads.append(h)
+    ax.set_xticks(range(len(kinds))); ax.set_xticklabels(heads, fontsize=8.4); ax.xaxis.tick_top()
+    for lbl, k_ in zip(ax.get_xticklabels(), kinds):
+        sc = "component_stability" if k_ == "structure" else f"{k_}_stability"
+        if sc in d and np.isfinite(d[sc].iloc[0]):
+            lbl.set_color(_stability_color(float(d[sc].iloc[0]), bars))
+    ax.set_yticks(range(len(rows))); ax.set_yticklabels(d.feature_name.iloc[rows], fontsize=8.4)
+    ax.set_ylim(len(rows) - 0.4, -0.7); ax.set_xlim(-0.6, len(kinds) - 0.4)
+    _clean(ax, grid=None)
+    ax.spines["bottom"].set_visible(False)
+    ax.tick_params(axis="x", length=0)
     return fig
 
 

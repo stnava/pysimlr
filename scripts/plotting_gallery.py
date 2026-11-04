@@ -124,7 +124,7 @@ def main():
     flow_nl = pysimlr.fit("flow_v", nl_views, 2, random_state=0)
     pred = pysimlr.predict(pos, te)
     inf = pysimlr.loading_inference("simlr", tr, 3, n_subsamples=30, n_permutations=10, positivity="positive",
-                                    random_state=0, n_jobs=-1)
+                                    random_state=0, n_jobs=-1, maps=("partial", "relative_weight", "component_partial"))
     rank = pysimlr.select_rank("simlr", tr, [2, 3, 4, 5], n_subsamples=12, positivity="positive",
                                random_state=0, n_jobs=-1)
     splits = pd.DataFrame([dict(method=m, split=s, score=heldout_r(m, views, y, s))
@@ -169,6 +169,7 @@ def main():
             (W, "plot_feature_chord(res, inf=inf)", "The strongest features of every view, joined to the components they build. Only features whose interval excludes 0 or that are stability-selected are drawn.", pysimlr.plot_feature_chord(pos, inf=inf, view_names=V, feature_names=names)),
             (W, "plot_top_features(res, inf=inf, component=0)", "Component 1 in every view: 95% intervals, permutation null band, selected names in bold.", pysimlr.plot_top_features(pos, inf=inf, component=0, view_names=V, feature_names=names, top_n=10)),
             (W, "plot_top_features(res, inf=inf, component=1, views=[0, 1])", "A second component, cortex and tracts side by side.", pysimlr.plot_top_features(pos, inf=inf, component=1, views=[0, 1], view_names=V, feature_names=names, top_n=10)),
+            (W, "plot_feature_map_comparison(res, inf=inf, component=0, view=0)", "Component 1 of the cortex read through structure (association) and the alternatives from feature_maps: partial correlation from the inverse correlation matrix (unique contribution), relative weights (share of R²) and the component-partial pattern. Headers carry each map's own stability.", pysimlr.plot_feature_map_comparison(pos, inf=inf, component=0, view=0, view_names=V, feature_names=names)),
             (N, "plot_feature_groups(res, lobes, inf, statistic='n_significant')", "Cortical regions per lobe whose interval excludes 0, per component.", pysimlr.plot_feature_groups(pos, lobe, inf=inf, view=0, feature_names=names, statistic="n_significant", view_names=V)),
             (N, "plot_feature_groups(res, lobes)", "Mean |structure| per lobe and component.", pysimlr.plot_feature_groups(pos, lobe, view=0, feature_names=names, view_names=V)),
             (N, "plot_loadings(res, view=0)", "Hard-assigned loadings of the cortex, ordered by component.", pysimlr.plot_loadings(pos, view=0, feature_names=names)),

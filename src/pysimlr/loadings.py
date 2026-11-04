@@ -50,6 +50,7 @@ These are point estimates. ``U`` was fitted on the same rows, which inflates
 and claims therefore come from `loading_inference`, which refits the whole
 pipeline.
 """
+import warnings
 from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
@@ -161,6 +162,216 @@ def loadings(result: Dict[str, Any], views: Any, u: Optional[torch.Tensor] = Non
             "communality": [(ci.double() ** 2).sum(1).float() for ci in c]}
 
 
+FEATURE_MAP_KINDS = ("structure", "partial", "global_partial", "component_partial", "relative_weight")
+
+
+def _zscore(a: np.ndarray) -> np.ndarray:
+    """Column z-scores (population SD); a constant column becomes 0."""
+    a = a - a.mean(0, keepdims=True)
+    sd = a.std(0, keepdims=True)
+    return np.where(sd > 0, a / np.where(sd > 0, sd, 1.0), 0.0)
+
+
+def _corr_map(xz: np.ndarray, tz: np.ndarray) -> np.ndarray:
+    return xz.T @ tz / xz.shape[0]
+
+
+def _partial_map(xz: np.ndarray, tz: np.ndarray, shrinkage) -> np.ndarray:
+    """Partial correlation of each feature with each target column, given every
+    other feature of the view: -P_ft / sqrt(P_ff P_tt), P the inverse of the
+    (shrunk) correlation matrix of [X, t_j]."""
+    n, p = xz.shape
+    out = np.zeros((p, tz.shape[1]))
+    live = xz.std(0) > 0
+    for j in range(tz.shape[1]):
+        if not tz[:, j].std() > 0:
+            continue
+        joint = np.column_stack([xz[:, live], tz[:, j]])
+        if shrinkage == "ledoit_wolf":
+            from sklearn.covariance import LedoitWolf
+            s = LedoitWolf(assume_centered=True).fit(joint).covariance_
+        else:
+            lam = float(shrinkage)
+            if not 0.0 <= lam < 1.0:
+                raise ValueError(f"shrinkage must be 'ledoit_wolf' or a float in [0, 1); got {shrinkage!r}.")
+            s = joint.T @ joint / n
+            s = (1.0 - lam) * s + lam * np.diag(np.diag(s))
+        prec = np.linalg.inv(s)
+        d = np.diag(prec)
+        out[live, j] = -prec[:-1, -1] / np.sqrt(d[:-1] * d[-1])
+    return out
+
+
+def _global_factor(xz: np.ndarray, control) -> np.ndarray:
+    """(n, c) design of the view's global factor(s), from the rows given."""
+    if isinstance(control, str):
+        if control == "pc1":
+            return np.linalg.svd(xz, full_matrices=False)[0][:, :1]
+        if control == "mean":
+            return xz.mean(1, keepdims=True)
+        raise ValueError(f"control must be 'pc1', 'mean' or an (n, c) array; got {control!r}.")
+    g = np.asarray(control, dtype=np.float64)
+    g = g[:, None] if g.ndim == 1 else g
+    if g.shape[0] != xz.shape[0]:
+        raise ValueError(f"control has {g.shape[0]} rows; the view has {xz.shape[0]}.")
+    return g
+
+
+def _global_partial_map(xz: np.ndarray, tz: np.ndarray, control) -> np.ndarray:
+    """corr(x_f, t_j) after regressing both on the view's global factor."""
+    g = _global_factor(xz, control)
+    g = np.column_stack([np.ones(len(g)), g])
+    q, _ = np.linalg.qr(g)
+    def resid(a):
+        return a - q @ (q.T @ a)
+    return _corr_map(_zscore(resid(xz)), _zscore(resid(tz)))
+
+
+def _component_partial_map(xz: np.ndarray, tz: np.ndarray) -> np.ndarray:
+    """Haufe et al. (2014) forward pattern on standardized data: corr(X, T) corr(T)^{-1}."""
+    s_tt = tz.T @ tz / tz.shape[0]
+    return _corr_map(xz, tz) @ np.linalg.pinv(s_tt)
+
+
+def _relative_weight_map(xz: np.ndarray, tz: np.ndarray) -> np.ndarray:
+    """Johnson's (2000) relative weights: each feature's share of R^2(t_j ~ X).
+
+    X = P D Q' (SVD of the standardized view); Z = P Q' is its closest orthonormal
+    counterpart, and Lambda = Q D Q' / sqrt(n) maps Z back to X. The weight of
+    feature f is sum_l Lambda_fl^2 beta_l^2, beta the regression of t_j on Z; the
+    weights are non-negative and sum to R^2.
+    """
+    n, p = xz.shape
+    live = xz.std(0) > 0
+    if live.sum() >= n:
+        raise ValueError(f"relative_weight needs fewer features than rows; the view has "
+                         f"{int(live.sum())} non-constant features and {n} rows. Use 'partial'.")
+    xl = xz[:, live]
+    pp, d, qt = np.linalg.svd(xl, full_matrices=False)
+    if d.min() <= d.max() * 1e-10:
+        raise ValueError("relative_weight needs a full-rank view; it has collinear features. Use 'partial'.")
+    zo = pp @ qt
+    lam = qt.T @ np.diag(d) @ qt / np.sqrt(n)
+    beta = zo.T @ tz / np.sqrt(n)
+    out = np.zeros((p, tz.shape[1]))
+    out[live] = (lam ** 2) @ (beta ** 2)
+    return out
+
+
+def _view_scores(result: Dict[str, Any], xs: Sequence[np.ndarray], u_rot: np.ndarray,
+                 rot: np.ndarray, views) -> List[np.ndarray]:
+    """Per-view latent scores in the rotated frame, each column signed to agree with u."""
+    from .api import predict
+    if not result.get("basis_is_joint") and len(result.get("latents", [])) == len(xs):
+        zs = [np.asarray(z.detach().double()) @ rot for z in predict(result, views)["latents"]]
+    else:
+        zs = [x @ (v.detach().double().numpy() @ rot) for x, v in zip(xs, result["v"])]
+    uc = u_rot - u_rot.mean(0, keepdims=True)
+    out = []
+    for z in zs:
+        sgn = np.where(((z - z.mean(0, keepdims=True)) * uc).sum(0) >= 0.0, 1.0, -1.0)
+        out.append(_zscore(z * sgn[None, :]))
+    return out
+
+
+def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEATURE_MAP_KINDS,
+                 u: Optional[torch.Tensor] = None, target: str = "other_views",
+                 shrinkage: Any = "ledoit_wolf", control: Any = "pc1") -> Dict[str, List[torch.Tensor]]:
+    r"""Alternative feature maps beside `structure`, all in the fit's rotated frame.
+
+    `structure` (corr(x_f, u_j)) measures association: a feature that only
+    correlates with a driver scores as high as the driver, and on a view dominated
+    by one global factor (cortical thickness) every feature loads on the component
+    that tracks it. These maps answer other questions about the same component
+    ``j`` of ``u @ loading_rotation``:
+
+    ``structure``
+        corr(x_f, t_j). Association.
+    ``partial``
+        Partial correlation of x_f with t_j given all other features of the view,
+        from the inverse of the shrunk correlation matrix of [X_m, t_j]
+        (``shrinkage``: ``"ledoit_wolf"`` or a float in [0, 1) towards the diagonal).
+        Unique contribution; can rank suppressors highly, so check its stability
+        with `loading_inference` (``maps=``).
+    ``global_partial``
+        corr(x_f, t_j) after regressing both on the view's global factor
+        (``control``: ``"pc1"``, ``"mean"``, an (n, c) array, or a list with one of
+        these per view, ``None`` giving NaN for that view). Choose it per view:
+        removing PC1 helps only where PC1 is a global size factor (on ADNI it does
+        for DiReCT thickness; on volume / surface area it promotes tissue totals).
+    ``component_partial``
+        corr(X, T) corr(T)^{-1}, the forward pattern of Haufe et al. (2014):
+        association with t_j holding the other components fixed. Equals
+        ``structure`` when the components are uncorrelated.
+    ``relative_weight``
+        Johnson's (2000) relative weights: each feature's non-negative share of
+        R^2(t_j ~ X_m); they sum to that R^2. Defined only for a full-rank view with
+        fewer features than rows; otherwise that view's map is NaN, with a warning.
+
+    ``target="other_views"`` (default) sets t to the mean of the *other* views'
+    standardized scores. The regression-based maps need this: a linear fit's own
+    score is exactly X_m V_m, so regressing the consensus on X_m would only
+    recover the encoder V_m, which is weakly identified. ``"consensus"`` uses
+    ``u @ R`` itself; for ``partial`` and ``relative_weight`` it is circular.
+
+    Views are replayed through the fit's own preprocessing and ``u`` defaults to
+    ``pysimlr.predict(result, views)["u"]``, so this works for every method and
+    for held-out views alike.
+
+    Returns ``{kind: [ (p_m, k) tensor per view ]}``.
+    """
+    from .api import _preprocess_views, as_views, predict
+    bad = [k_ for k_ in kinds if k_ not in FEATURE_MAP_KINDS]
+    if bad:
+        raise ValueError(f"unknown feature map(s) {bad}; choose from {FEATURE_MAP_KINDS}.")
+    if target not in ("other_views", "consensus"):
+        raise ValueError(f"target must be 'other_views' or 'consensus'; got {target!r}.")
+    view_list = as_views(views)
+    if target == "other_views" and len(view_list) < 2:
+        raise ValueError("target='other_views' needs at least two views.")
+    xs_t, _ = _preprocess_views(view_list, result["scale_list"], result["provenance_list"])
+    xs = [x.detach().double().numpy() for x in xs_t]
+    rot = result["loading_rotation"].detach().double().numpy()
+    if u is None:
+        u = predict(result, view_list)["u"]
+    u_rot = np.asarray(torch.as_tensor(u).detach().double()) @ rot
+    scores = _view_scores(result, xs, u_rot, rot, view_list) if target == "other_views" else None
+    if isinstance(control, (list, tuple)):
+        if len(control) != len(xs):
+            raise ValueError(f"control has {len(control)} entries; there are {len(xs)} views.")
+        controls = list(control)
+    else:
+        controls = [control] * len(xs)
+    out: Dict[str, List[torch.Tensor]] = {k_: [] for k_ in kinds}
+    for m, x in enumerate(xs):
+        xz = _zscore(x)
+        if target == "other_views":
+            tz = _zscore(sum(z for i, z in enumerate(scores) if i != m))
+        else:
+            tz = _zscore(u_rot)
+        for k_ in kinds:
+            if k_ == "structure":
+                mp = _corr_map(xz, tz)
+            elif k_ == "partial":
+                mp = _partial_map(xz, tz, shrinkage)
+            elif k_ == "global_partial":
+                if controls[m] is None:
+                    mp = np.full((x.shape[1], tz.shape[1]), np.nan)
+                else:
+                    mp = _global_partial_map(xz, tz, controls[m])
+            elif k_ == "component_partial":
+                mp = _component_partial_map(xz, tz)
+            else:
+                try:
+                    mp = _relative_weight_map(xz, tz)
+                except ValueError as err:
+                    # Not defined on this view (p >= n or collinear): NaN, named, not a substitute map.
+                    warnings.warn(f"relative_weight is NaN for view {m}: {err}", RuntimeWarning, stacklevel=2)
+                    mp = np.full((x.shape[1], tz.shape[1]), np.nan)
+            out[k_].append(torch.as_tensor(mp).float())
+    return out
+
+
 def _procrustes(a: np.ndarray, ref: np.ndarray) -> np.ndarray:
     """Orthogonal R minimising ||a R - ref||_F."""
     uu, _, vh = np.linalg.svd(a.T @ ref)
@@ -237,6 +448,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                       fraction: float = 0.5, threshold: float = 0.8,
                       expected_false: float = 1.0,
                       n_permutations: int = 0, random_state: int = 0, n_jobs: int = 1,
+                      maps: Sequence[str] = (), map_options: Optional[Dict[str, Any]] = None,
                       _executor: Any = None, **params: Any) -> Dict[str, Any]:
     r"""Uncertainty and selection for `structure`, by refitting the whole pipeline.
 
@@ -274,6 +486,19 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         rows of every view but the first permuted independently, i.e. no
         shared signal).
 
+    Alternative feature maps. ``maps`` (kinds from `feature_maps`, with
+    ``map_options`` passed to it: ``target``, ``shrinkage``, ``control``) are
+    computed on the reference fit and on every subsample refit at no extra fits,
+    and reported under ``out["maps"][kind]`` with per view ``map`` (reference),
+    ``ci_low`` / ``ci_high``, ``component_stability`` and ``selection_frequency``
+    (the same ``q_m`` rule, ranking features by the sum over components of the
+    squared map). Each refit's columns are matched to the reference by the signed
+    permutation nearest its structure Procrustes rotation (the varimax frames are
+    canonical up to order and sign; a full rotation would mix the squared
+    ``relative_weight`` shares), without the sign for ``relative_weight``. A
+    map's stability is its own: precision maps can be far less stable than
+    ``structure``.
+
     Speed. ``n_jobs`` runs the refits (and permutation fits) in worker
     processes (``-1``: all cores). All subsample indices are drawn in the parent
     in a fixed order, so the result does not depend on ``n_jobs``. Each refit
@@ -297,6 +522,11 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     view_list = as_views(views)
     n = view_list[0].shape[0]
     rng = np.random.default_rng(random_state)
+    maps = tuple(maps)
+    bad = [k_ for k_ in maps if k_ not in FEATURE_MAP_KINDS]
+    if bad:
+        raise ValueError(f"unknown feature map(s) {bad}; choose from {FEATURE_MAP_KINDS}.")
+    map_opts = dict(map_options or {}, kinds=maps) if maps else None
     ref = fit(method, view_list, k, random_state=random_state, **params)
     c_ref = [c.double().numpy() for c in ref["structure"]]
     stacked_ref = np.vstack(c_ref)
@@ -317,15 +547,25 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     for idx in sub_idx:
         oob = np.setdiff1d(all_rows, idx, assume_unique=True)
         oob_v = [x[torch.as_tensor(oob)] for x in view_list] if len(oob) >= 2 else None
-        tasks.append((method, [x[torch.as_tensor(idx)] for x in view_list], oob_v, k, random_state, refit_params))
+        task = (method, [x[torch.as_tensor(idx)] for x in view_list], oob_v, k, random_state, refit_params)
+        tasks.append(task + (map_opts,) if map_opts else task)
     tasks += [(method, [view_list[0]] + [x[torch.as_tensor(pi)] for x, pi in zip(view_list[1:], pis)],
                None, k, random_state, refit_params) for pis in perm_idx]
     records = _run_fits(tasks, n_jobs, _executor)
     cosines, r2_splits, coups, conv_flags, eff_ranks = [], [], [], [], []
+    map_aligned = {kk: [] for kk in maps}
     for rec in records[:len(sub_idx)]:
         st_list = rec["structure"]
         st = np.vstack(st_list)
-        aligned.append(st @ _procrustes(st, stacked_ref))
+        rp = _procrustes(st, stacked_ref)
+        aligned.append(st @ rp)
+        if maps:
+            rows_, cols_ = linear_sum_assignment(-np.abs(rp))
+            perm = np.zeros_like(rp)
+            perm[rows_, cols_] = np.sign(rp[rows_, cols_])
+            for kk in maps:
+                mk = np.vstack(rec["maps"][kk])
+                map_aligned[kk].append(mk @ (np.abs(perm) if kk == "relative_weight" else perm))
         cosines.append(_principal_cosines(st, stacked_ref))
         conv_flags.append(rec["converged"])
         eff_ranks.append(rec["effective_rank"])
@@ -367,6 +607,38 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         out["selection_frequency"].append(torch.as_tensor(freq).float())
         out["selected"].append(torch.as_tensor(freq >= threshold))
         out["expected_false_selections"].append(qs[vi] ** 2 / ((2 * threshold - 1) * c.shape[0]))
+    if maps:
+        ref_maps = feature_maps(ref, view_list, **map_opts)
+        out["maps"] = {}
+        for kk in maps:
+            mal = np.stack(map_aligned[kk])                 # (B, p_total, k)
+            mlo, mhi = np.nanpercentile(mal, 2.5, axis=0), np.nanpercentile(mal, 97.5, axis=0)
+            entry = {"map": ref_maps[kk], "ci_low": [], "ci_high": [], "component_stability": [],
+                     "selection_frequency": []}
+            for vi in range(len(c_ref)):
+                a, b = sizes[vi], sizes[vi + 1]
+                rm = ref_maps[kk][vi].double().numpy()
+                entry["ci_low"].append(torch.as_tensor(mlo[a:b]).float())
+                entry["ci_high"].append(torch.as_tensor(mhi[a:b]).float())
+                stab = []
+                for j in range(k):
+                    rs = []
+                    for t in range(mal.shape[0]):
+                        x_, y_ = mal[t, a:b, j], rm[:, j]
+                        ok = np.isfinite(x_) & np.isfinite(y_)
+                        rs.append(np.corrcoef(x_[ok], y_[ok])[0, 1] if ok.sum() > 2 and x_[ok].std() > 0
+                                  and y_[ok].std() > 0 else np.nan)
+                    stab.append(float(np.nanmedian(rs)) if np.isfinite(rs).any() else float("nan"))
+                entry["component_stability"].append(stab)
+                sel = []
+                for t in range(mal.shape[0]):
+                    h = np.nansum(mal[t, a:b] ** 2, axis=1)
+                    pick = np.zeros(b - a, bool)
+                    if np.isfinite(mal[t, a:b]).any():
+                        pick[np.argsort(-h)[:qs[vi]]] = True
+                    sel.append(pick)
+                entry["selection_frequency"].append(torch.as_tensor(np.mean(sel, axis=0)).float())
+            out["maps"][kk] = entry
     if n_permutations > 0:
         null = [max(float(np.abs(c).max()) for c in rec["structure"])
                 for rec in records[len(sub_idx):]]
@@ -378,11 +650,14 @@ def _fit_structure(task):
     """One refit, returning structure coefficients and out-of-bag diagnostics as
     plain NumPy/Python objects. Module level so worker processes can import it."""
     from .api import fit
+    map_opts = None
     if len(task) == 5:
         method, views, k, random_state, params = task
         oob_views = None
-    else:
+    elif len(task) == 6:
         method, views, oob_views, k, random_state, params = task
+    else:
+        method, views, oob_views, k, random_state, params, map_opts = task
     r = fit(method, views, k, random_state=random_state, **params)
     er_key = "joint_effective_rank" if r.get("basis_is_joint") else "effective_rank"
     oos_r2, oos_coup = _oob_metrics(r, views, oob_views)
@@ -392,6 +667,8 @@ def _fit_structure(task):
         "effective_rank": [float(x) for x in r[er_key]],
         "oos_r2": oos_r2,
         "oos_coupling": oos_coup,
+        "maps": ({kk: [t.double().numpy() for t in vv] for kk, vv in feature_maps(r, views, **map_opts).items()}
+                 if map_opts else None),
     }
 
 

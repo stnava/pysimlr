@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: v0.13.0 released from `main` (MAI weight bounds [0.01, 0.5]; ADNI Figure 3.9, view names and row-mean ablation corrected).
+current phase: v0.13.0 on `main`; D21 (alternative feature maps) on `feat/feature-maps`.
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
 active work: none; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
@@ -11,6 +11,48 @@ last updated: 2026-11-04
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D21 (alternative feature maps: partial / inverse correlation, relative weights, 2026-11-04)
+status: done (branch `feat/feature-maps`)
+- **New:** `pysimlr.feature_maps(res, views, kinds, target="other_views", shrinkage="ledoit_wolf",
+  control="pc1")`, with four maps beside `structure`, all in the fit's rotated frame. Nothing
+  existing changes.
+  - `partial`: partial correlation given the other features, from the inverse of the Ledoit–Wolf
+    correlation matrix.
+  - `relative_weight`: Johnson 2000. Shares of R² that sum to R². NaN with a warning when p ≥ n.
+  - `global_partial`: structure after removing PC1, the row mean or a covariate; `control` is set
+    per view.
+  - `component_partial`: the Haufe forward pattern; equals `structure` when components are
+    uncorrelated.
+- **Target.** By default the maps are computed against the *other* views' scores. Regressing a
+  linear fit's own score on X would return the unstable encoder.
+- **Inference.** `loading_inference(maps=..., map_options=...)` computes the maps on every
+  subsample refit at no extra fits.
+  - Refits are matched by the signed permutation nearest the structure Procrustes rotation;
+    `relative_weight` takes no sign.
+  - Output: per-map intervals, selection frequency and stability.
+- **Display.** `feature_table(maps=)`; `plot_top_features(kind=...)`, where for `relative_weight`
+  filled means selected in ≥ 80% of refits; and `plot_feature_map_comparison` (gallery figure 9).
+- **Rule** (pre-set: AUC ≥ structure + 0.05 in ≥ 4/5 global-factor seeds; ≤ 0.02 worse without a
+  global factor; stability ≥ 0.8). Global-factor design PC1 = 70%; support AUC against
+  structure's 0.79:
+  - `relative_weight`: 0.97 (4/5 wins, −0.007, stability 0.92), **RECOMMEND**;
+  - `partial`: 0.96 (4/5, −0.007, 0.88), **RECOMMEND**;
+  - `global_partial`: 0.95, but −0.10 without a global factor, so available only;
+  - `component_partial`: 0.81, available only.
+- **ADNI** (Figure 3.9 fit, 20 half-sample refits; component 2 stability):
+  - **DiReCT:** `relative_weight` 0.86 (L entorhinal, L inferior parietal, R entorhinal,
+    L fusiform) against structure 0.93.
+  - **Vol/area:** `partial` 0.55 and `relative_weight` 0.71 against structure 0.99. These maps
+    rank CSF volume first.
+  - **Held-out R² of the top 10:** the alternatives gain on DiReCT (0.17 vs 0.15 in half-sample
+    refits) and on the full vol/area fit (0.24 vs 0.17), but not in vol/area half-sample refits
+    (0.16 vs 0.17).
+- **Pilot first, at the owner's request:** one fit, one split (`pilot_maps.png`); then the
+  20-refit evidence.
+- **Anomaly scan:** no NaN AUCs and no unconverged fits. Two exact-repeat R² values come from
+  structure and component_partial choosing identical top-10 sets, which is expected.
+- **Verification:** see the commit body.
 
 ## D20 (MAI weight bounds, ADNI Figure 3.9 corrected, open items closed, 2026-11-04)
 status: done (`a32ad62` code, `e9bf886` paper and docs, `8a5d631` LaTeX source; released in v0.13.0)

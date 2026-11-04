@@ -74,6 +74,62 @@ stable:
   - With signed fits (`positivity="either"`, the default) the loadings are dense, and
     `loading_margin` is `None`. Do not threshold signed loadings by eye; use the intervals below.
 
+## Alternative feature maps (`pysimlr.feature_maps`)
+
+`structure` measures association, so on a view dominated by one global factor it ranks
+features by how much they share that factor, not by what drives the component. Cortical
+thickness, where every region thins together, is the typical case.
+
+`pysimlr.feature_maps(res, views)` returns four alternatives beside it. All are in the same
+rotated frame as `structure`, and all are measured against the *other* views' scores
+(`target="other_views"`). That target matters: a linear fit's own score is exactly X·V, so
+regressing it on X would only return the unstable encoder.
+
+| map | what it measures | use it when |
+|---|---|---|
+| `partial` | partial correlation of x with the component given every other feature, from the inverse of the (Ledoit–Wolf shrunk) correlation matrix | you want each feature's unique contribution; works with p ≥ n |
+| `relative_weight` | Johnson's relative weights: each feature's non-negative share of R²(component ~ X); the shares sum to that R² | features are collinear and you want an importance split that stays positive; needs p < n (otherwise NaN, with a warning) |
+| `global_partial` | `structure` after regressing out the view's PC1, its row mean, or a covariate you pass (`control=`, settable per view) | you know the view has a global size factor |
+| `component_partial` | Haufe et al.'s forward pattern, corr(X, T)·corr(T)⁻¹ | components are correlated (`mixing_algorithm="avg"`); otherwise it equals `structure` |
+
+**Use them with inference.** `loading_inference(..., maps=(...))` refits them with the same
+subsamples and reports intervals, selection frequency and each map's own component stability
+(`inf["maps"][kind]`). `plot_top_features(kind=...)` and `plot_feature_map_comparison` draw them.
+
+**Evidence** (`scripts/feature_map_check.py` → `docs/audit/evidence/feature_map_check.csv`):
+
+- **Planted.** View 0 has 12 driver features; non-drivers load a global factor that correlates
+  0.7 with the signal (PC1 = 70% of the variance).
+
+  | map | support AUC | stability | no-global design |
+  |---|---|---|---|
+  | `structure` | 0.79 | — | — |
+  | `relative_weight` | 0.97 | 0.92 | −0.007 |
+  | `partial` | 0.96 | 0.88 | −0.007 |
+  | `global_partial` | 0.95 | — | −0.10 |
+  | `component_partial` | 0.81 | — | — |
+
+  The last column is the AUC difference from `structure` on the design without a global factor.
+  - The pre-set rule passed for `relative_weight` and `partial`.
+  - `global_partial` failed it: removing PC1 harms a view that has no global factor.
+- **ADNI-MCI** (Figure 3.9 fit; 20 half-sample refits).
+  - **DiReCT thickness.** `relative_weight` ranks L entorhinal, L inferior parietal, R
+    entorhinal and L fusiform first, with stability 0.86 against `structure`'s 0.93. Only
+    L entorhinal is selected in ≥ 80% of refits.
+  - **Volume / surface area (160 labels, p/n ≈ 0.4 at half samples).** The alternatives are much
+    less stable than `structure`: `partial` 0.55, `relative_weight` 0.71, `structure` 0.99.
+    They rank CSF volume first.
+  - **Held-out CogPC1 R² of each map's top 10 features.**
+    - On the full training set: DiReCT 0.18 (`partial`) and 0.17 (`relative_weight`) against
+      0.16 (`structure`); vol/area 0.24 against 0.17.
+    - In half-sample refits (median): DiReCT 0.17 against 0.15; vol/area 0.16 against 0.17.
+
+**Recommendation.**
+- On a view with a global factor, read `relative_weight` (or `partial`) beside `structure`, and
+  trust a feature only if `loading_inference` selects it.
+- On wide or weakly identified views, `structure` remains the most stable map.
+- Nothing here changes `structure`, `loadings` or any default.
+
 ## Uncertainty and the choice of k
 
 ```python
