@@ -36,6 +36,7 @@ status: done (released in v0.17.0)
   - judge fits with `heldout_coupling`.
 - **Finding:** part of the overfit is fitting k components to few rows, not view width alone. A
   7-feature noise view still overfits at n = 50, k = 5.
+- **Docs:** usage notes, "Wide-view workflow: opt-in screening before `fit`, shrinkage after `fit`".
 
 ## D29 (review fixes to D27 Part A: shrinkage on record, two named LW definitions, 2026-11-04)
 status: done (released in v0.17.0)
