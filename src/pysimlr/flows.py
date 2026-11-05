@@ -282,11 +282,13 @@ class NormalizingFlow(nn.Module):
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.use_fallback:
             return self.flow(x)
-        else:
-            return self.flow.forward_and_log_det(x)
+        return self.forward_and_log_det(x)
 
     def forward_and_log_det(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.flow.forward_and_log_det(x)
+        z, log_det = self.flow.forward_and_log_det(x)
+        if not self.use_fallback and torch.isfinite(x).all() and (not torch.isfinite(z).all() or not torch.isfinite(log_det).all()):
+            raise RuntimeError("[ActNorm] non-finite values in 'std' during flow forward pass (requires N >= 2 on fresh initialization).")
+        return z, log_det
 
     def inverse(self, z: torch.Tensor) -> torch.Tensor:
         return self.flow.inverse(z)

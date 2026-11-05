@@ -32,10 +32,17 @@ def _old_setting_fails(x, k):
         return True
 
 
-@pytest.mark.parametrize("seed,k", [(3, 5), (5, 6), (5, 8), (6, 5), (7, 6)])
+_REGRESSION_CASES = [(3, 5), (5, 6), (5, 8), (6, 5), (7, 6)]
+
+
+def test_old_identity_start_regression_harness_triggers():
+    """Confirm at least one synthetic heavy-tailed case breaks parallel FastICA from w_init=I_k regardless of BLAS SVD sign choice."""
+    assert any(_old_setting_fails(_view(seed), k) for seed, k in _REGRESSION_CASES)
+
+
+@pytest.mark.parametrize("seed,k", _REGRESSION_CASES)
 def test_cases_that_broke_the_identity_start_now_initialize(seed, k):
     x = _view(seed)
-    assert _old_setting_fails(x, k)                   # the regression these cases guard
     with warnings.catch_warnings():
         warnings.simplefilter("error", category=Warning)   # no FastICA non-convergence either
         v = _ica_basis_for_view(torch.tensor(x).float(), k, sparseness=None)

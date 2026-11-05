@@ -1,10 +1,10 @@
 # Tracking Summary
-current phase: `main` post-v0.17.0 (D31: ICA initialization by deflation; D32: coarse-to-fine split-scale `probe_views` / `probe_test_views` across `feature_maps`, `loading_inference`, `feature_relevance`, and `plotting.feature_table`).
+current phase: `v0.18.0` released (`D32`: coarse-to-fine split-scale `probe_views` / `probe_test_views` across `feature_maps`, `loading_inference`, `feature_relevance`, and `plotting.feature_table`; `D31`: seeded orthogonal deflation ICA initialization; `D27` follow-ups: 3-scale Westfall-Young + Holm view omnibus & `usage_notes.md` wide-view workflow).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
 active work: none; open: relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
-device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.6.0 (editable, /Users/stnava/data/repos/nsa_flow; not on PyPI)
-last updated: 2026-11-04
+device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
+last updated: 2026-11-05
 
 ---
 
@@ -13,7 +13,7 @@ This file was created at v0.2.19; earlier history lives in git (`git log --oneli
 release commit bodies.
 
 ## D32 (coarse-to-fine split-scale readout via `probe_views` / `probe_test_views`, 2026-11-04)
-status: done (merged to main; not released)
+status: done (released in v0.18.0)
 - **Problem.** `feature_maps`, `loading_inference`, `feature_relevance`, and `plotting.feature_table`
   previously required every attributed matrix to have the exact columns fitted by `result["v"][m]`.
   Multi-scale studies (`1,000+` connectome edges or white-matter tracts on `n < 150` subjects) had
@@ -43,7 +43,7 @@ status: done (merged to main; not released)
   `auc = 0.48` and unscreened wide `gap = 0.225`).
 
 ## D31 (ICA initialization: deflation from a seeded orthogonal start, 2026-11-04)
-status: done (merged to main; not released)
+status: done (released in v0.18.0)
 - **Defect.** `initialization_type="ica"` ran FastICA (parallel algorithm) from `w_init = I_k`. For an
   orthonormal SVD basis the identity is a stationary point of FastICA's update, so it stalled or
   diverged.
