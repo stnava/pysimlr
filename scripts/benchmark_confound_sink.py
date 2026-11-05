@@ -153,8 +153,9 @@ def run_split(args):
     import torch
     torch.set_num_threads(1)
     warnings.simplefilter("ignore")
-    import pysimlr
     from sklearn.decomposition import PCA
+
+    import pysimlr
     rng = np.random.default_rng(1000 + split)
     n = len(data["C"])
     perm = rng.permutation(n)
@@ -173,7 +174,7 @@ def run_split(args):
     y_tr, y_te = y[tr], y[te]
     by = _ols_fit(c_tr, y_tr)
     ya_tr, ya_te = _ols_resid(c_tr, y_tr, by), _ols_resid(c_te, y_te, by)
-    kw = dict(random_state=0) if family == "simlr" else {}
+    kw = {"random_state": 0} if family == "simlr" else {}
     rows = []
     for adj in ADJUSTMENTS:
         t_tr = [torch.tensor(x).float() for x in xs_tr]
@@ -246,7 +247,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUT / f"confound_sink_{a.dataset}.csv", index=False)
     summary = df.groupby(["family", "adjustment"]).agg(["mean", "std"]).drop(columns="split").round(4)
-    meta = {"dataset": a.dataset, "n": int(len(data["C"])), "view_names": data["view_names"],
+    meta = {"dataset": a.dataset, "n": len(data["C"]), "view_names": data["view_names"],
             "view_widths": [int(v.shape[1]) for v in data["views"]], "confound_names": data["confound_names"],
             "outcome": data["outcome"], "k": data["k"], "splits": a.splits, "rules": RULES,
             "view_confounds": data.get("view_confounds"), "n_complete": data.get("n_complete"),

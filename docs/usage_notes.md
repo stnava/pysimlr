@@ -684,7 +684,15 @@ When per-subject confounds are available at deployment (they usually are: age, s
 and head size are measured per scan), residualise with frozen training betas instead. Use the sink
 when confound values will not be available for new subjects, and accept the loss of the biology
 that shares the confounds' feature directions. Strength 0.5 does not decorrelate (it only halves
-the variance along those directions). NHANES results: see `D35` in `docs/tracking.md`.
+the variance along those directions).
+
+NHANES 2015-18 (labs / body / diet; confounds age, sex, race, poverty-income ratio, education and
+cycle; HbA1c; `confound_sink_nhanes.{csv,json}`) gives the same pattern:
+
+- held-out max |r(u, C)| is 0.142 for the sink, 0.161 for frozen betas and 0.685 unadjusted;
+- adjusted HbA1c R² is -0.008 for the sink vs 0.016 for frozen betas (R3 fails);
+- held-out cross-view coupling falls from 0.273 to 0.065, because the shared axis of these views
+  is mostly demographic.
 
 
 ## Fused ridge (multi-task regression with fused coefficients)

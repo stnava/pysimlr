@@ -69,6 +69,20 @@ status: done on `feat/confound-sink-fixes` (not merged). Supersedes the `simlr`-
   - The sink decorrelates without `C_test`, but it removes cognition-relevant atrophy that lies
     along the confound directions. Frozen betas with per-subject `C_test` are better whenever
     `C_test` exists.
+- **Evidence: NHANES** 2015-18 adults (`docs/audit/evidence/confound_sink_nhanes.{csv,json}`). Setup:
+  n = 3000 sampled from 7558 complete cases; views labs (56, with HbA1c, glucose, insulin and
+  osmolality removed), body (7) and diet (104); confounds age, sex, race, PIR, education and cycle
+  (the body view gets age and sex only); HbA1c read out by RF; k = 5; 20 splits; same rules.
+  - `simlr`, held-out max |r(u, C)|: sink 0.142, frozen 0.161, unadjusted 0.685. R1 and R2 pass.
+  - **R3 fails:** adjusted HbA1c R² is -0.008 for the sink vs 0.016 for frozen betas (mean paired
+    -0.024, p = 0.001; worse by > 0.05 in 3/20 splits). `pca`: -0.039 vs 0.021.
+  - **Held-out coupling drops 0.273 → 0.065** (median paired -0.22): the shared labs/body/diet axis
+    is largely the demographic axis.
+  - Train-only pre-residualisation is the worst option on both datasets (NHANES R² -1.36: test rows
+    off the training manifold).
+- **Conclusion.** On both datasets the sink matches frozen betas on decorrelation without `C_test`.
+  It costs outcome signal and cross-view coupling that frozen betas with per-subject `C_test`
+  keep. It is the tool for deployment without confound values, not a default.
 - **Found on the way.** `scripts/paper_adni_ablations.protocol_b` builds sex as
   `PTGENDER.astype(str).str.upper().str.startswith("F")`, but `PTGENDER` is coded 0/1 in
   `adni_mci_cognitive_merged.csv`. Protocol B's sex covariate is therefore a constant zero (not
