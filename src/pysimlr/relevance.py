@@ -144,6 +144,9 @@ def _refit_task(args):
     from .utils import preprocess_data
     r_idx = torch.as_tensor(rows)
     sub = [None if v is None else v[r_idx] for v in train]
+    if params.get("confounds") is not None:
+        from .confounds import slice_confounds
+        params = dict(params, confounds=slice_confounds(params["confounds"], rows))
     res = fit(method, sub, k, **params)
     y = None if outcome is None else np.asarray(outcome)[rows]
     _, _, per = _targets(res, sub, avail, eval_views, component, y)
@@ -169,6 +172,9 @@ def _null_refit_task(args):
     perm = torch.as_tensor(np.random.default_rng(seed).permutation(train[m].shape[0]))
     sub = list(train)
     sub[m] = sub[m][perm]
+    if params.get("confounds") is not None:
+        from .confounds import permute_single_view_confounds
+        params = dict(params, confounds=permute_single_view_confounds(params["confounds"], m, perm, len(train)))
     res = fit(method, sub, k, **params)
     _, _, per = _targets(res, sub, avail, [m], component, outcome)
     xz, t = per[m]

@@ -302,6 +302,20 @@ def predict_views(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
         out["r2"] = {names[i]: base["r2"][i] for i in have}
         out["mse"] = {names[i]: base["mse"][i] for i in have}
         out["reconstructions"] = {names[i]: base["reconstructions"][i] for i in have}
+    if result.get("confound_sink") is not None:
+        if have:
+            from .confounds import predict_confound_sink
+            from .simlr import _scale_like_training
+            scaled_all = _scale_like_training(_fill_missing(result, orig), result)
+            u_sink, ls_list = predict_confound_sink(
+                [scaled_all[i] for i in have], result["confound_sink"], available_indices=have
+            )
+            out["u_sink"] = u_sink
+            out["latents_sink"] = {names[i]: ls for i, ls in zip(have, ls_list)}
+        else:
+            k_c = int(result["confound_sink"]["confound_rank"])
+            out["u_sink"] = torch.zeros((int(u.shape[0]), k_c), dtype=u.dtype, device=u.device)
+            out["latents_sink"] = {}
     return out
 
 

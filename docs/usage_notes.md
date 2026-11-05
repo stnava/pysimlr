@@ -624,6 +624,84 @@ three views.
   model; refit when the original model is weak.
 - **The new view's encoder is linear,** even for deep and flow models.
 
+## Confound Sink (`confounds`): multi-cohort scanner, motion, and QC isolation without test-time covariates
+
+In multi-site neuroimaging and multi-omics cohorts, nuisance factors — scanner/site shifts, head
+motion (`FD`, `DVARS`, eddy shift), blind-QC drift, or total intracranial volume (`ICV`) — often carry
+`3×`–`10×` more shared variance than focal pathology. Subtracting linear OLS residuals (`X - C B`)
+before `simlr` fails in two ways:
+
+1. **Breaks `positivity="positive"` (`V_m >= 0`):** scanner and motion artifacts act as signed dipoles
+   (for example anterior-vs-posterior ghosting or short-vs-long-range `FD` coupling). Pre-residualising
+   `X_train` introduces negative entries and sign-clipping distortion into anatomical cortical
+   thickness, FA, or CBF views, collapsing downstream biological associations.
+2. **Fails at clinical deployment (`N = 1` or missing `C_test`):** if `V_m` is fitted on residualised
+   `X_train`, projecting an unresidualised held-out scan `X_test @ V_m` (when `C_test` is unavailable,
+   unharmonised, or `N_test = 1` where batch regression has zero degrees of freedom) re-admits the
+   confound dipole directly into `pred["u"]`.
+
+Pass `confounds=` directly to `pysimlr.fit("simlr", ...)` (or `simlr(...)`, `loading_inference("simlr",
+...)`, `select_rank`, `feature_relevance`, `component_attribution`):
+
+```python
+# Shared confound matrix (n, q), 1-D vector (n,), DataFrame/Series (NaNs imputed internally),
+# OR per-view list [C_0, None, C_2] / dict {0: C_t1, 1: C_dti, 2: C_rsf}:
+res = pysimlr.fit(
+    "simlr",
+    train_views,
+    k=4,
+    positivity="positive",
+    energy_type="nc_abs",
+    confounds=train_confounds,      # training rows only; never needed at predict() time
+    confound_strength=1.0,          # 1.0 = exact orthogonalization; 0 < gamma < 1 = soft damping
+    confound_rank=None,             # optional cap on orthonormal nuisance basis Q_C
+    confound_partial_out=True,      # partial frozen sink projections out of X_m @ V_{m,bio}
+    random_state=0,
+)
+
+# Exact sample-space orthogonality on training rows (max |corr(u, C_train)| < 1e-5 at strength=1.0)
+assert res["confound_sink"]["max_abs_corr_after"] < 1e-5
+
+# Zero C_test needed at deployment; N = 1 single-subject and missing-modality dicts both work:
+pred = pysimlr.predict(res, test_views)                  # -> pred["u"], pred["u_sink"], pred["latents_sink"]
+pred_1 = pysimlr.predict(res, [v[:1] for v in test_views])
+pred_sub = pysimlr.predict(res, {0: test_views[0], 1: test_views[1]})  # view 2 missing
+```
+
+### How it works
+
+1. **Orthonormal nuisance basis (`Q_C`):** `confounds` are column-centred, `NaN`-imputed on training
+   rows, and reduced via rank-revealing SVD + QR re-orthonormalisation to `Q_C ∈ R^{n × k_c}` (capped
+   at `confound_rank` or `max(1, min(q_tot, n // 4))`). Per-view confounds build both view-specific
+   bases `Q_{C,m}` and a pooled global basis `Q_C`.
+2. **Signed sink encoders (`v_sink`) + non-negative biological encoders (`v`):** each view fits a
+   bounded-DOF GCV-ridge **signed** encoder `V_{m,sink} ∈ R^{p_m × k_c}` (`X_m V_{m,sink} ≈ Q_C`)
+   while `result["v"][m]` (`p_m × k`) optimizes only on deflated biological structure, strictly
+   preserving `V_{m,bio} >= 0` under `positivity="positive"`.
+3. **Covariate-free test partial-out (`confound_partial_out=True`):** training freezes
+   `B_m = Z_{m,sink,c}^† (X_m V_{m,bio})` alongside the affine consensus map, so any new subject
+   evaluates `Z_{m,bio} = X_m V_{m,bio} - γ Z_{m,sink,c} B_m` purely from `X_m` — requiring **zero
+   `C_test`** and guaranteeing exact `N = 1` batch invariance (`< 1e-7`).
+4. **Hard (`confound_strength=1.0`) vs soft (`0 < confound_strength < 1.0`):** use `1.0` (default) for
+   pure technical confounds (site/scanner IDs, `FD`, `DVARS`, ghosting). When biological severity
+   genuinely covaries with a nuisance variable (for example age or motor impairment covarying with head
+   motion), `confound_strength=0.6`–`0.8` initializes `V_0` on the biological support while retaining
+   shared biological variance during sweeps.
+
+### Measured performance (`scripts/benchmark_confound_sink.py`)
+
+4-cohort blast neuroimaging study (`N = 245` across `ExpArt`, `FPA`, `breacher`, `SOCOM`; `T1Hier`
+cortical thickness `p = 138`, `DTI` tract FA `p = 140`, `rsfMRI` ALFF+fALFF `p = 140`; `q = 10` cohort +
+`ICV` + `FD` + `DVARS` + eddy + blind-QC confounds; 5 stratified 70/30 splits, `k = 4`,
+`positivity="positive"`, **zero `C_test` at prediction**):
+
+| method | train `max \|r(U,C)\|` | held-out `max \|r(U,C)\|` | missing-`rsfMRI` `max \|r(U,C)\|` | `u_sink` vs `C_test` `\|r\|` | age partial `\|r\|` | blast `log10_GBEV` partial `\|r\|` |
+|---|---|---|---|---|---|---|
+| Unadjusted `simlr` | 0.930 | 0.931 | 0.944 | — | 0.376 | 0.109 |
+| Naive pre-resid (no `C_test`) | 0.000 | 0.952 | 0.737 | — | 0.043 | 0.144 |
+| **`confounds` (`strength=1.0`, shared)** | **0.000** | **0.361** | **0.363** | **0.962** | **0.364** | **0.187** (`+72%`) |
+| **`confounds` (`strength=1.0`, per-view dict)** | **0.000** | **0.366** | **0.357** | **0.966** | **0.345** | **0.184** (`+69%`) |
+
 ## Fused ridge (multi-task regression with fused coefficients)
 
 `fit_fused_ridge` fits one coefficient vector per *task* and pulls neighbouring tasks'

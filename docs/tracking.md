@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: `v0.19.0` released (`D33`: `component_attribution` / `plot_component_attribution`, paper Fig. 3.9 as reusable code; `D32`: coarse-to-fine split-scale `probe_views` / `probe_test_views`; `D31`: seeded orthogonal deflation ICA initialization).
+current phase: `feat/confound-sink` (`D34`: first-class Confound Sink `confounds` / `confound_strength` / `confound_rank` / `confound_partial_out` in `simlr`; `v0.19.0` released with `D33`: `component_attribution` / `plot_component_attribution`).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
 active work: none; open: relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
@@ -11,6 +11,74 @@ last updated: 2026-11-05
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D34 (first-class Confound Sink in linear `simlr`: `confounds`, `confound_strength`, `confound_rank`, `confound_partial_out`, 2026-11-05)
+status: done (`feat/confound-sink`)
+- **Problem.** In multi-cohort neuroimaging, scanner/site shifts, head motion (`FD`, `DVARS`, eddy PE
+  shift), blind-QC drift, and intracranial volume (`ICV`) frequently carry `3×`–`10×` more cross-view
+  variance than focal pathology. Naive pre-residualization (`X - C B` before `simlr`) fails in two ways:
+  1. subtracting signed scanner/motion dipoles introduces negative residuals that break anatomical
+     parts-based `positivity="positive"` (`V_m >= 0`) and destroy downstream regional readouts;
+  2. at clinical deployment (`N = 1` or held-out cohorts without matched `C_test`), unresidualized
+     `X_test @ V_m` immediately re-admits the full confound dipole (`test max |corr(U, C)| = 0.952`
+     on the 4-cohort blast study), while batch residualization has `0` degrees of freedom at `N = 1`.
+- **Architecture (`src/pysimlr/confounds.py`, `consensus.py`, `simlr.py`, `extension.py`).**
+  - **Parameters on `simlr(...)`** (automatically exposed via `pysimlr.fit("simlr", ...)` and
+    `loading_inference("simlr", ...)`):
+    - `confounds=None`: shared `(n, q)` or 1-D `(n,)` tensor/ndarray/DataFrame/Series (`NaN`s mean-imputed
+      and constant columns dropped internally), or per-view sequence `[C_0, ..., C_{M-1}]` (`None` allowed
+      for unconfounded views), or dict `{view_idx_or_name: C_m}`.
+    - `confound_strength: float = 1.0` (`γ ∈ [0, 1]`): `1.0` enforces exact sample-space orthogonalization
+      `P_⊥ = I - Q_C Q_C^T` in float64 (`max |corr(U_train, C_train)| < 1e-5`); `0 < γ < 1` applies soft
+      damping `(I - γ Q_C Q_C^T)` initialized from the pure biological subspace so covarying biological
+      signal is preserved without `V_0` locking onto high-variance confound dipoles.
+    - `confound_rank: Optional[int] = None`: caps the orthonormal nuisance basis `Q_C` (`n × k_c`) at
+      effective numerical rank up to `max(1, min(q_tot, n // 4))`.
+    - `confound_partial_out: bool = True`: fits bounded-DOF GCV-ridge **signed** sink encoders
+      `V_{m,sink} ∈ R^{p_m × k_c}` (never sign-constrained even when `V_{m,bio} >= 0`, so signed dipoles
+      are absorbed cleanly) and freezes partial-out matrices `B_m` on training rows so every biological
+      view projection computes `Z_{m,bio} = X_m V_{m,bio} - γ Z_{m,sink,c} B_m` directly from `X_m`.
+  - **Result & prediction contract:**
+    - `result["u"]` `(n, k)` and `result["v"]` `[(p_m, k), ...]` remain strictly biological (`V_m >= 0`
+      preserved with `0.0%` negative entries).
+    - `result["confound_sink"]` (`None` when `confounds is None`) records `u_sink`, `v_sink`,
+      `latents_sink`, `partial_weights`, `confound_rank`, `confound_strength`, `confound_partial_out`,
+      `max_abs_corr_before`, and `max_abs_corr_after`.
+    - `predict` / `predict_simlr` and missing-modality dict `predict(res, {m: X_m})` require **zero
+      `C_test`**, remain strictly `N = 1` batch-invariant (`< 1e-7`), and emit `pred["u_sink"]` and
+      `pred["latents_sink"]`.
+    - Subsample and permutation-null refits in `loading_inference`, `select_rank`, `feature_relevance`,
+      and `component_attribution` slice and row-permute `confounds` alongside `views`.
+- **Empirical Evidence (`scripts/benchmark_confound_sink.py` → `docs/audit/evidence/confound_sink_benchmark.{json,csv}`, 5 seeds/splits):**
+  - **Synthetic 3-view `3.5×` signed confound dipole (`N_train=160, N_test=80, p=40, k=2, positivity="positive"`):**
+    - Orthogonal dipole (`corr(bio, C) = 0`): unadjusted `simlr` is hijacked (`train/test max |r(U,C)| =
+      0.913 / 0.906`, held-out bio `|r| = 0.417`). Naive pre-residualization without `C_test` leaks
+      `test max |r(U,C)| = 0.372` (`bio |r| = 0.935`). `confounds` (`γ = 1.0`, zero `C_test`) achieves
+      `train max |r(U,C)| = 0.000`, `test max |r(U,C)| = 0.158`, held-out **`bio |r| = 0.998`** (`0.997`
+      with view 2 missing), `u_sink` subspace `|R| = 1.000`, `N = 1` diff `0.000`.
+    - Partially covarying biology (`corr(bio_1, C_1) = 0.45`): soft `confound_strength=0.7` damps test
+      confound correlation from `0.983` → `0.245` (`0.543` for naive pre-resid without `C_test`) while
+      lifting held-out **`bio |r| = 0.972`** above both hard `γ = 1.0` (`0.921`) and oracle batch
+      pre-residualization (`0.930`).
+  - **Real 4-cohort blast neuroimaging study (`N = 245` across `ExpArt=100, FPA=76, breacher=48, SOCOM=21`;
+    `T1Hier` cortical thickness `p=138`, `DTI` tract FA `p=140`, `rsfMRI` ALFF+fALFF `p=140`; `q=10`
+    cohort/scanner + `ICV` + `FD` + `DVARS` + eddy + blind-QC confounds; `k=4`, `positivity="positive"`):**
+    - Unadjusted `simlr`: `train/test max |r(U,C)| = 0.930 / 0.931` (`mean |r| = 0.490`), held-out partial
+      `|r|` with blast exposure `log10_GBEV = 0.109`.
+    - Naive pre-residualization (no `C_test`): `train max |r(U,C)| = 0.000`, **rebounds on held-out
+      subjects to `test max |r(U,C)| = 0.952` (`mean |r| = 0.471`)**, while age partial `|r|` collapses
+      from `0.376` → `0.043`.
+    - `confounds` (`γ = 1.0`, zero `C_test`): `train max |r(U,C)| = 0.000`, **cuts held-out `test max
+      |r(U,C)|` to `0.361` (`0.366` per-view dict) and `mean |r|` >2× to `0.232` (`0.225` per-view)**
+      — including **`0.363` when `rsfMRI` is missing at test time** (vs `0.944` unadjusted) — while
+      `u_sink` captures held-out scanner/motion QC from imaging alone at **`|r| = 0.962`** (`0.966`
+      per-view), preserves age partial `|r| = 0.364` (`8.5×` naive pre-resid), and **boosts held-out
+      blast-exposure `log10_GBEV` partial `|r|` by `+72%` (`0.109` → `0.187`)**.
+- **Tests:** `tests/test_confound_sink.py` (18 tests covering default contract, validation, 1D/2D/DataFrame/
+  Series/NaN/per-view list & dict inputs, exact `< 1e-5` orthogonality across all `topology × mixing`
+  combinations, strict monotonic soft `γ`, `3.5×` dipole recovery, `N = 1` batch invariance, missing-view
+  dict prediction, and `loading_inference` / `select_rank` / `heldout_coupling` / `feature_relevance` /
+  `component_attribution`), plus `tests/test_parameters_are_live.py` coverage for all 4 new parameters.
 
 ## D33 (component_attribution: paper Fig. 3.9 as reusable code, 2026-11-05)
 status: done (released in v0.19.0)

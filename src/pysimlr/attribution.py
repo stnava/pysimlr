@@ -47,6 +47,9 @@ def _refit_task(args):
     torch.set_num_threads(1)
     from .api import fit
     sub = [torch.as_tensor(np.asarray(x)[rows]).float() for x in train]
+    if params.get("confounds") is not None:
+        from .confounds import slice_confounds
+        params = dict(params, confounds=slice_confounds(params["confounds"], rows))
     res = fit(method, sub, k, **params)
     out = {}
     for m in views:
