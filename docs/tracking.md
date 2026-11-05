@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: v0.16.0 released from `main` (wide-view coupling warning D25; linear-SiMLR latents at the scale of u D26; paper SiMLR cache rows refreshed).
+current phase: main at v0.16.0 + D27–D30 merged, not released (shrunk relative weights with λ on record; heldout_coupling; opt-in wide-view screen with measured limitation).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: none; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows (open); the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: none; release v0.17.0 pending the owner's instruction; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows (open); the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.6.0 (editable, /Users/stnava/data/repos/nsa_flow; not on PyPI)
 last updated: 2026-11-04
 
@@ -12,8 +12,58 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D30 (D27 Part B screen: pooled BH gate; measured, opt-in, not a cure, 2026-11-04)
+status: done (merged to main; not released)
+- **Gate.** The per-feature cutoff is Benjamini–Hochberg over a pooled permutation null.
+  - The pooled null has B × p_live draws, so p resolves to 1 / (B·p). Per-feature counts stop at
+    1 / (B + 1) and could never pass BH over thousands of features.
+  - `summary` reports `n_pass_bh` and `n_pass_gate` beside `p_out`, so a binding width cap is
+    visible. The output gains `q_bh`.
+- **Evidence:** `scripts/screen_wide_views_check.py` → `docs/audit/evidence/screen_wide_views_check.csv`.
+  Rules were fixed before running.
+  - **IBD** (5 splits, n_train = 165). The gate passes almost every feature, because the platforms
+    share common factors, so the cap selects.
+    - Gap (training − held-out cross-view coupling): 0.40 / 0.33 / 0.19 / 0.13 / 0.02 at
+      `max_width_ratio` 0.5 / 0.3 / 0.2 / 0.1 / 0.05, against 0.39 for top-500 variance.
+    - SiMLR balanced accuracy: best 0.759 (ratio 0.1), against 0.732 for top-500.
+  - **Noise** (3 × 120, n_train = 50). The gate keeps the floor of 7 features per view, yet the gap
+    is 0.35 (0.85 unscreened).
+  - **Default rule:** no ratio qualifies. **Merge rule:** FAIL on all three criteria.
+- **Decision (per the approved plan):**
+  - the screen stays opt-in, its default unchanged (0.75), with the limitation in the module
+    docstring;
+  - `WideViewWarning` is not pointed at it;
+  - judge fits with `heldout_coupling`.
+- **Finding:** part of the overfit is fitting k components to few rows, not view width alone. A
+  7-feature noise view still overfits at n = 50, k = 5.
+
+## D29 (review fixes to D27 Part A: shrinkage on record, two named LW definitions, 2026-11-04)
+status: done (merged to main; not released)
+- **λ recorded.**
+  - `feature_relevance` returns `shrinkage_used` and `shrinkage_used_test`, plus `summary.shrinkage`
+    and `summary.shrinkage_test`.
+  - `feature_maps(..., return_shrinkage=True)` returns λ per target and view; the default return is
+    unchanged.
+  - `loading_inference` stores `maps["relative_weight"]["rw_shrinkage"]`.
+  - `"auto"` therefore never switches estimator off the record.
+- **Two definitions, named apart.**
+  - `"ledoit_wolf"` gives λ from X alone (relevance; the permutation null is exact, because λ cannot
+    move when t is permuted).
+  - `"ledoit_wolf_joint"` gives λ_j from [X, t_j] (feature maps; exact shrunk Schur R²).
+  - `"auto"` resolves to the first in relevance and the second in feature maps. The joint form is
+    refused by the relevance basis.
+- **Held-out uses the training λ.** It falls back to `"auto"` only where the classical estimator is
+  undefined on the held-out rows (p ≥ n_test), and that fallback is recorded.
+- **Gates:**
+  - full suite: 1778 passed, 2 xfailed;
+  - ADNI relevance equivalence: 222/222 features and 93/93 groups, tiers identical (max |Δ| 2e-10);
+  - 3 new tests (λ is target-independent; the λ record from `feature_maps`; the recorded held-out
+    fallback) and assertions added to the wide-view relevance test.
+- **Not changed:** Part B (`screening.py`). On IBD its default cap of 0.75·n binds every view at 123
+  features, and the gap falls only from 0.39 to 0.30. Part B is revised separately (D30).
+
 ## D28 (heldout_coupling: cross-view agreement on held-out rows, 2026-11-04)
-status: done on branch `feat/heldout-coupling` (not merged)
+status: done (merged to main; not released)
 - `pysimlr.heldout_coupling(result, views)` gives, for training and held-out rows over the available
   views:
   - per view and component, |corr(z, u)|;
@@ -25,6 +75,39 @@ status: done on branch `feat/heldout-coupling` (not merged)
   - noise views with p ≥ n 0.88–0.91 / 0.04–0.05;
   - genuine signal gap ≤ 0.03.
 - Tests: `tests/test_heldout_coupling.py`, 6 tests.
+## D27 (shrunk Johnson relative weights for p >= n and outcome-blind wide-view predictor gating, 2026-11-04)
+status: done (merged to main; not released)
+- **Problem.**
+  - Classical Johnson (2000) `relative_weight` in `loadings.py` and `relevance.py` required full-rank
+    `p < n` (and `p < n_sub` during half-sample `loading_inference` / `feature_relevance` refits),
+    emitting NaNs via `rcond=1e-10` eigenvalue gating whenever `p >= n` or `p >= n_sub`.
+  - Simultaneously, `D25` (`WideViewWarning`) showed that feeding unconstrained wide views (`p >= n`)
+    directly into `simlr` lets the solver couple within-view noise to consensus (`coupling_train` up to
+    0.88–1.00 vs held-out < 0.20), creating a need for strictly outcome-blind cross-view predictor gating.
+- **Part A — Joint Ledoit–Wolf Schur R² relative weights (`loadings.py`, `relevance.py`).**
+  - Added `_resolve_rw_shrinkage` and `_basis_from_svd` in `src/pysimlr/loadings.py`, upgrading
+    `_relative_weight_map`, `_relative_weight_basis`, `_relative_weight_shares`, and `feature_maps(...,
+    rw_shrinkage=0.0)` (`"auto"`, `"ledoit_wolf"`, float in `[0, 1)`, or per-view sequence), and wired
+    `loading_inference` (`map_options={"rw_shrinkage": "auto"}`) plus `feature_relevance(...,
+    shrinkage="auto")` in `src/pysimlr/relevance.py`.
+  - Shrinks the joint `[X, t_j]` correlation matrix with a single Ledoit–Wolf intensity `lambda_j` to `I`,
+    so `sum_f w_f = (1 - lambda_j)^2 r_Xt^T R_lambda^-1 r_Xt = 1 - 1 / (S_joint,lambda^-1)_tt` lies
+    strictly in `[0, 1)` to machine precision (`~1e-16`) via thin SVD (`O(min(n, p)^2 p)`), while keeping
+    `rw_shrinkage=0.0` bit-identical (`0.0` diff) on full-rank `p < n` views.
+- **Part B — Outcome-blind cross-view predictor gating (`screening.py`, `__init__.py`).**
+  - Added `pysimlr.screen_wide_views` and `pysimlr.apply_view_screen` in `src/pysimlr/screening.py`
+    (with no outcome parameter in the signature, preventing target leakage by construction).
+  - Combines row-permuted cross-view subspace communality (`p_perm`), exact finite-sample Westfall–Young
+    min-`p` omnibus view calibration across mean and max communality (`p_view`), half-sample stability
+    selection (`selection_frequency`), greedy within-view collinearity deduplication (`max_collinearity`),
+    and sample-adaptive width control (`max_width_ratio`).
+- **Tests:** `tests/test_shrunk_relative_weight_and_screening.py` (5 tests: exact Schur `R²_LW` identity
+  to `1e-12`, bit-identical `0.0` equivalence on `p < n`, wide-view `feature_maps` + half-sample
+  `loading_inference` with `p > n_sub`, wide-view `feature_relevance` at `p = 200 > n_train = 80`, and
+  `screen_wide_views` Type I suppression on pure-noise `D25` views + sparse driver recovery + collinear
+  pruning + `apply_view_screen`). Verified alongside `test_feature_maps.py`, `test_feature_relevance.py`,
+  `test_wide_view_warning.py`, `test_latent_scale.py`, and `test_implementation_standards.py` (47 passed,
+  0 lint findings).
 
 ## D26 (linear SiMLR latents at the scale of u, 2026-11-04)
 status: done (released in v0.16.0; SiMLR cache rows refreshed in 4110375)

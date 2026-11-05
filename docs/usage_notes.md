@@ -226,6 +226,20 @@ fig = pysimlr.plotting.plot_brain_map(None, view=1, tiers=rel)   # tiers on the 
 - 1 = training only;
 - 0 = neither.
 
+**Wide views (p ≥ n).** The default `shrinkage="auto"` keeps the classical estimator (λ = 0) on a
+full-rank view with p < n, and switches to Ledoit–Wolf shrinkage otherwise.
+- **Two Ledoit–Wolf definitions:**
+  - `"ledoit_wolf"` takes λ from the view alone, so the permutation null is exact. `feature_relevance`
+    uses this one.
+  - `"ledoit_wolf_joint"` (in `feature_maps`) takes λ per target from [X, t], so the weights sum
+    exactly to the shrunk R².
+- **The λ used is always on record:**
+  - `rel["shrinkage_used"]` and the `summary` column `shrinkage`;
+  - `feature_maps(..., return_shrinkage=True)`;
+  - `loading_inference(...)["maps"]["relative_weight"]["rw_shrinkage"]`.
+- Held-out shares reuse the training λ. Where that estimator is undefined on the held-out rows, λ is
+  re-resolved and recorded in `shrinkage_used_test`.
+
 **How to read it.**
 - The test measures **concentration, not strength**. A single feature's null share is about
   Beta(½, (p − 1)/2), whatever the signal.

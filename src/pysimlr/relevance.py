@@ -44,7 +44,12 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 import numpy as np
 import torch
 
-from .loadings import _relative_weight_basis, _relative_weight_shares, _zscore
+from .loadings import (
+    _relative_weight_basis,
+    _relative_weight_basis_lam,
+    _relative_weight_shares,
+    _zscore,
+)
 
 _CHUNK = 5_000
 
@@ -119,19 +124,19 @@ def _group_index(names: Sequence[str], labels: Mapping[str, Mapping[str, str]], 
     return out
 
 
-def _view_test(xz, t, names, labels, min_size, n_perm, rng):
+def _view_test(xz, t, names, labels, min_size, n_perm, rng, shrinkage: Any = "auto"):
     live = xz.std(0) > 0
     nm = [n for n, k in zip(names, live) if k]
-    zo, lam2 = _relative_weight_basis(xz[:, live])
+    zo, lam2, lam = _relative_weight_basis_lam(xz[:, live], shrinkage)
     obs = _relative_weight_shares(zo, lam2, t[:, None])[:, 0]
     groups = _group_index(nm, labels, min_size)
     p, pg = _perm_pvalues(zo, lam2, t, obs, groups, n_perm, rng)
-    return nm, obs, p, groups, pg
+    return nm, obs, p, groups, pg, lam
 
 
 def _refit_task(args):
     (method, k, params, train, avail, eval_views, outcome, component, rows, names, labels,
-     min_size, n_perm, seed) = args
+     min_size, n_perm, shrinkages, seed) = args
     torch.set_num_threads(1)
     from .api import fit
     sub = [None if v is None else v[torch.as_tensor(rows)] for v in train]
@@ -141,14 +146,14 @@ def _refit_task(args):
     rng = np.random.default_rng(seed)
     out = {}
     for m, (xz, t) in per.items():
-        nm, _obs, p, _groups, pg = _view_test(xz, t, names[m], labels[m], min_size, n_perm, rng)
+        nm, _obs, p, _groups, pg, _lam = _view_test(xz, t, names[m], labels[m], min_size, n_perm, rng, shrinkages[m])
         out[m] = (nm, p, pg)
     return out
 
 
 def _null_refit_task(args):
     """Shares of view m after a refit with m's training rows shuffled against the other views."""
-    method, k, params, train, avail, m, outcome, component, live, seed = args
+    method, k, params, train, avail, m, outcome, component, live, shrinkage, seed = args
     torch.set_num_threads(1)
     from .api import fit
     sub = list(train)
@@ -156,7 +161,7 @@ def _null_refit_task(args):
     res = fit(method, sub, k, **params)
     _, _, per = _targets(res, sub, avail, [m], component, outcome)
     xz, t = per[m]
-    zo, lam2 = _relative_weight_basis(xz[:, live])
+    zo, lam2 = _relative_weight_basis(xz[:, live], shrinkage)
     return m, _relative_weight_shares(zo, lam2, t[:, None])[:, 0]
 
 
@@ -173,6 +178,7 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
                       *, outcome=None, outcome_test=None, component: Optional[int] = None,
                       views: Optional[Sequence[int]] = None, feature_names=None, view_names=None,
                       groups: Optional[Mapping[str, Any]] = None, min_group_size: int = 2, alpha: float = 0.05,
+                      shrinkage: Any = "auto",
                       n_permutations: int = 100_000, n_permutations_test: int = 50_000, n_refits: int = 10,
                       refit_permutations: int = 20_000, refit_fraction: float = 0.5, n_null_refits: int = 0,
                       random_state: int = 2026, n_jobs: int = 8) -> Dict[str, Any]:
@@ -199,6 +205,15 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
         ``{grouping: f}`` with ``f`` a callable ``feature name -> label or None`` or a dict; for example
         lobes and bilateral pairs. Groups with fewer than ``min_group_size`` features are dropped.
         Grouping names must not contain spaces.
+    shrinkage
+        Shrinkage for the relative-weight basis: ``"auto"`` (default: classical ``0.0`` when full-rank
+        ``p < n``, else ``"ledoit_wolf"`` so wide views and half-sample refits with ``p >= n_sub``
+        remain well-defined), ``"ledoit_wolf"``, ``0.0``, or a float in ``[0, 1)`` (or a per-view list).
+        ``"ledoit_wolf"`` here estimates lam from the view alone, so it does not depend on the target
+        and the permutation null is exact. The lam used is returned (``shrinkage_used``; also the
+        ``shrinkage`` column of ``summary``). Held-out shares reuse the training lam; only where that
+        estimator is undefined on the held-out rows is lam re-resolved with ``"auto"``
+        (``shrinkage_used_test`` records it). Half-sample refits resolve lam on their own rows.
     n_permutations, n_permutations_test
         Permutations of the target in training and in held-out data.
     n_refits, refit_permutations, refit_fraction
@@ -235,6 +250,12 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
     bad = [m for m in eval_views if m not in avail]
     if bad:
         raise ValueError(f"views {bad} are not available at test time.")
+    if isinstance(shrinkage, (list, tuple)):
+        if len(shrinkage) != n_views:
+            raise ValueError(f"shrinkage has {len(shrinkage)} entries; the fit has {n_views} views.")
+        shrinkages = list(shrinkage)
+    else:
+        shrinkages = [shrinkage] * n_views
     vnames = list(view_names) if view_names is not None else list(_names(result))
     names = {m: (list(feature_names[m]) if feature_names is not None else
                  [f"v{m}.{i}" for i in range(train[m].shape[1])]) for m in eval_views}
@@ -255,16 +276,24 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
         _, _, te = _targets(result, test, avail, eval_views, j, None, signs=signs)
     ref = {}
     for m in eval_views:
-        nm, obs, p, groups_m, pg = _view_test(*tr[m], names[m], labels[m], min_group_size, n_permutations, rng)
-        entry = dict(names=nm, obs=obs, p=p, groups=groups_m, pg=pg, obs_te=None, p_te=None, pg_te=None, r=None)
+        nm, obs, p, groups_m, pg, lam_tr = _view_test(
+            *tr[m], names[m], labels[m], min_group_size, n_permutations, rng, shrinkages[m])
+        entry = dict(names=nm, obs=obs, p=p, groups=groups_m, pg=pg, obs_te=None, p_te=None, pg_te=None, r=None,
+                     lam=lam_tr, lam_te=np.nan)
         if te is not None:
             xz_te, t_te = te[m]
             live = np.isin(names[m], nm)
             xz_te = xz_te[:, live]
-            zo, lam2 = _relative_weight_basis(xz_te)
+            # The training estimator (its lam) is applied to the held-out rows, so the two shares are
+            # comparable; only if it is undefined there (classical, but the held-out view is
+            # rank-deficient) is lam re-resolved with 'auto'. Both are recorded.
+            try:
+                zo, lam2, lam_te = _relative_weight_basis_lam(xz_te, lam_tr)
+            except ValueError:
+                zo, lam2, lam_te = _relative_weight_basis_lam(xz_te, "auto")
             obs_te = _relative_weight_shares(zo, lam2, t_te[:, None])[:, 0]
             p_te, pg_te = _perm_pvalues(zo, lam2, t_te, obs_te, groups_m, n_permutations_test, rng)
-            entry.update(obs_te=obs_te, p_te=p_te, pg_te=pg_te)
+            entry.update(obs_te=obs_te, p_te=p_te, pg_te=pg_te, lam_te=lam_te)
             if outcome_test is not None:
                 y = np.asarray(outcome_test, dtype=float).ravel()
                 entry["r"] = np.array([np.corrcoef(xz_te[:, i], y)[0, 1] for i in range(xz_te.shape[1])])
@@ -284,7 +313,7 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
             rows = np.sort(g.choice(n, round(refit_fraction * n), replace=False))
             tasks.append((result["method"], k, params, train, avail, eval_views, outcome,
                           None if outcome is not None else j, rows, names, labels, min_group_size,
-                          refit_permutations, int(g.integers(2 ** 31))))
+                          refit_permutations, shrinkages, int(g.integers(2 ** 31))))
         outs = _run(_refit_task, tasks, n_jobs)
         n_done = len(outs)
         for o in outs:
@@ -300,8 +329,8 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
         params = dict((result.get("parameters") or {}).get("used") or {})
         seeds = np.random.SeedSequence([random_state, 1]).spawn(n_null_refits * len(eval_views))
         tasks = [(result["method"], k, params, train, avail, m, outcome, None if outcome is not None else j,
-                  np.isin(names[m], ref[m]["names"]), int(np.random.default_rng(seeds[i * len(eval_views) + q])
-                                                          .integers(2 ** 31)))
+                  np.isin(names[m], ref[m]["names"]), shrinkages[m],
+                  int(np.random.default_rng(seeds[i * len(eval_views) + q]).integers(2 ** 31)))
                  for i in range(n_null_refits) for q, m in enumerate(eval_views)]
         for m, sh in _run(_null_refit_task, tasks, n_jobs):
             nulls[m].append(sh)
@@ -344,8 +373,11 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
         summ.append(dict(view=m, view_name=vnames[m], n_features=len(f_m),
                          n_train=sum(r["p_train"] < alpha for r in f_m),
                          n_test=sum(r["p_test"] < alpha for r in f_m),
-                         n_replicated=sum(r["tier"] == 2 for r in f_m), expected_by_chance=alpha * len(f_m)))
+                         n_replicated=sum(r["tier"] == 2 for r in f_m), expected_by_chance=alpha * len(f_m),
+                         shrinkage=float(e["lam"]), shrinkage_test=float(e["lam_te"])))
     return {"features": pd.DataFrame(rows_f), "groups": pd.DataFrame(rows_g), "summary": pd.DataFrame(summ),
             "component": j, "alpha": alpha, "n_refits": n_done, "n_null_refits": n_null_refits, "n_permutations": n_permutations,
             "n_permutations_test": n_permutations_test if test is not None else 0,
-            "view_names": vnames}
+            "view_names": vnames,
+            "shrinkage_used": {m: float(ref[m]["lam"]) for m in eval_views},
+            "shrinkage_used_test": {m: float(ref[m]["lam_te"]) for m in eval_views}}
