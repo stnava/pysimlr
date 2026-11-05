@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: `v0.22.0` released (`D38`: Yeo-17 parcel maps on the cortex via antsxviz 0.3.0; `D34` brain maps on every anatomy released in v0.21.0; `D36` convex and `D35` confound sink in v0.20.0).
+current phase: `v0.22.1` released (`D37`: Protocol B sex covariate fixed -- it was constant 0 -- and ADNI-MCI caches regenerated; `D38` Yeo parcel maps in v0.22.0; `D34` brain maps in v0.21.0; `D36` convex and `D35` confound sink in v0.20.0).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: D37 `fix/protocol-b-sex` (Protocol B sex covariate was constant 0; fix and ADNI-MCI cache regeneration in progress); open: relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: none in flight; open (D37 follow-ups): the attribution paragraph (03_experiments.qmd:596), Fig. 3.9 caption and panel A title, and appendix_operational.qmd:184 cite numbers/components that changed with the corrected sex covariate (components 1 and 2 swapped); ablation_k_sparsity_sweep.csv still uses the old covariate because the row-centred ICA fit fails at k=12 > 11 (cognitive view width) -- owner to choose drop k=12 or cap k; relevance on real wide data (IBD) untested; rendered book not yet re-rendered; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
 last updated: 2026-11-05
 
@@ -21,6 +21,55 @@ status: done (released in v0.22.0)
 - **Checked:** end-to-end through released antsxviz 0.3.0 (120 left-hemisphere parcels paint the left hemisphere
   only); the parcel annotation reproduces the Yeo-2011 7-network layout (antsxviz gallery).
 - **Tests:** `test_plot_brain_map_yeo_dispatch`; full suite 1890 passed, 2 xfailed; antsxqc.lint 0.
+
+## D37 (Protocol B sex covariate: PTGENDER is 0/1, the string test made it constant 0; ADNI caches regenerated, 2026-11-05)
+status: done (released in v0.22.1)
+
+- **Bug.** `data/adni/adni_mci_cognitive_merged.csv` codes `PTGENDER` as 0/1 (1 = male, 633;
+  0 = female, 451; written by `build_adni_mci_cognitive_cache.py`). Three builders tested
+  `astype(str).str.upper().str.startswith("F")`, a constant 0, so every ADNI-MCI experiment was
+  adjusted for age and education only: `paper_adni_ablations.protocol_b`,
+  `run_deep_benchmark.get_adni_mci_case`, `run_adni_mci_grid_sweep.build_adni_case_11`.
+  `real_data_design_sweep` (external ADNI table, strings) used `== "Male"`, which coded missing sex
+  as female instead of dropping the row.
+- **Fix.** `scripts/adni_covariates.ptgender_indicator`: 0/1 passes through; Male/Female/M/F map
+  explicitly (1 = male); other values, missing values (unless `allow_missing`) and a constant
+  column raise. All four sites use it. `benchmark_confound_sink.py` was already correct; the cache
+  builders and `adni_loader.py` read string columns correctly and are unchanged.
+  `protocol_b` also returns `cov_tr` / `cov_te`.
+- **Test.** `tests/test_adni_sex_covariate.py`: codings, refusals, and protocol_b's sex column equal
+  to `PTGENDER` on the real file (skipped when the file is absent).
+- **Caches regenerated** with their own scripts and the paper's settings:
+  - `paper_adni_ablations.py --workers 8 --only controls loadings quantile rowmean w`;
+  - `paper_adni_attribution.py`;
+  - `run_adni_mci_grid_sweep.py` (1025 configurations, none failed);
+  - new `refresh_adni_cache_rows.py`: reruns the 126 ADNI-MCI tasks of the five benchmark caches and
+    splices them in place (other datasets untouched; `provenance_adni_refresh_D37.json`).
+- **Attribution of the change.** The same generators at the same commit with the old covariate
+  (control run outside the repo) reproduce every old deep-benchmark, grid, control, w-sweep and
+  attribution number exactly, so those changes are the covariate alone. Exception: the old
+  row-centred ICA row (`rm_row_ica_pos_r2` 0.193) does not reproduce at this commit even with the
+  old covariate (0.138); it was already stale. New value 0.184.
+- **Headline changes (old -> new).** ADNI linear probe: best `NED` 0.209 -> 0.230 (+37.3% -> +55.2%
+  over `PCA`); `PCA` 0.152 -> 0.148; `SiMLR` 0.158 -> 0.174; rank 2 `NEDPP` -> `Flow-SiMR-V`.
+  Best single-axis RF: `SiMLR` 0.154 -> `Flow-SiMR-V` 0.172 (3.5 -> 4.1 x `PCA`). Sweep best `LEND`
+  0.2552 -> `Flow-SiMR-V` 0.2686; `PCA` 0.1779 -> 0.1869. Friedman tests stay significant
+  (linear p 0.015 -> 0.013). Controls: RF ratio over `PCA` 1.4-3.3 -> 1.1-6.0, rotation lowers RF in
+  3 (was 2) of 6 models.
+- **Attribution: components 1 and 2 swapped.** The DiReCT global factor is now consensus
+  component 1 (r = 0.84 with subject-mean thickness; hard assignment 62 / 0 / 0, was 2 / 60 / 0).
+  Component 1 carries the prediction in volume (R² 0.118) and vol/area (0.208); in DiReCT
+  thickness component 2 (0.084) and 3 (0.063) both carry some. The prose "Component 2 carries it in
+  every MRI view", the Fig. 3.9 panel A title and caption, and the `attr_*_c2_*` keys the paragraph
+  cites no longer describe the fit. Prose not edited.
+- **Not regenerated: `ablation_k_sparsity_sweep.csv`.** With the corrected covariate the row-centred
+  ICA fit at k = 12 raises in NSA-Flow ("unusable projection for a (11, 12) basis at w=0.5,
+  nonneg=True"): k exceeds the 11-column cognitive view. k = 2..11 fit. With the old covariate the
+  same fit happened to succeed. The cache is left as committed (old covariate) pending an owner
+  decision: drop k = 12 from the grid, or cap k at the narrowest view.
+- **Not regenerated:** `docs/audit/evidence/*` produced by other scripts that call `protocol_b` or
+  `get_adni_mci_case` (adni_global_factor_check, amigo_loadings_evaluation, view_weighting_selection,
+  adni_relevance_test, select_rank_speed, ...). `adni_rank_selection.csv` does not use the covariates.
 
 ## D36 (positivity = "linear" | "conical" | "convex"; convex inside every family; positivity validation, 2026-11-05)
 status: done (released in v0.20.0)

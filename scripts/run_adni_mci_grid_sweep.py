@@ -11,6 +11,7 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(REPO, "src"))  # nsa_flow comes from the environment (nsa_flow>=3.5.1)
+sys.path.insert(0, os.path.join(REPO, "scripts"))
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,8 @@ from sklearn.metrics import r2_score
 from sklearn.preprocessing import StandardScaler
 
 from pysimlr.benchmarks.runner import run_single_experiment
+
+from adni_covariates import ptgender_indicator
 
 warnings.filterwarnings("ignore")
 torch.set_num_threads(1)
@@ -39,7 +42,7 @@ def build_adni_case_11():
     cog11_cols = [c for c in df.columns if c.startswith("Cog__") and c not in drop_cols] + ["CDRSB"]
 
     n_samples = len(df)
-    sex_bin = (df["PTGENDER"].astype(str).str.upper().str.startswith("F")).astype(float).values
+    sex_bin = ptgender_indicator(df["PTGENDER"])  # 0/1 in this export (D37)
     covars = np.column_stack([np.ones(n_samples), df["AGE"].values, sex_bin, df["PTEDUCAT"].values]).astype(np.float32)
     y_cog11 = df[cog11_cols].values.astype(np.float32)
 

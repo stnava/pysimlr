@@ -48,6 +48,9 @@ from pysimlr.benchmarks.synthetic_cases import build_case
 from pysimlr.utils import procrustes_r2
 from pysimlr.benchmarks.metrics import support_recovery_score
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from adni_covariates import ptgender_indicator
+
 
 def get_diabetes_case(seed: int = 42) -> dict:
     data = load_diabetes()
@@ -215,7 +218,7 @@ def get_adni_mci_case(seed: int = 42) -> dict:
     cog_cols = [c for c in df.columns if c.startswith("Cog__") and c not in drop_cog] + ["CDRSB"]
 
     n_samples = len(df)
-    sex_bin = (df["PTGENDER"].astype(str).str.upper().str.startswith("F")).astype(float).values
+    sex_bin = ptgender_indicator(df["PTGENDER"])  # 0/1 in this export (D37)
     covars = np.column_stack([np.ones(n_samples), df["AGE"].values, sex_bin, df["PTEDUCAT"].values]).astype(np.float32)
     y_cog11 = df[cog_cols].values.astype(np.float32)
 
