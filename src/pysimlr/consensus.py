@@ -59,9 +59,7 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                             path_graph: Optional[Dict[int, List[int]]] = None,
                             prune_threshold: Optional[float] = None,
                             modality_weights: Optional[torch.Tensor] = None,
-                            frozen_map: Optional[Dict[str, Any]] = None,
-                            confound_basis: Optional[torch.Tensor] = None,
-                            confound_strength: float = 1.0) -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
+                            frozen_map: Optional[Dict[str, Any]] = None) -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
     """
     Combine modality-specific projections into a shared latent consensus (U).
     
@@ -87,14 +85,6 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         more samples than components; silently skipped otherwise. Note that the
         "svd" and "pca" mixing algorithms already yield orthogonal columns, so
         this only changes "avg", "newton" and "ica".
-    confound_basis : torch.Tensor, optional
-        Zero-mean orthonormal nuisance basis ``Q_C`` of shape ``(n, k_c)``.
-        When supplied with ``confound_strength > 0``, projections are deflated
-        via ``(I - gamma Q_C Q_C^T)`` before consensus mixing, and at
-        ``confound_strength == 1.0`` the resulting consensus ``U`` is projected
-        onto ``span(Q_C)^perp`` in float64.
-    confound_strength : float, default=1.0
-        Damping strength ``gamma`` in ``[0.0, 1.0]`` applied to `confound_basis`.
     """
     if not projections:
         return torch.empty(0)
@@ -124,17 +114,7 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                 f"Pass projections of width k, or use 'svd', 'pca' or 'ica'.")
     if k is None:
         k = projections[0].shape[1]
-
-    _gamma = float(confound_strength)
-    _q_basis: Optional[torch.Tensor] = None
-    if (confound_basis is not None and confound_basis.numel() > 0
-            and _gamma > 0.0 and projections[0].shape[0] == confound_basis.shape[0]):
-        _q_basis = confound_basis.to(device=projections[0].device, dtype=torch.float64)
-        projections = [
-            (p.double() - _gamma * (_q_basis @ (_q_basis.t() @ p.double()))).to(p.dtype)
-            for p in projections
-        ]
-
+        
     norm_projs = []
     for p in projections:
         p_safe = torch.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
@@ -260,39 +240,20 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         # same factor once the columns are mean-zero and hence preserves
         # orthogonality. This parameter was previously accepted and ignored, so
         # `simlr(..., orthogonalize_u=True)` did nothing at all.
-        if _q_basis is not None and _gamma >= 1.0 - 1e-12 and local_u.shape[0] == _q_basis.shape[0]:
-            lu64 = local_u.double()
-            lu64 = lu64 - _q_basis @ (_q_basis.t() @ lu64)
-            if ((orthogonalize or mixing_algorithm in ("svd", "pca", "newton"))
-                    and lu64.shape[0] > lu64.shape[1] and lu64.shape[1] > 1):
-                lu_c = lu64 - lu64.mean(0, keepdim=True)
-                lu_c = lu_c - _q_basis @ (_q_basis.t() @ lu_c)
-                u_o, s_o, vh_o = safe_svd(lu_c, full_matrices=False)
-                if u_o.shape[1] == lu64.shape[1] and float(s_o[-1].item()) > 1e-12:
-                    lu64 = u_o @ vh_o
-            if lu64.shape[0] > 1:
-                lu64 = lu64 - lu64.mean(0, keepdim=True)
-                lu64 = lu64 - _q_basis @ (_q_basis.t() @ lu64)
-                u_std64 = torch.std(lu64, dim=0, keepdim=True)
-                u_std64 = torch.where(torch.isnan(u_std64) | (u_std64 < 1e-12),
-                                      torch.ones_like(u_std64), u_std64)
-                lu64 = lu64 / u_std64
-            local_u = lu64.to(local_u.dtype)
-        else:
-            if orthogonalize and local_u.shape[0] > local_u.shape[1] and local_u.shape[1] > 1:
-                try:
-                    u_o, _, vh_o = safe_svd(local_u - local_u.mean(0, keepdim=True),
-                                            full_matrices=False)
-                    if u_o.shape[1] == local_u.shape[1]:
-                        local_u = u_o @ vh_o
-                except RuntimeError:
-                    pass
+        if orthogonalize and local_u.shape[0] > local_u.shape[1] and local_u.shape[1] > 1:
+            try:
+                u_o, _, vh_o = safe_svd(local_u - local_u.mean(0, keepdim=True),
+                                        full_matrices=False)
+                if u_o.shape[1] == local_u.shape[1]:
+                    local_u = u_o @ vh_o
+            except RuntimeError:
+                pass
 
-            if local_u.shape[0] > 1:
-                local_u = local_u - local_u.mean(0, keepdim=True)
-                u_std = torch.std(local_u, dim=0, keepdim=True)
-                u_std = torch.where(torch.isnan(u_std) | (u_std < 1e-6), torch.ones_like(u_std), u_std)
-                local_u = local_u / u_std
+        if local_u.shape[0] > 1:
+            local_u = local_u - local_u.mean(0, keepdim=True)
+            u_std = torch.std(local_u, dim=0, keepdim=True)
+            u_std = torch.where(torch.isnan(u_std) | (u_std < 1e-6), torch.ones_like(u_std), u_std)
+            local_u = local_u / u_std
             
         # Orient the freshly derived basis to the stored anchor before it is
         # handed back for EMA accumulation, so sign-flipped columns do not

@@ -51,7 +51,6 @@ def _views(seed=0, n=N):
 
 _SM = [torch.eye(p) * 0.5 + 0.5 / p for p in DIMS]
 _DOM = [torch.randn(2, p, generator=torch.Generator().manual_seed(1)) for p in DIMS]
-_CONF = _views()[0][:, :2] + 0.3 * torch.randn(N, 2, generator=torch.Generator().manual_seed(2))
 
 #: parameter -> two values that must produce different fits.
 EXERCISED = {
@@ -94,13 +93,6 @@ EXERCISED = {
     "domain_matrices": ({"domain_matrices": None},
                         {"domain_matrices": _DOM, "domain_lambdas": 1.0}),
     "topology": ({"topology": "star"}, {"topology": "loo"}),
-    "confounds": (None, _CONF),
-    "confound_strength": ({"confounds": _CONF, "confound_strength": 0.1},
-                          {"confounds": _CONF, "confound_strength": 1.0}),
-    "confound_rank": ({"confounds": _CONF, "confound_rank": 1},
-                      {"confounds": _CONF, "confound_rank": 2}),
-    "confound_partial_out": ({"confounds": _CONF, "confound_partial_out": True},
-                             {"confounds": _CONF, "confound_partial_out": False}),
     # `iterations` needs a fit with somewhere to go. From the default PCA
     # start on this fixture the *first* iterate is already the best, so
     # `best_v_mats` returns it whatever the budget -- measured identical

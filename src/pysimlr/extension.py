@@ -263,6 +263,31 @@ def _fill_missing(result: Dict[str, Any], orig: List[Optional[torch.Tensor]]) ->
     return [t if t is not None else torch.full((n, sizes[i]), float("nan")) for i, t in enumerate(orig)]
 
 
+def _apply_sink(x: torch.Tensor, sink: Dict[str, Any]) -> torch.Tensor:
+    from .confounds import apply_view_sink
+    return apply_view_sink(x, sink)[0]
+
+
+def _new_view_confounds(result: Dict[str, Any], confounds: Any, n: int) -> Optional[Dict[str, Any]]:
+    """Confounds for views added to a fit: required when the fit has a sink, refused otherwise."""
+    rec = result.get("confound_sink")
+    if rec is None:
+        if confounds is not None:
+            raise ValueError("confounds were given to extend, but the fit has no confound sink: its own "
+                             "views were not cleaned, so cleaning only the new view would mix the two. "
+                             "Refit with pysimlr.fit(..., confounds=...).")
+        return None
+    if confounds is None:
+        raise ValueError("this fit has a confound sink, so a new view must be cleaned too: pass "
+                         "confounds=<the confound matrix for the rows of `views`> to extend.")
+    from .confounds import _to_numpy
+    c = _to_numpy(confounds, "confounds")
+    if c.shape[0] != n:
+        raise ValueError(f"confounds has {c.shape[0]} rows; the views have {n}.")
+    prm = (result.get("parameters") or {}).get("used") or {}
+    return {"c": c, "gamma": float(rec["confound_strength"]), "rank": prm.get("confound_rank")}
+
+
 def _ext_latent(result: Dict[str, Any], name: str, x: torch.Tensor) -> torch.Tensor:
     from .utils import preprocess_data
     e = result["extensions"][name]
@@ -298,24 +323,15 @@ def predict_views(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
     u = subset_consensus(lat, maps)
     out = {"u": u, "latents": {(names[k] if isinstance(k, int) else k): v for k, v in lat.items()},
            "views_used": [names[i] for i in have] + list(ext)}
+    if result.get("confound_sink") is not None and have:
+        from .confounds import sink_scores
+        sc = sink_scores(result["confound_sink"], [orig[i] if i in have else None for i in range(len(orig))])
+        out["latents_sink"] = {names[i]: z for i, z in sc["latents_sink"].items()}
+        out["u_sink"] = sc["u_sink"]
     if base is not None:
         out["r2"] = {names[i]: base["r2"][i] for i in have}
         out["mse"] = {names[i]: base["mse"][i] for i in have}
         out["reconstructions"] = {names[i]: base["reconstructions"][i] for i in have}
-    if result.get("confound_sink") is not None:
-        if have:
-            from .confounds import predict_confound_sink
-            from .simlr import _scale_like_training
-            scaled_all = _scale_like_training(_fill_missing(result, orig), result)
-            u_sink, ls_list = predict_confound_sink(
-                [scaled_all[i] for i in have], result["confound_sink"], available_indices=have
-            )
-            out["u_sink"] = u_sink
-            out["latents_sink"] = {names[i]: ls for i, ls in zip(have, ls_list)}
-        else:
-            k_c = int(result["confound_sink"]["confound_rank"])
-            out["u_sink"] = torch.zeros((int(u.shape[0]), k_c), dtype=u.dtype, device=u.device)
-            out["latents_sink"] = {}
     return out
 
 
@@ -430,7 +446,8 @@ def fit_anchored_encoder(x: torch.Tensor, target: torch.Tensor, *, energy_type: 
 
 def _anchored_holdout(x: torch.Tensor, target: torch.Tensor, R: torch.Tensor,
                       scale_list: Sequence[str], settings: Dict[str, Any], *,
-                      holdout: float, rng: np.random.Generator) -> Tuple[Dict[str, Any], List[float]]:
+                      holdout: float, rng: np.random.Generator,
+                      sink_fit: Optional[Any] = None) -> Tuple[Dict[str, Any], List[float]]:
     """Held-out coupling check and per-component out-of-fold ``R^2`` for `_anchored`.
 
     For ``n >= 60`` one ``holdout`` split already has ``>= 12`` test rows; for
@@ -439,8 +456,21 @@ def _anchored_holdout(x: torch.Tensor, target: torch.Tensor, R: torch.Tensor,
     single-split variance.
     """
     from .similarity import SIGN_INVARIANT_ENERGIES
-    from .utils import preprocess_data
+    from .utils import preprocess_data as _prep
     n, k = int(target.shape[0]), int(target.shape[1])
+
+    def preprocess_data(xm, sl, prov=None, _rows=None):
+        # With a confound sink, the new view's sink is refitted on each split's
+        # training rows and replayed on its held-out rows (no leakage).
+        if sink_fit is None:
+            return _prep(xm, sl) if prov is None else _prep(xm, sl, prov)
+        if prov is None:
+            s_tr = sink_fit(_rows)
+            xp_, pv = _prep(_apply_sink(xm, s_tr), sl)
+            pv["confound_sink"] = s_tr
+            return xp_, pv
+        return _prep(xm, sl, prov)
+
     sign_inv = (settings.get("positivity") in ("positive", "hard", "nonnegative", "nonneg", "softplus")
                 and settings.get("energy_type") in SIGN_INVARIANT_ENERGIES)
     if n < 60:
@@ -453,7 +483,7 @@ def _anchored_holdout(x: torch.Tensor, target: torch.Tensor, R: torch.Tensor,
             if len(te) == 0:
                 continue
             tr = np.setdiff1d(np.arange(n), te)
-            xtr, ptr = preprocess_data(x[tr], scale_list)
+            xtr, ptr = preprocess_data(x[tr], scale_list, _rows=tr)
             fh = fit_anchored_encoder(xtr, target[tr], **settings)
             xte = preprocess_data(x[te], scale_list, ptr)
             ztr = (xtr.float() @ fh["v"]).double()
@@ -472,7 +502,7 @@ def _anchored_holdout(x: torch.Tensor, target: torch.Tensor, R: torch.Tensor,
     else:
         te = rng.choice(n, max(3, int(round(holdout * n))), replace=False)
         tr = np.setdiff1d(np.arange(n), te)
-        xtr, ptr = preprocess_data(x[tr], scale_list)
+        xtr, ptr = preprocess_data(x[tr], scale_list, _rows=tr)
         fh = fit_anchored_encoder(xtr, target[tr], **settings)
         xte = preprocess_data(x[te], scale_list, ptr)
         ztr = (xtr.float() @ fh["v"]).double()
@@ -497,7 +527,7 @@ def _anchored_holdout(x: torch.Tensor, target: torch.Tensor, R: torch.Tensor,
 def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, holdout: float = 0.2,
               energy_type: Optional[str] = None, positivity: Optional[str] = None, sparseness=None,
               nsa_w: Optional[float] = None, iterations: int = DEFAULT_SIMLR_ITERATIONS,
-              random_state: int = 0, warn: bool = True) -> Dict[str, Any]:
+              random_state: int = 0, warn: bool = True, confounds: Any = None) -> Dict[str, Any]:
     from .consensus import view_dofs
     from .loadings import olee_loadings, structure_coefficients, view_coupling_signs
     from .similarity import check_fit_energy
@@ -510,6 +540,7 @@ def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, 
         raise ValueError(f"new view names {clash} already exist in this result ({known}).")
     target = predict_views(result, views)["u"]
     n, k = target.shape
+    c_new = _new_view_confounds(result, confounds, int(n))
     pos = positivity or _used(result, "positivity", "either")
     e_used = energy_type or _used(result, "energy_type", "nc")
     try:
@@ -538,12 +569,25 @@ def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, 
         x = _to_tensor(raw)
         if x.shape[0] != n:
             raise ValueError(f"new view {nm!r} has {x.shape[0]} rows; the original views have {n}.")
-        xp, prov = preprocess_data(x, scale_list)
+        sink_fit = None
+        if c_new is not None:
+            from .confounds import fit_view_sink
+            gamma, rank = c_new["gamma"], c_new["rank"]
+
+            def sink_fit(rows, _x=x, _c=c_new["c"], _g=gamma, _r=rank):
+                rows = np.arange(_x.shape[0]) if rows is None else np.asarray(rows)
+                return fit_view_sink(_x[torch.as_tensor(rows)], _c[rows], _g, _r)
+            s_all = sink_fit(None)
+            xp, prov = preprocess_data(_apply_sink(x, s_all), scale_list)
+            prov["confound_sink"] = s_all
+        else:
+            xp, prov = preprocess_data(x, scale_list)
         settings = dict(energy_type=e_used, positivity=pos, sparseness=sp, nsa_w=w, iterations=iterations)
         hold = None
         oof_r2 = None
         if holdout and 0 < holdout < 1 and n >= 15:
-            hold, oof_r2 = _anchored_holdout(x, target, R, scale_list, settings, holdout=holdout, rng=rng)
+            hold, oof_r2 = _anchored_holdout(x, target, R, scale_list, settings, holdout=holdout, rng=rng,
+                                             sink_fit=sink_fit)
             if warn and float(np.nanmax(hold["coupling"])) < hold["null_bar"]:
                 warnings.warn(f"new view {nm!r} does not align with the model: held-out coupling "
                               f"{np.round(hold['coupling'], 3).tolist()} is below the null bar "
@@ -728,6 +772,9 @@ def reembed(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, mo
     joint_k = _combine_joint_k(k_used, policy=joint_k_policy, min_k=int(min_k))
     order = list(blocks)
     fit_kwargs = dict(kwargs)
+    if result.get("confound_sink") is not None and fit_kwargs.get("confounds") is None:
+        raise ValueError("this fit has a confound sink, so the re-embedding must clean the new views "
+                         "too: pass confounds=<the confound matrix for the rows of `views`> to reembed.")
     if "smoothing_matrices" in resolve_method(method).accepts:
         fit_kwargs.setdefault("smoothing_matrices", [torch.tensor(adjacency[nm]).float() for nm in order])
     re = _fit(method, [torch.tensor(blocks[nm]).float() for nm in order], int(joint_k), verbose=verbose,

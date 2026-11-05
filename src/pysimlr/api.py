@@ -61,6 +61,7 @@ from .optimizers import SIMLR_OPTIMIZER_DEFAULTS
 from .simlr import SIMLR_OPTIMIZER_KEYS, predict_simlr, simlr
 from .utils import basis_rank_report
 from .defaults import DEFAULT_NSA_W, check_nsa_w
+from .confounds import SINK_PARAMS
 
 FAMILIES = ("linear", "deep", "flow", "baseline")
 
@@ -319,7 +320,9 @@ _SPECS = [
 #: name -> spec. The single source of truth for what a method is called,
 #: what it accepts and how it predicts.
 METHODS: Mapping[str, MethodSpec] = types.MappingProxyType({s.name: s for s in _SPECS})
-_ALL_PARAMS = frozenset().union(*(s.accepts for s in _SPECS))
+#: Every method also takes the confound-sink parameters (`pysimlr.confounds`),
+#: which `fit` applies at the shared preprocessing layer.
+_ALL_PARAMS = frozenset().union(*(s.accepts for s in _SPECS)) | frozenset(SINK_PARAMS)
 
 REMOVED_METHODS: Mapping[str, str] = types.MappingProxyType({
     "simlr_lbfgsb": ("in 0.6.0; it was not competitive with 'hybrid_adam' on the default-selection "
@@ -353,7 +356,8 @@ def describe_method(name: str) -> Dict[str, Any]:
     return {"name": s.name, "family": s.family, "budget_unit": s.budget_unit,
             "description": s.description,
             "presets": dict(s.presets),
-            "parameters": {kk: vv for kk, vv in sorted(s.defaults.items()) if kk not in s.presets}}
+            "parameters": {kk: vv for kk, vv in sorted({**s.defaults, **SINK_PARAMS}.items())
+                           if kk not in s.presets}}
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +392,11 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
         does not apply to this method.
     **params
         Any parameter of any registered method (see `describe_method`).
+        ``confounds``, ``confound_strength`` and ``confound_rank`` apply to
+        every method: each view is cleaned of the nuisance its own features
+        predict, by an operator fitted on these rows and replayed by
+        `predict` without confound values (`pysimlr.confounds`). The record
+        is ``result["confound_sink"]`` (``None`` without confounds).
 
     Returns
     -------
@@ -400,6 +409,10 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
         and ``preset``.
     """
     spec = resolve_method(method)
+    sink_req = {kk: params.pop(kk) for kk in list(params) if kk in SINK_PARAMS}
+    if sink_req.get("confounds") is None and any(
+            kk in sink_req and sink_req[kk] != SINK_PARAMS[kk] for kk in ("confound_strength", "confound_rank")):
+        raise ValueError("confound_strength / confound_rank were set but confounds is None.")
     unknown = sorted(set(params) - _ALL_PARAMS)
     if unknown:
         raise TypeError(f"no pysimlr method has parameter(s) {unknown}; "
@@ -424,15 +437,29 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
                       RuntimeWarning, stacklevel=2)
     call = {**used, **spec.presets}
     view_list = as_views(views)
-    res = spec.fit(view_list, int(k), **call)
+    sink = None
+    if sink_req.get("confounds") is not None:
+        from .confounds import fit_confound_sink
+        fit_views, sink = fit_confound_sink(view_list, **sink_req)
+    else:
+        fit_views = view_list
+    res = spec.fit(fit_views, int(k), **call)
     _normalize(res)
     res["method"] = spec.name
     res["family"] = spec.family
+    res["confound_sink"] = None
+    if sink is not None:
+        # From here on every replay of the training preprocessing (predict,
+        # loadings, the grad-map certificate) cleans the raw views itself.
+        from .confounds import attach_sink
+        attach_sink(res, sink)
+    sink_used = {kk: sink_req.get(kk, SINK_PARAMS[kk]) for kk in SINK_PARAMS} if sink is not None else {}
     res["parameters"] = {
-        "requested": dict(params),
-        "used": call,
+        "requested": {**params, **sink_req},
+        "used": {**call, **sink_used},
         "ignored": ignored,
-        "defaults": {n: d for n, d in spec.defaults.items() if n not in call},
+        "defaults": {n: d for n, d in {**spec.defaults, **SINK_PARAMS}.items()
+                     if n not in call and n not in sink_used},
         "random_state": res.get("random_state"),
         "budget_unit": spec.budget_unit,
         "preset": dict(spec.presets),
@@ -445,6 +472,16 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
     res["loading_margin"], res["loading_rotation"] = lo["loading_margin"], lo["loading_rotation"]
     res["coupling_signs"] = lo["coupling_signs"]
     validate_result(res, n=view_list[0].shape[0], k=int(k), n_views=len(view_list))
+    if sink is not None:
+        # Decorrelation of the deployed estimator on the training rows: the
+        # predict path, not a projection of `u` (which would be exact by
+        # construction and say nothing about new subjects).
+        from .confounds import max_abs_corr
+        u_pred = predict(res, view_list)["u"]
+        rec = res["confound_sink"]
+        dec = max_abs_corr(u_pred, rec.pop("_c_std"))
+        rec["train_max_abs_corr"], rec["train_mean_abs_corr"] = dec["max"], dec["mean"]
+        rec["u_predict_max_abs_diff"] = float((u_pred.double() - res["u"].double()).abs().max())
     return res
 
 
@@ -523,6 +560,11 @@ def predict(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
     missing = [kk for kk in ("u", "latents", "reconstructions", "errors") if kk not in out]
     if missing:
         raise RuntimeError(f"{spec.name} predictor did not return {missing}.")
+    if result.get("confound_sink") is not None:
+        from .confounds import sink_scores
+        sc = sink_scores(result["confound_sink"], view_list)
+        out["latents_sink"] = [sc["latents_sink"].get(i) for i in range(len(view_list))]
+        out["u_sink"] = sc["u_sink"]
     xs, _ = _preprocess_views(view_list, result["scale_list"], result["provenance_list"])
     out["r2"], out["mse"] = [], []
     for x, r in zip(xs, out["reconstructions"]):

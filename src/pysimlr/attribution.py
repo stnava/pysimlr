@@ -51,10 +51,14 @@ def _refit_task(args):
         from .confounds import slice_confounds
         params = dict(params, confounds=slice_confounds(params["confounds"], rows))
     res = fit(method, sub, k, **params)
+    # Score the views the refit saw: its own confound sink, if any, cleans them.
+    from .confounds import clean_raw_views
+    tr_c = clean_raw_views(res, [np.asarray(x, dtype=np.float64)[rows] for x in train])
+    te_c = clean_raw_views(res, [None if x is None else np.asarray(x, dtype=np.float64) for x in test])
     out = {}
     for m in views:
         V = _np(res["v"][m])
-        xs, xt = np.asarray(train[m])[rows], np.asarray(test[m])
+        xs, xt = tr_c[m], te_c[m]
         r2 = [_r2(xs @ V[:, [j]], y_tr[rows], xt @ V[:, [j]], y_te) for j in range(V.shape[1])]
         j = int(np.argmax(r2))
         out[str(m)] = {"component": j + 1, "support": (V[:, j] > SUPPORT_TOL).astype(int).tolist(),
@@ -129,7 +133,10 @@ def component_attribution(result: Dict[str, Any], train_views: Sequence[Any], te
     V = {m: _np(result["v"][m]) for m in views}
     k = V[views[0]].shape[1]
     cols = [(m, j) for m in views for j in range(k)]
-    Ztr = np.hstack([train[m] @ V[m] for m in views]); Zte = np.hstack([test[m] @ V[m] for m in views])
+    # The views as the fit saw them: its confound sink, if any, cleans train and test rows alike.
+    from .confounds import clean_raw_views
+    train_c, test_c = clean_raw_views(result, train), clean_raw_views(result, test)
+    Ztr = np.hstack([train_c[m] @ V[m] for m in views]); Zte = np.hstack([test_c[m] @ V[m] for m in views])
     full = _r2(Ztr, y_tr, Zte, y_te)
     comps = []
     for c, (m, j) in enumerate(cols):
@@ -141,7 +148,7 @@ def component_attribution(result: Dict[str, Any], train_views: Sequence[Any], te
     U = _np(result["u"]) @ rot
     spectra, full_support = {}, {}
     for m in views:
-        X = train[m]; p = X.shape[1]
+        X = train_c[m]; p = X.shape[1]
         C = np.corrcoef(X.T); ev = np.clip(np.linalg.eigvalsh(C)[::-1], 0, None)
         gm = X.mean(1)
         hard = None

@@ -173,8 +173,11 @@ def _null_refit_task(args):
     sub = list(train)
     sub[m] = sub[m][perm]
     if params.get("confounds") is not None:
-        from .confounds import permute_single_view_confounds
-        params = dict(params, confounds=permute_single_view_confounds(params["confounds"], m, perm, len(train)))
+        # View m is permuted together with its own confound rows, so it is
+        # cleaned exactly as in the observed fit (`confounds.permute_view_confounds`).
+        from .confounds import permute_view_confounds
+        perms = [perm.numpy() if i == m else None for i in range(len(train))]
+        params = dict(params, confounds=permute_view_confounds(params["confounds"], perms))
     res = fit(method, sub, k, **params)
     _, _, per = _targets(res, sub, avail, [m], component, outcome)
     xz, t = per[m]
@@ -272,6 +275,8 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
         raise ValueError("probe_test_views requires probe_views.")
     probe_tr = None
     if probe_views is not None:
+        from .confounds import refuse_probe_views
+        refuse_probe_views(result, "feature_relevance")
         probe_tr = [_as_tensor(v) for v in probe_views]
         if len(probe_tr) != n_views:
             raise ValueError(f"probe_views has {len(probe_tr)} entries; the fit has {n_views}.")

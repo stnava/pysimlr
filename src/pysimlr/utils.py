@@ -1226,6 +1226,13 @@ def preprocess_data(x: torch.Tensor, scale_list: List[str], provenance: Optional
             )
         return provenance[key]
 
+    # A confound sink fitted by `pysimlr.fit(..., confounds=...)` is part of
+    # the view's preprocessing: it is replayed first, on the raw features,
+    # exactly as it was applied to the training rows (`pysimlr.confounds`).
+    if replay and "confound_sink" in provenance:
+        from .confounds import replay_sink
+        x_out = replay_sink(x_out, provenance)
+
     # Handle NaNs using provenance or current data
     if replay:
         nan_fill = _need("nan_fill")

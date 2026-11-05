@@ -528,6 +528,8 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     if probe_views is not None:
         if target != "other_views":
             raise ValueError("probe_views requires target='other_views' so probe features are scored against the other views.")
+        from .confounds import refuse_probe_views
+        refuse_probe_views(result, "feature_maps")
         p_items = list(probe_views)
         if len(p_items) != len(xs):
             raise ValueError(f"probe_views has {len(p_items)} entries; there are {len(xs)} views.")
@@ -762,9 +764,13 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     sizes = np.cumsum([0] + [c.shape[0] for c in c_ref])
     aligned, chosen = [], [[] for _ in c_ref]
     m = max(k + 2, int(round(fraction * n)))
-    from .confounds import permute_multiview_confounds, slice_confounds
     refit_params = dict(params)
-    has_confounds = refit_params.get("confounds") is not None
+    # Confounds follow their rows: a subsample refit gets the subsample's
+    # confound rows, and a permutation refit permutes each view together with
+    # its own confound rows, so every view of a null refit is cleaned exactly
+    # as in the observed fit (`pysimlr.confounds.permute_view_confounds`).
+    conf = refit_params.get("confounds")
+    from .confounds import permute_view_confounds, slice_confounds
     # Draw every index in the parent, in a fixed order, before any refit runs:
     # the result is then the same for every n_jobs.
     sub_idx = [np.sort(rng.choice(n, m, replace=False)) for _ in range(int(n_subsamples))]
@@ -774,8 +780,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     for idx in sub_idx:
         oob = np.setdiff1d(all_rows, idx, assume_unique=True)
         oob_v = [x[torch.as_tensor(oob)] for x in view_list] if len(oob) >= 2 else None
-        sub_p = (dict(refit_params, confounds=slice_confounds(refit_params["confounds"], idx))
-                 if has_confounds else refit_params)
+        sub_p = refit_params if conf is None else dict(refit_params, confounds=slice_confounds(conf, idx))
         task = (method, [x[torch.as_tensor(idx)] for x in view_list], oob_v, k, random_state, sub_p)
         if map_opts:
             t_opts = (dict(map_opts, probe_views=[None if pt is None else pt[torch.as_tensor(idx)]
@@ -783,12 +788,11 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                       if probe_tensors is not None else map_opts)
             task = task + (t_opts,)
         tasks.append(task)
-    for pis in perm_idx:
-        perm_p = (dict(refit_params,
-                       confounds=permute_multiview_confounds(refit_params["confounds"], pis, len(view_list)))
-                  if has_confounds else refit_params)
-        tasks.append((method, [view_list[0]] + [x[torch.as_tensor(pi)] for x, pi in zip(view_list[1:], pis)],
-                      None, k, random_state, perm_p))
+    tasks += [(method, [view_list[0]] + [x[torch.as_tensor(pi)] for x, pi in zip(view_list[1:], pis)],
+               None, k, random_state,
+               refit_params if conf is None else
+               dict(refit_params, confounds=permute_view_confounds(conf, [None] + list(pis))))
+              for pis in perm_idx]
     records = _run_fits(tasks, n_jobs, _executor)
     cosines, r2_splits, coups, conv_flags, eff_ranks = [], [], [], [], []
     map_aligned = {kk: [] for kk in maps}
