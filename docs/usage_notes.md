@@ -288,6 +288,9 @@ That way a table and a brain show the same thing:
     in that subject's space.
   - Colour limits: min..max of each map by default, `scale="zero_max"` for 0..max, `clim=` to set them; the same
     options apply to the DKT surface and to `plot_feature_map_grid`, so twins stay identical.
+- `plot_brain_map(res, view=m, atlas="yeo")`: Yeo-17 homotopic parcel values (`rsf_yeo_alff_ROI<n>_*`,
+  `rsf_yeo_falff_*`; `rsf_yeo_homotopic_*` paints both parcels of a pair) on the fsaverage cortex, same views and
+  colour-limit options as the DKT surface (antsxviz >= 0.3.0).
 - `plot_connectome(res, view=m)`: a component's map over network-pair features (`rsf_yeo_netconn_{a}_2_{b}`) as a
   Yeo-network connectome (3D, chord and block matrix).
   - ADNI output: `scripts/brain_region_maps.py` → `docs/figures/adni_dkt_feature_maps.png` and

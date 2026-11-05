@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pysimlr"
-version = "0.21.0"
+version = "0.22.0"
 description = "A professional PyTorch implementation of SIMLR"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -40,7 +40,7 @@ nsa = [
 # pysimlr install does not pull ANTsPy / pyvista; plot_brain_map raises an
 # ImportError naming this extra when it is missing.
 viz = [
-    "antsxviz>=0.2.0"
+    "antsxviz>=0.3.0"
 ]
 test = [
     "pytest",

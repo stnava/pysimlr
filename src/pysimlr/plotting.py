@@ -1460,7 +1460,9 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
     below; ``"hoa"`` (Harvard-Oxford subcortical) or ``"jhu"`` (JHU white-matter regions) as lit 3D
     structures inside a glass brain (``antsxviz.region_scene_figure``); ``"tracts"`` or
     ``"tract_sheets"`` the 20 population tracts as tubes or medial sheets
-    (``antsxviz.tract_scene_figure``). One row per map. Volumetric atlases read antsxmm column names
+    (``antsxviz.tract_scene_figure``); ``"yeo"`` Yeo-17 homotopic parcel values (``rsf_yeo_alff_ROI<n>_*``,
+    ``rsf_yeo_falff_*``, ``rsf_yeo_homotopic_*``) painted on the fsaverage cortex
+    (``antsxviz.yeo_surface_figure``). One row per map. Volumetric atlases read antsxmm column names
     as they are (e.g. ``FA_HOA_Thalamus_Left``, ``FA_JHU_labels_edited_Genu_of_corpus_callosum``,
     ``troi_fa_mean_Uncinate_fasciculus_L``); ``region_names`` ({feature: atlas feature name})
     renames features that do not follow that grammar. Features not drawn are listed in the subtitle.
@@ -1489,8 +1491,8 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
     if atlas != "dkt":
         if tiers is not None:
             raise ValueError("tiers= is drawn on the DKT surface only; use atlas='dkt'.")
-        if atlas not in ("hoa", "jhu", "tracts", "tract_sheets"):
-            raise ValueError(f"atlas must be 'dkt', 'hoa', 'jhu', 'tracts' or 'tract_sheets'; got {atlas!r}")
+        if atlas not in ("hoa", "jhu", "tracts", "tract_sheets", "yeo"):
+            raise ValueError(f"atlas must be 'dkt', 'hoa', 'jhu', 'tracts', 'tract_sheets' or 'yeo'; got {atlas!r}")
         enc = feature_map_values(res, maps, inf, component, view, kinds, feature_names, view_names)
         rename = dict(region_names or {})
         maps_ = {e["label"]: {rename.get(n, n): v for n, v in zip(e["names"], e["values"])} for e in enc.values()}
@@ -1498,6 +1500,9 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
         common = dict(units={e["label"]: e["units"] for e in enc.values()}, scale=scale, clim=clim,
                       view_color=view, subtitle=subtitle,
                       title=title or f"Component {component + 1} of {vname}: feature maps", **scene_kwargs)
+        if atlas == "yeo":
+            common.pop("view_color")
+            return av.yeo_surface_figure(maps_, **common)
         if atlas in ("hoa", "jhu"):
             return av.region_scene_figure(maps_, atlas, **common)
         return av.tract_scene_figure(maps_, style="sheets" if atlas == "tract_sheets" else "tubes", **common)

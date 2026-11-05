@@ -109,6 +109,7 @@ def _fake_scene_antsxviz(monkeypatch, seen):
     mod.region_scene_figure = record("region")
     mod.tract_scene_figure = record("tract")
     mod.connectome_figure = record("connectome")
+    mod.yeo_surface_figure = record("yeo")
     monkeypatch.setitem(sys.modules, "antsxviz", mod)
     monkeypatch.setitem(sys.modules, "antsxviz.scene", scene)
 
@@ -161,3 +162,15 @@ def test_dkt_scale_sets_row_limits():
     assert (rows["m"]["vmin"], rows["m"]["vmax"]) == (0.0, 0.5)
     _apply_scale(rows, "minmax", {"m": (0.0, 1.0)}, 0, av)
     assert (rows["m"]["vmin"], rows["m"]["vmax"]) == (0.0, 1.0)
+
+
+def test_plot_brain_map_yeo_dispatch(monkeypatch):
+    seen = {}
+    _fake_scene_antsxviz(monkeypatch, seen)
+    names0 = ["rsf_yeo_alff_ROI12_DefaultA_x", "rsf_yeo_homotopic_ROI3_a_ROI253_b", "rsf_yeo_netconn_nparcels_DefaultA"]
+    res, fn = _small_fit(names0)
+    assert pysimlr.plot_brain_map(res, view=0, kinds=("structure",), atlas="yeo", feature_names=fn,
+                                  clim=(0.0, 1.0)) == "fig"
+    assert seen["fn"] == "yeo" and seen["clim"] == (0.0, 1.0) and "view_color" not in seen
+    (row,) = seen["maps"].values()
+    assert list(row) == names0

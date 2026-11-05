@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: `v0.21.0` released (`D34`: brain maps on every anatomy -- 3D regions, tracts, tract sheets, connectomes via antsxviz 0.2.0 scenes; caller-set colour limits; `D36` convex positivity and `D35` confound sink released in v0.20.0).
+current phase: `v0.22.0` released (`D38`: Yeo-17 parcel maps on the cortex via antsxviz 0.3.0; `D34` brain maps on every anatomy released in v0.21.0; `D36` convex and `D35` confound sink in v0.20.0).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
 active work: D37 `fix/protocol-b-sex` (Protocol B sex covariate was constant 0; fix and ADNI-MCI cache regeneration in progress); open: relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
@@ -11,6 +11,16 @@ last updated: 2026-11-05
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D38 (Yeo-17 parcel maps on the cortex: `plot_brain_map(atlas="yeo")`, 2026-11-05)
+status: done (released in v0.22.0)
+- **New:** `plot_brain_map(..., atlas="yeo")` paints a component's maps over Yeo parcel features
+  (`rsf_yeo_alff_ROI<n>_*`, `rsf_yeo_falff_*`; `rsf_yeo_homotopic_*` on both parcels of a pair) on the fsaverage
+  cortex through `antsxviz.yeo_surface_figure` (antsxviz >= 0.3.0, antsxdata `display_atlases_mni` v3); the same
+  `scale`/`clim` options as every other atlas.
+- **Checked:** end-to-end through released antsxviz 0.3.0 (120 left-hemisphere parcels paint the left hemisphere
+  only); the parcel annotation reproduces the Yeo-2011 7-network layout (antsxviz gallery).
+- **Tests:** `test_plot_brain_map_yeo_dispatch`; full suite 1890 passed, 2 xfailed; antsxqc.lint 0.
 
 ## D36 (positivity = "linear" | "conical" | "convex"; convex inside every family; positivity validation, 2026-11-05)
 status: done (released in v0.20.0)
