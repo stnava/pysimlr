@@ -386,7 +386,9 @@ def fit_anchored_encoder(x: torch.Tensor, target: torch.Tensor, *, energy_type: 
     from .utils import ConvergenceMonitor
     x64, t64 = x.double(), target.double()
     ctype = "ortho" if nsa_w and nsa_w > 0 else "none"
-    nonneg = positivity in ("positive", "hard", "nonnegative", "nonneg", "softplus")
+    from .positivity import NONNEG, resolve_positivity
+    positivity = resolve_positivity(positivity)
+    nonneg = positivity in NONNEG
 
     def project(v):
         return simlr_sparseness(v, constraint_type=ctype, positivity=positivity, sparseness=sparseness,
@@ -401,7 +403,16 @@ def fit_anchored_encoder(x: torch.Tensor, target: torch.Tensor, *, energy_type: 
         pos_pole = v.clamp_min(0.0).norm(dim=0, keepdim=True)
         neg_pole = (-v).clamp_min(0.0).norm(dim=0, keepdim=True)
         v = torch.where(neg_pole > pos_pole, -v, v)
-    v = project(v / v.norm(dim=0, keepdim=True).clamp_min(1e-12))
+    if positivity == "convex":
+        # A feasible start on the simplex (each column at its stronger
+        # non-negative pole, rescaled to unit sum), as `initialize_simlr` does;
+        # the simplex projection's sparsity depends on the scale it is handed.
+        pos_pole = v.clamp_min(0.0).sum(dim=0, keepdim=True)
+        neg_pole = (-v).clamp_min(0.0).sum(dim=0, keepdim=True)
+        v = torch.where(neg_pole > pos_pole, -v, v).clamp_min(0.0)
+        v = project(v / v.sum(dim=0, keepdim=True))
+    else:
+        v = project(v / v.norm(dim=0, keepdim=True).clamp_min(1e-12))
     e = energy(v); hist = [e]; lr = float(learning_rate)
     mon = ConvergenceMonitor(tol=tol, patience=patience)
     stop, steps = "max_iter", 0
@@ -471,7 +482,8 @@ def _anchored_holdout(x: torch.Tensor, target: torch.Tensor, R: torch.Tensor,
             return xp_, pv
         return _prep(xm, sl, prov)
 
-    sign_inv = (settings.get("positivity") in ("positive", "hard", "nonnegative", "nonneg", "softplus")
+    from .positivity import is_nonneg
+    sign_inv = (is_nonneg(settings.get("positivity"))
                 and settings.get("energy_type") in SIGN_INVARIANT_ENERGIES)
     if n < 60:
         n_folds = min(5, max(3, int(round(1.0 / holdout))))

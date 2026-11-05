@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: `feat/confound-sink-fixes` (`D35`: confound sink for every method through `pysimlr.fit(..., confounds=...)`; `v0.19.0` released with `D33`; `D34` is reserved for `feat/brain-map-atlases`).
+current phase: `v0.20.0` released (`D36`: `positivity` = "linear" | "conical" | "convex", convex inside every model family, unknown values raise; `D35`: confound sink for every method through `pysimlr.fit(..., confounds=...)`, opt-in; `D34` is reserved for `feat/brain-map-atlases`, not yet merged).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: none; open: relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: D34 `feat/brain-map-atlases` (waits on antsxdata v0.6.0 / antsxviz 0.2.0); open: Protocol B sex covariate is constant 0 (`PTGENDER` coded 0/1 but tested for "F"), fix pending owner decision; relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
 last updated: 2026-11-05
 
@@ -12,8 +12,117 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D36 (positivity = "linear" | "conical" | "convex"; convex inside every family; positivity validation, 2026-11-05)
+status: done (released in v0.20.0)
+
+- **Vocabulary (`src/pysimlr/positivity.py`).** `resolve_positivity`, `is_nonneg` and `is_convex`.
+  - `"linear"` and `"conical"` are exact aliases of `"either"` and `"positive"` (bit-identical fits).
+  - `True`/`False` keep their meaning.
+  - **Bug fixed:** unknown strings now raise `ValueError` (non-strings raise `TypeError`).
+    Before, every membership test let them fall through as `"either"`, so
+    `positivity="conical"` (or a typo) silently fitted a signed basis.
+  - The ten duplicated tuples of non-negative values now read one `NONNEG` set.
+  - `parameters["used"]["positivity"]` keeps the caller's spelling, because refits replay
+    `used`. `parameters["positivity_resolved"]` holds the canonical value.
+- **`"convex"`: each column satisfies `v >= 0` and `sum(v) = 1`, enforced in the optimisation
+  of every family that has a basis.**
+  - *Linear `simlr`, all energies.* After the conical projection (NSA retraction, quantile
+    sparsity), each column goes through the Euclidean simplex projection (Duchi et al. 2008)
+    restricted to its current support: idempotent, and never densifies a sparse column.
+    The start point is the conical initialization rescaled to unit column sums.
+  - *Deep models (LEND / NED / NEDPP) and flows* (which share the first layer through
+    `_linear_encoders`). Inside `LENDNSAEncoder.v` the order is clamp → quantile →
+    column floor → the same projection. It is vectorised and piecewise linear, like
+    sparsemax, so gradients pass. `_finalize_bases` uses the same operator.
+  - *`fit_anchored_encoder` / `extend`.* Start on the simplex, then the same projection after
+    every step.
+  - *Predict, missing-view predict, `feature_relevance` and `loading_inference` refits.* These
+    use the stored or refitted `V` with no separate path.
+  - *Refusals.* Baselines (`pca`, `nsa_pipeline`) refuse `"convex"`; `consolidate=True`
+    refuses it.
+  - There is no rescaling fallback at the end of a fit.
+- **What convex changes mathematically.** Every energy except `recon` used to score
+  `V / ||V||_2` column by column. Under `"convex"`, the simplex replaces that unit-length
+  scaling: the energy sees `V` itself. Each latent is then a weighted feature average with
+  variance `vᵀΣv`, which is large when the selected features move together.
+  - That scale enters `nc` (normalized over the whole matrix, not per column), `acc`,
+    `procrustes`, the k × k contrasts, and `recon_r2`.
+  - For energies invariant column by column (`nc_abs`, `align`), convex changes the
+    projected-gradient path, not the objective.
+  - A unit test checks that a convex `nc` fit is not a column rescaling of the conical fit.
+- **Measured behaviour, reported as behaviour, not as a gate** (the owner ships convex for all
+  families).
+  - Protocol:
+    - ADNI-MCI Protocol B: k=3, CogPC1, random forest tuned within training rows, on the 9
+      standardized `X·V` read-out features.
+    - NHANES 2017-18 HDL: labs/diet/body, glucose removed, k=5, the same random-forest
+      read-out.
+    - Held-out cross-view coupling via `heldout_coupling`.
+    - Support Jaccard: matched columns (Hungarian), all seed pairs.
+    - Paired against conical on the same splits.
+  - Evidence: `docs/audit/evidence/convex_pilot_{cells,paired}.csv`; scripts in
+    `docs/audit/evidence/convex_pilot_scripts/`.
+
+  Linear `simlr`, `nc`, 10 seeds. Columns: random-forest R², conical → convex (mean
+  difference, seeds where convex was better) | held-out cross-view coupling difference |
+  support per column | support Jaccard | share of columns with ≤ 2 features.
+
+  | data, sparseness | RF R² | xview Δ | support | Jaccard | ≤2-feature cols |
+  |---|---|---|---|---|---|
+  | ADNI 0.85 | .214 → .207 (−.007, 5/10) | −.021 | 7.9 → 5.8 | .36 → .31 | .28 → .31 |
+  | ADNI 0.80 | .225 → .179 (−.046, 0/10) | +.011 | 8.1 → 6.2 | .33 → .36 | .31 → .34 |
+  | NHANES 0.50 (default) | .225 → .240 (+.015, 6/10) | −.004 | 6.3 → 5.7 | .64 → .63 | .37 → .35 |
+  | NHANES 0.80 | .241 → .258 (+.017, 8/10) | +.010 | 5.2 → 4.7 | .66 → .63 | .35 → .36 |
+
+  Per-seed random-forest differences, convex − conical, seeds 0–9:
+  - ADNI 0.85: −.034 +.009 +.006 +.025 −.055 +.003 −.023 −.007 +.024 −.021
+  - ADNI 0.80: −.032 −.034 −.014 −.023 −.076 −.031 −.043 −.045 −.097 −.069
+  - NHANES 0.5: −.008 +.040 +.050 +.019 +.001 −.017 −.007 +.054 +.017 −.004
+  - NHANES 0.8: −.023 +.006 +.047 +.037 +.010 +.028 −.015 +.047 +.028 +.006
+
+  Linear (signed) against conical, for reference:
+  - Sparseness 0.8: ADNI −.013 (3/10), NHANES +.007 (6/10).
+  - Default sparseness: ADNI −.002, NHANES +.058 (10/10).
+
+  Other energies, ADNI 0.85, 5 seeds, random-forest difference against conical:
+  - `nc_abs`: −.001 (per seed −.006 +.004 −.018 +.043 −.027); Jaccard .32 → .25.
+  - `recon_r2`: +.005 (+.004 −.029 +.024 +.003 +.021); coupling −.027; Jaccard .48 → .40.
+
+  Deep and flow, 3 seeds, default sparseness: random-forest difference against conical (per
+  seed) | coupling difference | Jaccard conical → convex.
+
+  | model | ADNI RF Δ | ADNI xview Δ | ADNI Jaccard | NHANES RF Δ | NHANES xview Δ | NHANES Jaccard |
+  |---|---|---|---|---|---|---|
+  | LEND | −.030 (−.035 −.015 −.041) | +.008 | .70 → .47 | −.037 (−.009 −.064 −.038) | +.000 | .72 → .62 |
+  | NED | +.002 (+.001 −.003 +.006) | −.114 | .74 → .39 | +.004 (+.025 −.003 −.011) | +.003 | .72 → .60 |
+  | NEDPP | +.008 (−.020 +.008 +.035) | −.072 | .68 → .30 | +.012 (−.051 +.073 +.013) | +.016 | .73 → .59 |
+  | flow_v | −.009 (−.027 +.007 −.007) | +.004 | .56 → .41 | −.009 (−.033 −.007 +.015) | −.000 | .53 → .59 |
+
+  - **Robustness.** Every convex fit had columns ≥ 0 summing to 1 within 1e-6, with no NaN or
+    dead columns.
+  - **Crash found and fixed.** Before the deep column floor was added, 3 of 24 deep/flow convex
+    fits raised `ValueError` because a clamp left a column with no positive entry (LEND NHANES
+    seed 0; flow_v ADNI and NHANES seed 2). Reviving the column with `enforce_column_floor`
+    before the projection fixed all three. Seeds that had not crashed were unchanged.
+  - **Control that did not ship** (keeping the unit-length scaling inside the energy, i.e. the
+    first pilot's design). Random-forest difference against conical: ADNI .85 −.002,
+    NHANES .5 +.015, ADNI .8 −.038, NHANES .8 −.008. Jaccard was lower than with the shipped
+    design (ADNI .28, NHANES .58 at default sparseness).
+  - **Limits.** Two datasets, small seed counts (3 for deep/flow), `nc` only for deep. These are
+    measurements, not a claim about other data.
+- **Open (not changed here).** On the deep path, `"nonnegative"` / `"nonneg"` match no branch
+  in `LENDNSAEncoder.v`: no clamp, no normalisation. This predates D36.
+- **Verification:**
+  - `tests/test_convex_positivity.py`: 37 tests covering the projection properties, gradcheck,
+    the resolver, aliases bit-identical (linear and deep), every family on the simplex, 8 linear
+    energies, predict and missing-view predict, `extend`, the `feature_relevance` and
+    `loading_inference` refits, the baseline refusal, the `consolidate` refusal, and the nsa_w
+    cap.
+  - Full suite: 1844 passed, 2 xfailed.
+  - `antsxqc.lint src tests`: 0 findings. Ruff: no new findings in changed files.
+
 ## D35 (confound sink for every method: `pysimlr.fit(..., confounds=...)`, 2026-11-05)
-status: done on `feat/confound-sink-fixes` (not merged). Supersedes the `simlr`-only sink of `f29c18c`
+status: done (released in v0.20.0). Supersedes the `simlr`-only sink of `f29c18c`
 (`feat/confound-sink`, labelled D34 there; D34 now belongs to `feat/brain-map-atlases`).
 - **Why the first version was replaced (review of `f29c18c`).**
   - The permutation null pooled per-view permuted copies of a shared confound matrix into a

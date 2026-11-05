@@ -524,6 +524,45 @@ per view, in the training standardisation.
   energy at the start of the fit, so their relative view weights depend on the initialisation.
   Prefer `nc` unless you need these specifically.
 
+## Constraining the basis (`positivity`)
+
+`positivity` constrains each basis column `v` (features × 1) on every method that has a basis:
+`simlr`, `lend`, `ned`, `ned_shared_private`, `flow_v`, and the anchored encoders of
+`pysimlr.extend`. The three names below form a hierarchy over how the features are combined.
+
+| value | aliases | constraint on each column | each latent `X v` is |
+|---|---|---|---|
+| `"linear"` | `"either"`, `False` (the default) | any real weights | a signed linear combination |
+| `"conical"` | `"positive"`, `"hard"`, `True` | `v ≥ 0` | a non-negative combination |
+| `"convex"` | — | `v ≥ 0` and `sum(v) = 1` | a weighted average of the (standardized) features |
+
+Other values that are still accepted: `"nonnegative"`/`"nonneg"` (the conical constraint with
+no reflection fallback) and `"softplus"` (deep only). `"negative"` is accepted on the linear
+path. Any other string raises `ValueError`.
+
+- **The aliases are exact.** `"linear"` and `"conical"` give fits bit-identical to `"either"`
+  and `"positive"`. `res["parameters"]["used"]["positivity"]` keeps the spelling you passed;
+  `res["parameters"]["positivity_resolved"]` is the canonical value.
+- **`"convex"` is enforced inside the optimisation, not as a rescaling at the end.**
+  - Linear path: every step ends with the Euclidean projection onto the probability simplex,
+    restricted to the column's current support, so a sparse column is never densified.
+  - Deep and flow models: the same projection is applied to the first-layer basis on every
+    forward pass. It is piecewise linear, like sparsemax, so gradients pass through it.
+- **The simplex replaces the unit-length column scaling.** The energy sees `V` with columns
+  summing to 1, so a latent's scale (`vᵀΣv`, large when the selected features move together)
+  enters every energy that is not invariant column by column: `nc` (normalized over the whole
+  matrix), `acc`, `procrustes`, the k × k contrasts, and `recon_r2`. A convex fit is therefore
+  not a rescaled conical fit.
+- **Refusals:**
+  - `pca` and `nsa_pipeline` have no basis constraint, so they refuse `"convex"`.
+  - `consolidate=True` is refused under `"convex"`.
+- **Measured behaviour (D36, ADNI-MCI and NHANES, reported, not a recommendation):**
+  - Held-out R² against conical moved by −0.05 to +0.02 depending on dataset, model family and
+    sparseness.
+  - Supports were somewhat smaller, and support stability across resamples was usually lower,
+    most markedly for the deep models.
+  - See `docs/tracking.md` D36 for the per-family tables.
+
 ## View weights (`dynamic_weights=True`, MAI)
 
 Off by default. When on, each view's weight in the consensus follows its modality alignment

@@ -419,6 +419,15 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
                         f"see pysimlr.describe_method(name) for each method's parameters.")
     used: Dict[str, Any] = {}
     ignored: Dict[str, str] = {}
+    from .positivity import resolve_positivity
+    positivity_resolved = None
+    if "positivity" in params:
+        positivity_resolved = resolve_positivity(params["positivity"])   # unknown values raise
+        if positivity_resolved == "convex" and "positivity" not in spec.accepts:
+            raise ValueError(f"{spec.name} has no basis constraint, so positivity='convex' "
+                             "cannot be applied; use a linear, deep or flow method.")
+    elif "positivity" in spec.accepts:
+        positivity_resolved = resolve_positivity(spec.defaults.get("positivity", "either"))
     for name, value in params.items():
         if name in spec.presets:
             if _same(value, spec.presets[name]):
@@ -464,6 +473,10 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
         "budget_unit": spec.budget_unit,
         "preset": dict(spec.presets),
     }
+    # `used` keeps the caller's spelling (refits replay it); this is the
+    # canonical value every method resolved it to ("linear" -> "either",
+    # "conical" -> "positive"). None for a method without the parameter.
+    res["parameters"]["positivity_resolved"] = positivity_resolved
     if spec.family in ("deep", "flow"):
         res["convergence"]["grad_map"] = _basis_grad_map(res, view_list)
     from .loadings import loadings as _loadings
@@ -503,7 +516,8 @@ def _basis_grad_map(res: Dict[str, Any], views: List[torch.Tensor]) -> Optional[
     used, defaults = res["parameters"]["used"], res["parameters"]["defaults"]
     energy_type = used.get("energy_type", defaults.get("energy_type"))
     positivity = used.get("positivity", defaults.get("positivity", "either"))
-    nonneg = positivity in ("positive", "hard", "nonnegative", "nonneg", "softplus")
+    from .positivity import is_nonneg
+    nonneg = is_nonneg(positivity)
     name = resolve_energy_name(energy_type, path="deep")
     xs, _ = _preprocess_views(views, res["scale_list"], res["provenance_list"])
     u_t = torch.as_tensor(u).detach().float()
