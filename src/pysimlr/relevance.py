@@ -44,7 +44,12 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 import numpy as np
 import torch
 
-from .loadings import _relative_weight_basis, _relative_weight_shares, _zscore
+from .loadings import (
+    _relative_weight_basis,
+    _relative_weight_basis_lam,
+    _relative_weight_shares,
+    _zscore,
+)
 
 _CHUNK = 5_000
 
@@ -122,11 +127,11 @@ def _group_index(names: Sequence[str], labels: Mapping[str, Mapping[str, str]], 
 def _view_test(xz, t, names, labels, min_size, n_perm, rng, shrinkage: Any = "auto"):
     live = xz.std(0) > 0
     nm = [n for n, k in zip(names, live) if k]
-    zo, lam2 = _relative_weight_basis(xz[:, live], shrinkage)
+    zo, lam2, lam = _relative_weight_basis_lam(xz[:, live], shrinkage)
     obs = _relative_weight_shares(zo, lam2, t[:, None])[:, 0]
     groups = _group_index(nm, labels, min_size)
     p, pg = _perm_pvalues(zo, lam2, t, obs, groups, n_perm, rng)
-    return nm, obs, p, groups, pg
+    return nm, obs, p, groups, pg, lam
 
 
 def _refit_task(args):
@@ -141,7 +146,7 @@ def _refit_task(args):
     rng = np.random.default_rng(seed)
     out = {}
     for m, (xz, t) in per.items():
-        nm, _obs, p, _groups, pg = _view_test(xz, t, names[m], labels[m], min_size, n_perm, rng, shrinkages[m])
+        nm, _obs, p, _groups, pg, _lam = _view_test(xz, t, names[m], labels[m], min_size, n_perm, rng, shrinkages[m])
         out[m] = (nm, p, pg)
     return out
 
@@ -204,6 +209,11 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
         Shrinkage for the relative-weight basis: ``"auto"`` (default: classical ``0.0`` when full-rank
         ``p < n``, else ``"ledoit_wolf"`` so wide views and half-sample refits with ``p >= n_sub``
         remain well-defined), ``"ledoit_wolf"``, ``0.0``, or a float in ``[0, 1)`` (or a per-view list).
+        ``"ledoit_wolf"`` here estimates lam from the view alone, so it does not depend on the target
+        and the permutation null is exact. The lam used is returned (``shrinkage_used``; also the
+        ``shrinkage`` column of ``summary``). Held-out shares reuse the training lam; only where that
+        estimator is undefined on the held-out rows is lam re-resolved with ``"auto"``
+        (``shrinkage_used_test`` records it). Half-sample refits resolve lam on their own rows.
     n_permutations, n_permutations_test
         Permutations of the target in training and in held-out data.
     n_refits, refit_permutations, refit_fraction
@@ -266,17 +276,24 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
         _, _, te = _targets(result, test, avail, eval_views, j, None, signs=signs)
     ref = {}
     for m in eval_views:
-        nm, obs, p, groups_m, pg = _view_test(
+        nm, obs, p, groups_m, pg, lam_tr = _view_test(
             *tr[m], names[m], labels[m], min_group_size, n_permutations, rng, shrinkages[m])
-        entry = dict(names=nm, obs=obs, p=p, groups=groups_m, pg=pg, obs_te=None, p_te=None, pg_te=None, r=None)
+        entry = dict(names=nm, obs=obs, p=p, groups=groups_m, pg=pg, obs_te=None, p_te=None, pg_te=None, r=None,
+                     lam=lam_tr, lam_te=np.nan)
         if te is not None:
             xz_te, t_te = te[m]
             live = np.isin(names[m], nm)
             xz_te = xz_te[:, live]
-            zo, lam2 = _relative_weight_basis(xz_te, shrinkages[m])
+            # The training estimator (its lam) is applied to the held-out rows, so the two shares are
+            # comparable; only if it is undefined there (classical, but the held-out view is
+            # rank-deficient) is lam re-resolved with 'auto'. Both are recorded.
+            try:
+                zo, lam2, lam_te = _relative_weight_basis_lam(xz_te, lam_tr)
+            except ValueError:
+                zo, lam2, lam_te = _relative_weight_basis_lam(xz_te, "auto")
             obs_te = _relative_weight_shares(zo, lam2, t_te[:, None])[:, 0]
             p_te, pg_te = _perm_pvalues(zo, lam2, t_te, obs_te, groups_m, n_permutations_test, rng)
-            entry.update(obs_te=obs_te, p_te=p_te, pg_te=pg_te)
+            entry.update(obs_te=obs_te, p_te=p_te, pg_te=pg_te, lam_te=lam_te)
             if outcome_test is not None:
                 y = np.asarray(outcome_test, dtype=float).ravel()
                 entry["r"] = np.array([np.corrcoef(xz_te[:, i], y)[0, 1] for i in range(xz_te.shape[1])])
@@ -356,8 +373,11 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
         summ.append(dict(view=m, view_name=vnames[m], n_features=len(f_m),
                          n_train=sum(r["p_train"] < alpha for r in f_m),
                          n_test=sum(r["p_test"] < alpha for r in f_m),
-                         n_replicated=sum(r["tier"] == 2 for r in f_m), expected_by_chance=alpha * len(f_m)))
+                         n_replicated=sum(r["tier"] == 2 for r in f_m), expected_by_chance=alpha * len(f_m),
+                         shrinkage=float(e["lam"]), shrinkage_test=float(e["lam_te"])))
     return {"features": pd.DataFrame(rows_f), "groups": pd.DataFrame(rows_g), "summary": pd.DataFrame(summ),
             "component": j, "alpha": alpha, "n_refits": n_done, "n_null_refits": n_null_refits, "n_permutations": n_permutations,
             "n_permutations_test": n_permutations_test if test is not None else 0,
-            "view_names": vnames}
+            "view_names": vnames,
+            "shrinkage_used": {m: float(ref[m]["lam"]) for m in eval_views},
+            "shrinkage_used_test": {m: float(ref[m]["lam_te"]) for m in eval_views}}

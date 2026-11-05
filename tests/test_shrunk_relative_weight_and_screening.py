@@ -10,7 +10,9 @@ from sklearn.covariance import LedoitWolf
 import pysimlr
 from pysimlr.loadings import (
     _relative_weight_basis,
+    _relative_weight_basis_lam,
     _relative_weight_map,
+    _relative_weight_map_lam,
     _relative_weight_shares,
     _zscore,
 )
@@ -124,6 +126,13 @@ def test_feature_relevance_recovers_planted_drivers_in_wide_view():
     assert (f0.tier[:4] == 2).sum() >= 3
     assert (f0.tier[4:] == 2).sum() <= 3
     assert np.isfinite(f0.refit_p05_freq).all() and np.isfinite(f0.p_null_refit).all()
+    # lam is on record: shrunk on the wide view, classical on the narrow one, and the held-out
+    # shares reuse the training lam.
+    lam = rel["shrinkage_used"]
+    assert lam[0] > 0.0 and lam[1] == 0.0
+    assert rel["shrinkage_used_test"] == lam
+    summ = rel["summary"].set_index("view")
+    assert np.isclose(summ.loc[0, "shrinkage"], lam[0]) and summ.loc[1, "shrinkage"] == 0.0
 
 
 def test_screen_wide_views_is_outcome_blind_and_suppresses_noise_coupling():
@@ -202,3 +211,57 @@ def test_screen_wide_views_is_outcome_blind_and_suppresses_noise_coupling():
         np.corrcoef(z0_gat_te.T, z_true[n_tr:].T)[:2, 2:], compute_uv=False
     ).mean()
     assert r2_gat > r2_raw + 0.08, (r2_raw, r2_gat)
+
+
+def test_relevance_lambda_does_not_depend_on_the_target():
+    """'ledoit_wolf' in the relevance basis comes from X alone, so permuting t cannot move it."""
+    rng = np.random.default_rng(5)
+    xz = _zscore(rng.standard_normal((40, 90)))
+    lam = _relative_weight_basis_lam(xz, "ledoit_wolf")[2]
+    assert 0.0 < lam < 1.0
+    assert lam == _relative_weight_basis_lam(xz, "auto")[2]
+    with pytest.raises(ValueError, match="depends on the target"):
+        _relative_weight_basis_lam(xz, "ledoit_wolf_joint")
+    t = _zscore(xz[:, :3].sum(1, keepdims=True) + rng.standard_normal((40, 1)))
+    lam_joint = _relative_weight_map_lam(xz, t, "ledoit_wolf_joint")[1][0]
+    lam_joint_perm = _relative_weight_map_lam(xz, t[rng.permutation(40)], "ledoit_wolf_joint")[1][0]
+    assert lam_joint != lam_joint_perm                     # why the joint form is kept out of the permutation test
+
+
+def test_feature_maps_returns_the_lambda_it_used():
+    rng = np.random.default_rng(9)
+    n = 60
+    s = rng.standard_normal(n)
+    xs = [torch.tensor(np.outer(s, rng.uniform(0.5, 1.0, p)) + rng.standard_normal((n, p))).float()
+          for p in (90, 12, 8)]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        res = pysimlr.fit("simlr", xs, 2, iterations=40, random_state=0)
+        maps, used = pysimlr.feature_maps(res, xs, kinds=("relative_weight",), rw_shrinkage="auto",
+                                          return_shrinkage=True)
+        x_only = pysimlr.feature_maps(res, xs, kinds=("relative_weight",), rw_shrinkage="ledoit_wolf",
+                                      return_shrinkage=True)[1]
+        plain = pysimlr.feature_maps(res, xs, kinds=("relative_weight",), rw_shrinkage="auto")
+    lam = [np.asarray(v) for v in used["relative_weight"]]
+    assert (lam[0] > 0).all() and (lam[1] == 0).all() and (lam[2] == 0).all()   # joint lam on the wide view only
+    lx = np.asarray(x_only["relative_weight"][0])
+    assert np.allclose(lx, lx[0]) and lx[0] > 0                                 # one X-only lam for every target
+    assert set(plain) == {"relative_weight"}                                    # default return is unchanged
+    assert all(torch.allclose(a, b, equal_nan=True) for a, b in zip(maps["relative_weight"], plain["relative_weight"]))
+
+
+def test_heldout_relevance_falls_back_on_record_when_training_lambda_is_undefined():
+    """Narrow in training (p < n_train) but wide in held-out (p >= n_test): lam re-resolved and recorded."""
+    rng = np.random.default_rng(13)
+    n_tr, n_te, p = 90, 40, 60
+    n = n_tr + n_te
+    s = rng.standard_normal(n)
+    xs = [torch.tensor(np.outer(s, rng.uniform(0.5, 1.2, q)) + rng.standard_normal((n, q))).float() for q in (p, 15, 10)]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        res = pysimlr.fit("simlr", [x[:n_tr] for x in xs], 2, iterations=40, random_state=0)
+        rel = pysimlr.feature_relevance(res, [x[:n_tr] for x in xs], [x[n_tr:] for x in xs], outcome=s[:n_tr],
+                                        views=(0,), n_permutations=300, n_permutations_test=300, n_refits=0, n_jobs=1)
+    assert rel["shrinkage_used"][0] == 0.0
+    assert rel["shrinkage_used_test"][0] > 0.0
+    assert np.isclose(rel["features"].share_test.sum(), 1.0)

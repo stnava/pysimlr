@@ -12,6 +12,31 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D29 (review fixes to D27 Part A: shrinkage on record, two named LW definitions, 2026-11-04)
+status: done on branch `feat/shrunk-rw` (from `feat/shrunk-relative-weight-highdim`; not merged)
+- **λ recorded.**
+  - `feature_relevance` returns `shrinkage_used` and `shrinkage_used_test`, plus `summary.shrinkage`
+    and `summary.shrinkage_test`.
+  - `feature_maps(..., return_shrinkage=True)` returns λ per target and view; the default return is
+    unchanged.
+  - `loading_inference` stores `maps["relative_weight"]["rw_shrinkage"]`.
+  - `"auto"` therefore never switches estimator off the record.
+- **Two definitions, named apart.**
+  - `"ledoit_wolf"` gives λ from X alone (relevance; the permutation null is exact, because λ cannot
+    move when t is permuted).
+  - `"ledoit_wolf_joint"` gives λ_j from [X, t_j] (feature maps; exact shrunk Schur R²).
+  - `"auto"` resolves to the first in relevance and the second in feature maps. The joint form is
+    refused by the relevance basis.
+- **Held-out uses the training λ.** It falls back to `"auto"` only where the classical estimator is
+  undefined on the held-out rows (p ≥ n_test), and that fallback is recorded.
+- **Gates:**
+  - full suite: 1778 passed, 2 xfailed;
+  - ADNI relevance equivalence: 222/222 features and 93/93 groups, tiers identical (max |Δ| 2e-10);
+  - 3 new tests (λ is target-independent; the λ record from `feature_maps`; the recorded held-out
+    fallback) and assertions added to the wide-view relevance test.
+- **Not changed:** Part B (`screening.py`). On IBD its default cap of 0.75·n binds every view at 123
+  features, and the gap falls only from 0.39 to 0.30. Part B is revised separately (D30).
+
 ## D27 (shrunk Johnson relative weights for p >= n and outcome-blind wide-view predictor gating, 2026-11-04)
 status: done on branch `feat/shrunk-relative-weight-highdim`
 - **Problem.**
