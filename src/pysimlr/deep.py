@@ -520,8 +520,8 @@ class LENDNSAEncoder(nn.Module):
                  soft_thresholding: bool = False, use_nsa: bool = True,
                  first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
         super().__init__()
-        from .positivity import resolve_positivity
-        positivity = resolve_positivity(positivity)   # aliases resolve; unknown values raise
+        from .positivity import resolve_deep_positivity
+        positivity = resolve_deep_positivity(positivity)   # aliases resolve; nonneg -> conical; unknown raise
         self.positivity = positivity
         self.sparseness = sparseness
         self.soft_thresholding = soft_thresholding
@@ -1441,8 +1441,8 @@ def _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=None):
     through and the diagnostics say so.
     """
     from .sparsification import simlr_sparseness, DEFAULT_SPARSENESS
-    from .positivity import resolve_positivity
-    positivity = resolve_positivity(positivity)
+    from .positivity import resolve_deep_positivity
+    positivity = resolve_deep_positivity(positivity)
     out, diags = [], []
     for idx, v in enumerate(v_mats):
         d = {}

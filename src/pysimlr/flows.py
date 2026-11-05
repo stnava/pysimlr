@@ -732,8 +732,8 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
         super().__init__()
         self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
                                     prune_threshold, dynamic_weights, mai_metric, use_rank_mai, dynamic_weights_start)
-        from .positivity import resolve_positivity
-        positivity = resolve_positivity(positivity)
+        from .positivity import resolve_deep_positivity
+        positivity = resolve_deep_positivity(positivity)
         self.input_dims = input_dims
         self.latent_dim = latent_dim
         self.is_flow = True

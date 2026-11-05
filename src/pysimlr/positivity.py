@@ -51,6 +51,22 @@ def resolve_positivity(positivity: Any) -> str:
     return key
 
 
+#: In the deep and flow encoders the non-negative spellings are one constraint: the conical one.
+DEEP_ALIASES = {"nonnegative": "positive", "nonneg": "positive"}
+
+
+def resolve_deep_positivity(positivity: Any) -> str:
+    """`resolve_positivity` for the deep and flow encoders, where ``"nonnegative"`` and ``"nonneg"``
+    mean conical (``"positive"``: clamp and the first-layer normalisation).
+
+    The linear path keeps ``"nonnegative"`` as a separate projection (no degeneracy fallback, see
+    `sparsification.apply_positivity`); the deep encoders have no such variant, and before this
+    mapping those spellings fell through every membership test and applied no constraint at all.
+    """
+    key = resolve_positivity(positivity)
+    return DEEP_ALIASES.get(key, key)
+
+
 def is_nonneg(positivity: Any) -> bool:
     """Whether ``positivity`` constrains the basis to be non-negative."""
     return resolve_positivity(positivity) in NONNEG

@@ -224,3 +224,25 @@ def test_consolidate_refuses_convex():
 def test_nsa_w_cap_still_enforced_under_convex():
     with pytest.raises(ValueError, match="nsa_w"):
         pysimlr.fit("simlr", _views(), 2, positivity="convex", nsa_w=1.0, iterations=3, random_state=0)
+
+
+@pytest.mark.parametrize("spelling", ["nonnegative", "nonneg"])
+def test_deep_nonneg_spellings_equal_conical(spelling):
+    """In the deep encoders 'nonnegative'/'nonneg' are conical: same constraint, bit-identical fit."""
+    import numpy as np
+    import torch
+    import pysimlr
+    from pysimlr.positivity import resolve_deep_positivity, resolve_positivity
+
+    assert resolve_deep_positivity(spelling) == "positive"
+    assert resolve_positivity(spelling) == spelling      # the linear path keeps its projection variant
+    g = np.random.default_rng(0)
+    z = g.standard_normal((60, 2))
+    xs = [torch.tensor(z @ g.standard_normal((2, p)) + 0.3 * g.standard_normal((60, p))).float() for p in (8, 6)]
+    a = pysimlr.fit("lend", xs, k=2, positivity=spelling, random_state=0, iterations=5)
+    b = pysimlr.fit("lend", xs, k=2, positivity="positive", random_state=0, iterations=5)
+    for va, vb in zip(a["v"], b["v"]):
+        va, vb = np.asarray(va.detach() if hasattr(va, "detach") else va), np.asarray(vb.detach() if hasattr(vb, "detach") else vb)
+        assert va.min() >= 0.0
+        np.testing.assert_array_equal(va, vb)
+    assert a["parameters"]["used"]["positivity"] == spelling

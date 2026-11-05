@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: `v0.22.1` released (`D37`: Protocol B sex covariate fixed -- it was constant 0 -- and ADNI-MCI caches regenerated; `D38` Yeo parcel maps in v0.22.0; `D34` brain maps in v0.21.0; `D36` convex and `D35` confound sink in v0.20.0).
+current phase: `v0.22.2` released (`D39`: deep/flow `nonnegative`/`nonneg` = conical; `D37` Protocol B sex fix in v0.22.1; `D38` Yeo parcel maps in v0.22.0).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
 active work: none in flight; open: rendered book not yet re-rendered (all referenced paper numbers resolve; 480 keys); relevance on real wide data (IBD) untested; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
@@ -11,6 +11,18 @@ last updated: 2026-11-05
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D39 (deep and flow encoders: `positivity="nonnegative"` / `"nonneg"` mean conical, 2026-11-05)
+status: done (released in v0.22.2)
+- **Bug (open in D36):** the deep encoders (LEND/NED/NEDPP) and flows tested positivity against
+  `{'positive', 'hard', 'convex'}`, so `"nonnegative"`/`"nonneg"` skipped the in-training clamp and quantile threshold
+  (only the NSA retraction treated them as non-negative). On a small LEND fit the bases differed from conical by up to
+  0.0022.
+- **Fix:** `positivity.resolve_deep_positivity` maps both spellings to `"positive"` at the deep encoder, at
+  `_finalize_bases` and in flows. The linear path keeps `"nonnegative"` as its documented projection variant (no
+  degeneracy fallback, `sparsification.apply_positivity`). `parameters["used"]` still records the spelling passed.
+- **Tests:** `test_deep_nonneg_spellings_equal_conical` (both spellings bit-identical to `"positive"` on LEND; the
+  linear resolver unchanged). Full suite 1901 passed, 2 xfailed; antsxqc.lint 0.
 
 ## D38 (Yeo-17 parcel maps on the cortex: `plot_brain_map(atlas="yeo")`, 2026-11-05)
 status: done (released in v0.22.0)
