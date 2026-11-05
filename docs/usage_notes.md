@@ -76,9 +76,17 @@ stool metabolomics (four 500-feature platforms plus 156 species, n = 165 trainin
 Independent noise views (three 120-feature views, n = 50) reach a training coupling of 0.88 and a
 held-out coupling of 0.03.
 
-For a wide view, judge coupling on held-out rows: `pysimlr.predict(res, held_out_views)["latents"]`
-against its `"u"`, or `plot_latent_coupling(res, pred)`. Alternatively, reduce the features before
-fitting.
+For a wide view, judge coupling on held-out rows with `pysimlr.heldout_coupling(res, held_out_views)`
+(`None` for a missing view). It returns, for training and held-out rows side by side:
+- per view and component, |corr(latent, u)|;
+- per component, the mean pairwise cross-view |corr|, and `cross_view_gap` (training − held-out).
+
+Measured values:
+- IBD: 1.00 in training against 0.58 held-out;
+- noise views with p ≥ n: 0.88–0.91 against 0.04–0.05;
+- a genuine shared signal: gap ≤ 0.03.
+
+Alternatively, reduce the features before fitting.
 
 ## What to interpret: structure and loadings, not `v`
 
