@@ -19,8 +19,13 @@ from scipy import stats
 import pysimlr
 from pysimlr.api import fit, predict
 from pysimlr.attribution import component_attribution
-from pysimlr.confounds import (apply_view_sink, confound_decorrelation, fit_confound_sink, max_abs_corr,
-                               permute_view_confounds)
+from pysimlr.confounds import (
+    apply_view_sink,
+    confound_decorrelation,
+    fit_confound_sink,
+    max_abs_corr,
+    permute_view_confounds,
+)
 from pysimlr.loadings import loading_inference, select_rank
 from pysimlr.relevance import feature_relevance
 from pysimlr.utils import heldout_coupling
@@ -28,11 +33,11 @@ from pysimlr.utils import heldout_coupling
 DIMS = (24, 30, 18)
 #: method -> budget keywords small enough for the suite.
 BUDGET = {
-    "simlr": dict(iterations=30),
-    "lend": dict(iterations=25),
-    "ned": dict(iterations=100),     # 25 epochs leave NED unconverged (held-out R ~0.5-0.7 even without confounds)
-    "ned_shared_private": dict(iterations=25),
-    "flow_v": dict(iterations=25),
+    "simlr": {"iterations": 30},
+    "lend": {"iterations": 25},
+    "ned": {"iterations": 100},     # 25 epochs leave NED unconverged (held-out R ~0.5-0.7 even without confounds)
+    "ned_shared_private": {"iterations": 25},
+    "flow_v": {"iterations": 25},
     "pca": {},
     "nsa_pipeline": {},
 }
@@ -88,11 +93,11 @@ def test_every_method_accepts_the_sink_parameters():
 
 
 @pytest.mark.parametrize("bad, match", [
-    (dict(confound_strength=1.5), "confound_strength"),
-    (dict(confound_strength=-0.1), "confound_strength"),
-    (dict(confound_strength=True), "confound_strength"),
-    (dict(confound_rank=0), "confound_rank"),
-    (dict(confound_rank=1.5), "confound_rank"),
+    ({"confound_strength": 1.5}, "confound_strength"),
+    ({"confound_strength": -0.1}, "confound_strength"),
+    ({"confound_strength": True}, "confound_strength"),
+    ({"confound_rank": 0}, "confound_rank"),
+    ({"confound_rank": 1.5}, "confound_rank"),
 ])
 def test_invalid_sink_parameters_raise(data, bad, match):
     xtr, _, _, _, ctr, _ = data
@@ -174,7 +179,7 @@ def test_a_view_spanned_by_the_confounds_raises():
 # ----------------------------------------------------------------------------- every family
 @pytest.mark.parametrize("method", list(BUDGET))
 def test_every_family_cleans_held_out_rows_without_test_confounds(data, method):
-    xtr, xte, ztr, zte, ctr, cte = data
+    xtr, xte, _ztr, zte, ctr, cte = data
     with _quiet():
         plain = fit(method, xtr, 2, random_state=0, **BUDGET[method])
         sink = fit(method, xtr, 2, random_state=0, confounds=ctr, **BUDGET[method])

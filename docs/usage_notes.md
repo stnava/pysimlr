@@ -624,83 +624,68 @@ three views.
   model; refit when the original model is weak.
 - **The new view's encoder is linear,** even for deep and flow models.
 
-## Confound Sink (`confounds`): multi-cohort scanner, motion, and QC isolation without test-time covariates
+## Confound sink (`confounds`): nuisance removal for every method, no test-time confounds
 
-In multi-site neuroimaging and multi-omics cohorts, nuisance factors — scanner/site shifts, head
-motion (`FD`, `DVARS`, eddy shift), blind-QC drift, or total intracranial volume (`ICV`) — often carry
-`3×`–`10×` more shared variance than focal pathology. Subtracting linear OLS residuals (`X - C B`)
-before `simlr` fails in two ways:
-
-1. **Breaks `positivity="positive"` (`V_m >= 0`):** scanner and motion artifacts act as signed dipoles
-   (for example anterior-vs-posterior ghosting or short-vs-long-range `FD` coupling). Pre-residualising
-   `X_train` introduces negative entries and sign-clipping distortion into anatomical cortical
-   thickness, FA, or CBF views, collapsing downstream biological associations.
-2. **Fails at clinical deployment (`N = 1` or missing `C_test`):** if `V_m` is fitted on residualised
-   `X_train`, projecting an unresidualised held-out scan `X_test @ V_m` (when `C_test` is unavailable,
-   unharmonised, or `N_test = 1` where batch regression has zero degrees of freedom) re-admits the
-   confound dipole directly into `pred["u"]`.
-
-Pass `confounds=` directly to `pysimlr.fit("simlr", ...)` (or `simlr(...)`, `loading_inference("simlr",
-...)`, `select_rank`, `feature_relevance`, `component_attribution`):
+`pysimlr.fit(method, views, k, confounds=C)` works for every registered method (`simlr`, `lend`,
+`ned`, `ned_shared_private`, `flow_v`, `pca`, `nsa_pipeline`). Before the method sees the data,
+each view is cleaned by a fixed affine map fitted on the training rows. The map is stored in the
+view's preprocessing provenance, so everything that replays preprocessing applies the same map:
+`predict`, missing-view `predict`, `loadings`, `feature_maps`, `heldout_coupling`,
+`feature_relevance`, and the refits of `loading_inference`, `select_rank` and
+`component_attribution`. Prediction needs no confound values.
 
 ```python
-# Shared confound matrix (n, q), 1-D vector (n,), DataFrame/Series (NaNs imputed internally),
-# OR per-view list [C_0, None, C_2] / dict {0: C_t1, 1: C_dti, 2: C_rsf}:
-res = pysimlr.fit(
-    "simlr",
-    train_views,
-    k=4,
-    positivity="positive",
-    energy_type="nc_abs",
-    confounds=train_confounds,      # training rows only; never needed at predict() time
-    confound_strength=1.0,          # 1.0 = exact orthogonalization; 0 < gamma < 1 = soft damping
-    confound_rank=None,             # optional cap on orthonormal nuisance basis Q_C
-    confound_partial_out=True,      # partial frozen sink projections out of X_m @ V_{m,bio}
-    random_state=0,
-)
-
-# Exact sample-space orthogonality on training rows (max |corr(u, C_train)| < 1e-5 at strength=1.0)
-assert res["confound_sink"]["max_abs_corr_after"] < 1e-5
-
-# Zero C_test needed at deployment; N = 1 single-subject and missing-modality dicts both work:
-pred = pysimlr.predict(res, test_views)                  # -> pred["u"], pred["u_sink"], pred["latents_sink"]
-pred_1 = pysimlr.predict(res, [v[:1] for v in test_views])
-pred_sub = pysimlr.predict(res, {0: test_views[0], 1: test_views[1]})  # view 2 missing
+res = pysimlr.fit("simlr", train_views, k=4, confounds=C_train)    # (n, q) array / DataFrame / Series,
+                                                                   # per-view list, or {view: C_m} dict
+pred = pysimlr.predict(res, test_views)                            # no C_test; N = 1 works
+pysimlr.confounds.confound_decorrelation(res, test_views, C_test)  # held-out max / mean |r(u, C)|
 ```
 
-### How it works
+### What the map is
 
-1. **Orthonormal nuisance basis (`Q_C`):** `confounds` are column-centred, `NaN`-imputed on training
-   rows, and reduced via rank-revealing SVD + QR re-orthonormalisation to `Q_C ∈ R^{n × k_c}` (capped
-   at `confound_rank` or `max(1, min(q_tot, n // 4))`). Per-view confounds build both view-specific
-   bases `Q_{C,m}` and a pooled global basis `Q_C`.
-2. **Signed sink encoders (`v_sink`) + non-negative biological encoders (`v`):** each view fits a
-   bounded-DOF GCV-ridge **signed** encoder `V_{m,sink} ∈ R^{p_m × k_c}` (`X_m V_{m,sink} ≈ Q_C`)
-   while `result["v"][m]` (`p_m × k`) optimizes only on deflated biological structure, strictly
-   preserving `V_{m,bio} >= 0` under `positivity="positive"`.
-3. **Covariate-free test partial-out (`confound_partial_out=True`):** training freezes
-   `B_m = Z_{m,sink,c}^† (X_m V_{m,bio})` alongside the affine consensus map, so any new subject
-   evaluates `Z_{m,bio} = X_m V_{m,bio} - γ Z_{m,sink,c} B_m` purely from `X_m` — requiring **zero
-   `C_test`** and guaranteeing exact `N = 1` batch invariance (`< 1e-7`).
-4. **Hard (`confound_strength=1.0`) vs soft (`0 < confound_strength < 1.0`):** use `1.0` (default) for
-   pure technical confounds (site/scanner IDs, `FD`, `DVARS`, ghosting). When biological severity
-   genuinely covaries with a nuisance variable (for example age or motor impairment covarying with head
-   motion), `confound_strength=0.6`–`0.8` initializes `V_0` on the biological support while retaining
-   shared biological variance during sweeps.
+For view `m`, the confounds are standardised and reduced to an orthonormal basis `Q_m` (`n x k_c`).
+The rank is capped at `confound_rank` or `n // 4`; a cap that binds warns. Constant columns are
+dropped and missing entries are mean-filled; both are recorded. `H_m` is an orthonormal basis of
+`X_c^T Q_m`: the feature directions along which the view covaries with the confounds. The cleaned
+view is
 
-### Measured performance (`scripts/benchmark_confound_sink.py`)
+    X_m - gamma (X_m - mu_m) H_m H_m^T,    gamma = confound_strength in [0, 1].
 
-4-cohort blast neuroimaging study (`N = 245` across `ExpArt`, `FPA`, `breacher`, `SOCOM`; `T1Hier`
-cortical thickness `p = 138`, `DTI` tract FA `p = 140`, `rsfMRI` ALFF+fALFF `p = 140`; `q = 10` cohort +
-`ICV` + `FD` + `DVARS` + eddy + blind-QC confounds; 5 stratified 70/30 splits, `k = 4`,
-`positivity="positive"`, **zero `C_test` at prediction**):
+At `gamma = 1`, every linear score of a cleaned training view has zero sample covariance with
+every confound column. The confound's feature pattern is removed from new rows without their
+confound values. `result["u"]` equals `predict(result, training_views)["u"]`. The decorrelation
+of that predict path is `result["confound_sink"]["train_max_abs_corr"]`. A view whose features the
+confounds span entirely (`p_m <= rank`) raises an error; give it fewer confounds with a per-view
+list. `predict` also returns `latents_sink` (per view: `(X - mu) H M`, an image-derived estimate
+of the confound basis) and `u_sink` (their mean over the views given, for shared confounds only).
 
-| method | train `max \|r(U,C)\|` | held-out `max \|r(U,C)\|` | missing-`rsfMRI` `max \|r(U,C)\|` | `u_sink` vs `C_test` `\|r\|` | age partial `\|r\|` | blast `log10_GBEV` partial `\|r\|` |
-|---|---|---|---|---|---|---|
-| Unadjusted `simlr` | 0.930 | 0.931 | 0.944 | — | 0.376 | 0.109 |
-| Naive pre-resid (no `C_test`) | 0.000 | 0.952 | 0.737 | — | 0.043 | 0.144 |
-| **`confounds` (`strength=1.0`, shared)** | **0.000** | **0.361** | **0.363** | **0.962** | **0.364** | **0.187** (`+72%`) |
-| **`confounds` (`strength=1.0`, per-view dict)** | **0.000** | **0.366** | **0.357** | **0.966** | **0.345** | **0.184** (`+69%`) |
+### What it costs: measured on ADNI-MCI
+
+`scripts/benchmark_confound_sink.py` → `docs/audit/evidence/confound_sink_adni_mci.{csv,json}`.
+Setup: 20 random 70/30 splits; confounds age, sex, education and head size; held-out rows only;
+outcome CogPC1 with a random-forest read-out. The rules were fixed before the run.
+
+| `simlr` | max \|r(u, C)\| | adjusted CogPC1 R² | cross-view coupling |
+|---|---|---|---|
+| unadjusted | 0.524 | 0.031 | 0.902 |
+| pre-residualised training rows only | 0.557 | -0.167 | 0.773 |
+| frozen training betas + `C_test` | 0.121 | 0.093 | 0.851 |
+| `confounds=`, strength 1 | **0.115** | **-0.009** | 0.843 |
+| `confounds=`, strength 0.5 | 0.491 | 0.036 | 0.878 |
+
+The `pca` baseline gives the same picture: max |r| 0.115 vs 0.128 frozen vs 0.823 unadjusted;
+adjusted R² -0.017 vs 0.106.
+
+Without `C_test`, the sink decorrelates as well as frozen betas with `C_test` (rules R1 and R2
+pass). It loses the confound-adjusted outcome signal (rule R3 fails: mean paired -0.10, worse by
+more than 0.05 in 18 of 20 splits). The reason is that the cognition-relevant atrophy lies along
+the same feature directions as age and head size, and the projection removes those directions.
+When per-subject confounds are available at deployment (they usually are: age, sex, site, motion
+and head size are measured per scan), residualise with frozen training betas instead. Use the sink
+when confound values will not be available for new subjects, and accept the loss of the biology
+that shares the confounds' feature directions. Strength 0.5 does not decorrelate (it only halves
+the variance along those directions). NHANES results: see `D35` in `docs/tracking.md`.
+
 
 ## Fused ridge (multi-task regression with fused coefficients)
 

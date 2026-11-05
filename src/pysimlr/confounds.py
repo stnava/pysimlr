@@ -57,25 +57,26 @@ view exactly as the observed fit does.
 from __future__ import annotations
 
 import warnings
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 import torch
 
 #: Parameters `pysimlr.fit` handles for every method.
-SINK_PARAMS: Dict[str, Any] = {"confounds": None, "confound_strength": 1.0, "confound_rank": None}
+SINK_PARAMS: dict[str, Any] = {"confounds": None, "confound_strength": 1.0, "confound_rank": None}
 
 
 
 # ----------------------------------------------------------------------------- validation
-def validate_confound_params(confound_strength: Any, confound_rank: Any) -> Tuple[float, Optional[int]]:
+def validate_confound_params(confound_strength: Any, confound_rank: Any) -> tuple[float, int | None]:
     """Validate `confound_strength` (a float in [0, 1]) and `confound_rank` (positive int or None)."""
     if isinstance(confound_strength, bool) or not isinstance(confound_strength, (int, float, np.floating, np.integer)):
-        raise ValueError(f"confound_strength must be a float in [0.0, 1.0]; got {confound_strength!r}.")
+        raise ValueError(f"confound_strength must be a float in [0.0, 1.0]; got {confound_strength!r}.")  # noqa: TRY004 -- one ValueError for every bad value, as elsewhere in pysimlr
     gamma = float(confound_strength)
     if not np.isfinite(gamma) or gamma < 0.0 or gamma > 1.0:
         raise ValueError(f"confound_strength must lie in [0.0, 1.0]; got {confound_strength!r}.")
-    rank: Optional[int] = None
+    rank: int | None = None
     if confound_rank is not None:
         if isinstance(confound_rank, bool) or not isinstance(confound_rank, (int, np.integer)) or int(confound_rank) < 1:
             raise ValueError(f"confound_rank must be a positive integer or None; got {confound_rank!r}.")
@@ -115,7 +116,7 @@ def _resolve_view_key(key: Any, n_views: int) -> int:
                      f"or 'view0'..'view{n_views - 1}'.")
 
 
-def per_view_confounds(confounds: Any, n_samples: int, n_views: int) -> Tuple[List[Optional[np.ndarray]], bool]:
+def per_view_confounds(confounds: Any, n_samples: int, n_views: int) -> tuple[list[np.ndarray | None], bool]:
     """``confounds`` as one ``(n, q_m)`` array (or None) per view, and whether it was one shared matrix.
 
     Accepts a shared ``(n, q)`` / ``(n,)`` array, tensor, DataFrame or Series;
@@ -132,7 +133,7 @@ def per_view_confounds(confounds: Any, n_samples: int, n_views: int) -> Tuple[Li
     if isinstance(confounds, Mapping):
         if not confounds:
             raise ValueError("confounds mapping is empty.")
-        out: List[Optional[np.ndarray]] = [None] * n_views
+        out: list[np.ndarray | None] = [None] * n_views
         for key, val in confounds.items():
             idx = _resolve_view_key(key, n_views)
             if out[idx] is not None:
@@ -143,7 +144,7 @@ def per_view_confounds(confounds: Any, n_samples: int, n_views: int) -> Tuple[Li
             raise ValueError(f"per-view confounds has {len(confounds)} entries; there are {n_views} views.")
         out = [None if val is None else _to_numpy(val, f"confounds[{i}]") for i, val in enumerate(confounds)]
     else:
-        raise ValueError(f"confounds must be an array, tensor, DataFrame/Series, a per-view list or a dict; "
+        raise ValueError(f"confounds must be an array, tensor, DataFrame/Series, a per-view list or a dict; "  # noqa: TRY004
                          f"got {type(confounds).__name__}.")
     if all(c is None for c in out):
         raise ValueError("confounds gives no confound matrix for any view.")
@@ -179,7 +180,7 @@ def slice_confounds(confounds: Any, indices: Any) -> Any:
     raise ValueError(f"cannot slice confounds of type {type(confounds).__name__}.")
 
 
-def permute_view_confounds(confounds: Any, perms: Sequence[Optional[np.ndarray]]) -> List[Any]:
+def permute_view_confounds(confounds: Any, perms: Sequence[np.ndarray | None]) -> list[Any]:
     """Per-view confounds whose rows follow each view's row permutation.
 
     ``perms[m]`` is the row order of view ``m`` in a null refit (``None``:
@@ -190,7 +191,7 @@ def permute_view_confounds(confounds: Any, perms: Sequence[Optional[np.ndarray]]
     """
     n_views = len(perms)
     if _is_single_matrix(confounds):
-        items: List[Any] = [confounds] * n_views
+        items: list[Any] = [confounds] * n_views
     elif isinstance(confounds, Mapping):
         items = [None] * n_views
         for key, val in confounds.items():
@@ -206,10 +207,10 @@ def permute_view_confounds(confounds: Any, perms: Sequence[Optional[np.ndarray]]
 
 
 # ----------------------------------------------------------------------------- confound basis
-def confound_basis(c_raw: np.ndarray, confound_rank: Optional[int]) -> Tuple[np.ndarray, Dict[str, Any]]:
+def confound_basis(c_raw: np.ndarray, confound_rank: int | None) -> tuple[np.ndarray, dict[str, Any]]:
     """Orthonormal zero-mean basis ``Q`` of the standardised confound columns, and what was done."""
     n, q = c_raw.shape
-    info: Dict[str, Any] = {"n_columns": int(q), "dropped_columns": [], "n_imputed": 0}
+    info: dict[str, Any] = {"n_columns": int(q), "dropped_columns": [], "n_imputed": 0}
     cols = []
     for j in range(q):
         col = c_raw[:, j]
@@ -245,7 +246,7 @@ def confound_basis(c_raw: np.ndarray, confound_rank: Optional[int]) -> Tuple[np.
 
 
 # ----------------------------------------------------------------------------- one view
-def fit_view_sink(x: Any, c_raw: np.ndarray, gamma: float, confound_rank: Optional[int]) -> Dict[str, Any]:
+def fit_view_sink(x: Any, c_raw: np.ndarray, gamma: float, confound_rank: int | None) -> dict[str, Any]:
     """Fit the cleaning operator of one view on its training rows (see module docstring)."""
     xa = (x.detach().cpu().double().numpy() if isinstance(x, torch.Tensor) else np.asarray(x, dtype=np.float64))
     if xa.shape[0] != c_raw.shape[0]:
@@ -276,7 +277,7 @@ def fit_view_sink(x: Any, c_raw: np.ndarray, gamma: float, confound_rank: Option
                      "train_confound_fit_r": fit_r}}
 
 
-def apply_view_sink(x: Any, sink: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
+def apply_view_sink(x: Any, sink: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
     """``(cleaned view, image-derived confound scores (X - mu) H M)`` for any rows of one view."""
     xa = (x.detach().cpu().double().numpy() if isinstance(x, torch.Tensor) else np.asarray(x, dtype=np.float64))
     if xa.ndim != 2 or xa.shape[1] != sink["mean"].shape[0]:
@@ -291,13 +292,13 @@ def apply_view_sink(x: Any, sink: Dict[str, Any]) -> Tuple[torch.Tensor, torch.T
 
 # ----------------------------------------------------------------------------- all views
 def fit_confound_sink(views: Sequence[torch.Tensor], confounds: Any, confound_strength: Any = 1.0,
-                      confound_rank: Any = None) -> Tuple[List[torch.Tensor], Dict[str, Any]]:
+                      confound_rank: Any = None) -> tuple[list[torch.Tensor], dict[str, Any]]:
     """Fit every view's operator on the training rows; return the cleaned views and the record."""
     gamma, rank = validate_confound_params(confound_strength, confound_rank)
     n = int(views[0].shape[0])
     per_view, shared = per_view_confounds(confounds, n, len(views))
-    sinks: List[Optional[Dict[str, Any]]] = []
-    cleaned: List[torch.Tensor] = []
+    sinks: list[dict[str, Any] | None] = []
+    cleaned: list[torch.Tensor] = []
     for x, c in zip(views, per_view):
         if c is None:
             sinks.append(None)
@@ -329,7 +330,7 @@ def _standardise_for_report(c: np.ndarray) -> np.ndarray:
     return np.column_stack(out) if out else np.zeros((c.shape[0], 0))
 
 
-def max_abs_corr(u: Any, c: Any) -> Dict[str, float]:
+def max_abs_corr(u: Any, c: Any) -> dict[str, float]:
     """``max`` and ``mean over confounds of the max over components`` of |Pearson r| (pairwise-complete)."""
     ua = np.asarray(u.detach().cpu().double() if isinstance(u, torch.Tensor) else u, dtype=np.float64)
     ca = np.asarray(c.detach().cpu().double() if isinstance(c, torch.Tensor) else c, dtype=np.float64)
@@ -347,7 +348,7 @@ def max_abs_corr(u: Any, c: Any) -> Dict[str, float]:
             "mean": float(r.max(axis=0).mean()) if r.size else 0.0}
 
 
-def confound_decorrelation(result: Dict[str, Any], views: Any, confounds: Any) -> Dict[str, float]:
+def confound_decorrelation(result: dict[str, Any], views: Any, confounds: Any) -> dict[str, float]:
     """|corr| between ``predict(result, views)["u"]`` and ``confounds`` (rows of `views`).
 
     The deployed estimator's decorrelation; use it on held-out rows. Works
@@ -361,9 +362,9 @@ def confound_decorrelation(result: Dict[str, Any], views: Any, confounds: Any) -
     return max_abs_corr(u, c)
 
 
-def sink_scores(record: Dict[str, Any], views: Sequence[Optional[torch.Tensor]]) -> Dict[str, Any]:
+def sink_scores(record: dict[str, Any], views: Sequence[torch.Tensor | None]) -> dict[str, Any]:
     """Per-view estimated confound scores, and their average over the given views when shared."""
-    lat: Dict[int, torch.Tensor] = {}
+    lat: dict[int, torch.Tensor] = {}
     for i, (x, s) in enumerate(zip(views, record["views"])):
         if x is None or s is None:
             continue
@@ -374,7 +375,7 @@ def sink_scores(record: Dict[str, Any], views: Sequence[Optional[torch.Tensor]])
     return {"latents_sink": lat, "u_sink": u_sink}
 
 
-def attach_sink(result: Dict[str, Any], record: Dict[str, Any]) -> None:
+def attach_sink(result: dict[str, Any], record: dict[str, Any]) -> None:
     """Put each view's operator into its replayed preprocessing and store the record."""
     prov = result.get("provenance_list")
     n_views = len(record["views"])
@@ -390,14 +391,14 @@ def attach_sink(result: Dict[str, Any], record: Dict[str, Any]) -> None:
     result["confound_sink"] = record
 
 
-def replay_sink(x: torch.Tensor, provenance: Optional[Dict[str, Any]]) -> torch.Tensor:
+def replay_sink(x: torch.Tensor, provenance: dict[str, Any] | None) -> torch.Tensor:
     """Apply a view's operator if its provenance carries one (called by `utils.preprocess_data`)."""
     if provenance is None or "confound_sink" not in provenance:
         return x
     return apply_view_sink(x, provenance["confound_sink"])[0].to(x.dtype)
 
 
-def clean_raw_views(result: Dict[str, Any], views: Sequence[Optional[Any]]) -> List[Optional[Any]]:
+def clean_raw_views(result: dict[str, Any], views: Sequence[Any | None]) -> list[Any | None]:
     """Apply a fit's operators to raw views (no other preprocessing); identity without a sink."""
     rec = result.get("confound_sink")
     if rec is None:
@@ -412,7 +413,7 @@ def clean_raw_views(result: Dict[str, Any], views: Sequence[Optional[Any]]) -> L
     return out
 
 
-def refuse_probe_views(result: Dict[str, Any], where: str) -> None:
+def refuse_probe_views(result: dict[str, Any], where: str) -> None:
     """Probe views are not cleaned by the sink; refuse rather than mix cleaned and uncleaned data."""
     if result.get("confound_sink") is not None:
         raise ValueError(
