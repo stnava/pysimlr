@@ -80,7 +80,7 @@ with theme():
     _mark(ax1, df_w["w"], df_w["Synth_Support_F1"], VIEW_COLORS[0])
     ax1.axvline(0.50, color="#898781", linestyle=":", lw=1.0)
     ax1.set_xlabel("Orthogonality weight w")
-    ax1.set_ylabel("Support recovery F1 (↑)")
+    ax1.set_ylabel("Support recovery F1 ($\\uparrow$)")
     ax1.set_title("A. Synthetic support F1")
     ax1.yaxis.grid(True)
 
@@ -89,7 +89,7 @@ with theme():
     ax2.set_yscale("log")
     ax2.axvline(0.50, color="#898781", linestyle=":", lw=1.0)
     ax2.set_xlabel("Orthogonality weight w")
-    ax2.set_ylabel("Gram defect D(V) (log ↓)")
+    ax2.set_ylabel("Gram defect D(V) (log, $\\downarrow$)")
     ax2.set_title("B. Orthogonality defect")
     ax2.yaxis.grid(True)
     ax2.legend(loc="upper right")
@@ -98,14 +98,14 @@ with theme():
     ax3.axhline(3.0, color="#898781", lw=0.9)
     ax3.axvline(0.50, color="#898781", linestyle=":", lw=1.0)
     ax3.set_xlabel("Orthogonality weight w")
-    ax3.set_ylabel("Effective rank (k = 3 ↑)")
+    ax3.set_ylabel("Effective rank (k = 3 $\\uparrow$)")
     ax3.set_title("C. ADNI basis rank")
     ax3.yaxis.grid(True)
 
     _mark(ax4, df_w["w"], df_w["ADNI_CogPC1_R2"], VIEW_COLORS[0], "o")
     ax4.axvline(0.50, color="#898781", linestyle=":", lw=1.0)
     ax4.set_xlabel("Orthogonality weight w")
-    ax4.set_ylabel("Held-out CogPC1 R² (↑)")
+    ax4.set_ylabel("Held-out CogPC1 R² ($\\uparrow$)")
     ax4.set_title("D. ADNI predictive plateau")
     ax4.yaxis.grid(True)
 
@@ -278,8 +278,8 @@ with theme():
 
     x = np.arange(len(regimes))
     w = 0.36
-    b1 = ax1.bar(x - w/2, v1_sp, w, label="Component 1 (v₁ Sparsity %)", color=VIEW_COLORS[0])
-    b2 = ax1.bar(x + w/2, v2k_sp, w, label="Components 2..k (v₂..ₖ Sparsity %)", color=VIEW_COLORS[2])
+    b1 = ax1.bar(x - w/2, v1_sp, w, label="Component 1 ($v_1$ Sparsity %)", color=VIEW_COLORS[0])
+    b2 = ax1.bar(x + w/2, v2k_sp, w, label="Components 2..k ($v_{2..k}$ Sparsity %)", color=VIEW_COLORS[2])
 
     for bars in (b1, b2):
         for bar in bars:
@@ -289,23 +289,25 @@ with theme():
     ax1.set_xticks(x)
     ax1.set_xticklabels(regimes, fontsize=8.3)
     ax1.set_ylim(0, 105)
-    ax1.set_ylabel("Cortical Basis Sparsity % (↑)")
+    ax1.set_ylabel("Cortical Basis Sparsity % ($\\uparrow$)")
     ax1.set_title("A. Component 1 vs. Components 2..k Sparsity")
     ax1.grid(True, axis="y")
-    ax1.legend(loc="upper left", fontsize=8.0)
+    ax1.set_ylim(0, 128)
+    ax1.set_yticks([0, 20, 40, 60, 80, 100])
+    ax1.legend(loc="upper left", fontsize=8.0, ncol=2, frameon=False)
 
     # Panel B: Latent Rank k Sweep
     for prep_lbl, col, mk in [("Col-Centered (PCA Init)", VIEW_COLORS[0], "o-"), ("Row-Centered (ICA Init)", VIEW_COLORS[2], "s--")]:
         sub_k = df_k[df_k["Regime"] == prep_lbl]
-        ax2.plot(sub_k["k"], sub_k["Sparsity_All"] * 100.0, mk, color=col, lw=1.9, markersize=6.0, label=f"{prep_lbl} All v₁..ₖ")
-        ax2.plot(sub_k["k"], sub_k["Sparsity_v2_k"] * 100.0, ":", color=col, lw=1.6, markersize=4.8, label=f"{prep_lbl} v₂..ₖ Only")
+        ax2.plot(sub_k["k"], sub_k["Sparsity_All"] * 100.0, mk, color=col, lw=1.9, markersize=6.0, label=f"{prep_lbl} All $v_{{1..k}}$")
+        ax2.plot(sub_k["k"], sub_k["Sparsity_v2_k"] * 100.0, ":", color=col, lw=1.6, markersize=4.8, label=f"{prep_lbl} $v_{{2..k}}$ Only")
 
     k_ticks = sorted(int(k) for k in df_k["k"].unique())
     ax2.set_xticks(k_ticks)
     ax2.set_xticklabels([f"k={k}" for k in k_ticks], fontsize=8.5)
     ax2.set_ylim(0, 100)
     ax2.set_xlabel("Latent Embedding Rank k")
-    ax2.set_ylabel("Unthresholded Sparsity % (↑)")
+    ax2.set_ylabel("Unthresholded Sparsity % ($\\uparrow$)")
     ax2.set_title("B. Natural Non-Negative Sparsity vs. Rank k")
     ax2.grid(True)
     ax2.legend(loc="lower right", fontsize=7.8)
