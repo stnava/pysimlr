@@ -12,6 +12,31 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D30 (D27 Part B screen: pooled BH gate; measured, opt-in, not a cure, 2026-11-04)
+status: done on branch `feat/screen-revise` (stacked on `feat/shrunk-rw`; not merged)
+- **Gate.** The per-feature cutoff is Benjamini–Hochberg over a pooled permutation null.
+  - The pooled null has B × p_live draws, so p resolves to 1 / (B·p). Per-feature counts stop at
+    1 / (B + 1) and could never pass BH over thousands of features.
+  - `summary` reports `n_pass_bh` and `n_pass_gate` beside `p_out`, so a binding width cap is
+    visible. The output gains `q_bh`.
+- **Evidence:** `scripts/screen_wide_views_check.py` → `docs/audit/evidence/screen_wide_views_check.csv`.
+  Rules were fixed before running.
+  - **IBD** (5 splits, n_train = 165). The gate passes almost every feature, because the platforms
+    share common factors, so the cap selects.
+    - Gap (training − held-out cross-view coupling): 0.40 / 0.33 / 0.19 / 0.13 / 0.02 at
+      `max_width_ratio` 0.5 / 0.3 / 0.2 / 0.1 / 0.05, against 0.39 for top-500 variance.
+    - SiMLR balanced accuracy: best 0.759 (ratio 0.1), against 0.732 for top-500.
+  - **Noise** (3 × 120, n_train = 50). The gate keeps the floor of 7 features per view, yet the gap
+    is 0.35 (0.85 unscreened).
+  - **Default rule:** no ratio qualifies. **Merge rule:** FAIL on all three criteria.
+- **Decision (per the approved plan):**
+  - the screen stays opt-in, its default unchanged (0.75), with the limitation in the module
+    docstring;
+  - `WideViewWarning` is not pointed at it;
+  - judge fits with `heldout_coupling`.
+- **Finding:** part of the overfit is fitting k components to few rows, not view width alone. A
+  7-feature noise view still overfits at n = 50, k = 5.
+
 ## D29 (review fixes to D27 Part A: shrinkage on record, two named LW definitions, 2026-11-04)
 status: done on branch `feat/shrunk-rw` (from `feat/shrunk-relative-weight-highdim`; not merged)
 - **λ recorded.**

@@ -28,6 +28,23 @@ themselves** (no outcome argument exists, and test rows are never seen):
    columns (``|r| > max_collinearity``) and optionally bounding the admitted
    width to ``floor(max_width_ratio * n)`` so ``p_out < n`` adapts smoothly with
    sample size rather than a fixed hand-chosen feature count.
+
+Measured limitation (``scripts/screen_wide_views_check.py``,
+``docs/audit/evidence/screen_wide_views_check.csv``; D30). The screen does **not** cure the wide-view
+overfit, so it is an opt-in tool, not a fix:
+
+* **IBD** (Franzosa 2019: four LC-MS platforms of 1622-2024 features plus 156 species; n_train = 165;
+  5 splits). The cross-view gate passes nearly every feature, because the platforms share large
+  common factors, so the width cap does the selecting.
+  - The training-minus-held-out coupling gap is 0.40 / 0.33 / 0.19 / 0.13 / 0.02 at
+    ``max_width_ratio`` = 0.5 / 0.3 / 0.2 / 0.1 / 0.05, against 0.39 for top-500 variance.
+  - SiMLR's held-out accuracy peaks at 0.759 (ratio 0.1) and is 0.712 at 0.05.
+  - No ratio met the pre-set rule (gap <= 0.10 with accuracy within 0.02 of the best).
+* **Pure-noise views** (3 x 120, n_train = 50). The gate correctly finds no signal and keeps the
+  floor of k + 2 features, yet the gap is still 0.35 (0.85 unscreened): fitting k components to so
+  few rows overfits on its own.
+
+Judge any fit with `pysimlr.heldout_coupling`.
 """
 from __future__ import annotations
 
@@ -75,6 +92,19 @@ def _compact_other_basis(us: Sequence[np.ndarray], exclude: int) -> np.ndarray:
     p_u, d_s, _ = np.linalg.svd(h, full_matrices=False)
     keep = d_s > 1e-12 * max(1.0, float(d_s[0]) if len(d_s) else 1.0)
     return p_u[:, keep] * d_s[None, keep]
+
+
+def _bh_qvalues(p: np.ndarray) -> np.ndarray:
+    """Benjamini-Hochberg adjusted p-values (monotone, capped at 1)."""
+    m = len(p)
+    if m == 0:
+        return p
+    order = np.argsort(p)
+    ranked = p[order] * m / np.arange(1, m + 1)
+    q = np.minimum.accumulate(ranked[::-1])[::-1]
+    out = np.empty(m)
+    out[order] = np.minimum(q, 1.0)
+    return out
 
 
 def _greedy_nonredundant(z: np.ndarray, order: np.ndarray, max_keep: int,
@@ -139,7 +169,8 @@ def screen_wide_views(
     subspace_rank
         Leading PCs per other view used to form the cross-view target subspace.
     alpha, alpha_view
-        Feature-level permutation cutoff ``p_perm < alpha`` and view-level
+        Feature-level cutoff: Benjamini-Hochberg ``q_bh < alpha`` over the view's features, with
+        ``p_perm`` from the pooled permutation null; and the view-level
         omnibus coupling cutoff on ``min(p_view_mean, p_view_max)``.
     n_permutations
         Row permutations of the other views' subspace basis for ``p_perm``,
@@ -231,6 +262,7 @@ def screen_wide_views(
     gated_fnames: list[list[str]] | None = [] if feature_names is not None else None
     comm_list: list[np.ndarray] = []
     pperm_list: list[np.ndarray] = []
+    qbh_list: list[np.ndarray] = []
     freq_list: list[np.ndarray] = []
     p_view_list: list[float] = []
     p_view_mean_list: list[float] = []
@@ -249,7 +281,7 @@ def screen_wide_views(
         obs = ((b_mat.T @ z) ** 2).sum(axis=0) if b_mat.shape[1] > 0 else np.zeros(p, dtype=np.float64)
         obs = np.where(live, obs, 0.0)
 
-        ge = np.zeros(p, dtype=np.int64)
+        pooled: list[np.ndarray] = []
         null_mean = np.zeros(n_permutations, dtype=np.float64)
         null_max = np.zeros(n_permutations, dtype=np.float64)
         if b_mat.shape[1] > 0 and live.any():
@@ -257,10 +289,23 @@ def screen_wide_views(
             for b in range(n_permutations):
                 bp = b_mat[rng.permutation(n)]
                 nh_live = ((bp.T @ z_live) ** 2).sum(axis=0)
-                ge[live] += nh_live >= obs[live]
+                pooled.append(nh_live)
                 null_mean[b] = float(nh_live.mean())
                 null_max[b] = float(nh_live.max())
-        p_perm = np.where(live, (1.0 + ge) / (n_permutations + 1.0), 1.0)
+        # Pooled permutation null: under the null every standardized feature's communality has
+        # nearly the same distribution (it depends only on the shared other-view basis), so the
+        # B x p_live null draws are pooled. That resolves p-values down to 1 / (B p_live), which a
+        # Benjamini-Hochberg gate over thousands of features needs; per-feature counts stop at
+        # 1 / (B + 1) and could never pass it.
+        p_perm = np.ones(p, dtype=np.float64)
+        q_bh = np.ones(p, dtype=np.float64)
+        if pooled:
+            null_all = np.sort(np.concatenate(pooled))
+            n_null = len(null_all)
+            ge_pool = n_null - np.searchsorted(null_all, obs[live], side="left")
+            p_live = (1.0 + ge_pool) / (n_null + 1.0)
+            p_perm[live] = p_live
+            q_bh[live] = _bh_qvalues(p_live)
         obs_live_mean = float(obs[live].mean()) if live.any() else 0.0
         obs_live_max = float(obs[live].max()) if live.any() else 0.0
         if live.any() and b_mat.shape[1] > 0:
@@ -300,7 +345,7 @@ def screen_wide_views(
             score = obs + 1e-3 * freq
             live_idx = np.flatnonzero(live)
             ranked_all = live_idx[np.argsort(-score[live_idx])]
-            pass_mask = live & ((p_perm < alpha) | (freq >= stability_threshold))
+            pass_mask = live & ((q_bh < alpha) | (freq >= stability_threshold))
             cand_idx = np.flatnonzero(pass_mask)
             ranked_cand = cand_idx[np.argsort(-score[cand_idx])]
             max_keep = cap_n if cap_to_sample_capacity else int(live.sum())
@@ -332,6 +377,7 @@ def screen_wide_views(
 
         comm_list.append(obs)
         pperm_list.append(p_perm)
+        qbh_list.append(q_bh)
         freq_list.append(freq)
         p_view_list.append(pv_omni)
         p_view_mean_list.append(pv_mean)
@@ -349,7 +395,8 @@ def screen_wide_views(
             "p_view": pv_omni,
             "p_view_mean": pv_mean,
             "p_view_max": pv_max,
-            "n_p_alpha": int((live & (p_perm < alpha)).sum()),
+            "n_pass_bh": int((live & (q_bh < alpha)).sum()),
+            "n_pass_gate": int((live & ((q_bh < alpha) | (freq >= stability_threshold))).sum()) if was_wide else int(live.sum()),
             "n_stable": int((live & (freq >= stability_threshold)).sum()),
         })
 
@@ -364,6 +411,7 @@ def screen_wide_views(
         "p_view_max": p_view_max_list,
         "communality": comm_list,
         "p_perm": pperm_list,
+        "q_bh": qbh_list,
         "selection_frequency": freq_list,
         "summary": pd.DataFrame(summary_rows),
         "n_samples": n,
