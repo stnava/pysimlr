@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: v0.17.0 released from `main` (D27–D30: shrunk relative weights with λ on record; heldout_coupling; opt-in wide-view screen with measured limitation).
+current phase: `main` post-v0.17.0 (D31: ICA initialization by deflation; D32: coarse-to-fine split-scale `probe_views` / `probe_test_views` across `feature_maps`, `loading_inference`, `feature_relevance`, and `plotting.feature_table`).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
 active work: none; open: relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
@@ -11,6 +11,36 @@ last updated: 2026-11-04
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D32 (coarse-to-fine split-scale readout via `probe_views` / `probe_test_views`, 2026-11-04)
+status: done (merged to main; not released)
+- **Problem.** `feature_maps`, `loading_inference`, `feature_relevance`, and `plotting.feature_table`
+  previously required every attributed matrix to have the exact columns fitted by `result["v"][m]`.
+  Multi-scale studies (`1,000+` connectome edges or white-matter tracts on `n < 150` subjects) had
+  to choose between fitting directly on `p >> n` (`D25` encoder noise-fitting) or running
+  `screen_wide_views` (`D30`, where broad cross-view normative factors crowd out focal pathology
+  drivers under the width cap).
+- **Fix.**
+  - `feature_maps(..., probe_views=None)`: computes latent scores from the fitted macro `views` and
+    evaluates any non-`None` `probe_views[m]` (`preprocess_data` with `result["scale_list"]`)
+    strictly against the *other* views' scores (`target="other_views"` enforced).
+  - `loading_inference(..., map_options={"probe_views": ...})`: fits and Procrustes-aligns each
+    subsample on the well-conditioned macro `views` while computing aligned subsample CIs,
+    stabilities and calibrated `q_m` selection frequencies on the matching subsample rows of
+    `probe_views`.
+  - `feature_relevance(..., probe_views=None, probe_test_views=None)`: computes targets, half-sample
+    refits and row-permuted null refits on `train_views` / `test_views` while evaluating shrunk
+    relative-weight shares, training/held-out permutation nulls and replication tiers on
+    `probe_views` / `probe_test_views` (replaying training probe provenance onto held-out probe rows).
+  - `plotting.feature_table`: adapts per-view feature rows automatically when a probed map's width
+    differs from `result["structure"][m]`, so `plot_brain_map`, `plot_feature_map_grid`,
+    `plot_feature_map_shift` and `plot_feature_map_comparison` work unchanged on fine probe views.
+- **Evidence:** `tests/test_coarse_to_fine_probe_views.py` (5 tests: bit-identical `0.0` diff when
+  `probe_views == train_views`; strict non-circularity under encoder perturbation; subsample
+  `loading_inference` + plotting tables; wide-probe `feature_relevance` with refits, null refits and
+  missing test views; and planted `44`-node -> `946`-edge connectome benchmark where coarse-to-fine
+  achieves `focal_edge_auc = 1.000, r_focal = 0.953, gap = 0.060` vs `screen_wide_views`
+  `auc = 0.48` and unscreened wide `gap = 0.225`).
 
 ## D31 (ICA initialization: deflation from a seeded orthogonal start, 2026-11-04)
 status: done (merged to main; not released)

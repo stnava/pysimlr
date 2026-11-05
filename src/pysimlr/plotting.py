@@ -387,27 +387,57 @@ def feature_table(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None,
     rows = []
     for m, C in enumerate(F["structure"]):
         p, k = C.shape
-        names = _view_feature_names(feature_names, m, p)
-        L = F["loadings"][m]
-        for j in range(k):
-            d = {"view": m, "view_name": vn[m], "feature": np.arange(p), "feature_name": names,
-                 "component": j + 1, "structure": C[:, j], "loading": L[:, j]}
-            if inf is not None:
-                lo = _np(inf["ci_low"][m])[:, j].astype(float); hi = _np(inf["ci_high"][m])[:, j].astype(float)
-                d.update(ci_low=lo, ci_high=hi, excludes_zero=(lo > 0) | (hi < 0),
-                         selected=_np(inf["selected"][m]).astype(bool),
-                         selection_frequency=_np(inf["selection_frequency"][m]).astype(float),
-                         component_stability=float(inf["component_stability"][m][j]))
-            for kk, (mv, e) in extra.items():
-                if kk == "structure" and "structure" in d:
-                    kk = "structure_other_views"
-                d[kk] = _np(mv[m])[:, j].astype(float)
-                if e is not None:
-                    d[f"{kk}_ci_low"] = _np(e["ci_low"][m])[:, j].astype(float)
-                    d[f"{kk}_ci_high"] = _np(e["ci_high"][m])[:, j].astype(float)
-                    d[f"{kk}_selection_frequency"] = _np(e["selection_frequency"][m]).astype(float)
-                    d[f"{kk}_stability"] = float(e["component_stability"][m][j])
-            rows.append(pd.DataFrame(d))
+        probe_sizes = {int(_np(mv[m]).shape[0]) for mv, _ in extra.values() if int(_np(mv[m]).shape[0]) != p}
+        if len(probe_sizes) > 1:
+            raise ValueError(f"view {m} has maps of inconsistent feature counts {sorted(probe_sizes)}.")
+        probe_p = next(iter(probe_sizes), None)
+        if probe_p is None:
+            names = _view_feature_names(feature_names, m, p)
+            L = F["loadings"][m]
+            for j in range(k):
+                d = {"view": m, "view_name": vn[m], "feature": np.arange(p), "feature_name": names,
+                     "component": j + 1, "structure": C[:, j], "loading": L[:, j]}
+                if inf is not None:
+                    lo = _np(inf["ci_low"][m])[:, j].astype(float); hi = _np(inf["ci_high"][m])[:, j].astype(float)
+                    d.update(ci_low=lo, ci_high=hi, excludes_zero=(lo > 0) | (hi < 0),
+                             selected=_np(inf["selected"][m]).astype(bool),
+                             selection_frequency=_np(inf["selection_frequency"][m]).astype(float),
+                             component_stability=float(inf["component_stability"][m][j]))
+                for kk, (mv, e) in extra.items():
+                    if kk == "structure" and "structure" in d:
+                        kk = "structure_other_views"
+                    d[kk] = _np(mv[m])[:, j].astype(float)
+                    if e is not None:
+                        d[f"{kk}_ci_low"] = _np(e["ci_low"][m])[:, j].astype(float)
+                        d[f"{kk}_ci_high"] = _np(e["ci_high"][m])[:, j].astype(float)
+                        d[f"{kk}_selection_frequency"] = _np(e["selection_frequency"][m]).astype(float)
+                        d[f"{kk}_stability"] = float(e["component_stability"][m][j])
+                rows.append(pd.DataFrame(d))
+        else:
+            names = _view_feature_names(feature_names, m, probe_p)
+            for j in range(k):
+                d = {"view": m, "view_name": vn[m], "feature": np.arange(probe_p), "feature_name": names,
+                     "component": j + 1, "loading": np.full(probe_p, np.nan)}
+                for kk, (mv, e) in extra.items():
+                    if int(_np(mv[m]).shape[0]) != probe_p:
+                        continue
+                    d[kk] = _np(mv[m])[:, j].astype(float)
+                    if e is not None:
+                        lo = _np(e["ci_low"][m])[:, j].astype(float)
+                        hi = _np(e["ci_high"][m])[:, j].astype(float)
+                        freq = _np(e["selection_frequency"][m]).astype(float)
+                        stab = float(e["component_stability"][m][j])
+                        if kk == "structure":
+                            d.update(ci_low=lo, ci_high=hi, excludes_zero=(lo > 0) | (hi < 0),
+                                     selected=freq >= 0.8, selection_frequency=freq, component_stability=stab)
+                        else:
+                            d[f"{kk}_ci_low"] = lo
+                            d[f"{kk}_ci_high"] = hi
+                            d[f"{kk}_selection_frequency"] = freq
+                            d[f"{kk}_stability"] = stab
+                if "structure" not in d:
+                    d["structure"] = np.full(probe_p, np.nan)
+                rows.append(pd.DataFrame(d))
     return pd.concat(rows, ignore_index=True)
 
 

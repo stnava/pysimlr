@@ -70,6 +70,8 @@ def _perm_pvalues(zo, lam2, t, obs, groups: Mapping[str, Sequence[int]], n_perm:
 def _as_tensor(x):
     if x is None:
         return None
+    if hasattr(x, "to_numpy"):
+        x = x.to_numpy()
     return x.detach().float() if isinstance(x, torch.Tensor) else torch.as_tensor(np.asarray(x)).float()
 
 
@@ -135,14 +137,21 @@ def _view_test(xz, t, names, labels, min_size, n_perm, rng, shrinkage: Any = "au
 
 
 def _refit_task(args):
-    (method, k, params, train, avail, eval_views, outcome, component, rows, names, labels,
+    (method, k, params, train, probe_tr, avail, eval_views, outcome, component, rows, names, labels,
      min_size, n_perm, shrinkages, seed) = args
     torch.set_num_threads(1)
     from .api import fit
-    sub = [None if v is None else v[torch.as_tensor(rows)] for v in train]
+    from .utils import preprocess_data
+    r_idx = torch.as_tensor(rows)
+    sub = [None if v is None else v[r_idx] for v in train]
     res = fit(method, sub, k, **params)
     y = None if outcome is None else np.asarray(outcome)[rows]
     _, _, per = _targets(res, sub, avail, eval_views, component, y)
+    if probe_tr is not None:
+        for m in eval_views:
+            if probe_tr[m] is not None:
+                xp, _ = preprocess_data(probe_tr[m][r_idx], res["scale_list"])
+                per[m] = (_zscore(xp.double().numpy()), per[m][1])
     rng = np.random.default_rng(seed)
     out = {}
     for m, (xz, t) in per.items():
@@ -153,14 +162,19 @@ def _refit_task(args):
 
 def _null_refit_task(args):
     """Shares of view m after a refit with m's training rows shuffled against the other views."""
-    method, k, params, train, avail, m, outcome, component, live, shrinkage, seed = args
+    method, k, params, train, probe_m, avail, m, outcome, component, live, shrinkage, seed = args
     torch.set_num_threads(1)
     from .api import fit
+    from .utils import preprocess_data
+    perm = torch.as_tensor(np.random.default_rng(seed).permutation(train[m].shape[0]))
     sub = list(train)
-    sub[m] = sub[m][torch.as_tensor(np.random.default_rng(seed).permutation(sub[m].shape[0]))]
+    sub[m] = sub[m][perm]
     res = fit(method, sub, k, **params)
     _, _, per = _targets(res, sub, avail, [m], component, outcome)
     xz, t = per[m]
+    if probe_m is not None:
+        xp, _ = preprocess_data(probe_m[perm], res["scale_list"])
+        xz = _zscore(xp.double().numpy())
     zo, lam2 = _relative_weight_basis(xz[:, live], shrinkage)
     return m, _relative_weight_shares(zo, lam2, t[:, None])[:, 0]
 
@@ -175,7 +189,9 @@ def _run(fn, tasks, n_jobs):
 
 
 def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_views: Optional[Sequence[Any]] = None,
-                      *, outcome=None, outcome_test=None, component: Optional[int] = None,
+                      *, probe_views: Optional[Sequence[Any]] = None,
+                      probe_test_views: Optional[Sequence[Any]] = None,
+                      outcome=None, outcome_test=None, component: Optional[int] = None,
                       views: Optional[Sequence[int]] = None, feature_names=None, view_names=None,
                       groups: Optional[Mapping[str, Any]] = None, min_group_size: int = 2, alpha: float = 0.05,
                       shrinkage: Any = "auto",
@@ -193,6 +209,12 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
     test_views
         Held-out subjects' views, in the same order; ``None`` for a view missing at test time. Without
         it there is no replication and no feature can reach tier 2.
+    probe_views, probe_test_views
+        Optional fine-grained feature matrices per view (``None`` for views kept at their fitted
+        resolution) implementing coarse-to-fine split-scale readout. Latent targets and refits are
+        computed from ``train_views`` / ``test_views`` while relative-weight shares, permutation nulls
+        and held-out replication are evaluated on the non-``None`` entries of ``probe_views`` /
+        ``probe_test_views`` against the *other* views' scores.
     outcome, outcome_test
         Optional per-subject outcome on the training / held-out rows. ``outcome`` chooses the
         component (the one most correlated with it) unless ``component`` is given; ``outcome_test``
@@ -235,19 +257,51 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
     import pandas as pd
 
     from .extension import view_names as _names
+    from .utils import preprocess_data
     train = [_as_tensor(v) for v in train_views]
     n_views = len(result["v"])
     if len(train) != n_views:
         raise ValueError(f"train_views has {len(train)} views; the fit has {n_views}.")
+    if probe_test_views is not None and probe_views is None:
+        raise ValueError("probe_test_views requires probe_views.")
+    probe_tr = None
+    if probe_views is not None:
+        probe_tr = [_as_tensor(v) for v in probe_views]
+        if len(probe_tr) != n_views:
+            raise ValueError(f"probe_views has {len(probe_tr)} entries; the fit has {n_views}.")
+        n_tr = int(train[0].shape[0])
+        for m, pv in enumerate(probe_tr):
+            if pv is not None and (pv.ndim != 2 or int(pv.shape[0]) != n_tr):
+                raise ValueError(f"probe_views[{m}] must be 2-D with {n_tr} rows; got shape {tuple(pv.shape)}.")
+    probe_te = None
     if test_views is not None:
         test = [_as_tensor(v) for v in test_views]
         if len(test) != n_views:
             raise ValueError(f"test_views has {len(test)} entries; the fit has {n_views} (use None for missing).")
         avail = [i for i, v in enumerate(test) if v is not None]
+        if probe_tr is not None:
+            if probe_test_views is None:
+                raise ValueError("probe_test_views is required when both test_views and probe_views are given.")
+            probe_te = [_as_tensor(v) for v in probe_test_views]
+            if len(probe_te) != n_views:
+                raise ValueError(f"probe_test_views has {len(probe_te)} entries; the fit has {n_views} (use None for missing).")
+            n_te = int(test[avail[0]].shape[0]) if avail else 0
+            for m, ptv in enumerate(probe_te):
+                if ptv is not None:
+                    if probe_tr[m] is None:
+                        raise ValueError(f"probe_test_views[{m}] is given, but probe_views[{m}] is None.")
+                    if ptv.ndim != 2 or int(ptv.shape[0]) != n_te:
+                        raise ValueError(f"probe_test_views[{m}] must be 2-D with {n_te} rows; got shape {tuple(ptv.shape)}.")
+                    if int(ptv.shape[1]) != int(probe_tr[m].shape[1]):
+                        raise ValueError(f"probe_test_views[{m}] has {int(ptv.shape[1])} features; "
+                                         f"probe_views[{m}] has {int(probe_tr[m].shape[1])}.")
+            avail_eval = [i for i in avail if probe_tr[i] is None or probe_te[i] is not None]
+        else:
+            avail_eval = list(avail)
     else:
-        test, avail = None, list(range(n_views))
-    eval_views = list(views) if views is not None else list(avail)
-    bad = [m for m in eval_views if m not in avail]
+        test, avail, avail_eval = None, list(range(n_views)), list(range(n_views))
+    eval_views = list(views) if views is not None else list(avail_eval)
+    bad = [m for m in eval_views if m not in avail_eval]
     if bad:
         raise ValueError(f"views {bad} are not available at test time.")
     if isinstance(shrinkage, (list, tuple)):
@@ -257,8 +311,15 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
     else:
         shrinkages = [shrinkage] * n_views
     vnames = list(view_names) if view_names is not None else list(_names(result))
+
+    def _width(m: int) -> int:
+        return int(probe_tr[m].shape[1]) if (probe_tr is not None and probe_tr[m] is not None) else int(train[m].shape[1])
+
     names = {m: (list(feature_names[m]) if feature_names is not None else
-                 [f"v{m}.{i}" for i in range(train[m].shape[1])]) for m in eval_views}
+                 [f"v{m}.{i}" for i in range(_width(m))]) for m in eval_views}
+    for m in eval_views:
+        if len(names[m]) != _width(m):
+            raise ValueError(f"feature_names[{m}] has {len(names[m])} names; view {m} has {_width(m)} features.")
     bad = [g for g in (groups or {}) if " " in str(g)]
     if bad:
         raise ValueError(f"grouping names must not contain spaces: {bad}")
@@ -274,6 +335,14 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
     te = None
     if test is not None:
         _, _, te = _targets(result, test, avail, eval_views, j, None, signs=signs)
+    if probe_tr is not None:
+        for m in eval_views:
+            if probe_tr[m] is not None:
+                xp_tr, prov_m = preprocess_data(probe_tr[m], result["scale_list"])
+                tr[m] = (_zscore(xp_tr.double().numpy()), tr[m][1])
+                if te is not None:
+                    xp_te = preprocess_data(probe_te[m], result["scale_list"], prov_m)
+                    te[m] = (_zscore(xp_te.double().numpy()), te[m][1])
     ref = {}
     for m in eval_views:
         nm, obs, p, groups_m, pg, lam_tr = _view_test(
@@ -311,7 +380,7 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
         for r, ss in enumerate(seeds):
             g = np.random.default_rng(ss)
             rows = np.sort(g.choice(n, round(refit_fraction * n), replace=False))
-            tasks.append((result["method"], k, params, train, avail, eval_views, outcome,
+            tasks.append((result["method"], k, params, train, probe_tr, avail, eval_views, outcome,
                           None if outcome is not None else j, rows, names, labels, min_group_size,
                           refit_permutations, shrinkages, int(g.integers(2 ** 31))))
         outs = _run(_refit_task, tasks, n_jobs)
@@ -328,7 +397,8 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
         k = int(result["u"].shape[1])
         params = dict((result.get("parameters") or {}).get("used") or {})
         seeds = np.random.SeedSequence([random_state, 1]).spawn(n_null_refits * len(eval_views))
-        tasks = [(result["method"], k, params, train, avail, m, outcome, None if outcome is not None else j,
+        tasks = [(result["method"], k, params, train, None if probe_tr is None else probe_tr[m], avail, m,
+                  outcome, None if outcome is not None else j,
                   np.isin(names[m], ref[m]["names"]), shrinkages[m],
                   int(np.random.default_rng(seeds[i * len(eval_views) + q]).integers(2 ** 31)))
                  for i in range(n_null_refits) for q, m in enumerate(eval_views)]

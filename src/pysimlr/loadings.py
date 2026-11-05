@@ -435,10 +435,22 @@ def _view_scores(result: Dict[str, Any], xs: Sequence[np.ndarray], u_rot: np.nda
     return out
 
 
+def _to_probe_tensor(m: Any, n_rows: int, view_idx: int) -> torch.Tensor:
+    if hasattr(m, "to_numpy"):
+        m = m.to_numpy()
+    t = m.detach().float() if isinstance(m, torch.Tensor) else torch.as_tensor(np.asarray(m, dtype=np.float64)).float()
+    if t.ndim != 2:
+        raise ValueError(f"probe_views[{view_idx}] must be 2-D (samples x features); got shape {tuple(t.shape)}.")
+    if int(t.shape[0]) != n_rows:
+        raise ValueError(f"probe_views[{view_idx}] has {int(t.shape[0])} rows; views have {n_rows}.")
+    return t
+
+
 def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEATURE_MAP_KINDS,
                  u: Optional[torch.Tensor] = None, target: str = "other_views",
                  shrinkage: Any = "ledoit_wolf", control: Any = "pc1",
-                 rw_shrinkage: Any = 0.0, return_shrinkage: bool = False):
+                 rw_shrinkage: Any = 0.0, return_shrinkage: bool = False,
+                 probe_views: Optional[Sequence[Any]] = None):
     r"""Alternative feature maps beside `structure`, all in the fit's rotated frame.
 
     `structure` (corr(x_f, u_j)) measures association: a feature that only
@@ -483,6 +495,13 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     recover the encoder V_m, which is weakly identified. ``"consensus"`` uses
     ``u @ R`` itself; for ``partial`` and ``relative_weight`` it is circular.
 
+    ``probe_views`` (optional sequence of length ``len(views)``, ``None`` for views
+    kept at their fitted resolution) implements coarse-to-fine split-scale readout:
+    the latent scores are computed from the well-conditioned ``views`` the model was
+    fitted on, while any non-``None`` ``probe_views[m]`` (for example a ``p >> n``
+    connectome-edge or fixel matrix) is preprocessed with ``result["scale_list"]`` and
+    mapped against the *other* views' scores (requires ``target="other_views"``).
+
     Views are replayed through the fit's own preprocessing and ``u`` defaults to
     ``pysimlr.predict(result, views)["u"]``, so this works for every method and
     for held-out views alike.
@@ -490,6 +509,7 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     Returns ``{kind: [ (p_m, k) tensor per view ]}``.
     """
     from .api import _preprocess_views, as_views, predict
+    from .utils import preprocess_data
     bad = [k_ for k_ in kinds if k_ not in FEATURE_MAP_KINDS]
     if bad:
         raise ValueError(f"unknown feature map(s) {bad}; choose from {FEATURE_MAP_KINDS}.")
@@ -505,6 +525,18 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
         u = predict(result, view_list)["u"]
     u_rot = np.asarray(torch.as_tensor(u).detach().double()) @ rot
     scores = _view_scores(result, xs, u_rot, rot, view_list) if target == "other_views" else None
+    if probe_views is not None:
+        if target != "other_views":
+            raise ValueError("probe_views requires target='other_views' so probe features are scored against the other views.")
+        p_items = list(probe_views)
+        if len(p_items) != len(xs):
+            raise ValueError(f"probe_views has {len(p_items)} entries; there are {len(xs)} views.")
+        n_rows = int(view_list[0].shape[0])
+        for m, pv in enumerate(p_items):
+            if pv is not None:
+                pt = _to_probe_tensor(pv, n_rows, m)
+                xp, _ = preprocess_data(pt, result["scale_list"])
+                xs[m] = xp.detach().double().numpy()
     if isinstance(control, (list, tuple)):
         if len(control) != len(xs):
             raise ValueError(f"control has {len(control)} entries; there are {len(xs)} views.")
@@ -669,14 +701,18 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         shared signal).
 
     Alternative feature maps. ``maps`` (kinds from `feature_maps`, with
-    ``map_options`` passed to it: ``target``, ``shrinkage``, ``control``) are
-    computed on the reference fit and on every subsample refit at no extra fits,
-    and reported under ``out["maps"][kind]`` with per view ``map`` (reference),
-    ``ci_low`` / ``ci_high``, ``component_stability`` and ``selection_frequency``
-    (the same ``q_m`` rule, ranking features by the sum over components of the
-    squared map). Each refit's columns are matched to the reference by the signed
-    permutation nearest its structure Procrustes rotation (the varimax frames are
-    canonical up to order and sign; a full rotation would mix the squared
+    ``map_options`` passed to it: ``target``, ``shrinkage``, ``control``,
+    ``rw_shrinkage``, ``probe_views``) are computed on the reference fit and on
+    every subsample refit at no extra fits, and reported under
+    ``out["maps"][kind]`` with per view ``map`` (reference), ``ci_low`` /
+    ``ci_high``, ``component_stability`` and ``selection_frequency`` (the same
+    ``q_m`` rule, ranking features by the sum over components of the squared
+    map). With ``map_options={"probe_views": ...}``, each subsample refit fits
+    on the well-conditioned ``views`` and evaluates ``maps`` on the matching
+    subsample rows of ``probe_views`` against the other views' scores. Each
+    refit's columns are matched to the reference by the signed permutation
+    nearest its structure Procrustes rotation (the varimax frames are canonical
+    up to order and sign; a full rotation would mix the squared
     ``relative_weight`` shares), without the sign for ``relative_weight``. A
     map's stability is its own: precision maps can be far less stable than
     ``structure``.
@@ -709,6 +745,13 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     if bad:
         raise ValueError(f"unknown feature map(s) {bad}; choose from {FEATURE_MAP_KINDS}.")
     map_opts = dict(map_options or {}, kinds=maps) if maps else None
+    probe_tensors = None
+    if map_opts and map_opts.get("probe_views") is not None:
+        p_items = list(map_opts["probe_views"])
+        if len(p_items) != len(view_list):
+            raise ValueError(f"probe_views has {len(p_items)} entries; there are {len(view_list)} views.")
+        probe_tensors = [None if pv is None else _to_probe_tensor(pv, n, vi) for vi, pv in enumerate(p_items)]
+        map_opts = dict(map_opts, probe_views=probe_tensors)
     ref = fit(method, view_list, k, random_state=random_state, **params)
     c_ref = [c.double().numpy() for c in ref["structure"]]
     stacked_ref = np.vstack(c_ref)
@@ -730,7 +773,12 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         oob = np.setdiff1d(all_rows, idx, assume_unique=True)
         oob_v = [x[torch.as_tensor(oob)] for x in view_list] if len(oob) >= 2 else None
         task = (method, [x[torch.as_tensor(idx)] for x in view_list], oob_v, k, random_state, refit_params)
-        tasks.append(task + (map_opts,) if map_opts else task)
+        if map_opts:
+            t_opts = (dict(map_opts, probe_views=[None if pt is None else pt[torch.as_tensor(idx)]
+                                                  for pt in probe_tensors])
+                      if probe_tensors is not None else map_opts)
+            task = task + (t_opts,)
+        tasks.append(task)
     tasks += [(method, [view_list[0]] + [x[torch.as_tensor(pi)] for x, pi in zip(view_list[1:], pis)],
                None, k, random_state, refit_params) for pis in perm_idx]
     records = _run_fits(tasks, n_jobs, _executor)
@@ -793,12 +841,16 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         ref_maps, ref_lam = feature_maps(ref, view_list, return_shrinkage=True, **map_opts)
         out["maps"] = {}
         for kk in maps:
-            mal = np.stack(map_aligned[kk])                 # (B, p_total, k)
+            m_widths = [int(rm.shape[0]) for rm in ref_maps[kk]]
+            m_sizes = np.cumsum([0] + m_widths)
+            m_qs = [max(1, min(pw, int(np.floor(np.sqrt(expected_false * (2 * threshold - 1) * pw)))))
+                    for pw in m_widths]
+            mal = np.stack(map_aligned[kk])                 # (B, sum(m_widths), k)
             mlo, mhi = np.nanpercentile(mal, 2.5, axis=0), np.nanpercentile(mal, 97.5, axis=0)
             entry = {"map": ref_maps[kk], "ci_low": [], "ci_high": [], "component_stability": [],
                      "selection_frequency": []}
             for vi in range(len(c_ref)):
-                a, b = sizes[vi], sizes[vi + 1]
+                a, b = m_sizes[vi], m_sizes[vi + 1]
                 rm = ref_maps[kk][vi].double().numpy()
                 entry["ci_low"].append(torch.as_tensor(mlo[a:b]).float())
                 entry["ci_high"].append(torch.as_tensor(mhi[a:b]).float())
@@ -817,7 +869,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                     h = np.nansum(mal[t, a:b] ** 2, axis=1)
                     pick = np.zeros(b - a, bool)
                     if np.isfinite(mal[t, a:b]).any():
-                        pick[np.argsort(-h)[:qs[vi]]] = True
+                        pick[np.argsort(-h)[:m_qs[vi]]] = True
                     sel.append(pick)
                 entry["selection_frequency"].append(torch.as_tensor(np.mean(sel, axis=0)).float())
             if kk == "relative_weight":

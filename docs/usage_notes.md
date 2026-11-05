@@ -89,95 +89,133 @@ Measured values:
 Alternatively, reduce the features on the training split before fitting (below), and still check
 `heldout_coupling` afterwards.
 
-## Wide-view workflow: opt-in screening before `fit`, shrinkage after `fit`
+## Wide-view workflow: coarse-to-fine split-scale readout (`probe_views`), shrinkage, and opt-in screening
 
-Wide multi-view studies hit two separate rank limits, handled at different stages:
+Wide multi-view studies (`p_m >= n`, such as `1,000+` connectome edges or white-matter tract metrics
+on `n < 150` subjects) face two distinct problems:
 
-- **Before `fit` (`pysimlr.screen_wide_views`, `pysimlr.apply_view_screen`, opt-in):** screens wide
-  views (`p_m / n > max_width_ratio`, default `0.75`) strictly on the training rows (no `outcome`
-  argument exists). It scores each feature's communality against the top left singular vectors of
-  the *other* training views, tests `q_bh < alpha` against a pooled row-permutation null alongside
-  a Westfall–Young omnibus view test across mean, sparse-tail and max communality with Holm step-down across views (`p_view`, `view_coupled`) and half-sample `selection_frequency`, prunes
-  collinear duplicates (`|r| > max_collinearity`), and caps admitted width to
-  `floor(max_width_ratio * n)`.
-  - **Measured limitation (`scripts/screen_wide_views_check.py`):** screening is opt-in, not a
-    cure. When modalities share broad common factors (as on IBD metabolomics), `q_bh` passes almost
-    every feature (`n_pass_bh >> p_out` in `gate["summary"]`) so `max_width_ratio` does the
-    selecting; and at small `n`, fitting `k` components still overfits even on the minimum floor of
-    `k + 2` features. Always judge the resulting fit with `pysimlr.heldout_coupling`.
-- **After `fit` (`rw_shrinkage="auto"`, `shrinkage="auto"`):** removes the `p < n_sub` and
-  `p < n_test` sample-rank ceiling in attribution and replication. Classical Johnson relative
-  weights invert `R_XX` and emit `NaN` whenever `p >= n` — including half-sample
-  `loading_inference` refits (`n_sub = 0.5 * n`) and smaller external test cohorts (`n_test <= p`).
-  `"auto"` is bit-identical to classical Johnson (`λ = 0`) when full-rank `p < n`, switches to
-  Ledoit–Wolf shrinkage otherwise, and always records the `λ` used.
+1. **Consensus encoder overfitting (`fit`):** feeding `p_m >= n` columns directly into `fit` lets
+   `V_m` fit within-view noise (`D25`), inflating training coupling while degrading held-out
+   cross-view agreement (`heldout_coupling`).
+2. **Unsupervised screening bias (`screen_wide_views`):** pruning raw wide matrices before `fit` via
+   within-view singular subspaces or variance caps retains broad normative factors (age, brain size,
+   scanner contrast) that span hundreds of features while discarding focal cross-view pathology edges
+   before `fit` ever runs (`D30`).
+
+### 1. Preferred pattern: coarse-to-fine split-scale readout (`probe_views` / `probe_test_views`)
+
+Whenever a wide modality admits a natural physical or anatomical summary at `p_macro < n` (for
+example `44`–`70` unilateral DKT regional node strengths, lobar/tract summaries, or network hubs),
+separate **consensus learning** from **fine-grained attribution**:
+
+- **Stage 1 (Consensus fit on `p_macro < n`):** run `fit` / `loading_inference` on the
+  well-conditioned macro views (`wide_views == []`), keeping unilateral hemisphere resolution so
+  lateralised signal is preserved.
+- **Stage 2 (Frozen fine-grained readout via `probe_views`):** pass the full-width matrices
+  (`p_fine >> n`, or `None` for views kept at macro resolution) as `probe_views` to `feature_maps`,
+  `loading_inference(..., map_options={"rw_shrinkage": "auto", "probe_views": ...})`, and
+  `feature_relevance(..., probe_views=..., probe_test_views=...)`. Every fine feature is scored
+  strictly against the **other** views' macro latent scores (`target="other_views"`) using
+  Ledoit–Wolf shrunk relative weights (`rw_shrinkage="auto"` / `shrinkage="auto"`), with zero
+  circularity and zero pre-fit feature loss.
+
+**Measured multi-scale comparison** (`tests/test_coarse_to_fine_probe_views.py`: `n_train = n_test =
+93`, `44`-node / `946`-edge connectome with `15` focal cross-view edges plus two strong `240`-edge
+normative factors, 5 seeds):
+
+| workflow | `cross_view_gap` | held-out focal `|r|` | focal edge ROC AUC (all `946`) |
+|---|---|---|---|
+| **Coarse-to-fine (`44` nodes → `946` edges via `probe_views`)** | **0.060** | **0.953** | **1.000** (`100%` retained) |
+| `screen_wide_views` (`max_width_ratio=0.75`) | 0.081 | 0.863 | 0.477 (`2.7%` retained) |
+| `screen_wide_views` (`max_width_ratio=0.25`) | 0.068 | 0.121 | 0.488 (`0.0%` retained) |
+| Unscreened wide `fit` (`p = 946` directly) | 0.225 | 0.946 | 1.000 (`3.8×` overfit gap) |
 
 ```python
-# 1. Opt-in outcome-blind gate on training rows ONLY; slice held-out views identically
-gate = pysimlr.screen_wide_views(
-    train_views,
-    k=4,
-    max_width_ratio=0.3,
-    max_collinearity=0.92,
-    feature_names=feature_names,
-    view_names=view_names,
-    random_state=0,
-)
-train_gated = gate["views"]
-test_gated = pysimlr.apply_view_screen(gate, test_views)  # accepts None entries or {name: X} dicts
-
-# 2. Fit + half-sample inference without p < n_sub NaNs on relative_weight
+# Stage 1 + Stage 2 in one pass: fit & align subsamples on well-conditioned macro views (p_m < n),
+# while computing shrunk relative-weight and structure maps + CIs on arbitrary-width fine views.
+# Pass None in probe_views for any modality already at its desired resolution.
 inf = pysimlr.loading_inference(
     "simlr",
-    train_gated,
-    k=4,
+    macro_train_views,
+    k=5,
     fraction=0.5,
     n_subsamples=50,
-    maps=("relative_weight", "partial"),
-    map_options={"rw_shrinkage": "auto"},
+    maps=("structure", "relative_weight"),
+    map_options={"rw_shrinkage": "auto", "probe_views": fine_train_views},
     positivity="positive",
     random_state=0,
     n_jobs=-1,
 )
 res = inf["result"]
+assert res["wide_views"] == []
 
-# 3. Verify training vs held-out cross-view agreement (do not skip after screening)
-hc = pysimlr.heldout_coupling(res, test_gated)  # check hc["cross_view_gap"]
+# Check cross-view generalisation on the held-out macro views
+hc = pysimlr.heldout_coupling(res, macro_test_views)
 
-# 4. Training + held-out tier replication (shrinkage="auto" is the default; λ recorded)
+# Fine-grained training + held-out tier replication across all p_fine features (λ recorded)
 rel = pysimlr.feature_relevance(
     res,
-    train_gated,
-    test_gated,
+    macro_train_views,
+    macro_test_views,
+    probe_views=fine_train_views,
+    probe_test_views=fine_test_views,   # None entry when a modality is absent in the held-out cohort
     outcome=y_train,
     outcome_test=y_test,
-    feature_names=gate["feature_names"],
-    view_names=gate["view_names"],
+    feature_names=fine_feature_names,
+    view_names=view_names,
     shrinkage="auto",
     refit_fraction=0.5,
     random_state=0,
 )
+
+# Brain surfaces, shift plots, and relevance forests work directly on the probed fine features
+pysimlr.plot_brain_map(res, inf=inf, component=rel["component"], view=0, feature_names=fine_feature_names)
+pysimlr.plot_feature_relevance(rel, view=0)
+```
+
+### 2. Shrunk relative weights (`rw_shrinkage="auto"`, `shrinkage="auto"`)
+
+Even without `probe_views`, classical Johnson relative weights invert `R_XX` and emit `NaN` whenever
+`p >= n` — including half-sample `loading_inference` refits (`n_sub = 0.5 * n` when `0.5 * n <= p <
+n`) and smaller external test cohorts (`n_test <= p`).
+- `"auto"` is bit-identical to classical Johnson (`λ = 0`) when full-rank `p < n`, switches to
+  Ledoit–Wolf shrinkage otherwise (`"ledoit_wolf"` from `X` alone in `feature_relevance` so the
+  permutation null is exact; `"ledoit_wolf_joint"` on `[X, t_j]` in `feature_maps`), and records the
+  `λ` used (`rel["shrinkage_used"]`, `inf["maps"]["relative_weight"]["rw_shrinkage"]`).
+- Direct `feature_maps` calls keep `rw_shrinkage=0.0` by default so rank deficiency surfaces
+  explicitly (`NaN` + warning) unless `rw_shrinkage="auto"` is requested.
+
+### 3. Fallback when no domain summary exists: opt-in `screen_wide_views`
+
+When a modality is an unstructured flat assay with no physical macro grouping (for example untargeted
+metabolomics peaks), `pysimlr.screen_wide_views` and `pysimlr.apply_view_screen` provide an opt-in,
+strictly outcome-blind pre-fit gate on the training rows (`q_bh < alpha` against a pooled
+row-permutation null, Westfall–Young omnibus view test with Holm step-down, half-sample stability,
+collinearity pruning, and width cap `floor(max_width_ratio * n)`):
+
+```python
+gate = pysimlr.screen_wide_views(
+    train_views, k=4, max_width_ratio=0.3, max_collinearity=0.92,
+    feature_names=feature_names, view_names=view_names, random_state=0,
+)
+train_gated = gate["views"]
+test_gated = pysimlr.apply_view_screen(gate, test_views)
 ```
 
 **Practical rules.**
-- **Screen inside every CV fold, never on pooled `train + test` rows.** `screen_wide_views` uses
-  cross-view row alignment; running it before splitting leaks held-out covariance into the support.
-  Fit `screen_wide_views` on the fold's training rows and slice held-out arrays with
-  `apply_view_screen(gate, test_views)`.
-- **Read `gate["summary"]` beside `heldout_coupling`.** Compare `n_pass_bh` and `n_pass_gate`
-  against `p_out` to see whether the statistical gate or the width cap selected the support, check
-  `view_coupled` (`p_view < alpha_view`) to spot uncoupled views compressed to `min_features`, and
-  verify `hc["cross_view_gap"]` on held-out rows.
+- **Prefer domain macro-views + `probe_views` over `screen_wide_views` whenever anatomy or ontology
+  exists.** Do not collapse left/right hemispheres into bilateral averages if lateralised signal
+  matters; keep unilateral macro ROIs (`p < n`) and let `rw_shrinkage="auto"` handle `p >= 0.5 * n`
+  during half-sample refits.
+- **Screen inside every CV fold, never on pooled `train + test` rows.** If you use
+  `screen_wide_views`, fit it on the fold's training rows and slice held-out arrays with
+  `apply_view_screen(gate, test_views)`, then inspect `gate["summary"]` (`n_pass_bh` vs `p_out`,
+  `view_coupled`) beside `pysimlr.heldout_coupling`.
 - **Separate physical global amplitude before standardisation when targeting regional topology.**
   When a modality is scaled by a subject-wide multiplier (mean grey-matter CBF in ASL, reference
   SUVR in PET, intracranial volume in morphometry), divide regional columns by that physical scalar
   before z-scoring (and optionally hold global scalars in a compact view) rather than regressing
   out post-z-score row means.
-- **When to leave `rw_shrinkage=0.0` vs `"auto"`.** Direct `feature_maps` calls keep
-  `rw_shrinkage=0.0` by default so rank deficiency surfaces explicitly (`NaN` + warning). Pass
-  `rw_shrinkage="auto"` (or `map_options={"rw_shrinkage": "auto"}` in `loading_inference`) whenever
-  `p` can approach or exceed `fraction * n`, on smaller external validation cohorts, or when
-  auditing unscreened / extended (`pysimlr.extend`) wide views.
 
 ## What to interpret: structure and loadings, not `v`
 
