@@ -77,8 +77,96 @@ Independent noise views (three 120-feature views, n = 50) reach a training coupl
 held-out coupling of 0.03.
 
 For a wide view, judge coupling on held-out rows: `pysimlr.predict(res, held_out_views)["latents"]`
-against its `"u"`, or `plot_latent_coupling(res, pred)`. Alternatively, reduce the features before
-fitting.
+against its `"u"`, or `plot_latent_coupling(res, pred)`. Alternatively, screen wide views on the
+training split before fitting (below).
+
+## Wide-view workflow: screening before `fit`, shrinkage after `fit`
+
+Wide multi-view studies hit two distinct rank limits at different stages of the pipeline:
+
+- **Before `fit` (`pysimlr.screen_wide_views`, `pysimlr.apply_view_screen`):** prevents the solver
+  from fitting within-view noise to the other views when `p_m / n > max_width_ratio` (default
+  `0.75`). `screen_wide_views` has no `outcome` parameter: it scores each feature's communality
+  against the top left singular vectors of the *other* training views, runs a Westfall–Young
+  row-permutation omnibus test across mean, sparse-tail and max communality with Holm step-down
+  across views (`p_view`, `view_coupled`), checks half-sample selection stability
+  (`selection_frequency`), prunes near-duplicate columns (`|r| > max_collinearity`), and caps
+  admitted width to `floor(max_width_ratio * n)`. Narrow views (`p_m / n <= max_width_ratio`) keep
+  all non-constant columns.
+- **After `fit` (`rw_shrinkage="auto"`, `shrinkage="auto"`):** removes the `p < n_sub` and
+  `p < n_test` sample-rank ceiling during attribution and replication. Classical Johnson relative
+  weights invert `R_XX` and return `NaN` whenever `p >= n` — including half-sample
+  `loading_inference` refits (`n_sub = 0.5 * n`) and smaller external test cohorts (`n_test <= p`).
+  Joint Ledoit–Wolf Schur R² shrinkage is bit-identical to classical Johnson when full-rank `p < n`
+  and switches automatically to well-conditioned shares in `[0, 1)` when `p >= n` or collinear.
+
+```python
+# 1. Outcome-blind cross-view gate on training rows ONLY; slice held-out views identically
+gate = pysimlr.screen_wide_views(
+    train_views,
+    k=4,
+    max_width_ratio=0.75,
+    max_collinearity=0.92,
+    feature_names=feature_names,
+    view_names=view_names,
+    random_state=0,
+)
+train_gated = gate["views"]
+test_gated = pysimlr.apply_view_screen(gate, test_views)  # accepts None entries or {name: X} dicts
+
+# 2. Fit + half-sample inference without p < n_sub crashes on relative_weight
+inf = pysimlr.loading_inference(
+    "simlr",
+    train_gated,
+    k=4,
+    fraction=0.5,
+    n_subsamples=50,
+    maps=("relative_weight", "partial"),
+    map_options={"rw_shrinkage": "auto"},
+    positivity="positive",
+    random_state=0,
+    n_jobs=-1,
+)
+res = inf["result"]
+
+# 3. Held-out projection and coupling check
+pred = pysimlr.predict(res, test_gated)
+
+# 4. Training + held-out tier replication (shrinkage="auto" is the default)
+rel = pysimlr.feature_relevance(
+    res,
+    train_gated,
+    test_gated,
+    outcome=y_train,
+    outcome_test=y_test,
+    feature_names=gate["feature_names"],
+    view_names=gate["view_names"],
+    shrinkage="auto",
+    refit_fraction=0.5,
+    random_state=0,
+)
+```
+
+**Practical rules.**
+- **Screen inside every CV fold, never on pooled `train + test` rows.** `screen_wide_views` uses
+  cross-view row alignment; running it before splitting leaks held-out covariance into the support.
+  Fit `screen_wide_views` on the fold's training rows and pass `test_views` through
+  `apply_view_screen(gate, test_views)`.
+- **Inspect `gate["summary"]` (`view_coupled` and `p_view`).** If a wide view has
+  `view_coupled == False` (`p_view >= alpha_view`), it showed no omnibus cross-view coupling above
+  permutation chance and is compressed to a minimal non-redundant floor (`min_features`) so it
+  cannot dominate consensus; consider dropping uncoupled modalities or enabling
+  `dynamic_weights=True`.
+- **Separate physical global amplitude before standardisation when targeting regional topology.**
+  When a modality carries a subject-wide multiplier (mean grey-matter CBF in ASL, reference SUVR in
+  PET, intracranial volume in morphometry), divide regional columns by that physical scalar before
+  z-scoring (and optionally hold global scalars in a compact view) rather than regressing out
+  post-z-score row means.
+- **When to leave `rw_shrinkage=0.0` vs `"auto"`.** Direct `feature_maps` calls keep
+  `rw_shrinkage=0.0` by default so rank deficiency surfaces explicitly (`NaN` + warning). Pass
+  `rw_shrinkage="auto"` (or `map_options={"rw_shrinkage": "auto"}` in `loading_inference`) whenever
+  `p` can approach or exceed `fraction * n`, on smaller external validation cohorts, or when
+  auditing unscreened / extended (`pysimlr.extend`) wide views.
 
 ## What to interpret: structure and loadings, not `v`
 
@@ -113,13 +201,13 @@ regressing it on X would only return the unstable encoder.
 | map | what it measures | use it when |
 |---|---|---|
 | `partial` | partial correlation of x with the component given every other feature, from the inverse of the (Ledoit–Wolf shrunk) correlation matrix | you want each feature's unique contribution; works with p ≥ n |
-| `relative_weight` | Johnson's relative weights: each feature's non-negative share of R²(component ~ X); the shares sum to that R² | features are collinear and you want an importance split that stays positive; needs p < n (otherwise NaN, with a warning) |
+| `relative_weight` | Johnson's relative weights: each feature's non-negative share of R²(component ~ X); the shares sum to that R² | features are collinear and you want an importance split that stays positive; default `rw_shrinkage=0.0` needs p < n (otherwise NaN, with a warning), or pass `rw_shrinkage="auto"` for p ≥ n and half-sample refits |
 | `global_partial` | `structure` after regressing out the view's PC1, its row mean, or a covariate you pass (`control=`, settable per view) | you know the view has a global size factor |
 | `component_partial` | Haufe et al.'s forward pattern, corr(X, T)·corr(T)⁻¹ | components are correlated (`mixing_algorithm="avg"`); otherwise it equals `structure` |
 
-**Use them with inference.** `loading_inference(..., maps=(...))` refits them with the same
-subsamples and reports intervals, selection frequency and each map's own component stability
-(`inf["maps"][kind]`).
+**Use them with inference.** `loading_inference(..., maps=(...), map_options={"rw_shrinkage": "auto"})`
+refits them with the same subsamples and reports intervals, selection frequency and each map's own
+component stability (`inf["maps"][kind]`).
 
 **Displays.** All of them read one shared encoding, `feature_map_values`:
 - **Values:** |map|, or for `relative_weight`, percent of the variance the view explains.
@@ -199,6 +287,8 @@ fig = pysimlr.plotting.plot_brain_map(None, view=1, tiers=rel)   # tiers on the 
 **Statistic.** For view m on component j:
 - The statistic is each feature's share of the variance the view explains in a target (relative
   weights, normalised to sum to 1).
+- `shrinkage="auto"` (the default) uses classical Johnson shares when full-rank `p < n` and
+  Ledoit–Wolf shrunk shares when `p >= n`, collinear, or `p >= n_sub` / `n_test`.
 - The target is the mean of the other views' sign-aligned scores on j.
 - The fair share is 1/p.
 
