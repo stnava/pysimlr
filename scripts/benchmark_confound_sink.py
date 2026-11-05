@@ -98,8 +98,8 @@ def load_nhanes(max_n: int = 3000, seed: int = 0):
     resp = resp[resp.SDDSRVYR.isin([9, 10])].drop_duplicates("SEQN")
     diet_h = pd.read_csv(NHANES_DIR / "dietary_clean.csv", nrows=0).columns
     diet_cols = [c for c in diet_h if c.startswith("DRXT")]
-    diet = (pd.read_csv(NHANES_DIR / "dietary_clean.csv", usecols=["SEQN", "SDDSRVYR"] + diet_cols, low_memory=False)
-            .query("SDDSRVYR in [9, 10]").drop(columns="SDDSRVYR").groupby("SEQN").mean().reset_index())
+    diet = pd.read_csv(NHANES_DIR / "dietary_clean.csv", usecols=["SEQN", "SDDSRVYR"] + diet_cols, low_memory=False)
+    diet = diet[diet.SDDSRVYR.isin([9, 10])].drop(columns="SDDSRVYR").copy().groupby("SEQN").mean().reset_index()
     demo = pd.read_csv(NHANES_DIR / "demographics_clean.csv",
                        usecols=["SEQN", "RIDAGEYR", "RIAGENDR", "RIDRETH1", "INDFMPIR", "DMDEDUC2", "SDDSRVYR"],
                        low_memory=False).drop_duplicates("SEQN")
@@ -119,6 +119,9 @@ def load_nhanes(max_n: int = 3000, seed: int = 0):
     views = [m[labs].to_numpy(float)[idx], m[body].to_numpy(float)[idx], m[diet_cols].to_numpy(float)[idx]]
     return {"views": views, "C": cov.to_numpy(float)[idx], "Y": m[["LBXGH"]].to_numpy(float)[idx],
             "outcome": "HbA1c", "view_names": ["labs", "body", "diet"], "confound_names": list(cov.columns),
+            # The body view has 7 measures; all 14 confound columns would span it. It is
+            # adjusted for age and sex only (columns 0 and 2), the other views for all.
+            "view_confounds": [None, [0, 2], None],
             "k": 5, "n_complete": int(ok.sum())}
 
 
@@ -175,12 +178,17 @@ def run_split(args):
     for adj in ADJUSTMENTS:
         t_tr = [torch.tensor(x).float() for x in xs_tr]
         t_te = [torch.tensor(x).float() for x in xs_te]
+        # Per-view confound columns (the same sets for every adjustment).
+        vc = data.get("view_confounds") or [None] * len(xs_tr)
+        ctr_v = [c_tr if cols is None else c_tr[:, cols] for cols in vc]
+        cte_v = [c_te if cols is None else c_te[:, cols] for cols in vc]
         if adj in ("preresid_train_only", "frozen_beta"):
-            betas = [_ols_fit(c_tr, x) for x in xs_tr]
-            t_tr = [torch.tensor(_ols_resid(c_tr, x, b)).float() for x, b in zip(xs_tr, betas)]
+            betas = [_ols_fit(c, x) for c, x in zip(ctr_v, xs_tr)]
+            t_tr = [torch.tensor(_ols_resid(c, x, b)).float() for c, x, b in zip(ctr_v, xs_tr, betas)]
             if adj == "frozen_beta":
-                t_te = [torch.tensor(_ols_resid(c_te, x, b)).float() for x, b in zip(xs_te, betas)]
-        sink = {"confounds": c_tr, "confound_strength": float(adj.split("_")[1])} if adj.startswith("sink") else {}
+                t_te = [torch.tensor(_ols_resid(c, x, b)).float() for c, x, b in zip(cte_v, xs_te, betas)]
+        conf = c_tr if data.get("view_confounds") is None else ctr_v
+        sink = {"confounds": conf, "confound_strength": float(adj.split("_")[1])} if adj.startswith("sink") else {}
         res = pysimlr.fit(family, t_tr, data["k"], **kw, **sink)
         u_tr = res["u"].double().numpy()
         u_te = pysimlr.predict(res, t_te)["u"].double().numpy()
@@ -241,6 +249,7 @@ def main():
     meta = {"dataset": a.dataset, "n": int(len(data["C"])), "view_names": data["view_names"],
             "view_widths": [int(v.shape[1]) for v in data["views"]], "confound_names": data["confound_names"],
             "outcome": data["outcome"], "k": data["k"], "splits": a.splits, "rules": RULES,
+            "view_confounds": data.get("view_confounds"), "n_complete": data.get("n_complete"),
             "rule_outcomes": evaluate_rules(df),
             "summary": {f"{f}|{adj}": {f"{c}|{s}": v for (c, s), v in row.items()}
                         for (f, adj), row in summary.iterrows()}}
