@@ -94,3 +94,31 @@ def test_palette_matches_antsxviz():
     x = np.linspace(0, 1, 21)
     for v in range(len(VIEW_COLORS)):
         assert np.allclose([map_colormap(v)(t) for t in x], [av.map_colormap(v)(t) for t in x], atol=0)
+
+
+def test_plot_brain_map_volumetric_atlas_dispatch(monkeypatch):
+    """atlas != 'dkt' hands feature_map_values to antsxviz.atlas_figure, one row per map, renamed."""
+    seen = {}
+    mod = types.ModuleType("antsxviz")
+
+    def atlas_figure(maps, atlas, **kw):
+        seen.update(maps=maps, atlas=atlas, **kw)
+        return "fig"
+
+    mod.atlas_figure = atlas_figure
+    monkeypatch.setitem(sys.modules, "antsxviz", mod)
+    g = np.random.default_rng(0)
+    z = g.standard_normal((80, 2))
+    xs = [torch.tensor(z @ g.standard_normal((2, p)) + 0.5 * g.standard_normal((80, p))).float() for p in (3, 4)]
+    res = pysimlr.fit("simlr", xs, k=2, iterations=10, random_state=0)
+    names0 = ["FA_JHU_labels_edited_Genu_of_corpus_callosum", "dti_mean_fa", "my_cst"]
+    out = pysimlr.plot_brain_map(res, view=0, kinds=("structure",), atlas="jhu",
+                                 feature_names=[names0, [f"b{i}" for i in range(4)]],
+                                 region_names={"my_cst": "FA_JHU_labels_edited_Corticospinal_tract-Right"})
+    assert out == "fig" and seen["atlas"] == "jhu" and seen["scale"] == "row"
+    (row,) = seen["maps"].values()
+    assert list(row) == ["FA_JHU_labels_edited_Genu_of_corpus_callosum", "dti_mean_fa",
+                         "FA_JHU_labels_edited_Corticospinal_tract-Right"]
+    assert all(v >= 0 for v in row.values())
+    with pytest.raises(ValueError, match="DKT surface only"):
+        pysimlr.plot_brain_map(res, atlas="hoa", tiers={"alpha": 0.05})

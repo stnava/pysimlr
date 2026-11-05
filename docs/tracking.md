@@ -2,7 +2,7 @@
 current phase: `v0.19.0` released (`D33`: `component_attribution` / `plot_component_attribution`, paper Fig. 3.9 as reusable code; `D32`: coarse-to-fine split-scale `probe_views` / `probe_test_views`; `D31`: seeded orthogonal deflation ICA initialization).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: none; open: relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: D34 `feat/brain-map-atlases` (not released; needs antsxviz 0.2.0 and antsxdata `display_atlases_mni`); open: relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
 last updated: 2026-11-05
 
@@ -11,6 +11,18 @@ last updated: 2026-11-05
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D34 (plot_brain_map on JHU, Harvard-Oxford and tract atlases, 2026-11-05)
+status: done on branch `feat/brain-map-atlases` (release after antsxdata `display_atlases_mni` and antsxviz 0.2.0)
+- **New:** `plot_brain_map(..., atlas="dkt" | "jhu" | "hoa" | "tracts")`. Non-DKT atlases send the
+  `feature_map_values` encoding (one row per map, units per map, the view's sequential colormap)
+  to `antsxviz.atlas_figure`, which matches antsxmm wide-table names and lists unmatched ones.
+  `region_names` renames features. `tiers=` with a volumetric atlas raises.
+- **Tests:** `tests/test_brain_maps.py::test_plot_brain_map_volumetric_atlas_dispatch` (stand-in
+  antsxviz; rows, renaming, scale, error). Full suite: 1807 passed, 2 xfailed.
+- **Checked:** end-to-end render on the three atlases with sub-BLAST058's real column names and
+  simulated subjects (n = 200), rendered and inspected. No real multi-subject fit yet: only one
+  BLAST subject was synced.
 
 ## D33 (component_attribution: paper Fig. 3.9 as reusable code, 2026-11-05)
 status: done (released in v0.19.0)

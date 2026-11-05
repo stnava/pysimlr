@@ -1450,8 +1450,19 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
                    component: int = 0, view: int = 0, kinds: Sequence[str] = ("structure", "relative_weight"),
                    feature_names=None, view_names=None, region_names=None, title: Optional[str] = None,
                    subtitle: Optional[str] = None, notes: Optional[Dict[str, str]] = None, meshes=None,
-                   density: str = "41k", surface: str = "inflated", tiers: Optional[Dict[str, Any]] = None):
+                   density: str = "41k", surface: str = "inflated", tiers: Optional[Dict[str, Any]] = None,
+                   atlas: str = "dkt"):
     """Feature maps of one component painted on the fsaverage cortex, via antsxviz.
+
+    ``atlas`` chooses where the features are drawn: ``"dkt"`` (default) the fsaverage cortical
+    surface described below; ``"jhu"`` (JHU white-matter labels), ``"hoa"`` (Harvard-Oxford
+    subcortical) or ``"tracts"`` (20 population tracts) an orthogonal slice montage of those label
+    atlases in MNI space (``antsxviz.atlas_figure``), one row per map, each on its own 0..max
+    scale. Volumetric atlases read antsxmm column names as they are (e.g.
+    ``FA_JHU_labels_edited_Genu_of_corpus_callosum``, ``FA_HOA_Thalamus_Left``,
+    ``troi_fa_mean_Uncinate_fasciculus_L``); ``region_names`` ({feature: atlas feature name})
+    renames features that do not follow that grammar. Features not in the atlas are listed in the
+    subtitle. Selection outlines and ``tiers`` are drawn on the DKT surface only.
 
     With ``tiers`` (a `pysimlr.feature_relevance` result) the brain shows that view's relevance
     tiers instead of continuous maps: grey = neither, pale = p < alpha in training only, dark =
@@ -1466,6 +1477,17 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
     them across figures. Requires the ``viz`` extra (antsxviz).
     """
     av = _require_antsxviz()
+    if atlas != "dkt":
+        if tiers is not None:
+            raise ValueError("tiers= is drawn on the DKT surface only; use atlas='dkt'.")
+        enc = feature_map_values(res, maps, inf, component, view, kinds, feature_names, view_names)
+        rename = dict(region_names or {})
+        maps_ = {e["label"]: {rename.get(n, n): v for n, v in zip(e["names"], e["values"])} for e in enc.values()}
+        vname = next(iter(enc.values()))["view_name"]
+        sub = subtitle if subtitle is not None else "Colour: each map on its own scale from 0 to its maximum."
+        return av.atlas_figure(maps_, atlas, units={e["label"]: e["units"] for e in enc.values()}, scale="row",
+                               cmap=map_colormap(view), subtitle=sub,
+                               title=title or f"Component {component + 1} of {vname}: feature maps")
     if tiers is not None:
         rows, dropped = _tier_rows(tiers, view, region_names, av)
         if meshes is None:

@@ -278,6 +278,16 @@ That way a table and a brain show the same thing:
     if you pass one. Features that are not cortical regions (tissue totals, lobes) are listed in
     the subtitle, never silently dropped.
   - `brain_rows` returns the antsxviz rows for custom compositions.
+- `plot_brain_map(res, view=m, atlas="jhu" | "hoa" | "tracts")`: the same encoding on a
+  volumetric label atlas in MNI space instead of the cortex: JHU white-matter labels,
+  Harvard-Oxford subcortical labels, or 20 population tracts (`antsxviz.atlas_figure`;
+  orthogonal slices, one row per map, each on its own 0..max scale, cut through the largest value).
+  - Feature names are antsxmm wide-table columns as they are: `FA_JHU_labels_edited_<region>`,
+    `FA_HOA_<region>`, `vol_<region>hoa_by_region`, `troi_fa_mean_<tract>`, `bundle_<metric>_<tract>`
+    (an `DTI+`-style modality prefix is fine). `region_names={feature: atlas feature name}` renames
+    others. Unmatched features are listed in the subtitle.
+  - Selection outlines and `tiers=` are drawn on the DKT surface only (`tiers=` with another atlas
+    raises).
   - ADNI output: `scripts/brain_region_maps.py` → `docs/figures/adni_dkt_feature_maps.png` and
     `_grid.png`.
 - `plot_top_features(kind=...)` and `plot_feature_map_comparison` show one map or all of them at
