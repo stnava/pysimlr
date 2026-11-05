@@ -2,7 +2,7 @@
 current phase: `v0.22.1` released (`D37`: Protocol B sex covariate fixed -- it was constant 0 -- and ADNI-MCI caches regenerated; `D38` Yeo parcel maps in v0.22.0; `D34` brain maps in v0.21.0; `D36` convex and `D35` confound sink in v0.20.0).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: none in flight; open (D37 follow-ups): the attribution paragraph (03_experiments.qmd:596), Fig. 3.9 caption and panel A title, and appendix_operational.qmd:184 cite numbers/components that changed with the corrected sex covariate (components 1 and 2 swapped); ablation_k_sparsity_sweep.csv still uses the old covariate because the row-centred ICA fit fails at k=12 > 11 (cognitive view width) -- owner to choose drop k=12 or cap k; relevance on real wide data (IBD) untested; rendered book not yet re-rendered; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: none in flight; open: rendered book not yet re-rendered (all referenced paper numbers resolve; 480 keys); relevance on real wide data (IBD) untested; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
 last updated: 2026-11-05
 
@@ -70,6 +70,19 @@ status: done (released in v0.22.1)
 - **Not regenerated:** `docs/audit/evidence/*` produced by other scripts that call `protocol_b` or
   `get_adni_mci_case` (adni_global_factor_check, amigo_loadings_evaluation, view_weighting_selection,
   adni_relevance_test, select_rank_speed, ...). `adni_rank_selection.csv` does not use the covariates.
+
+- **Follow-ups done (main session, owner: "make decisions for me"):**
+  - `k`-sweep capped at the narrowest view (`K_SWEEP = (2, 3, 5, 8, 11)` in `scripts/paper_adni_ablations.py`): a basis
+    wider than the 11 cognitive scales is ill-posed, and the row-centred ICA fit raised at k = 12 with the corrected
+    covariate. `ablation_k_sparsity_sweep.csv` regenerated (both regimes fit at every k); appendix caption and the panel
+    B ticks follow the data.
+  - Attribution prose (`03_experiments.qmd`), Fig. 3.9 caption and panel titles, and the discussion now cite each view's
+    predictive column and the global-factor component through new keys (`attr_{vol,va,dkt}_best_{c,r2,unique,n}`,
+    `attr_other_max_r2`, `attr_global_{c,r}`), because component numbers are not identifiable across fits (they swapped
+    with the corrected covariate, and refits pick component 3 for volume in 17/20). Current fit: the predictive column is
+    component 1 in volume (R2 0.118) and vol/area (0.208, unique +0.055), component 2 in DiReCT thickness (0.084, one
+    region); the global factor is component 1 (r = 0.84), and all 62 regions hard-assign to it.
+  - Every `N.*` key referenced by the paper resolves (480 keys).
 
 ## D36 (positivity = "linear" | "conical" | "convex"; convex inside every family; positivity validation, 2026-11-05)
 status: done (released in v0.20.0)

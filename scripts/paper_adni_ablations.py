@@ -246,14 +246,19 @@ def w_sweep() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# k is capped at the narrowest view's width (the 11 cognitive scales): a basis wider than a view is
+# ill-posed (an (11, 12) basis has no full-rank non-negative frame; the row-centred ICA fit raises there).
+K_SWEEP = (2, 3, 5, 8, 11)
+
+
 def k_sweep() -> pd.DataFrame:
-    """Unthresholded non-negative `simlr` (w = 0.5) at k in {2,3,5,8,12}:
+    """Unthresholded non-negative `simlr` (w = 0.5) at k in `K_SWEEP` (capped at the narrowest view, 11):
     column-centred with a PCA start (varimax off) vs row-centred with an ICA start."""
     rows = []
     for regime, row_center, init in (("Col-Centered (PCA Init)", False, "pca"),
                                      ("Row-Centered (ICA Init)", True, "ica")):
         data = protocol_b(42, row_center=row_center)
-        for k in (2, 3, 5, 8, 12):
+        for k in K_SWEEP:
             res, secs = fit_adni(data, "simlr", k=k, positivity="positive", sparseness=None,
                                  initialization_type=init, varimax=False, random_state=42)
             vs = mri_basis(res); ev = evaluate(data, vs); b = basis_summary(vs)
@@ -493,12 +498,22 @@ def main():
         else:
             result.to_csv(path, index=False)
         timings[name] = time.perf_counter() - t0
-    prov = {"cli": " ".join(sys.argv), "start_utc": start,
-            "end_utc": datetime.datetime.utcnow().isoformat() + "Z", "host": platform.node(),
-            "python": sys.version.split()[0], "torch": torch.__version__, "pysimlr": pysimlr.__version__,
-            "git_commit": commit,
-            "device": "cpu", "experiments": a.only, "seconds": timings}
-    with open(os.path.join(a.out, "provenance_adni_ablations.json"), "w") as f:
+    run = {"cli": " ".join(sys.argv), "start_utc": start,
+           "end_utc": datetime.datetime.utcnow().isoformat() + "Z", "host": platform.node(),
+           "python": sys.version.split()[0], "torch": torch.__version__, "pysimlr": pysimlr.__version__,
+           "git_commit": commit, "device": "cpu"}
+    # One record per experiment: a partial run (--only) updates its own experiments and keeps the rest.
+    prov_path = os.path.join(a.out, "provenance_adni_ablations.json")
+    prov = {"experiments": {}}
+    if os.path.isfile(prov_path):
+        with open(prov_path) as f:
+            old = json.load(f)
+        prov = old if isinstance(old.get("experiments"), dict) else {"experiments": {
+            e: {**{k: v for k, v in old.items() if k not in ("experiments", "seconds")},
+                "seconds": old.get("seconds", {}).get(e)} for e in old.get("experiments", [])}}
+    for name in a.only:
+        prov["experiments"][name] = {**run, "seconds": timings[name], "output": EXPERIMENTS[name][0]}
+    with open(prov_path, "w") as f:
         json.dump(prov, f, indent=2)
     print("DONE", flush=True)
 

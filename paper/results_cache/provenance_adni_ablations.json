@@ -1,25 +1,82 @@
 {
-  "cli": "scripts/paper_adni_ablations.py --workers 8 --only controls loadings quantile rowmean w",
-  "start_utc": "2026-11-05T19:21:50.052020Z",
-  "end_utc": "2026-11-05T19:25:03.225044Z",
-  "host": "d-172-18-66-70.vpn.net.virginia.edu",
-  "python": "3.12.12",
-  "torch": "2.13.0",
-  "pysimlr": "0.20.0",
-  "git_commit": "fc7e1e6",
-  "device": "cpu",
-  "experiments": [
-    "controls",
-    "loadings",
-    "quantile",
-    "rowmean",
-    "w"
-  ],
-  "seconds": {
-    "controls": 64.10163087514229,
-    "loadings": 19.665316167054698,
-    "quantile": 51.9575765831396,
-    "rowmean": 20.989654916105792,
-    "w": 36.423588916892186
+  "experiments": {
+    "controls": {
+      "cli": "scripts/paper_adni_ablations.py --workers 8 --only controls loadings quantile rowmean w",
+      "start_utc": "2026-11-05T19:21:50.052020Z",
+      "end_utc": "2026-11-05T19:25:03.225044Z",
+      "host": "d-172-18-66-70.vpn.net.virginia.edu",
+      "python": "3.12.12",
+      "torch": "2.13.0",
+      "pysimlr": "0.20.0",
+      "git_commit": "fc7e1e6",
+      "device": "cpu",
+      "seconds": 64.10163087514229,
+      "output": "adni_mci_axis_alignment_controls.csv"
+    },
+    "loadings": {
+      "cli": "scripts/paper_adni_ablations.py --workers 8 --only controls loadings quantile rowmean w",
+      "start_utc": "2026-11-05T19:21:50.052020Z",
+      "end_utc": "2026-11-05T19:25:03.225044Z",
+      "host": "d-172-18-66-70.vpn.net.virginia.edu",
+      "python": "3.12.12",
+      "torch": "2.13.0",
+      "pysimlr": "0.20.0",
+      "git_commit": "fc7e1e6",
+      "device": "cpu",
+      "seconds": 19.665316167054698,
+      "output": "adni_mci_feature_loadings.json"
+    },
+    "quantile": {
+      "cli": "scripts/paper_adni_ablations.py --workers 8 --only controls loadings quantile rowmean w",
+      "start_utc": "2026-11-05T19:21:50.052020Z",
+      "end_utc": "2026-11-05T19:25:03.225044Z",
+      "host": "d-172-18-66-70.vpn.net.virginia.edu",
+      "python": "3.12.12",
+      "torch": "2.13.0",
+      "pysimlr": "0.20.0",
+      "git_commit": "fc7e1e6",
+      "device": "cpu",
+      "seconds": 51.9575765831396,
+      "output": "ablation_quantile_sparseness.csv"
+    },
+    "rowmean": {
+      "cli": "scripts/paper_adni_ablations.py --workers 8 --only controls loadings quantile rowmean w",
+      "start_utc": "2026-11-05T19:21:50.052020Z",
+      "end_utc": "2026-11-05T19:25:03.225044Z",
+      "host": "d-172-18-66-70.vpn.net.virginia.edu",
+      "python": "3.12.12",
+      "torch": "2.13.0",
+      "pysimlr": "0.20.0",
+      "git_commit": "fc7e1e6",
+      "device": "cpu",
+      "seconds": 20.989654916105792,
+      "output": "ablation_rowmean_ica_positivity.csv"
+    },
+    "w": {
+      "cli": "scripts/paper_adni_ablations.py --workers 8 --only controls loadings quantile rowmean w",
+      "start_utc": "2026-11-05T19:21:50.052020Z",
+      "end_utc": "2026-11-05T19:25:03.225044Z",
+      "host": "d-172-18-66-70.vpn.net.virginia.edu",
+      "python": "3.12.12",
+      "torch": "2.13.0",
+      "pysimlr": "0.20.0",
+      "git_commit": "fc7e1e6",
+      "device": "cpu",
+      "seconds": 36.423588916892186,
+      "output": "ablation_w_sweep.csv"
+    },
+    "k": {
+      "cli": "scripts/paper_adni_ablations.py --workers 8 --only k",
+      "start_utc": "2026-11-05T20:12:06.159518Z",
+      "end_utc": "2026-11-05T20:12:46.986347Z",
+      "host": "d-172-18-66-70.vpn.net.virginia.edu",
+      "python": "3.12.12",
+      "torch": "2.13.0",
+      "pysimlr": "0.22.0",
+      "git_commit": "513c477",
+      "device": "cpu",
+      "seconds": 40.80843091709539,
+      "output": "ablation_k_sparsity_sweep.csv"
+    }
   }
 }

@@ -226,7 +226,7 @@ print(tabulate(rows, headers=headers, tablefmt="pipe"))
 #| warning: false
 #| message: false
 #| label: fig-rowmean-k-ablation
-#| fig-cap: "Component sparsity under column vs. row-mean centering, Varimax rotation and quantile thresholding, and natural non-negative sparsity against latent rank $k$ (`ablation_rowmean_ica_positivity.csv`, `adni_mci_feature_loadings.json` and `ablation_k_sparsity_sweep.csv`). (A) Fraction of zero loadings in Component 1 ($v_1$, blue) and Components $2..k$ ($v_2..v_k$, teal) on the 62 DKT cortical-thickness regions for five regimes. (B) Unthresholded non-negative sparsity across $k \\in \\{2, 3, 5, 8, 12\\}$, against the disjoint-support limit $1 - 1/k$."
+#| fig-cap: "Component sparsity under column vs. row-mean centering, Varimax rotation and quantile thresholding, and natural non-negative sparsity against latent rank $k$ (`ablation_rowmean_ica_positivity.csv`, `adni_mci_feature_loadings.json` and `ablation_k_sparsity_sweep.csv`). (A) Fraction of zero loadings in Component 1 ($v_1$, blue) and Components $2..k$ ($v_2..v_k$, teal) on the 62 DKT cortical-thickness regions for five regimes. (B) Unthresholded non-negative sparsity across $k \\in \\{2, 3, 5, 8, 11\\}$ ($k$ capped at the narrowest view, the eleven cognitive scales), against the disjoint-support limit $1 - 1/k$."
 #| out-width: 100%
 #| echo: false
 import os
@@ -300,8 +300,9 @@ with theme():
         ax2.plot(sub_k["k"], sub_k["Sparsity_All"] * 100.0, mk, color=col, lw=1.9, markersize=6.0, label=f"{prep_lbl} All v₁..ₖ")
         ax2.plot(sub_k["k"], sub_k["Sparsity_v2_k"] * 100.0, ":", color=col, lw=1.6, markersize=4.8, label=f"{prep_lbl} v₂..ₖ Only")
 
-    ax2.set_xticks([2, 3, 5, 8, 12])
-    ax2.set_xticklabels(["k=2", "k=3", "k=5", "k=8", "k=12"], fontsize=8.5)
+    k_ticks = sorted(int(k) for k in df_k["k"].unique())
+    ax2.set_xticks(k_ticks)
+    ax2.set_xticklabels([f"k={k}" for k in k_ticks], fontsize=8.5)
     ax2.set_ylim(0, 100)
     ax2.set_xlabel("Latent Embedding Rank k")
     ax2.set_ylabel("Unthresholded Sparsity % (↑)")

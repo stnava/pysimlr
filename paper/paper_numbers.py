@@ -373,6 +373,23 @@ def build():
     put("attr_dkt_mean_corr", at["dkt_mean_corr"], lambda x: f"{x:.2f}")
     put("attr_c2_global_r", at["consensus_vs_global"][1], lambda x: f"{x:.2f}")
     put("attr_hard_counts", " / ".join(str(v) for v in at["dkt_loadings_counts"]), str)
+    # Component numbers are not identifiable across fits (labels switch between runs and refits), so the
+    # prose cites the predictive column of each view and the global-factor component by value, not by index.
+    best = {}
+    for c in at["components"]:
+        tag = {"volume": "vol", "vol_area": "va", "direct_thickness": "dkt"}[c["view"]]
+        if tag not in best or c["alone"] > best[tag]["alone"]:
+            best[tag] = c
+    for tag, c in best.items():
+        put(f"attr_{tag}_best_c", c["component"], str)
+        put(f"attr_{tag}_best_r2", c["alone"])
+        put(f"attr_{tag}_best_unique", c["drop"], lambda x: f"{x:+.3f}")
+        put(f"attr_{tag}_best_n", c["nnz"], str)
+    others = [c["alone"] for c in at["components"] if all(c is not b for b in best.values())]
+    put("attr_other_max_r2", max(others))
+    g = int(np.argmax(np.abs(at["consensus_vs_global"])))
+    put("attr_global_c", g + 1, str)
+    put("attr_global_r", at["consensus_vs_global"][g], lambda x: f"{x:.2f}")
     for tag, key in (("cur", "halves"), ("nc", "halves_no_collapse")):
         hv = at[key]
         nnz = np.array([sum(h["2"]["support"]) for h in hv])
