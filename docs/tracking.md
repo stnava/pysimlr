@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: main at v0.16.0 + D27–D30 merged, not released (shrunk relative weights with λ on record; heldout_coupling; opt-in wide-view screen with measured limitation).
+current phase: v0.17.0 released from `main` (D27–D30: shrunk relative weights with λ on record; heldout_coupling; opt-in wide-view screen with measured limitation).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: none; release v0.17.0 pending the owner's instruction; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows (open); the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: none; open: relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS 27 arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes); venv /Users/stnava/venvs/ants; torch 2.13.0, numpy 2.0.1, scikit-learn 1.9.0, nsa_flow 3.6.0 (editable, /Users/stnava/data/repos/nsa_flow; not on PyPI)
 last updated: 2026-11-04
 
@@ -13,7 +13,7 @@ This file was created at v0.2.19; earlier history lives in git (`git log --oneli
 release commit bodies.
 
 ## D30 (D27 Part B screen: pooled BH gate; measured, opt-in, not a cure, 2026-11-04)
-status: done (merged to main; not released)
+status: done (released in v0.17.0)
 - **Gate.** The per-feature cutoff is Benjamini–Hochberg over a pooled permutation null.
   - The pooled null has B × p_live draws, so p resolves to 1 / (B·p). Per-feature counts stop at
     1 / (B + 1) and could never pass BH over thousands of features.
@@ -38,7 +38,7 @@ status: done (merged to main; not released)
   7-feature noise view still overfits at n = 50, k = 5.
 
 ## D29 (review fixes to D27 Part A: shrinkage on record, two named LW definitions, 2026-11-04)
-status: done (merged to main; not released)
+status: done (released in v0.17.0)
 - **λ recorded.**
   - `feature_relevance` returns `shrinkage_used` and `shrinkage_used_test`, plus `summary.shrinkage`
     and `summary.shrinkage_test`.
@@ -63,7 +63,7 @@ status: done (merged to main; not released)
   features, and the gap falls only from 0.39 to 0.30. Part B is revised separately (D30).
 
 ## D28 (heldout_coupling: cross-view agreement on held-out rows, 2026-11-04)
-status: done (merged to main; not released)
+status: done (released in v0.17.0)
 - `pysimlr.heldout_coupling(result, views)` gives, for training and held-out rows over the available
   views:
   - per view and component, |corr(z, u)|;
@@ -76,7 +76,7 @@ status: done (merged to main; not released)
   - genuine signal gap ≤ 0.03.
 - Tests: `tests/test_heldout_coupling.py`, 6 tests.
 ## D27 (shrunk Johnson relative weights for p >= n and outcome-blind wide-view predictor gating, 2026-11-04)
-status: done (merged to main; not released)
+status: done (released in v0.17.0)
 - **Problem.**
   - Classical Johnson (2000) `relative_weight` in `loadings.py` and `relevance.py` required full-rank
     `p < n` (and `p < n_sub` during half-sample `loading_inference` / `feature_relevance` refits),
