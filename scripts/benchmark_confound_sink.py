@@ -1,630 +1,253 @@
-"""Empirical validation of the PySiMLR Confound Sink (`confounds`).
+"""Held-out benchmark of the confound sink (`pysimlr.fit(..., confounds=...)`) on real data.
 
-Evaluates two complementary regimes:
-1. Controlled synthetic 3-view benchmark with a 3.5x signed scanner/motion dipole
-   under `positivity="positive"` (both orthogonal and partially covarying biology),
-   comparing unadjusted `simlr`, naive pre-residualization (with and without test-time
-   `C_test`), and `simlr(..., confounds=...)` at `confound_strength` in {0.7, 1.0}.
-2. Real 4-cohort blast neuroimaging dataset (`N = 246` complete 3-modality subjects
-   across `breacher`, `ExpArt`, `FPA`, `SOCOM`), separating regional T1w cortical
-   thickness, DTI white-matter tract FA, and rsfMRI regional ALFF/fALFF from
-   multi-cohort scanner indicators, head motion, eddy shift, ICV, and blind-QC metrics.
+Datasets (never adni_loader's T1/DTI/rsfMRI or PPMI cases):
 
-Outputs:
-- `docs/audit/evidence/confound_sink_benchmark.json`
-- `docs/audit/evidence/confound_sink_benchmark.csv`
+* ``adni_mci``: the paper's ADNI-MCI Protocol B views (T1Hier volume, T1Hier
+  thickness, T1w mean intensity; ``data/adni/adni_mci_cognitive_merged.csv``),
+  confounds age, sex, education and head size (sum of the regional volumes),
+  outcome CogPC1 (first PC of the cognitive battery, fitted on training rows).
+* ``nhanes``: NHANES 2015-16 + 2017-18 adults (cleaned public release in
+  ``~/Downloads/cleaned_nhanes_21743372``), views labs / body measures /
+  2-day mean diet, confounds age, sex, race/ethnicity, poverty-income ratio,
+  education and survey cycle, outcome HbA1c (glucose, fasting glucose, insulin
+  and osmolality are removed from the labs view: they measure or leak it).
+
+Adjustments, each fitted with ``simlr`` and with the ``pca`` baseline:
+
+* ``unadjusted``: no confound handling.
+* ``preresid_train_only``: training views residualised on C (OLS); test views
+  projected raw -- what pre-residualisation gives when ``C_test`` is not used.
+* ``frozen_beta``: training views residualised on C; test views residualised
+  with the *training* coefficients and each test subject's own ``C_test``
+  (works at N = 1, needs ``C_test``).
+* ``sink_1.0`` / ``sink_0.5``: ``confounds=C_train``, ``confound_strength`` 1 / 0.5;
+  prediction uses no ``C_test``.
+
+Metrics per split (all on held-out rows): max and mean |r(u, C)| of
+``predict(...)["u"]``; held-out cross-view coupling (`heldout_coupling`,
+per-view methods only); random-forest R^2 of the outcome from ``u`` (fitted on
+training ``u``), for the raw outcome and for the outcome adjusted for C with
+training coefficients (evaluation only).
+
+Decision rules, fixed before the runs (also written to the JSON):
+
+R1 (decorrelation without C_test): sink_1.0's held-out max |r(u, C)| is below
+    unadjusted in >= 90% of splits and its median is <= 0.15.
+R2 (decorrelation vs frozen_beta, which uses C_test): median paired difference
+    sink_1.0 - frozen_beta in held-out max |r(u, C)| <= 0.05.
+R3 (outcome cost vs frozen_beta, adjusted outcome): mean paired difference in
+    RF R^2 >= -0.02, Wilcoxon one-sided p (sink worse) > 0.05, and sink worse
+    by more than 0.05 in <= 20% of splits.
+Coupling is reported for every method and not ruled on.
+
+Usage: ``python scripts/benchmark_confound_sink.py --dataset adni_mci --splits 20 --jobs 8``.
+Writes ``docs/audit/evidence/confound_sink_<dataset>.{csv,json}``.
 """
-
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import warnings
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
-import pysimlr
-
-DEFAULT_BLAST_CSV = Path(
-    "/Users/stnava/data/blast_cohorts/antsxbrainmappingprivate_results/"
-    "blast_cohorts_clean_idps_with_demog.csv"
-)
-REPO_ROOT = Path(__file__).resolve().parents[1]
-OUT_JSON = REPO_ROOT / "docs" / "audit" / "evidence" / "confound_sink_benchmark.json"
-OUT_CSV = REPO_ROOT / "docs" / "audit" / "evidence" / "confound_sink_benchmark.csv"
-
-
-def _safe_abs_corr_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Pairwise |Pearson r| between columns of `a` (n, p) and `b` (n, q)."""
-    a64 = np.asarray(a, dtype=np.float64)
-    b64 = np.asarray(b, dtype=np.float64)
-    if a64.ndim == 1:
-        a64 = a64[:, None]
-    if b64.ndim == 1:
-        b64 = b64[:, None]
-    ac = a64 - a64.mean(axis=0, keepdims=True)
-    bc = b64 - b64.mean(axis=0, keepdims=True)
-    an = np.linalg.norm(ac, axis=0, keepdims=True)
-    bn = np.linalg.norm(bc, axis=0, keepdims=True)
-    denom = np.maximum(an.T @ bn, 1e-12)
-    return np.abs((ac.T @ bc) / denom)
+REPO = Path(__file__).resolve().parents[1]
+OUT = REPO / "docs" / "audit" / "evidence"
+ADNI_CSV = Path(os.environ.get("ADNI_CSV", str(REPO / "data" / "adni" / "adni_mci_cognitive_merged.csv")))
+NHANES_DIR = Path(os.path.expanduser(os.environ.get("NHANES_DIR", "~/Downloads/cleaned_nhanes_21743372")))
+ADJUSTMENTS = ("unadjusted", "preresid_train_only", "frozen_beta", "sink_1.0", "sink_0.5")
+RULES = {
+    "R1": "sink_1.0 held-out max|r(u,C)| < unadjusted in >= 90% of splits and median <= 0.15",
+    "R2": "median paired (sink_1.0 - frozen_beta) held-out max|r(u,C)| <= 0.05",
+    "R3": "adjusted-outcome RF R^2, sink_1.0 - frozen_beta: mean >= -0.02, one-sided Wilcoxon p > 0.05, "
+          "worse by > 0.05 in <= 20% of splits",
+}
 
 
-def _impute_and_augment_design(c_train: np.ndarray, c_eval: np.ndarray | None = None) -> Tuple[np.ndarray, np.ndarray | None]:
-    """Column-mean impute confounds using training statistics and prepend intercept."""
-    ctr = np.asarray(c_train, dtype=np.float64).copy()
-    if ctr.ndim == 1:
-        ctr = ctr[:, None]
-    col_means = np.nanmean(ctr, axis=0)
-    col_means = np.where(np.isfinite(col_means), col_means, 0.0)
-    nan_tr = ~np.isfinite(ctr)
-    if np.any(nan_tr):
-        ctr[nan_tr] = np.take(col_means, np.where(nan_tr)[1])
-    d_tr = np.column_stack([np.ones(ctr.shape[0], dtype=np.float64), ctr])
-    if c_eval is None:
-        return d_tr, None
-    cev = np.asarray(c_eval, dtype=np.float64).copy()
-    if cev.ndim == 1:
-        cev = cev[:, None]
-    nan_ev = ~np.isfinite(cev)
-    if np.any(nan_ev):
-        cev[nan_ev] = np.take(col_means, np.where(nan_ev)[1])
-    d_ev = np.column_stack([np.ones(cev.shape[0], dtype=np.float64), cev])
-    return d_tr, d_ev
+# ----------------------------------------------------------------------------- data
+def load_adni():
+    df = pd.read_csv(ADNI_CSV)
+    prefixes = ("T1Hier_vol__", "T1Hier_thk__", "T1w__")
+    cols = [[c for c in df.columns if c.startswith(p)] for p in prefixes]
+    drop = {"Cog__MOCA", "Cog__EcogPtTotal", "Cog__EcogSPTotal"}
+    cog = [c for c in df.columns if c.startswith("Cog__") and c not in drop] + ["CDRSB"]
+    # PTGENDER is coded 0/1 in this export (paper_adni_ablations.protocol_b's
+    # string test for "F" turns it into a constant column).
+    sex = pd.to_numeric(df["PTGENDER"], errors="raise").astype(float)
+    head = df[cols[0]].sum(axis=1)
+    conf = np.column_stack([df["AGE"], sex, df["PTEDUCAT"], head]).astype(float)
+    views = [df[c].to_numpy(float) for c in cols]
+    y = df[cog].to_numpy(float)
+    ok = np.isfinite(conf).all(1) & np.isfinite(y).all(1) & np.all([np.isfinite(v).all(1) for v in views], axis=0)
+    return {"views": [v[ok] for v in views], "C": conf[ok], "Y": y[ok], "outcome": "CogPC1",
+            "view_names": ["T1Hier_vol", "T1Hier_thk", "T1w_mean"], "confound_names": ["age", "sex", "educ", "head_size"],
+            "k": 3}
 
 
-def _ols_residualize_views(
-    train_views: Sequence[np.ndarray],
-    test_views: Sequence[np.ndarray],
-    c_train: np.ndarray,
-    c_test_oracle: np.ndarray | None = None,
-) -> Tuple[List[np.ndarray], List[np.ndarray]]:
-    """Regress `c_train` out of `train_views` (leaving feature mean intact so scale works)."""
-    d_tr, _ = _impute_and_augment_design(c_train, None)
-    # Zero-mean covariates only so baseline feature offsets remain intact
-    c_zero_tr = d_tr[:, 1:] - d_tr[:, 1:].mean(axis=0, keepdims=True)
-    pinv_tr = np.linalg.pinv(c_zero_tr, rcond=1e-10)
-    tr_out: List[np.ndarray] = []
-    te_out: List[np.ndarray] = []
-    for x_tr, x_te in zip(train_views, test_views):
-        beta = pinv_tr @ x_tr
-        tr_out.append(x_tr - c_zero_tr @ beta)
-        if c_test_oracle is not None and x_te.shape[0] > c_zero_tr.shape[1] + 1:
-            _, d_te = _impute_and_augment_design(c_train, c_test_oracle)
-            c_zero_te = d_te[:, 1:] - d_te[:, 1:].mean(axis=0, keepdims=True)
-            pinv_te = np.linalg.pinv(c_zero_te, rcond=1e-10)
-            te_out.append(x_te - c_zero_te @ (pinv_te @ x_te))
-        else:
-            te_out.append(x_te.copy())
-    return tr_out, te_out
+def load_nhanes(max_n: int = 3000, seed: int = 0):
+    resp_h = pd.read_csv(NHANES_DIR / "response_clean.csv", nrows=0).columns
+    leak = {"LBXGH", "LBXSGL", "LBXGLU", "LBXGLUSI", "LBXSOSSI", "LBXIN", "LBDINSI", "LBDINLC"}
+    labs = [c for c in resp_h if c.startswith(("LBX", "LBD")) and not c[-1].isdigit() and c not in leak]
+    body = [c for c in resp_h if c.startswith("BMX") and not c[-1].isdigit()]
+    resp = pd.read_csv(NHANES_DIR / "response_clean.csv", usecols=["SEQN", "SDDSRVYR", "LBXGH"] + labs + body,
+                       low_memory=False)
+    resp = resp[resp.SDDSRVYR.isin([9, 10])].drop_duplicates("SEQN")
+    diet_h = pd.read_csv(NHANES_DIR / "dietary_clean.csv", nrows=0).columns
+    diet_cols = [c for c in diet_h if c.startswith("DRXT")]
+    diet = (pd.read_csv(NHANES_DIR / "dietary_clean.csv", usecols=["SEQN", "SDDSRVYR"] + diet_cols, low_memory=False)
+            .query("SDDSRVYR in [9, 10]").drop(columns="SDDSRVYR").groupby("SEQN").mean().reset_index())
+    demo = pd.read_csv(NHANES_DIR / "demographics_clean.csv",
+                       usecols=["SEQN", "RIDAGEYR", "RIAGENDR", "RIDRETH1", "INDFMPIR", "DMDEDUC2", "SDDSRVYR"],
+                       low_memory=False).drop_duplicates("SEQN")
+    m = resp.merge(diet, on="SEQN").merge(demo.drop(columns="SDDSRVYR"), on="SEQN")
+    m = m[m.RIDAGEYR >= 20]
+
+    def keep(cs):
+        return [c for c in cs if m[c].notna().mean() >= 0.9 and m[c].std() > 0]
+    labs, body, diet_cols = keep(labs), keep(body), keep(diet_cols)
+    cov = pd.get_dummies(m[["RIDAGEYR", "RIAGENDR", "RIDRETH1", "INDFMPIR", "DMDEDUC2", "SDDSRVYR"]]
+                         .astype({"RIAGENDR": "category", "RIDRETH1": "category", "DMDEDUC2": "category",
+                                  "SDDSRVYR": "category"}), drop_first=True, dtype=float)
+    ok = (m[labs + body + diet_cols + ["LBXGH"]].notna().all(1) & cov.notna().all(1)).to_numpy()
+    idx = np.where(ok)[0]
+    if len(idx) > max_n:
+        idx = np.sort(np.random.default_rng(seed).choice(idx, max_n, replace=False))
+    views = [m[labs].to_numpy(float)[idx], m[body].to_numpy(float)[idx], m[diet_cols].to_numpy(float)[idx]]
+    return {"views": views, "C": cov.to_numpy(float)[idx], "Y": m[["LBXGH"]].to_numpy(float)[idx],
+            "outcome": "HbA1c", "view_names": ["labs", "body", "diet"], "confound_names": list(cov.columns),
+            "k": 5, "n_complete": int(ok.sum())}
 
 
-def _pct_negative_v(res: Dict[str, Any]) -> float:
-    total = 0
-    neg = 0
-    for vm in res["v"]:
-        arr = vm.detach().cpu().numpy() if hasattr(vm, "detach") else np.asarray(vm)
-        total += arr.size
-        neg += int(np.sum(arr < -1e-7))
-    return 100.0 * float(neg) / float(max(total, 1))
+# ----------------------------------------------------------------------------- one split
+def _ols_fit(c_tr, x_tr):
+    d = np.column_stack([np.ones(len(c_tr)), c_tr])
+    return np.linalg.lstsq(d, x_tr, rcond=None)[0]
 
 
-def _single_subject_discrepancy(res: Dict[str, Any], test_views: Sequence[np.ndarray], n_check: int = 12) -> float:
-    pred_batch = pysimlr.predict(res, list(test_views))["u"].detach().cpu().numpy()
-    diffs: List[float] = []
-    limit = min(n_check, test_views[0].shape[0])
-    for idx in range(limit):
-        single = [v[idx : idx + 1] for v in test_views]
-        u_one = pysimlr.predict(res, single)["u"].detach().cpu().numpy()[0]
-        diffs.append(float(np.max(np.abs(u_one - pred_batch[idx]))))
-    return float(max(diffs)) if diffs else 0.0
+def _ols_resid(c, x, beta):
+    return x - np.column_stack([np.ones(len(c)), c]) @ beta
 
 
-def _subspace_multiple_r(predictors: np.ndarray, targets: np.ndarray) -> float:
-    """Mean multiple |R| of `predictors` explaining each column of `targets` (basis-rotation invariant)."""
-    x = np.asarray(predictors, dtype=np.float64)
-    y = np.asarray(targets, dtype=np.float64)
-    if x.ndim == 1:
-        x = x[:, None]
-    if y.ndim == 1:
-        y = y[:, None]
-    xc = x - x.mean(axis=0, keepdims=True)
-    yc = y - y.mean(axis=0, keepdims=True)
-    yhat = xc @ (np.linalg.pinv(xc, rcond=1e-10) @ yc)
-    rs = [_safe_abs_corr_matrix(yhat[:, j], yc[:, j])[0, 0] for j in range(yc.shape[1])]
-    return float(np.mean(rs))
+def _max_abs_corr(u, c):
+    import pysimlr.confounds as pc
+    return pc.max_abs_corr(u, c)
 
 
-def _generate_synthetic_dipole_split(
-    seed: int,
-    n_train: int = 160,
-    n_test: int = 80,
-    bio_confound_corr: float = 0.0,
-    dipole_scale: float = 3.5,
-) -> Dict[str, Any]:
-    rng = np.random.default_rng(seed)
-    n_tot = n_train + n_test
-    c_raw = rng.standard_normal((n_tot, 2))
-    c_raw = (c_raw - c_raw.mean(axis=0, keepdims=True)) / c_raw.std(axis=0, keepdims=True)
+def _rf_r2(u_tr, y_tr, u_te, y_te, seed):
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.metrics import r2_score
+    rf = RandomForestRegressor(n_estimators=300, min_samples_leaf=5, random_state=seed, n_jobs=1)
+    return float(r2_score(y_te, rf.fit(u_tr, y_tr).predict(u_te)))
 
-    # Biological factors: either orthogonal to C on the full draw or partially covarying
-    z_indep = rng.standard_normal((n_tot, 2))
-    if abs(bio_confound_corr) < 1e-12:
-        q_c, _ = np.linalg.qr(c_raw)
-        z_indep = z_indep - q_c @ (q_c.T @ z_indep)
-        q_bio, _ = np.linalg.qr(z_indep)
-        bio = q_bio * np.sqrt(float(n_tot))
+
+def run_split(args):
+    data, split, family = args
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    import torch
+    torch.set_num_threads(1)
+    warnings.simplefilter("ignore")
+    import pysimlr
+    from sklearn.decomposition import PCA
+    rng = np.random.default_rng(1000 + split)
+    n = len(data["C"])
+    perm = rng.permutation(n)
+    tr, te = np.sort(perm[: int(0.7 * n)]), np.sort(perm[int(0.7 * n):])
+    xs_tr = [v[tr] for v in data["views"]]
+    xs_te = [v[te] for v in data["views"]]
+    c_tr, c_te = data["C"][tr], data["C"][te]
+    # Outcome: first PC of the outcome block on training rows (CogPC1), or the single outcome.
+    Y = data["Y"]
+    if Y.shape[1] > 1:
+        mu, sd = Y[tr].mean(0), Y[tr].std(0, ddof=1)
+        pca = PCA(1).fit((Y[tr] - mu) / sd)
+        y = pca.transform((Y - mu) / sd).ravel()
     else:
-        rho = float(bio_confound_corr)
-        z0 = rho * c_raw[:, 0] + np.sqrt(max(1.0 - rho * rho, 0.0)) * z_indep[:, 0]
-        z1 = z_indep[:, 1] - (np.dot(z0, z_indep[:, 1]) / max(np.dot(z0, z0), 1e-12)) * z0
-        bio = np.column_stack([
-            (z0 - z0.mean()) / z0.std(),
-            (z1 - z1.mean()) / z1.std(),
-        ])
-
-    widths = (40, 40, 40)
-    views_tr: List[np.ndarray] = []
-    views_te: List[np.ndarray] = []
-    for p in widths:
-        w_bio = np.zeros((p, 2), dtype=np.float64)
-        w_bio[0:5, 0] = rng.uniform(0.9, 1.2, size=5)
-        w_bio[5:10, 1] = rng.uniform(0.9, 1.2, size=5)
-
-        # Two dominant signed scanner/motion dipoles across broader sensor channels
-        w_conf = np.zeros((p, 2), dtype=np.float64)
-        w_conf[10:17, 0] = +dipole_scale * rng.uniform(0.9, 1.15, size=7)
-        w_conf[17:24, 0] = -dipole_scale * rng.uniform(0.9, 1.15, size=7)
-        w_conf[24:31, 1] = +dipole_scale * rng.uniform(0.9, 1.15, size=7)
-        w_conf[31:38, 1] = -dipole_scale * rng.uniform(0.9, 1.15, size=7)
-
-        x_full = bio @ w_bio.T + c_raw @ w_conf.T + 0.15 * rng.standard_normal((n_tot, p))
-        views_tr.append(x_full[:n_train])
-        views_te.append(x_full[n_train:])
-
-    return {
-        "views_tr": views_tr,
-        "views_te": views_te,
-        "c_tr": c_raw[:n_train],
-        "c_te": c_raw[n_train:],
-        "bio_tr": bio[:n_train],
-        "bio_te": bio[n_train:],
-    }
-
-
-def run_synthetic_benchmarks(n_seeds: int = 5) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    scenarios = [
-        ("synthetic_orthogonal_dipole", 0.0),
-        ("synthetic_covarying_bio_r045", 0.45),
-    ]
-    fit_kw = dict(
-        positivity="positive",
-        energy_type="nc_abs",
-        sparseness=0.5,
-        iterations=120,
-        learning_rate=0.05,
-        random_state=0,
-    )
-
-    for scenario_name, rho in scenarios:
-        for seed in range(n_seeds):
-            split = _generate_synthetic_dipole_split(seed=100 + seed, bio_confound_corr=rho)
-            v_tr, v_te = split["views_tr"], split["views_te"]
-            c_tr, c_te = split["c_tr"], split["c_te"]
-            bio_te = split["bio_te"]
-
-            # 1. Unadjusted
-            res_unadj = pysimlr.fit("simlr", v_tr, k=2, **fit_kw)
-            # 2. Naive pre-residualized (oracle batch test C vs realistic no-C_test)
-            v_tr_res, v_te_oracle = _ols_residualize_views(v_tr, v_te, c_tr, c_test_oracle=c_te)
-            res_pre = pysimlr.fit("simlr", v_tr_res, k=2, **fit_kw)
-            # 3. Confound sink hard (gamma=1.0) and soft (gamma=0.7)
-            res_sink_10 = pysimlr.fit(
-                "simlr", v_tr, k=2, confounds=c_tr, confound_strength=1.0, **fit_kw
-            )
-            res_sink_07 = pysimlr.fit(
-                "simlr", v_tr, k=2, confounds=c_tr, confound_strength=0.7, **fit_kw
-            )
-
-            method_specs = [
-                ("unadjusted", res_unadj, v_te, True),
-                ("naive_preresid_oracle_batch", res_pre, v_te_oracle, False),
-                ("naive_preresid_no_ctest", res_pre, v_te, True),
-                ("confound_sink_soft_0.7", res_sink_07, v_te, True),
-                ("confound_sink_hard_1.0", res_sink_10, v_te, True),
-            ]
-
-            for m_name, res, eval_views, batch_invariant in method_specs:
-                u_tr = res["u"].detach().cpu().numpy()
-                pred = pysimlr.predict(res, eval_views)
-                u_te = pred["u"].detach().cpu().numpy()
-
-                tr_corr_c = float(_safe_abs_corr_matrix(u_tr, c_tr).max())
-                te_corr_c = float(_safe_abs_corr_matrix(u_te, c_te).max())
-                bio_mat = _safe_abs_corr_matrix(u_te, bio_te)
-                bio1_r = float(bio_mat[:, 0].max())
-                bio2_r = float(bio_mat[:, 1].max())
-
-                if "u_sink" in pred:
-                    u_sink_te = pred["u_sink"].detach().cpu().numpy()
-                    sink_c_r = _subspace_multiple_r(u_sink_te, c_te)
-                else:
-                    sink_c_r = float("nan")
-
-                # Missing modality test (views 0 and 1 only, view 2 absent)
-                pred_sub = pysimlr.predict(res, {0: eval_views[0], 1: eval_views[1]})
-                u_sub = pred_sub["u"].detach().cpu().numpy()
-                sub_bio_mat = _safe_abs_corr_matrix(u_sub, bio_te)
-                sub_bio_mean = 0.5 * float(sub_bio_mat[:, 0].max() + sub_bio_mat[:, 1].max())
-
-                single_diff = (
-                    _single_subject_discrepancy(res, eval_views)
-                    if batch_invariant
-                    else float("nan")  # N=1 batch residualization has 0 degrees of freedom
-                )
-                hc = pysimlr.heldout_coupling(res, eval_views)
-                heldout_cv = float(np.nanmean(hc["cross_view_heldout"]))
-
-                rows.append(
-                    {
-                        "dataset": scenario_name,
-                        "seed": seed,
-                        "method": m_name,
-                        "train_max_abs_corr_C": tr_corr_c,
-                        "test_max_abs_corr_C": te_corr_c,
-                        "test_bio1_abs_r": bio1_r,
-                        "test_bio2_abs_r": bio2_r,
-                        "test_bio_mean_abs_r": 0.5 * (bio1_r + bio2_r),
-                        "test_missing_view_bio_mean_r": sub_bio_mean,
-                        "test_sink_abs_corr_C": sink_c_r,
-                        "heldout_cross_view_coupling": heldout_cv,
-                        "single_subject_max_diff": single_diff,
-                        "pct_negative_v": _pct_negative_v(res),
-                    }
-                )
+        y = Y[:, 0]
+    y_tr, y_te = y[tr], y[te]
+    by = _ols_fit(c_tr, y_tr)
+    ya_tr, ya_te = _ols_resid(c_tr, y_tr, by), _ols_resid(c_te, y_te, by)
+    kw = dict(random_state=0) if family == "simlr" else {}
+    rows = []
+    for adj in ADJUSTMENTS:
+        t_tr = [torch.tensor(x).float() for x in xs_tr]
+        t_te = [torch.tensor(x).float() for x in xs_te]
+        if adj in ("preresid_train_only", "frozen_beta"):
+            betas = [_ols_fit(c_tr, x) for x in xs_tr]
+            t_tr = [torch.tensor(_ols_resid(c_tr, x, b)).float() for x, b in zip(xs_tr, betas)]
+            if adj == "frozen_beta":
+                t_te = [torch.tensor(_ols_resid(c_te, x, b)).float() for x, b in zip(xs_te, betas)]
+        sink = {"confounds": c_tr, "confound_strength": float(adj.split("_")[1])} if adj.startswith("sink") else {}
+        res = pysimlr.fit(family, t_tr, data["k"], **kw, **sink)
+        u_tr = res["u"].double().numpy()
+        u_te = pysimlr.predict(res, t_te)["u"].double().numpy()
+        dec = _max_abs_corr(u_te, c_te)
+        try:
+            coup = float(np.nanmean(pysimlr.heldout_coupling(res, t_te)["cross_view_heldout"]))
+        except ValueError:
+            coup = float("nan")          # joint-basis baselines have no per-view latents
+        rows.append({"split": split, "family": family, "adjustment": adj,
+                     "test_max_abs_corr_C": dec["max"], "test_mean_abs_corr_C": dec["mean"],
+                     "train_max_abs_corr_C": _max_abs_corr(u_tr, c_tr)["max"],
+                     "heldout_coupling": coup,
+                     "rf_r2_outcome": _rf_r2(u_tr, y_tr, u_te, y_te, split),
+                     "rf_r2_outcome_adjusted": _rf_r2(u_tr, ya_tr, u_te, ya_te, split)})
     return rows
 
 
-def _prepare_blast_dataset(csv_path: Path) -> Dict[str, Any]:
-    df = pd.read_csv(csv_path, low_memory=False)
-
-    # Regional physical macro-views (all p_m < n_train, zero QC columns inside biological views)
-    t1_cols = sorted(
-        c
-        for c in df.columns
-        if (c.startswith("T1Hier+thk_left_") or c.startswith("T1Hier+thk_right_"))
-        and pd.api.types.is_numeric_dtype(df[c])
-    )
-    dti_cols = sorted(
-        c
-        for c in df.columns
-        if (c.startswith("DTI+FA_JHU_") or c.startswith("DTI+bundle_FA_"))
-        and pd.api.types.is_numeric_dtype(df[c])
-    )
-    rsf_cols = sorted(
-        c
-        for c in df.columns
-        if (c.startswith("rsfMRI+rsf_alff_") or c.startswith("rsfMRI+rsf_falff_"))
-        and pd.api.types.is_numeric_dtype(df[c])
-    )
-
-    # Keep subjects with >=80% observed features in all 3 core modalities
-    valid_mask = (
-        (df[t1_cols].notna().mean(axis=1) >= 0.80)
-        & (df[dti_cols].notna().mean(axis=1) >= 0.80)
-        & (df[rsf_cols].notna().mean(axis=1) >= 0.80)
-    )
-    sub = df.loc[valid_mask].reset_index(drop=True)
-
-    # Drop any individual feature column with >10% missingness on the complete-modality cohort
-    t1_cols = [c for c in t1_cols if sub[c].notna().mean() >= 0.90 and sub[c].std() > 1e-8]
-    dti_cols = [c for c in dti_cols if sub[c].notna().mean() >= 0.90 and sub[c].std() > 1e-8]
-    rsf_cols = [c for c in rsf_cols if sub[c].notna().mean() >= 0.90 and sub[c].std() > 1e-8]
-
-    # Explicit multi-site/scanner + head-size + motion + blind-QC confound set
-    cohorts = sub["cohort"].astype(str).to_numpy()
-    cohort_dummies = pd.get_dummies(sub["cohort"].astype(str), drop_first=True, dtype=np.float64)
-
-    qc_t1_cols = ["T1Hier+icv"]
-    qc_dti_cols = [
-        "DTI+dti_FD_raw_mean",
-        "DTI+dti_eddy_pe_shift_mm_abs_mean",
-    ]
-    qc_rsf_cols = [
-        "rsfMRI+rsf_FD_mean",
-        "rsfMRI+rsf_blindqc_dvars",
-        "rsfMRI+rsf_blindqc_tsnr",
-        "rsfMRI+rsf_blindqc_ghosting_ratio",
-    ]
-    qc_all_cols = qc_t1_cols + qc_dti_cols + qc_rsf_cols
-    c_shared_df = pd.concat([cohort_dummies.reset_index(drop=True), sub[qc_all_cols]], axis=1)
-    c_t1_df = pd.concat([cohort_dummies.reset_index(drop=True), sub[qc_t1_cols]], axis=1)
-    c_dti_df = pd.concat([cohort_dummies.reset_index(drop=True), sub[qc_dti_cols]], axis=1)
-    c_rsf_df = pd.concat([cohort_dummies.reset_index(drop=True), sub[qc_rsf_cols]], axis=1)
-
-    age = pd.to_numeric(sub["unified_age"], errors="coerce").to_numpy(dtype=np.float64)
-    gbev = pd.to_numeric(
-        sub["unified_log10_gbev_blast_only_plus1"], errors="coerce"
-    ).to_numpy(dtype=np.float64)
-
-    return {
-        "n_subjects": int(len(sub)),
-        "cohort_counts": {k: int(v) for k, v in pd.Series(cohorts).value_counts().items()},
-        "cohorts": cohorts,
-        "view_names": ["T1Hier_thk", "DTI_tract_FA", "rsfMRI_alff_falff"],
-        "view_widths": [len(t1_cols), len(dti_cols), len(rsf_cols)],
-        "raw_views": [
-            sub[t1_cols].to_numpy(dtype=np.float64),
-            sub[dti_cols].to_numpy(dtype=np.float64),
-            sub[rsf_cols].to_numpy(dtype=np.float64),
-        ],
-        "confound_names": list(c_shared_df.columns),
-        "c_shared": c_shared_df.to_numpy(dtype=np.float64),
-        "c_per_view": [
-            c_t1_df.to_numpy(dtype=np.float64),
-            c_dti_df.to_numpy(dtype=np.float64),
-            c_rsf_df.to_numpy(dtype=np.float64),
-        ],
-        "age": age,
-        "gbev": gbev,
-    }
+# ----------------------------------------------------------------------------- rules
+def evaluate_rules(df: pd.DataFrame) -> dict:
+    from scipy.stats import wilcoxon
+    out = {}
+    for fam, g in df.groupby("family"):
+        p = g.pivot(index="split", columns="adjustment")
+        dec = p["test_max_abs_corr_C"]
+        r2a = p["rf_r2_outcome_adjusted"]
+        d_unadj = dec["sink_1.0"] - dec["unadjusted"]
+        d_frozen = dec["sink_1.0"] - dec["frozen_beta"]
+        d_r2 = r2a["sink_1.0"] - r2a["frozen_beta"]
+        p_w = float(wilcoxon(d_r2, alternative="less").pvalue) if np.any(d_r2 != 0) else 1.0
+        out[fam] = {
+            "R1": {"frac_below_unadjusted": float((d_unadj < 0).mean()), "median_sink": float(dec["sink_1.0"].median()),
+                   "pass": bool((d_unadj < 0).mean() >= 0.9 and dec["sink_1.0"].median() <= 0.15)},
+            "R2": {"median_diff_vs_frozen": float(d_frozen.median()), "pass": bool(d_frozen.median() <= 0.05)},
+            "R3": {"mean_diff_r2_adj_vs_frozen": float(d_r2.mean()), "wilcoxon_p_sink_worse": p_w,
+                   "frac_worse_by_0.05": float((d_r2 < -0.05).mean()),
+                   "pass": bool(d_r2.mean() >= -0.02 and p_w > 0.05 and (d_r2 < -0.05).mean() <= 0.2)},
+            "coupling_sink_minus_unadjusted_median": float(
+                (p["heldout_coupling"]["sink_1.0"] - p["heldout_coupling"]["unadjusted"]).median()),
+        }
+    return out
 
 
-def _impute_views_from_train(
-    raw_views: Sequence[np.ndarray], train_idx: np.ndarray, test_idx: np.ndarray
-) -> Tuple[List[np.ndarray], List[np.ndarray]]:
-    tr_list: List[np.ndarray] = []
-    te_list: List[np.ndarray] = []
-    for v in raw_views:
-        v_tr = v[train_idx].copy()
-        v_te = v[test_idx].copy()
-        means = np.nanmean(v_tr, axis=0)
-        means = np.where(np.isfinite(means), means, 0.0)
-        nan_tr = ~np.isfinite(v_tr)
-        if np.any(nan_tr):
-            v_tr[nan_tr] = np.take(means, np.where(nan_tr)[1])
-        nan_te = ~np.isfinite(v_te)
-        if np.any(nan_te):
-            v_te[nan_te] = np.take(means, np.where(nan_te)[1])
-        tr_list.append(v_tr)
-        te_list.append(v_te)
-    return tr_list, te_list
-
-
-def _stratified_split(cohorts: np.ndarray, test_frac: float, seed: int) -> Tuple[np.ndarray, np.ndarray]:
-    rng = np.random.default_rng(seed)
-    tr_parts: List[np.ndarray] = []
-    te_parts: List[np.ndarray] = []
-    for label in sorted(set(cohorts.tolist())):
-        idx = np.where(cohorts == label)[0]
-        perm = rng.permutation(idx)
-        n_te = max(1, int(round(len(idx) * test_frac)))
-        te_parts.append(perm[:n_te])
-        tr_parts.append(perm[n_te:])
-    return np.sort(np.concatenate(tr_parts)), np.sort(np.concatenate(te_parts))
-
-
-def _partial_bio_multiple_r(
-    u_tr: np.ndarray,
-    u_te: np.ndarray,
-    y_tr: np.ndarray,
-    y_te: np.ndarray,
-    c_tr: np.ndarray,
-    c_te: np.ndarray,
-) -> float:
-    """Out-of-sample |corr(y_resid_te, yhat_te)| predicting confound-adjusted biology from U."""
-    d_tr, d_te = _impute_and_augment_design(c_tr, c_te)
-    valid_tr = np.isfinite(y_tr)
-    valid_te = np.isfinite(y_te)
-    if valid_tr.sum() < 15 or valid_te.sum() < 10:
-        return float("nan")
-
-    # Partial out confounds from outcome using training-fitted nuisance slope
-    beta_c = np.linalg.pinv(d_tr[valid_tr], rcond=1e-10) @ y_tr[valid_tr]
-    y_res_tr = y_tr[valid_tr] - d_tr[valid_tr] @ beta_c
-    y_res_te = y_te[valid_te] - d_te[valid_te] @ beta_c
-
-    x_tr = np.column_stack([np.ones(valid_tr.sum()), u_tr[valid_tr]])
-    x_te = np.column_stack([np.ones(valid_te.sum()), u_te[valid_te]])
-    # Mild ridge on latent columns for stable 4-component linear readout
-    reg = np.diag([0.0] + [1.0] * u_tr.shape[1])
-    w = np.linalg.solve(x_tr.T @ x_tr + reg, x_tr.T @ y_res_tr)
-    yhat_te = x_te @ w
-    return float(_safe_abs_corr_matrix(yhat_te, y_res_te)[0, 0])
-
-
-def run_blast_benchmarks(csv_path: Path, n_splits: int = 5) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-    data = _prepare_blast_dataset(csv_path)
-    rows: List[Dict[str, Any]] = []
-    fit_kw = dict(
-        positivity="positive",
-        energy_type="nc_abs",
-        sparseness=0.5,
-        iterations=200,
-        learning_rate=0.02,
-        random_state=0,
-    )
-    k = 4
-
-    for split_idx in range(n_splits):
-        tr_idx, te_idx = _stratified_split(data["cohorts"], test_frac=0.30, seed=500 + split_idx)
-        v_tr, v_te = _impute_views_from_train(data["raw_views"], tr_idx, te_idx)
-        c_tr_raw = data["c_shared"][tr_idx]
-        c_te_raw = data["c_shared"][te_idx]
-        d_tr, d_te = _impute_and_augment_design(c_tr_raw, c_te_raw)
-        c_tr_imp = d_tr[:, 1:]
-        c_te_imp = d_te[:, 1:]
-
-        c_pv_tr = [pv[tr_idx] for pv in data["c_per_view"]]
-        age_tr, age_te = data["age"][tr_idx], data["age"][te_idx]
-        gbev_tr, gbev_te = data["gbev"][tr_idx], data["gbev"][te_idx]
-
-        res_unadj = pysimlr.fit("simlr", v_tr, k=k, **fit_kw)
-
-        v_tr_res, _ = _ols_residualize_views(v_tr, v_te, c_tr_raw, c_test_oracle=None)
-        res_pre = pysimlr.fit("simlr", v_tr_res, k=k, **fit_kw)
-
-        res_sink_07 = pysimlr.fit(
-            "simlr", v_tr, k=k, confounds=c_tr_raw, confound_strength=0.7, **fit_kw
-        )
-        res_sink_10 = pysimlr.fit(
-            "simlr", v_tr, k=k, confounds=c_tr_raw, confound_strength=1.0, **fit_kw
-        )
-        res_sink_pv = pysimlr.fit(
-            "simlr",
-            v_tr,
-            k=k,
-            confounds={0: c_pv_tr[0], 1: c_pv_tr[1], 2: c_pv_tr[2]},
-            confound_strength=1.0,
-            **fit_kw,
-        )
-
-        specs = [
-            ("unadjusted", res_unadj),
-            ("naive_preresid_no_ctest", res_pre),
-            ("confound_sink_soft_0.7", res_sink_07),
-            ("confound_sink_hard_1.0", res_sink_10),
-            ("confound_sink_per_view_1.0", res_sink_pv),
-        ]
-
-        for m_name, res in specs:
-            u_tr = res["u"].detach().cpu().numpy()
-            pred = pysimlr.predict(res, v_te)
-            u_te = pred["u"].detach().cpu().numpy()
-
-            tr_corr_mat = _safe_abs_corr_matrix(u_tr, c_tr_imp)
-            te_corr_mat = _safe_abs_corr_matrix(u_te, c_te_imp)
-
-            if "u_sink" in pred:
-                u_sink_te = pred["u_sink"].detach().cpu().numpy()
-                sink_corr_te = float(_safe_abs_corr_matrix(u_sink_te, c_te_imp).max())
-            else:
-                sink_corr_te = float("nan")
-
-            # Missing-modality deployment: rsfMRI absent at test time ({0: T1, 1: DTI})
-            pred_no_rsf = pysimlr.predict(res, {0: v_te[0], 1: v_te[1]})
-            u_no_rsf = pred_no_rsf["u"].detach().cpu().numpy()
-            diag_agree = float(
-                np.mean([_safe_abs_corr_matrix(u_te[:, j], u_no_rsf[:, j])[0, 0] for j in range(k)])
-            )
-            no_rsf_corr_c = float(_safe_abs_corr_matrix(u_no_rsf, c_te_imp).max())
-
-            hc = pysimlr.heldout_coupling(res, v_te)
-            heldout_cv = float(np.nanmean(hc["cross_view_heldout"]))
-
-            age_partial_r = _partial_bio_multiple_r(u_tr, u_te, age_tr, age_te, c_tr_raw, c_te_raw)
-            gbev_partial_r = _partial_bio_multiple_r(u_tr, u_te, gbev_tr, gbev_te, c_tr_raw, c_te_raw)
-
-            rows.append(
-                {
-                    "dataset": "blast_4cohort_3modality",
-                    "seed": split_idx,
-                    "method": m_name,
-                    "train_max_abs_corr_C": float(tr_corr_mat.max()),
-                    "test_max_abs_corr_C": float(te_corr_mat.max()),
-                    "test_mean_abs_corr_C": float(te_corr_mat.max(axis=0).mean()),
-                    "test_missing_rsfmri_max_corr_C": no_rsf_corr_c,
-                    "test_missing_rsfmri_u_agreement": diag_agree,
-                    "test_sink_abs_corr_C": sink_corr_te,
-                    "heldout_cross_view_coupling": heldout_cv,
-                    "test_age_partial_r": age_partial_r,
-                    "test_blast_gbev_partial_r": gbev_partial_r,
-                    "single_subject_max_diff": _single_subject_discrepancy(res, v_te),
-                    "pct_negative_v": _pct_negative_v(res),
-                }
-            )
-
-    meta = {
-        "n_subjects": data["n_subjects"],
-        "cohort_counts": data["cohort_counts"],
-        "view_names": data["view_names"],
-        "view_widths": data["view_widths"],
-        "confound_names": data["confound_names"],
-        "k": k,
-        "n_splits": n_splits,
-    }
-    return meta, rows
-
-
-def _summarize(df: pd.DataFrame, group_cols: Sequence[str]) -> List[Dict[str, Any]]:
-    num_cols = [
-        c for c in df.columns if c not in set(group_cols) and c != "seed" and pd.api.types.is_numeric_dtype(df[c])
-    ]
-    agg = df.groupby(list(group_cols), sort=False)[num_cols].mean().reset_index()
-    return agg.to_dict(orient="records")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--blast-csv", type=Path, default=DEFAULT_BLAST_CSV)
-    parser.add_argument("--seeds", type=int, default=5)
-    args = parser.parse_args()
-
-    syn_rows = run_synthetic_benchmarks(n_seeds=args.seeds)
-    syn_df = pd.DataFrame(syn_rows)
-
-    blast_meta: Dict[str, Any] = {}
-    blast_rows: List[Dict[str, Any]] = []
-    if args.blast_csv.exists():
-        blast_meta, blast_rows = run_blast_benchmarks(args.blast_csv, n_splits=args.seeds)
-
-    all_df = pd.concat([syn_df, pd.DataFrame(blast_rows)], ignore_index=True, sort=False)
-    OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-    all_df.to_csv(OUT_CSV, index=False)
-
-    summary_payload = {
-        "synthetic_summary": _summarize(syn_df, ("dataset", "method")),
-        "blast_metadata": blast_meta,
-        "blast_summary": _summarize(pd.DataFrame(blast_rows), ("dataset", "method")) if blast_rows else [],
-    }
-    OUT_JSON.write_text(json.dumps(summary_payload, indent=2) + "\n", encoding="utf-8")
-
-    print("=== Synthetic Confound-Dipole Summary (mean over seeds) ===")
-    syn_sum = pd.DataFrame(summary_payload["synthetic_summary"])
-    print(
-        syn_sum[
-            [
-                "dataset",
-                "method",
-                "train_max_abs_corr_C",
-                "test_max_abs_corr_C",
-                "test_bio_mean_abs_r",
-                "test_missing_view_bio_mean_r",
-                "test_sink_abs_corr_C",
-                "single_subject_max_diff",
-                "pct_negative_v",
-            ]
-        ].to_string(index=False, float_format=lambda x: f"{x:.4f}")
-    )
-
-    if blast_rows:
-        print("\n=== Real 4-Cohort Blast Neuroimaging Summary (mean over stratified splits) ===")
-        print(
-            f"Subjects: N={blast_meta['n_subjects']} {blast_meta['cohort_counts']}, "
-            f"views={list(zip(blast_meta['view_names'], blast_meta['view_widths']))}, "
-            f"confounds ({len(blast_meta['confound_names'])}): {blast_meta['confound_names']}"
-        )
-        blast_sum = pd.DataFrame(summary_payload["blast_summary"])
-        print(
-            blast_sum[
-                [
-                    "method",
-                    "train_max_abs_corr_C",
-                    "test_max_abs_corr_C",
-                    "test_mean_abs_corr_C",
-                    "test_missing_rsfmri_max_corr_C",
-                    "test_sink_abs_corr_C",
-                    "heldout_cross_view_coupling",
-                    "test_age_partial_r",
-                    "test_blast_gbev_partial_r",
-                    "single_subject_max_diff",
-                    "pct_negative_v",
-                ]
-            ].to_string(index=False, float_format=lambda x: f"{x:.4f}")
-        )
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dataset", choices=("adni_mci", "nhanes"), required=True)
+    ap.add_argument("--splits", type=int, default=20)
+    ap.add_argument("--jobs", type=int, default=8)
+    ap.add_argument("--families", default="simlr,pca")
+    a = ap.parse_args()
+    data = load_adni() if a.dataset == "adni_mci" else load_nhanes()
+    tasks = [(data, s, f) for f in a.families.split(",") for s in range(a.splits)]
+    with ProcessPoolExecutor(a.jobs) as ex:
+        rows = [r for rs in ex.map(run_split, tasks) for r in rs]
+    df = pd.DataFrame(rows)
+    OUT.mkdir(parents=True, exist_ok=True)
+    df.to_csv(OUT / f"confound_sink_{a.dataset}.csv", index=False)
+    summary = df.groupby(["family", "adjustment"]).agg(["mean", "std"]).drop(columns="split").round(4)
+    meta = {"dataset": a.dataset, "n": int(len(data["C"])), "view_names": data["view_names"],
+            "view_widths": [int(v.shape[1]) for v in data["views"]], "confound_names": data["confound_names"],
+            "outcome": data["outcome"], "k": data["k"], "splits": a.splits, "rules": RULES,
+            "rule_outcomes": evaluate_rules(df),
+            "summary": {f"{f}|{adj}": {f"{c}|{s}": v for (c, s), v in row.items()}
+                        for (f, adj), row in summary.iterrows()}}
+    (OUT / f"confound_sink_{a.dataset}.json").write_text(json.dumps(meta, indent=2, default=float))
+    print(json.dumps({k: meta[k] for k in ("dataset", "n", "view_widths", "confound_names", "rule_outcomes")},
+                     indent=1, default=float))
+    print(summary.to_string())
 
 
 if __name__ == "__main__":

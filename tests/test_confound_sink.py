@@ -149,8 +149,26 @@ def test_rank_truncation_warns_and_is_recorded(data):
         res = fit("pca", xtr, 2, confounds=ctr, confound_rank=1)
     info = res["confound_sink"]["info"][0]
     assert info["rank_truncated"] and info["rank"] == 1 and info["numerical_rank"] == 2
-    assert {"lambda_rel", "df", "df_cap", "grid_extended"} <= set(info)
-    assert info["df"] <= info["df_cap"]
+    assert info["removed_directions"] == 1
+
+
+def test_training_scores_have_zero_confound_covariance(data):
+    """At strength 1 any linear score of a cleaned training view is uncorrelated with every confound."""
+    xtr, _, _, _, ctr, _ = data
+    clean, _ = fit_confound_sink(xtr, ctr)
+    w = torch.randn(xtr[0].shape[1], 5, generator=torch.Generator().manual_seed(0))
+    s = (clean[0].double() @ w.double()).numpy()
+    assert max_abs_corr(s, ctr)["max"] < 1e-4
+    raw = (xtr[0].double() @ w.double()).numpy()
+    assert max_abs_corr(raw, ctr)["max"] > 0.3
+
+
+def test_a_view_spanned_by_the_confounds_raises():
+    rng = np.random.default_rng(0)
+    c = rng.standard_normal((80, 3))
+    views = [torch.tensor(c @ rng.standard_normal((3, 2))).float(), torch.tensor(rng.standard_normal((80, 6))).float()]
+    with pytest.raises(ValueError, match="remove the whole view"):
+        fit("pca", views, 1, confounds=c)
 
 
 # ----------------------------------------------------------------------------- every family

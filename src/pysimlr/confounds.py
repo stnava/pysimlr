@@ -16,27 +16,37 @@ The operator, per view ``m`` (training rows only)
    (finite-entry mean and SD; non-finite entries set to the column mean;
    constant columns dropped, all recorded) and reduced to an orthonormal,
    zero-mean basis ``Q_m`` (``n x k_c``) by SVD, keeping the numerical rank,
-   capped at ``confound_rank`` or ``n // 4`` (a cap that binds is recorded).
+   capped at ``confound_rank`` or ``n // 4`` (a cap that binds warns and is
+   recorded).
 2. The view's columns are filled at their training means ``mu_m`` where
    missing and centred: ``X_c = X_m - mu_m``.
-3. ``R_m`` (``p_m x k_c``) is a ridge regression of ``Q_m`` on ``X_c``; the
-   penalty minimises GCV over a fixed grid among values whose effective
-   degrees of freedom are at most ``0.65 (n - 1)`` (the grid is extended
-   upward until one qualifies; the chosen value is recorded). ``X_c R_m``
-   is the confound estimated from the view's own features.
-4. ``A_m = Q_m^+ X_c`` (``k_c x p_m``) is the feature pattern of the
-   confound in the view.
-5. The cleaned view is ``X_m - gamma (X_m - mu_m) R_m A_m``. ``gamma``
-   (``confound_strength`` in ``[0, 1]``) damps the removal; ``gamma = 1``
-   removes the full estimated nuisance component.
+3. ``H_m`` (``p_m x r``) is an orthonormal basis of the feature-space
+   confound covariance ``X_c^T Q_m``: the feature directions along which the
+   view covaries with the confounds (``r <= k_c``, numerical rank).
+4. The cleaned view is ``X_m - gamma (X_m - mu_m) H_m H_m^T``: those ``r``
+   directions are projected out of the features (``gamma`` =
+   ``confound_strength`` in ``[0, 1]`` damps the projection).
+
+With ``gamma = 1`` every linear score ``X_clean w`` has exactly zero sample
+covariance with every confound column on the training rows, and the
+confound's feature pattern is removed from any row, so held-out decorrelation
+needs no ``C_test`` -- it is limited only by how well ``X_c^T Q_m`` estimates
+the population pattern. What is lost is the biology that lies in those ``r``
+feature directions (all of it at ``gamma = 1``; biology that covaries with a
+confound is partly kept at ``gamma < 1``). Nonlinear heads (deep and flow
+models) see only the cleaned first-layer input but can still form nonlinear
+functions of it that correlate with a confound; measure, do not assume.
+
+The sink scores (``predict(...)["latents_sink"]``, ``u_sink``) are
+``(X_m - mu_m) H_m M_m``, with ``M_m`` the least-squares map from the removed
+directions to ``Q_m`` on the training rows: an image-derived estimate of the
+confounds, averaged over the available views when the confounds are shared.
 
 The same affine map is applied to the training rows and to new rows, so
 ``result["u"]`` equals ``predict(result, training_views)["u"]`` up to the
-method's own prediction error, a single subject (``N = 1``) is cleaned
-exactly as in a batch, and no ``C_test`` is ever needed. The price is that
-the training decorrelation is not exact: it is whatever the image-estimated
-confound achieves, and it is reported, from the predict path, in
-``result["confound_sink"]["train_max_abs_corr"]``. Measure held-out
+method's own prediction error, and a single subject (``N = 1``) is cleaned
+exactly as in a batch. The training decorrelation is reported from the predict
+path in ``result["confound_sink"]["train_max_abs_corr"]``; measure held-out
 decorrelation with `confound_decorrelation` on rows that have confounds.
 
 Row permutations commute with the operator (``clean(X[p], C[p]) =
@@ -55,8 +65,6 @@ import torch
 #: Parameters `pysimlr.fit` handles for every method.
 SINK_PARAMS: Dict[str, Any] = {"confounds": None, "confound_strength": 1.0, "confound_rank": None}
 
-_RIDGE_GRID = (1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 0.3, 1.0, 3.0, 10.0, 30.0)
-_MAX_DF_FRAC = 0.65
 
 
 # ----------------------------------------------------------------------------- validation
@@ -197,7 +205,7 @@ def permute_view_confounds(confounds: Any, perms: Sequence[Optional[np.ndarray]]
             for v, p in zip(items, perms)]
 
 
-# ----------------------------------------------------------------------------- basis and ridge
+# ----------------------------------------------------------------------------- confound basis
 def confound_basis(c_raw: np.ndarray, confound_rank: Optional[int]) -> Tuple[np.ndarray, Dict[str, Any]]:
     """Orthonormal zero-mean basis ``Q`` of the standardised confound columns, and what was done."""
     n, q = c_raw.shape
@@ -236,44 +244,6 @@ def confound_basis(c_raw: np.ndarray, confound_rank: Optional[int]) -> Tuple[np.
     return qb - qb.mean(axis=0, keepdims=True), info
 
 
-def gcv_ridge(xc: np.ndarray, yc: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
-    """Ridge ``xc W ~ yc`` (both centred) with GCV over a grid of relative penalties.
-
-    Only penalties with effective degrees of freedom ``<= 0.65 (n - 1)`` are
-    eligible (an interpolating fit would make the training rows look cleaner
-    than new rows); the grid is extended upward by factors of 3 until one is.
-    """
-    n = xc.shape[0]
-    u_svd, s_svd, vt = np.linalg.svd(xc, full_matrices=False)
-    s2 = s_svd ** 2
-    if s2.size == 0 or s2[0] <= 0.0:
-        raise ValueError("confound sink: a view has no variance on the training rows.")
-    scale = float(s2[s2 > 1e-24 * s2[0]].mean())
-    uty = u_svd.T @ yc
-    orth = max(0.0, float((yc ** 2).sum() - (uty ** 2).sum()))
-    n_eff = float(n - 1)
-    grid = list(_RIDGE_GRID)
-    while True:
-        best = None
-        for rel in grid:
-            filt = s2 / (s2 + rel * scale)
-            df = float(filt.sum())
-            if df > _MAX_DF_FRAC * n_eff:
-                continue
-            res = orth + float((((1.0 - filt)[:, None] * uty) ** 2).sum())
-            g = res / (n_eff * (1.0 - df / n_eff) ** 2)
-            if best is None or g < best[0]:
-                best = (g, rel, df)
-        if best is not None:
-            break
-        grid = [grid[-1] * 3.0]
-    _, rel, df = best
-    coef = (s_svd / (s2 + rel * scale))[:, None] * uty
-    info = {"lambda_rel": float(rel), "df": float(df), "df_cap": float(_MAX_DF_FRAC * n_eff),
-            "grid_extended": bool(rel > _RIDGE_GRID[-1])}
-    return vt.T @ coef, info
-
-
 # ----------------------------------------------------------------------------- one view
 def fit_view_sink(x: Any, c_raw: np.ndarray, gamma: float, confound_rank: Optional[int]) -> Dict[str, Any]:
     """Fit the cleaning operator of one view on its training rows (see module docstring)."""
@@ -288,27 +258,35 @@ def fit_view_sink(x: Any, c_raw: np.ndarray, gamma: float, confound_rank: Option
     n_missing = int((~np.isfinite(xa)).sum())
     xf = np.where(np.isfinite(xa), xa, mu)
     xc = xf - mu
-    r, rinfo = gcv_ridge(xc, q)
-    a = np.linalg.lstsq(q, xc, rcond=None)[0]
-    q_hat = xc @ r
+    u_b, s_b, _ = np.linalg.svd(xc.T @ q, full_matrices=False)
+    r = int((s_b > 1e-8 * s_b[0]).sum()) if s_b.size and s_b[0] > 0 else 0
+    if r == 0:
+        raise ValueError("confound sink: a view has zero covariance with every confound on the training rows.")
+    if r >= xa.shape[1]:
+        raise ValueError(f"confound sink: the confounds span all {xa.shape[1]} feature directions of a view "
+                         f"(rank {r}); cleaning would remove the whole view. Lower confound_rank or drop the view.")
+    h = u_b[:, :r]
+    z = xc @ h
+    m_map = np.linalg.lstsq(z, q, rcond=None)[0]
+    q_hat = z @ m_map
     fit_r = [float(np.corrcoef(q_hat[:, j], q[:, j])[0, 1]) if q_hat[:, j].std() > 0 else 0.0
              for j in range(q.shape[1])]
-    return {"mean": mu, "R": r, "A": a, "gamma": float(gamma), "basis": q,
-            "info": {**binfo, **rinfo, "n_missing_filled": n_missing,
+    return {"mean": mu, "H": h, "M": m_map, "gamma": float(gamma), "basis": q,
+            "info": {**binfo, "removed_directions": r, "n_missing_filled": n_missing,
                      "train_confound_fit_r": fit_r}}
 
 
 def apply_view_sink(x: Any, sink: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
-    """``(cleaned view, estimated confound scores X_c R)`` for any rows of one view."""
+    """``(cleaned view, image-derived confound scores (X - mu) H M)`` for any rows of one view."""
     xa = (x.detach().cpu().double().numpy() if isinstance(x, torch.Tensor) else np.asarray(x, dtype=np.float64))
     if xa.ndim != 2 or xa.shape[1] != sink["mean"].shape[0]:
         raise ValueError(f"view has shape {tuple(xa.shape)}; the confound sink expects "
                          f"{sink['mean'].shape[0]} columns.")
     mu = sink["mean"]
     xf = np.where(np.isfinite(xa), xa, mu)
-    scores = (xf - mu) @ sink["R"]
-    cleaned = xf - sink["gamma"] * (scores @ sink["A"])
-    return torch.from_numpy(cleaned).float(), torch.from_numpy(scores).float()
+    z = (xf - mu) @ sink["H"]
+    cleaned = xf - sink["gamma"] * (z @ sink["H"].T)
+    return torch.from_numpy(cleaned).float(), torch.from_numpy(z @ sink["M"]).float()
 
 
 # ----------------------------------------------------------------------------- all views
