@@ -35,6 +35,9 @@ from scipy.linalg import qr as scipy_qr
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from pysimlr.benchmarks.runner import run_single_experiment  # noqa: E402
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from adni_covariates import ptgender_indicator
+
 
 def _energies_for(model_type, energies):
     """The sweep's energies for one method: the reconstruction term is
@@ -248,7 +251,8 @@ def get_adni_case(seed: int = 42, views: str = "t1_dti", drop_lravg: bool = Fals
     cov = pd.DataFrame({
         "age": pd.to_numeric(df["age"], errors="coerce"),
         "educ": pd.to_numeric(df["PTEDUCAT"], errors="coerce"),
-        "sex": (df["PTGENDER"].astype(str) == "Male").astype(float),
+        # NaN stays NaN so the complete-case filter below drops it (it was coded 0).
+        "sex": ptgender_indicator(df["PTGENDER"], allow_missing=True),
     })
     y = pd.to_numeric(df["CDRSB"], errors="coerce")
     ok = y.notna() & cov.notna().all(axis=1)

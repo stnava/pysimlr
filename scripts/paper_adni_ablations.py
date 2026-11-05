@@ -57,6 +57,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(REPO, "src"))
+sys.path.insert(0, os.path.join(REPO, "scripts"))
 
 import numpy as np
 import pandas as pd
@@ -71,6 +72,8 @@ from pysimlr.benchmarks.runner import run_single_experiment
 from pysimlr.benchmarks.synthetic_cases import build_case
 from pysimlr.simlr import initialize_simlr
 from pysimlr.utils import basis_rank_report, orthogonality_defect
+
+from adni_covariates import ptgender_indicator
 
 ADNI_CSV = os.path.join(REPO, "data", "adni", "adni_mci_cognitive_merged.csv")
 K = 3
@@ -93,7 +96,8 @@ def protocol_b(seed: int = 42, row_center: bool = False) -> dict:
     drop = {"Cog__MOCA", "Cog__EcogPtTotal", "Cog__EcogSPTotal"}
     cog_cols = [c for c in df.columns if c.startswith("Cog__") and c not in drop] + ["CDRSB"]
     n = len(df)
-    sex = df["PTGENDER"].astype(str).str.upper().str.startswith("F").astype(float).values
+    # PTGENDER is 0/1 in this export; a string test for "F" made it a constant 0 (D37).
+    sex = ptgender_indicator(df["PTGENDER"])
     cov = np.column_stack([np.ones(n), df["AGE"].values, sex, df["PTEDUCAT"].values])
     perm = np.random.default_rng(seed).permutation(n)
     tr, te = perm[: int(0.7 * n)], perm[int(0.7 * n):]
@@ -125,7 +129,7 @@ def protocol_b(seed: int = 42, row_center: bool = False) -> dict:
     return {"x_tr": x_tr, "x_te": x_te, "y_tr": y_tr, "y_te": y_te,
             "pc1_tr": pca_y.transform(y_tr).ravel(), "pc1_te": pca_y.transform(y_te).ravel(),
             "rowmean_tr": np.column_stack(rowmean_tr), "rowmean_te": np.column_stack(rowmean_te),
-            "names": names}
+            "names": names, "cov_tr": cov[tr], "cov_te": cov[te]}
 
 
 def fit_views(data: dict) -> list:
