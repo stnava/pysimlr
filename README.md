@@ -133,6 +133,15 @@ Following gradient polish, `sparseness=q` zeros out weights below the $q$-th qua
 * **`sparseness=0.8`–`0.85` (Focal Biomarker Panel Operating Point)**: Retains only the top $15\%$–$20\%$ of weights per column while preserving $>99\%$ of peak linear predictive performance ($0.673$ vs. $0.679$) and isolating compact anatomical or molecular panels (e.g., $9/62$ DKT cortical regions per network on `ADNI-MCI`).
 * **`sparseness=None` (Unthresholded Soft Polish)**: Applies `nsa_flow` without post-optimization quantile thresholding.
 
+### Basis constraint `positivity` (`"linear"` | `"conical"` | `"convex"`)
+| value | aliases | each basis column `v` |
+|---|---|---|
+| `"linear"` | `"either"`, `False` (default) | any real weights |
+| `"conical"` | `"positive"`, `True` | `v ≥ 0` |
+| `"convex"` | — | `v ≥ 0`, `sum(v) = 1`: each latent is a weighted average of features |
+
+`"convex"` is enforced inside the optimisation of every family with a basis (linear, LEND, NED, NEDPP, flows, anchored extension). The probability simplex replaces the unit-length column scaling, so it is not a rescaled `"conical"` fit. Unknown values raise. Details and measured behaviour: `docs/usage_notes.md` ("Constraining the basis") and `docs/tracking.md` D36.
+
 ---
 
 ## Technical Design Notes (v0.2.17)

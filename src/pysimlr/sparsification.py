@@ -473,6 +473,44 @@ def _svd_polar(v: torch.Tensor) -> torch.Tensor:
     return u @ vh
 
 
+def project_columns_to_simplex(v: torch.Tensor, support_only: bool = True) -> torch.Tensor:
+    """Project each column of `v` onto the probability simplex (Duchi et al. 2008).
+
+    Vectorised over columns and differentiable almost everywhere (piecewise
+    linear, as sparsemax), so the deep encoders can backpropagate through it.
+    With ``support_only`` the projection is onto the face of the simplex
+    spanned by the column's positive entries, so a sparse column is never
+    densified: an unrestricted projection of a column with mass < 1 adds the
+    same constant to every entry, zeros included. Raises on a column with no
+    positive entry rather than inventing one.
+    """
+    if v.ndim != 2:
+        raise ValueError("project_columns_to_simplex expects a 2-D basis")
+    p, k = v.shape
+    if support_only:
+        mask = v > 0
+        if not bool(mask.any(dim=0).all()):
+            bad = torch.nonzero(~mask.any(dim=0)).flatten().tolist()
+            raise ValueError(f"convex projection: column(s) {bad} have no positive entry")
+        y = torch.where(mask, v, torch.zeros_like(v))
+        cnt = mask.sum(dim=0)
+    else:
+        mask = torch.ones_like(v, dtype=torch.bool)
+        y = v
+        cnt = torch.full((k,), p, device=v.device)
+    u, _ = torch.sort(y, dim=0, descending=True)
+    css = torch.cumsum(u, dim=0) - 1.0
+    ind = torch.arange(1, p + 1, device=v.device).unsqueeze(1)
+    cond = (u - css / ind.to(u.dtype) > 0) & (ind <= cnt.unsqueeze(0))
+    rho = (cond.long() * ind).amax(dim=0)                       # >= 1: the top entry always qualifies
+    theta = css.gather(0, (rho - 1).unsqueeze(0)) / rho.unsqueeze(0).to(u.dtype)
+    return torch.where(mask, torch.clamp(v - theta, min=0.0), torch.zeros_like(v))
+
+
+def _convexify(v: torch.Tensor) -> torch.Tensor:
+    return project_columns_to_simplex(torch.clamp(v, min=0.0), support_only=True)
+
+
 def apply_positivity(v: torch.Tensor, positivity: str) -> torch.Tensor:
     """
     Constrain the sign of `v` under one of two distinct semantics.
@@ -562,7 +600,9 @@ def apply_positivity(v: torch.Tensor, positivity: str) -> torch.Tensor:
             [2., 0.],
             [3., 0.]])
     """
-    if positivity in ('positive', 'hard'):
+    from .positivity import resolve_positivity
+    positivity = resolve_positivity(positivity)   # unknown values raise
+    if positivity in ('positive', 'hard', 'convex'):
         return _project_nonnegative(v, sign=1.0)
     if positivity == 'negative':
         return -_project_nonnegative(-v, sign=1.0)
@@ -1195,7 +1235,7 @@ def enforce_column_floor(v: torch.Tensor,
     if v.numel() == 0 or v.shape[1] == 0:
         return v
     norms = torch.linalg.vector_norm(v, dim=0)
-    scale = float(norms.max()) if norms.numel() else 0.0
+    scale = float(norms.detach().max()) if norms.numel() else 0.0
     if scale <= 0.0:
         # Every column is dead; there is no scale to be relative to and no
         # direction to preserve. Leave it: the caller's usability check should
@@ -1347,7 +1387,10 @@ def simlr_sparseness(v: torch.Tensor,
 
     q_val = _resolve_quantile(sparseness, modality_index=modality_index)
 
-    nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg', 'softplus')
+    from .positivity import NONNEG, resolve_positivity
+    positivity = resolve_positivity(positivity)
+    nonneg = positivity in NONNEG
+    convex = (positivity == 'convex')
     negative = (positivity == 'negative')
 
     w = constraint_weight
@@ -1367,8 +1410,10 @@ def simlr_sparseness(v: torch.Tensor,
                 out_none = _apply_quantile_sparseness(out_none, q_val, nonneg=nonneg, alg=sparseness_alg)
             if unit_columns is None:
                 unit_columns = energy_needs_unit_columns(energy_type)
-            if unit_columns:
+            if unit_columns and not convex:
                 out_none = _unit_normalize_columns(out_none)
+        if convex:
+            out_none = _convexify(out_none)
         return out_none.to(orig_dtype)
 
     if negative:
@@ -1413,8 +1458,10 @@ def simlr_sparseness(v: torch.Tensor,
 
     if unit_columns is None:
         unit_columns = energy_needs_unit_columns(energy_type)
-    if unit_columns:
+    if unit_columns and not convex:
         projected = _unit_normalize_columns(projected)
+    if convex:
+        projected = _convexify(projected)
 
     if negative:
         projected = -projected

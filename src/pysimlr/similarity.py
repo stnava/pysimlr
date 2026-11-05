@@ -57,6 +57,8 @@ import warnings
 import numpy as np
 import torch
 
+from .positivity import NONNEG as _NONNEG_POSITIVITY
+
 __all__ = [
     "SimilarityContext", "SIMILARITY", "similarity_names",
     "similarity_energy", "similarity_gradient", "describe_similarity",
@@ -574,7 +576,6 @@ def resolve_energy_name(name: str, path: Optional[str] = None) -> str:
     return name
 
 
-_NONNEG_POSITIVITY = frozenset({"positive", "hard", "nonnegative", "nonneg", "softplus"})
 _WARNED_NC_POSITIVE: list = []
 
 
@@ -586,7 +587,10 @@ def _reset_nc_positive_warning() -> None:
 def warn_if_signed_nc_with_positive(energy_type: str, positivity: Optional[str],
                                     *, stacklevel: int = 3) -> None:
     """Emit a one-time warning when signed ``"nc"`` is combined with non-negative ``positivity``."""
-    if energy_type != "nc" or positivity not in _NONNEG_POSITIVITY or _WARNED_NC_POSITIVE:
+    if energy_type != "nc" or _WARNED_NC_POSITIVE:
+        return
+    from .positivity import resolve_positivity
+    if resolve_positivity(positivity) not in _NONNEG_POSITIVITY:
         return
     _WARNED_NC_POSITIVE.append(True)
     warnings.warn(

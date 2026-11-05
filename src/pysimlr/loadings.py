@@ -56,7 +56,8 @@ from typing import Any, Dict, List, Optional, Sequence
 import numpy as np
 import torch
 
-_NONNEG = ("positive", "hard", "nonnegative", "nonneg", "softplus")
+from .positivity import NONNEG as _NONNEG
+from .positivity import resolve_positivity
 
 
 def structure_coefficients(views: Sequence[torch.Tensor], u: torch.Tensor) -> List[torch.Tensor]:
@@ -87,7 +88,7 @@ def olee_loadings(structure: Sequence[torch.Tensor], positivity: str = "either")
     positivity is non-negative.
     """
     loads, margins = [], []
-    nonneg = positivity in _NONNEG
+    nonneg = resolve_positivity(positivity) in _NONNEG
     for c in structure:
         c64 = torch.as_tensor(c).double()
         p, k = c64.shape
@@ -131,7 +132,7 @@ def varimax_rotation(structure: Sequence[torch.Tensor], max_iter: int = 500,
 def _result_positivity(result: Dict[str, Any]) -> str:
     prm = result.get("parameters", {})
     used, defaults = prm.get("used", {}), prm.get("defaults", {})
-    return used.get("positivity", defaults.get("positivity", "either"))
+    return resolve_positivity(used.get("positivity", defaults.get("positivity", "either")))
 
 
 def _result_energy_type(result: Dict[str, Any]) -> str:
@@ -157,7 +158,7 @@ def view_coupling_signs(structure: Sequence[torch.Tensor],
     fits always return ``+1.0``.
     """
     from .similarity import SIGN_INVARIANT_ENERGIES
-    allow_flip = (positivity in _NONNEG) and (energy_type in SIGN_INVARIANT_ENERGIES)
+    allow_flip = (resolve_positivity(positivity) in _NONNEG) and (energy_type in SIGN_INVARIANT_ENERGIES)
     signs: List[torch.Tensor] = []
     for m, c in enumerate(structure):
         c64 = torch.as_tensor(c).double()

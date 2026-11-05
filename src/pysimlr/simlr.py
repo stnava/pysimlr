@@ -262,6 +262,26 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
     flatters a non-negative fit; the defect column does not depend on that,
     since ``abs(PCA)`` simply is not orthogonal.
     """
+    from .positivity import resolve_positivity
+    positivity = resolve_positivity(positivity)
+    if positivity == "convex":
+        # A feasible convex start: the conical start with each column rescaled
+        # to unit sum. Running the initializers' own projection under
+        # "convex" would apply the simplex projection to columns at the
+        # initializer's arbitrary scale, and that projection's sparsity
+        # depends on the scale it is handed.
+        v0 = initialize_simlr(data_matrices, k, initialization_type=initialization_type,
+                              joint_reduction=joint_reduction, positivity="positive",
+                              generator=generator, domain_matrices=domain_matrices,
+                              n_candidates=n_candidates, perturbation_scale=perturbation_scale,
+                              sparseness=sparseness, varimax=varimax)
+        out = []
+        for v in v0:
+            s = v.sum(dim=0, keepdim=True)
+            if not bool((s > 0).all()):
+                raise ValueError("convex initialization: a conical start column is zero")
+            out.append(v / s)
+        return out
     if initialization_type not in INITIALIZATION_TYPES:
         raise ValueError(
             f"initialization_type={initialization_type!r} is not implemented; "
@@ -346,7 +366,8 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
 
 def _wants_nonneg(positivity: str) -> bool:
     """True when ``positivity`` requests a non-negative basis."""
-    return positivity in ('positive', 'hard', 'nonnegative', 'nonneg', 'softplus')
+    from .positivity import is_nonneg
+    return is_nonneg(positivity)
 
 
 def resolve_varimax(varimax: Optional[bool], positivity: str) -> bool:
@@ -1474,8 +1495,18 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     mixing_algorithm : str, default="svd"
         The algorithm used to mix projections ("svd", "pca", "ica", "avg", "newton").
 
-    positivity : str, default="either"
-        Sign constraint on the basis ("either", "positive", "negative").
+    positivity : str or bool, default="either"
+        Constraint on each basis column (`pysimlr.positivity`):
+        ``"linear"`` / ``"either"`` any real weights; ``"conical"`` /
+        ``"positive"`` ``v >= 0``; ``"convex"`` ``v >= 0`` with
+        ``sum(v) = 1`` (also ``"negative"``, ``"nonnegative"``, ``"softplus"``;
+        ``True`` / ``False`` mean ``"positive"`` / ``"either"``). Unknown
+        values raise `ValueError`. Under ``"convex"`` every step ends with
+        the Euclidean projection onto the simplex restricted to the column's
+        support, and the simplex replaces the unit-L2 column gauge in the
+        energy: each latent is a weighted average of features, and its scale
+        enters every energy not invariant column by column, so ``"convex"``
+        is not a rescaled ``"conical"`` fit. ``consolidate=True`` is refused.
     sparseness : float or List[float] or None, default=0.5
         R ``ANTsR::simlr``-style column-wise quantile sparsification target in
         ``(0, 1)``, or ``None`` for soft NSA-Flow orthogonality without hard
@@ -1607,7 +1638,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     # short fit ended within ~0.4% of its initialisation and no energy,
     # constraint or regulariser could change the answer.
     collapse_threshold = check_collapse_threshold(collapse_threshold)
+    from .positivity import resolve_positivity
     from .similarity import check_fit_energy
+    positivity = resolve_positivity(positivity)
+    if positivity == "convex" and consolidate:
+        raise ValueError("consolidate=True rebuilds unit-L2 columns and is not defined for positivity='convex'.")
     check_fit_energy(energy_type, path="linear", positivity=positivity if _internal is None else None)
     opt_params.setdefault("learning_rate", "auto")
     if isinstance(opt_params.get("learning_rate", None), str):
@@ -1686,8 +1721,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     if torch_domains is not None and domain_lambdas is None:
         domain_lambdas = [1.0] * n_modalities
     
-    _want_nonneg = positivity in ('positive', 'hard', 'nonnegative', 'nonneg',
-                                  'softplus')
+    from .positivity import NONNEG as _NONNEG
+    _want_nonneg = positivity in _NONNEG
 
     energy_history = []
     grad_map_history = []
@@ -1800,7 +1835,14 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         [d.double() if d is not None else None for d in torch_domains]
         if torch_domains is not None else None
     )
-    _gauge = energy_needs_unit_columns(energy_type)
+    # Under positivity="convex" the simplex is the column gauge: the energy is
+    # evaluated on V itself (columns summing to 1), so each latent is a
+    # weighted average of features and its scale -- v'Sigma v, large for a
+    # coherent support -- enters every energy that is not invariant column by
+    # column (nc's Frobenius normalisation, acc, procrustes, the k x k
+    # contrasts, reconstruction). With the unit-L2 gauge kept, convex would be
+    # conical up to a rescaling.
+    _gauge = energy_needs_unit_columns(energy_type) and positivity != "convex"
 
     def _view_oracles(i, u_i, _loop_sp):
         """Objective, exact gradient and projection for view
@@ -2025,7 +2067,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             q_m = _resolve_quantile(sparseness, modality_index=idx_m)
             if q_m is not None and _want_nonneg and k > 1 and q_m < 1.0 - 1.0 / k:
                 v_sp = _apply_quantile_sparseness(v_mats[idx_m], q_m, nonneg=True, only_if_denser=True)
-                if energy_needs_unit_columns(energy_type):
+                if positivity == "convex":
+                    from .sparsification import _convexify
+                    v_sp = _convexify(v_sp)
+                elif energy_needs_unit_columns(energy_type):
                     v_sp = _unit_normalize_columns(v_sp)
                 v_mats[idx_m] = v_sp.to(orig_dtype)
     if not np.isfinite(best_total_energy):

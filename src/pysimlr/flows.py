@@ -732,10 +732,8 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
         super().__init__()
         self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
                                     prune_threshold, dynamic_weights, mai_metric, use_rank_mai, dynamic_weights_start)
-        if positivity is True or (isinstance(positivity, str) and positivity.lower() == 'true'):
-            positivity = 'positive'
-        elif positivity is False or (isinstance(positivity, str) and positivity.lower() == 'false'):
-            positivity = 'either'
+        from .positivity import resolve_positivity
+        positivity = resolve_positivity(positivity)
         self.input_dims = input_dims
         self.latent_dim = latent_dim
         self.is_flow = True
@@ -894,6 +892,9 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         switching `"positive"` -> `"either"` moved a downstream random-forest's
         accuracy/R^2 from 0.7133 -> 0.7800 on mfeat and 0.2794 -> 0.2928 on
         Diabetes. Pass `"positive"` when the input is genuinely non-negative.
+        `"convex"` puts each column of `V_m` on the probability simplex inside
+        training (the shared first layer, `deep.LENDNSAEncoder`);
+        `"linear"` / `"conical"` alias `"either"` / `"positive"`.
     sparseness : float, list of float or None, default=0.5
         Column-wise quantile sparsification target of `V_m`.
     initialization_type : str, default="pca"

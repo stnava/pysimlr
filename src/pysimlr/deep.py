@@ -492,6 +492,12 @@ class LENDNSAEncoder(nn.Module):
         - 'positive': Strictly non-negative via clamping (legacy behavior).
         - 'softplus': Smoothly non-negative via Softplus (advanced behavior).
         - 'hard': Strictly non-negative via clamping.
+        - 'convex': non-negative with each column on the probability simplex
+          (clamp, quantile sparsity, then the support-restricted simplex
+          projection in place of the unit-L2 normalisation; piecewise linear,
+          so gradients pass, as in sparsemax).
+        - 'linear' / 'conical': aliases of 'either' / 'positive'.
+        Unknown values raise `ValueError`.
     sparseness : float, default=0.0
         Quantile (0-1) below which weights are set to zero.
     soft_thresholding : bool, default=False
@@ -514,10 +520,8 @@ class LENDNSAEncoder(nn.Module):
                  soft_thresholding: bool = False, use_nsa: bool = True,
                  first_layer_mode: str = "scheduled", nsa_iterations: int = 1):
         super().__init__()
-        if positivity is True or (isinstance(positivity, str) and positivity.lower() == 'true'):
-            positivity = 'positive'
-        elif positivity is False or (isinstance(positivity, str) and positivity.lower() == 'false'):
-            positivity = 'either'
+        from .positivity import resolve_positivity
+        positivity = resolve_positivity(positivity)   # aliases resolve; unknown values raise
         self.positivity = positivity
         self.sparseness = sparseness
         self.soft_thresholding = soft_thresholding
@@ -575,7 +579,7 @@ class LENDNSAEncoder(nn.Module):
         from .sparsification import _clamp_retraction_weight
         self.nsa_w = _clamp_retraction_weight(nsa_w)
         nsa_w = self.nsa_w
-        nsa_nonneg = positivity in {'positive', 'hard', 'nonnegative', 'nonneg'}
+        nsa_nonneg = positivity in {'positive', 'hard', 'nonnegative', 'nonneg', 'convex'}
         nsa_layer_nonneg = 'hard' if nsa_nonneg else None
         
         self.nsa_linear = None
@@ -647,11 +651,15 @@ class LENDNSAEncoder(nn.Module):
             # two-sided (Sinkhorn) assignment and why `consolidate_supports`
             # is not a substitute.
             v_out = self.v_raw
-            if self.positivity in {'positive', 'hard', 'softplus'}:
+            if self.positivity in {'positive', 'hard', 'softplus', 'convex'}:
                 if self.positivity == 'softplus':
                     v_out = torch.nn.functional.softplus(v_out - 4.0)
                 v_out = nonneg_orthogonal_assignment(v_out)
-            v_out = torch.nn.functional.normalize(v_out, p=2, dim=0)
+            if self.positivity == 'convex':
+                from .sparsification import _convexify
+                v_out = _convexify(v_out)
+            else:
+                v_out = torch.nn.functional.normalize(v_out, p=2, dim=0)
         else:
             if self.nsa_linear is not None:
                 # Routing this through the full solver instead
@@ -669,7 +677,7 @@ class LENDNSAEncoder(nn.Module):
                 v_out = _svd_project_columns(self.v_raw)
         from .sparsification import _resolve_quantile, _apply_quantile_sparseness
         q_enc = _resolve_quantile(self.sparseness)
-        if self.positivity in {'positive', 'hard'}:
+        if self.positivity in {'positive', 'hard', 'convex'}:
             # `consolidate_supports` used to run here, unconditionally, and it
             # is why `nsa_w` did nothing to any deep model. It forces strictly
             # disjoint supports, so whatever the constrained layer produced was
@@ -677,7 +685,16 @@ class LENDNSAEncoder(nn.Module):
             v_out = torch.clamp(v_out, min=0.0)
             if q_enc is not None and not getattr(self, 'is_low_dim', False):
                 v_out = _apply_quantile_sparseness(v_out, q_enc, nonneg=True, alg="soft")
-            v_out = torch.nn.functional.normalize(v_out, p=2, dim=0, eps=1e-8)
+            if self.positivity == 'convex':
+                # The simplex is the column gauge (sparsemax-like: piecewise
+                # linear, so gradients pass): latents are weighted feature
+                # averages and their scale reaches the energy and decoder.
+                from .sparsification import _convexify, enforce_column_floor
+                # A clamped-dead column has no simplex point; revive it as
+                # the linear projection does (`enforce_column_floor`).
+                v_out = _convexify(enforce_column_floor(v_out))
+            else:
+                v_out = torch.nn.functional.normalize(v_out, p=2, dim=0, eps=1e-8)
         elif self.positivity == 'softplus':
             if q_enc is not None and not getattr(self, 'is_low_dim', False):
                 v_out = _apply_quantile_sparseness(v_out, q_enc, nonneg=True, alg="soft")
@@ -1424,6 +1441,8 @@ def _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=None):
     through and the diagnostics say so.
     """
     from .sparsification import simlr_sparseness, DEFAULT_SPARSENESS
+    from .positivity import resolve_positivity
+    positivity = resolve_positivity(positivity)
     out, diags = [], []
     for idx, v in enumerate(v_mats):
         d = {}
@@ -1438,7 +1457,7 @@ def _finalize_bases(v_mats, positivity, nsa_w, energy_type, encoders=None):
                                    constraint_weight=nsa_w,
                                    energy_type=energy_type,
                                    modality_index=idx,
-                                   unit_columns=True,
+                                   unit_columns=(positivity != "convex"),
                                    retraction_diagnostics=d).to(device=v.device, dtype=v.dtype)
         except (ImportError, RuntimeError) as exc:
             v_f, d = v, {"error": repr(exc)[:200]}
@@ -1677,7 +1696,10 @@ _DEEP_COMMON_DOC = """
     positivity : str, default="either"
         Sign constraint on the first-layer basis. Pass ``"positive"`` only for
         genuinely non-negative input; on standardized data it forces a
-        non-negative basis onto signed features.
+        non-negative basis onto signed features. ``"convex"`` puts every
+        column on the probability simplex inside training (see
+        `LENDNSAEncoder`); ``"linear"`` / ``"conical"`` alias
+        ``"either"`` / ``"positive"``.
     nsa_w : float, default=DEFAULT_NSA_W (0.5)
         NSA-Flow weight (`pysimlr.defaults`).
     energy_type, mixing_algorithm, topology, path_graph, prune_threshold,
