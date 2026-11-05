@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: `v0.18.0` released (`D32`: coarse-to-fine split-scale `probe_views` / `probe_test_views` across `feature_maps`, `loading_inference`, `feature_relevance`, and `plotting.feature_table`; `D31`: seeded orthogonal deflation ICA initialization; `D27` follow-ups: 3-scale Westfall-Young + Holm view omnibus & `usage_notes.md` wide-view workflow).
+current phase: `v0.19.0` released (`D33`: `component_attribution` / `plot_component_attribution`, paper Fig. 3.9 as reusable code; `D32`: coarse-to-fine split-scale `probe_views` / `probe_test_views`; `D31`: seeded orthogonal deflation ICA initialization).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
 active work: none; open: relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
@@ -11,6 +11,33 @@ last updated: 2026-11-05
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D33 (component_attribution: paper Fig. 3.9 as reusable code, 2026-11-05)
+status: done (released in v0.19.0)
+- **New:** `pysimlr.component_attribution(result, train_views, test_views, outcome, outcome_test, views,
+  view_names, feature_names, n_refits, refit_fraction, refit_rows, variants, refit_params, random_state,
+  n_jobs)` in `src/pysimlr/attribution.py`.
+  - Held-out R² of each component alone, and its unique contribution.
+  - Per view: spectrum, mean correlation, consensus-vs-mean, hard assignment.
+  - Refit stability of the predictive column's support, with parameter-override variants.
+  - JSON-ready output.
+- **New:** `plotting.plot_component_attribution(att, spectrum_view, selection_views, compare, label,
+  view_labels, view_colors, titles, outcome_label, variant_labels, feature_word, top_n, ...)`.
+  - It replaces about 90 lines of plotting code that were written directly in
+    `paper/03_experiments.qmd`; the chunk is now a single call.
+- **Paper script:** `scripts/paper_adni_attribution.py` is a thin caller. It writes `attribution` plus
+  the unchanged keys `paper_numbers` reads.
+  - The regenerated cache is identical to the pre-refactor one on every legacy key (difference 0.0,
+    provenance aside).
+  - The exactness check `component_attribution` vs the old cache gives 0.0 on full R², each
+    component's R² alone and unique, the spectrum, consensus correlations, hard counts, full support,
+    and all 20 + 20 refits.
+  - The figure was rendered and compared side by side with the old one: same content.
+- **Tests:** `tests/test_component_attribution.py`, 7 tests, plus a `test_plotting` registry entry. They
+  cover: schema and JSON; R² alone and unique against a direct computation; global-factor spectrum;
+  signal views; reproducible `refit_rows`; missing test views and errors (a bare `StopIteration`, caught
+  by the tests, is fixed); the plot.
+  - Full suite: 1800 passed, 2 xfailed.
 
 ## D32 (coarse-to-fine split-scale readout via `probe_views` / `probe_test_views`, 2026-11-04)
 status: done (released in v0.18.0)

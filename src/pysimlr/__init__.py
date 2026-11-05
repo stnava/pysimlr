@@ -123,6 +123,7 @@ from .api import (
 )
 from .fused_ridge import fit_fused_ridge, predict_fused_ridge, fused_ridge_cv
 from .relevance import feature_relevance
+from .attribution import component_attribution
 from .screening import apply_view_screen, screen_wide_views
 from .loadings import (
     RANK_CRITERIA,
@@ -179,6 +180,7 @@ __all__ = [
     'brain_rows',
     'plot_brain_map',
     'plot_feature_relevance',
+    'plot_component_attribution',
     'map_colormap',
     'feature_map_values',
     'plot_feature_map_grid',
@@ -212,6 +214,7 @@ __all__ = [
     'loading_inference',
     'feature_maps',
     'feature_relevance',
+    'component_attribution',
     'FEATURE_MAP_KINDS',
     'select_rank',
     'structure_coefficients',
@@ -358,6 +361,7 @@ _LAZY_ATTRS = {
     'brain_rows': 'plotting',
     'plot_brain_map': 'plotting',
     'plot_feature_relevance': 'plotting',
+    'plot_component_attribution': 'plotting',
     'map_colormap': 'plotting',
     'feature_map_values': 'plotting',
     'plot_feature_map_grid': 'plotting',

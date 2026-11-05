@@ -392,6 +392,49 @@ full-rank view with p < n, and switches to Ledoit–Wolf shrinkage otherwise.
   (chance is 3).
 
 
+## Which components carry a prediction (`pysimlr.component_attribution`, paper Fig. 3.9)
+
+```python
+att = pysimlr.component_attribution(res, train_views, test_views, y_train, y_test,
+                                    variants={"collapse_weight=0": {"collapse_weight": 0.0}})
+fig = pysimlr.plotting.plot_component_attribution(att, compare={2: "collapse_weight=0"})
+```
+
+It answers three questions about any fit with first-layer bases `v`.
+
+**Which components predict.** Each view's `X_m V_m` is scored on held-out rows with a linear
+regression fitted on the training rows. Every component gets its held-out R² alone, and its
+*unique* contribution: the loss in R² when it is dropped from all of them.
+
+**What each view's variance looks like.** For each view it reports:
+- the eigenvalue spectrum of the training correlation matrix (one dominant factor means a global
+  axis, as on DiReCT thickness);
+- the mean inter-feature correlation;
+- each consensus component's correlation with the view's subject mean;
+- with OLEE loadings, how many features are hard-assigned to each component.
+
+**Whether the predictive support replicates.**
+- Refits on random subsets of the training rows (`n_refits`, `refit_fraction`, or exact
+  `refit_rows`) reuse the fit's own parameters.
+- In each refit and view, the component that predicts best alone is the predictive column, and
+  its support is recorded.
+- `variants` repeats the refits with parameter overrides.
+
+**Output and figure.**
+- The output is JSON-ready, so it can be cached as is.
+- **Panels:** A (components); B (the spectrum of `spectrum_view`, by default the view with the
+  largest first eigenvalue); then one selection-frequency panel per view in `selection_views`.
+- **Comparison:** `compare={view: variant}` draws that view as default (hollow) against the
+  variant (filled).
+- **Overrides:** labels, colours, titles, `variant_labels` and `feature_word`.
+- Save inside `with pysimlr.plotting.theme():` to keep the house font.
+
+**Paper figure.** `scripts/paper_adni_attribution.py` is a thin caller. It writes
+`paper/results_cache/adni_attribution.json`: the result under `attribution`, plus the keys
+`paper_numbers` reads. The manuscript chunk calls `plot_component_attribution` with the paper's
+labels and titles. On the Figure 3.9 fit the function reproduces the pre-refactor script exactly
+(every number and all 40 refits, difference 0.0).
+
 ## Uncertainty and the choice of k
 
 ```python

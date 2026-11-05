@@ -34,7 +34,7 @@ __all__ = [
     "plot_modality_weights", "plot_flow_warping", "plot_view_correlations",
     # interpretable features (never the encoder v)
     "plot_top_features", "plot_feature_chord", "plot_feature_groups", "plot_loadings",
-    "plot_variance_explained", "plot_feature_relevance",
+    "plot_variance_explained", "plot_feature_relevance", "plot_component_attribution",
     # scores
     "plot_scores", "plot_latent_recovery",
     # one-call sheet
@@ -1702,6 +1702,118 @@ def plot_feature_relevance(rel: Dict[str, Any], view: int = 0, *, label=None, se
             ax = fig.add_subplot(right[k, 0])
             _draw_relevance_forest(ax, seps, fair, cols, label, alpha, separate_title, False, r_label, room=0.62)
             ax.set_xlabel("% of explained variance")
+    return fig
+
+
+@_themed
+def plot_component_attribution(att: Dict[str, Any], *, spectrum_view: Optional[int] = None,
+                               selection_views: Optional[Sequence[int]] = None,
+                               compare: Optional[Dict[int, str]] = None, label=None,
+                               view_labels: Optional[Dict[int, str]] = None, view_colors: Optional[Dict[int, Any]] = None,
+                               titles: Optional[Dict[str, str]] = None, outcome_label: str = "outcome",
+                               variant_labels: Optional[Dict[str, str]] = None, feature_word: str = "feature",
+                               top_n: int = 14, figsize=(12.4, 10.2), title: Optional[str] = None,
+                               subtitle: Optional[str] = None):
+    """Draw `pysimlr.component_attribution`: which components carry the held-out prediction (A),
+    a view's variance spectrum (B), and how often refits select each feature of the predictive
+    component (one panel per view in ``selection_views``).
+
+    ``spectrum_view`` defaults to the view whose first principal component explains the most
+    variance; ``selection_views`` to the (up to two) views whose best component predicts best.
+    ``compare={view: variant}`` draws that view's selection frequency under the default refits
+    (hollow) beside a variant (filled), with the share of refits keeping two or fewer features.
+    ``label`` maps a feature name to its display label; ``view_labels``, ``view_colors`` and
+    ``titles`` (keys ``"A"``, ``"B"`` and the view index as a string) override the defaults;
+    ``variant_labels`` renames refit variants in legends and notes (e.g. ``{"default":
+    "default (collapse_weight = 1)"}``) and ``feature_word`` names the features ("region").
+    Save the figure inside ``with pysimlr.plotting.theme():`` to keep the house font.
+    """
+    import matplotlib.pyplot as plt
+    views = list(att["views"]); compare = dict(compare or {})
+    vlab = {m: (view_labels or {}).get(m, att["view_names"][m]) for m in views}
+    vcol = {m: (view_colors or {}).get(m, _view_color(m)) for m in views}
+    label = label or str; titles = dict(titles or {})
+    vl = lambda name: (variant_labels or {}).get(name, name)
+    fw = feature_word
+    comps = att["components"]
+    if spectrum_view is None:
+        spectrum_view = max(views, key=lambda m: att["spectra"][str(m)]["eigen_share"][0])
+    if selection_views is None:
+        best = {m: max(c["alone"] for c in comps if c["view"] == m) for m in views}
+        selection_views = sorted(sorted(views, key=lambda m: -best[m])[:2])
+    sel = list(selection_views)
+    fig = _new(figsize, title, subtitle) if (title or subtitle) else plt.figure(figsize=figsize, layout="constrained")
+    ncol = max(2, len(sel))
+    gs = fig.add_gridspec(2, ncol, width_ratios=[1.1] + [1] * (ncol - 1), height_ratios=(1, 1.2))
+
+    # A. each component's held-out R2 alone, and its unique contribution
+    ax = fig.add_subplot(gs[0, 0]); y = 0; yt, yl = [], []
+    for m in views:
+        for c in [c for c in comps if c["view"] == m]:
+            ax.hlines(y, 0, max(c["alone"], 0), color=vcol[m], lw=2.6, alpha=0.55)
+            _dots(ax, [c["alone"]], [y], vcol[m], s=64)
+            hi = c["unique"] > 0.01
+            ax.text(max(c["alone"], 0) + 0.006, y, f"{c['alone']:.3f}" + (f"   unique {c['unique']:+.3f}" if hi else ""),
+                    va="center", fontsize=8.2, color=_INK if hi else _INK2, weight="semibold" if hi else "normal")
+            yt.append(y); yl.append(f"{vlab[m]} C{c['component']}  ({c['nnz']} feature{'s' if c['nnz'] != 1 else ''})")
+            y += 1
+        y += 0.6
+    full = att["full_r2"]
+    ax.axvline(full, color=_INK2, lw=1)
+    ax.text(full, -0.9, f" all {len(comps)} columns {full:.3f}", fontsize=8, color=_INK2, va="bottom")
+    ax.set_yticks(yt); ax.set_yticklabels(yl, fontsize=8.3); ax.set_ylim(y - 0.4, -1.2)
+    hi_x = max([full] + [c["alone"] for c in comps])
+    ax.set_xlim(-0.02, max(0.05, hi_x * 1.45)); ax.set_xlabel(f"held-out {outcome_label} R² of the component alone")
+    _clean(ax, grid="x"); ax.set_title(titles.get("A", f"A. Held-out {outcome_label} R² of each component"), fontsize=10)
+
+    # B. variance spectrum of one view
+    ax = fig.add_subplot(gs[0, 1:]); sp = att["spectra"][str(spectrum_view)]
+    ev = np.asarray(sp["eigen_share"])[:10]; nb = len(ev); nf = len(att["feature_names"][str(spectrum_view)])
+    ax.bar(np.arange(1, nb + 1), ev, width=0.55, color=[vcol[spectrum_view]] + [_AXIS] * (nb - 1))
+    ax.text(1.4, ev[0], f"  PC1 {ev[0]:.0%} of variance", va="center", fontsize=8.6, color=_INK)
+    k = att["k"]; cg = sp["consensus_vs_mean"]; ks = " / ".join(f"C{j + 1}" for j in range(k))
+    txt = (f"mean correlation between features: {sp['mean_corr']:.2f}\n"
+           f"corr(consensus {ks}, view mean):\n      " + " / ".join(f"{c:.2f}" for c in cg))
+    if sp.get("hard_assignment") is not None:
+        txt += f"\nfeatures hard-assigned to {ks}:\n      " + " / ".join(str(h) for h in sp["hard_assignment"])
+    txt = txt.replace("features", fw + "s")
+    ax.text(0.98, 0.64, txt, transform=ax.transAxes, ha="right", va="top", fontsize=8.5, color=_INK2, linespacing=1.5)
+    ax.set_xticks(range(1, nb + 1)); ax.set_xlabel(f"principal component of {vlab[spectrum_view]} ({nf} {fw}s)")
+    ax.set_ylabel("share of variance"); _clean(ax, grid="y")
+    ax.set_title(titles.get("B", f"B. {vlab[spectrum_view]}: variance spectrum and the consensus"), fontsize=10)
+
+    # C, D, ... selection frequency of the predictive component, per view
+    nh = att["n_refits"]; letters = "CDEFGH"
+    for i, m in enumerate(sel):
+        ax = fig.add_subplot(gs[1, i]); names = att["feature_names"][str(m)]; key = str(m)
+        base = att["refits"]["default"]
+        Fc = np.mean([h[key]["support"] for h in base], 0)
+        if m in compare:
+            alt = att["refits"][compare[m]]
+            Fn = np.mean([h[key]["support"] for h in alt], 0)
+            idx = [j for j in np.argsort(-(Fn + 1e-3 * Fc), kind="stable") if max(Fn[j], Fc[j]) > 0][:top_n]; yy = np.arange(len(idx))
+            ax.hlines(yy, Fc[idx], Fn[idx], color=_AXIS, lw=1.4)
+            ax.scatter(Fc[idx], yy, s=46, facecolors=_SURFACE, edgecolors=_INK2, linewidths=1.3, zorder=3, label=vl("default"))
+            _dots(ax, Fn[idx], yy, vcol[m], s=54)
+            ax.scatter([], [], s=54, c=[vcol[m]], label=vl(compare[m]))
+            nc = [sum(h[key]["support"]) for h in base]; nn = [sum(h[key]["support"]) for h in alt]
+            rc = np.median([h[key]["r2"] for h in base]); rn = np.median([h[key]["r2"] for h in alt])
+            ax.set_xlabel(f"fraction of {nh} refits selecting the {fw}")
+            ax.text(0.0, -0.17, f"default: ≤ 2 {fw}s in {sum(x <= 2 for x in nc)} of {nh} refits, median R² {rc:.3f}\n"
+                    f"{vl(compare[m])}: ≤ 2 {fw}s in {sum(x <= 2 for x in nn)} of {nh}, median R² {rn:.3f}",
+                    transform=ax.transAxes, fontsize=8.2, color=_INK2, va="top")
+            ax.legend(loc="lower right", fontsize=8, frameon=False); ax.set_xlim(-0.02, 1.0)
+        else:
+            fullsup = np.asarray(att["full_support"][key]); r2 = np.median([h[key]["r2"] for h in base])
+            idx = [j for j in np.argsort(-Fc, kind="stable") if Fc[j] > 0][:top_n]; yy = np.arange(len(idx))
+            ax.barh(yy, Fc[idx], height=0.55, color=[vcol[m] if Fc[j] >= 0.5 else _AXIS for j in idx])
+            for yv, j in zip(yy, idx):
+                ax.text(Fc[j] + 0.015, yv, f"{Fc[j]:.2f}" + ("  ● full fit" if fullsup[j] else ""), va="center", fontsize=7.8, color=_INK2)
+            ax.set_xlim(0, 1.2)
+            ax.set_xlabel(f"fraction of {nh} refits selecting the {fw}   (median held-out R² {r2:.3f})")
+        ax.set_yticks(yy); ax.set_yticklabels([label(names[j]) for j in idx], fontsize=8.2); ax.invert_yaxis()
+        ax.axvline(0.5, color=_INK2, lw=0.9); _clean(ax, grid="x")
+        ax.set_title(titles.get(str(m), f"{letters[i]}. {vlab[m]}: refit selection of the predictive component"), fontsize=10)
     return fig
 
 

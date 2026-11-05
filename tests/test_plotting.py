@@ -38,8 +38,10 @@ def fits():
     rel = pysimlr.feature_relevance(sig, tr, te, component=0, views=(0,), n_permutations=200,
                                     n_permutations_test=200, n_refits=0,
                                     groups={"half": lambda n: "a" if int(n.split(".")[1]) < 6 else "b"})
+    att = pysimlr.component_attribution(sig, tr, te, z[:70, 0], z[70:, 0], n_refits=2, n_jobs=1,
+                                        variants={"cw0": {"collapse_weight": 0.0}})
     return dict(tr=tr, te=te, z=z[:70], sig=sig, pos=pos, short=short, flow=flow, pca=pca, inf=inf,
-                rank=rank, pred=pysimlr.predict(sig, te), bench=bench, splits=splits, rel=rel)
+                rank=rank, pred=pysimlr.predict(sig, te), bench=bench, splits=splits, rel=rel, att=att)
 
 
 CALLS = {
@@ -65,6 +67,7 @@ CALLS = {
     "plot_benchmark_uncertainty": lambda f: (f["splits"],),
     "plot_predictions": lambda f: (f["z"][:, 0], f["z"][:, 1]),
     "plot_feature_relevance": lambda f: (f["rel"], 0),
+    "plot_component_attribution": lambda f: (f["att"],),
 }
 SINGLE_PANEL = {"plot_convergence", "plot_rank_selection", "plot_view_correlations", "plot_feature_groups",
                 "plot_loadings", "plot_scores", "plot_latent_recovery", "plot_benchmark", "plot_predictions"}

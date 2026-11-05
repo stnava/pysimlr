@@ -668,88 +668,28 @@ plt.show()
 #| echo: false
 import os
 import json
-import numpy as np
 import matplotlib.pyplot as plt
-from pysimlr.plotting import theme, VIEW_COLORS, _clean, _dots, _INK, _INK2, _AXIS, _CRITICAL
+from pysimlr.plotting import plot_component_attribution, theme, VIEW_COLORS
 from paper_numbers import region_label
 
 _ap = "results_cache/adni_attribution.json"
 if not os.path.exists(_ap):
     _ap = "paper/results_cache/adni_attribution.json"
 with open(_ap) as fh:
-    _at = json.load(fh)
-
-_vc = {"volume": VIEW_COLORS[1], "vol_area": VIEW_COLORS[0], "direct_thickness": VIEW_COLORS[2]}
-_show = {"volume": "Volume", "vol_area": "Vol/area", "direct_thickness": "DiReCT thickness"}
-_nh = len(_at["halves"])
+    _att = json.load(fh)["attribution"]          # pysimlr.component_attribution (scripts/paper_adni_attribution.py)
 
 with theme():
-    fig = plt.figure(figsize=(12.4, 10.2), dpi=200, layout="constrained")
-    gs = fig.add_gridspec(2, 2, width_ratios=(1.1, 1), height_ratios=(1, 1.2))
-
-    # A. held-out CogPC1 R2 of each component alone, per MRI view
-    ax = fig.add_subplot(gs[0, 0]); y = 0; yt, yl = [], []
-    for v in _vc:
-        for c in [c for c in _at["components"] if c["view"] == v]:
-            ax.hlines(y, 0, max(c["alone"], 0), color=_vc[v], lw=2.6, alpha=0.55)
-            _dots(ax, [c["alone"]], [y], _vc[v], s=64)
-            hi = c["drop"] > 0.01
-            ax.text(max(c["alone"], 0) + 0.006, y, f"{c['alone']:.3f}" + (f"   unique {c['drop']:+.3f}" if hi else ""),
-                    va="center", fontsize=8.2, color=_INK if hi else _INK2, weight="semibold" if hi else "normal")
-            yt.append(y); yl.append(f"{_show[v]} C{c['component']}  ({c['nnz']} feature{'s' if c['nnz'] != 1 else ''})")
-            y += 1
-        y += 0.6
-    ax.axvline(_at["full_r2"], color=_INK2, lw=1)
-    ax.text(_at["full_r2"], -0.9, f" all 9 columns {_at['full_r2']:.3f}", fontsize=8, color=_INK2, va="bottom")
-    ax.set_yticks(yt); ax.set_yticklabels(yl, fontsize=8.3); ax.set_ylim(y - 0.4, -1.2)
-    ax.set_xlim(-0.02, 0.3); ax.set_xlabel("held-out CogPC1 R² of the component alone")
-    _clean(ax, grid="x"); ax.set_title("A. Component 2 carries the prediction in every MRI view", fontsize=10)
-
-    # B. the global factor in DiReCT thickness, and the hard assignment it causes
-    ax = fig.add_subplot(gs[0, 1]); ev = np.asarray(_at["dkt_eigen_share"])[:10]
-    ax.bar(np.arange(1, 11), ev, width=0.55, color=[VIEW_COLORS[2]] + [_AXIS] * 9)
-    ax.text(1.4, ev[0], f"  PC1 {ev[0]:.0%} of variance", va="center", fontsize=8.6, color=_INK)
-    cg = _at["consensus_vs_global"]; lc = _at["dkt_loadings_counts"]
-    ax.text(0.98, 0.64, f"mean correlation between regions: {_at['dkt_mean_corr']:.2f}\n"
-            f"corr(consensus C1 / C2 / C3, mean thickness):\n      {cg[0]:.2f} / {cg[1]:.2f} / {cg[2]:.2f}\n"
-            f"regions hard-assigned to C1 / C2 / C3:\n      {lc[0]} / {lc[1]} / {lc[2]}",
-            transform=ax.transAxes, ha="right", va="top", fontsize=8.5, color=_INK2, linespacing=1.5)
-    ax.set_xticks(range(1, 11)); ax.set_xlabel("principal component of DiReCT thickness (62 DKT regions)")
-    ax.set_ylabel("share of variance"); _clean(ax, grid="y")
-    ax.set_title("B. DiReCT thickness has one global factor, which C2 tracks", fontsize=10)
-
-    # C. Vol/area: selection frequency of the predictive column's features
-    ax = fig.add_subplot(gs[1, 0]); names = _at["names"]["1"]
-    F = np.mean([h["1"]["support"] for h in _at["halves"]], 0); full = np.asarray(_at["full_support"]["1"])
-    r2 = np.median([h["1"]["r2"] for h in _at["halves"]])
-    idx = [i for i in np.argsort(-F, kind="stable") if F[i] > 0][:14]; yy = np.arange(len(idx))
-    ax.barh(yy, F[idx], height=0.55, color=[_vc["vol_area"] if F[i] >= 0.5 else _AXIS for i in idx])
-    for yv, i in zip(yy, idx):
-        ax.text(F[i] + 0.015, yv, f"{F[i]:.2f}" + ("  ● full fit" if full[i] else ""), va="center", fontsize=7.8, color=_INK2)
-    ax.set_yticks(yy); ax.set_yticklabels([region_label(names[i]) for i in idx], fontsize=8.2); ax.invert_yaxis()
-    ax.axvline(0.5, color=_INK2, lw=0.9); ax.set_xlim(0, 1.2)
-    ax.set_xlabel(f"fraction of {_nh} half-sample refits selecting the feature   (median held-out R² {r2:.3f})")
-    _clean(ax, grid="x"); ax.set_title("C. Vol/area: the predictive axis is medial temporal and parietal, and it replicates", fontsize=10)
-
-    # D. DiReCT thickness: predictive support with and without the collapse penalty
-    ax = fig.add_subplot(gs[1, 1]); names = _at["names"]["2"]
-    Fc = np.mean([h["2"]["support"] for h in _at["halves"]], 0)
-    Fn = np.mean([h["2"]["support"] for h in _at["halves_no_collapse"]], 0)
-    idx = [i for i in np.argsort(-(Fn + 1e-3 * Fc), kind="stable") if max(Fn[i], Fc[i]) > 0][:14]; yy = np.arange(len(idx))
-    ax.hlines(yy, Fc[idx], Fn[idx], color=_AXIS, lw=1.4)
-    ax.scatter(Fc[idx], yy, s=46, facecolors="#fcfcfb", edgecolors=_INK2, linewidths=1.3, zorder=3, label="default (collapse_weight = 1)")
-    _dots(ax, Fn[idx], yy, _vc["direct_thickness"], s=54)
-    ax.scatter([], [], s=54, c=_vc["direct_thickness"], label="collapse_weight = 0")
-    ax.set_yticks(yy); ax.set_yticklabels([region_label(names[i]) for i in idx], fontsize=8.2); ax.invert_yaxis()
-    ax.axvline(0.5, color=_INK2, lw=0.9); ax.set_xlim(-0.02, 1.0)
-    nc = [sum(h["2"]["support"]) for h in _at["halves"]]; nn = [sum(h["2"]["support"]) for h in _at["halves_no_collapse"]]
-    rc = np.median([h["2"]["r2"] for h in _at["halves"]]); rn = np.median([h["2"]["r2"] for h in _at["halves_no_collapse"]])
-    ax.set_xlabel(f"fraction of {_nh} refits selecting the region")
-    ax.text(0.0, -0.17, f"default: ≤ 2 regions in {sum(n <= 2 for n in nc)} of {_nh} refits, median R² {rc:.3f}\n"
-            f"collapse_weight = 0: ≤ 2 regions in {sum(n <= 2 for n in nn)} of {_nh}, median R² {rn:.3f}",
-            transform=ax.transAxes, fontsize=8.2, color=_INK2, va="top")
-    ax.legend(loc="lower right", fontsize=8, frameon=False)
-    _clean(ax, grid="x"); ax.set_title("D. DiReCT thickness: the collapse penalty shrinks the predictive support", fontsize=10)
+    fig = plot_component_attribution(
+        _att, spectrum_view=2, selection_views=[1, 2], compare={2: "collapse_weight=0"}, label=region_label,
+        outcome_label="CogPC1", feature_word="region",
+        view_labels={0: "Volume", 1: "Vol/area", 2: "DiReCT thickness"},
+        view_colors={0: VIEW_COLORS[1], 1: VIEW_COLORS[0], 2: VIEW_COLORS[2]},
+        variant_labels={"default": "default (collapse_weight = 1)", "collapse_weight=0": "collapse_weight = 0"},
+        titles={"A": "A. Component 2 carries the prediction in every MRI view",
+                "B": "B. DiReCT thickness has one global factor, which C2 tracks",
+                "1": "C. Vol/area: the predictive axis is medial temporal and parietal, and it replicates",
+                "2": "D. DiReCT thickness: the collapse penalty shrinks the predictive support"})
+    fig.set_dpi(200)
     plt.show()
 ```
 
