@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: `v0.20.0` released (`D36`: `positivity` = "linear" | "conical" | "convex", convex inside every model family, unknown values raise; `D35`: confound sink for every method through `pysimlr.fit(..., confounds=...)`, opt-in; `D34` is reserved for `feat/brain-map-atlases`, not yet merged).
+current phase: `v0.21.0` released (`D34`: brain maps on every anatomy -- 3D regions, tracts, tract sheets, connectomes via antsxviz 0.2.0 scenes; caller-set colour limits; `D36` convex positivity and `D35` confound sink released in v0.20.0).
 next WP: pin nsa_flow 3.6.0 once released; open finding in D17 (NSA-Flow failure on k = p narrow views at lr 0.3).
 blockers: none
-active work: D34 `feat/brain-map-atlases` (waits on antsxdata v0.6.0 / antsxviz 0.2.0); open: Protocol B sex covariate is constant 0 (`PTGENDER` coded 0/1 but tested for "F"), fix pending owner decision; relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
+active work: D37 `fix/protocol-b-sex` (Protocol B sex covariate was constant 0; fix and ADNI-MCI cache regeneration in progress); open: relevance on real wide data (IBD) untested; rendered book not yet re-rendered for the refreshed caches; adni_mci_1214_grid_sweep.csv stale for dynamic-weight rows; the owner's paper and manuscript edits from `amigo` are set aside in `git stash` (stash@{0}), not applied
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
 last updated: 2026-11-05
 
@@ -196,6 +196,21 @@ status: done (released in v0.20.0). Supersedes the `simlr`-only sink of `f29c18c
   `PTGENDER.astype(str).str.upper().str.startswith("F")`, but `PTGENDER` is coded 0/1 in
   `adni_mci_cognitive_merged.csv`. Protocol B's sex covariate is therefore a constant zero (not
   fixed here).
+## D34 (brain maps on every anatomy: 3D regions, tracts, tract sheets, connectomes; caller-set colour limits, 2026-11-05)
+status: done (released in v0.21.0)
+- **New:** `plot_brain_map(..., atlas="dkt" | "hoa" | "jhu" | "tracts" | "tract_sheets", scale="minmax", clim=None,
+  **scene_kwargs)`. Non-DKT atlases go to `antsxviz.region_scene_figure` / `tract_scene_figure` (lit 3D structures
+  in a glass brain); `scene_kwargs` pass a subject's own `labels=`, `brain_mask=`, `tracts=`/`sheets=` so maps can
+  be shown in subject space. `tiers=` stays surface-only and raises otherwise; an unknown atlas raises.
+- **New:** `plot_connectome(res, ..., kind="structure", top_k=30)`: a component's map over `rsf_yeo_netconn_*`
+  features as a Yeo-network connectome with chord and matrix twins (`antsxviz.connectome_figure`).
+- **Colour limits (owner's decision):** default min..max of each map for every atlas, `scale="zero_max"` restores
+  the earlier 0..max, `clim=(lo, hi)` or `{map: (lo, hi)}` sets them. `plot_feature_map_grid` takes the same
+  `scale`/`clim`, so the surface and its table twin keep identical limits and colours (`_apply_scale`).
+- **Tests:** `tests/test_brain_maps.py` (dispatch to region/tract scenes with renaming, scale and pass-through
+  kwargs; connectome dispatch; DKT row limits under minmax, zero_max and explicit clim). 54 plotting tests pass.
+- **Gallery** (antsxviz `reports/brainmap_gallery_2026-11-05/`): every display on sub-BLAST058 real FA/MD in MNI and
+  in its own space, simulated Yeo connectivity.
 
 ## D33 (component_attribution: paper Fig. 3.9 as reusable code, 2026-11-05)
 status: done (released in v0.19.0)

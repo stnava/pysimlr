@@ -1312,7 +1312,8 @@ def feature_map_values(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = Non
 def plot_feature_map_grid(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = None,
                           inf: Optional[Dict[str, Any]] = None, component: int = 0, view: int = 0,
                           kinds: Sequence[str] = ("structure", "relative_weight"), split=None, groups=None,
-                          feature_names=None, view_names=None, value_fmt: str = "{:.2f}", figsize=None):
+                          feature_names=None, view_names=None, value_fmt: str = "{:.2f}", figsize=None,
+                          scale: str = "minmax", clim=None):
     """Feature maps of one component as coloured tables, one block per map.
 
     The tabular twin of `plot_brain_map`: both read `feature_map_values`, so values,
@@ -1328,6 +1329,7 @@ def plot_feature_map_grid(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = 
     av = _require_antsxviz()
     enc = feature_map_values(res, maps, inf, component, view, kinds, feature_names, view_names)
     rows = av.rows_from_encoding(enc, cmap=map_colormap(view))
+    _apply_scale(rows, scale, clim, view, av)   # the same limits and colours as plot_brain_map
     sub = ("Colour: each map on its own scale from 0 to its maximum"
            + ("; dark ring: selected in ≥ 80% of refits" if inf is not None else "") + ".")
     vname = next(iter(enc.values()))["view_name"]
@@ -1450,8 +1452,26 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
                    component: int = 0, view: int = 0, kinds: Sequence[str] = ("structure", "relative_weight"),
                    feature_names=None, view_names=None, region_names=None, title: Optional[str] = None,
                    subtitle: Optional[str] = None, notes: Optional[Dict[str, str]] = None, meshes=None,
-                   density: str = "41k", surface: str = "inflated", tiers: Optional[Dict[str, Any]] = None):
-    """Feature maps of one component painted on the fsaverage cortex, via antsxviz.
+                   density: str = "41k", surface: str = "inflated", tiers: Optional[Dict[str, Any]] = None,
+                   atlas: str = "dkt", scale: str = "minmax", clim=None, **scene_kwargs):
+    """Feature maps of one component painted on the brain, via antsxviz.
+
+    ``atlas`` chooses the anatomy: ``"dkt"`` (default) the fsaverage cortical surface described
+    below; ``"hoa"`` (Harvard-Oxford subcortical) or ``"jhu"`` (JHU white-matter regions) as lit 3D
+    structures inside a glass brain (``antsxviz.region_scene_figure``); ``"tracts"`` or
+    ``"tract_sheets"`` the 20 population tracts as tubes or medial sheets
+    (``antsxviz.tract_scene_figure``). One row per map. Volumetric atlases read antsxmm column names
+    as they are (e.g. ``FA_HOA_Thalamus_Left``, ``FA_JHU_labels_edited_Genu_of_corpus_callosum``,
+    ``troi_fa_mean_Uncinate_fasciculus_L``); ``region_names`` ({feature: atlas feature name})
+    renames features that do not follow that grammar. Features not drawn are listed in the subtitle.
+    ``scene_kwargs`` go to the antsxviz scene function -- e.g. ``labels=`` and ``brain_mask=`` (a
+    subject's own label image and brain mask), ``tracts=``/``sheets=`` (a subject's own antsxdwi
+    bundles), ``views=``, ``exclude=``. Selection outlines and ``tiers`` are drawn on the DKT surface
+    only.
+
+    Colour limits (every atlas): ``clim=(lo, hi)`` (or ``{map: (lo, hi)}``) when given, otherwise
+    ``scale``: ``"minmax"`` (default; min..max of each map), ``"zero_max"`` (0..max, the earlier
+    convention) or ``"symmetric"``.
 
     With ``tiers`` (a `pysimlr.feature_relevance` result) the brain shows that view's relevance
     tiers instead of continuous maps: grey = neither, pale = p < alpha in training only, dark =
@@ -1466,6 +1486,21 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
     them across figures. Requires the ``viz`` extra (antsxviz).
     """
     av = _require_antsxviz()
+    if atlas != "dkt":
+        if tiers is not None:
+            raise ValueError("tiers= is drawn on the DKT surface only; use atlas='dkt'.")
+        if atlas not in ("hoa", "jhu", "tracts", "tract_sheets"):
+            raise ValueError(f"atlas must be 'dkt', 'hoa', 'jhu', 'tracts' or 'tract_sheets'; got {atlas!r}")
+        enc = feature_map_values(res, maps, inf, component, view, kinds, feature_names, view_names)
+        rename = dict(region_names or {})
+        maps_ = {e["label"]: {rename.get(n, n): v for n, v in zip(e["names"], e["values"])} for e in enc.values()}
+        vname = next(iter(enc.values()))["view_name"]
+        common = dict(units={e["label"]: e["units"] for e in enc.values()}, scale=scale, clim=clim,
+                      view_color=view, subtitle=subtitle,
+                      title=title or f"Component {component + 1} of {vname}: feature maps", **scene_kwargs)
+        if atlas in ("hoa", "jhu"):
+            return av.region_scene_figure(maps_, atlas, **common)
+        return av.tract_scene_figure(maps_, style="sheets" if atlas == "tract_sheets" else "tubes", **common)
     if tiers is not None:
         rows, dropped = _tier_rows(tiers, view, region_names, av)
         if meshes is None:
@@ -1487,14 +1522,57 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
     if meshes is None:
         meshes = av.load_fsaverage(density=density, surface=surface)
     vname = next(iter(enc.values()))["view_name"]
+    _apply_scale(rows, scale, clim, view, av)
     sub = subtitle if subtitle is not None else (
-        "Colour: each map on its own scale from 0 to its maximum"
+        _scale_phrase(scale, clim)
         + ("; dark outline: selected in ≥ 80% of refits" if inf is not None else "") + ".")
     if dropped:
         sub += (f" Not on cortex ({len(dropped)}): " + ", ".join(map(str, dropped[:6]))
                 + (" ..." if len(dropped) > 6 else "") + ".")
     return av.surface_figure(rows, meshes, title=title or f"Component {component + 1} of {vname}: feature maps",
                              subtitle=sub)
+
+
+def plot_connectome(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, maps: Optional[Dict[str, Any]] = None,
+                    component: int = 0, view: int = 0, kind: str = "structure", feature_names=None, view_names=None,
+                    top_k: int = 30, scale: str = "minmax", clim=None, title: Optional[str] = None,
+                    subtitle: Optional[str] = None, **kwargs):
+    """A component's map over network-pair features (antsxmm ``rsf_yeo_netconn_{a}_2_{b}``) as a connectome.
+
+    Draws `feature_map_values` of one map (``kind``) through ``antsxviz.connectome_figure``: Yeo-17 +
+    CIT168 network nodes per hemisphere in a glass brain (MNI), the ``top_k`` strongest pairs as
+    arcs, with a chord diagram and a block-ordered matrix on the same colour scale. Features that are
+    not network pairs (e.g. ``rsf_yeo_netconn_nparcels_*``) are listed in the subtitle. ``kwargs`` go to
+    ``antsxviz.connectome_figure`` (e.g. ``nodes=``, ``groups=``, ``views=``, ``width_by=``).
+    """
+    av = _require_antsxviz()
+    enc = feature_map_values(res, maps, inf, component, view, (kind,), feature_names, view_names)
+    e = enc[kind]
+    vals = {n: float(v) for n, v in zip(e["names"], e["values"]) if np.isfinite(v)}
+    return av.connectome_figure(vals, top_k=top_k, scale=scale, clim=clim, units=e["units"],
+                                title=title or f"Component {component + 1} of {e['view_name']}: network map",
+                                subtitle=subtitle, **kwargs)
+
+
+def _scale_phrase(scale: str, clim) -> str:
+    if clim is not None:
+        return "Colour: fixed limits"
+    return {"minmax": "Colour: each map on its own scale from its minimum to its maximum",
+            "zero_max": "Colour: each map on its own scale from 0 to its maximum",
+            "symmetric": "Colour: each map on a symmetric scale about 0"}[scale]
+
+
+def _apply_scale(rows, scale: str, clim, view: int, av) -> None:
+    """Set each antsxviz row's colour limits (``vmin``/``vmax``) and colour scale from ``scale``/``clim``
+    (`antsxviz.resolve_clim`), so the surface and its table twin share them."""
+    from antsxviz.scene import value_cmap
+
+    for label, row in rows.items():
+        rc = clim.get(label) if isinstance(clim, dict) else clim
+        vals = [float(v) for v in row["values"].values() if v is not None and np.isfinite(float(v))]
+        lo, hi, div = av.resolve_clim(vals, rc, scale)
+        row["vmin"], row["vmax"] = lo, hi
+        row["cmap"] = value_cmap(div, view)
 
 
 def _fp(p) -> str:

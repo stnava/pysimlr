@@ -278,6 +278,18 @@ That way a table and a brain show the same thing:
     if you pass one. Features that are not cortical regions (tissue totals, lobes) are listed in
     the subtitle, never silently dropped.
   - `brain_rows` returns the antsxviz rows for custom compositions.
+- `plot_brain_map(res, view=m, atlas="hoa" | "jhu" | "tracts" | "tract_sheets")`: the same encoding on deep
+  grey matter (Harvard-Oxford), white-matter regions (JHU) or 20 tracts (tubes or medial sheets) as lit 3D
+  structures inside a glass brain (antsxviz scenes), one row per map.
+  - Feature names are antsxmm wide-table columns as they are (`FA_HOA_<region>`, `vol_<region>hoa_by_region`,
+    `FA_JHU_labels_edited_<region>`, `troi_fa_mean_<tract>`, `bundle_<metric>_<tract>`; a `DTI+` prefix is fine);
+    `region_names={feature: atlas feature name}` renames others. Features not drawn are listed in the subtitle.
+  - MNI by default; pass a subject's own `labels=`, `brain_mask=`, `tracts=`/`sheets=` (antsxdwi bundles) to draw
+    in that subject's space.
+  - Colour limits: min..max of each map by default, `scale="zero_max"` for 0..max, `clim=` to set them; the same
+    options apply to the DKT surface and to `plot_feature_map_grid`, so twins stay identical.
+- `plot_connectome(res, view=m)`: a component's map over network-pair features (`rsf_yeo_netconn_{a}_2_{b}`) as a
+  Yeo-network connectome (3D, chord and block matrix).
   - ADNI output: `scripts/brain_region_maps.py` → `docs/figures/adni_dkt_feature_maps.png` and
     `_grid.png`.
 - `plot_top_features(kind=...)` and `plot_feature_map_comparison` show one map or all of them at

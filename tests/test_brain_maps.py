@@ -94,3 +94,70 @@ def test_palette_matches_antsxviz():
     x = np.linspace(0, 1, 21)
     for v in range(len(VIEW_COLORS)):
         assert np.allclose([map_colormap(v)(t) for t in x], [av.map_colormap(v)(t) for t in x], atol=0)
+
+
+def _fake_scene_antsxviz(monkeypatch, seen):
+    mod = types.ModuleType("antsxviz")
+    scene = types.ModuleType("antsxviz.scene")
+
+    def record(name):
+        def f(maps, *a, **kw):
+            seen.update(fn=name, maps=maps, args=a, **kw)
+            return "fig"
+        return f
+
+    mod.region_scene_figure = record("region")
+    mod.tract_scene_figure = record("tract")
+    mod.connectome_figure = record("connectome")
+    monkeypatch.setitem(sys.modules, "antsxviz", mod)
+    monkeypatch.setitem(sys.modules, "antsxviz.scene", scene)
+
+
+def _small_fit(names0, p1=4):
+    g = np.random.default_rng(0)
+    z = g.standard_normal((80, 2))
+    xs = [torch.tensor(z @ g.standard_normal((2, p)) + 0.5 * g.standard_normal((80, p))).float()
+          for p in (len(names0), p1)]
+    return pysimlr.fit("simlr", xs, k=2, iterations=10, random_state=0), [names0, [f"b{i}" for i in range(p1)]]
+
+
+def test_plot_brain_map_volumetric_atlas_dispatch(monkeypatch):
+    """Volumetric atlases go to the antsxviz scene functions with rows, renaming, scale and pass-through kwargs."""
+    seen = {}
+    _fake_scene_antsxviz(monkeypatch, seen)
+    names0 = ["FA_HOA_Thalamus_Left", "dti_mean_fa", "my_put"]
+    res, fn = _small_fit(names0)
+    out = pysimlr.plot_brain_map(res, view=0, kinds=("structure",), atlas="hoa", feature_names=fn,
+                                 region_names={"my_put": "FA_HOA_Putamen_Left"}, scale="zero_max",
+                                 brain_mask="MASK", views=("left",))
+    assert out == "fig" and seen["fn"] == "region" and seen["args"] == ("hoa",)
+    assert seen["scale"] == "zero_max" and seen["brain_mask"] == "MASK" and seen["views"] == ("left",)
+    (row,) = seen["maps"].values()
+    assert list(row) == ["FA_HOA_Thalamus_Left", "dti_mean_fa", "FA_HOA_Putamen_Left"]
+    pysimlr.plot_brain_map(res, view=0, kinds=("structure",), atlas="tract_sheets", feature_names=fn)
+    assert seen["fn"] == "tract" and seen["style"] == "sheets" and seen["scale"] == "minmax"
+    with pytest.raises(ValueError, match="DKT surface only"):
+        pysimlr.plot_brain_map(res, atlas="hoa", tiers={"alpha": 0.05})
+    with pytest.raises(ValueError, match="atlas must be"):
+        pysimlr.plot_brain_map(res, atlas="slices", feature_names=fn)
+
+
+def test_plot_connectome_dispatch(monkeypatch):
+    seen = {}
+    _fake_scene_antsxviz(monkeypatch, seen)
+    names0 = ["rsf_yeo_netconn_DefaultA_2_ContB", "rsf_yeo_netconn_VisCent_2_VisCent", "rsf_yeo_netconn_nparcels_DefaultA"]
+    res, fn = _small_fit(names0)
+    assert pysimlr.plot_connectome(res, view=0, feature_names=fn, top_k=5) == "fig"
+    assert seen["fn"] == "connectome" and set(seen["maps"]) == set(names0) and seen["top_k"] == 5
+
+
+def test_dkt_scale_sets_row_limits():
+    av = pytest.importorskip("antsxviz")
+    from pysimlr.plotting import _apply_scale
+    rows = {"m": {"values": {"left_entorhinal": 0.2, "right_entorhinal": 0.5}, "vmax": 0.5}}
+    _apply_scale(rows, "minmax", None, 0, av)
+    assert (rows["m"]["vmin"], rows["m"]["vmax"]) == (0.2, 0.5)
+    _apply_scale(rows, "zero_max", None, 0, av)
+    assert (rows["m"]["vmin"], rows["m"]["vmax"]) == (0.0, 0.5)
+    _apply_scale(rows, "minmax", {"m": (0.0, 1.0)}, 0, av)
+    assert (rows["m"]["vmin"], rows["m"]["vmax"]) == (0.0, 1.0)

@@ -40,7 +40,7 @@ nsa = [
 # pysimlr install does not pull ANTsPy / pyvista; plot_brain_map raises an
 # ImportError naming this extra when it is missing.
 viz = [
-    "antsxviz>=0.1.1"
+    "antsxviz>=0.2.0"
 ]
 test = [
     "pytest",
