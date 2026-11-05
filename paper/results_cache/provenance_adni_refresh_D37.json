@@ -1,0 +1,87 @@
+{
+ "cli": "scripts/refresh_adni_cache_rows.py",
+ "git_commit": "fc7e1e6",
+ "pysimlr": "0.20.0",
+ "written_utc": "2026-11-05T19:28:36.872641+00:00",
+ "reason": "D37: Protocol B sex covariate built from 0/1 PTGENDER (was constant 0)",
+ "n_tasks": 126,
+ "files": [
+  "deep_ranking_benchmark.csv",
+  "deep_ranking_benchmark_q05.csv",
+  "deep_ranking_benchmark_q_none.csv",
+  "deep_ranking_benchmark_q08.csv",
+  "operating_points_05_08_benchmark.csv"
+ ],
+ "max_abs_change": {
+  "deep_ranking_benchmark.csv": {
+   "Predictive_Metric": 0.046364128589630196,
+   "Train_Metric": 0.20485281944274908,
+   "Gen_Gap": 0.1924221515655518,
+   "Strictly_Linear_Metric": 0.05031782388687139,
+   "Axis_Sensitive_Metric": 0.0864562104538305,
+   "Frame_Defect_D": 0.025055500368277195,
+   "Sparsity_Ratio": 0.005235602094240899,
+   "Support_Overlap_V": 0.09642741172809233,
+   "Column_Coherence_L": 4.357582406662271e-09,
+   "Support_Overlap_L": 0.10728448363033205,
+   "Grad_Map": 1.643915363871144,
+   "Energy_Reduction": 1.4407999118169155
+  },
+  "deep_ranking_benchmark_q05.csv": {
+   "Predictive_Metric": 0.046364128589630196,
+   "Train_Metric": 0.20485281944274908,
+   "Gen_Gap": 0.1924221515655518,
+   "Strictly_Linear_Metric": 0.05031782388687139,
+   "Axis_Sensitive_Metric": 0.0864562104538305,
+   "Frame_Defect_D": 0.025055500368277195,
+   "Sparsity_Ratio": 0.005235602094240899,
+   "Support_Overlap_V": 0.09642741172809233,
+   "Column_Coherence_L": 4.357582406662271e-09,
+   "Support_Overlap_L": 0.10728448363033205,
+   "Grad_Map": 1.643915363871144,
+   "Energy_Reduction": 1.4407999118169155
+  },
+  "deep_ranking_benchmark_q_none.csv": {
+   "Predictive_Metric": 0.13879990577697748,
+   "Train_Metric": 0.3075380325317383,
+   "Gen_Gap": 0.4463379383087159,
+   "Strictly_Linear_Metric": 0.06812566518783571,
+   "Axis_Sensitive_Metric": 0.1034898455922747,
+   "Frame_Defect_D": 0.025055500368277195,
+   "Sparsity_Ratio": 0.011343804537521818,
+   "Support_Overlap_V": 0.0667740589842919,
+   "Column_Coherence_L": 6.115756408841315e-09,
+   "Support_Overlap_L": 0.10728448363033205,
+   "Grad_Map": 2.215362942382761,
+   "Energy_Reduction": 1.4237345457077026
+  },
+  "deep_ranking_benchmark_q08.csv": {
+   "Predictive_Metric": 0.0691200494766236,
+   "Train_Metric": 0.1466740369796753,
+   "Gen_Gap": 0.1847432255744934,
+   "Strictly_Linear_Metric": 0.04650652408599848,
+   "Axis_Sensitive_Metric": 0.07811361690551699,
+   "Frame_Defect_D": 0.025055500368277195,
+   "Sparsity_Ratio": 0.0008726003490401313,
+   "Support_Overlap_V": 0.10152966770472527,
+   "Column_Coherence_L": 4.282305466939455e-09,
+   "Support_Overlap_L": 0.10728448363033205,
+   "Grad_Map": 0.9492849287695373,
+   "Energy_Reduction": 1.4458539485931396
+  },
+  "operating_points_05_08_benchmark.csv": {
+   "Predictive_Metric": 0.13879990577697748,
+   "Train_Metric": 0.3075380325317383,
+   "Gen_Gap": 0.4463379383087159,
+   "Strictly_Linear_Metric": 0.06812566518783571,
+   "Axis_Sensitive_Metric": 0.1139764526142549,
+   "Frame_Defect_D": 0.025055500368277195,
+   "Sparsity_Ratio": 0.034775233248515725,
+   "Support_Overlap_V": 0.10152966770472527,
+   "Column_Coherence_L": 6.115756408841315e-09,
+   "Support_Overlap_L": 0.10728448363033205,
+   "Grad_Map": 2.215362942382761,
+   "Energy_Reduction": 1.4458539485931396
+  }
+ }
+}
