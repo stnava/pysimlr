@@ -97,7 +97,7 @@ Wide multi-view studies hit two separate rank limits, handled at different stage
   views (`p_m / n > max_width_ratio`, default `0.75`) strictly on the training rows (no `outcome`
   argument exists). It scores each feature's communality against the top left singular vectors of
   the *other* training views, tests `q_bh < alpha` against a pooled row-permutation null alongside
-  omnibus view coupling (`p_view`, `view_coupled`) and half-sample `selection_frequency`, prunes
+  a Westfall–Young omnibus view test across mean, sparse-tail and max communality with Holm step-down across views (`p_view`, `view_coupled`) and half-sample `selection_frequency`, prunes
   collinear duplicates (`|r| > max_collinearity`), and caps admitted width to
   `floor(max_width_ratio * n)`.
   - **Measured limitation (`scripts/screen_wide_views_check.py`):** screening is opt-in, not a
@@ -298,6 +298,8 @@ fig = pysimlr.plotting.plot_brain_map(None, view=1, tiers=rel)   # tiers on the 
 **Statistic.** For view m on component j:
 - The statistic is each feature's share of the variance the view explains in a target (relative
   weights, normalised to sum to 1).
+- `shrinkage="auto"` (the default) uses classical Johnson shares when full-rank `p < n` and
+  Ledoit–Wolf shrunk shares when `p >= n`, collinear, or `p >= n_sub` / `n_test`.
 - The target is the mean of the other views' sign-aligned scores on j.
 - The fair share is 1/p.
 

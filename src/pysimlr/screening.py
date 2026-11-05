@@ -30,18 +30,18 @@ themselves** (no outcome argument exists, and test rows are never seen):
    sample size rather than a fixed hand-chosen feature count.
 
 Measured limitation (``scripts/screen_wide_views_check.py``,
-``docs/audit/evidence/screen_wide_views_check.csv``; D30). The screen does **not** cure the wide-view
-overfit, so it is an opt-in tool, not a fix:
+``docs/audit/evidence/screen_wide_views_check.csv``; D30, rerun after the tail/Holm view
+calibration). The screen does **not** cure the wide-view overfit, so it is an opt-in tool, not a fix:
 
 * **IBD** (Franzosa 2019: four LC-MS platforms of 1622-2024 features plus 156 species; n_train = 165;
   5 splits). The cross-view gate passes nearly every feature, because the platforms share large
   common factors, so the width cap does the selecting.
-  - The training-minus-held-out coupling gap is 0.40 / 0.33 / 0.19 / 0.13 / 0.02 at
-    ``max_width_ratio`` = 0.5 / 0.3 / 0.2 / 0.1 / 0.05, against 0.39 for top-500 variance.
-  - SiMLR's held-out accuracy peaks at 0.759 (ratio 0.1) and is 0.712 at 0.05.
+  - The training-minus-held-out coupling gap is 0.39 / 0.40 / 0.33 / 0.19 / 0.13 / 0.02 at
+    ``max_width_ratio`` = 0.75 / 0.5 / 0.3 / 0.2 / 0.1 / 0.05, against 0.39 for top-500 variance.
+  - SiMLR's held-out accuracy peaks at 0.759 (ratio 0.1), against 0.732 for top-500.
   - No ratio met the pre-set rule (gap <= 0.10 with accuracy within 0.02 of the best).
 * **Pure-noise views** (3 x 120, n_train = 50). The gate correctly finds no signal and keeps the
-  floor of k + 2 features, yet the gap is still 0.35 (0.85 unscreened): fitting k components to so
+  floor of k + 2 features, yet the gap is still 0.34 (0.85 unscreened): fitting k components to so
   few rows overfits on its own.
 
 Judge any fit with `pysimlr.heldout_coupling`.
@@ -270,62 +270,96 @@ def screen_wide_views(
     coupled_list: list[bool] = []
     summary_rows: list[dict[str, Any]] = []
 
+    # Pass 1: Per-view permutation communality & Westfall-Young omnibus p-values.
+    raw_pv_omni: list[float] = []
     for m in range(m_views):
         z = zs[m]
         live = lives[m]
         p = int(z.shape[1])
-        was_wide = (p / float(n)) > max_width_ratio
-        min_keep = min(p, int(min_features) if min_features is not None else floor_default)
-
         b_mat = _compact_other_basis(us, m)
         obs = ((b_mat.T @ z) ** 2).sum(axis=0) if b_mat.shape[1] > 0 else np.zeros(p, dtype=np.float64)
         obs = np.where(live, obs, 0.0)
 
         pooled: list[np.ndarray] = []
         null_mean = np.zeros(n_permutations, dtype=np.float64)
+        null_tail = np.zeros(n_permutations, dtype=np.float64)
         null_max = np.zeros(n_permutations, dtype=np.float64)
-        if b_mat.shape[1] > 0 and live.any():
+        n_live = int(live.sum())
+        k_tail = max(1, min(25, n_live // 20))
+        if b_mat.shape[1] > 0 and n_live > 0:
             z_live = z[:, live]
             for b in range(n_permutations):
                 bp = b_mat[rng.permutation(n)]
                 nh_live = ((bp.T @ z_live) ** 2).sum(axis=0)
                 pooled.append(nh_live)
                 null_mean[b] = float(nh_live.mean())
+                null_tail[b] = float(np.partition(nh_live, -k_tail)[-k_tail:].mean())
                 null_max[b] = float(nh_live.max())
-        # Pooled permutation null: under the null every standardized feature's communality has
-        # nearly the same distribution (it depends only on the shared other-view basis), so the
-        # B x p_live null draws are pooled. That resolves p-values down to 1 / (B p_live), which a
-        # Benjamini-Hochberg gate over thousands of features needs; per-feature counts stop at
-        # 1 / (B + 1) and could never pass it.
+        # Pooled permutation null (D30): under the null every standardized feature's communality
+        # has nearly the same distribution (it depends only on the shared other-view basis), so the
+        # B x p_live draws are pooled, resolving p down to 1 / (B p_live) as a Benjamini-Hochberg
+        # gate over thousands of features needs; per-feature counts stop at 1 / (B + 1).
         p_perm = np.ones(p, dtype=np.float64)
         q_bh = np.ones(p, dtype=np.float64)
         if pooled:
             null_all = np.sort(np.concatenate(pooled))
-            n_null = len(null_all)
-            ge_pool = n_null - np.searchsorted(null_all, obs[live], side="left")
-            p_live = (1.0 + ge_pool) / (n_null + 1.0)
-            p_perm[live] = p_live
-            q_bh[live] = _bh_qvalues(p_live)
-        obs_live_mean = float(obs[live].mean()) if live.any() else 0.0
-        obs_live_max = float(obs[live].max()) if live.any() else 0.0
-        if live.any() and b_mat.shape[1] > 0:
+            ge_pool = len(null_all) - np.searchsorted(null_all, obs[live], side="left")
+            p_perm[live] = (1.0 + ge_pool) / (len(null_all) + 1.0)
+            q_bh[live] = _bh_qvalues(p_perm[live])
+        obs_live_mean = float(obs[live].mean()) if n_live > 0 else 0.0
+        obs_live_tail = float(np.partition(obs[live], -k_tail)[-k_tail:].mean()) if n_live > 0 else 0.0
+        obs_live_max = float(obs[live].max()) if n_live > 0 else 0.0
+        if n_live > 0 and b_mat.shape[1] > 0:
             pv_mean = float((1.0 + (null_mean >= obs_live_mean).sum()) / (n_permutations + 1.0))
             pv_max = float((1.0 + (null_max >= obs_live_max).sum()) / (n_permutations + 1.0))
             all_mean = np.append(null_mean, obs_live_mean)
+            all_tail = np.append(null_tail, obs_live_tail)
             all_max = np.append(null_max, obs_live_max)
-            # Exact finite-sample min-p omnibus calibration across mean and max statistics.
             pm_all = (len(all_mean) - np.searchsorted(np.sort(all_mean), all_mean, side="left")) / float(len(all_mean))
+            pt_all = (len(all_tail) - np.searchsorted(np.sort(all_tail), all_tail, side="left")) / float(len(all_tail))
             px_all = (len(all_max) - np.searchsorted(np.sort(all_max), all_max, side="left")) / float(len(all_max))
-            minp_all = np.minimum(pm_all, px_all)
+            minp_all = np.minimum(np.minimum(pm_all, pt_all), px_all)
             pv_omni = float((minp_all <= minp_all[-1]).sum() / float(len(minp_all)))
         else:
             pv_mean = pv_max = pv_omni = 1.0
-        is_coupled = bool(pv_omni < alpha_view)
+
+        comm_list.append(obs)
+        pperm_list.append(p_perm)
+        qbh_list.append(q_bh)
+        raw_pv_omni.append(pv_omni)
+        p_view_mean_list.append(pv_mean)
+        p_view_max_list.append(pv_max)
+
+    # Holm-Bonferroni step-down across views controls multi-view FWER under pure noise with zero penalty on the last view when M-1 views couple.
+    order_v = np.argsort(raw_pv_omni)
+    holm_pv = np.empty(m_views, dtype=np.float64)
+    running_max = 0.0
+    for rank_i, vm in enumerate(order_v):
+        adj = min(1.0, raw_pv_omni[int(vm)] * float(m_views - rank_i))
+        running_max = max(running_max, adj)
+        holm_pv[int(vm)] = running_max
+
+    # Pass 2: Subsample stability selection & greedy collinearity-aware gating.
+    for m in range(m_views):
+        z = zs[m]
+        live = lives[m]
+        n_live = int(live.sum())
+        p = int(z.shape[1])
+        was_wide = (p / float(n)) > max_width_ratio
+        min_keep = min(p, int(min_features) if min_features is not None else floor_default)
+        obs = comm_list[m]
+        p_perm = pperm_list[m]
+        q_bh = qbh_list[m]
+        obs_live_max = float(obs[live].max()) if n_live > 0 else 0.0
+        pv_holm = float(holm_pv[m])
+        is_coupled = bool(pv_holm < alpha_view)
 
         freq = np.zeros(p, dtype=np.float64)
-        if sub_rows and live.any():
-            denom_tau = max(0.1, 2.0 * stability_threshold - 1.0)
-            qm = max(min_keep, min(int(live.sum()), int(np.floor(np.sqrt(expected_false * denom_tau * p)))))
+        if sub_rows and n_live > 0:
+            denom_tau = max(0.2, 2.0 * stability_threshold - 1.0)
+            qm_mb = int(np.ceil(np.sqrt(expected_false * denom_tau * p)))
+            n_sig = int((q_bh < alpha).sum()) if is_coupled else 0
+            qm = min(n_live, max(min_keep, qm_mb, n_sig))
             raw_np = tensors[m].detach().double().numpy()
             for rows, u_b in zip(sub_rows, sub_us):
                 zm_b, lm_b = _std_unit_norm(raw_np[rows])
@@ -341,21 +375,19 @@ def screen_wide_views(
             if len(idx) == 0:
                 idx = np.arange(min(p, max(1, min_keep)), dtype=np.int64)
         else:
-            # Composite blind score: cross-view communality tie-broken by subsample stability.
-            score = obs + 1e-3 * freq
+            norm_obs = obs / max(obs_live_max, 1e-12)
+            score = 0.65 * norm_obs + 0.35 * freq
             live_idx = np.flatnonzero(live)
             ranked_all = live_idx[np.argsort(-score[live_idx])]
             pass_mask = live & ((q_bh < alpha) | (freq >= stability_threshold))
             cand_idx = np.flatnonzero(pass_mask)
             ranked_cand = cand_idx[np.argsort(-score[cand_idx])]
-            max_keep = cap_n if cap_to_sample_capacity else int(live.sum())
+            max_keep = cap_n if cap_to_sample_capacity else n_live
             if not is_coupled:
-                # Omnibus test found no cross-view signal above chance: keep minimal floor only.
                 idx = _greedy_nonredundant(z, ranked_all, min_keep, max_collinearity)
             else:
                 idx = _greedy_nonredundant(z, ranked_cand, max_keep, max_collinearity)
                 if len(idx) < min_keep:
-                    # Top-up to minimum rank floor from remaining non-redundant live features.
                     rem = np.asarray([i for i in ranked_all if i not in set(idx.tolist())], dtype=np.int64)
                     order_aug = np.concatenate([idx, rem])
                     idx = _greedy_nonredundant(z, order_aug, min(max_keep, max(min_keep, len(idx))), max_collinearity)
@@ -375,13 +407,8 @@ def screen_wide_views(
             fn_m = list(feature_names[m])
             gated_fnames.append([fn_m[int(i)] for i in idx])
 
-        comm_list.append(obs)
-        pperm_list.append(p_perm)
-        qbh_list.append(q_bh)
         freq_list.append(freq)
-        p_view_list.append(pv_omni)
-        p_view_mean_list.append(pv_mean)
-        p_view_max_list.append(pv_max)
+        p_view_list.append(pv_holm)
         coupled_list.append(is_coupled)
         summary_rows.append({
             "view": m,
@@ -392,9 +419,9 @@ def screen_wide_views(
             "width_ratio_out": float(len(idx) / float(n)),
             "was_wide": bool(was_wide),
             "view_coupled": bool(is_coupled),
-            "p_view": pv_omni,
-            "p_view_mean": pv_mean,
-            "p_view_max": pv_max,
+            "p_view": pv_holm,
+            "p_view_mean": p_view_mean_list[m],
+            "p_view_max": p_view_max_list[m],
             "n_pass_bh": int((live & (q_bh < alpha)).sum()),
             "n_pass_gate": int((live & ((q_bh < alpha) | (freq >= stability_threshold))).sum()) if was_wide else int(live.sum()),
             "n_stable": int((live & (freq >= stability_threshold)).sum()),

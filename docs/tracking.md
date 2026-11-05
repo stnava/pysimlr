@@ -36,6 +36,10 @@ status: done (released in v0.17.0)
   - judge fits with `heldout_coupling`.
 - **Finding:** part of the overfit is fitting k components to few rows, not view width alone. A
   7-feature noise view still overfits at n = 50, k = 5.
+- **Rerun after merging the branch's view-level mean/tail/max omnibus with Holm** (same script and CSV):
+  - IBD gap 0.39 at the default 0.75, against 0.39 for top-500; SiMLR accuracy 0.736 against 0.732;
+  - noise gap 0.34;
+  - the default and merge rules still fail, so the screen stays opt-in.
 - **Docs:** usage notes, "Wide-view workflow: opt-in screening before `fit`, shrinkage after `fit`".
 
 ## D29 (review fixes to D27 Part A: shrinkage on record, two named LW definitions, 2026-11-04)
@@ -99,9 +103,10 @@ status: done (released in v0.17.0)
   - Added `pysimlr.screen_wide_views` and `pysimlr.apply_view_screen` in `src/pysimlr/screening.py`
     (with no outcome parameter in the signature, preventing target leakage by construction).
   - Combines row-permuted cross-view subspace communality (`p_perm`), exact finite-sample Westfall–Young
-    min-`p` omnibus view calibration across mean and max communality (`p_view`), half-sample stability
-    selection (`selection_frequency`), greedy within-view collinearity deduplication (`max_collinearity`),
-    and sample-adaptive width control (`max_width_ratio`).
+    min-`p` omnibus view calibration across mean, sparse-tail and max communality with Holm–Bonferroni
+    step-down across views (`p_view`), half-sample stability selection (`selection_frequency`), greedy
+    within-view collinearity deduplication (`max_collinearity`), and sample-adaptive width control
+    (`max_width_ratio`).
 - **Tests:** `tests/test_shrunk_relative_weight_and_screening.py` (5 tests: exact Schur `R²_LW` identity
   to `1e-12`, bit-identical `0.0` equivalence on `p < n`, wide-view `feature_maps` + half-sample
   `loading_inference` with `p > n_sub`, wide-view `feature_relevance` at `p = 200 > n_train = 80`, and
@@ -109,6 +114,7 @@ status: done (released in v0.17.0)
   pruning + `apply_view_screen`). Verified alongside `test_feature_maps.py`, `test_feature_relevance.py`,
   `test_wide_view_warning.py`, `test_latent_scale.py`, and `test_implementation_standards.py` (47 passed,
   0 lint findings).
+- **Docs:** usage notes, "Wide-view workflow: screening before `fit`, shrinkage after `fit`".
 
 ## D26 (linear SiMLR latents at the scale of u, 2026-11-04)
 status: done (released in v0.16.0; SiMLR cache rows refreshed in 4110375)
