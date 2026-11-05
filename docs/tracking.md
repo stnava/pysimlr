@@ -12,17 +12,21 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
-## D34 (plot_brain_map on JHU, Harvard-Oxford and tract atlases, 2026-11-05)
-status: done on branch `feat/brain-map-atlases` (release after antsxdata `display_atlases_mni` and antsxviz 0.2.0)
-- **New:** `plot_brain_map(..., atlas="dkt" | "jhu" | "hoa" | "tracts")`. Non-DKT atlases send the
-  `feature_map_values` encoding (one row per map, units per map, the view's sequential colormap)
-  to `antsxviz.atlas_figure`, which matches antsxmm wide-table names and lists unmatched ones.
-  `region_names` renames features. `tiers=` with a volumetric atlas raises.
-- **Tests:** `tests/test_brain_maps.py::test_plot_brain_map_volumetric_atlas_dispatch` (stand-in
-  antsxviz; rows, renaming, scale, error). Full suite: 1807 passed, 2 xfailed.
-- **Checked:** end-to-end render on the three atlases with sub-BLAST058's real column names and
-  simulated subjects (n = 200), rendered and inspected. No real multi-subject fit yet: only one
-  BLAST subject was synced.
+## D34 (brain maps on every anatomy: 3D regions, tracts, tract sheets, connectomes; caller-set colour limits, 2026-11-05)
+status: done on branch `feat/brain-map-atlases` (release after antsxdata v0.6.0 and antsxviz 0.2.0)
+- **New:** `plot_brain_map(..., atlas="dkt" | "hoa" | "jhu" | "tracts" | "tract_sheets", scale="minmax", clim=None,
+  **scene_kwargs)`. Non-DKT atlases go to `antsxviz.region_scene_figure` / `tract_scene_figure` (lit 3D structures
+  in a glass brain); `scene_kwargs` pass a subject's own `labels=`, `brain_mask=`, `tracts=`/`sheets=` so maps can
+  be shown in subject space. `tiers=` stays surface-only and raises otherwise; an unknown atlas raises.
+- **New:** `plot_connectome(res, ..., kind="structure", top_k=30)`: a component's map over `rsf_yeo_netconn_*`
+  features as a Yeo-network connectome with chord and matrix twins (`antsxviz.connectome_figure`).
+- **Colour limits (owner's decision):** default min..max of each map for every atlas, `scale="zero_max"` restores
+  the earlier 0..max, `clim=(lo, hi)` or `{map: (lo, hi)}` sets them. `plot_feature_map_grid` takes the same
+  `scale`/`clim`, so the surface and its table twin keep identical limits and colours (`_apply_scale`).
+- **Tests:** `tests/test_brain_maps.py` (dispatch to region/tract scenes with renaming, scale and pass-through
+  kwargs; connectome dispatch; DKT row limits under minmax, zero_max and explicit clim). 54 plotting tests pass.
+- **Gallery** (antsxviz `reports/brainmap_gallery_2026-11-05/`): every display on sub-BLAST058 real FA/MD in MNI and
+  in its own space, simulated Yeo connectivity.
 
 ## D33 (component_attribution: paper Fig. 3.9 as reusable code, 2026-11-05)
 status: done (released in v0.19.0)
