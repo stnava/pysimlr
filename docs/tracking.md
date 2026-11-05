@@ -12,6 +12,27 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D31 (ICA initialization: deflation from a seeded orthogonal start, 2026-11-04)
+status: done (merged to main; not released)
+- **Defect.** `initialization_type="ica"` ran FastICA (parallel algorithm) from `w_init = I_k`. For an
+  orthonormal SVD basis the identity is a stationary point of FastICA's update, so it stalled or
+  diverged.
+  - ADNI-MCI rederivation: 63 of 383 ICA fits raised `ValueError: slice 0 has a NaN entry`, all at
+    k ≥ 4, all on the 160-feature regional-volume view. Earlier I had guessed it was the 11-feature
+    cognitive view; that was wrong, and the cognitive view never failed.
+  - Over 360 ADNI view × split × k cases: 22 errors and 68 non-convergences.
+- **Fix.** `_ica_basis_for_view` uses the deflation algorithm, starting from the QR factor of a
+  seeded Gaussian, so it stays deterministic. That setting converged in all 360 cases.
+  - Of the alternatives, deflation from the identity gave 82 errors; parallel from an orthogonal
+    start, 75 non-convergences; `fun="exp"`, 22 errors.
+  - A non-finite result now raises a `RuntimeError` naming the view.
+- **Behaviour change:** ICA starts differ for every user of `initialization_type="ica"`.
+- **Verification:**
+  - The four ADNI configurations that failed now converge (inner CogPC1 R² 0.168–0.237).
+  - `tests/test_ica_initialization.py`, 7 tests: five synthetic heavy-tailed cases that break the old
+    setting; determinism; a fit; a 20-seed × 4-k sweep with no non-convergence.
+  - Full suite: 1791 passed, 2 xfailed.
+
 ## D30 (D27 Part B screen: pooled BH gate; measured, opt-in, not a cure, 2026-11-04)
 status: done (released in v0.17.0)
 - **Gate.** The per-feature cutoff is Benjamini–Hochberg over a pooled permutation null.

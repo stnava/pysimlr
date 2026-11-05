@@ -408,8 +408,14 @@ def _ica_basis_for_view(x: torch.Tensor, k: int, positivity: str = "either",
     """Deterministic spatial ICA initialization on the top-``k`` singular vectors.
 
     Rotates the leading ``k`` right singular vectors of ``x`` via FastICA
-    (seeded deterministically with ``w_init = I_k``) to maximize spatial
+    (deflation, seeded with a fixed random orthogonal ``w_init``) to maximize spatial
     non-Gaussianity across features before applying `simlr_sparseness`.
+
+    The start used to be ``w_init = I_k`` with the parallel algorithm. For an already
+    orthonormal SVD basis the identity is a stationary point of FastICA's update, so it
+    stalled or diverged: on ADNI-MCI (360 view x split x k cases) it raised a NaN error in
+    22 and failed to converge in 68. Deflation from a seeded orthogonal start converged in
+    all 360.
     Columns are sign-canonicalized by third-moment skewness and ordered by
     descending explained variance ``||x @ v_j||_2^2``.
     """
@@ -425,17 +431,22 @@ def _ica_basis_for_view(x: torch.Tensor, k: int, positivity: str = "either",
     if k_eff > 1 and v_svd.shape[0] > k_eff:
         # A FastICA failure propagates; it used to return the SVD basis under the name 'ica'.
         from sklearn.decomposition import FastICA
+        w0, _ = np.linalg.qr(np.random.default_rng(0).standard_normal((k_eff, k_eff)))
         ica = FastICA(
             n_components=k_eff,
-            algorithm="parallel",
+            algorithm="deflation",
             whiten="unit-variance",
             fun="logcosh",
-            w_init=np.eye(k_eff, dtype=np.float64),
+            w_init=w0,
             max_iter=500,
             tol=1e-5,
             random_state=0,
         )
         v_ica = ica.fit_transform(v_svd)
+        if not np.isfinite(v_ica).all():
+            raise RuntimeError(f"ICA initialization returned non-finite values for a ({v_svd.shape[0]}, {k_eff}) "
+                               f"basis{'' if modality_index is None else f' (view {modality_index})'}; use "
+                               "initialization_type='pca' or 'gcca' for this view.")
     else:
         v_ica = v_svd
 
