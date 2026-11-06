@@ -16,6 +16,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from ..stats import holm
+
 
 def build_ranking_blocks(
     df: pd.DataFrame,
@@ -366,16 +368,8 @@ def pairwise_wilcoxon_holm(
 
 
 def holm_adjust(p_values: Sequence[float]) -> np.ndarray:
-    """Holm-Bonferroni step-down adjusted p-values (monotone, clipped to 1)."""
-    p = np.asarray(p_values, dtype=float)
-    m = len(p)
-    order = np.argsort(p)
-    adj = np.empty(m)
-    running = 0.0
-    for rank, idx in enumerate(order):
-        running = max(running, p[idx] * (m - rank))
-        adj[idx] = min(running, 1.0)
-    return adj
+    """Holm-Bonferroni step-down adjusted p-values; alias of `pysimlr.stats.holm`."""
+    return holm(p_values)
 
 
 def wilcoxon_vs_reference(

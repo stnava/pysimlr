@@ -12,6 +12,39 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D40 (`pysimlr.stats`: one home for the statistics helpers duplicated across antsxbrainmapping, 2026-11-06)
+status: committed on branch `feat/stats` (target v0.23.0; version not yet bumped)
+- **New module `src/pysimlr/stats.py`** (numpy in/out, deterministic by `seed`, raises instead of returning
+  neutral values): `bh_fdr`, `holm`, `jzs_bf10_correlation`, `jzs_bf10_correlation_grid`,
+  `jzs_bf10_one_sample_t`, `permutation_correlations` (unpaired `X` vs `y` and `paired=True` columnwise
+  `X` vs `Y`; perm, BH, max-|r| FWER, bootstrap CI, BF10, `valid` mask), `freedman_lane_partial_p`,
+  `pooled_correlation_fisher_z`, `stouffer_z`, `icc_3`. Served lazily from `pysimlr` (scipy is imported inside
+  the functions, so `import pysimlr` stays scipy-free); `__getattr__` now selects the matplotlib backend only for
+  `plotting` / `diagrams`.
+- **Promoted:** `screening._bh_qvalues` -> `stats.bh_fdr` (screening imports it);
+  `benchmarks.deep_ranking.holm_adjust` -> `stats.holm` (kept as an alias).
+- **JZS correlation BF10, equivalence sweep** (`r` in [-0.95, 0.95] step 0.05, `n` in {10, 30, 52, 146}, 156 cells):
+  the quadrature (`discovery_transport.jzs_bayes_factor_correlation`) and the 400-point log-grid
+  (`multiview_simlr._jzs_bayes_factor_bf10`) agree in **no** cell to 1e-6. Grid error is 4e-5 (median, n=10) to
+  8e-4 (max at n=146, |r|=0.7), and the grid clips `log BF10` at 50, so BF10 > 5.2e21 (n=52 from |r|>=0.95, n=146
+  from |r|>=0.75) is reported as 5.2e21 (relative error 1.0). The quadrature agrees with a 2,000,001-point
+  reference to 7e-11, so it is `jzs_bf10_correlation`; the grid is kept verbatim as
+  `jzs_bf10_correlation_grid` for reproducing `multiview_simlr` outputs. The four_study_transport hypothesis
+  ledgers (`bf10`, `bf01_null`) came from the quadrature. `jzs_bf10_one_sample_t` uses `scipy.integrate.quad`;
+  the source's 1,200-point trapezoid (`triangulation_variance._one_sample_jzs_bf10`, behind `within_bf10`)
+  differs from it by at most 1.7e-4 relative.
+- **Tests** `tests/test_stats.py` (fast, ~1 s): every function against a verbatim copy of its source (file:line
+  cited), analytic checks (BH/Holm on known p, Shrout-Fleiss Table 2 for ICC, Stouffer on equal p, Fisher-z on
+  equal r), determinism by seed, shape and edge refusals. Golden test (marker `golden`, runs only with
+  `ANTSXBRAINMAPPING_OCTOBER_ROOT` set; empty string = the default October 2026 scratch root) recomputes
+  `bf10`, `bf01_null`, `q_fdr_bh` and `p_fwer_holm` of every `four_study_transport/results/*_hypothesis_ledger.csv`
+  from `pearson_r`, `n_subjects` and the per-family permutation p: all 48 rows reproduce to 1e-9 / 1e-12.
+  Full suite: 1974 passed, 2 xfailed (baseline on main: 1902 passed, 2 xfailed). `ruff check` clean on the new and edited lines (repo-wide count unchanged
+  except for the removed duplicates).
+- **Not done:** antsxbrainmapping / antsxbrainmappingprivate still carry their private copies (external repos,
+  not edited here); `triangulation_variance._univariate_perm_boot_stats` (scalar r / rho / directional p) has no
+  pysimlr counterpart yet; `sem.py` (untracked, in flight in another session) still calls `deep_ranking.holm_adjust`.
+
 ## D39 (deep and flow encoders: `positivity="nonnegative"` / `"nonneg"` mean conical, 2026-11-05)
 status: done (released in v0.22.2)
 - **Bug (open in D36):** the deep encoders (LEND/NED/NEDPP) and flows tested positivity against

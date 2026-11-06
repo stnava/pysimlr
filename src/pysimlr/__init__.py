@@ -332,7 +332,18 @@ __all__ = [
     'plot_flow_simr_architecture',
     'plot_path_model',
     'generate_all_architecture_graphs',
-    'benchmarks'
+    'bh_fdr',
+    'holm',
+    'jzs_bf10_correlation',
+    'jzs_bf10_correlation_grid',
+    'jzs_bf10_one_sample_t',
+    'permutation_correlations',
+    'freedman_lane_partial_p',
+    'pooled_correlation_fisher_z',
+    'stouffer_z',
+    'icc_3',
+    'benchmarks',
+    'stats',
 ]
 
 #: Attributes served on first access instead of at import time, because their
@@ -397,10 +408,24 @@ _LAZY_ATTRS = {
     'extend_simlr_embedding_with_new_modalities': 'nnh',
     'apply_simlr_matrices': 'nnh',
     'apply_simlr_matrices_dtfix': 'nnh',
+    # scipy inside the functions only; served lazily so the name table stays in one place.
+    'bh_fdr': 'stats',
+    'holm': 'stats',
+    'jzs_bf10_correlation': 'stats',
+    'jzs_bf10_correlation_grid': 'stats',
+    'jzs_bf10_one_sample_t': 'stats',
+    'permutation_correlations': 'stats',
+    'freedman_lane_partial_p': 'stats',
+    'pooled_correlation_fisher_z': 'stats',
+    'stouffer_z': 'stats',
+    'icc_3': 'stats',
 }
 
 #: Submodules exposed as attributes but not imported eagerly.
-_LAZY_MODULES = ('diagrams', 'benchmarks', 'plotting')
+_LAZY_MODULES = ('diagrams', 'benchmarks', 'plotting', 'stats')
+
+#: Submodules that draw; matplotlib's backend is selected before they load.
+_PLOTTING_MODULES = ('diagrams', 'plotting')
 
 
 def __getattr__(name: str) -> Any:
@@ -413,13 +438,15 @@ def __getattr__(name: str) -> Any:
         If `name` is not a public attribute of this package.
     """
     if name in _LAZY_ATTRS:
-        _configure_matplotlib_backend()
+        if _LAZY_ATTRS[name] in _PLOTTING_MODULES:
+            _configure_matplotlib_backend()
         module = importlib.import_module(f".{_LAZY_ATTRS[name]}", __name__)
         value = getattr(module, name)
         globals()[name] = value
         return value
     if name in _LAZY_MODULES:
-        _configure_matplotlib_backend()
+        if name in _PLOTTING_MODULES:
+            _configure_matplotlib_backend()
         module = importlib.import_module(f".{name}", __name__)
         globals()[name] = module
         return module

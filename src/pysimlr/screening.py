@@ -54,6 +54,8 @@ from typing import Any
 import numpy as np
 import torch
 
+from .stats import bh_fdr
+
 
 def _std_unit_norm(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Mean-impute NaNs, center columns, and L2-normalize non-constant columns."""
@@ -92,19 +94,6 @@ def _compact_other_basis(us: Sequence[np.ndarray], exclude: int) -> np.ndarray:
     p_u, d_s, _ = np.linalg.svd(h, full_matrices=False)
     keep = d_s > 1e-12 * max(1.0, float(d_s[0]) if len(d_s) else 1.0)
     return p_u[:, keep] * d_s[None, keep]
-
-
-def _bh_qvalues(p: np.ndarray) -> np.ndarray:
-    """Benjamini-Hochberg adjusted p-values (monotone, capped at 1)."""
-    m = len(p)
-    if m == 0:
-        return p
-    order = np.argsort(p)
-    ranked = p[order] * m / np.arange(1, m + 1)
-    q = np.minimum.accumulate(ranked[::-1])[::-1]
-    out = np.empty(m)
-    out[order] = np.minimum(q, 1.0)
-    return out
 
 
 def _greedy_nonredundant(z: np.ndarray, order: np.ndarray, max_keep: int,
@@ -305,7 +294,7 @@ def screen_wide_views(
             null_all = np.sort(np.concatenate(pooled))
             ge_pool = len(null_all) - np.searchsorted(null_all, obs[live], side="left")
             p_perm[live] = (1.0 + ge_pool) / (len(null_all) + 1.0)
-            q_bh[live] = _bh_qvalues(p_perm[live])
+            q_bh[live] = bh_fdr(p_perm[live])
         obs_live_mean = float(obs[live].mean()) if n_live > 0 else 0.0
         obs_live_tail = float(np.partition(obs[live], -k_tail)[-k_tail:].mean()) if n_live > 0 else 0.0
         obs_live_max = float(obs[live].max()) if n_live > 0 else 0.0
