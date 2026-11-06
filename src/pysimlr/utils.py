@@ -611,14 +611,21 @@ def _coupling_stats(latents: Dict[int, np.ndarray], u: np.ndarray) -> Tuple[Dict
     return to_u, cross
 
 
-def heldout_coupling(result: Dict[str, Any], views: List[Any]) -> Dict[str, Any]:
+def heldout_coupling(result: Dict[str, Any], views: List[Any], *, train_views: Optional[List[Any]] = None) -> Dict[str, Any]:
     r"""Cross-view agreement on held-out rows, beside the same statistics on the training rows.
 
     Training coupling is not evidence of shared signal when a view is wide (``p_m >= n``; see
     `coupling_capacity_report` and `WideViewWarning`). Held-out coupling is. ``views`` are new
     subjects' views in the fit's order, ``None`` for a view that is missing; at least two must be
     present for the cross-view statistic. Statistics are computed over the available views only, in
-    training and held-out alike, so the two are comparable.
+    training and held-out alike, so the two are comparable. Scores come from `sem.view_scores` in
+    the method's native frame (``rotate=False``); every statistic is an absolute correlation, so
+    the sign alignment does not change it.
+
+    Joint-basis fits (``pca``, ``nsa_pipeline``, ``gcca``) score each view through its block of
+    ``v`` (``scores_source="joint_block"``). Their training per-view scores need ``train_views``
+    (the fit's training views); without them the training statistics are ``None`` and
+    ``train_reason`` says why.
 
     Returns
     -------
@@ -627,39 +634,33 @@ def heldout_coupling(result: Dict[str, Any], views: List[Any]) -> Dict[str, Any]
     per component:
       ``cross_view_train`` / ``cross_view_heldout``: mean over view pairs of
       :math:`|\mathrm{corr}(z_{aj}, z_{bj})|`, and ``cross_view_gap`` (training minus held-out);
-    and ``views`` (indices used), ``n_train``, ``n_heldout``.
+    and ``views`` (indices used), ``n_train``, ``n_heldout``, ``scores_source``, ``train_reason``.
 
     On IBD stool metabolomics (four 500-feature platforms plus 156 species, n = 165 training
     subjects) the mean cross-view coupling was 1.00 in training and 0.58 held-out; for independent
     noise views with p >= n it is about 0.88 against 0.03.
     """
-    from .api import predict
-    from .extension import view_names as _view_names
-    if result.get("basis_is_joint") or len(result.get("latents") or []) < len(result.get("v") or []):
-        raise ValueError(f"{result.get('method')} fits one joint basis and has no per-view latents; "
-                         "cross-view coupling is not defined for it.")
+    from .sem import view_scores
     n_views = len(result["v"])
     if len(views) != n_views:
         raise ValueError(f"views has {len(views)} entries; the fit has {n_views} (use None for a missing view).")
     avail = [m for m, x in enumerate(views) if x is not None]
     if not avail:
         raise ValueError("no held-out view is present.")
-    arr = lambda t: np.asarray(t.detach().cpu().double() if hasattr(t, "detach") else t, dtype=np.float64)
-    pred = predict(result, list(views))
-    lat = pred["latents"]
-    if isinstance(lat, dict):
-        names = list(_view_names(result))
-        lat_te = {m: arr(lat[names[m]] if names[m] in lat else lat[m]) for m in avail}
-    else:
-        lat_te = {m: arr(lat[m]) for m in avail}
-    u_tr = result["u"][0] if isinstance(result["u"], list) else result["u"]
-    lat_tr = {m: arr(result["latents"][m]) for m in avail}
-    c_tr, x_tr = _coupling_stats(lat_tr, arr(u_tr))
-    c_te, x_te = _coupling_stats(lat_te, arr(pred["u"]))
-    return {"views": avail, "n_train": int(arr(u_tr).shape[0]), "n_heldout": int(arr(pred["u"]).shape[0]),
-            "coupling_train": [c_tr[m] for m in avail], "coupling_heldout": [c_te[m] for m in avail],
-            "cross_view_train": x_tr, "cross_view_heldout": x_te,
-            "cross_view_gap": [a - b for a, b in zip(x_tr, x_te)]}
+    sc = view_scores(result, list(views), train_views=train_views, standardize=False, rotate=False)
+    c_te, x_te = _coupling_stats({m: sc["scores"][m] for m in avail}, sc["consensus"])
+    out = {"views": avail, "n_train": int(sc["train_consensus"].shape[0]), "n_heldout": int(sc["n"]),
+           "coupling_heldout": [c_te[m] for m in avail], "cross_view_heldout": x_te,
+           "scores_source": sc["source"], "train_reason": None}
+    if sc["train_scores"] is None:
+        out.update(coupling_train=None, cross_view_train=None, cross_view_gap=None,
+                   train_reason="joint-basis fit without train_views: its training per-view scores "
+                                "cannot be formed from the result alone.")
+        return out
+    c_tr, x_tr = _coupling_stats({m: sc["train_scores"][m] for m in avail}, sc["train_consensus"])
+    out.update(coupling_train=[c_tr[m] for m in avail], cross_view_train=x_tr,
+               cross_view_gap=[a - b for a, b in zip(x_tr, x_te)])
+    return out
 
 
 def correlation_penalty(z: torch.Tensor, threshold: Optional[float] = None,

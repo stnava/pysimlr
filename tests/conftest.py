@@ -23,6 +23,7 @@ _LPT_PRIORITY = {
     "test_nedpp_advantage_contract": 3,
     "test_shared_private_non_starvation": 4,
     "test_slow_deep_knobs_change_the_fit": 5,
+    "test_null_calibration_fixed_model": 6,
     # Heavy default-suite tests and cached xdist_groups (> 1.0s)
     "test_the_quick_start_runs": 10,
     "test_loo_iteration_improves_on_a_wrong_initialization": 11,

@@ -80,8 +80,12 @@ def test_errors():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         pca = pysimlr.fit("pca", [x[:150] for x in xs], 2, random_state=0)
+    h = pysimlr.heldout_coupling(pca, [x[150:] for x in xs])
+    assert h["scores_source"] == "joint_block" and h["coupling_train"] is None and h["train_reason"]
+    h = pysimlr.heldout_coupling(pca, [x[150:] for x in xs], train_views=[x[:150] for x in xs])
+    assert len(h["cross_view_train"]) == 2 and len(h["cross_view_heldout"]) == 2
     with pytest.raises(ValueError, match="joint basis"):
-        pysimlr.heldout_coupling(pca, [x[150:] for x in xs])
+        pysimlr.heldout_coupling(pca, [xs[0][150:], None, xs[2][150:]])
 
 
 def test_wide_view_warning_points_to_the_helper():

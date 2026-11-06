@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 def _planted_latent(n_samples: int, shared_k: int, private_scale: float,
                     scales, weights=None):
@@ -21,20 +21,24 @@ def _planted_latent(n_samples: int, shared_k: int, private_scale: float,
     return true_u, outcome_signal
 
 
-def _sparse_signed_basis(shared_k: int, p: int, true_sparsity: float) -> torch.Tensor:
-    """Construct a (shared_k, p) signed basis with exact per-component sparsity."""
+def _sparse_signed_basis(shared_k: int, p: int, true_sparsity: float,
+                         generator: Optional[torch.Generator] = None) -> torch.Tensor:
+    """Construct a (shared_k, p) signed basis with exact per-component sparsity.
+
+    ``generator`` (a ``torch.Generator``) draws from a private stream; ``None`` uses the
+    global stream, which the older builders seed themselves."""
     if true_sparsity <= 0.0:
-        return torch.randn(shared_k, p)
+        return torch.randn(shared_k, p, generator=generator)
     active_frac = max(1.0 / p, min(1.0, 1.0 - float(true_sparsity)))
     m = max(1, min(p, int(round(active_frac * p))))
     v = torch.zeros(shared_k, p)
-    order = torch.randperm(p)
+    order = torch.randperm(p, generator=generator)
     stride = max(1, p // shared_k)
     for j in range(shared_k):
         idx = torch.arange(j * stride, j * stride + m) % p
         cols = order[idx]
-        mag = 0.5 + torch.rand(len(cols))
-        signs = torch.where(torch.rand(len(cols)) > 0.5, 1.0, -1.0)
+        mag = 0.5 + torch.rand(len(cols), generator=generator)
+        signs = torch.where(torch.rand(len(cols), generator=generator) > 0.5, 1.0, -1.0)
         v[j, cols] = mag * signs
     return v
 
@@ -322,6 +326,112 @@ def build_nonnegative_parts_case(n_samples: int = 400,
         "shared_k": shared_k,
         "signal_component": signal_component,
     }
+
+
+def _spanning_forest(edges: List[Tuple[int, int]], m: int) -> List[Tuple[int, int]]:
+    """Breadth-first spanning forest of an undirected graph on ``range(m)``, as (parent, child)
+    pairs; each connected component is rooted at its smallest node."""
+    adj: Dict[int, List[int]] = {i: [] for i in range(m)}
+    for a, b in edges:
+        adj[a].append(b)
+        adj[b].append(a)
+    seen, tree = set(), []
+    for root in range(m):
+        if root in seen:
+            continue
+        seen.add(root)
+        queue = [root]
+        while queue:
+            a = queue.pop(0)
+            for b in sorted(adj[a]):
+                if b not in seen:
+                    seen.add(b)
+                    tree.append((a, b))
+                    queue.append(b)
+    return tree
+
+
+def build_path_graph_case(graph: Any, n_samples: int = 500, k: int = 3,
+                          p_per_view: Sequence[int] = (20, 25, 18), noise: float = 0.3,
+                          covariate_effect: float = 0.0, group_effect: float = 0.0,
+                          random_state: int = 0, *, alpha: float = 0.7,
+                          moderated_edge: Optional[Tuple[int, int]] = None,
+                          n_covariates: int = 2) -> Dict[str, Any]:
+    r"""Views whose latents follow an undirected graph, for the score-level path model.
+
+    The latent of each view is ``(n, k)``. On a breadth-first spanning forest of ``graph`` (an
+    edge list or adjacency dict over view indices ``0 .. M-1``, ``M = len(p_per_view)``) each
+    root draws :math:`L_r \sim N(0, I_k)` and each child
+    :math:`L_b = \alpha L_a + \sqrt{1 - \alpha^2} E_b`, so every latent has unit variance and a
+    chain a - b - c has :math:`L_a \perp L_c \mid L_b` exactly. Graph edges that close a cycle
+    are not planted (the forest is returned as ``tree``). Views are
+    :math:`X_m = L_m B_m + \mathrm{noise}\, E_m` with ``B_m`` drawn by `_sparse_signed_basis`
+    (dense Gaussian).
+
+    ``covariate_effect`` adds :math:`C \beta_m` (``C`` is ``(n, n_covariates)`` standard normal,
+    ``beta_m`` Gaussian) to every view, so unadjusted edges are inflated and a Freedman-Lane
+    analysis that partials out ``C`` must remove it. ``group_effect`` plants a moderation: rows of
+    group 0 (``G`` is a 0/1 draw) use :math:`\alpha (1 - \mathrm{group\_effect})` on
+    ``moderated_edge`` (default: the first forest edge), group 1 uses :math:`\alpha`; the latent
+    still has unit variance in both groups. The outcome is ``L_last[:, 0] + noise * e`` with
+    ``L_last`` the latent of view ``M - 1``.
+
+    All draws come from one private stream seeded by ``random_state``.
+
+    Returns a dict: ``views`` (list of float32 tensors), ``latents`` (list of ``(n, k)`` arrays),
+    ``graph`` (edge list), ``tree`` (planted (parent, child) edges), ``C``, ``G``, ``outcome``,
+    ``alpha``, ``moderated_edge``.
+    """
+    m_views = len(p_per_view)
+    if not 0.0 < alpha < 1.0:
+        raise ValueError(f"alpha must be in (0, 1); got {alpha}.")
+    if not 0.0 <= group_effect <= 1.0:
+        raise ValueError(f"group_effect must be in [0, 1]; got {group_effect}.")
+    if graph is None:
+        edges = [(a, b) for a in range(m_views) for b in range(a + 1, m_views)]
+    elif isinstance(graph, dict):
+        edges = [(int(a), int(b)) for a, bs in graph.items() for b in bs]
+    else:
+        edges = [(int(a), int(b)) for a, b in graph]
+    for a, b in edges:
+        if a == b or not (0 <= a < m_views and 0 <= b < m_views):
+            raise ValueError(f"edge ({a}, {b}) is not between two of the {m_views} views.")
+    tree = _spanning_forest(edges, m_views)
+    if moderated_edge is None and group_effect > 0.0:
+        if not tree:
+            raise ValueError("group_effect needs at least one edge to moderate.")
+        moderated_edge = tree[0]
+    if moderated_edge is not None:
+        me = tuple(int(x) for x in moderated_edge)
+        hit = [t for t in tree if set(t) == set(me)]
+        if not hit:
+            raise ValueError(f"moderated_edge {me} is not a planted edge {tree}.")
+        moderated_edge = hit[0]
+    rng = np.random.default_rng(random_state)
+    gen = torch.Generator().manual_seed(int(rng.integers(0, 2 ** 31 - 1)))
+    n = int(n_samples)
+    C = rng.standard_normal((n, n_covariates))
+    G = rng.integers(0, 2, n)
+    lat: List[Optional[np.ndarray]] = [None] * m_views
+    children = {b for _, b in tree}
+    for r in range(m_views):
+        if r not in children:
+            lat[r] = rng.standard_normal((n, k))
+    for a, b in tree:
+        al = np.full(n, alpha)
+        if moderated_edge is not None and (a, b) == moderated_edge:
+            al = np.where(G == 0, alpha * (1.0 - group_effect), alpha)
+        lat[b] = al[:, None] * lat[a] + np.sqrt(1.0 - al ** 2)[:, None] * rng.standard_normal((n, k))
+    views = []
+    for m, p in enumerate(p_per_view):
+        B = _sparse_signed_basis(k, int(p), 0.0, generator=gen).double().numpy()
+        x = lat[m] @ B + noise * rng.standard_normal((n, int(p)))
+        if covariate_effect:
+            x = x + covariate_effect * (C @ rng.standard_normal((n_covariates, int(p))))
+        views.append(torch.tensor(x).float())
+    outcome = lat[-1][:, 0] + noise * rng.standard_normal(n)
+    return {"views": views, "latents": lat, "graph": edges, "tree": tree, "C": C, "G": G,
+            "outcome": outcome, "alpha": alpha, "moderated_edge": moderated_edge}
 
 
 def build_case(kind: str = "nonlinear", **kwargs) -> Dict[str, Any]:

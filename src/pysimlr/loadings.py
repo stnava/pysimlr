@@ -420,22 +420,6 @@ def _relative_weight_shares(zo: np.ndarray, lam2: np.ndarray, targets: np.ndarra
     return w / tot if (tot > 0).all() else np.where(tot > 0, w / np.where(tot > 0, tot, 1.0), 0.0)
 
 
-def _view_scores(result: Dict[str, Any], xs: Sequence[np.ndarray], u_rot: np.ndarray,
-                 rot: np.ndarray, views) -> List[np.ndarray]:
-    """Per-view latent scores in the rotated frame, each column signed to agree with u."""
-    from .api import predict
-    if not result.get("basis_is_joint") and len(result.get("latents", [])) == len(xs):
-        zs = [np.asarray(z.detach().double()) @ rot for z in predict(result, views)["latents"]]
-    else:
-        zs = [x @ (v.detach().double().numpy() @ rot) for x, v in zip(xs, result["v"])]
-    uc = u_rot - u_rot.mean(0, keepdims=True)
-    out = []
-    for z in zs:
-        sgn = np.where(((z - z.mean(0, keepdims=True)) * uc).sum(0) >= 0.0, 1.0, -1.0)
-        out.append(_zscore(z * sgn[None, :]))
-    return out
-
-
 def _to_probe_tensor(m: Any, n_rows: int, view_idx: int) -> torch.Tensor:
     if hasattr(m, "to_numpy"):
         m = m.to_numpy()
@@ -510,6 +494,7 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     Returns ``{kind: [ (p_m, k) tensor per view ]}``.
     """
     from .api import _preprocess_views, as_views, predict
+    from .sem import view_scores
     from .utils import preprocess_data
     bad = [k_ for k_ in kinds if k_ not in FEATURE_MAP_KINDS]
     if bad:
@@ -522,10 +507,14 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     xs_t, _ = _preprocess_views(view_list, result["scale_list"], result["provenance_list"])
     xs = [x.detach().double().numpy() for x in xs_t]
     rot = result["loading_rotation"].detach().double().numpy()
+    pred = predict(result, view_list) if (u is None or target == "other_views") else None
     if u is None:
-        u = predict(result, view_list)["u"]
+        u = pred["u"]
     u_rot = np.asarray(torch.as_tensor(u).detach().double()) @ rot
-    scores = _view_scores(result, xs, u_rot, rot, view_list) if target == "other_views" else None
+    # Signs learned on these rows against `u` (not on the training rows): the maps describe
+    # the columns of `u @ loading_rotation` as given.
+    scores = (view_scores(result, view_list, sign_against=u, _pred=pred)["scores"]
+              if target == "other_views" else None)
     if probe_views is not None:
         if target != "other_views":
             raise ValueError("probe_views requires target='other_views' so probe features are scored against the other views.")
@@ -616,12 +605,15 @@ def _principal_cosines(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 def _oob_metrics(res: Dict[str, Any], sub_views: Sequence[torch.Tensor],
-                 oob_views: Optional[Sequence[torch.Tensor]]):
+                 oob_views: Optional[Sequence[torch.Tensor]], return_scores: bool = False):
     """Held-out reconstruction R^2 (adjusted for random k-plane self-projection)
-    and leave-one-view-out coupling on unused rows."""
+    and leave-one-view-out coupling on unused rows. Scores come from `sem.view_scores`
+    (rotated, signed on the refit's training rows, standardised on the unused rows);
+    ``return_scores=True`` also returns them (the hook `sem.path_model(inference=...)` reads)."""
     if oob_views is None or oob_views[0].shape[0] < 2:
-        return None, None
-    from .api import _preprocess_views, predict
+        return (None, None, None) if return_scores else (None, None)
+    from .api import predict
+    from .sem import view_scores
     pred = predict(res, oob_views)
     k = res["structure"][0].shape[1]
     ps = [int(x.shape[1]) for x in sub_views]
@@ -631,34 +623,18 @@ def _oob_metrics(res: Dict[str, Any], sub_views: Sequence[torch.Tensor],
         d0 = min(0.999, (k / p_tot) if res.get("basis_is_joint") else (k / (m_views * pm)))
         r2.append(float((float(raw) - d0) / (1.0 - d0)))
     if m_views < 2 or oob_views[0].shape[0] < 3:
-        return r2, None
-    rot = res["loading_rotation"].detach().double().numpy()
-    u_tr = res["u"].detach().double().numpy() @ rot
-    if not res.get("basis_is_joint") and len(res["latents"]) == len(sub_views):
-        z_tr = [z.detach().double().numpy() @ rot for z in res["latents"]]
-        z_oob = [z.detach().double().numpy() @ rot for z in pred["latents"]]
-    else:
-        xs_tr, _ = _preprocess_views(list(sub_views), res["scale_list"], res["provenance_list"])
-        xs_oob, _ = _preprocess_views(list(oob_views), res["scale_list"], res["provenance_list"])
-        v_rot = [v.detach().double().numpy() @ rot for v in res["v"]]
-        z_tr = [x.double().numpy() @ vr for x, vr in zip(xs_tr, v_rot)]
-        z_oob = [x.double().numpy() @ vr for x, vr in zip(xs_oob, v_rot)]
-    z_std = []
-    u_tr_c = u_tr - u_tr.mean(0, keepdims=True)
-    for zm_tr, zm_oob in zip(z_tr, z_oob):
-        cov = ((zm_tr - zm_tr.mean(0, keepdims=True)) * u_tr_c).sum(0)
-        sgn = np.where(cov >= 0.0, 1.0, -1.0)
-        zc = zm_oob * sgn[None, :]
-        zc = zc - zc.mean(0, keepdims=True)
-        sd = zc.std(0, keepdims=True)
-        z_std.append(np.where(sd > 0, zc / np.where(sd > 0, sd, 1.0), 0.0))
+        return (r2, None, None) if return_scores else (r2, None)
+    z_std = view_scores(res, list(oob_views), train_views=list(sub_views), _pred=pred)["scores"]
     tot = sum(z_std)
     per_view = []
     for zm in z_std:
         other = tot - zm
         den = np.sqrt((zm ** 2).sum(0) * (other ** 2).sum(0))
         per_view.append(np.where(den > 0, (zm * other).sum(0) / np.where(den > 0, den, 1.0), 0.0))
-    return r2, [float(x) for x in np.mean(per_view, axis=0)]
+    coup = [float(x) for x in np.mean(per_view, axis=0)]
+    if return_scores:
+        return r2, coup, [z.astype(np.float32) for z in z_std]
+    return r2, coup
 
 
 def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 100,
@@ -687,7 +663,9 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         ``oos_r2_splits`` (length ``n_subsamples`` view-averaged held-out
         :math:`R^2` per split, or ``None``), ``oos_coupling`` (length ``k``
         median held-out leave-one-view-out score correlation per component, or
-        ``None``), ``converged_fraction`` and ``effective_rank`` (median over
+        ``None``), ``oob_scores`` (per subsample refit: ``rows``, the out-of-bag row
+        indices, and ``scores``, its float32 `sem.view_scores` on them; read by
+        `sem.path_model(inference=...)`), ``n_rows``, ``converged_fraction`` and ``effective_rank`` (median over
         refits), and per view: ``structure`` (reference), ``ci_low`` /
         ``ci_high`` (2.5/97.5% percentiles of the aligned refits; subsamples of
         half the rows make these conservative), ``component_stability`` (length
@@ -777,9 +755,10 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     sub_idx = [np.sort(rng.choice(n, m, replace=False)) for _ in range(int(n_subsamples))]
     perm_idx = [[rng.permutation(n) for _ in view_list[1:]] for _ in range(int(n_permutations))]
     all_rows = np.arange(n)
-    tasks = []
+    tasks, oob_rows = [], []
     for idx in sub_idx:
         oob = np.setdiff1d(all_rows, idx, assume_unique=True)
+        oob_rows.append(oob)
         oob_v = [x[torch.as_tensor(oob)] for x in view_list] if len(oob) >= 2 else None
         sub_p = refit_params if conf is None else dict(refit_params, confounds=slice_confounds(conf, idx))
         task = (method, [x[torch.as_tensor(idx)] for x in view_list], oob_v, k, random_state, sub_p)
@@ -832,7 +811,10 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
            "oos_r2": ([float(x) for x in np.nanmean(r2_arr, axis=0)] if r2_arr is not None else None),
            "oos_r2_splits": ([float(x) for x in np.nanmean(r2_arr, axis=1)] if r2_arr is not None else None),
            "oos_coupling": ([float(x) for x in np.nanmedian(coups, axis=0)] if coups else None),
-           "oos_n": int(n - m),
+           "oos_n": int(n - m), "n_rows": int(n),
+           "oob_scores": [{"rows": rows_, "scores": rec["oob_scores"]}
+                          for rows_, rec in zip(oob_rows, records[:len(sub_idx)])
+                          if rec.get("oob_scores") is not None],
            "converged_fraction": float(np.mean(conv_flags)),
            "effective_rank": [float(x) for x in np.nanmedian(eff_ranks, axis=0)],
            "selection_frequency": [], "selected": [],
@@ -909,8 +891,9 @@ def _fit_structure(task):
         method, views, oob_views, k, random_state, params, map_opts = task
     r = fit(method, views, k, random_state=random_state, **params)
     er_key = "joint_effective_rank" if r.get("basis_is_joint") else "effective_rank"
-    oos_r2, oos_coup = _oob_metrics(r, views, oob_views)
+    oos_r2, oos_coup, oob_scores = _oob_metrics(r, views, oob_views, return_scores=True)
     return {
+        "oob_scores": oob_scores,
         "structure": [c.double().numpy() for c in r["structure"]],
         "converged": bool((r.get("convergence") or {}).get("converged", True)),
         "effective_rank": [float(x) for x in r[er_key]],
