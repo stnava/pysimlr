@@ -466,7 +466,8 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
                n_permutations: int = 10_000, n_refits: int = 200, n_bootstrap: int = 2000,
                train_views: Any = None, train_covariates=None, train_groups=None, train_outcome=None,
                inference: Optional[Dict[str, Any]] = None, alpha: float = 0.05, random_state: int = 0,
-               n_jobs: int = 1, allow_train_fixed: bool = False) -> Dict[str, Any]:
+               n_jobs: int = 1, allow_train_fixed: bool = False,
+               refit_scope: Tuple[str, ...] = ("edges", "omnibus")) -> Dict[str, Any]:
     """Edge-wise, omnibus and graph-fit permutation inference on the scores of a fitted model.
 
     See the module docstring for the statistics, nulls and what the test cannot say. ``views``
@@ -475,6 +476,17 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
     ``covariates`` (``(n, q)``), ``groups`` (``(n,)`` labels) and ``outcome`` (``(n,)`` or
     ``(n, r)``) are aligned with ``views``. ``graph`` is None (complete), an edge list or an
     adjacency dict over view indices or node names (``"outcome"`` for the outcome).
+
+    ``null``: ``"fixed"`` (Freedman-Lane sweeps, ``n_permutations``), ``"refit"`` (plan 3.2) or
+    ``"both"``. The refit null needs ``rows="train"`` (``views`` are the training views): for each
+    view node b ending a tested edge, ``n_refits`` refits of `pysimlr.fit` with the result's
+    ``parameters["used"]``, b's rows permuted together with its confound rows
+    (`confounds.permute_view_confounds`), give ``p_refit`` for every edge into b (``p_refit_holm``
+    across edges; no max-T, since each null permutes one node); edges into the outcome need no
+    refit and use Freedman-Lane permutations of the outcome. ``"omnibus"`` in ``refit_scope`` adds
+    ``n_refits`` refits with every view but the first permuted: ``omnibus["p_mean_refit"]`` and
+    ``["p_max_refit"]``. Refits run through ``n_jobs`` worker processes; all permutations are drawn
+    in the parent, so the result does not depend on ``n_jobs``.
 
     ``train_views`` gives a joint-basis fit its training-row signs. ``inference`` (a
     `loading_inference` result on the training views) adds ``ci_refit_low`` / ``ci_refit_high``
@@ -638,8 +650,11 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
         if n != int(_u_train(result).shape[0]):
             raise ValueError(f"the refit null needs the training views; views has {n} rows, the fit "
                              f"{int(_u_train(result).shape[0])}.")
+        bad = set(refit_scope) - {"edges", "omnibus"}
+        if bad or not refit_scope:
+            raise ValueError(f"refit_scope must be a non-empty subset of ('edges', 'omnibus'); got {refit_scope}.")
         refit = _refit_null(result, vlist, view_nodes, Z, N, adj, tested, directed, conditioning, n_ref,
-                            rng_refit, n_jobs, obs, designs)
+                            rng_refit, n_jobs, obs, designs, scope=tuple(refit_scope))
 
     # ---- refit intervals from loading_inference's out-of-bag scores
     refit_pillai = _refit_pillai(inference, view_nodes, nodes, pairs, adj, directed, conditioning,
@@ -655,7 +670,7 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
                "pillai": obs[e]["pillai"], "rv": _adjusted_rv(des["Ra"], des["Rb"]),
                "p_perm": p_of(ge_p[e]), "p_maxt": None if diagnostic[e] else p_max("edges", obs[e]["pillai"]),
                "p_holm": None, "q_bh": None,
-               "p_refit": None if (refit is None or diagnostic[e] or n_ref == 0) else refit["p"][e],
+               "p_refit": None if (refit is None or diagnostic[e] or n_ref == 0) else refit["p"].get(e),
                "p_refit_holm": None, "ci_low": None, "ci_high": None,
                "ci_refit_low": None, "ci_refit_high": None}
         if n_boot:
@@ -671,7 +686,7 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
         pp = edges.loc[tmask, "p_perm"].to_numpy(float)
         edges.loc[tmask, "p_holm"] = holm(pp)
         edges.loc[tmask, "q_bh"] = bh_fdr(pp)
-    if refit is not None and n_ref > 0:
+    if refit is not None and n_ref > 0 and "edges" in refit_scope:
         edges.loc[tmask, "p_refit_holm"] = holm(edges.loc[tmask, "p_refit"].to_numpy(float))
 
     comp_rows = []
@@ -740,12 +755,12 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
                "p_mean": float(_addone((mean_null >= obs_mean).sum(), B)) if report_p else None,
                "null_mean_pillai": mean_null.tolist(), "n_edges": len(tested),
                "p_mean_refit": None, "p_max_refit": None, "null_mean_pillai_refit": None}
-    if refit is not None and n_ref > 0:
+    if refit is not None and n_ref > 0 and "omnibus" in refit_scope:
         omnibus["p_mean_refit"] = float(_addone((refit["null_mean"] >= obs_mean).sum(), n_ref))
         omnibus["p_max_refit"] = float(_addone((refit["null_max"] >= obs_max).sum(), n_ref))
         omnibus["null_mean_pillai_refit"] = refit["null_mean"].tolist()
     fit = _graph_fit(edges, tested, absent, present, obs, conditioning, report_p,
-                     refit is not None and n_ref > 0, alpha, p_max)
+                     refit is not None and n_ref > 0 and "edges" in refit_scope, alpha, p_max)
 
     families = {"edges": {"n_tests": len(tested), "statistic": "pillai"},
                 "edge_components": {"n_tests": int((~edge_components["diagnostic"].to_numpy(bool)).sum())
@@ -770,6 +785,7 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
             "nuisance_names": nuis_names, "null": stored, "scores_source": sc["source"],
             "sign_rows": sc["sign_rows"], "signs": sc["signs"], "wide_views": wide, "p_reason": reason,
             "parameters": {"rows": rows, "null": null, "n_permutations": B, "n_refits": n_refits,
+                           "refit_scope": tuple(refit_scope) if use_refit else None,
                            "n_bootstrap": n_boot, "alpha": alpha, "random_state": random_state, "n_jobs": n_jobs,
                            "allow_train_fixed": allow_train_fixed, "conditioning": conditioning,
                            "include_consensus": include_consensus, "directed": directed,
@@ -847,7 +863,7 @@ def _refit_null(result, vlist, view_nodes, Z, N, adj, tested, directed, conditio
     n = int(views[0].shape[0])
     method, k = result["method"], int(_u_train(result).shape[1])
     params = dict((result.get("parameters") or {}).get("used") or {})
-    rs = (result.get("parameters") or {}).get("random_state")
+    rs = params.pop("random_state", (result.get("parameters") or {}).get("random_state"))
     ends = [b for b in view_nodes if any(e[1] == b for e in tested)] if "edges" in scope else []
     tasks, keys = [], []
     for b in ends:
@@ -986,25 +1002,80 @@ def _n_params(models: Dict[str, Any], Z: Dict[str, np.ndarray], adj, directed: b
 
 
 # ----------------------------------------------------------------------------- comparison
-def compare_path_models(result: Dict[str, Any], views_train: Any, views_test: Any, graphs: Mapping[str, Any],
-                        *, directed: bool = False, view_names: Optional[Sequence[str]] = None,
+def _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, adj, directed) -> Tuple[np.ndarray, float, int]:
+    """Node regressions on parents fitted on the training scores: per-subject held-out Gaussian
+    log-likelihood, the training log-likelihood and the parameter count (plan F4)."""
+    models = _fit_node_models(Ztr, nodes, adj, Ntr, directed)
+    ll_rows = np.zeros(next(iter(Zte.values())).shape[0])
+    ll_tr = 0.0
+    for b in nodes:
+        pa = models[b]["parents"]
+        X = np.column_stack([Nte] + [Zte[a] for a in pa])
+        r = Zte[b] - X @ models[b]["W"]
+        v = models[b]["resid_var"]
+        ll_rows += -0.5 * ((r ** 2) / v).sum(1) - 0.5 * np.log(2 * np.pi * v).sum()
+        ll_tr += _node_loglik(models[b], Ntr, [Ztr[a] for a in pa], Ztr[b])
+    return ll_rows, ll_tr, _n_params(models, Ztr, adj, directed)
+
+
+def _n_edges(adj, directed: bool) -> int:
+    return int(sum(len(v) for v in adj.values()) // (1 if directed else 2))
+
+
+def compare_path_models(result: Optional[Dict[str, Any]] = None, views_train: Any = None, views_test: Any = None,
+                        graphs: Optional[Mapping[str, Any]] = None, *, method: Optional[str] = None,
+                        k: Optional[int] = None, views: Any = None, n_splits: int = 5,
+                        train_fraction: float = 0.7, fit_params: Optional[Dict[str, Any]] = None,
+                        covariates=None, groups=None, outcome=None,
+                        directed: bool = False, view_names: Optional[Sequence[str]] = None,
                         covariates_train=None, covariates_test=None, groups_train=None, groups_test=None,
                         outcome_train=None, outcome_test=None, n_bootstrap: int = 2000,
                         n_permutations: int = 2000, alpha: float = 0.05, random_state: int = 0) -> Dict[str, Any]:
-    """Structural comparison of graphs with the measurement model fixed (plan section 4.1).
+    """Compare graphs over views (and an optional outcome node).
 
-    Each graph is a set of node regressions on parents fitted on the training scores and scored by
-    Gaussian log-likelihood on the held-out scores (``heldout_loglik``, higher is better), plus
-    in-sample ``bic`` (undirected edges counted once, plan F4) and the graph-fit test of
-    `path_model` on the held-out rows. A paired subject bootstrap over held-out rows gives each
-    graph's ``delta_vs_top`` (its log-likelihood minus the top graph's) with a 95% CI and
+    **Structural comparison, measurement model fixed** (plan 4.1): pass ``result`` (a `pysimlr.fit`
+    result), ``views_train`` (its training views), ``views_test`` (held-out rows) and ``graphs``
+    (``{name: graph}``, graphs as in `path_model`; ``"outcome"`` names the outcome node). Each graph
+    is a set of node regressions on parents fitted on the training scores and scored by Gaussian
+    log-likelihood on the held-out scores (``heldout_loglik``, higher is better), plus in-sample
+    ``bic`` (undirected edges counted once, plan F4) and the graph-fit test of `path_model` on the
+    held-out rows. A paired subject bootstrap over held-out rows gives each graph's
+    ``delta_vs_top`` (its log-likelihood minus the top graph's) with a 95% CI and
     ``best_fraction`` (share of replicates in which the graph has the top log-likelihood).
-
     ``best`` (plan F1): the graph with the fewest edges whose delta CI against the top includes 0
     (ties: higher log-likelihood). Held-out likelihood cannot penalise a weakly supported extra
     edge, so the raw top is reported beside it as ``best_by_loglik``. Without bootstrap replicates
     ``best`` is ``best_by_loglik`` and ``best_rule`` says so.
+
+    **Training-topology comparison, refits** (plan 4.2): pass ``method``, ``k``, ``views`` (all
+    rows), ``graphs`` and optionally ``fit_params`` (``confounds`` are sliced per split),
+    ``covariates``, ``groups``, ``outcome`` (aligned with ``views``). For each of ``n_splits``
+    random ``train_fraction`` splits (seed ``random_state + s``) every graph is refitted with
+    ``topology="graph", path_graph=<its view edges>`` (``"star"`` for a graph without view edges)
+    on the same training rows and evaluated on the same held-out rows: ``heldout_loglik_own`` and
+    ``heldout_loglik_complete`` (the 4.1 structural log-likelihood of that fit's scores under its
+    own graph and under the complete graph), the graph-fit pass rates under its own graph,
+    ``oos_coupling`` (mean held-out leave-one-view-out coupling, `loadings._oob_metrics`),
+    ``oos_r2`` (mean adjusted held-out reconstruction R^2) and, with an outcome, ``outcome_r2``
+    (held-out R^2 of a least-squares fit of the outcome on the training consensus). The training
+    loss is not reported: it is in-sample and graph-conditional. ``splits`` holds one row per
+    (split, graph); ``summary`` the mean per graph and the mean paired difference against the
+    graph with the highest mean of each criterion; ``best`` the top graph per criterion.
     """
+    if not graphs:
+        raise ValueError("graphs is required: a non-empty {name: graph}.")
+    if result is not None and method is not None:
+        raise ValueError("pass result (structural comparison) or method and k (training topologies), not both.")
+    if result is None:
+        if method is None or k is None or views is None:
+            raise ValueError("the training-topology comparison needs method, k and views.")
+        return _compare_training_topologies(method, int(k), views, graphs, n_splits=n_splits,
+                                            train_fraction=train_fraction, fit_params=fit_params,
+                                            covariates=covariates, groups=groups, outcome=outcome,
+                                            directed=directed, view_names=view_names,
+                                            n_permutations=n_permutations, alpha=alpha, random_state=random_state)
+    if views_train is None or views_test is None:
+        raise ValueError("the structural comparison needs views_train and views_test.")
     rng = np.random.default_rng(random_state)
     sc_tr = view_scores(result, views_train, train_views=views_train)
     sc_te = view_scores(result, views_test, train_views=views_train)
@@ -1023,23 +1094,13 @@ def compare_path_models(result: Dict[str, Any], views_train: Any, views_test: An
     rows, per_subject = [], {}
     for name, g in graphs.items():
         adj = _node_graph(g, nodes, directed)
-        models = _fit_node_models(Ztr, nodes, adj, Ntr, directed)
-        ll_rows = np.zeros(n_te)
-        ll_tr = 0.0
-        for b in nodes:
-            pa = models[b]["parents"]
-            X = np.column_stack([Nte] + [Zte[a] for a in pa])
-            r = Zte[b] - X @ models[b]["W"]
-            v = models[b]["resid_var"]
-            ll_rows += -0.5 * ((r ** 2) / v).sum(1) - 0.5 * np.log(2 * np.pi * v).sum()
-            ll_tr += _node_loglik(models[b], Ntr, [Ztr[a] for a in pa], Ztr[b])
-        n_par = _n_params(models, Ztr, adj, directed)
+        ll_rows, ll_tr, n_par = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, adj, directed)
         per_subject[name] = ll_rows
         pm = path_model(result, views_test, rows="heldout", graph=g, directed=directed, view_names=view_names,
                         covariates=covariates_test, groups=groups_test, outcome=outcome_test,
                         conditioning="parents", n_permutations=n_permutations, n_bootstrap=0, alpha=alpha,
                         random_state=random_state, train_views=views_train)
-        rows.append({"graph": name, "n_edges": int(sum(len(v) for v in adj.values()) // (1 if directed else 2)),
+        rows.append({"graph": name, "n_edges": _n_edges(adj, directed),
                      "heldout_loglik": float(ll_rows.sum()), "n_params": n_par,
                      "bic": float(n_par * np.log(sc_tr["n"]) - 2.0 * ll_tr),
                      "present_pass": pm["fit"]["present_pass"], "absent_pass": pm["fit"]["absent_pass"],
@@ -1068,8 +1129,105 @@ def compare_path_models(result: Dict[str, Any], views_train: Any, views_test: An
     else:
         best, rule = top, "top held-out log-likelihood (no bootstrap replicates)"
     return {"comparison": rows, "best": best, "best_by_loglik": top, "best_rule": rule, "nodes": nodes,
+            "mode": "structural",
             "parameters": {"n_bootstrap": n_bootstrap, "n_permutations": n_permutations,
                            "random_state": random_state, "alpha": alpha}}
+
+
+_TOPOLOGY_CRITERIA = ("heldout_loglik_own", "heldout_loglik_complete", "oos_coupling", "oos_r2", "outcome_r2")
+
+
+def _compare_training_topologies(method, k, views, graphs, *, n_splits, train_fraction, fit_params, covariates,
+                                 groups, outcome, directed, view_names, n_permutations, alpha,
+                                 random_state) -> Dict[str, Any]:
+    """Plan 4.2 (see `compare_path_models`)."""
+    from .api import as_views, fit, predict
+    from .confounds import slice_confounds
+    from .extension import _default_names
+    from .loadings import _oob_metrics
+    if not 0.0 < train_fraction < 1.0:
+        raise ValueError(f"train_fraction must be in (0, 1); got {train_fraction}.")
+    if n_splits < 1:
+        raise ValueError("n_splits must be at least 1.")
+    vl = as_views(views)
+    n, m_views = int(vl[0].shape[0]), len(vl)
+    names = list(view_names) if view_names is not None else list(_default_names(m_views))
+    has_y = outcome is not None
+    nodes = names + (["outcome"] if has_y else [])
+    y_all = None if not has_y else np.asarray(outcome, float).reshape(n, -1)
+    c_all = None if covariates is None else np.asarray(covariates, float).reshape(n, -1)
+    g_all = None if groups is None else np.asarray(groups).ravel()
+    params = dict(fit_params or {})
+    for bad in ("topology", "path_graph"):
+        if bad in params:
+            raise ValueError(f"fit_params must not set {bad!r}: each graph sets it.")
+    adjs = {nm: _node_graph(g, nodes, directed) for nm, g in graphs.items()}
+    complete = _node_graph(None, nodes, directed)
+    rows, split_rows = [], []
+    n_tr = int(round(train_fraction * n))
+    for s in range(n_splits):
+        perm = np.random.default_rng(random_state + s).permutation(n)
+        tr, te = np.sort(perm[:n_tr]), np.sort(perm[n_tr:])
+        split_rows.append(te)
+        v_tr = [x[torch.as_tensor(tr)] for x in vl]
+        v_te = [x[torch.as_tensor(te)] for x in vl]
+        prm = dict(params)
+        if prm.get("confounds") is not None:
+            prm["confounds"] = slice_confounds(prm["confounds"], tr)
+        Ntr, _, _ = _nuisance(len(tr), None if c_all is None else c_all[tr], None if g_all is None else g_all[tr])
+        Nte, _, _ = _nuisance(len(te), None if c_all is None else c_all[te], None if g_all is None else g_all[te])
+        for gname, adj in adjs.items():
+            view_adj = {i: sorted(names.index(b) for b in adj[a] if b in names)
+                        for i, a in enumerate(names)}
+            topo = "graph" if any(view_adj.values()) else "star"
+            extra = {"topology": topo} if topo == "star" else {"topology": "graph", "path_graph": view_adj}
+            res = fit(method, v_tr, k, random_state=random_state, **prm, **extra)
+            sc_tr = view_scores(res, v_tr, train_views=v_tr)
+            sc_te = view_scores(res, v_te, train_views=v_tr)
+            Ztr = dict(zip(names, sc_tr["scores"]))
+            Zte = dict(zip(names, sc_te["scores"]))
+            if has_y:
+                Ztr["outcome"], Zte["outcome"] = _zscore(y_all[tr]), _zscore(y_all[te])
+            ll_own, _, _ = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, adj, directed)
+            ll_cmp, _, _ = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, complete, directed)
+            pm = path_model(res, v_te, graph=graphs[gname], directed=directed, view_names=names,
+                            covariates=None if c_all is None else c_all[te], groups=None if g_all is None else g_all[te],
+                            outcome=None if not has_y else y_all[te], conditioning="parents",
+                            n_permutations=n_permutations, n_bootstrap=0, alpha=alpha,
+                            random_state=random_state + s, train_views=v_tr)
+            r2, coup = _oob_metrics(res, v_tr, v_te)
+            row = {"split": s, "graph": gname, "topology": topo, "n_edges": _n_edges(adj, directed),
+                   "n_test": len(te), "heldout_loglik_own": float(ll_own.sum()),
+                   "heldout_loglik_complete": float(ll_cmp.sum()),
+                   "present_pass": pm["fit"]["present_pass"], "absent_pass": pm["fit"]["absent_pass"],
+                   "oos_coupling": None if coup is None else float(np.mean(coup)),
+                   "oos_r2": None if r2 is None else float(np.mean(r2)), "outcome_r2": None}
+            if has_y:
+                u_tr = _np(_u_train(res))
+                X = np.column_stack([np.ones(len(tr)), u_tr])
+                W = _ridge_fit(X, y_all[tr])
+                yhat = np.column_stack([np.ones(len(te)), _np(predict(res, v_te)["u"])]) @ W
+                yt = y_all[te]
+                row["outcome_r2"] = float(1.0 - ((yt - yhat) ** 2).sum() / ((yt - yt.mean(0)) ** 2).sum())
+            rows.append(row)
+    splits = pd.DataFrame(rows)
+    crit = [c for c in _TOPOLOGY_CRITERIA if splits[c].notna().all()]
+    summ = splits.groupby("graph", sort=False).agg(
+        {"topology": "first", "n_edges": "first", **{c: "mean" for c in crit}}).reset_index()
+    best = {}
+    for c in crit:
+        top = summ.loc[summ[c].astype(float).idxmax(), "graph"]
+        best[c] = top
+        wide = splits.pivot(index="split", columns="graph", values=c).astype(float)
+        d = wide.sub(wide[top], axis=0)
+        summ[f"delta_{c}"] = summ["graph"].map(d.mean())
+        summ[f"delta_{c}_min"] = summ["graph"].map(d.min())
+        summ[f"delta_{c}_max"] = summ["graph"].map(d.max())
+        summ[f"wins_{c}"] = summ["graph"].map(wide.idxmax(axis=1).value_counts()).fillna(0).astype(int)
+    return {"mode": "training_topology", "splits": splits, "summary": summ, "best": best, "nodes": nodes,
+            "test_rows": split_rows,
+            "parameters": {"method": method, "k": k, "n_splits": n_splits, "train_fraction": train_fraction,
+                           "n_permutations": n_permutations, "random_state": random_state, "alpha": alpha}}
 
 
 # ----------------------------------------------------------------------------- prediction

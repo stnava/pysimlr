@@ -239,8 +239,8 @@ def test_wide_view_training_fixed_null_is_refused():
         pm = sem.path_model(res, xs, rows="train", null="fixed", n_permutations=99, n_bootstrap=0,
                             allow_train_fixed=True)
     assert pm["edges"].p_perm.notna().all()
-    with pytest.raises(NotImplementedError):
-        sem.path_model(res, xs, rows="train", n_permutations=9)
+    pm = sem.path_model(res, xs, rows="train", n_refits=3, n_bootstrap=0)     # default null on training rows
+    assert pm["parameters"]["null"] == "refit" and pm["edges"].p_refit.notna().all() and not pm["warnings"]
 
 
 # ----------------------------------------------------------------------------- 17
@@ -310,3 +310,172 @@ def test_compare_path_models_parsimony_rule():
     assert cmp["best"] == "chain" and cmp["best_by_loglik"] in rows
     assert rows[cmp["best_by_loglik"]]["delta_vs_top"] == 0.0
     assert rows["chain"]["ci_low"] <= 0.0 <= rows["chain"]["ci_high"]
+
+
+# ----------------------------------------------------------------------------- WP2: refit null
+def test_refit_null_on_training_rows():
+    case = build_path_graph_case(CHAIN, 160, 2, (8, 7, 6), 0.4, random_state=0)
+    res = _fit("simlr", case["views"], 2, iterations=5, learning_rate=0.05)
+    pm = _pm(res, case["views"], rows="train", graph=CHAIN, outcome=case["outcome"], null="both",
+             n_permutations=199, n_refits=9, n_bootstrap=0, conditioning="parents")
+    e = pm["edges"]
+    assert pm["parameters"]["null"] == "both" and e.p_perm.notna().all()
+    assert e.p_refit.notna().all() and (e.p_refit >= 1 / 10).all() and (e.p_refit <= 1).all()
+    assert e.p_refit_holm.notna().all() and pm["omnibus"]["p_mean_refit"] >= 1 / 10
+    assert len(pm["refit_null"]["per_edge"][("view0", "view1")]) == 9
+    pr = _pm(res, case["views"], rows="train", graph=CHAIN, n_refits=4, n_bootstrap=0, conditioning="parents")
+    assert pr["parameters"]["null"] == "refit" and pr["edges"].p_perm.isna().all()
+    assert pr["fit"]["null"] == "refit" and pr["fit"]["max_absent_p"] is None and pr["fit"]["reason"]
+    with pytest.raises(ValueError, match="rows='train'"):
+        sem.path_model(res, case["views"], null="refit")
+
+
+# ----------------------------------------------------------------------------- 6
+@pytest.mark.slow
+def test_null_calibration_refit():
+    """100 datasets with three independent views, n_refits = 100, simlr with 5 iterations."""
+    rej = np.zeros(3)
+    n_data = 100
+    for seed in range(n_data):
+        case = build_path_graph_case([], 100, 2, (8, 7, 6), 0.5, random_state=2000 + seed)
+        res = _fit("simlr", case["views"], 2, iterations=5, learning_rate=0.05)
+        pm = _pm(res, case["views"], rows="train", null="refit", n_refits=100, n_bootstrap=0,
+                 refit_scope=("edges",), random_state=seed, n_jobs=4)
+        rej += (pm["edges"].p_refit.to_numpy(float) < 0.05)
+    rates = rej / n_data
+    assert 0.02 <= rates.mean() <= 0.09, rates
+    assert rates.max() <= 0.12, rates
+
+
+# ----------------------------------------------------------------------------- 14
+def test_refit_null_permutes_confounds_with_the_view(monkeypatch):
+    import pysimlr.api as api
+    case = build_path_graph_case(CHAIN, 120, 2, (8, 7, 6), 0.5, covariate_effect=0.5, random_state=0)
+    views, C = case["views"], case["C"]
+    res = _fit("simlr", views, 2, iterations=5, learning_rate=0.05, confounds=C)
+    calls, real = [], api.fit
+
+    def spy(method, vs, k, **kw):
+        calls.append(([v.clone() for v in vs], kw.get("confounds")))
+        return real(method, vs, k, **kw)
+
+    monkeypatch.setattr(api, "fit", spy)
+    _pm(res, views, rows="train", graph=CHAIN, covariates=C, null="refit", n_refits=2, n_bootstrap=0)
+    assert len(calls) == 2 * 2 + 2                 # nodes view1, view2 (2 refits each) + 2 global refits
+    for vs, conf in calls:
+        assert isinstance(conf, list) and len(conf) == 3
+        for m in range(3):
+            key = {float(x): i for i, x in enumerate(views[m][:, 0])}
+            perm = np.array([key[float(x)] for x in vs[m][:, 0]])
+            assert np.array_equal(np.asarray(conf[m]), C[perm])
+    moved = [sum(not torch.equal(vs[m], views[m]) for m in range(3)) for vs, _ in calls]
+    assert moved == [1, 1, 1, 1, 2, 2]
+
+
+# ----------------------------------------------------------------------------- 13
+def test_permutation_test_routes_through_fit():
+    case = build_path_graph_case([(0, 1)], 60, 2, (6, 5), 0.3, random_state=0)
+    res = pysimlr.permutation_test(case["views"], 2, n_permutations=4, method="lend", iterations=2,
+                                   batch_size=20, warmup_epochs=0)
+    assert {"observed_similarity", "null_similarities", "p_value", "n_permutations", "n_exceeding"} <= set(res)
+    assert res["result"]["method"] == "lend" and len(res["null_similarities"]) == 4
+    assert res["p_value"] == pytest.approx((1 + res["n_exceeding"]) / 5) and res["p_value"] >= 1 / 5
+    assert len(res["edges"]) == 1
+
+
+# ----------------------------------------------------------------------------- 10
+def test_compare_path_models_selects_planted_graph():
+    hits, fractions = 0, []
+    graphs = {"chain": CHAIN, "star": [(0, 1), (0, 2)], "complete": None, "empty": []}
+    for seed in range(10):
+        case = build_path_graph_case(CHAIN, 500, 3, (20, 25, 18), 0.3, random_state=seed)
+        tr, te = _split(case, 350)
+        res = _fit("simlr", tr, 3, iterations=50)
+        cmp = sem.compare_path_models(res, tr, te, graphs, n_bootstrap=500, n_permutations=199, random_state=seed)
+        rows = {r["graph"]: r for r in cmp["comparison"]}
+        hits += int(cmp["best"] == "chain")
+        fractions.append(rows["chain"]["best_fraction"])
+        assert rows[cmp["best_by_loglik"]]["delta_vs_top"] == 0.0
+    assert hits >= 8, (hits, fractions)
+
+
+# ----------------------------------------------------------------------------- 11
+def test_compare_training_topologies_runs_and_is_paired(monkeypatch):
+    seen = []
+    real = sem.path_model
+
+    def spy(result, views, **kw):
+        seen.append(views[0][:, 0].clone())
+        return real(result, views, **kw)
+
+    monkeypatch.setattr(sem, "path_model", spy)
+    case = build_path_graph_case(CHAIN, 200, 2, (8, 7, 6), 0.4, random_state=0)
+    out = sem.compare_path_models(method="simlr", k=2, views=case["views"], graphs={"chain": CHAIN, "empty": []},
+                                  n_splits=2, fit_params={"iterations": 10}, outcome=case["outcome"],
+                                  n_permutations=19)
+    assert out["mode"] == "training_topology" and out["splits"].shape[0] == 4
+    assert list(out["splits"].split) == [0, 0, 1, 1] and out["splits"].outcome_r2.notna().all()
+    assert out["summary"].shape[0] == 2 and len(out["test_rows"]) == 2
+    assert torch.equal(seen[0], seen[1]) and torch.equal(seen[2], seen[3]) and not torch.equal(seen[0], seen[2])
+    assert all(len(t) == 60 for t in out["test_rows"])
+
+
+# ----------------------------------------------------------------------------- 12
+def test_predict_path_full_views_equals_view_scores():
+    case = build_path_graph_case(CHAIN, 300, 2, (12, 10, 8), 0.3, random_state=0)
+    tr, te = _split(case, 200)
+    res = _fit("simlr", tr, 2, iterations=30)
+    pm = _pm(res, te, graph=CHAIN, n_permutations=0, n_bootstrap=0)
+    pp = sem.predict_path(pm, te)
+    vs = sem.view_scores(res, te)["scores"]
+    assert pp["predicted_from"] == {} and all(np.array_equal(pp["scores"][f"view{m}"], vs[m]) for m in range(3))
+
+
+def test_predict_path_missing_view_is_predicted_from_neighbours():
+    case = build_path_graph_case(CHAIN, 500, 3, (20, 25, 18), 0.3, random_state=0)
+    tr, te = _split(case, 350)
+    res = _fit("simlr", tr, 3, iterations=50)
+    pm = _pm(res, te, graph=CHAIN, outcome=case["outcome"][350:], n_permutations=0, n_bootstrap=0)
+    pp = sem.predict_path(pm, [te[0], None, te[2]], views_true=te)
+    assert pp["predicted_from"]["view1"] == ["view0", "view2"]
+    assert pp["r2_per_node"]["view1"] > 0.5
+    assert pp["outcome_pred"].shape == (150, 1)
+    lone = sem.predict_path(pm, [te[0], None, None], outcome=False)
+    assert lone["outcome_pred"] is None and lone["predicted_from"]["view1"] == ["view0"]
+
+
+# ----------------------------------------------------------------------------- WP2: joint fits, feature_maps
+def test_joint_fit_predicts_from_a_subset_of_views():
+    case = build_path_graph_case(CHAIN, 200, 2, (8, 7, 6), 0.4, random_state=0)
+    tr, te = _split(case, 120)
+    res = _fit("pca", tr, 2)
+    pred = pysimlr.predict(res, [te[0], None, te[2]])
+    assert set(pred["latents"]) == {"view0", "view2"} and tuple(pred["u"].shape) == (80, 2)
+    full = sem.view_scores(res, te, train_views=tr)
+    part = sem.view_scores(res, [te[0], None, te[2]], train_views=tr)
+    assert part["scores"][1] is None and np.array_equal(part["scores"][0], full["scores"][0])
+    h = pysimlr.heldout_coupling(res, [te[0], None, te[2]], train_views=tr)
+    assert h["views"] == [0, 2] and len(h["cross_view_heldout"]) == 2
+
+
+def test_feature_maps_scores_come_from_view_scores():
+    """The folded extraction keeps feature_maps' convention bitwise: signs learned on the given rows
+    against the given u (oracle: the removed `loadings._view_scores`)."""
+    from pysimlr.api import _preprocess_views
+    from pysimlr.loadings import _zscore
+    case = build_path_graph_case(CHAIN, 120, 2, (8, 7, 6), 0.4, random_state=0)
+    for method in ("simlr", "pca"):
+        res = _fit(method, case["views"], 2, **({} if method == "pca" else {"iterations": 10}))
+        rot = res["loading_rotation"].double().numpy()
+        u = pysimlr.predict(res, case["views"])["u"]
+        if method == "pca":
+            xs = _preprocess_views(case["views"], res["scale_list"], res["provenance_list"])[0]
+            zs = [x.double().numpy() @ (v.double().numpy() @ rot) for x, v in zip(xs, res["v"])]
+        else:
+            zs = [np.asarray(z.double()) @ rot for z in pysimlr.predict(res, case["views"])["latents"]]
+        uc = np.asarray(u.double()) @ rot
+        uc = uc - uc.mean(0)
+        want = [_zscore(z * np.where(((z - z.mean(0)) * uc).sum(0) >= 0, 1.0, -1.0)) for z in zs]
+        got = sem.view_scores(res, case["views"], sign_against=u)
+        assert got["sign_rows"] == "evaluation"
+        assert all(np.array_equal(a, b) for a, b in zip(got["scores"], want))

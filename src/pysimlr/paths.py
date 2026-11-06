@@ -98,94 +98,71 @@ def simlr_path(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 def permutation_test(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                      k: int,
                      n_permutations: int = 100,
+                     method: str = "simlr",
                      verbose: bool = False,
+                     random_state: int = 0,
+                     n_jobs: int = 1,
                      **kwargs) -> Dict[str, Any]:
     """
-    Assess the statistical significance of the SiMLR consensus via permutation.
+    Whole-pipeline permutation test of shared structure, for any registered method.
 
-    This function builds a null distribution of the cross-modality similarity 
-    (ACC) by repeatedly shuffling the rows of each data modality independently 
-    and re-fitting the SiMLR model. The observed similarity is then compared 
-    against this distribution to calculate a p-value.
+    Fits ``method`` with `pysimlr.fit` (``kwargs`` are its parameters), then runs
+    `pysimlr.sem.path_model` on the training rows over the complete graph with the refit
+    null (``refit_scope=("omnibus",)``): ``n_permutations`` refits with every view but the
+    first permuted (each view with its own confound rows), the global null of no shared
+    structure. The statistic is the mean over view pairs of ``pillai``, the mean squared
+    canonical correlation of the two views' scores.
 
     Parameters
     ----------
-    data_matrices : List[Union[torch.Tensor, np.ndarray]]
-        The list of data matrices to analyze.
+    data_matrices : list of matrices with matched rows.
     k : int
-        The dimensionality of the shared latent space.
+        Latent dimension.
     n_permutations : int, default=100
-        Number of permutations to perform for the null distribution.
+        Null refits.
+    method : str, default="simlr"
+        Any registered method (`pysimlr.method_names`).
     verbose : bool, default=False
-        Whether to print progress.
+        Passed to the fit when True.
+    random_state : int, default=0
+        Seed of the fit and of the permutations.
+    n_jobs : int, default=1
+        Worker processes for the refits.
     **kwargs
-        Additional parameters passed to the SiMLR algorithm.
+        Parameters of the method (`pysimlr.describe_method`).
 
     Returns
     -------
     Dict[str, Any]
-        A dictionary containing:
-        - "observed_similarity": The cross-modality similarity of the original data.
-        - "null_similarities": A list of similarities from the permuted data.
-        - "p_value": The add-one permutation estimate
-          ``(1 + #{null >= observed}) / (1 + n_permutations)`` of the
-          probability of a similarity at least as extreme as the one measured,
-          under the null hypothesis of no shared structure. NaN when
-          `n_permutations` is 0.
-        - "n_permutations": Number of null replicates actually drawn.
-        - "n_exceeding": How many null replicates met or exceeded the observation.
-
-    Raises
-    ------
-    TypeError
-        If inputs are of invalid types.
+        - "observed_similarity": mean ``pillai`` over view pairs on the training rows.
+        - "null_similarities": the same statistic for each null refit.
+        - "p_value": add-one ``(1 + #{null >= observed}) / (1 + n_permutations)``; NaN when
+          ``n_permutations`` is 0.
+        - "n_permutations", "n_exceeding".
+        - "edges": the `path_model` edge table (pillai per pair; no per-edge refit p-values).
+        - "omnibus", "result": the `path_model` omnibus and the observed fit.
     """
-    from .simlr import simlr
-    from .utils import preprocess_data
-    torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
-
-    def _score_against_u(mats, fit):
-        scale_list = fit.get("scale_list") or []
-        prov_list = fit.get("provenance_list") or []
-        if scale_list and scale_list[0] != "none" and len(prov_list) == len(mats):
-            scored = [preprocess_data(m, scale_list, provenance=pv) for m, pv in zip(mats, prov_list)]
-        else:
-            scored = mats
-        u_res = fit["u"]
-        sims = []
-        for idx, (m, v) in enumerate(zip(scored, fit["v"])):
-            u_target = u_res[idx] if isinstance(u_res, list) else u_res
-            sims.append(float(adjusted_rvcoef(m @ v, u_target)))
-        return float(np.mean(sims))
-    
-    # 1. Observed similarity
-    obs_res = simlr(torch_mats, k=k, verbose=verbose, **kwargs)
-    
-    # 2. Null distribution
-    null_sims = []
-    for i in range(n_permutations):
-        if verbose and i % 10 == 0: print(f"Permutation {i}/{n_permutations}")
-        # Shuffle rows of each matrix independently
-        perm_mats = [m[torch.randperm(m.shape[0])] for m in torch_mats]
-        perm_res = simlr(perm_mats, k=k, verbose=False, **kwargs)
-        null_sims.append(_score_against_u(perm_mats, perm_res))
-        
-    obs_sim = _score_against_u(torch_mats, obs_res)
-
-    if len(null_sims) == 0:
-        p_value = float('nan')
-    else:
-        # Add-one (Phipson & Smyth 2010) permutation p-value. A plain
-        # mean(null >= obs) can return exactly 0, which is not an attainable
-        # p-value from a finite permutation set and understates uncertainty:
-        # the floor is 1 / (1 + n_permutations).
-        n_exceed = int(np.sum(np.asarray(null_sims) >= obs_sim))
-        p_value = (1.0 + n_exceed) / (1.0 + len(null_sims))
-
+    from .api import fit
+    from .sem import path_model
+    views = [torch.as_tensor(np.asarray(m) if not isinstance(m, torch.Tensor) else m).float() for m in data_matrices]
+    if len(views) < 2:
+        raise ValueError("permutation_test needs at least two views.")
+    fit_kw = dict(kwargs, verbose=True) if verbose else dict(kwargs)
+    res = fit(method, views, k, random_state=random_state, **fit_kw)
+    nperm = int(n_permutations)
+    pm = path_model(res, views, rows="train", null="refit", n_refits=nperm, n_permutations=0, n_bootstrap=0,
+                    refit_scope=("omnibus",), random_state=random_state, n_jobs=n_jobs)
+    om = pm["omnibus"]
+    null = list(om["null_mean_pillai_refit"] or [])
+    obs = float(om["mean_pillai"])
+    n_exceed = int(np.sum(np.asarray(null) >= obs)) if null else 0
     return {
-        "observed_similarity": obs_sim,
-        "null_similarities": null_sims,
-        "p_value": float(p_value),
-        "n_permutations": len(null_sims),
-        "n_exceeding": int(np.sum(np.asarray(null_sims) >= obs_sim)) if null_sims else 0,
+        "observed_similarity": obs,
+        "null_similarities": null,
+        "p_value": float(om["p_mean_refit"]) if nperm > 0 else float("nan"),
+        "n_permutations": len(null),
+        "n_exceeding": n_exceed,
+        "edges": pm["edges"],
+        "omnibus": om,
+        "result": res,
     }

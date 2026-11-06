@@ -27,7 +27,7 @@ from pysimlr import (
     ned_simr_shared_private,
     flow_simr,
     whiten_matrix,
-    fit_structural_models,
+    compare_path_models,
     create_path_graph,
     simlr_path,
     adjusted_rvcoef,
@@ -215,7 +215,7 @@ def test_scenario4_structural_path_modeling_with_graph_constraints():
     """
     Scenario 4: Multi-stage Developmental / Causal Lineage Path Modeling.
     Genomics (Mod 0) -> Transcriptomics (Mod 1) -> Clinical Phenotype (Mod 2).
-    Compares true causal chain against independent model via fit_structural_models and simlr_path.
+    Compares the true chain against a graph that skips the mediator (compare_path_models) and simlr_path.
     """
     torch.manual_seed(42)
     n = 60
@@ -245,22 +245,15 @@ def test_scenario4_structural_path_modeling_with_graph_constraints():
         "incorrect_skip": skip_graph
     }
 
-    results = fit_structural_models(
-        views,
-        k=k,
-        models=models,
-        model_type="lend",
-        iterations=8,
-        batch_size=20,
-        warmup_epochs=1,
-        hidden_dims=[32, 16],
-        verbose=False
-    )
-
-    assert len(results["comparison"]) == 2
-    comp_dict = {c["model"]: c for c in results["comparison"]}
-    assert "true_lineage_chain" in comp_dict
-    assert "incorrect_skip" in comp_dict
+    out = compare_path_models(method="lend", k=k, views=views, graphs=models, n_splits=2,
+                              fit_params={"iterations": 8, "batch_size": 20, "warmup_epochs": 1,
+                                          "hidden_dims": [32, 16], "verbose": False},
+                              n_permutations=99)
+    summ = out["summary"].set_index("graph")
+    assert set(summ.index) == {"true_lineage_chain", "incorrect_skip"}
+    # The skip graph omits the two planted dependencies; its own node regressions must predict
+    # held-out scores worse than the chain's.
+    assert summ.loc["true_lineage_chain", "heldout_loglik_own"] > summ.loc["incorrect_skip", "heldout_loglik_own"]
 
     # Sequential addition along the lineage using simlr_path
     path_model = [[0, 1], [0, 1, 2]]

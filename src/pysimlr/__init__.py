@@ -79,7 +79,6 @@ from .regression import (
     build_nsa_pipeline,
 )
 from .structural import (
-    fit_structural_models,
     create_path_graph
 )
 from .paths import (
@@ -273,10 +272,13 @@ __all__ = [
     'predict_views',
     'apply_simlr_matrices',
     'apply_simlr_matrices_dtfix',
-    'fit_structural_models',
     'create_path_graph',
     'simlr_path',
     'permutation_test',
+    'path_model',
+    'compare_path_models',
+    'predict_path',
+    'view_scores',
     'lend_simr',
     'ned_simr',
     'ned_simr_shared_private',
@@ -330,7 +332,6 @@ __all__ = [
     'plot_ned_shared_private_architecture',
     'plot_nsa_flow_architecture',
     'plot_flow_simr_architecture',
-    'plot_path_model',
     'generate_all_architecture_graphs',
     'bh_fdr',
     'holm',
@@ -354,7 +355,6 @@ _LAZY_ATTRS = {
     'plot_ned_shared_private_architecture': 'diagrams',
     'plot_nsa_flow_architecture': 'diagrams',
     'plot_flow_simr_architecture': 'diagrams',
-    'plot_path_model': 'diagrams',
     'generate_all_architecture_graphs': 'diagrams',
     'plot_fused_coefficients': 'plotting',
     'plot_coefficient_paths': 'plotting',
@@ -408,6 +408,11 @@ _LAZY_ATTRS = {
     'extend_simlr_embedding_with_new_modalities': 'nnh',
     'apply_simlr_matrices': 'nnh',
     'apply_simlr_matrices_dtfix': 'nnh',
+    # pandas: the score-level path model (plan 2026-11-06).
+    'path_model': 'sem',
+    'compare_path_models': 'sem',
+    'predict_path': 'sem',
+    'view_scores': 'sem',
     # scipy inside the functions only; served lazily so the name table stays in one place.
     'bh_fdr': 'stats',
     'holm': 'stats',

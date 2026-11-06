@@ -308,19 +308,35 @@ def predict_views(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
     have = [i for i, t in enumerate(orig) if t is not None]
     base = _predict({k: v for k, v in result.items() if k not in ("extensions",)}, _fill_missing(result, orig)) \
         if have else None
+    joint = bool(result.get("basis_is_joint")) or len(result.get("latents") or []) != len(result["v"])
     lat: Dict[Any, torch.Tensor] = {}
-    if base is not None:
+    if joint:
+        # One joint basis: a view's latent is its block of v applied to the view
+        # (`sem.view_scores`, source "joint_block"). The consensus is the joint
+        # predictor's on the mean-imputed stand-ins: a missing view contributes its
+        # training mean, which the replayed preprocessing centres to zero.
+        if ext:
+            raise ValueError(f"{result.get('method')} fits one joint basis; extended views are not supported.")
+        if not have:
+            raise ValueError("no view is present.")
+        from .sem import _block_scores
+        k = int(torch.as_tensor(result["u"]).shape[1])
         for i in have:
-            lat[i] = torch.as_tensor(base["latents"][i]).float()
-    for nm, x in ext.items():
-        lat[nm] = _ext_latent(result, nm, x)
-    maps: Dict[Any, Dict[str, Any]] = {}
-    if have:
-        om = consensus_maps(result)
-        maps.update({i: om[i] for i in have})
-    for nm in ext:
-        maps[nm] = result["extensions"][nm]["map"]
-    u = subset_consensus(lat, maps)
+            lat[i] = torch.as_tensor(_block_scores(result, orig[i], i, np.eye(k))).float()
+        u = torch.as_tensor(base["u"]).float()
+    else:
+        if base is not None:
+            for i in have:
+                lat[i] = torch.as_tensor(base["latents"][i]).float()
+        for nm, x in ext.items():
+            lat[nm] = _ext_latent(result, nm, x)
+        maps: Dict[Any, Dict[str, Any]] = {}
+        if have:
+            om = consensus_maps(result)
+            maps.update({i: om[i] for i in have})
+        for nm in ext:
+            maps[nm] = result["extensions"][nm]["map"]
+        u = subset_consensus(lat, maps)
     out = {"u": u, "latents": {(names[k] if isinstance(k, int) else k): v for k, v in lat.items()},
            "views_used": [names[i] for i in have] + list(ext)}
     if result.get("confound_sink") is not None and have:

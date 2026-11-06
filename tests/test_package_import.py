@@ -30,7 +30,7 @@ def test_heavy_optional_modules_are_not_imported_eagerly():
 def test_plotting_entry_points_still_resolve():
     import pysimlr
 
-    assert callable(pysimlr.plot_path_model)
+    assert callable(pysimlr.path_model) and callable(pysimlr.compare_path_models)
     assert callable(pysimlr.generate_all_architecture_graphs)
     assert pysimlr.benchmarks.__name__.endswith("benchmarks")
     assert pysimlr.plotting.__name__.endswith("plotting")

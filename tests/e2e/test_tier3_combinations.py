@@ -28,7 +28,7 @@ from pysimlr import (
     whiten_matrix,
     multiscale_svd,
     sparse_distance_matrix,
-    fit_structural_models,
+    compare_path_models,
     simlr_path,
     permutation_test,
     apply_simlr_matrices
@@ -94,35 +94,16 @@ def test_combo_lend_with_graph_topology(synthetic_three_views):
 
 
 def test_combo_ned_with_structural_models(synthetic_three_views):
-    """Verify fit_structural_models evaluates structural path graph hypotheses using NED."""
+    """compare_path_models refits NED under each training topology on shared splits."""
     views = synthetic_three_views["views"]
-    k = 2
-
-    models = {
-        "chain_hypothesis": {0: [1], 1: [0, 2], 2: [1]},
-        "star_hypothesis": {0: [1, 2], 1: [0], 2: [0]}
-    }
-
-    results = fit_structural_models(
-        views,
-        k=k,
-        models=models,
-        model_type="ned",
-        iterations=6,
-        batch_size=25,
-        warmup_epochs=1,
-        hidden_dims=[32, 16],
-        verbose=False
-    )
-
-    assert "models" in results
-    assert "comparison" in results
-    assert len(results["comparison"]) == 2
-    for comp in results["comparison"]:
-        assert "model" in comp
-        assert "total_loss" in comp
-        assert "recon_loss" in comp
-        assert "sim_loss" in comp
+    graphs = {"chain_hypothesis": [(0, 1), (1, 2)], "star_hypothesis": [(0, 1), (0, 2)]}
+    out = compare_path_models(method="ned", k=2, views=views, graphs=graphs, n_splits=2,
+                              fit_params={"iterations": 6, "batch_size": 25, "warmup_epochs": 1,
+                                          "hidden_dims": [32, 16], "verbose": False},
+                              n_permutations=19)
+    assert len(out["splits"]) == 4 and set(out["summary"].graph) == set(graphs)
+    for col in ("heldout_loglik_own", "heldout_loglik_complete", "oos_coupling", "oos_r2"):
+        assert out["splits"][col].notna().all()
 
 
 def test_combo_whitened_inputs_to_flow_simr(synthetic_two_views):

@@ -1,10 +1,13 @@
 """
-Unit tests for pysimlr.structural: create_path_graph and fit_structural_models.
-Addresses Feature 14 in PROJECT.md (Milestone 3).
+Unit tests for pysimlr.structural.create_path_graph and the graph comparison that replaced
+fit_structural_models: `pysimlr.compare_path_models` (plan 2026-11-06, section 4.2).
 """
-import torch
 import numpy as np
-from pysimlr.structural import create_path_graph, fit_structural_models
+import pytest
+import torch
+
+from pysimlr.sem import compare_path_models
+from pysimlr.structural import create_path_graph
 
 
 def test_create_path_graph_topologies():
@@ -45,118 +48,42 @@ def test_create_path_graph_duplicates_and_self_loops():
     assert graph_self == {0: [0], 1: []}
 
 
-def test_fit_structural_models_lend():
-    """Verify fit_structural_models evaluates and compares structural path hypotheses using LEND."""
-    torch.manual_seed(42)
-    n, k = 30, 2
-    views = [torch.randn(n, 8), torch.randn(n, 10), torch.randn(n, 6)]
-
-    models = {
-        "chain": create_path_graph([(0, 1), (1, 2)], n_modalities=3),
-        "star": create_path_graph([(0, 1), (0, 2)], n_modalities=3),
-        "independent": create_path_graph([], n_modalities=3),
-    }
-
-    results = fit_structural_models(
-        views,
-        k=k,
-        models=models,
-        model_type="lend",
-        iterations=4,
-        batch_size=15,
-        warmup_epochs=0,
-        hidden_dims=[32, 16],
-        verbose=False,
-    )
-
-    assert "models" in results
-    assert "comparison" in results
-    assert len(results["models"]) == 3
-    assert len(results["comparison"]) == 3
-
-    comp_by_name = {c["model"]: c for c in results["comparison"]}
-    for name in ["chain", "star", "independent"]:
-        assert name in comp_by_name
-        model_res = results["models"][name]
-        assert model_res["model_type"] == "lend_simr"
-        assert len(model_res["latents"]) == 3
-        for lat in model_res["latents"]:
-            assert lat.shape == (n, k)
-
-        comp = comp_by_name[name]
-        assert "total_loss" in comp
-        assert "recon_loss" in comp
-        assert "sim_loss" in comp
-        assert "converged_iter" in comp
-        # Check that comparison metrics match the mean of the last 5 epochs of the histories
-        expected_recon = np.mean(model_res["recon_history"][-5:])
-        expected_sim = np.mean(model_res["sim_history"][-5:])
-        expected_total = np.mean(model_res["loss_history"][-5:])
-        np.testing.assert_allclose(comp["recon_loss"], expected_recon, rtol=1e-5)
-        np.testing.assert_allclose(comp["sim_loss"], expected_sim, rtol=1e-5)
-        np.testing.assert_allclose(comp["total_loss"], expected_total, rtol=1e-5)
+_DEEP = {"iterations": 4, "batch_size": 15, "warmup_epochs": 0, "hidden_dims": [32, 16], "verbose": False}
 
 
-def test_fit_structural_models_ned():
-    """Verify fit_structural_models evaluates structural path hypotheses using NED."""
-    torch.manual_seed(42)
-    n, k = 25, 2
-    views = [torch.randn(n, 6), torch.randn(n, 6)]
-
-    models = {
-        "connected": create_path_graph([(0, 1)], n_modalities=2),
-        "disconnected": create_path_graph([], n_modalities=2),
-    }
-
-    results = fit_structural_models(
-        views,
-        k=k,
-        models=models,
-        model_type="ned",
-        iterations=3,
-        batch_size=15,
-        warmup_epochs=0,
-        hidden_dims=[16, 8],
-        verbose=False,
-    )
-
-    assert len(results["comparison"]) == 2
-    for name in ["connected", "disconnected"]:
-        res = results["models"][name]
-        assert res["model_type"] == "ned_simr"
-        assert len(res["latents"]) == 2
+def _chain_views(n=120, seed=0):
+    from pysimlr.benchmarks.synthetic_cases import build_path_graph_case
+    return build_path_graph_case([(0, 1), (1, 2)], n, 2, (8, 10, 6), 0.5, random_state=seed)["views"]
 
 
-def test_fit_structural_models_numpy_inputs():
-    """Verify fit_structural_models accepts NumPy arrays and handles few epochs (< 5) cleanly."""
-    np.random.seed(42)
-    n, k = 25, 2
-    views_np = [np.random.randn(n, 5), np.random.randn(n, 7)]
-
-    models = {
-        "m1": create_path_graph([(0, 1)], n_modalities=2)
-    }
-
-    results = fit_structural_models(
-        views_np,
-        k=k,
-        models=models,
-        model_type="lend",
-        iterations=2,
-        batch_size=15,
-        warmup_epochs=0,
-        verbose=False,
-    )
-
-    assert "m1" in results["models"]
-    comp = results["comparison"][0]
-    assert np.isfinite(comp["total_loss"])
-    assert np.isfinite(comp["recon_loss"])
-    assert np.isfinite(comp["sim_loss"])
+@pytest.mark.parametrize("method", ["lend", "ned"])
+def test_compare_path_models_refits_each_topology(method):
+    """Each graph is refitted (topology='graph', path_graph=its edges) and scored on held-out rows."""
+    graphs = {"chain": create_path_graph([(0, 1), (1, 2)], 3), "star": [(0, 1), (0, 2)], "independent": []}
+    out = compare_path_models(method=method, k=2, views=_chain_views(), graphs=graphs, n_splits=2,
+                              fit_params=_DEEP, n_permutations=19)
+    sp = out["splits"]
+    assert len(sp) == 6 and list(sp.graph[:3]) == ["chain", "star", "independent"]
+    assert list(sp.topology[:3]) == ["graph", "graph", "star"]
+    assert list(out["summary"].graph) == ["chain", "star", "independent"]
+    assert "recon_loss" not in sp and "total_loss" not in sp      # training losses are not criteria
+    assert np.isfinite(sp.heldout_loglik_own.to_numpy(float)).all()
 
 
-def test_fit_structural_models_empty_dict():
-    """Verify fit_structural_models handles empty models dictionary without error."""
-    views = [torch.randn(10, 4), torch.randn(10, 4)]
-    results = fit_structural_models(views, k=2, models={})
-    assert results == {"models": {}, "comparison": []}
+def test_compare_path_models_accepts_numpy_and_confounds():
+    g = np.random.default_rng(42)
+    views = [g.standard_normal((90, 5)), g.standard_normal((90, 7))]
+    C = g.standard_normal((90, 2))
+    out = compare_path_models(method="simlr", k=2, views=views, graphs={"m1": [(0, 1)]}, n_splits=1,
+                              fit_params={"iterations": 5, "confounds": C}, covariates=C, n_permutations=19)
+    assert np.isfinite(out["splits"].oos_r2.iloc[0])
+
+
+def test_compare_path_models_argument_errors():
+    views = [torch.randn(30, 4), torch.randn(30, 4)]
+    with pytest.raises(ValueError, match="graphs"):
+        compare_path_models(method="simlr", k=2, views=views, graphs={})
+    with pytest.raises(ValueError, match="method, k and views"):
+        compare_path_models(graphs={"a": []})
+    with pytest.raises(ValueError, match="topology"):
+        compare_path_models(method="simlr", k=2, views=views, graphs={"a": []}, fit_params={"topology": "loo"})

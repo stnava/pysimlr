@@ -1,7 +1,7 @@
 """Adversarial Stress Test Suite for Milestone 3 Structural Models & Graph Consensus.
 
 Targeted Audits:
-1. create_path_graph and fit_structural_models:
+1. create_path_graph and compare_path_models (training topologies):
    - Large graph scale-up (10+ modalities) in topology construction and deep structural training.
    - Complete graphs (cliques K_n where all pairs are mutually connected).
    - Fully disconnected graphs (empty edge set with independent modality representations and ~0 sim loss).
@@ -28,11 +28,12 @@ import torch
 import numpy as np
 
 from pysimlr.consensus import compute_shared_consensus
-from pysimlr.structural import create_path_graph, fit_structural_models
+from pysimlr.sem import compare_path_models
+from pysimlr.structural import create_path_graph
 
 
 # ============================================================================
-# 1. create_path_graph & fit_structural_models Adversarial Tests
+# 1. create_path_graph & compare_path_models Adversarial Tests
 # ============================================================================
 
 def test_create_path_graph_large_scale():
@@ -74,218 +75,45 @@ def test_create_path_graph_out_of_bounds_contract():
         create_path_graph([(5, 1)], n_modalities=5)
 
 
-def test_fit_structural_models_large_graph_10_modalities():
-    """Verify fit_structural_models executes cleanly with 10 modalities under chain and star topologies."""
+_LEND = {"iterations": 3, "batch_size": 15, "warmup_epochs": 0, "hidden_dims": [16, 8], "verbose": False}
+
+
+def test_compare_path_models_large_graph_10_modalities():
+    """Training-topology comparison runs with 10 modalities under chain and star topologies."""
     torch.manual_seed(42)
-    n_samples = 25
-    n_mods = 10
-    k = 2
-    # Heterogeneous feature dimensions per modality
+    n_samples, n_mods, k = 80, 10, 2
     views = [torch.randn(n_samples, 4 + (i % 3)) for i in range(n_mods)]
-
-    chain_edges = [(i, i + 1) for i in range(n_mods - 1)]
-    star_edges = [(0, i) for i in range(1, n_mods)]
-    models = {
-        "chain_10": create_path_graph(chain_edges, n_modalities=n_mods),
-        "star_10": create_path_graph(star_edges, n_modalities=n_mods),
-    }
-
-    results = fit_structural_models(
-        views,
-        k=k,
-        models=models,
-        model_type="lend",
-        iterations=3,
-        batch_size=15,
-        warmup_epochs=0,
-        hidden_dims=[16, 8],
-        verbose=False,
-    )
-
-    assert "models" in results
-    assert "comparison" in results
-    assert len(results["models"]) == 2
-    assert len(results["comparison"]) == 2
-
-    for model_name in ["chain_10", "star_10"]:
-        res = results["models"][model_name]
-        assert len(res["latents"]) == n_mods
-        for lat in res["latents"]:
-            assert lat.shape == (n_samples, k)
-            assert torch.isfinite(lat).all()
-
-    comp_map = {c["model"]: c for c in results["comparison"]}
-    assert np.isfinite(comp_map["chain_10"]["total_loss"])
-    assert np.isfinite(comp_map["star_10"]["total_loss"])
+    graphs = {"chain_10": [(i, i + 1) for i in range(n_mods - 1)],
+              "star_10": [(0, i) for i in range(1, n_mods)]}
+    out = compare_path_models(method="lend", k=k, views=views, graphs=graphs, n_splits=1,
+                              fit_params=_LEND, n_permutations=19)
+    sp = out["splits"]
+    assert list(sp.graph) == ["chain_10", "star_10"] and (sp.topology == "graph").all()
+    assert np.isfinite(sp[["heldout_loglik_own", "heldout_loglik_complete", "oos_coupling", "oos_r2"]]
+                       .to_numpy(float)).all()
+    assert set(out["best"]) == {"heldout_loglik_own", "heldout_loglik_complete", "oos_coupling", "oos_r2"}
 
 
-def test_fit_structural_models_complete_graph():
-    """Verify fit_structural_models fits complete clique graph K_4 with full inter-modality coupling."""
+def test_compare_path_models_complete_graph():
+    """A complete K_4 hypothesis: its own and the complete-graph log-likelihood are the same model."""
     torch.manual_seed(42)
-    n_samples, k = 20, 2
     n_mods = 4
-    views = [torch.randn(n_samples, 6) for _ in range(n_mods)]
-    clique_edges = [(i, j) for i in range(n_mods) for j in range(i + 1, n_mods)]
-    clique_graph = create_path_graph(clique_edges, n_modalities=n_mods)
-
-    results = fit_structural_models(
-        views,
-        k=k,
-        models={"clique": clique_graph},
-        model_type="lend",
-        iterations=3,
-        batch_size=10,
-        warmup_epochs=0,
-        hidden_dims=[16, 8],
-        verbose=False,
-    )
-
-    comp = results["comparison"][0]
-    assert comp["model"] == "clique"
-    assert np.isfinite(comp["total_loss"])
-    assert np.isfinite(comp["recon_loss"])
-    assert np.isfinite(comp["sim_loss"])
-    # The default similarity is "acc" (-sum|u's|/(n-1)), which is signed; the
-    # old > 0 check held only for the alignment MSE that was the deep default.
-    assert comp["sim_loss"] != 0.0
+    views = [torch.randn(80, 6) for _ in range(n_mods)]
+    clique = [(i, j) for i in range(n_mods) for j in range(i + 1, n_mods)]
+    out = compare_path_models(method="lend", k=2, views=views, graphs={"clique": clique}, n_splits=1,
+                              fit_params=_LEND, n_permutations=19)
+    r = out["splits"].iloc[0]
+    assert r.n_edges == 6 and r.heldout_loglik_own == pytest.approx(r.heldout_loglik_complete)
 
 
-def test_fit_structural_models_fully_disconnected_graph():
-    """Verify fit_structural_models with fully disconnected graph yields near-zero similarity loss."""
+def test_compare_path_models_fully_disconnected_graph():
+    """A graph without view edges is fitted with topology='star' and reported as such."""
     torch.manual_seed(42)
-    n_samples, k = 25, 2
-    n_mods = 3
-    views = [torch.randn(n_samples, 5) for _ in range(n_mods)]
-    disconnected_graph = create_path_graph([], n_modalities=n_mods)
-
-    results = fit_structural_models(
-        views,
-        k=k,
-        models={"disconnected": disconnected_graph},
-        model_type="lend",
-        iterations=3,
-        batch_size=15,
-        warmup_epochs=0,
-        hidden_dims=[16, 8],
-        verbose=False,
-    )
-
-    comp = results["comparison"][0]
-    assert comp["model"] == "disconnected"
-    # When fully disconnected, each modality aligns to itself, yielding ~0 similarity alignment loss
-    assert comp["sim_loss"] < 1e-6
-
-
-def test_fit_structural_models_single_modality_view():
-    """Verify fit_structural_models handles single modality view (M=1) gracefully with LEND and NED."""
-    torch.manual_seed(42)
-    n_samples, k = 20, 2
-    views_single = [torch.randn(n_samples, 6)]
-    graph_single = create_path_graph([], n_modalities=1)
-
-    # 1. LEND architecture
-    res_lend = fit_structural_models(
-        views_single,
-        k=k,
-        models={"single_view_lend": graph_single},
-        model_type="lend",
-        iterations=2,
-        batch_size=10,
-        warmup_epochs=0,
-        verbose=False,
-    )
-    assert len(res_lend["models"]["single_view_lend"]["latents"]) == 1
-    assert res_lend["models"]["single_view_lend"]["latents"][0].shape == (n_samples, k)
-    assert res_lend["comparison"][0]["sim_loss"] < 1e-6
-
-    # 2. NED architecture
-    res_ned = fit_structural_models(
-        views_single,
-        k=k,
-        models={"single_view_ned": graph_single},
-        model_type="ned",
-        iterations=2,
-        batch_size=10,
-        warmup_epochs=0,
-        verbose=False,
-    )
-    assert len(res_ned["models"]["single_view_ned"]["latents"]) == 1
-    assert res_ned["models"]["single_view_ned"]["latents"][0].shape == (n_samples, k)
-    assert res_ned["comparison"][0]["sim_loss"] < 1e-6
-
-
-def test_fit_structural_models_single_sample_n1():
-    """N=1 is refused, loudly, rather than silently optimising nothing.
-
-    Every centred cross-moment similarity is identically constant at n=1 with
-    an exactly zero gradient, so the loop would run to completion and report a
-    converged fit having moved nothing. `pysimlr.similarity` refuses it; only
-    `recon`, which is a reconstruction rather than a moment, is defined there.
-    """
-    import pytest as _pytest
-    torch.manual_seed(42)
-    n_samples, k = 1, 1
-    views_n1 = [torch.randn(n_samples, 4), torch.randn(n_samples, 4)]
-    graph_pair = create_path_graph([(0, 1)], n_modalities=2)
-
-    with _pytest.raises(ValueError, match="at least 3 rows"):
-        fit_structural_models(
-            views_n1,
-            k=k,
-            models={"n1_model": graph_pair},
-            model_type="lend",
-            iterations=2,
-            batch_size=1,
-            warmup_epochs=0,
-            verbose=False,
-        )
-
-
-def test_fit_structural_models_zero_variance_views():
-    """Verify fit_structural_models does not propagate NaNs when views have zero variance."""
-    torch.manual_seed(42)
-    n_samples, k = 20, 2
-    views_zero = [
-        torch.zeros(n_samples, 4),               # All zeros
-        torch.ones(n_samples, 4) * 3.14159,      # All constant positive
-        torch.randn(n_samples, 4),               # Standard Gaussian
-    ]
-    graph = create_path_graph([(0, 1), (1, 2)], n_modalities=3)
-
-    results = fit_structural_models(
-        views_zero,
-        k=k,
-        models={"zero_var": graph},
-        model_type="lend",
-        iterations=2,
-        batch_size=10,
-        warmup_epochs=0,
-        verbose=False,
-    )
-
-    comp = results["comparison"][0]
-    assert np.isfinite(comp["total_loss"])
-    assert np.isfinite(comp["recon_loss"])
-    assert np.isfinite(comp["sim_loss"])
-
-    for lat in results["models"]["zero_var"]["latents"]:
-        assert torch.isfinite(lat).all()
-
-
-def test_fit_structural_models_mismatched_sample_sizes_contract():
-    """Mismatched sample sizes are refused before any fitting.
-
-    The message used to come from torch's ``TensorDataset`` (an
-    ``AssertionError``) after initialization had already run;
-    `initialize_simlr` now checks the row counts itself, since a multi-view
-    initializer (``gcca``, the cross-view column alignment) cannot proceed
-    without them.
-    """
-    views_mismatched = [torch.randn(15, 4), torch.randn(25, 4)]
-    graph = create_path_graph([(0, 1)], n_modalities=2)
-    with pytest.raises(ValueError, match="Size mismatch"):
-        fit_structural_models(views_mismatched, k=2, models={"mismatch": graph})
-
+    views = [torch.randn(80, 5) for _ in range(3)]
+    out = compare_path_models(method="lend", k=2, views=views, graphs={"disconnected": []}, n_splits=1,
+                              fit_params=_LEND, n_permutations=19)
+    r = out["splits"].iloc[0]
+    assert r.topology == "star" and r.n_edges == 0 and r.present_pass is None
 
 # ============================================================================
 # 2. compute_shared_consensus with topology="graph" Adversarial Tests

@@ -184,7 +184,7 @@ def main():
     cmp = sem.compare_path_models(res, tr, te, graphs, covariates_train=C[:n_tr], covariates_test=C[n_tr:],
                                   outcome_train=y[:n_tr], outcome_test=y[n_tr:], n_bootstrap=2000,
                                   n_permutations=1000, random_state=a.seed)
-    pp = sem.predict_path(pm, res, [te[0], None, te[2]], covariates=C[n_tr:])
+    pp = sem.predict_path(pm, [te[0], None, te[2]], covariates=C[n_tr:])
     true1 = sem.view_scores(res, te)["scores"][1]
     r2_missing = 1 - ((pp["scores"]["view1"] - true1) ** 2).sum() / ((true1 - true1.mean(0)) ** 2).sum()
     yhat = pp["outcome_pred"][:, 0]; yz = (y[n_tr:] - y[n_tr:].mean()) / y[n_tr:].std()
