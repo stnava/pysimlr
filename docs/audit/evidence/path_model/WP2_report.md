@@ -21,8 +21,11 @@ Code in commit `d0d35bd`:
 
 - Fast suite:
   `python -m pytest -q -p no:cacheprovider` -> `1998 passed, 1 skipped, 2 xfailed, 942 warnings in 97.44s (0:01:37)`
-- Slow SEM suite (including both calibration tests):
-  `python -m pytest -q -m "" -p no:cacheprovider tests/test_sem.py` -> `31 passed, 5 warnings in 507.57s (0:08:27)`
+- Slow SEM suite (including both calibration tests, re-verified at final revision 2026-11-07):
+  `python -m pytest -q -rP -m "" -p no:cacheprovider tests/test_sem.py` -> `32 passed, 5 warnings in 370.95s (0:06:10)`
+  - Verbatim stdout:
+    `fixed_calibration: per_edge=[0.045, 0.05, 0.035] maxt_family=0.050`
+    `refit_calibration: per_edge=[0.07, 0.03, 0.02] mean=0.040 max=0.070`
 - Implementation standards:
   `python -m pytest -q tests/test_implementation_standards.py` -> `7 passed in 3.46s`
 - Lint:

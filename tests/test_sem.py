@@ -168,6 +168,7 @@ def test_null_calibration_fixed_model():
             rej[(r.a, r.b)] = rej.get((r.a, r.b), 0) + int(r.p_perm < 0.05)
         fam += int(pm["edges"].p_maxt.min() < 0.05)
     rates = {e: v / n_data for e, v in rej.items()}
+    print(f"fixed_calibration: per_edge={list(rates.values())} maxt_family={fam / n_data:.3f}")
     assert all(0.03 <= r <= 0.07 for r in rates.values()), rates
     assert 0.03 <= fam / n_data <= 0.07, fam / n_data
 
@@ -343,6 +344,7 @@ def test_null_calibration_refit():
                  refit_scope=("edges",), random_state=seed, n_jobs=4)
         rej += (pm["edges"].p_refit.to_numpy(float) < 0.05)
     rates = rej / n_data
+    print(f"refit_calibration: per_edge={rates.tolist()} mean={rates.mean():.3f} max={rates.max():.3f}")
     assert 0.02 <= rates.mean() <= 0.09, rates
     assert rates.max() <= 0.12, rates
 
@@ -479,3 +481,26 @@ def test_feature_maps_scores_come_from_view_scores():
         got = sem.view_scores(res, case["views"], sign_against=u)
         assert got["sign_rows"] == "evaluation"
         assert all(np.array_equal(a, b) for a, b in zip(got["scores"], want))
+
+
+def test_adni_pilot_provenance_guards(tmp_path):
+    """D1 regression guard: --figures-only refuses missing CSVs and _verify_p4_consistency
+    rejects internally inconsistent (n_ge_refit=0 with q95_refit >= pillai) records."""
+    import pandas as pd
+    from scripts.adni_path_model_pilot import _verify_p4_consistency, run_pilot
+
+    with pytest.raises(FileNotFoundError, match="requires all live CSV outputs"):
+        run_pilot([0], ["simlr"], out_dir=tmp_path, figures_only=True)
+
+    valid = pd.DataFrame([{
+        "method": "simlr", "a": "v0", "b": "v1", "pillai": 0.89,
+        "n_ge_fixed": 0, "p_perm_fixed": 1 / 51,
+        "n_ge_refit": 0, "p_refit": 1 / 51,
+        "q95_fixed": 0.007, "q95_refit": 0.33,
+    }])
+    _verify_p4_consistency(valid, 50)
+
+    impossible = valid.copy()
+    impossible["q95_refit"] = 0.91  # > pillai while n_ge_refit == 0
+    with pytest.raises(ValueError, match="Impossible refit null record"):
+        _verify_p4_consistency(impossible, 50)

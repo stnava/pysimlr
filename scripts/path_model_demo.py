@@ -88,8 +88,11 @@ def main():
     yhat = pp["outcome_pred"][:, 0]; yz = (y[n_tr:] - y[n_tr:].mean()) / y[n_tr:].std()
     r2_outcome = 1 - ((yhat - yz) ** 2).sum() / ((yz - yz.mean()) ** 2).sum()
 
-    figs = {"path_model": plot_path_model(pm), "edge_matrix": plot_edge_matrix(pm),
-            "comparison": plot_path_comparison(cmp), "edge_null": plot_edge_null(pm),
+    figs = {"path_model": plot_path_model(pm),
+            "path_model_component0": plot_path_model(pm, component=0),
+            "edge_matrix": plot_edge_matrix(pm),
+            "comparison": plot_path_comparison(cmp),
+            "edge_null": plot_edge_null(pm),
             "edge_features": plot_edge_features(pm, "view0 - view1")}
     for nm, f in figs.items():
         f.savefig(os.path.join(a.out, f"reference_{nm}.png"), dpi=200)
@@ -113,6 +116,7 @@ B = {a.n_permutations} Freedman-Lane sweeps on the held-out rows, seed {a.seed}.
 
 <h2>1. Fitted path model (hypothesis: chain + outcome edge; conditioning on parents)</h2>
 <img src="data:image/png;base64,{_png(figs['path_model'])}">
+<img src="data:image/png;base64,{_png(figs['path_model_component0'])}">
 <p class="note">Omnibus: max Pillai {pm['omnibus']['max_pillai']:.3f} (p = {pm['omnibus']['p_max']:.3g}), mean Pillai
 {pm['omnibus']['mean_pillai']:.3f} (p = {pm['omnibus']['p_mean']:.3g}). Graph fit: present edges passing (Holm) =
 {pm['fit']['present_pass']}, absent edges passing = {pm['fit']['absent_pass']}, max absent Pillai {pm['fit']['max_absent_pillai']:.3f}

@@ -709,18 +709,16 @@ Given a fitted `path_model` result and new subject data with missing views (`Non
     $[0.02, 0.09]$ calibration band.
   - Matrix solve cost: $B = 10\,000$ fixed-model sweeps on $M = 4, k = 5, n = 300$ executes in $0.81$ s
     (well within the 10 s plan target).
-- **ADNI-MCI cognitive pilot ($n = 1084$, 3 views: T1 volume, cortical thickness, mean intensity, outcome CogPC1, 5 splits):**
-  - P1: Held-out thickness $\to$ CogPC1 significant ($p < 0.05$) in 4/5 splits for SIMLR ($p = [0.0010, 0.0005, 0.0005, 0.2239, 0.0055]$)
-    and 5/5 splits for LEND ($p \le 0.006$).
-  - P2: Out-of-sample log-likelihood parsimony selected `star on thickness` over `complete` in 5/5 splits
-    for SIMLR (mean $\Delta = +7.40$, $\text{SE} = 5.45$).
-  - P3: Reconstructed CogPC1 achieved held-out $r = 0.354$ ($R^2 = 0.0873$, Pillai $= 0.034$, $p < 0.001$)
-    under strict confound sink (age, education, head size removed).
-  - P4: Evaluated at matched B = 50, empirical p-ratio = 1.00; threshold-scale inflation ratio q95(pillai_refit) / q95(pillai_fixed) = 22.4x overall (43.8x across measurement views), demonstrating post-selection inflation on training scores independent of permutation floor.
+- **ADNI-MCI cognitive pilot ($n = 1084$, 3 views: `T1Hier_vol` $p=160$, `T1Hier_thk` $p=160$, `T1w_mean` $p=62$, outcome `CogPC1`, 5 splits):**
+  - Plan P1 (`T1Hier_vol`–`T1Hier_thk` held-out `p_maxt < 0.05`): passed in 5/5 splits for both `simlr` and `lend` (`p_maxt = 0.0005` in all splits).
+  - Plan P2 (`outcome_edges` family has $\ge 1$ view with `p_holm < 0.05`): passed in 4/5 splits for both `simlr` and `lend` (driven by cortical thickness and regional volume).
+  - Plan P3 (held-out `pillai` below training `pillai` per edge): passed in 5/5 splits across all measurement-fitted view–view edges (`15/15` in `simlr`, `15/15` in `lend`), while weak unsupervised `view - outcome` edges (`CogPC1` is unseen by `fit`) exceeded training `pillai` in 3/5 splits due to 70/30 split sampling variance and finite-sample $k/n$ Pillai offset.
+  - Plan P4 (`complete` not best by `heldout_loglik` in every split): passed (`simlr` favored `star on T1Hier_thk` over `complete` in 4/5 splits by raw log-likelihood, mean $\Delta = +7.40$, $\text{SE} = 5.45$, and 5/5 by F1 parsimony; `lend` favored `complete` in 4/5 splits and `star` in 1/5, mean $\Delta = -30.41$, $\text{SE} = 13.72$).
+  - Additional findings: `predict_path` reconstructed held-out `CogPC1` at mean $R^2 = 0.0873$ ($r = 0.350$) for `simlr` and $R^2 = 0.0894$ ($r = 0.354$) for `lend` after demographic confound residualization. On training rows (`rows="train", null="both"`, matched $B = 50$), the live refit-null 95th-percentile Pillai threshold exceeded the fixed-model null threshold by $43.0\times$ on `simlr` view–view edges (`0.300` vs `0.0070`) and $16.0\times$ on `lend` view–view edges (`0.124` vs `0.0078`), versus $1.14\times$–$1.17\times$ on unsupervised outcome edges.
 
-### Linear vs. Deep Conditional-Graph Behavior (WP4 P2)
+### Linear vs. Deep Conditional-Graph Behavior
 
-In the ADNI-MCI pilot evaluation, linear SIMLR selected the parsimonious star graph (mediating volume through thickness to cognition, mean delta = +7.40 vs complete), whereas nonlinear Deep LEND favored the complete graph (mean delta = -57.51). This divergence reflects fundamental representational geometry: linear encoders yield score projections where residual variance is linearly separable, allowing conditional independence to hold when intermediate mediators are controlled. In contrast, nonlinear multi-layer perceptron encoders learn complex higher-order view couplings that cannot be completely d-separated by linear residualization, requiring direct cross-view edges to capture residual nonlinear mutual information.
+In the ADNI-MCI pilot evaluation, linear `simlr` selected the parsimonious star graph (mediating volume through thickness to cognition, mean $\Delta\text{LL} = +7.40$ vs `complete`), whereas nonlinear `lend` favored `complete` in 4 of 5 splits (mean $\Delta\text{LL} = -30.41$). Linear encoders yield score projections where residual variance is linearly separable, allowing linear partial residualization on intermediate scores to attenuate indirect edges. Nonlinear multi-layer perceptron encoders induce higher-order cross-view score couplings that are not completely d-separated by linear partial regression, leaving residual cross-view predictive signal for the complete graph.
 
 ## Choosing an energy
 

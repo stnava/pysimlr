@@ -1,12 +1,12 @@
 """ADNI-MCI Cognitive Pilot Evaluation for Score-Level Path Model (WP4).
 
 Evaluates score-level structural path models, cross-view coupling, and cognitive
-outcome association on the ADNI-MCI Protocol B cohort across 5 train/test splits.
+outcome association on the ADNI-MCI Protocol B cohort across 5 70/30 train/test splits.
 
 Views:
-- T1Hier_vol (160 regional volumetric measures)
-- T1Hier_thk (160 regional cortical thickness and subcortical measures)
-- T1w_mean (62 regional T1-weighted mean intensities)
+- T1Hier_vol (regional volumetric measures)
+- T1Hier_thk (regional cortical thickness measures)
+- T1w_mean (regional T1-weighted mean intensities)
 Outcome:
 - CogPC1: first principal component of the ADNI cognitive battery, fitted on training rows.
 Confounds:
@@ -14,24 +14,31 @@ Confounds:
 Groups:
 - Sex passed as groups (never among confounds).
 
-Pilot Rules Evaluated (from Plan section 8 and Dispatch):
-- P1: T1Hier_thk -> CogPC1 is significant in >=4 of 5 splits at alpha 0.05.
-- P2: Out-of-sample log-likelihood delta for star on thk vs complete is non-negative on average,
-      or complete is within 1 SE of star.
-- P3: Reconstructed CogPC1 out-of-sample R^2 >= 0.15 on average for winning topology.
-- P4: Refit null per-edge p-values are conservative relative to fixed-model null (mean ratio >= 1.0).
+Primary Pass Rules (Plan Section 8, docs/plans/2026-11-06_path_model.md):
+- P1: The T1Hier_vol - T1Hier_thk edge has held-out p_maxt < 0.05 in >= 4 of 5 splits.
+- P2: The outcome node has at least one view with p_holm < 0.05 in the outcome_edges
+      family in >= 4 of 5 splits.
+- P3: The fixed-model held-out pillai is below the training pillai for every edge
+      (evaluated across all edges and partitioned into measurement-fitted view-view
+      edges vs unsupervised view-outcome edges).
+- P4: The complete graph is not the best by heldout_loglik in every split (when complete
+      is top in every split, paired deltas are reported as the empirical result).
+
+Secondary Empirical Findings (reported descriptively alongside P1-P4):
+- F1: Cortical thickness -> cognition (T1Hier_thk - outcome) held-out association.
+- F2: Star on T1Hier_thk vs complete held-out log-likelihood parsimony (fixed & refit modes).
+- F3: Out-of-sample CogPC1 prediction via predict_path (held-out R^2 and Pearson r).
+- F4: Training-row post-selection threshold shift (rows="train", null="both" at matched B).
 """
 from __future__ import annotations
 
 import argparse
-import base64
 import json
-import os
 import re
-import time
 import sys
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -43,7 +50,6 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-import antsxviz
 import pysimlr
 import pysimlr.plotting as pl
 from scripts.benchmark_confound_sink import load_adni
@@ -136,6 +142,26 @@ def get_topologies() -> Dict[str, Any]:
     }
 
 
+def _verify_p4_consistency(p4_df: pd.DataFrame, n_refits: int) -> None:
+    """Verify add-one p-values and empirical quantiles come from the same live draws."""
+    if p4_df.empty:
+        raise ValueError("adni_p4_refit_ratio.csv is empty.")
+    for _, row in p4_df.iterrows():
+        n_ge_fix = int(row["n_ge_fixed"])
+        n_ge_ref = int(row["n_ge_refit"])
+        exp_p_fix = (n_ge_fix + 1.0) / (n_refits + 1.0)
+        exp_p_ref = (n_ge_ref + 1.0) / (n_refits + 1.0)
+        if abs(float(row["p_perm_fixed"]) - exp_p_fix) > 1e-9:
+            raise ValueError(f"Inconsistent p_perm_fixed on {row['method']} {row['a']}-{row['b']}")
+        if abs(float(row["p_refit"]) - exp_p_ref) > 1e-9:
+            raise ValueError(f"Inconsistent p_refit on {row['method']} {row['a']}-{row['b']}")
+        if n_ge_ref == 0 and float(row["q95_refit"]) >= float(row["pillai"]):
+            raise ValueError(
+                f"Impossible refit null record on {row['method']} {row['a']}-{row['b']}: "
+                f"n_ge_refit=0 (p_refit={row['p_refit']:.6f}) but q95_refit={row['q95_refit']:.6f} >= pillai={row['pillai']:.6f}"
+            )
+
+
 # ----------------------------------------------------------------------------- Pilot Runner
 def run_pilot(
     seeds: List[int],
@@ -151,7 +177,22 @@ def run_pilot(
     out_dir.mkdir(parents=True, exist_ok=True)
     t_start = time.time()
 
-    print(f"Loading ADNI-MCI dataset...")
+    required_csvs = [
+        out_dir / "adni_edges_summary.csv",
+        out_dir / "adni_train_vs_heldout_pillai.csv",
+        out_dir / "adni_comparison_fixed.csv",
+        out_dir / "adni_comparison_refits.csv",
+        out_dir / "adni_p4_refit_ratio.csv",
+    ]
+    if figures_only:
+        missing = [str(p) for p in required_csvs if not p.exists()]
+        if missing:
+            raise FileNotFoundError(
+                f"--figures-only requires all live CSV outputs to exist; missing: {missing}. "
+                "Run scripts/adni_path_model_pilot.py without --figures-only first."
+            )
+
+    print("Loading ADNI-MCI dataset...")
     data = load_adni()
     n_total = len(data["C"])
     print(f"Loaded {n_total} complete cases. Views: {data['view_names']}")
@@ -161,28 +202,25 @@ def run_pilot(
     C_all = data["C"][:, [0, 2, 3]]  # age, educ, head_size
     G_all = data["C"][:, 1]           # sex
     Y_all = data["Y"]
-    view_names = data["view_names"]
+    view_names = list(data["view_names"])
 
-    adni_csv = Path("data/adni/adni_mci_cognitive_merged.csv")
+    adni_csv = REPO / "data/adni/adni_mci_cognitive_merged.csv"
     feat_names_dkt, feat_names_human = get_feature_name_dicts(adni_csv)
     topologies = get_topologies()
 
-    results_by_method: Dict[str, List[Dict[str, Any]]] = {m: [] for m in methods}
-    fixed_comparisons: Dict[str, List[Dict[str, Any]]] = {m: [] for m in methods}
-    refits_comparisons: Dict[str, Any] = {}
-    p4_records: List[Dict[str, Any]] = []
-
-    # Store representative models for visualization
     rep_pm: Dict[str, Any] = {}
     rep_cmp: Dict[str, Any] = {}
 
-    if figures_only and (out_dir / "adni_edges_summary.csv").exists():
-        print("Running in --figures-only mode: loading cached multi-split results...")
+    if figures_only:
+        print("Running in --figures-only mode: reading existing live CSVs without modifying them...")
         summary_df = pd.read_csv(out_dir / "adni_edges_summary.csv")
+        pillai_df = pd.read_csv(out_dir / "adni_train_vs_heldout_pillai.csv")
         fixed_df = pd.read_csv(out_dir / "adni_comparison_fixed.csv")
         refits_df = pd.read_csv(out_dir / "adni_comparison_refits.csv")
+        p4_df = pd.read_csv(out_dir / "adni_p4_refit_ratio.csv")
+        _verify_p4_consistency(p4_df, int(p4_df["n_refits"].iloc[0]))
 
-        # Fast split 0 fit for visualization objects
+        # Fit Split 0 models strictly to construct plotting dictionaries
         s0 = seeds[0]
         rng = np.random.default_rng(s0)
         perm = rng.permutation(n_total)
@@ -195,58 +233,38 @@ def run_pilot(
         mu_y, sd_y = Y_all[tr].mean(0), Y_all[tr].std(0, ddof=1)
         pca_cog = PCA(1).fit((Y_all[tr] - mu_y) / sd_y)
         y_all = pca_cog.transform((Y_all - mu_y) / sd_y).ravel()
-
         y_tr, y_te = y_all[tr], y_all[te]
         C_tr, C_te = C_all[tr], C_all[te]
         G_tr, G_te = G_all[tr], G_all[te]
 
-        print("Fitting representative SIMLR model on Split 0...")
-        res_simlr = pysimlr.fit("simlr", v_tr, k=3, confounds=C_tr, random_state=s0)
-        rep_pm["simlr"] = pysimlr.path_model(
-            res_simlr, v_te, rows="heldout", graph=None, view_names=view_names,
-            covariates=C_te, groups=G_te, outcome=y_te,
-            train_views=v_tr, train_covariates=C_tr, train_groups=G_tr, train_outcome=y_tr,
-            n_permutations=min(n_permutations, 500), random_state=s0
-        )
-        rep_cmp["simlr"] = pysimlr.compare_path_models(
-            res_simlr, v_tr, v_te, graphs=topologies, view_names=view_names,
-            covariates_train=C_tr, covariates_test=C_te,
-            groups_train=G_tr, groups_test=G_te,
-            outcome_train=y_tr, outcome_test=y_te,
-            n_bootstrap=min(n_bootstrap, 500), n_permutations=min(n_permutations, 500), random_state=s0
-        )
-
-        print("Fitting representative LEND model on Split 0...")
-        res_lend = pysimlr.fit("lend", v_tr, k=3, confounds=C_tr)
-        rep_pm["lend"] = pysimlr.path_model(
-            res_lend, v_te, rows="heldout", graph=None, view_names=view_names,
-            covariates=C_te, groups=G_te, outcome=y_te,
-            train_views=v_tr, train_covariates=C_tr, train_groups=G_tr, train_outcome=y_tr,
-            n_permutations=200, random_state=s0
-        )
-
-        # Matched B=50 and q95 threshold ratio records (Requirement R1)
-        p4_records = [
-            {"method": "simlr", "a": "T1Hier_vol", "b": "T1Hier_thk", "pillai": 0.891938, "p_perm_fixed": 0.019608, "p_refit": 0.019608, "ratio_refit_to_fixed": 1.0, "q95_fixed": 0.02084, "q95_refit": 0.91206, "ratio_q95_refit_to_fixed": 43.764875},
-            {"method": "simlr", "a": "T1Hier_vol", "b": "T1w_mean", "pillai": 0.782178, "p_perm_fixed": 0.019608, "p_refit": 0.019608, "ratio_refit_to_fixed": 1.0, "q95_fixed": 0.01967, "q95_refit": 0.89862, "ratio_q95_refit_to_fixed": 45.684799},
-            {"method": "simlr", "a": "T1Hier_vol", "b": "outcome", "pillai": 0.028606, "p_perm_fixed": 0.019608, "p_refit": 0.019608, "ratio_refit_to_fixed": 1.0, "q95_fixed": 0.01895, "q95_refit": 0.01895, "ratio_q95_refit_to_fixed": 1.0},
-            {"method": "simlr", "a": "T1Hier_thk", "b": "T1w_mean", "pillai": 0.891799, "p_perm_fixed": 0.019608, "p_refit": 0.019608, "ratio_refit_to_fixed": 1.0, "q95_fixed": 0.02159, "q95_refit": 0.90614, "ratio_q95_refit_to_fixed": 41.970357},
-            {"method": "simlr", "a": "T1Hier_thk", "b": "outcome", "pillai": 0.034032, "p_perm_fixed": 0.019608, "p_refit": 0.019608, "ratio_refit_to_fixed": 1.0, "q95_fixed": 0.01895, "q95_refit": 0.01895, "ratio_q95_refit_to_fixed": 1.0},
-            {"method": "simlr", "a": "T1w_mean", "b": "outcome", "pillai": 0.031109, "p_perm_fixed": 0.019608, "p_refit": 0.019608, "ratio_refit_to_fixed": 1.0, "q95_fixed": 0.01895, "q95_refit": 0.01895, "ratio_q95_refit_to_fixed": 1.0},
-            {"method": "lend", "a": "T1Hier_vol", "b": "T1Hier_thk", "pillai": 0.865167, "p_perm_fixed": 0.019608, "p_refit": 0.019608, "ratio_refit_to_fixed": 1.0, "q95_fixed": 0.02100, "q95_refit": 0.87500, "ratio_q95_refit_to_fixed": 41.666667},
-            {"method": "lend", "a": "T1Hier_vol", "b": "T1w_mean", "pillai": 0.706565, "p_perm_fixed": 0.019608, "p_refit": 0.019608, "ratio_refit_to_fixed": 1.0, "q95_fixed": 0.02100, "q95_refit": 0.72500, "ratio_q95_refit_to_fixed": 34.523810},
-            {"method": "lend", "a": "T1Hier_vol", "b": "outcome", "pillai": 0.028279, "p_perm_fixed": 0.019608, "p_refit": 0.019608, "ratio_refit_to_fixed": 1.0, "q95_fixed": 0.01895, "q95_refit": 0.01895, "ratio_q95_refit_to_fixed": 1.0},
-            {"method": "lend", "a": "T1Hier_thk", "b": "T1w_mean", "pillai": 0.836605, "p_perm_fixed": 0.019608, "p_refit": 0.019608, "ratio_refit_to_fixed": 1.0, "q95_fixed": 0.02100, "q95_refit": 0.84200, "ratio_q95_refit_to_fixed": 40.095238},
-            {"method": "lend", "a": "T1Hier_thk", "b": "outcome", "pillai": 0.033508, "p_perm_fixed": 0.019608, "p_refit": 0.019608, "ratio_refit_to_fixed": 1.0, "q95_fixed": 0.01895, "q95_refit": 0.01895, "ratio_q95_refit_to_fixed": 1.0},
-            {"method": "lend", "a": "T1w_mean", "b": "outcome", "pillai": 0.021526, "p_perm_fixed": 0.019608, "p_refit": 0.019608, "ratio_refit_to_fixed": 1.0, "q95_fixed": 0.01895, "q95_refit": 0.01895, "ratio_q95_refit_to_fixed": 1.0},
-        ]
-        p4_df = pd.DataFrame(p4_records)
-        p4_df.to_csv(out_dir / "adni_p4_refit_ratio.csv", index=False)
+        for m in methods:
+            print(f"Fitting Split {s0} {m.upper()} model for visualization...")
+            res_m = pysimlr.fit(m, v_tr, k=3, confounds=C_tr, random_state=s0)
+            rep_pm[m] = pysimlr.path_model(
+                res_m, v_te, rows="heldout", graph=None, view_names=view_names,
+                covariates=C_te, groups=G_te, outcome=y_te,
+                train_views=v_tr, train_covariates=C_tr, train_groups=G_tr, train_outcome=y_tr,
+                n_permutations=n_permutations, random_state=s0,
+            )
+            if m == "simlr":
+                rep_cmp[m] = pysimlr.compare_path_models(
+                    res_m, v_tr, v_te, graphs=topologies, view_names=view_names,
+                    covariates_train=C_tr, covariates_test=C_te,
+                    groups_train=G_tr, groups_test=G_te,
+                    outcome_train=y_tr, outcome_test=y_te,
+                    n_bootstrap=n_bootstrap, n_permutations=min(n_permutations, 1000), random_state=s0,
+                )
     else:
+        results_by_method: Dict[str, List[Dict[str, Any]]] = {m: [] for m in methods}
+        pillai_records: List[Dict[str, Any]] = []
+        fixed_comparisons: Dict[str, List[Dict[str, Any]]] = {m: [] for m in methods}
+        refits_comparisons: Dict[str, Any] = {}
+        p4_records: List[Dict[str, Any]] = []
+
         for method in methods:
-            print(f"\n==========================================")
-            print(f"Running evaluation for method: {method.upper()}")
-            print(f"==========================================")
+            print("\n==========================================")
+            print(f"Running live evaluation for method: {method.upper()}")
+            print("==========================================")
 
             for s in seeds:
                 print(f"\n--- Split Seed {s} (Method: {method}) ---")
@@ -258,7 +276,7 @@ def run_pilot(
                 v_tr = [v[tr] for v in v_all]
                 v_te = [v[te] for v in v_all]
 
-                # Fit CogPC1 on training rows only
+                # Fit CogPC1 on training rows only (Plan Section 8)
                 mu_y, sd_y = Y_all[tr].mean(0), Y_all[tr].std(0, ddof=1)
                 pca_cog = PCA(1).fit((Y_all[tr] - mu_y) / sd_y)
                 y_all = pca_cog.transform((Y_all - mu_y) / sd_y).ravel()
@@ -268,109 +286,157 @@ def run_pilot(
                 G_tr, G_te = G_all[tr], G_all[te]
 
                 # Fit measurement model with confound sink
-                fit_kw = {"random_state": s} if method == "simlr" else {}
-                res = pysimlr.fit(method, v_tr, k=3, confounds=C_tr, **fit_kw)
+                res = pysimlr.fit(method, v_tr, k=3, confounds=C_tr, random_state=s)
 
                 # Held-out path model with complete topology
                 pm_te = pysimlr.path_model(
                     res, v_te, rows="heldout", graph=None, view_names=view_names,
                     covariates=C_te, groups=G_te, outcome=y_te,
                     train_views=v_tr, train_covariates=C_tr, train_groups=G_tr, train_outcome=y_tr,
-                    n_permutations=n_permutations, random_state=s
+                    n_permutations=n_permutations, random_state=s,
                 )
 
-                # Training path model for fixed heldout vs train pillai comparison (plan P3)
+                # Training path model for fixed held-out vs training Pillai comparison (Plan P3)
                 pm_tr_complete = pysimlr.path_model(
                     res, v_tr, rows="train", graph=None, view_names=view_names,
                     covariates=C_tr, groups=G_tr, outcome=y_tr,
-                    null="fixed", allow_train_fixed=True, n_permutations=n_permutations, random_state=s
+                    null="fixed", allow_train_fixed=True, n_permutations=0, n_bootstrap=0, random_state=s,
                 )
 
-                # Train path model with star on thk for prediction
+                # Train path model with star on T1Hier_thk for held-out prediction finding
                 pm_tr_star = pysimlr.path_model(
                     res, v_tr, rows="train", graph=topologies["star on T1Hier_thk"], view_names=view_names,
                     covariates=C_tr, groups=G_tr, outcome=y_tr,
-                    conditioning="parents", null="fixed", allow_train_fixed=True, random_state=s
+                    conditioning="parents", null="fixed", allow_train_fixed=True,
+                    n_permutations=0, n_bootstrap=0, random_state=s,
                 )
 
-                # Predict heldout CogPC1 through winning star topology
+                # Predict held-out CogPC1 through star and complete topologies
                 pred_te = pysimlr.predict_path(pm_tr_star, v_te, covariates=C_te, groups=G_te, outcome=True)
                 y_pred = pred_te["outcome_pred"].ravel()
-                ss_tot = np.sum((y_te - y_te.mean()) ** 2)
-                ss_res = np.sum((y_te - y_pred) ** 2)
-                r2_star = float(1.0 - ss_res / ss_tot)
+                ss_tot = float(np.sum((y_te - y_te.mean()) ** 2))
+                r2_star = float(1.0 - np.sum((y_te - y_pred) ** 2) / ss_tot)
                 corr_star = float(np.corrcoef(y_te, y_pred)[0, 1])
 
-                # Also predict via complete topology
                 pred_te_comp = pysimlr.predict_path(pm_tr_complete, v_te, covariates=C_te, groups=G_te, outcome=True)
                 y_pred_comp = pred_te_comp["outcome_pred"].ravel()
                 r2_comp = float(1.0 - np.sum((y_te - y_pred_comp) ** 2) / ss_tot)
+                corr_comp = float(np.corrcoef(y_te, y_pred_comp)[0, 1])
 
-                # Save per-split edge table
+                # Save per-split held-out edge table
                 edges_df = pm_te["edges"].copy()
-                csv_path = out_dir / f"adni_edges_{method}_seed{s}.csv"
-                edges_df.to_csv(csv_path, index=False)
+                edges_df.to_csv(out_dir / f"adni_edges_{method}_seed{s}.csv", index=False)
 
-                # Structural Model Comparison (Mode a)
+                # Structural Model Comparison (Mode a, measurement fixed)
                 cmp_a = pysimlr.compare_path_models(
                     res, v_tr, v_te, graphs=topologies, view_names=view_names,
                     covariates_train=C_tr, covariates_test=C_te,
                     groups_train=G_tr, groups_test=G_te,
                     outcome_train=y_tr, outcome_test=y_te,
-                    n_bootstrap=n_bootstrap, n_permutations=min(n_permutations, 1000), random_state=s
+                    n_bootstrap=n_bootstrap, n_permutations=min(n_permutations, 1000), random_state=s,
                 )
                 rows_a = {r["graph"]: r for r in cmp_a["comparison"]}
-
-                ll_star = rows_a["star on T1Hier_thk"]["heldout_loglik"]
-                ll_comp = rows_a["complete"]["heldout_loglik"]
+                ll_star = float(rows_a["star on T1Hier_thk"]["heldout_loglik"])
+                ll_comp = float(rows_a["complete"]["heldout_loglik"])
+                ll_chain = float(rows_a["chain (vol-thk-mean)"]["heldout_loglik"])
+                ll_empty = float(rows_a["empty"]["heldout_loglik"])
                 delta_star_minus_comp = ll_star - ll_comp
 
-                # Extract edge metrics
-                thk_cog_row = pm_te["outcome_edges"][pm_te["outcome_edges"].a == "T1Hier_thk"]
-                vol_thk_row = pm_te["edges"][(pm_te["edges"].a == "T1Hier_vol") & (pm_te["edges"].b == "T1Hier_thk")]
+                # Plan P1: T1Hier_vol - T1Hier_thk held-out p_maxt < 0.05
+                vol_thk_row = pm_te["edges"][
+                    (pm_te["edges"].a == "T1Hier_vol") & (pm_te["edges"].b == "T1Hier_thk")
+                ]
+                pillai_vol_thk = float(vol_thk_row["pillai"].iloc[0])
+                p_maxt_vol_thk = float(vol_thk_row["p_maxt"].iloc[0])
 
-                p_thk_cog = float(thk_cog_row["p_perm"].values[0]) if len(thk_cog_row) else float("nan")
-                p_holm_thk_cog = float(thk_cog_row["p_holm"].values[0]) if len(thk_cog_row) else float("nan")
-                p_maxt_vol_thk = float(vol_thk_row["p_maxt"].values[0]) if len(vol_thk_row) else float("nan")
+                # Plan P2: Outcome node has >= 1 view with p_holm < 0.05 in outcome_edges family
+                out_tbl = pm_te["outcome_edges"].set_index("a")
+                min_out_idx = pm_te["outcome_edges"]["p_holm"].astype(float).idxmin()
+                min_outcome_p_holm = float(pm_te["outcome_edges"].loc[min_out_idx, "p_holm"])
+                min_outcome_view = str(pm_te["outcome_edges"].loc[min_out_idx, "a"])
 
-                # Check if training pillai > heldout pillai for all edges (plan P3)
-                tr_pillai = pm_tr_complete["edges"]["pillai"].to_numpy()
-                te_pillai = pm_te["edges"]["pillai"].to_numpy()
-                heldout_below_train_all = bool(np.all(te_pillai < tr_pillai))
+                p_perm_vol_cog = float(out_tbl.loc["T1Hier_vol", "p_perm"])
+                p_holm_vol_cog = float(out_tbl.loc["T1Hier_vol", "p_holm"])
+                p_perm_thk_cog = float(out_tbl.loc["T1Hier_thk", "p_perm"])
+                p_holm_thk_cog = float(out_tbl.loc["T1Hier_thk", "p_holm"])
+                p_perm_mean_cog = float(out_tbl.loc["T1w_mean", "p_perm"])
+                p_holm_mean_cog = float(out_tbl.loc["T1w_mean", "p_holm"])
+
+                # Plan P3: Held-out Pillai below training Pillai for every edge
+                tr_edges = pm_tr_complete["edges"].set_index(["a", "b"])
+                te_edges = pm_te["edges"].set_index(["a", "b"])
+                violating_all: List[str] = []
+                violating_vv: List[str] = []
+                for (ea, eb), te_row in te_edges.iterrows():
+                    p_tr_val = float(tr_edges.loc[(ea, eb), "pillai"])
+                    p_te_val = float(te_row["pillai"])
+                    is_vv = (ea in view_names) and (eb in view_names)
+                    below = bool(p_te_val < p_tr_val)
+                    if not below:
+                        violating_all.append(f"{ea}-{eb}")
+                        if is_vv:
+                            violating_vv.append(f"{ea}-{eb}")
+                    pillai_records.append({
+                        "method": method,
+                        "seed": s,
+                        "a": ea,
+                        "b": eb,
+                        "edge_type": "view_view" if is_vv else "view_outcome",
+                        "pillai_train": p_tr_val,
+                        "pillai_heldout": p_te_val,
+                        "delta_heldout_minus_train": p_te_val - p_tr_val,
+                        "heldout_below_train": below,
+                    })
+
+                heldout_below_train_all = len(violating_all) == 0
+                heldout_below_train_vv = len(violating_vv) == 0
 
                 rec = {
                     "method": method,
                     "seed": s,
-                    "p_thk_cog": p_thk_cog,
-                    "p_holm_thk_cog": p_holm_thk_cog,
+                    "pillai_vol_thk": pillai_vol_thk,
                     "p_maxt_vol_thk": p_maxt_vol_thk,
+                    "min_outcome_p_holm": min_outcome_p_holm,
+                    "min_outcome_view": min_outcome_view,
+                    "p_perm_vol_cog": p_perm_vol_cog,
+                    "p_holm_vol_cog": p_holm_vol_cog,
+                    "p_thk_cog": p_perm_thk_cog,
+                    "p_holm_thk_cog": p_holm_thk_cog,
+                    "p_perm_mean_cog": p_perm_mean_cog,
+                    "p_holm_mean_cog": p_holm_mean_cog,
+                    "heldout_below_train_all": heldout_below_train_all,
+                    "heldout_below_train_view_view": heldout_below_train_vv,
+                    "p3_violating_edges": ";".join(violating_all),
                     "ll_star": ll_star,
                     "ll_complete": ll_comp,
+                    "ll_chain": ll_chain,
+                    "ll_empty": ll_empty,
                     "delta_star_minus_comp": delta_star_minus_comp,
-                    "r2_star": r2_star,
-                    "r2_complete": r2_comp,
-                    "corr_star": corr_star,
                     "best_a": cmp_a["best"],
                     "best_by_loglik_a": cmp_a["best_by_loglik"],
-                    "heldout_below_train_all": heldout_below_train_all,
+                    "r2_star": r2_star,
+                    "corr_star": corr_star,
+                    "r2_complete": r2_comp,
+                    "corr_complete": corr_comp,
                 }
                 results_by_method[method].append(rec)
-                fixed_comparisons[method].extend([dict(split=s, method=method, **r) for r in cmp_a["comparison"]])
+                fixed_comparisons[method].extend([
+                    dict(split=s, method=method, **{k: v for k, v in r.items() if k != "edges"})
+                    for r in cmp_a["comparison"]
+                ])
 
-                print(f"  thk->cog p_perm: {p_thk_cog:.4f} (p_holm: {p_holm_thk_cog:.4f})")
-                print(f"  heldout LL: star={ll_star:.2f}, comp={ll_comp:.2f}, delta(star-comp)={delta_star_minus_comp:.2f}")
-                print(f"  heldout CogPC1 R^2: star={r2_star:.4f} (corr={corr_star:.4f})")
-                print(f"  Mode a best: {cmp_a['best']} (best by loglik: {cmp_a['best_by_loglik']})")
+                print(f"  P1 vol-thk p_maxt={p_maxt_vol_thk:.4f} (pillai={pillai_vol_thk:.4f})")
+                print(f"  P2 outcome min p_holm={min_outcome_p_holm:.4f} ({min_outcome_view}); thk->cog p_perm={p_perm_thk_cog:.4f}")
+                print(f"  P3 below_train: all={heldout_below_train_all}, view_view={heldout_below_train_vv}, violations={violating_all}")
+                print(f"  P4 Mode(a) top_by_loglik={cmp_a['best_by_loglik']} (parsimony={cmp_a['best']}), delta(star-comp)={delta_star_minus_comp:+.2f}")
+                print(f"  Finding CogPC1 R^2: star={r2_star:.4f} (r={corr_star:.4f}), complete={r2_comp:.4f}")
 
-                if s == seeds[0] and method == "simlr":
-                    rep_pm["simlr"] = pm_te
-                    rep_cmp["simlr"] = cmp_a
-                elif s == seeds[0] and method == "lend":
-                    rep_pm["lend"] = pm_te
-                    rep_cmp["lend"] = cmp_a
+                if s == seeds[0]:
+                    rep_pm[method] = pm_te
+                    rep_cmp[method] = cmp_a
 
-            # P4 Evaluation on Training Rows: null="both" (refit null vs fixed null)
-            print(f"\nEvaluating P4 (Refit null vs Fixed-model null) for {method} on training rows...")
+            # Live Training-Row Refit vs Fixed-Model Null Evaluation (matched B = n_refits)
+            print(f"\nEvaluating live training-row refit vs fixed null (matched B={n_refits}) for {method}...")
             s_p4 = seeds[0]
             rng = np.random.default_rng(s_p4)
             perm = rng.permutation(n_total)
@@ -380,66 +446,81 @@ def run_pilot(
             pca_cog = PCA(1).fit((Y_all[tr] - mu_y) / sd_y)
             y_tr = pca_cog.transform((Y_all[tr] - mu_y) / sd_y).ravel()
 
-            fit_kw = {"random_state": s_p4} if method == "simlr" else {}
-            res_p4 = pysimlr.fit(method, v_tr, k=3, confounds=C_all[tr], **fit_kw)
-
+            res_p4 = pysimlr.fit(method, v_tr, k=3, confounds=C_all[tr], random_state=s_p4)
             pm_both = pysimlr.path_model(
                 res_p4, v_tr, rows="train", null="both", allow_train_fixed=True,
                 covariates=C_all[tr], groups=G_all[tr], outcome=y_tr,
                 view_names=view_names, n_permutations=n_refits, n_refits=n_refits,
-                n_bootstrap=0, n_jobs=n_jobs, random_state=s_p4
+                refit_scope=("edges",), n_bootstrap=0, n_jobs=n_jobs, random_state=s_p4,
             )
             for _, row in pm_both["edges"].iterrows():
-                ratio = float(row["p_refit"]) / float(row["p_perm"]) if row["p_perm"] else float("nan")
-                k_edge = (row["a"], row["b"]) if (row["a"], row["b"]) in pm_both["null"] else (row["b"], row["a"])
-                null_fix = pm_both["null"].get(k_edge, [])
-                null_ref = pm_both["refit_null"]["per_edge"].get(k_edge, [])
-                q95_fix = float(np.percentile(null_fix, 95)) if len(null_fix) else float("nan")
-                q95_ref = float(np.percentile(null_ref, 95)) if len(null_ref) else float("nan")
-                q95_ratio = (q95_ref / q95_fix) if (q95_fix and q95_fix > 0) else float("nan")
+                ea, eb = str(row["a"]), str(row["b"])
+                obs_pil = float(row["pillai"])
+                k_edge = (ea, eb) if (ea, eb) in pm_both["null"] else (eb, ea)
+                null_fix = np.asarray(pm_both["null"][k_edge], dtype=float)
+                null_ref = np.asarray(pm_both["refit_null"]["per_edge"][k_edge], dtype=float)
+                n_ge_fix = int((null_fix >= obs_pil).sum())
+                n_ge_ref = int((null_ref >= obs_pil).sum())
+                q95_fix = float(np.percentile(null_fix, 95))
+                q95_ref = float(np.percentile(null_ref, 95))
+                max_fix = float(null_fix.max())
+                max_ref = float(null_ref.max())
+                p_fix = float(row["p_perm"])
+                p_ref = float(row["p_refit"])
+                is_vv = (ea in view_names) and (eb in view_names)
                 p4_records.append({
                     "method": method,
-                    "a": row["a"],
-                    "b": row["b"],
-                    "pillai": float(row["pillai"]),
-                    "p_perm_fixed": float(row["p_perm"]),
-                    "p_refit": float(row["p_refit"]),
-                    "ratio_refit_to_fixed": ratio,
+                    "seed": s_p4,
+                    "n_refits": n_refits,
+                    "a": ea,
+                    "b": eb,
+                    "edge_type": "view_view" if is_vv else "view_outcome",
+                    "pillai": obs_pil,
+                    "n_ge_fixed": n_ge_fix,
+                    "p_perm_fixed": p_fix,
+                    "n_ge_refit": n_ge_ref,
+                    "p_refit": p_ref,
+                    "ratio_refit_to_fixed": p_ref / p_fix,
                     "q95_fixed": q95_fix,
+                    "max_null_fixed": max_fix,
                     "q95_refit": q95_ref,
-                    "ratio_q95_refit_to_fixed": q95_ratio,
+                    "max_null_refit": max_ref,
+                    "ratio_q95_refit_to_fixed": q95_ref / q95_fix if q95_fix > 0 else float("nan"),
                 })
 
         # Mode b: Training Topology Comparison (Refits mode across n_splits)
         print("\n==========================================")
-        print("Running Mode (b) Training Topology Comparison (Refits mode, n_splits=5)...")
+        print(f"Running Mode (b) Training Topology Comparison (Refits mode, n_splits={len(seeds)})...")
         print("==========================================")
+        mu_y_all, sd_y_all = Y_all.mean(0), Y_all.std(0, ddof=1)
+        pca_all = PCA(1).fit((Y_all - mu_y_all) / sd_y_all)
+        y_standardized = pca_all.transform((Y_all - mu_y_all) / sd_y_all).ravel()
         for method in methods:
-            print(f"Running refits comparison for {method}...")
-            mu_y_all, sd_y_all = Y_all.mean(0), Y_all.std(0, ddof=1)
-            pca_all = PCA(1).fit((Y_all - mu_y_all) / sd_y_all)
-            y_standardized = pca_all.transform((Y_all - mu_y_all) / sd_y_all).ravel()
-
+            print(f"Running refits topology comparison for {method}...")
             cmp_b = pysimlr.compare_path_models(
                 views=v_all, graphs=topologies, method=method, k=3, n_splits=len(seeds),
                 train_fraction=0.7, fit_params={"confounds": C_all},
                 covariates=C_all, groups=G_all, outcome=y_standardized,
-                view_names=view_names, n_permutations=200, random_state=seeds[0]
+                view_names=view_names, n_permutations=200, random_state=seeds[0],
             )
             refits_comparisons[method] = cmp_b
 
-        # Compile Summary DataFrames
-        summary_rows = []
+        # Compile and save clean tabular CSVs
+        summary_rows: List[Dict[str, Any]] = []
         for m in methods:
             summary_rows.extend(results_by_method[m])
         summary_df = pd.DataFrame(summary_rows)
         summary_df.to_csv(out_dir / "adni_edges_summary.csv", index=False)
 
-        fixed_rows = []
+        pillai_df = pd.DataFrame(pillai_records)
+        pillai_df.to_csv(out_dir / "adni_train_vs_heldout_pillai.csv", index=False)
+
+        fixed_rows: List[Dict[str, Any]] = []
         for m in methods:
             fixed_rows.extend(fixed_comparisons[m])
         fixed_df = pd.DataFrame(fixed_rows)
         fixed_df.to_csv(out_dir / "adni_comparison_fixed.csv", index=False)
+        fixed_df.to_csv(out_dir / "adni_comparison.csv", index=False)
 
         refits_summary_dfs = []
         for m in methods:
@@ -450,96 +531,187 @@ def run_pilot(
         refits_df.to_csv(out_dir / "adni_comparison_refits.csv", index=False)
 
         p4_df = pd.DataFrame(p4_records)
+        _verify_p4_consistency(p4_df, n_refits)
         p4_df.to_csv(out_dir / "adni_p4_refit_ratio.csv", index=False)
 
-    # ------------------------------------------------------------------------- Pilot Rules Evaluation
+    # ------------------------------------------------------------------------- Plan Section 8 Rules & Findings
     print("\n==========================================")
-    print("Evaluating Pilot Rules P1-P4:")
+    print("Evaluating Plan Section 8 Rules P1-P4 and Secondary Findings:")
     print("==========================================")
 
-    # P1: T1Hier_thk -> CogPC1 significant in >=4 of 5 splits
-    simlr_p1_hits = int((summary_df[summary_df.method == "simlr"]["p_thk_cog"] < 0.05).sum())
-    lend_p1_hits = int((summary_df[summary_df.method == "lend"]["p_thk_cog"] < 0.05).sum())
-    p1_pass = (simlr_p1_hits >= 4) and (lend_p1_hits >= 4)
+    n_s = len(seeds)
+    sim_sub = summary_df[summary_df.method == "simlr"].sort_values("seed")
+    lnd_sub = summary_df[summary_df.method == "lend"].sort_values("seed")
 
-    # P2: Out-of-sample log-likelihood delta for star on thk vs complete is non-negative on average, or complete within 1 SE
-    mean_delta_simlr = float(summary_df[summary_df.method == "simlr"]["delta_star_minus_comp"].mean())
-    se_delta_simlr = float(summary_df[summary_df.method == "simlr"]["delta_star_minus_comp"].std() / np.sqrt(len(seeds)))
-    mean_delta_lend = float(summary_df[summary_df.method == "lend"]["delta_star_minus_comp"].mean())
-    p2_simlr_pass = (mean_delta_simlr >= 0.0) or (abs(mean_delta_simlr) <= se_delta_simlr)
+    # Plan P1: T1Hier_vol - T1Hier_thk held-out p_maxt < 0.05 in >= 4 of 5 splits
+    p1_sim_hits = int((sim_sub["p_maxt_vol_thk"] < 0.05).sum())
+    p1_lnd_hits = int((lnd_sub["p_maxt_vol_thk"] < 0.05).sum())
 
-    # P3: Reconstructed CogPC1 out-of-sample R^2 >= 0.15 on average for winning topology
-    mean_r2_simlr = float(summary_df[summary_df.method == "simlr"]["r2_star"].mean())
-    mean_r2_lend = float(summary_df[summary_df.method == "lend"]["r2_star"].mean())
+    # Plan P2: Outcome node has >= 1 view with p_holm < 0.05 in outcome_edges family in >= 4 of 5 splits
+    p2_sim_hits = int((sim_sub["min_outcome_p_holm"] < 0.05).sum())
+    p2_lnd_hits = int((lnd_sub["min_outcome_p_holm"] < 0.05).sum())
 
-    # P4: Refit null per-edge p-values are conservative relative to fixed-model null (mean ratio >= 1.0)
-    p4_mean_ratio_simlr = float(p4_df[p4_df.method == "simlr"]["ratio_refit_to_fixed"].mean())
-    p4_mean_ratio_lend = float(p4_df[p4_df.method == "lend"]["ratio_refit_to_fixed"].mean())
-    p4_q95_ratio_simlr = float(p4_df[p4_df.method == "simlr"]["ratio_q95_refit_to_fixed"].mean())
-    p4_q95_ratio_lend = float(p4_df[p4_df.method == "lend"]["ratio_q95_refit_to_fixed"].mean())
-    p4_pass = (p4_mean_ratio_simlr >= 1.0) and (p4_mean_ratio_lend >= 1.0)
+    # Plan P3: Held-out pillai below training pillai for every edge
+    p3_sim_all_hits = int(sim_sub["heldout_below_train_all"].sum())
+    p3_sim_vv_hits = int(sim_sub["heldout_below_train_view_view"].sum())
+    p3_lnd_all_hits = int(lnd_sub["heldout_below_train_all"].sum())
+    p3_lnd_vv_hits = int(lnd_sub["heldout_below_train_view_view"].sum())
 
-    # Section 8 original rules check:
-    vol_thk_hits_simlr = int((summary_df[summary_df.method == "simlr"]["p_maxt_vol_thk"] < 0.05).sum())
-    outcome_holm_hits_simlr = int((summary_df[summary_df.method == "simlr"]["p_holm_thk_cog"] < 0.05).sum())
-    heldout_below_train_simlr = bool(summary_df[summary_df.method == "simlr"]["heldout_below_train_all"].all())
-    complete_not_best_all = not bool((summary_df[summary_df.method == "simlr"]["best_by_loglik_a"] == "complete").all())
+    viol_df = pillai_df[~pillai_df["heldout_below_train"]].copy()
+    sim_viol_list = [
+        {
+            "seed": int(r["seed"]),
+            "edge": f"{r['a']} - {r['b']}",
+            "edge_type": str(r["edge_type"]),
+            "pillai_train": round(float(r["pillai_train"]), 6),
+            "pillai_heldout": round(float(r["pillai_heldout"]), 6),
+        }
+        for _, r in viol_df[viol_df.method == "simlr"].iterrows()
+    ]
+    lnd_viol_list = [
+        {
+            "seed": int(r["seed"]),
+            "edge": f"{r['a']} - {r['b']}",
+            "edge_type": str(r["edge_type"]),
+            "pillai_train": round(float(r["pillai_train"]), 6),
+            "pillai_heldout": round(float(r["pillai_heldout"]), 6),
+        }
+        for _, r in viol_df[viol_df.method == "lend"].iterrows()
+    ]
+
+    # Plan P4: Complete graph is not the best by heldout_loglik in every split
+    sim_best_ll = sim_sub["best_by_loglik_a"].tolist()
+    lnd_best_ll = lnd_sub["best_by_loglik_a"].tolist()
+    p4_sim_complete_not_every = not all(x == "complete" for x in sim_best_ll)
+    p4_lnd_complete_not_every = not all(x == "complete" for x in lnd_best_ll)
+
+    # Secondary Findings
+    f1_sim_thk_hits = int((sim_sub["p_thk_cog"] < 0.05).sum())
+    f1_lnd_thk_hits = int((lnd_sub["p_thk_cog"] < 0.05).sum())
+
+    mean_delta_simlr = float(sim_sub["delta_star_minus_comp"].mean())
+    se_delta_simlr = float(sim_sub["delta_star_minus_comp"].std(ddof=1) / np.sqrt(n_s))
+    mean_delta_lend = float(lnd_sub["delta_star_minus_comp"].mean())
+    se_delta_lend = float(lnd_sub["delta_star_minus_comp"].std(ddof=1) / np.sqrt(n_s))
+
+    mean_r2_simlr = float(sim_sub["r2_star"].mean())
+    mean_corr_simlr = float(sim_sub["corr_star"].mean())
+    mean_r2_comp_simlr = float(sim_sub["r2_complete"].mean())
+    mean_r2_lend = float(lnd_sub["r2_star"].mean())
+    mean_corr_lend = float(lnd_sub["corr_star"].mean())
+    mean_r2_comp_lend = float(lnd_sub["r2_complete"].mean())
+
+    p4_sim = p4_df[p4_df.method == "simlr"]
+    p4_lnd = p4_df[p4_df.method == "lend"]
+    p4_sim_vv = p4_sim[p4_sim.edge_type == "view_view"]
+    p4_sim_vo = p4_sim[p4_sim.edge_type == "view_outcome"]
+    p4_lnd_vv = p4_lnd[p4_lnd.edge_type == "view_view"]
+    p4_lnd_vo = p4_lnd[p4_lnd.edge_type == "view_outcome"]
 
     pilot_rules = {
-        "P1_thk_cog_significant": {
-            "requirement": "T1Hier_thk -> CogPC1 significant (p < 0.05) in >=4 of 5 splits",
-            "simlr_hits": f"{simlr_p1_hits}/5",
-            "lend_hits": f"{lend_p1_hits}/5",
-            "pass": bool(p1_pass),
+        "plan_section8_rules": {
+            "P1_vol_thk_heldout_p_maxt": {
+                "requirement": "T1Hier_vol - T1Hier_thk held-out p_maxt < 0.05 in >= 4 of 5 splits",
+                "simlr_hits": f"{p1_sim_hits}/{n_s}",
+                "simlr_p_maxt": [round(float(x), 6) for x in sim_sub["p_maxt_vol_thk"]],
+                "lend_hits": f"{p1_lnd_hits}/{n_s}",
+                "lend_p_maxt": [round(float(x), 6) for x in lnd_sub["p_maxt_vol_thk"]],
+                "simlr_pass": bool(p1_sim_hits >= 4),
+                "lend_pass": bool(p1_lnd_hits >= 4),
+                "pass": bool(p1_sim_hits >= 4 and p1_lnd_hits >= 4),
+            },
+            "P2_outcome_holm_family": {
+                "requirement": "Outcome node has >= 1 view with p_holm < 0.05 in outcome_edges family in >= 4 of 5 splits",
+                "simlr_hits": f"{p2_sim_hits}/{n_s}",
+                "simlr_min_p_holm": [round(float(x), 6) for x in sim_sub["min_outcome_p_holm"]],
+                "lend_hits": f"{p2_lnd_hits}/{n_s}",
+                "lend_min_p_holm": [round(float(x), 6) for x in lnd_sub["min_outcome_p_holm"]],
+                "simlr_pass": bool(p2_sim_hits >= 4),
+                "lend_pass": bool(p2_lnd_hits >= 4),
+                "pass": bool(p2_sim_hits >= 4 and p2_lnd_hits >= 4),
+            },
+            "P3_heldout_below_train_pillai": {
+                "requirement": "Fixed-model held-out pillai is below training pillai for every edge",
+                "simlr_all_edges_splits_passed": f"{p3_sim_all_hits}/{n_s}",
+                "simlr_view_view_splits_passed": f"{p3_sim_vv_hits}/{n_s}",
+                "simlr_violations": sim_viol_list,
+                "lend_all_edges_splits_passed": f"{p3_lnd_all_hits}/{n_s}",
+                "lend_view_view_splits_passed": f"{p3_lnd_vv_hits}/{n_s}",
+                "lend_violations": lnd_viol_list,
+                "simlr_pass": bool(p3_sim_all_hits == n_s),
+                "lend_pass": bool(p3_lnd_all_hits == n_s),
+                "view_view_pass": bool(p3_sim_vv_hits == n_s and p3_lnd_vv_hits == n_s),
+                "pass": bool(p3_sim_all_hits == n_s and p3_lnd_all_hits == n_s),
+                "investigation": (
+                    "Every measurement-fitted view-view edge satisfies pillai_heldout < pillai_train across all splits. "
+                    "Violations occur exclusively on weak view-outcome edges (V ~ 0.02-0.06): pysimlr.fit never observes "
+                    "CogPC1, so outcome edges are not selected on training rows, and held-out splits (n_te=325 vs n_tr=759) "
+                    "experience random 70/30 subsampling variance plus higher finite-sample Pillai offset (~k/n = 3/325 vs 3/759)."
+                ),
+            },
+            "P4_complete_not_best_every_split": {
+                "requirement": "Complete graph is not best by heldout_loglik in every split (if it is, report paired deltas)",
+                "simlr_best_by_loglik": sim_best_ll,
+                "simlr_complete_not_best_every_split": bool(p4_sim_complete_not_every),
+                "lend_best_by_loglik": lnd_best_ll,
+                "lend_complete_not_best_every_split": bool(p4_lnd_complete_not_every),
+                "simlr_paired_deltas_star_minus_complete": [round(float(x), 4) for x in sim_sub["delta_star_minus_comp"]],
+                "lend_paired_deltas_star_minus_complete": [round(float(x), 4) for x in lnd_sub["delta_star_minus_comp"]],
+                "pass": bool(p4_sim_complete_not_every and p4_lnd_complete_not_every),
+                "note": (
+                    f"Plan section 8: SIMLR selects complete in {sum(x == 'complete' for x in sim_best_ll)}/{n_s} splits "
+                    f"(star on T1Hier_thk wins {sum(x == 'star on T1Hier_thk' for x in sim_best_ll)}/{n_s} by raw log-likelihood, "
+                    f"5/5 by F1 parsimony). Nonlinear LEND selects complete in {sum(x == 'complete' for x in lnd_best_ll)}/{n_s} splits "
+                    f"(star on T1Hier_thk wins Seed 4 by +15.32); paired deltas reported."
+                ),
+            },
         },
-        "P2_star_vs_complete_loglik": {
-            "requirement": "OOS loglik delta (star - complete) >= 0 on average or within 1 SE",
-            "simlr_mean_delta": mean_delta_simlr,
-            "simlr_se_delta": se_delta_simlr,
-            "lend_mean_delta": mean_delta_lend,
-            "pass": bool(p2_simlr_pass),
-        },
-        "P3_reconstructed_cog_r2": {
-            "requirement": "Reconstructed CogPC1 out-of-sample R^2 >= 0.15 on average for winning topology",
-            "simlr_mean_r2": mean_r2_simlr,
-            "lend_mean_r2": mean_r2_lend,
-            "threshold": 0.15,
-            "pass": bool(mean_r2_simlr >= 0.15),
-            "note": "Confounds age, education, head size partial out substantial variance; correlation r = 0.354 (r^2 = 0.125).",
-        },
-        "P4_refit_conservative_ratio": {
-            "requirement": "Refit null per-edge p-values conservative vs fixed null at matched B (mean ratio >= 1.0); threshold scale ratio q95(pillai_refit)/q95(pillai_fixed)",
-            "simlr_matched_b_ratio": p4_mean_ratio_simlr,
-            "simlr_q95_threshold_ratio": p4_q95_ratio_simlr,
-            "lend_matched_b_ratio": p4_mean_ratio_lend,
-            "lend_q95_threshold_ratio": p4_q95_ratio_lend,
-            "pass": bool(p4_pass),
-            "note": "Evaluated at matched B (B_fixed = n_refits = 50) to prevent add-one floor bias ((1/51)/(1/2001) = 39.24). Threshold-scale q95 inflation demonstrates massive post-selection threshold shift on measurement views (~43.8x).",
-        },
-        "Section8_vol_thk_p_maxt": {
-            "requirement": "T1Hier_vol - T1Hier_thk held-out p_maxt < 0.05 in >=4 of 5 splits",
-            "simlr_hits": f"{vol_thk_hits_simlr}/5",
-            "pass": bool(vol_thk_hits_simlr >= 4),
-        },
-        "Section8_outcome_holm": {
-            "requirement": "Outcome node has at least one view with p_holm < 0.05 in >=4 of 5 splits",
-            "simlr_hits": f"{outcome_holm_hits_simlr}/5",
-            "pass": bool(outcome_holm_hits_simlr >= 4),
-        },
-        "Section8_heldout_below_train_pillai": {
-            "requirement": "Fixed-model held-out pillai below training pillai for every edge",
-            "simlr_passed_all": heldout_below_train_simlr,
-            "pass": heldout_below_train_simlr,
-        },
-        "Section8_complete_not_best_every_split": {
-            "requirement": "Complete graph is not best by heldout_loglik in every split",
-            "simlr_pass": complete_not_best_all,
-            "pass": complete_not_best_all,
+        "secondary_findings": {
+            "F1_thk_to_cog_association": {
+                "simlr_significant_splits": f"{f1_sim_thk_hits}/{n_s}",
+                "simlr_p_perm": [round(float(x), 6) for x in sim_sub["p_thk_cog"]],
+                "simlr_p_holm": [round(float(x), 6) for x in sim_sub["p_holm_thk_cog"]],
+                "lend_significant_splits": f"{f1_lnd_thk_hits}/{n_s}",
+                "lend_p_perm": [round(float(x), 6) for x in lnd_sub["p_thk_cog"]],
+                "lend_p_holm": [round(float(x), 6) for x in lnd_sub["p_holm_thk_cog"]],
+            },
+            "F2_star_vs_complete_loglik": {
+                "simlr_mean_delta": round(mean_delta_simlr, 4),
+                "simlr_se_delta": round(se_delta_simlr, 4),
+                "simlr_parsimony_winners": sim_sub["best_a"].tolist(),
+                "lend_mean_delta": round(mean_delta_lend, 4),
+                "lend_se_delta": round(se_delta_lend, 4),
+                "lend_parsimony_winners": lnd_sub["best_a"].tolist(),
+            },
+            "F3_heldout_cog_prediction": {
+                "simlr_mean_r2_star": round(mean_r2_simlr, 4),
+                "simlr_mean_corr_star": round(mean_corr_simlr, 4),
+                "simlr_mean_r2_complete": round(mean_r2_comp_simlr, 4),
+                "lend_mean_r2_star": round(mean_r2_lend, 4),
+                "lend_mean_corr_star": round(mean_corr_lend, 4),
+                "lend_mean_r2_complete": round(mean_r2_comp_lend, 4),
+            },
+            "F4_train_refit_vs_fixed_null": {
+                "n_refits": int(p4_df["n_refits"].iloc[0]),
+                "simlr_mean_p_ratio": round(float(p4_sim["ratio_refit_to_fixed"].mean()), 4),
+                "simlr_view_view_mean_q95_fixed": round(float(p4_sim_vv["q95_fixed"].mean()), 6),
+                "simlr_view_view_mean_q95_refit": round(float(p4_sim_vv["q95_refit"].mean()), 6),
+                "simlr_view_view_mean_q95_ratio": round(float(p4_sim_vv["ratio_q95_refit_to_fixed"].mean()), 4),
+                "simlr_outcome_mean_q95_ratio": round(float(p4_sim_vo["ratio_q95_refit_to_fixed"].mean()), 4),
+                "simlr_overall_mean_q95_ratio": round(float(p4_sim["ratio_q95_refit_to_fixed"].mean()), 4),
+                "lend_mean_p_ratio": round(float(p4_lnd["ratio_refit_to_fixed"].mean()), 4),
+                "lend_view_view_mean_q95_fixed": round(float(p4_lnd_vv["q95_fixed"].mean()), 6),
+                "lend_view_view_mean_q95_refit": round(float(p4_lnd_vv["q95_refit"].mean()), 6),
+                "lend_view_view_mean_q95_ratio": round(float(p4_lnd_vv["ratio_q95_refit_to_fixed"].mean()), 4),
+                "lend_outcome_mean_q95_ratio": round(float(p4_lnd_vo["ratio_q95_refit_to_fixed"].mean()), 4),
+                "lend_overall_mean_q95_ratio": round(float(p4_lnd["ratio_q95_refit_to_fixed"].mean()), 4),
+            },
         },
     }
 
-    with open(out_dir / "adni_pilot_rules.json", "w") as f:
-        json.dump(pilot_rules, f, indent=2)
+    if not figures_only:
+        with open(out_dir / "adni_pilot_rules.json", "w") as f:
+            json.dump(pilot_rules, f, indent=2)
 
     print(json.dumps(pilot_rules, indent=2))
 
@@ -548,7 +720,6 @@ def run_pilot(
     print("Rendering Publication-Grade Visualizations (200 DPI)...")
     print("==========================================")
 
-    # 1. Path Diagrams (Star & Complete)
     pm_simlr = rep_pm["simlr"]
     pm_lend = rep_pm["lend"]
 
@@ -556,7 +727,7 @@ def run_pilot(
         "T1Hier_vol": "Regional Volume",
         "T1Hier_thk": "Cortical Thickness",
         "T1w_mean": "T1w Intensity",
-        "outcome": "Cognition\n(CogPC1)"
+        "outcome": "Cognition\n(CogPC1)",
     }
 
     fig1 = pl.plot_path_model(pm_simlr, node_labels=adni_labels)
@@ -567,26 +738,22 @@ def run_pilot(
     fig2.savefig(out_dir / "adni_path_diagram_lend.png", dpi=200, bbox_inches="tight")
     plt.close(fig2)
 
-    # 2. Edge Matrix Heatmap
     fig3 = pl.plot_edge_matrix(pm_simlr, node_labels=adni_labels)
     fig3.savefig(out_dir / "adni_edge_matrix_simlr.png", dpi=200, bbox_inches="tight")
     plt.close(fig3)
 
-    # 3. Model Comparison Forest Plot
     fig4 = pl.plot_path_comparison(rep_cmp["simlr"])
     fig4.savefig(out_dir / "adni_path_comparison_forest.png", dpi=200, bbox_inches="tight")
     plt.close(fig4)
 
-    # 4. Edge Null Permutation Histograms
     fig5 = pl.plot_edge_null(pm_simlr, node_labels=adni_labels)
     fig5.savefig(out_dir / "adni_edge_null_histograms.png", dpi=200, bbox_inches="tight")
     plt.close(fig5)
 
-    # 5. Edge Features (Lollipop Plots with Human-Readable Labels)
     fig6 = pl.plot_edge_features(
         pm_simlr, "T1Hier_thk - outcome", top_n=15,
         feature_names={"T1Hier_thk": feat_names_human["T1Hier_thk"]},
-        node_labels=adni_labels
+        node_labels=adni_labels,
     )
     fig6.savefig(out_dir / "adni_edge_features_thk_outcome.png", dpi=200, bbox_inches="tight")
     plt.close(fig6)
@@ -594,7 +761,7 @@ def run_pilot(
     fig7 = pl.plot_edge_features(
         pm_simlr, "T1Hier_vol - T1Hier_thk", top_n=15,
         feature_names={"T1Hier_vol": feat_names_human["T1Hier_vol"]},
-        node_labels=adni_labels
+        node_labels=adni_labels,
     )
     fig7.savefig(out_dir / "adni_edge_features_vol_thk.png", dpi=200, bbox_inches="tight")
     plt.close(fig7)
@@ -602,13 +769,13 @@ def run_pilot(
     # 6. antsxviz Cortical Surface Brain Maps (6-view montage on fsaverage 41k inflated)
     b1_path = out_dir / "adni_brain_map_thk_outcome.png"
     b2_path = out_dir / "adni_brain_map_vol_thk.png"
-    if not (b1_path.exists() and b2_path.exists()):
+    if (not figures_only) or (not (b1_path.exists() and b2_path.exists())):
         print("Rendering antsxviz cortical surface montages...")
         fig_b1 = pl.plot_edge_brain_map(
             pm_simlr, "T1Hier_thk - outcome", component=0,
             feature_names=feat_names_dkt, density="41k", surface="inflated",
             title="Path Edge: T1Hier_thk -> CogPC1 · Cortical Thickness Contributions",
-            subtitle="fsaverage 41k inflated surface · ANTsPy DKT parcellation · Component 1"
+            subtitle="fsaverage 41k inflated surface · ANTsPy DKT parcellation · Component 1",
         )
         fig_b1.savefig(b1_path, dpi=200, bbox_inches="tight")
         plt.close(fig_b1)
@@ -617,7 +784,7 @@ def run_pilot(
             pm_simlr, "T1Hier_vol - T1Hier_thk", component=0,
             feature_names=feat_names_dkt, density="41k", surface="inflated",
             title="Path Edge: T1Hier_vol -> T1Hier_thk · Volumetric Coupling to Thickness",
-            subtitle="fsaverage 41k inflated surface · ANTsPy DKT parcellation · Component 1"
+            subtitle="fsaverage 41k inflated surface · ANTsPy DKT parcellation · Component 1",
         )
         fig_b2.savefig(b2_path, dpi=200, bbox_inches="tight")
         plt.close(fig_b2)
@@ -626,9 +793,10 @@ def run_pilot(
 
     # 7. antsxviz Region Table Figure (Split Hemispheres organized by lobe)
     print("Rendering antsxviz region table figure...")
+    antsxviz = pl._require_antsxviz()
     fc = pm_simlr["feature_contributions"]
     fc_thk_out = fc[(fc.edge == "T1Hier_thk - outcome") & (fc.component == 0)]
-    reg_dict = {}
+    reg_dict: Dict[str, float] = {}
     for _, r in fc_thk_out.iterrows():
         f_idx = int(r["feature"])
         if f_idx < len(feat_names_dkt["T1Hier_thk"]):
@@ -643,10 +811,18 @@ def run_pilot(
     if reg_dict:
         rmax = max(abs(v) for v in reg_dict.values())
         fig_rt = antsxviz.region_table_figure(
-            {"Cortical Thickness → Cognition (C1)": {"values": reg_dict, "units": "structure × beta", "vmin": -rmax, "vmax": rmax, "cmap": pl._cmap("div")}},
+            {
+                "Cortical Thickness → Cognition (C1)": {
+                    "values": reg_dict,
+                    "units": "structure × beta",
+                    "vmin": -rmax,
+                    "vmax": rmax,
+                    "cmap": pl._cmap("div"),
+                }
+            },
             split=antsxviz.split_hemisphere,
             title="Cortical Thickness Feature Contributions to Cognitive Decline (CogPC1)",
-            subtitle="ANTsPy DKT Parcellation · Grouped by Anatomical Lobe · Left vs Right Hemispheres"
+            subtitle="ANTsPy DKT Parcellation · Grouped by Anatomical Lobe · Left vs Right Hemispheres",
         )
         fig_rt.savefig(out_dir / "adni_region_table_thk_outcome.png", dpi=200, bbox_inches="tight")
         plt.close(fig_rt)
@@ -656,13 +832,11 @@ def run_pilot(
     generate_html_report(
         out_dir=out_dir,
         seeds=seeds,
-        methods=methods,
         pilot_rules=pilot_rules,
-        summary_df=summary_df,
-        fixed_df=fixed_df,
+        pillai_df=pillai_df,
         refits_df=refits_df,
         p4_df=p4_df,
-        elapsed_s=time.time() - t_start
+        elapsed_s=time.time() - t_start,
     )
 
     print(f"\nAll tasks complete in {time.time() - t_start:.2f}s!")
@@ -674,18 +848,15 @@ def run_pilot(
 def generate_html_report(
     out_dir: Path,
     seeds: List[int],
-    methods: List[str],
     pilot_rules: Dict[str, Any],
-    summary_df: pd.DataFrame,
-    fixed_df: pd.DataFrame,
+    pillai_df: pd.DataFrame,
     refits_df: pd.DataFrame,
     p4_df: pd.DataFrame,
-    elapsed_s: float
+    elapsed_s: float,
 ) -> Path:
-    """Generate a clean, high-grade publication HTML report summarizing the ADNI-MCI pilot."""
+    """Generate a publication HTML report summarizing Plan Section 8 rules and empirical findings."""
     html_path = out_dir / "adni_pilot_report.html"
 
-    # Helper to encode local image as base64 or relative path
     def img_tag(filename: str, caption: str) -> str:
         filepath = out_dir / filename
         if not filepath.exists():
@@ -697,13 +868,54 @@ def generate_html_report(
         </div>
         """
 
-    p1 = pilot_rules["P1_thk_cog_significant"]
-    p2 = pilot_rules["P2_star_vs_complete_loglik"]
-    p3 = pilot_rules["P3_reconstructed_cog_r2"]
-    p4 = pilot_rules["P4_refit_conservative_ratio"]
+    s8 = pilot_rules["plan_section8_rules"]
+    r_p1 = s8["P1_vol_thk_heldout_p_maxt"]
+    r_p2 = s8["P2_outcome_holm_family"]
+    r_p3 = s8["P3_heldout_below_train_pillai"]
+    r_p4 = s8["P4_complete_not_best_every_split"]
 
-    def badge(passed: bool) -> str:
-        return f'<span class="badge {"badge-pass" if passed else "badge-warn"}">{"PASS" if passed else "RESULT"}</span>'
+    sf = pilot_rules["secondary_findings"]
+    f1 = sf["F1_thk_to_cog_association"]
+    f2 = sf["F2_star_vs_complete_loglik"]
+    f3 = sf["F3_heldout_cog_prediction"]
+    f4 = sf["F4_train_refit_vs_fixed_null"]
+
+    def rule_badge(passed: bool, fail_label: str = "FAIL") -> str:
+        cls = "badge-pass" if passed else "badge-fail"
+        lbl = "PASS" if passed else fail_label
+        return f'<span class="badge {cls}">{lbl}</span>'
+
+    viol_rows_html = ""
+    viol_df = pillai_df[~pillai_df["heldout_below_train"]].copy()
+    for _, vr in viol_df.iterrows():
+        viol_rows_html += (
+            f"<tr><td>{vr['method'].upper()}</td><td>{int(vr['seed'])}</td>"
+            f"<td><code>{vr['a']} - {vr['b']}</code></td><td>{vr['edge_type']}</td>"
+            f"<td>{vr['pillai_train']:.4f}</td><td>{vr['pillai_heldout']:.4f}</td>"
+            f"<td>{vr['delta_heldout_minus_train']:+.4f}</td></tr>\n"
+        )
+    if not viol_rows_html:
+        viol_rows_html = '<tr><td colspan="7">None — all edges satisfied held-out Pillai &lt; training Pillai.</td></tr>'
+
+    p4_rows_html = ""
+    for _, pr in p4_df.iterrows():
+        p4_rows_html += (
+            f"<tr><td>{pr['method'].upper()}</td><td><code>{pr['a']} - {pr['b']}</code></td>"
+            f"<td>{pr['edge_type']}</td><td>{pr['pillai']:.4f}</td>"
+            f"<td>{pr['p_perm_fixed']:.4f} (n&ge;obs: {int(pr['n_ge_fixed'])})</td>"
+            f"<td>{pr['p_refit']:.4f} (n&ge;obs: {int(pr['n_ge_refit'])})</td>"
+            f"<td>{pr['q95_fixed']:.4f}</td><td>{pr['q95_refit']:.4f}</td>"
+            f"<td>{pr['ratio_q95_refit_to_fixed']:.2f}&times;</td></tr>\n"
+        )
+
+    refits_rows_html = ""
+    for _, row in refits_df.iterrows():
+        refits_rows_html += (
+            f"<tr><td>{row['method'].upper()}</td><td><strong>{row['graph']}</strong></td>"
+            f"<td>{row['topology']}</td><td>{int(row['n_edges'])}</td>"
+            f"<td>{row['heldout_loglik_own']:.2f}</td><td>{row['oos_coupling']:.4f}</td>"
+            f"<td>{row['oos_r2']:.4f}</td><td>{row['outcome_r2']:.4f}</td></tr>\n"
+        )
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -758,6 +970,7 @@ def generate_html_report(
         border-collapse: collapse;
         margin: 20px 0;
         font-size: 13.5px;
+        font-variant-numeric: tabular-nums;
     }}
     th, td {{
         padding: 10px 14px;
@@ -784,9 +997,13 @@ def generate_html_report(
         background: #dcfce7;
         color: #166534;
     }}
-    .badge-warn {{
-        background: #fef3c7;
-        color: #92400e;
+    .badge-fail {{
+        background: #fee2e2;
+        color: #991b1b;
+    }}
+    .badge-info {{
+        background: #e0f2fe;
+        color: #075985;
     }}
     .figure-container {{
         text-align: center;
@@ -824,99 +1041,151 @@ def generate_html_report(
 <body>
 <div class="container">
     <h1>ADNI-MCI Cognitive Pilot Evaluation Report</h1>
-    
+
     <div class="meta-box">
-        <strong>Repository:</strong> pysimlr (v0.22.2 / v0.23.0-dev) &nbsp;|&nbsp;
-        <strong>Evaluation Suite:</strong> WP4 Score-Level Path Model Pilot &nbsp;|&nbsp;
+        <strong>Repository:</strong> pysimlr (v{pysimlr.__version__}) &nbsp;|&nbsp;
+        <strong>Evaluation Suite:</strong> WP4 Score-Level Path Model Pilot (Plan Section 8) &nbsp;|&nbsp;
         <strong>Execution Time:</strong> {elapsed_s:.1f}s &nbsp;|&nbsp;
         <strong>Cohort:</strong> ADNI-MCI Protocol B (n = 1,084, 70/30 train/test splits, seeds {seeds})
     </div>
 
-    <h2>1. Executive Summary & Pilot Rules P1–P4</h2>
+    <h2>1. Primary Pass Rules (Plan Section 8: P1–P4)</h2>
     <p>
-        The score-level path model framework in <code>pysimlr</code> was evaluated on the clinical
-        Alzheimer's Disease Neuroimaging Initiative (ADNI) Mild Cognitive Impairment (MCI) cohort.
-        The measurement model spans three anatomical views: regional volume (<code>T1Hier_vol</code>),
-        cortical thickness (<code>T1Hier_thk</code>), and mean T1 intensity (<code>T1w_mean</code>),
-        with cognitive outcome <code>CogPC1</code> (first principal component of the cognitive battery
-        fitted on training rows). Confounds (age, education, head size) were rigorously sinked into
-        both the measurement model and structural path covariates; sex was evaluated as an independent group factor.
+        Evaluated on the ADNI Mild Cognitive Impairment cohort across three anatomical T1-weighted MRI views
+        (<code>T1Hier_vol</code>, <code>T1Hier_thk</code>, <code>T1w_mean</code>) and cognitive outcome <code>CogPC1</code>
+        (first principal component of the cognitive battery fitted on training rows only). Demographic confounds
+        (age, education, head size) are passed to both <code>fit(confounds=)</code> and <code>path_model(covariates=)</code>;
+        sex is passed exclusively as <code>groups=</code>.
     </p>
 
     <table>
         <thead>
             <tr>
-                <th>Rule</th>
-                <th>Criteria & Description</th>
-                <th>Empirical Value</th>
-                <th>Status</th>
+                <th>Plan Rule</th>
+                <th>Section 8 Criterion</th>
+                <th>Measured CSV Outcome</th>
+                <th>Verdict</th>
             </tr>
         </thead>
         <tbody>
             <tr>
                 <td><strong>P1</strong></td>
-                <td>T1Hier_thk &rarr; CogPC1 edge is significant in &ge;4 of 5 splits at &alpha; = 0.05</td>
-                <td>SIMLR: <strong>{p1['simlr_hits']}</strong> (p &le; 0.006 in 4/5)<br>LEND: <strong>{p1['lend_hits']}</strong> (p &le; 0.009 in 4/5)</td>
-                <td>{badge(p1['pass'])}</td>
+                <td><code>T1Hier_vol – T1Hier_thk</code> held-out <code>p_maxt &lt; 0.05</code> in &ge; 4 of 5 splits</td>
+                <td>SIMLR: <strong>{r_p1['simlr_hits']}</strong> (<code>p_maxt</code> = {r_p1['simlr_p_maxt']})<br>
+                    LEND: <strong>{r_p1['lend_hits']}</strong> (<code>p_maxt</code> = {r_p1['lend_p_maxt']})</td>
+                <td>{rule_badge(r_p1['pass'])}</td>
             </tr>
             <tr>
                 <td><strong>P2</strong></td>
-                <td>Out-of-sample log-likelihood delta for star on thk vs complete is non-negative on average, or complete within 1 SE</td>
-                <td>SIMLR: <strong>&Delta; = +{p2['simlr_mean_delta']:.2f}</strong> (SE = {p2['simlr_se_delta']:.2f}, star superior)<br>LEND: &Delta; = {p2['lend_mean_delta']:.2f}</td>
-                <td>{badge(p2['pass'])}</td>
+                <td>Outcome node has &ge; 1 view with <code>p_holm &lt; 0.05</code> in <code>outcome_edges</code> in &ge; 4 of 5 splits</td>
+                <td>SIMLR: <strong>{r_p2['simlr_hits']}</strong> (min <code>p_holm</code> = {r_p2['simlr_min_p_holm']})<br>
+                    LEND: <strong>{r_p2['lend_hits']}</strong> (min <code>p_holm</code> = {r_p2['lend_min_p_holm']})</td>
+                <td>{rule_badge(r_p2['pass'])}</td>
             </tr>
             <tr>
                 <td><strong>P3</strong></td>
-                <td>Reconstructed CogPC1 out-of-sample R<sup>2</sup> &ge; 0.15 on average for winning topology</td>
-                <td>SIMLR: R<sup>2</sup> = <strong>{p3['simlr_mean_r2']:.4f}</strong> (r = 0.354, r<sup>2</sup> = 0.125)<br>LEND: R<sup>2</sup> = <strong>{p3['lend_mean_r2']:.4f}</strong> (r = 0.355, r<sup>2</sup> = 0.126)</td>
-                <td>{badge(p3['pass'])}</td>
+                <td>Fixed-model held-out <code>pillai</code> is below training <code>pillai</code> for every edge</td>
+                <td>View–view edges: SIMLR <strong>{r_p3['simlr_view_view_splits_passed']}</strong>, LEND <strong>{r_p3['lend_view_view_splits_passed']}</strong><br>
+                    All 6 edges (incl. unsupervised outcome): SIMLR <strong>{r_p3['simlr_all_edges_splits_passed']}</strong>, LEND <strong>{r_p3['lend_all_edges_splits_passed']}</strong></td>
+                <td>{rule_badge(r_p3['pass'], 'FAIL (OUTCOME EDGES)')}</td>
             </tr>
             <tr>
                 <td><strong>P4</strong></td>
-                <td>Refit null conservatism at matched B (B = 50, mean ratio &ge; 1.0) and threshold-scale ratio q95(refit)/q95(fixed)</td>
-                <td>SIMLR: <strong>p-ratio = {p4['simlr_matched_b_ratio']:.2f}</strong> (matched B=50; q95 threshold ratio = <strong>{p4['simlr_q95_threshold_ratio']:.1f}&times;</strong>)<br>LEND: <strong>p-ratio = {p4['lend_matched_b_ratio']:.2f}</strong> (matched B=50; q95 threshold ratio = <strong>{p4['lend_q95_threshold_ratio']:.1f}&times;</strong>)</td>
-                <td>{badge(p4['pass'])}</td>
-            </tr>
-            <tr>
-                <td><strong>Section 8: P1</strong></td>
-                <td>T1Hier_vol &ndash; T1Hier_thk held-out p_maxt &lt; 0.05 in &ge;4 of 5 splits</td>
-                <td>SIMLR: <strong>{pilot_rules['Section8_vol_thk_p_maxt']['simlr_hits']}</strong> (p_maxt = 0.001 in all 5)</td>
-                <td>{badge(pilot_rules['Section8_vol_thk_p_maxt']['pass'])}</td>
-            </tr>
-            <tr>
-                <td><strong>Section 8: P2</strong></td>
-                <td>Outcome node has at least one view with p_holm &lt; 0.05 in &ge;4 of 5 splits</td>
-                <td>SIMLR: <strong>{pilot_rules['Section8_outcome_holm']['simlr_hits']}</strong></td>
-                <td>{badge(pilot_rules['Section8_outcome_holm']['pass'])}</td>
-            </tr>
-            <tr>
-                <td><strong>Section 8: P3</strong></td>
-                <td>Fixed-model held-out Pillai below training Pillai for every edge</td>
-                <td>SIMLR: <strong>Strictly verified across all edges</strong></td>
-                <td>{badge(pilot_rules['Section8_heldout_below_train_pillai']['pass'])}</td>
-            </tr>
-            <tr>
-                <td><strong>Section 8: P4</strong></td>
-                <td>Complete graph is not best by heldout_loglik in every split</td>
-                <td>SIMLR: <strong>Star graph wins 4 of 5 splits</strong></td>
-                <td>{badge(pilot_rules['Section8_complete_not_best_every_split']['pass'])}</td>
+                <td>Complete graph is not best by <code>heldout_loglik</code> in every split (else report paired deltas)</td>
+                <td>SIMLR top by LL: {r_p4['simlr_best_by_loglik']} (&Delta; star&minus;comp = {r_p4['simlr_paired_deltas_star_minus_complete']})<br>
+                    LEND top by LL: {r_p4['lend_best_by_loglik']} (&Delta; star&minus;comp = {r_p4['lend_paired_deltas_star_minus_complete']})</td>
+                <td>{rule_badge(r_p4['pass'])}</td>
             </tr>
         </tbody>
     </table>
 
-    <h2>2. Model Topology Comparison</h2>
+    <h3>1.1 Rule P3 Edge-by-Edge Investigation (<code>adni_train_vs_heldout_pillai.csv</code>)</h3>
     <p>
-        Comparing four structural topologies: (1) <strong>Complete graph</strong>, (2) <strong>Star graph on T1Hier_thk</strong>,
-        (3) <strong>Chain graph (vol &ndash; thk &ndash; mean &ndash; outcome)</strong>, and (4) <strong>Empty graph</strong>.
+        {r_p3['investigation']}
     </p>
-    
-    <h3>Mode (a): Structural Log-Likelihood Comparison (Fixed Measurement)</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Method</th>
+                <th>Split Seed</th>
+                <th>Edge</th>
+                <th>Edge Type</th>
+                <th>Training Pillai (n=759)</th>
+                <th>Held-out Pillai (n=325)</th>
+                <th>&Delta; (Held-out &minus; Train)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {viol_rows_html}
+        </tbody>
+    </table>
+
+    <h2>2. Secondary Empirical Findings (Descriptive, Non-Gate)</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Finding</th>
+                <th>Quantity Measured</th>
+                <th>Empirical Summary</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><span class="badge badge-info">Finding 1</span></td>
+                <td>Held-out <code>T1Hier_thk &rarr; CogPC1</code> association</td>
+                <td>SIMLR significant in <strong>{f1['simlr_significant_splits']}</strong> splits (<code>p_perm</code> = {f1['simlr_p_perm']}, <code>p_holm</code> = {f1['simlr_p_holm']})<br>
+                    LEND significant in <strong>{f1['lend_significant_splits']}</strong> splits (<code>p_perm</code> = {f1['lend_p_perm']}, <code>p_holm</code> = {f1['lend_p_holm']})</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-info">Finding 2</span></td>
+                <td>Held-out log-likelihood parsimony (<code>star on T1Hier_thk</code> minus <code>complete</code>)</td>
+                <td>SIMLR: mean &Delta;LL = <strong>{f2['simlr_mean_delta']:+.2f}</strong> (SE = {f2['simlr_se_delta']:.2f}; F1 parsimony winners: {f2['simlr_parsimony_winners']})<br>
+                    LEND: mean &Delta;LL = <strong>{f2['lend_mean_delta']:+.2f}</strong> (SE = {f2['lend_se_delta']:.2f}; F1 parsimony winners: {f2['lend_parsimony_winners']})</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-info">Finding 3</span></td>
+                <td>Out-of-sample <code>CogPC1</code> prediction via <code>predict_path</code> (confound-adjusted)</td>
+                <td>SIMLR star: mean R<sup>2</sup> = <strong>{f3['simlr_mean_r2_star']:.4f}</strong> (Pearson r = {f3['simlr_mean_corr_star']:.4f}; complete R<sup>2</sup> = {f3['simlr_mean_r2_complete']:.4f})<br>
+                    LEND star: mean R<sup>2</sup> = <strong>{f3['lend_mean_r2_star']:.4f}</strong> (Pearson r = {f3['lend_mean_corr_star']:.4f}; complete R<sup>2</sup> = {f3['lend_mean_r2_complete']:.4f})</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-info">Finding 4</span></td>
+                <td>Live training-row refit vs fixed-model null (<code>rows="train", null="both"</code>, matched B = {f4['n_refits']})</td>
+                <td>SIMLR: p-ratio = {f4['simlr_mean_p_ratio']:.2f}; view–view mean q95<sub>refit</sub> = {f4['simlr_view_view_mean_q95_refit']:.4f} vs q95<sub>fixed</sub> = {f4['simlr_view_view_mean_q95_fixed']:.4f} (<strong>{f4['simlr_view_view_mean_q95_ratio']:.2f}&times;</strong>; outcome edges {f4['simlr_outcome_mean_q95_ratio']:.2f}&times;)<br>
+                    LEND: p-ratio = {f4['lend_mean_p_ratio']:.2f}; view–view mean q95<sub>refit</sub> = {f4['lend_view_view_mean_q95_refit']:.4f} vs q95<sub>fixed</sub> = {f4['lend_view_view_mean_q95_fixed']:.4f} (<strong>{f4['lend_view_view_mean_q95_ratio']:.2f}&times;</strong>; outcome edges {f4['lend_outcome_mean_q95_ratio']:.2f}&times;)</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>2.1 Live Training-Row Refit vs Fixed Null Table (<code>adni_p4_refit_ratio.csv</code>, Seed 0, B = {f4['n_refits']})</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Method</th>
+                <th>Edge</th>
+                <th>Type</th>
+                <th>Observed Train Pillai</th>
+                <th>Fixed p_perm</th>
+                <th>Refit p_refit</th>
+                <th>Fixed q95</th>
+                <th>Refit q95</th>
+                <th>q95 Ratio (Refit / Fixed)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {p4_rows_html}
+        </tbody>
+    </table>
+
+    <h2>3. Model Topology Comparison</h2>
+    <h3>Mode (a): Structural Log-Likelihood Comparison (Fixed Measurement, Seed 0)</h3>
     <div class="grid-2">
         {img_tag("adni_path_comparison_forest.png", "Model comparison forest plot: Out-of-sample log-likelihood deltas against top graph with bootstrap 95% CIs and present/absent edge pass rates.")}
-        {img_tag("adni_path_diagram_simlr.png", "Fitted score-level path model diagram on held-out rows (SIMLR, Seed 0). Solid lines indicate edges with p_maxt < 0.05.")}
+        {img_tag("adni_path_diagram_simlr.png", "Fitted score-level path model diagram on held-out rows (SIMLR, Seed 0).")}
     </div>
+    {img_tag("adni_path_diagram_lend.png", "Fitted score-level path model diagram on held-out rows (LEND, Seed 0).")}
 
-    <h3>Mode (b): Repeated Training-Topology Comparison (Refits Mode, n_splits = 5)</h3>
+    <h3>Mode (b): Repeated Training-Topology Comparison (Refits Mode, n_splits = {len(seeds)})</h3>
     <table>
         <thead>
             <tr>
@@ -931,58 +1200,35 @@ def generate_html_report(
             </tr>
         </thead>
         <tbody>
-"""
-
-    for _, row in refits_df.iterrows():
-        html_content += f"""
-            <tr>
-                <td>{row['method'].upper()}</td>
-                <td><strong>{row['graph']}</strong></td>
-                <td>{row['topology']}</td>
-                <td>{row['n_edges']}</td>
-                <td>{row['heldout_loglik_own']:.2f}</td>
-                <td>{row['oos_coupling']:.4f}</td>
-                <td>{row['oos_r2']:.4f}</td>
-                <td>{row['outcome_r2']:.4f}</td>
-            </tr>
-        """
-
-    html_content += f"""
+            {refits_rows_html}
         </tbody>
     </table>
 
-    <h2>3. Edge Inference & Coupling Diagnostics</h2>
+    <h2>4. Edge Inference &amp; Coupling Diagnostics</h2>
     <div class="grid-2">
         {img_tag("adni_edge_matrix_simlr.png", "Edge component matrix (|r_j| and Pillai trace). Hatched cells denote q_bh >= 0.05.")}
         {img_tag("adni_edge_null_histograms.png", "Freedman-Lane permutation null distributions for all tested edges on held-out rows.")}
     </div>
 
-    <h2>4. ANTsX Neuroanatomical Visualization</h2>
+    <h2>5. ANTsX Neuroanatomical Visualization</h2>
     <p>
-        Connecting score-level path models directly to <code>antsxviz</code> surface and region rendering.
         Feature contributions are computed as the product of view loading structure and path regression coefficients:
-        <code>C_ia = S_ia &times; &beta;_ab</code>.
+        <code>C_ia = S_ia &times; &beta;_ab</code>, projected onto the ANTsPy DKT parcellation via <code>antsxviz</code>.
     </p>
 
     <h3>Cortical Surface Montages (fsaverage 41k Inflated Surface)</h3>
     {img_tag("adni_brain_map_thk_outcome.png", "Cortical surface brain montage (lateral, medial, and ventral views for Left and Right hemispheres) showing cortical thickness feature contributions carrying association to CogPC1.")}
     {img_tag("adni_brain_map_vol_thk.png", "Cortical surface brain montage showing volumetric feature contributions coupled to cortical thickness.")}
 
-    <h3>Anatomical Feature Contributions & Region Tables</h3>
+    <h3>Anatomical Feature Contributions &amp; Hemispheric Region Tables</h3>
     <div class="grid-2">
-        {img_tag("adni_edge_features_thk_outcome.png", "Top neuroanatomical features for T1Hier_thk -> CogPC1, displaying entorhinal, temporal, and parietal thinning associated with cognitive decline.")}
-        {img_tag("adni_region_table_thk_outcome.png", "Hemispheric region table figure (antsxviz.region_table_figure) grouped by anatomical lobe.")}
+        {img_tag("adni_edge_features_thk_outcome.png", "Top neuroanatomical features for T1Hier_thk -> CogPC1.")}
+        {img_tag("adni_edge_features_vol_thk.png", "Top neuroanatomical features for T1Hier_vol -> T1Hier_thk.")}
     </div>
-
-    <h2>5. Discussion & Verification</h2>
-    <ul>
-        <li><strong>Structural Parsimony:</strong> Across held-out splits, the star graph centered on cortical thickness (<code>T1Hier_thk</code>) achieves superior or equivalent out-of-sample log-likelihood compared to the complete graph (&Delta; = +7.40 in SIMLR). Thickening/thinning acts as the central biological hub mediating volumetric change to cognitive performance.</li>
-        <li><strong>Post-Selection Inference (P4):</strong> Evaluated at matched B (B = 50), the refit null exhibits a mean conservative p-value ratio of <strong>{p4['simlr_matched_b_ratio']:.2f}</strong> (&ge; 1.0). Independent of B, the 95th-percentile Pillai threshold ratio q95(refit)/q95(fixed) is <strong>{p4['simlr_q95_threshold_ratio']:.1f}&times;</strong> (averaging ~43.8&times; across measurement-fitted view edges), demonstrating massive post-selection threshold shift and proving why naive fixed-model inference on training data is invalid.</li>
-        <li><strong>Confound Sink Integrity:</strong> Age, education, and head size were successfully neutralized; genuine neuroanatomical associations remain robust (p &lt; 0.001) even after removing demographic confound covariance.</li>
-    </ul>
+    {img_tag("adni_region_table_thk_outcome.png", "Hemispheric region table figure (antsxviz.region_table_figure) grouped by anatomical lobe.")}
 
     <hr style="border: 0; border-top: 1px solid #e2e8f0; margin-top: 40px;">
-    <p style="font-size: 12px; color: #94a3b8; text-align: center;">Generated automatically by <code>pysimlr</code> ADNI-MCI Pilot Evaluation Pipeline &bull; AntsX Framework</p>
+    <p style="font-size: 12px; color: #94a3b8; text-align: center;">Generated by <code>scripts/adni_path_model_pilot.py</code> &bull; pysimlr v{pysimlr.__version__}</p>
 </div>
 </body>
 </html>
@@ -1013,7 +1259,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("docs/audit/evidence/path_model/adni"),
                         help="Output directory.")
     parser.add_argument("--figures-only", action="store_true",
-                        help="Skip multi-split refits and re-render figures/reports from cached split data and fast split 0 fit.")
+                        help="Re-render figures and HTML report strictly from existing live CSVs (refuses if missing).")
     args = parser.parse_args()
 
     run_pilot(

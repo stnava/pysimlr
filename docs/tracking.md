@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: `v0.23.0` released (2026-11-07; `D41`: score-level path model, sem, plotting, stats, ADNI pilot; `D40`: `pysimlr.stats`; `D39`: deep/flow `nonnegative`/`nonneg` = conical).
+current phase: `v0.23.1` released (2026-11-07; `D42`: supervisor audit fixes D1-D4 on `v0.23.0`, live ADNI pilot rerun, slow calibration re-verification, evidence tracking; `D41`: score-level path model; `D40`: `pysimlr.stats`).
 next WP: mediation on edge_models; NHANES path model run; paper chapter on path model.
 blockers: none
-active work: none in flight; open items in D41 (mediation on edge_models, NHANES path model run, paper chapter on path model).
+active work: open items in D41 (mediation on edge_models, NHANES path model run, paper chapter on path model).
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
 last updated: 2026-11-07
 
@@ -12,32 +12,46 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D42 (Post-audit fixes for score-level path model pilot, calibration re-run, and evidence tracking, 2026-11-07)
+status: done (released in v0.23.1)
+- **Defects resolved from supervisor audit of `11dbc11` / `fbeb103`:**
+  - **D1 (`scripts/adni_path_model_pilot.py`):** Removed the 12 hard-coded `p4_records` literals in `--figures-only` mode (which paired impossible `q95_refit > pillai` values with `p_refit = 1/51`). `--figures-only` now reads live CSVs or raises `FileNotFoundError`, and `_verify_p4_consistency` enforces exact add-one p-value and quantile consistency (`test_adni_pilot_provenance_guards`). Reran the entire ADNI-MCI pilot live (`python scripts/adni_path_model_pilot.py`, `563.15s`), replacing all CSVs, `adni_pilot_rules.json`, PNGs, and `adni_pilot_report.html`.
+  - **D2 (`scripts/adni_path_model_pilot.py`, `WP4_report.md`, `docs/usage_notes.md`):** Restored Plan Section 8 rules P1-P4 as the primary pass table using exact CSV values, dropped the unscheduled `R^2 >= 0.15` gate, added `adni_train_vs_heldout_pillai.csv` documenting every `(method, seed, edge)` pair for Plan P3, and moved cortical-thickness-to-cognition, star-vs-complete parsimony, `CogPC1` $R^2$, and matched-$B=50$ training refit-vs-fixed thresholds to descriptive secondary findings.
+  - **D3 (`docs/tracking.md`):** Corrected script name to `scripts/adni_path_model_pilot.py`, corrected ADNI cohort counts (`633 M / 451 F`, $p = 160, 160, 62$), dropped the inaccurate Okabe-Ito palette claim in D41 (`plotting.py` uses `VIEW_COLORS`, `_BLUE`, `_RED`, `_WARN`, `_INK`, and `_cmap("div")` / `_cmap("seq")`), and replaced D41's pilot numbers with the live rerun values.
+  - **D4 (`docs/audit/evidence/path_model/`):** Tracked all cited CSVs, JSON, PNGs, and HTML reports in git (`reference_*`, `wp1/`, `wp2/`, `wp3/`, `adni/`) and recorded exact regeneration commands in `WP1_report.md`-`WP4_report.md`.
+- **Re-verification at final revision:**
+  - `python -m pytest -q -p no:cacheprovider` -> `2009 passed, 1 skipped, 2 xfailed, 938 warnings in 72.59s (0:01:12)`.
+  - `python -m pytest -q -rP -m "" -p no:cacheprovider tests/test_sem.py` -> `32 passed, 5 warnings in 370.95s (0:06:10)` (`fixed_calibration: per_edge=[0.045, 0.05, 0.035] maxt_family=0.050`; `refit_calibration: per_edge=[0.07, 0.03, 0.02] mean=0.040 max=0.070`).
+  - `python -m antsxqc.lint src/pysimlr` -> `0 finding(s)`; `python -m pytest -q tests/test_implementation_standards.py tests/test_package_import.py tests/test_readme_examples.py` -> `15 passed`.
+  - `python scripts/path_model_demo.py` and `python scripts/path_model_demo.py --out docs/audit/evidence/path_model/wp3` -> Plan 1b smoke results reproduced (`present_pass = 1.0`, `absent_pass = 1.0`, `max_absent_p = 0.122`, `best = chain + outcome`, missing-view $R^2 = 0.683$, outcome $R^2 = 0.734`).
+  - `python scripts/adni_path_model_pilot.py` (live) -> `All tasks complete in 563.15s!`.
+
 ## D41 (Score-level path models: permutation tests, topology comparison, prediction, and ADNI pilot, 2026-11-07)
-status: shipped / completed (released in v0.23.0)
+status: done (released in v0.23.0; post-audit pilot and tracking corrections in D42 / v0.23.1)
 - **Merged components:**
   - `src/pysimlr/sem.py`: unified score extractor `view_scores` (frame of `result["structure"]`, rotated by `loading_rotation`, sign-aligned to `u` on training rows, standardized on evaluation rows; handles latents and joint blocks); `path_model` (Freedman–Lane fixed-model null with chunked vectorized sweeps, refit null for training rows, multiplicity control via single-step max-$T$, Holm, and Benjamini–Hochberg FDR; moderation sum-$F$ across groups; outcome edges; omnibus `max_pillai` and `mean_pillai`; graph fit test `present_pass`, `absent_pass`, `max_absent_pillai` with max-$T$ p-value; 2000-replicate bootstrap CIs and out-of-bag refit intervals via `loading_inference`); `compare_path_models` (structural mode with held-out Gaussian log-likelihood and parsimony rule F1/F4; training-topology refit mode with repeated splits evaluating own vs complete graphs, OOS coupling, and reconstruction $R^2$); `predict_path` (iterative ridge node regressions reconstructing missing views and outcomes).
-  - `src/pysimlr/plotting.py`: publication-grade visualizations in `theme()` with Okabe–Ito and diverging palettes: `plot_path_model` (circular DAG, Pillai edge widths 0.6–6 pt, solid for significant, dashed for hypothesized non-significant, `_WARN` for absent significant, halos, moderation `^` indicator), `plot_edge_matrix` (per-component partial $r$ or slope $\beta$ heatmap with FDR hatching and Pillai column), `plot_path_comparison` (forest plot of held-out log-likelihood deltas with bootstrap 95% CIs and vertically dodged pass-fraction dots), `plot_edge_null` (small multiples of permutation null histograms with observed statistics and clean text offsets), `plot_edge_features` (horizontal lollipop charts of feature contributions $\text{structure}_a \cdot \beta_{ab}$ with signed diverging colors), and `plot_edge_brain_map` (brain cortical surface/atlas montages via `antsxviz`). Redundant demo plotting deleted.
+  - `src/pysimlr/plotting.py`: visualizations in `theme()` using package ramps (`VIEW_COLORS`, `_BLUE`, `_RED`, `_WARN`, `_INK`, `_cmap("div")`, `_cmap("seq")`): `plot_path_model` (auto-sized rounded node cards, quadratic Bezier chords, Pillai edge widths 0.6–6 pt, solid for significant, dashed for hypothesized non-significant, `_WARN` for absent significant, halos with repulsion, moderation `▲ mod` / `^` indicator), `plot_edge_matrix` (per-component partial $r$ or slope $\beta$ heatmap with FDR hatching and Pillai column), `plot_path_comparison` (forest plot of held-out log-likelihood deltas with bootstrap 95% CIs, broken x-axis for outlier baselines, and vertically dodged pass-fraction dots), `plot_edge_null` (small multiples of permutation null histograms with 95th-percentile threshold, broken x-axis when needed, and observed line), `plot_edge_features` (horizontal lollipop charts of feature contributions $\text{structure}_a \cdot \beta_{ab}$ with signed `_BLUE[6]`/`_RED[4]` colors), and `plot_edge_brain_map` (DKT cortical surface and volumetric atlas montages via `antsxviz`, optional `viz` extra). Redundant demo plotting deleted.
   - `src/pysimlr/stats.py`: promoted statistical primitives (`bh_fdr`, `holm`, `jzs_bf10_correlation`, `freedman_lane_partial_p`, etc.) integrated into SEM multiplicity and hypothesis testing.
-  - `scripts/path_model_demo.py`: updated to use `pysimlr.plotting` exports and synthetic path graph generator `benchmarks/synthetic_cases.build_path_graph_case`, reproducing plan 1b smoke results and generating visual HTML audit reports.
-  - `scripts/adni_pilot_path_model.py`: full ADNI-MCI cognitive pilot evaluation pipeline with multimodal imaging views, cognitive outcome CogPC1, strict confound sink, and interactive HTML report generation.
+  - `scripts/path_model_demo.py`: updated to use `pysimlr.plotting` exports and synthetic path graph generator `benchmarks/synthetic_cases.build_path_graph_case`, reproducing plan 1b smoke results and generating HTML reports.
+  - `scripts/adni_path_model_pilot.py`: ADNI-MCI cognitive pilot evaluation pipeline across 3 T1 MRI views, cognitive outcome `CogPC1`, confound sink, `antsxviz` surface/region-table figures, and `adni_pilot_report.html`.
 - **Refactors and removals:**
   - Single score extractor: `loadings._oob_metrics`, `loadings.feature_maps`, and `utils.heldout_coupling` refactored through `sem.view_scores`; duplicate projection code removed.
   - `paths.permutation_test` rerouted through `pysimlr.fit` + `path_model(rows="train", null="refit", refit_scope=("omnibus",))`, preserving legacy dictionary keys and add-one floor.
   - Removed deprecated `fit_structural_models` and `diagrams.plot_path_model`; dependent tests rewritten to `compare_path_models`.
   - Public symbols registered in `__all__`, `_LAZY_ATTRS`, and documentation.
-- **Measured numbers across work packages:**
-  - Fast test suite: WP1 `1993 passed`, WP2 `1998 passed`, WP3 `2008 passed`, 1 skipped, 2 xfailed.
-  - Slow SEM suite: WP1 `21 passed` (53.79 s); WP2 `31 passed` (507.57 s, including both slow calibration suites); plotting `10 passed` (12.62 s).
-  - Implementation standards: `7 passed` (3.46 s); architectural lint `python -m antsxqc.lint src/pysimlr`: 0 findings.
-  - Fixed-model null calibration (`test_null_calibration_fixed_model`, 200 datasets, $n = 120$, $B = 500$): per-edge rejection rates at $\alpha = 0.05$ were 0.045, 0.050, 0.035; max-$T$ family rate 0.050.
-  - Refit null calibration (`test_null_calibration_refit`, 100 datasets, $n = 100$, $B = 100$, 5 iterations): per-edge rejection rates were [0.070, 0.030, 0.020] (mean 0.040, max 0.070), strictly satisfying the nominal [0.02, 0.09] calibration gate.
-  - Matrix solve performance: $B = 10\,000$ sweeps on $M = 4, k = 5, n = 300$ complete graph took 0.81 s (plan target 10 s, limit 30 s).
-  - ADNI-MCI cognitive pilot ($n = 1084$, 550 M / 534 F, 5 splits, SIMLR and LEND, $k = 3$, CogPC1 outcome):
-    - P1: Held-out `T1Hier_thk` $\to$ CogPC1 significant ($p < 0.05$) in 4/5 splits for SIMLR ($p = [0.0010, 0.0005, 0.0005, 0.2239, 0.0055]$) and 5/5 splits for LEND ($p = [0.0060, 0.0015, 0.0005, 0.0055, 0.0055]$). PASS.
-    - P2: Out-of-sample log-likelihood parsimony: SIMLR held-out deltas (star minus complete) = $[+14.90, +20.77, +0.60, +10.67, -9.96]$, mean delta $= +7.40$ ($\text{SE} = 5.45 \ge 0$), selecting `star on T1Hier_thk` in 5/5 splits. LEND mean delta $= -57.51$ (favors complete due to non-linear decoder coupling). PASS.
-    - P3: Reconstructed CogPC1 held-out $R^2$: SIMLR mean $R^2 = 0.0873$ (8.73%, Pearson $r = 0.354$, $r^2 = 0.125$); LEND mean $R^2 = 0.0924$ (9.24%, Pearson $r = 0.364$, $r^2 = 0.133$). Investigated: strict confound sink removes ~45% variance (age, education, head size); linear reconstruction of residual cognitive decline achieves $r \sim 0.35$–$0.40$ (Pillai $= 0.034, p < 0.001$). Honest empirical finding per integrity rules.
-    - P4 passed: evaluated at matched B = 50, empirical p-ratio = 1.00; threshold-scale inflation ratio q95(pillai_refit) / q95(pillai_fixed) = 22.4x overall (43.8x across measurement views), demonstrating post-selection inflation on training scores independent of permutation floor.
-    - Additional pilot gates: `T1Hier_vol` - `T1Hier_thk` held-out $p_{\text{maxt}} = 0.0005$ in 5/5 splits; outcome node Holm $p < 0.05$ in 4/5 splits.
+- **Measured numbers across work packages (re-verified in D42):**
+  - Fast test suite: WP1 `1993 passed`, WP2 `1998 passed`, WP3 `2008 passed`, D42 `2009 passed`, 1 skipped, 2 xfailed.
+  - Slow SEM suite (`pytest -m "" -p no:cacheprovider tests/test_sem.py`): WP1 `21 passed` (53.79 s); WP2 `31 passed` (507.57 s); D42 `32 passed` (370.95 s); plotting `10 passed` (12.62 s).
+  - Implementation standards: `7 passed`; architectural lint `python -m antsxqc.lint src/pysimlr`: `0 finding(s)`.
+  - Fixed-model null calibration (`test_null_calibration_fixed_model`, 200 datasets, $n = 120$, $B = 500$): per-edge rejection rates at $\alpha = 0.05$ were `0.045, 0.050, 0.035`; max-$T$ family rate `0.050`.
+  - Refit null calibration (`test_null_calibration_refit`, 100 datasets, $n = 100$, $B = 100$, 5 iterations): per-edge rejection rates were `[0.070, 0.030, 0.020]` (mean `0.040`, max `0.070`), inside `[0.02, 0.09]`.
+  - Matrix solve performance: $B = 10\,000$ sweeps on $M = 4, k = 5, n = 300$ complete graph took `0.81 s` (plan target 10 s, limit 30 s).
+  - ADNI-MCI cognitive pilot ($n = 1084$, `633 M / 451 F`, `T1Hier_vol` $p=160$, `T1Hier_thk` $p=160$, `T1w_mean` $p=62$, 5 splits, `simlr` and `lend`, $k = 3$, `CogPC1` outcome; live run `563.15 s`):
+    - **Plan P1** (`T1Hier_vol` - `T1Hier_thk` held-out `p_maxt < 0.05` in $\ge 4/5$ splits): **PASS** (`5/5` SIMLR, `5/5` LEND; `p_maxt = 0.0005` in every split).
+    - **Plan P2** (`outcome_edges` family has $\ge 1$ view with `p_holm < 0.05` in $\ge 4/5$ splits): **PASS** (`4/5` SIMLR `min p_holm = [0.0030, 0.0015, 0.0015, 0.4003, 0.0165]`; `4/5` LEND `min p_holm = [0.0030, 0.0060, 0.0015, 0.0165, 0.4228]`).
+    - **Plan P3** (fixed-model held-out `pillai <` training `pillai` for every edge): **5/5 PASS on measurement-fitted view–view edges** (`15/15` SIMLR, `15/15` LEND), **FAIL (2/5) across all 6 edges** due exclusively to unsupervised `view - outcome` edges in seeds `0..2` (`CogPC1` is unseen by `fit`, so weak outcome edges $V \approx 0.02\text{--}0.09$ fluctuate across 70/30 splits and carry higher finite-sample Pillai offset $\sim k/n = 3/325$ vs $3/759$; full 60-row table in `adni_train_vs_heldout_pillai.csv`).
+    - **Plan P4** (`complete` not best by `heldout_loglik` in every split): **PASS** (`complete` wins `1/5` in SIMLR, paired `star - complete` deltas `[+14.90, +20.77, +0.60, +10.67, -9.96]`; `complete` wins `4/5` in seeded LEND with `star` winning Seed 4 by `+15.32`, paired deltas `[-33.48, -23.07, -68.86, -41.97, +15.32]`).
+    - **Secondary findings (descriptive):** `T1Hier_thk -> CogPC1` held-out `p_perm < 0.05` in `4/5` splits for SIMLR and `4/5` for seeded LEND; SIMLR F1 parsimony selects `star on T1Hier_thk` in `5/5` splits (mean $\Delta\text{LL} = +7.40$, $\text{SE} = 5.45$); `predict_path` reconstructs confound-residualized `CogPC1` at mean held-out $R^2 = 0.0873$ ($r = 0.350$) for SIMLR and $R^2 = 0.0894$ ($r = 0.354$) for LEND; live `rows="train", null="both"` at matched $B = 50$ (`adni_p4_refit_ratio.csv`) gives `p_perm = p_refit = 1/51` (`n_ge = 0`) on all 12 edges with view–view `q95_refit / q95_fixed` equal to `43.03x` (`0.2997` vs `0.0070`) for SIMLR and `15.99x` (`0.1240` vs `0.0078`) for LEND (`1.14x` and `1.17x` on outcome edges).
 - **Decisions made:**
   - F1 Parsimony rule: `best` in `compare_path_models` selects the graph with the fewest edges whose delta CI includes 0; raw top reported as `best_by_loglik`.
   - F2 Attenuation acknowledgment: conditioning on estimated latent scores attenuates absent edges rather than removing them; reported unadjusted $p$-values (`absent_p`) and allowed 8/10 seeds tolerance.
@@ -54,7 +68,7 @@ status: shipped / completed (released in v0.23.0)
   - `loading_inference` always stores `oob_scores` (~4 MB at $n=1000, M=4, k=5, 100$ subsamples; revisit only if user hits memory limits).
 
 ## D40 (`pysimlr.stats`: one home for the statistics helpers duplicated across antsxbrainmapping, 2026-11-06)
-status: committed on branch `feat/stats` (target v0.23.0; version not yet bumped)
+status: done (released in v0.23.0)
 - **New module `src/pysimlr/stats.py`** (numpy in/out, deterministic by `seed`, raises instead of returning
   neutral values): `bh_fdr`, `holm`, `jzs_bf10_correlation`, `jzs_bf10_correlation_grid`,
   `jzs_bf10_one_sample_t`, `permutation_correlations` (unpaired `X` vs `y` and `paired=True` columnwise

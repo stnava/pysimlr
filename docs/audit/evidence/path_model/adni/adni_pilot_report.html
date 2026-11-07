@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ADNI-MCI Cognitive Pilot Evaluation Report — Score-Level Path Model</title>
+<style>
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.6;
+        color: #1e293b;
+        background: #f8fafc;
+        margin: 0;
+        padding: 40px 20px;
+    }
+    .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        padding: 40px 48px;
+    }
+    h1 {
+        color: #0f172a;
+        font-size: 28px;
+        font-weight: 700;
+        border-bottom: 2px solid #e2e8f0;
+        padding-bottom: 16px;
+        margin-top: 0;
+    }
+    h2 {
+        color: #1e3a8a;
+        font-size: 20px;
+        font-weight: 600;
+        margin-top: 36px;
+        border-bottom: 1px solid #cbd5e1;
+        padding-bottom: 8px;
+    }
+    h3 {
+        color: #334155;
+        font-size: 16px;
+        font-weight: 600;
+        margin-top: 24px;
+    }
+    p, li {
+        font-size: 14.5px;
+        color: #334155;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+        font-size: 13.5px;
+        font-variant-numeric: tabular-nums;
+    }
+    th, td {
+        padding: 10px 14px;
+        text-align: left;
+        border: 1px solid #e2e8f0;
+    }
+    th {
+        background-color: #f1f5f9;
+        color: #0f172a;
+        font-weight: 600;
+    }
+    tr:nth-child(even) {
+        background-color: #f8fafc;
+    }
+    .badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .badge-pass {
+        background: #dcfce7;
+        color: #166534;
+    }
+    .badge-fail {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+    .badge-info {
+        background: #e0f2fe;
+        color: #075985;
+    }
+    .figure-container {
+        text-align: center;
+        margin: 28px 0;
+        padding: 16px;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+    }
+    .figure-container img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 4px;
+    }
+    .caption {
+        font-size: 13px;
+        color: #64748b;
+        margin-top: 10px;
+    }
+    .meta-box {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 16px 20px;
+        margin-bottom: 28px;
+        font-size: 13.5px;
+    }
+    .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>ADNI-MCI Cognitive Pilot Evaluation Report</h1>
+
+    <div class="meta-box">
+        <strong>Repository:</strong> pysimlr (v0.23.1) &nbsp;|&nbsp;
+        <strong>Evaluation Suite:</strong> WP4 Score-Level Path Model Pilot (Plan Section 8) &nbsp;|&nbsp;
+        <strong>Execution Time:</strong> 17.5s &nbsp;|&nbsp;
+        <strong>Cohort:</strong> ADNI-MCI Protocol B (n = 1,084, 70/30 train/test splits, seeds [0, 1, 2, 3, 4])
+    </div>
+
+    <h2>1. Primary Pass Rules (Plan Section 8: P1–P4)</h2>
+    <p>
+        Evaluated on the ADNI Mild Cognitive Impairment cohort across three anatomical T1-weighted MRI views
+        (<code>T1Hier_vol</code>, <code>T1Hier_thk</code>, <code>T1w_mean</code>) and cognitive outcome <code>CogPC1</code>
+        (first principal component of the cognitive battery fitted on training rows only). Demographic confounds
+        (age, education, head size) are passed to both <code>fit(confounds=)</code> and <code>path_model(covariates=)</code>;
+        sex is passed exclusively as <code>groups=</code>.
+    </p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Plan Rule</th>
+                <th>Section 8 Criterion</th>
+                <th>Measured CSV Outcome</th>
+                <th>Verdict</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>P1</strong></td>
+                <td><code>T1Hier_vol – T1Hier_thk</code> held-out <code>p_maxt &lt; 0.05</code> in &ge; 4 of 5 splits</td>
+                <td>SIMLR: <strong>5/5</strong> (<code>p_maxt</code> = [0.0005, 0.0005, 0.0005, 0.0005, 0.0005])<br>
+                    LEND: <strong>5/5</strong> (<code>p_maxt</code> = [0.0005, 0.0005, 0.0005, 0.0005, 0.0005])</td>
+                <td><span class="badge badge-pass">PASS</span></td>
+            </tr>
+            <tr>
+                <td><strong>P2</strong></td>
+                <td>Outcome node has &ge; 1 view with <code>p_holm &lt; 0.05</code> in <code>outcome_edges</code> in &ge; 4 of 5 splits</td>
+                <td>SIMLR: <strong>4/5</strong> (min <code>p_holm</code> = [0.002999, 0.001499, 0.001499, 0.4003, 0.016492])<br>
+                    LEND: <strong>4/5</strong> (min <code>p_holm</code> = [0.002999, 0.005997, 0.001499, 0.016492, 0.422789])</td>
+                <td><span class="badge badge-pass">PASS</span></td>
+            </tr>
+            <tr>
+                <td><strong>P3</strong></td>
+                <td>Fixed-model held-out <code>pillai</code> is below training <code>pillai</code> for every edge</td>
+                <td>View–view edges: SIMLR <strong>5/5</strong>, LEND <strong>5/5</strong><br>
+                    All 6 edges (incl. unsupervised outcome): SIMLR <strong>2/5</strong>, LEND <strong>2/5</strong></td>
+                <td><span class="badge badge-fail">FAIL (OUTCOME EDGES)</span></td>
+            </tr>
+            <tr>
+                <td><strong>P4</strong></td>
+                <td>Complete graph is not best by <code>heldout_loglik</code> in every split (else report paired deltas)</td>
+                <td>SIMLR top by LL: ['star on T1Hier_thk', 'star on T1Hier_thk', 'star on T1Hier_thk', 'star on T1Hier_thk', 'complete'] (&Delta; star&minus;comp = [14.901, 20.7727, 0.5956, 10.6701, -9.9627])<br>
+                    LEND top by LL: ['complete', 'complete', 'complete', 'complete', 'star on T1Hier_thk'] (&Delta; star&minus;comp = [-33.4784, -23.0711, -68.8611, -41.9737, 15.3233])</td>
+                <td><span class="badge badge-pass">PASS</span></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>1.1 Rule P3 Edge-by-Edge Investigation (<code>adni_train_vs_heldout_pillai.csv</code>)</h3>
+    <p>
+        Every measurement-fitted view-view edge satisfies pillai_heldout < pillai_train across all splits. Violations occur exclusively on weak view-outcome edges (V ~ 0.02-0.06): pysimlr.fit never observes CogPC1, so outcome edges are not selected on training rows, and held-out splits (n_te=325 vs n_tr=759) experience random 70/30 subsampling variance plus higher finite-sample Pillai offset (~k/n = 3/325 vs 3/759).
+    </p>
+    <table>
+        <thead>
+            <tr>
+                <th>Method</th>
+                <th>Split Seed</th>
+                <th>Edge</th>
+                <th>Edge Type</th>
+                <th>Training Pillai (n=759)</th>
+                <th>Held-out Pillai (n=325)</th>
+                <th>&Delta; (Held-out &minus; Train)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>SIMLR</td><td>0</td><td><code>T1Hier_vol - outcome</code></td><td>view_outcome</td><td>0.0286</td><td>0.0340</td><td>+0.0054</td></tr>
+<tr><td>SIMLR</td><td>0</td><td><code>T1Hier_thk - outcome</code></td><td>view_outcome</td><td>0.0340</td><td>0.0518</td><td>+0.0177</td></tr>
+<tr><td>SIMLR</td><td>0</td><td><code>T1w_mean - outcome</code></td><td>view_outcome</td><td>0.0311</td><td>0.0548</td><td>+0.0237</td></tr>
+<tr><td>SIMLR</td><td>1</td><td><code>T1Hier_thk - outcome</code></td><td>view_outcome</td><td>0.0520</td><td>0.0544</td><td>+0.0025</td></tr>
+<tr><td>SIMLR</td><td>1</td><td><code>T1w_mean - outcome</code></td><td>view_outcome</td><td>0.0416</td><td>0.0479</td><td>+0.0063</td></tr>
+<tr><td>SIMLR</td><td>2</td><td><code>T1Hier_vol - outcome</code></td><td>view_outcome</td><td>0.0472</td><td>0.0538</td><td>+0.0066</td></tr>
+<tr><td>SIMLR</td><td>2</td><td><code>T1Hier_thk - outcome</code></td><td>view_outcome</td><td>0.0434</td><td>0.0682</td><td>+0.0248</td></tr>
+<tr><td>SIMLR</td><td>2</td><td><code>T1w_mean - outcome</code></td><td>view_outcome</td><td>0.0256</td><td>0.0295</td><td>+0.0038</td></tr>
+<tr><td>LEND</td><td>0</td><td><code>T1Hier_vol - outcome</code></td><td>view_outcome</td><td>0.0265</td><td>0.0470</td><td>+0.0205</td></tr>
+<tr><td>LEND</td><td>0</td><td><code>T1Hier_thk - outcome</code></td><td>view_outcome</td><td>0.0316</td><td>0.0384</td><td>+0.0068</td></tr>
+<tr><td>LEND</td><td>0</td><td><code>T1w_mean - outcome</code></td><td>view_outcome</td><td>0.0220</td><td>0.0227</td><td>+0.0007</td></tr>
+<tr><td>LEND</td><td>1</td><td><code>T1w_mean - outcome</code></td><td>view_outcome</td><td>0.0236</td><td>0.0441</td><td>+0.0205</td></tr>
+<tr><td>LEND</td><td>2</td><td><code>T1Hier_vol - outcome</code></td><td>view_outcome</td><td>0.0623</td><td>0.0711</td><td>+0.0088</td></tr>
+<tr><td>LEND</td><td>2</td><td><code>T1Hier_thk - outcome</code></td><td>view_outcome</td><td>0.0772</td><td>0.0932</td><td>+0.0160</td></tr>
+
+        </tbody>
+    </table>
+
+    <h2>2. Secondary Empirical Findings (Descriptive, Non-Gate)</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Finding</th>
+                <th>Quantity Measured</th>
+                <th>Empirical Summary</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><span class="badge badge-info">Finding 1</span></td>
+                <td>Held-out <code>T1Hier_thk &rarr; CogPC1</code> association</td>
+                <td>SIMLR significant in <strong>4/5</strong> splits (<code>p_perm</code> = [0.001, 0.0005, 0.0005, 0.223888, 0.005497], <code>p_holm</code> = [0.002999, 0.001499, 0.001499, 0.447776, 0.016492])<br>
+                    LEND significant in <strong>4/5</strong> splits (<code>p_perm</code> = [0.004998, 0.001999, 0.0005, 0.005497, 0.144428], <code>p_holm</code> = [0.009995, 0.005997, 0.001499, 0.016492, 0.422789])</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-info">Finding 2</span></td>
+                <td>Held-out log-likelihood parsimony (<code>star on T1Hier_thk</code> minus <code>complete</code>)</td>
+                <td>SIMLR: mean &Delta;LL = <strong>+7.40</strong> (SE = 5.45; F1 parsimony winners: ['star on T1Hier_thk', 'star on T1Hier_thk', 'star on T1Hier_thk', 'star on T1Hier_thk', 'star on T1Hier_thk'])<br>
+                    LEND: mean &Delta;LL = <strong>-30.41</strong> (SE = 13.72; F1 parsimony winners: ['complete', 'chain (vol-thk-mean)', 'complete', 'complete', 'star on T1Hier_thk'])</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-info">Finding 3</span></td>
+                <td>Out-of-sample <code>CogPC1</code> prediction via <code>predict_path</code> (confound-adjusted)</td>
+                <td>SIMLR star: mean R<sup>2</sup> = <strong>0.0873</strong> (Pearson r = 0.3501; complete R<sup>2</sup> = 0.0926)<br>
+                    LEND star: mean R<sup>2</sup> = <strong>0.0894</strong> (Pearson r = 0.3543; complete R<sup>2</sup> = 0.0918)</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-info">Finding 4</span></td>
+                <td>Live training-row refit vs fixed-model null (<code>rows="train", null="both"</code>, matched B = 50)</td>
+                <td>SIMLR: p-ratio = 1.00; view–view mean q95<sub>refit</sub> = 0.2997 vs q95<sub>fixed</sub> = 0.0070 (<strong>43.03&times;</strong>; outcome edges 1.14&times;)<br>
+                    LEND: p-ratio = 1.00; view–view mean q95<sub>refit</sub> = 0.1240 vs q95<sub>fixed</sub> = 0.0078 (<strong>15.99&times;</strong>; outcome edges 1.17&times;)</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>2.1 Live Training-Row Refit vs Fixed Null Table (<code>adni_p4_refit_ratio.csv</code>, Seed 0, B = 50)</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Method</th>
+                <th>Edge</th>
+                <th>Type</th>
+                <th>Observed Train Pillai</th>
+                <th>Fixed p_perm</th>
+                <th>Refit p_refit</th>
+                <th>Fixed q95</th>
+                <th>Refit q95</th>
+                <th>q95 Ratio (Refit / Fixed)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>SIMLR</td><td><code>T1Hier_vol - T1Hier_thk</code></td><td>view_view</td><td>0.8919</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0074</td><td>0.3323</td><td>44.99&times;</td></tr>
+<tr><td>SIMLR</td><td><code>T1Hier_vol - T1w_mean</code></td><td>view_view</td><td>0.7822</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0067</td><td>0.2821</td><td>42.27&times;</td></tr>
+<tr><td>SIMLR</td><td><code>T1Hier_vol - outcome</code></td><td>view_outcome</td><td>0.0286</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0115</td><td>0.0134</td><td>1.17&times;</td></tr>
+<tr><td>SIMLR</td><td><code>T1Hier_thk - T1w_mean</code></td><td>view_view</td><td>0.8918</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0068</td><td>0.2847</td><td>41.82&times;</td></tr>
+<tr><td>SIMLR</td><td><code>T1Hier_thk - outcome</code></td><td>view_outcome</td><td>0.0340</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0109</td><td>0.0129</td><td>1.18&times;</td></tr>
+<tr><td>SIMLR</td><td><code>T1w_mean - outcome</code></td><td>view_outcome</td><td>0.0311</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0101</td><td>0.0107</td><td>1.06&times;</td></tr>
+<tr><td>LEND</td><td><code>T1Hier_vol - T1Hier_thk</code></td><td>view_view</td><td>0.8724</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0078</td><td>0.2226</td><td>28.63&times;</td></tr>
+<tr><td>LEND</td><td><code>T1Hier_vol - T1w_mean</code></td><td>view_view</td><td>0.7302</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0072</td><td>0.0715</td><td>9.95&times;</td></tr>
+<tr><td>LEND</td><td><code>T1Hier_vol - outcome</code></td><td>view_outcome</td><td>0.0265</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0099</td><td>0.0123</td><td>1.24&times;</td></tr>
+<tr><td>LEND</td><td><code>T1Hier_thk - T1w_mean</code></td><td>view_view</td><td>0.8560</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0083</td><td>0.0780</td><td>9.38&times;</td></tr>
+<tr><td>LEND</td><td><code>T1Hier_thk - outcome</code></td><td>view_outcome</td><td>0.0316</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0102</td><td>0.0114</td><td>1.12&times;</td></tr>
+<tr><td>LEND</td><td><code>T1w_mean - outcome</code></td><td>view_outcome</td><td>0.0220</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0196 (n&ge;obs: 0)</td><td>0.0089</td><td>0.0101</td><td>1.14&times;</td></tr>
+
+        </tbody>
+    </table>
+
+    <h2>3. Model Topology Comparison</h2>
+    <h3>Mode (a): Structural Log-Likelihood Comparison (Fixed Measurement, Seed 0)</h3>
+    <div class="grid-2">
+        
+        <div class="figure-container">
+            <img src="adni_path_comparison_forest.png" alt="Model comparison forest plot: Out-of-sample log-likelihood deltas against top graph with bootstrap 95% CIs and present/absent edge pass rates." />
+            <div class="caption"><strong>Figure:</strong> Model comparison forest plot: Out-of-sample log-likelihood deltas against top graph with bootstrap 95% CIs and present/absent edge pass rates.</div>
+        </div>
+        
+        
+        <div class="figure-container">
+            <img src="adni_path_diagram_simlr.png" alt="Fitted score-level path model diagram on held-out rows (SIMLR, Seed 0)." />
+            <div class="caption"><strong>Figure:</strong> Fitted score-level path model diagram on held-out rows (SIMLR, Seed 0).</div>
+        </div>
+        
+    </div>
+    
+        <div class="figure-container">
+            <img src="adni_path_diagram_lend.png" alt="Fitted score-level path model diagram on held-out rows (LEND, Seed 0)." />
+            <div class="caption"><strong>Figure:</strong> Fitted score-level path model diagram on held-out rows (LEND, Seed 0).</div>
+        </div>
+        
+
+    <h3>Mode (b): Repeated Training-Topology Comparison (Refits Mode, n_splits = 5)</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Method</th>
+                <th>Graph</th>
+                <th>Topology</th>
+                <th>Edges</th>
+                <th>Held-out LogLik (Own)</th>
+                <th>OOS Coupling</th>
+                <th>OOS R<sup>2</sup></th>
+                <th>Outcome R<sup>2</sup></th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>SIMLR</td><td><strong>complete</strong></td><td>graph</td><td>6</td><td>-2133.09</td><td>0.8920</td><td>0.1137</td><td>0.0279</td></tr>
+<tr><td>SIMLR</td><td><strong>star on T1Hier_thk</strong></td><td>graph</td><td>3</td><td>-2521.70</td><td>0.7963</td><td>0.1354</td><td>0.0507</td></tr>
+<tr><td>SIMLR</td><td><strong>chain (vol-thk-mean)</strong></td><td>graph</td><td>3</td><td>-2529.49</td><td>0.7963</td><td>0.1354</td><td>0.0507</td></tr>
+<tr><td>SIMLR</td><td><strong>empty</strong></td><td>star</td><td>0</td><td>-4591.74</td><td>0.8958</td><td>0.1121</td><td>0.0243</td></tr>
+<tr><td>LEND</td><td><strong>complete</strong></td><td>graph</td><td>6</td><td>-2444.65</td><td>0.6450</td><td>0.1172</td><td>0.0246</td></tr>
+<tr><td>LEND</td><td><strong>star on T1Hier_thk</strong></td><td>graph</td><td>3</td><td>-1983.64</td><td>0.8518</td><td>0.1434</td><td>0.0211</td></tr>
+<tr><td>LEND</td><td><strong>chain (vol-thk-mean)</strong></td><td>graph</td><td>3</td><td>-1987.26</td><td>0.8518</td><td>0.1434</td><td>0.0211</td></tr>
+<tr><td>LEND</td><td><strong>empty</strong></td><td>star</td><td>0</td><td>-4591.65</td><td>0.6731</td><td>0.1483</td><td>0.0201</td></tr>
+
+        </tbody>
+    </table>
+
+    <h2>4. Edge Inference &amp; Coupling Diagnostics</h2>
+    <div class="grid-2">
+        
+        <div class="figure-container">
+            <img src="adni_edge_matrix_simlr.png" alt="Edge component matrix (|r_j| and Pillai trace). Hatched cells denote q_bh >= 0.05." />
+            <div class="caption"><strong>Figure:</strong> Edge component matrix (|r_j| and Pillai trace). Hatched cells denote q_bh >= 0.05.</div>
+        </div>
+        
+        
+        <div class="figure-container">
+            <img src="adni_edge_null_histograms.png" alt="Freedman-Lane permutation null distributions for all tested edges on held-out rows." />
+            <div class="caption"><strong>Figure:</strong> Freedman-Lane permutation null distributions for all tested edges on held-out rows.</div>
+        </div>
+        
+    </div>
+
+    <h2>5. ANTsX Neuroanatomical Visualization</h2>
+    <p>
+        Feature contributions are computed as the product of view loading structure and path regression coefficients:
+        <code>C_ia = S_ia &times; &beta;_ab</code>, projected onto the ANTsPy DKT parcellation via <code>antsxviz</code>.
+    </p>
+
+    <h3>Cortical Surface Montages (fsaverage 41k Inflated Surface)</h3>
+    
+        <div class="figure-container">
+            <img src="adni_brain_map_thk_outcome.png" alt="Cortical surface brain montage (lateral, medial, and ventral views for Left and Right hemispheres) showing cortical thickness feature contributions carrying association to CogPC1." />
+            <div class="caption"><strong>Figure:</strong> Cortical surface brain montage (lateral, medial, and ventral views for Left and Right hemispheres) showing cortical thickness feature contributions carrying association to CogPC1.</div>
+        </div>
+        
+    
+        <div class="figure-container">
+            <img src="adni_brain_map_vol_thk.png" alt="Cortical surface brain montage showing volumetric feature contributions coupled to cortical thickness." />
+            <div class="caption"><strong>Figure:</strong> Cortical surface brain montage showing volumetric feature contributions coupled to cortical thickness.</div>
+        </div>
+        
+
+    <h3>Anatomical Feature Contributions &amp; Hemispheric Region Tables</h3>
+    <div class="grid-2">
+        
+        <div class="figure-container">
+            <img src="adni_edge_features_thk_outcome.png" alt="Top neuroanatomical features for T1Hier_thk -> CogPC1." />
+            <div class="caption"><strong>Figure:</strong> Top neuroanatomical features for T1Hier_thk -> CogPC1.</div>
+        </div>
+        
+        
+        <div class="figure-container">
+            <img src="adni_edge_features_vol_thk.png" alt="Top neuroanatomical features for T1Hier_vol -> T1Hier_thk." />
+            <div class="caption"><strong>Figure:</strong> Top neuroanatomical features for T1Hier_vol -> T1Hier_thk.</div>
+        </div>
+        
+    </div>
+    
+        <div class="figure-container">
+            <img src="adni_region_table_thk_outcome.png" alt="Hemispheric region table figure (antsxviz.region_table_figure) grouped by anatomical lobe." />
+            <div class="caption"><strong>Figure:</strong> Hemispheric region table figure (antsxviz.region_table_figure) grouped by anatomical lobe.</div>
+        </div>
+        
+
+    <hr style="border: 0; border-top: 1px solid #e2e8f0; margin-top: 40px;">
+    <p style="font-size: 12px; color: #94a3b8; text-align: center;">Generated by <code>scripts/adni_path_model_pilot.py</code> &bull; pysimlr v0.23.1</p>
+</div>
+</body>
+</html>

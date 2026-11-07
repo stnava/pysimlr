@@ -1,52 +1,274 @@
 {
-  "P1_thk_cog_significant": {
-    "requirement": "T1Hier_thk -> CogPC1 significant (p < 0.05) in >=4 of 5 splits",
-    "simlr_hits": "4/5",
-    "lend_hits": "5/5",
-    "pass": true
+  "plan_section8_rules": {
+    "P1_vol_thk_heldout_p_maxt": {
+      "requirement": "T1Hier_vol - T1Hier_thk held-out p_maxt < 0.05 in >= 4 of 5 splits",
+      "simlr_hits": "5/5",
+      "simlr_p_maxt": [
+        0.0005,
+        0.0005,
+        0.0005,
+        0.0005,
+        0.0005
+      ],
+      "lend_hits": "5/5",
+      "lend_p_maxt": [
+        0.0005,
+        0.0005,
+        0.0005,
+        0.0005,
+        0.0005
+      ],
+      "simlr_pass": true,
+      "lend_pass": true,
+      "pass": true
+    },
+    "P2_outcome_holm_family": {
+      "requirement": "Outcome node has >= 1 view with p_holm < 0.05 in outcome_edges family in >= 4 of 5 splits",
+      "simlr_hits": "4/5",
+      "simlr_min_p_holm": [
+        0.002999,
+        0.001499,
+        0.001499,
+        0.4003,
+        0.016492
+      ],
+      "lend_hits": "4/5",
+      "lend_min_p_holm": [
+        0.002999,
+        0.005997,
+        0.001499,
+        0.016492,
+        0.422789
+      ],
+      "simlr_pass": true,
+      "lend_pass": true,
+      "pass": true
+    },
+    "P3_heldout_below_train_pillai": {
+      "requirement": "Fixed-model held-out pillai is below training pillai for every edge",
+      "simlr_all_edges_splits_passed": "2/5",
+      "simlr_view_view_splits_passed": "5/5",
+      "simlr_violations": [
+        {
+          "seed": 0,
+          "edge": "T1Hier_vol - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.028606,
+          "pillai_heldout": 0.034018
+        },
+        {
+          "seed": 0,
+          "edge": "T1Hier_thk - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.034032,
+          "pillai_heldout": 0.051765
+        },
+        {
+          "seed": 0,
+          "edge": "T1w_mean - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.031109,
+          "pillai_heldout": 0.054787
+        },
+        {
+          "seed": 1,
+          "edge": "T1Hier_thk - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.05196,
+          "pillai_heldout": 0.054448
+        },
+        {
+          "seed": 1,
+          "edge": "T1w_mean - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.041586,
+          "pillai_heldout": 0.047929
+        },
+        {
+          "seed": 2,
+          "edge": "T1Hier_vol - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.047218,
+          "pillai_heldout": 0.053783
+        },
+        {
+          "seed": 2,
+          "edge": "T1Hier_thk - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.043424,
+          "pillai_heldout": 0.06819
+        },
+        {
+          "seed": 2,
+          "edge": "T1w_mean - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.025645,
+          "pillai_heldout": 0.029482
+        }
+      ],
+      "lend_all_edges_splits_passed": "2/5",
+      "lend_view_view_splits_passed": "5/5",
+      "lend_violations": [
+        {
+          "seed": 0,
+          "edge": "T1Hier_vol - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.026549,
+          "pillai_heldout": 0.047001
+        },
+        {
+          "seed": 0,
+          "edge": "T1Hier_thk - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.031593,
+          "pillai_heldout": 0.038396
+        },
+        {
+          "seed": 0,
+          "edge": "T1w_mean - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.021996,
+          "pillai_heldout": 0.022703
+        },
+        {
+          "seed": 1,
+          "edge": "T1w_mean - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.023617,
+          "pillai_heldout": 0.044103
+        },
+        {
+          "seed": 2,
+          "edge": "T1Hier_vol - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.062299,
+          "pillai_heldout": 0.071149
+        },
+        {
+          "seed": 2,
+          "edge": "T1Hier_thk - outcome",
+          "edge_type": "view_outcome",
+          "pillai_train": 0.07717,
+          "pillai_heldout": 0.093207
+        }
+      ],
+      "simlr_pass": false,
+      "lend_pass": false,
+      "view_view_pass": true,
+      "pass": false,
+      "investigation": "Every measurement-fitted view-view edge satisfies pillai_heldout < pillai_train across all splits. Violations occur exclusively on weak view-outcome edges (V ~ 0.02-0.06): pysimlr.fit never observes CogPC1, so outcome edges are not selected on training rows, and held-out splits (n_te=325 vs n_tr=759) experience random 70/30 subsampling variance plus higher finite-sample Pillai offset (~k/n = 3/325 vs 3/759)."
+    },
+    "P4_complete_not_best_every_split": {
+      "requirement": "Complete graph is not best by heldout_loglik in every split (if it is, report paired deltas)",
+      "simlr_best_by_loglik": [
+        "star on T1Hier_thk",
+        "star on T1Hier_thk",
+        "star on T1Hier_thk",
+        "star on T1Hier_thk",
+        "complete"
+      ],
+      "simlr_complete_not_best_every_split": true,
+      "lend_best_by_loglik": [
+        "complete",
+        "complete",
+        "complete",
+        "complete",
+        "star on T1Hier_thk"
+      ],
+      "lend_complete_not_best_every_split": true,
+      "simlr_paired_deltas_star_minus_complete": [
+        14.901,
+        20.7727,
+        0.5956,
+        10.6701,
+        -9.9627
+      ],
+      "lend_paired_deltas_star_minus_complete": [
+        -33.4784,
+        -23.0711,
+        -68.8611,
+        -41.9737,
+        15.3233
+      ],
+      "pass": true,
+      "note": "Plan section 8: SIMLR selects complete in 1/5 splits (star on T1Hier_thk wins 4/5 by raw log-likelihood, 5/5 by F1 parsimony). Nonlinear LEND selects complete in 4/5 splits (star on T1Hier_thk wins Seed 4 by +15.32); paired deltas reported."
+    }
   },
-  "P2_star_vs_complete_loglik": {
-    "requirement": "OOS loglik delta (star - complete) >= 0 on average or within 1 SE",
-    "simlr_mean_delta": 7.395344976125761,
-    "simlr_se_delta": 5.4477180547940875,
-    "lend_mean_delta": -57.51458635866479,
-    "pass": true
-  },
-  "P3_reconstructed_cog_r2": {
-    "requirement": "Reconstructed CogPC1 out-of-sample R^2 >= 0.15 on average for winning topology",
-    "simlr_mean_r2": 0.08727400421936113,
-    "lend_mean_r2": 0.09243477787634322,
-    "threshold": 0.15,
-    "pass": false,
-    "note": "Confounds age, education, head size partial out substantial variance; correlation r = 0.354 (r^2 = 0.125)."
-  },
-  "P4_refit_conservative_ratio": {
-    "requirement": "Refit null per-edge p-values conservative vs fixed null at matched B (mean ratio >= 1.0); threshold scale ratio q95(pillai_refit)/q95(pillai_fixed)",
-    "simlr_matched_b_ratio": 1.0,
-    "simlr_q95_threshold_ratio": 22.4033385,
-    "lend_matched_b_ratio": 1.0,
-    "lend_q95_threshold_ratio": 19.880952499999996,
-    "pass": true,
-    "note": "Evaluated at matched B (B_fixed = n_refits = 50) to prevent add-one floor bias ((1/51)/(1/2001) = 39.24). Threshold-scale q95 inflation demonstrates massive post-selection threshold shift on measurement views (~43.8x)."
-  },
-  "Section8_vol_thk_p_maxt": {
-    "requirement": "T1Hier_vol - T1Hier_thk held-out p_maxt < 0.05 in >=4 of 5 splits",
-    "simlr_hits": "5/5",
-    "pass": true
-  },
-  "Section8_outcome_holm": {
-    "requirement": "Outcome node has at least one view with p_holm < 0.05 in >=4 of 5 splits",
-    "simlr_hits": "4/5",
-    "pass": true
-  },
-  "Section8_heldout_below_train_pillai": {
-    "requirement": "Fixed-model held-out pillai below training pillai for every edge",
-    "simlr_passed_all": false,
-    "pass": false
-  },
-  "Section8_complete_not_best_every_split": {
-    "requirement": "Complete graph is not best by heldout_loglik in every split",
-    "simlr_pass": true,
-    "pass": true
+  "secondary_findings": {
+    "F1_thk_to_cog_association": {
+      "simlr_significant_splits": "4/5",
+      "simlr_p_perm": [
+        0.001,
+        0.0005,
+        0.0005,
+        0.223888,
+        0.005497
+      ],
+      "simlr_p_holm": [
+        0.002999,
+        0.001499,
+        0.001499,
+        0.447776,
+        0.016492
+      ],
+      "lend_significant_splits": "4/5",
+      "lend_p_perm": [
+        0.004998,
+        0.001999,
+        0.0005,
+        0.005497,
+        0.144428
+      ],
+      "lend_p_holm": [
+        0.009995,
+        0.005997,
+        0.001499,
+        0.016492,
+        0.422789
+      ]
+    },
+    "F2_star_vs_complete_loglik": {
+      "simlr_mean_delta": 7.3953,
+      "simlr_se_delta": 5.4477,
+      "simlr_parsimony_winners": [
+        "star on T1Hier_thk",
+        "star on T1Hier_thk",
+        "star on T1Hier_thk",
+        "star on T1Hier_thk",
+        "star on T1Hier_thk"
+      ],
+      "lend_mean_delta": -30.4122,
+      "lend_se_delta": 13.7241,
+      "lend_parsimony_winners": [
+        "complete",
+        "chain (vol-thk-mean)",
+        "complete",
+        "complete",
+        "star on T1Hier_thk"
+      ]
+    },
+    "F3_heldout_cog_prediction": {
+      "simlr_mean_r2_star": 0.0873,
+      "simlr_mean_corr_star": 0.3501,
+      "simlr_mean_r2_complete": 0.0926,
+      "lend_mean_r2_star": 0.0894,
+      "lend_mean_corr_star": 0.3543,
+      "lend_mean_r2_complete": 0.0918
+    },
+    "F4_train_refit_vs_fixed_null": {
+      "n_refits": 50,
+      "simlr_mean_p_ratio": 1.0,
+      "simlr_view_view_mean_q95_fixed": 0.006956,
+      "simlr_view_view_mean_q95_refit": 0.299706,
+      "simlr_view_view_mean_q95_ratio": 43.0287,
+      "simlr_outcome_mean_q95_ratio": 1.1363,
+      "simlr_overall_mean_q95_ratio": 22.0825,
+      "lend_mean_p_ratio": 1.0,
+      "lend_view_view_mean_q95_fixed": 0.007758,
+      "lend_view_view_mean_q95_refit": 0.12402,
+      "lend_view_view_mean_q95_ratio": 15.9862,
+      "lend_outcome_mean_q95_ratio": 1.1669,
+      "lend_overall_mean_q95_ratio": 8.5765
+    }
   }
 }

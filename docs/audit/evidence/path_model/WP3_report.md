@@ -6,12 +6,12 @@ Evidence Directory: `docs/audit/evidence/path_model/wp3/`.
 
 ## 1. What Was Built
 
-Moved reference path-model visualization functions from `scripts/path_model_demo.py` into `src/pysimlr/plotting.py` and implemented key enhancements:
-- `plot_path_model`: Circular DAG layout; edge width proportional to Pillai (0.6..6 pt) or per-component `|r_j|`; solid for `p_maxt < alpha`, dashed for hypothesised non-significant; `_WARN` for absent significant edges; Pillai prefix `V = ` with padded halos (`pad=0.32`); moderation indicator (`^` marker) when `p_holm < alpha`; status line on rejected graph fit (`pm["fit"]["rejected"]`); clean p-value formatting (`_format_p`) avoiding raw strings (e.g. `p < 0.001` or `p < 0.0002` at add-one floor).
-- In `component` mode (`component=j`): signed colours (`_BLUE[6]` positive, `_RED[4]` negative); non-significant hypothesised edges rendered in dashed `_INK2` to strictly match legend.
+Moved reference path-model visualization functions from `scripts/path_model_demo.py` into `src/pysimlr/plotting.py` and implemented publication layout refinements:
+- `plot_path_model`: Auto-sized rounded node cards (`node_labels` mapping, outcome card in `_INK`, consensus hollow card) in staged/circular DAG layout with quadratic Bezier chords; edge width proportional to Pillai (0.6..6 pt) or per-component `|r_j|`; solid for `p_maxt < alpha`, dashed for hypothesised non-significant; `_WARN` for absent significant edges; Pillai prefix `V = ` with padded halos and bounding-box repulsion; moderation indicator (`▲ mod` / `^` marker) when `p_holm < alpha`; status line on rejected graph fit (`pm["fit"]["rejected"]`); clean p-value formatting (`_format_p`).
+- In `component` mode (`component=j`): signed colours (`_BLUE[6]` positive, `_RED[4]` negative); non-significant hypothesised edges rendered in dashed `_INK2` to match legend.
 - `plot_edge_matrix`: Per-component heatmap (rows: edges "a - b", cols: components) on diverging `_cmap("div")`; hatched cells for `q_bh >= alpha`; right-hand column with edge Pillai on `_cmap("seq")`. Supports `what="r"` and `what="beta"`.
-- `plot_path_comparison`: Forest plot of held-out log-likelihood deltas vs top graph with paired subject bootstrap 95% CIs. Fraction-passing panel vertically dodges present-pass and absent-pass markers (`±0.12`) when equal to eliminate occlusion. Expanded `xlim` eliminates right-side annotation gutter spillover.
-- `plot_edge_null`: Small multiples of Freedman-Lane permutation null histograms (`_BLUE[2]`) with vertical observed lines (`_RED[4]`); observed text offset cleanly to avoid crossing the line; explicit y-axis label ("Permutation count").
+- `plot_path_comparison`: Forest plot of held-out log-likelihood deltas vs top graph with paired subject bootstrap 95% CIs, broken x-axis zoom when an outlier baseline (e.g. `empty`) spans >4x the competitive CI range, and bootstrap win-share bars. Fraction-passing panel vertically dodges present-pass and absent-pass markers (`±0.12`) when equal.
+- `plot_edge_null`: Small multiples of Freedman-Lane permutation null histograms (`_BLUE[2]`) with 95th-percentile dashed null threshold, vertical observed lines (`_RED[4]`), broken x-axis when the observed Pillai lies far above the null bulk, and explicit y-axis label ("Permutation count").
 - `plot_edge_features`: Horizontal lollipop plots based on `pm["feature_contributions"]` (`structure_a * beta_ab`) in the style of `plot_top_features`; signed diverging stem/marker colors (`_BLUE[6]` positive, `_RED[4]` negative); clear endpoint view labels in titles and axis labels.
 - `plot_edge_brain_map`: Connects `pm["feature_contributions"]` to `antsxviz` (DKT cortical surfaces / volumetric atlases via `_require_antsxviz()` and `brain_rows()`) using symmetric diverging colormaps.
 - Exports & Integration: Registered all 6 functions in `src/pysimlr/__init__.py` (`__all__`, `_LAZY_ATTRS`), `src/pysimlr/plotting.py`, and `docs/usage_notes.md`. Updated `scripts/path_model_demo.py` to import from `pysimlr.plotting` and deleted redundant copies.
@@ -64,5 +64,7 @@ Moved reference path-model visualization functions from `scripts/path_model_demo
   `46 passed, 4 warnings in 33.54s`
 - `python -m pytest -q -p no:cacheprovider`
   `2008 passed, 1 skipped, 2 xfailed, 937 warnings in 152.10s (0:02:32)`
+- `python scripts/path_model_demo.py`
+  `wrote docs/audit/evidence/path_model/reference_report.html` (all 6 PNGs, 3 CSVs, and HTML report tracked in git).
 - `python scripts/path_model_demo.py --out docs/audit/evidence/path_model/wp3`
-  `wrote docs/audit/evidence/path_model/wp3/reference_report.html` (all 5 figures and HTML report generated).
+  `wrote docs/audit/evidence/path_model/wp3/reference_report.html` (all 6 PNGs, 3 CSVs, and HTML report tracked in git).
