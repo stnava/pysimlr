@@ -231,7 +231,10 @@ def _matrix(ax, M, cmap, vmin, vmax, fmt="{:.2f}", rows=None, cols=None, annotat
             for j in range(M.shape[1]):
                 if not np.isfinite(M[i, j]):
                     continue
-                t = fmt.format(M[i, j]) + ("" if extra is None else extra[i][j])
+                val_ij = M[i, j]
+                if abs(val_ij) < 0.005:
+                    val_ij = 0.0
+                t = fmt.format(val_ij) + ("" if extra is None else extra[i][j])
                 ax.text(j, i, t, ha="center", va="center", fontsize=8.5,
                         color=_cell_text_color(mesh.cmap(norm(M[i, j]))))
     if cols is not None:
@@ -2603,12 +2606,13 @@ def _format_p(p: Optional[float], b_sweeps: Optional[int] = None) -> str:
 
 @_themed
 def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: float = 0.05,
-                    ax=None) -> Any:
-    """Nodes on a circle with edge widths proportional to association strength.
+                    ax=None, node_labels: Optional[Dict[str, str]] = None) -> Any:
+    """Directed/staged SEM path model layout with auto-sized rounded node cards.
 
     When ``component=None`` (default), edges show omnibus association across
     components (Pillai trace, width in 0.6..6 pt), solid if ``p_maxt < alpha``,
-    dashed otherwise. Absent-but-significant edges are drawn in ``_WARN``.
+    dashed otherwise. Significant present edges follow the sequential ``_BLUE``
+    ramp. Absent-but-significant edges are drawn in ``_WARN``.
     When ``component=j``, edge widths show per-component ``|r_j|`` with sign colour
     (``_BLUE[6]`` positive, ``_RED[4]`` negative). Moderated edges (Holm p < alpha)
     carry an indicator mark. A critical status line is displayed when the graph-fit
@@ -2626,6 +2630,9 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
         Significance threshold for edge testing and moderation.
     ax : matplotlib.axes.Axes, optional
         Axes to draw into. If None, a new Figure is created.
+    node_labels : dict, optional
+        Mapping from raw node names to human-readable labels
+        (e.g. ``{"T1Hier_vol": "Regional Volume", "outcome": "Cognition\\n(CogPC1)"}``).
 
     Returns
     -------
@@ -2637,12 +2644,38 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
     elif component is not None:
         component = int(component)
 
+    from matplotlib.colors import to_rgb
     from matplotlib.lines import Line2D
 
     nodes = list(pm["nodes"])
     m = len(nodes)
-    ang = {nm: np.pi / 2 + 2 * np.pi * i / m for i, nm in enumerate(nodes)}
-    pos = {nm: (np.cos(a), np.sin(a)) for nm, a in ang.items()}
+
+    # Directed / staged SEM layout: imaging views on left arc, outcome on right
+    if "outcome" in nodes:
+        img_nodes = [nm for nm in nodes if nm not in ("outcome", "consensus")]
+        pos = {}
+        k_img = len(img_nodes)
+        if k_img == 1:
+            pos[img_nodes[0]] = (-0.85, 0.0)
+        elif k_img == 2:
+            pos[img_nodes[0]] = (-1.15, 0.65)
+            pos[img_nodes[1]] = (-0.35, -0.65)
+        elif k_img == 3:
+            pos[img_nodes[0]] = (-1.15, 0.75)
+            pos[img_nodes[1]] = (-0.35, 0.0)
+            pos[img_nodes[2]] = (-1.15, -0.75)
+        else:
+            for i, nm in enumerate(img_nodes):
+                yi = 0.85 - 1.70 * i / (k_img - 1)
+                xi = -1.15 if (i == 0 or i == k_img - 1) else (-0.35 if i % 2 == 1 else -0.65)
+                pos[nm] = (xi, yi)
+        pos["outcome"] = (1.25, 0.0)
+        if "consensus" in nodes:
+            pos["consensus"] = (0.40, 0.0)
+    else:
+        ang = {nm: np.pi / 2 + 2 * np.pi * i / m for i, nm in enumerate(nodes)}
+        pos = {nm: (np.cos(a), np.sin(a)) for nm, a in ang.items()}
+
     col = {nm: (_INK if nm == "outcome" else _view_color(i)) for i, nm in enumerate(nodes)}
 
     fit = pm.get("fit") or {}
@@ -2662,7 +2695,7 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
     subtitle = (f"{pm.get('rows', 'heldout')} rows, n = {pm.get('n', '?')}, conditioning = {pm.get('conditioning', '?')}, "
                 f"null = {null_name}, B = {b_sweeps}; edge weights = {weight_desc}{omni_str}")
 
-    fig, ax = _figure(ax, figsize=(6.4, 5.6), title=title, subtitle=subtitle, status=status)
+    fig, ax = _figure(ax, figsize=(7.0, 5.8), title=title, subtitle=subtitle, status=status)
 
     comps = pm.get("edge_components")
     # Moderation lookup
@@ -2680,6 +2713,8 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
     had_pos = False
     had_neg = False
     had_mod = False
+
+    callout_list = []
 
     for e in edges_df.to_dict("records"):
         a, b = e["a"], e["b"]
@@ -2705,12 +2740,12 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
             if sig and not e["present"]:
                 color = _WARN
                 ls = "-"
-                al = 0.9
+                al = 0.95
                 had_warn = True
             elif sig:
                 color = _BLUE[6] if r_val >= 0 else _RED[4]
                 ls = "-"
-                al = 0.9
+                al = 0.95
                 if r_val >= 0:
                     had_pos = True
                 else:
@@ -2718,27 +2753,60 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
             else:
                 color = _INK2
                 ls = (0, (3, 2.5))
-                al = 0.6
+                al = 0.55
                 had_hyp_nonsig = True
         else:
-            width = 0.6 + 5.4 * min(1.0, max(0.0, float(e.get("pillai", 0.0))))
-            color = _WARN if (sig and not e["present"]) else _INK2
+            pillai_val = float(e.get("pillai", 0.0))
+            width = 0.6 + 5.4 * min(1.0, max(0.0, pillai_val))
             if sig and not e["present"]:
+                color = _WARN
+                ls = "-"
+                al = 0.95
                 had_warn = True
             elif sig:
+                # Map significant present edges along _BLUE sequential palette by Pillai magnitude
+                c_idx = min(9, max(3, int(round(3 + 6 * min(1.0, max(0.0, pillai_val))))))
+                color = _BLUE[c_idx]
+                ls = "-"
+                al = 0.95
                 had_sig = True
             else:
+                color = _INK2
+                ls = (0, (3, 2.5))
+                al = 0.55
                 had_hyp_nonsig = True
-            ls = "-" if sig else (0, (3, 2.5))
-            al = 0.9 if sig else 0.6
 
-        ax.plot([x1, x2], [y1, y2], color=color, lw=width, ls=ls, alpha=al,
-                solid_capstyle="round", zorder=1)
-
-        xm, ym = (x1 + x2) / 2, (y1 + y2) / 2
         dx, dy = x2 - x1, y2 - y1
         nrm = np.hypot(dx, dy) or 1.0
-        ox, oy = -dy / nrm * 0.22, dx / nrm * 0.22
+        nx, ny = -dy / nrm, dx / nrm
+        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+
+        # Curved chords with quadratic Bezier
+        rad = 0.0
+        if "outcome" in nodes:
+            if x1 < -0.8 and x2 < -0.8:
+                # Top to bottom view chord curves leftward away from middle view
+                rad = -0.22 if nx > 0 else 0.22
+            elif (x1 > 0.8 or x2 > 0.8) and (y1 > 0.3 or y2 > 0.3):
+                # Top view to outcome arcs upward
+                rad = 0.16 if ny > 0 else -0.16
+            elif (x1 > 0.8 or x2 > 0.8) and (y1 < -0.3 or y2 < -0.3):
+                # Bottom view to outcome arcs downward
+                rad = -0.16 if ny > 0 else 0.16
+
+        cx = mx + rad * nrm * nx
+        cy = my + rad * nrm * ny
+        t_arr = np.linspace(0, 1, 51)
+        bx = (1 - t_arr) ** 2 * x1 + 2 * (1 - t_arr) * t_arr * cx + t_arr ** 2 * x2
+        by = (1 - t_arr) ** 2 * y1 + 2 * (1 - t_arr) * t_arr * cy + t_arr ** 2 * y2
+
+        ax.plot(bx, by, color=color, lw=width, ls=ls, alpha=al,
+                solid_capstyle="round", zorder=1)
+
+        is_mod = (a, b) in mod_edges or (b, a) in mod_edges
+        if is_mod:
+            had_mod = True
+            ax.plot([bx[25]], [by[25]], marker="^", markersize=0, color="none", zorder=0)
 
         if component is not None:
             p_display = comp_p if comp_p is not None else e.get("p_maxt")
@@ -2748,31 +2816,61 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
             pillai_val = float(e.get("pillai", 0.0))
             label_text = f"V = {pillai_val:.2f}\n{_format_p(p_display, b_sweeps)}"
 
-        # White halo text with pad covering line cleanly
-        ax.text(xm + ox, ym + oy, label_text, ha="center", va="center",
-                fontsize=8, color=_INK,
-                bbox=dict(boxstyle="round,pad=0.32", fc=_SURFACE, ec=_GRID, lw=0.6, alpha=0.95),
+        if is_mod:
+            label_text += "\n▲ mod"
+
+        init_cx = bx[25] + nx * 0.16
+        init_cy = by[25] + ny * 0.16
+        callout_list.append({"x": init_cx, "y": init_cy, "text": label_text})
+
+    # Bounding-box repulsion to prevent edge callout collisions
+    w_box, h_box = 0.44, 0.26
+    for _ in range(40):
+        for cr in callout_list:
+            for n_pos in pos.values():
+                dx_n = cr["x"] - n_pos[0]
+                dy_n = cr["y"] - n_pos[1]
+                dn = np.hypot(dx_n, dy_n)
+                if 0 < dn < 0.45:
+                    push = (0.45 - dn) / dn * 0.25
+                    cr["x"] += dx_n * push
+                    cr["y"] += dy_n * push
+        for j in range(len(callout_list)):
+            for k in range(j + 1, len(callout_list)):
+                dx_c = callout_list[k]["x"] - callout_list[j]["x"]
+                dy_c = callout_list[k]["y"] - callout_list[j]["y"]
+                if abs(dx_c) < w_box and abs(dy_c) < h_box:
+                    sx = np.sign(dx_c) if dx_c != 0 else 1.0
+                    sy = np.sign(dy_c) if dy_c != 0 else 1.0
+                    ox = (w_box - abs(dx_c)) * sx * 0.25
+                    oy = (h_box - abs(dy_c)) * sy * 0.25
+                    callout_list[k]["x"] += ox
+                    callout_list[k]["y"] += oy
+                    callout_list[j]["x"] -= ox
+                    callout_list[j]["y"] -= oy
+
+    for cr in callout_list:
+        ax.text(cr["x"], cr["y"], cr["text"], ha="center", va="center",
+                fontsize=8, color=_INK, weight="medium",
+                bbox=dict(boxstyle="round,pad=0.32,rounding_size=0.25", fc=_SURFACE, ec=_GRID, lw=0.7, alpha=0.96),
                 zorder=3)
 
-        # Moderation marker on edge
-        if (a, b) in mod_edges or (b, a) in mod_edges:
-            had_mod = True
-            ax.plot([xm], [ym], marker="^", markersize=9, color=_INK,
-                    markeredgecolor=_SURFACE, markeredgewidth=1.2, zorder=4)
-
+    # Auto-sized rounded node cards
     for i, nm in enumerate(nodes):
         x, y = pos[nm]
+        disp_nm = node_labels.get(nm, nm) if node_labels else nm
         if nm == "outcome":
-            ax.scatter([x], [y], s=2300, marker="s", color=_INK, zorder=4,
-                       edgecolor=_SURFACE, linewidth=2)
-            ax.text(x, y, nm, ha="center", va="center", fontsize=8.5, color="white", weight="semibold", zorder=5)
+            ax.text(x, y, disp_nm, ha="center", va="center", fontsize=9.0, color="white", weight="bold",
+                    bbox=dict(boxstyle="round,pad=0.45,rounding_size=0.35", fc=_INK, ec=_INK, lw=2.0), zorder=5)
         elif nm == "consensus":
-            ax.scatter([x], [y], s=1700, marker="o", facecolor=_SURFACE, edgecolor=_INK, linewidth=2, zorder=4)
-            ax.text(x, y, nm, ha="center", va="center", fontsize=8.5, color=_INK, weight="semibold", zorder=5)
+            ax.text(x, y, disp_nm, ha="center", va="center", fontsize=9.0, color=_INK, weight="bold",
+                    bbox=dict(boxstyle="round,pad=0.45,rounding_size=0.35", fc=_SURFACE, ec=_INK, lw=2.0), zorder=5)
         else:
-            ax.scatter([x], [y], s=1700, marker="o", color=col[nm], zorder=4,
-                       edgecolor=_SURFACE, linewidth=2)
-            ax.text(x, y, nm, ha="center", va="center", fontsize=8.5, color="white", weight="semibold", zorder=5)
+            c = col[nm]
+            rgb = np.array(to_rgb(c))
+            tint = tuple(0.14 * rgb + 0.86 * np.ones(3))
+            ax.text(x, y, disp_nm, ha="center", va="center", fontsize=9.0, color=_INK, weight="bold",
+                    bbox=dict(boxstyle="round,pad=0.45,rounding_size=0.35", fc=tint, ec=c, lw=2.0), zorder=5)
 
     handles = []
     if component is not None:
@@ -2785,21 +2883,23 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
         if had_warn:
             handles.append(Line2D([], [], color=_WARN, lw=2.5, label="not hypothesised, significant"))
     else:
-        handles.append(Line2D([], [], color=_INK2, lw=2.5, label=f"edge, max-T p < {alpha}"))
+        handles.append(Line2D([], [], color=_BLUE[6], lw=2.5, label=f"edge, max-T p < {alpha}"))
         handles.append(Line2D([], [], color=_INK2, lw=2.0, ls=(0, (3, 2.5)), alpha=0.6, label="hypothesised, not significant"))
-        handles.append(Line2D([], [], color=_WARN, lw=2.5, label="not hypothesised, significant"))
+        if had_warn:
+            handles.append(Line2D([], [], color=_WARN, lw=2.5, label="not hypothesised, significant"))
 
     if had_mod:
         handles.append(Line2D([], [], marker="^", color=_INK, markeredgecolor=_SURFACE, markersize=8,
                               ls="none", label=f"moderated edge (Holm p < {alpha})"))
 
     ax.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, -0.14), ncol=1, fontsize=8)
-    ax.set_xlim(-1.45, 1.45); ax.set_ylim(-1.45, 1.35); ax.set_aspect("equal"); ax.axis("off")
+    ax.set_xlim(-1.65, 1.70); ax.set_ylim(-1.30, 1.30); ax.set_aspect("equal"); ax.axis("off")
     return fig
 
 
 @_themed
-def plot_edge_matrix(pm: Dict[str, Any], what: str = "r", alpha: float = 0.05) -> Any:
+def plot_edge_matrix(pm: Dict[str, Any], what: str = "r", alpha: float = 0.05,
+                     node_labels: Optional[Dict[str, str]] = None) -> Any:
     """Per-component edge association matrix (r or beta) with Pillai omnibus column.
 
     Parameters
@@ -2811,6 +2911,8 @@ def plot_edge_matrix(pm: Dict[str, Any], what: str = "r", alpha: float = 0.05) -
         standardized regression slope "beta".
     alpha : float, default=0.05
         False discovery rate threshold for hatching cells (BH q >= alpha).
+    node_labels : dict, optional
+        Mapping of raw node identifiers to human-readable display labels.
 
     Returns
     -------
@@ -2822,23 +2924,33 @@ def plot_edge_matrix(pm: Dict[str, Any], what: str = "r", alpha: float = 0.05) -
 
     import matplotlib.pyplot as plt
 
+    def _disp(n: str) -> str:
+        if node_labels and n in node_labels:
+            return node_labels[n].replace("\n", " ")
+        return n
+
     comps = pm["edge_components"]
-    labels = sorted({f"{a} - {b}" for a, b in zip(comps.a, comps.b)})
+    raw_labels = sorted({f"{a} - {b}" for a, b in zip(comps.a, comps.b)})
     k = int(pm.get("k", len(comps["component"].unique())))
-    M = np.zeros((len(labels), k))
-    Q = np.ones((len(labels), k))
+    M = np.zeros((len(raw_labels), k))
+    Q = np.ones((len(raw_labels), k))
 
     val_col = "beta" if what == "beta" else "r"
     for _, r in comps.iterrows():
         lab = f"{r.a} - {r.b}"
-        if lab not in labels:
+        if lab not in raw_labels:
             lab = f"{r.b} - {r.a}"
-        if lab in labels:
-            i = labels.index(lab)
+        if lab in raw_labels:
+            i = raw_labels.index(lab)
             c_idx = int(r.component)
             if 0 <= c_idx < k:
                 M[i, c_idx] = float(r.get(val_col, 0.0))
                 Q[i, c_idx] = float(r.get("q_bh", 1.0))
+
+    labels = []
+    for raw in raw_labels:
+        parts = [p.strip() for p in raw.split(" - ", 1)]
+        labels.append(f"{_disp(parts[0])} - {_disp(parts[1])}")
 
     fig = _new((1.1 * k + 4.2, 0.55 * len(labels) + 2.0),
                title=f"Per-component partial {'correlations' if what == 'r' else 'slopes'}",
@@ -2856,10 +2968,10 @@ def plot_edge_matrix(pm: Dict[str, Any], what: str = "r", alpha: float = 0.05) -
 
     edges_records = pm["edges"].to_dict("records")
     pil_list = []
-    for lab in labels:
+    for raw in raw_labels:
         val = 0.0
         for e in edges_records:
-            if f"{e['a']} - {e['b']}" == lab or f"{e['b']} - {e['a']}" == lab:
+            if f"{e['a']} - {e['b']}" == raw or f"{e['b']} - {e['a']}" == raw:
                 val = float(e.get("pillai", 0.0))
                 break
         pil_list.append([val])
@@ -2880,6 +2992,9 @@ def plot_path_comparison(cmp: Dict[str, Any]) -> Any:
     paired bootstrap confidence intervals, alongside the fraction of present
     and absent edges passing hypothesis tests. When present-pass and absent-pass
     fractions are equal, markers are dodged vertically to prevent occlusion.
+    When a baseline model (e.g. ``empty``) is an extreme outlier (>5x CI span),
+    competitive models are zoomed and the extreme baseline is pinned at a marked
+    break zone with a callout pill.
 
     Parameters
     ----------
@@ -2891,22 +3006,62 @@ def plot_path_comparison(cmp: Dict[str, Any]) -> Any:
     matplotlib.figure.Figure
     """
     rows = sorted(cmp["comparison"], key=lambda r: r["heldout_loglik"])
-    fig = _new((7.8, 0.55 * len(rows) + 2.4), title="Which graph predicts held-out scores best",
+    fig = _new((8.2, 0.58 * len(rows) + 2.4), title="Which graph predicts held-out scores best",
                subtitle="held-out log-likelihood minus the top graph's; paired subject bootstrap 95% CI")
-    gs = fig.add_gridspec(1, 2, width_ratios=[3.2, 1.3], wspace=0.10)
+    gs = fig.add_gridspec(1, 2, width_ratios=[3.4, 1.3], wspace=0.12)
     ax = fig.add_subplot(gs[0])
     ax2 = fig.add_subplot(gs[1], sharey=ax)
     y = np.arange(len(rows))
+
+    comp_rows = [r for r in rows if r["graph"] != "empty"] if any(r["graph"] == "empty" for r in rows) and len(rows) > 1 else rows
+    comp_min = min(r["ci_low"] for r in comp_rows)
+    comp_max = max(r["ci_high"] for r in comp_rows)
+    comp_span = max(1.0, comp_max - comp_min)
+
+    # Check for extreme baseline outlier (> 5x competitive span)
+    has_outlier = len(rows) > 1 and any((r["ci_low"] < comp_min - 5.0 * comp_span) for r in rows)
+    outlier_graph = rows[0]["graph"] if has_outlier else None
+
+    if has_outlier:
+        xlim_min = comp_min - 0.08 * comp_span
+        xlim_max = comp_max + 0.12 * comp_span
+    else:
+        min_ci = min(r["ci_low"] for r in rows)
+        max_ci = max(r["ci_high"] for r in rows)
+        span = max(1.0, max_ci - min_ci)
+        xlim_min = min_ci - 0.06 * span
+        xlim_max = max_ci + 0.08 * span
+
+    data_span = max(1.0, xlim_max - xlim_min)
+    ax_right_limit = xlim_max + 0.48 * data_span
+    ax.set_xlim(xlim_min, ax_right_limit)
 
     p_nums, y_press = [], []
     a_nums, y_abss = [], []
     for i, r in enumerate(rows):
         best = r["graph"] == cmp["best"]
         c = _BLUE[6] if best else _INK2
-        ax.hlines(i, r["ci_low"], r["ci_high"], color=c, lw=2.2, alpha=0.6)
-        _dots(ax, [r["delta_vs_top"]], [i], c, s=52)
-        ax.text(r["ci_high"], i, f"  best in {100 * r['best_fraction']:.0f}% of replicates",
-                va="center", fontsize=8, color=_INK2)
+
+        if has_outlier and r["graph"] == outlier_graph:
+            # Pinned extreme baseline with break indicator and callout pill
+            x_break = xlim_min + 0.03 * data_span
+            ax.text(x_break, i, "//", ha="center", va="center", fontsize=11, color=_MUTED, weight="bold")
+            pill_txt = f"\u0394 = {r['delta_vs_top']:,.0f} [{r['ci_low']:,.0f}, {r['ci_high']:,.0f}]"
+            ax.text(x_break + 0.05 * data_span, i, pill_txt, va="center", ha="left",
+                    fontsize=8, color=_INK, weight="semibold",
+                    bbox=dict(boxstyle="round,pad=0.30", fc=_SURFACE, ec=_GRID, lw=0.8, alpha=0.96))
+        else:
+            ax.hlines(i, r["ci_low"], r["ci_high"], color=c, lw=2.2, alpha=0.6)
+            _dots(ax, [r["delta_vs_top"]], [i], c, s=52)
+
+        # Right-aligned text & mini-bar column outside error bar data coordinates
+        bar_x0 = xlim_max + 0.05 * data_span
+        bar_w = 0.16 * data_span
+        bf = float(r.get("best_fraction", 0.0))
+        ax.barh(i, bar_w * bf, left=bar_x0, height=0.32, color=_BLUE[3] if best else _GRID, alpha=0.75)
+        ax.barh(i, bar_w, left=bar_x0, height=0.32, fill=False, edgecolor=_GRID, lw=0.7)
+        ax.text(bar_x0 + bar_w + 0.02 * data_span, i, f"best in {100 * bf:.0f}%",
+                va="center", ha="left", fontsize=8, color=_INK2)
 
         pres_val = r.get("present_pass")
         abs_val = r.get("absent_pass")
@@ -2926,6 +3081,9 @@ def plot_path_comparison(cmp: Dict[str, Any]) -> Any:
         a_nums.append(a_num)
         y_abss.append(y_abs)
 
+        if np.isnan(p_num):
+            ax2.text(0.5, i, "—", ha="center", va="center", fontsize=11, color=_MUTED)
+
     ax2.scatter(p_nums, y_press, color=_BLUE[6], s=40, label="present edges pass")
     ax2.scatter(a_nums, y_abss, color=_RED[4], s=40, marker="D", label="absent edges pass")
 
@@ -2933,11 +3091,6 @@ def plot_path_comparison(cmp: Dict[str, Any]) -> Any:
     ax.set_yticks(y)
     ax.set_yticklabels([f"{r['graph']}  ({r['n_edges']} edges)" for r in rows])
     ax.set_xlabel("delta held-out log-likelihood")
-    # Adjust xlim so right-hand annotations never spill over into the gutter
-    min_ci = min(r["ci_low"] for r in rows)
-    max_ci = max(r["ci_high"] for r in rows)
-    span = max(1.0, max_ci - min_ci)
-    ax.set_xlim(min_ci - 0.06 * span, max_ci + 0.45 * span)
     _clean(ax, grid="x")
 
     ax2.set_xlim(-0.08, 1.08)
@@ -2950,7 +3103,8 @@ def plot_path_comparison(cmp: Dict[str, Any]) -> Any:
 
 @_themed
 def plot_edge_null(pm: Dict[str, Any], edges: Optional[Sequence[Any]] = None,
-                   alpha: float = 0.05, ax=None) -> Any:
+                   alpha: float = 0.05, ax=None,
+                   node_labels: Optional[Dict[str, str]] = None) -> Any:
     """Permutation null distribution histograms for observed edge statistics.
 
     Parameters
@@ -2964,6 +3118,8 @@ def plot_edge_null(pm: Dict[str, Any], edges: Optional[Sequence[Any]] = None,
         Significance threshold for default edge filtering.
     ax : matplotlib.axes.Axes, optional
         Axes to draw into when plotting a single edge.
+    node_labels : dict, optional
+        Mapping of raw node identifiers to human-readable display labels.
 
     Returns
     -------
@@ -2971,6 +3127,11 @@ def plot_edge_null(pm: Dict[str, Any], edges: Optional[Sequence[Any]] = None,
     """
     if not pm.get("null"):
         raise ValueError("pm has no stored null distribution (null was empty or n_permutations was 0).")
+
+    def _disp(n: str) -> str:
+        if node_labels and n in node_labels:
+            return node_labels[n].replace("\n", " ")
+        return n
 
     all_edges = pm["edges"].to_dict("records")
     if edges is not None:
@@ -3005,7 +3166,7 @@ def plot_edge_null(pm: Dict[str, Any], edges: Optional[Sequence[Any]] = None,
     else:
         cols = min(3, n)
         rws = int(np.ceil(n / cols))
-        fig = _new((3.4 * cols + 0.6, 2.5 * rws + 1.2),
+        fig = _new((3.6 * cols + 0.6, 2.6 * rws + 1.2),
                    title="Observed edge statistic against its permutation null",
                    subtitle=f"Freedman-Lane, {b_sweeps} sweeps; the p-value is add-one")
         axes = [fig.add_subplot(rws, cols, i + 1) for i in range(n)]
@@ -3017,47 +3178,125 @@ def plot_edge_null(pm: Dict[str, Any], edges: Optional[Sequence[Any]] = None,
             key = (e["b"], e["a"])
         null_vals = np.asarray(pm["null"].get(key, []))
 
-        cur_ax.hist(null_vals, bins=40, color=_BLUE[2], edgecolor="none")
-        cur_ax.axvline(e["pillai"], color=_RED[4], lw=2)
-        cur_ax.set_title(f"{e['a']} - {e['b']}", fontsize=9.5)
+        x_obs = float(e.get("pillai", 0.0))
         p_val = e.get("p_perm", e.get("p_refit"))
         p_str = _format_p(p_val, b_sweeps)
+        q95 = float(np.percentile(null_vals, 95)) if len(null_vals) else 0.0
+        q995 = float(np.percentile(null_vals, 99.5)) if len(null_vals) else 0.0
 
-        max_x = max(null_vals.max() if len(null_vals) else 1.0, e["pillai"])
-        lim_x = max(1.0, e["pillai"] * 1.1) if e["pillai"] > 0.8 else max_x * 1.18
-        cur_ax.set_xlim(0, lim_x)
-        cur_ax.set_yticks([])
-        _clean(cur_ax, grid=None, baseline=True)
-        cur_ax.set_xlabel("Pillai under the null")
-        cur_ax.set_ylabel("Permutation count", fontsize=8.5, color=_INK2)
+        is_extreme = len(null_vals) > 0 and q995 > 0 and x_obs > 3.5 * q995
 
-        # Offset text label cleanly to the left of the observed line so text never crosses
-        x_obs = float(e["pillai"])
-        frac = x_obs / lim_x if lim_x > 0 else 0.5
-        label_txt = f"Pillai = {x_obs:.2f}\n{p_str}"
-        if frac > 0.38:
-            cur_ax.text(x_obs - 0.04 * lim_x, 0.90, label_txt,
-                        transform=cur_ax.get_xaxis_transform(), ha="right", va="top",
-                        fontsize=8, color=_INK,
-                        bbox=dict(boxstyle="round,pad=0.25", fc=_SURFACE, ec="none", alpha=0.9))
+        if is_extreme:
+            cur_ax.set_title(f"{_disp(e['a'])} - {_disp(e['b'])}", fontsize=9.5)
+            cur_ax.set_ylabel("Permutation count", fontsize=8.5, color=_INK2)
+            cur_ax.set_xticks([])
+            cur_ax.set_yticks([])
+            for sp in cur_ax.spines.values():
+                sp.set_visible(False)
+
+            ax_l = cur_ax.inset_axes([0.0, 0.0, 0.68, 1.0])
+            ax_r = cur_ax.inset_axes([0.76, 0.0, 0.24, 1.0], sharey=ax_l)
+
+            counts, _, _ = ax_l.hist(null_vals, bins=35, histtype="stepfilled", color=_BLUE[2], ec=_BLUE[5], alpha=0.85)
+            ax_l.axvline(q95, color=_MUTED, ls="--", lw=1.5, label="95th %ile")
+            max_c = int(counts.max()) if len(counts) else 1
+            ax_l.set_xlim(0, max(q995 * 1.35, q95 * 1.5))
+            ax_l.set_yticks([0, max_c])
+            cur_ax.set_yticks([0, max_c])
+            ax_l.set_xlabel("Pillai under null", fontsize=8.5, color=_INK2)
+            _clean(ax_l, grid=None, baseline=True)
+
+            ax_r.axvline(x_obs, color=_RED[4], lw=2.2)
+            dx_win = max(0.04, 0.05 * x_obs)
+            ax_r.set_xlim(x_obs - dx_win, x_obs + dx_win)
+            ax_r.set_xticks([round(x_obs, 2)])
+            ax_r.set_yticks([])
+            ax_r.set_xlabel("observed", fontsize=8.5, color=_INK2)
+            _clean(ax_r, grid=None, baseline=True)
+            ax_r.spines["left"].set_visible(False)
+
+            ax_r.text(x_obs, 0.90, f"V = {x_obs:.2f}\n{p_str}", transform=ax_r.get_xaxis_transform(),
+                      ha="center", va="top", fontsize=8, color=_INK, weight="semibold",
+                      bbox=dict(boxstyle="round,pad=0.28", fc=_SURFACE, ec=_GRID, lw=0.7, alpha=0.95))
+
+            cur_ax.text(0.72, 0.0, "//", transform=cur_ax.transAxes, ha="center", va="center",
+                        fontsize=11, color=_MUTED, weight="bold")
         else:
-            cur_ax.text(x_obs + 0.04 * lim_x, 0.90, label_txt,
-                        transform=cur_ax.get_xaxis_transform(), ha="left", va="top",
-                        fontsize=8, color=_INK,
-                        bbox=dict(boxstyle="round,pad=0.25", fc=_SURFACE, ec="none", alpha=0.9))
+            counts, _, _ = cur_ax.hist(null_vals, bins=35, histtype="stepfilled", color=_BLUE[2], ec=_BLUE[5], alpha=0.85)
+            cur_ax.axvline(q95, color=_MUTED, ls="--", lw=1.5, label="95th %ile")
+            cur_ax.axvline(x_obs, color=_RED[4], lw=2.2)
+            cur_ax.set_title(f"{_disp(e['a'])} - {_disp(e['b'])}", fontsize=9.5)
+
+            max_c = int(counts.max()) if len(counts) else 1
+            max_x = max(null_vals.max() if len(null_vals) else 1.0, x_obs)
+            lim_x = max(1.0, x_obs * 1.1) if x_obs > 0.8 else max_x * 1.18
+            cur_ax.set_xlim(0, lim_x)
+            cur_ax.set_yticks([0, max_c])
+            _clean(cur_ax, grid=None, baseline=True)
+            cur_ax.set_xlabel("Pillai under the null", fontsize=8.5, color=_INK2)
+            cur_ax.set_ylabel("Permutation count", fontsize=8.5, color=_INK2)
+
+            frac = x_obs / lim_x if lim_x > 0 else 0.5
+            label_txt = f"V = {x_obs:.2f}\n{p_str}"
+            if frac > 0.38:
+                cur_ax.text(x_obs - 0.04 * lim_x, 0.90, label_txt,
+                            transform=cur_ax.get_xaxis_transform(), ha="right", va="top",
+                            fontsize=8, color=_INK, weight="semibold",
+                            bbox=dict(boxstyle="round,pad=0.25", fc=_SURFACE, ec=_GRID, lw=0.7, alpha=0.9))
+            else:
+                cur_ax.text(x_obs + 0.04 * lim_x, 0.90, label_txt,
+                            transform=cur_ax.get_xaxis_transform(), ha="left", va="top",
+                            fontsize=8, color=_INK, weight="semibold",
+                            bbox=dict(boxstyle="round,pad=0.25", fc=_SURFACE, ec=_GRID, lw=0.7, alpha=0.9))
 
     return fig
+
+
+def _clean_tissue_label(name: str) -> str:
+    """Format tissue and subcortical abbreviations into clean neuroanatomical names."""
+    s = str(name).strip()
+    replacements = {
+        "deepgraytissues": "Deep Gray Matter",
+        "Deepgraytissues": "Deep Gray Matter",
+        "deep_gray_matter": "Deep Gray Matter",
+        "csftissues": "CSF",
+        "Csftissues": "CSF",
+        "brainstemtissues": "Brainstem",
+        "Brainstemtissues": "Brainstem",
+        "cortical_compartmenttissues": "Cortical Compartment",
+        "Cortical Compartmenttissues": "Cortical Compartment",
+        "cortical_gray_mattertissues": "Cortical Gray Matter",
+        "Cortical Gray Mattertissues": "Cortical Gray Matter",
+        "white_mattertissues": "White Matter",
+        "White Mattertissues": "White Matter",
+        "gmtissues": "Total Gray Matter",
+        "Gmtissues": "Total Gray Matter",
+        "wmtissues": "White Matter",
+        "Wmtissues": "White Matter",
+        "medullabrainstem": "Medulla",
+        "Medullabrainstem": "Medulla",
+        "midbrainbrainstem": "Midbrain",
+        "Midbrainbrainstem": "Midbrain",
+        "ponsbrainstem": "Pons",
+        "Ponsbrainstem": "Pons",
+    }
+    for k, v in replacements.items():
+        if k in s:
+            s = s.replace(k, v)
+    return s
 
 
 @_themed
 def plot_edge_features(pm: Dict[str, Any], edge: Any, top_n: int = 15,
                        component: Optional[int] = None, ax=None,
-                       feature_names=None) -> Any:
+                       feature_names=None, alpha: float = 0.05,
+                       node_labels: Optional[Dict[str, str]] = None) -> Any:
     """Feature contributions to a path model edge (structure_a * beta_ab).
 
     Plots horizontal lollipop bars for the top features contributing to the edge
     between node `a` and node `b`, using signed diverging colors (blue positive,
-    red negative), in the style of `plot_top_features`.
+    red negative), in the style of `plot_top_features`. Significant component
+    panels show correlation metrics (r, q); non-significant components are muted.
 
     Parameters
     ----------
@@ -3074,6 +3313,8 @@ def plot_edge_features(pm: Dict[str, Any], edge: Any, top_n: int = 15,
         Axes to draw into for a single component panel.
     feature_names : list or dict, optional
         Feature names for view `a`.
+    alpha : float, default=0.05
+        FDR / significance threshold for component significance badging.
 
     Returns
     -------
@@ -3129,11 +3370,15 @@ def plot_edge_features(pm: Dict[str, Any], edge: Any, top_n: int = 15,
         axes = [ax]
     else:
         n_panels = len(comps)
-        figsize = (4.0 * n_panels + 0.6, 0.28 * top_n + 2.2)
+        figsize = (4.2 * n_panels + 0.6, 0.28 * top_n + 2.2)
         fig = _new(figsize,
                    title=f"Edge features: {disp_edge}",
                    subtitle=f"Feature contributions of {node_a} to {node_b} (structure × beta); top {top_n} by magnitude.")
         axes = np.atleast_1d(fig.subplots(1, n_panels))
+
+    params = pm.get("parameters") if isinstance(pm.get("parameters"), dict) else {}
+    b_sweeps = params.get("n_permutations", 0)
+    comps_df = pm.get("edge_components")
 
     for comp_idx, cur_ax in zip(comps, axes):
         d_c = d_edge[d_edge.component == comp_idx].copy()
@@ -3146,30 +3391,72 @@ def plot_edge_features(pm: Dict[str, Any], edge: Any, top_n: int = 15,
         vmax = float(np.nanmax(np.abs(c_vals))) if len(c_vals) else 1.0
         lim = max(0.1, vmax * 1.15)
 
+        r_val, q_val, p_val = 0.0, None, None
+        is_sig = True
+        if comps_df is not None and len(comps_df):
+            crow = comps_df[(((comps_df.a == node_a) & (comps_df.b == node_b)) |
+                             ((comps_df.a == node_b) & (comps_df.b == node_a))) &
+                            (comps_df.component == comp_idx)]
+            if len(crow):
+                r_val = float(crow.iloc[0]["r"])
+                q_val = crow.iloc[0].get("q_bh")
+                p_val = crow.iloc[0].get("p_maxt", crow.iloc[0].get("p_perm"))
+                ci_lo = crow.iloc[0].get("ci_low")
+                ci_hi = crow.iloc[0].get("ci_high")
+                ci_sig = (ci_lo is not None and ci_hi is not None and
+                          ((ci_lo > 0 and ci_hi > 0) or (ci_lo < 0 and ci_hi < 0)))
+
+                if q_val is not None and not np.isnan(float(q_val)):
+                    is_sig = (float(q_val) < alpha) or (b_sweeps < 100 and ci_sig)
+                elif p_val is not None and not np.isnan(float(p_val)):
+                    is_sig = float(p_val) < alpha
+                else:
+                    is_sig = ci_sig if (ci_lo is not None and ci_hi is not None) else True
+
+        if is_sig:
+            if q_val is not None and not np.isnan(float(q_val)):
+                q_f = float(q_val)
+                q_str = "q < 0.001" if q_f < 0.001 else f"q = {q_f:.3f}"
+            elif p_val is not None and not np.isnan(float(p_val)):
+                p_f = float(p_val)
+                q_str = "p < 0.001" if p_f < 0.001 else f"p = {p_f:.3f}"
+            else:
+                q_str = ""
+            q_part = f", {q_str}" if q_str else ""
+            panel_title = f"Component {comp_idx + 1}  (r = {r_val:+.2f}{q_part})"
+            feat_colors = [_BLUE[6] if val >= 0 else _RED[4] for val in c_vals]
+            stem_alpha = 0.80
+            dot_alpha = 1.0
+        else:
+            panel_title = f"Component {comp_idx + 1}  (r = {r_val:+.2f}, NS)"
+            feat_colors = [_MUTED for _ in c_vals]
+            stem_alpha = 0.45
+            dot_alpha = 0.45
+
         cur_ax.axvline(0, color=_AXIS, lw=0.9, zorder=1)
-        feat_colors = [_BLUE[6] if val >= 0 else _RED[4] for val in c_vals]
-        cur_ax.hlines(y, 0, c_vals, color=feat_colors, lw=2.0, alpha=0.75, zorder=2)
-        _dots(cur_ax, c_vals, y, feat_colors, s=50)
+        cur_ax.hlines(y, 0, c_vals, color=feat_colors, lw=2.0, alpha=stem_alpha, zorder=2)
+        _dots(cur_ax, c_vals, y, feat_colors, s=50, alpha=dot_alpha)
 
         labels = []
         for f_idx in d_top["feature"].to_numpy(int):
             if feature_names is not None:
                 if isinstance(feature_names, dict):
                     fn_list = feature_names.get(node_a, feature_names.get(view_idx))
-                    labels.append(fn_list[f_idx] if fn_list and f_idx < len(fn_list) else f"feat_{f_idx}")
+                    raw_fn = fn_list[f_idx] if fn_list and f_idx < len(fn_list) else f"feat_{f_idx}"
                 elif isinstance(feature_names, (list, tuple)) and f_idx < len(feature_names):
-                    labels.append(feature_names[f_idx])
+                    raw_fn = feature_names[f_idx]
                 else:
-                    labels.append(f"feat_{f_idx}")
+                    raw_fn = f"feat_{f_idx}"
             else:
-                labels.append(f"feat_{f_idx}")
+                raw_fn = f"feat_{f_idx}"
+            labels.append(_clean_tissue_label(raw_fn))
 
         cur_ax.set_yticks(y)
         cur_ax.set_yticklabels(labels)
         cur_ax.set_xlim(-lim, lim)
         cur_ax.set_ylim(-0.7, len(d_top) - 0.3)
-        cur_ax.set_title(f"{disp_edge}  ·  Component {comp_idx + 1}", fontsize=10.0, color=_INK)
-        cur_ax.set_xlabel(f"contribution of {node_a} to {node_b} (structure × beta)")
+        cur_ax.set_title(panel_title, loc="center", fontsize=9.5, color=_INK)
+        cur_ax.set_xlabel(f"contribution of {node_a} to {node_b} (structure × beta)", fontsize=9.0)
         _clean(cur_ax, grid="x")
 
     return fig

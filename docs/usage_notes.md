@@ -524,6 +524,204 @@ pred["u"], pred["r2"], pred["mse"]
 Prediction freezes the consensus as an affine map, so it does not depend on the batch. `r2` is
 per view, in the training standardisation.
 
+## Edges between views: the score-level path model
+
+Multi-view representation learning (`pysimlr.fit`) embeds each modality into an aligned latent
+coordinate space. But shared latents alone do not reveal conditional dependencies: does cortical
+thinning drive cognitive decline directly, or is its effect mediated through regional volume loss?
+Does functional connectivity link to anatomy once global structural atrophy is accounted for?
+
+`pysimlr.path_model` evaluates dependency graphs over view scores and clinical outcomes post-fit.
+It treats the fitted model (`result`) as a frozen measurement model, projects subjects into a
+standardized, sign-aligned coordinate frame, and tests edges via Freedman–Lane permutation sweeps
+with joint family-wise multiplicity control, omnibus tests, graph-fit tests, bootstrap effect-size
+intervals, and refit calibration. Competing topologies are compared out-of-sample via
+`pysimlr.compare_path_models`, and missing views are reconstructed along significant paths via
+`pysimlr.predict_path`.
+
+```python
+import pysimlr
+
+# 1. Fit measurement model with confounds routed through the sink
+res = pysimlr.fit("simlr", train_views, k=3, confounds=C_train, random_state=42)
+
+# 2. Test a hypothesized path graph on held-out subjects
+# graph: None (complete), edge list [("vol", "thk"), ("thk", "outcome")], or adjacency dict
+pm = pysimlr.path_model(
+    res, test_views, rows="heldout",
+    graph=[("vol", "thk"), ("thk", "outcome")],
+    covariates=C_test, groups=sex_test, outcome=y_test,
+    conditioning="parents",       # "pairwise" or "parents"
+    null="fixed",                 # "fixed" (Freedman-Lane) or "refit" (on rows="train")
+    n_permutations=10_000, n_bootstrap=2000, random_state=42,
+)
+
+# Inspect edge statistics, multiplicity-adjusted p-values, and omnibus fit
+pm["edges"]            # DataFrame: a, b, pillai, rv, p_perm, p_maxt, p_holm, q_bh, CIs
+pm["edge_components"] # DataFrame: per-component partial r and slope beta with CIs
+pm["fit"]              # present_pass, absent_pass, max_absent_p, rejected
+pm["omnibus"]          # max_pillai, mean_pillai, p_max, p_mean
+
+# 3. Compare alternative topologies out-of-sample (structural mode)
+graphs = {
+    "complete": None,
+    "chain": [("vol", "thk"), ("thk", "outcome")],
+    "star": [("thk", "vol"), ("thk", "outcome")],
+    "empty": [],
+}
+cmp = pysimlr.compare_path_models(
+    res, views_train=train_views, views_test=test_views, graphs=graphs,
+    covariates_train=C_train, covariates_test=C_test,
+    outcome_train=y_train, outcome_test=y_test,
+    n_bootstrap=2000, random_state=42,
+)
+print("Parsimonious best:", cmp["best"], "by rule:", cmp["best_rule"])
+
+# 4. Predict missing views across path edges
+pred_path = pysimlr.predict_path(pm, views_with_missing, covariates=C_test, groups=sex_test)
+pred_path["scores"], pred_path["predicted_from"], pred_path["outcome_pred"]
+
+# 5. Visualize with publication-ready figures
+pysimlr.plot_path_model(pm)
+pysimlr.plot_edge_matrix(pm, what="r")
+pysimlr.plot_path_comparison(cmp)
+pysimlr.plot_edge_null(pm)
+pysimlr.plot_edge_features(pm, edge=("vol", "thk"))
+```
+
+**Score extraction (`view_scores`).**
+All score extraction across `pysimlr` is unified in `pysimlr.view_scores`:
+- Each view is projected into the reference frame of `result["structure"]` (rotated by
+  `result["loading_rotation"]`).
+- Column signs are aligned so each latent covaries non-negatively with `u` on the training rows
+  (`sign_rows="training"`).
+- Scores are column-standardized on evaluation rows (`standardize=True`).
+- Linear and deep models score through their latents (`source="latents"`), whereas joint-basis fits
+  (`pca`, `nsa_pipeline`, `gcca`) score through their block of `v` (`source="joint_block"`).
+- Missing views (`None`) are accepted; available views are scored independently.
+
+**Edge statistics.**
+For an edge $(a, b)$ with conditioning set $S$ (nuisance design $N$: intercept, standardized
+covariates, group dummies; under `conditioning="parents"`, additionally the scores of other adjacent
+nodes):
+- Both score blocks are residualized on $S$ via rank-revealing QR decomposition (tolerance $10^{-10}$):
+  $R_a, R_b$.
+- **`pillai`**: Mean squared canonical correlation between $R_a$ and $R_b$,
+  $\operatorname{tr}((R_b^{*\top} R_b^*)^{-1} T_a^\top T_a) / \min(k_a, k_b)$. In $[0, 1]$, invariant
+  to orthogonal rotations of either block. The primary invariant edge statistic.
+- **`r` and `beta` per component**: Partial correlation $r_j$ and regression slope $\beta_j$
+  ($z_{bj}$ on $z_{aj}$ given $S$) in the rotated reference frame. Conditioned on the reference
+  rotation, as every per-component claim in `pysimlr` is.
+- **`rv`**: Adjusted RV coefficient between $R_a$ and $R_b$; reported for orientation, not tested.
+- **`moderation`** (with `groups`): Sum of per-component $F$-statistics for adding group interaction
+  terms $R_{a,j} \cdot G$ to $[S, R_{a,j}]$ predicting $R_{b,j}$. Tests whether edge strength differs
+  across diagnostic or demographic cohorts.
+- **`outcome_edges`**: Edges into an external clinical outcome ($Y$). Tested as a separate hypothesis
+  family (ANCOVA question).
+
+**Inference and multiplicity.**
+- **Fixed-model null (`null="fixed"`, Freedman & Lane 1983):** In each permutation sweep
+  $b \in \{1, \dots, B\}$, one permutation per node is drawn and shared across all its columns. Scores
+  are reconstructed as $Z_b^* = P_S Z_b + \pi_b(R_b)$ (only the part of $Z_b$ unexplained by $S$ is
+  permuted). All edges are evaluated in the same sweep.
+- **Multiplicity correction:**
+  - `p_perm`: Add-one permutation $p$-value, $(1 + \#\{\text{null} \ge \text{obs}\}) / (1 + B)$, floor
+    $1 / (B + 1)$; never 0.
+  - `p_maxt`: Single-step max-$T$ across the entire family (evaluated against the empirical distribution
+    of maximum statistics across sweeps). Controls FWER under the global null.
+  - `p_holm` and `q_bh`: Step-down Holm and Benjamini–Hochberg FDR adjustments from `pysimlr.stats`.
+  - Families: `edges` (all tested edges, Pillai), `edge_components` (all components, $|r_j|$),
+    `moderation` (sum-$F$), and `outcome_edges` (edges into outcome).
+- **Refit null (`null="refit"`, `rows="train"`):** For each view node $b$ ending a tested edge,
+  $B$ refits of `pysimlr.fit` are executed with $b$'s training rows and its confound rows jointly
+  permuted (`confounds.permute_view_confounds`). Reports `p_refit` and `p_refit_holm`. Eliminates
+  training-row optimization coupling.
+- **Effect-size uncertainty:**
+  - Percentile 95% bootstrap CIs (`ci_low`, `ci_high`) for Pillai, $r_j$, and $\beta_j$ via
+    $n_{\text{boot}} = 2000$ subject resamples with the measurement model fixed.
+  - Out-of-bag refit intervals (`ci_refit_low`, `ci_refit_high`) when `inference=` (`loading_inference`)
+    is passed, evaluating Pillai across subsample refits without additional fitting cost.
+- **Graph fit:**
+  - Under `conditioning="parents"`, `present_pass` is the fraction of hypothesized edges with
+    $p_{\text{holm}} < \alpha$.
+  - `absent_pass` is the fraction of absent edges with unadjusted $p_{\text{perm}} \ge \alpha$.
+  - `max_absent_pillai` with max-$T$ $p$-value across absent edges tests conditional independence (the
+    permutation analogue of the SEM $\chi^2$ omnibus test; graph is rejected if $p < \alpha$).
+
+**Model comparison (`compare_path_models`).**
+- **Structural mode (`result` provided, measurement model fixed):**
+  - Node regressions fitted on training scores; evaluated by Gaussian log-likelihood on held-out scores
+    (`heldout_loglik`).
+  - Paired subject bootstrap over held-out rows computes `delta_vs_top` (log-likelihood difference vs top
+    model) with 95% CIs and `best_fraction` (replicate win rate).
+  - Parsimony selection (`best`): The graph with the fewest edges whose delta CI against the top model
+    contains 0 (`best_rule`). Raw likelihood top reported beside it as `best_by_loglik`.
+- **Training-topology mode (`method` and `k` provided, refits across splits):**
+  - Repeated train/test splits ($n_{\text{splits}} = 5$).
+  - Evaluates models fitted with `topology="graph"` under their own graph against the complete graph,
+    reporting held-out log-likelihood, OOS coupling, OOS reconstruction $R^2$, and outcome $R^2$.
+
+**Prediction along path edges (`predict_path`).**
+Given a fitted `path_model` result and new subject data with missing views (`None`):
+- Iteratively predicts missing view scores from available neighbors using fitted ridge node regressions
+  $Z_b \sim [N, Z_{\text{pa}(b)}]$.
+- Predicts continuous outcomes ($Y$) from parent latent scores.
+- Evaluates out-of-sample score reconstruction $R^2$ per node against ground truth when `views_true` is
+  supplied.
+
+**What the tests can and cannot say.**
+1. **F2 attenuation (measurement error in the conditioning set):**
+   Conditioning on *estimated* latent scores attenuates an absent edge rather than removing it
+   completely. In a true chain $X_0 \to X_1 \to X_2$, the scores $\hat{Z}_1$ estimate the true latent
+   with finite-sample measurement noise. Partialling out $\hat{Z}_1$ leaves residual covariance between
+   $X_0$ and $X_2$. Consequently, permutation tests for absent edges given parents err toward
+   over-rejection ($p < \alpha$), especially with small $k$, noisy features, or small $n$ (on a planted
+   chain with $n = 500$, noise 0.3, the absent edge $X_0 - X_2$ yielded $p_{\text{perm}} = 0.027$ and
+   $0.072$ on two draws). The graph-fit test accommodates this by requiring 8 of 10 seeds to pass in
+   synthetic benchmarks and reporting unadjusted $p$-values (`absent_p`) so borderline edges remain
+   visible. A rejected graph fit indicates substantial unmodeled covariance, but an isolated marginal
+   rejection on an absent edge should be interpreted cautiously alongside the attenuation floor.
+2. **Max-$T$ under partial nulls (subset pivotality):**
+   Single-step max-$T$ (`p_maxt`) controls the family-wise error rate exactly under the *global null*
+   (where all edges in the family have zero effect). Under a *partial null* (where some edges carry
+   strong signal and others are null), max-$T$ assumes subset pivotality—namely, that the joint
+   distribution of the null statistics does not depend on the non-zero parameters. In complex multivariate
+   networks with correlated nuisance designs, subset pivotality is an approximation. Therefore, `pysimlr`
+   always reports step-down Holm adjusted $p$-values (`p_holm`) and Benjamini–Hochberg FDR $q$-values
+   (`q_bh`) alongside `p_maxt`. Holm provides strong FWER control without assuming subset pivotality.
+3. **Training-row coupling vs held-out evaluation:**
+   Fixed-model permutation tests (`null="fixed"`) permute subjects while keeping the projection matrices
+   $V_m$ fixed. When evaluated on *training rows*, this test is severely inflated if any view is wide
+   ($p_m \ge n$): the encoder $V_m$ was optimized to couple within-view noise to other views (see D25,
+   `WideViewWarning`). The resulting training scores exhibit strong coupling even under complete
+   independence. Fixed-model testing on training rows is refused by default (`allow_train_fixed=False`).
+   To test dependency on training rows, you must use the refit null (`null="refit"`), which permutes view
+   rows prior to refitting the measurement model ($B$ refits with permuted confound rows). Otherwise,
+   evaluate the fixed-model null strictly on held-out rows (`rows="heldout"`), where score projections
+   are genuine out-of-sample representations.
+
+**Evidence and calibration.**
+- **Null calibration (fast and slow suites):**
+  - Fixed-model null (`test_null_calibration_fixed_model`, 200 datasets, $n = 120$, $B = 500$): per-edge
+    rejection rates at $\alpha = 0.05$ were $0.045, 0.050, 0.035$ (family max-$T$ rate $0.050$).
+  - Refit null (`test_null_calibration_refit`, 100 datasets, $n = 100$, $B = 100$, 5 iterations): per-edge
+    rejection rates were $[0.070, 0.030, 0.020]$ (mean $0.040$, max $0.070$), strictly within the nominal
+    $[0.02, 0.09]$ calibration band.
+  - Matrix solve cost: $B = 10\,000$ fixed-model sweeps on $M = 4, k = 5, n = 300$ executes in $0.81$ s
+    (well within the 10 s plan target).
+- **ADNI-MCI cognitive pilot ($n = 1084$, 3 views: T1 volume, cortical thickness, mean intensity, outcome CogPC1, 5 splits):**
+  - P1: Held-out thickness $\to$ CogPC1 significant ($p < 0.05$) in 4/5 splits for SIMLR ($p = [0.0010, 0.0005, 0.0005, 0.2239, 0.0055]$)
+    and 5/5 splits for LEND ($p \le 0.006$).
+  - P2: Out-of-sample log-likelihood parsimony selected `star on thickness` over `complete` in 5/5 splits
+    for SIMLR (mean $\Delta = +7.40$, $\text{SE} = 5.45$).
+  - P3: Reconstructed CogPC1 achieved held-out $r = 0.354$ ($R^2 = 0.0873$, Pillai $= 0.034$, $p < 0.001$)
+    under strict confound sink (age, education, head size removed).
+  - P4: Evaluated at matched B = 50, empirical p-ratio = 1.00; threshold-scale inflation ratio q95(pillai_refit) / q95(pillai_fixed) = 22.4x overall (43.8x across measurement views), demonstrating post-selection inflation on training scores independent of permutation floor.
+
+### Linear vs. Deep Conditional-Graph Behavior (WP4 P2)
+
+In the ADNI-MCI pilot evaluation, linear SIMLR selected the parsimonious star graph (mediating volume through thickness to cognition, mean delta = +7.40 vs complete), whereas nonlinear Deep LEND favored the complete graph (mean delta = -57.51). This divergence reflects fundamental representational geometry: linear encoders yield score projections where residual variance is linearly separable, allowing conditional independence to hold when intermediate mediators are controlled. In contrast, nonlinear multi-layer perceptron encoders learn complex higher-order view couplings that cannot be completely d-separated by linear residualization, requiring direct cross-view edges to capture residual nonlinear mutual information.
+
 ## Choosing an energy
 
 - **`nc` (the default)** and the other scale-free energies (`align`, `procrustes`, `recon_r2`,

@@ -35,10 +35,16 @@ Outputs saved to `docs/audit/evidence/path_model/adni/`. Visual HTML report at `
    - Verbatim status: 0.0873 < 0.15 (INVESTIGATED).
    - Investigation: Strict confound sink removes age, education, and head size covariance (~45% of raw cognitive battery variance). On confound-residualized scores, linear reconstruction of residual cognitive decline achieves r ~ 0.35-0.40 (Pillai = 0.034, p < 0.001). Honest empirical report per integrity rules.
 
-4. **Rule P4: Refit Null Calibration vs Fixed-Model Null**
-   - Requirement: Refit null per-edge p-values are conservative relative to fixed-model null (mean ratio >= 1.0).
-   - SIMLR mean ratio = 39.24 (all edges ratio = 39.24). (PASS)
-   - LEND mean ratio = 34.88 (39.24 on 5 edges, 13.08 on T1w_mean-outcome). (PASS)
+4. **Rule P4: Refit Null Calibration vs Fixed-Model Null (Requirement R1)**
+   - Requirement: Refit null per-edge p-values are conservative relative to fixed-model null at matched B (mean ratio >= 1.0); threshold scale ratio q95(refit)/q95(fixed).
+   - Analysis: Evaluated at matched B (B_fixed = n_refits = 50) to eliminate the add-one floor artifact where unequal permutation counts (B_fixed = 2000, n_refits = 50) produced a spuriously uniform ratio of (1/51)/(1/2001) = 39.24.
+   - At matched B = 50:
+     - SIMLR mean p-value ratio = 1.00 (all edges ratio = 1.00). (PASS)
+     - LEND mean p-value ratio = 1.00. (PASS)
+   - Threshold-scale calibration: Ratio of null 95th-percentile Pillai thresholds q95(pillai_refit) / q95(pillai_fixed):
+     - SIMLR mean q95 threshold ratio across measurement view edges = 43.8x (vol-thk: 43.76x, vol-mean: 45.69x, thk-mean: 41.97x; outcome edges: 1.00x).
+     - LEND mean q95 threshold ratio across measurement view edges = 38.8x (vol-thk: 41.67x, vol-mean: 34.52x, thk-mean: 40.10x; outcome edges: 1.00x).
+     - This threshold-scale metric is independent of permutation count and demonstrates massive post-selection threshold shift induced by optimizing the measurement model on training rows.
    - Verbatim status: PASS.
 
 5. **Section 8 Specific Gates**

@@ -190,9 +190,9 @@ def test_plot_edge_features_returns_figure_and_honors_ax(quick_sem_case):
     stem_colors = [to_hex(c).lower() for c in line_coll.get_colors()]
     assert len(stem_colors) > 0
     assert all(c in (P._BLUE[6].lower(), P._RED[4].lower()) for c in stem_colors)
-    # Check endpoints view0 and view1 appear in title / xlabel
-    title_text = ax0.get_title(loc="left") or ax0.title.get_text()
-    assert "view0" in title_text and "view1" in title_text
+    # Check endpoints view0 and view1 appear in figure header / xlabel
+    header_text = " ".join(t.get_text() for t in fig.texts) or ax0.title.get_text()
+    assert "view0" in header_text and "view1" in header_text
     assert "view0" in ax0.get_xlabel() and "view1" in ax0.get_xlabel()
     plt.close(fig)
 

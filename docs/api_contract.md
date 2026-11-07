@@ -178,6 +178,101 @@ fits peaked at 0.31, 0.51 and 0.69 for thresholds 0.3, 0.5 and 0.7). Raising it 
 factors keep more correlation, but it weakens the protection against collapse on narrow views
 (docs/tracking_amigo.md, D3; docs/audit/evidence/collapse_threshold_selection.csv).
 
+## Structural model
+
+`pysimlr.path_model`, `pysimlr.compare_path_models`, and `pysimlr.predict_path` provide
+score-level dependency graph estimation, model comparison, and path prediction post-fit.
+
+### `path_model` result contract
+
+`path_model` returns a dictionary with the following return keys:
+
+| key | type | content |
+|---|---|---|
+| `nodes` | `List[str]` | Node names (views, optional `"outcome"`, optional `"consensus"`). |
+| `graph` | `Dict[str, List[str]]` | Adjacency dictionary of the hypothesized graph over `nodes`. |
+| `directed` | `bool` | Whether edges in `graph` are treated as directed. |
+| `conditioning` | `str` | Conditioning strategy: `"pairwise"` (bivariate given nuisance) or `"parents"` (conditioned on adjacent graph neighbors). |
+| `rows` | `str` | `"heldout"` or `"train"`. |
+| `n` | `int` | Number of subjects in evaluation rows. |
+| `k` | `int` | Latent component dimensionality. |
+| `edges` | `pd.DataFrame` | Edge statistics across all tested pairs: `a`, `b`, `present` (hypothesized), `diagnostic` (e.g. consensus edge), `pillai` (mean squared canonical correlation in $[0, 1]$), `rv` (adjusted RV), `p_perm` (Freedman–Lane add-one permutation p-value, floor $1/(B+1)$), `p_maxt` (family-wise max-$T$ p-value), `p_holm` (Holm step-down), `q_bh` (Benjamini–Hochberg FDR), `p_refit` (refit null p-value or NaN), `p_refit_holm`, `ci_low`, `ci_high` (95% bootstrap CI), `ci_refit_low`, `ci_refit_high` (out-of-bag refit intervals from `inference=`). |
+| `edge_components` | `pd.DataFrame` | Per-component statistics in rotated reference frame: `a`, `b`, `component` ($j \in \{0, \dots, k-1\}$), `r` (partial correlation), `beta` (regression slope), `p_perm`, `p_maxt`, `p_holm`, `q_bh`, `ci_low`, `ci_high`, `beta_ci_low`, `beta_ci_high`. |
+| `moderation` | `Optional[pd.DataFrame]` | Group moderation tests (`None` if `groups` not provided): `a`, `b`, `sum_f` (sum over components of $F$ for group interaction $R_{a,j} \cdot G$), `p_perm`, `p_maxt`, `p_holm`, `q_bh`. |
+| `outcome_edges` | `Optional[pd.DataFrame]` | Edges into an external clinical outcome (`None` if `outcome` not provided): `a`, `b`, `pillai`, `p_perm`, `p_maxt`, `p_holm`, `q_bh`, `ci_low`, `ci_high`. |
+| `omnibus` | `Dict[str, Any]` | Whole-graph statistics: `max_pillai`, `mean_pillai`, `p_max`, `p_mean`, `null_mean_pillai` (list of null means), `n_edges`, `p_mean_refit`, `p_max_refit`, `null_mean_pillai_refit`. |
+| `fit` | `Dict[str, Any]` | Graph fit evaluation (`conditioning="parents"`): `conditioning`, `null`, `present_pass` (fraction of hypothesized edges with $p_{\text{holm}} < \alpha$), `absent_pass` (fraction of absent edges with unadjusted $p_{\text{perm}} \ge \alpha$), `absent_p` (list of unadjusted absent p-values), `max_absent_pillai`, `max_absent_p` (max-$T$ p over absent edges, SEM $\chi^2$ analogue), `rejected` (bool: `max_absent_p < alpha` or `present_pass < 1.0`), `reason`. |
+| `families` | `Dict[str, Dict[str, Any]]` | Declaration of hypothesis families (`edges`, `edge_components`, `moderation`, `outcome_edges`), each with `n_tests` and `statistic`. |
+| `edge_models` | `Dict[str, Dict[str, Any]]` | Fitted ridge node regressions per node: `W`, `parents`, `parent_cols`, `n_nuisance`, `ridge_lambda`, `res_var`. Used by `predict_path`. |
+| `feature_contributions` | `pd.DataFrame` | Feature-level contributions to edges: `a`, `b`, `feature`, `feature_idx`, `component`, `structure`, `beta`, `contribution` ($\text{structure}_{a,j} \cdot \beta_{ab,j}$). |
+| `result` | `Dict[str, Any]` | The underlying `pysimlr.fit` measurement model result. |
+| `refit_null` | `Optional[Dict[str, Any]]` | Dictionary of per-edge refit null distributions (`per_edge`, `outcome_edges`) or `None`. |
+| `nuisance_names` | `List[str]` | Column names of the nuisance design matrix $N$ (intercept, covariates, group dummies). |
+| `null` | `Dict[Tuple[str, str], List[float]]` | Stored permutation null Pillai draws (up to 2000) per edge for null distribution visualization. |
+| `scores_source` | `str` | `"latents"` (linear and deep models) or `"joint_block"` (joint-basis fits like PCA). |
+| `sign_rows` | `str` | `"training"` or `"evaluation"`, indicating which rows determined component sign alignment. |
+| `signs` | `List[Optional[np.ndarray]]` | Sign vectors per view ($\pm 1$) aligned to consensus. |
+| `wide_views` | `List[bool]` | Whether each view is wide ($p_m \ge n_{\text{train}}$). |
+| `p_reason` | `Optional[str]` | Explanation when permutation p-values are not reported (e.g. $B=0$ or wide training rows). |
+| `parameters` | `Dict[str, Any]` | Resolved call parameters: `rows`, `null`, `n_permutations`, `n_refits`, `refit_scope`, `n_bootstrap`, `alpha`, `random_state`, `n_jobs`, `allow_train_fixed`, `conditioning`, `include_consensus`, `directed`, `inference`, `n_refit_pillai`, `residualization`, `chunk`. |
+| `warnings` | `List[str]` | List of runtime warnings issued. |
+
+### `compare_path_models` result contract
+
+`compare_path_models` operates in one of two modes:
+
+#### 1. Structural comparison mode (`result` provided, measurement model fixed)
+Returns a dictionary with:
+- `comparison`: List of dictionaries (one per evaluated graph in `graphs`), containing:
+  - `graph`: Graph name.
+  - `n_edges`: Number of edges (undirected edges counted once).
+  - `heldout_loglik`: Sum of Gaussian log-likelihoods of held-out scores under node regressions.
+  - `n_params`: Parameter count ($k \times k$ per edge plus nuisance block per node).
+  - `bic`: In-sample BIC ($n_{\text{params}} \ln(n_{\text{train}}) - 2 \ln L_{\text{train}}$).
+  - `present_pass`: Fraction of present edges significant on held-out scores.
+  - `absent_pass`: Fraction of absent edges independent on held-out scores.
+  - `max_absent_p`: Max-$T$ p-value across absent edges.
+  - `edges`: Edge statistics DataFrame from `path_model`.
+  - `delta_vs_top`: Held-out log-likelihood difference relative to `best_by_loglik`.
+  - `ci_low`, `ci_high`: 95% bootstrap confidence interval of `delta_vs_top`.
+  - `best_fraction`: Fraction of bootstrap replicates in which this graph achieved top log-likelihood.
+- `best`: Parsimonious winner: graph with fewest edges whose 95% delta CI includes 0 (ties broken by log-likelihood).
+- `best_by_loglik`: Graph with highest raw held-out log-likelihood.
+- `best_rule`: Description of selection rule used.
+- `nodes`: Evaluated node names.
+- `mode`: `"structural"`.
+- `parameters`: `n_bootstrap`, `n_permutations`, `random_state`, `alpha`.
+
+#### 2. Training-topology comparison mode (`method` and `k` provided, refits across splits)
+Returns a dictionary with:
+- `splits`: DataFrame with one row per `(split, graph)` recording:
+  - `split`: Split index ($0 \dots n_{\text{splits}}-1$).
+  - `graph`, `topology`: Graph name and topology (`"star"` or `"graph"`).
+  - `n_edges`, `n_test`: Edge count and test sample size.
+  - `heldout_loglik_own`: Held-out log-likelihood under own graph fit.
+  - `heldout_loglik_complete`: Held-out log-likelihood under complete graph fit.
+  - `present_pass`, `absent_pass`: Graph fit pass rates on test split.
+  - `oos_coupling`: Mean held-out leave-one-view-out consensus coupling.
+  - `oos_r2`: Mean adjusted held-out reconstruction $R^2$.
+  - `outcome_r2`: Held-out $R^2$ of linear outcome prediction from consensus (if outcome passed).
+- `summary`: DataFrame aggregating criteria across splits (mean values, `delta_<crit>` vs top model, min/max deltas, and split win counts `wins_<crit>`).
+- `best`: Dictionary mapping each criterion to its top-performing graph name.
+- `nodes`: Evaluated node names.
+- `test_rows`: List of held-out test index arrays per split.
+- `mode`: `"training_topology"`.
+- `parameters`: `method`, `k`, `n_splits`, `train_fraction`, `n_permutations`, `random_state`, `alpha`.
+
+### `predict_path` result contract
+
+`predict_path` reconstructs missing views and outcomes across path edges and returns:
+
+| key | type | content |
+|---|---|---|
+| `scores` | `Dict[str, np.ndarray]` | Dictionary mapping each node name to its $(n, k)$ standardized score array (observed scores for present views, ridge predictions for missing views). |
+| `predicted_from` | `Dict[str, List[str]]` | Dictionary mapping each predicted node name to the list of available neighbor nodes used to predict it. |
+| `outcome_pred` | `Optional[np.ndarray]` | Predicted continuous outcome array $(n, r)$ if `outcome=True` and model includes an outcome node, else `None`. |
+| `r2_per_node` | `Optional[Dict[str, float]]` | Out-of-sample reconstruction $R^2$ ($1 - \text{SSE} / \text{SST}$) against true scores for each predicted view (requires `views_true`), else `None`. |
+
 ## scikit-learn
 
 `MultiViewSiMR(method="simlr", n_components=2, ...)` is one estimator for every registered

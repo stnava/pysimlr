@@ -1,11 +1,12 @@
-r"""Score-level path model: edges between views, tested, compared and used for prediction.
+r"""Score-level path model: edges between views, tested, compared, and used for prediction.
 
-Plan: ``docs/plans/2026-11-06_path_model.md``. This module holds `view_scores` (the one
-score-extraction helper of the package, also used by `loadings._oob_metrics` and
-`utils.heldout_coupling`), `path_model` (edge statistics, the Freedman-Lane fixed-model null
-with joint sweeps, multiplicity, omnibus, graph fit, bootstrap and refit intervals),
-`compare_path_models` (structural comparison with the measurement model fixed) and
-`predict_path`.
+This module provides `path_model` (edge-wise statistics, Freedman-Lane fixed-model and
+refit nulls with joint sweeps, multiplicity correction, omnibus and graph fit tests,
+bootstrap effect-size intervals, and out-of-bag refit intervals), `compare_path_models`
+(structural comparison with the measurement model fixed, and repeated-split
+training-topology comparison via refits), `predict_path` (missing-view and outcome
+prediction across path graphs), and `view_scores` (the single score extractor for the
+package, also used by `loadings._oob_metrics` and `utils.heldout_coupling`).
 
 The model
 ---------

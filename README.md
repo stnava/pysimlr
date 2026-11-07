@@ -111,6 +111,10 @@ from pysimlr import summarize_basis_matrix
 summary_v1 = summarize_basis_matrix(res_lin["v"][0])
 ```
 
+### 5. Edges between views: score-level path models
+
+`pysimlr.path_model` evaluates directed or undirected dependency graphs over view scores and clinical outcomes using Freedman–Lane permutation sweeps with joint max-$T$ multiplicity control, omnibus tests, bootstrap effect-size intervals, and refit calibration. `pysimlr.compare_path_models` selects among competing graph topologies (chains, stars, complete graphs) using held-out Gaussian log-likelihood, paired bootstrap differences against the top model, and a strict parsimony rule. Missing views are reconstructed across significant path edges with `pysimlr.predict_path`. See `docs/usage_notes.md` for practical guidelines and what permutation tests cannot say.
+
 ---
 
 ## Architecture & Operating-Point Reference
