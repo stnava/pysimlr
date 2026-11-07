@@ -1,6 +1,6 @@
 # Tracking Summary
-current phase: `v0.23.0` ready (`D41`: score-level path model, sem, plotting, stats, ADNI pilot; `D40`: `pysimlr.stats`; `D39`: deep/flow `nonnegative`/`nonneg` = conical).
-next WP: release v0.23.0 (lead release skill); mediation on edge_models; NHANES run.
+current phase: `v0.23.0` released (2026-11-07; `D41`: score-level path model, sem, plotting, stats, ADNI pilot; `D40`: `pysimlr.stats`; `D39`: deep/flow `nonnegative`/`nonneg` = conical).
+next WP: mediation on edge_models; NHANES path model run; paper chapter on path model.
 blockers: none
 active work: none in flight; open items in D41 (mediation on edge_models, NHANES path model run, paper chapter on path model).
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
@@ -13,7 +13,7 @@ This file was created at v0.2.19; earlier history lives in git (`git log --oneli
 release commit bodies.
 
 ## D41 (Score-level path models: permutation tests, topology comparison, prediction, and ADNI pilot, 2026-11-07)
-status: shipped / completed (target v0.23.0; version not yet bumped)
+status: shipped / completed (released in v0.23.0)
 - **Merged components:**
   - `src/pysimlr/sem.py`: unified score extractor `view_scores` (frame of `result["structure"]`, rotated by `loading_rotation`, sign-aligned to `u` on training rows, standardized on evaluation rows; handles latents and joint blocks); `path_model` (Freedman–Lane fixed-model null with chunked vectorized sweeps, refit null for training rows, multiplicity control via single-step max-$T$, Holm, and Benjamini–Hochberg FDR; moderation sum-$F$ across groups; outcome edges; omnibus `max_pillai` and `mean_pillai`; graph fit test `present_pass`, `absent_pass`, `max_absent_pillai` with max-$T$ p-value; 2000-replicate bootstrap CIs and out-of-bag refit intervals via `loading_inference`); `compare_path_models` (structural mode with held-out Gaussian log-likelihood and parsimony rule F1/F4; training-topology refit mode with repeated splits evaluating own vs complete graphs, OOS coupling, and reconstruction $R^2$); `predict_path` (iterative ridge node regressions reconstructing missing views and outcomes).
   - `src/pysimlr/plotting.py`: publication-grade visualizations in `theme()` with Okabe–Ito and diverging palettes: `plot_path_model` (circular DAG, Pillai edge widths 0.6–6 pt, solid for significant, dashed for hypothesized non-significant, `_WARN` for absent significant, halos, moderation `^` indicator), `plot_edge_matrix` (per-component partial $r$ or slope $\beta$ heatmap with FDR hatching and Pillai column), `plot_path_comparison` (forest plot of held-out log-likelihood deltas with bootstrap 95% CIs and vertically dodged pass-fraction dots), `plot_edge_null` (small multiples of permutation null histograms with observed statistics and clean text offsets), `plot_edge_features` (horizontal lollipop charts of feature contributions $\text{structure}_a \cdot \beta_{ab}$ with signed diverging colors), and `plot_edge_brain_map` (brain cortical surface/atlas montages via `antsxviz`). Redundant demo plotting deleted.
