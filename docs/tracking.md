@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: `v0.23.1` released (2026-11-07; `D42`: supervisor audit fixes D1-D4 on `v0.23.0`, live ADNI pilot rerun, slow calibration re-verification, evidence tracking; `D41`: score-level path model; `D40`: `pysimlr.stats`).
+current phase: `v0.24.0` released (2026-11-07; `D43`: training-row p-value policy, `path_model_from_scores`, worker-process note; `D42`: supervisor audit fixes D1-D4, live ADNI pilot rerun; `D41`: score-level path model; `D40`: `pysimlr.stats`).
 next WP: mediation on edge_models; NHANES path model run; paper chapter on path model.
 blockers: none
-active work: open items in D41 (mediation on edge_models, NHANES path model run, paper chapter on path model).
+active work: none in flight; open items in D41 (mediation on edge_models, NHANES path model run, paper chapter on path model).
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
 last updated: 2026-11-07
 
@@ -13,7 +13,7 @@ This file was created at v0.2.19; earlier history lives in git (`git log --oneli
 release commit bodies.
 
 ## D43 (Training-row policy, `path_model_from_scores`, worker-process note; supervisor takeover, 2026-11-07)
-status: done
+status: done (released in v0.24.0)
 - **Context:** the supervisor's audit of the agent team (`/tmp/rev_aud_nv.md`) left three technical items after D42: T1 fixed-model p-values on training rows were refused only for wide views; T2 the inference layer was bound to a `pysimlr.fit` result; T3 `n_jobs > 1` fails from the interactive prompt without a `__main__` guard.
 - **T1 (`sem.path_model`):** on `rows="train"` with the fixed-model null, p-values (`p_perm`, `p_maxt`, `p_holm`, `q_bh`, omnibus, graph fit) are not reported for any view unless `allow_train_fixed=True`; one `RuntimeWarning` and `p_reason` say why; the refit null stays the default there. `test_training_rows_fixed_null_not_reported_for_any_view`; `test_refit_null_on_training_rows` now passes `allow_train_fixed=True` for its `null="both"` case. Callers checked: `paths.permutation_test` (refit), `scripts/adni_path_model_pilot.py` (refit default, and `allow_train_fixed=True` where the fixed null is wanted).
 - **T2 (`sem.path_model_from_scores`, exported):** `path_model` was split into a thin wrapper and `_path_model_core`; `path_model_from_scores(scores: Mapping[name -> (n, k_m)], ...)` validates and standardizes the blocks (`_given_scores`) and runs the identical core with `result=None` (`scores_source="given"`, no refit null / `inference=` / consensus, empty `feature_contributions`, `parameters["scores_given"]`). `predict_path` accepts a mapping with `None` for a missing block on such a result (`_given_scores_for`). `test_path_model_from_scores_matches_path_model`: on `view_scores` of a simlr fit every edge, component, outcome-edge, omnibus and graph-fit number equals `path_model`'s (`allclose`), and `predict_path` with a missing block matches.
