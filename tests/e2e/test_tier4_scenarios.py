@@ -11,7 +11,7 @@ Scenarios:
    Woodbury-based conditional Gaussian inference.
 4. Structural Path Modeling with Topological Graph Constraints:
    Biological developmental lineage (Genomics -> Transcriptomics -> Clinical endpoints)
-   evaluated via fit_structural_models and simlr_path.
+   evaluated via compare_path_models (fit_structural_models was removed in v0.23.0) and simlr_path.
 5. Extreme Robustness & Outlier Resilience:
    Heavy-tailed Cauchy noise, extreme 10x sample outliers, collinearity, and near-singular
    covariance stabilized by Armijo line search and NSA non-negative Stiefel retractions.
