@@ -1,0 +1,49 @@
+{
+  "P1_thk_cog_significant": {
+    "requirement": "T1Hier_thk -> CogPC1 significant (p < 0.05) in >=4 of 5 splits",
+    "simlr_hits": "4/5",
+    "lend_hits": "5/5",
+    "pass": true
+  },
+  "P2_star_vs_complete_loglik": {
+    "requirement": "OOS loglik delta (star - complete) >= 0 on average or within 1 SE",
+    "simlr_mean_delta": 7.395344976125761,
+    "simlr_se_delta": 5.4477180547940875,
+    "lend_mean_delta": -57.51458635866479,
+    "pass": true
+  },
+  "P3_reconstructed_cog_r2": {
+    "requirement": "Reconstructed CogPC1 out-of-sample R^2 >= 0.15 on average for winning topology",
+    "simlr_mean_r2": 0.08727400421936118,
+    "lend_mean_r2": 0.09243477787634327,
+    "threshold": 0.15,
+    "pass": false,
+    "note": "Confounds age, education, head size partial out substantial variance; correlation r = 0.354 (r^2 = 0.125)."
+  },
+  "P4_refit_conservative_ratio": {
+    "requirement": "Refit null per-edge p-values conservative vs fixed null (mean ratio >= 1.0)",
+    "simlr_mean_ratio": 39.235294117647065,
+    "lend_mean_ratio": 34.87581699346405,
+    "pass": true
+  },
+  "Section8_vol_thk_p_maxt": {
+    "requirement": "T1Hier_vol - T1Hier_thk held-out p_maxt < 0.05 in >=4 of 5 splits",
+    "simlr_hits": "5/5",
+    "pass": true
+  },
+  "Section8_outcome_holm": {
+    "requirement": "Outcome node has at least one view with p_holm < 0.05 in >=4 of 5 splits",
+    "simlr_hits": "4/5",
+    "pass": true
+  },
+  "Section8_heldout_below_train_pillai": {
+    "requirement": "Fixed-model held-out pillai below training pillai for every edge",
+    "simlr_passed_all": false,
+    "pass": false
+  },
+  "Section8_complete_not_best_every_split": {
+    "requirement": "Complete graph is not best by heldout_loglik in every split",
+    "simlr_pass": true,
+    "pass": true
+  }
+}
