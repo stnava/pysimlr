@@ -2,7 +2,8 @@ r"""Score-level path model: edges between views, tested, compared, and used for 
 
 This module provides `path_model` (edge-wise statistics, Freedman-Lane fixed-model and
 refit nulls with joint sweeps, multiplicity correction, omnibus and graph fit tests,
-bootstrap effect-size intervals, and out-of-bag refit intervals), `compare_path_models`
+bootstrap effect-size intervals, and out-of-bag refit intervals), `path_model_from_scores`
+(the same inference on ``(n, k)`` score blocks from any source), `compare_path_models`
 (structural comparison with the measurement model fixed, and repeated-split
 training-topology comparison via refits), `predict_path` (missing-view and outcome
 prediction across path graphs), and `view_scores` (the single score extractor for the
@@ -60,8 +61,10 @@ SEM chi-square test (the graph is rejected when that p is below alpha).
 
 What the test cannot say
 ------------------------
-On training rows a wide view (p_m >= n_train) couples to anything, so fixed-model p-values are
-refused there unless ``allow_train_fixed=True``; use held-out rows or the refit null. ``pillai``
+On training rows the fixed-model null holds the fitted model fixed and ignores that it was fitted
+to those rows, and a wide view (p_m >= n_train) couples to anything there, so fixed-model p-values
+are not reported on ``rows="train"`` for any view unless ``allow_train_fixed=True``; the refit null
+is the default there, and held-out rows are the evidence. ``pillai``
 is an effect size in the fitted model's frame, not evidence that the components are the right
 ones. Conditioning on *estimated* scores attenuates an absent edge rather than removing it: the
 scores of the middle node of a chain a - b - c measure its latent with error, so partialling them
@@ -460,6 +463,24 @@ def _wide_views(result: Dict[str, Any], nodes: List[str]) -> List[str]:
     return [nodes[m] for m, v in enumerate(result["v"]) if int(v.shape[0]) >= n_train]
 
 
+def _check_path_params(rows, null, conditioning, alpha, n_permutations, n_refits, n_bootstrap):
+    if conditioning not in ("pairwise", "parents"):
+        raise ValueError("conditioning must be 'pairwise' or 'parents'.")
+    if rows not in ("heldout", "train"):
+        raise ValueError("rows must be 'heldout' or 'train'.")
+    null = ("refit" if rows == "train" else "fixed") if null is None else null
+    if null not in ("fixed", "refit", "both"):
+        raise ValueError("null must be 'fixed', 'refit' or 'both'.")
+    if null in ("refit", "both") and rows != "train":
+        raise ValueError("the refit null permutes and refits the training rows; it needs rows='train' and the "
+                         "training views. Held-out rows use the fixed-model null.")
+    if not 0.0 < alpha < 1.0:
+        raise ValueError(f"alpha must be in (0, 1); got {alpha}.")
+    if int(n_permutations) < 0 or int(n_bootstrap) < 0 or int(n_refits) < 0:
+        raise ValueError("n_permutations, n_refits and n_bootstrap must be non-negative.")
+    return null
+
+
 def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", graph=None,
                directed: bool = False, view_names: Optional[Sequence[str]] = None,
                covariates=None, groups=None, outcome=None, conditioning: str = "pairwise",
@@ -487,7 +508,14 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
     refit and use Freedman-Lane permutations of the outcome. ``"omnibus"`` in ``refit_scope`` adds
     ``n_refits`` refits with every view but the first permuted: ``omnibus["p_mean_refit"]`` and
     ``["p_max_refit"]``. Refits run through ``n_jobs`` worker processes; all permutations are drawn
-    in the parent, so the result does not depend on ``n_jobs``.
+    in the parent, so the result does not depend on ``n_jobs``. Worker processes are spawned, so
+    ``n_jobs > 1`` must be called from a script under ``if __name__ == "__main__":`` (or from an
+    importable module), not from the interactive prompt or a notebook cell, where the workers cannot
+    import the caller and the pool breaks (``BrokenProcessPool``).
+
+    Fixed-model p-values on ``rows="train"`` are reported only with ``allow_train_fixed=True``
+    (the null ignores that the model was fitted to these rows); the refit null is the default
+    there. `path_model_from_scores` runs the same inference on score blocks from any source.
 
     ``train_views`` gives a joint-basis fit its training-row signs. ``inference`` (a
     `loading_inference` result on the training views) adds ``ci_refit_low`` / ``ci_refit_high``
@@ -503,32 +531,102 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
     ``feature_contributions`` (DataFrame), ``null`` (per edge, up to 2000 null ``pillai`` draws),
     ``scores_source``, ``signs``, ``nuisance_names``, ``parameters`` and ``warnings``.
     """
-    if conditioning not in ("pairwise", "parents"):
-        raise ValueError("conditioning must be 'pairwise' or 'parents'.")
-    if rows not in ("heldout", "train"):
-        raise ValueError("rows must be 'heldout' or 'train'.")
-    null = ("refit" if rows == "train" else "fixed") if null is None else null
-    if null not in ("fixed", "refit", "both"):
-        raise ValueError("null must be 'fixed', 'refit' or 'both'.")
-    use_fixed, use_refit = null in ("fixed", "both"), null in ("refit", "both")
-    if use_refit and rows != "train":
-        raise ValueError("the refit null permutes and refits the training rows; it needs rows='train' and the "
-                         "training views. Held-out rows use the fixed-model null.")
-    if not 0.0 < alpha < 1.0:
-        raise ValueError(f"alpha must be in (0, 1); got {alpha}.")
-    B, n_boot, n_ref = int(n_permutations), int(n_bootstrap), int(n_refits)
-    if B < 0 or n_boot < 0 or n_ref < 0:
-        raise ValueError("n_permutations, n_refits and n_bootstrap must be non-negative.")
-    if not use_fixed:
-        B = 0
+    null = _check_path_params(rows, null, conditioning, alpha, n_permutations, n_refits, n_bootstrap)
     vlist = _view_list(result, views)
     if any(v is None for v in vlist):
         raise ValueError("path_model needs every view; use predict_path for missing views.")
     sc = view_scores(result, vlist, train_views=train_views)
+    from .extension import view_names as _names
+    names = list(view_names) if view_names is not None else list(_names(result))[:len(sc["scores"])]
+    return _path_model_core(result, vlist, sc, names, rows=rows, graph=graph, directed=directed,
+                            covariates=covariates, groups=groups, outcome=outcome, conditioning=conditioning,
+                            include_consensus=include_consensus, null=null, n_permutations=n_permutations,
+                            n_refits=n_refits, n_bootstrap=n_bootstrap, train_covariates=train_covariates,
+                            train_groups=train_groups, train_outcome=train_outcome, inference=inference,
+                            alpha=alpha, random_state=random_state, n_jobs=n_jobs,
+                            allow_train_fixed=allow_train_fixed, refit_scope=refit_scope, standardize=True)
+
+
+def _given_scores(scores: Any, standardize: bool, allow_missing: bool = False):
+    """Validate a mapping node name -> ``(n, k)`` block; returns names and float64 arrays."""
+    if not isinstance(scores, Mapping) or not scores:
+        raise ValueError("scores must be a non-empty mapping of node name -> (n, k) array.")
+    names = [str(nm) for nm in scores]
+    if len(set(names)) != len(names) or {"outcome", "consensus"} & set(names):
+        raise ValueError(f"score names must be distinct and not 'outcome' or 'consensus'; got {names}.")
+    arrays: List[Optional[np.ndarray]] = []
+    for nm in scores:
+        z = scores[nm]
+        if z is None and allow_missing:
+            arrays.append(None)
+            continue
+        z = np.asarray(torch.as_tensor(z).detach().cpu().double()) if isinstance(z, torch.Tensor) \
+            else np.asarray(z, dtype=float)
+        if z.ndim != 2 or z.shape[0] < 3 or z.shape[1] < 1:
+            raise ValueError(f"scores[{nm!r}] must be a 2-d (n, k) array with n >= 3; got shape {z.shape}.")
+        if not np.isfinite(z).all():
+            raise ValueError(f"scores[{nm!r}] contains non-finite values.")
+        arrays.append(_zscore(z) if standardize else z.copy())
+    rows = {z.shape[0] for z in arrays if z is not None}
+    if len(rows) > 1:
+        raise ValueError(f"every score block needs the same number of rows; got {sorted(rows)}.")
+    return names, arrays
+
+
+def path_model_from_scores(scores: Mapping[str, Any], *, rows: str = "heldout", graph=None,
+                           directed: bool = False, covariates=None, groups=None, outcome=None,
+                           conditioning: str = "pairwise", null: str = "fixed", n_permutations: int = 10_000,
+                           n_bootstrap: int = 2000, alpha: float = 0.05, random_state: int = 0,
+                           allow_train_fixed: bool = False, standardize: bool = True) -> Dict[str, Any]:
+    """`path_model` on score blocks from any source: embeddings, factor scores, another package's
+    latents. ``scores`` maps node name -> ``(n, k_m)`` array (every block the same rows; blocks of
+    different width are tested through ``pillai`` only). Each block is standardised column-wise
+    (``standardize=True``, as `view_scores` does) and then enters the identical inference
+    (`_path_model_core`): the fixed-model null, max-T / Holm / BH families, omnibus, graph fit,
+    bootstrap intervals and node regressions. On `pysimlr` scores
+    (``dict(zip(names, view_scores(result, views)["scores"]))``) the result equals `path_model`'s.
+
+    There is no measurement model, so there is no refit null (``null`` must be ``"fixed"``), no
+    ``inference=`` intervals, no consensus node and no ``feature_contributions`` (empty). ``rows``
+    is a declaration: ``"train"`` means the scores were fitted on these rows, and fixed-model
+    p-values are then reported only with ``allow_train_fixed=True``. `predict_path` on the result
+    takes a mapping of the same names (``None`` for a missing block). The result carries
+    ``result=None`` and ``scores_source="given"``.
+    """
+    if null != "fixed":
+        raise ValueError("path_model_from_scores has no measurement model to refit; null must be 'fixed' "
+                         "(use path_model with a pysimlr fit for the refit null).")
+    null = _check_path_params(rows, null, conditioning, alpha, n_permutations, 0, n_bootstrap)
+    names, arrays = _given_scores(scores, standardize)
+    if len(names) < 2 and outcome is None:
+        raise ValueError("path_model_from_scores needs at least two score blocks, or one block and an outcome.")
+    sc = {"scores": arrays, "consensus": None, "signs": None, "source": "given", "sign_rows": "given",
+          "available": list(range(len(arrays))), "n": int(arrays[0].shape[0]),
+          "train_scores": None, "train_consensus": None}
+    return _path_model_core(None, None, sc, names, rows=rows, graph=graph, directed=directed,
+                            covariates=covariates, groups=groups, outcome=outcome, conditioning=conditioning,
+                            include_consensus=False, null=null, n_permutations=n_permutations, n_refits=0,
+                            n_bootstrap=n_bootstrap, train_covariates=None, train_groups=None,
+                            train_outcome=None, inference=None, alpha=alpha, random_state=random_state,
+                            n_jobs=1, allow_train_fixed=allow_train_fixed, refit_scope=("edges", "omnibus"),
+                            standardize=standardize)
+
+
+def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covariates, groups, outcome,
+                     conditioning, include_consensus, null, n_permutations, n_refits, n_bootstrap,
+                     train_covariates, train_groups, train_outcome, inference, alpha, random_state, n_jobs,
+                     allow_train_fixed, refit_scope, standardize) -> Dict[str, Any]:
+    """The inference shared by `path_model` (``result``, ``vlist`` from a fit) and
+    `path_model_from_scores` (``result is None``); ``sc`` has `view_scores`' keys."""
+    use_fixed, use_refit = null in ("fixed", "both"), null in ("refit", "both")
+    B, n_boot, n_ref = int(n_permutations), int(n_bootstrap), int(n_refits)
+    if not use_fixed:
+        B = 0
+    if (use_refit or inference is not None) and result is None:
+        raise ValueError("the refit null and inference= need a measurement model (path_model).")
     m_views = len(sc["scores"])
     n = sc["n"]
-    from .extension import view_names as _names
-    nodes = list(view_names) if view_names is not None else list(_names(result))[:m_views]
+    nodes = list(names)
     if len(nodes) != m_views:
         raise ValueError(f"{len(nodes)} view names for {m_views} views.")
     if len(set(nodes)) != len(nodes) or {"outcome", "consensus"} & set(nodes):
@@ -536,6 +634,8 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
     view_nodes = list(nodes)
     Z: Dict[str, np.ndarray] = {nm: z for nm, z in zip(nodes, sc["scores"])}
     if include_consensus:
+        if sc["consensus"] is None:
+            raise ValueError("include_consensus needs a measurement model (path_model).")
         nodes.append("consensus")
         Z["consensus"] = sc["consensus"]
     if outcome is not None:
@@ -555,19 +655,19 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
         warnings.warn(msg, RuntimeWarning, stacklevel=3)
         warn.append(msg)
 
-    wide = _wide_views(result, view_nodes)
+    wide = _wide_views(result, view_nodes) if result is not None else []
     report_p = use_fixed
     if rows == "train" and use_fixed:
-        if wide and not allow_train_fixed:
+        why = (f"wide views {wide} couple to anything on their training rows, and " if wide else "")
+        if not allow_train_fixed:
             report_p = False
-            _warn(f"rows='train' with wide views {wide}: training coupling is not evidence; fixed-model "
-                  "p-values are not reported (use held-out rows, the refit null, or allow_train_fixed=True).")
-        elif wide:
-            _warn(f"rows='train' with wide views {wide} and allow_train_fixed=True: the fixed-model null "
-                  "holds the fitted model fixed and ignores that it was fitted to these rows.")
+            _warn(f"rows='train' with the fixed-model null: {why}the null holds the fitted model fixed and "
+                  "ignores that it was fitted to these rows; fixed-model p-values are not reported (use "
+                  "held-out rows, the refit null, or allow_train_fixed=True).")
         else:
-            _warn("rows='train' with the fixed-model null: it holds the fitted model fixed and ignores that "
-                  "it was fitted to these rows; held-out rows or the refit null are the safer evidence.")
+            _warn(f"rows='train' with allow_train_fixed=True: {why}the fixed-model null holds the fitted "
+                  "model fixed and ignores that it was fitted to these rows; held-out rows or the refit "
+                  "null are the evidence.")
     if B == 0:
         report_p = False
 
@@ -770,7 +870,8 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
                 "outcome_edges": {"n_tests": len(out_edges), "statistic": "pillai"}}
 
     edge_models = _fit_node_models(Z, nodes, adj, N, directed)
-    feature_contributions = _feature_contributions(result, view_nodes, pairs, present, diagnostic, designs, obs)
+    feature_contributions = _feature_contributions(result, view_nodes, pairs, present, diagnostic, designs, obs) \
+        if result is not None else pd.DataFrame(columns=["edge", "a", "b", "component", "feature", "contribution"])
     if not use_fixed:
         reason = f"null={null!r}: no fixed-model p-values (p_perm); see p_refit"
     elif not report_p and B > 0:
@@ -790,7 +891,8 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
                            "n_bootstrap": n_boot, "alpha": alpha, "random_state": random_state, "n_jobs": n_jobs,
                            "allow_train_fixed": allow_train_fixed, "conditioning": conditioning,
                            "include_consensus": include_consensus, "directed": directed,
-                           "inference": inference is not None,
+                           "inference": inference is not None, "standardize": bool(standardize),
+                           "scores_given": result is None,
                            "n_refit_pillai": None if refit_pillai is None else len(next(iter(refit_pillai.values()))),
                            "residualization": f"rank-revealing QR (tolerance {_RANK_TOL}); bootstrap: ridge "
                                               f"lambda = {_RIDGE} * trace / cols",
@@ -1251,8 +1353,11 @@ def predict_path(pm: Dict[str, Any], views: Any, *, covariates=None, groups=None
     true view. With every view present, ``scores`` equal `view_scores` exactly.
     """
     result = pm["result"]
-    vlist = _view_list(result, views)
-    sc = view_scores(result, vlist, signs=pm["signs"])
+    if result is None:
+        sc = _given_scores_for(pm, views)
+    else:
+        vlist = _view_list(result, views)
+        sc = view_scores(result, vlist, signs=pm["signs"])
     n = sc["n"]
     N, _, _ = _nuisance(n, covariates, groups)
     if N.shape[1] != pm["edge_models"][pm["nodes"][0]]["n_nuisance"]:
@@ -1282,7 +1387,8 @@ def predict_path(pm: Dict[str, Any], views: Any, *, covariates=None, groups=None
     out: Dict[str, Any] = {"scores": Z, "predicted_from": predicted_from,
                            "outcome_pred": Z.get("outcome") if outcome else None, "r2_per_node": None}
     if views_true is not None:
-        st = view_scores(result, _view_list(result, views_true), signs=pm["signs"])
+        st = _given_scores_for(pm, views_true) if result is None \
+            else view_scores(result, _view_list(result, views_true), signs=pm["signs"])
         r2 = {}
         for m, nm in enumerate(nodes[:len(st["scores"])]):
             if nm in predicted_from:
@@ -1290,6 +1396,23 @@ def predict_path(pm: Dict[str, Any], views: Any, *, covariates=None, groups=None
                 r2[nm] = float(1.0 - ((Z[nm] - t) ** 2).sum() / ((t - t.mean(0)) ** 2).sum())
         out["r2_per_node"] = r2
     return out
+
+
+def _given_scores_for(pm: Dict[str, Any], scores: Any) -> Dict[str, Any]:
+    """Score blocks for `predict_path` on a `path_model_from_scores` result: a mapping of the model's
+    view names (``None`` or absent for a missing block), standardised as the model was."""
+    view_nodes = [nm for nm in pm["nodes"] if nm not in ("outcome", "consensus")]
+    if not isinstance(scores, Mapping):
+        raise ValueError(f"a scores-only path model takes a mapping of its view names {view_nodes}.")
+    extra = [k for k in scores if str(k) not in view_nodes]
+    if extra:
+        raise ValueError(f"unknown score name(s) {extra}; the model has {view_nodes}.")
+    full = {nm: scores.get(nm) for nm in view_nodes}
+    _, arrays = _given_scores(full, pm["parameters"]["standardize"], allow_missing=True)
+    avail = [m for m, z in enumerate(arrays) if z is not None]
+    if not avail:
+        raise ValueError("no score block is present.")
+    return {"scores": arrays, "available": avail, "n": int(arrays[avail[0]].shape[0])}
 
 
 def _node_predict(model: Dict[str, Any], N: np.ndarray, Z: Dict[str, np.ndarray]) -> np.ndarray:

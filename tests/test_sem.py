@@ -318,7 +318,7 @@ def test_refit_null_on_training_rows():
     case = build_path_graph_case(CHAIN, 160, 2, (8, 7, 6), 0.4, random_state=0)
     res = _fit("simlr", case["views"], 2, iterations=5, learning_rate=0.05)
     pm = _pm(res, case["views"], rows="train", graph=CHAIN, outcome=case["outcome"], null="both",
-             n_permutations=199, n_refits=9, n_bootstrap=0, conditioning="parents")
+             n_permutations=199, n_refits=9, n_bootstrap=0, conditioning="parents", allow_train_fixed=True)
     e = pm["edges"]
     assert pm["parameters"]["null"] == "both" and e.p_perm.notna().all()
     assert e.p_refit.notna().all() and (e.p_refit >= 1 / 10).all() and (e.p_refit <= 1).all()
@@ -504,3 +504,72 @@ def test_adni_pilot_provenance_guards(tmp_path):
     impossible["q95_refit"] = 0.91  # > pillai while n_ge_refit == 0
     with pytest.raises(ValueError, match="Impossible refit null record"):
         _verify_p4_consistency(impossible, 50)
+
+
+# ----------------------------------------------------------------------------- T1: training rows
+def test_training_rows_fixed_null_not_reported_for_any_view():
+    """rows='train' with the fixed-model null reports no p-values, wide view or not, unless
+    allow_train_fixed=True; the refit null is the default there."""
+    case = build_path_graph_case(CHAIN, 160, 2, (8, 7, 6), 0.4, random_state=3)
+    res = _fit("simlr", case["views"], 2, iterations=5, learning_rate=0.05)
+    with pytest.warns(RuntimeWarning, match="p-values are not reported"):
+        pm = sem.path_model(res, case["views"], rows="train", null="fixed", n_permutations=99, n_bootstrap=0)
+    assert pm["wide_views"] == [] and pm["edges"].p_perm.isna().all() and pm["edges"].p_holm.isna().all()
+    assert pm["omnibus"]["p_max"] is None and pm["fit"]["reason"] and "allow_train_fixed" in pm["p_reason"]
+    with pytest.warns(RuntimeWarning, match="allow_train_fixed=True"):
+        pa = sem.path_model(res, case["views"], rows="train", null="fixed", n_permutations=99, n_bootstrap=0,
+                            allow_train_fixed=True)
+    assert pa["edges"].p_perm.notna().all() and pa["omnibus"]["p_max"] is not None
+    ph = _pm(res, case["views"], n_permutations=99, n_bootstrap=0)          # held-out rows: reported, no warning
+    assert ph["edges"].p_perm.notna().all() and not ph["warnings"]
+
+
+# ----------------------------------------------------------------------------- T2: scores from any source
+def test_path_model_from_scores_matches_path_model():
+    case = build_path_graph_case(CHAIN, 300, 2, (8, 7, 6), 0.5, covariate_effect=0.5, random_state=0)
+    tr, te = _split(case, 200)
+    res = _fit("simlr", tr, 2, iterations=5, learning_rate=0.05, confounds=case["C"][:200])
+    C, y = case["C"][200:], case["outcome"][200:]
+    kw = dict(outcome=y, covariates=C, groups=case["G"][200:],
+              conditioning="parents", n_permutations=199, n_bootstrap=60, random_state=4)
+    pm = _pm(res, te, graph=[(0, 1), (1, 2), (2, 3)], **kw)
+    names = ["view0", "view1", "view2"]
+    sc = dict(zip(names, sem.view_scores(res, te)["scores"]))
+    ps = sem.path_model_from_scores(sc, graph=[("view0", "view1"), ("view1", "view2"), ("view2", "outcome")], **kw)
+    for col in ("pillai", "rv", "p_perm", "p_maxt", "p_holm", "q_bh", "ci_low", "ci_high"):
+        assert np.allclose(pm["edges"][col].astype(float), ps["edges"][col].astype(float), equal_nan=True), col
+    for col in ("r", "beta", "p_perm", "ci_low", "beta_ci_high"):
+        assert np.allclose(pm["edge_components"][col].astype(float), ps["edge_components"][col].astype(float),
+                           equal_nan=True), col
+    assert pm["omnibus"]["p_max"] == ps["omnibus"]["p_max"]
+    for key in ("present_pass", "absent_pass", "max_absent_p", "rejected", "absent_p"):
+        assert pm["fit"][key] == ps["fit"][key], key
+    assert np.isclose(pm["fit"]["max_absent_pillai"], ps["fit"]["max_absent_pillai"])
+    assert np.allclose(pm["outcome_edges"].p_perm, ps["outcome_edges"].p_perm)
+    assert ps["result"] is None and ps["scores_source"] == "given" and len(ps["feature_contributions"]) == 0
+    assert ps["parameters"]["scores_given"] and ps["parameters"]["null"] == "fixed"
+    # prediction through the graph from a mapping with a missing block equals the view-based one
+    G = case["G"][200:]
+    a = sem.predict_path(pm, [te[0], None, te[2]], covariates=C, groups=G)
+    b = sem.predict_path(ps, {"view0": sc["view0"], "view1": None, "view2": sc["view2"]}, covariates=C, groups=G)
+    assert np.allclose(a["scores"]["view1"], b["scores"]["view1"]) and np.allclose(a["outcome_pred"], b["outcome_pred"])
+    assert b["predicted_from"]["view1"] == ["view0", "view2"]
+    # blocks of different width: pillai only
+    wide3 = np.hstack([sc["view1"], sc["view2"][:, :1]])
+    pw = sem.path_model_from_scores({"a": sc["view0"], "b": wide3}, n_permutations=49, n_bootstrap=0)
+    assert len(pw["edges"]) == 1 and len(pw["edge_components"]) == 0 and pw["edges"].p_perm.notna().all()
+    p1 = sem.path_model_from_scores({"a": sc["view0"], "b": sc["view1"][:, :1]}, n_permutations=49, n_bootstrap=0)
+    assert len(p1["edge_components"]) == 2                   # a one-column block: each component against it
+    # training-row declaration follows the same policy; no refit null, no consensus, no inference
+    with pytest.warns(RuntimeWarning, match="allow_train_fixed"):
+        pt = sem.path_model_from_scores(sc, rows="train", n_permutations=49, n_bootstrap=0)
+    assert pt["edges"].p_perm.isna().all()
+    with pytest.raises(ValueError, match="no measurement model"):
+        sem.path_model_from_scores(sc, null="refit")
+    with pytest.raises(ValueError, match="same number of rows"):
+        sem.path_model_from_scores({"a": sc["view0"], "b": sc["view1"][:-1]})
+    with pytest.raises(ValueError, match="non-finite"):
+        sem.path_model_from_scores({"a": sc["view0"], "b": np.full_like(sc["view1"], np.nan)})
+    with pytest.raises(ValueError, match="unknown score name"):
+        sem.predict_path(ps, {"nope": sc["view0"]}, covariates=C, groups=G)
+    assert pysimlr.path_model_from_scores is sem.path_model_from_scores

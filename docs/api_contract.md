@@ -182,6 +182,16 @@ factors keep more correlation, but it weakens the protection against collapse on
 
 `pysimlr.path_model`, `pysimlr.compare_path_models`, and `pysimlr.predict_path` provide
 score-level dependency graph estimation, model comparison, and path prediction post-fit.
+`pysimlr.path_model_from_scores(scores, ...)` runs the same inference on a mapping of node name
+to `(n, k_m)` score block from any source (standardized column-wise unless `standardize=False`);
+it returns the `path_model` contract below with `result=None`, `scores_source="given"`,
+`signs=None`, `wide_views=[]`, an empty `feature_contributions`, and `parameters["scores_given"]
+= True`. It has no refit null (`null="fixed"` only), no `inference=`, and no consensus node.
+
+Training-row policy: with `rows="train"` and the fixed-model null, `p_perm`, `p_maxt`, `p_holm`,
+`q_bh`, the omnibus p-values and the graph-fit p-values are `None` / NaN for every view unless
+`allow_train_fixed=True`; `p_reason` says why. `n_jobs > 1` spawns worker processes and must be
+called under a `__main__` guard or from an importable module.
 
 ### `path_model` result contract
 
@@ -205,16 +215,16 @@ score-level dependency graph estimation, model comparison, and path prediction p
 | `families` | `Dict[str, Dict[str, Any]]` | Declaration of hypothesis families (`edges`, `edge_components`, `moderation`, `outcome_edges`), each with `n_tests` and `statistic`. |
 | `edge_models` | `Dict[str, Dict[str, Any]]` | Fitted ridge node regressions per node: `W`, `parents`, `parent_cols`, `n_nuisance`, `ridge_lambda`, `res_var`. Used by `predict_path`. |
 | `feature_contributions` | `pd.DataFrame` | Feature-level contributions to edges: `a`, `b`, `feature`, `feature_idx`, `component`, `structure`, `beta`, `contribution` ($\text{structure}_{a,j} \cdot \beta_{ab,j}$). |
-| `result` | `Dict[str, Any]` | The underlying `pysimlr.fit` measurement model result. |
+| `result` | `Optional[Dict[str, Any]]` | The underlying `pysimlr.fit` measurement model result; `None` from `path_model_from_scores`. |
 | `refit_null` | `Optional[Dict[str, Any]]` | Dictionary of per-edge refit null distributions (`per_edge`, `outcome_edges`) or `None`. |
 | `nuisance_names` | `List[str]` | Column names of the nuisance design matrix $N$ (intercept, covariates, group dummies). |
 | `null` | `Dict[Tuple[str, str], List[float]]` | Stored permutation null Pillai draws (up to 2000) per edge for null distribution visualization. |
-| `scores_source` | `str` | `"latents"` (linear and deep models) or `"joint_block"` (joint-basis fits like PCA). |
+| `scores_source` | `str` | `"latents"` (linear and deep models), `"joint_block"` (joint-basis fits like PCA) or `"given"` (`path_model_from_scores`). |
 | `sign_rows` | `str` | `"training"` or `"evaluation"`, indicating which rows determined component sign alignment. |
 | `signs` | `List[Optional[np.ndarray]]` | Sign vectors per view ($\pm 1$) aligned to consensus. |
 | `wide_views` | `List[bool]` | Whether each view is wide ($p_m \ge n_{\text{train}}$). |
 | `p_reason` | `Optional[str]` | Explanation when permutation p-values are not reported (e.g. $B=0$ or wide training rows). |
-| `parameters` | `Dict[str, Any]` | Resolved call parameters: `rows`, `null`, `n_permutations`, `n_refits`, `refit_scope`, `n_bootstrap`, `alpha`, `random_state`, `n_jobs`, `allow_train_fixed`, `conditioning`, `include_consensus`, `directed`, `inference`, `n_refit_pillai`, `residualization`, `chunk`. |
+| `parameters` | `Dict[str, Any]` | Resolved call parameters: `rows`, `null`, `n_permutations`, `n_refits`, `refit_scope`, `n_bootstrap`, `alpha`, `random_state`, `n_jobs`, `allow_train_fixed`, `conditioning`, `include_consensus`, `directed`, `inference`, `n_refit_pillai`, `residualization`, `chunk`, `standardize`, `scores_given`. |
 | `warnings` | `List[str]` | List of runtime warnings issued. |
 
 ### `compare_path_models` result contract
@@ -264,7 +274,9 @@ Returns a dictionary with:
 
 ### `predict_path` result contract
 
-`predict_path` reconstructs missing views and outcomes across path edges and returns:
+`predict_path` reconstructs missing views and outcomes across path edges and returns the keys
+below. For a `path_model_from_scores` result, `views` is a mapping of the model's node names to
+score blocks (`None` or absent for a missing block), standardized as the model was.
 
 | key | type | content |
 |---|---|---|

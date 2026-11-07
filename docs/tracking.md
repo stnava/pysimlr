@@ -12,6 +12,21 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D43 (Training-row policy, `path_model_from_scores`, worker-process note; supervisor takeover, 2026-11-07)
+status: done
+- **Context:** the supervisor's audit of the agent team (`/tmp/rev_aud_nv.md`) left three technical items after D42: T1 fixed-model p-values on training rows were refused only for wide views; T2 the inference layer was bound to a `pysimlr.fit` result; T3 `n_jobs > 1` fails from the interactive prompt without a `__main__` guard.
+- **T1 (`sem.path_model`):** on `rows="train"` with the fixed-model null, p-values (`p_perm`, `p_maxt`, `p_holm`, `q_bh`, omnibus, graph fit) are not reported for any view unless `allow_train_fixed=True`; one `RuntimeWarning` and `p_reason` say why; the refit null stays the default there. `test_training_rows_fixed_null_not_reported_for_any_view`; `test_refit_null_on_training_rows` now passes `allow_train_fixed=True` for its `null="both"` case. Callers checked: `paths.permutation_test` (refit), `scripts/adni_path_model_pilot.py` (refit default, and `allow_train_fixed=True` where the fixed null is wanted).
+- **T2 (`sem.path_model_from_scores`, exported):** `path_model` was split into a thin wrapper and `_path_model_core`; `path_model_from_scores(scores: Mapping[name -> (n, k_m)], ...)` validates and standardizes the blocks (`_given_scores`) and runs the identical core with `result=None` (`scores_source="given"`, no refit null / `inference=` / consensus, empty `feature_contributions`, `parameters["scores_given"]`). `predict_path` accepts a mapping with `None` for a missing block on such a result (`_given_scores_for`). `test_path_model_from_scores_matches_path_model`: on `view_scores` of a simlr fit every edge, component, outcome-edge, omnibus and graph-fit number equals `path_model`'s (`allclose`), and `predict_path` with a missing block matches.
+- **T3 (docs):** `path_model` docstring, `docs/usage_notes.md` (item 4 under the path-model section) and `docs/api_contract.md` state that `n_jobs > 1` spawns worker processes (`ProcessPoolExecutor`, spawn on macOS) and must be called under `if __name__ == "__main__":` or from an importable module.
+- **Docs:** `docs/usage_notes.md` (new "Scores from any source" paragraph, training-row policy rewritten), `docs/api_contract.md` (structural-model intro, `result` / `scores_source` / `parameters` rows, `predict_path` mapping input), README section 5 sentence.
+- **Verification at final revision:**
+  - `python -m pytest -q -p no:cacheprovider` -> `2011 passed, 1 skipped, 2 xfailed, 946 warnings in 75.13s`.
+  - `python -m pytest -q -rP -m "" -p no:cacheprovider tests/test_sem.py` -> `34 passed, 5 warnings in 393.24s` (`fixed_calibration: per_edge=[0.045, 0.05, 0.035] maxt_family=0.050`; `refit_calibration: per_edge=[0.07, 0.03, 0.02] mean=0.040 max=0.070`).
+  - `python -m pytest -q tests/test_implementation_standards.py tests/test_package_import.py tests/test_readme_examples.py` -> `15 passed`; `python -m antsxqc.lint src/pysimlr` -> `0 finding(s)`.
+  - `python scripts/path_model_demo.py` -> `present_pass = 1.0`, `absent_pass = 1.0`, `max_absent_p = 0.122`, `best = chain + outcome`, missing-view $R^2 = 0.683$, outcome $R^2 = 0.734$ (unchanged from D42).
+  - `python scripts/adni_path_model_pilot.py` (live, `caffeinate`) -> `All tasks complete in 586.22s!`; every CSV, JSON and PNG byte-identical to the D42 run; `adni_pilot_report.html` header now carries the live execution time (the D42 copy was written by a 17.5 s `--figures-only` pass). Plan P1, P2, P4 pass; P3 fails only on view-outcome edges, as recorded in D42.
+- **Open items (unchanged from D41):** mediation on `edge_models`; NHANES path model run; paper chapter on path model.
+
 ## D42 (Post-audit fixes for score-level path model pilot, calibration re-run, and evidence tracking, 2026-11-07)
 status: done (released in v0.23.1)
 - **Defects resolved from supervisor audit of `11dbc11` / `fbeb103`:**

@@ -278,6 +278,7 @@ __all__ = [
     'path_model',
     'compare_path_models',
     'predict_path',
+    'path_model_from_scores',
     'view_scores',
     'lend_simr',
     'ned_simr',
@@ -424,6 +425,7 @@ _LAZY_ATTRS = {
     'path_model': 'sem',
     'compare_path_models': 'sem',
     'predict_path': 'sem',
+    'path_model_from_scores': 'sem',
     'view_scores': 'sem',
     # scipy inside the functions only; served lazily so the name table stays in one place.
     'bh_fdr': 'stats',

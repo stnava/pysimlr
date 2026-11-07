@@ -600,6 +600,19 @@ All score extraction across `pysimlr` is unified in `pysimlr.view_scores`:
   (`pca`, `nsa_pipeline`, `gcca`) score through their block of `v` (`source="joint_block"`).
 - Missing views (`None`) are accepted; available views are scored independently.
 
+**Scores from any source (`path_model_from_scores`).** The inference layer does not need a
+`pysimlr` fit. `pysimlr.path_model_from_scores({"vol": Z_vol, "thk": Z_thk, ...}, outcome=y,
+covariates=C, ...)` takes a mapping of node name to `(n, k_m)` score block (embeddings, factor
+scores, another package's latents; blocks of different width are tested through `pillai` only),
+standardizes each block column-wise as `view_scores` does, and runs the identical fixed-model
+inference, families, omnibus, graph fit, bootstrap intervals and node regressions. On
+`dict(zip(names, pysimlr.view_scores(res, views)["scores"]))` the result equals `path_model`'s
+(`test_path_model_from_scores_matches_path_model`). Without a measurement model there is no refit
+null (`null` must be `"fixed"`), no `inference=` intervals, no consensus node and no
+`feature_contributions`; `predict_path` on the result takes a mapping of the same names with
+`None` for a missing block. `rows="train"` declares that the scores were fitted on these rows and
+follows the training-row policy below.
+
 **Edge statistics.**
 For an edge $(a, b)$ with conditioning set $S$ (nuisance design $N$: intercept, standardized
 covariates, group dummies; under `conditioning="parents"`, additionally the scores of other adjacent
@@ -694,11 +707,18 @@ Given a fitted `path_model` result and new subject data with missing views (`Non
    $V_m$ fixed. When evaluated on *training rows*, this test is severely inflated if any view is wide
    ($p_m \ge n$): the encoder $V_m$ was optimized to couple within-view noise to other views (see D25,
    `WideViewWarning`). The resulting training scores exhibit strong coupling even under complete
-   independence. Fixed-model testing on training rows is refused by default (`allow_train_fixed=False`).
-   To test dependency on training rows, you must use the refit null (`null="refit"`), which permutes view
-   rows prior to refitting the measurement model ($B$ refits with permuted confound rows). Otherwise,
-   evaluate the fixed-model null strictly on held-out rows (`rows="heldout"`), where score projections
-   are genuine out-of-sample representations.
+   independence. Even without a wide view, the fixed-model null on training rows ignores that the model
+   was fitted to those rows. So on `rows="train"` fixed-model p-values are not reported for any view
+   unless `allow_train_fixed=True` (a warning is issued and `p_reason` says why; the refit null is the
+   default null there). To test dependency on training rows, use the refit null (`null="refit"`), which
+   permutes view rows prior to refitting the measurement model ($B$ refits with permuted confound rows).
+   Otherwise, evaluate the fixed-model null strictly on held-out rows (`rows="heldout"`), where score
+   projections are genuine out-of-sample representations.
+4. **Worker processes (`n_jobs > 1`):** the refits run in spawned worker processes. Call `path_model`
+   (and `compare_path_models` with `method=`) with `n_jobs > 1` from a script under
+   `if __name__ == "__main__":` or from an importable module. From the interactive prompt or a notebook
+   cell the workers cannot import the caller and the pool fails with `BrokenProcessPool`; use
+   `n_jobs=1` there. Results do not depend on `n_jobs`.
 
 **Evidence and calibration.**
 - **Null calibration (fast and slow suites):**
