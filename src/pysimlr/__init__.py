@@ -345,6 +345,12 @@ __all__ = [
     'icc_3',
     'benchmarks',
     'stats',
+    'plot_path_model',
+    'plot_edge_matrix',
+    'plot_path_comparison',
+    'plot_edge_null',
+    'plot_edge_features',
+    'plot_edge_brain_map',
 ]
 
 #: Attributes served on first access instead of at import time, because their
@@ -378,6 +384,12 @@ _LAZY_ATTRS = {
     'map_colormap': 'plotting',
     'feature_map_values': 'plotting',
     'plot_feature_map_grid': 'plotting',
+    'plot_path_model': 'plotting',
+    'plot_edge_matrix': 'plotting',
+    'plot_path_comparison': 'plotting',
+    'plot_edge_null': 'plotting',
+    'plot_edge_features': 'plotting',
+    'plot_edge_brain_map': 'plotting',
     'plot_feature_groups': 'plotting',
     'plot_variance_explained': 'plotting',
     'plot_fit_summary': 'plotting',

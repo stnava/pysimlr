@@ -36,115 +36,13 @@ def chain_case(n=500, k=3, p=(20, 25, 18), noise=0.5, cov_effect=0.8, seed=0):
 
 
 # ----------------------------------------------------------------------------- figures
-def plot_path_model(pm, alpha=0.05, ax=None, component=None):
-    import matplotlib.pyplot as plt
-    with P.theme():
-        fig, ax = P._figure(ax, figsize=(6.4, 5.6), title="Fitted path model",
-                            subtitle=f"{pm['rows']} rows, n = {pm['n']}, conditioning = {pm['conditioning']}, "
-                                     f"B = {pm['parameters']['n_permutations']}; omnibus p = {pm['omnibus']['p_max']:.4g}")
-        nodes = pm["nodes"]; m = len(nodes)
-        ang = {nm: np.pi / 2 + 2 * np.pi * i / m for i, nm in enumerate(nodes)}
-        pos = {nm: (np.cos(a), np.sin(a)) for nm, a in ang.items()}
-        col = {nm: ("#1a1a1a" if nm == "outcome" else P._view_color(i)) for i, nm in enumerate(nodes)}
-        for e in pm["edges"].to_dict("records"):
-            a, b = e["a"], e["b"]
-            (x1, y1), (x2, y2) = pos[a], pos[b]
-            sig = e["p_maxt"] is not None and e["p_maxt"] < alpha
-            if not e["present"] and not sig:
-                continue
-            width = 0.6 + 5.4 * e["pillai"]
-            color = P._WARN if (sig and not e["present"]) else P._INK2
-            ax.plot([x1, x2], [y1, y2], color=color, lw=width, ls="-" if sig else (0, (3, 2.5)),
-                    alpha=0.9 if sig else 0.6, solid_capstyle="round", zorder=1)
-            xm, ym = (x1 + x2) / 2, (y1 + y2) / 2
-            # offset the label perpendicular to the edge so labels do not sit on the line
-            dx, dy = x2 - x1, y2 - y1; nrm = np.hypot(dx, dy)
-            ox, oy = -dy / nrm * 0.22, dx / nrm * 0.22
-            ax.text(xm + ox, ym + oy, f"{e['pillai']:.2f}\np = {e['p_maxt']:.3g}", ha="center", va="center",
-                    fontsize=8, color=P._INK, bbox=dict(boxstyle="round,pad=0.25", fc=P._SURFACE, ec="none", alpha=0.9), zorder=3)
-        for nm in nodes:
-            x, y = pos[nm]
-            marker = "s" if nm == "outcome" else "o"
-            ax.scatter([x], [y], s=2300 if nm == "outcome" else 1700, marker=marker, color=col[nm], zorder=4,
-                       edgecolor=P._SURFACE, linewidth=2)
-            ax.text(x, y, nm, ha="center", va="center", fontsize=8.5, color="white", weight="semibold", zorder=5)
-        from matplotlib.lines import Line2D
-        handles = [Line2D([], [], color=P._INK2, lw=2.5, label=f"edge, max-T p < {alpha}"),
-                   Line2D([], [], color=P._INK2, lw=2.0, ls=(0, (3, 2.5)), alpha=0.6, label="hypothesised, not significant"),
-                   Line2D([], [], color=P._WARN, lw=2.5, label="not hypothesised, significant")]
-        ax.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, -0.12), ncol=1, fontsize=8)
-        ax.set_xlim(-1.45, 1.45); ax.set_ylim(-1.45, 1.35); ax.set_aspect("equal"); ax.axis("off")
-        return fig
-
-
-def plot_edge_matrix(pm, alpha=0.05):
-    import matplotlib.pyplot as plt
-    comps = pm["edge_components"]
-    labels = sorted({f"{a} - {b}" for a, b in zip(comps.a, comps.b)})
-    k = pm["k"]
-    M = np.zeros((len(labels), k)); Q = np.ones((len(labels), k))
-    for _, r in comps.iterrows():
-        i = labels.index(f"{r.a} - {r.b}"); M[i, int(r.component)] = r.r; Q[i, int(r.component)] = r.get("q_bh", 1.0)
-    with P.theme():
-        fig = P._new((1.1 * k + 4.2, 0.55 * len(labels) + 2.0), title="Per-component partial correlations",
-                     subtitle=f"hatched: BH q >= {alpha}; right column: edge Pillai")
-        gs = fig.add_gridspec(1, 2, width_ratios=[k, 1.1], wspace=0.05)
-        ax = fig.add_subplot(gs[0]); ax2 = fig.add_subplot(gs[1])
-        lim = max(0.3, float(np.abs(M).max()))
-        im = P._matrix(ax, M, P._cmap("div"), -lim, lim, rows=labels, cols=[f"c{j + 1}" for j in range(k)])
-        for i in range(len(labels)):
-            for j in range(k):
-                if Q[i, j] >= alpha:
-                    ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, hatch="///", ec=P._MUTED, lw=0))
-        pil = np.array([[next(e["pillai"] for e in pm["edges"].to_dict("records") if f"{e['a']} - {e['b']}" == lab)] for lab in labels])
-        P._matrix(ax2, pil, P._cmap("seq"), 0, 1, rows=None, cols=["Pillai"])
-        ax2.set_yticks([]); ax2.set_ylim(ax.get_ylim())
-        P._colorbar(fig, im, ax, "partial r")
-        return fig
-
-
-def plot_path_comparison(cmp):
-    with P.theme():
-        rows = sorted(cmp["comparison"], key=lambda r: r["heldout_loglik"])
-        fig = P._new((7.2, 0.5 * len(rows) + 2.4), title="Which graph predicts held-out scores best",
-                     subtitle="held-out log-likelihood minus the top graph's; paired subject bootstrap 95% CI")
-        gs = fig.add_gridspec(1, 2, width_ratios=[3, 1.4], wspace=0.08)
-        ax = fig.add_subplot(gs[0]); ax2 = fig.add_subplot(gs[1], sharey=ax)
-        y = np.arange(len(rows))
-        for i, r in enumerate(rows):
-            best = r["graph"] == cmp["best"]
-            c = P._BLUE[6] if best else P._INK2
-            ax.hlines(i, r["ci_low"], r["ci_high"], color=c, lw=2.2, alpha=0.6)
-            P._dots(ax, [r["delta_vs_top"]], [i], c, s=52)
-            ax.text(r["ci_high"], i, f"  best in {100 * r['best_fraction']:.0f}% of replicates", va="center", fontsize=8, color=P._INK2)
-            ax2.scatter([r["present_pass"] if r["present_pass"] is not None else np.nan], [i], color=P._BLUE[6], s=40, label="present edges pass" if i == 0 else None)
-            ax2.scatter([r["absent_pass"] if r["absent_pass"] is not None else np.nan], [i], color=P._RED[4], s=40, marker="D", label="absent edges pass" if i == 0 else None)
-        ax.axvline(0, color=P._AXIS, lw=0.9)
-        ax.set_yticks(y); ax.set_yticklabels([f"{r['graph']}  ({r['n_edges']} edges)" for r in rows])
-        ax.set_xlabel("delta held-out log-likelihood"); P._clean(ax, grid="x")
-        ax2.set_xlim(-0.08, 1.08); ax2.set_xlabel("fraction passing"); ax2.tick_params(labelleft=False); P._clean(ax2, grid="x")
-        ax2.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), fontsize=7.5, ncol=1, frameon=False)
-        return fig
-
-
-def plot_edge_null(pm, alpha=0.05):
-    with P.theme():
-        edges = [e for e in pm["edges"].to_dict("records") if e["present"] or (e["p_maxt"] is not None and e["p_maxt"] < alpha)]
-        n = len(edges); cols = min(3, n); rws = int(np.ceil(n / cols))
-        fig = P._new((3.2 * cols + 0.4, 2.4 * rws + 1.2), title="Observed edge statistic against its permutation null",
-                     subtitle=f"Freedman-Lane, {pm['parameters']['n_permutations']} sweeps; the p-value is add-one")
-        for i, e in enumerate(edges):
-            ax = fig.add_subplot(rws, cols, i + 1)
-            null = np.asarray(pm["null"][(e["a"], e["b"])])
-            ax.hist(null, bins=40, color=P._BLUE[2], edgecolor="none")
-            ax.axvline(e["pillai"], color=P._RED[4], lw=2)
-            ax.set_title(f"{e['a']} - {e['b']}", fontsize=9.5)
-            ax.text(0.97, 0.92, f"Pillai {e['pillai']:.2f}\np = {e['p_perm']:.3g}", transform=ax.transAxes, ha="right", va="top", fontsize=8, color=P._INK)
-            ax.set_xlim(0, max(1.0, e["pillai"] * 1.1) if e["pillai"] > 0.8 else max(null.max(), e["pillai"]) * 1.15)
-            ax.set_yticks([]); P._clean(ax, grid=None, baseline=True)
-            if i // cols == rws - 1:
-                ax.set_xlabel("Pillai under the null")
-        return fig
+from pysimlr.plotting import (  # noqa: E402
+    plot_path_model,
+    plot_edge_matrix,
+    plot_path_comparison,
+    plot_edge_null,
+    plot_edge_features,
+)
 
 
 # ----------------------------------------------------------------------------- report
@@ -191,7 +89,8 @@ def main():
     r2_outcome = 1 - ((yhat - yz) ** 2).sum() / ((yz - yz.mean()) ** 2).sum()
 
     figs = {"path_model": plot_path_model(pm), "edge_matrix": plot_edge_matrix(pm),
-            "comparison": plot_path_comparison(cmp), "edge_null": plot_edge_null(pm)}
+            "comparison": plot_path_comparison(cmp), "edge_null": plot_edge_null(pm),
+            "edge_features": plot_edge_features(pm, "view0 - view1")}
     for nm, f in figs.items():
         f.savefig(os.path.join(a.out, f"reference_{nm}.png"), dpi=200)
     edges = pm["edges"]; edges_pair = pm_pair["edges"]
@@ -239,6 +138,9 @@ top by held-out log-likelihood: <b>{cmp['best_by_loglik']}</b>. BIC counts each 
 <h2>5. Prediction through the graph</h2>
 <p>With view1 missing, its scores predicted from view0 and view2 reach R² = {r2_missing:.3f} against the scores computed
 from the real view1. The outcome predicted from its graph parents (all views present) reaches held-out R² = {r2_outcome:.3f}.</p>
+
+<h2>6. Feature contributions to edge view0 - view1</h2>
+<img src="data:image/png;base64,{_png(figs['edge_features'])}">
 </body></html>"""
     path = os.path.join(a.out, "reference_report.html")
     with open(path, "w") as fh:

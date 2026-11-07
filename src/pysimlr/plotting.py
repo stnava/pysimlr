@@ -43,6 +43,9 @@ __all__ = [
     "plot_benchmark", "plot_benchmark_uncertainty", "plot_predictions",
     # fused ridge
     "plot_fused_coefficients", "plot_coefficient_paths", "plot_fused_ridge_cv",
+    # score-level path model
+    "plot_path_model", "plot_edge_matrix", "plot_path_comparison", "plot_edge_null", "plot_edge_features",
+    "plot_edge_brain_map",
 ]
 
 # ----------------------------------------------------------------------------- the visual system
@@ -2577,3 +2580,751 @@ def plot_fused_ridge_cv(cv: Dict[str, Any], ax=None):
     ax.set_xlabel("λ₂ (fusion)"); ax.set_ylabel("λ₁ (ridge)")
     _colorbar(fig, mesh, ax, "mean held-out loss")
     return fig
+
+
+# ----------------------------------------------------------------------------- score-level path model
+def _format_p(p: Optional[float], b_sweeps: Optional[int] = None) -> str:
+    """Format permutation p-value cleanly avoiding raw strings like 0.000999."""
+    if p is None or not np.isfinite(p):
+        return "N/A"
+    p = float(p)
+    if b_sweeps and b_sweeps > 0 and p <= (1.0001 / (b_sweeps + 1)):
+        floor_val = 1.0 / (b_sweeps + 1)
+        if floor_val < 0.001:
+            return f"p < {floor_val:.1g}"
+        return "p < 0.001"
+    if p < 0.001:
+        return "p < 0.001"
+    elif p < 0.01:
+        return f"p = {p:.3f}"
+    else:
+        return f"p = {p:.3g}"
+
+
+@_themed
+def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: float = 0.05,
+                    ax=None) -> Any:
+    """Nodes on a circle with edge widths proportional to association strength.
+
+    When ``component=None`` (default), edges show omnibus association across
+    components (Pillai trace, width in 0.6..6 pt), solid if ``p_maxt < alpha``,
+    dashed otherwise. Absent-but-significant edges are drawn in ``_WARN``.
+    When ``component=j``, edge widths show per-component ``|r_j|`` with sign colour
+    (``_BLUE[6]`` positive, ``_RED[4]`` negative). Moderated edges (Holm p < alpha)
+    carry an indicator mark. A critical status line is displayed when the graph-fit
+    test rejects (``pm["fit"]["rejected"] == True``).
+
+    Parameters
+    ----------
+    pm : dict
+        Result of `pysimlr.path_model`.
+    component : int or float, optional
+        Component index (0-based) to plot signed partial correlations for. If a
+        float < 1.0 is passed positionally as the second argument, it is interpreted
+        as `alpha`.
+    alpha : float, default=0.05
+        Significance threshold for edge testing and moderation.
+    ax : matplotlib.axes.Axes, optional
+        Axes to draw into. If None, a new Figure is created.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if isinstance(component, (float, np.floating)) and 0.0 < component < 1.0:
+        alpha = float(component)
+        component = None
+    elif component is not None:
+        component = int(component)
+
+    from matplotlib.lines import Line2D
+
+    nodes = list(pm["nodes"])
+    m = len(nodes)
+    ang = {nm: np.pi / 2 + 2 * np.pi * i / m for i, nm in enumerate(nodes)}
+    pos = {nm: (np.cos(a), np.sin(a)) for nm, a in ang.items()}
+    col = {nm: (_INK if nm == "outcome" else _view_color(i)) for i, nm in enumerate(nodes)}
+
+    fit = pm.get("fit") or {}
+    status = None
+    if fit.get("rejected"):
+        max_abs_p = fit.get("max_abs_p")
+        p_str = _format_p(max_abs_p) if max_abs_p is not None else f"< {alpha}"
+        status = f"Graph-fit test rejected: absent edges carry significant association (max absent p = {p_str})"
+
+    params = pm.get("parameters") if isinstance(pm.get("parameters"), dict) else {}
+    null_name = params.get("null", "fixed")
+    b_sweeps = params.get("n_permutations", 0)
+    omnibus_p = pm.get("omnibus", {}).get("p_max") if isinstance(pm.get("omnibus"), dict) else None
+    omni_str = f"; omnibus {_format_p(omnibus_p, b_sweeps)}" if omnibus_p is not None else ""
+    weight_desc = f"|r| (component {component + 1})" if component is not None else "Pillai's trace V"
+    title = f"Fitted path model: component {component + 1}" if component is not None else "Fitted path model"
+    subtitle = (f"{pm.get('rows', 'heldout')} rows, n = {pm.get('n', '?')}, conditioning = {pm.get('conditioning', '?')}, "
+                f"null = {null_name}, B = {b_sweeps}; edge weights = {weight_desc}{omni_str}")
+
+    fig, ax = _figure(ax, figsize=(6.4, 5.6), title=title, subtitle=subtitle, status=status)
+
+    comps = pm.get("edge_components")
+    # Moderation lookup
+    mod_edges = set()
+    if pm.get("moderation") is not None and len(pm["moderation"]):
+        for _, mr in pm["moderation"].iterrows():
+            if mr.get("component") == "sum" and mr.get("p_holm") is not None and mr["p_holm"] < alpha:
+                mod_edges.add((mr["a"], mr["b"]))
+                mod_edges.add((mr["b"], mr["a"]))
+
+    edges_df = pm["edges"]
+    had_warn = False
+    had_hyp_nonsig = False
+    had_sig = False
+    had_pos = False
+    had_neg = False
+    had_mod = False
+
+    for e in edges_df.to_dict("records"):
+        a, b = e["a"], e["b"]
+        (x1, y1), (x2, y2) = pos[a], pos[b]
+        sig = e.get("p_maxt") is not None and e["p_maxt"] < alpha
+
+        r_val = 0.0
+        comp_p = None
+        if component is not None and comps is not None and len(comps):
+            crow = comps[(((comps.a == a) & (comps.b == b)) | ((comps.a == b) & (comps.b == a))) &
+                         (comps.component == component)]
+            if len(crow):
+                r_val = float(crow.iloc[0]["r"])
+                comp_p = crow.iloc[0].get("p_maxt")
+                if comp_p is not None:
+                    sig = comp_p < alpha
+
+        if not e["present"] and not sig:
+            continue
+
+        if component is not None:
+            width = 0.6 + 5.4 * min(1.0, abs(r_val))
+            if sig and not e["present"]:
+                color = _WARN
+                ls = "-"
+                al = 0.9
+                had_warn = True
+            elif sig:
+                color = _BLUE[6] if r_val >= 0 else _RED[4]
+                ls = "-"
+                al = 0.9
+                if r_val >= 0:
+                    had_pos = True
+                else:
+                    had_neg = True
+            else:
+                color = _INK2
+                ls = (0, (3, 2.5))
+                al = 0.6
+                had_hyp_nonsig = True
+        else:
+            width = 0.6 + 5.4 * min(1.0, max(0.0, float(e.get("pillai", 0.0))))
+            color = _WARN if (sig and not e["present"]) else _INK2
+            if sig and not e["present"]:
+                had_warn = True
+            elif sig:
+                had_sig = True
+            else:
+                had_hyp_nonsig = True
+            ls = "-" if sig else (0, (3, 2.5))
+            al = 0.9 if sig else 0.6
+
+        ax.plot([x1, x2], [y1, y2], color=color, lw=width, ls=ls, alpha=al,
+                solid_capstyle="round", zorder=1)
+
+        xm, ym = (x1 + x2) / 2, (y1 + y2) / 2
+        dx, dy = x2 - x1, y2 - y1
+        nrm = np.hypot(dx, dy) or 1.0
+        ox, oy = -dy / nrm * 0.22, dx / nrm * 0.22
+
+        if component is not None:
+            p_display = comp_p if comp_p is not None else e.get("p_maxt")
+            label_text = f"r = {r_val:+.2f}\n{_format_p(p_display, b_sweeps)}"
+        else:
+            p_display = e.get("p_maxt", e.get("p_perm"))
+            pillai_val = float(e.get("pillai", 0.0))
+            label_text = f"V = {pillai_val:.2f}\n{_format_p(p_display, b_sweeps)}"
+
+        # White halo text with pad covering line cleanly
+        ax.text(xm + ox, ym + oy, label_text, ha="center", va="center",
+                fontsize=8, color=_INK,
+                bbox=dict(boxstyle="round,pad=0.32", fc=_SURFACE, ec=_GRID, lw=0.6, alpha=0.95),
+                zorder=3)
+
+        # Moderation marker on edge
+        if (a, b) in mod_edges or (b, a) in mod_edges:
+            had_mod = True
+            ax.plot([xm], [ym], marker="^", markersize=9, color=_INK,
+                    markeredgecolor=_SURFACE, markeredgewidth=1.2, zorder=4)
+
+    for i, nm in enumerate(nodes):
+        x, y = pos[nm]
+        if nm == "outcome":
+            ax.scatter([x], [y], s=2300, marker="s", color=_INK, zorder=4,
+                       edgecolor=_SURFACE, linewidth=2)
+            ax.text(x, y, nm, ha="center", va="center", fontsize=8.5, color="white", weight="semibold", zorder=5)
+        elif nm == "consensus":
+            ax.scatter([x], [y], s=1700, marker="o", facecolor=_SURFACE, edgecolor=_INK, linewidth=2, zorder=4)
+            ax.text(x, y, nm, ha="center", va="center", fontsize=8.5, color=_INK, weight="semibold", zorder=5)
+        else:
+            ax.scatter([x], [y], s=1700, marker="o", color=col[nm], zorder=4,
+                       edgecolor=_SURFACE, linewidth=2)
+            ax.text(x, y, nm, ha="center", va="center", fontsize=8.5, color="white", weight="semibold", zorder=5)
+
+    handles = []
+    if component is not None:
+        if had_pos:
+            handles.append(Line2D([], [], color=_BLUE[6], lw=2.5, label=f"positive r (component {component + 1})"))
+        if had_neg:
+            handles.append(Line2D([], [], color=_RED[4], lw=2.5, label=f"negative r (component {component + 1})"))
+        if had_hyp_nonsig:
+            handles.append(Line2D([], [], color=_INK2, lw=2.0, ls=(0, (3, 2.5)), alpha=0.6, label="hypothesised, not significant"))
+        if had_warn:
+            handles.append(Line2D([], [], color=_WARN, lw=2.5, label="not hypothesised, significant"))
+    else:
+        handles.append(Line2D([], [], color=_INK2, lw=2.5, label=f"edge, max-T p < {alpha}"))
+        handles.append(Line2D([], [], color=_INK2, lw=2.0, ls=(0, (3, 2.5)), alpha=0.6, label="hypothesised, not significant"))
+        handles.append(Line2D([], [], color=_WARN, lw=2.5, label="not hypothesised, significant"))
+
+    if had_mod:
+        handles.append(Line2D([], [], marker="^", color=_INK, markeredgecolor=_SURFACE, markersize=8,
+                              ls="none", label=f"moderated edge (Holm p < {alpha})"))
+
+    ax.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, -0.14), ncol=1, fontsize=8)
+    ax.set_xlim(-1.45, 1.45); ax.set_ylim(-1.45, 1.35); ax.set_aspect("equal"); ax.axis("off")
+    return fig
+
+
+@_themed
+def plot_edge_matrix(pm: Dict[str, Any], what: str = "r", alpha: float = 0.05) -> Any:
+    """Per-component edge association matrix (r or beta) with Pillai omnibus column.
+
+    Parameters
+    ----------
+    pm : dict
+        Result of `pysimlr.path_model`.
+    what : {"r", "beta"}, default="r"
+        Quantity to display in the main heatmap: partial correlation "r" or
+        standardized regression slope "beta".
+    alpha : float, default=0.05
+        False discovery rate threshold for hatching cells (BH q >= alpha).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if isinstance(what, (float, np.floating)):
+        alpha = float(what)
+        what = "r"
+
+    import matplotlib.pyplot as plt
+
+    comps = pm["edge_components"]
+    labels = sorted({f"{a} - {b}" for a, b in zip(comps.a, comps.b)})
+    k = int(pm.get("k", len(comps["component"].unique())))
+    M = np.zeros((len(labels), k))
+    Q = np.ones((len(labels), k))
+
+    val_col = "beta" if what == "beta" else "r"
+    for _, r in comps.iterrows():
+        lab = f"{r.a} - {r.b}"
+        if lab not in labels:
+            lab = f"{r.b} - {r.a}"
+        if lab in labels:
+            i = labels.index(lab)
+            c_idx = int(r.component)
+            if 0 <= c_idx < k:
+                M[i, c_idx] = float(r.get(val_col, 0.0))
+                Q[i, c_idx] = float(r.get("q_bh", 1.0))
+
+    fig = _new((1.1 * k + 4.2, 0.55 * len(labels) + 2.0),
+               title=f"Per-component partial {'correlations' if what == 'r' else 'slopes'}",
+               subtitle=f"hatched: BH q >= {alpha}; right column: edge Pillai")
+    gs = fig.add_gridspec(1, 2, width_ratios=[k, 1.1], wspace=0.05)
+    ax = fig.add_subplot(gs[0])
+    ax2 = fig.add_subplot(gs[1])
+
+    lim = max(0.3, float(np.abs(M).max())) if len(M) else 1.0
+    im = _matrix(ax, M, _cmap("div"), -lim, lim, rows=labels, cols=[f"c{j + 1}" for j in range(k)])
+    for i in range(len(labels)):
+        for j in range(k):
+            if Q[i, j] >= alpha:
+                ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, hatch="///", ec=_MUTED, lw=0))
+
+    edges_records = pm["edges"].to_dict("records")
+    pil_list = []
+    for lab in labels:
+        val = 0.0
+        for e in edges_records:
+            if f"{e['a']} - {e['b']}" == lab or f"{e['b']} - {e['a']}" == lab:
+                val = float(e.get("pillai", 0.0))
+                break
+        pil_list.append([val])
+    pil = np.array(pil_list)
+
+    _matrix(ax2, pil, _cmap("seq"), 0, 1, rows=None, cols=["Pillai"])
+    ax2.set_yticks([])
+    ax2.set_ylim(ax.get_ylim())
+    _colorbar(fig, im, ax, f"partial {what}")
+    return fig
+
+
+@_themed
+def plot_path_comparison(cmp: Dict[str, Any]) -> Any:
+    """Forest plot comparing candidate path models against the top graph.
+
+    Displays held-out log-likelihood deltas relative to the best graph with
+    paired bootstrap confidence intervals, alongside the fraction of present
+    and absent edges passing hypothesis tests. When present-pass and absent-pass
+    fractions are equal, markers are dodged vertically to prevent occlusion.
+
+    Parameters
+    ----------
+    cmp : dict
+        Result of `pysimlr.compare_path_models`.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    rows = sorted(cmp["comparison"], key=lambda r: r["heldout_loglik"])
+    fig = _new((7.8, 0.55 * len(rows) + 2.4), title="Which graph predicts held-out scores best",
+               subtitle="held-out log-likelihood minus the top graph's; paired subject bootstrap 95% CI")
+    gs = fig.add_gridspec(1, 2, width_ratios=[3.2, 1.3], wspace=0.10)
+    ax = fig.add_subplot(gs[0])
+    ax2 = fig.add_subplot(gs[1], sharey=ax)
+    y = np.arange(len(rows))
+
+    p_nums, y_press = [], []
+    a_nums, y_abss = [], []
+    for i, r in enumerate(rows):
+        best = r["graph"] == cmp["best"]
+        c = _BLUE[6] if best else _INK2
+        ax.hlines(i, r["ci_low"], r["ci_high"], color=c, lw=2.2, alpha=0.6)
+        _dots(ax, [r["delta_vs_top"]], [i], c, s=52)
+        ax.text(r["ci_high"], i, f"  best in {100 * r['best_fraction']:.0f}% of replicates",
+                va="center", fontsize=8, color=_INK2)
+
+        pres_val = r.get("present_pass")
+        abs_val = r.get("absent_pass")
+        p_num = np.nan if pres_val is None else float(pres_val)
+        a_num = np.nan if abs_val is None else float(abs_val)
+
+        # Dodge vertically when equal to resolve overlapping markers
+        if not np.isnan(p_num) and not np.isnan(a_num) and np.isclose(p_num, a_num, atol=1e-4):
+            y_pres = i + 0.12
+            y_abs = i - 0.12
+        else:
+            y_pres = float(i)
+            y_abs = float(i)
+
+        p_nums.append(p_num)
+        y_press.append(y_pres)
+        a_nums.append(a_num)
+        y_abss.append(y_abs)
+
+    ax2.scatter(p_nums, y_press, color=_BLUE[6], s=40, label="present edges pass")
+    ax2.scatter(a_nums, y_abss, color=_RED[4], s=40, marker="D", label="absent edges pass")
+
+    ax.axvline(0, color=_AXIS, lw=0.9)
+    ax.set_yticks(y)
+    ax.set_yticklabels([f"{r['graph']}  ({r['n_edges']} edges)" for r in rows])
+    ax.set_xlabel("delta held-out log-likelihood")
+    # Adjust xlim so right-hand annotations never spill over into the gutter
+    min_ci = min(r["ci_low"] for r in rows)
+    max_ci = max(r["ci_high"] for r in rows)
+    span = max(1.0, max_ci - min_ci)
+    ax.set_xlim(min_ci - 0.06 * span, max_ci + 0.45 * span)
+    _clean(ax, grid="x")
+
+    ax2.set_xlim(-0.08, 1.08)
+    ax2.set_xlabel("fraction passing")
+    ax2.tick_params(labelleft=False)
+    _clean(ax2, grid="x")
+    ax2.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), fontsize=7.5, ncol=1, frameon=False)
+    return fig
+
+
+@_themed
+def plot_edge_null(pm: Dict[str, Any], edges: Optional[Sequence[Any]] = None,
+                   alpha: float = 0.05, ax=None) -> Any:
+    """Permutation null distribution histograms for observed edge statistics.
+
+    Parameters
+    ----------
+    pm : dict
+        Result of `pysimlr.path_model`.
+    edges : sequence of edge specifications, optional
+        Edges to plot (e.g. ``[("view0", "view1")]`` or ``["view0 - view1"]``).
+        If None, all present edges plus any significant absent edges are plotted.
+    alpha : float, default=0.05
+        Significance threshold for default edge filtering.
+    ax : matplotlib.axes.Axes, optional
+        Axes to draw into when plotting a single edge.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if not pm.get("null"):
+        raise ValueError("pm has no stored null distribution (null was empty or n_permutations was 0).")
+
+    all_edges = pm["edges"].to_dict("records")
+    if edges is not None:
+        target_edges = []
+        for item in edges:
+            if isinstance(item, tuple):
+                a_name, b_name = str(item[0]), str(item[1])
+            elif isinstance(item, str):
+                parts = [s.strip() for s in item.split("-", 1)] if "-" in item else [item, ""]
+                a_name, b_name = parts[0], parts[1]
+            else:
+                a_name, b_name = str(item), ""
+            match = next((e for e in all_edges
+                          if (e["a"] == a_name and e["b"] == b_name) or (e["a"] == b_name and e["b"] == a_name)
+                          or f"{e['a']} - {e['b']}" == item or f"{e['b']} - {e['a']}" == item), None)
+            if match is not None:
+                target_edges.append(match)
+        edge_list = target_edges
+    else:
+        edge_list = [e for e in all_edges if e["present"] or (e.get("p_maxt") is not None and e["p_maxt"] < alpha)]
+
+    if not edge_list:
+        edge_list = all_edges[:1]
+
+    n = len(edge_list)
+    params = pm.get("parameters") if isinstance(pm.get("parameters"), dict) else {}
+    b_sweeps = params.get("n_permutations", len(next(iter(pm["null"].values()))))
+
+    if ax is not None:
+        fig = ax.figure
+        axes = [ax]
+    else:
+        cols = min(3, n)
+        rws = int(np.ceil(n / cols))
+        fig = _new((3.4 * cols + 0.6, 2.5 * rws + 1.2),
+                   title="Observed edge statistic against its permutation null",
+                   subtitle=f"Freedman-Lane, {b_sweeps} sweeps; the p-value is add-one")
+        axes = [fig.add_subplot(rws, cols, i + 1) for i in range(n)]
+
+    for i, e in enumerate(edge_list):
+        cur_ax = axes[i]
+        key = (e["a"], e["b"])
+        if key not in pm["null"]:
+            key = (e["b"], e["a"])
+        null_vals = np.asarray(pm["null"].get(key, []))
+
+        cur_ax.hist(null_vals, bins=40, color=_BLUE[2], edgecolor="none")
+        cur_ax.axvline(e["pillai"], color=_RED[4], lw=2)
+        cur_ax.set_title(f"{e['a']} - {e['b']}", fontsize=9.5)
+        p_val = e.get("p_perm", e.get("p_refit"))
+        p_str = _format_p(p_val, b_sweeps)
+
+        max_x = max(null_vals.max() if len(null_vals) else 1.0, e["pillai"])
+        lim_x = max(1.0, e["pillai"] * 1.1) if e["pillai"] > 0.8 else max_x * 1.18
+        cur_ax.set_xlim(0, lim_x)
+        cur_ax.set_yticks([])
+        _clean(cur_ax, grid=None, baseline=True)
+        cur_ax.set_xlabel("Pillai under the null")
+        cur_ax.set_ylabel("Permutation count", fontsize=8.5, color=_INK2)
+
+        # Offset text label cleanly to the left of the observed line so text never crosses
+        x_obs = float(e["pillai"])
+        frac = x_obs / lim_x if lim_x > 0 else 0.5
+        label_txt = f"Pillai = {x_obs:.2f}\n{p_str}"
+        if frac > 0.38:
+            cur_ax.text(x_obs - 0.04 * lim_x, 0.90, label_txt,
+                        transform=cur_ax.get_xaxis_transform(), ha="right", va="top",
+                        fontsize=8, color=_INK,
+                        bbox=dict(boxstyle="round,pad=0.25", fc=_SURFACE, ec="none", alpha=0.9))
+        else:
+            cur_ax.text(x_obs + 0.04 * lim_x, 0.90, label_txt,
+                        transform=cur_ax.get_xaxis_transform(), ha="left", va="top",
+                        fontsize=8, color=_INK,
+                        bbox=dict(boxstyle="round,pad=0.25", fc=_SURFACE, ec="none", alpha=0.9))
+
+    return fig
+
+
+@_themed
+def plot_edge_features(pm: Dict[str, Any], edge: Any, top_n: int = 15,
+                       component: Optional[int] = None, ax=None,
+                       feature_names=None) -> Any:
+    """Feature contributions to a path model edge (structure_a * beta_ab).
+
+    Plots horizontal lollipop bars for the top features contributing to the edge
+    between node `a` and node `b`, using signed diverging colors (blue positive,
+    red negative), in the style of `plot_top_features`.
+
+    Parameters
+    ----------
+    pm : dict
+        Result of `pysimlr.path_model`.
+    edge : str or tuple
+        Edge to display (e.g. ``"view0 - view1"``, ``("view0", "view1")``, or ``(0, 1)``).
+    top_n : int, default=15
+        Number of top features to display per component panel.
+    component : int, optional
+        Component index (0-based) to plot. If None and ax is None, all components
+        are plotted side-by-side. If ax is given and component is None, defaults to 0.
+    ax : matplotlib.axes.Axes, optional
+        Axes to draw into for a single component panel.
+    feature_names : list or dict, optional
+        Feature names for view `a`.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fc = pm.get("feature_contributions")
+    if fc is None or len(fc) == 0:
+        raise ValueError("pm has no feature_contributions table.")
+
+    nodes = list(pm.get("nodes", []))
+    if isinstance(edge, tuple):
+        a_raw, b_raw = edge
+        a_name = nodes[a_raw] if isinstance(a_raw, int) and a_raw < len(nodes) else str(a_raw)
+        b_name = nodes[b_raw] if isinstance(b_raw, int) and b_raw < len(nodes) else str(b_raw)
+        edge_str = f"{a_name} - {b_name}"
+    elif isinstance(edge, str):
+        edge_str = edge
+        if " - " in edge_str:
+            a_name, b_name = [s.strip() for s in edge_str.split(" - ", 1)]
+        elif "-" in edge_str:
+            a_name, b_name = [s.strip() for s in edge_str.split("-", 1)]
+        else:
+            a_name, b_name = edge_str, ""
+    else:
+        a_name, b_name = str(edge), ""
+        edge_str = str(edge)
+
+    d_edge = fc[(fc.edge == edge_str) |
+                ((fc.a == a_name) & (fc.b == b_name)) |
+                ((fc.a == b_name) & (fc.b == a_name))]
+
+    if len(d_edge) == 0:
+        avail = sorted(fc["edge"].unique())
+        raise ValueError(f"edge {edge!r} not found in feature_contributions; available: {avail}")
+
+    node_a = d_edge.iloc[0]["a"]
+    node_b = d_edge.iloc[0]["b"]
+    disp_edge = f"{node_a} - {node_b}"
+    view_idx = nodes.index(node_a) if node_a in nodes else 0
+
+    comps_avail = sorted(d_edge["component"].unique())
+    if component is not None:
+        if component not in comps_avail:
+            raise ValueError(f"component {component} not found for edge {disp_edge}; available: {comps_avail}")
+        comps = [component]
+    elif ax is not None:
+        comps = [comps_avail[0]]
+    else:
+        comps = comps_avail
+
+    if ax is not None:
+        fig = ax.figure
+        axes = [ax]
+    else:
+        n_panels = len(comps)
+        figsize = (4.0 * n_panels + 0.6, 0.28 * top_n + 2.2)
+        fig = _new(figsize,
+                   title=f"Edge features: {disp_edge}",
+                   subtitle=f"Feature contributions of {node_a} to {node_b} (structure × beta); top {top_n} by magnitude.")
+        axes = np.atleast_1d(fig.subplots(1, n_panels))
+
+    for comp_idx, cur_ax in zip(comps, axes):
+        d_c = d_edge[d_edge.component == comp_idx].copy()
+        vals = d_c["contribution"].to_numpy(float)
+        order = np.argsort(-np.abs(vals))[:top_n]
+        d_top = d_c.iloc[order[::-1]]
+        y = np.arange(len(d_top))
+        c_vals = d_top["contribution"].to_numpy(float)
+
+        vmax = float(np.nanmax(np.abs(c_vals))) if len(c_vals) else 1.0
+        lim = max(0.1, vmax * 1.15)
+
+        cur_ax.axvline(0, color=_AXIS, lw=0.9, zorder=1)
+        feat_colors = [_BLUE[6] if val >= 0 else _RED[4] for val in c_vals]
+        cur_ax.hlines(y, 0, c_vals, color=feat_colors, lw=2.0, alpha=0.75, zorder=2)
+        _dots(cur_ax, c_vals, y, feat_colors, s=50)
+
+        labels = []
+        for f_idx in d_top["feature"].to_numpy(int):
+            if feature_names is not None:
+                if isinstance(feature_names, dict):
+                    fn_list = feature_names.get(node_a, feature_names.get(view_idx))
+                    labels.append(fn_list[f_idx] if fn_list and f_idx < len(fn_list) else f"feat_{f_idx}")
+                elif isinstance(feature_names, (list, tuple)) and f_idx < len(feature_names):
+                    labels.append(feature_names[f_idx])
+                else:
+                    labels.append(f"feat_{f_idx}")
+            else:
+                labels.append(f"feat_{f_idx}")
+
+        cur_ax.set_yticks(y)
+        cur_ax.set_yticklabels(labels)
+        cur_ax.set_xlim(-lim, lim)
+        cur_ax.set_ylim(-0.7, len(d_top) - 0.3)
+        cur_ax.set_title(f"{disp_edge}  ·  Component {comp_idx + 1}", fontsize=10.0, color=_INK)
+        cur_ax.set_xlabel(f"contribution of {node_a} to {node_b} (structure × beta)")
+        _clean(cur_ax, grid="x")
+
+    return fig
+
+
+@_themed
+def plot_edge_brain_map(pm: Dict[str, Any], edge: Any, component: int = 0,
+                        feature_names=None, region_names=None, title: Optional[str] = None,
+                        subtitle: Optional[str] = None, meshes=None, density: str = "41k",
+                        surface: str = "inflated", atlas: str = "dkt",
+                        scale: str = "symmetric", clim=None, **scene_kwargs) -> Any:
+    """Paint path-model edge feature contributions (structure_a * beta_ab) on the brain.
+
+    Connects score-level path model feature contributions to `antsxviz` (the ANTsX
+    house renderer), plotting the cortical or volumetric distribution of the
+    features of node `a` that carry the association to node `b`.
+
+    Parameters
+    ----------
+    pm : dict
+        Result of `pysimlr.path_model`.
+    edge : str or tuple
+        Edge to display (e.g. ``"view0 - view1"``, ``("view0", "view1")``, or ``(0, 1)``).
+    component : int, default=0
+        Component index (0-based) whose feature contributions to display.
+    feature_names : list or dict, optional
+        Feature names for view `a`.
+    region_names : callable or dict, optional
+        Map from feature name to DKT region name; defaults to `cortical_region_name`.
+    title : str, optional
+        Figure title.
+    subtitle : str, optional
+        Figure subtitle.
+    meshes : dict, optional
+        Pre-loaded meshes from `antsxviz.load_fsaverage`.
+    density : str, default="41k"
+        fsaverage surface mesh density ("41k" or "164k").
+    surface : str, default="inflated"
+        fsaverage surface type ("inflated", "white", "pial").
+    atlas : str, default="dkt"
+        Anatomical atlas: "dkt" (cortical surface), "hoa", "jhu", "tracts", "tract_sheets", or "yeo".
+    scale : str, default="symmetric"
+        Color scaling: "symmetric" (symmetric about 0 using diverging blue-red map),
+        "minmax", or "zero_max".
+    clim : tuple or float, optional
+        Explicit color limits (lo, hi).
+    **scene_kwargs :
+        Additional kwargs passed to antsxviz scene functions.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    av = _require_antsxviz()
+
+    fc = pm.get("feature_contributions")
+    if fc is None or len(fc) == 0:
+        raise ValueError("pm has no feature_contributions table.")
+
+    nodes = list(pm.get("nodes", []))
+    if isinstance(edge, tuple):
+        a_raw, b_raw = edge
+        a_name = nodes[a_raw] if isinstance(a_raw, int) and a_raw < len(nodes) else str(a_raw)
+        b_name = nodes[b_raw] if isinstance(b_raw, int) and b_raw < len(nodes) else str(b_raw)
+        edge_str = f"{a_name} - {b_name}"
+    elif isinstance(edge, str):
+        edge_str = edge
+        if " - " in edge_str:
+            a_name, b_name = [s.strip() for s in edge_str.split(" - ", 1)]
+        elif "-" in edge_str:
+            a_name, b_name = [s.strip() for s in edge_str.split("-", 1)]
+        else:
+            a_name, b_name = edge_str, ""
+    else:
+        a_name, b_name = str(edge), ""
+        edge_str = str(edge)
+
+    d_edge = fc[(fc.edge == edge_str) |
+                ((fc.a == a_name) & (fc.b == b_name)) |
+                ((fc.a == b_name) & (fc.b == a_name))]
+
+    if len(d_edge) == 0:
+        avail = sorted(fc["edge"].unique())
+        raise ValueError(f"edge {edge!r} not found in feature_contributions; available: {avail}")
+
+    node_a = d_edge.iloc[0]["a"]
+    node_b = d_edge.iloc[0]["b"]
+    disp_edge = f"{node_a} - {node_b}"
+    view_idx = nodes.index(node_a) if node_a in nodes else 0
+
+    d_c = d_edge[d_edge.component == component].copy()
+    if len(d_c) == 0:
+        avail_c = sorted(d_edge["component"].unique())
+        raise ValueError(f"component {component} not found for edge {disp_edge}; available: {avail_c}")
+
+    features = d_c["feature"].to_numpy(int)
+    c_vals = d_c["contribution"].to_numpy(float)
+
+    names = []
+    for f_idx in features:
+        if feature_names is not None:
+            if isinstance(feature_names, dict):
+                fn_list = feature_names.get(node_a, feature_names.get(view_idx))
+                names.append(fn_list[f_idx] if fn_list and f_idx < len(fn_list) else f"feat_{f_idx}")
+            elif isinstance(feature_names, (list, tuple)) and f_idx < len(feature_names):
+                names.append(feature_names[f_idx])
+            else:
+                names.append(f"feat_{f_idx}")
+        else:
+            names.append(f"feat_{f_idx}")
+
+    vmax = float(np.nanmax(np.abs(c_vals))) if len(c_vals) else 1.0
+    enc = {
+        "contribution": {
+            "label": "contribution",
+            "units": "structure × beta",
+            "names": names,
+            "values": c_vals,
+            "vmax": vmax,
+            "selected": None,
+            "view_name": node_a,
+            "cmap": _cmap("div"),
+        }
+    }
+
+    if atlas != "dkt":
+        if atlas not in ("hoa", "jhu", "tracts", "tract_sheets", "yeo"):
+            raise ValueError(f"atlas must be 'dkt', 'hoa', 'jhu', 'tracts', 'tract_sheets' or 'yeo'; got {atlas!r}")
+        rename = dict(region_names or {})
+        maps_ = {"contribution": {rename.get(n, n): float(v) for n, v in zip(names, c_vals)}}
+        common = dict(units={"contribution": "structure × beta"}, scale=scale, clim=clim,
+                      view_color=view_idx, subtitle=subtitle,
+                      title=title or f"Edge {disp_edge} · Component {component + 1}: feature contributions",
+                      **scene_kwargs)
+        if atlas == "yeo":
+            common.pop("view_color")
+            return av.yeo_surface_figure(maps_, **common)
+        if atlas in ("hoa", "jhu"):
+            return av.region_scene_figure(maps_, atlas, **common)
+        return av.tract_scene_figure(maps_, style="sheets" if atlas == "tract_sheets" else "tubes", **common)
+
+    rows, dropped = brain_rows(enc, region_names, view=view_idx)
+    if not rows or not next(iter(rows.values()))["values"]:
+        raise ValueError(f"no feature of {node_a} is a DKT cortical region; pass region_names= to map them.")
+    if meshes is None:
+        meshes = av.load_fsaverage(density=density, surface=surface)
+    _apply_scale(rows, scale, clim, view_idx, av)
+    sub = subtitle if subtitle is not None else (
+        f"Feature contributions of {node_a} to {node_b} (component {component + 1}). "
+        + _scale_phrase(scale, clim) + ".")
+    if dropped:
+        sub += (f" Not on cortex ({len(dropped)}): " + ", ".join(map(str, dropped[:4]))
+                + (" ..." if len(dropped) > 4 else "") + ".")
+    return av.surface_figure(rows, meshes,
+                             title=title or f"Edge {disp_edge} · Component {component + 1}: feature contributions",
+                             subtitle=sub)
+
+

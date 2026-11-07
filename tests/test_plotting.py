@@ -72,10 +72,12 @@ CALLS = {
 SINGLE_PANEL = {"plot_convergence", "plot_rank_selection", "plot_view_correlations", "plot_feature_groups",
                 "plot_loadings", "plot_scores", "plot_latent_recovery", "plot_benchmark", "plot_predictions"}
 FUSED = {"plot_fused_coefficients", "plot_coefficient_paths", "plot_fused_ridge_cv"}   # test_fused_ridge
+SEM_PATH_MODEL = {"plot_path_model", "plot_edge_matrix", "plot_path_comparison",
+                  "plot_edge_null", "plot_edge_features", "plot_edge_brain_map"}  # test_plotting_sem
 
 
 def test_every_public_function_is_covered():
-    assert set(plotting.__all__) == set(CALLS) | FUSED | {"feature_table", "theme"}
+    assert set(plotting.__all__) == set(CALLS) | FUSED | SEM_PATH_MODEL | {"feature_table", "theme"}
 
 
 @pytest.mark.parametrize("name", sorted(CALLS))

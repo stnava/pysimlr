@@ -828,6 +828,12 @@ a planted four-view study.
 | `plot_benchmark_uncertainty(df, baseline=)` | per-method score with a bootstrap CI over splits; paired difference against a baseline | long DataFrame (method, split, score) |
 | `plot_fused_coefficients`, `plot_coefficient_paths`, `plot_fused_ridge_cv` | fused ridge | `fit_fused_ridge` / `fused_ridge_cv` |
 | `plot_predictions(y, yhat)` | predicted against observed | arrays |
+| `plot_path_model(pm, component=)` | path model diagram: views on a circle, edge widths by Pillai (or \|r\| when `component=j` with sign color), significance, graph-fit status | `path_model` |
+| `plot_edge_matrix(pm, what="r")` | edge × component heatmap with BH q-value hatching and Pillai column | `path_model` |
+| `plot_path_comparison(cmp)` | forest plot of held-out log-likelihood deltas vs top graph, with fraction passing panel | `compare_path_models` |
+| `plot_edge_null(pm, edges=)` | observed edge statistic against its permutation null distribution | `path_model` |
+| `plot_edge_features(pm, edge, top_n=)` | feature contributions to an edge (structure × beta), one panel per component | `path_model` |
+| `plot_edge_brain_map(pm, edge, ...)` | feature contributions to an edge painted on cortical surfaces / atlases via antsxviz | `path_model` |
 
 Multi-view plots colour views with the Okabe–Ito palette. A plot of an unconverged fit is
 titled in orange with its stop reason. Stability badges are black at ≥ 0.9, amber at ≥ 0.8 and
