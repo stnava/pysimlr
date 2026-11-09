@@ -1,10 +1,10 @@
 # Tracking Summary
-current phase: `v0.24.0` released (2026-11-07; `D43`: training-row p-value policy, `path_model_from_scores`, worker-process note; `D42`: supervisor audit fixes D1-D4, live ADNI pilot rerun; `D41`: score-level path model; `D40`: `pysimlr.stats`).
-next WP: mediation on edge_models; NHANES path model run; paper chapter on path model.
+current phase: `v0.25.0` released (2026-11-08; `D44`: `bottleneck_rank` parallel-analysis bound on k, `select_rank(ks="auto")`; `D43`: training-row p-value policy, `path_model_from_scores`; `D42`: pilot audit fixes; `D41`: score-level path model).
+next WP: docs/plans/2026-11-07_path_model_next_steps.md items 1 (mediation), 4 (scores-only comparison), 6-8; owner decision on plan rule P3 scope.
 blockers: none
 active work: none in flight; open items in D41 (mediation on edge_models, NHANES path model run, paper chapter on path model).
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
-last updated: 2026-11-07
+last updated: 2026-11-08
 
 ---
 
@@ -13,7 +13,7 @@ This file was created at v0.2.19; earlier history lives in git (`git log --oneli
 release commit bodies.
 
 ## D44 (Bottleneck rank bound, 2026-11-08)
-status: in progress (not yet released)
+status: done (released in v0.25.0)
 - **What:** `loadings.bottleneck_rank` (exported): Horn parallel analysis per view (column-permutation null, local per-view RNG, optional confound residualisation), `k_max` = minimum reliable rank. `select_rank` accepts `ks="auto"`, warns (`RuntimeWarning`) when `max(ks) > k_max`, returns the dict as `"bottleneck"` (`None` for a single view, which keeps single-view `select_rank` working).
 - **Deviations from the brief:** the planted case p=(20, 25, 6), k=3, noise 0.5, n=400 gives `k_max` 2 at seeds 0, 1, 3 and 3 at seed 2 (third latent eigenvalue 0.5-1.4 against a null of about 1.06), so the test asserts `2 <= k_max <= 6`. `tests/test_loadings.py::test_loading_inference_does_not_depend_on_n_jobs` compared whole `select_rank` dicts; the DataFrame in `"bottleneck"` broke `==`, so it now pops and compares `bottleneck["k_max"]` separately.
 - **Files:** `src/pysimlr/loadings.py`, `src/pysimlr/__init__.py`, `tests/test_rank_bottleneck.py` (new), `tests/test_loadings.py`, `docs/usage_notes.md`, `docs/api_contract.md`, `docs/tracking.md`.
