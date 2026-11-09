@@ -492,17 +492,19 @@ sel["table"]      # per-k stability, subspace cosines, out-of-bag R^2 and coupli
 
 #### Bottleneck bound on k
 
-`pysimlr.bottleneck_rank(views, confounds=C)` runs Horn's parallel analysis on each view (eigenvalues of
-the standardised view against the 95th percentile of column-permuted copies) and returns
-`k_max`, the smallest per-view reliable rank, plus a per-view table and the bottleneck view. A consensus
-model asks every view to carry the same `k` latents, so `k` above `k_max` cannot be supported by the
-smallest view on its own evidence. It is a guide for the `ks` grid, not a selector, and it errs both ways:
-the smallest view's private structure also counts as reliable (overestimate), and a shared latent that the
-smallest view carries weakly fails parallel analysis there (underestimate: on the planted chain with
-`k = 3`, `p = (20, 25, 6)`, `n = 400`, `k_max` was 2 on three of four seeds). The refit criteria above
-still decide. Pass `confounds`, otherwise a covariate leaking into every view counts as a dimension in each.
-`select_rank(method, views, "auto")` uses `range(1, k_max + 1)`; an explicit `ks` above `k_max` raises a
-`RuntimeWarning` naming the bottleneck view, and the dict is returned as `sel["bottleneck"]`.
+`pysimlr.bottleneck_rank(views, confounds=C)` bounds the shared rank by the view that shares the least.
+For each view it takes the singular values of the cross-covariance between the standardised view and
+the other views stacked, and counts the leading ones above the 95th percentile of the same values under
+row permutations of that view (`cross_rank`); `k_max` is the minimum over views and `bottleneck_view`
+the view attaining it. Private structure in a view does not enter a cross-covariance, and a shared
+latent counts however small its within-view footprint: on the planted chain with `k = 3`,
+`p = (20, 25, 6)`, `n = 400`, the cross-view rank of the 6-column view is 3 on every seed, while
+Horn's parallel analysis on that view alone (`within_rank`, also reported; `mode="within"` makes it set
+`k_max`) gives 2 on three of four seeds because a random 3-by-6 loading basis has one weak direction.
+Pass `confounds`: a covariate leaking into every view is a shared dimension and is counted until it is
+residualised out. The bound is a guide for the `ks` grid, not a selector; the refit criteria above still
+decide. `select_rank(method, views, "auto")` uses `range(1, k_max + 1)`; an explicit `ks` above `k_max`
+raises a `RuntimeWarning` naming the bottleneck view, and the dict is returned as `sel["bottleneck"]`.
 
 - **Stability is a graded measure, not a pass/fail test.**
   - Each refit sees half the rows, so stability describes reproducibility at about n/2. That is

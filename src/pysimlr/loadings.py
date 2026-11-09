@@ -51,7 +51,7 @@ and claims therefore come from `loading_inference`, which refits the whole
 pipeline.
 """
 import warnings
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -948,52 +948,78 @@ def _pa_standardise(x: np.ndarray) -> np.ndarray:
     return (x - x.mean(axis=0)) / sd
 
 
-def bottleneck_rank(views: Any, *, confounds: Any = None, n_permutations: int = 100,
-                    quantile: float = 0.95, random_state: int = 0) -> Dict[str, Any]:
-    """Upper bound on the shared rank ``k`` from the smallest view (parallel analysis).
+def _cross_singular_values(zm: np.ndarray, g_others: np.ndarray, n: int) -> np.ndarray:
+    """Descending singular values of ``zm.T @ z_others / (n - 1)`` via the n x n Gram of the
+    other views: ``sqrt(eig(zm.T @ G_o @ zm)) / (n - 1)`` costs ``p_m^2 n`` per call."""
+    m = zm.T @ g_others @ zm
+    ev = np.clip(np.linalg.eigvalsh(m)[::-1], 0.0, None)
+    return np.sqrt(ev) / (n - 1.0)
 
-    A consensus multi-view model asks every view to carry the same ``k`` latents,
-    so ``k`` cannot exceed the reliable rank of the smallest view. The reliable
-    rank of a view is estimated by Horn's parallel analysis: the number of
-    leading eigenvalues of the column-standardised view's correlation matrix
-    that exceed the ``quantile`` of the eigenvalues of ``n_permutations`` copies
-    of the view with each column independently permuted (counting stops at the
-    first non-exceedance). The bound is the minimum over views. It is a guide
-    for the ``ks`` grid of `select_rank`, not a replacement for its refit-based
-    criteria, and it errs in both directions: the smallest view's private
-    structure also counts as reliable (overestimate), and a shared latent that
-    the smallest view carries only weakly does not pass parallel analysis there
-    (underestimate; on a planted chain with k = 3 and a 6-column view, ``k_max``
-    was 2 on three of four seeds). A ``k`` above ``k_max`` is one the smallest
-    view cannot support on its own evidence; `select_rank` only warns.
+
+def _permutation_rank(observed: np.ndarray, null: np.ndarray, quantile: float) -> Tuple[int, np.ndarray]:
+    """Horn-style count: leading indices where observed > the null quantile, stopping at the first miss."""
+    thr = np.quantile(null, quantile, axis=0)
+    rank = 0
+    for o, t in zip(observed, thr):
+        if o > t:
+            rank += 1
+        else:
+            break
+    return rank, thr
+
+
+def bottleneck_rank(views: Any, *, confounds: Any = None, mode: str = "cross", n_permutations: int = 100,
+                    quantile: float = 0.95, random_state: int = 0) -> Dict[str, Any]:
+    """Bound on the shared rank ``k`` from the view that shares the least (permutation rank).
+
+    A consensus multi-view model asks every view to carry the same ``k`` latents, so ``k``
+    cannot exceed the number of shared dimensions supported by the view that shares the
+    least. For each view m, ``mode="cross"`` (default) takes the singular values of the
+    cross-covariance between the standardised view and the other views stacked, and counts the
+    leading ones that exceed the ``quantile`` of the same singular values under
+    ``n_permutations`` row permutations of view m (counting stops at the first miss). Private
+    structure in a view does not enter a cross-covariance, and a shared latent counts however
+    small its within-view footprint, so this is the bottleneck a consensus model actually
+    meets. ``k_max`` is the minimum over views and ``bottleneck_view`` the view attaining it.
+
+    ``mode="within"`` is Horn's parallel analysis per view (eigenvalues of the view's
+    correlation matrix against column-permuted copies): the view's own reliable rank, which
+    also counts private structure (overestimate) and misses a shared latent with a weak
+    within-view footprint (underestimate; planted k = 3 with a 6-column view gave 2 on three
+    of four seeds, where the cross-view rank gave 3 on all four). Both ranks are reported in
+    ``per_view``; ``mode`` picks which sets ``k_max``. The bound is a guide for the ``ks``
+    grid of `select_rank`, whose refit-based criteria still decide; `select_rank` only warns.
 
     Parameters
     ----------
     views : sequence of array-like or torch.Tensor
         At least two 2-D matrices with matched rows (n >= 3), finite values.
     confounds : array-like, sequence or dict, optional
-        As `pysimlr.fit` takes them: one shared ``(n, q)`` matrix, a per-view
-        sequence (``None`` for a view without confounds) or a dict by view. Each
-        view is residualised on ``[1, its confounds]`` by least squares first;
-        otherwise a covariate leaking into every view counts as a reliable
-        dimension in each.
+        As `pysimlr.fit` takes them: one shared ``(n, q)`` matrix, a per-view sequence
+        (``None`` for a view without confounds) or a dict by view. Each view is residualised
+        on ``[1, its confounds]`` by least squares first; otherwise a covariate leaking into
+        every view is a shared dimension and counts.
+    mode : {"cross", "within"}, default "cross"
+        Which rank sets ``k_max``.
     n_permutations : int, default 100
-        Column-permuted null draws per view.
+        Null draws per view.
     quantile : float, default 0.95
-        Null quantile an eigenvalue must exceed.
+        Null quantile a singular value (or eigenvalue) must exceed.
     random_state : int, default 0
         Seed of a local generator, spawned per view (no global seeding).
 
     Returns
     -------
     dict
-        ``k_max`` (int), ``per_view`` (DataFrame: view, n, p, reliable_rank,
-        first_eigenvalue, threshold_first), ``eigenvalues`` and ``thresholds``
-        (lists of arrays per view), ``parameters`` and ``bottleneck_view``
-        (index of the view giving the minimum).
+        ``k_max`` (int), ``bottleneck_view`` (int), ``per_view`` (DataFrame: view, n, p,
+        cross_rank, within_rank, first_singular_value, threshold_first), ``singular_values``
+        and ``thresholds`` (cross-view, lists of arrays per view), ``eigenvalues`` and
+        ``eigen_thresholds`` (within-view), and ``parameters``.
     """
     import pandas as pd
     from .api import as_views
+    if mode not in ("cross", "within"):
+        raise ValueError(f"mode must be 'cross' or 'within'; got {mode!r}.")
     if not isinstance(views, (list, tuple)) or len(views) < 2:
         raise ValueError("bottleneck_rank needs at least 2 views.")
     if n_permutations < 1:
@@ -1021,33 +1047,35 @@ def bottleneck_rank(views: Any, *, confounds: Any = None, n_permutations: int = 
             design = np.column_stack([np.ones(n), c])
             out.append(a - design @ np.linalg.lstsq(design, a, rcond=None)[0])
         arrs = out
-    children = np.random.default_rng(random_state).spawn(len(arrs))
-    eigs, thrs, rows = [], [], []
-    for vi, (a, rng) in enumerate(zip(arrs, children)):
-        z = _pa_standardise(a)
+    zs = [_pa_standardise(a) for a in arrs]
+    g_all = sum(z @ z.T for z in zs)                     # n x n Gram of all views stacked
+    children = np.random.default_rng(random_state).spawn(len(zs))
+    svs, thrs, eigs, ethrs, rows = [], [], [], [], []
+    for vi, (z, rng) in enumerate(zip(zs, children)):
+        g_others = g_all - z @ z.T
+        sv = _cross_singular_values(z, g_others, n)
+        null_sv = np.empty((n_permutations, sv.size))
         ev = _pa_eigenvalues(z)
-        null = np.empty((n_permutations, ev.size))
+        null_ev = np.empty((n_permutations, ev.size))
         for b in range(n_permutations):
+            null_sv[b] = _cross_singular_values(z[rng.permutation(n)], g_others, n)
             zp = np.column_stack([rng.permutation(z[:, j]) for j in range(z.shape[1])])
-            null[b] = _pa_eigenvalues(zp)
-        thr = np.quantile(null, quantile, axis=0)
-        rank = 0
-        for o, t in zip(ev, thr):
-            if o > t:
-                rank += 1
-            else:
-                break
-        eigs.append(ev)
+            null_ev[b] = _pa_eigenvalues(zp)
+        cross_rank, thr = _permutation_rank(sv, null_sv, quantile)
+        within_rank, ethr = _permutation_rank(ev, null_ev, quantile)
+        svs.append(sv)
         thrs.append(thr)
-        rows.append({"view": vi, "n": n, "p": a.shape[1], "reliable_rank": rank,
-                     "first_eigenvalue": float(ev[0]), "threshold_first": float(thr[0])})
+        eigs.append(ev)
+        ethrs.append(ethr)
+        rows.append({"view": vi, "n": n, "p": z.shape[1], "cross_rank": cross_rank, "within_rank": within_rank,
+                     "first_singular_value": float(sv[0]), "threshold_first": float(thr[0])})
     per_view = pd.DataFrame(rows)
-    bview = int(per_view["reliable_rank"].to_numpy().argmin())
-    return {"k_max": int(per_view["reliable_rank"].min()), "per_view": per_view,
-            "eigenvalues": eigs, "thresholds": thrs,
-            "parameters": {"n_permutations": n_permutations, "quantile": quantile,
-                           "random_state": random_state, "confounds": confounds is not None},
-            "bottleneck_view": bview}
+    col = "cross_rank" if mode == "cross" else "within_rank"
+    ranks = per_view[col].to_numpy()
+    return {"k_max": int(ranks.min()), "bottleneck_view": int(ranks.argmin()), "per_view": per_view,
+            "singular_values": svs, "thresholds": thrs, "eigenvalues": eigs, "eigen_thresholds": ethrs,
+            "parameters": {"mode": mode, "n_permutations": n_permutations, "quantile": quantile,
+                           "random_state": random_state, "confounds": confounds is not None}}
 
 
 def select_rank(method: str, views: Any, ks: Any, *,
@@ -1106,7 +1134,7 @@ def select_rank(method: str, views: Any, ks: Any, *,
         raise ValueError("ks must be a non-empty sequence of positive integers.")
     if bott is not None and ks_sorted[-1] > bott["k_max"]:
         warnings.warn(f"max(ks)={ks_sorted[-1]} exceeds the bottleneck bound k_max={bott['k_max']} "
-                      f"(view {bott['bottleneck_view']} has the smallest reliable rank).",
+                      f"(view {bott['bottleneck_view']} shares the fewest dimensions).",
                       RuntimeWarning, stacklevel=2)
     rows = []
     workers = _n_workers(n_jobs)

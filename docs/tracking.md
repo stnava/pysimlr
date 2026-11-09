@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: `v0.25.0` released (2026-11-08; `D44`: `bottleneck_rank` parallel-analysis bound on k, `select_rank(ks="auto")`; `D43`: training-row p-value policy, `path_model_from_scores`; `D42`: pilot audit fixes; `D41`: score-level path model).
+current phase: `v0.26.0` released (2026-11-08; `D45`: cross-view bottleneck rank is the default of `bottleneck_rank`; `D44`: within-view bound and `select_rank(ks="auto")`; `D43`: training-row p-value policy, `path_model_from_scores`; `D41`: score-level path model).
 next WP: docs/plans/2026-11-07_path_model_next_steps.md items 1 (mediation), 4 (scores-only comparison), 6-8; owner decision on plan rule P3 scope.
 blockers: none
 active work: none in flight; open items in D41 (mediation on edge_models, NHANES path model run, paper chapter on path model).
@@ -11,6 +11,14 @@ last updated: 2026-11-08
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D45 (Cross-view bottleneck rank, 2026-11-08)
+status: done (released in v0.26.0)
+- **Why:** the owner questioned D44's "errs both ways" caveat. Diagnosis: within-view parallel analysis measures a latent's variance footprint inside one view, not whether it is shared. On the planted chain (`k = 3`, `p = (20, 25, 6)`, `n = 400`) the 6-column view's third within-view eigenvalue (0.54) falls under the permutation null (1.06) although that latent is strongly correlated with the other views; private structure in a view is counted the same way.
+- **Fix (`loadings.bottleneck_rank`):** default `mode="cross"`: per view, singular values of the cross-covariance with the other views stacked (via the n x n Gram of the other views, cost `p_m^2 n` per permutation) against a null that permutes that view's rows; `k_max` = min over views, `bottleneck_view` = argmin. `mode="within"` keeps Horn's parallel analysis. Both ranks are in `per_view` (`cross_rank`, `within_rank`). Confound handling unchanged.
+- **Evidence (scratch run, seeds 0-3):** within-view ranks of view 2 = 2, 2, 3, 2; cross-view rank = 3, 3, 3, 3 with third singular values 1.1-2.3 against thresholds about 0.3 and fourth values 0.05-0.09 under thresholds 0.13-0.19. Now asserted by `test_cross_view_bottleneck_recovers_planted_rank` (parametrised over the four seeds). `test_private_structure_does_not_count_in_cross_mode`: a private factor added to half of a view's columns raises its `within_rank` to >= 3 and leaves `cross_rank` at the planted 2.
+- **Files:** `src/pysimlr/loadings.py`, `tests/test_rank_bottleneck.py` (11 tests), `docs/usage_notes.md`, `docs/api_contract.md`, `docs/tracking.md`.
+- **Verification:** `python -m pytest -q -p no:cacheprovider -n auto` -> `2022 passed, 1 skipped, 2 xfailed, 963 warnings in 139.20s (0:02:19)`; targeted (`tests/test_rank_bottleneck.py tests/test_loadings.py tests/test_implementation_standards.py tests/test_package_import.py tests/test_readme_examples.py`) -> `53 passed`; `python -m antsxqc.lint src/pysimlr` -> `0 finding(s)`.
 
 ## D44 (Bottleneck rank bound, 2026-11-08)
 status: done (released in v0.25.0)
