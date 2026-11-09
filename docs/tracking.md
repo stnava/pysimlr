@@ -12,6 +12,18 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D44 (Bottleneck rank bound, 2026-11-08)
+status: in progress (not yet released)
+- **What:** `loadings.bottleneck_rank` (exported): Horn parallel analysis per view (column-permutation null, local per-view RNG, optional confound residualisation), `k_max` = minimum reliable rank. `select_rank` accepts `ks="auto"`, warns (`RuntimeWarning`) when `max(ks) > k_max`, returns the dict as `"bottleneck"` (`None` for a single view, which keeps single-view `select_rank` working).
+- **Deviations from the brief:** the planted case p=(20, 25, 6), k=3, noise 0.5, n=400 gives `k_max` 2 at seeds 0, 1, 3 and 3 at seed 2 (third latent eigenvalue 0.5-1.4 against a null of about 1.06), so the test asserts `2 <= k_max <= 6`. `tests/test_loadings.py::test_loading_inference_does_not_depend_on_n_jobs` compared whole `select_rank` dicts; the DataFrame in `"bottleneck"` broke `==`, so it now pops and compares `bottleneck["k_max"]` separately.
+- **Files:** `src/pysimlr/loadings.py`, `src/pysimlr/__init__.py`, `tests/test_rank_bottleneck.py` (new), `tests/test_loadings.py`, `docs/usage_notes.md`, `docs/api_contract.md`, `docs/tracking.md`.
+- **Verification:**
+  - `python -m pytest -q -p no:cacheprovider tests/test_rank_bottleneck.py` -> `6 passed, 15 warnings in 5.12s`.
+  - `python -m pytest -q -p no:cacheprovider tests/test_implementation_standards.py tests/test_package_import.py` -> `13 passed in 4.64s`.
+  - `python -m pytest -q -p no:cacheprovider -n auto` -> `2017 passed, 1 skipped, 2 xfailed, 960 warnings in 122.94s (0:02:02)`.
+  - `python -m antsxqc.lint src/pysimlr` -> `0 finding(s)`.
+- **Supervisor review (same day):** per-view confound lists and dicts are now accepted through `confounds.per_view_confounds` (as `fit` takes them; `test_bottleneck_rank_per_view_confounds`); docstring and usage notes state that the bound errs in both directions (underestimate when the smallest view carries a shared latent weakly, as the planted case showed). Re-verified: `python -m pytest -q -p no:cacheprovider -n auto` -> `2018 passed, 1 skipped, 2 xfailed, 956 warnings in 126.97s (0:02:06)`; lint `0 finding(s)`.
+
 ## D43 (Training-row policy, `path_model_from_scores`, worker-process note; supervisor takeover, 2026-11-07)
 status: done (released in v0.24.0)
 - **Context:** the supervisor's audit of the agent team (`/tmp/rev_aud_nv.md`) left three technical items after D42: T1 fixed-model p-values on training rows were refused only for wide views; T2 the inference layer was bound to a `pysimlr.fit` result; T3 `n_jobs > 1` fails from the interactive prompt without a `__main__` guard.

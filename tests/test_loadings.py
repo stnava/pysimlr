@@ -208,6 +208,8 @@ def test_loading_inference_does_not_depend_on_n_jobs():
                              random_state=0, n_jobs=1)
     sb = pysimlr.select_rank("simlr", views, [1, 2], n_subsamples=2, iterations=5,
                              random_state=0, n_jobs=2)
+    # `bottleneck` holds a DataFrame (no dict equality); it is checked separately
+    assert sa.pop("bottleneck")["k_max"] == sb.pop("bottleneck")["k_max"]
     assert sa == sb
 
 @pytest.mark.parametrize("mixing", ["newton", "avg"])

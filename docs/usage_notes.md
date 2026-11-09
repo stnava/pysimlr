@@ -489,6 +489,21 @@ sel["table"]      # per-k stability, subspace cosines, out-of-bag R^2 and coupli
     above `min_oos_coupling` (default: one-sided α = 0.01 Fisher-z null bar).
   - Check `basis_degenerate` (`min_effective_rank < k - 0.5`) in `sel["table"]`: when `True` at
     larger `k`, basis columns are merging and `nsa_w` should be raised (for example `0.75`).
+
+#### Bottleneck bound on k
+
+`pysimlr.bottleneck_rank(views, confounds=C)` runs Horn's parallel analysis on each view (eigenvalues of
+the standardised view against the 95th percentile of column-permuted copies) and returns
+`k_max`, the smallest per-view reliable rank, plus a per-view table and the bottleneck view. A consensus
+model asks every view to carry the same `k` latents, so `k` above `k_max` cannot be supported by the
+smallest view on its own evidence. It is a guide for the `ks` grid, not a selector, and it errs both ways:
+the smallest view's private structure also counts as reliable (overestimate), and a shared latent that the
+smallest view carries weakly fails parallel analysis there (underestimate: on the planted chain with
+`k = 3`, `p = (20, 25, 6)`, `n = 400`, `k_max` was 2 on three of four seeds). The refit criteria above
+still decide. Pass `confounds`, otherwise a covariate leaking into every view counts as a dimension in each.
+`select_rank(method, views, "auto")` uses `range(1, k_max + 1)`; an explicit `ks` above `k_max` raises a
+`RuntimeWarning` naming the bottleneck view, and the dict is returned as `sel["bottleneck"]`.
+
 - **Stability is a graded measure, not a pass/fail test.**
   - Each refit sees half the rows, so stability describes reproducibility at about n/2. That is
     pessimistic when power is low: a real component in a small or noisy sample can sit around

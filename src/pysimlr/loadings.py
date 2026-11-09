@@ -934,7 +934,123 @@ def _run_fits(tasks, n_jobs: int, executor=None):
         return list(ex.map(_fit_structure, tasks))
 
 
-def select_rank(method: str, views: Any, ks: Sequence[int], *,
+def _pa_eigenvalues(x: np.ndarray) -> np.ndarray:
+    """Descending eigenvalues of ``x.T @ x / (n - 1)`` (Gram trick when ``p > n``)."""
+    n, p = x.shape
+    g = x @ x.T if p > n else x.T @ x
+    ev = np.linalg.eigvalsh(g / (n - 1.0))[::-1]
+    return np.clip(ev, 0.0, None)
+
+
+def _pa_standardise(x: np.ndarray) -> np.ndarray:
+    sd = x.std(axis=0, ddof=1)
+    sd = np.where(sd > 0.0, sd, 1.0)
+    return (x - x.mean(axis=0)) / sd
+
+
+def bottleneck_rank(views: Any, *, confounds: Any = None, n_permutations: int = 100,
+                    quantile: float = 0.95, random_state: int = 0) -> Dict[str, Any]:
+    """Upper bound on the shared rank ``k`` from the smallest view (parallel analysis).
+
+    A consensus multi-view model asks every view to carry the same ``k`` latents,
+    so ``k`` cannot exceed the reliable rank of the smallest view. The reliable
+    rank of a view is estimated by Horn's parallel analysis: the number of
+    leading eigenvalues of the column-standardised view's correlation matrix
+    that exceed the ``quantile`` of the eigenvalues of ``n_permutations`` copies
+    of the view with each column independently permuted (counting stops at the
+    first non-exceedance). The bound is the minimum over views. It is a guide
+    for the ``ks`` grid of `select_rank`, not a replacement for its refit-based
+    criteria, and it errs in both directions: the smallest view's private
+    structure also counts as reliable (overestimate), and a shared latent that
+    the smallest view carries only weakly does not pass parallel analysis there
+    (underestimate; on a planted chain with k = 3 and a 6-column view, ``k_max``
+    was 2 on three of four seeds). A ``k`` above ``k_max`` is one the smallest
+    view cannot support on its own evidence; `select_rank` only warns.
+
+    Parameters
+    ----------
+    views : sequence of array-like or torch.Tensor
+        At least two 2-D matrices with matched rows (n >= 3), finite values.
+    confounds : array-like, sequence or dict, optional
+        As `pysimlr.fit` takes them: one shared ``(n, q)`` matrix, a per-view
+        sequence (``None`` for a view without confounds) or a dict by view. Each
+        view is residualised on ``[1, its confounds]`` by least squares first;
+        otherwise a covariate leaking into every view counts as a reliable
+        dimension in each.
+    n_permutations : int, default 100
+        Column-permuted null draws per view.
+    quantile : float, default 0.95
+        Null quantile an eigenvalue must exceed.
+    random_state : int, default 0
+        Seed of a local generator, spawned per view (no global seeding).
+
+    Returns
+    -------
+    dict
+        ``k_max`` (int), ``per_view`` (DataFrame: view, n, p, reliable_rank,
+        first_eigenvalue, threshold_first), ``eigenvalues`` and ``thresholds``
+        (lists of arrays per view), ``parameters`` and ``bottleneck_view``
+        (index of the view giving the minimum).
+    """
+    import pandas as pd
+    from .api import as_views
+    if not isinstance(views, (list, tuple)) or len(views) < 2:
+        raise ValueError("bottleneck_rank needs at least 2 views.")
+    if n_permutations < 1:
+        raise ValueError(f"n_permutations must be >= 1; got {n_permutations}.")
+    if not 0.0 < quantile < 1.0:
+        raise ValueError(f"quantile must be in (0, 1); got {quantile}.")
+    arrs = [v.double().numpy() for v in as_views(views)]
+    n = arrs[0].shape[0]
+    if n < 3:
+        raise ValueError(f"bottleneck_rank needs n >= 3 rows; got {n}.")
+    for i, a in enumerate(arrs):
+        if not np.all(np.isfinite(a)):
+            raise ValueError(f"view {i} contains non-finite values.")
+    if confounds is not None:
+        from .confounds import per_view_confounds
+        per_view, _ = per_view_confounds(confounds, n, len(arrs))   # shared matrix, per-view list or dict
+        out = []
+        for a, c in zip(arrs, per_view):
+            if c is None:
+                out.append(a)
+                continue
+            c = np.asarray(c, dtype=np.float64).reshape(n, -1)
+            if not np.all(np.isfinite(c)):
+                raise ValueError("confounds must be finite.")
+            design = np.column_stack([np.ones(n), c])
+            out.append(a - design @ np.linalg.lstsq(design, a, rcond=None)[0])
+        arrs = out
+    children = np.random.default_rng(random_state).spawn(len(arrs))
+    eigs, thrs, rows = [], [], []
+    for vi, (a, rng) in enumerate(zip(arrs, children)):
+        z = _pa_standardise(a)
+        ev = _pa_eigenvalues(z)
+        null = np.empty((n_permutations, ev.size))
+        for b in range(n_permutations):
+            zp = np.column_stack([rng.permutation(z[:, j]) for j in range(z.shape[1])])
+            null[b] = _pa_eigenvalues(zp)
+        thr = np.quantile(null, quantile, axis=0)
+        rank = 0
+        for o, t in zip(ev, thr):
+            if o > t:
+                rank += 1
+            else:
+                break
+        eigs.append(ev)
+        thrs.append(thr)
+        rows.append({"view": vi, "n": n, "p": a.shape[1], "reliable_rank": rank,
+                     "first_eigenvalue": float(ev[0]), "threshold_first": float(thr[0])})
+    per_view = pd.DataFrame(rows)
+    bview = int(per_view["reliable_rank"].to_numpy().argmin())
+    return {"k_max": int(per_view["reliable_rank"].min()), "per_view": per_view,
+            "eigenvalues": eigs, "thresholds": thrs,
+            "parameters": {"n_permutations": n_permutations, "quantile": quantile,
+                           "random_state": random_state, "confounds": confounds is not None},
+            "bottleneck_view": bview}
+
+
+def select_rank(method: str, views: Any, ks: Any, *,
                 criterion: str = "component", n_subsamples: int = 20,
                 fraction: float = 0.5, min_stability: float = 0.9,
                 min_oos_coupling: Optional[float] = None,
@@ -974,9 +1090,24 @@ def select_rank(method: str, views: Any, ks: Sequence[int], *,
     import contextlib
     if criterion not in RANK_CRITERIA:
         raise ValueError(f"criterion must be one of {RANK_CRITERIA}; got {criterion!r}.")
+    n_views = len(views) if isinstance(views, (list, tuple)) else 1
+    bott = bottleneck_rank(views, confounds=params.get("confounds")) if n_views >= 2 else None
+    if isinstance(ks, str):
+        if ks != "auto":
+            raise ValueError(f"ks must be a sequence of ints or 'auto'; got {ks!r}.")
+        if bott is None:
+            raise ValueError("ks='auto' needs at least 2 views (bottleneck_rank).")
+        if bott["k_max"] < 1:
+            raise ValueError("ks='auto': no view has reliable rank (parallel analysis found no "
+                             "eigenvalue above the permutation null).")
+        ks = range(1, bott["k_max"] + 1)
     ks_sorted = sorted(dict.fromkeys(int(x) for x in ks))
     if not ks_sorted or ks_sorted[0] < 1:
         raise ValueError("ks must be a non-empty sequence of positive integers.")
+    if bott is not None and ks_sorted[-1] > bott["k_max"]:
+        warnings.warn(f"max(ks)={ks_sorted[-1]} exceeds the bottleneck bound k_max={bott['k_max']} "
+                      f"(view {bott['bottleneck_view']} has the smallest reliable rank).",
+                      RuntimeWarning, stacklevel=2)
     rows = []
     workers = _n_workers(n_jobs)
     with (_pool(workers) if workers > 1 else contextlib.nullcontext()) as ex:
@@ -984,7 +1115,8 @@ def select_rank(method: str, views: Any, ks: Sequence[int], *,
             rows.append(_rank_row(method, views, k, n_subsamples, fraction, min_stability,
                                   min_oos_coupling, random_state, n_jobs, ex, params))
     criteria = _select_by_criteria(rows)
-    return {"k": criteria[criterion], "criterion": criterion, "criteria": criteria, "table": rows}
+    return {"k": criteria[criterion], "criterion": criterion, "criteria": criteria, "table": rows,
+            "bottleneck": bott}
 
 
 def _select_by_criteria(rows: List[Dict[str, Any]]) -> Dict[str, Optional[int]]:

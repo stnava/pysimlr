@@ -131,6 +131,7 @@ from .loadings import (
     FEATURE_MAP_KINDS,
     loading_inference,
     select_rank,
+    bottleneck_rank,
     structure_coefficients,
     olee_loadings,
 )
@@ -217,6 +218,7 @@ __all__ = [
     'component_attribution',
     'FEATURE_MAP_KINDS',
     'select_rank',
+    'bottleneck_rank',
     'structure_coefficients',
     'olee_loadings',
     'predict_shared_latent',

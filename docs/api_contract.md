@@ -93,6 +93,13 @@ per-component stability (claims per component need it high, e.g. >= 0.9), Meinsh
 stability selection with its bound `q^2 / ((2*threshold - 1) p)`, and a permutation null for
 `max |structure|`.
 
+`pysimlr.bottleneck_rank(views, *, confounds=None, n_permutations=100, quantile=0.95, random_state=0)`
+returns a dict: `k_max` (int, minimum over views of the parallel-analysis reliable rank),
+`per_view` (DataFrame: view, n, p, reliable_rank, first_eigenvalue, threshold_first), `eigenvalues` and
+`thresholds` (lists of arrays per view), `parameters` and `bottleneck_view`. `select_rank` accepts
+`ks="auto"` (`range(1, k_max + 1)`), warns (`RuntimeWarning`) when an explicit `max(ks) > k_max`, and
+returns this dict as `result["bottleneck"]` (`None` for a single view).
+
 ### `random_state`
 
 - **Linear (`simlr`).** Seeds the initializers that draw random numbers (`random`,
