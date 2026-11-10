@@ -81,6 +81,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from .loadings import _zscore
 from .stats import bh_fdr, holm
 
 _CHUNK = 500
@@ -190,19 +191,16 @@ def view_scores(result: Dict[str, Any], views: Any, *, train_views: Any = None,
             raise ValueError(f"sign_against has shape {ua.shape}; expected ({z_ev[avail[0]].shape[0]}, {k}).")
         uac = ua - ua.mean(0, keepdims=True)
         for m in avail:
-            cov = ((z_ev[m] - z_ev[m].mean(0, keepdims=True)) * uac).sum(0)
-            sgn[m] = np.where(cov >= 0.0, 1.0, -1.0)
+            sgn[m] = _col_signs(z_ev[m], uac)
         sign_rows = "evaluation"
     elif z_tr is not None:
         for m in range(m_views):
-            cov = ((z_tr[m] - z_tr[m].mean(0, keepdims=True)) * u_tr_c).sum(0)
-            sgn[m] = np.where(cov >= 0.0, 1.0, -1.0)
+            sgn[m] = _col_signs(z_tr[m], u_tr_c)
         sign_rows = "train"
     else:
         u_ev_c = u_ev - u_ev.mean(0, keepdims=True)
         for m in avail:
-            cov = ((z_ev[m] - z_ev[m].mean(0, keepdims=True)) * u_ev_c).sum(0)
-            sgn[m] = np.where(cov >= 0.0, 1.0, -1.0)
+            sgn[m] = _col_signs(z_ev[m], u_ev_c)
         sign_rows = "evaluation"
     fin = _zscore if standardize else (lambda a: a)
     out: List[Optional[np.ndarray]] = [None] * m_views
@@ -218,11 +216,53 @@ def view_scores(result: Dict[str, Any], views: Any, *, train_views: Any = None,
             "train_scores": train_scores, "train_consensus": fin(u_tr)}
 
 
-def _zscore(z: np.ndarray) -> np.ndarray:
-    z = np.asarray(z, dtype=float)
-    zc = z - z.mean(0, keepdims=True)
-    sd = zc.std(0, keepdims=True)
-    return np.where(sd > 0, zc / np.where(sd > 0, sd, 1.0), 0.0)
+def _col_signs(z: np.ndarray, ref_c: np.ndarray) -> np.ndarray:
+    cov = ((z - z.mean(0, keepdims=True)) * ref_c).sum(0)
+    return np.where(cov >= 0.0, 1.0, -1.0)
+
+
+def _zscore_pair(
+    a_tr: np.ndarray,
+    a_te: Optional[np.ndarray],
+    std_mode: str = "per_split",
+) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    if std_mode == "per_split":
+        return _zscore(a_tr), (None if a_te is None else _zscore(a_te))
+    if std_mode == "train":
+        mu = a_tr.mean(0, keepdims=True)
+        sd = a_tr.std(0, keepdims=True)
+        sd_safe = np.where(sd > 0, sd, 1.0)
+        z_tr = np.where(sd > 0, (a_tr - mu) / sd_safe, 0.0)
+        z_te = None if a_te is None else np.where(sd > 0, (a_te - mu) / sd_safe, 0.0)
+        return z_tr, z_te
+    return a_tr, a_te
+
+
+def _check_node_names(
+    names: Sequence[str],
+    m_views: Optional[int] = None,
+    label: str = "view",
+) -> List[str]:
+    out = [str(nm) for nm in names]
+    if m_views is not None and len(out) != m_views:
+        raise ValueError(f"{len(out)} {label} names for {m_views} views.")
+    if len(set(out)) != len(out) or {"outcome", "consensus"} & set(out):
+        raise ValueError(f"{label} names must be distinct and not 'outcome' or 'consensus'; got {out}.")
+    return out
+
+
+def _check_outcome(outcome: Any, n: int, label: str = "outcome") -> np.ndarray:
+    y = np.asarray(outcome, dtype=float)
+    if y.shape[0] != n:
+        raise ValueError(f"{label} has {y.shape[0]} rows; the views have {n}.")
+    y = y.reshape(n, -1)
+    if not np.isfinite(y).all():
+        raise ValueError(f"{label} contains non-finite values.")
+    return y
+
+
+def _r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    return float(1.0 - ((y_true - y_pred) ** 2).sum() / ((y_true - y_true.mean(0)) ** 2).sum())
 
 
 # ----------------------------------------------------------------------------- design
@@ -458,16 +498,23 @@ def _boot_edge_from_residuals(
     return out, Sab, pil
 
 
+def _ridge_residualize_batch(
+    S: torch.Tensor, X: torch.Tensor, eye_s: Optional[torch.Tensor] = None
+) -> torch.Tensor:
+    StS = S.transpose(-1, -2) @ S
+    lam = _RIDGE * StS.diagonal(dim1=-2, dim2=-1).sum(-1) / S.shape[-1]
+    if eye_s is None:
+        eye_s = torch.eye(S.shape[-1], dtype=S.dtype)
+    StS = StS + lam[:, None, None] * eye_s
+    return X - S @ torch.linalg.solve(StS, S.transpose(-1, -2) @ X)
+
+
 def _boot_edge(des: Dict[str, Any], idx: torch.Tensor, Za: torch.Tensor, Zb: torch.Tensor) -> Dict[str, torch.Tensor]:
     """pillai, r and beta on bootstrap rows ``idx`` (c, n): S, Z_a, Z_b resampled, residualised
     by ridge least squares (lambda = 1e-8 trace / cols) in each replicate."""
-    S = torch.as_tensor(des["S"])[idx]                              # (c, n, s)
-    StS = S.transpose(-1, -2) @ S
-    lam = _RIDGE * StS.diagonal(dim1=-2, dim2=-1).sum(-1) / S.shape[-1]
-    StS = StS + lam[:, None, None] * torch.eye(S.shape[-1], dtype=S.dtype)
-    Xa, Xb = Za[idx], Zb[idx]
-    Ra = Xa - S @ torch.linalg.solve(StS, S.transpose(-1, -2) @ Xa)
-    Rb = Xb - S @ torch.linalg.solve(StS, S.transpose(-1, -2) @ Xb)
+    ka = Za.shape[-1]
+    R = _ridge_residualize_batch(torch.as_tensor(des["S"])[idx], torch.cat([Za[idx], Zb[idx]], dim=-1))
+    Ra, Rb = R[..., :ka], R[..., ka:]
     Saa = Ra.transpose(-1, -2) @ Ra
     Sbb = Rb.transpose(-1, -2) @ Rb
     return _boot_edge_from_residuals(des, Ra, Rb, Saa, Sbb)[0]
@@ -615,11 +662,10 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
     vlist = _view_list(result, views)
     m_views = len(vlist)
     from .extension import view_names as _names
-    all_names = list(view_names) if view_names is not None else list(_names(result))[:m_views]
-    if len(all_names) != m_views:
-        raise ValueError(f"{len(all_names)} view names for {m_views} views.")
-    if len(set(all_names)) != len(all_names) or {"outcome", "consensus"} & set(all_names):
-        raise ValueError(f"view names must be distinct and not 'outcome' or 'consensus'; got {all_names}.")
+    all_names = _check_node_names(
+        list(view_names) if view_names is not None else list(_names(result))[:m_views],
+        m_views=m_views,
+    )
     has_missing = any(v is None for v in vlist)
     dropped_views: Optional[List[str]] = None
     if has_missing:
@@ -659,9 +705,7 @@ def _given_scores(scores: Any, standardize: bool, allow_missing: bool = False):
     """Validate a mapping node name -> ``(n, k)`` block; returns names and float64 arrays."""
     if not isinstance(scores, Mapping) or not scores:
         raise ValueError("scores must be a non-empty mapping of node name -> (n, k) array.")
-    names = [str(nm) for nm in scores]
-    if len(set(names)) != len(names) or {"outcome", "consensus"} & set(names):
-        raise ValueError(f"score names must be distinct and not 'outcome' or 'consensus'; got {names}.")
+    names = _check_node_names(list(scores), label="score")
     arrays: List[Optional[np.ndarray]] = []
     for nm in scores:
         z = scores[nm]
@@ -722,6 +766,41 @@ def path_model_from_scores(scores: Mapping[str, Any], *, rows: str = "heldout", 
                             standardize=standardize, _edge_cache=_edge_cache)
 
 
+def _update_family_max(
+    mx: Dict[str, np.ndarray],
+    mean_null: np.ndarray,
+    sl: slice,
+    e: Tuple[str, str],
+    pil: np.ndarray,
+    ar_max: Optional[np.ndarray],
+    f_sum: Optional[np.ndarray],
+    n_tested: int,
+    absent_set: set,
+    out_set: set,
+) -> None:
+    mx["edges"][sl] = np.maximum(mx["edges"][sl], pil)
+    mean_null[sl] += pil / n_tested
+    if e in absent_set:
+        mx["absent"][sl] = np.maximum(mx["absent"][sl], pil)
+    if e in out_set:
+        mx["outcome"][sl] = np.maximum(mx["outcome"][sl], pil)
+    if ar_max is not None:
+        mx["components"][sl] = np.maximum(mx["components"][sl], ar_max)
+    if f_sum is not None:
+        mx["moderation"][sl] = np.maximum(mx["moderation"][sl], f_sum)
+
+
+def _assign_holm_bh(df: pd.DataFrame, mask: Optional[np.ndarray] = None) -> None:
+    if mask is None:
+        p = df["p_perm"].to_numpy(float)
+        df["p_holm"] = holm(p)
+        df["q_bh"] = bh_fdr(p)
+    elif mask.any():
+        p = df.loc[mask, "p_perm"].to_numpy(float)
+        df.loc[mask, "p_holm"] = holm(p)
+        df.loc[mask, "q_bh"] = bh_fdr(p)
+
+
 def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covariates, groups, outcome,
                      conditioning, include_consensus, null, n_permutations, n_refits, n_bootstrap,
                      train_covariates, train_groups, train_outcome, inference, alpha, random_state, n_jobs,
@@ -740,11 +819,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
         raise ValueError("the refit null and inference= need a measurement model (path_model).")
     m_views = len(sc["scores"])
     n = sc["n"]
-    nodes = list(names)
-    if len(nodes) != m_views:
-        raise ValueError(f"{len(nodes)} view names for {m_views} views.")
-    if len(set(nodes)) != len(nodes) or {"outcome", "consensus"} & set(nodes):
-        raise ValueError(f"view names must be distinct and not 'outcome' or 'consensus'; got {nodes}.")
+    nodes = _check_node_names(names, m_views=m_views)
     view_nodes = list(nodes)
     Z: Dict[str, np.ndarray] = {nm: z for nm, z in zip(nodes, sc["scores"])}
     if include_consensus:
@@ -753,12 +828,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
         nodes.append("consensus")
         Z["consensus"] = sc["consensus"]
     if outcome is not None:
-        y = np.asarray(outcome, dtype=float)
-        if y.shape[0] != n:
-            raise ValueError(f"outcome has {y.shape[0]} rows; the views have {n}.")
-        y = y.reshape(n, -1)
-        if not np.isfinite(y).all():
-            raise ValueError("outcome contains non-finite values.")
+        y = _check_outcome(outcome, n)
         nodes.append("outcome")
         Z["outcome"] = _zscore(y)
     k = int(Z[nodes[0]].shape[1])
@@ -818,6 +888,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
         raise ValueError("no edge to test: the model needs at least two nodes besides the consensus.")
     absent = [e for e in tested if not present[e]]
     out_edges = [e for e in tested if "outcome" in e]
+    absent_set, out_set = set(absent), set(out_edges)
 
     cond_by_edge = {e: tuple(_conditioning_nodes(adj, e[0], e[1], directed, conditioning)) for e in pairs}
     designs: Dict[Tuple[str, str], Dict[str, Any]] = {}
@@ -842,6 +913,24 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
     mx = {nm: np.full(B, -np.inf) for nm in ("edges", "absent", "outcome", "components", "moderation")}
     mean_null = np.zeros(B)
     stored: Dict[Tuple[str, str], List[float]] = {e: [] for e in pairs}
+
+    def _eval_chunk(e: Tuple[str, str], perm_b: torch.Tensor):
+        st = _stats_from_perm(designs[e], perm_b)
+        pil = st["pillai"].numpy()
+        dp = int((pil >= obs[e]["pillai"]).sum())
+        dr = ar_max = df = f_sum = None
+        dfs = 0
+        if "r" in st:
+            ar = np.abs(st["r"].numpy())
+            dr = (ar >= np.abs(obs[e]["r"])[None, :]).sum(0)
+            ar_max = ar.max(1)
+        if e in ge_f:
+            F = st["F"].numpy()
+            df = (F >= obs[e]["F"][None, :]).sum(0)
+            f_sum = F.sum(1)
+            dfs = int((f_sum >= obs[e]["F"].sum()).sum())
+        return pil, dp, dr, ar_max, df, f_sum, dfs
+
     if _edge_cache is not None and B > 0:
         if "_perms" not in _edge_cache:
             base = np.tile(np.arange(n), (min(_CHUNK, max(B, 1)), 1))
@@ -858,29 +947,24 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
                 has_r = len(designs[e]["comps"]) > 0
                 ar_max_all = np.empty(B, dtype=np.float64) if has_r else None
                 f_sum_all = np.empty(B, dtype=np.float64) if e in ge_f else None
-                ge_p_e = 0
+                ge_p_e, ge_fs_e = 0, 0
                 ge_r_e = np.zeros(len(designs[e]["comps"]))
                 ge_f_e = np.zeros(len(designs[e]["comps"])) if e in ge_f else None
-                ge_fs_e = 0
                 stored_e: List[float] = []
                 for s0, c, perms in perms_chunks:
                     sl = slice(s0, s0 + c)
-                    st = _stats_from_perm(designs[e], perms[e[1]])
-                    pil = st["pillai"].numpy()
+                    pil, dp, dr, ar_max, df, f_sum, dfs = _eval_chunk(e, perms[e[1]])
                     pil_all[sl] = pil
-                    ge_p_e += int((pil >= obs[e]["pillai"]).sum())
+                    ge_p_e += dp
                     if len(stored_e) < _NULL_STORE:
                         stored_e.extend(pil[:_NULL_STORE - len(stored_e)].tolist())
-                    if "r" in st:
-                        ar = np.abs(st["r"].numpy())
-                        ge_r_e += (ar >= np.abs(obs[e]["r"])[None, :]).sum(0)
-                        if ar_max_all is not None:
-                            ar_max_all[sl] = ar.max(1)
-                    if e in ge_f and ge_f_e is not None and f_sum_all is not None:
-                        F = st["F"].numpy()
-                        ge_f_e += (F >= obs[e]["F"][None, :]).sum(0)
-                        f_sum = F.sum(1)
-                        ge_fs_e += int((f_sum >= obs[e]["F"].sum()).sum())
+                    if dr is not None:
+                        ge_r_e += dr
+                        if ar_max_all is not None and ar_max is not None:
+                            ar_max_all[sl] = ar_max
+                    if df is not None and ge_f_e is not None and f_sum_all is not None and f_sum is not None:
+                        ge_f_e += df
+                        ge_fs_e += dfs
                         f_sum_all[sl] = f_sum
                 _edge_cache[ckey] = {
                     "des": designs[e], "obs": obs[e],
@@ -895,19 +979,12 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
             if e in ge_f and ce["ge_f"] is not None:
                 ge_f[e] = ce["ge_f"].copy()
                 ge_fs[e] = ce["ge_fs"]
-            if diagnostic[e]:
-                continue
-            pil_all = ce["pil_all"]
-            np.maximum(mx["edges"], pil_all, out=mx["edges"])
-            mean_null += pil_all / len(tested)
-            if e in absent:
-                np.maximum(mx["absent"], pil_all, out=mx["absent"])
-            if e in out_edges:
-                np.maximum(mx["outcome"], pil_all, out=mx["outcome"])
-            if ce["ar_max_all"] is not None:
-                np.maximum(mx["components"], ce["ar_max_all"], out=mx["components"])
-            if e in ge_f and ce["f_sum_all"] is not None:
-                np.maximum(mx["moderation"], ce["f_sum_all"], out=mx["moderation"])
+            if not diagnostic[e]:
+                _update_family_max(
+                    mx, mean_null, slice(None), e, ce["pil_all"],
+                    ce["ar_max_all"], ce["f_sum_all"] if e in ge_f else None,
+                    len(tested), absent_set, out_set,
+                )
     else:
         base = np.tile(np.arange(n), (min(_CHUNK, max(B, 1)), 1))
         for s0 in range(0, B, _CHUNK):
@@ -915,30 +992,20 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
             perms = {nm: torch.as_tensor(rng_perm.permuted(base[:c], axis=1)) for nm in nodes}
             sl = slice(s0, s0 + c)
             for e in pairs:
-                st = _stats_from_perm(designs[e], perms[e[1]])
-                pil = st["pillai"].numpy()
-                ge_p[e] += int((pil >= obs[e]["pillai"]).sum())
+                pil, dp, dr, ar_max, df, f_sum, dfs = _eval_chunk(e, perms[e[1]])
+                ge_p[e] += dp
                 if len(stored[e]) < _NULL_STORE:
                     stored[e].extend(pil[:_NULL_STORE - len(stored[e])].tolist())
-                if "r" in st:
-                    ar = np.abs(st["r"].numpy())
-                    ge_r[e] += (ar >= np.abs(obs[e]["r"])[None, :]).sum(0)
-                if e in ge_f:
-                    F = st["F"].numpy()
-                    ge_f[e] += (F >= obs[e]["F"][None, :]).sum(0)
-                    ge_fs[e] += int((F.sum(1) >= obs[e]["F"].sum()).sum())
-                if diagnostic[e]:
-                    continue
-                mx["edges"][sl] = np.maximum(mx["edges"][sl], pil)
-                mean_null[sl] += pil / len(tested)
-                if e in absent:
-                    mx["absent"][sl] = np.maximum(mx["absent"][sl], pil)
-                if e in out_edges:
-                    mx["outcome"][sl] = np.maximum(mx["outcome"][sl], pil)
-                if "r" in st:
-                    mx["components"][sl] = np.maximum(mx["components"][sl], ar.max(1))
-                if e in ge_f:
-                    mx["moderation"][sl] = np.maximum(mx["moderation"][sl], F.sum(1))
+                if dr is not None:
+                    ge_r[e] += dr
+                if df is not None:
+                    ge_f[e] += df
+                    ge_fs[e] += dfs
+                if not diagnostic[e]:
+                    _update_family_max(
+                        mx, mean_null, sl, e, pil, ar_max, f_sum,
+                        len(tested), absent_set, out_set,
+                    )
 
     def p_of(ge):
         return float(_addone(ge, B)) if report_p else None
@@ -967,12 +1034,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
             c = min(_CHUNK, n_boot - s0)
             idx = torch.as_tensor(rng_boot.integers(0, n, (c, n)))
             for c_tuple, (grp_edges, u_nodes, u_slices, S_t, X_cat, eye_s) in cond_prep.items():
-                S = S_t[idx]
-                StS = S.transpose(-1, -2) @ S
-                lam = _RIDGE * StS.diagonal(dim1=-2, dim2=-1).sum(-1) / S.shape[-1]
-                StS = StS + lam[:, None, None] * eye_s
-                X_b = X_cat[idx]
-                R_all = X_b - S @ torch.linalg.solve(StS, S.transpose(-1, -2) @ X_b)
+                R_all = _ridge_residualize_batch(S_t[idx], X_cat[idx], eye_s)
                 R_map: Dict[str, torch.Tensor] = {}
                 Suu_map: Dict[str, torch.Tensor] = {}
                 for u in u_nodes:
@@ -1037,9 +1099,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
     edges = pd.DataFrame(edge_rows)
     tmask = ~edges["diagnostic"].to_numpy()
     if report_p:
-        pp = edges.loc[tmask, "p_perm"].to_numpy(float)
-        edges.loc[tmask, "p_holm"] = holm(pp)
-        edges.loc[tmask, "q_bh"] = bh_fdr(pp)
+        _assign_holm_bh(edges, tmask)
     if refit is not None and n_ref > 0 and "edges" in refit_scope:
         edges.loc[tmask, "p_refit_holm"] = holm(edges.loc[tmask, "p_refit"].to_numpy(float))
 
@@ -1065,11 +1125,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
                                                        "p_maxt", "p_holm", "q_bh", "ci_low", "ci_high",
                                                        "beta_ci_low", "beta_ci_high", "null_rows"])
     if report_p and len(edge_components):
-        cm = ~edge_components["diagnostic"].to_numpy(bool)
-        if cm.any():
-            pc = edge_components.loc[cm, "p_perm"].to_numpy(float)
-            edge_components.loc[cm, "p_holm"] = holm(pc)
-            edge_components.loc[cm, "q_bh"] = bh_fdr(pc)
+        _assign_holm_bh(edge_components, ~edge_components["diagnostic"].to_numpy(bool))
 
     moderation = None
     if dummies is not None:
@@ -1086,11 +1142,8 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
                           "p_holm": None, "q_bh": None})
         moderation = pd.DataFrame(mrows, columns=["a", "b", "component", "F", "df1", "df2", "p_perm", "p_maxt",
                                                   "p_holm", "q_bh"])
-        smask = (moderation["component"] == "sum").to_numpy()
-        if report_p and smask.any():
-            ps = moderation.loc[smask, "p_perm"].to_numpy(float)
-            moderation.loc[smask, "p_holm"] = holm(ps)
-            moderation.loc[smask, "q_bh"] = bh_fdr(ps)
+        if report_p:
+            _assign_holm_bh(moderation, (moderation["component"] == "sum").to_numpy())
 
     outcome_edges = None
     if out_edges:
@@ -1099,9 +1152,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
                   "null_rows": evidence_label} for e in out_edges]
         outcome_edges = pd.DataFrame(orows)
         if report_p:
-            po = outcome_edges["p_perm"].to_numpy(float)
-            outcome_edges["p_holm"] = holm(po)
-            outcome_edges["q_bh"] = bh_fdr(po)
+            _assign_holm_bh(outcome_edges)
 
     # ---- omnibus and graph fit
     obs_t = np.array([obs[e]["pillai"] for e in tested])
@@ -1365,29 +1416,24 @@ def _coerce_node_dofs(
 ) -> Optional[Dict[str, float]]:
     if dofs is None:
         return None
-    allowed = set(view_names_list) | {"outcome"}
     if isinstance(dofs, Mapping):
+        allowed = set(view_names_list) | {"outcome"}
         extra = [str(k) for k in dofs if str(k) not in allowed]
         if extra:
             raise ValueError(f"unknown node name(s) in dofs {extra}; expected a subset of {list(view_names_list)}.")
-        out: Dict[str, float] = {}
-        for k, v in dofs.items():
-            if v is not None:
-                val = float(v)
-                if not np.isfinite(val) or val < 0.0:
-                    raise ValueError(f"dofs[{k!r}] must be a non-negative finite number; got {v!r}.")
-                out[str(k)] = val
-        return out
-    seq = list(dofs)
-    if len(seq) != len(view_names_list):
-        raise ValueError(f"dofs has {len(seq)} entries; expected {len(view_names_list)} for {list(view_names_list)}.")
-    out = {}
-    for nm, v in zip(view_names_list, seq):
+        items = [(str(k), v, f"dofs[{k!r}]") for k, v in dofs.items()]
+    else:
+        seq = list(dofs)
+        if len(seq) != len(view_names_list):
+            raise ValueError(f"dofs has {len(seq)} entries; expected {len(view_names_list)} for {list(view_names_list)}.")
+        items = [(str(nm), v, f"dofs for {nm!r}") for nm, v in zip(view_names_list, seq)]
+    out: Dict[str, float] = {}
+    for nm, v, label in items:
         if v is not None:
             val = float(v)
             if not np.isfinite(val) or val < 0.0:
-                raise ValueError(f"dofs for {nm!r} must be a non-negative finite number; got {v!r}.")
-            out[str(nm)] = val
+                raise ValueError(f"{label} must be a non-negative finite number; got {v!r}.")
+            out[nm] = val
     return out
 
 
@@ -1402,52 +1448,24 @@ def _gcv_press_node_fit(
     and measurement-basis degrees-of-freedom shrinkage ``gamma = (n - 1) / (n - 1 + dof_eff)``
     (Ezekiel 1930; Wherry 1931, Ann. Math. Stat. 2:440-457; matching `extension._affine_map`).
     """
+    from .extension import _gcv_ridge_svd
     n = int(Y.shape[0])
     q_n = _orth(N)
     r_n = int(q_n.shape[1])
     y_perp = Y - q_n @ (q_n.T @ Y) if r_n else Y.copy()
     h_n = (q_n ** 2).sum(axis=1) if r_n else np.zeros(n, dtype=float)
-    denom_n = np.maximum(1.0 - h_n, 1e-3)[:, None]
-    v0_loo = np.mean((y_perp / denom_n) ** 2, axis=0).clip(1e-12)
+    v0_loo = np.mean((y_perp / np.maximum(1.0 - h_n, 1e-3)[:, None]) ** 2, axis=0).clip(1e-12)
     if X_pa is None or X_pa.shape[1] == 0:
-        w_n = _ridge_fit(N, Y)
-        return w_n, v0_loo, 1.0
+        return _ridge_fit(N, Y), v0_loo, 1.0
 
     x_perp = X_pa - q_n @ (q_n.T @ X_pa) if r_n else X_pa.copy()
-    u_svd, s_svd, vt_svd = np.linalg.svd(x_perp, full_matrices=False)
-    smax = float(s_svd[0]) if s_svd.size else 0.0
-    if smax <= 1e-15:
-        w_n = _ridge_fit(N, Y)
+    w_gcv, h_pa = _gcv_ridge_svd(x_perp, y_perp, n_eff=float(max(n - r_n, 1)))
+    if not np.any(h_pa):
         w_pa = np.zeros((X_pa.shape[1], Y.shape[1]), dtype=float)
-        return np.vstack([w_n, w_pa]), v0_loo, 1.0
+        return np.vstack([_ridge_fit(N, Y), w_pa]), v0_loo, 1.0
 
-    s2 = s_svd ** 2
-    scale = max(float(s2.mean()), 1e-12)
-    ut_y = u_svd.T @ y_perp
-    y_norm2 = float((y_perp ** 2).sum())
-    proj_norm2 = float((ut_y ** 2).sum())
-    orth_res2 = max(0.0, y_norm2 - proj_norm2)
-    n_eff = float(max(n - r_n, 1))
-    best_lam = 1e-8 * scale
-    best_gcv = float("inf")
-    for rel in (1e-8, 1e-5, 1e-3, 1e-2, 3e-2, 1e-1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0):
-        lam = rel * scale
-        filt = s2 / (s2 + lam)
-        df_lam = float(filt.sum())
-        denom = (1.0 - df_lam / n_eff) ** 2
-        if denom <= 1e-12:
-            continue
-        in_span_res2 = float((((1.0 - filt)[:, None] * ut_y) ** 2).sum())
-        gcv = (orth_res2 + in_span_res2) / (n_eff * denom)
-        if gcv < best_gcv:
-            best_gcv = gcv
-            best_lam = lam
-
-    filt_best = s2 / (s2 + best_lam)
-    w_gcv = vt_svd.T @ ((s_svd / (s2 + best_lam))[:, None] * ut_y)
     res_gcv = y_perp - x_perp @ w_gcv
-    h_tot = h_n + (u_svd ** 2) @ filt_best
-    denom_tot = np.maximum(1.0 - h_tot, 1e-3)[:, None]
+    denom_tot = np.maximum(1.0 - (h_n + h_pa), 1e-3)[:, None]
     v_loo = np.mean((res_gcv / denom_tot) ** 2, axis=0).clip(1e-12)
 
     n_m1 = float(max(n - 1, 1))
@@ -1540,6 +1558,135 @@ def _n_edges(adj, directed: bool) -> int:
     return int(sum(len(v) for v in adj.values()) // (1 if directed else 2))
 
 
+def _compare_structural_core(
+    all_names: List[str],
+    arrays_tr: Sequence[np.ndarray],
+    arrays_te: Sequence[Optional[np.ndarray]],
+    avail: List[int],
+    graphs: Mapping[str, Any],
+    *,
+    directed: bool,
+    covariates_train,
+    covariates_test,
+    groups_train,
+    groups_test,
+    outcome_train,
+    outcome_test,
+    std_mode: str,
+    node_dofs: Optional[Mapping[str, float]],
+    n_bootstrap: int,
+    n_permutations: int,
+    alpha: float,
+    random_state: int,
+    scores_source: Optional[str] = None,
+    standardize_param: Any = None,
+) -> Dict[str, Any]:
+    m_views = len(all_names)
+    absent_names = [all_names[m] for m in range(m_views) if m not in avail]
+    all_nodes = list(all_names) + (["outcome"] if outcome_train is not None else [])
+    remapped_graphs = {
+        name: _remap_graph_for_available_views(g, all_nodes, absent_names)
+        for name, g in graphs.items()
+    }
+    warn_list: List[str] = []
+    if absent_names:
+        drop_msg = f"views absent on evaluation rows and dropped from the graph: {absent_names}"
+        warnings.warn(drop_msg, RuntimeWarning, stacklevel=3)
+        warn_list.append(drop_msg)
+
+    rng = np.random.default_rng(random_state)
+    n_tr = int(arrays_tr[0].shape[0])
+    n_te = int(arrays_te[avail[0]].shape[0])
+    nodes = [all_names[m] for m in avail]
+    Ztr = {all_names[m]: arrays_tr[m] for m in avail}
+    Zte = {all_names[m]: arrays_te[m] for m in avail}
+    if outcome_train is not None:
+        y_tr_raw = np.asarray(outcome_train, float)
+        y_te_raw = np.asarray(outcome_test, float)
+        if y_tr_raw.shape[0] != n_tr or y_te_raw.shape[0] != n_te:
+            raise ValueError(
+                f"outcome_train / outcome_test have ({y_tr_raw.shape[0]}, {y_te_raw.shape[0]}) rows; "
+                f"expected ({n_tr}, {n_te})."
+            )
+        y_tr_arr = y_tr_raw.reshape(n_tr, -1)
+        y_te_arr = y_te_raw.reshape(n_te, -1)
+        if not (np.isfinite(y_tr_arr).all() and np.isfinite(y_te_arr).all()):
+            raise ValueError("outcome_train / outcome_test contain non-finite values.")
+        nodes = nodes + ["outcome"]
+        Ztr["outcome"], Zte["outcome"] = _zscore_pair(y_tr_arr, y_te_arr, std_mode)
+    Ntr, _, _ = _nuisance(n_tr, covariates_train, groups_train)
+    Nte, _, _ = _nuisance(n_te, covariates_test, groups_test)
+    boot_idx = [rng.integers(0, n_te, n_te) for _ in range(n_bootstrap)]
+    te_present_std = {all_names[m]: arrays_te[m] for m in avail}
+    edge_cache: Dict[Any, Any] = {}
+    node_cache: Dict[Tuple[str, Tuple[str, ...]], Dict[str, Any]] = {}
+    rows, per_subject = [], {}
+    for name, g_remapped in remapped_graphs.items():
+        adj = _node_graph(g_remapped, nodes, directed)
+        ll_rows, ll_tr, n_par = _graph_loglik(
+            Ztr, Zte, Ntr, Nte, nodes, adj, directed, node_dofs=node_dofs, node_model_cache=node_cache
+        )
+        per_subject[name] = ll_rows
+        pm = path_model_from_scores(
+            te_present_std, rows="heldout", graph=g_remapped, directed=directed,
+            covariates=covariates_test, groups=groups_test, outcome=outcome_test,
+            conditioning="parents", n_permutations=n_permutations, n_bootstrap=0,
+            alpha=alpha, random_state=random_state, standardize=False,
+            _edge_cache=edge_cache,
+        )
+        rows.append({
+            "graph": name, "n_edges": _n_edges(adj, directed),
+            "heldout_loglik": float(ll_rows.sum()), "n_params": n_par,
+            "bic": float(n_par * np.log(n_tr) - 2.0 * ll_tr),
+            "present_pass": pm["fit"]["present_pass"], "absent_pass": pm["fit"]["absent_pass"],
+            "max_absent_p": pm["fit"]["max_absent_p"], "edges": pm["edges"],
+        })
+    top = max(rows, key=lambda r: r["heldout_loglik"])["graph"]
+    g_names = [r["graph"] for r in rows]
+    wins = {nm: 0 for nm in g_names}
+    deltas: Dict[str, np.ndarray] = {}
+    if n_bootstrap:
+        ll_mat = np.vstack([per_subject[nm] for nm in g_names])
+        boot_idx_arr = np.asarray(boot_idx, dtype=np.intp)
+        tot_mat = ll_mat[:, boot_idx_arr].sum(axis=2)
+        win_counts = np.bincount(np.argmax(tot_mat, axis=0), minlength=len(g_names))
+        for gi, nm in enumerate(g_names):
+            wins[nm] = int(win_counts[gi])
+        top_idx = g_names.index(top)
+        delta_mat = tot_mat - tot_mat[top_idx : top_idx + 1, :]
+        for gi, nm in enumerate(g_names):
+            deltas[nm] = delta_mat[gi]
+    top_ll = next(x["heldout_loglik"] for x in rows if x["graph"] == top)
+    for r in rows:
+        r["delta_vs_top"] = float(r["heldout_loglik"] - top_ll)
+        if n_bootstrap:
+            lo, hi = _pct(deltas[r["graph"]])
+            r["ci_low"], r["ci_high"] = float(lo), float(hi)
+            r["best_fraction"] = wins[r["graph"]] / n_bootstrap
+        else:
+            r["ci_low"] = r["ci_high"] = r["best_fraction"] = None
+    if n_bootstrap:
+        ok = [r for r in rows if r["ci_low"] <= 0.0 <= r["ci_high"]]
+        best = min(ok, key=lambda r: (r["n_edges"], -r["heldout_loglik"]))["graph"]
+        rule = "fewest edges with delta CI including 0 (plan F1)"
+    else:
+        best, rule = top, "top held-out log-likelihood (no bootstrap replicates)"
+    params = {
+        "n_bootstrap": n_bootstrap, "n_permutations": n_permutations,
+        "random_state": random_state, "alpha": alpha,
+    }
+    out: Dict[str, Any] = {
+        "comparison": rows, "best": best, "best_by_loglik": top, "best_rule": rule,
+        "nodes": nodes, "mode": "structural",
+    }
+    if scores_source is not None:
+        out["scores_source"] = scores_source
+        params["standardize"] = standardize_param
+    out["warnings"] = warn_list
+    out["parameters"] = params
+    return out
+
+
 def compare_path_models(result: Optional[Dict[str, Any]] = None, views_train: Any = None, views_test: Any = None,
                         graphs: Optional[Mapping[str, Any]] = None, *, method: Optional[str] = None,
                         k: Optional[int] = None, views: Any = None, n_splits: int = 5,
@@ -1596,107 +1743,25 @@ def compare_path_models(result: Optional[Dict[str, Any]] = None, views_train: An
         raise ValueError("the structural comparison needs views_train and views_test.")
     if (outcome_train is None) != (outcome_test is None):
         raise ValueError("pass both outcome_train and outcome_test, or neither.")
-    rng = np.random.default_rng(random_state)
     sc_tr = view_scores(result, views_train, train_views=views_train)
     sc_te = view_scores(result, views_test, train_views=views_train)
     from .extension import view_names as _names
     m_views = len(sc_tr["scores"])
-    all_names = list(view_names) if view_names is not None else list(_names(result))[:m_views]
-    if len(all_names) != m_views:
-        raise ValueError(f"{len(all_names)} view names for {m_views} views.")
-    if len(set(all_names)) != len(all_names) or {"outcome", "consensus"} & set(all_names):
-        raise ValueError(f"view names must be distinct and not 'outcome' or 'consensus'; got {all_names}.")
+    all_names = _check_node_names(
+        list(view_names) if view_names is not None else list(_names(result))[:m_views],
+        m_views=m_views,
+    )
     avail = list(sc_te["available"])
     if len(avail) == 0 or (len(avail) < 2 and outcome_train is None):
         raise ValueError("compare_path_models needs at least two present test views, or one view with an outcome.")
-    absent_names = [all_names[m] for m in range(m_views) if m not in avail]
-    all_nodes = list(all_names) + (["outcome"] if outcome_train is not None else [])
-    remapped_graphs = {name: _remap_graph_for_available_views(g, all_nodes, absent_names)
-                       for name, g in graphs.items()}
-    warn_list: List[str] = []
-    if absent_names:
-        drop_msg = f"views absent on evaluation rows and dropped from the graph: {absent_names}"
-        warnings.warn(drop_msg, RuntimeWarning, stacklevel=2)
-        warn_list.append(drop_msg)
-    nodes = [all_names[m] for m in avail]
-    Ztr = {all_names[m]: sc_tr["scores"][m] for m in avail}
-    Zte = {all_names[m]: sc_te["scores"][m] for m in avail}
-    if outcome_train is not None:
-        y_tr_raw = np.asarray(outcome_train, float)
-        y_te_raw = np.asarray(outcome_test, float)
-        if y_tr_raw.shape[0] != sc_tr["n"] or y_te_raw.shape[0] != sc_te["n"]:
-            raise ValueError(
-                f"outcome_train / outcome_test have ({y_tr_raw.shape[0]}, {y_te_raw.shape[0]}) rows; "
-                f"expected ({sc_tr['n']}, {sc_te['n']})."
-            )
-        y_tr_arr = y_tr_raw.reshape(sc_tr["n"], -1)
-        y_te_arr = y_te_raw.reshape(sc_te["n"], -1)
-        if not (np.isfinite(y_tr_arr).all() and np.isfinite(y_te_arr).all()):
-            raise ValueError("outcome_train / outcome_test contain non-finite values.")
-        nodes = nodes + ["outcome"]
-        Ztr["outcome"] = _zscore(y_tr_arr)
-        Zte["outcome"] = _zscore(y_te_arr)
-    Ntr, _, _ = _nuisance(sc_tr["n"], covariates_train, groups_train)
-    Nte, _, _ = _nuisance(sc_te["n"], covariates_test, groups_test)
-    n_te = sc_te["n"]
-    boot_idx = [rng.integers(0, n_te, n_te) for _ in range(n_bootstrap)]
-    te_present_std = {all_names[m]: sc_te["scores"][m] for m in avail}
     node_dofs = _result_node_dofs(result, [all_names[m] for m in avail], sc_tr["n"], avail)
-    edge_cache: Dict[Any, Any] = {}
-    node_cache: Dict[Tuple[str, Tuple[str, ...]], Dict[str, Any]] = {}
-    rows, per_subject = [], {}
-    for name, g_remapped in remapped_graphs.items():
-        adj = _node_graph(g_remapped, nodes, directed)
-        ll_rows, ll_tr, n_par = _graph_loglik(
-            Ztr, Zte, Ntr, Nte, nodes, adj, directed, node_dofs=node_dofs, node_model_cache=node_cache
-        )
-        per_subject[name] = ll_rows
-        pm = path_model_from_scores(
-            te_present_std, rows="heldout", graph=g_remapped, directed=directed,
-            covariates=covariates_test, groups=groups_test, outcome=outcome_test,
-            conditioning="parents", n_permutations=n_permutations, n_bootstrap=0,
-            alpha=alpha, random_state=random_state, standardize=False,
-            _edge_cache=edge_cache,
-        )
-        rows.append({"graph": name, "n_edges": _n_edges(adj, directed),
-                     "heldout_loglik": float(ll_rows.sum()), "n_params": n_par,
-                     "bic": float(n_par * np.log(sc_tr["n"]) - 2.0 * ll_tr),
-                     "present_pass": pm["fit"]["present_pass"], "absent_pass": pm["fit"]["absent_pass"],
-                     "max_absent_p": pm["fit"]["max_absent_p"], "edges": pm["edges"]})
-    top = max(rows, key=lambda r: r["heldout_loglik"])["graph"]
-    g_names = [r["graph"] for r in rows]
-    wins = {nm: 0 for nm in g_names}
-    deltas: Dict[str, np.ndarray] = {}
-    if n_bootstrap:
-        ll_mat = np.vstack([per_subject[nm] for nm in g_names])
-        boot_idx_arr = np.asarray(boot_idx, dtype=np.intp)
-        tot_mat = ll_mat[:, boot_idx_arr].sum(axis=2)
-        win_counts = np.bincount(np.argmax(tot_mat, axis=0), minlength=len(g_names))
-        for gi, nm in enumerate(g_names):
-            wins[nm] = int(win_counts[gi])
-        top_idx = g_names.index(top)
-        delta_mat = tot_mat - tot_mat[top_idx : top_idx + 1, :]
-        for gi, nm in enumerate(g_names):
-            deltas[nm] = delta_mat[gi]
-    top_ll = next(x["heldout_loglik"] for x in rows if x["graph"] == top)
-    for r in rows:
-        r["delta_vs_top"] = float(r["heldout_loglik"] - top_ll)
-        if n_bootstrap:
-            lo, hi = _pct(deltas[r["graph"]])
-            r["ci_low"], r["ci_high"] = float(lo), float(hi)
-            r["best_fraction"] = wins[r["graph"]] / n_bootstrap
-        else:
-            r["ci_low"] = r["ci_high"] = r["best_fraction"] = None
-    if n_bootstrap:
-        ok = [r for r in rows if r["ci_low"] <= 0.0 <= r["ci_high"]]
-        best = min(ok, key=lambda r: (r["n_edges"], -r["heldout_loglik"]))["graph"]
-        rule = "fewest edges with delta CI including 0 (plan F1)"
-    else:
-        best, rule = top, "top held-out log-likelihood (no bootstrap replicates)"
-    return {"comparison": rows, "best": best, "best_by_loglik": top, "best_rule": rule, "nodes": nodes,
-            "mode": "structural", "warnings": warn_list,
-            "parameters": {"n_bootstrap": n_bootstrap, "n_permutations": n_permutations,
-                           "random_state": random_state, "alpha": alpha}}
+    return _compare_structural_core(
+        all_names, sc_tr["scores"], sc_te["scores"], avail, graphs,
+        directed=directed, covariates_train=covariates_train, covariates_test=covariates_test,
+        groups_train=groups_train, groups_test=groups_test, outcome_train=outcome_train,
+        outcome_test=outcome_test, std_mode="per_split", node_dofs=node_dofs,
+        n_bootstrap=n_bootstrap, n_permutations=n_permutations, alpha=alpha, random_state=random_state,
+    )
 
 
 def compare_path_models_from_scores(
@@ -1752,19 +1817,9 @@ def compare_path_models_from_scores(
         raise ValueError(f"unknown score name(s) {extra}; scores_train has {names_tr}.")
     full_te = {nm: scores_test.get(nm) for nm in names_tr}
     _, raw_te = _given_scores(full_te, False, allow_missing=True)
-    if std_mode == "per_split":
-        arrays_tr = [_zscore(a) for a in raw_tr]
-        arrays_te = [None if a is None else _zscore(a) for a in raw_te]
-    elif std_mode == "train":
-        arrays_tr, arrays_te = [], []
-        for a_tr, a_te in zip(raw_tr, raw_te):
-            mu = a_tr.mean(0, keepdims=True)
-            sd = a_tr.std(0, keepdims=True)
-            sd_safe = np.where(sd > 0, sd, 1.0)
-            arrays_tr.append(np.where(sd > 0, (a_tr - mu) / sd_safe, 0.0))
-            arrays_te.append(None if a_te is None else np.where(sd > 0, (a_te - mu) / sd_safe, 0.0))
-    else:
-        arrays_tr, arrays_te = raw_tr, raw_te
+    pairs_std = [_zscore_pair(a_tr, a_te, std_mode) for a_tr, a_te in zip(raw_tr, raw_te)]
+    arrays_tr = [p[0] for p in pairs_std]
+    arrays_te = [p[1] for p in pairs_std]
     avail = [m for m, z in enumerate(arrays_te) if z is not None]
     if len(avail) == 0 or (len(avail) < 2 and outcome_train is None):
         raise ValueError(
@@ -1777,116 +1832,15 @@ def compare_path_models_from_scores(
                 f"scores_test[{names_tr[m]!r}] has {arrays_te[m].shape[1]} columns; "
                 f"scores_train[{names_tr[m]!r}] has {arrays_tr[m].shape[1]}."
             )
-    absent_names = [names_tr[m] for m in range(len(names_tr)) if m not in avail]
-    all_nodes = list(names_tr) + (["outcome"] if outcome_train is not None else [])
-    remapped_graphs = {
-        name: _remap_graph_for_available_views(g, all_nodes, absent_names)
-        for name, g in graphs.items()
-    }
-    warn_list: List[str] = []
-    if absent_names:
-        drop_msg = f"views absent on evaluation rows and dropped from the graph: {absent_names}"
-        warnings.warn(drop_msg, RuntimeWarning, stacklevel=2)
-        warn_list.append(drop_msg)
-
-    rng = np.random.default_rng(random_state)
-    n_tr = int(arrays_tr[0].shape[0])
-    n_te = int(arrays_te[avail[0]].shape[0])
-    nodes = [names_tr[m] for m in avail]
-    Ztr = {names_tr[m]: arrays_tr[m] for m in avail}
-    Zte = {names_tr[m]: arrays_te[m] for m in avail}
-    if outcome_train is not None:
-        y_tr_raw = np.asarray(outcome_train, float)
-        y_te_raw = np.asarray(outcome_test, float)
-        if y_tr_raw.shape[0] != n_tr or y_te_raw.shape[0] != n_te:
-            raise ValueError(
-                f"outcome_train / outcome_test have ({y_tr_raw.shape[0]}, {y_te_raw.shape[0]}) rows; "
-                f"expected ({n_tr}, {n_te})."
-            )
-        y_tr_arr = y_tr_raw.reshape(n_tr, -1)
-        y_te_arr = y_te_raw.reshape(n_te, -1)
-        if not (np.isfinite(y_tr_arr).all() and np.isfinite(y_te_arr).all()):
-            raise ValueError("outcome_train / outcome_test contain non-finite values.")
-        nodes = nodes + ["outcome"]
-        if std_mode == "train":
-            ymu = y_tr_arr.mean(0, keepdims=True)
-            ysd = y_tr_arr.std(0, keepdims=True)
-            ysd_safe = np.where(ysd > 0, ysd, 1.0)
-            Ztr["outcome"] = np.where(ysd > 0, (y_tr_arr - ymu) / ysd_safe, 0.0)
-            Zte["outcome"] = np.where(ysd > 0, (y_te_arr - ymu) / ysd_safe, 0.0)
-        elif std_mode == "per_split":
-            Ztr["outcome"] = _zscore(y_tr_arr)
-            Zte["outcome"] = _zscore(y_te_arr)
-        else:
-            Ztr["outcome"] = y_tr_arr
-            Zte["outcome"] = y_te_arr
-    Ntr, _, _ = _nuisance(n_tr, covariates_train, groups_train)
-    Nte, _, _ = _nuisance(n_te, covariates_test, groups_test)
     node_dofs = _coerce_node_dofs(dofs, names_tr)
-    boot_idx = [rng.integers(0, n_te, n_te) for _ in range(n_bootstrap)]
-    te_present_std = {names_tr[m]: arrays_te[m] for m in avail}
-    edge_cache: Dict[Any, Any] = {}
-    node_cache: Dict[Tuple[str, Tuple[str, ...]], Dict[str, Any]] = {}
-    rows, per_subject = [], {}
-    for name, g_remapped in remapped_graphs.items():
-        adj = _node_graph(g_remapped, nodes, directed)
-        ll_rows, ll_tr, n_par = _graph_loglik(
-            Ztr, Zte, Ntr, Nte, nodes, adj, directed, node_dofs=node_dofs, node_model_cache=node_cache
-        )
-        per_subject[name] = ll_rows
-        pm = path_model_from_scores(
-            te_present_std, rows="heldout", graph=g_remapped, directed=directed,
-            covariates=covariates_test, groups=groups_test, outcome=outcome_test,
-            conditioning="parents", n_permutations=n_permutations, n_bootstrap=0,
-            alpha=alpha, random_state=random_state, standardize=False,
-            _edge_cache=edge_cache,
-        )
-        rows.append({
-            "graph": name, "n_edges": _n_edges(adj, directed),
-            "heldout_loglik": float(ll_rows.sum()), "n_params": n_par,
-            "bic": float(n_par * np.log(n_tr) - 2.0 * ll_tr),
-            "present_pass": pm["fit"]["present_pass"], "absent_pass": pm["fit"]["absent_pass"],
-            "max_absent_p": pm["fit"]["max_absent_p"], "edges": pm["edges"],
-        })
-    top = max(rows, key=lambda r: r["heldout_loglik"])["graph"]
-    g_names = [r["graph"] for r in rows]
-    wins = {nm: 0 for nm in g_names}
-    deltas: Dict[str, np.ndarray] = {}
-    if n_bootstrap:
-        ll_mat = np.vstack([per_subject[nm] for nm in g_names])
-        boot_idx_arr = np.asarray(boot_idx, dtype=np.intp)
-        tot_mat = ll_mat[:, boot_idx_arr].sum(axis=2)
-        win_counts = np.bincount(np.argmax(tot_mat, axis=0), minlength=len(g_names))
-        for gi, nm in enumerate(g_names):
-            wins[nm] = int(win_counts[gi])
-        top_idx = g_names.index(top)
-        delta_mat = tot_mat - tot_mat[top_idx : top_idx + 1, :]
-        for gi, nm in enumerate(g_names):
-            deltas[nm] = delta_mat[gi]
-    top_ll = next(x["heldout_loglik"] for x in rows if x["graph"] == top)
-    for r in rows:
-        r["delta_vs_top"] = float(r["heldout_loglik"] - top_ll)
-        if n_bootstrap:
-            lo, hi = _pct(deltas[r["graph"]])
-            r["ci_low"], r["ci_high"] = float(lo), float(hi)
-            r["best_fraction"] = wins[r["graph"]] / n_bootstrap
-        else:
-            r["ci_low"] = r["ci_high"] = r["best_fraction"] = None
-    if n_bootstrap:
-        ok = [r for r in rows if r["ci_low"] <= 0.0 <= r["ci_high"]]
-        best = min(ok, key=lambda r: (r["n_edges"], -r["heldout_loglik"]))["graph"]
-        rule = "fewest edges with delta CI including 0 (plan F1)"
-    else:
-        best, rule = top, "top held-out log-likelihood (no bootstrap replicates)"
-    return {
-        "comparison": rows, "best": best, "best_by_loglik": top, "best_rule": rule,
-        "nodes": nodes, "mode": "structural", "scores_source": "given", "warnings": warn_list,
-        "parameters": {
-            "n_bootstrap": n_bootstrap, "n_permutations": n_permutations,
-            "random_state": random_state, "alpha": alpha,
-            "standardize": (standardize if isinstance(standardize, bool) else std_mode),
-        },
-    }
+    return _compare_structural_core(
+        names_tr, arrays_tr, arrays_te, avail, graphs,
+        directed=directed, covariates_train=covariates_train, covariates_test=covariates_test,
+        groups_train=groups_train, groups_test=groups_test, outcome_train=outcome_train,
+        outcome_test=outcome_test, std_mode=std_mode, node_dofs=node_dofs,
+        n_bootstrap=n_bootstrap, n_permutations=n_permutations, alpha=alpha, random_state=random_state,
+        scores_source="given", standardize_param=(standardize if isinstance(standardize, bool) else std_mode),
+    )
 
 
 _TOPOLOGY_CRITERIA = ("heldout_loglik_own", "heldout_loglik_complete", "oos_coupling", "oos_r2", "outcome_r2")
@@ -1960,8 +1914,7 @@ def _compare_training_topologies(method, k, views, graphs, *, n_splits, train_fr
                     X = np.column_stack([np.ones(len(tr)), u_tr])
                     W = _ridge_fit(X, y_all[tr])
                     yhat = np.column_stack([np.ones(len(te)), _np(predict(res, v_te)["u"])]) @ W
-                    yt = y_all[te]
-                    out_r2 = float(1.0 - ((yt - yhat) ** 2).sum() / ((yt - yt.mean(0)) ** 2).sum())
+                    out_r2 = _r2_score(y_all[te], yhat)
                 topo_cache[topo_key] = (
                     Ztr, Zte, Zte_views, split_dofs, node_cache_t, ll_cmp, r2, coup, out_r2, {}
                 )
@@ -2029,20 +1982,25 @@ def predict_path(pm: Dict[str, Any], views: Any, *, covariates=None, groups=None
     nodes, models = pm["nodes"], pm["edge_models"]
     view_nodes = [nm for nm in nodes if nm not in ("outcome", "consensus")]
     if result is None:
-        sc = _given_scores_for(pm, views)
         orig_map = {pos: pos for pos in range(len(view_nodes))}
-        signs_full = None
+        signs_full: Optional[List[Optional[np.ndarray]]] = None
     else:
         orig_idx = pm.get("orig_view_indices")
         if orig_idx is None:
             orig_idx = list(range(len(view_nodes)))
         orig_map = {int(orig_m): pos for pos, orig_m in enumerate(orig_idx)}
-        signs_full: Optional[List[Optional[np.ndarray]]] = [None] * len(result["v"])
+        signs_full = [None] * len(result["v"])
         for pos, orig_m in enumerate(orig_idx):
             signs_full[int(orig_m)] = pm["signs"][pos]
-        vlist_raw = _view_list(result, views)
-        vlist = [vlist_raw[m] if m in orig_map else None for m in range(len(vlist_raw))]
-        sc = view_scores(result, vlist, signs=signs_full)
+
+    def _eval_scores(v_in: Any) -> Dict[str, Any]:
+        if result is None:
+            return _given_scores_for(pm, v_in)
+        v_raw = _view_list(result, v_in)
+        v_sub = [v_raw[m] if m in orig_map else None for m in range(len(v_raw))]
+        return view_scores(result, v_sub, signs=signs_full)
+
+    sc = _eval_scores(views)
     n = sc["n"]
     N, _, _ = _nuisance(n, covariates, groups)
     if N.shape[1] != models[nodes[0]]["n_nuisance"]:
@@ -2071,18 +2029,12 @@ def predict_path(pm: Dict[str, Any], views: Any, *, covariates=None, groups=None
     out: Dict[str, Any] = {"scores": Z, "predicted_from": predicted_from,
                            "outcome_pred": Z.get("outcome") if outcome else None, "r2_per_node": None}
     if views_true is not None:
-        if result is None:
-            st = _given_scores_for(pm, views_true)
-        else:
-            vt_raw = _view_list(result, views_true)
-            vt_sub = [vt_raw[m] if m in orig_map else None for m in range(len(vt_raw))]
-            st = view_scores(result, vt_sub, signs=signs_full)
+        st = _eval_scores(views_true)
         r2 = {}
         for m in st["available"]:
             nm = view_nodes[orig_map[m]]
             if nm in predicted_from:
-                t = st["scores"][m]
-                r2[nm] = float(1.0 - ((Z[nm] - t) ** 2).sum() / ((t - t.mean(0)) ** 2).sum())
+                r2[nm] = _r2_score(st["scores"][m], Z[nm])
         out["r2_per_node"] = r2
     return out
 

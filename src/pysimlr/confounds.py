@@ -116,6 +116,31 @@ def _resolve_view_key(key: Any, n_views: int) -> int:
                      f"or 'view0'..'view{n_views - 1}'.")
 
 
+def _unpack_confounds(confounds: Any, n_views: int) -> tuple[list[tuple[str, Any]], bool]:
+    if confounds is None:
+        raise ValueError("confounds is None.")
+    if _is_single_matrix(confounds):
+        return [("confounds", confounds)] * n_views, True
+    if isinstance(confounds, Mapping):
+        if not confounds:
+            raise ValueError("confounds mapping is empty.")
+        items: list[tuple[str, Any]] = [("", None)] * n_views
+        seen = [False] * n_views
+        for key, val in confounds.items():
+            idx = _resolve_view_key(key, n_views)
+            if seen[idx]:
+                raise ValueError(f"confounds gives view {idx} twice.")
+            seen[idx] = True
+            items[idx] = (f"confounds[{key!r}]", val)
+        return items, False
+    if isinstance(confounds, (list, tuple)):
+        if len(confounds) != n_views:
+            raise ValueError(f"per-view confounds has {len(confounds)} entries; there are {n_views} views.")
+        return [(f"confounds[{i}]", val) for i, val in enumerate(confounds)], False
+    raise ValueError(f"confounds must be an array, tensor, DataFrame/Series, a per-view list or a dict; "  # noqa: TRY004
+                     f"got {type(confounds).__name__}.")
+
+
 def per_view_confounds(confounds: Any, n_samples: int, n_views: int) -> tuple[list[np.ndarray | None], bool]:
     """``confounds`` as one ``(n, q_m)`` array (or None) per view, and whether it was one shared matrix.
 
@@ -123,29 +148,13 @@ def per_view_confounds(confounds: Any, n_samples: int, n_views: int) -> tuple[li
     a per-view sequence (``None`` for a view without confounds); or a dict
     keyed by view index or ``"view<i>"``.
     """
-    if confounds is None:
-        raise ValueError("confounds is None.")
-    if _is_single_matrix(confounds):
-        c = _to_numpy(confounds, "confounds")
+    items, shared = _unpack_confounds(confounds, n_views)
+    if shared:
+        c = _to_numpy(items[0][1], "confounds")
         if c.shape[0] != n_samples:
             raise ValueError(f"confounds has {c.shape[0]} rows; the views have {n_samples}.")
         return [c] * n_views, True
-    if isinstance(confounds, Mapping):
-        if not confounds:
-            raise ValueError("confounds mapping is empty.")
-        out: list[np.ndarray | None] = [None] * n_views
-        for key, val in confounds.items():
-            idx = _resolve_view_key(key, n_views)
-            if out[idx] is not None:
-                raise ValueError(f"confounds gives view {idx} twice.")
-            out[idx] = None if val is None else _to_numpy(val, f"confounds[{key!r}]")
-    elif isinstance(confounds, (list, tuple)):
-        if len(confounds) != n_views:
-            raise ValueError(f"per-view confounds has {len(confounds)} entries; there are {n_views} views.")
-        out = [None if val is None else _to_numpy(val, f"confounds[{i}]") for i, val in enumerate(confounds)]
-    else:
-        raise ValueError(f"confounds must be an array, tensor, DataFrame/Series, a per-view list or a dict; "  # noqa: TRY004
-                         f"got {type(confounds).__name__}.")
+    out = [None if val is None else _to_numpy(val, lbl) for lbl, val in items]
     if all(c is None for c in out):
         raise ValueError("confounds gives no confound matrix for any view.")
     for i, c in enumerate(out):
@@ -189,21 +198,9 @@ def permute_view_confounds(confounds: Any, perms: Sequence[np.ndarray | None]) -
     operator commutes with row permutations, every view of the null refit is
     cleaned exactly as in the observed fit (same basis rank, same penalty).
     """
-    n_views = len(perms)
-    if _is_single_matrix(confounds):
-        items: list[Any] = [confounds] * n_views
-    elif isinstance(confounds, Mapping):
-        items = [None] * n_views
-        for key, val in confounds.items():
-            items[_resolve_view_key(key, n_views)] = val
-    elif isinstance(confounds, (list, tuple)):
-        if len(confounds) != n_views:
-            raise ValueError(f"per-view confounds has {len(confounds)} entries; there are {n_views} views.")
-        items = list(confounds)
-    else:
-        raise ValueError(f"cannot permute confounds of type {type(confounds).__name__}.")
+    items, _ = _unpack_confounds(confounds, len(perms))
     return [v if (v is None or p is None) else _slice_one(v, np.asarray(p, dtype=np.int64))
-            for v, p in zip(items, perms)]
+            for (_, v), p in zip(items, perms)]
 
 
 # ----------------------------------------------------------------------------- confound basis

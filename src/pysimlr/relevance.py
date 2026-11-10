@@ -45,6 +45,7 @@ import numpy as np
 import torch
 
 from .loadings import (
+    _per_view_arg,
     _relative_weight_basis,
     _relative_weight_basis_lam,
     _relative_weight_shares,
@@ -313,12 +314,7 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
     bad = [m for m in eval_views if m not in avail_eval]
     if bad:
         raise ValueError(f"views {bad} are not available at test time.")
-    if isinstance(shrinkage, (list, tuple)):
-        if len(shrinkage) != n_views:
-            raise ValueError(f"shrinkage has {len(shrinkage)} entries; the fit has {n_views} views.")
-        shrinkages = list(shrinkage)
-    else:
-        shrinkages = [shrinkage] * n_views
+    shrinkages = _per_view_arg(shrinkage, n_views, "shrinkage", noun="the fit has")
     vnames = list(view_names) if view_names is not None else list(_names(result))
 
     def _width(m: int) -> int:
@@ -380,16 +376,16 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
     freq = {m: {} for m in eval_views}
     gfreq = {m: {} for m in eval_views}
     n_done = 0
+    k_comp = int(result["u"].shape[1])
+    used_params = dict((result.get("parameters") or {}).get("used") or {})
     if n_refits > 0:
         n = train[0].shape[0]
-        k = int(result["u"].shape[1])
-        params = dict((result.get("parameters") or {}).get("used") or {})
         seeds = np.random.SeedSequence(random_state).spawn(n_refits)
         tasks = []
         for r, ss in enumerate(seeds):
             g = np.random.default_rng(ss)
             rows = np.sort(g.choice(n, round(refit_fraction * n), replace=False))
-            tasks.append((result["method"], k, params, train, probe_tr, avail, eval_views, outcome,
+            tasks.append((result["method"], k_comp, used_params, train, probe_tr, avail, eval_views, outcome,
                           None if outcome is not None else j, rows, names, labels, min_group_size,
                           refit_permutations, shrinkages, int(g.integers(2 ** 31))))
         outs = _run(_refit_task, tasks, n_jobs)
@@ -403,10 +399,8 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
 
     nulls = {m: [] for m in eval_views}
     if n_null_refits > 0:
-        k = int(result["u"].shape[1])
-        params = dict((result.get("parameters") or {}).get("used") or {})
         seeds = np.random.SeedSequence([random_state, 1]).spawn(n_null_refits * len(eval_views))
-        tasks = [(result["method"], k, params, train, None if probe_tr is None else probe_tr[m], avail, m,
+        tasks = [(result["method"], k_comp, used_params, train, None if probe_tr is None else probe_tr[m], avail, m,
                   outcome, None if outcome is not None else j,
                   np.isin(names[m], ref[m]["names"]), shrinkages[m],
                   int(np.random.default_rng(seeds[i * len(eval_views) + q]).integers(2 ** 31)))

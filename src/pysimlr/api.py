@@ -93,18 +93,11 @@ def as_views(views: Any) -> List[torch.Tensor]:
     Accepts one matrix (a single view) or a list/tuple of matrices; each may
     be a `torch.Tensor`, `np.ndarray` or anything with ``to_numpy()``.
     """
+    from .extension import _to_tensor
     items = list(views) if isinstance(views, (list, tuple)) else [views]
     if not items:
         raise ValueError("views must contain at least one matrix.")
-    out = []
-    for i, m in enumerate(items):
-        if hasattr(m, "to_numpy"):
-            m = m.to_numpy()
-        t = m.detach() if isinstance(m, torch.Tensor) else torch.as_tensor(np.asarray(m, dtype=np.float64))
-        t = t.float()
-        if t.ndim != 2:
-            raise ValueError(f"view {i} must be 2-D (samples x features); got shape {tuple(t.shape)}.")
-        out.append(t)
+    out = [_to_tensor(m, f"view {i}") for i, m in enumerate(items)]
     rows = {t.shape[0] for t in out}
     if len(rows) != 1:
         raise ValueError(f"Size mismatch: views have different numbers of rows: "
@@ -508,14 +501,14 @@ def _basis_grad_map(res: Dict[str, Any], views: List[torch.Tensor]) -> Optional[
     certifies the basis, not the decoder weights. Largest over views; ``None``
     only when the result has no per-view basis of matching shape.
     """
+    from .extension import _used
     from .utils import stationarity_residual
     from .similarity import SimilarityContext, resolve_energy_name, similarity_gradient
     vs, u = res.get("v"), res.get("u")
     if not vs or u is None:
         return None
-    used, defaults = res["parameters"]["used"], res["parameters"]["defaults"]
-    energy_type = used.get("energy_type", defaults.get("energy_type"))
-    positivity = used.get("positivity", defaults.get("positivity", "either"))
+    energy_type = _used(res, "energy_type")
+    positivity = _used(res, "positivity", "either")
     from .positivity import is_nonneg
     nonneg = is_nonneg(positivity)
     name = resolve_energy_name(energy_type, path="deep")

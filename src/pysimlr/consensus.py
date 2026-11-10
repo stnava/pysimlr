@@ -330,50 +330,29 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         else:
             return _get_u(norm_projs, return_anchor=False)
             
-    elif topology == "loo":
+    else:
         # NOTE: a model trained with leave-one-out must also *predict* with
         # leave-one-out. This branch previously short-circuited to the star
         # consensus whenever an anchor was present, so prediction returned a
         # single tensor where training returned one consensus per modality --
         # a different estimator, and a different return type.
-        u_list = []
-        for i in range(len(orig_norm_projs)):
-            loo_idx = [j for j in range(len(orig_norm_projs)) if j != i and j in valid_indices]
-            loo_projs = _neighbourhood(loo_idx) if loo_idx else []
-            if len(loo_projs) == 0:
-                u_list.append(orig_norm_projs[i])
-            else:
-                u_list.append(_get_u(loo_projs, return_anchor=False))
-                
-        if training:
-            with torch.no_grad():
-                _, new_anchor = _get_u([p.detach() for p in norm_projs], return_anchor=True)
-            return u_list, new_anchor
-        return u_list
-
-    elif topology == "graph":
-        if path_graph is None:
+        if topology == "graph" and path_graph is None:
             raise ValueError("path_graph must be provided for topology='graph'")
-            
         u_list = []
         for i in range(len(orig_norm_projs)):
-            neighbors = path_graph.get(i, [])
-            nb_idx = [j for j in neighbors if j in valid_indices]
-            neighbor_projs = _neighbourhood(nb_idx) if nb_idx else []
-            if len(neighbor_projs) == 0:
+            candidates = (range(len(orig_norm_projs)) if topology == "loo"
+                          else path_graph.get(i, []))
+            nb_idx = [j for j in candidates if (j != i or topology == "graph") and j in valid_indices]
+            nb_projs = _neighbourhood(nb_idx) if nb_idx else []
+            if len(nb_projs) == 0:
                 u_list.append(orig_norm_projs[i])
             else:
-                u_list.append(_get_u(neighbor_projs, return_anchor=False))
-                
+                u_list.append(_get_u(nb_projs, return_anchor=False))
         if training:
             with torch.no_grad():
                 _, new_anchor = _get_u([p.detach() for p in norm_projs], return_anchor=True)
             return u_list, new_anchor
         return u_list
-
-    # Unreachable: the topology is validated above. Kept so a future branch
-    # that forgets to return has a defined result rather than None.
-    return _get_u(norm_projs, return_anchor=training)
 
 
 #: MAI metrics `mai_score` implements. ``trace`` was removed: tr(Z'u) depends
@@ -475,6 +454,28 @@ def check_mai_metric(metric: str) -> str:
     return metric
 
 
+def _norm_latents_for_mai(latents: List[torch.Tensor], use_rank: bool) -> List[torch.Tensor]:
+    if use_rank:
+        latents = [torch.argsort(torch.argsort(p, dim=0), dim=0).to(p.dtype) for p in latents]
+    norm_projs = []
+    for p in latents:
+        p_c = p - p.mean(dim=0, keepdim=True)
+        p_norm = torch.norm(p_c, p="fro")
+        norm_projs.append(p_c / p_norm if p_norm > 1e-8 else torch.zeros_like(p_c))
+    return norm_projs
+
+
+def _loo_unit_consensus(norm_projs: List[torch.Tensor], i: int) -> Tuple[bool, Optional[torch.Tensor]]:
+    others = [norm_projs[j] for j in range(len(norm_projs)) if j != i]
+    if not others:
+        return False, None
+    # Sign-aligned: unaligned views cancel in this average exactly as they
+    # do in the consensus.
+    u_loo = torch.mean(torch.stack(align_column_signs(others)), dim=0)
+    u_norm = torch.norm(u_loo, p="fro")
+    return True, (u_loo / u_norm if u_norm > 1e-8 else None)
+
+
 def loo_mai_scores(latents: List[torch.Tensor], metric: str,
                    use_rank: bool = False) -> List[float]:
     """Leave-one-out agreement of every view with the others, one float per view.
@@ -486,25 +487,16 @@ def loo_mai_scores(latents: List[torch.Tensor], metric: str,
     and flow model; only the weighting schedule built on these scores differs.
     """
     check_mai_metric(metric)
-    if use_rank:
-        latents = [torch.argsort(torch.argsort(p, dim=0), dim=0).to(p.dtype) for p in latents]
-    norm_projs = []
-    for p in latents:
-        p_c = p - p.mean(dim=0, keepdim=True)
-        p_norm = torch.norm(p_c, p="fro")
-        norm_projs.append(p_c / p_norm if p_norm > 1e-8 else torch.zeros_like(p_c))
+    norm_projs = _norm_latents_for_mai(latents, use_rank)
     mais = []
     for i in range(len(norm_projs)):
-        others = [norm_projs[j] for j in range(len(norm_projs)) if j != i]
-        if not others:
+        has_others, u = _loo_unit_consensus(norm_projs, i)
+        if not has_others:
             mais.append(1.0)
-            continue
-        # Sign-aligned: unaligned views cancel in this average exactly as they
-        # do in the consensus.
-        u_loo = torch.mean(torch.stack(align_column_signs(others)), dim=0)
-        u_norm = torch.norm(u_loo, p="fro")
-        mais.append(mai_score_or_zero(norm_projs[i], u_loo / u_norm, metric, i)
-                    if u_norm > 1e-8 else 0.0)
+        elif u is None:
+            mais.append(0.0)
+        else:
+            mais.append(mai_score_or_zero(norm_projs[i], u, metric, i))
     return mais
 
 
@@ -549,12 +541,7 @@ def loo_mai_calibrated(latents: List[torch.Tensor], metric: str, dofs: Optional[
     other views.
     """
     check_mai_metric(metric)
-    if use_rank:
-        latents = [torch.argsort(torch.argsort(p, dim=0), dim=0).to(p.dtype) for p in latents]
-    norm = []
-    for p in latents:
-        pc = p - p.mean(dim=0, keepdim=True); pn = torch.norm(pc, p="fro")
-        norm.append(pc / pn if pn > 1e-8 else torch.zeros_like(pc))
+    norm = _norm_latents_for_mai(latents, use_rank)
     n = int(norm[0].shape[0]); M = len(norm); k = int(norm[0].shape[1])
     # The dof correction removes the agreement a basis gains by being fitted,
     # which scales with the rows it was fitted on. The deep and flow models
@@ -568,14 +555,11 @@ def loo_mai_calibrated(latents: List[torch.Tensor], metric: str, dofs: Optional[
     g = torch.Generator().manual_seed(int(seed))
     scores, floors = [], []
     for i in range(M):
-        others = [norm[j] for j in range(M) if j != i]
-        if not others:
+        has_others, u = _loo_unit_consensus(norm, i)
+        if not has_others:
             scores.append(1.0); floors.append(0.0); continue
-        u = torch.mean(torch.stack(align_column_signs(others)), dim=0)
-        un = torch.norm(u, p="fro")
-        if un <= 1e-8:
+        if u is None:
             scores.append(0.0); floors.append(0.0); continue
-        u = u / un
         scores.append(mai_dof_adjust(mai_score_or_zero(norm[i], u, metric, i), metric, n_adj, dofs[i], k))
         if not want_floor:
             continue

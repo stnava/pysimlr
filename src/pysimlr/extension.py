@@ -65,13 +65,13 @@ def view_names(result: Dict[str, Any]) -> List[str]:
     return names + [n for n in (result.get("extensions") or {})]
 
 
-def _to_tensor(m) -> torch.Tensor:
+def _to_tensor(m: Any, label: str = "each view") -> torch.Tensor:
     if hasattr(m, "to_numpy"):
         m = m.to_numpy()
     t = m.detach() if isinstance(m, torch.Tensor) else torch.as_tensor(np.asarray(m, dtype=np.float64))
     t = t.float()
     if t.ndim != 2:
-        raise ValueError(f"each view must be 2-D (samples x features); got shape {tuple(t.shape)}.")
+        raise ValueError(f"{label} must be 2-D (samples x features); got shape {tuple(t.shape)}.")
     return t
 
 
@@ -115,38 +115,49 @@ def split_views(result: Dict[str, Any], views: Any) -> Tuple[List[Optional[torch
 
 
 # ----------------------------------------------------------------------------- per-view consensus maps
-def _gcv_ridge_solve(zc: torch.Tensor, uc: torch.Tensor) -> torch.Tensor:
-    """Solve ``zc B ~ uc`` with generalized cross-validation relative ridge shrinkage."""
-    n, d = int(zc.shape[0]), int(zc.shape[1])
-    k = int(uc.shape[1])
+def _gcv_ridge_svd(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    n_eff: Optional[float] = None,
+    rel_grid: Sequence[float] = (1e-8, 1e-5, 1e-3, 1e-2, 1e-1, 0.3, 1.0),
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Solve ``x W ~ y`` via SVD-based GCV ridge (Golub, Heath & Wahba 1979); returns ``(W, h_diag)``."""
+    n, d = int(x.shape[0]), int(x.shape[1])
+    k = int(y.shape[1])
     if n < 2 or d == 0:
-        return torch.zeros((d, k), dtype=torch.float64, device=zc.device)
-    u_svd, s_svd, vh_svd = torch.linalg.svd(zc, full_matrices=False)
-    smax = float(s_svd[0].item()) if s_svd.numel() > 0 else 0.0
+        return np.zeros((d, k), dtype=np.float64), np.zeros(n, dtype=np.float64)
+    u_svd, s_svd, vt_svd = np.linalg.svd(x, full_matrices=False)
+    smax = float(s_svd[0]) if s_svd.size else 0.0
     if smax <= 1e-15:
-        return torch.zeros((d, k), dtype=torch.float64, device=zc.device)
+        return np.zeros((d, k), dtype=np.float64), np.zeros(n, dtype=np.float64)
     s2 = s_svd ** 2
-    scale = float(s2.mean().item())
-    ut_y = u_svd.T @ uc
-    y_norm2 = float((uc ** 2).sum().item())
-    proj_norm2 = float((ut_y ** 2).sum().item())
-    orth_res2 = max(0.0, y_norm2 - proj_norm2)
+    scale = max(float(s2.mean()), 1e-12)
+    ut_y = u_svd.T @ y
+    orth_res2 = max(0.0, float((y ** 2).sum()) - float((ut_y ** 2).sum()))
+    ne = float(n) if n_eff is None else float(max(n_eff, 1.0))
     best_lam = 1e-8 * scale
     best_gcv = float("inf")
-    for rel in (1e-8, 1e-5, 1e-3, 1e-2, 1e-1, 0.3, 1.0):
+    for rel in rel_grid:
         lam = rel * scale
         filt = s2 / (s2 + lam)
-        df_eff = float(filt.sum().item())
-        denom = (1.0 - df_eff / float(n)) ** 2
+        denom = (1.0 - float(filt.sum()) / ne) ** 2
         if denom <= 1e-12:
             continue
-        in_span_res2 = float((((1.0 - filt).unsqueeze(1) * ut_y) ** 2).sum().item())
-        gcv = (orth_res2 + in_span_res2) / (float(n) * denom)
+        in_span_res2 = float((((1.0 - filt)[:, None] * ut_y) ** 2).sum())
+        gcv = (orth_res2 + in_span_res2) / (ne * denom)
         if gcv < best_gcv:
             best_gcv = gcv
             best_lam = lam
-    coeff = (s_svd / (s2 + best_lam)).unsqueeze(1) * ut_y
-    return vh_svd.T @ coeff
+    filt_best = s2 / (s2 + best_lam)
+    w = vt_svd.T @ ((s_svd / (s2 + best_lam))[:, None] * ut_y)
+    return w, (u_svd ** 2) @ filt_best
+
+
+def _gcv_ridge_solve(zc: torch.Tensor, uc: torch.Tensor) -> torch.Tensor:
+    """Solve ``zc B ~ uc`` with generalized cross-validation relative ridge shrinkage."""
+    w, _ = _gcv_ridge_svd(zc.detach().cpu().double().numpy(), uc.detach().cpu().double().numpy())
+    return torch.as_tensor(w, dtype=torch.float64, device=zc.device)
 
 
 def _affine_map(z: torch.Tensor, u: torch.Tensor, *, dof: Optional[float] = None,
@@ -284,8 +295,7 @@ def _new_view_confounds(result: Dict[str, Any], confounds: Any, n: int) -> Optio
     c = _to_numpy(confounds, "confounds")
     if c.shape[0] != n:
         raise ValueError(f"confounds has {c.shape[0]} rows; the views have {n}.")
-    prm = (result.get("parameters") or {}).get("used") or {}
-    return {"c": c, "gamma": float(rec["confound_strength"]), "rank": prm.get("confound_rank")}
+    return {"c": c, "gamma": float(rec["confound_strength"]), "rank": _used(result, "confound_rank")}
 
 
 def _ext_latent(result: Dict[str, Any], name: str, x: torch.Tensor) -> torch.Tensor:
@@ -366,8 +376,12 @@ def _corr_cols(a: torch.Tensor, b: torch.Tensor) -> np.ndarray:
 
 def _null_bar(n: int, alpha: float = 0.01) -> float:
     """One-sided Fisher-z critical r for ``n`` rows (the `select_rank` oos_coupling bar)."""
-    from statistics import NormalDist
-    z = NormalDist().inv_cdf(1.0 - alpha)
+    if alpha == 0.01:
+        from .loadings import _FISHER_Z_001
+        z = _FISHER_Z_001
+    else:
+        from statistics import NormalDist
+        z = NormalDist().inv_cdf(1.0 - alpha)
     return float(math.tanh(z / math.sqrt(max(n - 3, 1))))
 
 
@@ -501,35 +515,8 @@ def _anchored_holdout(x: torch.Tensor, target: torch.Tensor, R: torch.Tensor,
     from .positivity import is_nonneg
     sign_inv = (is_nonneg(settings.get("positivity"))
                 and settings.get("energy_type") in SIGN_INVARIANT_ENERGIES)
-    if n < 60:
-        n_folds = min(5, max(3, int(round(1.0 / holdout))))
-        perm = rng.permutation(n)
-        folds = [perm[i::n_folds] for i in range(n_folds)]
-        z_oof_rot = torch.zeros((n, k), dtype=torch.float64)
-        u_oof_hat = torch.zeros((n, k), dtype=torch.float64)
-        for te in folds:
-            if len(te) == 0:
-                continue
-            tr = np.setdiff1d(np.arange(n), te)
-            xtr, ptr = preprocess_data(x[tr], scale_list, _rows=tr)
-            fh = fit_anchored_encoder(xtr, target[tr], **settings)
-            xte = preprocess_data(x[te], scale_list, ptr)
-            ztr = (xtr.float() @ fh["v"]).double()
-            zte = (xte.float() @ fh["v"]).double()
-            if sign_inv:
-                r_tr = _corr_cols(ztr @ R, target[tr].double() @ R)
-                sgn = torch.as_tensor(np.where(r_tr < 0.0, -1.0, 1.0), dtype=torch.float64)
-            else:
-                sgn = torch.ones(k, dtype=torch.float64)
-            z_oof_rot[te] = (zte @ R) * sgn.unsqueeze(0)
-            mp_tr = _affine_map(ztr, target[tr])
-            u_oof_hat[te] = zte @ mp_tr["B"] + mp_tr["b"]
-        r = _corr_cols(z_oof_rot, target.double() @ R)
-        r_u = _corr_cols(u_oof_hat, target.double())
-        n_eval = n
-    else:
-        te = rng.choice(n, max(3, int(round(holdout * n))), replace=False)
-        tr = np.setdiff1d(np.arange(n), te)
+
+    def _eval_split(tr, te):
         xtr, ptr = preprocess_data(x[tr], scale_list, _rows=tr)
         fh = fit_anchored_encoder(xtr, target[tr], **settings)
         xte = preprocess_data(x[te], scale_list, ptr)
@@ -540,9 +527,29 @@ def _anchored_holdout(x: torch.Tensor, target: torch.Tensor, R: torch.Tensor,
             sgn_np = np.where(r_tr < 0.0, -1.0, 1.0)
         else:
             sgn_np = np.ones(k)
-        r = sgn_np * _corr_cols(zte @ R, target[te].double() @ R)
         mp_tr = _affine_map(ztr, target[tr])
-        u_te_hat = zte @ mp_tr["B"] + mp_tr["b"]
+        return zte @ R, sgn_np, zte @ mp_tr["B"] + mp_tr["b"]
+
+    if n < 60:
+        n_folds = min(5, max(3, int(round(1.0 / holdout))))
+        perm = rng.permutation(n)
+        folds = [perm[i::n_folds] for i in range(n_folds)]
+        z_oof_rot = torch.zeros((n, k), dtype=torch.float64)
+        u_oof_hat = torch.zeros((n, k), dtype=torch.float64)
+        for te in folds:
+            if len(te) == 0:
+                continue
+            tr = np.setdiff1d(np.arange(n), te)
+            zte_rot, sgn_np, u_oof_hat[te] = _eval_split(tr, te)
+            z_oof_rot[te] = zte_rot * torch.as_tensor(sgn_np, dtype=torch.float64).unsqueeze(0)
+        r = _corr_cols(z_oof_rot, target.double() @ R)
+        r_u = _corr_cols(u_oof_hat, target.double())
+        n_eval = n
+    else:
+        te = rng.choice(n, max(3, int(round(holdout * n))), replace=False)
+        tr = np.setdiff1d(np.arange(n), te)
+        zte_rot, sgn_np, u_te_hat = _eval_split(tr, te)
+        r = sgn_np * _corr_cols(zte_rot, target[te].double() @ R)
         r_u = _corr_cols(u_te_hat, target[te].double())
         n_eval = int(len(te))
     chance = 1.0 / float(max(n_eval - 1, 1))
@@ -557,7 +564,7 @@ def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, 
               nsa_w: Optional[float] = None, iterations: int = DEFAULT_SIMLR_ITERATIONS,
               random_state: int = 0, warn: bool = True, confounds: Any = None) -> Dict[str, Any]:
     from .consensus import view_dofs
-    from .loadings import olee_loadings, structure_coefficients, view_coupling_signs
+    from .loadings import _oriented_olee, structure_coefficients
     from .similarity import check_fit_energy
     from .utils import preprocess_data
     if not isinstance(new_views, dict) or not new_views:
@@ -624,9 +631,8 @@ def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, 
         z = xp.float() @ fit["v"]
         dof_ext = view_dofs([fit["v"]], int(n))[0]
         struct = structure_coefficients([xp], target.double() @ R)[0]
-        csign = view_coupling_signs([struct], [fit["v"]], positivity=pos, energy_type=e_used)[0]
-        struct_oriented = struct * csign.to(struct.dtype).unsqueeze(0)
-        loads, margins = olee_loadings([struct_oriented], pos)
+        csigns, loads, margins = _oriented_olee([struct], [fit["v"]], pos, e_used)
+        csign = csigns[0]
         raw_coup = _corr_cols(z.double() @ R, target.double() @ R)
         out["extensions"][nm] = {
             "v": fit["v"], "scale_list": list(scale_list), "provenance": prov,
