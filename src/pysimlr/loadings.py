@@ -60,20 +60,36 @@ from .positivity import NONNEG as _NONNEG
 from .positivity import resolve_positivity
 
 
-def structure_coefficients(views: Sequence[torch.Tensor], u: torch.Tensor) -> List[torch.Tensor]:
+def structure_coefficients(views: Sequence[torch.Tensor], u: torch.Tensor,
+                           obs_masks: Optional[Sequence[Optional[torch.Tensor]]] = None) -> List[torch.Tensor]:
     """Per-view ``(p_m, k)`` correlations between each feature and each latent column.
 
     A constant feature or latent column has no correlation; its entries are 0.
+    When ``obs_masks`` gives a boolean row mask for a view, that view's
+    correlations are evaluated strictly on its observed rows.
     """
     u64 = torch.as_tensor(u).detach().double()
-    uc = u64 - u64.mean(0, keepdim=True)
-    us = uc / uc.norm(dim=0, keepdim=True).clamp_min(1e-300)
-    us = torch.where(uc.norm(dim=0, keepdim=True) > 0, us, torch.zeros_like(us))
+    uc_all = u64 - u64.mean(0, keepdim=True)
+    nu_all = uc_all.norm(dim=0, keepdim=True)
+    us_all = torch.where(nu_all > 0, uc_all / nu_all.clamp_min(1e-300), torch.zeros_like(uc_all))
     out = []
-    for x in views:
+    for m_idx, x in enumerate(views):
         x64 = torch.as_tensor(x).detach().double()
-        if x64.shape[0] != u64.shape[0]:
-            raise ValueError(f"view has {x64.shape[0]} rows but u has {u64.shape[0]}.")
+        mask = None if obs_masks is None else obs_masks[m_idx]
+        if mask is not None:
+            mask_b = torch.as_tensor(mask, dtype=torch.bool, device=x64.device)
+            u_m = u64[mask_b.to(u64.device)]
+            if x64.shape[0] == mask_b.shape[0]:
+                x64 = x64[mask_b]
+            elif x64.shape[0] != u_m.shape[0]:
+                raise ValueError(f"view has {x64.shape[0]} rows but mask selects {int(mask_b.sum())}.")
+            uc = u_m - u_m.mean(0, keepdim=True)
+            nu = uc.norm(dim=0, keepdim=True)
+            us = torch.where(nu > 0, uc / nu.clamp_min(1e-300), torch.zeros_like(uc))
+        else:
+            if x64.shape[0] != u64.shape[0]:
+                raise ValueError(f"view has {x64.shape[0]} rows but u has {u64.shape[0]}.")
+            us = us_all
         xc = x64 - x64.mean(0, keepdim=True)
         nx = xc.norm(dim=0, keepdim=True)
         xs = torch.where(nx > 0, xc / nx.clamp_min(1e-300), torch.zeros_like(xc))
@@ -202,15 +218,29 @@ def loadings(result: Dict[str, Any], views: Any, u: Optional[torch.Tensor] = Non
     view_list = as_views(views)
     if u is None:
         u = result["u"]
-    xs, _ = _preprocess_views(view_list, result["scale_list"], result["provenance_list"])
-    c0 = structure_coefficients(xs, u)
+    obs_masks: Optional[List[Optional[torch.Tensor]]] = None
+    if result.get("missing_rows") == "mask":
+        from .utils import preprocess_data
+        obs_masks = [~torch.isnan(v).all(dim=1) for v in view_list]
+        scale_list = result["scale_list"]
+        prov_list = result["provenance_list"]
+        xs = []
+        for m_idx, (v, obs_m) in enumerate(zip(view_list, obs_masks)):
+            v_obs = v[obs_m]
+            if scale_list and scale_list[0] != "none" and m_idx < len(prov_list):
+                xs.append(preprocess_data(v_obs, scale_list, provenance=prov_list[m_idx]))
+            else:
+                xs.append(v_obs)
+    else:
+        xs, _ = _preprocess_views(view_list, result["scale_list"], result["provenance_list"])
+    c0 = structure_coefficients(xs, u, obs_masks=obs_masks)
     rot = varimax_rotation(c0)
     # Correlations with the rotated scores themselves, not C0 @ R: the two agree
     # only when u's columns are uncorrelated with equal variance (orthogonal
     # mixings). Under "avg" they differed by up to 0.07, so "structure describes
     # u @ R" held only approximately.
     u_rot = torch.as_tensor(u).detach().double() @ rot
-    c = structure_coefficients(xs, u_rot)
+    c = structure_coefficients(xs, u_rot, obs_masks=obs_masks)
     pos = _result_positivity(result)
     etype = _result_energy_type(result)
     v_list = None if result.get("basis_is_joint") else result.get("v")

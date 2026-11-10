@@ -164,6 +164,10 @@ def _affine_map(z: torch.Tensor, u: torch.Tensor, *, dof: Optional[float] = None
                 oof_r2: Optional[Sequence[float]] = None, r2_cap: float = 1.0 - 1e-4) -> Dict[str, Any]:
     """GCV-stabilized ``u ~ z B + b`` and per-component DOF/OOF-calibrated precision weights."""
     z64, u64 = z.double(), u.double()
+    if not bool(torch.isfinite(z64).all() and torch.isfinite(u64).all()):
+        fin = torch.isfinite(z64).all(dim=1) & torch.isfinite(u64).all(dim=1)
+        z64 = z64[fin]
+        u64 = u64[fin]
     n, d = int(z64.shape[0]), int(z64.shape[1])
     k = int(u64.shape[1])
     zm, um = z64.mean(0, keepdim=True), u64.mean(0, keepdim=True)
@@ -251,10 +255,14 @@ def subset_consensus(latents: Dict[Any, torch.Tensor], maps: Dict[Any, Dict[str,
     preds = []
     w_cols = []
     w_fbs = []
+    row_masks = []
     for key, z in latents.items():
         mp = maps[key]
         pred = z.double() @ mp["B"] + mp["b"]
-        k = int(pred.shape[1])
+        n_r, k = int(pred.shape[0]), int(pred.shape[1])
+        fin_r = torch.isfinite(pred).all(dim=1, keepdim=True)
+        if not bool(fin_r.any()):
+            continue
         if "weight_per_component" in mp:
             wc = torch.as_tensor(mp["weight_per_component"], dtype=torch.float64, device=pred.device).reshape(1, k)
         else:
@@ -265,9 +273,11 @@ def subset_consensus(latents: Dict[Any, torch.Tensor], maps: Dict[Any, Dict[str,
             wf = wc
         if float(wc.max().item()) <= 0.0 and float(wf.max().item()) <= 0.0:
             continue
-        preds.append(pred)
-        w_cols.append(wc.clamp_min(0.0))
-        w_fbs.append(wf.clamp_min(0.0))
+        fin_f = fin_r.to(dtype=torch.float64)
+        preds.append(torch.where(fin_r, pred, torch.zeros_like(pred)))
+        w_cols.append(wc.clamp_min(0.0).expand(n_r, k) * fin_f)
+        w_fbs.append(wf.clamp_min(0.0).expand(n_r, k) * fin_f)
+        row_masks.append(fin_f.expand(n_r, k))
     if not preds:
         raise ValueError("none of the available views predicts the consensus (all weights are 0).")
     p_stack = torch.stack(preds, dim=0)
@@ -275,7 +285,9 @@ def subset_consensus(latents: Dict[Any, torch.Tensor], maps: Dict[Any, Dict[str,
     w_sum = w_stack.sum(dim=0)
     fb_stack = torch.stack(w_fbs, dim=0)
     fb_sum = fb_stack.sum(dim=0)
-    unif = torch.full_like(w_stack, 1.0 / float(len(preds)))
+    m_stack = torch.stack(row_masks, dim=0)
+    m_sum = m_stack.sum(dim=0).clamp_min(1.0)
+    unif = m_stack / m_sum
     use_w = torch.where(w_sum > 0.0, w_stack, torch.where(fb_sum > 0.0, fb_stack, unif))
     den = use_w.sum(dim=0).clamp_min(1e-300)
     return ((p_stack * use_w).sum(dim=0) / den).float()
@@ -316,6 +328,13 @@ def _new_view_confounds(result: Dict[str, Any], confounds: Any, n: int) -> Optio
 def _ext_latent(result: Dict[str, Any], name: str, x: torch.Tensor) -> torch.Tensor:
     from .utils import preprocess_data
     e = result["extensions"][name]
+    obs = ~torch.isnan(x).all(dim=1)
+    if not bool(obs.all()):
+        out = torch.full((x.shape[0], e["v"].shape[1]), float("nan"), dtype=torch.float32, device=x.device)
+        if bool(obs.any()):
+            xp = preprocess_data(x[obs], e["scale_list"], e["provenance"])
+            out[obs] = xp.float() @ e["v"].float()
+        return out
     xp = preprocess_data(x, e["scale_list"], e["provenance"])
     return xp.float() @ e["v"].float()
 
@@ -621,43 +640,58 @@ def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, 
         x = _to_tensor(raw)
         if x.shape[0] != n:
             raise ValueError(f"new view {nm!r} has {x.shape[0]} rows; the original views have {n}.")
+        obs = ~torch.isnan(x).all(dim=1)
+        has_row_mask = not bool(obs.all())
+        x_fit = x[obs] if has_row_mask else x
+        t_fit = target[obs] if has_row_mask else target
+        n_fit = int(x_fit.shape[0])
+        if n_fit < max(int(k) + 2, 6):
+            raise ValueError(f"new view {nm!r} has only {n_fit} observed rows; need at least {max(int(k) + 2, 6)}.")
         sink_fit = None
         if c_new is not None:
             from .confounds import fit_view_sink
             gamma, rank = c_new["gamma"], c_new["rank"]
+            c_fit = c_new["c"][obs.detach().cpu().numpy()] if has_row_mask else c_new["c"]
 
-            def sink_fit(rows, _x=x, _c=c_new["c"], _g=gamma, _r=rank):
+            def sink_fit(rows, _x=x_fit, _c=c_fit, _g=gamma, _r=rank):
                 rows = np.arange(_x.shape[0]) if rows is None else np.asarray(rows)
                 return fit_view_sink(_x[torch.as_tensor(rows)], _c[rows], _g, _r)
             s_all = sink_fit(None)
-            xp, prov = preprocess_data(_apply_sink(x, s_all), scale_list)
+            if has_row_mask:
+                s_all["preserve_row_nans"] = True
+            xp, prov = preprocess_data(_apply_sink(x_fit, s_all), scale_list)
             prov["confound_sink"] = s_all
         else:
-            xp, prov = preprocess_data(x, scale_list)
+            xp, prov = preprocess_data(x_fit, scale_list)
         settings = dict(energy_type=e_used, positivity=pos, sparseness=sp, nsa_w=w, iterations=iterations)
         hold = None
         oof_r2 = None
-        if holdout and 0 < holdout < 1 and n >= 15:
-            hold, oof_r2 = _anchored_holdout(x, target, R, scale_list, settings, holdout=holdout, rng=rng,
+        if holdout and 0 < holdout < 1 and n_fit >= 15:
+            hold, oof_r2 = _anchored_holdout(x_fit, t_fit, R, scale_list, settings, holdout=holdout, rng=rng,
                                              sink_fit=sink_fit)
             if warn and float(np.nanmax(hold["coupling"])) < hold["null_bar"]:
                 warnings.warn(f"new view {nm!r} does not align with the model: held-out coupling "
                               f"{np.round(hold['coupling'], 3).tolist()} is below the null bar "
                               f"{hold['null_bar']:.3f} on every component.", RuntimeWarning, stacklevel=3)
-        fit = fit_anchored_encoder(xp, target, **settings)
-        z = xp.float() @ fit["v"]
-        dof_ext = view_dofs([fit["v"]], int(n))[0]
-        struct = structure_coefficients([xp], target.double() @ R)[0]
+        fit = fit_anchored_encoder(xp, t_fit, **settings)
+        z_fit = xp.float() @ fit["v"]
+        if has_row_mask:
+            z = torch.full((n, k), float("nan"), dtype=z_fit.dtype, device=z_fit.device)
+            z[obs] = z_fit
+        else:
+            z = z_fit
+        dof_ext = view_dofs([fit["v"]], int(n_fit))[0]
+        struct = structure_coefficients([xp], t_fit.double() @ R)[0]
         csigns, loads, margins = _oriented_olee([struct], [fit["v"]], pos, e_used)
         csign = csigns[0]
-        raw_coup = _corr_cols(z.double() @ R, target.double() @ R)
+        raw_coup = _corr_cols(z_fit.double() @ R, t_fit.double() @ R)
         out["extensions"][nm] = {
             "v": fit["v"], "scale_list": list(scale_list), "provenance": prov,
-            "map": _affine_map(z, target, dof=dof_ext, oof_r2=oof_r2),
+            "map": _affine_map(z_fit, t_fit, dof=dof_ext, oof_r2=oof_r2),
             "energy_type": e_used, "positivity": pos, "sparseness": sp,
             "nsa_w": w, "convergence": fit["convergence"], "energy": fit["energy"],
             "coupling": raw_coup.tolist(), "coupling_signs": csign,
-            "holdout": hold, "latent": z.detach(), "n_subjects": int(n)}
+            "holdout": hold, "latent": z.detach(), "n_subjects": int(n_fit)}
         for key, val in (("structure", struct), ("loadings", loads[0]),
                          ("loading_margin", None if margins is None else margins[0]),
                          ("coupling_signs", csign)):

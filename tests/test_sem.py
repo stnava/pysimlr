@@ -848,6 +848,139 @@ def test_compare_path_models_from_scores_and_joint_relevance():
     assert by_w["serial"]["heldout_loglik"] > by_w["empty"]["heldout_loglik"]
 
 
+# ----------------------------------------------------------------------------- L12: uneven missing_rows='mask', per_view_params, named views & extend -> path_model
+def test_single_call_uneven_missing_rows_hub_and_spoke_fit_and_refit_path_model():
+    rng = np.random.default_rng(20261110)
+    n_tot, n_tr, k = 160, 120, 2
+    latent_hub = rng.standard_normal((n_tot, k))
+    conf = rng.standard_normal((n_tot, 2))
+
+    # Planted non-negative Exposure & PET bases, signed Struct & rsfMRI bases
+    w_exp = np.abs(rng.standard_normal((k, 6))) + 0.3
+    w_str = rng.standard_normal((k, 10))
+    w_rsf = rng.standard_normal((k, 16))
+    w_pet = np.abs(rng.standard_normal((k, 8))) + 0.3
+
+    x_exp = np.maximum(0.0, latent_hub @ w_exp + 0.35 * rng.standard_normal((n_tot, 6))) + 0.4 * conf @ rng.standard_normal((2, 6))
+    x_str = latent_hub @ w_str + 0.40 * rng.standard_normal((n_tot, 10)) + 0.4 * conf @ rng.standard_normal((2, 10))
+    x_rsf = latent_hub @ w_rsf + 0.45 * rng.standard_normal((n_tot, 16)) + 0.4 * conf @ rng.standard_normal((2, 16))
+    x_pet = np.maximum(0.0, latent_hub @ w_pet + 0.40 * rng.standard_normal((n_tot, 8))) + 0.4 * conf @ rng.standard_normal((2, 8))
+
+    # Uneven modality acquisition (all-NaN rows on unacquired subjects)
+    rsf_tr_miss = np.arange(100, n_tr)      # 100 observed in train
+    pet_tr_miss = np.arange(55, n_tr)       # 55 observed in train (overlap with rsf = 55)
+    rsf_te_miss = np.arange(n_tr + 32, n_tot)
+    pet_te_miss = np.arange(n_tr + 20, n_tot)
+
+    x_rsf[rsf_tr_miss] = np.nan
+    x_rsf[rsf_te_miss] = np.nan
+    x_pet[pet_tr_miss] = np.nan
+    x_pet[pet_te_miss] = np.nan
+
+    views_tr = {
+        "Exposure": x_exp[:n_tr],
+        "Struct": x_str[:n_tr],
+        "rsfMRI": x_rsf[:n_tr],
+        "PET": x_pet[:n_tr],
+    }
+    views_te = {
+        "Exposure": x_exp[n_tr:],
+        "Struct": x_str[n_tr:],
+        "rsfMRI": x_rsf[n_tr:],
+        "PET": x_pet[n_tr:],
+    }
+    hub_graph = {
+        "Exposure": ["Struct", "rsfMRI", "PET"],
+        "Struct": ["Exposure"],
+        "rsfMRI": ["Exposure"],
+        "PET": ["Exposure"],
+    }
+    pvp = {
+        "Exposure": {"positivity": "conical", "energy_type": "nc_abs", "sparseness": None, "varimax": False},
+        "Struct": {"positivity": "either", "energy_type": "nc", "sparseness": 0.5},
+        "rsfMRI": {"positivity": "either", "energy_type": "nc", "sparseness": 0.6},
+        "PET": {"positivity": "conical", "energy_type": "nc_abs", "sparseness": 0.4},
+    }
+    conf_tr = {nm: conf[:n_tr] for nm in views_tr}
+
+    res = pysimlr.fit(
+        "simlr", views_tr, k,
+        topology="graph", path_graph=hub_graph,
+        confounds=conf_tr, per_view_params=pvp,
+        missing_rows="mask", iterations=35, random_state=7,
+    )
+    pysimlr.validate_result(res, n=n_tr, k=k, n_views=4)
+    assert res["view_names"] == ["Exposure", "Struct", "rsfMRI", "PET"]
+    assert res["missing_rows"] == "mask"
+    assert float(res["v"][0].min()) >= -1e-12
+    assert float(res["v"][3].min()) >= -1e-12
+    assert bool((res["v"][2] < -1e-4).any())
+    assert torch.isnan(res["latents"][3][55:]).all() and torch.isfinite(res["latents"][3][:55]).all()
+
+    # N=1 batch-size invariance on list prediction with row masks
+    vlist_te = [views_te[nm] for nm in res["view_names"]]
+    u_batch = pysimlr.predict(res, vlist_te)["u"]
+    u_one = pysimlr.predict(res, [v[25:26] for v in vlist_te])["u"]  # row 25 is missing PET
+    assert float((u_batch[25:26] - u_one).abs().max()) < 1e-5
+
+    # Directed Hub-and-Spoke path_model with refit null across n_jobs=2
+    dag_edges = [("Exposure", "Struct"), ("Exposure", "rsfMRI"), ("Exposure", "PET")]
+    pm_tr = _pm(
+        res, views_tr, rows="train", graph=dag_edges, directed=True,
+        conditioning="parents", covariates=conf[:n_tr],
+        null="refit", n_refits=29, n_bootstrap=100, n_jobs=2, random_state=11,
+    )
+    assert _edge(pm_tr, "Exposure", "Struct")["n"] == 120
+    assert _edge(pm_tr, "Exposure", "rsfMRI")["n"] == 100
+    assert _edge(pm_tr, "Exposure", "PET")["n"] == 55
+    assert _edge(pm_tr, "Exposure", "rsfMRI")["p_refit"] <= 0.05
+    assert _edge(pm_tr, "Exposure", "PET")["p_refit"] <= 0.05
+    # Conditional independence of spokes given Exposure Hub
+    assert _edge(pm_tr, "rsfMRI", "PET")["n"] == 55
+    assert _edge(pm_tr, "rsfMRI", "PET")["p_refit"] >= 0.05
+
+    # Held-out evaluation on masked test views
+    pm_te = _pm(
+        res, vlist_te, rows="heldout", graph=dag_edges, directed=True,
+        conditioning="parents", covariates=conf[n_tr:],
+        n_permutations=299, n_bootstrap=100, random_state=13,
+    )
+    assert _edge(pm_te, "Exposure", "PET")["n"] == 20
+    assert _edge(pm_te, "Exposure", "rsfMRI")["n"] == 32
+    assert _edge(pm_te, "Exposure", "PET")["p_perm"] < 0.05
+
+
+def test_extend_into_path_model_with_partial_rows():
+    rng = np.random.default_rng(99)
+    n_tot, n_tr, k = 150, 100, 2
+    lat = rng.standard_normal((n_tot, k))
+    x0 = lat @ rng.standard_normal((k, 8)) + 0.35 * rng.standard_normal((n_tot, 8))
+    x1 = lat @ rng.standard_normal((k, 10)) + 0.35 * rng.standard_normal((n_tot, 10))
+    x_ext = np.maximum(0.0, lat @ (np.abs(rng.standard_normal((k, 6))) + 0.4) + 0.35 * rng.standard_normal((n_tot, 6)))
+    x_ext[50:n_tr] = np.nan
+    x_ext[n_tr + 25:] = np.nan
+
+    base_tr = {"Hub": x0[:n_tr], "Struct": x1[:n_tr]}
+    res = pysimlr.fit("simlr", base_tr, k, iterations=30, random_state=3)
+    res_ext = pysimlr.extend(
+        res, base_tr, {"PET_Ext": x_ext[:n_tr]},
+        positivity="conical", energy_type="nc_abs", sparseness=0.4, random_state=4,
+    )
+    te_all = {"Hub": x0[n_tr:], "Struct": x1[n_tr:], "PET_Ext": x_ext[n_tr:]}
+    pm = _pm(
+        res_ext, te_all, rows="heldout",
+        graph=[("Hub", "Struct"), ("Hub", "PET_Ext")],
+        directed=True, conditioning="parents",
+        n_permutations=299, n_bootstrap=80, random_state=5,
+    )
+    assert pm["nodes"] == ["Hub", "Struct", "PET_Ext"]
+    assert _edge(pm, "Hub", "PET_Ext")["n"] == 25
+    assert _edge(pm, "Hub", "PET_Ext")["p_perm"] < 0.05
+    fc = pm["feature_contributions"]
+    assert "Hub - PET_Ext" in set(fc["edge"])
+
+
+
 
 
 

@@ -105,27 +105,56 @@ def _is_joint(result: Dict[str, Any]) -> bool:
 
 
 def _view_list(result: Dict[str, Any], views: Any) -> List[Any]:
-    """Views as a list in the fit's order with ``None`` for a missing view."""
-    m_views = len(result["v"])
+    """Views as a list in the fit's order (plus extended views when present), ``None`` for missing."""
+    m_orig = len(result["v"])
+    ext_dict = result.get("extensions") or {}
+    m_total = m_orig + len(ext_dict)
     if isinstance(views, Mapping):
         from .extension import view_names as _names
-        names = list(_names(result))[:m_views]
-        extra = [k for k in views if k not in names]
+        all_names = list(_names(result))[:m_total]
+        extra = [k for k in views if k not in all_names]
         if extra:
-            raise ValueError(f"unknown view name(s) {extra}; the fit has {names}.")
-        return [views.get(nm) for nm in names]
+            raise ValueError(f"unknown view name(s) {extra}; the fit has {all_names}.")
+        if ext_dict and any(k in ext_dict for k in views):
+            return [views.get(nm) for nm in all_names]
+        return [views.get(nm) for nm in all_names[:m_orig]]
     vl = list(views)
-    if len(vl) != m_views:
-        raise ValueError(f"views has {len(vl)} entries; the fit has {m_views} (use None for a missing view).")
-    return vl
+    if len(vl) == m_orig or (ext_dict and len(vl) == m_total):
+        return vl
+    expected = f"{m_orig} (or {m_total} including extensions)" if ext_dict else f"{m_orig}"
+    raise ValueError(f"views has {len(vl)} entries; the fit has {expected} (use None for a missing view).")
+
+
+def _zscore_obs(a: np.ndarray) -> np.ndarray:
+    """Column z-scores on observed rows; preserves all-NaN rows and rejects partial-NaN or Inf."""
+    if np.isfinite(a).all():
+        return _zscore(a)
+    row_nan = np.isnan(a).all(axis=1)
+    obs = ~row_nan
+    if not np.isfinite(a[obs]).all():
+        raise ValueError("score block contains partial-NaN or Inf entries within observed rows.")
+    if int(obs.sum()) < 3:
+        raise ValueError(f"score block has only {int(obs.sum())} observed rows; need >= 3.")
+    out = np.full(a.shape, np.nan, dtype=float)
+    out[obs] = _zscore(a[obs])
+    return out
 
 
 def _block_scores(result: Dict[str, Any], x: Any, m: int, rot: np.ndarray) -> np.ndarray:
     """One view's scores through its block of a joint basis: preprocess(x) @ (v_m @ rot)."""
     from .api import _preprocess_views
     from .extension import _to_tensor
-    xs, _ = _preprocess_views([_to_tensor(x)], result["scale_list"], [result["provenance_list"][m]])
-    return xs[0].double().numpy() @ (result["v"][m].detach().double().numpy() @ rot)
+    xt = _to_tensor(x)
+    obs = ~torch.isnan(xt).all(dim=1)
+    vr = result["v"][m].detach().double().numpy() @ rot
+    if not bool(obs.all()):
+        out = np.full((int(xt.shape[0]), vr.shape[1]), np.nan, dtype=float)
+        if bool(obs.any()):
+            xs, _ = _preprocess_views([xt[obs]], result["scale_list"], [result["provenance_list"][m]])
+            out[obs.cpu().numpy()] = xs[0].double().numpy() @ vr
+        return out
+    xs, _ = _preprocess_views([xt], result["scale_list"], [result["provenance_list"][m]])
+    return xs[0].double().numpy() @ vr
 
 
 def view_scores(result: Dict[str, Any], views: Any, *, train_views: Any = None,
@@ -134,43 +163,46 @@ def view_scores(result: Dict[str, Any], views: Any, *, train_views: Any = None,
                 sign_against: Any = None, _pred: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Per-view scores of ``views`` in the frame of ``result["structure"]``.
 
-    ``views`` is a list in the fit's order (``None`` for a missing view) or a dict by view name.
-    Each view's scores are rotated by ``loading_rotation`` (``rotate=False`` keeps the method's
-    native frame), each column's sign is set so it covaries non-negatively with ``u`` on the
-    training rows, and, with ``standardize=True``, columns are standardised on the evaluation
-    rows. Joint-basis fits score each view through its block of ``v``; their training-row signs
-    need ``train_views`` (the fit's training views); without them the sign is learned on the
-    evaluation rows against the evaluation consensus (``sign_rows="evaluation"``). ``signs``
-    overrides the learned signs (one ``(k,)`` array of +-1 per view). ``sign_against`` (an
-    ``(n, k)`` consensus on the evaluation rows, in the native frame) learns every sign on the
-    evaluation rows against it instead (``sign_rows="evaluation"``); `feature_maps` uses this with
-    its own ``u``.
-
-    Returns ``scores`` (list of ``(n, k)`` float64 arrays, ``None`` for a missing view),
-    ``consensus`` (``(n, k)``), ``signs``, ``source`` (``"latents"`` or ``"joint_block"``),
-    ``sign_rows`` (``"train"``, ``"evaluation"`` or ``"given"``), ``available`` (view indices),
-    ``n``, and the training-row counterparts ``train_scores`` (``None`` for a joint-basis fit
-    without ``train_views``) and ``train_consensus``.
+    ``views`` is a list in the fit's order (``None`` for a missing view) or a dict by view name
+    (including views added by `pysimlr.extend`). All-NaN rows on uneven-missingness fits are
+    preserved as NaN in ``scores[m]``.
     """
     from .api import predict
     from .extension import view_names as _names
-    m_views = len(result["v"])
+    m_orig = len(result["v"])
+    ext_dict = result.get("extensions") or {}
     vlist = _view_list(result, views)
+    m_views = len(vlist)
     avail = [m for m, x in enumerate(vlist) if x is not None]
     if not avail:
         raise ValueError("no view is present.")
     joint = _is_joint(result)
     k = int(_u_train(result).shape[1])
     rot = result["loading_rotation"].detach().double().numpy() if rotate else np.eye(k)
-    pred = predict(result, vlist) if _pred is None else _pred
+    names = list(_names(result))[:m_views]
+    has_ext_avail = any(m >= m_orig for m in avail)
+    if _pred is not None:
+        pred = _pred
+    elif has_ext_avail:
+        pred = predict(result, {names[m]: vlist[m] for m in avail})
+    else:
+        pred = predict(result, vlist[:m_orig])
     u_tr = _np(_u_train(result)) @ rot
     if not joint:
         lat = pred["latents"]
-        names = list(_names(result))
         z_ev = {m: _np(lat[names[m]] if isinstance(lat, dict) else lat[m]) @ rot for m in avail}
-        z_tr = [_np(z) @ rot for z in result["latents"]]
+        z_tr: Optional[List[Optional[np.ndarray]]] = []
+        for m in range(m_views):
+            if m < m_orig:
+                z_tr.append(_np(result["latents"][m]) @ rot)
+            else:
+                erec = ext_dict[names[m]]
+                elat = _np(erec["latent"]) @ rot
+                z_tr.append(elat if elat.shape[0] == u_tr.shape[0] else None)
         source = "latents"
     else:
+        if has_ext_avail:
+            raise ValueError(f"{result.get('method')} has a joint basis; extended views are not supported.")
         z_ev = {m: _block_scores(result, vlist[m], m, rot) for m in avail}
         tv = None if train_views is None else _view_list(result, train_views)
         if tv is not None and any(t is None for t in tv):
@@ -195,28 +227,40 @@ def view_scores(result: Dict[str, Any], views: Any, *, train_views: Any = None,
         sign_rows = "evaluation"
     elif z_tr is not None:
         for m in range(m_views):
-            sgn[m] = _col_signs(z_tr[m], u_tr_c)
+            if z_tr[m] is not None:
+                sgn[m] = _col_signs(z_tr[m], u_tr_c)
+            elif m >= m_orig and "coupling" in ext_dict[names[m]]:
+                sgn[m] = np.where(np.asarray(ext_dict[names[m]]["coupling"], float) >= 0.0, 1.0, -1.0)
         sign_rows = "train"
     else:
         u_ev_c = u_ev - u_ev.mean(0, keepdims=True)
         for m in avail:
             sgn[m] = _col_signs(z_ev[m], u_ev_c)
         sign_rows = "evaluation"
-    fin = _zscore if standardize else (lambda a: a)
+    fin = _zscore_obs if standardize else (lambda a: a)
     out: List[Optional[np.ndarray]] = [None] * m_views
     for m in avail:
         if sgn[m] is None:
             raise ValueError(f"no sign given for view {m}.")
         out[m] = fin(z_ev[m] * sgn[m][None, :])
     train_scores = None
-    if z_tr is not None and all(s is not None for s in sgn):
+    if z_tr is not None and all(z_m is not None for z_m in z_tr) and all(s is not None for s in sgn):
         train_scores = [fin(z_tr[m] * sgn[m][None, :]) for m in range(m_views)]
-    return {"scores": out, "consensus": fin(u_ev), "signs": sgn, "source": source,
-            "sign_rows": sign_rows, "available": avail, "n": int(out[avail[0]].shape[0]),
-            "train_scores": train_scores, "train_consensus": fin(u_tr)}
+    return {"scores": out, "consensus": _zscore(u_ev) if standardize else u_ev, "signs": sgn,
+            "source": source, "sign_rows": sign_rows, "available": avail,
+            "n": int(out[avail[0]].shape[0]), "train_scores": train_scores,
+            "train_consensus": _zscore(u_tr) if standardize else u_tr}
 
 
 def _col_signs(z: np.ndarray, ref_c: np.ndarray) -> np.ndarray:
+    if not (np.isfinite(z).all() and np.isfinite(ref_c).all()):
+        fin = np.isfinite(z).all(axis=1) & np.isfinite(ref_c).all(axis=1)
+        if not fin.any():
+            return np.ones(z.shape[1], dtype=float)
+        zf = z[fin]
+        rf = ref_c[fin] - ref_c[fin].mean(0, keepdims=True)
+        cov = ((zf - zf.mean(0, keepdims=True)) * rf).sum(0)
+        return np.where(cov >= 0.0, 1.0, -1.0)
     cov = ((z - z.mean(0, keepdims=True)) * ref_c).sum(0)
     return np.where(cov >= 0.0, 1.0, -1.0)
 
@@ -373,9 +417,32 @@ def _comp_index(ka: int, kb: int) -> List[Tuple[int, int]]:
 def _edge_design(Z: Dict[str, np.ndarray], N: np.ndarray, a: str, b: str, cond: List[str],
                  dummies: Optional[np.ndarray] = None) -> Dict[str, Any]:
     """Residuals and the fixed matrices the sweeps need for edge (a, b) given S = [N, Z_cond]."""
-    S = np.column_stack([N] + [Z[c] for c in cond])
+    za_all, zb_all = Z[a], Z[b]
+    has_nan = (
+        not np.isfinite(za_all).all()
+        or not np.isfinite(zb_all).all()
+        or any(not np.isfinite(Z[c]).all() for c in cond)
+    )
+    obs_idx: Optional[np.ndarray] = None
+    if has_nan:
+        obs_mask = np.isfinite(za_all).all(axis=1) & np.isfinite(zb_all).all(axis=1)
+        for c in cond:
+            obs_mask = obs_mask & np.isfinite(Z[c]).all(axis=1)
+        obs_idx = np.flatnonzero(obs_mask)
+        za_use = za_all[obs_idx]
+        zb_use = zb_all[obs_idx]
+        n_use = N[obs_idx]
+        zc_use = [Z[c][obs_idx] for c in cond]
+        dum_use = None if dummies is None else dummies[obs_idx]
+    else:
+        za_use = za_all
+        zb_use = zb_all
+        n_use = N
+        zc_use = [Z[c] for c in cond]
+        dum_use = dummies
+    S = np.column_stack([n_use] + zc_use)
     Q = _orth(S)
-    Ra, Rb = _residualize(Z[a], Q), _residualize(Z[b], Q)
+    Ra, Rb = _residualize(za_use, Q), _residualize(zb_use, Q)
     n = Ra.shape[0]
     ka, kb = Ra.shape[1], Rb.shape[1]
     if n - Q.shape[1] <= ka + kb:
@@ -394,6 +461,7 @@ def _edge_design(Z: Dict[str, np.ndarray], N: np.ndarray, a: str, b: str, cond: 
     ib_t = torch.as_tensor([c[1] for c in comps], dtype=torch.long) if comps else None
     s_contig = np.ascontiguousarray(S)
     des = {"a": a, "b": b, "cond": cond, "S": S, "Q": Q, "Ra": Ra, "Rb": Rb, "ka": ka, "kb": kb,
+           "n_edge": int(n), "obs_idx": obs_idx,
            "q": Q.shape[1], "A": torch.as_tensor(a_stack),
            "A_T": torch.as_tensor(np.ascontiguousarray(a_stack.T)),
            "RaR": torch.as_tensor(Ra_R),
@@ -406,13 +474,13 @@ def _edge_design(Z: Dict[str, np.ndarray], N: np.ndarray, a: str, b: str, cond: 
            "ia_t": ia_t, "ib_t": ib_t,
            "ra_norm_ia": (ra_norm_t[ia_t] if ia_t is not None else None),
            "comps": comps, "mod": None}
-    if dummies is not None and comps:
-        g1 = dummies.shape[1]
+    if dum_use is not None and comps:
+        g1 = dum_use.shape[1]
         bases, e0s, df1, df2 = [], [], [], []
         for ia, ib in comps:
             x = Ra[:, ia] / np.linalg.norm(Ra[:, ia])
             X0 = np.column_stack([Q, x])
-            inter = _residualize(Ra[:, [ia]] * dummies, X0)
+            inter = _residualize(Ra[:, [ia]] * dum_use, X0)
             W = _orth(inter)
             Wp = np.zeros((n, g1))
             Wp[:, :W.shape[1]] = W
@@ -563,8 +631,24 @@ def _pct(x: np.ndarray, axis: int = 0) -> Tuple[np.ndarray, np.ndarray]:
 def _wide_views(result: Dict[str, Any], nodes: List[str],
                 orig_view_indices: Optional[Sequence[int]] = None) -> List[str]:
     n_train = int(_u_train(result).shape[0])
+    m_orig = len(result["v"])
+    ext_dict = result.get("extensions") or {}
+    from .extension import view_names as _names
+    all_names = list(_names(result))
+    obs_mask_res = result.get("obs_mask")
     idxs = list(range(len(nodes))) if orig_view_indices is None else list(orig_view_indices)
-    return [nodes[pos] for pos, orig in enumerate(idxs) if int(result["v"][orig].shape[0]) >= n_train]
+    wide_out: List[str] = []
+    for pos, orig in enumerate(idxs):
+        if orig < m_orig:
+            p_m = int(result["v"][orig].shape[0])
+            n_m = int(sum(obs_mask_res[orig])) if (obs_mask_res is not None and orig < len(obs_mask_res)) else n_train
+            if p_m >= n_m:
+                wide_out.append(nodes[pos])
+        elif orig < len(all_names) and all_names[orig] in ext_dict:
+            erec = ext_dict[all_names[orig]]
+            if int(erec["v"].shape[0]) >= int(erec.get("n_subjects", n_train)):
+                wide_out.append(nodes[pos])
+    return wide_out
 
 
 def _remap_graph_for_available_views(graph, all_nodes: List[str], absent_names: Sequence[str]):
@@ -748,9 +832,21 @@ def _given_scores(scores: Any, standardize: bool, allow_missing: bool = False):
             else np.asarray(z, dtype=float)
         if z.ndim != 2 or z.shape[0] < 3 or z.shape[1] < 1:
             raise ValueError(f"scores[{nm!r}] must be a 2-d (n, k) array with n >= 3; got shape {z.shape}.")
-        if not np.isfinite(z).all():
-            raise ValueError(f"scores[{nm!r}] contains non-finite values.")
-        arrays.append(_zscore(z) if standardize else z.copy())
+        if np.isfinite(z).all():
+            arrays.append(_zscore(z) if standardize else z.copy())
+        else:
+            row_nan = np.isnan(z).all(axis=1)
+            obs = ~row_nan
+            if not np.isfinite(z[obs]).all():
+                raise ValueError(f"scores[{nm!r}] contains non-finite (partial-NaN or Inf) values.")
+            if int(obs.sum()) < 3:
+                raise ValueError(f"scores[{nm!r}] contains non-finite values leaving fewer than 3 observed rows ({int(obs.sum())}).")
+            if standardize:
+                arrays.append(_zscore_obs(z))
+            else:
+                zc = z.copy()
+                zc[row_nan] = np.nan
+                arrays.append(zc)
     rows = {z.shape[0] for z in arrays if z is not None}
     if len(rows) > 1:
         raise ValueError(f"every score block needs the same number of rows; got {sorted(rows)}.")
@@ -963,6 +1059,14 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
             dfs = int((f_sum >= obs[e]["F"].sum()).sum())
         return pil, dp, dr, ar_max, df, f_sum, dfs
 
+    has_row_nans = any(designs[e].get("obs_idx") is not None for e in pairs)
+
+    def _edge_perm(perm_full: torch.Tensor, e: Tuple[str, str]) -> torch.Tensor:
+        oidx = designs[e].get("obs_idx")
+        if oidx is None:
+            return perm_full
+        return torch.argsort(perm_full[:, torch.as_tensor(oidx, dtype=torch.long)], dim=1)
+
     if _edge_cache is not None and B > 0:
         if "_perms" not in _edge_cache:
             base = np.tile(np.arange(n), (min(_CHUNK, max(B, 1)), 1))
@@ -985,7 +1089,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
                 stored_e: List[float] = []
                 for s0, c, perms in perms_chunks:
                     sl = slice(s0, s0 + c)
-                    pil, dp, dr, ar_max, df, f_sum, dfs = _eval_chunk(e, perms[e[1]])
+                    pil, dp, dr, ar_max, df, f_sum, dfs = _eval_chunk(e, _edge_perm(perms[e[1]], e))
                     pil_all[sl] = pil
                     ge_p_e += dp
                     if len(stored_e) < _NULL_STORE:
@@ -1024,7 +1128,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
             perms = {nm: torch.as_tensor(rng_perm.permuted(base[:c], axis=1)) for nm in nodes}
             sl = slice(s0, s0 + c)
             for e in pairs:
-                pil, dp, dr, ar_max, df, f_sum, dfs = _eval_chunk(e, perms[e[1]])
+                pil, dp, dr, ar_max, df, f_sum, dfs = _eval_chunk(e, _edge_perm(perms[e[1]], e))
                 ge_p[e] += dp
                 if len(stored[e]) < _NULL_STORE:
                     stored[e].extend(pil[:_NULL_STORE - len(stored[e])].tolist())
@@ -1047,7 +1151,23 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
 
     # ---- bootstrap intervals (measurement fixed, subjects resampled)
     boot: Dict[Tuple[str, str], Dict[str, List[np.ndarray]]] = {e: {"pillai": [], "r": [], "beta": []} for e in pairs}
-    if n_boot > 0:
+    if n_boot > 0 and has_row_nans:
+        edge_zt: Dict[Tuple[str, str], Tuple[int, torch.Tensor, torch.Tensor]] = {}
+        for e in pairs:
+            des = designs[e]
+            oidx = des.get("obs_idx")
+            za_e = Z[e[0]] if oidx is None else Z[e[0]][oidx]
+            zb_e = Z[e[1]] if oidx is None else Z[e[1]][oidx]
+            edge_zt[e] = (int(des["n_edge"]), torch.as_tensor(za_e), torch.as_tensor(zb_e))
+        for s0 in range(0, n_boot, _CHUNK):
+            c = min(_CHUNK, n_boot - s0)
+            for e in pairs:
+                ne, za_t, zb_t = edge_zt[e]
+                idx_e = torch.as_tensor(rng_boot.integers(0, ne, (c, ne)))
+                st = _boot_edge(designs[e], idx_e, za_t, zb_t)
+                for key, val in st.items():
+                    boot[e][key].append(val.numpy())
+    elif n_boot > 0:
         Zt = {nm: torch.as_tensor(z) for nm, z in Z.items()}
         cond_groups: Dict[Tuple[str, ...], List[Tuple[str, str]]] = {}
         for e in pairs:
@@ -1114,8 +1234,9 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
     for e in pairs:
         a, b = e
         des = designs[e]
-        row = {"a": a, "b": b, "present": bool(present[e]), "diagnostic": bool(diagnostic[e]),
-               "pillai": obs[e]["pillai"], "rv": _adjusted_rv(des["Ra"], des["Rb"]),
+        row = {"a": a, "b": b, "n": int(des["n_edge"]), "present": bool(present[e]),
+               "diagnostic": bool(diagnostic[e]), "pillai": obs[e]["pillai"],
+               "rv": _adjusted_rv(des["Ra"], des["Rb"]),
                "p_perm": p_of(ge_p[e]), "p_maxt": None if diagnostic[e] else p_max("edges", obs[e]["pillai"]),
                "p_holm": None, "q_bh": None,
                "p_refit": None if (refit is None or diagnostic[e] or n_ref == 0) else refit["p"].get(e),
@@ -1279,56 +1400,160 @@ def _graph_fit(edges, tested, absent, present, obs, conditioning, report_p, have
 
 
 # ----------------------------------------------------------------------------- refit null
+_REFIT_WORKER_CTX: Optional[Tuple[Any, ...]] = None
+
+
+def _init_refit_worker(ctx: Tuple[Any, ...]) -> None:
+    global _REFIT_WORKER_CTX
+    torch.set_num_threads(1)
+    method, k, params, random_state, views_in, ext_info = ctx
+    views_t = [torch.from_numpy(v) if isinstance(v, np.ndarray) else v for v in views_in]
+    _REFIT_WORKER_CTX = (method, k, params, random_state, views_t, ext_info)
+
+
 def _refit_scores_task(args):
     """Refit with the given per-view row permutations (each view's confound rows follow it) and
     return the refit's standardised `view_scores` on its own (permuted) training rows. Module level
     so worker processes can import it."""
-    method, k, params, random_state, views, perms = args
-    torch.set_num_threads(1)
+    if _REFIT_WORKER_CTX is not None and not (isinstance(args, tuple) and len(args) in (6, 7)):
+        method, k, params, random_state, views, ext_info = _REFIT_WORKER_CTX
+        perms = args
+    else:
+        if len(args) == 7:
+            method, k, params, random_state, views_in, perms, ext_info = args
+        else:
+            method, k, params, random_state, views_in, perms = args
+            ext_info = None
+        torch.set_num_threads(1)
+        views = [torch.from_numpy(v) if isinstance(v, np.ndarray) else v for v in views_in]
     from .api import fit
     sub = [v if p is None else v[torch.as_tensor(p)] for v, p in zip(views, perms)]
+    m_orig = len(sub) if ext_info is None else int(ext_info["m_orig"])
+    sub_orig = sub[:m_orig]
     prm = dict(params)
     if prm.get("confounds") is not None:
         from .confounds import permute_view_confounds
-        prm["confounds"] = permute_view_confounds(prm["confounds"], list(perms))
-    # A null refit repeats the observed fit's own warnings (wide views, learning rate) once per
-    # refit; the observed fit already raised them.
+        prm["confounds"] = permute_view_confounds(
+            prm["confounds"], list(perms[:m_orig]), view_names=ext_info["orig_names"] if ext_info else None
+        )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        res = fit(method, sub, k, random_state=random_state, **prm)
-    return [z for z in view_scores(res, sub, train_views=sub)["scores"]]
+        res = fit(method, sub_orig, k, random_state=random_state, **prm)
+        if ext_info is not None and ext_info["ext_names"]:
+            from .extension import extend
+            res["view_names"] = list(ext_info["orig_names"])
+            for idx_e, enm in enumerate(ext_info["ext_names"]):
+                m_idx = m_orig + idx_e
+                esett = ext_info["ext_settings"][enm]
+                e_conf = None
+                if ext_info["ext_confounds"].get(enm) is not None:
+                    c_arr = ext_info["ext_confounds"][enm]
+                    p_e = perms[m_idx]
+                    e_conf = c_arr if p_e is None else c_arr[np.asarray(p_e, dtype=np.int64)]
+                res = extend(
+                    res, sub_orig, {enm: sub[m_idx]},
+                    energy_type=esett["energy_type"], positivity=esett["positivity"],
+                    sparseness=esett["sparseness"], nsa_w=esett["nsa_w"],
+                    holdout=0.0, warn=False, confounds=e_conf,
+                )
+            sub_map = {nm: sub[i] for i, nm in enumerate(ext_info["all_names"])}
+            return [z for z in view_scores(res, sub_map, train_views=sub_map)["scores"]]
+    return [z for z in view_scores(res, sub_orig, train_views=sub_orig)["scores"]]
+
+
+def _perm_within_obs(rng: np.random.Generator, n: int, obs_idx: np.ndarray) -> np.ndarray:
+    """Permute observed rows strictly within ``obs_idx``, preserving unobserved (all-NaN) positions."""
+    if len(obs_idx) == n:
+        return rng.permutation(n)
+    p = np.arange(n, dtype=np.int64)
+    p[obs_idx] = rng.permutation(obs_idx)
+    return p
 
 
 def _refit_null(result, vlist, view_nodes, Z, N, adj, tested, directed, conditioning, n_refits, rng, n_jobs,
                 obs, designs, scope: Tuple[str, ...] = ("edges", "omnibus")) -> Dict[str, Any]:
     """Refit null (plan 3.2). For each view node b that ends a tested edge, ``n_refits`` refits with
-    b's training rows (and its confound rows) permuted serve every tested edge into b. Edges into
-    the outcome need no refit (the measurement model does not see the outcome): their null permutes
-    the outcome's residual given S (Freedman-Lane), ``n_refits`` times. ``"omnibus"`` adds
-    ``n_refits`` refits with every view but the first (and the outcome) permuted, the global null of
-    the mean and max ``pillai``."""
-    from .extension import _to_tensor
+    b's observed training rows (and its confound rows) permuted serve every tested edge into b."""
+    from .extension import _to_tensor, view_names as _names
     from .relevance import _run
-    views = [_to_tensor(v) for v in vlist]
+    views_t = [_to_tensor(v) for v in vlist]
+    views = [v.detach().cpu().numpy() for v in views_t]
     n = int(views[0].shape[0])
+    m_orig = len(result["v"])
+    ext_dict = result.get("extensions") or {}
+    all_names = list(_names(result))[:len(views)]
+    obs_rows = [np.flatnonzero(~np.isnan(v).all(axis=1)) for v in views]
+    ext_info = None
+    if len(views) > m_orig and ext_dict:
+        ext_names = all_names[m_orig:]
+        ext_settings = {
+            enm: {
+                "energy_type": ext_dict[enm].get("energy_type", "nc"),
+                "positivity": ext_dict[enm].get("positivity", "either"),
+                "sparseness": ext_dict[enm].get("sparseness"),
+                "nsa_w": ext_dict[enm].get("nsa_w", 0.5),
+            }
+            for enm in ext_names
+        }
+        ext_confounds: Dict[str, Any] = {}
+        if result.get("confound_sink") is not None:
+            c_shared = next((c for c in (result["confound_sink"].get("views") or []) if c is not None), None)
+            # If the base fit had confounds, reconstruct an orthonormal confound basis proxy for extensions
+            if c_shared is not None and "_c_std" in result["confound_sink"]:
+                ext_confounds = {enm: result["confound_sink"]["_c_std"] for enm in ext_names}
+            elif c_shared is not None:
+                # Reconstruct full-row confound scores from the first non-null sink
+                from .confounds import apply_view_sink
+                for idx_s, s_rec in enumerate(result["confound_sink"]["views"]):
+                    if s_rec is not None:
+                        ext_confounds = {enm: apply_view_sink(views_t[idx_s], s_rec)[1].detach().cpu().double().numpy()
+                                         for enm in ext_names}
+                        break
+        ext_info = {
+            "m_orig": m_orig,
+            "orig_names": all_names[:m_orig],
+            "ext_names": ext_names,
+            "all_names": all_names,
+            "ext_settings": ext_settings,
+            "ext_confounds": ext_confounds,
+        }
     method, k = result["method"], int(_u_train(result).shape[1])
     params = dict((result.get("parameters") or {}).get("used") or {})
     rs = params.pop("random_state", (result.get("parameters") or {}).get("random_state"))
     ends = [b for b in view_nodes if any(e[1] == b for e in tested)] if "edges" in scope else []
-    tasks, keys = [], []
+    perm_tasks, keys = [], []
     for b in ends:
         for _ in range(n_refits):
-            tasks.append((method, k, params, rs, views,
-                          [rng.permutation(n) if nm == b else None for nm in view_nodes]))
+            perms_b = [_perm_within_obs(rng, n, obs_rows[idx_m]) if nm == b else None
+                       for idx_m, nm in enumerate(view_nodes)]
+            perm_tasks.append(perms_b)
             keys.append(("edge", b))
     out_perm = []
     if "omnibus" in scope:
         for _ in range(n_refits):
-            tasks.append((method, k, params, rs, views,
-                          [None] + [rng.permutation(n) for _ in view_nodes[1:]]))
+            perms_g = [None] + [_perm_within_obs(rng, n, obs_rows[idx_m])
+                                for idx_m in range(1, len(view_nodes))]
+            perm_tasks.append(perms_g)
             keys.append(("global", None))
             out_perm.append(rng.permutation(n))
-    scores = _run(_refit_scores_task, tasks, n_jobs) if tasks else []
+    if not perm_tasks:
+        scores = []
+    else:
+        from concurrent.futures import ProcessPoolExecutor
+        from .loadings import _n_workers
+        workers = min(_n_workers(n_jobs), len(perm_tasks))
+        ctx_tuple = (method, k, params, rs, views, ext_info)
+        if workers > 1:
+            chunk = max(1, len(perm_tasks) // (workers * 4))
+            with ProcessPoolExecutor(max_workers=workers, initializer=_init_refit_worker, initargs=(ctx_tuple,)) as ex:
+                scores = list(ex.map(_refit_scores_task, perm_tasks, chunksize=chunk))
+        else:
+            _init_refit_worker(ctx_tuple)
+            try:
+                scores = [_refit_scores_task(p) for p in perm_tasks]
+            finally:
+                global _REFIT_WORKER_CTX
+                _REFIT_WORKER_CTX = None
     null: Dict[Tuple[str, str], List[float]] = {e: [] for e in tested}
     g_mean, g_max = [], []
     gi = 0
@@ -1351,8 +1576,9 @@ def _refit_null(result, vlist, view_nodes, Z, N, adj, tested, directed, conditio
     note = None
     oe = [e for e in tested if e[1] == "outcome"] if "edges" in scope else []
     if oe:
-        P = torch.as_tensor(np.stack([rng.permutation(n) for _ in range(n_refits)])) if n_refits else None
         for e in oe:
+            ne_o = int(designs[e]["n_edge"])
+            P = torch.as_tensor(np.stack([rng.permutation(ne_o) for _ in range(n_refits)])) if n_refits else None
             null[e] = [] if P is None else _stats_from_perm(designs[e], P)["pillai"].numpy().tolist()
         note = "edges into the outcome: Freedman-Lane permutations of the outcome (no refit needed)"
     arr = {e: np.asarray(v, float) for e, v in null.items()}
@@ -1543,14 +1769,26 @@ def _fit_node_models(
         if node_model_cache is not None and ckey in node_model_cache:
             models[b] = node_model_cache[ckey]
             continue
-        x_pa = np.column_stack([Z[a] for a in pa]) if pa else None
+        zb = Z[b]
+        need_mask = (not np.isfinite(zb).all()) or any(not np.isfinite(Z[a]).all() for a in pa)
+        if need_mask:
+            obs_b = np.isfinite(zb).all(axis=1)
+            for a in pa:
+                obs_b = obs_b & np.isfinite(Z[a]).all(axis=1)
+            n_sub = N[obs_b]
+            zb_sub = zb[obs_b]
+            x_pa = np.column_stack([Z[a][obs_b] for a in pa]) if pa else None
+        else:
+            n_sub = N
+            zb_sub = zb
+            x_pa = np.column_stack([Z[a] for a in pa]) if pa else None
         dof_eff = (
             max([float(node_dofs.get(b, 0.0))] + [float(node_dofs.get(a, 0.0)) for a in pa])
             if (pa and node_dofs is not None) else 0.0
         )
-        W, resid_var, gamma = _gcv_press_node_fit(N, x_pa, Z[b], dof_eff=dof_eff)
+        W, resid_var, gamma = _gcv_press_node_fit(n_sub, x_pa, zb_sub, dof_eff=dof_eff)
         m_b = {"parents": pa, "W": W, "resid_var": resid_var,
-               "n_params": int(W.size), "n_nuisance": int(N.shape[1]),
+               "n_params": int(W.size), "n_nuisance": int(n_sub.shape[1]),
                "parent_cols": {a: int(Z[a].shape[1]) for a in pa},
                "dof_eff": float(dof_eff), "gamma": float(gamma)}
         if node_model_cache is not None:

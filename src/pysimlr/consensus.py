@@ -59,7 +59,8 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                             path_graph: Optional[Dict[int, List[int]]] = None,
                             prune_threshold: Optional[float] = None,
                             modality_weights: Optional[torch.Tensor] = None,
-                            frozen_map: Optional[Dict[str, Any]] = None) -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
+                            frozen_map: Optional[Dict[str, Any]] = None,
+                            obs_masks: Optional[List[torch.Tensor]] = None) -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
     """
     Combine modality-specific projections into a shared latent consensus (U).
     
@@ -91,7 +92,7 @@ def compute_shared_consensus(projections: List[torch.Tensor],
     if frozen_map is not None and not training:
         # Prediction with the training batch's frozen affine consensus; see
         # `capture_consensus_map`.
-        return apply_consensus_map(projections, frozen_map)
+        return apply_consensus_map(projections, frozen_map, obs_masks=obs_masks)
         
     if mixing_algorithm in _AVERAGING_MIXINGS:
         # Averaging mixings pair column l of every view with column l of every
@@ -116,13 +117,26 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         k = projections[0].shape[1]
         
     norm_projs = []
-    for p in projections:
+    obs_bool: Optional[List[torch.Tensor]] = None
+    if obs_masks is not None:
+        obs_bool = [torch.as_tensor(m, dtype=torch.bool, device=projections[0].device) for m in obs_masks]
+    for j_idx, p in enumerate(projections):
         p_safe = torch.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
-        p_rms = torch.norm(p_safe, p='fro') / np.sqrt(p_safe.shape[0])
-        if p_rms > 1e-6:
-            norm_projs.append(p_safe / (p_rms + 1e-8))
+        if obs_bool is not None:
+            om = obs_bool[j_idx]
+            n_obs = max(1, int(om.sum().item()))
+            p_obs = p_safe[om]
+            p_rms = torch.norm(p_obs, p='fro') / np.sqrt(n_obs) if p_obs.numel() > 0 else torch.tensor(0.0, device=p.device, dtype=p.dtype)
+            if p_rms > 1e-6:
+                norm_projs.append(torch.where(om[:, None], p_safe / (p_rms + 1e-8), torch.zeros_like(p_safe)))
+            else:
+                norm_projs.append(torch.where(om[:, None], torch.randn_like(p_safe) * 1e-4, torch.zeros_like(p_safe)))
         else:
-            norm_projs.append(torch.randn_like(p_safe) * 1e-4)
+            p_rms = torch.norm(p_safe, p='fro') / np.sqrt(p_safe.shape[0])
+            if p_rms > 1e-6:
+                norm_projs.append(p_safe / (p_rms + 1e-8))
+            else:
+                norm_projs.append(torch.randn_like(p_safe) * 1e-4)
             
     unweighted_projs = norm_projs
     weight_vals = None
@@ -133,16 +147,30 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         weight_vals = [float(w) for w in mw.cpu().tolist()][:len(norm_projs)]
         norm_projs = [p * w for p, w in zip(norm_projs, weight_vals)]
 
+    def _apply_obs_row_scale(plist: List[torch.Tensor], indices: List[int], use_unw: bool) -> List[torch.Tensor]:
+        if obs_bool is None or not plist:
+            return plist
+        ws = [1.0 if (weight_vals is None or use_unw) else float(weight_vals[j]) for j in indices]
+        w_tot = float(sum(ws))
+        if w_tot <= 1e-12:
+            return plist
+        w_obs = torch.zeros(plist[0].shape[0], dtype=plist[0].dtype, device=plist[0].device)
+        for j, wj in zip(indices, ws):
+            w_obs = w_obs + obs_bool[j].to(dtype=plist[0].dtype) * wj
+        rscale = torch.where(w_obs > 1e-12, w_tot / w_obs.clamp_min(1e-12), torch.zeros_like(w_obs)).unsqueeze(1)
+        return [pj * rscale for pj in plist]
+
     def _neighbourhood(indices):
         """Weighted projections of ``indices``; unweighted if their weights sum
         to 0. All-zero weights carry no information about the mix, and a zero
         neighbourhood gave a zero consensus whose SVD/ICA returned NaN (on
         ADNI's bipartite graph, where the gate zeroed every MRI view)."""
-        if weight_vals is not None and sum(weight_vals[j] for j in indices) <= 1e-12:
-            warnings.warn(f"views {sorted(indices)} all have modality weight 0; their consensus "
+        idx_list = list(indices)
+        if weight_vals is not None and sum(weight_vals[j] for j in idx_list) <= 1e-12:
+            warnings.warn(f"views {sorted(idx_list)} all have modality weight 0; their consensus "
                           f"uses them unweighted.", RuntimeWarning, stacklevel=3)
-            return [unweighted_projs[j] for j in indices]
-        return [orig_norm_projs[j] for j in indices]
+            return _apply_obs_row_scale([unweighted_projs[j] for j in idx_list], idx_list, True)
+        return _apply_obs_row_scale([orig_norm_projs[j] for j in idx_list], idx_list, False)
 
     # Core consensus logic separated into a helper to reuse for LOO
     def _get_u(proj_list, return_anchor=False):
@@ -322,8 +350,11 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         )
 
     if topology == "star":
+        star_idx = sorted(valid_indices)
         if weight_vals is not None and sum(weight_vals) <= 1e-12:
-            norm_projs = _neighbourhood(list(range(len(norm_projs))))
+            norm_projs = _neighbourhood(list(range(len(orig_norm_projs))))
+        elif obs_bool is not None:
+            norm_projs = _apply_obs_row_scale(norm_projs, star_idx, False)
         if training:
             u, new_anchor = _get_u(norm_projs, return_anchor=True)
             return u, new_anchor
@@ -350,7 +381,9 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                 u_list.append(_get_u(nb_projs, return_anchor=False))
         if training:
             with torch.no_grad():
-                _, new_anchor = _get_u([p.detach() for p in norm_projs], return_anchor=True)
+                star_for_anchor = (_apply_obs_row_scale([p.detach() for p in norm_projs], sorted(valid_indices), False)
+                                   if obs_bool is not None else [p.detach() for p in norm_projs])
+                _, new_anchor = _get_u(star_for_anchor, return_anchor=True)
             return u_list, new_anchor
         return u_list
 
@@ -712,7 +745,8 @@ def mai_gated_target(mai: torch.Tensor, steepness: float, floor: torch.Tensor,
 
 
 def capture_consensus_map(projections: List[torch.Tensor],
-                          u: Union[torch.Tensor, List[torch.Tensor]]) -> Dict[str, Any]:
+                          u: Union[torch.Tensor, List[torch.Tensor]],
+                          obs_masks: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
     """Freeze the training batch's consensus as a row-wise affine map.
 
     For a fixed batch, every mixing rule `compute_shared_consensus` applies at
@@ -736,12 +770,27 @@ def capture_consensus_map(projections: List[torch.Tensor],
         rule except an ICA refit without an anchor).
     """
     proj_rms, normed = [], []
-    for p in projections:
+    obs_cpu = ([torch.as_tensor(m, dtype=torch.bool).detach().cpu() for m in obs_masks]
+               if obs_masks is not None else None)
+    for j_idx, p in enumerate(projections):
         # float64 on the CPU: one solve per fit, and MPS has no float64.
         p = torch.nan_to_num(p.detach().cpu().double(), nan=0.0, posinf=0.0, neginf=0.0)
-        rms = float(torch.norm(p, p="fro") / np.sqrt(max(1, p.shape[0])))
-        proj_rms.append(rms)
-        normed.append(p / (rms + 1e-8))
+        if obs_cpu is not None:
+            om = obs_cpu[j_idx]
+            n_obs = max(1, int(om.sum().item()))
+            p_obs = p[om]
+            rms = float(torch.norm(p_obs, p="fro") / np.sqrt(n_obs)) if p_obs.numel() > 0 else 0.0
+            proj_rms.append(rms)
+            normed.append(torch.where(om[:, None], p / (rms + 1e-8), torch.zeros_like(p)))
+        else:
+            rms = float(torch.norm(p, p="fro") / np.sqrt(max(1, p.shape[0])))
+            proj_rms.append(rms)
+            normed.append(p / (rms + 1e-8))
+    if obs_cpu is not None and normed:
+        m_tot = float(len(normed))
+        m_obs = torch.stack([om.double() for om in obs_cpu], dim=0).sum(dim=0)
+        rscale = torch.where(m_obs > 0.0, m_tot / m_obs.clamp_min(1.0), torch.zeros_like(m_obs)).unsqueeze(1)
+        normed = [np_j * rscale for np_j in normed]
     z = torch.cat(normed, dim=1)
     mu = z.mean(dim=0, keepdim=True)
     zc = z - mu
@@ -755,16 +804,31 @@ def capture_consensus_map(projections: List[torch.Tensor],
         offsets.append(b)
         resid = max(resid, float((zc @ r + b - t).abs().max()))
     return {"proj_rms": proj_rms, "mu": mu, "maps": maps, "offsets": offsets,
-            "is_list": isinstance(u, (list, tuple)), "max_residual": resid}
+            "is_list": isinstance(u, (list, tuple)), "max_residual": resid,
+            "masked_row_scale": obs_cpu is not None}
 
 
 def apply_consensus_map(projections: List[torch.Tensor],
-                        frozen: Dict[str, Any]) -> Union[torch.Tensor, List[torch.Tensor]]:
+                        frozen: Dict[str, Any],
+                        obs_masks: Optional[List[torch.Tensor]] = None) -> Union[torch.Tensor, List[torch.Tensor]]:
     """Replay `capture_consensus_map` row-wise on new projections."""
     dtype, device = projections[0].dtype, projections[0].device
     work = torch.device("cpu") if device.type == "mps" else device     # MPS has no float64
-    normed = [torch.nan_to_num(p.to(work).double(), nan=0.0, posinf=0.0, neginf=0.0) / (rms + 1e-8)
-              for p, rms in zip(projections, frozen["proj_rms"])]
+    obs_w = ([torch.as_tensor(m, dtype=torch.bool, device=work) for m in obs_masks]
+             if (obs_masks is not None and frozen.get("masked_row_scale")) else None)
+    normed = []
+    for j_idx, (p, rms) in enumerate(zip(projections, frozen["proj_rms"])):
+        p_w = torch.nan_to_num(p.to(work).double(), nan=0.0, posinf=0.0, neginf=0.0)
+        if obs_w is not None:
+            om = obs_w[j_idx]
+            normed.append(torch.where(om[:, None], p_w / (rms + 1e-8), torch.zeros_like(p_w)))
+        else:
+            normed.append(p_w / (rms + 1e-8))
+    if obs_w is not None and normed:
+        m_tot = float(len(normed))
+        m_obs = torch.stack([om.double() for om in obs_w], dim=0).sum(dim=0)
+        rscale = torch.where(m_obs > 0.0, m_tot / m_obs.clamp_min(1.0), torch.zeros_like(m_obs)).unsqueeze(1)
+        normed = [np_j * rscale for np_j in normed]
     zc = torch.cat(normed, dim=1) - frozen["mu"].to(work)
     outs = [(zc @ r.to(work) + b.to(work)).to(device=device, dtype=dtype)
             for r, b in zip(frozen["maps"], frozen["offsets"])]

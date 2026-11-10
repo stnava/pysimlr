@@ -107,16 +107,22 @@ def _to_numpy(mat: Any, label: str) -> np.ndarray:
     return np.array(arr, dtype=np.float64, order="C", copy=True)
 
 
-def _resolve_view_key(key: Any, n_views: int) -> int:
+def _resolve_view_key(key: Any, n_views: int, view_names: Sequence[str] | None = None) -> int:
     if isinstance(key, (int, np.integer)) and not isinstance(key, bool) and 0 <= int(key) < n_views:
         return int(key)
+    if view_names is not None and isinstance(key, str) and key in view_names:
+        idx = list(view_names).index(key)
+        if 0 <= idx < n_views:
+            return int(idx)
     if isinstance(key, str) and key.startswith("view") and key[4:].isdigit() and int(key[4:]) < n_views:
         return int(key[4:])
+    names_hint = f", or one of {list(view_names)}" if view_names is not None else ""
     raise ValueError(f"unknown view key {key!r} in confounds; expected an index in 0..{n_views - 1} "
-                     f"or 'view0'..'view{n_views - 1}'.")
+                     f"or 'view0'..'view{n_views - 1}'{names_hint}.")
 
 
-def _unpack_confounds(confounds: Any, n_views: int) -> tuple[list[tuple[str, Any]], bool]:
+def _unpack_confounds(confounds: Any, n_views: int,
+                      view_names: Sequence[str] | None = None) -> tuple[list[tuple[str, Any]], bool]:
     if confounds is None:
         raise ValueError("confounds is None.")
     if _is_single_matrix(confounds):
@@ -127,7 +133,7 @@ def _unpack_confounds(confounds: Any, n_views: int) -> tuple[list[tuple[str, Any
         items: list[tuple[str, Any]] = [("", None)] * n_views
         seen = [False] * n_views
         for key, val in confounds.items():
-            idx = _resolve_view_key(key, n_views)
+            idx = _resolve_view_key(key, n_views, view_names=view_names)
             if seen[idx]:
                 raise ValueError(f"confounds gives view {idx} twice.")
             seen[idx] = True
@@ -141,14 +147,15 @@ def _unpack_confounds(confounds: Any, n_views: int) -> tuple[list[tuple[str, Any
                      f"got {type(confounds).__name__}.")
 
 
-def per_view_confounds(confounds: Any, n_samples: int, n_views: int) -> tuple[list[np.ndarray | None], bool]:
+def per_view_confounds(confounds: Any, n_samples: int, n_views: int,
+                       view_names: Sequence[str] | None = None) -> tuple[list[np.ndarray | None], bool]:
     """``confounds`` as one ``(n, q_m)`` array (or None) per view, and whether it was one shared matrix.
 
     Accepts a shared ``(n, q)`` / ``(n,)`` array, tensor, DataFrame or Series;
     a per-view sequence (``None`` for a view without confounds); or a dict
-    keyed by view index or ``"view<i>"``.
+    keyed by view index, ``"view<i>"``, or a view name in ``view_names``.
     """
-    items, shared = _unpack_confounds(confounds, n_views)
+    items, shared = _unpack_confounds(confounds, n_views, view_names=view_names)
     if shared:
         c = _to_numpy(items[0][1], "confounds")
         if c.shape[0] != n_samples:
@@ -189,7 +196,8 @@ def slice_confounds(confounds: Any, indices: Any) -> Any:
     raise ValueError(f"cannot slice confounds of type {type(confounds).__name__}.")
 
 
-def permute_view_confounds(confounds: Any, perms: Sequence[np.ndarray | None]) -> list[Any]:
+def permute_view_confounds(confounds: Any, perms: Sequence[np.ndarray | None],
+                           view_names: Sequence[str] | None = None) -> list[Any]:
     """Per-view confounds whose rows follow each view's row permutation.
 
     ``perms[m]`` is the row order of view ``m`` in a null refit (``None``:
@@ -198,7 +206,7 @@ def permute_view_confounds(confounds: Any, perms: Sequence[np.ndarray | None]) -
     operator commutes with row permutations, every view of the null refit is
     cleaned exactly as in the observed fit (same basis rank, same penalty).
     """
-    items, _ = _unpack_confounds(confounds, len(perms))
+    items, _ = _unpack_confounds(confounds, len(perms), view_names=view_names)
     return [v if (v is None or p is None) else _slice_one(v, np.asarray(p, dtype=np.int64))
             for (_, v), p in zip(items, perms)]
 
@@ -280,28 +288,43 @@ def apply_view_sink(x: Any, sink: dict[str, Any]) -> tuple[torch.Tensor, torch.T
     if xa.ndim != 2 or xa.shape[1] != sink["mean"].shape[0]:
         raise ValueError(f"view has shape {tuple(xa.shape)}; the confound sink expects "
                          f"{sink['mean'].shape[0]} columns.")
+    row_nan = np.isnan(xa).all(axis=1) if sink.get("preserve_row_nans") else None
     mu = sink["mean"]
     xf = np.where(np.isfinite(xa), xa, mu)
     z = (xf - mu) @ sink["H"]
     cleaned = xf - sink["gamma"] * (z @ sink["H"].T)
-    return torch.from_numpy(cleaned).float(), torch.from_numpy(z @ sink["M"]).float()
+    scores = z @ sink["M"]
+    if row_nan is not None and row_nan.any():
+        cleaned = cleaned.copy()
+        scores = scores.copy()
+        cleaned[row_nan] = np.nan
+        scores[row_nan] = np.nan
+    return torch.from_numpy(cleaned).float(), torch.from_numpy(scores).float()
 
 
 # ----------------------------------------------------------------------------- all views
 def fit_confound_sink(views: Sequence[torch.Tensor], confounds: Any, confound_strength: Any = 1.0,
-                      confound_rank: Any = None) -> tuple[list[torch.Tensor], dict[str, Any]]:
+                      confound_rank: Any = None, *, missing_rows: str = "impute",
+                      view_names: Sequence[str] | None = None) -> tuple[list[torch.Tensor], dict[str, Any]]:
     """Fit every view's operator on the training rows; return the cleaned views and the record."""
     gamma, rank = validate_confound_params(confound_strength, confound_rank)
     n = int(views[0].shape[0])
-    per_view, shared = per_view_confounds(confounds, n, len(views))
+    per_view, shared = per_view_confounds(confounds, n, len(views), view_names=view_names)
     sinks: list[dict[str, Any] | None] = []
     cleaned: list[torch.Tensor] = []
+    mask_mode = (missing_rows == "mask")
     for x, c in zip(views, per_view):
         if c is None:
             sinks.append(None)
             cleaned.append(x)
             continue
-        s = fit_view_sink(x, c, gamma, rank)
+        if mask_mode:
+            obs_t = ~torch.isnan(x).all(dim=1)
+            obs_np = obs_t.detach().cpu().numpy()
+            s = fit_view_sink(x[obs_t], c[obs_np], gamma, rank)
+            s["preserve_row_nans"] = True
+        else:
+            s = fit_view_sink(x, c, gamma, rank)
         sinks.append(s)
         cleaned.append(apply_view_sink(x, s)[0])
     c_all = [c for c in per_view if c is not None]
@@ -380,8 +403,14 @@ def confound_decorrelation(result: dict[str, Any], views: Any, confounds: Any) -
         and len(confounds) == n_views
         and any(v is None or _is_single_matrix(v) for v in confounds)
     ):
-        per_view, _ = per_view_confounds(confounds, n_rows, n_views)
-        c = np.column_stack([cm for cm in per_view if cm is not None])
+        from .extension import view_names as _view_names
+        per_view, shared = per_view_confounds(confounds, n_rows, n_views, view_names=_view_names(result)[:n_views])
+        c_all = [cm for cm in per_view if cm is not None]
+        same_non_null = shared or (
+            len(c_all) > 1
+            and all(cm.shape == c_all[0].shape and np.array_equal(cm, c_all[0], equal_nan=True) for cm in c_all[1:])
+        )
+        c = c_all[0] if same_non_null else np.column_stack(c_all)
     else:
         c = _to_numpy(confounds, "confounds")
         if c.shape[0] != n_rows:
@@ -398,7 +427,8 @@ def sink_scores(record: dict[str, Any], views: Sequence[torch.Tensor | None]) ->
         lat[i] = apply_view_sink(x, s)[1]
     u_sink = None
     if record["shared"] and lat:
-        u_sink = torch.stack(list(lat.values()), dim=0).mean(dim=0)
+        stacked = torch.stack(list(lat.values()), dim=0)
+        u_sink = torch.nanmean(stacked, dim=0) if torch.isnan(stacked).any() else stacked.mean(dim=0)
     return {"latents_sink": lat, "u_sink": u_sink}
 
 

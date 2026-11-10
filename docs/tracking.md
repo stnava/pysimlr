@@ -1,8 +1,8 @@
 # Tracking Summary
-current phase: `v0.26.0` released (`D46` committed, pending owner release bump to `v0.27.0`; `D45`: cross-view bottleneck rank; `D44`: within-view bound and `select_rank(ks="auto")`; `D43`: training-row p-value policy, `path_model_from_scores`; `D41`: score-level path model).
-next WP: owner review of `D46` (`v0.27.0` release bump) and docs/plans/2026-11-07_path_model_next_steps.md items 1 (mediation), 6-8.
+current phase: `v0.27.0` released (`D47`: uneven-missingness `missing_rows="mask"`, `per_view_params`, named-view `Mapping` `fit`, extension-aware `path_model`, and worker-initialized `_refit_null`; `D46`: rank-bound modes, subsample convergence, missing-view SEM, `select_model`, and `compare_path_models_from_scores`).
+next WP: docs/plans/2026-11-07_path_model_next_steps.md items 1 (mediation), 6-8.
 blockers: none
-active work: `D46` committed on `main` (pending release bump to `v0.27.0`).
+active work: none
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
 last updated: 2026-11-10
 
@@ -12,8 +12,18 @@ Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserve
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
 
+## D47 (Single-call uneven-missingness `missing_rows="mask"`, `per_view_params`, named-view `Mapping` `fit`, extension-aware `path_model`, and worker-initialized `_refit_null`, 2026-11-10)
+status: done (released in v0.27.0)
+- **Items implemented:**
+  - **`simlr.simlr`, `consensus`, `confounds`, `loadings`, `utils` (`missing_rows="mask"` and `per_view_params`):** added `missing_rows="mask"` to preserve unobserved (`NaN`) rows per view without global mean imputation across preprocessing, pre-fit ridge `fit_confound_sink` / `apply_view_sink(..., preserve_row_nans=True)` / `sink_scores`, graph Laplacian construction (`obs_masks`), consensus weighting and RMS normalization (`compute_shared_consensus`, `capture_consensus_map`, `apply_consensus_map`), `predict_shared_latent` / `predict_simlr`, `structure_coefficients` / `loadings`, `coupling_capacity_report`, and `_recon_metrics`. Added `per_view_params: Optional[Mapping[Union[int, str], Dict[str, Any]]] = None` to override per-view `positivity`, `sparseness`, `orthogonalize`, and `gamma` inside a single `simlr` / `pysimlr.fit` call.
+  - **`api.as_views` & `api.fit` (`Mapping[str, Matrix]` views):** `pysimlr.fit` accepts `Mapping[str, Matrix]` directly, recording `res["view_names"]` and resolving string-keyed `path_graph`, `per_view_params`, and per-view `confounds` (`_resolve_view_key`, `per_view_confounds`, `permute_view_confounds`; deduplicating shared non-null confound blocks in `confound_decorrelation`).
+  - **`extension` & `sem` (extension-aware and pairwise-observed `path_model`):** `extension._affine_map`, `subset_consensus`, `_ext_latent`, and `_anchored` fit and project finite observed rows while preserving `NaN` rows for partial/spoke views; `sem.view_scores`, `_edge_design` (`"n_edge"`, `"obs_idx"`), `pm["edges"]["n"]`, `_path_model_core`, and `_fit_node_models` automatically incorporate `result["extensions"]` and evaluate each directed/undirected edge on its exact pairwise complete-case intersection (`a ∩ b ∩ cond`), permuting rows strictly within each view's `obs_mask` in `_refit_null` and initializing `ProcessPoolExecutor` workers once (`_init_refit_worker`) with NumPy-serialized arrays to eliminate per-task IPC pickling overhead.
+- **New tests (2):** `test_single_call_uneven_missing_rows_hub_and_spoke_fit_and_refit_path_model`, `test_extend_into_path_model_with_partial_rows`.
+- **Files:** `pyproject.toml`, `src/pysimlr/{__init__.py, api.py, confounds.py, consensus.py, extension.py, loadings.py, sem.py, simlr.py, utils.py}`, `tests/test_sem.py`, `docs/tracking.md`.
+- **Verification:** `python -m antsxqc.lint src/pysimlr` -> `0 finding(s)`; `pytest -n 0 -m "not slow" tests/test_sem.py` -> `39 passed`; `pytest -n 0 tests/test_confound_sink.py tests/test_loadings.py tests/test_extend.py tests/test_extend_simlr.py tests/test_consensus_graph.py tests/test_implementation_standards.py tests/test_package_import.py` -> `111 passed`.
+
 ## D46 (Rank-bound modes, subsample convergence, missing-view SEM, `select_model`, and `compare_path_models_from_scores`, 2026-11-10)
-status: done (pending owner release bump to v0.27.0; package version kept at 0.26.0)
+status: done (released in v0.27.0)
 - **Items implemented:**
   - **L9 (`loadings.loading_inference`, `loadings.select_rank`):** `_fit_structure` records `stop_reason` and `n_steps`; `loading_inference` records `median_converged_iter`, `oos_coupling_splits` and `n_effective_refits`, emits one `RuntimeWarning` when `converged_fraction < 0.5` naming `used_iterations` (`select_rank` deduplicates to one per `k`), and supports `exclude_unconverged=True` (filtering by `rec["converged"] is True` so closed-form `pca` is retained; returns graceful empty/NaN summaries when `n_effective_refits == 0`).
   - **L1 (`loadings.bottleneck_rank`, `loadings.select_rank`):** added `bound in {"min", "max", "stacked"}` to `bottleneck_rank` (`"stacked"` tests eigenvalues of `M = g_all @ g_all - sum_i G_i @ G_i` under independent row permutations via a dedicated spawned child RNG, using a thin-QR `P x P` cross-Gram identity when `P = sum_i p_i < n`, a direct `p_others <= n` or positive-eigenspace dual Gram factor `l_o.T @ g_self @ l_o` when `p_m > n`, and vectorized `rng.permuted(z, axis=0, out=zp)` for within-view permutations), always returning `k_max_min`, `k_max_max`, `k_max_stacked`. `select_rank` defaults to `bound="max"` and raises a descriptive `ValueError` naming `bound` and worst-view `sigma1/tau95` when `ks="auto"` hits `k_max == 0`.

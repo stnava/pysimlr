@@ -90,11 +90,17 @@ _POSITIONAL = ("data_matrices", "k")
 def as_views(views: Any) -> List[torch.Tensor]:
     """Convert input to a list of 2-D float32 tensors with matched rows.
 
-    Accepts one matrix (a single view) or a list/tuple of matrices; each may
-    be a `torch.Tensor`, `np.ndarray` or anything with ``to_numpy()``.
+    Accepts one matrix (a single view), a list/tuple of matrices, or a mapping
+    of ``view_name -> matrix``; each may be a `torch.Tensor`, `np.ndarray` or
+    anything with ``to_numpy()``.
     """
     from .extension import _to_tensor
-    items = list(views) if isinstance(views, (list, tuple)) else [views]
+    if isinstance(views, Mapping):
+        items = list(views.values())
+    elif isinstance(views, (list, tuple)):
+        items = list(views)
+    else:
+        items = [views]
     if not items:
         raise ValueError("views must contain at least one matrix.")
     out = [_to_tensor(m, f"view {i}") for i, m in enumerate(items)]
@@ -103,6 +109,36 @@ def as_views(views: Any) -> List[torch.Tensor]:
         raise ValueError(f"Size mismatch: views have different numbers of rows: "
                          f"{[t.shape[0] for t in out]}.")
     return out
+
+
+def _resolve_fit_view_idx(key: Any, n_views: int, view_names: Optional[List[str]]) -> int:
+    if isinstance(key, (int, np.integer)) and not isinstance(key, bool) and 0 <= int(key) < n_views:
+        return int(key)
+    if view_names is not None and isinstance(key, str) and key in view_names:
+        return int(view_names.index(key))
+    if isinstance(key, str) and key.startswith("view") and key[4:].isdigit() and int(key[4:]) < n_views:
+        return int(key[4:])
+    names_hint = f" or one of {view_names}" if view_names is not None else ""
+    raise ValueError(f"unknown view key {key!r}; expected 0..{n_views - 1}{names_hint}.")
+
+
+def _normalize_fit_path_graph(path_graph: Any, n_views: int,
+                              view_names: Optional[List[str]]) -> Dict[int, List[int]]:
+    if isinstance(path_graph, Mapping):
+        out: Dict[int, List[int]] = {}
+        for k_raw, nbrs in path_graph.items():
+            ia = _resolve_fit_view_idx(k_raw, n_views, view_names)
+            out[ia] = [_resolve_fit_view_idx(nb, n_views, view_names) for nb in nbrs]
+        return out
+    adj: Dict[int, List[int]] = {i: [] for i in range(n_views)}
+    for a_raw, b_raw in path_graph:
+        ia = _resolve_fit_view_idx(a_raw, n_views, view_names)
+        ib = _resolve_fit_view_idx(b_raw, n_views, view_names)
+        if ib not in adj[ia]:
+            adj[ia].append(ib)
+        if ia not in adj[ib]:
+            adj[ib].append(ia)
+    return adj
 
 
 # ---------------------------------------------------------------------------
@@ -438,15 +474,41 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
         warnings.warn(f"pysimlr.fit: parameter {name!r} ignored: {why}.",
                       RuntimeWarning, stacklevel=2)
     call = {**used, **spec.presets}
+    fit_view_names: Optional[List[str]] = None
+    if isinstance(views, Mapping):
+        fit_view_names = [str(nm) for nm in views.keys()]
+        if len(set(fit_view_names)) != len(fit_view_names) or {"outcome", "consensus"} & set(fit_view_names):
+            raise ValueError(
+                f"view names must be distinct and not 'outcome' or 'consensus'; got {fit_view_names}."
+            )
     view_list = as_views(views)
+    n_views = len(view_list)
+    if call.get("path_graph") is not None:
+        call["path_graph"] = _normalize_fit_path_graph(call["path_graph"], n_views, fit_view_names)
+    if call.get("per_view_params") is not None and isinstance(call["per_view_params"], Mapping):
+        call["per_view_params"] = {
+            _resolve_fit_view_idx(kv, n_views, fit_view_names): dict(vv)
+            for kv, vv in call["per_view_params"].items()
+        }
+    if sink_req.get("confounds") is not None and isinstance(sink_req["confounds"], Mapping):
+        sink_req["confounds"] = {
+            _resolve_fit_view_idx(kv, n_views, fit_view_names): vv
+            for kv, vv in sink_req["confounds"].items()
+        }
     sink = None
     if sink_req.get("confounds") is not None:
         from .confounds import fit_confound_sink
-        fit_views, sink = fit_confound_sink(view_list, **sink_req)
+        fit_views, sink = fit_confound_sink(
+            view_list, **sink_req,
+            missing_rows=str(call.get("missing_rows", "impute")),
+            view_names=fit_view_names,
+        )
     else:
         fit_views = view_list
     res = spec.fit(fit_views, int(k), **call)
     _normalize(res)
+    if fit_view_names is not None:
+        res["view_names"] = fit_view_names
     res["method"] = spec.name
     res["family"] = spec.family
     res["confound_sink"] = None

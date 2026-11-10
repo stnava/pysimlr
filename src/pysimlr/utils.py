@@ -569,18 +569,26 @@ def coupling_capacity_report(latents: List[torch.Tensor], u: torch.Tensor, width
     """
     uu = u[0] if isinstance(u, list) else u
     uu = uu.detach().double()
-    uc = uu - uu.mean(0)
-    uc_norm = uc.norm(dim=0)
     coup = []
+    n_per_view = []
     for z in latents:
         zd = z.detach().double()
-        zc = zd - zd.mean(0)
-        num = (zc * uc).sum(0)
-        den = zc.norm(dim=0) * uc_norm
-        coup.append((num.abs() / den.clamp_min(1e-300)).tolist())
-    ratio = [float(p) / float(n) for p in widths]
+        fin = torch.isfinite(zd).all(dim=1) & torch.isfinite(uu).all(dim=1)
+        n_m = int(fin.sum().item())
+        n_per_view.append(n_m if n_m > 0 else int(n))
+        if n_m >= 2:
+            zf = zd[fin]
+            uf = uu[fin]
+            zc = zf - zf.mean(0)
+            uc = uf - uf.mean(0)
+            num = (zc * uc).sum(0)
+            den = zc.norm(dim=0) * uc.norm(dim=0)
+            coup.append((num.abs() / den.clamp_min(1e-300)).tolist())
+        else:
+            coup.append([0.0] * int(zd.shape[1]))
+    ratio = [float(p) / float(max(nm, 1)) for p, nm in zip(widths, n_per_view)]
     return {"coupling_train": coup, "view_width_ratio": ratio,
-            "wide_views": [m for m, p in enumerate(widths) if p >= n]}
+            "wide_views": [m for m, (p, nm) in enumerate(zip(widths, n_per_view)) if p >= nm]}
 
 
 def warn_if_wide_views(report: Dict[str, Any], method: str, widths: List[int], n: int) -> None:
@@ -1658,6 +1666,16 @@ def _recon_metrics(
             if isinstance(r, torch.Tensor)
             else torch.as_tensor(r)
         )
+        if xc.ndim == 2 and rc.ndim == 2 and not bool(torch.isfinite(xc).all() and torch.isfinite(rc).all()):
+            fin = torch.isfinite(xc).all(dim=1) & torch.isfinite(rc).all(dim=1)
+            xc = xc[fin]
+            rc = rc[fin]
+        if xc.numel() == 0:
+            errors.append(float("nan"))
+            if include_r2_mse:
+                r2_list.append(float("nan"))
+                mse_list.append(float("nan"))
+            continue
         diff = xc - rc
         if include_r2_mse:
             df64 = diff.reshape(-1).double()
