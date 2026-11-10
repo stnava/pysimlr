@@ -797,6 +797,11 @@ def test_compare_path_models_from_scores_and_joint_relevance():
             sc_tr, sc_te, graphs, outcome_train=y_tr[:-1], outcome_test=y_te,
             n_bootstrap=0, n_permutations=9,
         )
+    with pytest.raises(ValueError, match="unknown node name"):
+        pysimlr.compare_path_models_from_scores(
+            sc_tr, sc_te, graphs, dofs={"typo_view": 10.0},
+            n_bootstrap=0, n_permutations=9,
+        )
 
     # Also supports absent test block with L3 check
     sc_te_miss = {"view0": sc_te["view0"], "view1": None, "view2": sc_te["view2"]}

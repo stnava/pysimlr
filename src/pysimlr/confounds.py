@@ -355,13 +355,25 @@ def confound_decorrelation(result: dict[str, Any], views: Any, confounds: Any) -
     for any fit, with or without a confound sink, so the two can be compared.
     ``views`` may be a full sequence, a partial list with ``None`` for missing
     views, or any `Mapping` keyed by view name or index (routed through
-    `predict_views`).
+    `predict_views`). ``confounds`` may be a shared matrix or a per-view list
+    or `Mapping` (as in `pysimlr.fit`).
     """
     from .api import predict
     u = predict(result, views)["u"]
-    c = _to_numpy(confounds, "confounds")
-    if c.shape[0] != u.shape[0]:
-        raise ValueError(f"confounds has {c.shape[0]} rows; the views have {u.shape[0]}.")
+    n_rows = int(u.shape[0])
+    n_views = len(result["v"])
+    if isinstance(confounds, Mapping) or (
+        isinstance(confounds, (list, tuple))
+        and not _is_single_matrix(confounds)
+        and len(confounds) == n_views
+        and any(v is None or _is_single_matrix(v) for v in confounds)
+    ):
+        per_view, _ = per_view_confounds(confounds, n_rows, n_views)
+        c = np.column_stack([cm for cm in per_view if cm is not None])
+    else:
+        c = _to_numpy(confounds, "confounds")
+        if c.shape[0] != n_rows:
+            raise ValueError(f"confounds has {c.shape[0]} rows; the views have {n_rows}.")
     return max_abs_corr(u, c)
 
 

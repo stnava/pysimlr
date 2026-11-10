@@ -1135,22 +1135,29 @@ def bottleneck_rank(views: Any, *, confounds: Any = None, mode: str = "cross",
     for vi, (z, g_self, rng) in enumerate(zip(zs, grams, children[:len(zs)])):
         g_others = g_all - g_self
         p_m = z.shape[1]
+        zp = np.empty_like(z)
         if p_m > n:
-            w_o, v_o = np.linalg.eigh(g_others)
-            pos = w_o > 0.0
-            l_o = v_o[:, pos] * np.sqrt(w_o[pos])
-            pad_sv = np.zeros(p_m - int(pos.sum()), dtype=np.float64)
+            others_z = [zs[j] for j in range(len(zs)) if j != vi]
+            p_others = int(sum(z_o.shape[1] for z_o in others_z))
+            if p_others <= n:
+                l_o = np.hstack(others_z)
+            else:
+                w_o, v_o = np.linalg.eigh(g_others)
+                pos = w_o > 1e-12 * max(float(w_o[-1]), 0.0)
+                l_o = v_o[:, pos] * np.sqrt(w_o[pos])
+            pad_sv = np.zeros(p_m - int(l_o.shape[1]), dtype=np.float64)
             ev_cross = np.clip(np.linalg.eigvalsh(l_o.T @ g_self @ l_o)[::-1], 0.0, None)
             sv = np.concatenate([np.sqrt(ev_cross) / (n - 1.0), pad_sv])
             null_sv = np.empty((n_permutations, p_m))
             ev = _pa_eigenvalues(z)
             null_ev = np.empty((n_permutations, ev.size))
+            l_p = np.empty_like(l_o)
             for b in range(n_permutations):
                 p_idx = rng.permutation(n)
-                g_p = g_self[p_idx][:, p_idx]
-                ev_b = np.clip(np.linalg.eigvalsh(l_o.T @ g_p @ l_o)[::-1], 0.0, None)
+                l_p[p_idx] = l_o
+                ev_b = np.clip(np.linalg.eigvalsh(l_p.T @ g_self @ l_p)[::-1], 0.0, None)
                 null_sv[b] = np.concatenate([np.sqrt(ev_b) / (n - 1.0), pad_sv])
-                zp = np.column_stack([rng.permutation(z[:, j]) for j in range(p_m)])
+                rng.permuted(z, axis=0, out=zp)
                 null_ev[b] = _pa_eigenvalues(zp)
         else:
             sv = _cross_singular_values(z, g_others, n)
@@ -1159,7 +1166,7 @@ def bottleneck_rank(views: Any, *, confounds: Any = None, mode: str = "cross",
             null_ev = np.empty((n_permutations, ev.size))
             for b in range(n_permutations):
                 null_sv[b] = _cross_singular_values(z[rng.permutation(n)], g_others, n)
-                zp = np.column_stack([rng.permutation(z[:, j]) for j in range(p_m)])
+                rng.permuted(z, axis=0, out=zp)
                 null_ev[b] = _pa_eigenvalues(zp)
         cross_rank, thr = _permutation_rank(sv, null_sv, quantile)
         within_rank, ethr = _permutation_rank(ev, null_ev, quantile)

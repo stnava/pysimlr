@@ -397,7 +397,9 @@ def test_confound_decorrelation_mapping_partial_views(data):
         mp = MappingProxyType({"view0": xte[0], "view1": xte[1]})
         dec_map = confound_decorrelation(res, mp, cte)
         dec_list = confound_decorrelation(res, [xte[0], xte[1], None], cte)
+        dec_pv_map = confound_decorrelation(res, mp, MappingProxyType({0: cte, "view1": cte}))
+        dec_pv_list = confound_decorrelation(res, mp, [cte, cte, None])
     assert np.isfinite(dec_map["max"]) and np.isfinite(dec_map["mean"])
-    assert dec_map == dec_list
+    assert dec_map == dec_list == dec_pv_map == dec_pv_list
     assert confound_decorrelation(res, xte, cte) == full_before
 

@@ -385,7 +385,10 @@ def _stats_from_perm(des: Dict[str, Any], P: torch.Tensor) -> Dict[str, torch.Te
     Hq, Ha = T[:, :q], T[:, q:]
     G = des["RbtRb"] - Hq.transpose(-1, -2) @ Hq                    # (c, kb, kb)
     M = Ha.transpose(-1, -2) @ Ha
-    pil = torch.linalg.solve(G, M).diagonal(dim1=-2, dim2=-1).sum(-1) / min(des["ka"], des["kb"])
+    if des["kb"] == 1:
+        pil = M[:, 0, 0] / G[:, 0, 0]
+    else:
+        pil = torch.linalg.solve(G, M).diagonal(dim1=-2, dim2=-1).sum(-1) / min(des["ka"], des["kb"])
     out = {"pillai": pil}
     if des["comps"]:
         C = des["RaR"].transpose(0, 1) @ Ha                          # (c, ka, kb) = Ra^T Rb*
@@ -421,6 +424,40 @@ def _observed(des: Dict[str, Any]) -> Dict[str, Any]:
     return obs
 
 
+def _boot_edge_from_residuals(
+    des: Dict[str, Any],
+    Ra: torch.Tensor,
+    Rb: torch.Tensor,
+    Saa: torch.Tensor,
+    Sbb: torch.Tensor,
+    Sab: Optional[torch.Tensor] = None,
+    pil: Optional[torch.Tensor] = None,
+) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
+    if Sab is None:
+        Sab = Ra.transpose(-1, -2) @ Rb
+    if pil is None:
+        ka, kb = des["ka"], des["kb"]
+        if ka == 1 and kb == 1:
+            pil = (Sab[:, 0, 0] ** 2) / (Saa[:, 0, 0] * Sbb[:, 0, 0])
+        elif kb == 1:
+            pil = (Sab[:, :, 0] * torch.linalg.solve(Saa, Sab)[:, :, 0]).sum(-1) / Sbb[:, 0, 0]
+        elif ka == 1:
+            pil = (Sab[:, 0, :] * torch.linalg.solve(Sbb, Sab.transpose(-1, -2))[:, :, 0]).sum(-1) / Saa[:, 0, 0]
+        else:
+            pil = (torch.linalg.solve(Saa, Sab) @ torch.linalg.solve(Sbb, Sab.transpose(-1, -2))).diagonal(
+                dim1=-2, dim2=-1).sum(-1) / min(ka, kb)
+    out = {"pillai": pil}
+    if des["comps"]:
+        ia = torch.as_tensor([c[0] for c in des["comps"]])
+        ib = torch.as_tensor([c[1] for c in des["comps"]])
+        num = Sab[:, ia, ib]
+        da = Saa.diagonal(dim1=-2, dim2=-1)[:, ia]
+        db = Sbb.diagonal(dim1=-2, dim2=-1)[:, ib]
+        out["r"] = num / torch.sqrt(da * db)
+        out["beta"] = num / da
+    return out, Sab, pil
+
+
 def _boot_edge(des: Dict[str, Any], idx: torch.Tensor, Za: torch.Tensor, Zb: torch.Tensor) -> Dict[str, torch.Tensor]:
     """pillai, r and beta on bootstrap rows ``idx`` (c, n): S, Z_a, Z_b resampled, residualised
     by ridge least squares (lambda = 1e-8 trace / cols) in each replicate."""
@@ -433,19 +470,7 @@ def _boot_edge(des: Dict[str, Any], idx: torch.Tensor, Za: torch.Tensor, Zb: tor
     Rb = Xb - S @ torch.linalg.solve(StS, S.transpose(-1, -2) @ Xb)
     Saa = Ra.transpose(-1, -2) @ Ra
     Sbb = Rb.transpose(-1, -2) @ Rb
-    Sab = Ra.transpose(-1, -2) @ Rb
-    pil = (torch.linalg.solve(Saa, Sab) @ torch.linalg.solve(Sbb, Sab.transpose(-1, -2))).diagonal(
-        dim1=-2, dim2=-1).sum(-1) / min(des["ka"], des["kb"])
-    out = {"pillai": pil}
-    if des["comps"]:
-        ia = torch.as_tensor([c[0] for c in des["comps"]])
-        ib = torch.as_tensor([c[1] for c in des["comps"]])
-        num = Sab[:, ia, ib]
-        da = Saa.diagonal(dim1=-2, dim2=-1)[:, ia]
-        db = Sbb.diagonal(dim1=-2, dim2=-1)[:, ib]
-        out["r"] = num / torch.sqrt(da * db)
-        out["beta"] = num / da
-    return out
+    return _boot_edge_from_residuals(des, Ra, Rb, Saa, Sbb)[0]
 
 
 def _adjusted_rv(Ra: np.ndarray, Rb: np.ndarray) -> float:
@@ -923,14 +948,54 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
 
     # ---- bootstrap intervals (measurement fixed, subjects resampled)
     boot: Dict[Tuple[str, str], Dict[str, List[np.ndarray]]] = {e: {"pillai": [], "r": [], "beta": []} for e in pairs}
-    Zt = {nm: torch.as_tensor(z) for nm, z in Z.items()}
-    for s0 in range(0, n_boot, _CHUNK):
-        c = min(_CHUNK, n_boot - s0)
-        idx = torch.as_tensor(rng_boot.integers(0, n, (c, n)))
+    if n_boot > 0:
+        Zt = {nm: torch.as_tensor(z) for nm, z in Z.items()}
+        cond_groups: Dict[Tuple[str, ...], List[Tuple[str, str]]] = {}
         for e in pairs:
-            st = _boot_edge(designs[e], idx, Zt[e[0]], Zt[e[1]])
-            for key, val in st.items():
-                boot[e][key].append(val.numpy())
+            cond_groups.setdefault(cond_by_edge[e], []).append(e)
+        cond_prep = {}
+        for c_tuple, grp_edges in cond_groups.items():
+            u_nodes = list(dict.fromkeys([u for e in grp_edges for u in e]))
+            u_widths = [int(Zt[u].shape[1]) for u in u_nodes]
+            u_offs = np.cumsum([0] + u_widths)
+            u_slices = {u: slice(int(u_offs[i]), int(u_offs[i + 1])) for i, u in enumerate(u_nodes)}
+            S_t = torch.as_tensor(designs[grp_edges[0]]["S"])
+            X_cat = torch.cat([Zt[u] for u in u_nodes], dim=1)
+            eye_s = torch.eye(S_t.shape[-1], dtype=S_t.dtype)
+            cond_prep[c_tuple] = (grp_edges, u_nodes, u_slices, S_t, X_cat, eye_s)
+        for s0 in range(0, n_boot, _CHUNK):
+            c = min(_CHUNK, n_boot - s0)
+            idx = torch.as_tensor(rng_boot.integers(0, n, (c, n)))
+            for c_tuple, (grp_edges, u_nodes, u_slices, S_t, X_cat, eye_s) in cond_prep.items():
+                S = S_t[idx]
+                StS = S.transpose(-1, -2) @ S
+                lam = _RIDGE * StS.diagonal(dim1=-2, dim2=-1).sum(-1) / S.shape[-1]
+                StS = StS + lam[:, None, None] * eye_s
+                X_b = X_cat[idx]
+                R_all = X_b - S @ torch.linalg.solve(StS, S.transpose(-1, -2) @ X_b)
+                R_map: Dict[str, torch.Tensor] = {}
+                Suu_map: Dict[str, torch.Tensor] = {}
+                for u in u_nodes:
+                    ru = R_all[:, :, u_slices[u]]
+                    R_map[u] = ru
+                    Suu_map[u] = ru.transpose(-1, -2) @ ru
+                pair_done: Dict[Tuple[str, str], Tuple[torch.Tensor, torch.Tensor]] = {}
+                for e in grp_edges:
+                    a, b = e
+                    rev = (b, a)
+                    if rev in pair_done:
+                        sab_rev, pil_rev = pair_done[rev]
+                        st, _, _ = _boot_edge_from_residuals(
+                            designs[e], R_map[a], R_map[b], Suu_map[a], Suu_map[b],
+                            Sab=sab_rev.transpose(-1, -2), pil=pil_rev,
+                        )
+                    else:
+                        st, sab_e, pil_e = _boot_edge_from_residuals(
+                            designs[e], R_map[a], R_map[b], Suu_map[a], Suu_map[b]
+                        )
+                        pair_done[e] = (sab_e, pil_e)
+                    for key, val in st.items():
+                        boot[e][key].append(val.numpy())
 
     # ---- refit null (plan 3.2): per permuted node, plus a global null for the omnibus
     refit = None
@@ -1060,7 +1125,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
                 "outcome_edges": {"n_tests": len(out_edges), "statistic": "pillai"}}
 
     edge_dofs = _result_node_dofs(result, view_nodes, n, orig_view_indices) if (result is not None and rows == "train") else None
-    edge_models = _fit_node_models(Z, nodes, adj, N, directed, node_dofs=edge_dofs)
+    edge_models = {} if _edge_cache is not None else _fit_node_models(Z, nodes, adj, N, directed, node_dofs=edge_dofs)
     feature_contributions = (
         _feature_contributions(result, view_nodes, pairs, present, diagnostic, designs, obs,
                                orig_view_indices=orig_view_indices)
@@ -1300,7 +1365,11 @@ def _coerce_node_dofs(
 ) -> Optional[Dict[str, float]]:
     if dofs is None:
         return None
+    allowed = set(view_names_list) | {"outcome"}
     if isinstance(dofs, Mapping):
+        extra = [str(k) for k in dofs if str(k) not in allowed]
+        if extra:
+            raise ValueError(f"unknown node name(s) in dofs {extra}; expected a subset of {list(view_names_list)}.")
         out: Dict[str, float] = {}
         for k, v in dofs.items():
             if v is not None:
@@ -1361,7 +1430,7 @@ def _gcv_press_node_fit(
     n_eff = float(max(n - r_n, 1))
     best_lam = 1e-8 * scale
     best_gcv = float("inf")
-    for rel in (1e-8, 1e-5, 1e-3, 1e-2, 3e-2, 1e-1, 0.3, 1.0, 3.0, 10.0):
+    for rel in (1e-8, 1e-5, 1e-3, 1e-2, 3e-2, 1e-1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0):
         lam = rel * scale
         filt = s2 / (s2 + lam)
         df_lam = float(filt.sum())
@@ -1380,30 +1449,40 @@ def _gcv_press_node_fit(
     h_tot = h_n + (u_svd ** 2) @ filt_best
     denom_tot = np.maximum(1.0 - h_tot, 1e-3)[:, None]
     v_loo = np.mean((res_gcv / denom_tot) ** 2, axis=0).clip(1e-12)
-    r2_loo = np.clip(1.0 - v_loo / v0_loo, 0.0, 1.0 - 1e-6)
 
     n_m1 = float(max(n - 1, 1))
     gamma = n_m1 / (n_m1 + max(float(dof_eff), 0.0))
     w_pa = gamma * w_gcv
-    v_cal = (v0_loo * (1.0 - (gamma ** 2) * r2_loo)).clip(1e-12)
+    v_cal = np.maximum(v_loo, (1.0 - gamma) * v0_loo + gamma * v_loo).clip(1e-12)
     w_n = _ridge_fit(N, Y - X_pa @ w_pa)
     return np.vstack([w_n, w_pa]), v_cal, float(gamma)
 
 
-def _fit_node_models(Z, nodes, adj, N, directed, node_dofs: Optional[Mapping[str, float]] = None):
+def _fit_node_models(
+    Z, nodes, adj, N, directed,
+    node_dofs: Optional[Mapping[str, float]] = None,
+    node_model_cache: Optional[Dict[Tuple[str, Tuple[str, ...]], Dict[str, Any]]] = None,
+):
     models = {}
     for b in nodes:
         pa = [a for a in _parents(adj, b, directed) if a != "consensus"]
+        ckey = (b, tuple(pa))
+        if node_model_cache is not None and ckey in node_model_cache:
+            models[b] = node_model_cache[ckey]
+            continue
         x_pa = np.column_stack([Z[a] for a in pa]) if pa else None
         dof_eff = (
-            max([ float(node_dofs.get(b, 0.0))] + [float(node_dofs.get(a, 0.0)) for a in pa])
+            max([float(node_dofs.get(b, 0.0))] + [float(node_dofs.get(a, 0.0)) for a in pa])
             if (pa and node_dofs is not None) else 0.0
         )
         W, resid_var, gamma = _gcv_press_node_fit(N, x_pa, Z[b], dof_eff=dof_eff)
-        models[b] = {"parents": pa, "W": W, "resid_var": resid_var,
-                     "n_params": int(W.size), "n_nuisance": int(N.shape[1]),
-                     "parent_cols": {a: int(Z[a].shape[1]) for a in pa},
-                     "dof_eff": float(dof_eff), "gamma": float(gamma)}
+        m_b = {"parents": pa, "W": W, "resid_var": resid_var,
+               "n_params": int(W.size), "n_nuisance": int(N.shape[1]),
+               "parent_cols": {a: int(Z[a].shape[1]) for a in pa},
+               "dof_eff": float(dof_eff), "gamma": float(gamma)}
+        if node_model_cache is not None:
+            node_model_cache[ckey] = m_b
+        models[b] = m_b
     return models
 
 
@@ -1434,19 +1513,26 @@ def _n_params(models: Dict[str, Any], Z: Dict[str, np.ndarray], adj, directed: b
 def _graph_loglik(
     Ztr, Zte, Ntr, Nte, nodes, adj, directed,
     node_dofs: Optional[Mapping[str, float]] = None,
+    node_model_cache: Optional[Dict[Tuple[str, Tuple[str, ...]], Dict[str, Any]]] = None,
 ) -> Tuple[np.ndarray, float, int]:
     """Node regressions on parents fitted on the training scores: per-subject held-out Gaussian
     log-likelihood, the training log-likelihood and the parameter count (plan F4)."""
-    models = _fit_node_models(Ztr, nodes, adj, Ntr, directed, node_dofs=node_dofs)
+    models = _fit_node_models(
+        Ztr, nodes, adj, Ntr, directed, node_dofs=node_dofs, node_model_cache=node_model_cache
+    )
     ll_rows = np.zeros(next(iter(Zte.values())).shape[0])
     ll_tr = 0.0
     for b in nodes:
-        pa = models[b]["parents"]
-        X = np.column_stack([Nte] + [Zte[a] for a in pa])
-        r = Zte[b] - X @ models[b]["W"]
-        v = models[b]["resid_var"]
-        ll_rows += -0.5 * ((r ** 2) / v).sum(1) - 0.5 * np.log(2 * np.pi * v).sum()
-        ll_tr += _node_loglik(models[b], Ntr, [Ztr[a] for a in pa], Ztr[b])
+        mb = models[b]
+        if "_ll_rows" not in mb:
+            pa = mb["parents"]
+            X = np.column_stack([Nte] + [Zte[a] for a in pa])
+            r = Zte[b] - X @ mb["W"]
+            v = mb["resid_var"]
+            mb["_ll_rows"] = -0.5 * ((r ** 2) / v).sum(1) - 0.5 * np.log(2 * np.pi * v).sum()
+            mb["_ll_tr"] = _node_loglik(mb, Ntr, [Ztr[a] for a in pa], Ztr[b])
+        ll_rows += mb["_ll_rows"]
+        ll_tr += mb["_ll_tr"]
     return ll_rows, ll_tr, _n_params(models, Ztr, adj, directed)
 
 
@@ -1557,10 +1643,13 @@ def compare_path_models(result: Optional[Dict[str, Any]] = None, views_train: An
     te_present_std = {all_names[m]: sc_te["scores"][m] for m in avail}
     node_dofs = _result_node_dofs(result, [all_names[m] for m in avail], sc_tr["n"], avail)
     edge_cache: Dict[Any, Any] = {}
+    node_cache: Dict[Tuple[str, Tuple[str, ...]], Dict[str, Any]] = {}
     rows, per_subject = [], {}
     for name, g_remapped in remapped_graphs.items():
         adj = _node_graph(g_remapped, nodes, directed)
-        ll_rows, ll_tr, n_par = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, adj, directed, node_dofs=node_dofs)
+        ll_rows, ll_tr, n_par = _graph_loglik(
+            Ztr, Zte, Ntr, Nte, nodes, adj, directed, node_dofs=node_dofs, node_model_cache=node_cache
+        )
         per_subject[name] = ll_rows
         pm = path_model_from_scores(
             te_present_std, rows="heldout", graph=g_remapped, directed=directed,
@@ -1737,10 +1826,13 @@ def compare_path_models_from_scores(
     boot_idx = [rng.integers(0, n_te, n_te) for _ in range(n_bootstrap)]
     te_present_std = {names_tr[m]: arrays_te[m] for m in avail}
     edge_cache: Dict[Any, Any] = {}
+    node_cache: Dict[Tuple[str, Tuple[str, ...]], Dict[str, Any]] = {}
     rows, per_subject = [], {}
     for name, g_remapped in remapped_graphs.items():
         adj = _node_graph(g_remapped, nodes, directed)
-        ll_rows, ll_tr, n_par = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, adj, directed, node_dofs=node_dofs)
+        ll_rows, ll_tr, n_par = _graph_loglik(
+            Ztr, Zte, Ntr, Nte, nodes, adj, directed, node_dofs=node_dofs, node_model_cache=node_cache
+        )
         per_subject[name] = ll_rows
         pm = path_model_from_scores(
             te_present_std, rows="heldout", graph=g_remapped, directed=directed,
@@ -1839,40 +1931,60 @@ def _compare_training_topologies(method, k, views, graphs, *, n_splits, train_fr
             prm["confounds"] = slice_confounds(prm["confounds"], tr)
         Ntr, _, _ = _nuisance(len(tr), None if c_all is None else c_all[tr], None if g_all is None else g_all[tr])
         Nte, _, _ = _nuisance(len(te), None if c_all is None else c_all[te], None if g_all is None else g_all[te])
+        topo_cache: Dict[Any, Any] = {}
         for gname, adj in adjs.items():
             view_adj = {i: sorted(names.index(b) for b in adj[a] if b in names)
                         for i, a in enumerate(names)}
             topo = "graph" if any(view_adj.values()) else "star"
-            extra = {"topology": topo} if topo == "star" else {"topology": "graph", "path_graph": view_adj}
-            res = fit(method, v_tr, k, random_state=random_state, **prm, **extra)
-            sc_tr = view_scores(res, v_tr, train_views=v_tr)
-            sc_te = view_scores(res, v_te, train_views=v_tr)
-            Ztr = dict(zip(names, sc_tr["scores"]))
-            Zte = dict(zip(names, sc_te["scores"]))
-            if has_y:
-                Ztr["outcome"], Zte["outcome"] = _zscore(y_all[tr]), _zscore(y_all[te])
-            split_dofs = _result_node_dofs(res, names, len(tr))
-            ll_own, _, _ = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, adj, directed, node_dofs=split_dofs)
-            ll_cmp, _, _ = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, complete, directed, node_dofs=split_dofs)
-            pm = path_model(res, v_te, graph=graphs[gname], directed=directed, view_names=names,
-                            covariates=None if c_all is None else c_all[te], groups=None if g_all is None else g_all[te],
-                            outcome=None if not has_y else y_all[te], conditioning="parents",
-                            n_permutations=n_permutations, n_bootstrap=0, alpha=alpha,
-                            random_state=random_state + s, train_views=v_tr)
-            r2, coup = _oob_metrics(res, v_tr, v_te)
+            topo_key = (topo, tuple((i, tuple(v)) for i, v in sorted(view_adj.items())))
+            if topo_key not in topo_cache:
+                extra = {"topology": topo} if topo == "star" else {"topology": "graph", "path_graph": view_adj}
+                res = fit(method, v_tr, k, random_state=random_state, **prm, **extra)
+                sc_tr = view_scores(res, v_tr, train_views=v_tr)
+                sc_te = view_scores(res, v_te, train_views=v_tr)
+                Ztr = dict(zip(names, sc_tr["scores"]))
+                Zte = dict(zip(names, sc_te["scores"]))
+                Zte_views = dict(Zte)
+                if has_y:
+                    Ztr["outcome"], Zte["outcome"] = _zscore(y_all[tr]), _zscore(y_all[te])
+                split_dofs = _result_node_dofs(res, names, len(tr))
+                node_cache_t: Dict[Tuple[str, Tuple[str, ...]], Dict[str, Any]] = {}
+                ll_cmp, _, _ = _graph_loglik(
+                    Ztr, Zte, Ntr, Nte, nodes, complete, directed,
+                    node_dofs=split_dofs, node_model_cache=node_cache_t,
+                )
+                r2, coup = _oob_metrics(res, v_tr, v_te)
+                out_r2 = None
+                if has_y:
+                    u_tr = _np(_u_train(res))
+                    X = np.column_stack([np.ones(len(tr)), u_tr])
+                    W = _ridge_fit(X, y_all[tr])
+                    yhat = np.column_stack([np.ones(len(te)), _np(predict(res, v_te)["u"])]) @ W
+                    yt = y_all[te]
+                    out_r2 = float(1.0 - ((yt - yhat) ** 2).sum() / ((yt - yt.mean(0)) ** 2).sum())
+                topo_cache[topo_key] = (
+                    Ztr, Zte, Zte_views, split_dofs, node_cache_t, ll_cmp, r2, coup, out_r2, {}
+                )
+            (Ztr, Zte, Zte_views, split_dofs, node_cache_t, ll_cmp, r2, coup, out_r2, edge_cache_t) = topo_cache[topo_key]
+            ll_own, _, _ = _graph_loglik(
+                Ztr, Zte, Ntr, Nte, nodes, adj, directed,
+                node_dofs=split_dofs, node_model_cache=node_cache_t,
+            )
+            pm = path_model_from_scores(
+                Zte_views, rows="heldout", graph=graphs[gname], directed=directed,
+                covariates=None if c_all is None else c_all[te],
+                groups=None if g_all is None else g_all[te],
+                outcome=None if not has_y else y_all[te],
+                conditioning="parents", n_permutations=n_permutations, n_bootstrap=0,
+                alpha=alpha, random_state=random_state + s, standardize=False,
+                _edge_cache=edge_cache_t,
+            )
             row = {"split": s, "graph": gname, "topology": topo, "n_edges": _n_edges(adj, directed),
                    "n_test": len(te), "heldout_loglik_own": float(ll_own.sum()),
                    "heldout_loglik_complete": float(ll_cmp.sum()),
                    "present_pass": pm["fit"]["present_pass"], "absent_pass": pm["fit"]["absent_pass"],
                    "oos_coupling": None if coup is None else float(np.mean(coup)),
-                   "oos_r2": None if r2 is None else float(np.mean(r2)), "outcome_r2": None}
-            if has_y:
-                u_tr = _np(_u_train(res))
-                X = np.column_stack([np.ones(len(tr)), u_tr])
-                W = _ridge_fit(X, y_all[tr])
-                yhat = np.column_stack([np.ones(len(te)), _np(predict(res, v_te)["u"])]) @ W
-                yt = y_all[te]
-                row["outcome_r2"] = float(1.0 - ((yt - yhat) ** 2).sum() / ((yt - yt.mean(0)) ** 2).sum())
+                   "oos_r2": None if r2 is None else float(np.mean(r2)), "outcome_r2": out_r2}
             rows.append(row)
     splits = pd.DataFrame(rows)
     crit = [c for c in _TOPOLOGY_CRITERIA if splits[c].notna().all()]
