@@ -112,19 +112,24 @@ def varimax_rotation(structure: Sequence[torch.Tensor], max_iter: int = 500,
                      tol: float = 1e-10) -> torch.Tensor:
     """Orthogonal ``R`` (k x k) maximising the varimax criterion of the stacked
     views, with each column's sign set so its sum of cubed loadings is >= 0."""
-    a = torch.cat([torch.as_tensor(c).double() for c in structure], dim=0).numpy()
+    a = np.ascontiguousarray(torch.cat([torch.as_tensor(c).double() for c in structure], dim=0).numpy())
     p, k = a.shape
     r = np.eye(k)
     if k > 1:
+        a_t = np.ascontiguousarray(a.T)
+        inv_p = 1.0 / p
         crit = 0.0
         for _ in range(int(max_iter)):
             lam = a @ r
-            uu, sv, vt = np.linalg.svd(a.T @ (lam ** 3 - lam @ np.diag((lam ** 2).sum(0)) / p))
+            lam2 = lam * lam
+            uu, sv, vt = np.linalg.svd(a_t @ (lam2 * lam - lam * (lam2.sum(axis=0, keepdims=True) * inv_p)))
             r = uu @ vt
-            if sv.sum() <= crit * (1.0 + tol):
+            sv_sum = float(sv.sum())
+            if sv_sum <= crit * (1.0 + tol):
                 break
-            crit = sv.sum()
-    signs = np.sign(((a @ r) ** 3).sum(0))
+            crit = sv_sum
+    lam_f = a @ r
+    signs = np.sign((lam_f * lam_f * lam_f).sum(axis=0))
     signs[signs == 0] = 1.0
     return torch.as_tensor(r * signs[None, :])
 
@@ -555,7 +560,10 @@ def _relative_weight_shares(zo: np.ndarray, lam2: np.ndarray, targets: np.ndarra
     """Relative-weight shares (columns sum to 1) for every column of ``targets`` (n x B) at
     once: the (p x B) fraction of each target's explained variance owed to each feature."""
     n = targets.shape[0]
-    w = lam2 @ ((zo.T @ _zscore(targets) / np.sqrt(n)) ** 2)
+    zt = _zscore(targets) * (1.0 / np.sqrt(n))
+    u = np.ascontiguousarray(zo.T) @ zt
+    np.multiply(u, u, out=u)
+    w = np.ascontiguousarray(lam2) @ u
     tot = w.sum(0, keepdims=True)
     return w / tot if (tot > 0).all() else np.where(tot > 0, w / np.where(tot > 0, tot, 1.0), 0.0)
 
@@ -783,11 +791,13 @@ def _top_q_mask(h: np.ndarray, q: int) -> np.ndarray:
 
 
 def _col_corr_stability(al_slice: np.ndarray, ref_mat: np.ndarray, *, nan_safe: bool = False) -> List[float]:
-    if not nan_safe and al_slice.shape[0] > 0:
+    if al_slice.shape[0] > 0 and (
+        not nan_safe or (np.isfinite(al_slice).all() and np.isfinite(ref_mat).all())
+    ):
         ac = al_slice - al_slice.mean(axis=1, keepdims=True)
         rc = ref_mat - ref_mat.mean(axis=0, keepdims=True)
         num = (ac * rc[None, :, :]).sum(axis=1)
-        den = np.sqrt((ac ** 2).sum(axis=1) * (rc ** 2).sum(axis=0)[None, :])
+        den = np.sqrt((ac * ac).sum(axis=1) * (rc * rc).sum(axis=0)[None, :])
         with np.errstate(divide="ignore", invalid="ignore"):
             rs_mat = np.where(den > 0, num / den, np.nan)
         return [float(np.nanmedian(rs_mat[:, j])) for j in range(ref_mat.shape[1])]
@@ -1002,7 +1012,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     er_ref_key = "joint_effective_rank" if ref.get("basis_is_joint") else "effective_rank"
     if n_eff > 0:
         al = np.stack(aligned)                      # (B_eff, p_total, k)
-        lo, hi = np.percentile(al, 2.5, axis=0), np.percentile(al, 97.5, axis=0)
+        lo, hi = np.percentile(al, (2.5, 97.5), axis=0)
         r2_arr = np.asarray(r2_splits, float) if r2_splits else None
         sub_stab = [float(x) for x in np.nanmedian(cosines, axis=0)]
         eff_rk = [float(x) for x in np.nanmedian(eff_ranks, axis=0)]
@@ -1049,8 +1059,19 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
             m_sizes = np.cumsum([0] + m_widths)
             m_qs = [_stability_q(pw, expected_false, threshold) for pw in m_widths]
             mal = np.stack(map_aligned[kk]) if map_aligned[kk] else None
-            mlo = np.nanpercentile(mal, 2.5, axis=0) if mal is not None else np.full((m_sizes[-1], k), np.nan)
-            mhi = np.nanpercentile(mal, 97.5, axis=0) if mal is not None else np.full((m_sizes[-1], k), np.nan)
+            if mal is None:
+                mlo = mhi = np.full((m_sizes[-1], k), np.nan)
+            elif not np.isnan(mal).any():
+                mlo, mhi = np.percentile(mal, (2.5, 97.5), axis=0)
+            else:
+                mlo = np.empty((m_sizes[-1], k), dtype=float)
+                mhi = np.empty((m_sizes[-1], k), dtype=float)
+                nan_cols = np.isnan(mal).any(axis=0)
+                ok_cols = ~nan_cols
+                if ok_cols.any():
+                    mlo[ok_cols], mhi[ok_cols] = np.percentile(mal[:, ok_cols], (2.5, 97.5), axis=0)
+                if nan_cols.any():
+                    mlo[nan_cols], mhi[nan_cols] = np.nanpercentile(mal[:, nan_cols], (2.5, 97.5), axis=0)
             entry = {"map": ref_maps[kk], "ci_low": [], "ci_high": [], "component_stability": [],
                      "selection_frequency": []}
             for vi in range(len(c_ref)):
@@ -1059,9 +1080,11 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                 entry["ci_low"].append(torch.as_tensor(mlo[a:b]).float())
                 entry["ci_high"].append(torch.as_tensor(mhi[a:b]).float())
                 if mal is not None:
-                    stab = _col_corr_stability(mal[:, a:b], rm, nan_safe=True)
-                    sel = [(_top_q_mask(np.nansum(mal[t, a:b] ** 2, axis=1), m_qs[vi])
-                            if np.isfinite(mal[t, a:b]).any() else np.zeros(b - a, bool))
+                    mal_v = mal[:, a:b]
+                    stab = _col_corr_stability(mal_v, rm, nan_safe=True)
+                    mal_sq = mal_v * mal_v
+                    sel = [(_top_q_mask(np.nansum(mal_sq[t], axis=1), m_qs[vi])
+                            if np.isfinite(mal_v[t]).any() else np.zeros(b - a, bool))
                            for t in range(mal.shape[0])]
                     entry["component_stability"].append(stab)
                     entry["selection_frequency"].append(torch.as_tensor(np.mean(sel, axis=0)).float())

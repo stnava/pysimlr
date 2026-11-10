@@ -667,6 +667,9 @@ def heldout_coupling(result: Dict[str, Any], views: List[Any], *, train_views: O
     return out
 
 
+_TRIU_MASK_CACHE: Dict[tuple, torch.Tensor] = {}
+
+
 def correlation_penalty(z: torch.Tensor, threshold: Optional[float] = None,
                         eps: float = 1e-8) -> torch.Tensor:
     """Dimensional-collapse penalty on the columns of ``z`` (each view's scores).
@@ -688,14 +691,27 @@ def correlation_penalty(z: torch.Tensor, threshold: Optional[float] = None,
     collapse (t = 0.5 left a rank-4 basis at k = 5; powers 4 and 8 failed the
     k = 5 case or the narrow view).
     """
-    t = DEFAULT_COLLAPSE_THRESHOLD if threshold is None else check_collapse_threshold(threshold)
+    if threshold is None:
+        t = DEFAULT_COLLAPSE_THRESHOLD
+    elif (isinstance(threshold, (int, float))
+          and not isinstance(threshold, bool)
+          and 0.0 <= threshold < 1.0):
+        t = float(threshold)
+    else:
+        t = check_collapse_threshold(threshold)
     n, d = z.shape
     if n < 2 or d < 2:
         return torch.zeros((), device=z.device, dtype=z.dtype)
     zc = z - z.mean(dim=0)
     zs = zc / (zc.norm(dim=0, keepdim=True) + eps)
-    r = torch.triu(zs.t() @ zs, diagonal=1).abs()
-    return torch.sum((torch.relu(r - t) / (1.0 - t)) ** 2)
+    mkey = (d, z.device, z.dtype)
+    mask = _TRIU_MASK_CACHE.get(mkey)
+    if mask is None:
+        mask = torch.triu(torch.ones((d, d), device=z.device, dtype=z.dtype), diagonal=1)
+        _TRIU_MASK_CACHE[mkey] = mask
+    r = (zs.t() @ zs).abs() * mask
+    diff = torch.relu(r - t) * (1.0 / (1.0 - t))
+    return torch.sum(diff * diff)
 
 
 def stationarity_residual(v: torch.Tensor, grad: torch.Tensor,
@@ -1152,16 +1168,38 @@ def orthogonality_summary(a: torch.Tensor) -> Dict[str, float]:
         If inputs are of invalid types.
     """
     if not isinstance(a, torch.Tensor): a = torch.as_tensor(a).float()
-    defect = orthogonality_defect(a).item()
-    angle = angle_defect(a).item()
-    stiefel = stiefel_defect(a).item()
-    mean_defect = mean_orthogonality_defect(a).item()
-    
+    k = a.shape[1]
+    eye_k = torch.eye(k, device=a.device, dtype=a.dtype)
+    s_mat = a.t() @ a
+    stiefel = torch.norm(s_mat - eye_k, p='fro').item()
+    if k < 2:
+        defect = 0.0
+        angle = 0.0
+        mean_defect = 0.0
+    else:
+        t = torch.diagonal(s_mat).sum()
+        if t <= 0:
+            defect = 1.0
+        else:
+            gram_d = s_mat / t
+            defect = (torch.sum((gram_d - eye_k * (1.0 / k)) ** 2) / (1.0 - 1.0 / k)).item()
+        col_norms = torch.norm(a, dim=0, keepdim=True)
+        unit = a / col_norms.clamp_min(1e-12)
+        gram_u = unit.t() @ unit
+        angle = (torch.sum((gram_u - eye_k) ** 2) / (k * (k - 1))).item()
+        if bool((col_norms > 1e-12).all()):
+            scale = col_norms / (col_norms + 1e-10)
+            corr = gram_u * (scale.t() @ scale)
+            off_sq = torch.sum((corr * (1.0 - eye_k)) ** 2)
+            mean_defect = (off_sq / (k * (k - 1))).item()
+        else:
+            mean_defect = mean_orthogonality_defect(a).item()
+
     # Condition number (ratio of max to min singular value)
     try:
-        _, s, _ = torch.linalg.svd(a, full_matrices=False)
+        s = torch.linalg.svdvals(a)
         cond = (s[0] / (s[-1] + 1e-10)).item()
-        ortho_score = torch.sum(s**2).item() / (s[0]**2).item() # Effective rank proxy
+        ortho_score = torch.sum(s * s).item() / (s[0] * s[0]).item() # Effective rank proxy
     except torch.linalg.LinAlgError:
         # A diagnostic: an unconverged SVD (non-finite input) is reported as
         # NaN rather than failing the fit that asked for the summary.
@@ -1582,20 +1620,63 @@ def newton_schulz_orthogonalize(x: torch.Tensor, iterations: int = 5, tol: float
     if three_eye is None:
         three_eye = 3.0 * torch.eye(k, device=y.device, dtype=y.dtype)
         _THREE_EYE_CACHE[eye_key] = three_eye
+    half_three_eye = 0.5 * three_eye
     min_check_step = 4 if (scaled_unit and k >= 2 and tol <= 1e-4) else 0
+    needs_grad = y.requires_grad
     
     for step_idx in range(iterations):
         y_prev = y
         # Newton-Schulz update: Y = 0.5 * Y * (3I - Y^T Y)
-        yty = y.t() @ y
-        y = 0.5 * y @ (three_eye - yty)
+        if needs_grad:
+            y = y @ (0.5 * (three_eye - (y.t() @ y)))
+        else:
+            y = y @ torch.addmm(half_three_eye, y.t(), y, beta=1.0, alpha=-0.5)
         
-        if tol > 0.0 and step_idx >= min_check_step:
+        if tol > 0.0 and step_idx >= min_check_step and step_idx + 1 < iterations:
             with torch.no_grad():
                 if torch.norm(y.detach() - y_prev.detach()) < tol:
                     break
             
     return y
+
+
+def _recon_metrics(
+    xs: Sequence[torch.Tensor],
+    recons: Sequence[torch.Tensor],
+    *,
+    include_r2_mse: bool = False,
+):
+    """Compute Frobenius relative errors (and optionally ``(r2, mse)``) in a single pass."""
+    import math
+    errors: List[float] = []
+    r2_list: List[float] = []
+    mse_list: List[float] = []
+    for x, r in zip(xs, recons):
+        xc = x.detach().cpu() if x.device.type != "cpu" else x.detach()
+        rc = (
+            (r.detach().cpu() if r.device.type != "cpu" else r.detach())
+            if isinstance(r, torch.Tensor)
+            else torch.as_tensor(r)
+        )
+        diff = xc - rc
+        if include_r2_mse:
+            df64 = diff.reshape(-1).double()
+            xf64 = xc.reshape(-1).double()
+            ss_res = float(torch.dot(df64, df64).item())
+            ss_tot = float(torch.dot(xf64, xf64).item())
+            errors.append(math.sqrt(ss_res) / (math.sqrt(ss_tot) + 1e-10))
+            r2_list.append(1.0 - ss_res / (ss_tot + 1e-12))
+            mse_list.append(ss_res / max(1, xc.numel()))
+        else:
+            df = diff.reshape(-1)
+            xf = xc.reshape(-1)
+            errors.append(
+                math.sqrt(float(torch.dot(df, df).item()))
+                / (math.sqrt(float(torch.dot(xf, xf).item())) + 1e-10)
+            )
+    if include_r2_mse:
+        return errors, (r2_list, mse_list)
+    return errors
 
 def write_simlr(simlr_object: Dict[str, Any], file_prefix: str, clear_dir: bool = False, use_r: bool = True):
     """

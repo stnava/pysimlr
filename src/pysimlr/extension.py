@@ -216,19 +216,34 @@ def _affine_map(z: torch.Tensor, u: torch.Tensor, *, dof: Optional[float] = None
     }
 
 
+_CONSENSUS_MAPS_CACHE: Dict[int, Any] = {}
+_CONSENSUS_MAPS_CACHE_MAX = 32
+
+
 def consensus_maps(result: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Per original view, the DOF-calibrated affine map from its training latent to the training consensus."""
     cached = result.get("_view_maps")
     if cached is not None:
         return cached
+    u_raw = result["u"]
+    v_raw = result["v"]
+    lat_raw = result["latents"]
+    rid = id(result)
+    hit = _CONSENSUS_MAPS_CACHE.get(rid)
+    if hit is not None and hit[0] is u_raw and hit[1] is lat_raw and hit[2] is v_raw:
+        return hit[3]
     from .consensus import view_dofs
-    u = torch.as_tensor(result["u"])
-    lat = result["latents"][:len(result["v"])]
-    if len(lat) != len(result["v"]):
+    u = torch.as_tensor(u_raw)
+    lat = lat_raw[:len(v_raw)]
+    if len(lat) != len(v_raw):
         raise ValueError(f"{result.get('method')} has a joint latent; per-view prediction from a subset "
                          f"of views is not defined.")
-    dofs = view_dofs(result["v"], int(u.shape[0]))
-    return [_affine_map(torch.as_tensor(z), u, dof=dofs[i]) for i, z in enumerate(lat)]
+    dofs = view_dofs(v_raw, int(u.shape[0]))
+    maps = [_affine_map(torch.as_tensor(z), u, dof=dofs[i]) for i, z in enumerate(lat)]
+    if len(_CONSENSUS_MAPS_CACHE) >= _CONSENSUS_MAPS_CACHE_MAX:
+        _CONSENSUS_MAPS_CACHE.pop(next(iter(_CONSENSUS_MAPS_CACHE)))
+    _CONSENSUS_MAPS_CACHE[rid] = (u_raw, lat_raw, v_raw, maps)
+    return maps
 
 
 def subset_consensus(latents: Dict[Any, torch.Tensor], maps: Dict[Any, Dict[str, Any]]) -> torch.Tensor:
@@ -316,7 +331,7 @@ def predict_views(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
     orig, ext = split_views(result, views)
     names = view_names(result)
     have = [i for i, t in enumerate(orig) if t is not None]
-    base = _predict({k: v for k, v in result.items() if k not in ("extensions",)}, _fill_missing(result, orig)) \
+    base = _predict({k: v for k, v in result.items() if k not in ("extensions", "confound_sink")}, _fill_missing(result, orig)) \
         if have else None
     joint = bool(result.get("basis_is_joint")) or len(result.get("latents") or []) != len(result["v"])
     lat: Dict[Any, torch.Tensor] = {}

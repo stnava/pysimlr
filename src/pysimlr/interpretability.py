@@ -26,6 +26,7 @@ def _fit_linear_map(
     *,
     l2: float = 1e-6,
     cv_folds: int = 5,
+    compute_cv: bool = True,
 ) -> Dict[str, Any]:
     """Fit a ridge-stabilized linear map source -> target.
 
@@ -46,8 +47,6 @@ def _fit_linear_map(
     xc = x - x_mean
     yc = y - y_mean
 
-    xc.shape[1]
-    
     # Use lstsq for better numerical stability with potentially singular matrices
     # xtx + reg can still be unstable if l2 is too small or data scale is huge.
     # lstsq handles the pseudo-inverse internally.
@@ -67,7 +66,8 @@ def _fit_linear_map(
         "r2_per_target": torch.nan_to_num(r2, nan=0.0),
         "global_r2": float(torch.nan_to_num(global_r2, nan=0.0).item()),
     }
-    result.update(_cross_validated_r2(x, y, l2=l2, folds=cv_folds))
+    if compute_cv:
+        result.update(_cross_validated_r2(x, y, l2=l2, folds=cv_folds))
     return result
 
 
@@ -196,27 +196,40 @@ def _cross_validated_r2(
         xtx_all = x64.T @ x64
         xty_all = x64.T @ y64
         reg_p = l2_f * torch.eye(p, dtype=torch.float64, device=x.device)
-        for f in range(folds):
-            lo, hi = bounds[f], bounds[f + 1]
-            if hi <= lo:
-                continue
-            n_tr = n - (hi - lo)
-            if n_tr < 2:
-                continue
-            x_te, y_te = x64[lo:hi], y64[lo:hi]
-            x_mean = (x_sum - x_te.sum(dim=0, keepdim=True)) / n_tr
-            y_mean = (y_sum - y_te.sum(dim=0, keepdim=True)) / n_tr
-            xtx_tr = (xtx_all - x_te.T @ x_te) - n_tr * (x_mean.T @ x_mean)
-            xty_tr = (xty_all - x_te.T @ y_te) - n_tr * (x_mean.T @ y_mean)
+        valid_folds = [
+            (bounds[f], bounds[f + 1], n - (bounds[f + 1] - bounds[f]))
+            for f in range(folds)
+            if bounds[f + 1] > bounds[f] and n - (bounds[f + 1] - bounds[f]) >= 2
+        ]
+        if valid_folds:
+            lhs_list = []
+            rhs_list = []
+            means_list = []
+            for lo, hi, n_tr in valid_folds:
+                x_te, y_te = x64[lo:hi], y64[lo:hi]
+                x_mean = (x_sum - x_te.sum(dim=0, keepdim=True)) / n_tr
+                y_mean = (y_sum - y_te.sum(dim=0, keepdim=True)) / n_tr
+                xtx_tr = (xtx_all - x_te.T @ x_te) - n_tr * (x_mean.T @ x_mean)
+                xty_tr = (xty_all - x_te.T @ y_te) - n_tr * (x_mean.T @ y_mean)
+                lhs_list.append(xtx_tr + reg_p)
+                rhs_list.append(xty_tr)
+                means_list.append((lo, hi, x_mean, y_mean))
+            lhs_b = torch.stack(lhs_list, dim=0)
+            rhs_b = torch.stack(rhs_list, dim=0)
             try:
-                beta = torch.linalg.solve(xtx_tr + reg_p, xty_tr)
+                betas = torch.linalg.solve(lhs_b, rhs_b)
             except torch.linalg.LinAlgError:
-                beta = torch.linalg.pinv(xtx_tr + reg_p) @ xty_tr
-            pred = (x_te - x_mean) @ beta + y_mean
-            ss_res += ((y_te - pred) ** 2).sum(dim=0)
-            # Variance measured against the training mean, so the held-out fold
-            # cannot be scored against information it was not allowed to see.
-            ss_tot += ((y_te - y_mean) ** 2).sum(dim=0)
+                betas = [
+                    torch.linalg.pinv(lh) @ rh
+                    for lh, rh in zip(lhs_list, rhs_list)
+                ]
+            for idx_f, (lo, hi, x_mean, y_mean) in enumerate(means_list):
+                x_te, y_te = x64[lo:hi], y64[lo:hi]
+                pred = (x_te - x_mean) @ betas[idx_f] + y_mean
+                ss_res += ((y_te - pred) ** 2).sum(dim=0)
+                # Variance measured against the training mean, so the held-out fold
+                # cannot be scored against information it was not allowed to see.
+                ss_tot += ((y_te - y_mean) ** 2).sum(dim=0)
 
     per_target = (1.0 - ss_res / torch.clamp(ss_tot, min=1e-8)).to(y.dtype)
     global_cv = 1.0 - ss_res.sum() / torch.clamp(ss_tot.sum(), min=1e-8)
@@ -292,9 +305,11 @@ def summarize_basis_matrix(
     l2_norm = torch.linalg.norm(v_cpu, dim=0)
     orthogonality_defect_value = float(orthogonality_defect(v_cpu).item())
 
-    resolved_names = list(feature_names) if feature_names is not None else [f"feature_{i}" for i in range(n_features)]
-    if len(resolved_names) != n_features:
-        raise ValueError("feature_names must match the number of rows in v")
+    resolved_names = None
+    if feature_names is not None:
+        resolved_names = list(feature_names)
+        if len(resolved_names) != n_features:
+            raise ValueError("feature_names must match the number of rows in v")
 
     top_features = []
     top_k = max(1, min(top_k, n_features))
@@ -304,7 +319,7 @@ def summarize_basis_matrix(
         top_features.append([
             {
                 "feature_index": int(idx),
-                "feature_name": resolved_names[idx],
+                "feature_name": (resolved_names[idx] if resolved_names is not None else f"feature_{int(idx)}"),
                 "loading": float(v_cpu[idx, component_idx].item()),
                 "abs_loading": float(values[idx].item()),
             }
@@ -489,7 +504,7 @@ def _combined_attribution(
 ) -> Dict[str, Any]:
     """Joint ridge attribution across concatenated first-layer scores `z0_list`."""
     z0_concat = torch.cat([_sanitize_tensor(z) for z in z0_list], dim=1)
-    combined_fit = _fit_linear_map(z0_concat, target, l2=l2)
+    combined_fit = _fit_linear_map(z0_concat, target, l2=l2, compute_cv=False)
     combined_component_importance = torch.mean(torch.abs(combined_fit["coefficients"]), dim=1)
 
     component_slices = []
@@ -692,7 +707,7 @@ def attribute_prediction_to_features(
         _modality_attribution(modality_index, z0, y, v, l2)
         for modality_index, (z0, v) in enumerate(zip(z0_list, v_list))
     ]
-    u_fit = _fit_linear_map(model_res["u"], y, l2=l2) if "u" in model_res else None
+    u_fit = _fit_linear_map(model_res["u"], y, l2=l2, compute_cv=False) if "u" in model_res else None
 
     return {
         "per_modality": per_modality,

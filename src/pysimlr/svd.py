@@ -389,20 +389,23 @@ def _varimax_rotation_torch(E_t: torch.Tensor,
     its signature is incompatible (see `pysimlr.nsa_backend.load_varimax_rotation`).
     """
     p, k = E_t.shape
-    work = E_t.detach().double()
+    work = E_t.detach().double().contiguous()
     tiny = torch.finfo(work.dtype).tiny
     if normalize:
-        row_norms = work.pow(2).sum(dim=-1, keepdim=True).sqrt()
+        row_norms = (work * work).sum(dim=-1, keepdim=True).sqrt()
         Phi = torch.where(row_norms > tiny, work / row_norms.clamp_min(tiny), work)
     else:
         Phi = work
 
+    Phi_t = Phi.transpose(-2, -1).contiguous()
+    inv_p = 1.0 / float(p)
     R = torch.eye(k, dtype=Phi.dtype, device=Phi.device)
     d_prev = 0.0
     for _ in range(max_iter):
         Z = Phi @ R
-        col_mean_sq = Z.pow(2).sum(dim=-2, keepdim=True) / float(p)
-        B = Phi.transpose(-2, -1) @ (Z.pow(3) - Z * col_mean_sq)
+        Z2 = Z * Z
+        col_mean_sq = Z2.sum(dim=-2, keepdim=True) * inv_p
+        B = Phi_t @ (Z2 * Z - Z * col_mean_sq)
         u_b, s_b, vh_b = safe_svd(B, full_matrices=False)
         R_new = u_b @ vh_b
         d = float((B * R_new).sum())
@@ -420,8 +423,9 @@ def _varimax_torch(E_t: torch.Tensor,
                    canonical_sign: bool = True) -> torch.Tensor:
     """Pure-PyTorch rotated loadings, with ``nsa_flow.linalg.varimax``'s
     canonical sign and column-ordering convention, for ``p, k >= 2``."""
-    R = _varimax_rotation_torch(E_t, normalize=normalize, eps=eps, max_iter=max_iter)
-    Z = (E_t @ R).contiguous()
+    E_c = E_t.contiguous()
+    R = _varimax_rotation_torch(E_c, normalize=normalize, eps=eps, max_iter=max_iter)
+    Z = (E_c @ R).contiguous()
     if canonical_sign:
         Z = _canonical_sign(Z)
         pos = torch.linalg.vector_norm(Z.clamp_min(0.0), dim=-2)

@@ -388,10 +388,24 @@ def _edge_design(Z: Dict[str, np.ndarray], N: np.ndarray, a: str, b: str, cond: 
             raise ValueError(f"edge ({a}, {b}): the scores of {nm_} are collinear with the conditioning set "
                              f"or with each other; the edge statistic is not defined.")
     comps = _comp_index(ka, kb)
+    a_stack = np.hstack([Q, Qa])
+    ra_norm_t = torch.as_tensor(np.linalg.norm(Ra, axis=0))
+    ia_t = torch.as_tensor([c[0] for c in comps], dtype=torch.long) if comps else None
+    ib_t = torch.as_tensor([c[1] for c in comps], dtype=torch.long) if comps else None
+    s_contig = np.ascontiguousarray(S)
     des = {"a": a, "b": b, "cond": cond, "S": S, "Q": Q, "Ra": Ra, "Rb": Rb, "ka": ka, "kb": kb,
-           "q": Q.shape[1], "A": torch.as_tensor(np.hstack([Q, Qa])), "RaR": torch.as_tensor(Ra_R),
-           "RbtRb": torch.as_tensor(Rb.T @ Rb), "Rb_t": torch.as_tensor(Rb),
-           "ra_norm": torch.as_tensor(np.linalg.norm(Ra, axis=0)), "comps": comps, "mod": None}
+           "q": Q.shape[1], "A": torch.as_tensor(a_stack),
+           "A_T": torch.as_tensor(np.ascontiguousarray(a_stack.T)),
+           "RaR": torch.as_tensor(Ra_R),
+           "RaR_T": torch.as_tensor(np.ascontiguousarray(Ra_R.T)),
+           "RbtRb": torch.as_tensor(Rb.T @ Rb),
+           "Rb_t": torch.as_tensor(np.ascontiguousarray(Rb)),
+           "S_t": torch.as_tensor(s_contig),
+           "eye_s": torch.eye(S.shape[1], dtype=torch.float64),
+           "ra_norm": ra_norm_t,
+           "ia_t": ia_t, "ib_t": ib_t,
+           "ra_norm_ia": (ra_norm_t[ia_t] if ia_t is not None else None),
+           "comps": comps, "mod": None}
     if dummies is not None and comps:
         g1 = dummies.shape[1]
         bases, e0s, df1, df2 = [], [], [], []
@@ -406,9 +420,15 @@ def _edge_design(Z: Dict[str, np.ndarray], N: np.ndarray, a: str, b: str, cond: 
             e0s.append(Rb[:, ib] - x * (x @ Rb[:, ib]))
             df1.append(W.shape[1])
             df2.append(n - X0.shape[1] - W.shape[1])
-        des["mod"] = {"B": torch.as_tensor(np.stack(bases)), "E0": torch.as_tensor(np.column_stack(e0s)),
+        df1_arr = np.array(df1, float)
+        df2_arr = np.array(df2, float)
+        df1_t = torch.as_tensor(df1_arr)
+        des["mod"] = {"B": torch.as_tensor(np.ascontiguousarray(np.stack(bases))),
+                      "E0": torch.as_tensor(np.ascontiguousarray(np.column_stack(e0s))),
                       "e0sq": torch.as_tensor(np.array([e @ e for e in e0s])), "x0": Q.shape[1] + 1,
-                      "df1": np.array(df1, float), "df2": np.array(df2, float)}
+                      "df1": df1_arr, "df2": df2_arr,
+                      "df1_pos": (df1_t > 0), "df1_clamp": df1_t.clamp_min(1.0),
+                      "df2_t": torch.as_tensor(df2_arr)}
     return des
 
 
@@ -419,34 +439,35 @@ def _stats_from_perm(des: Dict[str, Any], P: torch.Tensor) -> Dict[str, torch.Te
     ``T = A^T pi(Rb)``: ``Rb*^T Rb* = Rb^T Rb - T_Q^T T_Q`` and pillai is
     ``trace((Rb*^T Rb*)^{-1} T_a^T T_a) / min(ka, kb)``; ``Ra^T Rb* = RaR^T T_a``.
     The identity permutation gives the observed statistics."""
+    c, n = P.shape
+    kb = des["kb"]
     RbP = des["Rb_t"][P]                                            # (c, n, kb)
-    T = des["A"].transpose(0, 1) @ RbP                              # (c, q + ka, kb)
+    T = (des["A_T"] @ RbP.permute(1, 0, 2).reshape(n, c * kb)).reshape(-1, c, kb).permute(1, 0, 2)
     q = des["q"]
     Hq, Ha = T[:, :q], T[:, q:]
     G = des["RbtRb"] - Hq.transpose(-1, -2) @ Hq                    # (c, kb, kb)
     M = Ha.transpose(-1, -2) @ Ha
-    if des["kb"] == 1:
+    if kb == 1:
         pil = M[:, 0, 0] / G[:, 0, 0]
     else:
-        pil = torch.linalg.solve(G, M).diagonal(dim1=-2, dim2=-1).sum(-1) / min(des["ka"], des["kb"])
+        pil = torch.linalg.solve(G, M).diagonal(dim1=-2, dim2=-1).sum(-1) / min(des["ka"], kb)
     out = {"pillai": pil}
     if des["comps"]:
-        C = des["RaR"].transpose(0, 1) @ Ha                          # (c, ka, kb) = Ra^T Rb*
-        ia = torch.as_tensor([c[0] for c in des["comps"]])
-        ib = torch.as_tensor([c[1] for c in des["comps"]])
+        C = des["RaR_T"] @ Ha                                       # (c, ka, kb) = Ra^T Rb*
+        ia = des["ia_t"]
+        ib = des["ib_t"]
         num = C[:, ia, ib]
         gd = G.diagonal(dim1=-2, dim2=-1)[:, ib]
-        out["r"] = num / (des["ra_norm"][ia] * torch.sqrt(gd))
+        out["r"] = num / (des["ra_norm_ia"] * torch.sqrt(gd))
     if des["mod"] is not None:
         md = des["mod"]
-        E0P = md["E0"][P]                                            # (c, n, kc)
-        Tm = torch.einsum("jnd,cnj->cjd", md["B"], E0P)              # (c, kc, d)
+        E0P = md["E0"][P]                                           # (c, n, kc)
+        Tm = torch.bmm(E0P.permute(2, 0, 1), md["B"]).permute(1, 0, 2)  # (c, kc, d)
         x0 = md["x0"]
-        ss0 = md["e0sq"] - (Tm[:, :, :x0] ** 2).sum(-1)
-        diff = (Tm[:, :, x0:] ** 2).sum(-1)
-        df1 = torch.as_tensor(md["df1"])
-        df2 = torch.as_tensor(md["df2"])
-        F = torch.where(df1 > 0, (diff / df1.clamp_min(1.0)) / ((ss0 - diff) / df2), torch.zeros_like(diff))
+        Tm_sq = Tm * Tm
+        ss0 = md["e0sq"] - Tm_sq[:, :, :x0].sum(-1)
+        diff = Tm_sq[:, :, x0:].sum(-1)
+        F = torch.where(md["df1_pos"], (diff / md["df1_clamp"]) / ((ss0 - diff) / md["df2_t"]), torch.zeros_like(diff))
         out["F"] = F
     return out
 
@@ -488,8 +509,8 @@ def _boot_edge_from_residuals(
                 dim1=-2, dim2=-1).sum(-1) / min(ka, kb)
     out = {"pillai": pil}
     if des["comps"]:
-        ia = torch.as_tensor([c[0] for c in des["comps"]])
-        ib = torch.as_tensor([c[1] for c in des["comps"]])
+        ia = des["ia_t"] if des.get("ia_t") is not None else torch.as_tensor([c[0] for c in des["comps"]])
+        ib = des["ib_t"] if des.get("ib_t") is not None else torch.as_tensor([c[1] for c in des["comps"]])
         num = Sab[:, ia, ib]
         da = Saa.diagonal(dim1=-2, dim2=-1)[:, ia]
         db = Sbb.diagonal(dim1=-2, dim2=-1)[:, ib]
@@ -501,19 +522,27 @@ def _boot_edge_from_residuals(
 def _ridge_residualize_batch(
     S: torch.Tensor, X: torch.Tensor, eye_s: Optional[torch.Tensor] = None
 ) -> torch.Tensor:
-    StS = S.transpose(-1, -2) @ S
+    St = S.transpose(-1, -2)
+    StS = St @ S
     lam = _RIDGE * StS.diagonal(dim1=-2, dim2=-1).sum(-1) / S.shape[-1]
     if eye_s is None:
-        eye_s = torch.eye(S.shape[-1], dtype=S.dtype)
+        eye_s = torch.eye(S.shape[-1], dtype=S.dtype, device=S.device)
     StS = StS + lam[:, None, None] * eye_s
-    return X - S @ torch.linalg.solve(StS, S.transpose(-1, -2) @ X)
+    StX = St @ X
+    L, info = torch.linalg.cholesky_ex(StS)
+    if not bool(info.any()):
+        coef = torch.cholesky_solve(StX, L)
+    else:
+        coef = torch.linalg.solve(StS, StX)
+    return X - S @ coef
 
 
 def _boot_edge(des: Dict[str, Any], idx: torch.Tensor, Za: torch.Tensor, Zb: torch.Tensor) -> Dict[str, torch.Tensor]:
     """pillai, r and beta on bootstrap rows ``idx`` (c, n): S, Z_a, Z_b resampled, residualised
     by ridge least squares (lambda = 1e-8 trace / cols) in each replicate."""
     ka = Za.shape[-1]
-    R = _ridge_residualize_batch(torch.as_tensor(des["S"])[idx], torch.cat([Za[idx], Zb[idx]], dim=-1))
+    S_t = des["S_t"] if "S_t" in des else torch.as_tensor(des["S"])
+    R = _ridge_residualize_batch(S_t[idx], torch.cat([Za[idx], Zb[idx]], dim=-1), eye_s=des.get("eye_s"))
     Ra, Rb = R[..., :ka], R[..., ka:]
     Saa = Ra.transpose(-1, -2) @ Ra
     Sbb = Rb.transpose(-1, -2) @ Rb
@@ -1372,17 +1401,40 @@ def _feature_contributions(result, view_nodes, pairs, present, diagnostic, desig
     """structure_a[:, j] * beta_abj for every present edge whose node a is a view (plan 5)."""
     idxs = list(range(len(view_nodes))) if orig_view_indices is None else list(orig_view_indices)
     orig_of = {nm: orig for nm, orig in zip(view_nodes, idxs)}
-    rows = []
+    view_set = set(view_nodes)
+    edge_cols, a_cols, b_cols, comp_cols, feat_cols, val_cols = [], [], [], [], [], []
+    st_cache: Dict[Any, np.ndarray] = {}
     for e in pairs:
         a, b = e
-        if not present[e] or diagnostic[e] or a not in view_nodes or not designs[e]["comps"]:
+        if not present[e] or diagnostic[e] or a not in view_set or not designs[e]["comps"]:
             continue
-        st = result["structure"][orig_of[a]].detach().double().numpy()
-        for j, (ia, _) in enumerate(designs[e]["comps"]):
-            contrib = st[:, ia] * obs[e]["beta"][j]
-            rows.extend({"edge": f"{a} - {b}", "a": a, "b": b, "component": j, "feature": f,
-                         "contribution": float(cv)} for f, cv in enumerate(contrib))
-    return pd.DataFrame(rows, columns=["edge", "a", "b", "component", "feature", "contribution"])
+        st = st_cache.get(a)
+        if st is None:
+            st = result["structure"][orig_of[a]].detach().double().numpy()
+            st_cache[a] = st
+        p_feat = st.shape[0]
+        comps_e = designs[e]["comps"]
+        n_comp = len(comps_e)
+        ia_idx = [ia for ia, _ in comps_e]
+        betas = np.asarray(obs[e]["beta"], dtype=np.float64)
+        contrib_mat = (st[:, ia_idx] * betas[None, :]).T.reshape(-1)
+        total = n_comp * p_feat
+        edge_cols.append(np.full(total, f"{a} - {b}", dtype=object))
+        a_cols.append(np.full(total, a, dtype=object))
+        b_cols.append(np.full(total, b, dtype=object))
+        comp_cols.append(np.repeat(np.arange(n_comp, dtype=np.int64), p_feat))
+        feat_cols.append(np.tile(np.arange(p_feat, dtype=np.int64), n_comp))
+        val_cols.append(contrib_mat)
+    if not val_cols:
+        return pd.DataFrame(columns=["edge", "a", "b", "component", "feature", "contribution"])
+    return pd.DataFrame({
+        "edge": np.concatenate(edge_cols),
+        "a": np.concatenate(a_cols),
+        "b": np.concatenate(b_cols),
+        "component": np.concatenate(comp_cols),
+        "feature": np.concatenate(feat_cols),
+        "contribution": np.concatenate(val_cols),
+    })
 
 
 # ----------------------------------------------------------------------------- node models

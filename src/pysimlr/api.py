@@ -55,10 +55,10 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Union
 import numpy as np
 import torch
 
-from .deep import lend_simr, ned_simr, ned_simr_shared_private, predict_deep
+from .deep import _predict_deep_impl, lend_simr, ned_simr, ned_simr_shared_private, predict_deep
 from .flows import flow_simr_v
 from .optimizers import SIMLR_OPTIMIZER_DEFAULTS
-from .simlr import SIMLR_OPTIMIZER_KEYS, predict_simlr, simlr
+from .simlr import SIMLR_OPTIMIZER_KEYS, _predict_simlr_impl, predict_simlr, simlr
 from .utils import basis_rank_report
 from .defaults import DEFAULT_NSA_W, check_nsa_w
 from .confounds import SINK_PARAMS
@@ -233,15 +233,15 @@ def _predict_joint(views: List[torch.Tensor], result: Dict[str, Any]) -> Dict[st
     recs = [torch.as_tensor(rec[:, offs[i]:offs[i + 1]]).float() for i in range(len(views))]
     u_t = torch.as_tensor(u).float()
     errors = [float(torch.norm(x.float() - r) / (torch.norm(x.float()) + 1e-10)) for x, r in zip(xs_list, recs)]
-    return {"u": u_t, "latents": [u_t], "reconstructions": recs, "errors": errors}
+    return {"u": u_t, "latents": [u_t], "reconstructions": recs, "errors": errors, "_preprocessed_views": xs_list}
 
 
 def _predict_linear(views, result):
-    return predict_simlr(views, result)
+    return _predict_simlr_impl(views, result, return_preprocessed=True)
 
 
 def _predict_deep(views, result):
-    return predict_deep(views, result)
+    return _predict_deep_impl(views, result, return_preprocessed=True)
 
 
 # ---------------------------------------------------------------------------
@@ -572,13 +572,15 @@ def predict(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
         sc = sink_scores(result["confound_sink"], view_list)
         out["latents_sink"] = [sc["latents_sink"].get(i) for i in range(len(view_list))]
         out["u_sink"] = sc["u_sink"]
-    xs, _ = _preprocess_views(view_list, result["scale_list"], result["provenance_list"])
-    out["r2"], out["mse"] = [], []
-    for x, r in zip(xs, out["reconstructions"]):
-        x = x.double(); r = torch.as_tensor(r).double()
-        ss_res = float(((x - r) ** 2).sum())
-        out["r2"].append(1.0 - ss_res / (float((x ** 2).sum()) + 1e-12))
-        out["mse"].append(ss_res / max(1, x.numel()))
+    r2_mse = out.pop("_r2_mse", None)
+    xs = out.pop("_preprocessed_views", None)
+    if r2_mse is not None:
+        out["r2"], out["mse"] = r2_mse
+    else:
+        if xs is None:
+            xs, _ = _preprocess_views(view_list, result["scale_list"], result["provenance_list"])
+        from .utils import _recon_metrics
+        _, (out["r2"], out["mse"]) = _recon_metrics(xs, out["reconstructions"], include_r2_mse=True)
     return out
 
 

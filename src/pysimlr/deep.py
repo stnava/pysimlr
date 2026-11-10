@@ -1566,9 +1566,8 @@ def _clean(t: torch.Tensor) -> torch.Tensor:
 
 
 def _recon_errors(torch_mats: Sequence[torch.Tensor], recons: Sequence[torch.Tensor]) -> List[float]:
-    return [torch.norm(x.cpu() - r.cpu(), p="fro").item()
-            / (torch.norm(x.cpu(), p="fro").item() + 1e-10)
-            for x, r in zip(torch_mats, recons)]
+    from .utils import _recon_metrics
+    return _recon_metrics(torch_mats, recons, include_r2_mse=False)
 
 
 def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
@@ -1862,6 +1861,79 @@ ned_simr_shared_private.__doc__ = (
     + _DEEP_COMMON_DOC)
 
 
+def _predict_deep_impl(
+    data_matrices: List[Union[torch.Tensor, np.ndarray]],
+    model_res: Dict[str, Any],
+    device: Optional[str] = None,
+    *,
+    return_preprocessed: bool = False,
+) -> Dict[str, Any]:
+    model = model_res["model"]; model_type = model_res.get("model_type", "lend_simr")
+    if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
+    device = torch.device(device); model.to(device).eval()
+    torch_mats = [preprocess_data(torch.as_tensor(m).float().contiguous(), model_res["scale_list"], prov) for m, prov in zip(data_matrices, model_res["provenance_list"])]
+    dev_mats = torch_mats if device.type == "cpu" else [m.to(device) for m in torch_mats]
+    with torch.no_grad():
+        res = model(dev_mats)
+        latents, recons, u = res[0], res[1], res[2]
+        latents_cpu = [l.cpu() for l in latents]
+        if type(model) is LENDSiMRModel:
+            first_layer_scores = [z.clone() for z in latents_cpu]
+        elif hasattr(model, "encode_first_layer"):
+            first_layer_scores = [z.cpu() for z in model.encode_first_layer(dev_mats, use_projected=True)]
+        else:
+            first_layer_scores = None
+        v_list = None
+        if hasattr(model, "encoders") and not getattr(model, "is_flow", False):
+            v_list = [enc.v.detach().cpu() for enc in model.encoders]
+        elif hasattr(model, "linear_encoders"):
+            v_list = [enc.v.detach().cpu() for enc in model.linear_encoders]
+        first_layer = None
+        if v_list is not None and first_layer_scores is not None:
+            prev_fl = model_res.get("first_layer")
+            if (isinstance(prev_fl, dict)
+                    and "v" in prev_fl
+                    and "orthogonality_defect" in prev_fl
+                    and "sparsity_summary" in prev_fl
+                    and len(prev_fl["v"]) == len(v_list)
+                    and all(torch.equal(va, torch.nan_to_num(vb, nan=0.0, posinf=0.0, neginf=0.0))
+                            for va, vb in zip(prev_fl["v"], v_list))):
+                first_layer = {
+                    "v": [va.clone() for va in prev_fl["v"]],
+                    "scores": [torch.nan_to_num(s.detach().cpu(), nan=0.0, posinf=0.0, neginf=0.0) for s in first_layer_scores],
+                    "orthogonality_defect": list(prev_fl["orthogonality_defect"]),
+                    "sparsity_summary": prev_fl["sparsity_summary"],
+                }
+            else:
+                first_layer = build_first_layer_contract(v_list, first_layer_scores)
+        u_agg = _aggregate_shared_consensus(model, latents) if isinstance(u, list) else u
+        result = {
+            "u": u_agg.cpu(),
+            "u_per_modality": ([ui.cpu() for ui in u] if isinstance(u, list) else None),
+            "latents": latents_cpu,
+            "reconstructions": [r.cpu() for r in recons],
+            "first_layer_scores": first_layer_scores,
+            "first_layer": first_layer,
+            "v": v_list,
+        }
+        if model_type == "ned_shared_private":
+            result["private_latents"] = [p.cpu() for p in res[3]]
+        result["interpretability"] = build_interpretability_report(result) if first_layer is not None else None
+        result["deep_layer"] = None if result["interpretability"] is None else {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
+        if return_preprocessed:
+            from .utils import _recon_metrics
+            result["errors"], result["_r2_mse"] = _recon_metrics(
+                torch_mats, result["reconstructions"], include_r2_mse=True
+            )
+            result["_preprocessed_views"] = torch_mats
+        else:
+            result["errors"] = _recon_errors(torch_mats, result["reconstructions"])
+        if getattr(model, "dynamic_weights", False):
+            result["modality_weights"] = model.modality_weights.detach().cpu().numpy()
+            result["mai"] = model.mai.detach().cpu().numpy()
+        return result
+
+
 def predict_deep(data_matrices: List[Union[torch.Tensor, np.ndarray]], model_res: Dict[str, Any], device: Optional[str] = None) -> Dict[str, Any]:
     """
     Predict using a trained deep SiMLR model.
@@ -1889,36 +1961,4 @@ def predict_deep(data_matrices: List[Union[torch.Tensor, np.ndarray]], model_res
     TypeError
         If inputs are invalid.
     """
-    model = model_res["model"]; model_type = model_res.get("model_type", "lend_simr")
-    if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
-    device = torch.device(device); model.to(device).eval()
-    torch_mats = [preprocess_data(torch.as_tensor(m).float().contiguous(), model_res["scale_list"], prov) for m, prov in zip(data_matrices, model_res["provenance_list"])]
-    with torch.no_grad():
-        res = model([m.to(device) for m in torch_mats])
-        first_layer_scores = [z.cpu() for z in model.encode_first_layer([m.to(device) for m in torch_mats], use_projected=True)] if hasattr(model, "encode_first_layer") else None
-        v_list = None
-        if hasattr(model, "encoders") and not getattr(model, "is_flow", False):
-            v_list = [enc.v.detach().cpu() for enc in model.encoders]
-        elif hasattr(model, "linear_encoders"):
-            v_list = [enc.v.detach().cpu() for enc in model.linear_encoders]
-        first_layer = build_first_layer_contract(v_list, first_layer_scores) if v_list is not None and first_layer_scores is not None else None
-        latents, recons, u = res[0], res[1], res[2]
-        u_agg = _aggregate_shared_consensus(model, latents) if isinstance(u, list) else u
-        result = {
-            "u": u_agg.cpu(),
-            "u_per_modality": ([ui.cpu() for ui in u] if isinstance(u, list) else None),
-            "latents": [l.cpu() for l in latents],
-            "reconstructions": [r.cpu() for r in recons],
-            "first_layer_scores": first_layer_scores,
-            "first_layer": first_layer,
-            "v": v_list,
-        }
-        if model_type == "ned_shared_private":
-            result["private_latents"] = [p.cpu() for p in res[3]]
-        result["interpretability"] = build_interpretability_report(result) if first_layer is not None else None
-        result["deep_layer"] = None if result["interpretability"] is None else {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
-        result["errors"] = _recon_errors(torch_mats, recons)
-        if getattr(model, "dynamic_weights", False):
-            result["modality_weights"] = model.modality_weights.detach().cpu().numpy()
-            result["mai"] = model.mai.detach().cpu().numpy()
-        return result
+    return _predict_deep_impl(data_matrices, model_res, device=device, return_preprocessed=False)

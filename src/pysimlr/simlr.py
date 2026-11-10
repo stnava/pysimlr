@@ -10,6 +10,8 @@ from .utils import (adjusted_rvcoef, safe_svd, correlation_penalty, stationarity
                     l1_normalize_features,
                     orthogonality_summary, preprocess_data)
 from .consensus import compute_shared_consensus
+from .similarity import (SIMILARITY, SimilarityContext, resolve_energy_name,
+                         similarity_energy, similarity_is_scale_free)
 from .defaults import (DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER,
                        DEFAULT_COLLAPSE_WEIGHT, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_MIXING_ALGORITHM,
                        DEFAULT_SIMLR_ITERATIONS, DEFAULT_TOL, check_collapse_threshold, check_nsa_w)
@@ -1097,8 +1099,6 @@ def calculate_simlr_energy(
     TypeError
         If inputs are not valid tensors.
     """
-    from .similarity import (SimilarityContext, resolve_energy_name,
-                             similarity_energy)
     if u.dtype != x.dtype:
         u = u.to(x.dtype)
     if v.dtype != x.dtype:
@@ -1618,11 +1618,15 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     if scale_list is None:
         scale_list = ["centerAndScale", "np"]
     _internal = opt_params.get("_internal_probe", None)
-    if isinstance(_internal, tuple) and len(_internal) == 5 and _internal[0] is _INTERNAL_PROBE_TOKEN:
+    if isinstance(_internal, tuple) and len(_internal) in (5, 7) and _internal[0] is _INTERNAL_PROBE_TOKEN:
         opt_params.pop("_internal_probe")
-        _, _prepped_mats, _prepped_prov, _prepped_v, _probe_only = _internal
+        if len(_internal) == 7:
+            _, _prepped_mats, _prepped_prov, _prepped_v, _probe_only, _prepped_mats_64, _sweep0_cache = _internal
+        else:
+            _, _prepped_mats, _prepped_prov, _prepped_v, _probe_only = _internal
+            _prepped_mats_64 = _sweep0_cache = None
     else:
-        _prepped_mats = _prepped_prov = _prepped_v = None
+        _prepped_mats = _prepped_prov = _prepped_v = _prepped_mats_64 = _sweep0_cache = None
         _probe_only = False
     _bad = sorted(set(opt_params) - set(SIMLR_OPTIMIZER_KEYS))
     if _bad:
@@ -1685,6 +1689,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         _prep_mats, _prep_prov, _prep_v = _prepare_fit_inputs(
             data_matrices, k, scale_list, positivity, initialization_type,
             random_state, domain_matrices, sparseness, varimax)
+        _prep_mats_64 = [x.double() for x in _prep_mats]
+        _s0_cache: Dict[str, Any] = {}
         from .optimizers import tune_learning_rate
         _iters = _bound.pop("iterations")
         _rest = {kk: vv for kk, vv in opt_params.items() if kk != "learning_rate"}
@@ -1693,14 +1699,14 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             return simlr(
                 **_bound, **_rest, iterations=iterations,
                 learning_rate=learning_rate,
-                _internal_probe=(_INTERNAL_PROBE_TOKEN, _prep_mats, _prep_prov, _prep_v, True),
+                _internal_probe=(_INTERNAL_PROBE_TOKEN, _prep_mats, _prep_prov, _prep_v, True, _prep_mats_64, _s0_cache),
             )
 
         _lr, _scores = tune_learning_rate(
             _probe, probe_iterations=min(3, max(1, _iters)), verbose=verbose)
         _out = simlr(
             **_bound, **_rest, iterations=_iters, learning_rate=_lr,
-            _internal_probe=(_INTERNAL_PROBE_TOKEN, _prep_mats, _prep_prov, _prep_v, False),
+            _internal_probe=(_INTERNAL_PROBE_TOKEN, _prep_mats, _prep_prov, _prep_v, False, _prep_mats_64, _s0_cache),
         )
         _out["learning_rate"] = _lr
         _out["learning_rate_scores"] = _scores
@@ -1876,7 +1882,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             mai_mod_weights.copy_((1.0 - rho) * uniform_w + rho * target_w)
             return mai_mod_weights
 
-    torch_mats_64 = [x.double() for x in torch_mats]
+    torch_mats_64 = _prepped_mats_64 if _prepped_mats_64 is not None else [x.double() for x in torch_mats]
+    _s_only_grad = (_resolved_energy is not None and not SIMILARITY[_resolved_energy][1])
+    torch_mats_64_t = [x.t().contiguous() for x in torch_mats_64] if _s_only_grad else None
     torch_domains_64 = (
         [d.double() if d is not None else None for d in torch_domains]
         if torch_domains is not None else None
@@ -1913,14 +1921,14 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # curvature pairs from rounding noise, and inputs 1e-8 apart reached
         # bases 0.07-1.1 apart after one sweep.
         x64 = torch_mats_64[i]
+        x64_t = torch_mats_64_t[i] if torch_mats_64_t is not None else None
         u64 = u_i.double()
         dom64 = torch_domains_64[i] if torch_domains_64 is not None else None
         sm_i = smoothing_matrices[i] if smoothing_matrices else None
         _proj_cache: list = []
+        _use_s_grad = (_s_only_grad and dom64 is None)
 
-        def _smooth_objective(v64):
-            w64 = v64 / v64.norm(dim=0, keepdim=True).clamp_min(1e-300) if _gauge else v64
-            s64 = None if (_resolved_energy is None and negentropy_weight == 0.0 and collapse_weight == 0.0) else (x64 @ w64)
+        def _energy_from_s(s64, w64):
             e = calculate_simlr_energy(
                 w64, x64, u64, energy_type, _s=s64, _resolved_name=_resolved_energy
             ) * normalizing_weights[i]
@@ -1933,6 +1941,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             if collapse_weight != 0.0:
                 e = e + collapse_weight * correlation_penalty(s64, threshold=collapse_threshold)
             return e
+
+        def _smooth_objective(v64):
+            w64 = v64 / v64.norm(dim=0, keepdim=True).clamp_min(1e-300) if _gauge else v64
+            s64 = None if (_resolved_energy is None and negentropy_weight == 0.0 and collapse_weight == 0.0) else (x64 @ w64)
+            return _energy_from_s(s64, w64)
 
         def _projection(v_cand):
             """The constraint set's projection P, exactly as applied after each step."""
@@ -1955,10 +1968,32 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             constrained point the step will actually produce. Line searches
             test trial points against this, in float64."""
             with torch.no_grad():
+                for _p_in, _p_out, _ in reversed(_proj_cache):
+                    if (v_cand.dtype == _p_in.dtype
+                            and v_cand.shape == _p_in.shape
+                            and torch.equal(v_cand, _p_in)):
+                        return float(_smooth_objective(_p_out.detach().double()))
                 return float(_smooth_objective(_projection(v_cand).detach().double()))
 
         def smooth_gradient_fn(v_curr):
             """Descent direction ``-grad E(v)`` at `v_curr`, in its dtype."""
+            if _use_s_grad:
+                v64 = v_curr.detach().double()
+                if _gauge:
+                    nrm = v64.norm(dim=0, keepdim=True).clamp_min(1e-300)
+                    w64 = v64 / nrm
+                else:
+                    nrm = None
+                    w64 = v64
+                s64 = (x64 @ w64).requires_grad_(True)
+                with torch.enable_grad():
+                    (g_s,) = torch.autograd.grad(_energy_from_s(s64, w64), s64)
+                g_w = x64_t @ g_s
+                if _gauge:
+                    g = (g_w - w64 * (w64 * g_w).sum(dim=0, keepdim=True)) / nrm
+                else:
+                    g = g_w
+                return (-g).to(v_curr.dtype).contiguous()
             with torch.enable_grad():
                 v64 = v_curr.detach().double().requires_grad_(True)
                 (g,) = torch.autograd.grad(_smooth_objective(v64), v64)
@@ -1980,17 +2015,30 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # toward the certificate.
         zero_step_views = 0
         sweep_grad_map = []
-        projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
-        cur_mod_w = _update_simlr_mai(projections, max(0, it), max(1, iterations))
-        u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph, modality_weights=cur_mod_w)
-        if nonneg_u:
-            u = _nonneg_consensus(u)
+        _use_s0 = (_sweep0_cache is not None and raw_it == 0 and not dynamic_weights)
+        if _use_s0 and "u" in _sweep0_cache:
+            _u_cached = _sweep0_cache["u"]
+            u = [ui.clone() for ui in _u_cached] if isinstance(_u_cached, list) else _u_cached.clone()
+        else:
+            projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
+            cur_mod_w = _update_simlr_mai(projections, max(0, it), max(1, iterations))
+            u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph, modality_weights=cur_mod_w)
+            if nonneg_u:
+                u = _nonneg_consensus(u)
+            if _use_s0:
+                _sweep0_cache["u"] = [ui.clone() for ui in u] if isinstance(u, list) else u.clone()
+                _sweep0_cache["grads"] = [None] * n_modalities
         for i in range(n_modalities):
             u_i = u[i] if isinstance(u, list) else u
             _loop_sp = _loop_sp_list[i]
             smooth_gradient_fn, composite_energy_fn, _projection, _proj_cache = \
                 _view_oracles(i, u_i, _loop_sp)
-            _exact = smooth_gradient_fn(v_mats[i])
+            if _use_s0 and _sweep0_cache["grads"][i] is not None:
+                _exact = _sweep0_cache["grads"][i].clone()
+            else:
+                _exact = smooth_gradient_fn(v_mats[i])
+                if _use_s0:
+                    _sweep0_cache["grads"][i] = _exact.clone()
             # Stationarity diagnostic of the iterate entering this sweep, on its
             # current face (`utils.stationarity_residual`). Reported, not used
             # to stop: convergence is the energy plateau rule.
@@ -2510,6 +2558,28 @@ def _apply_consensus_stats(projections: List[torch.Tensor],
     return ((u_pre - mu_k) @ r_k).to(dtype=dtype)
 
 
+def _shared_latent_from_projections(
+    projections: List[torch.Tensor],
+    simlr_result: Dict[str, Any],
+) -> Union[torch.Tensor, List[torch.Tensor]]:
+    mixing_alg = simlr_result.get('mixing_algorithm', 'svd')
+    anchor = simlr_result.get('consensus_anchor')
+    stats = simlr_result.get('consensus_stats')
+    u_new = None
+    if stats is not None and (mixing_alg not in ("svd", "pca", "ica") or anchor is not None):
+        u_new = _apply_consensus_stats(projections, stats, mixing_alg, anchor)
+    if u_new is None and simlr_result.get('consensus_map') is not None:
+        from .consensus import apply_consensus_map
+        u_new = apply_consensus_map(projections, simlr_result['consensus_map'])
+    if u_new is None:
+        raise ValueError("simlr_result carries neither consensus statistics nor a consensus "
+                         "map (a result from before 0.3.0); refit it -- re-deriving the "
+                         "consensus from the prediction batch made it batch-dependent.")
+    if simlr_result.get('nonneg_u', False):
+        u_new = _nonneg_consensus(u_new)
+    return u_new
+
+
 def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
                           simlr_result: Dict[str, Any]) -> Union[torch.Tensor, List[torch.Tensor]]:
     """
@@ -2539,29 +2609,8 @@ def predict_shared_latent(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     torch_mats = _scale_like_training(torch_mats, simlr_result)
 
     v_mats = simlr_result['v']
-    mixing_alg = simlr_result.get('mixing_algorithm', 'svd')
-    simlr_result.get('orthogonalize_u', False)
-    v_mats[0].shape[1]
-    
-    # 2. Project to shared space
     projections = [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_mats)]
-    
-    # 3. Compute consensus U using the original mixing settings
-    anchor = simlr_result.get('consensus_anchor')
-    stats = simlr_result.get('consensus_stats')
-    u_new = None
-    if stats is not None and (mixing_alg not in ("svd", "pca", "ica") or anchor is not None):
-        u_new = _apply_consensus_stats(projections, stats, mixing_alg, anchor)
-    if u_new is None and simlr_result.get('consensus_map') is not None:
-        from .consensus import apply_consensus_map
-        u_new = apply_consensus_map(projections, simlr_result['consensus_map'])
-    if u_new is None:
-        raise ValueError("simlr_result carries neither consensus statistics nor a consensus "
-                         "map (a result from before 0.3.0); refit it -- re-deriving the "
-                         "consensus from the prediction batch made it batch-dependent.")
-    if simlr_result.get('nonneg_u', False):
-        u_new = _nonneg_consensus(u_new)
-    return u_new
+    return _shared_latent_from_projections(projections, simlr_result)
 
 def reconstruct_from_learned_maps(u: Union[torch.Tensor, List[torch.Tensor]], 
                                   simlr_result: Dict[str, Any]) -> List[torch.Tensor]:
@@ -2597,6 +2646,45 @@ def reconstruct_from_learned_maps(u: Union[torch.Tensor, List[torch.Tensor]],
         reconstructions.append(x_pred)
     return reconstructions
 
+def _predict_simlr_impl(
+    data_matrices: List[Union[torch.Tensor, np.ndarray]],
+    simlr_result: Dict[str, Any],
+    *,
+    return_preprocessed: bool = False,
+) -> Dict[str, Any]:
+    if 'model' in simlr_result:
+        # Fallback to predict_deep logic if a deep model is detected
+        from .deep import _predict_deep_impl
+        return _predict_deep_impl(data_matrices, simlr_result, return_preprocessed=return_preprocessed)
+
+    # 1. Contract Validation & Preprocessing (once per call)
+    v_list = simlr_result.get("v")
+    torch_mats = _check_views(data_matrices, n_views=len(v_list) if v_list is not None else None)
+    torch_mats = _scale_like_training(torch_mats, simlr_result)
+
+    # 2. Project to shared space once and derive both consensus U and per-view latents
+    v_list = v_list or []
+    projections = [x @ v.to(x.dtype) for x, v in zip(torch_mats, v_list)]
+    u_new = _shared_latent_from_projections(projections, simlr_result)
+    reconstructions = reconstruct_from_learned_maps(u_new, simlr_result)
+
+    from .utils import _recon_metrics
+    scales = simlr_result.get("latent_scale") or [1.0] * len(v_list)   # results saved before v0.16: internal scale
+    latents = [p / s for p, s in zip(projections, scales)]
+    if return_preprocessed:
+        errors, r2_mse = _recon_metrics(torch_mats, reconstructions, include_r2_mse=True)
+        return {
+            "u": u_new,
+            "latents": latents,
+            "reconstructions": reconstructions,
+            "errors": errors,
+            "_preprocessed_views": torch_mats,
+            "_r2_mse": r2_mse,
+        }
+    errors = _recon_metrics(torch_mats, reconstructions, include_r2_mse=False)
+    return {"u": u_new, "latents": latents, "reconstructions": reconstructions, "errors": errors}
+
+
 def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]], 
                   simlr_result: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -2628,31 +2716,7 @@ def predict_simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     TypeError
         If the inputs are not valid formats.
     """
-    # 1. Contract Validation
-    torch_mats = _check_views(data_matrices, n_views=len(simlr_result['v']) if simlr_result.get('v') is not None else None)
-
-    torch_mats = _scale_like_training(torch_mats, simlr_result)
-
-    if 'model' in simlr_result:
-        # Fallback to predict_deep logic if a deep model is detected
-        from .deep import predict_deep
-        return predict_deep(data_matrices, simlr_result)
-    
-    # For standard SIMLR:
-    u_new = predict_shared_latent(data_matrices, simlr_result)
-    
-    reconstructions = reconstruct_from_learned_maps(u_new, simlr_result)
-    
-    errors = []
-    for i, x in enumerate(torch_mats):
-        x_pred = reconstructions[i]
-        err = torch.norm(x - x_pred, p='fro').item() / (torch.norm(x, p='fro').item() + 1e-10)
-        errors.append(err)
-        
-    v_list = simlr_result.get("v", [])
-    scales = simlr_result.get("latent_scale") or [1.0] * len(v_list)   # results saved before v0.16: internal scale
-    latents = [(x @ v.to(x.dtype)) / s for x, v, s in zip(torch_mats, v_list, scales)]
-    return {"u": u_new, "latents": latents, "reconstructions": reconstructions, "errors": errors}
+    return _predict_simlr_impl(data_matrices, simlr_result, return_preprocessed=False)
 
 
 def estimate_rank(data_matrices: List[Union[torch.Tensor, np.ndarray]], n_permutations: int = 20, var_threshold: float = 0.99) -> int:

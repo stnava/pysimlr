@@ -103,11 +103,23 @@ def _assignment_indicator(m: torch.Tensor) -> torch.Tensor:
 
 _NSA_RETRACT_CACHE: Dict[tuple, list] = {}
 _SMOOTHING_CACHE: Dict[tuple, list] = {}
-_CACHE_MAXSIZE: int = 128
+_CACHE_MAXSIZE: int = 512
 #: Most keys either cache holds; the oldest key is evicted beyond it. Entries
 #: hold their operator or backend, so an unbounded key set (one per fit's
 #: smoothing matrix, one per test's mock backend) grew without limit.
 _CACHE_MAXKEYS: int = 64
+
+
+def _tensor_fp(t: torch.Tensor) -> tuple:
+    """Fast 4-scalar content fingerprint avoiding O(p*k) scans on non-matching sparse bases."""
+    n = t.numel()
+    if n == 0:
+        return (0.0, 0.0, 0.0, 0.0)
+    s = float(t.sum().item())
+    if s != s:
+        return ("nan",)
+    flat = t.reshape(-1)
+    return (s, float(flat[0].item()), float(flat[n >> 1].item()), float(flat[-1].item()))
 
 
 def _cache_bucket(cache: Dict[tuple, list], key: tuple) -> list:
@@ -126,16 +138,28 @@ def _apply_smoothing(v: torch.Tensor, smoothing_matrix: Any) -> torch.Tensor:
         return v
     key = (id(smoothing_matrix), v.shape, v.dtype, v.device)
     v_det = v.detach()
+    v_fp = _tensor_fp(v_det)
+    bucket_existing = _SMOOTHING_CACHE.get(key)
     # Entries hold the operator itself: `id()` is only unique among live
     # objects, so a new matrix at a freed matrix's address would otherwise hit
     # the old matrix's entries. The reference also keeps that address taken.
-    for owner, prev_in, prev_out in reversed(_SMOOTHING_CACHE.get(key, ())):
-        if owner is smoothing_matrix and (torch.equal(prev_in, v_det) or torch.equal(prev_out, v_det)):
-            return prev_out.clone()
+    if bucket_existing:
+        for idx in range(len(bucket_existing) - 1, -1, -1):
+            owner, prev_in, prev_out, in_fp, out_fp = bucket_existing[idx]
+            if owner is not smoothing_matrix:
+                continue
+            if (v_fp == in_fp and torch.equal(prev_in, v_det)) or (
+                v_fp == out_fp and torch.equal(prev_out, v_det)
+            ):
+                if idx != len(bucket_existing) - 1:
+                    bucket_existing.append(bucket_existing.pop(idx))
+                return prev_out.clone()
     out = smoothing_matrix @ v
     if isinstance(out, torch.Tensor):
         bucket = _cache_bucket(_SMOOTHING_CACHE, key)
-        bucket.append((smoothing_matrix, v_det.clone(), out.detach().clone()))
+        in_c = v_det.clone()
+        out_c = out.detach().clone()
+        bucket.append((smoothing_matrix, in_c, out_c, v_fp, _tensor_fp(out_c)))
         if len(bucket) > _CACHE_MAXSIZE:
             bucket.pop(0)
     return out
@@ -194,17 +218,21 @@ def _nsa_retract(v: torch.Tensor,
     # Entries hold the backend function: keyed on `id(fn)` alone, a new
     # backend at a freed one's address (seen with per-test mocks) hit the old
     # entries and was never called.
-    v_fp = float(v_detached.reshape(-1)[0]) if v_detached.numel() > 0 else 0.0
-    v_fp_nan = v_fp != v_fp
-    for owner, prev_in, prev_out, prev_diag, in_fp, out_fp in reversed(_NSA_RETRACT_CACHE.get(cache_key, ())):
-        if owner is not fn:
-            continue
-        in_match = (in_fp != in_fp) if v_fp_nan else (v_fp == in_fp)
-        out_match = (out_fp != out_fp) if v_fp_nan else (v_fp == out_fp)
-        if (in_match and torch.equal(prev_in, v_detached)) or (out_match and torch.equal(prev_out, v_detached)):
-            if diagnostics is not None:
-                diagnostics.update(prev_diag)
-            return prev_out.clone()
+    v_fp = _tensor_fp(v_detached)
+    bucket_existing = _NSA_RETRACT_CACHE.get(cache_key)
+    if bucket_existing:
+        for idx in range(len(bucket_existing) - 1, -1, -1):
+            owner, prev_in, prev_out, prev_diag, in_fp, out_fp = bucket_existing[idx]
+            if owner is not fn:
+                continue
+            if (v_fp == in_fp and torch.equal(prev_in, v_detached)) or (
+                v_fp == out_fp and torch.equal(prev_out, v_detached)
+            ):
+                if idx != len(bucket_existing) - 1:
+                    bucket_existing.append(bucket_existing.pop(idx))
+                if diagnostics is not None:
+                    diagnostics.update(prev_diag)
+                return prev_out.clone()
 
     n_cols = max(1, v_detached.shape[1])
     scale = float(torch.linalg.norm(v_detached.double()) / (n_cols ** 0.5))
@@ -242,9 +270,7 @@ def _nsa_retract(v: torch.Tensor,
     bucket = _cache_bucket(_NSA_RETRACT_CACHE, cache_key)
     in_c = v_detached.clone()
     out_c = candidate.detach().clone()
-    in_fp = float(in_c.reshape(-1)[0]) if in_c.numel() > 0 else 0.0
-    out_fp = float(out_c.reshape(-1)[0]) if out_c.numel() > 0 else 0.0
-    bucket.append((fn, in_c, out_c, dict(diag_snapshot), in_fp, out_fp))
+    bucket.append((fn, in_c, out_c, dict(diag_snapshot), v_fp, _tensor_fp(out_c)))
     if len(bucket) > _CACHE_MAXSIZE:
         bucket.pop(0)
     return candidate
@@ -1347,14 +1373,23 @@ def _apply_quantile_sparseness(
         already_sparse = None
         clean_out = None
 
-    vals, idx_sort = torch.sort(mag, dim=0, descending=True)
+    if n_keep + 1 <= (p >> 1):
+        vals, idx_top = torch.topk(mag, k=n_keep + 1, dim=0, largest=True, sorted=True)
+        if bool((vals[n_keep - 1] == vals[n_keep]).any()):
+            vals, idx_sort = torch.sort(mag, dim=0, descending=True)
+            idx_keep = idx_sort[:n_keep]
+        else:
+            idx_keep = idx_top[:n_keep]
+    else:
+        vals, idx_sort = torch.sort(mag, dim=0, descending=True)
+        idx_keep = idx_sort[:n_keep]
     max_mag = vals[0].detach()
     zero_col = max_mag <= 0.0
     if bool(zero_col.all()):
         return torch.zeros_like(v.detach())
     thresh = vals[n_keep].detach()
     keep_mask = torch.zeros_like(mag, dtype=torch.bool)
-    keep_mask.scatter_(0, idx_sort[:n_keep], True)
+    keep_mask.scatter_(0, idx_keep, True)
     hard_out = torch.where(keep_mask, v, torch.zeros_like(v))
     if use_soft:
         shrunk = torch.sign(v) * torch.clamp(mag - thresh.unsqueeze(0), min=0.0)
@@ -1488,7 +1523,9 @@ def simlr_sparseness(v: torch.Tensor,
     if smoothing_matrix is not None:
         sm_key = (id(smoothing_matrix), out.shape, out.dtype, out.device)
         sm_bucket = _cache_bucket(_SMOOTHING_CACHE, sm_key)
-        sm_bucket.append((smoothing_matrix, out.detach().clone(), out.detach().clone()))
+        out_c = out.detach().clone()
+        out_fp = _tensor_fp(out_c)
+        sm_bucket.append((smoothing_matrix, out_c, out_c, out_fp, out_fp))
         if len(sm_bucket) > _CACHE_MAXSIZE:
             sm_bucket.pop(0)
     return out

@@ -60,18 +60,37 @@ def _perm_pvalues(zo, lam2, t, obs, groups: Mapping[str, Sequence[int]], n_perm:
     ge = np.zeros(len(obs))
     geg = {g: 0 for g in groups}
     obs_g = {g: float(obs[idx].sum()) for g, idx in groups.items()}
-    max_chunk = min(_CHUNK, max(1, int(n_perm)))
-    tile_buf = np.empty((len(t), max_chunk), dtype=np.asarray(t).dtype)
+    if n_perm <= 0:
+        return (1 + ge) / 1.0, {g: 1.0 for g in geg}
+    t_arr = np.asarray(t)
+    n = len(t_arr)
+    # Row permutation preserves column mean and variance, so standardize once up front.
+    t_unit = np.ascontiguousarray((_zscore(t_arr) * (1.0 / np.sqrt(n))).reshape(n, 1))
+    zo_t = np.ascontiguousarray(zo.T)
+    lam2_c = np.ascontiguousarray(lam2)
+    max_chunk = min(_CHUNK, int(n_perm))
+    tile_buf = np.empty((n, max_chunk), dtype=t_unit.dtype)
     perm_buf = np.empty_like(tile_buf)
-    t_col = np.asarray(t)[:, None]
+    u_buf = np.empty((zo_t.shape[0], max_chunk), dtype=np.result_type(zo_t.dtype, t_unit.dtype))
+    w_buf = np.empty((lam2_c.shape[0], max_chunk), dtype=np.result_type(lam2_c.dtype, u_buf.dtype))
     obs_col = obs[:, None]
     for s in range(0, n_perm, _CHUNK):
         k = min(_CHUNK, n_perm - s)
         tile_sub = tile_buf[:, :k]
         perm_sub = perm_buf[:, :k]
-        tile_sub[:] = t_col
+        u_sub = u_buf[:, :k]
+        w_sub = w_buf[:, :k]
+        tile_sub[:] = t_unit
         rng.permuted(tile_sub, axis=0, out=perm_sub)
-        null = _relative_weight_shares(zo, lam2, perm_sub)
+        np.matmul(zo_t, perm_sub, out=u_sub)
+        np.multiply(u_sub, u_sub, out=u_sub)
+        np.matmul(lam2_c, u_sub, out=w_sub)
+        tot = w_sub.sum(0, keepdims=True)
+        if (tot > 0).all():
+            np.divide(w_sub, tot, out=w_sub)
+            null = w_sub
+        else:
+            null = np.where(tot > 0, w_sub / np.where(tot > 0, tot, 1.0), 0.0)
         ge += (null >= obs_col).sum(1)
         for g, idx in groups.items():
             geg[g] += int((null[idx].sum(0) >= obs_g[g]).sum())
