@@ -59,12 +59,22 @@ def _perm_pvalues(zo, lam2, t, obs, groups: Mapping[str, Sequence[int]], n_perm:
     """Permutation p-values (uncorrected) of each feature's and each group's share."""
     ge = np.zeros(len(obs))
     geg = {g: 0 for g in groups}
+    obs_g = {g: float(obs[idx].sum()) for g, idx in groups.items()}
+    max_chunk = min(_CHUNK, max(1, int(n_perm)))
+    tile_buf = np.empty((len(t), max_chunk), dtype=np.asarray(t).dtype)
+    perm_buf = np.empty_like(tile_buf)
+    t_col = np.asarray(t)[:, None]
+    obs_col = obs[:, None]
     for s in range(0, n_perm, _CHUNK):
         k = min(_CHUNK, n_perm - s)
-        null = _relative_weight_shares(zo, lam2, rng.permuted(np.tile(t[:, None], (1, k)), axis=0))
-        ge += (null >= obs[:, None]).sum(1)
+        tile_sub = tile_buf[:, :k]
+        perm_sub = perm_buf[:, :k]
+        tile_sub[:] = t_col
+        rng.permuted(tile_sub, axis=0, out=perm_sub)
+        null = _relative_weight_shares(zo, lam2, perm_sub)
+        ge += (null >= obs_col).sum(1)
         for g, idx in groups.items():
-            geg[g] += int((null[idx].sum(0) >= obs[idx].sum()).sum())
+            geg[g] += int((null[idx].sum(0) >= obs_g[g]).sum())
     return (1 + ge) / (n_perm + 1), {g: (1 + c) / (n_perm + 1) for g, c in geg.items()}
 
 

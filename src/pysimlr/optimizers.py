@@ -151,6 +151,45 @@ class SimlrOptimizer(ABC):
         """
         pass
 
+def _backtracking_linesearch_with_energy(
+    v_current: torch.Tensor,
+    descent_direction: torch.Tensor,
+    ascent_gradient: torch.Tensor,
+    energy_function: Callable,
+    initial_step_size: float = 1.0,
+    alpha: float = 1e-4,
+    beta: float = 0.5,
+    max_iter: int = 10,
+    min_step: float = 1e-12,
+    *,
+    _initial_energy: Optional[float] = None,
+) -> Tuple[float, float]:
+    """Armijo backtracking line search returning ``(step_size, accepted_energy)``."""
+    # The current iterate must be evaluable; a failure here is a bug upstream,
+    # not a step size of zero (which is what it used to return, silently).
+    initial_energy = float(energy_function(v_current)) if _initial_energy is None else _initial_energy
+
+    step_size = initial_step_size
+    slope_term = torch.sum(ascent_gradient * descent_direction)
+    if slope_term >= -1e-12:
+        return 0.0, float("inf")
+
+    for _ in range(max_iter):
+        if step_size <= min_step:
+            break
+        v_candidate = v_current + step_size * descent_direction
+        try:
+            new_energy = float(energy_function(v_candidate))
+        except (RuntimeError, ValueError, ArithmeticError):
+            # A candidate the energy cannot be evaluated at (e.g. a degenerate
+            # basis) is rejected like one that increases it.
+            new_energy = float("inf")
+        if new_energy <= initial_energy + alpha * step_size * slope_term:
+            return step_size, new_energy
+        step_size *= beta
+    return 0.0, float("inf")
+
+
 def backtracking_linesearch(v_current: torch.Tensor, 
                             descent_direction: torch.Tensor, 
                             ascent_gradient: torch.Tensor,
@@ -197,29 +236,12 @@ def backtracking_linesearch(v_current: torch.Tensor,
     TypeError
         If inputs are of invalid types.
     """
-    # The current iterate must be evaluable; a failure here is a bug upstream,
-    # not a step size of zero (which is what it used to return, silently).
-    initial_energy = energy_function(v_current)
-        
-    step_size = initial_step_size
-    slope_term = torch.sum(ascent_gradient * descent_direction)
-    if slope_term >= -1e-12:
-        return 0.0
-    
-    for _ in range(max_iter):
-        if step_size <= min_step:
-            break
-        v_candidate = v_current + step_size * descent_direction
-        try:
-            new_energy = energy_function(v_candidate)
-        except (RuntimeError, ValueError, ArithmeticError):
-            # A candidate the energy cannot be evaluated at (e.g. a degenerate
-            # basis) is rejected like one that increases it.
-            new_energy = float('inf')
-        if new_energy <= initial_energy + alpha * step_size * slope_term:
-            return step_size
-        step_size *= beta
-    return 0.0
+    step, _ = _backtracking_linesearch_with_energy(
+        v_current, descent_direction, ascent_gradient, energy_function,
+        initial_step_size, alpha, beta, max_iter, min_step,
+    )
+    return step
+
 
 def bidirectional_linesearch(v_current: torch.Tensor, 
                              descent_direction: torch.Tensor, 
@@ -263,7 +285,7 @@ def bidirectional_linesearch(v_current: torch.Tensor,
     Tuple[float, torch.Tensor]
         A tuple of (optimal_step_size, direction), where direction is 
         either `descent_direction` or `-descent_direction`. The direction is
-        chosen by which candidate reaches the lower energy, not by which
+        chosen by which candidate actually reaches the lower energy, not by which
         admits the larger step.
 
     Raises
@@ -271,33 +293,17 @@ def bidirectional_linesearch(v_current: torch.Tensor,
     TypeError
         If inputs are of invalid types.
     """
-    # Try positive direction
-    pos_step = backtracking_linesearch(
+    initial_energy = float(energy_function(v_current))
+    pos_step, pos_energy = _backtracking_linesearch_with_energy(
         v_current, descent_direction, ascent_gradient, energy_function,
-        initial_step_size, alpha, beta, max_iter, min_step
+        initial_step_size, alpha, beta, max_iter, min_step,
+        _initial_energy=initial_energy,
     )
-    
-    # Try negative direction
-    neg_step = backtracking_linesearch(
+    neg_step, neg_energy = _backtracking_linesearch_with_energy(
         v_current, -descent_direction, -ascent_gradient, energy_function,
-        initial_step_size, alpha, beta, max_iter, min_step
+        initial_step_size, alpha, beta, max_iter, min_step,
+        _initial_energy=initial_energy,
     )
-
-    # Pick whichever candidate actually reaches the lower energy. Comparing the
-    # two *step sizes* (as this previously did, via `pos_step >= neg_step`) says
-    # nothing about which direction descends further: a larger admissible step
-    # in one direction can easily land above a smaller step in the other.
-    def _energy_at(step, direction):
-        if step <= 0.0:
-            return float('inf')
-        try:
-            return float(energy_function(v_current + step * direction))
-        except (RuntimeError, ValueError, ArithmeticError):
-            # Rejected like a candidate that increases the energy.
-            return float('inf')
-
-    pos_energy = _energy_at(pos_step, descent_direction)
-    neg_energy = _energy_at(neg_step, -descent_direction)
 
     if pos_energy <= neg_energy and pos_step > 0:
         return pos_step, descent_direction

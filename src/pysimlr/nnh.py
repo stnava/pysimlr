@@ -276,14 +276,9 @@ def nnh_update_residuals(mat: torch.Tensor,
         cov_vals = covariate_data[cols].values
         
     mat_np = mat.numpy()
-    residuals = np.zeros_like(mat_np)
-    
     from sklearn.linear_model import LinearRegression
-    for i in range(mat_np.shape[1]):
-        y = mat_np[:, i]
-        reg = LinearRegression().fit(cov_vals, y)
-        residuals[:, i] = y - reg.predict(cov_vals)
-        
+    reg = LinearRegression().fit(cov_vals, mat_np)
+    residuals = mat_np - reg.predict(cov_vals)
     return torch.as_tensor(residuals).float()
 
 def nnh_embed(blaster: pd.DataFrame,
@@ -693,14 +688,17 @@ def _preprocess_matrix(M: np.ndarray, block_name: str, preprocess_policy: str = 
     Remove invalid features, center, scale, and replace NaNs with zero.
     """
     n_samples, n_features = M.shape
-    all_na = np.all(np.isnan(M), axis=0)
-    
-    zero_var = np.zeros(n_features, dtype=bool)
-    for col in range(n_features):
-        col_vals = M[:, col]
-        valid_vals = col_vals[np.isfinite(col_vals)]
-        if len(valid_vals) <= 1 or np.std(valid_vals) == 0:
-            zero_var[col] = True
+    if np.all(np.isfinite(M)):
+        all_na = np.zeros(n_features, dtype=bool)
+        zero_var = (n_samples <= 1) | (np.std(M, axis=0) == 0)
+    else:
+        all_na = np.all(np.isnan(M), axis=0)
+        zero_var = np.zeros(n_features, dtype=bool)
+        for col in range(n_features):
+            col_vals = M[:, col]
+            valid_vals = col_vals[np.isfinite(col_vals)]
+            if len(valid_vals) <= 1 or np.std(valid_vals) == 0:
+                zero_var[col] = True
             
     invalid_cols = all_na | zero_var
     dropped = []
@@ -739,9 +737,13 @@ def _build_feature_correlation_adjacency(M: np.ndarray, threshold: float = 0.8, 
     """
     if M.shape[1] == 1:
         return np.ones((1, 1))
-        
-    df_temp = pd.DataFrame(M)
-    C = df_temp.corr().values.copy()
+
+    if np.all(np.isfinite(M)):
+        with np.errstate(divide="ignore", invalid="ignore"):
+            C = np.corrcoef(M, rowvar=False)
+        C = np.asarray(C, dtype=np.float64).copy()
+    else:
+        C = pd.DataFrame(M).corr().values.copy()
     C[~np.isfinite(C)] = 0.0
     
     if use_abs:

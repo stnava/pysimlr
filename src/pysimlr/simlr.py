@@ -1044,7 +1044,17 @@ SUPPORTED_ENERGY_TYPES = frozenset({
 })
 
 
-def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, energy_type: str = DEFAULT_ENERGY_TYPE, lambda_val: float = 0.0, prior_matrix: Optional[torch.Tensor] = None) -> torch.Tensor:
+def calculate_simlr_energy(
+    v: torch.Tensor,
+    x: torch.Tensor,
+    u: torch.Tensor,
+    energy_type: str = DEFAULT_ENERGY_TYPE,
+    lambda_val: float = 0.0,
+    prior_matrix: Optional[torch.Tensor] = None,
+    *,
+    _s: Optional[torch.Tensor] = None,
+    _resolved_name: Optional[str] = None,
+) -> torch.Tensor:
     """
     Compute the energy (loss) for a single modality in SiMLR.
 
@@ -1084,7 +1094,10 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
     """
     from .similarity import (SimilarityContext, resolve_energy_name,
                              similarity_energy)
-    u = u.to(x.dtype); v = v.to(x.dtype)
+    if u.dtype != x.dtype:
+        u = u.to(x.dtype)
+    if v.dtype != x.dtype:
+        v = v.to(x.dtype)
     if energy_type == "dat":
         # Domain regulariser, not a similarity: it scores V against a prior
         # matrix rather than against the shared latent, so it stays here.
@@ -1094,10 +1107,12 @@ def calculate_simlr_energy(v: torch.Tensor, x: torch.Tensor, u: torch.Tensor, en
                 "prior_matrix. It used to return a constant 0.0, so a caller "
                 "who passed it as a primary objective optimised nothing."
             )
-        alignment = prior_matrix.to(x.dtype) @ v
+        pm = prior_matrix if prior_matrix.dtype == x.dtype else prior_matrix.to(x.dtype)
+        alignment = pm @ v
         return -lambda_val * torch.sum(alignment ** 2)
-    name = resolve_energy_name(energy_type, path="linear")
-    return similarity_energy(name, x @ v, u, SimilarityContext(x=x, v=v))
+    name = _resolved_name if _resolved_name is not None else resolve_energy_name(energy_type, path="linear")
+    s = (x @ v) if _s is None else _s
+    return similarity_energy(name, s, u, SimilarityContext(x=x, v=v))
 
 
 def _view_energy_scale(energy_type: str, x: torch.Tensor, u: torch.Tensor,
@@ -1754,7 +1769,20 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     domain_weights = [1.0] * n_modalities
     neg_weights = [1.0] * n_modalities
 
-    from .similarity import similarity_is_scale_free
+    from .similarity import resolve_energy_name, similarity_is_scale_free
+    from .sparsification import _resolve_quantile
+    _resolved_energy = None if energy_type == "dat" else resolve_energy_name(energy_type, path="linear")
+    _loop_sp_list = [
+        None
+        if (
+            _want_nonneg
+            and k > 1
+            and (_q_m := _resolve_quantile(sparseness, modality_index=i)) is not None
+            and _q_m < 1.0 - 1.0 / k
+        )
+        else sparseness
+        for i in range(n_modalities)
+    ]
     try:
         _self_norm = similarity_is_scale_free(energy_type)
     except (ValueError, KeyError):
@@ -1763,25 +1791,44 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     def _calibrate_weights(curr_v_mats, curr_u):
         for idx_m in range(n_modalities):
             u_m = curr_u[idx_m] if isinstance(curr_u, list) else curr_u
-            sim_e = calculate_simlr_energy(curr_v_mats[idx_m], torch_mats[idx_m], u_m, energy_type)
-            scale_val = _view_energy_scale(energy_type, torch_mats[idx_m], u_m, sim_e)
+            x_m = torch_mats[idx_m]
+            v_m = curr_v_mats[idx_m].to(x_m.dtype)
+            s_m = x_m @ v_m
+            sim_e = calculate_simlr_energy(
+                v_m, x_m, u_m, energy_type, _s=s_m, _resolved_name=_resolved_energy
+            )
+            scale_val = _view_energy_scale(energy_type, x_m, u_m, sim_e)
             normalizing_weights[idx_m] = (1.0 / n_modalities if _self_norm
                                           else 1.0 / (scale_val * n_modalities + 1e-10))
             if negentropy_weight != 0.0:
                 neg_e0 = abs(calculate_simlr_energy(
-                    curr_v_mats[idx_m], torch_mats[idx_m], u_m, "negentropy").item())
+                    v_m, x_m, u_m, "negentropy", _s=s_m, _resolved_name="negentropy").item())
                 # For scale-free energies normalizing_weights[idx_m] is 1/M, so neg_weights
                 # scales relative to |E0| / M.
                 neg_weights[idx_m] = (scale_val * normalizing_weights[idx_m] / neg_e0
                                       if neg_e0 > 1e-12 else 0.0)
             if torch_domains is not None and torch_domains[idx_m] is not None:
-                dom_e_raw = calculate_simlr_energy(curr_v_mats[idx_m], torch_mats[idx_m], u_m, "dat", lambda_val=domain_lambdas[idx_m], prior_matrix=torch_domains[idx_m]).item()
+                dom_e_raw = calculate_simlr_energy(v_m, x_m, u_m, "dat", lambda_val=domain_lambdas[idx_m], prior_matrix=torch_domains[idx_m]).item()
                 if abs(dom_e_raw) > 1e-10:
                     # For scale-free energies normalizing_weights[idx_m] is 1/M, so domain_weights
                     # scales relative to |E0| / M.
                     domain_weights[idx_m] = abs(scale_val * normalizing_weights[idx_m]) / abs(dom_e_raw)
                 else:
                     domain_weights[idx_m] = 1.0
+
+    def _total_sweep_energy(curr_v_mats, curr_u) -> float:
+        tot = 0.0
+        for idx_m in range(n_modalities):
+            u_m = curr_u[idx_m] if isinstance(curr_u, list) else curr_u
+            x_m = torch_mats[idx_m]
+            v_m = curr_v_mats[idx_m].to(x_m.dtype)
+            s_m = x_m @ v_m
+            tot += calculate_simlr_energy(
+                v_m, x_m, u_m, energy_type, _s=s_m, _resolved_name=_resolved_energy
+            ).item() * normalizing_weights[idx_m]
+            if collapse_weight != 0.0:
+                tot += collapse_weight * float(correlation_penalty(s_m, threshold=collapse_threshold))
+        return tot
 
     init_total_energy = 0.0
     if iterations == 0:
@@ -1792,13 +1839,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         if nonneg_u:
             init_u = _nonneg_consensus(init_u)
         _calibrate_weights(v_mats, init_u)
-        init_total_energy = sum(
-            calculate_simlr_energy(v_mats[idx_m], torch_mats[idx_m],
-                                   init_u[idx_m] if isinstance(init_u, list) else init_u,
-                                   energy_type).item() * normalizing_weights[idx_m]
-            + collapse_weight * float(correlation_penalty(torch_mats[idx_m] @ v_mats[idx_m].to(torch_mats[idx_m].dtype), threshold=collapse_threshold))
-            for idx_m in range(n_modalities)
-        )
+        init_total_energy = _total_sweep_energy(v_mats, init_u)
 
     mai_ema = torch.ones(n_modalities, dtype=orig_dtype) / n_modalities
     mai_floor = torch.zeros(n_modalities, dtype=orig_dtype)
@@ -1870,19 +1911,22 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         u64 = u_i.double()
         dom64 = torch_domains_64[i] if torch_domains_64 is not None else None
         sm_i = smoothing_matrices[i] if smoothing_matrices else None
-        _last_proj = [None, None, None]
+        _proj_cache: list = []
 
         def _smooth_objective(v64):
             w64 = v64 / v64.norm(dim=0, keepdim=True).clamp_min(1e-300) if _gauge else v64
-            e = calculate_simlr_energy(w64, x64, u64, energy_type) * normalizing_weights[i]
+            s64 = None if (_resolved_energy is None and negentropy_weight == 0.0 and collapse_weight == 0.0) else (x64 @ w64)
+            e = calculate_simlr_energy(
+                w64, x64, u64, energy_type, _s=s64, _resolved_name=_resolved_energy
+            ) * normalizing_weights[i]
             if dom64 is not None:
                 e = e + calculate_simlr_energy(w64, x64, u64, "dat", lambda_val=domain_lambdas[i],
                                                prior_matrix=dom64) * domain_weights[i]
             if negentropy_weight != 0.0:
-                e = e + (calculate_simlr_energy(w64, x64, u64, "negentropy")
+                e = e + (calculate_simlr_energy(w64, x64, u64, "negentropy", _s=s64, _resolved_name="negentropy")
                          * negentropy_weight * neg_weights[i])
             if collapse_weight != 0.0:
-                e = e + collapse_weight * correlation_penalty(x64 @ w64, threshold=collapse_threshold)
+                e = e + collapse_weight * correlation_penalty(s64, threshold=collapse_threshold)
             return e
 
         def _projection(v_cand):
@@ -1896,9 +1940,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 constraint_weight=constraint_weight,
                 energy_type=energy_type, modality_index=i,
                 retraction_diagnostics=d)
-            _last_proj[0] = v_in.detach()
-            _last_proj[1] = v_proj
-            _last_proj[2] = d
+            _proj_cache.append((v_in.detach(), v_proj, d))
+            if len(_proj_cache) > 3:
+                _proj_cache.pop(0)
             return v_proj
 
         def composite_energy_fn(v_cand):
@@ -1919,7 +1963,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # constraints: for an orthogonal projector P, <grad, P grad> =
         # |P grad|^2, so a line search along it still tests the true slope.
         # The oracle above stays the exact gradient.
-        return smooth_gradient_fn, composite_energy_fn, _projection, _last_proj
+        return smooth_gradient_fn, composite_energy_fn, _projection, _proj_cache
 
     total_sweeps = (iterations + 1) if iterations > 0 else 0
     for raw_it in range(total_sweeps):
@@ -1938,13 +1982,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             u = _nonneg_consensus(u)
         for i in range(n_modalities):
             u_i = u[i] if isinstance(u, list) else u
-            # Local energy function that incorporates sparsification/retraction
-            from .sparsification import _resolve_quantile
-            _q_mod = _resolve_quantile(sparseness, modality_index=i)
-            _loop_sp = (None if (_want_nonneg and k > 1 and _q_mod is not None
-                                 and _q_mod < 1.0 - 1.0 / k)
-                        else sparseness)
-            smooth_gradient_fn, composite_energy_fn, _projection, _last_proj = \
+            _loop_sp = _loop_sp_list[i]
+            smooth_gradient_fn, composite_energy_fn, _projection, _proj_cache = \
                 _view_oracles(i, u_i, _loop_sp)
             _exact = smooth_gradient_fn(v_mats[i])
             # Stationarity diagnostic of the iterate entering this sweep, on its
@@ -1962,12 +2001,16 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
             # Apply final projection (reusing the exact candidate already
             # projected during line search when `v_updated` matches it).
-            if (_last_proj[0] is not None
-                    and v_updated.dtype == _last_proj[0].dtype
-                    and v_updated.shape == _last_proj[0].shape
-                    and torch.equal(v_updated, _last_proj[0])):
-                retraction_diags[i] = {} if _last_proj[2] is None else dict(_last_proj[2])
-                v_mats[i] = _last_proj[1].clone()
+            matched_proj = None
+            for _p_in, _p_out, _p_diag in reversed(_proj_cache):
+                if (v_updated.dtype == _p_in.dtype
+                        and v_updated.shape == _p_in.shape
+                        and torch.equal(v_updated, _p_in)):
+                    matched_proj = (_p_out, _p_diag)
+                    break
+            if matched_proj is not None:
+                retraction_diags[i] = {} if matched_proj[1] is None else dict(matched_proj[1])
+                v_mats[i] = matched_proj[0].clone()
             else:
                 retraction_diags[i] = {}
                 v_mats[i] = simlr_sparseness(v_updated, constraint_type=constraint_type, smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=positivity, sparseness=_loop_sp, constraint_weight=constraint_weight, energy_type=energy_type, modality_index=i, retraction_diagnostics=None if _probe_only else retraction_diags[i])
@@ -1982,23 +2025,12 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             
         if is_warm_start:
             _calibrate_weights(v_mats, u)
-            init_total_energy = sum(
-                calculate_simlr_energy(v_mats[idx_m], torch_mats[idx_m],
-                                       u[idx_m] if isinstance(u, list) else u,
-                                       energy_type).item() * normalizing_weights[idx_m]
-                + collapse_weight * float(correlation_penalty(torch_mats[idx_m] @ v_mats[idx_m].to(torch_mats[idx_m].dtype), threshold=collapse_threshold))
-                for idx_m in range(n_modalities)
-            )
+            init_total_energy = _total_sweep_energy(v_mats, u)
             best_v_mats = [v.clone() for v in v_mats]
             best_retraction_diags = [dict(d) for d in retraction_diags]
             continue
-        
-        total_energy = 0.0
-        for i in range(n_modalities):
-            u_i = u[i] if isinstance(u, list) else u
-            total_energy += calculate_simlr_energy(v_mats[i], torch_mats[i], u_i, energy_type).item() * normalizing_weights[i]
-            if collapse_weight != 0.0:
-                total_energy += collapse_weight * float(correlation_penalty(torch_mats[i] @ v_mats[i].to(torch_mats[i].dtype), threshold=collapse_threshold))
+
+        total_energy = _total_sweep_energy(v_mats, u)
             
         energy_history.append(total_energy)
         grad_map_history.append(max(sweep_grad_map) if sweep_grad_map else float("nan"))

@@ -328,7 +328,7 @@ def _resolve_rw_shrinkage(xl: np.ndarray, d: np.ndarray, shrinkage: Any,
 def _basis_from_svd(pp: np.ndarray, d: np.ndarray, qt: np.ndarray, n: int, lam: float):
     """``(Z_lam, Lambda_lam**2)`` from thin SVD ``xl = pp diag(d) qt`` at shrinkage ``lam``."""
     if lam == 0.0:
-        return pp @ qt, (qt.T @ np.diag(d) @ qt / np.sqrt(n)) ** 2
+        return pp @ qt, ((qt.T * d[None, :]) @ qt / np.sqrt(n)) ** 2
     s = d / np.sqrt(n)
     d_lam = (1.0 - lam) * (s ** 2) + lam
     zo = (pp * (s / np.sqrt(d_lam))[None, :]) @ qt
@@ -647,19 +647,23 @@ def _top_q_mask(h: np.ndarray, q: int) -> np.ndarray:
 
 
 def _col_corr_stability(al_slice: np.ndarray, ref_mat: np.ndarray, *, nan_safe: bool = False) -> List[float]:
+    if not nan_safe and al_slice.shape[0] > 0:
+        ac = al_slice - al_slice.mean(axis=1, keepdims=True)
+        rc = ref_mat - ref_mat.mean(axis=0, keepdims=True)
+        num = (ac * rc[None, :, :]).sum(axis=1)
+        den = np.sqrt((ac ** 2).sum(axis=1) * (rc ** 2).sum(axis=0)[None, :])
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rs_mat = np.where(den > 0, num / den, np.nan)
+        return [float(np.nanmedian(rs_mat[:, j])) for j in range(ref_mat.shape[1])]
     stab = []
     for j in range(ref_mat.shape[1]):
-        if not nan_safe:
-            rs = [np.corrcoef(al_slice[t, :, j], ref_mat[:, j])[0, 1] for t in range(al_slice.shape[0])]
-            stab.append(float(np.nanmedian(rs)))
-        else:
-            rs = []
-            for t in range(al_slice.shape[0]):
-                x_, y_ = al_slice[t, :, j], ref_mat[:, j]
-                ok = np.isfinite(x_) & np.isfinite(y_)
-                rs.append(np.corrcoef(x_[ok], y_[ok])[0, 1] if ok.sum() > 2 and x_[ok].std() > 0
-                          and y_[ok].std() > 0 else np.nan)
-            stab.append(float(np.nanmedian(rs)) if np.isfinite(rs).any() else float("nan"))
+        rs = []
+        for t in range(al_slice.shape[0]):
+            x_, y_ = al_slice[t, :, j], ref_mat[:, j]
+            ok = np.isfinite(x_) & np.isfinite(y_)
+            rs.append(np.corrcoef(x_[ok], y_[ok])[0, 1] if ok.sum() > 2 and x_[ok].std() > 0
+                      and y_[ok].std() > 0 else np.nan)
+        stab.append(float(np.nanmedian(rs)) if np.isfinite(rs).any() else float("nan"))
     return stab
 
 
@@ -789,11 +793,13 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     for idx in sub_idx:
         oob = np.setdiff1d(all_rows, idx, assume_unique=True)
         oob_rows.append(oob)
-        oob_v = [x[torch.as_tensor(oob)] for x in view_list] if len(oob) >= 2 else None
+        t_idx = torch.as_tensor(idx)
+        t_oob = torch.as_tensor(oob) if len(oob) >= 2 else None
+        oob_v = [x[t_oob] for x in view_list] if t_oob is not None else None
         sub_p = refit_params if conf is None else dict(refit_params, confounds=slice_confounds(conf, idx))
-        task = (method, [x[torch.as_tensor(idx)] for x in view_list], oob_v, k, random_state, sub_p)
+        task = (method, [x[t_idx] for x in view_list], oob_v, k, random_state, sub_p)
         if map_opts:
-            t_opts = (dict(map_opts, probe_views=[None if pt is None else pt[torch.as_tensor(idx)]
+            t_opts = (dict(map_opts, probe_views=[None if pt is None else pt[t_idx]
                                                   for pt in probe_tensors])
                       if probe_tensors is not None else map_opts)
             task = task + (t_opts,)

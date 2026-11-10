@@ -120,15 +120,16 @@ def _greedy_nonredundant(z: np.ndarray, order: np.ndarray, max_keep: int,
     if max_collinearity is None or max_collinearity >= 1.0:
         return np.sort(order[:max_keep].astype(np.int64))
     chosen: list[int] = []
-    chosen_cols: list[np.ndarray] = []
+    chosen_rows = np.empty((min(int(max_keep), len(order)), z.shape[0]), dtype=z.dtype)
     for idx in order:
         col = z[:, int(idx)]
-        if chosen_cols:
-            dots = np.abs(np.column_stack(chosen_cols).T @ col)
+        k_chosen = len(chosen)
+        if k_chosen > 0:
+            dots = np.abs(chosen_rows[:k_chosen] @ col)
             if float(dots.max()) > max_collinearity:
                 continue
+        chosen_rows[k_chosen] = col
         chosen.append(int(idx))
-        chosen_cols.append(col)
         if len(chosen) >= max_keep:
             break
     return np.sort(np.asarray(chosen, dtype=np.int64))
@@ -239,11 +240,12 @@ def screen_wide_views(
     floor_default = max(k + 2, 4)
     cap_n = max(floor_default, int(np.floor(max_width_ratio * n)))
 
+    raw_nps = [t.detach().double().numpy() for t in tensors]
     zs: list[np.ndarray] = []
     lives: list[np.ndarray] = []
     us: list[np.ndarray] = []
-    for t in tensors:
-        z, live = _std_unit_norm(t.detach().double().numpy())
+    for raw_np in raw_nps:
+        z, live = _std_unit_norm(raw_np)
         zs.append(z)
         lives.append(live)
         us.append(_leading_u(z[:, live], r_target))
@@ -252,15 +254,19 @@ def screen_wide_views(
     nsub = max(floor_default, round(subsample_fraction * n))
     sub_rows = [np.sort(rng.choice(n, nsub, replace=False)) for _ in range(max(0, int(n_subsamples)))]
 
-    # Precompute subsample leading subspaces once across all views.
+    # Precompute subsample standardized views and leading subspaces once across all views.
     sub_us: list[list[np.ndarray]] = []
+    sub_zl: list[list[tuple[np.ndarray, np.ndarray]]] = []
     for rows in sub_rows:
         r_sub = min(r_target, max(2, nsub // 5))
         u_b = []
-        for t in tensors:
-            zb, lb = _std_unit_norm(t.detach().double().numpy()[rows])
+        zl_b = []
+        for raw_np in raw_nps:
+            zb, lb = _std_unit_norm(raw_np[rows])
+            zl_b.append((zb, lb))
             u_b.append(_leading_u(zb[:, lb], r_sub))
         sub_us.append(u_b)
+        sub_zl.append(zl_b)
 
     indices_out: list[np.ndarray] = []
     gated_views: list[Any] = []
@@ -277,6 +283,7 @@ def screen_wide_views(
 
     # Pass 1: Per-view permutation communality & Westfall-Young omnibus p-values.
     raw_pv_omni: list[float] = []
+    perm_chunk = 256
     for m in range(m_views):
         z = zs[m]
         live = lives[m]
@@ -291,15 +298,19 @@ def screen_wide_views(
         null_max = np.zeros(n_permutations, dtype=np.float64)
         n_live = int(live.sum())
         k_tail = max(1, min(25, n_live // 20))
-        if b_mat.shape[1] > 0 and n_live > 0:
-            z_live = z[:, live]
-            for b in range(n_permutations):
-                bp = b_mat[rng.permutation(n)]
-                nh_live = ((bp.T @ z_live) ** 2).sum(axis=0)
-                pooled.append(nh_live)
-                null_mean[b] = float(nh_live.mean())
-                null_tail[b] = float(np.partition(nh_live, -k_tail)[-k_tail:].mean())
-                null_max[b] = float(nh_live.max())
+        q_b = int(b_mat.shape[1])
+        if q_b > 0 and n_live > 0:
+            z_live = np.ascontiguousarray(z[:, live])
+            for s_idx in range(0, n_permutations, perm_chunk):
+                e_idx = min(n_permutations, s_idx + perm_chunk)
+                c_len = e_idx - s_idx
+                perms = np.asarray([rng.permutation(n) for _ in range(c_len)])
+                bp_flat = b_mat[perms].transpose(0, 2, 1).reshape(c_len * q_b, n)
+                nh_batch = ((bp_flat @ z_live).reshape(c_len, q_b, n_live) ** 2).sum(axis=1)
+                pooled.append(nh_batch.ravel())
+                null_mean[s_idx:e_idx] = nh_batch.mean(axis=1)
+                null_tail[s_idx:e_idx] = np.partition(nh_batch, -k_tail, axis=1)[:, -k_tail:].mean(axis=1)
+                null_max[s_idx:e_idx] = nh_batch.max(axis=1)
         # Pooled permutation null (D30): under the null every standardized feature's communality
         # has nearly the same distribution (it depends only on the shared other-view basis), so the
         # B x p_live draws are pooled, resolving p down to 1 / (B p_live) as a Benjamini-Hochberg
@@ -356,9 +367,8 @@ def screen_wide_views(
             qm_mb = int(np.ceil(np.sqrt(expected_false * denom_tau * p)))
             n_sig = int((q_bh < alpha).sum()) if is_coupled else 0
             qm = min(n_live, max(min_keep, qm_mb, n_sig))
-            raw_np = tensors[m].detach().double().numpy()
-            for rows, u_b in zip(sub_rows, sub_us):
-                zm_b, lm_b = _std_unit_norm(raw_np[rows])
+            for zl_b, u_b in zip(sub_zl, sub_us):
+                zm_b, lm_b = zl_b[m]
                 bm_b = _compact_other_basis(u_b, m)
                 if bm_b.shape[1] == 0 or not lm_b.any():
                     continue
@@ -384,7 +394,8 @@ def screen_wide_views(
             else:
                 idx = _greedy_nonredundant(z, ranked_cand, max_keep, max_collinearity)
                 if len(idx) < min_keep:
-                    rem = np.asarray([i for i in ranked_all if i not in set(idx.tolist())], dtype=np.int64)
+                    idx_set = set(idx.tolist())
+                    rem = np.asarray([i for i in ranked_all if int(i) not in idx_set], dtype=np.int64)
                     order_aug = np.concatenate([idx, rem])
                     idx = _greedy_nonredundant(z, order_aug, min(max_keep, max(min_keep, len(idx))), max_collinearity)
             if len(idx) == 0 and len(ranked_all) > 0:
