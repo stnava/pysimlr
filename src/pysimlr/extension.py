@@ -39,7 +39,7 @@ out-of-fold ``R^2`` so ``p >> n`` views cannot dominate by noise interpolation.
 import copy
 import math
 import warnings
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
@@ -85,7 +85,7 @@ def split_views(result: Dict[str, Any], views: Any) -> Tuple[List[Optional[torch
     m = len(result["v"])
     orig_names = view_names(result)[:m]
     ext_names = list((result.get("extensions") or {}).keys())
-    if isinstance(views, dict):
+    if isinstance(views, Mapping):
         orig: List[Optional[torch.Tensor]] = [None] * m
         ext: Dict[str, torch.Tensor] = {}
         for key, x in views.items():

@@ -291,3 +291,101 @@ def test_select_rank_single_view_and_argument_validation():
         pysimlr.select_rank("pca", v1, [])
     with pytest.raises(ValueError, match="ks"):
         pysimlr.select_rank("pca", v1, [0, 1])
+
+
+def test_unconverged_subsample_warning_and_exclusion():
+    from pysimlr.benchmarks.synthetic_cases import build_path_graph_case
+    case = build_path_graph_case([(0, 1), (1, 2)], n_samples=60, k=2,
+                                 p_per_view=(20, 25, 6), noise=0.5, random_state=0)
+    views = case["views"]
+    with pytest.warns(RuntimeWarning, match="raise iterations; this run used 5"):
+        inf = pysimlr.loading_inference("simlr", views, 2, n_subsamples=4, fraction=0.5,
+                                        iterations=5, learning_rate=0.05, random_state=0)
+    assert inf["converged_fraction"] < 0.5
+    assert inf["n_effective_refits"] == 4
+    assert len(inf["oos_coupling_splits"]) == 4
+
+    with pytest.warns(RuntimeWarning, match="raise iterations; this run used 5"):
+        sel = pysimlr.select_rank("simlr", views, [1, 2], n_subsamples=4, fraction=0.5,
+                                  iterations=5, learning_rate=0.05, exclude_unconverged=True,
+                                  random_state=0)
+    for row in sel["table"]:
+        assert 0 <= row["n_effective_refits"] <= 4
+        if row["n_effective_refits"] == 0:
+            assert row["all_stable"] is False and row["subspace_stable"] is False
+            assert row["oos_r2"] is None and row["oos_coupling"] is None
+
+    pca_sel = pysimlr.select_rank("pca", views, [1, 2], n_subsamples=4, fraction=0.5,
+                                  exclude_unconverged=True, random_state=0)
+    for row in pca_sel["table"]:
+        assert row["n_effective_refits"] == 4
+
+
+def test_select_rank_heldout_coupling_criterion():
+    rng = np.random.default_rng(23)
+    z = rng.standard_normal((260, 2))
+    views = [
+        torch.tensor(z @ rng.standard_normal((2, p)) + 0.6 * rng.standard_normal((260, p))).float()
+        for p in (18, 20, 16)
+    ]
+    tr_views = [v[:140] for v in views]
+    te_views = [views[0][140:], None, views[2][140:]]
+    for method, kw in (("pca", {}), ("simlr", {"iterations": 15, "learning_rate": 0.05})):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sel = pysimlr.select_rank(method, tr_views, [1, 2, 3], criterion="heldout_coupling",
+                                      heldout_views=te_views, n_subsamples=4, random_state=0, **kw)
+        assert "heldout_coupling" in pysimlr.RANK_CRITERIA
+        assert sel["k"] == 2
+        by_k = {r["k"]: r for r in sel["table"]}
+        assert by_k[2]["heldout_all_coupled"] is True
+        assert by_k[3]["heldout_all_coupled"] is False
+        assert len(by_k[2]["heldout_coupling"]) == 2
+
+
+def test_select_model_planted_and_noise_calibration():
+    candidates = [
+        {"label": "pca", "method": "pca", "params": {}},
+        {"label": "simlr_lin_nc", "method": "simlr",
+         "params": {"energy_type": "nc", "positivity": "linear", "sparseness": 0.5,
+                    "nsa_w": 0.5, "iterations": 15, "learning_rate": 0.05, "tol": 1e-2, "patience": 3}},
+        {"label": "simlr_cvx_ncabs", "method": "simlr",
+         "params": {"energy_type": "nc_abs", "positivity": "convex", "sparseness": 0.5,
+                    "nsa_w": 0.5, "iterations": 15, "learning_rate": 0.05, "tol": 1e-2, "patience": 3}},
+    ]
+    # (a) Planted 3-view k=2, n=90 -> signal_detected=True, selected k=2
+    rng = np.random.default_rng(11)
+    z = rng.standard_normal((90, 2))
+    planted_views = [
+        torch.tensor(z @ rng.standard_normal((2, p)) + 0.45 * rng.standard_normal((90, p))).float()
+        for p in (16, 18, 14)
+    ]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        out_sig = pysimlr.select_model(planted_views, candidates, [1, 2, 3],
+                                       n_subsamples=6, fraction=0.7, random_state=0)
+    assert out_sig["signal_detected"] is True
+    assert out_sig["selected"]["k"] == 2
+    assert len(out_sig["table"]) == 9
+
+    # (b) Three uncoupled noise views, n=90 -> signal_detected=False, mean OOB coupling in [-0.1, 0.1]
+    rng_null = np.random.default_rng(29)
+    noise_views = [
+        torch.tensor(rng_null.standard_normal((90, p))).float()
+        for p in (16, 18, 14)
+    ]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        out_null = pysimlr.select_model(noise_views, candidates, [1, 2, 3],
+                                        n_subsamples=6, fraction=0.7, random_state=0)
+    assert out_null["signal_detected"] is False
+    assert "no candidate cleared" in (out_null["selected"].get("note") or "")
+    tbl = out_null["table"]
+    for label in ("pca", "simlr_lin_nc", "simlr_cvx_ncabs"):
+        sub = tbl[tbl["label"] == label]
+        vals = [c for row_c in sub["oos_coupling"] if row_c is not None for c in row_c]
+        assert len(vals) > 0
+        assert abs(float(np.mean(vals))) <= 0.10, (label, float(np.mean(vals)))
+
+
+

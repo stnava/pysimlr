@@ -353,6 +353,9 @@ def confound_decorrelation(result: dict[str, Any], views: Any, confounds: Any) -
 
     The deployed estimator's decorrelation; use it on held-out rows. Works
     for any fit, with or without a confound sink, so the two can be compared.
+    ``views`` may be a full sequence, a partial list with ``None`` for missing
+    views, or any `Mapping` keyed by view name or index (routed through
+    `predict_views`).
     """
     from .api import predict
     u = predict(result, views)["u"]

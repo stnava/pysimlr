@@ -67,3 +67,8 @@ data/adni/
 paper/site_libs/
 paper/*_files/
 
+# Downstream study-specific handoff notes and diagnostic scratch scripts
+docs/plans/2026-11-09_blast_v4_handoff.md
+scripts/diag_select_rank_convergence.py
+
+

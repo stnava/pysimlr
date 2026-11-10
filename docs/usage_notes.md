@@ -348,7 +348,8 @@ fig = pysimlr.plotting.plot_feature_relevance(rel, view=1, grouping="lobe", brai
 fig = pysimlr.plotting.plot_brain_map(None, view=1, tiers=rel)   # tiers on the cortex only
 ```
 
-**Statistic.** For view m on component j:
+- **Statistic.** For view m on component j:
+  - `feature_relevance` routes score extraction through `view_scores`, so joint-basis fits (`pca`, `nsa_pipeline`) and partial `test_views` (`None` for missing views) work identically to per-view fits.
 - The statistic is each feature's share of the variance the view explains in a target (relative
   weights, normalised to sum to 1).
 - `shrinkage="auto"` (the default) uses classical Johnson shares when full-rank `p < n` and
@@ -476,7 +477,8 @@ sel["table"]      # per-k stability, subspace cosines, out-of-bag R^2 and coupli
     candidate k.
   - Pass `n_jobs=-1` (all cores) or `n_jobs=4` to run the refits in parallel. Results are
     identical to serial. On ADNI-MCI, `select_rank` over k ∈ {2, 3} took 17 s instead of 98 s.
-- **Which `criterion` to read.** One `select_rank` call populates `sel["criteria"]` with all five:
+  - Subsample refits warn (`RuntimeWarning`) when `converged_fraction < 0.5` naming the iteration budget, record `median_converged_iter`, `oos_coupling_splits` and `n_effective_refits`, and omit unconverged refits when `exclude_unconverged=True` (closed-form `pca` stays included).
+- **Which `criterion` to read.** One `select_rank` call populates `sel["criteria"]` with all six:
   - `"component"` (default): every varimax-rotated axis has stability ≥ `min_stability`. Use this
     when naming and interpreting individual components `C1..Ck`.
   - `"subspace"`: the smallest Grassmannian principal cosine of the stacked structure span is
@@ -487,15 +489,17 @@ sel["table"]      # per-k stability, subspace cosines, out-of-bag R^2 and coupli
     downstream prediction (for example ridge or `fused_ridge` on `u @ R`).
   - `"oos_coupling"`: largest `k` whose every component generalizes across views out of sample
     above `min_oos_coupling` (default: one-sided α = 0.01 Fisher-z null bar).
+  - `"heldout_coupling"`: when `heldout_views=` is passed as a diagnostic, largest `k` whose every component clears the Fisher-z 0.01 bar on `heldout_coupling`'s `cross_view_heldout` (`None` when omitted).
+  - `pysimlr.select_model(views, candidates, ks, ...)` wraps `select_rank` over `(candidate, k)` cells on one paired out-of-bag split design, gates by health (`converged_fraction >= min_converged_fraction` and not `basis_degenerate`) and the Fisher-z `oos_coupling_threshold`, and selects the most parsimonious `(complexity_tier, k, -sparseness, -min_subspace_stability)` cell within 1 paired SE of the highest `S = sum_j max(median_coupling_j, 0)^2`.
   - Check `basis_degenerate` (`min_effective_rank < k - 0.5`) in `sel["table"]`: when `True` at
     larger `k`, basis columns are merging and `nsa_w` should be raised (for example `0.75`).
 
 #### Bottleneck bound on k
 
-`pysimlr.bottleneck_rank(views, confounds=C)` bounds the shared rank by the view that shares the least.
+`pysimlr.bottleneck_rank(views, confounds=C, bound="min" | "max" | "stacked")` bounds shared rank across views (`"min"` = rank shared by every view; `"max"` = rank a consensus can carry from any view; `"stacked"` = permutation rank of the pooled between-view operator `M = g_all @ g_all - sum_i G_i @ G_i`), always returning `k_max_min`, `k_max_max`, `k_max_stacked` and per-view `sigma1_over_tau95`, `tau95_rel_se` (bootstrap relative SE of the null threshold `threshold_first` only; sampling variance of `sigma1` is not included) and `borderline` (`|ratio - 1| < 2 * tau95_rel_se`).
 For each view it takes the singular values of the cross-covariance between the standardised view and
 the other views stacked, and counts the leading ones above the 95th percentile of the same values under
-row permutations of that view (`cross_rank`); `k_max` is the minimum over views and `bottleneck_view`
+row permutations of that view (`cross_rank`); `k_max` is the minimum over views (under default `bound="min"`) and `bottleneck_view`
 the view attaining it. Private structure in a view does not enter a cross-covariance, and a shared
 latent counts however small its within-view footprint: on the planted chain with `k = 3`,
 `p = (20, 25, 6)`, `n = 400`, the cross-view rank of the 6-column view is 3 on every seed, while
@@ -503,8 +507,8 @@ Horn's parallel analysis on that view alone (`within_rank`, also reported; `mode
 `k_max`) gives 2 on three of four seeds because a random 3-by-6 loading basis has one weak direction.
 Pass `confounds`: a covariate leaking into every view is a shared dimension and is counted until it is
 residualised out. The bound is a guide for the `ks` grid, not a selector; the refit criteria above still
-decide. `select_rank(method, views, "auto")` uses `range(1, k_max + 1)`; an explicit `ks` above `k_max`
-raises a `RuntimeWarning` naming the bottleneck view, and the dict is returned as `sel["bottleneck"]`.
+decide. `select_rank(method, views, "auto")` uses `bound="max"` by default (`range(1, k_max + 1)`, raising a `ValueError` with the worst view's `sigma1/tau95` when `k_max == 0`); an explicit `ks` above `k_max`
+raises a `RuntimeWarning`, and the dict is returned as `sel["bottleneck"]`.
 
 - **Stability is a graded measure, not a pass/fail test.**
   - Each refit sees half the rows, so stability describes reproducibility at about n/2. That is
@@ -626,9 +630,9 @@ inference, families, omnibus, graph fit, bootstrap intervals and node regression
 `dict(zip(names, pysimlr.view_scores(res, views)["scores"]))` the result equals `path_model`'s
 (`test_path_model_from_scores_matches_path_model`). Without a measurement model there is no refit
 null (`null` must be `"fixed"`), no `inference=` intervals, no consensus node and no
-`feature_contributions`; `predict_path` on the result takes a mapping of the same names with
-`None` for a missing block. `rows="train"` declares that the scores were fitted on these rows and
-follows the training-row policy below.
+`feature_contributions` (`plot_edge_features` and `plot_edge_brain_map` raise a `ValueError` on scores-only results); `predict_path` on the result takes a mapping of the same names with
+`None` for a missing block, and `pysimlr.compare_path_models_from_scores(scores_train, scores_test, graphs, ...)` runs structural graph comparison directly on score blocks (supporting missing blocks in `scores_test`, with `standardize=True`/`"per_split"` z-scoring each split on its own rows as `view_scores` does, `"train"` standardizing `scores_test` with `scores_train`'s mean and SD, and `False` leaving blocks unscaled). `rows="train"` declares that the scores were fitted on these rows and
+follows the training-row policy below. On `rows="heldout"`, both `path_model` and structural `compare_path_models` accept `None` for views absent on evaluation rows (dropping absent views with a `RuntimeWarning` unless explicitly referenced in `graph`).
 
 **Edge statistics.**
 For an edge $(a, b)$ with conditioning set $S$ (nuisance design $N$: intercept, standardized
@@ -678,10 +682,9 @@ nodes):
   - `max_absent_pillai` with max-$T$ $p$-value across absent edges tests conditional independence (the
     permutation analogue of the SEM $\chi^2$ omnibus test; graph is rejected if $p < \alpha$).
 
-**Model comparison (`compare_path_models`).**
+**Model comparison (`compare_path_models` and `compare_path_models_from_scores`).**
 - **Structural mode (`result` provided, measurement model fixed):**
-  - Node regressions fitted on training scores; evaluated by Gaussian log-likelihood on held-out scores
-    (`heldout_loglik`).
+  - Node regressions fitted on training scores using Generalized Cross-Validation ridge (Golub, Heath & Wahba 1979, *Technometrics* 21:215–223) on nuisance-orthogonalized parent blocks, PRESS leave-one-out hat-matrix residual variance $r_i / (1 - h_{ii})$ (Allen 1974, *Technometrics* 16:125–127), and measurement-basis degrees-of-freedom shrinkage $\gamma = (n - 1) / (n - 1 + \text{dof}_{\text{eff}})$ from `consensus.view_dofs` (`dof_eff = max({dof(b)} | {dof(a) : a in pa(b)})`; Ezekiel 1930; Wherry 1931, *Ann. Math. Stat.* 2:440–457; matching `extension._affine_map`); evaluated by Gaussian log-likelihood on held-out scores (`heldout_loglik`). `compare_path_models_from_scores` accepts an optional `dofs=` mapping or sequence for the same basis-DOF calibration.
   - Paired subject bootstrap over held-out rows computes `delta_vs_top` (log-likelihood difference vs top
     model) with 95% CIs and `best_fraction` (replicate win rate).
   - Parsimony selection (`best`): The graph with the fewest edges whose delta CI against the top model
@@ -726,8 +729,8 @@ Given a fitted `path_model` result and new subject data with missing views (`Non
    `WideViewWarning`). The resulting training scores exhibit strong coupling even under complete
    independence. Even without a wide view, the fixed-model null on training rows ignores that the model
    was fitted to those rows. So on `rows="train"` fixed-model p-values are not reported for any view
-   unless `allow_train_fixed=True` (a warning is issued and `p_reason` says why; the refit null is the
-   default null there). To test dependency on training rows, use the refit null (`null="refit"`), which
+   unless `allow_train_fixed=True` or a non-empty reason string `allow_train_fixed="reason"` (stored in `parameters["allow_train_fixed_reason"]` and echoed in the warning; a warning is issued and `p_reason` says why; the refit null is the
+   default null there). Every returned `edges`, `edge_components` and `outcome_edges` frame carries a `null_rows` column (`heldout-fixed`, `train-refit`, `train-fixed`, `train-fixed-unreported`, or `train-both`), mirrored in `fit["evidence"]` and the `plot_path_model` subtitle. To test dependency on training rows, use the refit null (`null="refit"`), which
    permutes view rows prior to refitting the measurement model ($B$ refits with permuted confound rows).
    Otherwise, evaluate the fixed-model null strictly on held-out rows (`rows="heldout"`), where score
    projections are genuine out-of-sample representations.
@@ -924,8 +927,8 @@ view's preprocessing provenance, so everything that replays preprocessing applie
 ```python
 res = pysimlr.fit("simlr", train_views, k=4, confounds=C_train)    # (n, q) array / DataFrame / Series,
                                                                    # per-view list, or {view: C_m} dict
-pred = pysimlr.predict(res, test_views)                            # no C_test; N = 1 works
-pysimlr.confounds.confound_decorrelation(res, test_views, C_test)  # held-out max / mean |r(u, C)|
+pred = pysimlr.predict(res, test_views)                            # no C_test; N = 1, partial lists, or any Mapping work
+pysimlr.confounds.confound_decorrelation(res, test_views, C_test)  # held-out max / mean |r(u, C)| (full, partial list, or Mapping)
 ```
 
 ### What the map is

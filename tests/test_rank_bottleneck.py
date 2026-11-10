@@ -84,15 +84,40 @@ def test_errors():
 
 def test_select_rank_auto_and_warning():
     case = _case(n=150)
-    b = pysimlr.bottleneck_rank(case["views"])
+    b = pysimlr.bottleneck_rank(case["views"], bound="max")
     sel = pysimlr.select_rank("simlr", case["views"], "auto", n_subsamples=2, iterations=3,
-                              random_state=0)
+                              learning_rate=0.05, random_state=0)
     assert sel["bottleneck"]["k_max"] == b["k_max"]
+    assert sel["bottleneck"]["parameters"]["bound"] == "max"
     assert [r["k"] for r in sel["table"]] == list(range(1, b["k_max"] + 1))
     with pytest.warns(RuntimeWarning, match="bottleneck"):
         sel2 = pysimlr.select_rank("simlr", case["views"], [2, 9], n_subsamples=2,
-                                   iterations=3, random_state=0)
+                                   iterations=3, learning_rate=0.05, random_state=0)
     assert set(sel2) == set(sel)
+
+
+def test_bottleneck_rank_bounds_and_auto_zero_message():
+    case = _case(n=300, k=3, p=(20, 25, 6), noise=0.45, seed=0)
+    rng = np.random.default_rng(100)
+    views = [v.numpy() for v in case["views"]] + [rng.standard_normal((300, 20))]
+    b_min = pysimlr.bottleneck_rank(views, bound="min", n_permutations=60, random_state=0)
+    b_max = pysimlr.bottleneck_rank(views, bound="max", n_permutations=60, random_state=0)
+    b_stk = pysimlr.bottleneck_rank(views, bound="stacked", n_permutations=60, random_state=0)
+    assert b_min["k_max"] == 0 and b_min["bottleneck_view"] == 3
+    assert b_max["k_max"] == 3 and b_max["bottleneck_view"] in (0, 1, 2)
+    assert 3 <= b_stk["k_max"] <= 4 and b_stk["bottleneck_view"] is None
+    for b in (b_min, b_max, b_stk):
+        assert b["k_max_min"] == 0 and b["k_max_max"] == 3 and 3 <= b["k_max_stacked"] <= 4
+    with pytest.raises(ValueError, match="bound"):
+        pysimlr.bottleneck_rank(views, bound="median")
+
+    with pytest.raises(ValueError, match=r"bound='min'.*sigma1/tau95"):
+        pysimlr.select_rank("pca", views, "auto", bound="min", random_state=0)
+
+    rng_null = np.random.default_rng(42)
+    noise_views = [rng_null.standard_normal((120, p)) for p in (10, 12, 8)]
+    with pytest.raises(ValueError, match=r"bound='max'.*sigma1/tau95"):
+        pysimlr.select_rank("pca", noise_views, "auto", random_state=0)
 
 
 def test_bottleneck_rank_per_view_confounds():
@@ -110,3 +135,52 @@ def test_bottleneck_rank_per_view_confounds():
     assert np.allclose(partial["eigenvalues"][0], shared["eigenvalues"][0])    # view 0 residualised
     with pytest.raises(ValueError):
         pysimlr.bottleneck_rank(views, confounds=C[:-1])
+
+
+def test_bottleneck_rank_borderline_flag():
+    rng = np.random.default_rng(31)
+    n = 120
+    z = rng.standard_normal((n, 2))
+    v_strong0 = z @ rng.standard_normal((2, 12)) + 0.4 * rng.standard_normal((n, 12))
+    v_strong1 = z @ rng.standard_normal((2, 12)) + 0.4 * rng.standard_normal((n, 12))
+    # Pick a pure-noise draw with ratio < 0.85
+    v_noise = None
+    for s in range(30):
+        cand = np.random.default_rng(500 + s).standard_normal((n, 12))
+        b0 = pysimlr.bottleneck_rank([v_strong0, v_strong1, cand], n_permutations=60, random_state=0)
+        pv0 = b0["per_view"].iloc[2]
+        if pv0["first_singular_value"] / pv0["threshold_first"] < 0.84:
+            v_noise = cand
+            break
+    assert v_noise is not None
+
+    # Calibrate view 3 to ratio = 1.0 +- 0.015 via bisection on signal amplitude
+    base_noise = rng.standard_normal((n, 12))
+    sig_dir = z[:, [0]] @ rng.standard_normal((1, 12))
+    lo, hi = 0.0, 1.0
+    v_border = base_noise
+    for _ in range(12):
+        mid = 0.5 * (lo + hi)
+        cand = base_noise + mid * sig_dir
+        bm = pysimlr.bottleneck_rank([v_strong0, v_strong1, v_noise, cand],
+                                     n_permutations=60, random_state=0)
+        pvm = bm["per_view"].iloc[3]
+        r_mid = pvm["first_singular_value"] / pvm["threshold_first"]
+        if abs(r_mid - 1.0) <= 0.005:
+            v_border = cand
+            break
+        if r_mid < 1.0:
+            lo = mid
+        else:
+            hi = mid
+        v_border = cand
+
+    b = pysimlr.bottleneck_rank([v_strong0, v_strong1, v_noise, v_border],
+                                n_permutations=60, random_state=0)
+    pv = b["per_view"]
+    assert {"sigma1_over_tau95", "tau95_rel_se", "borderline"} <= set(pv.columns)
+    assert pv.loc[0, "sigma1_over_tau95"] > 1.25 and bool(pv.loc[0, "borderline"]) is False
+    assert pv.loc[2, "sigma1_over_tau95"] < 0.85 and bool(pv.loc[2, "borderline"]) is False
+    assert abs(pv.loc[3, "sigma1_over_tau95"] - 1.0) <= 0.015
+    assert bool(pv.loc[3, "borderline"]) is True
+

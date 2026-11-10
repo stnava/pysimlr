@@ -93,14 +93,16 @@ per-component stability (claims per component need it high, e.g. >= 0.9), Meinsh
 stability selection with its bound `q^2 / ((2*threshold - 1) p)`, and a permutation null for
 `max |structure|`.
 
-`pysimlr.bottleneck_rank(views, *, confounds=None, mode="cross", n_permutations=100, quantile=0.95, random_state=0)`
-returns `k_max` (int, the minimum over views of the rank chosen by `mode`), `bottleneck_view` (int),
+`pysimlr.loading_inference` also records `median_converged_iter`, `oos_coupling_splits` (per-split `(k,)` list or `None`) and `n_effective_refits`, warns when `converged_fraction < 0.5`, and omits unconverged refits when `exclude_unconverged=True` (`select_rank` deduplicates the warning to one per `k`). `select_rank` additionally accepts `heldout_views=` (`RANK_CRITERIA` includes `"heldout_coupling"`), and `pysimlr.select_model(views, candidates, ks, ...)` evaluates `(candidate, k)` cells on one paired out-of-bag split design under the health gate, Fisher-z `oos_coupling_threshold` signal gate, and paired 1-SE parsimony rule.
+
+`pysimlr.bottleneck_rank(views, *, confounds=None, mode="cross", bound="min", n_permutations=100, quantile=0.95, random_state=0)`
+returns `k_max` (int, set by `bound` in `{"min", "max", "stacked"}`), `k_max_min`, `k_max_max`, `k_max_stacked`, `bottleneck_view` (int or `None` for `"stacked"`),
 `per_view` (DataFrame: `view`, `n`, `p`, `cross_rank`, `within_rank`, `first_singular_value`,
-`threshold_first`), `singular_values` and `thresholds` (cross-view, one array per view), `eigenvalues`
-and `eigen_thresholds` (within-view parallel analysis), and `parameters` (`mode`, `n_permutations`,
+`threshold_first`, `sigma1_over_tau95`, `tau95_rel_se`, `borderline`), `singular_values` and `thresholds` (cross-view, one array per view), `eigenvalues`
+and `eigen_thresholds` (within-view parallel analysis), and `parameters` (`mode`, `bound`, `n_permutations`,
 `quantile`, `random_state`, `confounds`). `confounds` takes the same shared, per-view or dict forms as
-`fit`. `select_rank` accepts `ks="auto"` (grid `1..k_max`), warns when an explicit grid exceeds `k_max`,
-and returns this dict as `result["bottleneck"]` (`None` for a single view).
+`fit`. `select_rank` accepts `ks="auto"` with default `bound="max"` (grid `1..k_max`, raising a `ValueError` with the worst view's `sigma1/tau95` when `k_max == 0`), warns when an explicit grid exceeds `k_max`,
+and returns this dict as `result["bottleneck"]` (`None` for a single view). `predict` and `confound_decorrelation` accept any `Mapping` (including `MappingProxyType`) or partial view sequence with `None`. `feature_relevance` routes score extraction through `sem.view_scores` for joint-basis and per-view fits alike.
 
 ### `random_state`
 
@@ -195,11 +197,11 @@ score-level dependency graph estimation, model comparison, and path prediction p
 to `(n, k_m)` score block from any source (standardized column-wise unless `standardize=False`);
 it returns the `path_model` contract below with `result=None`, `scores_source="given"`,
 `signs=None`, `wide_views=[]`, an empty `feature_contributions`, and `parameters["scores_given"]
-= True`. It has no refit null (`null="fixed"` only), no `inference=`, and no consensus node.
+= True`. It has no refit null (`null="fixed"` only), no `inference=`, and no consensus node (`plot_edge_features` and `plot_edge_brain_map` raise `ValueError` when `pm["result"] is None`). `pysimlr.compare_path_models_from_scores(scores_train, scores_test, graphs, *, standardize=True, ...)` runs structural graph comparison directly on score mappings (`scores_source="given"`, where `standardize=True`/`"per_split"` z-scores each split independently to match `compare_path_models`, `standardize="train"` scales `scores_test` with `scores_train` statistics, and `standardize=False` leaves scores unscaled). On `rows="heldout"`, `path_model`, structural `compare_path_models`, and `compare_path_models_from_scores` accept `None` for views absent on evaluation rows (dropping absent views with a `RuntimeWarning` and storing `orig_view_indices` on `pm`, while raising `ValueError` if `graph` references an absent view).
 
 Training-row policy: with `rows="train"` and the fixed-model null, `p_perm`, `p_maxt`, `p_holm`,
 `q_bh`, the omnibus p-values and the graph-fit p-values are `None` / NaN for every view unless
-`allow_train_fixed=True`; `p_reason` says why. `n_jobs > 1` spawns worker processes and must be
+`allow_train_fixed=True` or a non-empty reason string (recorded in `parameters["allow_train_fixed_reason"]` and echoed in `warnings`); `p_reason` says why. Every returned `edges`, `edge_components` and `outcome_edges` frame carries `null_rows` (`heldout-fixed`, `train-refit`, `train-fixed`, `train-fixed-unreported`, or `train-both`), mirrored in `fit["evidence"]`. `n_jobs > 1` spawns worker processes and must be
 called under a `__main__` guard or from an importable module.
 
 ### `path_model` result contract
@@ -245,7 +247,7 @@ Returns a dictionary with:
 - `comparison`: List of dictionaries (one per evaluated graph in `graphs`), containing:
   - `graph`: Graph name.
   - `n_edges`: Number of edges (undirected edges counted once).
-  - `heldout_loglik`: Sum of Gaussian log-likelihoods of held-out scores under node regressions.
+  - `heldout_loglik`: Sum of Gaussian log-likelihoods of held-out scores under node regressions (fitted with GCV ridge [Golub, Heath & Wahba 1979], PRESS leave-one-out hat-matrix residual variance [Allen 1974], and `consensus.view_dofs` shrinkage $\gamma = (n - 1) / (n - 1 + \text{dof}_{\text{eff}})$ [Ezekiel 1930; Wherry 1931]).
   - `n_params`: Parameter count ($k \times k$ per edge plus nuisance block per node).
   - `bic`: In-sample BIC ($n_{\text{params}} \ln(n_{\text{train}}) - 2 \ln L_{\text{train}}$).
   - `present_pass`: Fraction of present edges significant on held-out scores.

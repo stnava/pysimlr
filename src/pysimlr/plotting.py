@@ -2688,12 +2688,16 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
     params = pm.get("parameters") if isinstance(pm.get("parameters"), dict) else {}
     null_name = params.get("null", "fixed")
     b_sweeps = params.get("n_permutations", 0)
+    ev_label = fit.get("evidence")
+    if ev_label is None and isinstance(pm.get("edges"), pd.DataFrame) and "null_rows" in pm["edges"].columns and len(pm["edges"]):
+        ev_label = str(pm["edges"]["null_rows"].iloc[0])
+    ev_str = f", evidence = {ev_label}" if ev_label else ""
     omnibus_p = pm.get("omnibus", {}).get("p_max") if isinstance(pm.get("omnibus"), dict) else None
     omni_str = f"; omnibus {_format_p(omnibus_p, b_sweeps)}" if omnibus_p is not None else ""
     weight_desc = f"|r| (component {component + 1})" if component is not None else "Pillai's trace V"
     title = f"Fitted path model: component {component + 1}" if component is not None else "Fitted path model"
     subtitle = (f"{pm.get('rows', 'heldout')} rows, n = {pm.get('n', '?')}, conditioning = {pm.get('conditioning', '?')}, "
-                f"null = {null_name}, B = {b_sweeps}; edge weights = {weight_desc}{omni_str}")
+                f"null = {null_name}{ev_str}, B = {b_sweeps}; edge weights = {weight_desc}{omni_str}")
 
     fig, ax = _figure(ax, figsize=(7.0, 5.8), title=title, subtitle=subtitle, status=status)
 
@@ -3320,6 +3324,11 @@ def plot_edge_features(pm: Dict[str, Any], edge: Any, top_n: int = 15,
     -------
     matplotlib.figure.Figure
     """
+    if "result" in pm and pm["result"] is None:
+        raise ValueError(
+            "scores-only path_model (pm['result'] is None) has no measurement model or "
+            "feature_contributions; pass a fit-backed path_model result."
+        )
     fc = pm.get("feature_contributions")
     if fc is None or len(fc) == 0:
         raise ValueError("pm has no feature_contributions table.")
@@ -3510,6 +3519,11 @@ def plot_edge_brain_map(pm: Dict[str, Any], edge: Any, component: int = 0,
     -------
     matplotlib.figure.Figure
     """
+    if "result" in pm and pm["result"] is None:
+        raise ValueError(
+            "scores-only path_model (pm['result'] is None) has no measurement model or "
+            "feature_contributions; pass a fit-backed path_model result."
+        )
     av = _require_antsxviz()
 
     fc = pm.get("feature_contributions")

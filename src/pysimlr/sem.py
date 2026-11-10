@@ -75,7 +75,7 @@ its parent was 0.027 and 0.072 on two draws). Read ``fit["absent_p"]`` beside th
 from __future__ import annotations
 
 import warnings
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -458,12 +458,62 @@ def _pct(x: np.ndarray, axis: int = 0) -> Tuple[np.ndarray, np.ndarray]:
 
 
 # ----------------------------------------------------------------------------- path_model
-def _wide_views(result: Dict[str, Any], nodes: List[str]) -> List[str]:
+def _wide_views(result: Dict[str, Any], nodes: List[str],
+                orig_view_indices: Optional[Sequence[int]] = None) -> List[str]:
     n_train = int(_u_train(result).shape[0])
-    return [nodes[m] for m, v in enumerate(result["v"]) if int(v.shape[0]) >= n_train]
+    idxs = list(range(len(nodes))) if orig_view_indices is None else list(orig_view_indices)
+    return [nodes[pos] for pos, orig in enumerate(idxs) if int(result["v"][orig].shape[0]) >= n_train]
 
 
-def _check_path_params(rows, null, conditioning, alpha, n_permutations, n_refits, n_bootstrap):
+def _remap_graph_for_available_views(graph, all_nodes: List[str], absent_names: Sequence[str]):
+    """Validate ``graph`` against ``all_nodes``, raise if any node in ``absent_names`` is
+    referenced, and remap integer node indices to node names."""
+    if graph is None:
+        return None
+    idx = {i: nm for i, nm in enumerate(all_nodes)}
+    absent_set = set(absent_names)
+
+    def _nm(x):
+        if isinstance(x, (int, np.integer)):
+            if int(x) not in idx:
+                raise ValueError(f"node index {x} out of range for nodes {all_nodes}.")
+            return idx[int(x)]
+        return str(x)
+
+    if isinstance(graph, Mapping):
+        remapped_dict: Dict[str, List[str]] = {}
+        referenced = set()
+        for a, bs in graph.items():
+            na = _nm(a)
+            nbs = [_nm(b) for b in bs]
+            referenced.add(na)
+            referenced.update(nbs)
+            remapped_dict[na] = nbs
+        bad = sorted(referenced & absent_set)
+        if bad:
+            raise ValueError(f"graph references view(s) absent on evaluation rows: {bad}.")
+        return remapped_dict
+
+    remapped_edges = [(_nm(a), _nm(b)) for a, b in graph]
+    referenced = {u for e in remapped_edges for u in e}
+    bad = sorted(referenced & absent_set)
+    if bad:
+        raise ValueError(f"graph references view(s) absent on evaluation rows: {bad}.")
+    return remapped_edges
+
+
+def _parse_allow_train_fixed(allow_train_fixed: Union[bool, str]) -> Tuple[bool, Optional[str]]:
+    if isinstance(allow_train_fixed, bool):
+        return allow_train_fixed, None
+    if isinstance(allow_train_fixed, str):
+        if not allow_train_fixed.strip():
+            raise ValueError("allow_train_fixed reason string must not be empty or whitespace.")
+        return True, allow_train_fixed
+    raise ValueError(f"allow_train_fixed must be a bool or non-empty reason string; got {allow_train_fixed!r}.")
+
+
+def _check_path_params(rows, null, conditioning, alpha, n_permutations, n_refits, n_bootstrap,
+                       allow_train_fixed: Union[bool, str] = False):
     if conditioning not in ("pairwise", "parents"):
         raise ValueError("conditioning must be 'pairwise' or 'parents'.")
     if rows not in ("heldout", "train"):
@@ -478,6 +528,7 @@ def _check_path_params(rows, null, conditioning, alpha, n_permutations, n_refits
         raise ValueError(f"alpha must be in (0, 1); got {alpha}.")
     if int(n_permutations) < 0 or int(n_bootstrap) < 0 or int(n_refits) < 0:
         raise ValueError("n_permutations, n_refits and n_bootstrap must be non-negative.")
+    _parse_allow_train_fixed(allow_train_fixed)
     return null
 
 
@@ -488,13 +539,16 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
                n_permutations: int = 10_000, n_refits: int = 200, n_bootstrap: int = 2000,
                train_views: Any = None, train_covariates=None, train_groups=None, train_outcome=None,
                inference: Optional[Dict[str, Any]] = None, alpha: float = 0.05, random_state: int = 0,
-               n_jobs: int = 1, allow_train_fixed: bool = False,
-               refit_scope: Tuple[str, ...] = ("edges", "omnibus")) -> Dict[str, Any]:
+               n_jobs: int = 1, allow_train_fixed: Union[bool, str] = False,
+               refit_scope: Tuple[str, ...] = ("edges", "omnibus"),
+               _emit_drop_warning: bool = True) -> Dict[str, Any]:
     """Edge-wise, omnibus and graph-fit permutation inference on the scores of a fitted model.
 
     See the module docstring for the statistics, nulls and what the test cannot say. ``views``
-    are the rows to test, every view present: ``rows="heldout"`` for subjects not used in fitting
-    (default null ``"fixed"``), ``"train"`` for the training rows (default null ``"refit"``).
+    are the rows to test: ``rows="heldout"`` for subjects not used in fitting (default null
+    ``"fixed"``; missing views may be ``None``, dropping absent views from the graph with a
+    `RuntimeWarning`), ``"train"`` for the training rows (default null ``"refit"``, every view
+    required).
     ``covariates`` (``(n, q)``), ``groups`` (``(n,)`` labels) and ``outcome`` (``(n,)`` or
     ``(n, r)``) are aligned with ``views``. ``graph`` is None (complete), an edge list or an
     adjacency dict over view indices or node names (``"outcome"`` for the outcome).
@@ -531,20 +585,49 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
     ``feature_contributions`` (DataFrame), ``null`` (per edge, up to 2000 null ``pillai`` draws),
     ``scores_source``, ``signs``, ``nuisance_names``, ``parameters`` and ``warnings``.
     """
-    null = _check_path_params(rows, null, conditioning, alpha, n_permutations, n_refits, n_bootstrap)
+    null = _check_path_params(rows, null, conditioning, alpha, n_permutations, n_refits, n_bootstrap,
+                              allow_train_fixed=allow_train_fixed)
     vlist = _view_list(result, views)
-    if any(v is None for v in vlist):
-        raise ValueError("path_model needs every view; use predict_path for missing views.")
-    sc = view_scores(result, vlist, train_views=train_views)
+    m_views = len(vlist)
     from .extension import view_names as _names
-    names = list(view_names) if view_names is not None else list(_names(result))[:len(sc["scores"])]
+    all_names = list(view_names) if view_names is not None else list(_names(result))[:m_views]
+    if len(all_names) != m_views:
+        raise ValueError(f"{len(all_names)} view names for {m_views} views.")
+    if len(set(all_names)) != len(all_names) or {"outcome", "consensus"} & set(all_names):
+        raise ValueError(f"view names must be distinct and not 'outcome' or 'consensus'; got {all_names}.")
+    has_missing = any(v is None for v in vlist)
+    dropped_views: Optional[List[str]] = None
+    if has_missing:
+        if rows == "train":
+            raise ValueError("path_model with rows='train' needs every view.")
+        avail = [m for m, v in enumerate(vlist) if v is not None]
+        if len(avail) == 0 or (len(avail) < 2 and outcome is None and not include_consensus):
+            raise ValueError("path_model needs at least two present views, or one view with an outcome.")
+        absent_names = [all_names[m] for m in range(m_views) if m not in avail]
+        all_nodes = (list(all_names)
+                     + (["consensus"] if include_consensus else [])
+                     + (["outcome"] if outcome is not None else []))
+        graph = _remap_graph_for_available_views(graph, all_nodes, absent_names)
+        sc_full = view_scores(result, vlist, train_views=train_views)
+        sc = dict(sc_full)
+        sc["scores"] = [sc_full["scores"][m] for m in avail]
+        sc["signs"] = [sc_full["signs"][m] for m in avail]
+        names = [all_names[m] for m in avail]
+        orig_view_indices: Optional[List[int]] = avail
+        dropped_views = absent_names
+    else:
+        sc = view_scores(result, vlist, train_views=train_views)
+        names = all_names
+        orig_view_indices = list(range(m_views))
     return _path_model_core(result, vlist, sc, names, rows=rows, graph=graph, directed=directed,
                             covariates=covariates, groups=groups, outcome=outcome, conditioning=conditioning,
                             include_consensus=include_consensus, null=null, n_permutations=n_permutations,
                             n_refits=n_refits, n_bootstrap=n_bootstrap, train_covariates=train_covariates,
                             train_groups=train_groups, train_outcome=train_outcome, inference=inference,
                             alpha=alpha, random_state=random_state, n_jobs=n_jobs,
-                            allow_train_fixed=allow_train_fixed, refit_scope=refit_scope, standardize=True)
+                            allow_train_fixed=allow_train_fixed, refit_scope=refit_scope, standardize=True,
+                            orig_view_indices=orig_view_indices, dropped_views=dropped_views,
+                            _emit_drop_warning=_emit_drop_warning)
 
 
 def _given_scores(scores: Any, standardize: bool, allow_missing: bool = False):
@@ -577,7 +660,8 @@ def path_model_from_scores(scores: Mapping[str, Any], *, rows: str = "heldout", 
                            directed: bool = False, covariates=None, groups=None, outcome=None,
                            conditioning: str = "pairwise", null: str = "fixed", n_permutations: int = 10_000,
                            n_bootstrap: int = 2000, alpha: float = 0.05, random_state: int = 0,
-                           allow_train_fixed: bool = False, standardize: bool = True) -> Dict[str, Any]:
+                           allow_train_fixed: Union[bool, str] = False, standardize: bool = True,
+                           _edge_cache: Optional[Dict[Any, Any]] = None) -> Dict[str, Any]:
     """`path_model` on score blocks from any source: embeddings, factor scores, another package's
     latents. ``scores`` maps node name -> ``(n, k_m)`` array (every block the same rows; blocks of
     different width are tested through ``pillai`` only). Each block is standardised column-wise
@@ -589,14 +673,15 @@ def path_model_from_scores(scores: Mapping[str, Any], *, rows: str = "heldout", 
     There is no measurement model, so there is no refit null (``null`` must be ``"fixed"``), no
     ``inference=`` intervals, no consensus node and no ``feature_contributions`` (empty). ``rows``
     is a declaration: ``"train"`` means the scores were fitted on these rows, and fixed-model
-    p-values are then reported only with ``allow_train_fixed=True``. `predict_path` on the result
-    takes a mapping of the same names (``None`` for a missing block). The result carries
-    ``result=None`` and ``scores_source="given"``.
+    p-values are then reported only with ``allow_train_fixed=True`` (or a non-empty reason string).
+    `predict_path` on the result takes a mapping of the same names (``None`` for a missing block).
+    The result carries ``result=None`` and ``scores_source="given"``.
     """
     if null != "fixed":
         raise ValueError("path_model_from_scores has no measurement model to refit; null must be 'fixed' "
                          "(use path_model with a pysimlr fit for the refit null).")
-    null = _check_path_params(rows, null, conditioning, alpha, n_permutations, 0, n_bootstrap)
+    null = _check_path_params(rows, null, conditioning, alpha, n_permutations, 0, n_bootstrap,
+                              allow_train_fixed=allow_train_fixed)
     names, arrays = _given_scores(scores, standardize)
     if len(names) < 2 and outcome is None:
         raise ValueError("path_model_from_scores needs at least two score blocks, or one block and an outcome.")
@@ -609,13 +694,17 @@ def path_model_from_scores(scores: Mapping[str, Any], *, rows: str = "heldout", 
                             n_bootstrap=n_bootstrap, train_covariates=None, train_groups=None,
                             train_outcome=None, inference=None, alpha=alpha, random_state=random_state,
                             n_jobs=1, allow_train_fixed=allow_train_fixed, refit_scope=("edges", "omnibus"),
-                            standardize=standardize)
+                            standardize=standardize, _edge_cache=_edge_cache)
 
 
 def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covariates, groups, outcome,
                      conditioning, include_consensus, null, n_permutations, n_refits, n_bootstrap,
                      train_covariates, train_groups, train_outcome, inference, alpha, random_state, n_jobs,
-                     allow_train_fixed, refit_scope, standardize) -> Dict[str, Any]:
+                     allow_train_fixed, refit_scope, standardize,
+                     orig_view_indices: Optional[Sequence[int]] = None,
+                     dropped_views: Optional[Sequence[str]] = None,
+                     _emit_drop_warning: bool = True,
+                     _edge_cache: Optional[Dict[Any, Any]] = None) -> Dict[str, Any]:
     """The inference shared by `path_model` (``result``, ``vlist`` from a fit) and
     `path_model_from_scores` (``result is None``); ``sc`` has `view_scores`' keys."""
     use_fixed, use_refit = null in ("fixed", "both"), null in ("refit", "both")
@@ -655,21 +744,44 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
         warnings.warn(msg, RuntimeWarning, stacklevel=3)
         warn.append(msg)
 
-    wide = _wide_views(result, view_nodes) if result is not None else []
+    if dropped_views:
+        drop_msg = f"views absent on evaluation rows and dropped from the graph: {list(dropped_views)}"
+        if _emit_drop_warning:
+            _warn(drop_msg)
+        else:
+            warn.append(drop_msg)
+
+    allow_tf_bool, allow_tf_reason = _parse_allow_train_fixed(allow_train_fixed)
+    wide = _wide_views(result, view_nodes, orig_view_indices=orig_view_indices) if result is not None else []
     report_p = use_fixed
     if rows == "train" and use_fixed:
         why = (f"wide views {wide} couple to anything on their training rows, and " if wide else "")
-        if not allow_train_fixed:
+        if not allow_tf_bool:
             report_p = False
             _warn(f"rows='train' with the fixed-model null: {why}the null holds the fitted model fixed and "
                   "ignores that it was fitted to these rows; fixed-model p-values are not reported (use "
                   "held-out rows, the refit null, or allow_train_fixed=True).")
+        elif allow_tf_reason is not None:
+            _warn(f"rows='train' with allow_train_fixed={allow_tf_reason!r}: {why}the fixed-model null holds "
+                  "the fitted model fixed and ignores that it was fitted to these rows; held-out rows or the "
+                  "refit null are the evidence.")
         else:
             _warn(f"rows='train' with allow_train_fixed=True: {why}the fixed-model null holds the fitted "
                   "model fixed and ignores that it was fitted to these rows; held-out rows or the refit "
                   "null are the evidence.")
     if B == 0:
         report_p = False
+
+    if rows == "heldout":
+        evidence_label = "heldout-fixed"
+    elif null == "refit":
+        evidence_label = "train-refit"
+    elif null == "both":
+        evidence_label = "train-both"
+    elif allow_tf_bool:
+        evidence_label = "train-fixed"
+    else:
+        evidence_label = "train-fixed-unreported"
 
     N, nuis_names, dummies = _nuisance(n, covariates, groups)
     adj = _node_graph(graph, nodes, directed)
@@ -682,9 +794,17 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
     absent = [e for e in tested if not present[e]]
     out_edges = [e for e in tested if "outcome" in e]
 
-    designs = {e: _edge_design(Z, N, e[0], e[1], _conditioning_nodes(adj, e[0], e[1], directed, conditioning),
-                               dummies) for e in pairs}
-    obs = {e: _observed(designs[e]) for e in pairs}
+    cond_by_edge = {e: tuple(_conditioning_nodes(adj, e[0], e[1], directed, conditioning)) for e in pairs}
+    designs: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    obs: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for e in pairs:
+        ckey = (e[0], e[1], cond_by_edge[e])
+        if _edge_cache is not None and ckey in _edge_cache:
+            designs[e] = _edge_cache[ckey]["des"]
+            obs[e] = _edge_cache[ckey]["obs"]
+        else:
+            designs[e] = _edge_design(Z, N, e[0], e[1], list(cond_by_edge[e]), dummies)
+            obs[e] = _observed(designs[e])
 
     # ---- fixed-model null: joint sweeps, one permutation per node per sweep
     ss = np.random.SeedSequence(random_state)
@@ -697,36 +817,103 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
     mx = {nm: np.full(B, -np.inf) for nm in ("edges", "absent", "outcome", "components", "moderation")}
     mean_null = np.zeros(B)
     stored: Dict[Tuple[str, str], List[float]] = {e: [] for e in pairs}
-    base = np.tile(np.arange(n), (min(_CHUNK, max(B, 1)), 1))
-    for s0 in range(0, B, _CHUNK):
-        c = min(_CHUNK, B - s0)
-        perms = {nm: torch.as_tensor(rng_perm.permuted(base[:c], axis=1)) for nm in nodes}
-        sl = slice(s0, s0 + c)
+    if _edge_cache is not None and B > 0:
+        if "_perms" not in _edge_cache:
+            base = np.tile(np.arange(n), (min(_CHUNK, max(B, 1)), 1))
+            _edge_cache["_perms"] = [
+                (s0, min(_CHUNK, B - s0),
+                 {nm: torch.as_tensor(rng_perm.permuted(base[:min(_CHUNK, B - s0)], axis=1)) for nm in nodes})
+                for s0 in range(0, B, _CHUNK)
+            ]
+        perms_chunks = _edge_cache["_perms"]
         for e in pairs:
-            st = _stats_from_perm(designs[e], perms[e[1]])
-            pil = st["pillai"].numpy()
-            ge_p[e] += int((pil >= obs[e]["pillai"]).sum())
-            if len(stored[e]) < _NULL_STORE:
-                stored[e].extend(pil[:_NULL_STORE - len(stored[e])].tolist())
-            if "r" in st:
-                ar = np.abs(st["r"].numpy())
-                ge_r[e] += (ar >= np.abs(obs[e]["r"])[None, :]).sum(0)
-            if e in ge_f:
-                F = st["F"].numpy()
-                ge_f[e] += (F >= obs[e]["F"][None, :]).sum(0)
-                ge_fs[e] += int((F.sum(1) >= obs[e]["F"].sum()).sum())
+            ckey = (e[0], e[1], cond_by_edge[e])
+            if ckey not in _edge_cache:
+                pil_all = np.empty(B, dtype=np.float64)
+                has_r = len(designs[e]["comps"]) > 0
+                ar_max_all = np.empty(B, dtype=np.float64) if has_r else None
+                f_sum_all = np.empty(B, dtype=np.float64) if e in ge_f else None
+                ge_p_e = 0
+                ge_r_e = np.zeros(len(designs[e]["comps"]))
+                ge_f_e = np.zeros(len(designs[e]["comps"])) if e in ge_f else None
+                ge_fs_e = 0
+                stored_e: List[float] = []
+                for s0, c, perms in perms_chunks:
+                    sl = slice(s0, s0 + c)
+                    st = _stats_from_perm(designs[e], perms[e[1]])
+                    pil = st["pillai"].numpy()
+                    pil_all[sl] = pil
+                    ge_p_e += int((pil >= obs[e]["pillai"]).sum())
+                    if len(stored_e) < _NULL_STORE:
+                        stored_e.extend(pil[:_NULL_STORE - len(stored_e)].tolist())
+                    if "r" in st:
+                        ar = np.abs(st["r"].numpy())
+                        ge_r_e += (ar >= np.abs(obs[e]["r"])[None, :]).sum(0)
+                        if ar_max_all is not None:
+                            ar_max_all[sl] = ar.max(1)
+                    if e in ge_f and ge_f_e is not None and f_sum_all is not None:
+                        F = st["F"].numpy()
+                        ge_f_e += (F >= obs[e]["F"][None, :]).sum(0)
+                        f_sum = F.sum(1)
+                        ge_fs_e += int((f_sum >= obs[e]["F"].sum()).sum())
+                        f_sum_all[sl] = f_sum
+                _edge_cache[ckey] = {
+                    "des": designs[e], "obs": obs[e],
+                    "ge_p": ge_p_e, "ge_r": ge_r_e, "ge_f": ge_f_e, "ge_fs": ge_fs_e,
+                    "stored": stored_e, "pil_all": pil_all,
+                    "ar_max_all": ar_max_all, "f_sum_all": f_sum_all,
+                }
+            ce = _edge_cache[ckey]
+            ge_p[e] = ce["ge_p"]
+            ge_r[e] = ce["ge_r"].copy()
+            stored[e] = list(ce["stored"])
+            if e in ge_f and ce["ge_f"] is not None:
+                ge_f[e] = ce["ge_f"].copy()
+                ge_fs[e] = ce["ge_fs"]
             if diagnostic[e]:
                 continue
-            mx["edges"][sl] = np.maximum(mx["edges"][sl], pil)
-            mean_null[sl] += pil / len(tested)
+            pil_all = ce["pil_all"]
+            np.maximum(mx["edges"], pil_all, out=mx["edges"])
+            mean_null += pil_all / len(tested)
             if e in absent:
-                mx["absent"][sl] = np.maximum(mx["absent"][sl], pil)
+                np.maximum(mx["absent"], pil_all, out=mx["absent"])
             if e in out_edges:
-                mx["outcome"][sl] = np.maximum(mx["outcome"][sl], pil)
-            if "r" in st:
-                mx["components"][sl] = np.maximum(mx["components"][sl], ar.max(1))
-            if e in ge_f:
-                mx["moderation"][sl] = np.maximum(mx["moderation"][sl], F.sum(1))
+                np.maximum(mx["outcome"], pil_all, out=mx["outcome"])
+            if ce["ar_max_all"] is not None:
+                np.maximum(mx["components"], ce["ar_max_all"], out=mx["components"])
+            if e in ge_f and ce["f_sum_all"] is not None:
+                np.maximum(mx["moderation"], ce["f_sum_all"], out=mx["moderation"])
+    else:
+        base = np.tile(np.arange(n), (min(_CHUNK, max(B, 1)), 1))
+        for s0 in range(0, B, _CHUNK):
+            c = min(_CHUNK, B - s0)
+            perms = {nm: torch.as_tensor(rng_perm.permuted(base[:c], axis=1)) for nm in nodes}
+            sl = slice(s0, s0 + c)
+            for e in pairs:
+                st = _stats_from_perm(designs[e], perms[e[1]])
+                pil = st["pillai"].numpy()
+                ge_p[e] += int((pil >= obs[e]["pillai"]).sum())
+                if len(stored[e]) < _NULL_STORE:
+                    stored[e].extend(pil[:_NULL_STORE - len(stored[e])].tolist())
+                if "r" in st:
+                    ar = np.abs(st["r"].numpy())
+                    ge_r[e] += (ar >= np.abs(obs[e]["r"])[None, :]).sum(0)
+                if e in ge_f:
+                    F = st["F"].numpy()
+                    ge_f[e] += (F >= obs[e]["F"][None, :]).sum(0)
+                    ge_fs[e] += int((F.sum(1) >= obs[e]["F"].sum()).sum())
+                if diagnostic[e]:
+                    continue
+                mx["edges"][sl] = np.maximum(mx["edges"][sl], pil)
+                mean_null[sl] += pil / len(tested)
+                if e in absent:
+                    mx["absent"][sl] = np.maximum(mx["absent"][sl], pil)
+                if e in out_edges:
+                    mx["outcome"][sl] = np.maximum(mx["outcome"][sl], pil)
+                if "r" in st:
+                    mx["components"][sl] = np.maximum(mx["components"][sl], ar.max(1))
+                if e in ge_f:
+                    mx["moderation"][sl] = np.maximum(mx["moderation"][sl], F.sum(1))
 
     def p_of(ge):
         return float(_addone(ge, B)) if report_p else None
@@ -760,7 +947,8 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
     # ---- refit intervals from loading_inference's out-of-bag scores
     refit_pillai = _refit_pillai(inference, view_nodes, nodes, pairs, adj, directed, conditioning,
                                  covariates is not None, groups is not None, "outcome" in nodes,
-                                 train_covariates, train_groups, train_outcome) if inference is not None else None
+                                 train_covariates, train_groups, train_outcome,
+                                 orig_view_indices=orig_view_indices) if inference is not None else None
 
     # ---- tables
     edge_rows = []
@@ -773,7 +961,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
                "p_holm": None, "q_bh": None,
                "p_refit": None if (refit is None or diagnostic[e] or n_ref == 0) else refit["p"].get(e),
                "p_refit_holm": None, "ci_low": None, "ci_high": None,
-               "ci_refit_low": None, "ci_refit_high": None}
+               "ci_refit_low": None, "ci_refit_high": None, "null_rows": evidence_label}
         if n_boot:
             lo, hi = _pct(np.concatenate(boot[e]["pillai"]))
             row["ci_low"], row["ci_high"] = float(lo), float(hi)
@@ -801,7 +989,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
                    "diagnostic": bool(diagnostic[e]), "p_perm": p_of(ge_r[e][j]),
                    "p_maxt": None if diagnostic[e] else p_max("components", abs(r_obs)),
                    "p_holm": None, "q_bh": None, "ci_low": None, "ci_high": None,
-                   "beta_ci_low": None, "beta_ci_high": None}
+                   "beta_ci_low": None, "beta_ci_high": None, "null_rows": evidence_label}
             if bt is not None:
                 lo, hi = _pct(bt["r"][:, j])
                 row["ci_low"], row["ci_high"] = float(lo), float(hi)
@@ -810,7 +998,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
             comp_rows.append(row)
     edge_components = pd.DataFrame(comp_rows, columns=["a", "b", "component", "r", "beta", "diagnostic", "p_perm",
                                                        "p_maxt", "p_holm", "q_bh", "ci_low", "ci_high",
-                                                       "beta_ci_low", "beta_ci_high"])
+                                                       "beta_ci_low", "beta_ci_high", "null_rows"])
     if report_p and len(edge_components):
         cm = ~edge_components["diagnostic"].to_numpy(bool)
         if cm.any():
@@ -842,7 +1030,8 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
     outcome_edges = None
     if out_edges:
         orows = [{"a": e[0], "b": e[1], "pillai": obs[e]["pillai"], "p_perm": p_of(ge_p[e]),
-                  "p_maxt": p_max("outcome", obs[e]["pillai"]), "p_holm": None, "q_bh": None} for e in out_edges]
+                  "p_maxt": p_max("outcome", obs[e]["pillai"]), "p_holm": None, "q_bh": None,
+                  "null_rows": evidence_label} for e in out_edges]
         outcome_edges = pd.DataFrame(orows)
         if report_p:
             po = outcome_edges["p_perm"].to_numpy(float)
@@ -861,7 +1050,8 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
         omnibus["p_max_refit"] = float(_addone((refit["null_max"] >= obs_max).sum(), n_ref))
         omnibus["null_mean_pillai_refit"] = refit["null_mean"].tolist()
     fit = _graph_fit(edges, tested, absent, present, obs, conditioning, report_p,
-                     refit is not None and n_ref > 0 and "edges" in refit_scope, alpha, p_max)
+                     refit is not None and n_ref > 0 and "edges" in refit_scope, alpha, p_max,
+                     evidence=evidence_label)
 
     families = {"edges": {"n_tests": len(tested), "statistic": "pillai"},
                 "edge_components": {"n_tests": int((~edge_components["diagnostic"].to_numpy(bool)).sum())
@@ -869,9 +1059,14 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
                 "moderation": {"n_tests": len(mods), "statistic": "sum over components of F"},
                 "outcome_edges": {"n_tests": len(out_edges), "statistic": "pillai"}}
 
-    edge_models = _fit_node_models(Z, nodes, adj, N, directed)
-    feature_contributions = _feature_contributions(result, view_nodes, pairs, present, diagnostic, designs, obs) \
-        if result is not None else pd.DataFrame(columns=["edge", "a", "b", "component", "feature", "contribution"])
+    edge_dofs = _result_node_dofs(result, view_nodes, n, orig_view_indices) if (result is not None and rows == "train") else None
+    edge_models = _fit_node_models(Z, nodes, adj, N, directed, node_dofs=edge_dofs)
+    feature_contributions = (
+        _feature_contributions(result, view_nodes, pairs, present, diagnostic, designs, obs,
+                               orig_view_indices=orig_view_indices)
+        if result is not None
+        else pd.DataFrame(columns=["edge", "a", "b", "component", "feature", "contribution"])
+    )
     if not use_fixed:
         reason = f"null={null!r}: no fixed-model p-values (p_perm); see p_refit"
     elif not report_p and B > 0:
@@ -882,6 +1077,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
             "n": n, "k": k, "edges": edges, "edge_components": edge_components, "moderation": moderation,
             "outcome_edges": outcome_edges, "omnibus": omnibus, "fit": fit, "families": families,
             "edge_models": edge_models, "feature_contributions": feature_contributions, "result": result,
+            "orig_view_indices": (list(orig_view_indices) if orig_view_indices is not None else None),
             "refit_null": None if refit is None else {"per_edge": {e: v.tolist() for e, v in refit["null"].items()},
                                                       "outcome_edges": refit["outcome_note"]},
             "nuisance_names": nuis_names, "null": stored, "scores_source": sc["source"],
@@ -889,7 +1085,9 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
             "parameters": {"rows": rows, "null": null, "n_permutations": B, "n_refits": n_refits,
                            "refit_scope": tuple(refit_scope) if use_refit else None,
                            "n_bootstrap": n_boot, "alpha": alpha, "random_state": random_state, "n_jobs": n_jobs,
-                           "allow_train_fixed": allow_train_fixed, "conditioning": conditioning,
+                           "allow_train_fixed": allow_tf_bool,
+                           "allow_train_fixed_reason": allow_tf_reason,
+                           "conditioning": conditioning,
                            "include_consensus": include_consensus, "directed": directed,
                            "inference": inference is not None, "standardize": bool(standardize),
                            "scores_given": result is None,
@@ -901,10 +1099,11 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
 
 
 def _graph_fit(edges, tested, absent, present, obs, conditioning, report_p, have_refit, alpha,
-               p_max) -> Dict[str, Any]:
+               p_max, evidence: Optional[str] = None) -> Dict[str, Any]:
     """Plan 3.5 from the fixed-model null when it was reported, else from the refit null (no
     max-T: each refit null permutes one node, so ``max_absent_p`` is None)."""
-    fit: Dict[str, Any] = {"conditioning": conditioning, "null": None, "present_pass": None, "absent_pass": None,
+    fit: Dict[str, Any] = {"conditioning": conditioning, "null": None, "evidence": evidence,
+                           "present_pass": None, "absent_pass": None,
                            "absent_p": None, "max_absent_pillai": None, "max_absent_p": None,
                            "rejected": None, "reason": None}
     if conditioning != "parents":
@@ -1015,7 +1214,8 @@ def _refit_null(result, vlist, view_nodes, Z, N, adj, tested, directed, conditio
 
 
 def _refit_pillai(inference, view_nodes, nodes, pairs, adj, directed, conditioning, has_cov, has_groups,
-                  has_outcome, train_covariates, train_groups, train_outcome) -> Dict[Tuple[str, str], List[float]]:
+                  has_outcome, train_covariates, train_groups, train_outcome,
+                  orig_view_indices: Optional[Sequence[int]] = None) -> Dict[Tuple[str, str], List[float]]:
     """Edge pillai on each `loading_inference` subsample refit's out-of-bag scores."""
     recs = inference.get("oob_scores")
     if not recs:
@@ -1031,12 +1231,13 @@ def _refit_pillai(inference, view_nodes, nodes, pairs, adj, directed, conditioni
     tc = None if train_covariates is None else np.asarray(train_covariates, float).reshape(n_rows, -1)
     tg = None if train_groups is None else np.asarray(train_groups).ravel()
     ty = None if train_outcome is None else np.asarray(train_outcome, float).reshape(n_rows, -1)
+    idxs = list(range(len(view_nodes))) if orig_view_indices is None else list(orig_view_indices)
     out: Dict[Tuple[str, str], List[float]] = {e: [] for e in pairs if "consensus" not in e}
     for rec in recs:
         rows_ = np.asarray(rec["rows"])
-        if len(rec["scores"]) != len(view_nodes):
-            raise ValueError(f"inference has {len(rec['scores'])} views; the model has {len(view_nodes)}.")
-        Zr = {nm: np.asarray(z, float) for nm, z in zip(view_nodes, rec["scores"])}
+        if max(idxs, default=-1) >= len(rec["scores"]) or (orig_view_indices is None and len(rec["scores"]) != len(view_nodes)):
+            raise ValueError(f"inference has {len(rec['scores'])} views; the model needs indices {idxs}.")
+        Zr = {nm: np.asarray(rec["scores"][orig], float) for nm, orig in zip(view_nodes, idxs)}
         if has_outcome:
             Zr["outcome"] = _zscore(ty[rows_])
         Nr, _, _ = _nuisance(len(rows_), None if tc is None else tc[rows_], None if tg is None else tg[rows_])
@@ -1047,14 +1248,17 @@ def _refit_pillai(inference, view_nodes, nodes, pairs, adj, directed, conditioni
 
 
 # ----------------------------------------------------------------------------- feature read-out
-def _feature_contributions(result, view_nodes, pairs, present, diagnostic, designs, obs) -> pd.DataFrame:
+def _feature_contributions(result, view_nodes, pairs, present, diagnostic, designs, obs,
+                           orig_view_indices: Optional[Sequence[int]] = None) -> pd.DataFrame:
     """structure_a[:, j] * beta_abj for every present edge whose node a is a view (plan 5)."""
+    idxs = list(range(len(view_nodes))) if orig_view_indices is None else list(orig_view_indices)
+    orig_of = {nm: orig for nm, orig in zip(view_nodes, idxs)}
     rows = []
     for e in pairs:
         a, b = e
         if not present[e] or diagnostic[e] or a not in view_nodes or not designs[e]["comps"]:
             continue
-        st = result["structure"][view_nodes.index(a)].detach().double().numpy()
+        st = result["structure"][orig_of[a]].detach().double().numpy()
         for j, (ia, _) in enumerate(designs[e]["comps"]):
             contrib = st[:, ia] * obs[e]["beta"][j]
             rows.extend({"edge": f"{a} - {b}", "a": a, "b": b, "component": j, "feature": f,
@@ -1068,16 +1272,138 @@ def _ridge_fit(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
     return np.linalg.solve(X.T @ X + lam * np.eye(X.shape[1]), X.T @ Y)
 
 
-def _fit_node_models(Z, nodes, adj, N, directed):
+def _result_node_dofs(
+    result: Optional[Dict[str, Any]],
+    view_nodes: Sequence[str],
+    n: int,
+    orig_view_indices: Optional[Sequence[int]] = None,
+) -> Optional[Dict[str, float]]:
+    """Per-view effective basis degrees of freedom (`consensus.view_dofs`) for nodes backed by ``result``."""
+    if result is None or not result.get("v"):
+        return None
+    from .consensus import view_dofs
+    dofs_all = view_dofs(result["v"], int(n))
+    idxs = list(range(len(view_nodes))) if orig_view_indices is None else list(orig_view_indices)
+    out: Dict[str, float] = {}
+    for nm, orig_m in zip(view_nodes, idxs):
+        if 0 <= int(orig_m) < len(dofs_all):
+            out[str(nm)] = float(dofs_all[int(orig_m)])
+    for nm, ext in (result.get("extensions") or {}).items():
+        if nm in view_nodes and "v" in ext:
+            out[str(nm)] = float(view_dofs([ext["v"]], int(n))[0])
+    return out
+
+
+def _coerce_node_dofs(
+    dofs: Any,
+    view_names_list: Sequence[str],
+) -> Optional[Dict[str, float]]:
+    if dofs is None:
+        return None
+    if isinstance(dofs, Mapping):
+        out: Dict[str, float] = {}
+        for k, v in dofs.items():
+            if v is not None:
+                val = float(v)
+                if not np.isfinite(val) or val < 0.0:
+                    raise ValueError(f"dofs[{k!r}] must be a non-negative finite number; got {v!r}.")
+                out[str(k)] = val
+        return out
+    seq = list(dofs)
+    if len(seq) != len(view_names_list):
+        raise ValueError(f"dofs has {len(seq)} entries; expected {len(view_names_list)} for {list(view_names_list)}.")
+    out = {}
+    for nm, v in zip(view_names_list, seq):
+        if v is not None:
+            val = float(v)
+            if not np.isfinite(val) or val < 0.0:
+                raise ValueError(f"dofs for {nm!r} must be a non-negative finite number; got {v!r}.")
+            out[str(nm)] = val
+    return out
+
+
+def _gcv_press_node_fit(
+    N: np.ndarray,
+    X_pa: Optional[np.ndarray],
+    Y: np.ndarray,
+    dof_eff: float = 0.0,
+) -> Tuple[np.ndarray, np.ndarray, float]:
+    """Fit ``Y ~ N W_N + X_pa W_pa`` with GCV ridge (Golub, Heath & Wahba 1979, Technometrics 21:215-223),
+    PRESS leave-one-out hat-matrix residuals ``r_i / (1 - h_ii)`` (Allen 1974, Technometrics 16:125-127),
+    and measurement-basis degrees-of-freedom shrinkage ``gamma = (n - 1) / (n - 1 + dof_eff)``
+    (Ezekiel 1930; Wherry 1931, Ann. Math. Stat. 2:440-457; matching `extension._affine_map`).
+    """
+    n = int(Y.shape[0])
+    q_n = _orth(N)
+    r_n = int(q_n.shape[1])
+    y_perp = Y - q_n @ (q_n.T @ Y) if r_n else Y.copy()
+    h_n = (q_n ** 2).sum(axis=1) if r_n else np.zeros(n, dtype=float)
+    denom_n = np.maximum(1.0 - h_n, 1e-3)[:, None]
+    v0_loo = np.mean((y_perp / denom_n) ** 2, axis=0).clip(1e-12)
+    if X_pa is None or X_pa.shape[1] == 0:
+        w_n = _ridge_fit(N, Y)
+        return w_n, v0_loo, 1.0
+
+    x_perp = X_pa - q_n @ (q_n.T @ X_pa) if r_n else X_pa.copy()
+    u_svd, s_svd, vt_svd = np.linalg.svd(x_perp, full_matrices=False)
+    smax = float(s_svd[0]) if s_svd.size else 0.0
+    if smax <= 1e-15:
+        w_n = _ridge_fit(N, Y)
+        w_pa = np.zeros((X_pa.shape[1], Y.shape[1]), dtype=float)
+        return np.vstack([w_n, w_pa]), v0_loo, 1.0
+
+    s2 = s_svd ** 2
+    scale = max(float(s2.mean()), 1e-12)
+    ut_y = u_svd.T @ y_perp
+    y_norm2 = float((y_perp ** 2).sum())
+    proj_norm2 = float((ut_y ** 2).sum())
+    orth_res2 = max(0.0, y_norm2 - proj_norm2)
+    n_eff = float(max(n - r_n, 1))
+    best_lam = 1e-8 * scale
+    best_gcv = float("inf")
+    for rel in (1e-8, 1e-5, 1e-3, 1e-2, 3e-2, 1e-1, 0.3, 1.0, 3.0, 10.0):
+        lam = rel * scale
+        filt = s2 / (s2 + lam)
+        df_lam = float(filt.sum())
+        denom = (1.0 - df_lam / n_eff) ** 2
+        if denom <= 1e-12:
+            continue
+        in_span_res2 = float((((1.0 - filt)[:, None] * ut_y) ** 2).sum())
+        gcv = (orth_res2 + in_span_res2) / (n_eff * denom)
+        if gcv < best_gcv:
+            best_gcv = gcv
+            best_lam = lam
+
+    filt_best = s2 / (s2 + best_lam)
+    w_gcv = vt_svd.T @ ((s_svd / (s2 + best_lam))[:, None] * ut_y)
+    res_gcv = y_perp - x_perp @ w_gcv
+    h_tot = h_n + (u_svd ** 2) @ filt_best
+    denom_tot = np.maximum(1.0 - h_tot, 1e-3)[:, None]
+    v_loo = np.mean((res_gcv / denom_tot) ** 2, axis=0).clip(1e-12)
+    r2_loo = np.clip(1.0 - v_loo / v0_loo, 0.0, 1.0 - 1e-6)
+
+    n_m1 = float(max(n - 1, 1))
+    gamma = n_m1 / (n_m1 + max(float(dof_eff), 0.0))
+    w_pa = gamma * w_gcv
+    v_cal = (v0_loo * (1.0 - (gamma ** 2) * r2_loo)).clip(1e-12)
+    w_n = _ridge_fit(N, Y - X_pa @ w_pa)
+    return np.vstack([w_n, w_pa]), v_cal, float(gamma)
+
+
+def _fit_node_models(Z, nodes, adj, N, directed, node_dofs: Optional[Mapping[str, float]] = None):
     models = {}
     for b in nodes:
         pa = [a for a in _parents(adj, b, directed) if a != "consensus"]
-        X = np.column_stack([N] + [Z[a] for a in pa])
-        W = _ridge_fit(X, Z[b])
-        resid = Z[b] - X @ W
-        models[b] = {"parents": pa, "W": W, "resid_var": resid.var(0, ddof=X.shape[1]).clip(1e-12),
+        x_pa = np.column_stack([Z[a] for a in pa]) if pa else None
+        dof_eff = (
+            max([ float(node_dofs.get(b, 0.0))] + [float(node_dofs.get(a, 0.0)) for a in pa])
+            if (pa and node_dofs is not None) else 0.0
+        )
+        W, resid_var, gamma = _gcv_press_node_fit(N, x_pa, Z[b], dof_eff=dof_eff)
+        models[b] = {"parents": pa, "W": W, "resid_var": resid_var,
                      "n_params": int(W.size), "n_nuisance": int(N.shape[1]),
-                     "parent_cols": {a: int(Z[a].shape[1]) for a in pa}}
+                     "parent_cols": {a: int(Z[a].shape[1]) for a in pa},
+                     "dof_eff": float(dof_eff), "gamma": float(gamma)}
     return models
 
 
@@ -1105,10 +1431,13 @@ def _n_params(models: Dict[str, Any], Z: Dict[str, np.ndarray], adj, directed: b
 
 
 # ----------------------------------------------------------------------------- comparison
-def _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, adj, directed) -> Tuple[np.ndarray, float, int]:
+def _graph_loglik(
+    Ztr, Zte, Ntr, Nte, nodes, adj, directed,
+    node_dofs: Optional[Mapping[str, float]] = None,
+) -> Tuple[np.ndarray, float, int]:
     """Node regressions on parents fitted on the training scores: per-subject held-out Gaussian
     log-likelihood, the training log-likelihood and the parameter count (plan F4)."""
-    models = _fit_node_models(Ztr, nodes, adj, Ntr, directed)
+    models = _fit_node_models(Ztr, nodes, adj, Ntr, directed, node_dofs=node_dofs)
     ll_rows = np.zeros(next(iter(Zte.values())).shape[0])
     ll_tr = 0.0
     for b in nodes:
@@ -1179,48 +1508,92 @@ def compare_path_models(result: Optional[Dict[str, Any]] = None, views_train: An
                                             n_permutations=n_permutations, alpha=alpha, random_state=random_state)
     if views_train is None or views_test is None:
         raise ValueError("the structural comparison needs views_train and views_test.")
+    if (outcome_train is None) != (outcome_test is None):
+        raise ValueError("pass both outcome_train and outcome_test, or neither.")
     rng = np.random.default_rng(random_state)
     sc_tr = view_scores(result, views_train, train_views=views_train)
     sc_te = view_scores(result, views_test, train_views=views_train)
     from .extension import view_names as _names
-    nodes = list(view_names) if view_names is not None else list(_names(result))[:len(sc_tr["scores"])]
-    Ztr = {nm: z for nm, z in zip(nodes, sc_tr["scores"])}
-    Zte = {nm: z for nm, z in zip(nodes, sc_te["scores"])}
+    m_views = len(sc_tr["scores"])
+    all_names = list(view_names) if view_names is not None else list(_names(result))[:m_views]
+    if len(all_names) != m_views:
+        raise ValueError(f"{len(all_names)} view names for {m_views} views.")
+    if len(set(all_names)) != len(all_names) or {"outcome", "consensus"} & set(all_names):
+        raise ValueError(f"view names must be distinct and not 'outcome' or 'consensus'; got {all_names}.")
+    avail = list(sc_te["available"])
+    if len(avail) == 0 or (len(avail) < 2 and outcome_train is None):
+        raise ValueError("compare_path_models needs at least two present test views, or one view with an outcome.")
+    absent_names = [all_names[m] for m in range(m_views) if m not in avail]
+    all_nodes = list(all_names) + (["outcome"] if outcome_train is not None else [])
+    remapped_graphs = {name: _remap_graph_for_available_views(g, all_nodes, absent_names)
+                       for name, g in graphs.items()}
+    warn_list: List[str] = []
+    if absent_names:
+        drop_msg = f"views absent on evaluation rows and dropped from the graph: {absent_names}"
+        warnings.warn(drop_msg, RuntimeWarning, stacklevel=2)
+        warn_list.append(drop_msg)
+    nodes = [all_names[m] for m in avail]
+    Ztr = {all_names[m]: sc_tr["scores"][m] for m in avail}
+    Zte = {all_names[m]: sc_te["scores"][m] for m in avail}
     if outcome_train is not None:
+        y_tr_raw = np.asarray(outcome_train, float)
+        y_te_raw = np.asarray(outcome_test, float)
+        if y_tr_raw.shape[0] != sc_tr["n"] or y_te_raw.shape[0] != sc_te["n"]:
+            raise ValueError(
+                f"outcome_train / outcome_test have ({y_tr_raw.shape[0]}, {y_te_raw.shape[0]}) rows; "
+                f"expected ({sc_tr['n']}, {sc_te['n']})."
+            )
+        y_tr_arr = y_tr_raw.reshape(sc_tr["n"], -1)
+        y_te_arr = y_te_raw.reshape(sc_te["n"], -1)
+        if not (np.isfinite(y_tr_arr).all() and np.isfinite(y_te_arr).all()):
+            raise ValueError("outcome_train / outcome_test contain non-finite values.")
         nodes = nodes + ["outcome"]
-        Ztr["outcome"] = _zscore(np.asarray(outcome_train, float).reshape(sc_tr["n"], -1))
-        Zte["outcome"] = _zscore(np.asarray(outcome_test, float).reshape(sc_te["n"], -1))
+        Ztr["outcome"] = _zscore(y_tr_arr)
+        Zte["outcome"] = _zscore(y_te_arr)
     Ntr, _, _ = _nuisance(sc_tr["n"], covariates_train, groups_train)
     Nte, _, _ = _nuisance(sc_te["n"], covariates_test, groups_test)
     n_te = sc_te["n"]
     boot_idx = [rng.integers(0, n_te, n_te) for _ in range(n_bootstrap)]
+    te_present_std = {all_names[m]: sc_te["scores"][m] for m in avail}
+    node_dofs = _result_node_dofs(result, [all_names[m] for m in avail], sc_tr["n"], avail)
+    edge_cache: Dict[Any, Any] = {}
     rows, per_subject = [], {}
-    for name, g in graphs.items():
-        adj = _node_graph(g, nodes, directed)
-        ll_rows, ll_tr, n_par = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, adj, directed)
+    for name, g_remapped in remapped_graphs.items():
+        adj = _node_graph(g_remapped, nodes, directed)
+        ll_rows, ll_tr, n_par = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, adj, directed, node_dofs=node_dofs)
         per_subject[name] = ll_rows
-        pm = path_model(result, views_test, rows="heldout", graph=g, directed=directed, view_names=view_names,
-                        covariates=covariates_test, groups=groups_test, outcome=outcome_test,
-                        conditioning="parents", n_permutations=n_permutations, n_bootstrap=0, alpha=alpha,
-                        random_state=random_state, train_views=views_train)
+        pm = path_model_from_scores(
+            te_present_std, rows="heldout", graph=g_remapped, directed=directed,
+            covariates=covariates_test, groups=groups_test, outcome=outcome_test,
+            conditioning="parents", n_permutations=n_permutations, n_bootstrap=0,
+            alpha=alpha, random_state=random_state, standardize=False,
+            _edge_cache=edge_cache,
+        )
         rows.append({"graph": name, "n_edges": _n_edges(adj, directed),
                      "heldout_loglik": float(ll_rows.sum()), "n_params": n_par,
                      "bic": float(n_par * np.log(sc_tr["n"]) - 2.0 * ll_tr),
                      "present_pass": pm["fit"]["present_pass"], "absent_pass": pm["fit"]["absent_pass"],
                      "max_absent_p": pm["fit"]["max_absent_p"], "edges": pm["edges"]})
     top = max(rows, key=lambda r: r["heldout_loglik"])["graph"]
-    wins = {r["graph"]: 0 for r in rows}
-    deltas: Dict[str, List[float]] = {r["graph"]: [] for r in rows}
-    for idx in boot_idx:
-        tot = {nm: float(per_subject[nm][idx].sum()) for nm in per_subject}
-        wins[max(tot, key=tot.get)] += 1
-        for nm in tot:
-            deltas[nm].append(tot[nm] - tot[top])
+    g_names = [r["graph"] for r in rows]
+    wins = {nm: 0 for nm in g_names}
+    deltas: Dict[str, np.ndarray] = {}
+    if n_bootstrap:
+        ll_mat = np.vstack([per_subject[nm] for nm in g_names])
+        boot_idx_arr = np.asarray(boot_idx, dtype=np.intp)
+        tot_mat = ll_mat[:, boot_idx_arr].sum(axis=2)
+        win_counts = np.bincount(np.argmax(tot_mat, axis=0), minlength=len(g_names))
+        for gi, nm in enumerate(g_names):
+            wins[nm] = int(win_counts[gi])
+        top_idx = g_names.index(top)
+        delta_mat = tot_mat - tot_mat[top_idx : top_idx + 1, :]
+        for gi, nm in enumerate(g_names):
+            deltas[nm] = delta_mat[gi]
     top_ll = next(x["heldout_loglik"] for x in rows if x["graph"] == top)
     for r in rows:
         r["delta_vs_top"] = float(r["heldout_loglik"] - top_ll)
         if n_bootstrap:
-            lo, hi = _pct(np.asarray(deltas[r["graph"]]))
+            lo, hi = _pct(deltas[r["graph"]])
             r["ci_low"], r["ci_high"] = float(lo), float(hi)
             r["best_fraction"] = wins[r["graph"]] / n_bootstrap
         else:
@@ -1232,9 +1605,196 @@ def compare_path_models(result: Optional[Dict[str, Any]] = None, views_train: An
     else:
         best, rule = top, "top held-out log-likelihood (no bootstrap replicates)"
     return {"comparison": rows, "best": best, "best_by_loglik": top, "best_rule": rule, "nodes": nodes,
-            "mode": "structural",
+            "mode": "structural", "warnings": warn_list,
             "parameters": {"n_bootstrap": n_bootstrap, "n_permutations": n_permutations,
                            "random_state": random_state, "alpha": alpha}}
+
+
+def compare_path_models_from_scores(
+    scores_train: Mapping[str, Any],
+    scores_test: Mapping[str, Any],
+    graphs: Mapping[str, Any],
+    *,
+    directed: bool = False,
+    covariates_train=None,
+    covariates_test=None,
+    groups_train=None,
+    groups_test=None,
+    outcome_train=None,
+    outcome_test=None,
+    standardize: Union[bool, str] = True,
+    dofs: Optional[Union[Mapping[str, float], Sequence[float]]] = None,
+    n_bootstrap: int = 2000,
+    n_permutations: int = 2000,
+    alpha: float = 0.05,
+    random_state: int = 0,
+) -> Dict[str, Any]:
+    """Compare candidate graphs over score blocks from any source (measurement-free structural mode).
+
+    ``scores_train`` maps node name -> ``(n_train, k_m)`` array (all present). ``scores_test``
+    maps the same node names -> ``(n_test, k_m)`` array or ``None`` (or omits a missing block,
+    which is dropped with the same `RuntimeWarning` and graph validation as `compare_path_models`).
+    Node regressions are fitted on ``scores_train`` with GCV ridge (Golub, Heath & Wahba 1979) and
+    PRESS leave-one-out residual variance (Allen 1974), calibrated by ``dofs`` when given
+    (`consensus.view_dofs`; Ezekiel 1930 / Wherry 1931), and evaluated by Gaussian log-likelihood on
+    ``scores_test`` (`_graph_loglik`), paired with `path_model_from_scores` graph-fit checks and
+    the paired-bootstrap F1 parsimony rule.
+
+    ``standardize`` controls block scaling: ``True`` (or ``"per_split"``) z-scores ``scores_train``
+    on training rows and ``scores_test`` on test rows (matching `compare_path_models` / `view_scores`);
+    ``"train"`` standardizes both ``scores_train`` and ``scores_test`` (and ``outcome_test``) with
+    the training-row mean and SD; ``False`` uses the given arrays without rescaling.
+    """
+    if not graphs:
+        raise ValueError("graphs is required: a non-empty {name: graph}.")
+    if (outcome_train is None) != (outcome_test is None):
+        raise ValueError("pass both outcome_train and outcome_test, or neither.")
+    if isinstance(standardize, bool):
+        std_mode = "per_split" if standardize else "none"
+    elif standardize in ("per_split", "train", "none"):
+        std_mode = standardize
+    else:
+        raise ValueError(f"standardize must be True, False, 'per_split' or 'train'; got {standardize!r}.")
+    names_tr, raw_tr = _given_scores(scores_train, False, allow_missing=False)
+    if not isinstance(scores_test, Mapping):
+        raise ValueError("scores_test must be a mapping of node name -> (n_test, k_m) array or None.")
+    extra = [str(k) for k in scores_test if str(k) not in names_tr]
+    if extra:
+        raise ValueError(f"unknown score name(s) {extra}; scores_train has {names_tr}.")
+    full_te = {nm: scores_test.get(nm) for nm in names_tr}
+    _, raw_te = _given_scores(full_te, False, allow_missing=True)
+    if std_mode == "per_split":
+        arrays_tr = [_zscore(a) for a in raw_tr]
+        arrays_te = [None if a is None else _zscore(a) for a in raw_te]
+    elif std_mode == "train":
+        arrays_tr, arrays_te = [], []
+        for a_tr, a_te in zip(raw_tr, raw_te):
+            mu = a_tr.mean(0, keepdims=True)
+            sd = a_tr.std(0, keepdims=True)
+            sd_safe = np.where(sd > 0, sd, 1.0)
+            arrays_tr.append(np.where(sd > 0, (a_tr - mu) / sd_safe, 0.0))
+            arrays_te.append(None if a_te is None else np.where(sd > 0, (a_te - mu) / sd_safe, 0.0))
+    else:
+        arrays_tr, arrays_te = raw_tr, raw_te
+    avail = [m for m, z in enumerate(arrays_te) if z is not None]
+    if len(avail) == 0 or (len(avail) < 2 and outcome_train is None):
+        raise ValueError(
+            "compare_path_models_from_scores needs at least two present test score blocks, "
+            "or one block with an outcome."
+        )
+    for m in avail:
+        if arrays_te[m].shape[1] != arrays_tr[m].shape[1]:
+            raise ValueError(
+                f"scores_test[{names_tr[m]!r}] has {arrays_te[m].shape[1]} columns; "
+                f"scores_train[{names_tr[m]!r}] has {arrays_tr[m].shape[1]}."
+            )
+    absent_names = [names_tr[m] for m in range(len(names_tr)) if m not in avail]
+    all_nodes = list(names_tr) + (["outcome"] if outcome_train is not None else [])
+    remapped_graphs = {
+        name: _remap_graph_for_available_views(g, all_nodes, absent_names)
+        for name, g in graphs.items()
+    }
+    warn_list: List[str] = []
+    if absent_names:
+        drop_msg = f"views absent on evaluation rows and dropped from the graph: {absent_names}"
+        warnings.warn(drop_msg, RuntimeWarning, stacklevel=2)
+        warn_list.append(drop_msg)
+
+    rng = np.random.default_rng(random_state)
+    n_tr = int(arrays_tr[0].shape[0])
+    n_te = int(arrays_te[avail[0]].shape[0])
+    nodes = [names_tr[m] for m in avail]
+    Ztr = {names_tr[m]: arrays_tr[m] for m in avail}
+    Zte = {names_tr[m]: arrays_te[m] for m in avail}
+    if outcome_train is not None:
+        y_tr_raw = np.asarray(outcome_train, float)
+        y_te_raw = np.asarray(outcome_test, float)
+        if y_tr_raw.shape[0] != n_tr or y_te_raw.shape[0] != n_te:
+            raise ValueError(
+                f"outcome_train / outcome_test have ({y_tr_raw.shape[0]}, {y_te_raw.shape[0]}) rows; "
+                f"expected ({n_tr}, {n_te})."
+            )
+        y_tr_arr = y_tr_raw.reshape(n_tr, -1)
+        y_te_arr = y_te_raw.reshape(n_te, -1)
+        if not (np.isfinite(y_tr_arr).all() and np.isfinite(y_te_arr).all()):
+            raise ValueError("outcome_train / outcome_test contain non-finite values.")
+        nodes = nodes + ["outcome"]
+        if std_mode == "train":
+            ymu = y_tr_arr.mean(0, keepdims=True)
+            ysd = y_tr_arr.std(0, keepdims=True)
+            ysd_safe = np.where(ysd > 0, ysd, 1.0)
+            Ztr["outcome"] = np.where(ysd > 0, (y_tr_arr - ymu) / ysd_safe, 0.0)
+            Zte["outcome"] = np.where(ysd > 0, (y_te_arr - ymu) / ysd_safe, 0.0)
+        elif std_mode == "per_split":
+            Ztr["outcome"] = _zscore(y_tr_arr)
+            Zte["outcome"] = _zscore(y_te_arr)
+        else:
+            Ztr["outcome"] = y_tr_arr
+            Zte["outcome"] = y_te_arr
+    Ntr, _, _ = _nuisance(n_tr, covariates_train, groups_train)
+    Nte, _, _ = _nuisance(n_te, covariates_test, groups_test)
+    node_dofs = _coerce_node_dofs(dofs, names_tr)
+    boot_idx = [rng.integers(0, n_te, n_te) for _ in range(n_bootstrap)]
+    te_present_std = {names_tr[m]: arrays_te[m] for m in avail}
+    edge_cache: Dict[Any, Any] = {}
+    rows, per_subject = [], {}
+    for name, g_remapped in remapped_graphs.items():
+        adj = _node_graph(g_remapped, nodes, directed)
+        ll_rows, ll_tr, n_par = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, adj, directed, node_dofs=node_dofs)
+        per_subject[name] = ll_rows
+        pm = path_model_from_scores(
+            te_present_std, rows="heldout", graph=g_remapped, directed=directed,
+            covariates=covariates_test, groups=groups_test, outcome=outcome_test,
+            conditioning="parents", n_permutations=n_permutations, n_bootstrap=0,
+            alpha=alpha, random_state=random_state, standardize=False,
+            _edge_cache=edge_cache,
+        )
+        rows.append({
+            "graph": name, "n_edges": _n_edges(adj, directed),
+            "heldout_loglik": float(ll_rows.sum()), "n_params": n_par,
+            "bic": float(n_par * np.log(n_tr) - 2.0 * ll_tr),
+            "present_pass": pm["fit"]["present_pass"], "absent_pass": pm["fit"]["absent_pass"],
+            "max_absent_p": pm["fit"]["max_absent_p"], "edges": pm["edges"],
+        })
+    top = max(rows, key=lambda r: r["heldout_loglik"])["graph"]
+    g_names = [r["graph"] for r in rows]
+    wins = {nm: 0 for nm in g_names}
+    deltas: Dict[str, np.ndarray] = {}
+    if n_bootstrap:
+        ll_mat = np.vstack([per_subject[nm] for nm in g_names])
+        boot_idx_arr = np.asarray(boot_idx, dtype=np.intp)
+        tot_mat = ll_mat[:, boot_idx_arr].sum(axis=2)
+        win_counts = np.bincount(np.argmax(tot_mat, axis=0), minlength=len(g_names))
+        for gi, nm in enumerate(g_names):
+            wins[nm] = int(win_counts[gi])
+        top_idx = g_names.index(top)
+        delta_mat = tot_mat - tot_mat[top_idx : top_idx + 1, :]
+        for gi, nm in enumerate(g_names):
+            deltas[nm] = delta_mat[gi]
+    top_ll = next(x["heldout_loglik"] for x in rows if x["graph"] == top)
+    for r in rows:
+        r["delta_vs_top"] = float(r["heldout_loglik"] - top_ll)
+        if n_bootstrap:
+            lo, hi = _pct(deltas[r["graph"]])
+            r["ci_low"], r["ci_high"] = float(lo), float(hi)
+            r["best_fraction"] = wins[r["graph"]] / n_bootstrap
+        else:
+            r["ci_low"] = r["ci_high"] = r["best_fraction"] = None
+    if n_bootstrap:
+        ok = [r for r in rows if r["ci_low"] <= 0.0 <= r["ci_high"]]
+        best = min(ok, key=lambda r: (r["n_edges"], -r["heldout_loglik"]))["graph"]
+        rule = "fewest edges with delta CI including 0 (plan F1)"
+    else:
+        best, rule = top, "top held-out log-likelihood (no bootstrap replicates)"
+    return {
+        "comparison": rows, "best": best, "best_by_loglik": top, "best_rule": rule,
+        "nodes": nodes, "mode": "structural", "scores_source": "given", "warnings": warn_list,
+        "parameters": {
+            "n_bootstrap": n_bootstrap, "n_permutations": n_permutations,
+            "random_state": random_state, "alpha": alpha,
+            "standardize": (standardize if isinstance(standardize, bool) else std_mode),
+        },
+    }
 
 
 _TOPOLOGY_CRITERIA = ("heldout_loglik_own", "heldout_loglik_complete", "oos_coupling", "oos_r2", "outcome_r2")
@@ -1291,8 +1851,9 @@ def _compare_training_topologies(method, k, views, graphs, *, n_splits, train_fr
             Zte = dict(zip(names, sc_te["scores"]))
             if has_y:
                 Ztr["outcome"], Zte["outcome"] = _zscore(y_all[tr]), _zscore(y_all[te])
-            ll_own, _, _ = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, adj, directed)
-            ll_cmp, _, _ = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, complete, directed)
+            split_dofs = _result_node_dofs(res, names, len(tr))
+            ll_own, _, _ = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, adj, directed, node_dofs=split_dofs)
+            ll_cmp, _, _ = _graph_loglik(Ztr, Zte, Ntr, Nte, nodes, complete, directed, node_dofs=split_dofs)
             pm = path_model(res, v_te, graph=graphs[gname], directed=directed, view_names=names,
                             covariates=None if c_all is None else c_all[te], groups=None if g_all is None else g_all[te],
                             outcome=None if not has_y else y_all[te], conditioning="parents",
@@ -1353,18 +1914,29 @@ def predict_path(pm: Dict[str, Any], views: Any, *, covariates=None, groups=None
     true view. With every view present, ``scores`` equal `view_scores` exactly.
     """
     result = pm["result"]
+    nodes, models = pm["nodes"], pm["edge_models"]
+    view_nodes = [nm for nm in nodes if nm not in ("outcome", "consensus")]
     if result is None:
         sc = _given_scores_for(pm, views)
+        orig_map = {pos: pos for pos in range(len(view_nodes))}
+        signs_full = None
     else:
-        vlist = _view_list(result, views)
-        sc = view_scores(result, vlist, signs=pm["signs"])
+        orig_idx = pm.get("orig_view_indices")
+        if orig_idx is None:
+            orig_idx = list(range(len(view_nodes)))
+        orig_map = {int(orig_m): pos for pos, orig_m in enumerate(orig_idx)}
+        signs_full: Optional[List[Optional[np.ndarray]]] = [None] * len(result["v"])
+        for pos, orig_m in enumerate(orig_idx):
+            signs_full[int(orig_m)] = pm["signs"][pos]
+        vlist_raw = _view_list(result, views)
+        vlist = [vlist_raw[m] if m in orig_map else None for m in range(len(vlist_raw))]
+        sc = view_scores(result, vlist, signs=signs_full)
     n = sc["n"]
     N, _, _ = _nuisance(n, covariates, groups)
-    if N.shape[1] != pm["edge_models"][pm["nodes"][0]]["n_nuisance"]:
+    if N.shape[1] != models[nodes[0]]["n_nuisance"]:
         raise ValueError("covariates / groups do not match the nuisance design the path model was fitted with "
                          f"({pm['nuisance_names']}).")
-    nodes, models = pm["nodes"], pm["edge_models"]
-    Z: Dict[str, np.ndarray] = {nodes[m]: sc["scores"][m] for m in sc["available"]}
+    Z: Dict[str, np.ndarray] = {view_nodes[orig_map[m]]: sc["scores"][m] for m in sc["available"]}
     predicted_from: Dict[str, List[str]] = {}
     skip = {"consensus"} | (set() if outcome else {"outcome"})
     pending = [nm for nm in nodes if nm not in Z and nm not in skip]
@@ -1387,10 +1959,15 @@ def predict_path(pm: Dict[str, Any], views: Any, *, covariates=None, groups=None
     out: Dict[str, Any] = {"scores": Z, "predicted_from": predicted_from,
                            "outcome_pred": Z.get("outcome") if outcome else None, "r2_per_node": None}
     if views_true is not None:
-        st = _given_scores_for(pm, views_true) if result is None \
-            else view_scores(result, _view_list(result, views_true), signs=pm["signs"])
+        if result is None:
+            st = _given_scores_for(pm, views_true)
+        else:
+            vt_raw = _view_list(result, views_true)
+            vt_sub = [vt_raw[m] if m in orig_map else None for m in range(len(vt_raw))]
+            st = view_scores(result, vt_sub, signs=signs_full)
         r2 = {}
-        for m, nm in enumerate(nodes[:len(st["scores"])]):
+        for m in st["available"]:
+            nm = view_nodes[orig_map[m]]
             if nm in predicted_from:
                 t = st["scores"][m]
                 r2[nm] = float(1.0 - ((Z[nm] - t) ** 2).sum() / ((t - t.mean(0)) ** 2).sum())

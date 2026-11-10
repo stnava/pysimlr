@@ -573,3 +573,276 @@ def test_path_model_from_scores_matches_path_model():
     with pytest.raises(ValueError, match="unknown score name"):
         sem.predict_path(ps, {"nope": sc["view0"]}, covariates=C, groups=G)
     assert pysimlr.path_model_from_scores is sem.path_model_from_scores
+
+
+# ----------------------------------------------------------------------------- L2: missing held-out views
+def test_path_model_missing_heldout_views():
+    case = build_path_graph_case(CHAIN, 400, 2, (20, 25, 320), 0.4, random_state=11)
+    tr, te = _split(case, 300)
+    res = _fit("simlr", tr, 2, iterations=15)
+    y_te = case["outcome"][300:]
+
+    # 1. Trailing view 2 = None
+    te_trail = [te[0], te[1], None]
+    with pytest.warns(RuntimeWarning, match="views absent on evaluation rows and dropped"):
+        pm_trail = sem.path_model(res, te_trail, outcome=y_te, n_permutations=199,
+                                  n_bootstrap=0, random_state=7, train_views=tr)
+    vs_trail = sem.view_scores(res, te_trail, train_views=tr)["scores"]
+    ps_trail = sem.path_model_from_scores({"view0": vs_trail[0], "view1": vs_trail[1]},
+                                          outcome=y_te, n_permutations=199, n_bootstrap=0,
+                                          random_state=7)
+    assert np.allclose(pm_trail["edges"]["pillai"].to_numpy(float),
+                       ps_trail["edges"]["pillai"].to_numpy(float), atol=1e-10)
+    assert np.allclose(pm_trail["edges"]["p_perm"].to_numpy(float),
+                       ps_trail["edges"]["p_perm"].to_numpy(float), atol=1e-10)
+
+    # 2. Interior view 1 = None (with wide view 2 of width 320)
+    te_int = [te[0], None, te[2]]
+    with pytest.warns(RuntimeWarning, match="views absent on evaluation rows and dropped"):
+        pm_int = sem.path_model(res, te_int, graph=[(0, 2), (2, "outcome")], outcome=y_te,
+                                conditioning="parents", n_permutations=199, n_bootstrap=0,
+                                random_state=9, train_views=tr)
+    assert any("views absent on evaluation rows and dropped" in w for w in pm_int["warnings"])
+    assert pm_int["wide_views"] == ["view2"]
+    vs_int = sem.view_scores(res, te_int, train_views=tr)["scores"]
+    ps_int = sem.path_model_from_scores({"view0": vs_int[0], "view2": vs_int[2]},
+                                        graph=[("view0", "view2"), ("view2", "outcome")],
+                                        outcome=y_te, conditioning="parents",
+                                        n_permutations=199, n_bootstrap=0, random_state=9)
+    assert np.allclose(pm_int["edges"]["pillai"].to_numpy(float),
+                       ps_int["edges"]["pillai"].to_numpy(float), atol=1e-10)
+    assert np.allclose(pm_int["edges"]["p_perm"].to_numpy(float),
+                       ps_int["edges"]["p_perm"].to_numpy(float), atol=1e-10)
+
+    fc_v2 = pm_int["feature_contributions"][pm_int["feature_contributions"]["a"] == "view2"]
+    assert fc_v2["feature"].nunique() == 320
+
+    pp_full = sem.predict_path(pm_int, te_int)
+    assert set(pp_full["scores"]) >= {"view0", "view2", "outcome"}
+    pp_miss = sem.predict_path(pm_int, [te[0], None, None], views_true=te_int)
+    assert pp_miss["predicted_from"]["view2"] == ["view0"]
+    assert "view2" in pp_miss["r2_per_node"]
+
+    # Absent view referenced in graph raises ValueError naming the absent view
+    with pytest.raises(ValueError, match="view1"):
+        sem.path_model(res, te_int, graph=[(0, 1)], n_permutations=19, n_bootstrap=0)
+    with pytest.raises(ValueError, match="view1"):
+        sem.path_model(res, te_int, graph=[("view0", "view1")], n_permutations=19, n_bootstrap=0)
+
+    # rows='train' with None still raises
+    with pytest.raises(ValueError, match="every view"):
+        sem.path_model(res, [tr[0], None, tr[2]], rows="train", n_refits=2, n_bootstrap=0)
+
+
+# ----------------------------------------------------------------------------- L3: compare_path_models missing test views
+def test_compare_path_models_missing_test_views():
+    case = build_path_graph_case(CHAIN, 400, 2, (20, 25, 18), 0.35, random_state=13)
+    tr, te = _split(case, 300)
+    res = _fit("simlr", tr, 2, iterations=20)
+    te_int = [te[0], None, te[2]]
+    y_tr, y_te = case["outcome"][:300], case["outcome"][300:]
+
+    graphs = {
+        "direct": [(0, 2), (2, "outcome")],
+        "complete": None,
+        "empty": [],
+    }
+    with pytest.warns(RuntimeWarning, match="views absent on evaluation rows and dropped") as rec:
+        cmp = sem.compare_path_models(res, tr, te_int, graphs,
+                                      outcome_train=y_tr, outcome_test=y_te,
+                                      n_bootstrap=200, n_permutations=99, random_state=5)
+    drop_warns = [w for w in rec if "views absent on evaluation rows and dropped" in str(w.message)]
+    assert len(drop_warns) == 1
+    assert len(cmp["warnings"]) == 1 and "view1" in cmp["warnings"][0]
+    assert cmp["nodes"] == ["view0", "view2", "outcome"]
+    assert cmp["best"] in graphs and cmp["best_by_loglik"] in graphs
+    assert all(np.isfinite(r["heldout_loglik"]) for r in cmp["comparison"])
+
+    with pytest.raises(ValueError, match="view1"):
+        sem.compare_path_models(res, tr, te_int, {"bad": [(0, 1)]},
+                                n_bootstrap=0, n_permutations=19)
+    with pytest.raises(ValueError, match="view1"):
+        sem.compare_path_models(res, tr, te_int, {"bad": [("view0", "view1")]},
+                                n_bootstrap=0, n_permutations=19)
+
+
+# ----------------------------------------------------------------------------- L5: evidence regime labels
+def test_evidence_regime_labels_and_subtitle():
+    import matplotlib.pyplot as plt
+    from pysimlr import plotting as P
+
+    case = build_path_graph_case(CHAIN, 120, 2, (8, 7, 6), 0.4, random_state=17)
+    tr, te = _split(case, 80)
+    res = _fit("simlr", tr, 2, iterations=5, learning_rate=0.05)
+    y_tr, y_te = case["outcome"][:80], case["outcome"][80:]
+
+    regimes = [
+        ("heldout-fixed", _pm(res, te, outcome=y_te, n_permutations=29, n_bootstrap=0)),
+        ("train-refit", _pm(res, tr, rows="train", outcome=y_tr, null="refit",
+                            n_refits=2, n_bootstrap=0)),
+        ("train-fixed", _pm(res, tr, rows="train", outcome=y_tr, null="fixed",
+                            allow_train_fixed=True, n_permutations=29, n_bootstrap=0)),
+        ("train-fixed-unreported", _pm(res, tr, rows="train", outcome=y_tr, null="fixed",
+                                       allow_train_fixed=False, n_permutations=29, n_bootstrap=0)),
+        ("train-both", _pm(res, tr, rows="train", outcome=y_tr, null="both",
+                           allow_train_fixed=True, n_permutations=29, n_refits=2, n_bootstrap=0)),
+    ]
+    for expected, pm in regimes:
+        assert pm["fit"]["evidence"] == expected
+        for key in ("edges", "edge_components", "outcome_edges"):
+            df = pm[key]
+            assert "null_rows" in df.columns
+            assert (df["null_rows"] == expected).all()
+        fig = P.plot_path_model(pm)
+        all_txt = " ".join(t.get_text() for t in fig.texts)
+        assert f"evidence = {expected}" in all_txt
+        plt.close(fig)
+
+
+# ----------------------------------------------------------------------------- L6: allow_train_fixed reason string
+def test_allow_train_fixed_reason_string():
+    case = build_path_graph_case(CHAIN, 100, 2, (8, 7, 6), 0.4, random_state=19)
+    res = _fit("simlr", case["views"], 2, iterations=5, learning_rate=0.05)
+    sc = dict(zip(["view0", "view1", "view2"], sem.view_scores(res, case["views"])["scores"]))
+
+    # 1. Non-empty reason string on both path_model and path_model_from_scores
+    reason = "pooled out-of-fold ridge stack"
+    with pytest.warns(RuntimeWarning, match=reason):
+        pm = sem.path_model(res, case["views"], rows="train", null="fixed",
+                            allow_train_fixed=reason, n_permutations=29, n_bootstrap=0)
+    assert pm["parameters"]["allow_train_fixed_reason"] == reason
+    assert any(reason in w for w in pm["warnings"])
+    assert pm["edges"]["p_perm"].notna().all()
+
+    with pytest.warns(RuntimeWarning, match=reason):
+        ps = sem.path_model_from_scores(sc, rows="train", allow_train_fixed=reason,
+                                        n_permutations=29, n_bootstrap=0)
+    assert ps["parameters"]["allow_train_fixed_reason"] == reason
+    assert any(reason in w for w in ps["warnings"])
+    assert ps["edges"]["p_perm"].notna().all()
+
+    # 2. Empty / whitespace string raises ValueError
+    for bad in ("", "   ", "\t\n"):
+        with pytest.raises(ValueError, match="allow_train_fixed"):
+            sem.path_model(res, case["views"], rows="train", null="fixed",
+                           allow_train_fixed=bad, n_permutations=9, n_bootstrap=0)
+        with pytest.raises(ValueError, match="allow_train_fixed"):
+            sem.path_model_from_scores(sc, rows="train", allow_train_fixed=bad,
+                                       n_permutations=9, n_bootstrap=0)
+
+    # 3. Boolean True unchanged
+    with pytest.warns(RuntimeWarning, match="allow_train_fixed=True"):
+        pt = sem.path_model(res, case["views"], rows="train", null="fixed",
+                            allow_train_fixed=True, n_permutations=29, n_bootstrap=0)
+    assert pt["parameters"]["allow_train_fixed"] is True
+    assert pt["parameters"]["allow_train_fixed_reason"] is None
+
+
+# ----------------------------------------------------------------------------- L11: compare_path_models_from_scores & joint relevance
+def test_compare_path_models_from_scores_and_joint_relevance():
+    from pysimlr import plotting as P
+
+    case = build_path_graph_case(CHAIN, 320, 2, (12, 10, 8), 0.35, covariate_effect=0.4, random_state=21)
+    tr, te = _split(case, 200)
+    res = _fit("simlr", tr, 2, iterations=20, confounds=case["C"][:200])
+    c_tr, c_te = case["C"][:200], case["C"][200:]
+    y_tr, y_te = case["outcome"][:200], case["outcome"][200:]
+    names = ["view0", "view1", "view2"]
+    graphs = {
+        "chain": [("view0", "view1"), ("view1", "view2"), ("view2", "outcome")],
+        "complete": None,
+        "empty": [],
+    }
+
+    # (a) compare_path_models_from_scores with dofs matches compare_path_models to 1e-10
+    from pysimlr.consensus import view_dofs
+    cmp_fit = sem.compare_path_models(res, tr, te, graphs, covariates_train=c_tr, covariates_test=c_te,
+                                      outcome_train=y_tr, outcome_test=y_te,
+                                      n_bootstrap=200, n_permutations=99, random_state=6)
+    sc_tr = dict(zip(names, sem.view_scores(res, tr, train_views=tr)["scores"]))
+    sc_te = dict(zip(names, sem.view_scores(res, te, train_views=tr)["scores"]))
+    dofs_map = dict(zip(names, view_dofs(res["v"], len(tr))))
+    cmp_sc = pysimlr.compare_path_models_from_scores(
+        sc_tr, sc_te, graphs, covariates_train=c_tr, covariates_test=c_te,
+        outcome_train=y_tr, outcome_test=y_te, dofs=dofs_map,
+        n_bootstrap=200, n_permutations=99, random_state=6,
+    )
+    assert cmp_sc["scores_source"] == "given"
+    assert cmp_sc["best"] == cmp_fit["best"]
+    assert cmp_sc["best_by_loglik"] == cmp_fit["best_by_loglik"]
+    by_fit = {r["graph"]: r for r in cmp_fit["comparison"]}
+    by_sc = {r["graph"]: r for r in cmp_sc["comparison"]}
+    for gname in graphs:
+        assert abs(by_sc[gname]["heldout_loglik"] - by_fit[gname]["heldout_loglik"]) < 1e-10
+        assert abs(by_sc[gname]["bic"] - by_fit[gname]["bic"]) < 1e-10
+
+    # standardize="train" uses training mean/SD on test blocks (penalises test mean/scale shift)
+    sc_te_shifted = {nm: arr * 2.0 + 3.0 for nm, arr in sc_te.items()}
+    cmp_tr_std = pysimlr.compare_path_models_from_scores(
+        sc_tr, sc_te_shifted, graphs, covariates_train=c_tr, covariates_test=c_te,
+        outcome_train=y_tr, outcome_test=y_te, standardize="train", dofs=dofs_map,
+        n_bootstrap=0, n_permutations=9, random_state=6,
+    )
+    cmp_ps_std = pysimlr.compare_path_models_from_scores(
+        sc_tr, sc_te_shifted, graphs, covariates_train=c_tr, covariates_test=c_te,
+        outcome_train=y_tr, outcome_test=y_te, standardize="per_split", dofs=dofs_map,
+        n_bootstrap=0, n_permutations=9, random_state=6,
+    )
+    assert abs(cmp_ps_std["comparison"][0]["heldout_loglik"] - by_sc["chain"]["heldout_loglik"]) < 1e-10
+    assert cmp_tr_std["comparison"][0]["heldout_loglik"] < cmp_ps_std["comparison"][0]["heldout_loglik"] - 50.0
+    assert cmp_tr_std["parameters"]["standardize"] == "train"
+    assert cmp_ps_std["parameters"]["standardize"] == "per_split"
+    with pytest.raises(ValueError, match="outcome_train"):
+        pysimlr.compare_path_models_from_scores(
+            sc_tr, sc_te, graphs, outcome_train=y_tr[:-1], outcome_test=y_te,
+            n_bootstrap=0, n_permutations=9,
+        )
+
+    # Also supports absent test block with L3 check
+    sc_te_miss = {"view0": sc_te["view0"], "view1": None, "view2": sc_te["view2"]}
+    with pytest.warns(RuntimeWarning, match="views absent on evaluation rows and dropped"):
+        cmp_miss = pysimlr.compare_path_models_from_scores(
+            sc_tr, sc_te_miss, {"direct": [("view0", "view2")], "empty": []},
+            n_bootstrap=50, n_permutations=29, random_state=6,
+        )
+    assert cmp_miss["nodes"] == ["view0", "view2"]
+    with pytest.raises(ValueError, match="view1"):
+        pysimlr.compare_path_models_from_scores(
+            sc_tr, sc_te_miss, {"bad": [("view0", "view1")]}, n_bootstrap=0, n_permutations=9,
+        )
+
+    # (b) plot_edge_features / plot_edge_brain_map raise clear ValueError on scores-only pm
+    pm_sc = sem.path_model_from_scores(sc_te, n_permutations=19, n_bootstrap=0)
+    with pytest.raises(ValueError, match="scores-only|measurement model"):
+        P.plot_edge_features(pm_sc, "view0 - view1")
+    with pytest.raises(ValueError, match="scores-only|measurement model"):
+        P.plot_edge_brain_map(pm_sc, "view0 - view1")
+
+    # (c) feature_relevance runs on a pca fit with partial test views
+    res_pca = _fit("pca", tr, 2)
+    rel = pysimlr.feature_relevance(
+        res_pca, tr, [te[0], None, te[2]], component=0,
+        n_permutations=200, n_permutations_test=200,
+        n_refits=2, refit_permutations=100, n_null_refits=0, n_jobs=1,
+    )
+    assert set(rel["summary"]["view"]) == {0, 2}
+    assert len(rel["features"]) == 12 + 8
+
+    # (d) Wide middle view (E -> B -> MH, p_B = 110 on n_tr = 90): GCV + view_dofs calibration
+    # prevents in-sample overfitting of B from penalising true held-out E -> B -> MH edges
+    case_w = build_path_graph_case(CHAIN, 180, 1, (6, 110, 6), 0.45, random_state=33)
+    tr_w, te_w = _split(case_w, 90)
+    res_w = _fit("simlr", tr_w, 1, iterations=25, learning_rate=0.05, sparseness=0.0)
+    cmp_w = sem.compare_path_models(
+        res_w, tr_w, te_w,
+        {"serial": [(0, 1), (1, 2)], "direct_only": [(0, 2)], "empty": []},
+        directed=True, n_bootstrap=100, n_permutations=49, random_state=7,
+    )
+    by_w = {r["graph"]: r for r in cmp_w["comparison"]}
+    assert by_w["serial"]["heldout_loglik"] > by_w["direct_only"]["heldout_loglik"]
+    assert by_w["serial"]["heldout_loglik"] > by_w["empty"]["heldout_loglik"]
+
+
+
+
+

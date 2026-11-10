@@ -51,7 +51,7 @@ and claims therefore come from `loading_inference`, which refits the whole
 pipeline.
 """
 import warnings
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -585,7 +585,7 @@ def _procrustes(a: np.ndarray, ref: np.ndarray) -> np.ndarray:
 
 
 #: Rank selection rules exposed by `select_rank`.
-RANK_CRITERIA = ("component", "subspace", "oos_r2", "oos_r2_1se", "oos_coupling")
+RANK_CRITERIA = ("component", "subspace", "oos_r2", "oos_r2_1se", "oos_coupling", "heldout_coupling")
 
 _FISHER_Z_001 = 2.3263478740408408
 
@@ -640,9 +640,11 @@ def _oob_metrics(res: Dict[str, Any], sub_views: Sequence[torch.Tensor],
 def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 100,
                       fraction: float = 0.5, threshold: float = 0.8,
                       expected_false: float = 1.0,
-                      n_permutations: int = 0, random_state: int = 0, n_jobs: int = 1,
+                      n_permutations: int = 0, exclude_unconverged: bool = False,
+                      random_state: int = 0, n_jobs: int = 1,
                       maps: Sequence[str] = (), map_options: Optional[Dict[str, Any]] = None,
-                      _executor: Any = None, **params: Any) -> Dict[str, Any]:
+                      _executor: Any = None, _warn_unconverged: bool = True,
+                      **params: Any) -> Dict[str, Any]:
     r"""Uncertainty and selection for `structure`, by refitting the whole pipeline.
 
     Each of ``n_subsamples`` refits uses a random ``fraction`` of the rows
@@ -650,7 +652,10 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     reference fit's (orthogonal Procrustes on all views stacked), since the
     latent space fixes components only up to rotation. Every subsample refit
     also evaluates `pysimlr.predict` on its unused (out-of-bag) complement at
-    no extra fit cost.
+    no extra fit cost. With ``exclude_unconverged=True``, subsample refits with
+    ``converged=False`` are omitted from stability, interval, selection and
+    out-of-bag aggregates, and ``n_effective_refits`` records how many remained.
+    A ``RuntimeWarning`` is emitted when ``converged_fraction < 0.5``.
 
     Returns
     -------
@@ -774,61 +779,108 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                dict(refit_params, confounds=permute_view_confounds(conf, [None] + list(pis))))
               for pis in perm_idx]
     records = _run_fits(tasks, n_jobs, _executor)
-    cosines, r2_splits, coups, conv_flags, eff_ranks = [], [], [], [], []
+    sub_records = records[:len(sub_idx)]
+    conv_flags = [bool(rec["converged"]) for rec in sub_records]
+    conv_steps = [int(rec["n_steps"]) for rec in sub_records
+                  if rec["converged"] and rec.get("n_steps") is not None]
+    median_conv_iter = float(np.median(conv_steps)) if conv_steps else None
+    conv_frac = float(np.mean(conv_flags)) if conv_flags else 1.0
+    used_iter = params.get("iterations")
+    if used_iter is None:
+        prm = ref.get("parameters") or {}
+        used_iter = (prm.get("used") or {}).get("iterations")
+        if used_iter is None:
+            used_iter = (prm.get("defaults") or {}).get("iterations")
+        if used_iter is None:
+            used_iter = (ref.get("convergence") or {}).get("max_steps")
+    if _warn_unconverged and conv_frac < 0.5:
+        warnings.warn(
+            f"loading_inference: only {sum(conv_flags)}/{len(conv_flags)} ({conv_frac:.0%}) subsample refits "
+            f"converged; raise iterations; this run used {used_iter}.",
+            RuntimeWarning, stacklevel=2,
+        )
+    cosines, r2_splits, coups, eff_ranks = [], [], [], []
+    coup_splits_all: List[Optional[List[float]]] = []
+    kept_oob_scores = []
     map_aligned = {kk: [] for kk in maps}
-    for rec in records[:len(sub_idx)]:
+    for rows_, rec in zip(oob_rows, sub_records):
+        keep_rec = (not exclude_unconverged) or bool(rec["converged"])
         st_list = rec["structure"]
         st = np.vstack(st_list)
+        if keep_rec and rec["oos_coupling"] is not None:
+            _, col_ind = linear_sum_assignment(-np.abs(st.T @ stacked_ref))
+            inv = np.empty_like(col_ind)
+            inv[col_ind] = np.arange(k)
+            c_aligned = np.asarray(rec["oos_coupling"], float)[inv]
+            coups.append(c_aligned)
+            coup_splits_all.append([float(x) for x in c_aligned])
+        else:
+            coup_splits_all.append(None)
+        if not keep_rec:
+            continue
         rp = _procrustes(st, stacked_ref)
         aligned.append(st @ rp)
         if maps:
-            rows_, cols_ = linear_sum_assignment(-np.abs(rp))
+            rows_m, cols_m = linear_sum_assignment(-np.abs(rp))
             perm = np.zeros_like(rp)
-            perm[rows_, cols_] = np.sign(rp[rows_, cols_])
+            perm[rows_m, cols_m] = np.sign(rp[rows_m, cols_m])
             for kk in maps:
                 mk = np.vstack(rec["maps"][kk])
                 map_aligned[kk].append(mk @ (np.abs(perm) if kk == "relative_weight" else perm))
         cosines.append(_principal_cosines(st, stacked_ref))
-        conv_flags.append(rec["converged"])
         eff_ranks.append(rec["effective_rank"])
         if rec["oos_r2"] is not None:
             r2_splits.append(rec["oos_r2"])
-        if rec["oos_coupling"] is not None:
-            _, col_ind = linear_sum_assignment(-np.abs(st.T @ stacked_ref))
-            inv = np.empty_like(col_ind)
-            inv[col_ind] = np.arange(k)
-            coups.append(np.asarray(rec["oos_coupling"], float)[inv])
+        if rec.get("oob_scores") is not None:
+            kept_oob_scores.append({"rows": rows_, "scores": rec["oob_scores"]})
         for vi, c in enumerate(st_list):
             h = (c ** 2).sum(1)
             sel = np.zeros(h.shape[0], bool)
             sel[np.argsort(-h)[:qs[vi]]] = True
             chosen[vi].append(sel)
-    al = np.stack(aligned)                      # (B, p_total, k)
-    lo, hi = np.percentile(al, 2.5, axis=0), np.percentile(al, 97.5, axis=0)
-    r2_arr = np.asarray(r2_splits, float) if r2_splits else None
+    n_eff = len(aligned)
+    er_ref_key = "joint_effective_rank" if ref.get("basis_is_joint") else "effective_rank"
+    if n_eff > 0:
+        al = np.stack(aligned)                      # (B_eff, p_total, k)
+        lo, hi = np.percentile(al, 2.5, axis=0), np.percentile(al, 97.5, axis=0)
+        r2_arr = np.asarray(r2_splits, float) if r2_splits else None
+        sub_stab = [float(x) for x in np.nanmedian(cosines, axis=0)]
+        eff_rk = [float(x) for x in np.nanmedian(eff_ranks, axis=0)]
+    else:
+        al = None
+        lo = hi = np.full(stacked_ref.shape, np.nan, dtype=float)
+        r2_arr = None
+        sub_stab = [float("nan")] * int(k)
+        eff_rk = [float("nan")] * len(ref[er_ref_key])
     out = {"result": ref, "structure": ref["structure"], "ci_low": [], "ci_high": [],
-           "component_stability": [], "subspace_stability": [float(x) for x in np.nanmedian(cosines, axis=0)],
+           "component_stability": [], "subspace_stability": sub_stab,
            "oos_r2": ([float(x) for x in np.nanmean(r2_arr, axis=0)] if r2_arr is not None else None),
            "oos_r2_splits": ([float(x) for x in np.nanmean(r2_arr, axis=1)] if r2_arr is not None else None),
            "oos_coupling": ([float(x) for x in np.nanmedian(coups, axis=0)] if coups else None),
+           "oos_coupling_splits": (coup_splits_all if coups else None),
            "oos_n": int(n - m), "n_rows": int(n),
-           "oob_scores": [{"rows": rows_, "scores": rec["oob_scores"]}
-                          for rows_, rec in zip(oob_rows, records[:len(sub_idx)])
-                          if rec.get("oob_scores") is not None],
-           "converged_fraction": float(np.mean(conv_flags)),
-           "effective_rank": [float(x) for x in np.nanmedian(eff_ranks, axis=0)],
+           "oob_scores": kept_oob_scores,
+           "converged_fraction": conv_frac,
+           "median_converged_iter": median_conv_iter,
+           "n_effective_refits": int(n_eff),
+           "used_iterations": used_iter,
+           "effective_rank": eff_rk,
            "selection_frequency": [], "selected": [],
            "q": qs, "expected_false_selections": []}
     for vi, c in enumerate(c_ref):
         a, b = sizes[vi], sizes[vi + 1]
         out["ci_low"].append(torch.as_tensor(lo[a:b]).float())
         out["ci_high"].append(torch.as_tensor(hi[a:b]).float())
-        stab = []
-        for j in range(k):
-            rs = [np.corrcoef(al[t, a:b, j], c[:, j])[0, 1] for t in range(al.shape[0])]
-            stab.append(float(np.nanmedian(rs)))
+        if al is not None:
+            stab = []
+            for j in range(k):
+                rs = [np.corrcoef(al[t, a:b, j], c[:, j])[0, 1] for t in range(al.shape[0])]
+                stab.append(float(np.nanmedian(rs)))
+            freq = np.mean(chosen[vi], axis=0)
+        else:
+            stab = [float("nan")] * int(k)
+            freq = np.zeros(c.shape[0], dtype=float)
         out["component_stability"].append(stab)
-        freq = np.mean(chosen[vi], axis=0)
         out["selection_frequency"].append(torch.as_tensor(freq).float())
         out["selected"].append(torch.as_tensor(freq >= threshold))
         out["expected_false_selections"].append(qs[vi] ** 2 / ((2 * threshold - 1) * c.shape[0]))
@@ -840,8 +892,9 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
             m_sizes = np.cumsum([0] + m_widths)
             m_qs = [max(1, min(pw, int(np.floor(np.sqrt(expected_false * (2 * threshold - 1) * pw)))))
                     for pw in m_widths]
-            mal = np.stack(map_aligned[kk])                 # (B, sum(m_widths), k)
-            mlo, mhi = np.nanpercentile(mal, 2.5, axis=0), np.nanpercentile(mal, 97.5, axis=0)
+            mal = np.stack(map_aligned[kk]) if map_aligned[kk] else None
+            mlo = np.nanpercentile(mal, 2.5, axis=0) if mal is not None else np.full((m_sizes[-1], k), np.nan)
+            mhi = np.nanpercentile(mal, 97.5, axis=0) if mal is not None else np.full((m_sizes[-1], k), np.nan)
             entry = {"map": ref_maps[kk], "ci_low": [], "ci_high": [], "component_stability": [],
                      "selection_frequency": []}
             for vi in range(len(c_ref)):
@@ -849,24 +902,28 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                 rm = ref_maps[kk][vi].double().numpy()
                 entry["ci_low"].append(torch.as_tensor(mlo[a:b]).float())
                 entry["ci_high"].append(torch.as_tensor(mhi[a:b]).float())
-                stab = []
-                for j in range(k):
-                    rs = []
+                if mal is not None:
+                    stab = []
+                    for j in range(k):
+                        rs = []
+                        for t in range(mal.shape[0]):
+                            x_, y_ = mal[t, a:b, j], rm[:, j]
+                            ok = np.isfinite(x_) & np.isfinite(y_)
+                            rs.append(np.corrcoef(x_[ok], y_[ok])[0, 1] if ok.sum() > 2 and x_[ok].std() > 0
+                                      and y_[ok].std() > 0 else np.nan)
+                        stab.append(float(np.nanmedian(rs)) if np.isfinite(rs).any() else float("nan"))
+                    sel = []
                     for t in range(mal.shape[0]):
-                        x_, y_ = mal[t, a:b, j], rm[:, j]
-                        ok = np.isfinite(x_) & np.isfinite(y_)
-                        rs.append(np.corrcoef(x_[ok], y_[ok])[0, 1] if ok.sum() > 2 and x_[ok].std() > 0
-                                  and y_[ok].std() > 0 else np.nan)
-                    stab.append(float(np.nanmedian(rs)) if np.isfinite(rs).any() else float("nan"))
-                entry["component_stability"].append(stab)
-                sel = []
-                for t in range(mal.shape[0]):
-                    h = np.nansum(mal[t, a:b] ** 2, axis=1)
-                    pick = np.zeros(b - a, bool)
-                    if np.isfinite(mal[t, a:b]).any():
-                        pick[np.argsort(-h)[:m_qs[vi]]] = True
-                    sel.append(pick)
-                entry["selection_frequency"].append(torch.as_tensor(np.mean(sel, axis=0)).float())
+                        h = np.nansum(mal[t, a:b] ** 2, axis=1)
+                        pick = np.zeros(b - a, bool)
+                        if np.isfinite(mal[t, a:b]).any():
+                            pick[np.argsort(-h)[:m_qs[vi]]] = True
+                        sel.append(pick)
+                    entry["component_stability"].append(stab)
+                    entry["selection_frequency"].append(torch.as_tensor(np.mean(sel, axis=0)).float())
+                else:
+                    entry["component_stability"].append([float("nan")] * int(k))
+                    entry["selection_frequency"].append(torch.zeros(b - a, dtype=torch.float32))
             if kk == "relative_weight":
                 entry["rw_shrinkage"] = ref_lam["relative_weight"]    # lam per target, per view (reference fit)
             out["maps"][kk] = entry
@@ -892,10 +949,13 @@ def _fit_structure(task):
     r = fit(method, views, k, random_state=random_state, **params)
     er_key = "joint_effective_rank" if r.get("basis_is_joint") else "effective_rank"
     oos_r2, oos_coup, oob_scores = _oob_metrics(r, views, oob_views, return_scores=True)
+    conv = r.get("convergence") or {}
     return {
         "oob_scores": oob_scores,
         "structure": [c.double().numpy() for c in r["structure"]],
-        "converged": bool((r.get("convergence") or {}).get("converged", True)),
+        "converged": bool(conv.get("converged", True)),
+        "stop_reason": str(conv.get("stop_reason", "converged")),
+        "n_steps": (None if conv.get("n_steps") is None else int(conv["n_steps"])),
         "effective_rank": [float(x) for x in r[er_key]],
         "oos_r2": oos_r2,
         "oos_coupling": oos_coup,
@@ -968,27 +1028,38 @@ def _permutation_rank(observed: np.ndarray, null: np.ndarray, quantile: float) -
     return rank, thr
 
 
-def bottleneck_rank(views: Any, *, confounds: Any = None, mode: str = "cross", n_permutations: int = 100,
+def bottleneck_rank(views: Any, *, confounds: Any = None, mode: str = "cross",
+                    bound: str = "min", n_permutations: int = 100,
                     quantile: float = 0.95, random_state: int = 0) -> Dict[str, Any]:
-    """Bound on the shared rank ``k`` from the view that shares the least (permutation rank).
+    """Bound on the shared rank ``k`` from cross-view permutation analysis.
 
-    A consensus multi-view model asks every view to carry the same ``k`` latents, so ``k``
-    cannot exceed the number of shared dimensions supported by the view that shares the
-    least. For each view m, ``mode="cross"`` (default) takes the singular values of the
+    For each view m, ``mode="cross"`` (default) takes the singular values of the
     cross-covariance between the standardised view and the other views stacked, and counts the
     leading ones that exceed the ``quantile`` of the same singular values under
     ``n_permutations`` row permutations of view m (counting stops at the first miss). Private
     structure in a view does not enter a cross-covariance, and a shared latent counts however
-    small its within-view footprint, so this is the bottleneck a consensus model actually
-    meets. ``k_max`` is the minimum over views and ``bottleneck_view`` the view attaining it.
+    small its within-view footprint.
+
+    ``bound`` selects which multi-view summary sets ``k_max`` (all three are always returned as
+    ``k_max_min``, ``k_max_max`` and ``k_max_stacked``):
+
+    - ``"min"`` (default): bounds rank shared by every view (``ranks.min()``,
+      ``bottleneck_view = ranks.argmin()``).
+    - ``"max"``: bounds rank a consensus can carry from any view (``ranks.max()``,
+      ``bottleneck_view = ranks.argmax()``).
+    - ``"stacked"``: bounds pooled cross-view rank via Horn-style permutation analysis of the
+      top eigenvalues of the between-view operator ``M = g_all @ g_all - sum_i G_i @ G_i``
+      (``G_i = z_i @ z_i.T``, ``g_all = sum_i G_i``) against independent row permutations of
+      each view (``bottleneck_view = None``).
 
     ``mode="within"`` is Horn's parallel analysis per view (eigenvalues of the view's
     correlation matrix against column-permuted copies): the view's own reliable rank, which
     also counts private structure (overestimate) and misses a shared latent with a weak
     within-view footprint (underestimate; planted k = 3 with a 6-column view gave 2 on three
     of four seeds, where the cross-view rank gave 3 on all four). Both ranks are reported in
-    ``per_view``; ``mode`` picks which sets ``k_max``. The bound is a guide for the ``ks``
-    grid of `select_rank`, whose refit-based criteria still decide; `select_rank` only warns.
+    ``per_view``; ``mode`` picks which sets ``k_max`` for ``"min"`` and ``"max"``. The bound is
+    a guide for the ``ks`` grid of `select_rank`, whose refit-based criteria still decide;
+    `select_rank` only warns.
 
     Parameters
     ----------
@@ -1000,9 +1071,11 @@ def bottleneck_rank(views: Any, *, confounds: Any = None, mode: str = "cross", n
         on ``[1, its confounds]`` by least squares first; otherwise a covariate leaking into
         every view is a shared dimension and counts.
     mode : {"cross", "within"}, default "cross"
-        Which rank sets ``k_max``.
+        Which per-view rank sets ``k_max_min`` and ``k_max_max``.
+    bound : {"min", "max", "stacked"}, default "min"
+        Which summary sets ``k_max``.
     n_permutations : int, default 100
-        Null draws per view.
+        Null draws per view (and for the stacked between-view operator).
     quantile : float, default 0.95
         Null quantile a singular value (or eigenvalue) must exceed.
     random_state : int, default 0
@@ -1011,15 +1084,22 @@ def bottleneck_rank(views: Any, *, confounds: Any = None, mode: str = "cross", n
     Returns
     -------
     dict
-        ``k_max`` (int), ``bottleneck_view`` (int), ``per_view`` (DataFrame: view, n, p,
-        cross_rank, within_rank, first_singular_value, threshold_first), ``singular_values``
-        and ``thresholds`` (cross-view, lists of arrays per view), ``eigenvalues`` and
+        ``k_max`` (int), ``k_max_min`` (int), ``k_max_max`` (int), ``k_max_stacked`` (int),
+        ``bottleneck_view`` (int or None), ``per_view`` (DataFrame: view, n, p, cross_rank,
+        within_rank, first_singular_value, threshold_first, sigma1_over_tau95, tau95_rel_se
+        [bootstrap relative SE of the null quantile ``threshold_first`` only; sampling
+        variance of ``sigma1`` is not included], borderline [``|sigma1_over_tau95 - 1| < 2 *
+        tau95_rel_se``, i.e. ``sigma1`` within two null-threshold SEs of ``tau95``]),
+        ``singular_values`` and
+        ``thresholds`` (cross-view, lists of arrays per view), ``eigenvalues`` and
         ``eigen_thresholds`` (within-view), and ``parameters``.
     """
     import pandas as pd
     from .api import as_views
     if mode not in ("cross", "within"):
         raise ValueError(f"mode must be 'cross' or 'within'; got {mode!r}.")
+    if bound not in ("min", "max", "stacked"):
+        raise ValueError(f"bound must be 'min', 'max' or 'stacked'; got {bound!r}.")
     if not isinstance(views, (list, tuple)) or len(views) < 2:
         raise ValueError("bottleneck_rank needs at least 2 views.")
     if n_permutations < 1:
@@ -1048,46 +1128,138 @@ def bottleneck_rank(views: Any, *, confounds: Any = None, mode: str = "cross", n
             out.append(a - design @ np.linalg.lstsq(design, a, rcond=None)[0])
         arrs = out
     zs = [_pa_standardise(a) for a in arrs]
-    g_all = sum(z @ z.T for z in zs)                     # n x n Gram of all views stacked
-    children = np.random.default_rng(random_state).spawn(len(zs))
+    grams = [z @ z.T for z in zs]
+    g_all = sum(grams)                                    # n x n Gram of all views stacked
+    children = np.random.default_rng(random_state).spawn(len(zs) + 1)
     svs, thrs, eigs, ethrs, rows = [], [], [], [], []
-    for vi, (z, rng) in enumerate(zip(zs, children)):
-        g_others = g_all - z @ z.T
-        sv = _cross_singular_values(z, g_others, n)
-        null_sv = np.empty((n_permutations, sv.size))
-        ev = _pa_eigenvalues(z)
-        null_ev = np.empty((n_permutations, ev.size))
-        for b in range(n_permutations):
-            null_sv[b] = _cross_singular_values(z[rng.permutation(n)], g_others, n)
-            zp = np.column_stack([rng.permutation(z[:, j]) for j in range(z.shape[1])])
-            null_ev[b] = _pa_eigenvalues(zp)
+    for vi, (z, g_self, rng) in enumerate(zip(zs, grams, children[:len(zs)])):
+        g_others = g_all - g_self
+        p_m = z.shape[1]
+        if p_m > n:
+            w_o, v_o = np.linalg.eigh(g_others)
+            pos = w_o > 0.0
+            l_o = v_o[:, pos] * np.sqrt(w_o[pos])
+            pad_sv = np.zeros(p_m - int(pos.sum()), dtype=np.float64)
+            ev_cross = np.clip(np.linalg.eigvalsh(l_o.T @ g_self @ l_o)[::-1], 0.0, None)
+            sv = np.concatenate([np.sqrt(ev_cross) / (n - 1.0), pad_sv])
+            null_sv = np.empty((n_permutations, p_m))
+            ev = _pa_eigenvalues(z)
+            null_ev = np.empty((n_permutations, ev.size))
+            for b in range(n_permutations):
+                p_idx = rng.permutation(n)
+                g_p = g_self[p_idx][:, p_idx]
+                ev_b = np.clip(np.linalg.eigvalsh(l_o.T @ g_p @ l_o)[::-1], 0.0, None)
+                null_sv[b] = np.concatenate([np.sqrt(ev_b) / (n - 1.0), pad_sv])
+                zp = np.column_stack([rng.permutation(z[:, j]) for j in range(p_m)])
+                null_ev[b] = _pa_eigenvalues(zp)
+        else:
+            sv = _cross_singular_values(z, g_others, n)
+            null_sv = np.empty((n_permutations, sv.size))
+            ev = _pa_eigenvalues(z)
+            null_ev = np.empty((n_permutations, ev.size))
+            for b in range(n_permutations):
+                null_sv[b] = _cross_singular_values(z[rng.permutation(n)], g_others, n)
+                zp = np.column_stack([rng.permutation(z[:, j]) for j in range(p_m)])
+                null_ev[b] = _pa_eigenvalues(zp)
         cross_rank, thr = _permutation_rank(sv, null_sv, quantile)
         within_rank, ethr = _permutation_rank(ev, null_ev, quantile)
+        tau0 = float(thr[0])
+        ratio = float(sv[0] / tau0) if tau0 > 0.0 else float("inf")
+        boot_idx = rng.integers(0, n_permutations, size=(200, n_permutations))
+        boot_q = np.quantile(null_sv[:, 0][boot_idx], quantile, axis=1)
+        rel_se = float(np.std(boot_q, ddof=1) / tau0) if (tau0 > 0.0 and n_permutations > 1) else 0.0
+        borderline = bool(abs(ratio - 1.0) < 2.0 * rel_se)
         svs.append(sv)
         thrs.append(thr)
         eigs.append(ev)
         ethrs.append(ethr)
         rows.append({"view": vi, "n": n, "p": z.shape[1], "cross_rank": cross_rank, "within_rank": within_rank,
-                     "first_singular_value": float(sv[0]), "threshold_first": float(thr[0])})
+                     "first_singular_value": float(sv[0]), "threshold_first": tau0,
+                     "sigma1_over_tau95": ratio, "tau95_rel_se": rel_se, "borderline": borderline})
+
+    rng_stk = children[-1]
+    p_widths = [z.shape[1] for z in zs]
+    p_tot = int(sum(p_widths))
+    if p_tot < n:
+        offsets = np.cumsum([0] + p_widths)
+        pad_z = np.zeros(n - p_tot, dtype=np.float64)
+        z_cat = np.hstack(zs)
+        _, r_obs = np.linalg.qr(z_cat, mode="reduced")
+        c_off_obs = r_obs.T @ r_obs
+        for a_o, b_o in zip(offsets[:-1], offsets[1:]):
+            c_off_obs[a_o:b_o, a_o:b_o] = 0.0
+        ev_obs = np.linalg.eigvalsh(r_obs @ c_off_obs @ r_obs.T)
+        obs_stk = np.sort(np.concatenate([ev_obs, pad_z]))[::-1]
+        null_stk = np.empty((n_permutations, n), dtype=np.float64)
+        z_buf = np.empty((n, p_tot), dtype=np.float64)
+        for b in range(n_permutations):
+            for z, a_o, b_o in zip(zs, offsets[:-1], offsets[1:]):
+                p_idx = rng_stk.permutation(n)
+                z_buf[:, a_o:b_o] = z[p_idx]
+            _, r_p = np.linalg.qr(z_buf, mode="reduced")
+            c_off_p = r_p.T @ r_p
+            for a_o, b_o in zip(offsets[:-1], offsets[1:]):
+                c_off_p[a_o:b_o, a_o:b_o] = 0.0
+            ev_p = np.linalg.eigvalsh(r_p @ c_off_p @ r_p.T)
+            null_stk[b] = np.sort(np.concatenate([ev_p, pad_z]))[::-1]
+    else:
+        grams_sq = [g @ g for g in grams]
+        obs_stk = np.linalg.eigvalsh(g_all @ g_all - sum(grams_sq))[::-1]
+        null_stk = np.empty((n_permutations, n), dtype=np.float64)
+        for b in range(n_permutations):
+            g_perm_all = np.zeros((n, n), dtype=np.float64)
+            g_sq_perm_all = np.zeros((n, n), dtype=np.float64)
+            for g, g_sq in zip(grams, grams_sq):
+                p_idx = rng_stk.permutation(n)
+                ix = np.ix_(p_idx, p_idx)
+                g_perm_all += g[ix]
+                g_sq_perm_all += g_sq[ix]
+            null_stk[b] = np.linalg.eigvalsh(g_perm_all @ g_perm_all - g_sq_perm_all)[::-1]
+    k_max_stacked, _ = _permutation_rank(obs_stk, null_stk, quantile)
+
     per_view = pd.DataFrame(rows)
     col = "cross_rank" if mode == "cross" else "within_rank"
     ranks = per_view[col].to_numpy()
-    return {"k_max": int(ranks.min()), "bottleneck_view": int(ranks.argmin()), "per_view": per_view,
+    k_max_min = int(ranks.min())
+    k_max_max = int(ranks.max())
+    if bound == "min":
+        k_max = k_max_min
+        bview: Optional[int] = int(ranks.argmin())
+    elif bound == "max":
+        k_max = k_max_max
+        bview = int(ranks.argmax())
+    else:
+        k_max = int(k_max_stacked)
+        bview = None
+    return {"k_max": k_max, "k_max_min": k_max_min, "k_max_max": k_max_max,
+            "k_max_stacked": int(k_max_stacked), "bottleneck_view": bview, "per_view": per_view,
             "singular_values": svs, "thresholds": thrs, "eigenvalues": eigs, "eigen_thresholds": ethrs,
-            "parameters": {"mode": mode, "n_permutations": n_permutations, "quantile": quantile,
-                           "random_state": random_state, "confounds": confounds is not None}}
+            "parameters": {"mode": mode, "bound": bound, "n_permutations": n_permutations,
+                           "quantile": quantile, "random_state": random_state,
+                           "confounds": confounds is not None}}
 
 
 def select_rank(method: str, views: Any, ks: Any, *,
-                criterion: str = "component", n_subsamples: int = 20,
+                criterion: str = "component", bound: str = "max",
+                n_subsamples: int = 20,
                 fraction: float = 0.5, min_stability: float = 0.9,
                 min_oos_coupling: Optional[float] = None,
-                random_state: int = 0, n_jobs: int = 1, **params: Any) -> Dict[str, Any]:
+                heldout_views: Any = None,
+                exclude_unconverged: bool = False,
+                random_state: int = 0, n_jobs: int = 1,
+                _executor: Any = None, _bottleneck: Any = None,
+                _warn_bottleneck: bool = True,
+                **params: Any) -> Dict[str, Any]:
     """Choose ``k`` under whole-pipeline subsample refits and out-of-bag validation.
 
     For every ``k`` in ``ks``, `loading_inference` refits ``method`` on
     ``n_subsamples`` random ``fraction``-subsamples and evaluates each refit on
-    its unused ``1 - fraction`` complement. One pass produces five rank rules
+    its unused ``1 - fraction`` complement. With ``exclude_unconverged=True``,
+    refits with ``converged=False`` are omitted from stability and out-of-bag
+    summaries and ``n_effective_refits`` is recorded per row. ``bound`` (default
+    ``"max"``; also ``"min"`` or ``"stacked"``) controls the `bottleneck_rank`
+    summary used for ``ks="auto"`` and over-rank warnings. One pass produces
+    six rank rules
     (all reported in ``criteria``; ``criterion`` picks which one sets ``k``):
 
     ``"component"`` (default)
@@ -1110,6 +1282,12 @@ def select_rank(method: str, views: Any, ks: Any, *,
         leave-one-view-out score correlation >= ``min_oos_coupling`` (default:
         one-sided ``alpha = 0.01`` Fisher-z null threshold for the out-of-bag
         sample size).
+    ``"heldout_coupling"``
+        When ``heldout_views`` is given, largest ``k`` whose every component has
+        mean pairwise held-out cross-view correlation (`heldout_coupling`'s
+        ``cross_view_heldout``) >= ``min_oos_coupling`` (default: one-sided
+        ``alpha = 0.01`` Fisher-z null threshold for ``n_heldout``); ``None``
+        when ``heldout_views`` is omitted.
 
     Each row in ``table`` also reports ``converged_fraction``,
     ``min_effective_rank`` and ``basis_degenerate`` (``min_effective_rank < k -
@@ -1119,29 +1297,47 @@ def select_rank(method: str, views: Any, ks: Any, *,
     if criterion not in RANK_CRITERIA:
         raise ValueError(f"criterion must be one of {RANK_CRITERIA}; got {criterion!r}.")
     n_views = len(views) if isinstance(views, (list, tuple)) else 1
-    bott = bottleneck_rank(views, confounds=params.get("confounds")) if n_views >= 2 else None
+    bott = (_bottleneck if _bottleneck is not None
+            else (bottleneck_rank(views, confounds=params.get("confounds"), bound=bound) if n_views >= 2 else None))
     if isinstance(ks, str):
         if ks != "auto":
             raise ValueError(f"ks must be a sequence of ints or 'auto'; got {ks!r}.")
         if bott is None:
             raise ValueError("ks='auto' needs at least 2 views (bottleneck_rank).")
         if bott["k_max"] < 1:
-            raise ValueError("ks='auto': no view has reliable rank (parallel analysis found no "
-                             "eigenvalue above the permutation null).")
+            pv = bott["per_view"]
+            ratios = pv["first_singular_value"].to_numpy() / np.maximum(pv["threshold_first"].to_numpy(), 1e-30)
+            worst_i = int(np.argmin(ratios))
+            worst_r = float(ratios[worst_i])
+            if bound == "max":
+                raise ValueError(
+                    f"ks='auto': cross-view bottleneck bound (bound={bound!r}) is 0: no view's first "
+                    f"cross-view singular value exceeds its permutation threshold (worst view {worst_i}, "
+                    f"sigma1/tau95 = {worst_r:.2f}). Pass ks explicitly."
+                )
+            raise ValueError(
+                f"ks='auto': cross-view bottleneck bound (bound={bound!r}) is 0 "
+                f"(worst view {worst_i}, sigma1/tau95 = {worst_r:.2f}). Pass ks explicitly."
+            )
         ks = range(1, bott["k_max"] + 1)
     ks_sorted = sorted(dict.fromkeys(int(x) for x in ks))
     if not ks_sorted or ks_sorted[0] < 1:
         raise ValueError("ks must be a non-empty sequence of positive integers.")
-    if bott is not None and ks_sorted[-1] > bott["k_max"]:
+    if _warn_bottleneck and bott is not None and ks_sorted[-1] > bott["k_max"]:
+        detail = (f"view {bott['bottleneck_view']} bound"
+                  if bott["bottleneck_view"] is not None else "stacked cross-view operator")
         warnings.warn(f"max(ks)={ks_sorted[-1]} exceeds the bottleneck bound k_max={bott['k_max']} "
-                      f"(view {bott['bottleneck_view']} shares the fewest dimensions).",
+                      f"({detail}).",
                       RuntimeWarning, stacklevel=2)
     rows = []
     workers = _n_workers(n_jobs)
-    with (_pool(workers) if workers > 1 else contextlib.nullcontext()) as ex:
+    own_pool = (_executor is None) and (workers > 1)
+    with (_pool(workers) if own_pool else contextlib.nullcontext()) as ex:
+        pool_ex = ex if own_pool else _executor
         for k in ks_sorted:
             rows.append(_rank_row(method, views, k, n_subsamples, fraction, min_stability,
-                                  min_oos_coupling, random_state, n_jobs, ex, params))
+                                  min_oos_coupling, heldout_views, exclude_unconverged,
+                                  random_state, n_jobs, pool_ex, params))
     criteria = _select_by_criteria(rows)
     return {"k": criteria[criterion], "criterion": criterion, "criteria": criteria, "table": rows,
             "bottleneck": bott}
@@ -1151,6 +1347,7 @@ def _select_by_criteria(rows: List[Dict[str, Any]]) -> Dict[str, Optional[int]]:
     comp = [r["k"] for r in rows if r["all_stable"]]
     sub = [r["k"] for r in rows if r["subspace_stable"]]
     coup = [r["k"] for r in rows if r["all_coupled"]]
+    hcoup = [r["k"] for r in rows if r["heldout_all_coupled"]]
     r2_rows = [r for r in rows if r["oos_r2"] is not None and np.isfinite(r["oos_r2"])]
     k_r2 = k_r2_1se = None
     if r2_rows:
@@ -1167,17 +1364,28 @@ def _select_by_criteria(rows: List[Dict[str, Any]]) -> Dict[str, Optional[int]]:
         "oos_r2": k_r2,
         "oos_r2_1se": k_r2_1se,
         "oos_coupling": max(coup) if coup else None,
+        "heldout_coupling": max(hcoup) if hcoup else None,
     }
 
 
 def _rank_row(method, views, k, n_subsamples, fraction, min_stability, min_oos_coupling,
-              random_state, n_jobs, executor, params):
+              heldout_views, exclude_unconverged, random_state, n_jobs, executor, params):
     """One `select_rank` table row at rank ``k``."""
     inf = loading_inference(method, views, k, n_subsamples=n_subsamples, fraction=fraction,
-                            random_state=random_state, n_jobs=n_jobs, _executor=executor,
+                            exclude_unconverged=exclude_unconverged, random_state=random_state,
+                            n_jobs=n_jobs, _executor=executor, _warn_unconverged=False,
                             **params)
-    cs = np.nanmedian(np.asarray(inf["component_stability"], float), axis=0)
+    if inf["converged_fraction"] < 0.5:
+        warnings.warn(
+            f"select_rank(k={k}): only {inf['converged_fraction']:.0%} of subsample refits converged; "
+            f"raise iterations; this run used {inf['used_iterations']}.",
+            RuntimeWarning, stacklevel=3,
+        )
+    cs_mat = np.asarray(inf["component_stability"], float)
+    cs = np.nanmedian(cs_mat, axis=0) if np.isfinite(cs_mat).any() else np.full(k, np.nan)
     ss = np.asarray(inf["subspace_stability"], float)
+    cs_ok = bool(cs.size > 0 and np.all(np.isfinite(cs)))
+    ss_ok = bool(ss.size > 0 and np.all(np.isfinite(ss)))
     splits = inf["oos_r2_splits"]
     if splits is not None and len(splits) > 0:
         sp = np.asarray(splits, float)
@@ -1191,27 +1399,244 @@ def _rank_row(method, views, k, n_subsamples, fraction, min_stability, min_oos_c
         min_coup = float(np.min(cp))
         thr = (float(min_oos_coupling) if min_oos_coupling is not None
                else float(np.tanh(_FISHER_Z_001 / np.sqrt(max(1, inf["oos_n"] - 3)))))
-        all_coupled = bool(min_coup >= thr)
+        all_coupled = bool(np.isfinite(min_coup) and min_coup >= thr)
     else:
         min_coup = thr = None
         all_coupled = False
-    min_er = float(np.min(inf["effective_rank"]))
+    er_arr = np.asarray(inf["effective_rank"], float)
+    er_ok = bool(er_arr.size > 0 and np.all(np.isfinite(er_arr)))
+    min_er = float(np.min(er_arr)) if er_ok else None
+    if heldout_views is not None:
+        from .sem import _view_list
+        from .utils import heldout_coupling as _heldout_coupling
+        tr_vl = list(views) if isinstance(views, (list, tuple)) else [views]
+        te_vl = _view_list(inf["result"], heldout_views)
+        hc = _heldout_coupling(inf["result"], te_vl, train_views=tr_vl)
+        h_arr = np.asarray(hc["cross_view_heldout"], float)
+        if h_arr.size > 0 and np.all(np.isfinite(h_arr)):
+            h_coup: Optional[List[float]] = [float(x) for x in h_arr]
+            h_min: Optional[float] = float(np.min(h_arr))
+            h_thr: Optional[float] = (
+                float(min_oos_coupling) if min_oos_coupling is not None
+                else float(np.tanh(_FISHER_Z_001 / np.sqrt(max(1, hc["n_heldout"] - 3))))
+            )
+            h_all = bool(h_min >= h_thr)
+        else:
+            h_coup = h_min = h_thr = None
+            h_all = False
+    else:
+        h_coup = h_min = h_thr = None
+        h_all = False
     return {
         "k": k,
         "component_stability": [float(x) for x in cs],
-        "min_stability": float(np.min(cs)),
-        "all_stable": bool(np.all(cs >= min_stability)),
+        "min_stability": (float(np.min(cs)) if cs_ok else None),
+        "all_stable": (bool(np.all(cs >= min_stability)) if cs_ok else False),
         "subspace_stability": [float(x) for x in ss],
-        "min_subspace_stability": float(np.min(ss)),
-        "subspace_stable": bool(np.min(ss) >= min_stability),
+        "min_subspace_stability": (float(np.min(ss)) if ss_ok else None),
+        "subspace_stable": (bool(np.min(ss) >= min_stability) if ss_ok else False),
         "oos_r2": oos_r2,
         "oos_r2_se": oos_r2_se,
         "oos_r2_per_view": inf["oos_r2"],
         "oos_coupling": coup,
+        "oos_coupling_splits": inf["oos_coupling_splits"],
         "min_oos_coupling": min_coup,
         "oos_coupling_threshold": thr,
         "all_coupled": all_coupled,
+        "heldout_coupling": h_coup,
+        "heldout_min_coupling": h_min,
+        "heldout_coupling_threshold": h_thr,
+        "heldout_all_coupled": h_all,
         "converged_fraction": inf["converged_fraction"],
+        "median_converged_iter": inf["median_converged_iter"],
+        "n_effective_refits": inf["n_effective_refits"],
         "min_effective_rank": min_er,
-        "basis_degenerate": bool(min_er < k - 0.5),
+        "basis_degenerate": (bool(min_er < k - 0.5) if min_er is not None else False),
+    }
+
+
+def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *,
+                 confounds: Any = None, confound_strength: float = 1.0,
+                 n_subsamples: int = 20, fraction: float = 0.7,
+                 min_stability: float = 0.5, exclude_unconverged: bool = True,
+                 min_converged_fraction: float = 0.5, random_state: int = 0,
+                 n_jobs: int = 1, **shared_params: Any) -> Dict[str, Any]:
+    """Choose ``(candidate, k)`` across pre-specified models on one paired out-of-bag design.
+
+    Thin wrapper over `select_rank`: every ``(candidate, k)`` cell runs with the
+    identical ``random_state``, ``n_subsamples``, ``fraction`` and ``confounds`` so
+    out-of-bag splits are paired across cells, sharing one worker pool and one
+    `bottleneck_rank` computation.
+
+    1. **Health gate**: ``converged_fraction >= min_converged_fraction`` and
+       ``not basis_degenerate``.
+    2. **Signal gate**: every component's median out-of-bag leave-one-view-out
+       coupling >= ``oos_coupling_threshold`` (the calibrated Fisher-z ``alpha = 0.01``
+       bar for the out-of-bag ``n``, i.e. ``all_coupled == True``).
+    3. **1-SE parsimony rule**: among signal-bearing, health-passing cells, compute
+       ``S = sum_j max(median_coupling_j, 0)^2``; admit cells whose paired per-split
+       difference to the highest-``S`` cell has ``mean >= -SE``; select by
+       ``(complexity_tier, k, -sparseness, -min_subspace_stability)`` with tiers
+       ``0`` (``pca``, ``nsa_pipeline``), ``1`` (``simlr``), ``2`` (other methods).
+
+    If no cell is signal-bearing, ``signal_detected`` is ``False`` and ``selected``
+    is the ``k = 1`` health-passing cell with the highest median coupling (with
+    ``note = "no candidate cleared the out-of-bag cross-view coupling bar"``).
+    """
+    import contextlib
+    import pandas as pd
+    from .api import METHODS, resolve_method
+    from .confounds import SINK_PARAMS
+
+    if isinstance(ks, str):
+        raise ValueError("select_model requires an explicit sequence of positive ints for ks ('auto' is not accepted).")
+    ks_sorted = sorted(dict.fromkeys(int(x) for x in ks))
+    if not ks_sorted or ks_sorted[0] < 1:
+        raise ValueError("ks must be a non-empty sequence of positive integers.")
+    if not candidates:
+        raise ValueError("candidates must be a non-empty sequence of {'label', 'method', 'params'} mappings.")
+
+    labels_seen = set()
+    cand_list = []
+    for c in candidates:
+        if not isinstance(c, Mapping) or "label" not in c or "method" not in c:
+            raise ValueError("each candidate must be a mapping with keys 'label' and 'method'.")
+        lbl = str(c["label"])
+        if lbl in labels_seen:
+            raise ValueError(f"duplicate candidate label {lbl!r}.")
+        labels_seen.add(lbl)
+        cand_list.append({"label": lbl, "method": str(c["method"]), "params": dict(c.get("params") or {})})
+
+    n_views = len(views) if isinstance(views, (list, tuple)) else 1
+    bott = bottleneck_rank(views, confounds=confounds, bound="max") if n_views >= 2 else None
+    if bott is not None and ks_sorted[-1] > bott["k_max"]:
+        detail = (f"view {bott['bottleneck_view']} bound"
+                  if bott["bottleneck_view"] is not None else "stacked cross-view operator")
+        warnings.warn(f"max(ks)={ks_sorted[-1]} exceeds the bottleneck bound k_max={bott['k_max']} "
+                      f"({detail}).",
+                      RuntimeWarning, stacklevel=2)
+    workers = _n_workers(n_jobs)
+    own_pool = workers > 1
+    cells: List[Dict[str, Any]] = []
+    sink_keys = frozenset(SINK_PARAMS)
+    all_known = frozenset().union(*(s.accepts for s in METHODS.values())) | sink_keys
+
+    with (_pool(workers) if own_pool else contextlib.nullcontext()) as ex:
+        pool_ex = ex if own_pool else None
+        for cand in cand_list:
+            method = cand["method"]
+            spec = resolve_method(method)
+            accepted = spec.accepts | sink_keys
+            call_params: Dict[str, Any] = {}
+            for sk, sv in shared_params.items():
+                if sk in accepted or sk not in all_known:
+                    call_params[sk] = sv
+            call_params.update(cand["params"])
+            if confounds is not None:
+                call_params["confounds"] = confounds
+                call_params["confound_strength"] = confound_strength
+            tier = 0 if method in ("pca", "nsa_pipeline") else (1 if method == "simlr" else 2)
+            if method in ("pca", "nsa_pipeline"):
+                sp_scalar = 0.0
+            else:
+                sp_raw = call_params.get("sparseness")
+                if sp_raw is None:
+                    sp_scalar = 0.5
+                elif isinstance(sp_raw, (list, tuple, np.ndarray)):
+                    sp_scalar = float(np.mean(sp_raw))
+                else:
+                    sp_scalar = float(sp_raw)
+            for k in ks_sorted:
+                sr = select_rank(method, views, [k], n_subsamples=n_subsamples, fraction=fraction,
+                                 min_stability=min_stability, exclude_unconverged=exclude_unconverged,
+                                 random_state=random_state, n_jobs=n_jobs,
+                                 _executor=pool_ex, _bottleneck=bott, _warn_bottleneck=False,
+                                 **call_params)
+                r = sr["table"][0]
+                health_ok = bool(r["converged_fraction"] >= min_converged_fraction and not r["basis_degenerate"])
+                signal_bearing = bool(health_ok and r["all_coupled"])
+                oc = r["oos_coupling"]
+                score_s = float(sum(max(float(v), 0.0) ** 2 for v in oc)) if oc is not None else 0.0
+                split_s = [
+                    (float(sum(max(float(v), 0.0) ** 2 for v in sp_c)) if sp_c is not None else None)
+                    for sp_c in (r["oos_coupling_splits"] or [])
+                ]
+                cell = {
+                    "label": cand["label"],
+                    "method": method,
+                    "params": dict(cand["params"]),
+                    "k": int(k),
+                    "complexity_tier": tier,
+                    "sparseness": sp_scalar,
+                    "health_ok": health_ok,
+                    "signal_bearing": signal_bearing,
+                    "score_S": score_s,
+                    "paired_diff_mean": None,
+                    "paired_diff_se": None,
+                    "within_1se": False,
+                    **r,
+                    "note": None,
+                    "_split_S": split_s,
+                }
+                cells.append(cell)
+
+    sig_cells = [c for c in cells if c["signal_bearing"]]
+    if sig_cells:
+        signal_detected = True
+        best_cell = max(sig_cells, key=lambda c: c["score_S"])
+        for c in cells:
+            if c is best_cell:
+                c["paired_diff_mean"] = 0.0
+                c["paired_diff_se"] = 0.0
+                c["within_1se"] = True
+                continue
+            diffs = [
+                sc - sb for sc, sb in zip(c["_split_S"], best_cell["_split_S"])
+                if sc is not None and sb is not None
+            ]
+            if len(diffs) >= 2:
+                md = float(np.mean(diffs))
+                sd = float(np.std(diffs, ddof=1) / np.sqrt(len(diffs)))
+                c["paired_diff_mean"] = md
+                c["paired_diff_se"] = sd
+                c["within_1se"] = bool(c["signal_bearing"] and md >= -sd - 1e-12)
+            elif len(diffs) == 1:
+                md = float(diffs[0])
+                c["paired_diff_mean"] = md
+                c["paired_diff_se"] = 0.0
+                c["within_1se"] = bool(c["signal_bearing"] and md >= -1e-12)
+            else:
+                c["within_1se"] = bool(c["signal_bearing"] and c["score_S"] >= best_cell["score_S"] - 1e-12)
+        admitted = [c for c in sig_cells if c["within_1se"]]
+        winner = min(
+            admitted,
+            key=lambda c: (
+                c["complexity_tier"],
+                c["k"],
+                -c["sparseness"],
+                -(c["min_subspace_stability"] if c["min_subspace_stability"] is not None else -1.0),
+                -c["score_S"],
+            ),
+        )
+    else:
+        signal_detected = False
+        hp_k1 = [c for c in cells if c["health_ok"] and c["k"] == 1]
+        pool_fb = hp_k1 or [c for c in cells if c["health_ok"]] or list(cells)
+        min_k_fb = min(c["k"] for c in pool_fb)
+        pool_fb = [c for c in pool_fb if c["k"] == min_k_fb]
+
+        def _med_coup(c: Dict[str, Any]) -> float:
+            oc_v = c["oos_coupling"]
+            return float(np.mean(oc_v)) if oc_v is not None and len(oc_v) else float("-inf")
+
+        winner = max(pool_fb, key=lambda c: (_med_coup(c), -c["complexity_tier"], c["sparseness"]))
+        winner["note"] = "no candidate cleared the out-of-bag cross-view coupling bar"
+
+    clean_rows = [{kk: vv for kk, vv in c.items() if kk != "_split_S"} for c in cells]
+    selected = {kk: vv for kk, vv in winner.items() if kk != "_split_S"}
+    return {
+        "selected": selected,
+        "signal_detected": signal_detected,
+        "table": pd.DataFrame(clean_rows),
+        "bottleneck": bott,
     }

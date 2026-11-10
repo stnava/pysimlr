@@ -94,6 +94,14 @@ _MEDIUM_FILES = {
     "test_tier2_boundaries.py",
     "test_tier3_combinations.py",
     "test_tier4_scenarios.py",
+    "test_loadings.py",
+    "test_rank_bottleneck.py",
+    "test_sem.py",
+    "test_plotting_sem.py",
+    "test_feature_relevance.py",
+    "test_feature_maps.py",
+    "test_stats.py",
+    "test_confound_sink.py",
 }
 
 

@@ -563,7 +563,7 @@ def predict(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
         raise ValueError("predict needs a result from pysimlr.fit (it carries 'method').")
     # A subset of views (a dict, or None for a missing view) or extended views
     # (`pysimlr.extend`): the consensus is built from the views available.
-    if isinstance(views, dict) or (isinstance(views, (list, tuple)) and any(v is None for v in views)):
+    if isinstance(views, Mapping) or (isinstance(views, (list, tuple)) and any(v is None for v in views)):
         from .extension import predict_views
         return predict_views(result, views)
     spec = resolve_method(result["method"])

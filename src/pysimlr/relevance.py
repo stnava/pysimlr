@@ -79,16 +79,10 @@ def _targets(result: Dict[str, Any], views: List[Optional[torch.Tensor]], avail:
              eval_views: Sequence[int], component: Optional[int], outcome, signs=None):
     """Component j, per-view signs, and {m: (standardized X_m, target t)} on the given rows."""
     from .api import _preprocess_views, predict
-    from .extension import view_names as _names
+    from .sem import view_scores
     rot = result["loading_rotation"].detach().double().numpy()
     call = [views[i] if i in avail else None for i in range(len(views))]
     pred = predict(result, call)
-    lat = pred["latents"]
-    if isinstance(lat, dict):
-        names = _names(result)
-        sc = {i: np.asarray(lat[names[i]].detach().double()) @ rot for i in avail}
-    else:
-        sc = {i: np.asarray(lat[i].detach().double()) @ rot for i in avail}
     u = np.asarray(pred["u"].detach().double()) @ rot
     if component is None:
         if outcome is None:
@@ -98,9 +92,13 @@ def _targets(result: Dict[str, Any], views: List[Optional[torch.Tensor]], avail:
             raise ValueError(f"outcome has {len(y)} rows; the views have {u.shape[0]}.")
         component = int(np.argmax([abs(np.corrcoef(u[:, c], y)[0, 1]) for c in range(u.shape[1])]))
     if signs is None:
-        uc = u - u.mean(0)
-        signs = {i: np.where(((z - z.mean(0)) * uc).sum(0) >= 0, 1.0, -1.0) for i, z in sc.items()}
-    sc = {i: _zscore(z * signs[i]) for i, z in sc.items()}
+        vs = view_scores(result, call, sign_against=pred["u"], standardize=True, _pred=pred)
+        signs_out = vs["signs"]
+    else:
+        sgn_seq = [signs.get(m) for m in range(len(views))] if isinstance(signs, Mapping) else signs
+        vs = view_scores(result, call, signs=sgn_seq, standardize=True, _pred=pred)
+        signs_out = vs["signs"]
+    sc = {i: vs["scores"][i] for i in avail}
     xs, _ = _preprocess_views([views[i] for i in avail], result["scale_list"],
                               [result["provenance_list"][i] for i in avail])
     xs = {i: x.double().numpy() for i, x in zip(avail, xs)}
@@ -110,7 +108,7 @@ def _targets(result: Dict[str, Any], views: List[Optional[torch.Tensor]], avail:
         if not others:
             raise ValueError(f"view {m}: no other available view to build the target from.")
         out[m] = (_zscore(xs[m]), _zscore(sum(sc[i] for i in others))[:, component])
-    return component, signs, out
+    return component, signs_out, out
 
 
 def _group_index(names: Sequence[str], labels: Mapping[str, Mapping[str, str]], min_size: int):

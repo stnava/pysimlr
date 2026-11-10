@@ -386,3 +386,18 @@ def test_apply_view_sink_rejects_wrong_width(data):
     _, rec = fit_confound_sink(xtr, ctr)
     with pytest.raises(ValueError, match="columns"):
         apply_view_sink(xtr[1], rec["views"][0])
+
+
+def test_confound_decorrelation_mapping_partial_views(data):
+    from types import MappingProxyType
+    xtr, xte, _, _, ctr, cte = data
+    with _quiet():
+        res = fit("simlr", xtr, 2, random_state=0, confounds=ctr, iterations=20)
+        full_before = confound_decorrelation(res, xte, cte)
+        mp = MappingProxyType({"view0": xte[0], "view1": xte[1]})
+        dec_map = confound_decorrelation(res, mp, cte)
+        dec_list = confound_decorrelation(res, [xte[0], xte[1], None], cte)
+    assert np.isfinite(dec_map["max"]) and np.isfinite(dec_map["mean"])
+    assert dec_map == dec_list
+    assert confound_decorrelation(res, xte, cte) == full_before
+
