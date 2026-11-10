@@ -941,16 +941,23 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         oob_rows.append(oob)
         t_idx = torch.as_tensor(idx)
         t_oob = torch.as_tensor(oob) if len(oob) >= 2 else None
-        oob_v = [x[t_oob] for x in view_list] if t_oob is not None else None
+        sub_v = [x[t_idx].numpy() if x.device.type == "cpu" else x[t_idx] for x in view_list]
+        oob_v = (
+            [x[t_oob].numpy() if x.device.type == "cpu" else x[t_oob] for x in view_list]
+            if t_oob is not None else None
+        )
         sub_p = refit_params if conf is None else dict(refit_params, confounds=slice_confounds(conf, idx))
-        task = (method, [x[t_idx] for x in view_list], oob_v, k, random_state, sub_p)
+        task = (method, sub_v, oob_v, k, random_state, sub_p)
         if map_opts:
             t_opts = (dict(map_opts, probe_views=[None if pt is None else pt[t_idx]
                                                   for pt in probe_tensors])
                       if probe_tensors is not None else map_opts)
             task = task + (t_opts,)
         tasks.append(task)
-    tasks += [(method, [view_list[0]] + [x[torch.as_tensor(pi)] for x, pi in zip(view_list[1:], pis)],
+    tasks += [(method,
+               ([view_list[0].numpy()] if view_list[0].device.type == "cpu" else [view_list[0]])
+               + [x[torch.as_tensor(pi)].numpy() if x.device.type == "cpu" else x[torch.as_tensor(pi)]
+                  for x, pi in zip(view_list[1:], pis)],
                None, k, random_state,
                refit_params if conf is None else
                dict(refit_params, confounds=permute_view_confounds(conf, [None] + list(pis))))
@@ -1105,6 +1112,7 @@ def _fit_structure(task):
     """One refit, returning structure coefficients and out-of-bag diagnostics as
     plain NumPy/Python objects. Module level so worker processes can import it."""
     from .api import fit
+    from .extension import _used
     map_opts = None
     if len(task) == 5:
         method, views, k, random_state, params = task
@@ -1117,12 +1125,16 @@ def _fit_structure(task):
     er_key = "joint_effective_rank" if r.get("basis_is_joint") else "effective_rank"
     oos_r2, oos_coup, oob_scores = _oob_metrics(r, views, oob_views, return_scores=True)
     conv = r.get("convergence") or {}
+    used_iter = params.get("iterations")
+    if used_iter is None:
+        used_iter = _used(r, "iterations", conv.get("max_steps"))
     return {
         "oob_scores": oob_scores,
         "structure": [c.double().numpy() for c in r["structure"]],
         "converged": bool(conv.get("converged", True)),
         "stop_reason": str(conv.get("stop_reason", "converged")),
         "n_steps": (None if conv.get("n_steps") is None else int(conv["n_steps"])),
+        "used_iterations": used_iter,
         "effective_rank": [float(x) for x in r[er_key]],
         "oos_r2": oos_r2,
         "oos_coupling": oos_coup,
@@ -1568,13 +1580,94 @@ def _select_by_criteria(rows: List[Dict[str, Any]]) -> Dict[str, Optional[int]]:
     }
 
 
-def _rank_row(method, views, k, n_subsamples, fraction, min_stability, min_oos_coupling,
-              heldout_views, exclude_unconverged, random_state, n_jobs, executor, params):
-    """One `select_rank` table row at rank ``k``."""
-    inf = loading_inference(method, views, k, n_subsamples=n_subsamples, fraction=fraction,
-                            exclude_unconverged=exclude_unconverged, random_state=random_state,
-                            n_jobs=n_jobs, _executor=executor, _warn_unconverged=False,
-                            **params)
+def _summarize_cell_records(
+    c_ref: List[np.ndarray],
+    n_er_blocks: int,
+    used_iter: Any,
+    sub_records: Sequence[Dict[str, Any]],
+    k: int,
+    n: int,
+    m: int,
+    exclude_unconverged: bool,
+) -> Dict[str, Any]:
+    """Reduce a reference structure list + subsample `_fit_structure` records into `_rank_row` summary keys."""
+    from scipy.optimize import linear_sum_assignment
+
+    conv_flags = [bool(rec["converged"]) for rec in sub_records]
+    conv_steps = [
+        int(rec["n_steps"])
+        for rec in sub_records
+        if rec["converged"] and rec.get("n_steps") is not None
+    ]
+    median_conv_iter = float(np.median(conv_steps)) if conv_steps else None
+    conv_frac = float(np.mean(conv_flags)) if conv_flags else 1.0
+    stacked_ref = np.vstack(c_ref)
+    sizes = np.cumsum([0] + [c.shape[0] for c in c_ref])
+    aligned, cosines, r2_splits, coups, eff_ranks = [], [], [], [], []
+    coup_splits_all: List[Optional[List[float]]] = []
+    for rec in sub_records:
+        keep_rec = (not exclude_unconverged) or bool(rec["converged"])
+        st_list = rec["structure"]
+        st = np.vstack(st_list)
+        if keep_rec and rec["oos_coupling"] is not None:
+            _, col_ind = linear_sum_assignment(-np.abs(st.T @ stacked_ref))
+            inv = np.empty_like(col_ind)
+            inv[col_ind] = np.arange(k)
+            c_aligned = np.asarray(rec["oos_coupling"], float)[inv]
+            coups.append(c_aligned)
+            coup_splits_all.append([float(x) for x in c_aligned])
+        else:
+            coup_splits_all.append(None)
+        if not keep_rec:
+            continue
+        rp = _procrustes(st, stacked_ref)
+        aligned.append(st @ rp)
+        cosines.append(_principal_cosines(st, stacked_ref))
+        eff_ranks.append(rec["effective_rank"])
+        if rec["oos_r2"] is not None:
+            r2_splits.append(rec["oos_r2"])
+
+    n_eff = len(aligned)
+    if n_eff > 0:
+        al = np.stack(aligned)
+        r2_arr = np.asarray(r2_splits, float) if r2_splits else None
+        sub_stab = [float(x) for x in np.nanmedian(cosines, axis=0)]
+        eff_rk = [float(x) for x in np.nanmedian(eff_ranks, axis=0)]
+        comp_stab = [
+            _col_corr_stability(al[:, sizes[vi]:sizes[vi + 1]], c)
+            for vi, c in enumerate(c_ref)
+        ]
+    else:
+        r2_arr = None
+        sub_stab = [float("nan")] * int(k)
+        eff_rk = [float("nan")] * int(n_er_blocks)
+        comp_stab = [[float("nan")] * int(k) for _ in c_ref]
+
+    return {
+        "component_stability": comp_stab,
+        "subspace_stability": sub_stab,
+        "oos_r2": ([float(x) for x in np.nanmean(r2_arr, axis=0)] if r2_arr is not None else None),
+        "oos_r2_splits": ([float(x) for x in np.nanmean(r2_arr, axis=1)] if r2_arr is not None else None),
+        "oos_coupling": ([float(x) for x in np.nanmedian(coups, axis=0)] if coups else None),
+        "oos_coupling_splits": (coup_splits_all if coups else None),
+        "oos_n": int(n - m),
+        "converged_fraction": conv_frac,
+        "median_converged_iter": median_conv_iter,
+        "n_effective_refits": int(n_eff),
+        "used_iterations": used_iter,
+        "effective_rank": eff_rk,
+    }
+
+
+def _rank_row_from_summary(
+    inf: Dict[str, Any],
+    k: int,
+    min_stability: float,
+    min_oos_coupling: Optional[float],
+    heldout_views: Any = None,
+    views: Any = None,
+) -> Dict[str, Any]:
+    """Build one `select_rank` / `select_model` diagnostic row from summary metrics."""
     if inf["converged_fraction"] < 0.5:
         warnings.warn(
             f"select_rank(k={k}): only {inf['converged_fraction']:.0%} of subsample refits converged; "
@@ -1638,6 +1731,16 @@ def _rank_row(method, views, k, n_subsamples, fraction, min_stability, min_oos_c
     }
 
 
+def _rank_row(method, views, k, n_subsamples, fraction, min_stability, min_oos_coupling,
+              heldout_views, exclude_unconverged, random_state, n_jobs, executor, params):
+    """One `select_rank` table row at rank ``k``."""
+    inf = loading_inference(method, views, k, n_subsamples=n_subsamples, fraction=fraction,
+                            exclude_unconverged=exclude_unconverged, random_state=random_state,
+                            n_jobs=n_jobs, _executor=executor, _warn_unconverged=False,
+                            **params)
+    return _rank_row_from_summary(inf, k, min_stability, min_oos_coupling, heldout_views, views)
+
+
 def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *,
                  confounds: Any = None, confound_strength: float = 1.0,
                  n_subsamples: int = 20, fraction: float = 0.7,
@@ -1666,16 +1769,17 @@ def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *
     is the ``k = 1`` health-passing cell with the highest median coupling (with
     ``note = "no candidate cleared the out-of-bag cross-view coupling bar"``).
     """
-    import contextlib
     import pandas as pd
-    from .api import METHODS, resolve_method
-    from .confounds import SINK_PARAMS
+    from .api import METHODS, as_views, resolve_method
+    from .confounds import SINK_PARAMS, slice_confounds
 
     if isinstance(ks, str):
         raise ValueError("select_model requires an explicit sequence of positive ints for ks ('auto' is not accepted).")
     ks_sorted = _normalize_ks(ks)
     if not candidates:
         raise ValueError("candidates must be a non-empty sequence of {'label', 'method', 'params'} mappings.")
+    if not 0.0 < fraction < 1.0:
+        raise ValueError(f"fraction must be in (0, 1); got {fraction}.")
 
     labels_seen = set()
     cand_list = []
@@ -1688,73 +1792,119 @@ def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *
         labels_seen.add(lbl)
         cand_list.append({"label": lbl, "method": str(c["method"]), "params": dict(c.get("params") or {})})
 
+    _n_workers(n_jobs)
     n_views = len(views) if isinstance(views, (list, tuple)) else 1
     bott = bottleneck_rank(views, confounds=confounds, bound="max") if n_views >= 2 else None
     _warn_if_above_bottleneck(ks_sorted, bott)
-    workers = _n_workers(n_jobs)
-    own_pool = workers > 1
-    cells: List[Dict[str, Any]] = []
+
+    view_list = as_views(views)
+    n = view_list[0].shape[0]
+    views_np = [x.numpy() if x.device.type == "cpu" else x for x in view_list]
+    all_rows = np.arange(n)
+    n_sub = int(n_subsamples)
+
+    split_cache: Dict[int, Tuple[List[np.ndarray], List[Any], List[Any]]] = {}
+
+    def _get_splits(m_val: int) -> Tuple[List[np.ndarray], List[Any], List[Any]]:
+        if m_val not in split_cache:
+            rng_m = np.random.default_rng(random_state)
+            sub_idx_m = [np.sort(rng_m.choice(n, m_val, replace=False)) for _ in range(n_sub)]
+            sub_v_list, oob_v_list = [], []
+            for idx in sub_idx_m:
+                oob = np.setdiff1d(all_rows, idx, assume_unique=True)
+                t_idx = torch.as_tensor(idx)
+                t_oob = torch.as_tensor(oob) if len(oob) >= 2 else None
+                sub_v_list.append([x[t_idx].numpy() if x.device.type == "cpu" else x[t_idx] for x in view_list])
+                oob_v_list.append(
+                    [x[t_oob].numpy() if x.device.type == "cpu" else x[t_oob] for x in view_list]
+                    if t_oob is not None else None
+                )
+            split_cache[m_val] = (sub_idx_m, sub_v_list, oob_v_list)
+        return split_cache[m_val]
+
     sink_keys = frozenset(SINK_PARAMS)
     all_known = frozenset().union(*(s.accepts for s in METHODS.values())) | sink_keys
+    all_tasks: List[Any] = []
+    cell_specs: List[Tuple[Dict[str, Any], str, int, float, int, int, Optional[float], int]] = []
 
-    with (_pool(workers) if own_pool else contextlib.nullcontext()) as ex:
-        pool_ex = ex if own_pool else None
-        for cand in cand_list:
-            method = cand["method"]
-            spec = resolve_method(method)
-            accepted = spec.accepts | sink_keys
-            call_params: Dict[str, Any] = {}
-            for sk, sv in shared_params.items():
-                if sk in accepted or sk not in all_known:
-                    call_params[sk] = sv
-            call_params.update(cand["params"])
-            if confounds is not None:
-                call_params["confounds"] = confounds
-                call_params["confound_strength"] = confound_strength
-            tier = 0 if method in ("pca", "nsa_pipeline") else (1 if method == "simlr" else 2)
-            if method in ("pca", "nsa_pipeline"):
-                sp_scalar = 0.0
+    for cand in cand_list:
+        method = cand["method"]
+        spec = resolve_method(method)
+        accepted = spec.accepts | sink_keys
+        call_params: Dict[str, Any] = {}
+        for sk, sv in shared_params.items():
+            if sk in accepted or sk not in all_known:
+                call_params[sk] = sv
+        call_params.update(cand["params"])
+        min_oos_c = call_params.pop("min_oos_coupling", None)
+        if confounds is not None:
+            call_params["confounds"] = confounds
+            call_params["confound_strength"] = confound_strength
+        tier = 0 if method in ("pca", "nsa_pipeline") else (1 if method == "simlr" else 2)
+        if method in ("pca", "nsa_pipeline"):
+            sp_scalar = 0.0
+        else:
+            sp_raw = call_params.get("sparseness")
+            if sp_raw is None:
+                sp_scalar = 0.5
+            elif isinstance(sp_raw, (list, tuple, np.ndarray)):
+                sp_scalar = float(np.mean(sp_raw))
             else:
-                sp_raw = call_params.get("sparseness")
-                if sp_raw is None:
-                    sp_scalar = 0.5
-                elif isinstance(sp_raw, (list, tuple, np.ndarray)):
-                    sp_scalar = float(np.mean(sp_raw))
-                else:
-                    sp_scalar = float(sp_raw)
-            for k in ks_sorted:
-                sr = select_rank(method, views, [k], n_subsamples=n_subsamples, fraction=fraction,
-                                 min_stability=min_stability, exclude_unconverged=exclude_unconverged,
-                                 random_state=random_state, n_jobs=n_jobs,
-                                 _executor=pool_ex, _bottleneck=bott, _warn_bottleneck=False,
-                                 **call_params)
-                r = sr["table"][0]
-                health_ok = bool(r["converged_fraction"] >= min_converged_fraction and not r["basis_degenerate"])
-                signal_bearing = bool(health_ok and r["all_coupled"])
-                oc = r["oos_coupling"]
-                score_s = float(sum(max(float(v), 0.0) ** 2 for v in oc)) if oc is not None else 0.0
-                split_s = [
-                    (float(sum(max(float(v), 0.0) ** 2 for v in sp_c)) if sp_c is not None else None)
-                    for sp_c in (r["oos_coupling_splits"] or [])
-                ]
-                cell = {
-                    "label": cand["label"],
-                    "method": method,
-                    "params": dict(cand["params"]),
-                    "k": int(k),
-                    "complexity_tier": tier,
-                    "sparseness": sp_scalar,
-                    "health_ok": health_ok,
-                    "signal_bearing": signal_bearing,
-                    "score_S": score_s,
-                    "paired_diff_mean": None,
-                    "paired_diff_se": None,
-                    "within_1se": False,
-                    **r,
-                    "note": None,
-                    "_split_S": split_s,
-                }
-                cells.append(cell)
+                sp_scalar = float(sp_raw)
+        conf_c = call_params.get("confounds")
+        for k in ks_sorted:
+            m = max(k + 2, int(round(fraction * n)))
+            sub_idx_m, sub_v_list, oob_v_list = _get_splits(m)
+            offset = len(all_tasks)
+            all_tasks.append((method, views_np, k, random_state, call_params))
+            for idx, sub_v, oob_v in zip(sub_idx_m, sub_v_list, oob_v_list):
+                sub_p = call_params if conf_c is None else dict(call_params, confounds=slice_confounds(conf_c, idx))
+                all_tasks.append((method, sub_v, oob_v, k, random_state, sub_p))
+            cell_specs.append((cand, method, tier, sp_scalar, k, m, min_oos_c, offset))
+
+    all_records = _run_fits(all_tasks, n_jobs)
+
+    cells: List[Dict[str, Any]] = []
+    for cand, method, tier, sp_scalar, k, m, min_oos_c, offset in cell_specs:
+        ref_rec = all_records[offset]
+        sub_records = all_records[offset + 1 : offset + 1 + n_sub]
+        summary = _summarize_cell_records(
+            ref_rec["structure"],
+            len(ref_rec["effective_rank"]),
+            ref_rec["used_iterations"],
+            sub_records,
+            k,
+            n,
+            m,
+            exclude_unconverged,
+        )
+        r = _rank_row_from_summary(summary, k, min_stability, min_oos_c)
+        health_ok = bool(r["converged_fraction"] >= min_converged_fraction and not r["basis_degenerate"])
+        signal_bearing = bool(health_ok and r["all_coupled"])
+        oc = r["oos_coupling"]
+        score_s = float(sum(max(float(v), 0.0) ** 2 for v in oc)) if oc is not None else 0.0
+        split_s = [
+            (float(sum(max(float(v), 0.0) ** 2 for v in sp_c)) if sp_c is not None else None)
+            for sp_c in (r["oos_coupling_splits"] or [])
+        ]
+        cell = {
+            "label": cand["label"],
+            "method": method,
+            "params": dict(cand["params"]),
+            "k": int(k),
+            "complexity_tier": tier,
+            "sparseness": sp_scalar,
+            "health_ok": health_ok,
+            "signal_bearing": signal_bearing,
+            "score_S": score_s,
+            "paired_diff_mean": None,
+            "paired_diff_se": None,
+            "within_1se": False,
+            **r,
+            "note": None,
+            "_split_S": split_s,
+        }
+        cells.append(cell)
 
     sig_cells = [c for c in cells if c["signal_bearing"]]
     if sig_cells:

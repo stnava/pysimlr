@@ -3,6 +3,63 @@ import numpy as np
 from typing import Optional, Union, Dict, Any, Tuple, List
 from .utils import safe_svd
 
+
+#: Minimum aspect ratio ``p / n`` for the ``n x n`` float64 Gram ``eigh`` fast-path in ``ba_svd``.
+WIDE_GRAM_ASPECT_RATIO = 4
+
+
+def _wide_gram_svd(
+    x: torch.Tensor,
+    nu: int,
+    nv: int,
+) -> Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """Fast thin SVD for wide CPU matrices (``p >= 4 * n``) via ``float64`` Gram ``eigh``.
+
+    Returns ``None`` whenever any requested singular value lies near or inside
+    the numerical null space (``lambda_j <= 1e-8 * lambda_0``) or ``eigh`` fails,
+    so callers fall back transparently to ``safe_svd`` with full precision.
+    """
+    n, p = x.shape
+    nu_c = max(0, min(int(nu), n, p))
+    nv_c = max(0, min(int(nv), n, p))
+    ns_c = min(nu_c, nv_c)
+    if nu_c == 0 and nv_c == 0:
+        return x[:, :0], x.new_zeros(0), x.t()[:, :0]
+
+    x64 = x.double()
+    g = x64 @ x64.t()
+    try:
+        evals_asc, u_asc = torch.linalg.eigh(g)
+    except RuntimeError:
+        return None
+
+    evals = evals_asc.flip(0)
+    u64 = u_asc.flip(1)
+    eval_max = float(evals[0].item())
+    if eval_max <= 0.0:
+        return (
+            torch.eye(n, nu_c, dtype=x.dtype, device=x.device),
+            torch.zeros(ns_c, dtype=x.dtype, device=x.device),
+            torch.eye(p, nv_c, dtype=x.dtype, device=x.device),
+        )
+
+    req = max(nu_c, nv_c)
+    if float(evals[req - 1].item()) <= 1e-8 * eval_max:
+        return None
+
+    u_out = u64[:, :nu_c].to(dtype=x.dtype).contiguous() if nu_c > 0 else x[:, :0]
+    s_out = torch.sqrt(evals[:ns_c]).to(dtype=x.dtype).contiguous() if ns_c > 0 else x.new_zeros(0)
+    if nv_c > 0:
+        s_v = torch.sqrt(evals[:nv_c])
+        v_raw = x64.t() @ (u64[:, :nv_c] / s_v.unsqueeze(0))
+        q_v, r_v = torch.linalg.qr(v_raw, mode="reduced")
+        sgn = torch.where(torch.diagonal(r_v) < 0.0, -1.0, 1.0)
+        v_out = (q_v * sgn.unsqueeze(0)).to(dtype=x.dtype).contiguous()
+    else:
+        v_out = x.t()[:, :0]
+    return u_out, s_out, v_out
+
+
 def ba_svd(x: torch.Tensor, 
            nu: Optional[int] = None, 
            nv: Optional[int] = None, 
@@ -51,6 +108,16 @@ def ba_svd(x: torch.Tensor,
     n, p = x.shape
     if nu is None: nu = min(n, p)
     if nv is None: nv = min(n, p)
+
+    if (
+        n >= 1
+        and p >= WIDE_GRAM_ASPECT_RATIO * n
+        and x.device.type == "cpu"
+        and bool(torch.isfinite(x).all())
+    ):
+        gram_res = _wide_gram_svd(x, nu, nv)
+        if gram_res is not None:
+            return gram_res
     
     try:
         u, s, vh = safe_svd(x, full_matrices=False)

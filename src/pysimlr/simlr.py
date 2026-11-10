@@ -1,7 +1,7 @@
 
 import torch
 import numpy as np
-from typing import List, Optional, Union, Dict, Any
+from typing import List, Optional, Union, Dict, Any, Tuple
 from .svd import ba_svd, top_right_singular_vectors
 from .utils import basis_rank_report
 from .optimizers import create_optimizer, SIMLR_OPTIMIZER_DEFAULTS
@@ -2331,7 +2331,41 @@ def pairwise_matrix_similarity(mat_list: List[torch.Tensor], v_list: List[torch.
             similarities[f"sim_{i}_{j}"] = adjusted_rvcoef(l_i, l_j)
     return similarities
 
-def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_perms: int = 50, verbose: bool = False, **simlr_params) -> Dict[str, Any]:
+def _fit_and_score_simlr_perm(
+    mats: List[torch.Tensor], k: int, simlr_params: Dict[str, Any]
+) -> Tuple[Dict[str, Any], Dict[str, float]]:
+    """Fit SiMLR and score pairwise similarity on the same matrices the fit saw."""
+    fit = simlr(mats, k=k, verbose=False, **simlr_params)
+    # The basis V is learned on preprocessed data, so the similarity must be
+    # evaluated on preprocessed data too. Scoring raw matrices against a V
+    # fitted on centered/scaled ones mixes two different feature scalings.
+    scale_list = fit.get('scale_list') or []
+    prov_list = fit.get('provenance_list') or []
+    if scale_list and scale_list[0] != "none" and len(prov_list) == len(mats):
+        scored = [preprocess_data(m, scale_list, provenance=pv)
+                  for m, pv in zip(mats, prov_list)]
+    else:
+        scored = mats
+    v_norm = [l1_normalize_features(v) for v in fit['v']]
+    return fit, pairwise_matrix_similarity(scored, v_norm)
+
+
+def _simlr_perm_worker(task: Tuple[List[np.ndarray], int, Dict[str, Any]]) -> Dict[str, float]:
+    """Module-level worker evaluating one pre-shuffled permutation draw."""
+    mats_np, k, params_p = task
+    mats_t = [torch.from_numpy(a) for a in mats_np]
+    _, sims_p = _fit_and_score_simlr_perm(mats_t, k, params_p)
+    return sims_p
+
+
+def simlr_perm(
+    data_matrices: List[Union[torch.Tensor, np.ndarray]],
+    k: int,
+    n_perms: int = 50,
+    verbose: bool = False,
+    n_jobs: int = 1,
+    **simlr_params,
+) -> Dict[str, Any]:
     """
     Perform permutation testing for SiMLR to assess the significance of shared latent structures.
 
@@ -2349,6 +2383,11 @@ def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_p
         The number of permutations to perform (default is 50).
     verbose : bool, optional
         Whether to print progress during the SiMLR optimization (default is False).
+    n_jobs : int, optional
+        Number of worker processes for permutation fits (``1`` runs serially; ``-1``
+        uses all logical CPUs). Row permutations and per-draw RNG seeds are spawned
+        via ``numpy.random.SeedSequence`` in the parent so results do not depend on
+        ``n_jobs``.
     **simlr_params : dict
         Additional parameters passed to the `simlr` function (e.g., energy_type, nsa_w, optimizer_type).
 
@@ -2382,38 +2421,62 @@ def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_p
     TypeError
         If the inputs are of an invalid type.
     """
+    from .loadings import _n_workers, _pool
+
+    workers = _n_workers(n_jobs)
     torch_mats = [torch.as_tensor(m).float().contiguous() for m in data_matrices]
 
-    def _fit_and_score(mats):
-        """Fit SiMLR and score pairwise similarity on the same matrices the fit saw."""
-        fit = simlr(mats, k=k, verbose=False, **simlr_params)
-        # The basis V is learned on preprocessed data, so the similarity must be
-        # evaluated on preprocessed data too. Scoring raw matrices against a V
-        # fitted on centered/scaled ones mixes two different feature scalings.
-        scale_list = fit.get('scale_list') or []
-        prov_list = fit.get('provenance_list') or []
-        if scale_list and scale_list[0] != "none" and len(prov_list) == len(mats):
-            scored = [preprocess_data(m, scale_list, provenance=pv)
-                      for m, pv in zip(mats, prov_list)]
-        else:
-            scored = mats
-        v_norm = [l1_normalize_features(v) for v in fit['v']]
-        return fit, pairwise_matrix_similarity(scored, v_norm)
-
-    res, obs_sims = _fit_and_score(torch_mats)
+    res, obs_sims = _fit_and_score_simlr_perm(torch_mats, k, simlr_params)
     if verbose:
         print(f"Observed pairwise similarities: {obs_sims}")
 
     null_results = {key: [] for key in obs_sims}
-    for p in range(n_perms):
-        if verbose and p % 10 == 0:
-            print(f"Permutation {p}/{n_perms}")
+    if n_perms > 0:
+        caller_seed = simlr_params.get("random_state", None)
+        perm_seed = (
+            int(caller_seed)
+            if caller_seed is not None
+            else int(torch.randint(0, 2**31 - 1, (1,)).item())
+        )
+        n_rows = int(torch_mats[0].shape[0])
+        mats_np_base = [m.detach().cpu().numpy() for m in torch_mats]
+        child_ss = np.random.SeedSequence(perm_seed).spawn(int(n_perms))
         # Independently shuffling rows of every view destroys cross-view
         # correspondence while preserving each view's marginal distribution.
-        mats_perm = [m[torch.randperm(m.shape[0])] for m in torch_mats]
-        _, sims_p = _fit_and_score(mats_perm)
-        for k_sim, v_sim in sims_p.items():
-            null_results[k_sim].append(v_sim)
+        perm_tasks = []
+        for cs in child_ss:
+            rng_p = np.random.default_rng(cs)
+            mats_p = [
+                np.ascontiguousarray(m_arr[rng_p.permutation(n_rows)])
+                for m_arr in mats_np_base
+            ]
+            fit_seed_p = int(rng_p.integers(0, 2**31 - 1))
+            perm_tasks.append((mats_p, k, dict(simlr_params, random_state=fit_seed_p)))
+
+        all_cpu = all(m.device.type == "cpu" for m in torch_mats)
+        if workers > 1 and n_perms > 1 and all_cpu:
+            if verbose:
+                print(f"Running {n_perms} permutations across {min(workers, int(n_perms))} workers")
+            with _pool(min(workers, int(n_perms))) as ex:
+                perm_sims_list = list(ex.map(_simlr_perm_worker, perm_tasks))
+        elif all_cpu:
+            perm_sims_list = []
+            for p_idx, task_p in enumerate(perm_tasks):
+                if verbose and p_idx % 10 == 0:
+                    print(f"Permutation {p_idx}/{n_perms}")
+                perm_sims_list.append(_simlr_perm_worker(task_p))
+        else:
+            perm_sims_list = []
+            for p_idx, (mats_p, _, params_p) in enumerate(perm_tasks):
+                if verbose and p_idx % 10 == 0:
+                    print(f"Permutation {p_idx}/{n_perms}")
+                mats_dev = [torch.from_numpy(a).to(m.device) for a, m in zip(mats_p, torch_mats)]
+                _, sims_p = _fit_and_score_simlr_perm(mats_dev, k, params_p)
+                perm_sims_list.append(sims_p)
+
+        for sims_p in perm_sims_list:
+            for k_sim, v_sim in sims_p.items():
+                null_results[k_sim].append(v_sim)
 
     stats = {}
     for k_sim, obs in obs_sims.items():
