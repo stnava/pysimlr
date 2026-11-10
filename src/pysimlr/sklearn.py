@@ -237,6 +237,20 @@ class MultiViewSiMR(BaseEstimator, TransformerMixin):
         return np.hstack(recs) if self.input_was_array_ else recs
 
 
+def _resolve_task_step(task: str, model: Optional[Any] = None) -> tuple[str, Any]:
+    """Validate `task` and return `(step_name, estimator)` with default classifier/regressor."""
+    if task not in ("classification", "regression"):
+        raise ValueError(f"Unknown task: {task}. Expected 'classification' or 'regression'.")
+    if model is None:
+        if task == "classification":
+            from sklearn.linear_model import LogisticRegression
+            model = LogisticRegression(C=1.0, max_iter=500)
+        else:
+            from sklearn.linear_model import Ridge
+            model = Ridge(alpha=1.0)
+    return ("classifier" if task == "classification" else "regressor", model)
+
+
 def build_simlr_pipeline(
     n_components: int = 6,
     task: str = "classification",
@@ -255,19 +269,11 @@ def build_simlr_pipeline(
     with its training statistics, and an outer scaler standardized the data
     a second time (and rejected list-of-views input).
     """
-    if task not in ("classification", "regression"):
-        raise ValueError(f"Unknown task: {task}. Expected 'classification' or 'regression'.")
-    steps = [("dim_reduction", MultiViewSiMR(method=method, n_components=n_components,
-                                              **estimator_params))]
-    if model is None:
-        if task == "classification":
-            from sklearn.linear_model import LogisticRegression
-            model = LogisticRegression(C=1.0, max_iter=500)
-        else:
-            from sklearn.linear_model import Ridge
-            model = Ridge(alpha=1.0)
-    steps.append(("classifier" if task == "classification" else "regressor", model))
-    return Pipeline(steps)
+    step = _resolve_task_step(task, model)
+    return Pipeline([
+        ("dim_reduction", MultiViewSiMR(method=method, n_components=n_components, **estimator_params)),
+        step,
+    ])
 
 
 class MultiViewPCA(BaseEstimator, TransformerMixin):

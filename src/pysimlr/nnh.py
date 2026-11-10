@@ -175,21 +175,14 @@ def antspymm_predictors(
     # t1namesbst
     testnames.extend(t1namesbst)
     
-    # rsfMRI_fcnxpro
-    rsfmri_exclusions = [
-        "hier_id", "background", "thk", "area", "vol", "FD", "dvars", 
-        "ssnr", "tsnr", "motion", "SNR", "evr", "_alff", "falff_sd", 
+    # rsfMRI_fcnxpro and perf_
+    func_exclusions = [
+        "hier_id", "background", "thk", "area", "vol", "FD", "dvars",
+        "ssnr", "tsnr", "motion", "SNR", "evr", "_alff", "falff_sd",
         "falff_mean"
     ] + xcl
-    testnames.extend(_get_names_from_dataframe("rsfMRI_fcnxpro", demog, exclusions=rsfmri_exclusions))
-    
-    # perf_
-    perf_exclusions = [
-        "hier_id", "background", "thk", "area", "vol", "FD", "dvars", 
-        "ssnr", "tsnr", "motion", "SNR", "evr", "_alff", "falff_sd", 
-        "falff_mean"
-    ] + xcl
-    testnames.extend(_get_names_from_dataframe("perf_", demog, exclusions=perf_exclusions))
+    testnames.extend(_get_names_from_dataframe("rsfMRI_fcnxpro", demog, exclusions=func_exclusions))
+    testnames.extend(_get_names_from_dataframe("perf_", demog, exclusions=func_exclusions))
     
     # DTI_
     dti_exclusions = [
@@ -515,6 +508,29 @@ def _shorten_pymm_names(names: Union[str, List[str]]) -> Union[str, List[str]]:
     return shortened[0] if is_single else shortened
 
 
+def _to_block_dict(
+    items: Any,
+    modality_names: Optional[List[str]] = None,
+    *,
+    copy_values: bool = False,
+) -> Dict[str, Any]:
+    """Normalize a list or dict of per-block values into a dict keyed by modality name."""
+    if items is None:
+        return {}
+    if isinstance(items, dict):
+        if not copy_values:
+            return items
+        return {
+            k: (v.copy() if isinstance(v, pd.DataFrame) else copy.deepcopy(v) if isinstance(v, list) else v)
+            for k, v in items.items()
+        }
+    out: Dict[str, Any] = {}
+    for i, val in enumerate(items):
+        name = modality_names[i] if (modality_names and i < len(modality_names)) else f"block{i}"
+        out[name] = list(val) if (copy_values and isinstance(val, list)) else val
+    return out
+
+
 def apply_simlr_matrices(
     existing_df: pd.DataFrame,
     simlr_v: Union[List[Union[pd.DataFrame, np.ndarray, torch.Tensor]], Dict[str, Union[pd.DataFrame, np.ndarray, torch.Tensor]]],
@@ -530,23 +546,9 @@ def apply_simlr_matrices(
     extended_df = existing_df.copy()
     added_names = []
     used_names = set(extended_df.columns)
-    
-    simlr_v_dict = {}
-    if isinstance(simlr_v, dict):
-        simlr_v_dict = simlr_v
-    else:
-        for i, W in enumerate(simlr_v):
-            name = modality_names[i] if (modality_names and i < len(modality_names)) else f"block{i}"
-            simlr_v_dict[name] = W
-            
-    feature_names_dict = {}
-    if feature_names is not None:
-        if isinstance(feature_names, dict):
-            feature_names_dict = feature_names
-        else:
-            for i, names_list in enumerate(feature_names):
-                name = modality_names[i] if (modality_names and i < len(modality_names)) else f"block{i}"
-                feature_names_dict[name] = names_list
+
+    simlr_v_dict = _to_block_dict(simlr_v, modality_names)
+    feature_names_dict = _to_block_dict(feature_names, modality_names)
                 
     for block_name, W in simlr_v_dict.items():
         if isinstance(W, pd.DataFrame):
@@ -630,82 +632,46 @@ def apply_simlr_matrices_dtfix(
     existing_df_cols = existing_df_fix.columns.tolist()
     dti_cols = [c for c in existing_df_cols if "DTI_" in c]
     
-    matrices_list_fix = {}
-    if isinstance(matrices_list, dict):
-        for k, W in matrices_list.items():
-            if isinstance(W, pd.DataFrame):
-                matrices_list_fix[k] = W.copy()
-            else:
-                matrices_list_fix[k] = W
-    else:
-        for i, W in enumerate(matrices_list):
-            name = modality_names[i] if (modality_names and i < len(modality_names)) else f"block{i}"
-            matrices_list_fix[name] = W
-            
-    feature_names_fix = {}
-    if feature_names is not None:
-        if isinstance(feature_names, dict):
-            feature_names_fix = copy.deepcopy(feature_names)
-        else:
-            for i, names_list in enumerate(feature_names):
-                name = modality_names[i] if (modality_names and i < len(modality_names)) else f"block{i}"
-                feature_names_fix[name] = list(names_list)
-                
+    matrices_list_fix = _to_block_dict(matrices_list, modality_names, copy_values=True)
+    feature_names_fix = _to_block_dict(feature_names, modality_names, copy_values=True)
+
     if dti_cols:
         shortened_existing_df_cols = _shorten_pymm_names(dti_cols)
-        dt_correspondence = False
-        dta_correspondence = False
-        
-        for block_key in list(matrices_list_fix.keys()):
-            is_dt = (block_key == "dt") or (block_key.startswith("block") and feature_names_fix.get(block_key) and any("DTI_" in n for n in feature_names_fix[block_key]))
-            if is_dt:
-                W_dt = matrices_list_fix[block_key]
+        dti_correspondence = False
+
+        for block_key, W_dt in list(matrices_list_fix.items()):
+            is_dti_block = (
+                block_key in ("dt", "dta")
+                or (
+                    block_key.startswith("block")
+                    and feature_names_fix.get(block_key)
+                    and any("DTI_" in n for n in feature_names_fix[block_key])
+                )
+            )
+            if not is_dti_block:
+                continue
+            if isinstance(W_dt, pd.DataFrame):
+                row_names = W_dt.index.tolist()
+            elif block_key in feature_names_fix:
+                row_names = feature_names_fix[block_key]
+            else:
+                continue
+            shortened_row_names = _shorten_pymm_names(row_names)
+            orig_match = sum(1 for c in dti_cols if c in row_names)
+            short_match = sum(1 for c in shortened_existing_df_cols if c in shortened_row_names)
+            if short_match > orig_match:
+                dti_correspondence = True
                 if isinstance(W_dt, pd.DataFrame):
-                    dt_row_names = W_dt.index.tolist()
-                    shortened_dt_row_names = _shorten_pymm_names(dt_row_names)
-                    orig_match = sum(1 for c in dti_cols if c in dt_row_names)
-                    short_match = sum(1 for c in shortened_existing_df_cols if c in shortened_dt_row_names)
-                    if short_match > orig_match:
-                        dt_correspondence = True
-                        W_dt.index = shortened_dt_row_names
+                    W_dt.index = shortened_row_names
                 else:
-                    if block_key in feature_names_fix:
-                        dt_row_names = feature_names_fix[block_key]
-                        shortened_dt_row_names = _shorten_pymm_names(dt_row_names)
-                        orig_match = sum(1 for c in dti_cols if c in dt_row_names)
-                        short_match = sum(1 for c in shortened_existing_df_cols if c in shortened_dt_row_names)
-                        if short_match > orig_match:
-                            dt_correspondence = True
-                            feature_names_fix[block_key] = shortened_dt_row_names
-                            
-        for block_key in list(matrices_list_fix.keys()):
-            is_dta = (block_key == "dta")
-            if is_dta:
-                W_dta = matrices_list_fix[block_key]
-                if isinstance(W_dta, pd.DataFrame):
-                    dta_row_names = W_dta.index.tolist()
-                    shortened_dta_row_names = _shorten_pymm_names(dta_row_names)
-                    orig_match = sum(1 for c in dti_cols if c in dta_row_names)
-                    short_match = sum(1 for c in shortened_existing_df_cols if c in shortened_dta_row_names)
-                    if short_match > orig_match:
-                        dta_correspondence = True
-                        W_dta.index = shortened_dta_row_names
-                else:
-                    if block_key in feature_names_fix:
-                        dta_row_names = feature_names_fix[block_key]
-                        shortened_dta_row_names = _shorten_pymm_names(dta_row_names)
-                        orig_match = sum(1 for c in dti_cols if c in dta_row_names)
-                        short_match = sum(1 for c in shortened_existing_df_cols if c in shortened_dta_row_names)
-                        if short_match > orig_match:
-                            dta_correspondence = True
-                            feature_names_fix[block_key] = shortened_dta_row_names
-                            
-        if dt_correspondence or dta_correspondence:
+                    feature_names_fix[block_key] = shortened_row_names
+
+        if dti_correspondence:
             if verbose:
                 print("Shortened names improve DTI correspondence. Applying shortened names to DataFrame...")
             col_map = {orig: short for orig, short in zip(dti_cols, shortened_existing_df_cols)}
             existing_df_fix = existing_df_fix.rename(columns=col_map)
-            
+
     new_df, added_names = apply_simlr_matrices(
         existing_df_fix,
         matrices_list_fix,
@@ -714,8 +680,8 @@ def apply_simlr_matrices_dtfix(
         n_limit=n_limit,
         verbose=verbose
     )
-    
-    if dti_cols and (dt_correspondence or dta_correspondence):
+
+    if dti_cols and dti_correspondence:
         col_map_restore = {short: orig for orig, short in zip(dti_cols, shortened_existing_df_cols)}
         new_df = new_df.rename(columns=col_map_restore)
         
@@ -1104,11 +1070,7 @@ def extend_simlr_embedding_with_new_modalities(
         v_mat = simlr_fit["v"][idx]
         if torch.is_tensor(v_mat):
             v_mat = v_mat.detach().cpu().numpy()
-            
-        # L2-normalize columns of weight matrix
-        norms = np.linalg.norm(v_mat, axis=0, keepdims=True)
-        norms[norms == 0] = 1.0
-        v_mat = v_mat / norms
+        v_mat = _unit_columns(v_mat)
         
         features = block_features_preprocessed[name]
         df_v = pd.DataFrame(

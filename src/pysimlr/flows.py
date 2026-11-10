@@ -570,7 +570,7 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
     """
     from .deep import (DEEP_OPTIMIZER_TYPES, _standardize_deep, _get_optimizer,
                        resolve_warmup_epochs, _aggregate_shared_consensus, _plateau_scheduler,
-                       _finalize_bases, _resolve_device, _resolve_seed, _seeded_rng,
+                       _finalize_bases, _recon_errors, _resolve_device, _resolve_seed, _seeded_rng,
                        _shuffled_loader, _init_generator, _freeze_consensus)
     nsa_w = check_nsa_w(nsa_w)
     collapse_threshold = check_collapse_threshold(collapse_threshold)
@@ -647,10 +647,7 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
         result["initialization_type"] = init_kwargs.get("initialization_type", "pca")
         # How many components actually came back; see `utils.basis_rank_report`.
         result.update(basis_rank_report(v_mats, k))
-    result["errors"] = [
-        torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10)
-        for x, r in zip(torch_mats, recons)
-    ]
+    result["errors"] = _recon_errors(torch_mats, recons)
     return result
 
 
@@ -758,10 +755,6 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
             for flow in self.flows
         ])
         
-        
-    def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
-        return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
-        
     def retract_linear_encoders(self) -> None:
         """Retract the linear encoders onto the feasible set.
 
@@ -824,14 +817,8 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
         return latents, reconstructions, u_shared
         
     def initialize_weights(self, data_matrices: List[torch.Tensor], **init_kwargs):
-        """Seed each encoder's basis.
-
-        Delegates to `initialize_deep_encoders`, so any `INITIALIZATION_TYPES`
-        strategy is available here, not only PCA -- see `initialize_simlr`'s
-        docstring for what each does.
-        """
-        from .simlr import initialize_deep_encoders
-        initialize_deep_encoders(self.linear_encoders, data_matrices, self.latent_dim, **init_kwargs)
+        """Seed each encoder's basis (`_MultiViewModelMixin.initialize_v`)."""
+        self.initialize_v(data_matrices, self.latent_dim, **init_kwargs)
 
 def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 k: int,

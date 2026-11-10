@@ -199,6 +199,8 @@ def build_nsa_pipeline(
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
 
+    from .sklearn import _resolve_task_step
+
     steps = []
     if scale:
         steps.append(("scaler", StandardScaler()))
@@ -206,21 +208,6 @@ def build_nsa_pipeline(
     kwargs = {"mode": "auto", "consolidate": consolidate}
     kwargs.update(nsa_kwargs)
     steps.append(("dim_reduction", nsa_cls(n_components=n_components, w=w, **kwargs)))
-
-    if model is None:
-        if task == "classification":
-            from sklearn.linear_model import LogisticRegression
-            model = LogisticRegression(C=1.0, max_iter=500)
-            steps.append(("classifier", model))
-        elif task == "regression":
-            from sklearn.linear_model import Ridge
-            model = Ridge(alpha=1.0)
-            steps.append(("regressor", model))
-        else:
-            raise ValueError(f"Unknown task: {task}. Expected 'classification' or 'regression'.")
-    else:
-        step_name = "classifier" if task == "classification" else "regressor"
-        steps.append((step_name, model))
-
+    steps.append(_resolve_task_step(task, model))
     return Pipeline(steps)
 

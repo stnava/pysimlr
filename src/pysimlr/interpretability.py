@@ -403,6 +403,71 @@ def _fit_with_importance(z0: torch.Tensor, target: torch.Tensor, v: torch.Tensor
     return fit, component_importance, _feature_importance_from_basis(v, component_importance)
 
 
+def _modality_attribution(
+    modality_index: int,
+    z0: torch.Tensor,
+    target: torch.Tensor,
+    v: torch.Tensor,
+    l2: float,
+    *,
+    r2_key: str = "r2_per_target",
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Per-modality ridge attribution entry from first-layer scores `z0` to `target`."""
+    fit, component_importance, feature_importance = _fit_with_importance(z0, target, v, l2)
+    entry: Dict[str, Any] = {
+        "modality_index": int(modality_index),
+        "global_r2": float(fit["global_r2"]),
+        "global_r2_cv": float(fit["global_r2_cv"]),
+        r2_key: fit["r2_per_target"],
+        f"{r2_key}_cv": fit["r2_per_target_cv"],
+        "coefficients": fit["coefficients"],
+    }
+    if extra:
+        entry.update(extra)
+    entry["component_importance"] = component_importance
+    entry["feature_importance"] = feature_importance
+    return entry
+
+
+def _combined_attribution(
+    z0_list: Sequence[torch.Tensor],
+    v_list: Sequence[torch.Tensor],
+    target: torch.Tensor,
+    l2: float,
+    *,
+    r2_key: str = "r2_per_target",
+) -> Dict[str, Any]:
+    """Joint ridge attribution across concatenated first-layer scores `z0_list`."""
+    z0_concat = torch.cat([_sanitize_tensor(z) for z in z0_list], dim=1)
+    combined_fit = _fit_linear_map(z0_concat, target, l2=l2)
+    combined_component_importance = torch.mean(torch.abs(combined_fit["coefficients"]), dim=1)
+
+    component_slices = []
+    combined_feature_importance = []
+    start = 0
+    for modality_index, v in enumerate(v_list):
+        stop = start + v.shape[1]
+        component_slice = combined_component_importance[start:stop]
+        component_slices.append({
+            "modality_index": int(modality_index),
+            "start": int(start),
+            "stop": int(stop),
+            "component_importance": component_slice,
+        })
+        combined_feature_importance.append(_feature_importance_from_basis(v, component_slice))
+        start = stop
+
+    return {
+        "global_r2": float(combined_fit["global_r2"]),
+        r2_key: combined_fit["r2_per_target"],
+        "coefficients": combined_fit["coefficients"],
+        "component_importance": combined_component_importance,
+        "component_slices": component_slices,
+        "feature_importance": combined_feature_importance,
+    }
+
+
 def _feature_importance_from_basis(
     v: torch.Tensor,
     component_importance: torch.Tensor,
@@ -457,23 +522,14 @@ def analyze_first_layer_alignment(
     if len(z0_list) != len(z1_list):
         raise ValueError("first-layer scores and deep latents must have the same number of modalities")
 
-    per_modality: List[Dict[str, Any]] = []
-    global_r2_values: List[float] = []
-    for modality_index, (z0, z1, v) in enumerate(zip(z0_list, z1_list, first_layer["v"])):
-        fit, component_importance, feature_importance = _fit_with_importance(z0, z1, v, l2)
-        corr = _column_correlation_matrix(z0, z1)
-        per_modality.append({
-            "modality_index": int(modality_index),
-            "global_r2": float(fit["global_r2"]),
-            "global_r2_cv": float(fit["global_r2_cv"]),
-            "r2_per_target": fit["r2_per_target"],
-            "r2_per_target_cv": fit["r2_per_target_cv"],
-            "coefficients": fit["coefficients"],
-            "component_correlation": corr,
-            "component_importance": component_importance,
-            "feature_importance": feature_importance,
-        })
-        global_r2_values.append(float(fit["global_r2"]))
+    per_modality = [
+        _modality_attribution(
+            modality_index, z0, z1, v, l2,
+            extra={"component_correlation": _column_correlation_matrix(z0, z1)},
+        )
+        for modality_index, (z0, z1, v) in enumerate(zip(z0_list, z1_list, first_layer["v"]))
+    ]
+    global_r2_values = [m["global_r2"] for m in per_modality]
 
     return {
         "modalities": per_modality,
@@ -525,53 +581,19 @@ def attribute_shared_to_first_layer(
         raise KeyError("model_res does not contain shared latent u")
 
     per_modality: List[Dict[str, Any]] = []
-    global_r2_values: List[float] = []
     for modality_index, (z0, v) in enumerate(zip(z0_list, v_list)):
         u = u_all[modality_index] if isinstance(u_all, list) else u_all
-        fit, component_importance, feature_importance = _fit_with_importance(z0, u, v, l2)
-        per_modality.append({
-            "modality_index": int(modality_index),
-            "global_r2": float(fit["global_r2"]),
-            "global_r2_cv": float(fit["global_r2_cv"]),
-            "r2_per_shared_dimension": fit["r2_per_target"],
-            "r2_per_shared_dimension_cv": fit["r2_per_target_cv"],
-            "coefficients": fit["coefficients"],
-            "component_importance": component_importance,
-            "feature_importance": feature_importance,
-        })
-        global_r2_values.append(float(fit["global_r2"]))
-
-    z0_concat = torch.cat([_sanitize_tensor(z) for z in z0_list], dim=1)
-    combined_fit = _fit_linear_map(z0_concat, u, l2=l2)
-    combined_component_importance = torch.mean(torch.abs(combined_fit["coefficients"]), dim=1)
-
-    component_slices = []
-    combined_feature_importance = []
-    start = 0
-    for modality_index, v in enumerate(v_list):
-        width = v.shape[1]
-        stop = start + width
-        component_slice = combined_component_importance[start:stop]
-        component_slices.append({
-            "modality_index": int(modality_index),
-            "start": int(start),
-            "stop": int(stop),
-            "component_importance": component_slice,
-        })
-        combined_feature_importance.append(_feature_importance_from_basis(v, component_slice))
-        start = stop
+        per_modality.append(
+            _modality_attribution(modality_index, z0, u, v, l2, r2_key="r2_per_shared_dimension")
+        )
+    global_r2_values = [m["global_r2"] for m in per_modality]
 
     return {
         "per_modality": per_modality,
         "mean_global_r2": float(sum(global_r2_values) / max(1, len(global_r2_values))),
-        "combined": {
-            "global_r2": float(combined_fit["global_r2"]),
-            "r2_per_shared_dimension": combined_fit["r2_per_target"],
-            "coefficients": combined_fit["coefficients"],
-            "component_importance": combined_component_importance,
-            "component_slices": component_slices,
-            "feature_importance": combined_feature_importance,
-        },
+        "combined": _combined_attribution(
+            z0_list, v_list, u, l2, r2_key="r2_per_shared_dimension"
+        ),
     }
 
 
@@ -617,52 +639,15 @@ def attribute_prediction_to_features(
     v_list = first_layer["v"]
     y = _to_2d_target(target)
 
-    per_modality: List[Dict[str, Any]] = []
-    for modality_index, (z0, v) in enumerate(zip(z0_list, v_list)):
-        fit, component_importance, feature_importance = _fit_with_importance(z0, y, v, l2)
-        per_modality.append({
-            "modality_index": int(modality_index),
-            "global_r2": float(fit["global_r2"]),
-            "global_r2_cv": float(fit["global_r2_cv"]),
-            "r2_per_target": fit["r2_per_target"],
-            "r2_per_target_cv": fit["r2_per_target_cv"],
-            "coefficients": fit["coefficients"],
-            "component_importance": component_importance,
-            "feature_importance": feature_importance,
-        })
-
-    z0_concat = torch.cat([_sanitize_tensor(z) for z in z0_list], dim=1)
-    combined_fit = _fit_linear_map(z0_concat, y, l2=l2)
-    combined_component_importance = torch.mean(torch.abs(combined_fit["coefficients"]), dim=1)
-
-    combined_feature_importance = []
-    component_slices = []
-    start = 0
-    for modality_index, v in enumerate(v_list):
-        width = v.shape[1]
-        stop = start + width
-        component_slice = combined_component_importance[start:stop]
-        combined_feature_importance.append(_feature_importance_from_basis(v, component_slice))
-        component_slices.append({
-            "modality_index": int(modality_index),
-            "start": int(start),
-            "stop": int(stop),
-            "component_importance": component_slice,
-        })
-        start = stop
-
+    per_modality = [
+        _modality_attribution(modality_index, z0, y, v, l2)
+        for modality_index, (z0, v) in enumerate(zip(z0_list, v_list))
+    ]
     u_fit = _fit_linear_map(model_res["u"], y, l2=l2) if "u" in model_res else None
 
     return {
         "per_modality": per_modality,
-        "combined": {
-            "global_r2": float(combined_fit["global_r2"]),
-            "r2_per_target": combined_fit["r2_per_target"],
-            "coefficients": combined_fit["coefficients"],
-            "component_importance": combined_component_importance,
-            "component_slices": component_slices,
-            "feature_importance": combined_feature_importance,
-        },
+        "combined": _combined_attribution(z0_list, v_list, y, l2),
         "shared_latent_baseline": None if u_fit is None else {
             "global_r2": float(u_fit["global_r2"]),
             "r2_per_target": u_fit["r2_per_target"],

@@ -443,6 +443,25 @@ class _MultiViewModelMixin(_ModalityWeightingMixin):
     def _first_layer_encoders(self):
         return self.linear_encoders
 
+    def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
+        return [enc.encode_first_layer(x, use_projected=use_projected)
+                for enc, x in zip(self._first_layer_encoders(), x_list)]
+
+    def transform(self, x_list: List[torch.Tensor]) -> torch.Tensor:
+        """Return the shared consensus U as an ``(n_samples, k)`` tensor.
+
+        ``forward`` yields one consensus per modality under the ``"loo"`` and
+        ``"graph"`` topologies; this collapses those to the single star consensus,
+        so the public transform contract is a tensor regardless of topology.
+        """
+        self.eval()
+        with torch.no_grad():
+            out = self.forward(x_list)
+            latents, u = out[0], out[2]
+            if isinstance(u, list):
+                return _aggregate_shared_consensus(self, latents)
+            return u
+
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int, **init_kwargs):
         """
         Seed each encoder's first-layer basis.
@@ -845,8 +864,6 @@ class LENDSiMRModel(_MultiViewModelMixin, nn.Module):
 
     def _first_layer_encoders(self):
         return self.encoders
-    def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
-        return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.encoders, x_list)]
 
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         latents = self.encode_first_layer(x_list)
@@ -905,30 +922,12 @@ class NEDSiMRModel(_MultiViewModelMixin, nn.Module):
         self.nonlinear_heads = nn.ModuleList([ModalityDecoder(latent_dim, latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.latent_dim = latent_dim
-    def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
-        return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
 
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         first_layer_scores = self.encode_first_layer(x_list)
         latents = [head(z0) for head, z0 in zip(self.nonlinear_heads, first_layer_scores)]
         u_shared = self._training_consensus(latents, self.latent_dim)
         return latents, [dec(u_shared[i] if isinstance(u_shared, list) else u_shared) for i, dec in enumerate(self.decoders)], u_shared
-
-    def transform(self, x_list: List[torch.Tensor]) -> torch.Tensor:
-        """
-        Unify downstream prediction API: return the shared consensus U as an
-        (n_samples, latent_dim) tensor.
-
-        ``forward`` yields one consensus per modality under the "loo" and
-        "graph" topologies; this collapses those to the single star consensus,
-        so the public transform contract is a tensor regardless of topology.
-        """
-        self.eval()
-        with torch.no_grad():
-            latents, _, u = self.forward(x_list)
-            if isinstance(u, list):
-                return _aggregate_shared_consensus(self, latents)
-            return u
 
 class NEDSharedPrivateSiMRModel(_MultiViewModelMixin, nn.Module):
     """
@@ -982,8 +981,6 @@ class NEDSharedPrivateSiMRModel(_MultiViewModelMixin, nn.Module):
         self.private_encoders = nn.ModuleList([ModalityEncoder(dim, private_latent_dim, hidden_dims, dropout) for dim in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(shared_latent_dim + private_latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.shared_dim = shared_latent_dim
-    def encode_first_layer(self, x_list: List[torch.Tensor], use_projected: Optional[bool] = None) -> List[torch.Tensor]:
-        return [enc.encode_first_layer(x, use_projected=use_projected) for enc, x in zip(self.linear_encoders, x_list)]
 
     def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
         first_layer_scores = self.encode_first_layer(x_list)
@@ -992,21 +989,6 @@ class NEDSharedPrivateSiMRModel(_MultiViewModelMixin, nn.Module):
         u_shared = self._training_consensus(shared_l, self.shared_dim)
         recons = [dec(torch.cat([u_shared[i] if isinstance(u_shared, list) else u_shared, p], dim=1)) for i, (dec, p) in enumerate(zip(self.decoders, private_l))]
         return shared_l, recons, u_shared, private_l
-
-    def transform(self, x_list: List[torch.Tensor]) -> torch.Tensor:
-        """
-        Return the shared consensus U as an (n_samples, shared_dim) tensor.
-
-        See :meth:`NEDSiMRModel.transform` -- the "loo"/"graph" topologies give
-        one consensus per modality, which is collapsed to the star consensus
-        here so the transform contract stays a tensor.
-        """
-        self.eval()
-        with torch.no_grad():
-            shared_l, _, u, _ = self.forward(x_list)
-            if isinstance(u, list):
-                return _aggregate_shared_consensus(self, shared_l)
-            return u
 
 class ModalityEncoder(nn.Module):
     """
@@ -1583,6 +1565,12 @@ def _clean(t: torch.Tensor) -> torch.Tensor:
     return torch.nan_to_num(t.cpu(), nan=0.0, posinf=0.0, neginf=0.0)
 
 
+def _recon_errors(torch_mats: Sequence[torch.Tensor], recons: Sequence[torch.Tensor]) -> List[float]:
+    return [torch.norm(x.cpu() - r.cpu(), p="fro").item()
+            / (torch.norm(x.cpu(), p="fro").item() + 1e-10)
+            for x, r in zip(torch_mats, recons)]
+
+
 def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
               data_matrices, k: int, *, iterations: int, batch_size: int,
               learning_rate: float, weight_decay: float, sim_weight: float,
@@ -1662,9 +1650,7 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
     }
     if shared_private:
         result["private_latents"] = [_clean(p) for p in final_private]
-    result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item()
-                        / (torch.norm(x.cpu(), p="fro").item() + 1e-10)
-                        for x, r in zip(torch_mats, recons)]
+    result["errors"] = _recon_errors(torch_mats, recons)
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
     if getattr(model, "dynamic_weights", False):
@@ -1916,23 +1902,23 @@ def predict_deep(data_matrices: List[Union[torch.Tensor, np.ndarray]], model_res
         elif hasattr(model, "linear_encoders"):
             v_list = [enc.v.detach().cpu() for enc in model.linear_encoders]
         first_layer = build_first_layer_contract(v_list, first_layer_scores) if v_list is not None and first_layer_scores is not None else None
+        latents, recons, u = res[0], res[1], res[2]
+        u_agg = _aggregate_shared_consensus(model, latents) if isinstance(u, list) else u
+        result = {
+            "u": u_agg.cpu(),
+            "u_per_modality": ([ui.cpu() for ui in u] if isinstance(u, list) else None),
+            "latents": [l.cpu() for l in latents],
+            "reconstructions": [r.cpu() for r in recons],
+            "first_layer_scores": first_layer_scores,
+            "first_layer": first_layer,
+            "v": v_list,
+        }
         if model_type == "ned_shared_private":
-            shared_l, recons, u, private_l = res
-            u_agg = _aggregate_shared_consensus(model, shared_l) if isinstance(u, list) else u
-            result = {"u": u_agg.cpu(), "u_per_modality": ([ui.cpu() for ui in u] if isinstance(u, list) else None), "latents": [l.cpu() for l in shared_l], "reconstructions": [r.cpu() for r in recons], "private_latents": [p.cpu() for p in private_l], "first_layer_scores": first_layer_scores, "first_layer": first_layer, "v": v_list}
-        else:
-            latents, recons, u = res
-            u_agg = _aggregate_shared_consensus(model, latents) if isinstance(u, list) else u
-            result = {"u": u_agg.cpu(), "u_per_modality": ([ui.cpu() for ui in u] if isinstance(u, list) else None), "latents": [l.cpu() for l in latents], "reconstructions": [r.cpu() for r in recons], "first_layer_scores": first_layer_scores, "first_layer": first_layer, "v": v_list}
+            result["private_latents"] = [p.cpu() for p in res[3]]
         result["interpretability"] = build_interpretability_report(result) if first_layer is not None else None
         result["deep_layer"] = None if result["interpretability"] is None else {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
-        result["errors"] = [torch.norm(x.cpu() - r.cpu(), p="fro").item() / (torch.norm(x.cpu(), p="fro").item() + 1e-10) for x, r in zip(torch_mats, recons)]
+        result["errors"] = _recon_errors(torch_mats, recons)
         if getattr(model, "dynamic_weights", False):
             result["modality_weights"] = model.modality_weights.detach().cpu().numpy()
             result["mai"] = model.mai.detach().cpu().numpy()
-        
-        # Calculate reconstruction errors
-        errors = [torch.norm(x.cpu() - r.cpu(), p='fro').item() / (torch.norm(x.cpu(), p='fro').item() + 1e-10) for x, r in zip(torch_mats, recons)]
-        result["errors"] = errors
-        
         return result

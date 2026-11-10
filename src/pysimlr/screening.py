@@ -54,7 +54,23 @@ from typing import Any
 import numpy as np
 import torch
 
-from .stats import bh_fdr
+from .stats import bh_fdr, holm
+
+
+def _emp_upper_tail(vals: np.ndarray) -> np.ndarray:
+    """Empirical upper-tail fraction ``#{v >= vals_i} / len(vals)``."""
+    return (len(vals) - np.searchsorted(np.sort(vals), vals, side="left")) / float(len(vals))
+
+
+def _slice_cols(mat: Any, idx: np.ndarray) -> Any:
+    """Slice column indices `idx` while preserving Tensor, DataFrame, or ndarray type."""
+    if mat is None:
+        return None
+    if isinstance(mat, torch.Tensor):
+        return mat[:, torch.as_tensor(idx, dtype=torch.long)]
+    if hasattr(mat, "iloc"):
+        return mat.iloc[:, idx]
+    return np.asarray(mat)[:, idx]
 
 
 def _std_unit_norm(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -301,12 +317,9 @@ def screen_wide_views(
         if n_live > 0 and b_mat.shape[1] > 0:
             pv_mean = float((1.0 + (null_mean >= obs_live_mean).sum()) / (n_permutations + 1.0))
             pv_max = float((1.0 + (null_max >= obs_live_max).sum()) / (n_permutations + 1.0))
-            all_mean = np.append(null_mean, obs_live_mean)
-            all_tail = np.append(null_tail, obs_live_tail)
-            all_max = np.append(null_max, obs_live_max)
-            pm_all = (len(all_mean) - np.searchsorted(np.sort(all_mean), all_mean, side="left")) / float(len(all_mean))
-            pt_all = (len(all_tail) - np.searchsorted(np.sort(all_tail), all_tail, side="left")) / float(len(all_tail))
-            px_all = (len(all_max) - np.searchsorted(np.sort(all_max), all_max, side="left")) / float(len(all_max))
+            pm_all = _emp_upper_tail(np.append(null_mean, obs_live_mean))
+            pt_all = _emp_upper_tail(np.append(null_tail, obs_live_tail))
+            px_all = _emp_upper_tail(np.append(null_max, obs_live_max))
             minp_all = np.minimum(np.minimum(pm_all, pt_all), px_all)
             pv_omni = float((minp_all <= minp_all[-1]).sum() / float(len(minp_all)))
         else:
@@ -320,13 +333,7 @@ def screen_wide_views(
         p_view_max_list.append(pv_max)
 
     # Holm-Bonferroni step-down across views controls multi-view FWER under pure noise with zero penalty on the last view when M-1 views couple.
-    order_v = np.argsort(raw_pv_omni)
-    holm_pv = np.empty(m_views, dtype=np.float64)
-    running_max = 0.0
-    for rank_i, vm in enumerate(order_v):
-        adj = min(1.0, raw_pv_omni[int(vm)] * float(m_views - rank_i))
-        running_max = max(running_max, adj)
-        holm_pv[int(vm)] = running_max
+    holm_pv = holm(raw_pv_omni)
 
     # Pass 2: Subsample stability selection & greedy collinearity-aware gating.
     for m in range(m_views):
@@ -384,13 +391,7 @@ def screen_wide_views(
                 idx = np.sort(ranked_all[:min_keep].astype(np.int64))
 
         indices_out.append(idx)
-        orig = raw_items[m]
-        if isinstance(orig, torch.Tensor):
-            gated_views.append(orig[:, torch.as_tensor(idx, dtype=torch.long)])
-        elif hasattr(orig, "iloc"):
-            gated_views.append(orig.iloc[:, idx])
-        else:
-            gated_views.append(np.asarray(orig)[:, idx])
+        gated_views.append(_slice_cols(raw_items[m], idx))
 
         if gated_fnames is not None and feature_names is not None:
             fn_m = list(feature_names[m])
@@ -446,25 +447,16 @@ def apply_view_screen(screen: Mapping[str, Any], views: Any) -> Any:
     indices = screen["indices"]
     vnames = screen["view_names"]
 
-    def _slice_one(mat: Any, idx: np.ndarray) -> Any:
-        if mat is None:
-            return None
-        if isinstance(mat, torch.Tensor):
-            return mat[:, torch.as_tensor(idx, dtype=torch.long)]
-        if hasattr(mat, "iloc"):
-            return mat.iloc[:, idx]
-        return np.asarray(mat)[:, idx]
-
     if isinstance(views, Mapping):
         name_to_idx = {nm: idx for nm, idx in zip(vnames, indices)}
         out_map = {}
         for nm, mat in views.items():
             if nm not in name_to_idx:
                 raise KeyError(f"unknown view {nm!r}; known views: {list(vnames)}.")
-            out_map[nm] = _slice_one(mat, name_to_idx[nm])
+            out_map[nm] = _slice_cols(mat, name_to_idx[nm])
         return out_map
 
     items = list(views)
     if len(items) != len(indices):
         raise ValueError(f"views has {len(items)} entries; screen has {len(indices)} views.")
-    return [_slice_one(mat, idx) for mat, idx in zip(items, indices)]
+    return [_slice_cols(mat, idx) for mat, idx in zip(items, indices)]
