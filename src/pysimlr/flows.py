@@ -87,6 +87,16 @@ class AffineCouplingLayer(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, self.output_size)
         )
+        if self.mask_type == "alternate":
+            all_idx = torch.arange(dim, dtype=torch.long)
+            even_mask = (all_idx % 2 == 0)
+            sel = ~even_mask if (self.index % 2 == 1) else even_mask
+            idx1 = all_idx[sel]
+            idx2 = all_idx[~sel]
+            inv_order = torch.argsort(torch.cat([idx1, idx2]))
+            self.register_buffer("_alt_idx1", idx1, persistent=False)
+            self.register_buffer("_alt_idx2", idx2, persistent=False)
+            self.register_buffer("_alt_inv", inv_order, persistent=False)
         
     def _get_mask(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         mask = torch.zeros(self.dim, dtype=torch.bool, device=x.device)
@@ -101,39 +111,50 @@ class AffineCouplingLayer(nn.Module):
                 mask[self.split_dim:] = True
         return mask, ~mask
 
+    def _split_features(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.mask_type == "alternate":
+            return x[:, self._alt_idx1], x[:, self._alt_idx2]
+        if self.index % 2 == 0:
+            return x[:, :self.split_dim], x[:, self.split_dim:]
+        return x[:, self.split_dim:], x[:, :self.split_dim]
+
+    def _merge_features(self, part1: torch.Tensor, part2: torch.Tensor) -> torch.Tensor:
+        if self.mask_type == "alternate":
+            return torch.cat([part1, part2], dim=1)[:, self._alt_inv]
+        if self.index % 2 == 0:
+            return torch.cat([part1, part2], dim=1)
+        return torch.cat([part2, part1], dim=1)
+
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        mask, inv_mask = self._get_mask(x)
-        x1 = x[:, mask]
-        x2 = x[:, inv_mask]
+        x1, x2 = self._split_features(x)
         
         out = self.net(x1)
         s, t = out.chunk(2, dim=1)
         s = torch.tanh(s) * self.scale_bound  # bounded scale to prevent gradient explosion
         
         z2 = x2 * torch.exp(s) + t
-        
-        z = torch.zeros_like(x)
-        z[:, mask] = x1
-        z[:, inv_mask] = z2
+        z = self._merge_features(x1, z2)
         
         log_det = torch.sum(s, dim=1)
         return z, log_det
 
     def inverse(self, z: torch.Tensor) -> torch.Tensor:
-        mask, inv_mask = self._get_mask(z)
-        z1 = z[:, mask]
-        z2 = z[:, inv_mask]
+        z1, z2 = self._split_features(z)
         
         out = self.net(z1)
         s, t = out.chunk(2, dim=1)
         s = torch.tanh(s) * self.scale_bound
         
         x2 = (z2 - t) * torch.exp(-s)
-        
-        x = torch.zeros_like(z)
-        x[:, mask] = z1
-        x[:, inv_mask] = x2
-        return x
+        return self._merge_features(z1, x2)
+
+    def inverse_and_log_det(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        z1, z2 = self._split_features(z)
+        out = self.net(z1)
+        s, t = out.chunk(2, dim=1)
+        s = torch.tanh(s) * self.scale_bound
+        x2 = (z2 - t) * torch.exp(-s)
+        return self._merge_features(z1, x2), -torch.sum(s, dim=1)
 
 class PermutationLayer(nn.Module):
     """
@@ -189,14 +210,8 @@ class CustomRealNVP(nn.Module):
             if isinstance(layer, PermutationLayer):
                 x = layer.inverse(x)
             else:
-                # For AffineCouplingLayer: log_det_inv = -log_det
-                mask, inv_mask = layer._get_mask(x)
-                x1 = x[:, mask]
-                out = layer.net(x1)
-                s, t = out.chunk(2, dim=1)
-                s = torch.tanh(s) * layer.scale_bound
-                total_log_det = total_log_det - torch.sum(s, dim=1)
-                x = layer.inverse(x)
+                x, log_det_inv = layer.inverse_and_log_det(x)
+                total_log_det = total_log_det + log_det_inv
         return x, total_log_det
 
 _ANTSTORCH_REAL_NVP_BUILDER = None
@@ -328,9 +343,11 @@ class FlowDecoderWrapper(nn.Module):
         self.latent_dim = latent_dim
 
     def forward(self, z_shared: torch.Tensor) -> torch.Tensor:
+        full_dim = self.flow.dim
+        if z_shared.shape[1] == full_dim and self.latent_dim >= full_dim:
+            return self.flow.inverse(z_shared)
         device = z_shared.device
         batch_size = z_shared.shape[0]
-        full_dim = self.flow.dim
         
         z_full = torch.zeros(batch_size, full_dim, device=device, dtype=z_shared.dtype)
         min_dim = min(self.latent_dim, full_dim)

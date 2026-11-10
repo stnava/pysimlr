@@ -24,7 +24,7 @@ as it is.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 import numpy as np
 import torch
@@ -36,10 +36,50 @@ def _np(x):
     return np.asarray(x.detach().cpu() if hasattr(x, "detach") else x, dtype=np.float64)
 
 
+def _r2_from_pred(yte: np.ndarray, y_pred: np.ndarray) -> float:
+    ss_res = float(np.sum((yte - y_pred) ** 2))
+    ss_tot = float(np.sum((yte - np.mean(yte)) ** 2))
+    if ss_tot == 0.0:
+        return 1.0 if ss_res == 0.0 else 0.0
+    return float(1.0 - ss_res / ss_tot)
+
+
 def _r2(ztr, ytr, zte, yte):
-    from sklearn.linear_model import LinearRegression
-    from sklearn.metrics import r2_score
-    return float(r2_score(yte, LinearRegression().fit(ztr, ytr).predict(zte)))
+    ztr = np.asarray(ztr, dtype=np.float64)
+    zte = np.asarray(zte, dtype=np.float64)
+    ytr = np.asarray(ytr, dtype=np.float64).ravel()
+    yte = np.asarray(yte, dtype=np.float64).ravel()
+    ytr_mean = float(np.mean(ytr))
+    if ztr.shape[1] == 0:
+        return _r2_from_pred(yte, np.full_like(yte, ytr_mean))
+    ztr_mean = np.mean(ztr, axis=0)
+    ztr_c = ztr - ztr_mean
+    ytr_c = ytr - ytr_mean
+    if ztr.shape[1] == 1:
+        denom = float(np.sum(ztr_c[:, 0] ** 2))
+        slope = float((ztr_c[:, 0] @ ytr_c) / denom) if denom > 0.0 else 0.0
+        return _r2_from_pred(yte, ytr_mean + (zte[:, 0] - ztr_mean[0]) * slope)
+    beta = np.linalg.lstsq(ztr_c, ytr_c, rcond=None)[0]
+    return _r2_from_pred(yte, ytr_mean + (zte - ztr_mean) @ beta)
+
+
+def _r2_1d_cols(ztr: np.ndarray, ytr: np.ndarray, zte: np.ndarray, yte: np.ndarray) -> List[float]:
+    """Vectorized 1-D OLS held-out ``R^2`` for every column of ``ztr`` / ``zte``."""
+    d = ztr.shape[1]
+    if d == 0:
+        return []
+    ztr_mean = np.mean(ztr, axis=0)
+    ztr_c = ztr - ztr_mean
+    ytr_mean = float(np.mean(ytr))
+    ytr_c = ytr - ytr_mean
+    denom = np.sum(ztr_c ** 2, axis=0)
+    slope = np.where(denom > 0.0, (ztr_c.T @ ytr_c) / np.where(denom > 0.0, denom, 1.0), 0.0)
+    preds = ytr_mean + (zte - ztr_mean) * slope
+    ss_res = np.sum((yte[:, None] - preds) ** 2, axis=0)
+    ss_tot = float(np.sum((yte - np.mean(yte)) ** 2))
+    if ss_tot == 0.0:
+        return [1.0 if float(sr) == 0.0 else 0.0 for sr in ss_res]
+    return (1.0 - ss_res / ss_tot).tolist()
 
 
 def _refit_task(args):
@@ -55,11 +95,12 @@ def _refit_task(args):
     from .confounds import clean_raw_views
     tr_c = clean_raw_views(res, [np.asarray(x, dtype=np.float64)[rows] for x in train])
     te_c = clean_raw_views(res, [None if x is None else np.asarray(x, dtype=np.float64) for x in test])
+    y_tr_sub = y_tr[rows]
     out = {}
     for m in views:
         V = _np(res["v"][m])
         xs, xt = tr_c[m], te_c[m]
-        r2 = [_r2(xs @ V[:, [j]], y_tr[rows], xt @ V[:, [j]], y_te) for j in range(V.shape[1])]
+        r2 = _r2_1d_cols(xs @ V, y_tr_sub, xt @ V, y_te)
         j = int(np.argmax(r2))
         out[str(m)] = {"component": j + 1, "support": (V[:, j] > SUPPORT_TOL).astype(int).tolist(),
                        "r2": r2[j], "nnz": (V > SUPPORT_TOL).sum(0).astype(int).tolist()}
@@ -138,24 +179,43 @@ def component_attribution(result: Dict[str, Any], train_views: Sequence[Any], te
     train_c, test_c = clean_raw_views(result, train), clean_raw_views(result, test)
     Ztr = np.hstack([train_c[m] @ V[m] for m in views]); Zte = np.hstack([test_c[m] @ V[m] for m in views])
     full = _r2(Ztr, y_tr, Zte, y_te)
+    alone_all = _r2_1d_cols(Ztr, y_tr, Zte, y_te)
     comps = []
     for c, (m, j) in enumerate(cols):
         keep = [i for i in range(len(cols)) if i != c]
         comps.append({"view": m, "view_name": vnames[m], "component": j + 1, "nnz": int((V[m][:, j] > SUPPORT_TOL).sum()),
-                      "alone": _r2(Ztr[:, [c]], y_tr, Zte[:, [c]], y_te),
+                      "alone": alone_all[c],
                       "unique": full - _r2(Ztr[:, keep], y_tr, Zte[:, keep], y_te)})
     rot = _np(result["loading_rotation"]) if result.get("loading_rotation") is not None else np.eye(k)
     U = _np(result["u"]) @ rot
+    U_c = U - U.mean(axis=0, keepdims=True)
+    u_norms = np.linalg.norm(U_c, axis=0)
     spectra, full_support = {}, {}
     for m in views:
-        X = train_c[m]; p = X.shape[1]
-        C = np.corrcoef(X.T); ev = np.clip(np.linalg.eigvalsh(C)[::-1], 0, None)
+        X = train_c[m]; n_x, p = X.shape
+        X_c = X - X.mean(axis=0, keepdims=True)
+        col_norms = np.linalg.norm(X_c, axis=0)
+        if p > n_x and np.all(col_norms > 0.0):
+            Z_corr = X_c / col_norms
+            ev_nz = np.clip(np.linalg.eigvalsh(Z_corr @ Z_corr.T)[::-1], 0.0, None)
+            ev = np.concatenate([ev_nz, np.zeros(p - n_x, dtype=np.float64)])
+            c_sum = float(np.sum(Z_corr.sum(axis=1) ** 2))
+        else:
+            C = np.corrcoef(X.T)
+            ev = np.clip(np.linalg.eigvalsh(C)[::-1], 0.0, None)
+            c_sum = float(C.sum())
         gm = X.mean(1)
+        gm_c = gm - gm.mean()
+        gm_norm = float(np.linalg.norm(gm_c))
+        if gm_norm > 0.0 and np.all(u_norms > 0.0):
+            cvm = ((U_c.T @ gm_c) / (u_norms * gm_norm)).tolist()
+        else:
+            cvm = [float(np.corrcoef(U[:, j], gm)[0, 1]) for j in range(k)]
         hard = None
         if result.get("loadings") is not None:
             L = _np(result["loadings"][m]); hard = (L > 0).sum(0).astype(int).tolist()
-        spectra[str(m)] = {"eigen_share": (ev / ev.sum()).tolist(), "mean_corr": float((C.sum() - p) / (p * (p - 1))),
-                           "consensus_vs_mean": [float(np.corrcoef(U[:, j], gm)[0, 1]) for j in range(k)],
+        spectra[str(m)] = {"eigen_share": (ev / ev.sum()).tolist(), "mean_corr": float((c_sum - p) / (p * (p - 1))),
+                           "consensus_vs_mean": cvm,
                            "hard_assignment": hard}
         alone = [c["alone"] for c in comps if c["view"] == m]
         full_support[str(m)] = (V[m][:, int(np.argmax(alone))] > SUPPORT_TOL).astype(int).tolist()
@@ -172,6 +232,7 @@ def component_attribution(result: Dict[str, Any], train_views: Sequence[Any], te
         refits[vname] = _run(_refit_task, tasks, n_jobs)
     fnames = {str(m): (list(feature_names[m]) if feature_names is not None else [f"v{m}.{i}" for i in range(train[m].shape[1])])
               for m in views}
+    actual_frac = float(len(refit_rows[0]) / n) if refit_rows else float(round(refit_fraction * n) / n)
     return {"full_r2": full, "components": comps, "spectra": spectra, "full_support": full_support, "refits": refits,
             "feature_names": fnames, "view_names": vnames, "views": list(views), "k": int(k), "n_train": int(n),
-            "n_test": len(y_te), "n_refits": len(refit_rows), "refit_fraction": float(len(refit_rows[0]) / n)}
+            "n_test": len(y_te), "n_refits": len(refit_rows), "refit_fraction": actual_frac}

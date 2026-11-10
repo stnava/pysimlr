@@ -229,29 +229,134 @@ def _corr_map(xz: np.ndarray, tz: np.ndarray) -> np.ndarray:
     return xz.T @ tz / xz.shape[0]
 
 
+def _ledoit_wolf_centered(x: np.ndarray, d: Optional[np.ndarray] = None) -> Tuple[float, float]:
+    """Exact ``(shrinkage, mu)`` matching ``sklearn.covariance.ledoit_wolf_shrinkage(x, assume_centered=True)``
+    without forming a ``p x p`` precision matrix (``O(min(n, p)^2 max(n, p))``, or ``O(n p)`` given SVD ``d``)."""
+    n, p = x.shape
+    if p <= 1:
+        return 0.0, (float(np.sum(x ** 2)) / (n * max(p, 1)) if p == 1 and n > 0 else 0.0)
+    x2 = x ** 2
+    trace_sum = float(np.sum(x2)) / n
+    mu = trace_sum / p
+    beta_ = float(np.sum(np.sum(x2, axis=1) ** 2))
+    if d is not None:
+        delta_ = float(np.sum(d ** 4)) / (n ** 2)
+    elif p > n:
+        g = x @ x.T
+        delta_ = float(np.sum(g ** 2)) / (n ** 2)
+    else:
+        c = x.T @ x
+        delta_ = float(np.sum(c ** 2)) / (n ** 2)
+    beta = (beta_ / n - delta_) / (p * n)
+    delta = (delta_ - 2.0 * mu * trace_sum + p * (mu ** 2)) / p
+    beta = min(beta, delta)
+    shrinkage = 0.0 if (beta <= 0.0 or delta <= 0.0) else float(beta / delta)
+    return shrinkage, mu
+
+
+def _ledoit_wolf_joint_from_svd(row_sq_x: np.ndarray, sum_x2: float, sum_d4: float,
+                                pp: np.ndarray, d: np.ndarray, p_x: int,
+                                t_j: np.ndarray) -> Tuple[float, float]:
+    """Exact Ledoit-Wolf ``(shrinkage, mu)`` for ``[xl, t_j]`` in ``O(n r)`` from thin SVD of ``xl``."""
+    n = len(t_j)
+    p = p_x + 1
+    t2 = t_j ** 2
+    t2_sum = float(np.sum(t2))
+    if p <= 1:
+        return 0.0, t2_sum / max(n, 1)
+    trace_sum = (sum_x2 + t2_sum) / n
+    mu = trace_sum / p
+    beta_ = float(np.sum((row_sq_x + t2) ** 2))
+    u = pp.T @ t_j
+    xt_norm2 = float(np.sum((d * u) ** 2))
+    delta_ = (sum_d4 + 2.0 * xt_norm2 + t2_sum ** 2) / (n ** 2)
+    beta = (beta_ / n - delta_) / (p * n)
+    delta = (delta_ - 2.0 * mu * trace_sum + p * (mu ** 2)) / p
+    beta = min(beta, delta)
+    shrinkage = 0.0 if (beta <= 0.0 or delta <= 0.0) else float(beta / delta)
+    return shrinkage, mu
+
+
 def _partial_map(xz: np.ndarray, tz: np.ndarray, shrinkage) -> np.ndarray:
     """Partial correlation of each feature with each target column, given every
     other feature of the view: -P_ft / sqrt(P_ff P_tt), P the inverse of the
     (shrunk) correlation matrix of [X, t_j]."""
     n, p = xz.shape
     out = np.zeros((p, tz.shape[1]))
+    t_live = [j for j in range(tz.shape[1]) if tz[:, j].std() > 0]
+    if not t_live:
+        return out
+    if shrinkage != "ledoit_wolf":
+        lam_fixed = float(shrinkage)
+        if not 0.0 <= lam_fixed < 1.0:
+            raise ValueError(f"shrinkage must be 'ledoit_wolf' or a float in [0, 1); got {shrinkage!r}.")
+    else:
+        lam_fixed = 0.0
     live = xz.std(0) > 0
-    for j in range(tz.shape[1]):
-        if not tz[:, j].std() > 0:
-            continue
-        joint = np.column_stack([xz[:, live], tz[:, j]])
-        if shrinkage == "ledoit_wolf":
-            from sklearn.covariance import LedoitWolf
-            s = LedoitWolf(assume_centered=True).fit(joint).covariance_
-        else:
-            lam = float(shrinkage)
-            if not 0.0 <= lam < 1.0:
-                raise ValueError(f"shrinkage must be 'ledoit_wolf' or a float in [0, 1); got {shrinkage!r}.")
+    if not live.any():
+        return out
+    xl = xz[:, live]
+    p_l = xl.shape[1]
+    if shrinkage == "ledoit_wolf":
+        pp, d, qt = np.linalg.svd(xl, full_matrices=False)
+        s_x = d / np.sqrt(n)
+        s_x2 = s_x ** 2
+        qt2 = qt ** 2
+        null_diag = np.maximum(1.0 - qt2.sum(axis=0), 0.0) if len(d) < p_l else None
+        row_sq_x = np.sum(xl ** 2, axis=1)
+        sum_x2 = float(row_sq_x.sum())
+        sum_d4 = float(np.sum(d ** 4))
+        for j in t_live:
+            t_j = tz[:, j]
+            lam_j, mu_j = _ledoit_wolf_joint_from_svd(row_sq_x, sum_x2, sum_d4, pp, d, p_l, t_j)
+            alpha = lam_j * mu_j
+            if alpha <= 0.0 and (p_l >= n or d[-1] <= d[0] * 1e-12):
+                joint = np.column_stack([xl, t_j])
+                s = (1.0 - lam_j) * (joint.T @ joint / n) + alpha * np.eye(p_l + 1)
+                prec = np.linalg.inv(s)
+                dg = np.diag(prec)
+                out[live, j] = -prec[:-1, -1] / np.sqrt(dg[:-1] * dg[-1])
+                continue
+            eig = (1.0 - lam_j) * s_x2 + alpha
+            pt = pp.T @ t_j
+            u_t = pt / np.sqrt(n)
+            w = qt.T @ (((1.0 - lam_j) * s_x * u_t) / eig)
+            t_perp2 = max(float(np.sum((t_j - pp @ pt) ** 2)) / n, 0.0)
+            s_schur = (1.0 - lam_j) * t_perp2 + alpha + float(np.sum((alpha * (1.0 - lam_j) * (u_t ** 2)) / eig))
+            diag_ainv = qt2.T @ (1.0 / eig)
+            if null_diag is not None:
+                diag_ainv = diag_ainv + (1.0 / alpha) * null_diag
+            out[live, j] = w / np.sqrt(diag_ainv * s_schur + w ** 2)
+        return out
+
+    rms_x = np.sqrt(np.mean(xl ** 2, axis=0))
+    xl_u = xl / rms_x
+    pp, d, qt = np.linalg.svd(xl_u, full_matrices=False)
+    if lam_fixed == 0.0 and (p_l >= n or d[-1] <= d[0] * 1e-12):
+        for j in t_live:
+            joint = np.column_stack([xl, tz[:, j]])
             s = joint.T @ joint / n
-            s = (1.0 - lam) * s + lam * np.diag(np.diag(s))
-        prec = np.linalg.inv(s)
-        d = np.diag(prec)
-        out[live, j] = -prec[:-1, -1] / np.sqrt(d[:-1] * d[-1])
+            prec = np.linalg.inv(s)
+            dg = np.diag(prec)
+            out[live, j] = -prec[:-1, -1] / np.sqrt(dg[:-1] * dg[-1])
+        return out
+    s_x = d / np.sqrt(n)
+    eig = (1.0 - lam_fixed) * (s_x ** 2) + lam_fixed
+    qt2 = qt ** 2
+    diag_ainv = qt2.T @ (1.0 / eig)
+    if len(d) < p_l:
+        diag_ainv = diag_ainv + (1.0 / lam_fixed) * np.maximum(1.0 - qt2.sum(axis=0), 0.0)
+    for j in t_live:
+        t_j = tz[:, j]
+        t_u = t_j / np.sqrt(float(np.mean(t_j ** 2)))
+        pt = pp.T @ t_u
+        u_t = pt / np.sqrt(n)
+        w = qt.T @ (((1.0 - lam_fixed) * s_x * u_t) / eig)
+        t_perp2 = max(float(np.sum((t_u - pp @ pt) ** 2)) / n, 0.0)
+        s_schur = (1.0 - lam_fixed) * t_perp2 + lam_fixed + float(
+            np.sum((lam_fixed * (1.0 - lam_fixed) * (u_t ** 2)) / eig)
+        )
+        out[live, j] = w / np.sqrt(diag_ainv * s_schur + w ** 2)
     return out
 
 
@@ -302,11 +407,11 @@ def _resolve_rw_shrinkage(xl: np.ndarray, d: np.ndarray, shrinkage: Any,
             return 0.0
         shrinkage = "ledoit_wolf"
     if shrinkage in ("ledoit_wolf", "ledoit_wolf_joint"):
-        from sklearn.covariance import LedoitWolf
-        if shrinkage == "ledoit_wolf_joint" and joint is None:
-            raise ValueError("'ledoit_wolf_joint' needs the target: it is defined per target in feature_maps.")
-        arr = joint if shrinkage == "ledoit_wolf_joint" else xl
-        return float(LedoitWolf(assume_centered=True).fit(arr).shrinkage_)
+        if shrinkage == "ledoit_wolf_joint":
+            if joint is None:
+                raise ValueError("'ledoit_wolf_joint' needs the target: it is defined per target in feature_maps.")
+            return _ledoit_wolf_centered(joint)[0]
+        return _ledoit_wolf_centered(xl, d=d)[0]
     if isinstance(shrinkage, (str, bool)):
         raise ValueError(f"rw_shrinkage must be 'auto', 'ledoit_wolf', 'ledoit_wolf_joint' or a float in [0, 1); "
                          f"got {shrinkage!r}.")
@@ -335,6 +440,37 @@ def _basis_from_svd(pp: np.ndarray, d: np.ndarray, qt: np.ndarray, n: int, lam: 
     lam_mat = (qt.T * (np.sqrt(d_lam) - np.sqrt(lam))[None, :]) @ qt
     lam_mat[np.diag_indices(qt.shape[1])] += np.sqrt(lam)
     return zo, lam_mat ** 2
+
+
+def _rw_weights_from_svd(pp: np.ndarray, d: np.ndarray, qt: np.ndarray,
+                         n: int, lam: float, t_cols: np.ndarray) -> np.ndarray:
+    """Compute ``(Lambda_lam ** 2) @ (beta ** 2)`` from thin SVD without forming a ``p x p``
+    matrix when ``p > 2 r``."""
+    r, p_l = qt.shape
+    if lam == 0.0 or p_l <= 2 * r:
+        zo, lam2 = _basis_from_svd(pp, d, qt, n, lam)
+        beta = (1.0 - lam) * (zo.T @ t_cols / np.sqrt(n)) if lam > 0.0 else (zo.T @ t_cols / np.sqrt(n))
+        return lam2 @ (beta ** 2)
+    s = d / np.sqrt(n)
+    d_lam = (1.0 - lam) * (s ** 2) + lam
+    v_r = qt.T
+    pt = pp.T @ t_cols
+    scale_s = s / np.sqrt(d_lam)
+    scaled_pt = scale_s * pt if pt.ndim == 1 else scale_s[:, None] * pt
+    beta = (1.0 - lam) * (v_r @ scaled_pt / np.sqrt(n))
+    u = beta ** 2
+    c = np.sqrt(d_lam) - np.sqrt(lam)
+    gamma = np.sqrt(lam)
+    diag_scale = lam + 2.0 * gamma * ((v_r ** 2) @ c)
+    cc = c[:, None] * c[None, :]
+    if u.ndim == 1:
+        m_mat = (v_r * u[:, None]).T @ v_r
+        return diag_scale * u + np.sum((v_r @ (cc * m_mat)) * v_r, axis=1)
+    cols = []
+    for j in range(u.shape[1]):
+        m_mat = (v_r * u[:, j:j + 1]).T @ v_r
+        cols.append(diag_scale * u[:, j] + np.sum((v_r @ (cc * m_mat)) * v_r, axis=1))
+    return np.column_stack(cols)
 
 
 def _relative_weight_map(xz: np.ndarray, tz: np.ndarray, shrinkage: Any = 0.0) -> np.ndarray:
@@ -373,20 +509,20 @@ def _relative_weight_map_lam(xz: np.ndarray, tz: np.ndarray, shrinkage: Any = 0.
     joint = shrinkage == "ledoit_wolf_joint" or (shrinkage == "auto" and not is_full_narrow)
     if not joint:
         lam = _resolve_rw_shrinkage(xl, d, 0.0 if shrinkage == "auto" else shrinkage)
-        zo, lam2 = _basis_from_svd(pp, d, qt, n, lam)
-        beta = (1.0 - lam) * (zo.T @ tz / np.sqrt(n)) if lam > 0.0 else (zo.T @ tz / np.sqrt(n))
-        out[live] = lam2 @ (beta ** 2)
+        out[live] = _rw_weights_from_svd(pp, d, qt, n, lam, tz)
         return out, np.full(k, lam)
+    row_sq_x = np.sum(xl ** 2, axis=1)
+    sum_x2 = float(row_sq_x.sum())
+    sum_d4 = float(np.sum(d ** 4))
+    p_l = xl.shape[1]
     for j in range(k):
         if not tz[:, j].std() > 0:
             continue
-        lam_j = _resolve_rw_shrinkage(xl, d, "ledoit_wolf_joint", joint=np.column_stack([xl, tz[:, j]]))
+        lam_j = _ledoit_wolf_joint_from_svd(row_sq_x, sum_x2, sum_d4, pp, d, p_l, tz[:, j])[0]
         lams[j] = lam_j
         if lam_j >= 1.0:
             continue
-        zo_j, lam2_j = _basis_from_svd(pp, d, qt, n, lam_j)
-        beta_j = (1.0 - lam_j) * (zo_j.T @ tz[:, j] / np.sqrt(n))
-        out[live, j] = lam2_j @ (beta_j ** 2)
+        out[live, j] = _rw_weights_from_svd(pp, d, qt, n, lam_j, tz[:, j])
     return out, lams
 
 

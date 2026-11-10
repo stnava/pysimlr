@@ -450,8 +450,11 @@ def _usable_retraction(candidate: Optional[torch.Tensor],
     # compared against the already-clamped candidate.
     rank_ref = reference.clamp_min(0.0) if nonneg else reference
     try:
-        if int(torch.linalg.matrix_rank(candidate)) < int(torch.linalg.matrix_rank(rank_ref)):
-            return False
+        cand_rank = int(torch.linalg.matrix_rank(candidate))
+        max_possible_rank = min(rank_ref.shape[0], rank_ref.shape[1])
+        if cand_rank < max_possible_rank or not bool(torch.isfinite(rank_ref).all()):
+            if cand_rank < int(torch.linalg.matrix_rank(rank_ref)):
+                return False
     except RuntimeError:
         return False
     return True
@@ -658,9 +661,11 @@ def _project_nonnegative(v: torch.Tensor, sign: float = 1.0) -> torch.Tensor:
         return torch.abs(v)
     if v.shape[1] > 1:
         # A rank query failure propagates.
-        if (torch.linalg.matrix_rank(projected.float())
-                < torch.linalg.matrix_rank(v.float())):
-            return torch.abs(v)
+        proj_rank = int(torch.linalg.matrix_rank(projected.float()))
+        max_possible_rank = min(v.shape[0], v.shape[1])
+        if proj_rank < max_possible_rank or not bool(torch.isfinite(v).all()):
+            if proj_rank < int(torch.linalg.matrix_rank(v.float())):
+                return torch.abs(v)
     return projected
 
 
@@ -884,30 +889,23 @@ def rank_based_matrix_segmentation(v: torch.Tensor,
     if n_to_keep == 0:
         return outmat.t() if transpose else outmat
 
-    for k in range(v.shape[0]):
-        row_values = v[k, :].clone()
-        if torch.all(row_values == 0):
-            continue
-
+    if v.shape[0] > 0:
         if positivity == "positive":
             # Resolve per-component sign gauge by dominant L2 mass before clamping
-            pos_norm = torch.linalg.vector_norm(torch.clamp(row_values, min=0.0))
-            neg_norm = torch.linalg.vector_norm(torch.clamp(-row_values, min=0.0))
-            if neg_norm > pos_norm:
-                row_values = -row_values
-            row_values = torch.clamp(row_values, min=0.0)
-            _, loc_ord = torch.topk(row_values, k=n_to_keep)
+            pos_norm = torch.linalg.vector_norm(torch.clamp(v, min=0.0), dim=1, keepdim=True)
+            neg_norm = torch.linalg.vector_norm(torch.clamp(-v, min=0.0), dim=1, keepdim=True)
+            work = torch.clamp(torch.where(neg_norm > pos_norm, -v, v), min=0.0)
+            vals, loc_ord = torch.topk(work, k=n_to_keep, dim=1)
+            outmat.scatter_(1, loc_ord, vals)
         elif positivity == "negative":
-            pos_norm = torch.linalg.vector_norm(torch.clamp(row_values, min=0.0))
-            neg_norm = torch.linalg.vector_norm(torch.clamp(-row_values, min=0.0))
-            if pos_norm > neg_norm:
-                row_values = -row_values
-            row_values = torch.clamp(row_values, max=0.0)
-            _, loc_ord = torch.topk(-row_values, k=n_to_keep)
+            pos_norm = torch.linalg.vector_norm(torch.clamp(v, min=0.0), dim=1, keepdim=True)
+            neg_norm = torch.linalg.vector_norm(torch.clamp(-v, min=0.0), dim=1, keepdim=True)
+            work = torch.clamp(torch.where(pos_norm > neg_norm, -v, v), max=0.0)
+            _, loc_ord = torch.topk(-work, k=n_to_keep, dim=1)
+            outmat.scatter_(1, loc_ord, torch.gather(work, 1, loc_ord))
         else:
-            _, loc_ord = torch.topk(torch.abs(row_values), k=n_to_keep)
-
-        outmat[k, loc_ord] = row_values[loc_ord]
+            _, loc_ord = torch.topk(torch.abs(v), k=n_to_keep, dim=1)
+            outmat.scatter_(1, loc_ord, torch.gather(v, 1, loc_ord))
 
     if transpose:
         return outmat.t()
@@ -983,6 +981,27 @@ def orthogonalize_and_q_sparsify(v: torch.Tensor,
         # without bound.
         if unit_norm:
             v_out = _unit_normalize_columns(v_out)
+        return v_out.to(orig_dtype)
+
+    if sparsify and not isinstance(sparseness, (list, torch.Tensor, np.ndarray)):
+        sq_scalar = float(sparseness)
+        if positivity == "positive":
+            pos_norm = torch.linalg.vector_norm(torch.clamp(v_out, min=0.0), dim=0, keepdim=True)
+            neg_norm = torch.linalg.vector_norm(torch.clamp(-v_out, min=0.0), dim=0, keepdim=True)
+            v_out = torch.clamp(torch.where(neg_norm > pos_norm, -v_out, v_out), min=0.0)
+        elif positivity == "negative":
+            pos_norm = torch.linalg.vector_norm(torch.clamp(v_out, min=0.0), dim=0, keepdim=True)
+            neg_norm = torch.linalg.vector_norm(torch.clamp(-v_out, min=0.0), dim=0, keepdim=True)
+            v_out = torch.clamp(torch.where(pos_norm > neg_norm, -v_out, v_out), max=0.0)
+        abs_v = torch.abs(v_out)
+        thresh = torch.quantile(abs_v, sq_scalar, dim=0, keepdim=True)
+        if soft_thresholding:
+            v_out = torch.sign(v_out) * torch.clamp(abs_v - thresh, min=0.0)
+        else:
+            v_out = torch.where(abs_v < thresh, torch.zeros_like(v_out), v_out)
+        if unit_norm:
+            norms = torch.linalg.vector_norm(v_out, dim=0, keepdim=True)
+            v_out = torch.where(norms > 0, v_out / torch.where(norms > 0, norms, torch.ones_like(norms)), v_out)
         return v_out.to(orig_dtype)
 
     if sparsify:

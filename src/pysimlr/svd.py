@@ -330,20 +330,20 @@ def multiscale_svd(x: torch.Tensor,
     if knn > 0:
         dist = torch.cdist(x[locn_indices], x)
         _, indices = torch.topk(dist, k=k_eff, largest=False)
+        subset = x[indices]
+        subset_c = subset - subset.mean(dim=-2, keepdim=True)
+        _, s_all, _ = safe_svd(subset_c, full_matrices=False)
+        s_base = s_all.mean(dim=0)[:actual_nev]
+    else:
+        subset = x[locn_indices]
+        subset_c = subset - torch.mean(subset, dim=0)
+        _, s_raw, _ = safe_svd(subset_c, full_matrices=False)
+        s_base = s_raw[:actual_nev]
 
-    for scl_idx, my_r in enumerate(r):
-        denom = my_r if torch.abs(my_r) > 1e-12 else 1.0
-        if knn > 0:
-            subset = x[indices]
-            subset_c = (subset - subset.mean(dim=-2, keepdim=True)) / denom
-            _, s_all, _ = safe_svd(subset_c, full_matrices=False)
-            s = s_all.mean(dim=0)
-            m_response[scl_idx, :len(s[:actual_nev])] = s[:actual_nev]
-        else:
-            subset = x[locn_indices]
-            subset_c = (subset - torch.mean(subset, dim=0)) / denom
-            _, s, _ = safe_svd(subset_c, full_matrices=False)
-            m_response[scl_idx, :len(s[:actual_nev])] = s[:actual_nev]
+    if len(r) > 0:
+        abs_r = torch.abs(r)
+        denom = torch.where(abs_r > 1e-12, abs_r, torch.ones_like(abs_r))
+        m_response[:, :len(s_base)] = s_base.unsqueeze(0) / denom.unsqueeze(1)
             
     return {"evals_vs_scale": m_response}
 
