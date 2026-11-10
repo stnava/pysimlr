@@ -175,7 +175,7 @@ def _safe_std(x: torch.Tensor, dim: int = 0, keepdim: bool = True, eps: float = 
     return torch.sqrt(x.var(dim=dim, keepdim=keepdim, unbiased=False) + eps)
 
 def _standardize_deep(data_matrices, scale_list=("centerAndScale",)):
-    torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
+    torch_mats = [torch.as_tensor(m).float().contiguous() for m in data_matrices]
     provenance_list = []
     scaled_mats = []
     for m in torch_mats:
@@ -1892,7 +1892,7 @@ def predict_deep(data_matrices: List[Union[torch.Tensor, np.ndarray]], model_res
     model = model_res["model"]; model_type = model_res.get("model_type", "lend_simr")
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); model.to(device).eval()
-    torch_mats = [preprocess_data(torch.as_tensor(m).float(), model_res["scale_list"], prov) for m, prov in zip(data_matrices, model_res["provenance_list"])]
+    torch_mats = [preprocess_data(torch.as_tensor(m).float().contiguous(), model_res["scale_list"], prov) for m, prov in zip(data_matrices, model_res["provenance_list"])]
     with torch.no_grad():
         res = model([m.to(device) for m in torch_mats])
         first_layer_scores = [z.cpu() for z in model.encode_first_layer([m.to(device) for m in torch_mats], use_projected=True)] if hasattr(model, "encode_first_layer") else None

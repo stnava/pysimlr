@@ -64,7 +64,7 @@ def simlr_path(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     TypeError
         If inputs are of invalid types.
     """
-    torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
+    torch_mats = [torch.as_tensor(m).float().contiguous() for m in data_matrices]
     path_results = []
     
     for i, modality_indices in enumerate(path_model):
@@ -144,7 +144,7 @@ def permutation_test(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     """
     from .api import fit
     from .sem import path_model
-    views = [torch.as_tensor(np.asarray(m) if not isinstance(m, torch.Tensor) else m).float() for m in data_matrices]
+    views = [torch.as_tensor(np.asarray(m) if not isinstance(m, torch.Tensor) else m).float().contiguous() for m in data_matrices]
     if len(views) < 2:
         raise ValueError("permutation_test needs at least two views.")
     fit_kw = dict(kwargs, verbose=True) if verbose else dict(kwargs)

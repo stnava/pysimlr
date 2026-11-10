@@ -104,7 +104,7 @@ def _to_numpy(mat: Any, label: str) -> np.ndarray:
         raise ValueError(f"{label} must be 1-D or 2-D (samples x confounds); got shape {tuple(arr.shape)}.")
     if arr.shape[1] == 0:
         raise ValueError(f"{label} has 0 columns.")
-    return np.array(arr, dtype=np.float64, copy=True)
+    return np.array(arr, dtype=np.float64, order="C", copy=True)
 
 
 def _resolve_view_key(key: Any, n_views: int) -> int:

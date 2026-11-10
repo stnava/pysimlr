@@ -83,7 +83,11 @@ def _as_tensor(x):
         return None
     if hasattr(x, "to_numpy"):
         x = x.to_numpy()
-    return x.detach().float() if isinstance(x, torch.Tensor) else torch.as_tensor(np.asarray(x)).float()
+    return (
+        x.detach().float().contiguous()
+        if isinstance(x, torch.Tensor)
+        else torch.as_tensor(np.ascontiguousarray(x)).float().contiguous()
+    )
 
 
 def _targets(result: Dict[str, Any], views: List[Optional[torch.Tensor]], avail: List[int],

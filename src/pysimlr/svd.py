@@ -45,7 +45,7 @@ def ba_svd(x: torch.Tensor,
     TypeError
         If the input is not a tensor or array-like structure.
     """
-    x = torch.as_tensor(x).float()
+    x = torch.as_tensor(x).float().contiguous()
     x = torch.nan_to_num(x, nan=0.0)
     
     n, p = x.shape
@@ -86,7 +86,7 @@ def top_right_singular_vectors(x: torch.Tensor, k: int) -> torch.Tensor:
     ARPACK's differ, so on this path each column's sign is fixed instead: its
     largest-magnitude entry is positive. Small matrices use `ba_svd` unchanged.
     """
-    x = torch.nan_to_num(torch.as_tensor(x).float(), nan=0.0)
+    x = torch.nan_to_num(torch.as_tensor(x).float().contiguous(), nan=0.0)
     m = min(x.shape)
     if m < TRUNCATED_SVD_MIN_DIM or k > m // 10 or x.device.type != "cpu":
         return ba_svd(x, nu=0, nv=k)[2]
@@ -130,7 +130,7 @@ def safe_pca(x: torch.Tensor, nc: int = 2) -> Dict[str, torch.Tensor]:
     TypeError
         If the input is not a tensor or array-like structure.
     """
-    x = torch.as_tensor(x).float()
+    x = torch.as_tensor(x).float().contiguous()
     x = torch.nan_to_num(x, nan=0.0)
     if x.ndim == 1:
         x = x.unsqueeze(1)
@@ -306,7 +306,7 @@ def multiscale_svd(x: torch.Tensor,
     TypeError
         If the inputs are not tensors or array-like structures.
     """
-    x = torch.as_tensor(x).float()
+    x = torch.as_tensor(x).float().contiguous()
     r = torch.as_tensor(r).float()
     orig_dtype = x.dtype
     
@@ -368,7 +368,7 @@ def _as_loading_matrix(E, fn_name: str) -> torch.Tensor:
     convergence test summed the criterion across the batch, so neither ever
     supported it.
     """
-    E_t = torch.as_tensor(E)
+    E_t = torch.as_tensor(E).contiguous()
     if E_t.ndim != 2:
         raise ValueError(
             f"{fn_name} expects a 2-D [p, k] loading matrix; got shape "

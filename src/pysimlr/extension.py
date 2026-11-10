@@ -68,8 +68,8 @@ def view_names(result: Dict[str, Any]) -> List[str]:
 def _to_tensor(m: Any, label: str = "each view") -> torch.Tensor:
     if hasattr(m, "to_numpy"):
         m = m.to_numpy()
-    t = m.detach() if isinstance(m, torch.Tensor) else torch.as_tensor(np.asarray(m, dtype=np.float64))
-    t = t.float()
+    t = m.detach() if isinstance(m, torch.Tensor) else torch.as_tensor(np.ascontiguousarray(m, dtype=np.float64))
+    t = t.float().contiguous()
     if t.ndim != 2:
         raise ValueError(f"{label} must be 2-D (samples x features); got shape {tuple(t.shape)}.")
     return t

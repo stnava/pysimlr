@@ -1207,7 +1207,11 @@ def preprocess_data(x: torch.Tensor, scale_list: List[str], provenance: Optional
     TypeError
         If inputs are of invalid types.
     """
-    x_out = x.clone().float()
+    x_out = (
+        x.clone(memory_format=torch.contiguous_format)
+        if x.dtype == torch.float32
+        else x.to(dtype=torch.float32, memory_format=torch.contiguous_format)
+    )
     replay = provenance is not None
     new_provenance = None if replay else {}
 
@@ -1414,7 +1418,7 @@ def _scipy_gesvd_fallback(x: torch.Tensor, full_matrices: bool) -> Tuple[torch.T
 def _svd_on_cpu(x: torch.Tensor, full_matrices: bool):
     """SVD of `x` computed on the CPU (LAPACK gesdd, then scipy gesvd if that
     does not converge), returned on `x`'s device."""
-    x_cpu = x.cpu()
+    x_cpu = x.cpu().contiguous()
     try:
         u, s, vh = torch.linalg.svd(x_cpu, full_matrices=full_matrices)
     except torch.linalg.LinAlgError:

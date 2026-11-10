@@ -294,6 +294,11 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
             f"result depend on unrelated draws elsewhere in the process, "
             f"which is exactly what a multi-start experiment must not do."
         )
+    data_matrices = [
+        (x.contiguous() if isinstance(x, torch.Tensor)
+         else torch.as_tensor(x.to_numpy() if hasattr(x, "to_numpy") else x).contiguous())
+        for x in data_matrices
+    ]
     n_rows = [int(x.shape[0]) for x in data_matrices]
     if len(set(n_rows)) > 1:
         raise ValueError(
@@ -609,7 +614,7 @@ def _domain_informed_basis(data_matrices: List[torch.Tensor],
                                               modality_index=idx_m,
                                               varimax=varimax))
             continue
-        dm_t = torch.as_tensor(dm)
+        dm_t = torch.as_tensor(dm).contiguous()
         if dm_t.shape[-1] != x.shape[1]:
             raise ValueError(
                 f"domain_matrices entry has {dm_t.shape[-1]} columns but its "
@@ -861,7 +866,7 @@ def _nsa_data_transform(x, nonneg: bool, **nsa_kwargs) -> Dict[str, Any]:
     fn = load_nsa_flow()
     if fn is None:
         raise RuntimeError("NSA-Flow is not installed. Install with `pip install nsa-flow`.")
-    x_t = torch.as_tensor(x, dtype=torch.float32)
+    x_t = torch.as_tensor(x, dtype=torch.float32).contiguous()
     res = fn(x_t, nonneg=True, **nsa_kwargs) if nonneg else fn(x_t, **nsa_kwargs)
     v = result_matrix(res)
     if v is None:
@@ -1236,7 +1241,7 @@ def _check_views(data_matrices, n_views: Optional[int] = None,
     for idx, m in enumerate(data_matrices):
         if fitting and not isinstance(m, (torch.Tensor, np.ndarray)):
             raise TypeError(f"View {idx} must be a torch.Tensor or np.ndarray, got {type(m).__name__}.")
-        m_t = torch.as_tensor(m).float()
+        m_t = torch.as_tensor(m).float().contiguous()
         if m_t.ndim != 2:
             raise ValueError(
                 f"Each view in data_matrices must be 2D (samples x features). "
@@ -1721,7 +1726,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     optimizer = create_optimizer(optimizer_type, v_mats, **opt_params)
     lr_reductions = 0
     
-    torch_domains = [torch.as_tensor(dm).float() if dm is not None else None for dm in domain_matrices] if domain_matrices else None
+    torch_domains = [torch.as_tensor(dm).float().contiguous() if dm is not None else None for dm in domain_matrices] if domain_matrices else None
     if domain_lambdas is not None and not isinstance(domain_lambdas, (list, tuple)):
         # Accept any scalar, not just float; `domain_lambdas=1` used to reach
         # `domain_lambdas[i]` and raise "'int' object is not subscriptable".
@@ -2329,7 +2334,7 @@ def simlr_perm(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, n_p
     TypeError
         If the inputs are of an invalid type.
     """
-    torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
+    torch_mats = [torch.as_tensor(m).float().contiguous() for m in data_matrices]
 
     def _fit_and_score(mats):
         """Fit SiMLR and score pairwise similarity on the same matrices the fit saw."""
@@ -2678,7 +2683,7 @@ def estimate_rank(data_matrices: List[Union[torch.Tensor, np.ndarray]], n_permut
     TypeError
         If input types are invalid.
     """
-    torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
+    torch_mats = [torch.as_tensor(m).float().contiguous() for m in data_matrices]
     n_modalities = len(torch_mats); k_max_list = []
     for x in torch_mats:
         x_centered = x - torch.mean(x, dim=0); _, s, _ = safe_svd(x_centered, full_matrices=False)
@@ -2743,7 +2748,7 @@ def decompose_energy(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr
     TypeError
         If input types are invalid.
     """
-    torch_mats = [torch.as_tensor(m).float() for m in data_matrices]
+    torch_mats = [torch.as_tensor(m).float().contiguous() for m in data_matrices]
 
     # V and U were fitted on preprocessed data, so the energy has to be
     # evaluated on preprocessed data too. Skipping this made the returned
