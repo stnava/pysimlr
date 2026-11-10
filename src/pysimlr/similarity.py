@@ -232,7 +232,7 @@ def energy_recon_r2(s: torch.Tensor, u: torch.Tensor,
             "should be dropped rather than scored."
         )
     q = (v.t() @ v) * (u.t() @ u)
-    b = torch.diagonal(v.t() @ x.t() @ u)
+    b = torch.sum(v * (x.t() @ u), dim=0)
     eye = torch.eye(q.shape[0], dtype=q.dtype, device=q.device)
     # Relative ridge: Q is PSD but singular whenever two columns coincide or a
     # column dies, which `enforce_column_floor` makes rare rather than absent.
@@ -253,7 +253,7 @@ def recon_r2_scales(x: torch.Tensor, u: torch.Tensor,
     reconstructing from a sign-flipped component.
     """
     q = (v.t() @ v) * (u.t() @ u)
-    b = torch.diagonal(v.t() @ x.t() @ u)
+    b = torch.sum(v * (x.t() @ u), dim=0)
     eye = torch.eye(q.shape[0], dtype=q.dtype, device=q.device)
     ridge = 1e-10 * torch.clamp(q.diagonal().mean().abs(), min=1e-30)
     return torch.linalg.solve(q + ridge * eye, b)
@@ -470,7 +470,8 @@ def energy_negentropy(s: torch.Tensor, u: torch.Tensor,
     about how much non-Gaussianity real data carries.
     """
     _check_rows(s, "negentropy")
-    z = _centre(s) / _std(_centre(s))
+    sc = _centre(s)
+    z = sc / _std(sc)
     j = (torch.log(torch.cosh(z)).mean(dim=0) - GAUSSIAN_LOGCOSH) ** 2
     return -torch.sum(j)
 
@@ -719,7 +720,10 @@ def similarity_gradient(name: str, s: torch.Tensor, u: torch.Tensor,
             c = _require(ctx, "x", "v", name=key)
             v = c.v.detach().clone().requires_grad_(True)
             local = SimilarityContext(x=c.x.detach(), v=v, eps=c.eps)
-            s_in = local.x @ v if local.x is not None else s.detach()
+            if key in ("recon", "recon_r2"):
+                s_in = u_det
+            else:
+                s_in = local.x @ v if local.x is not None else s.detach()
             e = fn(s_in, u_det, local)
             (g,) = torch.autograd.grad(e, v)
             return g.detach()

@@ -465,7 +465,12 @@ def adjusted_rvcoef(x: torch.Tensor, y: torch.Tensor) -> float:
     if n <= 1 or y.shape[0] <= 1 or x.shape[0] != y.shape[0]:
         return 0.0
         
-    components = rvcoef_components(x, y)
+    x_centered = x - torch.mean(x, dim=0)
+    y_centered = y - torch.mean(y, dim=0)
+    if n < (x.shape[1] + y.shape[1]):
+        components = rvcoef_trace_impl(x_centered, y_centered)
+    else:
+        components = rvcoef_gram_impl(x_centered, y_centered)
     rv_obs = float(components['rv'])
     rv_den = components['denominator']
     if isinstance(rv_den, torch.Tensor):
@@ -475,9 +480,6 @@ def adjusted_rvcoef(x: torch.Tensor, y: torch.Tensor) -> float:
     
     if rv_den == 0.0:
         return 0.0
-        
-    x_centered = x - torch.mean(x, dim=0)
-    y_centered = y - torch.mean(y, dim=0)
     
     tr_s_xx = float(torch.sum(x_centered * x_centered).item())
     tr_s_yy = float(torch.sum(y_centered * y_centered).item())
@@ -568,12 +570,14 @@ def coupling_capacity_report(latents: List[torch.Tensor], u: torch.Tensor, width
     uu = u[0] if isinstance(u, list) else u
     uu = uu.detach().double()
     uc = uu - uu.mean(0)
+    uc_norm = uc.norm(dim=0)
     coup = []
     for z in latents:
-        zc = z.detach().double() - z.detach().double().mean(0)
+        zd = z.detach().double()
+        zc = zd - zd.mean(0)
         num = (zc * uc).sum(0)
-        den = zc.norm(dim=0) * uc.norm(dim=0)
-        coup.append([float(c) for c in (num.abs() / den.clamp_min(1e-300))])
+        den = zc.norm(dim=0) * uc_norm
+        coup.append((num.abs() / den.clamp_min(1e-300)).tolist())
     ratio = [float(p) / float(n) for p in widths]
     return {"coupling_train": coup, "view_width_ratio": ratio,
             "wide_views": [m for m, p in enumerate(widths) if p >= n]}

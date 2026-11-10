@@ -526,7 +526,8 @@ def _adjusted_rv(Ra: np.ndarray, Rb: np.ndarray) -> float:
 
 
 def _pct(x: np.ndarray, axis: int = 0) -> Tuple[np.ndarray, np.ndarray]:
-    return np.percentile(x, 2.5, axis=axis), np.percentile(x, 97.5, axis=axis)
+    lo, hi = np.percentile(x, [2.5, 97.5], axis=axis)
+    return lo, hi
 
 
 # ----------------------------------------------------------------------------- path_model
@@ -613,7 +614,9 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
                inference: Optional[Dict[str, Any]] = None, alpha: float = 0.05, random_state: int = 0,
                n_jobs: int = 1, allow_train_fixed: Union[bool, str] = False,
                refit_scope: Tuple[str, ...] = ("edges", "omnibus"),
-               _emit_drop_warning: bool = True) -> Dict[str, Any]:
+               _emit_drop_warning: bool = True,
+               _precomputed_sc: Optional[Dict[str, Any]] = None,
+               _edge_cache: Optional[Dict[Any, Any]] = None) -> Dict[str, Any]:
     """Edge-wise, omnibus and graph-fit permutation inference on the scores of a fitted model.
 
     See the module docstring for the statistics, nulls and what the test cannot say. ``views``
@@ -687,7 +690,7 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
         orig_view_indices: Optional[List[int]] = avail
         dropped_views = absent_names
     else:
-        sc = view_scores(result, vlist, train_views=train_views)
+        sc = _precomputed_sc if _precomputed_sc is not None else view_scores(result, vlist, train_views=train_views)
         names = all_names
         orig_view_indices = list(range(m_views))
     return _path_model_core(result, vlist, sc, names, rows=rows, graph=graph, directed=directed,
@@ -698,7 +701,7 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
                             alpha=alpha, random_state=random_state, n_jobs=n_jobs,
                             allow_train_fixed=allow_train_fixed, refit_scope=refit_scope, standardize=True,
                             orig_view_indices=orig_view_indices, dropped_views=dropped_views,
-                            _emit_drop_warning=_emit_drop_warning)
+                            _emit_drop_warning=_emit_drop_warning, _edge_cache=_edge_cache)
 
 
 def _given_scores(scores: Any, standardize: bool, allow_missing: bool = False):
@@ -1180,7 +1183,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
     feature_contributions = (
         _feature_contributions(result, view_nodes, pairs, present, diagnostic, designs, obs,
                                orig_view_indices=orig_view_indices)
-        if result is not None
+        if (result is not None and _edge_cache is None)
         else pd.DataFrame(columns=["edge", "a", "b", "component", "feature", "contribution"])
     )
     if not use_fixed:
@@ -1898,7 +1901,6 @@ def _compare_training_topologies(method, k, views, graphs, *, n_splits, train_fr
                 sc_te = view_scores(res, v_te, train_views=v_tr)
                 Ztr = dict(zip(names, sc_tr["scores"]))
                 Zte = dict(zip(names, sc_te["scores"]))
-                Zte_views = dict(Zte)
                 if has_y:
                     Ztr["outcome"], Zte["outcome"] = _zscore(y_all[tr]), _zscore(y_all[te])
                 split_dofs = _result_node_dofs(res, names, len(tr))
@@ -1916,21 +1918,21 @@ def _compare_training_topologies(method, k, views, graphs, *, n_splits, train_fr
                     yhat = np.column_stack([np.ones(len(te)), _np(predict(res, v_te)["u"])]) @ W
                     out_r2 = _r2_score(y_all[te], yhat)
                 topo_cache[topo_key] = (
-                    Ztr, Zte, Zte_views, split_dofs, node_cache_t, ll_cmp, r2, coup, out_r2, {}
+                    res, sc_te, Ztr, Zte, split_dofs, node_cache_t, ll_cmp, r2, coup, out_r2, {}
                 )
-            (Ztr, Zte, Zte_views, split_dofs, node_cache_t, ll_cmp, r2, coup, out_r2, edge_cache_t) = topo_cache[topo_key]
+            (res, sc_te, Ztr, Zte, split_dofs, node_cache_t, ll_cmp, r2, coup, out_r2, edge_cache_t) = topo_cache[topo_key]
             ll_own, _, _ = _graph_loglik(
                 Ztr, Zte, Ntr, Nte, nodes, adj, directed,
                 node_dofs=split_dofs, node_model_cache=node_cache_t,
             )
-            pm = path_model_from_scores(
-                Zte_views, rows="heldout", graph=graphs[gname], directed=directed,
-                covariates=None if c_all is None else c_all[te],
+            pm = path_model(
+                res, v_te, rows="heldout", train_views=v_tr, graph=graphs[gname], directed=directed,
+                view_names=names, covariates=None if c_all is None else c_all[te],
                 groups=None if g_all is None else g_all[te],
                 outcome=None if not has_y else y_all[te],
                 conditioning="parents", n_permutations=n_permutations, n_bootstrap=0,
-                alpha=alpha, random_state=random_state + s, standardize=False,
-                _edge_cache=edge_cache_t,
+                alpha=alpha, random_state=random_state + s,
+                _precomputed_sc=sc_te, _edge_cache=edge_cache_t,
             )
             row = {"split": s, "graph": gname, "topology": topo, "n_edges": _n_edges(adj, directed),
                    "n_test": len(te), "heldout_loglik_own": float(ll_own.sum()),

@@ -305,7 +305,8 @@ class SparseGraphResolvent:
         A_sp = (I_sp + self.lambda_val * L_sp).tocsc()
 
         # Precompute sparse factorization (takes ~20 ms, solves in ~0.5 ms)
-        self._solve = spla.factorized(A_sp)
+        self._lu = spla.splu(A_sp)
+        self._solve = self._lu.solve
         self._idempotent_outputs: "OrderedDict[Tuple[Any, ...], bool]" = OrderedDict()
         self._eval_cache: "OrderedDict[Tuple[Any, ...], np.ndarray]" = OrderedDict()
         self._cache_maxsize = 256
@@ -352,9 +353,9 @@ class SparseGraphResolvent:
         v_np = v_np.astype(self._L_sp.dtype, copy=False)
 
         if v_np.ndim == 1:
-            out = self._solve(v_np)
+            out = self._lu.solve(v_np)
         elif v_np.ndim == 2:
-            out = np.column_stack([self._solve(v_np[:, c]) for c in range(v_np.shape[1])])
+            out = np.ascontiguousarray(self._lu.solve(v_np))
         else:
             raise ValueError(f"Expected 1D or 2D input tensor, got ndim={v_np.ndim}")
 
@@ -383,8 +384,8 @@ class SparseGraphResolvent:
 
     def to_dense(self) -> torch.Tensor:
         """Evaluate and return the explicit dense P x P tensor."""
-        I_dense = np.eye(self.P, dtype=np.float32)
-        S_dense = np.column_stack([self._solve(I_dense[:, c]) for c in range(self.P)])
+        I_dense = np.eye(self.P, dtype=self._L_sp.dtype)
+        S_dense = np.ascontiguousarray(self._lu.solve(I_dense), dtype=np.float32)
         return torch.from_numpy(S_dense)
 
     def to_sparse_tensor(self, threshold: float = 1e-4) -> torch.Tensor:
@@ -822,18 +823,15 @@ def create_graph_laplacian(
             raise ValueError(f"Mesh faces must be (F x 3), got shape {faces.shape}")
         P = int(faces.max()) + 1
 
-        e1 = faces[:, [0, 1]]
-        e2 = faces[:, [1, 2]]
-        e3 = faces[:, [2, 0]]
-        all_e = np.vstack([e1, e2, e3])
-        # Undirected
-        sym_e = np.vstack([all_e, all_e[:, [1, 0]]])
-        uniq_e = np.unique(sym_e, axis=0)
-        # Remove self-loops if any
-        uniq_e = uniq_e[uniq_e[:, 0] != uniq_e[:, 1]]
-
-        w = np.ones(len(uniq_e), dtype=np.float32)
-        W = sp.coo_matrix((w, (uniq_e[:, 0], uniq_e[:, 1])), shape=(P, P), dtype=np.float32).tocsr()
+        f0, f1, f2 = faces[:, 0], faces[:, 1], faces[:, 2]
+        rows = np.concatenate([f0, f1, f2, f1, f2, f0])
+        cols = np.concatenate([f1, f2, f0, f0, f1, f2])
+        keep = rows != cols
+        rows, cols = rows[keep], cols[keep]
+        w = np.ones(rows.shape[0], dtype=np.float32)
+        W = sp.coo_matrix((w, (rows, cols)), shape=(P, P), dtype=np.float32).tocsr()
+        W.sum_duplicates()
+        W.data[:] = 1.0
 
     elif source_type == "edges":
         edges = np.asarray(source_np)

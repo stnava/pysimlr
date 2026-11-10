@@ -333,16 +333,31 @@ def max_abs_corr(u: Any, c: Any) -> dict[str, float]:
     ca = np.asarray(c.detach().cpu().double() if isinstance(c, torch.Tensor) else c, dtype=np.float64)
     if ca.ndim == 1:
         ca = ca[:, None]
-    r = np.zeros((ua.shape[1], ca.shape[1]))
-    for j in range(ca.shape[1]):
-        ok = np.isfinite(ca[:, j])
-        if ok.sum() < 3 or ca[ok, j].std() == 0:
-            continue
-        for i in range(ua.shape[1]):
-            if ua[ok, i].std() > 0:
-                r[i, j] = abs(np.corrcoef(ua[ok, i], ca[ok, j])[0, 1])
-    return {"max": float(r.max()) if r.size else 0.0,
-            "mean": float(r.max(axis=0).mean()) if r.size else 0.0}
+    if ua.size == 0 or ca.size == 0:
+        return {"max": 0.0, "mean": 0.0}
+    r = np.zeros((ua.shape[1], ca.shape[1]), dtype=np.float64)
+    if ua.shape[0] >= 3 and np.all(np.isfinite(ua)) and np.all(np.isfinite(ca)):
+        uc = ua - ua.mean(axis=0, keepdims=True)
+        cc = ca - ca.mean(axis=0, keepdims=True)
+        den = np.linalg.norm(uc, axis=0, keepdims=True).T @ np.linalg.norm(cc, axis=0, keepdims=True)
+        np.divide(np.abs(uc.T @ cc), den, out=r, where=den > 0.0)
+        np.clip(r, 0.0, 1.0, out=r)
+    else:
+        for j in range(ca.shape[1]):
+            ok = np.isfinite(ca[:, j])
+            if ok.sum() < 3 or ca[ok, j].std() == 0:
+                continue
+            cc = ca[ok, j] - ca[ok, j].mean()
+            cn = float(np.linalg.norm(cc))
+            if cn == 0.0:
+                continue
+            u_ok = ua[ok]
+            uc = u_ok - u_ok.mean(axis=0, keepdims=True)
+            un = np.linalg.norm(uc, axis=0)
+            den = un * cn
+            np.divide(np.abs(uc.T @ cc), den, out=r[:, j], where=(un > 0.0) & np.isfinite(un))
+            np.clip(r[:, j], 0.0, 1.0, out=r[:, j])
+    return {"max": float(r.max()), "mean": float(r.max(axis=0).mean())}
 
 
 def confound_decorrelation(result: dict[str, Any], views: Any, confounds: Any) -> dict[str, float]:

@@ -94,7 +94,14 @@ def _ridge_solve(xc: torch.Tensor, yc: torch.Tensor, l2: float) -> torch.Tensor:
     driver assumes full rank and ignores `rcond` entirely, so a rank-deficient
     design returned unreliable coefficients with no error raised.
     """
-    n_features = xc.shape[1]
+    n_samples, n_features = xc.shape
+    if l2 > 0.0 and n_samples < n_features:
+        xxt = xc @ xc.T
+        reg_n = l2 * torch.eye(n_samples, dtype=xc.dtype, device=xc.device)
+        try:
+            return xc.T @ torch.linalg.solve(xxt + reg_n, yc)
+        except torch.linalg.LinAlgError:
+            return xc.T @ (torch.linalg.pinv(xxt + reg_n) @ yc)
     xtx = xc.T @ xc
     reg = l2 * torch.eye(n_features, dtype=xc.dtype, device=xc.device)
     try:
@@ -138,7 +145,7 @@ def _cross_validated_r2(
     Every alignment and attribution number this module reports was in-sample
     only, with `l2` defaulting to 1e-6, i.e. effectively unregularized.
     """
-    n = x.shape[0]
+    n, p = x.shape
     nan = float("nan")
     if folds is None or folds < 2 or n < max(4, folds):
         return {
@@ -148,28 +155,70 @@ def _cross_validated_r2(
 
     folds = int(min(folds, n))
     bounds = [round(i * n / folds) for i in range(folds + 1)]
-    ss_res = torch.zeros(y.shape[1], dtype=y.dtype)
-    ss_tot = torch.zeros(y.shape[1], dtype=y.dtype)
+    x64 = x.to(torch.float64)
+    y64 = y.to(torch.float64)
+    l2_f = float(l2)
+    ss_res = torch.zeros(y.shape[1], dtype=torch.float64, device=y.device)
+    ss_tot = torch.zeros(y.shape[1], dtype=torch.float64, device=y.device)
+    y_sum = y64.sum(dim=0, keepdim=True)
 
-    for f in range(folds):
-        lo, hi = bounds[f], bounds[f + 1]
-        if hi <= lo:
-            continue
-        mask = torch.ones(n, dtype=torch.bool)
-        mask[lo:hi] = False
-        if int(mask.sum()) < 2:
-            continue
-        x_tr, y_tr = x[mask], y[mask]
-        x_te, y_te = x[lo:hi], y[lo:hi]
-        x_mean, y_mean = x_tr.mean(dim=0, keepdim=True), y_tr.mean(dim=0, keepdim=True)
-        beta = _ridge_solve(x_tr - x_mean, y_tr - y_mean, l2)
-        pred = (x_te - x_mean) @ beta + y_mean
-        ss_res += ((y_te - pred) ** 2).sum(dim=0)
-        # Variance measured against the training mean, so the held-out fold
-        # cannot be scored against information it was not allowed to see.
-        ss_tot += ((y_te - y_mean) ** 2).sum(dim=0)
+    if l2_f > 0.0 and p > n:
+        k_all = x64 @ x64.T
+        for f in range(folds):
+            lo, hi = bounds[f], bounds[f + 1]
+            if hi <= lo:
+                continue
+            n_tr = n - (hi - lo)
+            if n_tr < 2:
+                continue
+            mask = torch.ones(n, dtype=torch.bool, device=x.device)
+            mask[lo:hi] = False
+            y_te = y64[lo:hi]
+            y_mean = (y_sum - y_te.sum(dim=0, keepdim=True)) / n_tr
+            yc_tr = y64[mask] - y_mean
+            k_tr_cols = k_all[:, mask]
+            s_all = k_tr_cols.mean(dim=1, keepdim=True)
+            s_tr = s_all[mask]
+            s_te = s_all[lo:hi]
+            mu_norm2 = s_tr.mean()
+            kc_tr = k_tr_cols[mask] - s_tr - s_tr.T + mu_norm2
+            kc_te = k_tr_cols[lo:hi] - s_te - s_tr.T + mu_norm2
+            reg_n = l2_f * torch.eye(n_tr, dtype=torch.float64, device=x.device)
+            try:
+                alpha = torch.linalg.solve(kc_tr + reg_n, yc_tr)
+            except torch.linalg.LinAlgError:
+                alpha = torch.linalg.pinv(kc_tr + reg_n) @ yc_tr
+            pred = kc_te @ alpha + y_mean
+            ss_res += ((y_te - pred) ** 2).sum(dim=0)
+            ss_tot += ((y_te - y_mean) ** 2).sum(dim=0)
+    else:
+        x_sum = x64.sum(dim=0, keepdim=True)
+        xtx_all = x64.T @ x64
+        xty_all = x64.T @ y64
+        reg_p = l2_f * torch.eye(p, dtype=torch.float64, device=x.device)
+        for f in range(folds):
+            lo, hi = bounds[f], bounds[f + 1]
+            if hi <= lo:
+                continue
+            n_tr = n - (hi - lo)
+            if n_tr < 2:
+                continue
+            x_te, y_te = x64[lo:hi], y64[lo:hi]
+            x_mean = (x_sum - x_te.sum(dim=0, keepdim=True)) / n_tr
+            y_mean = (y_sum - y_te.sum(dim=0, keepdim=True)) / n_tr
+            xtx_tr = (xtx_all - x_te.T @ x_te) - n_tr * (x_mean.T @ x_mean)
+            xty_tr = (xty_all - x_te.T @ y_te) - n_tr * (x_mean.T @ y_mean)
+            try:
+                beta = torch.linalg.solve(xtx_tr + reg_p, xty_tr)
+            except torch.linalg.LinAlgError:
+                beta = torch.linalg.pinv(xtx_tr + reg_p) @ xty_tr
+            pred = (x_te - x_mean) @ beta + y_mean
+            ss_res += ((y_te - pred) ** 2).sum(dim=0)
+            # Variance measured against the training mean, so the held-out fold
+            # cannot be scored against information it was not allowed to see.
+            ss_tot += ((y_te - y_mean) ** 2).sum(dim=0)
 
-    per_target = 1.0 - ss_res / torch.clamp(ss_tot, min=1e-8)
+    per_target = (1.0 - ss_res / torch.clamp(ss_tot, min=1e-8)).to(y.dtype)
     global_cv = 1.0 - ss_res.sum() / torch.clamp(ss_tot.sum(), min=1e-8)
     return {
         "global_r2_cv": float(global_cv.item()),

@@ -120,22 +120,64 @@ def _weight(mu, family):
 DENSE_SOLVE_MAX = 4000
 
 
-def _solve(Xs, Cs, ys, masks, family, lambda1, lambda2, edges, max_iter, tol):
-    """Newton on the penalised objective. Returns (W (T,p), V (T,q), objective, n_steps, stop)."""
-    import scipy.linalg
-    from scipy import sparse
-    from scipy.sparse.linalg import spsolve
-    T = len(masks); p = Xs.shape[1]; q = Cs.shape[1]; d = p + q
+def _build_task_data(Xs, Cs, ys, masks, edges, family):
+    T = len(masks)
     Xt = [np.hstack([Xs[m], Cs[m]]) for m in masks]
     yt = [ys[t][m] for t, m in enumerate(masks)]
     scale = [1.0 / (T * m.sum()) for m in masks]
     lap = np.zeros((T, T))
     for a, b in edges:
         lap[a, a] += 1; lap[b, b] += 1; lap[a, b] -= 1; lap[b, a] -= 1
-    pen_mask = np.concatenate([np.ones(p), np.zeros(q)])           # w penalised, v not
-    P = sparse.kron(sparse.identity(T), sparse.diags(pen_mask))
-    Lw = sparse.kron(sparse.csr_matrix(lap), sparse.diags(pen_mask))
-    Hpen = 2.0 * lambda1 * P + 2.0 * lambda2 * Lw
+    grams = [scale[t] * (Xt[t].T @ Xt[t]) for t in range(T)] if family == "gaussian" else None
+    rhs = [scale[t] * (Xt[t].T @ yt[t]) for t in range(T)] if family == "gaussian" else None
+    yty = sum(0.5 * scale[t] * float(yt[t] @ yt[t]) for t in range(T)) if family == "gaussian" else None
+    return {"Xt": Xt, "yt": yt, "scale": scale, "lap": lap, "grams": grams, "rhs": rhs, "yty": yty}
+
+
+def _subset_task_data(td, cols, p_full: int, q: int):
+    idx = np.concatenate([cols, p_full + np.arange(q)])
+    Xt_sub = [xt[:, idx] for xt in td["Xt"]]
+    grams_sub = [G[np.ix_(idx, idx)] for G in td["grams"]] if td["grams"] is not None else None
+    rhs_sub = [r[idx] for r in td["rhs"]] if td["rhs"] is not None else None
+    return {"Xt": Xt_sub, "yt": td["yt"], "scale": td["scale"], "lap": td["lap"],
+            "grams": grams_sub, "rhs": rhs_sub, "yty": td["yty"]}
+
+
+def _solve(Xs, Cs, ys, masks, family, lambda1, lambda2, edges, max_iter, tol, *, _task_data=None):
+    """Newton on the penalised objective. Returns (W (T,p), V (T,q), objective, n_steps, stop)."""
+    import scipy.linalg
+    T = len(masks); p = Xs.shape[1]; q = Cs.shape[1]; d = p + q
+    td = _build_task_data(Xs, Cs, ys, masks, edges, family) if _task_data is None else _task_data
+    Xt, yt, scale, lap = td["Xt"], td["yt"], td["scale"], td["lap"]
+    pen_coeff = 2.0 * lambda1 * np.eye(T) + 2.0 * lambda2 * lap
+    use_dense = (T * d <= DENSE_SOLVE_MAX)
+
+    if use_dense:
+        Hbase = np.zeros((T * d, T * d), dtype=np.float64)
+        idx_p = np.arange(p)
+        for a in range(T):
+            for b in range(T):
+                val = pen_coeff[a, b]
+                if val != 0.0:
+                    Hbase[a * d + idx_p, b * d + idx_p] = val
+        Hbase.flat[::T * d + 1] += 1e-12
+        Hpen = None
+    else:
+        from scipy import sparse
+        from scipy.sparse.linalg import spsolve
+        pen_mask = np.concatenate([np.ones(p), np.zeros(q)])           # w penalised, v not
+        P = sparse.kron(sparse.identity(T), sparse.diags(pen_mask))
+        Lw = sparse.kron(sparse.csr_matrix(lap), sparse.diags(pen_mask))
+        Hpen = 2.0 * lambda1 * P + 2.0 * lambda2 * Lw
+        Hbase = None
+
+    def _pen_grad_and_quad(th):
+        th2 = th.reshape(T, d)
+        gw = pen_coeff @ th2[:, :p]
+        g_out = np.zeros((T, d), dtype=np.float64)
+        g_out[:, :p] = gw
+        return g_out.ravel(), 0.5 * float(np.sum(th2[:, :p] * gw))
+
     theta = np.zeros(T * d)
     if family != "gaussian":
         # Start each task's intercept (the last covariate column, added by
@@ -152,27 +194,48 @@ def _solve(Xs, Cs, ys, masks, family, lambda1, lambda2, edges, max_iter, tol):
         for t in range(T):
             z = Xt[t] @ th[t * d:(t + 1) * d]
             f += scale[t] * _loss(yt[t], z, family).sum()
-        return f + float(th @ (Hpen @ th)) / 2.0
+        return f + _pen_grad_and_quad(th)[1]
 
-    f = objective(theta)
+    f = float(td["yty"]) if (family == "gaussian" and td["yty"] is not None) else objective(theta)
     stop, steps = "max_iter", 0
     for it in range(1, int(max_iter) + 1):
         steps = it
-        g = Hpen @ theta
-        blocks = []
-        for t in range(T):
-            z = Xt[t] @ theta[t * d:(t + 1) * d]; mu = _mean(z, family)
-            g[t * d:(t + 1) * d] += scale[t] * (Xt[t].T @ (mu - yt[t]))
-            blocks.append(scale[t] * (Xt[t].T * _weight(mu, family)) @ Xt[t])
-        H = sparse.block_diag(blocks) + Hpen + 1e-12 * sparse.identity(T * d)
-        if T * d <= DENSE_SOLVE_MAX:
-            Hd = H.toarray()
+        if family == "gaussian" and use_dense and td["grams"] is not None:
+            g = np.empty(T * d, dtype=np.float64)
+            Hd = Hbase.copy()
+            for t in range(T):
+                sl = slice(t * d, (t + 1) * d)
+                g[sl] = -td["rhs"][t]
+                Hd[sl, sl] += td["grams"][t]
+            try:
+                step = scipy.linalg.cho_solve(scipy.linalg.cho_factor(Hd, check_finite=False), -g,
+                                              check_finite=False)
+            except np.linalg.LinAlgError:
+                step = scipy.linalg.solve(Hd, -g, assume_a="sym", check_finite=False)
+        elif use_dense:
+            g, _ = _pen_grad_and_quad(theta)
+            Hd = Hbase.copy()
+            for t in range(T):
+                sl = slice(t * d, (t + 1) * d)
+                z = Xt[t] @ theta[sl]; mu = _mean(z, family)
+                g[sl] += scale[t] * (Xt[t].T @ (mu - yt[t]))
+                Xw = Xt[t] * np.sqrt(scale[t] * _weight(mu, family))[:, None]
+                Hd[sl, sl] += Xw.T @ Xw
             try:      # H is positive definite whenever the covariates have full rank
                 step = scipy.linalg.cho_solve(scipy.linalg.cho_factor(Hd, check_finite=False), -g,
                                               check_finite=False)
             except np.linalg.LinAlgError:   # rank-deficient covariates: same system, LDL'
                 step = scipy.linalg.solve(Hd, -g, assume_a="sym", check_finite=False)
         else:
+            from scipy import sparse
+            from scipy.sparse.linalg import spsolve
+            g = Hpen @ theta
+            blocks = []
+            for t in range(T):
+                z = Xt[t] @ theta[t * d:(t + 1) * d]; mu = _mean(z, family)
+                g[t * d:(t + 1) * d] += scale[t] * (Xt[t].T @ (mu - yt[t]))
+                blocks.append(scale[t] * (Xt[t].T * _weight(mu, family)) @ Xt[t])
+            H = sparse.block_diag(blocks) + Hpen + 1e-12 * sparse.identity(T * d)
             step = np.asarray(spsolve(sparse.csc_matrix(H), -g))
         if not np.all(np.isfinite(step)):
             stop = "non_finite"; break
@@ -208,7 +271,7 @@ def fit_fused_ridge(X, y, *, groups=None, thresholds=None, family: Optional[str]
                     fusion: Union[str, Sequence[Tuple[int, int]]] = "chain",
                     standardize: bool = True, top_k: Optional[int] = None,
                     feature_names: Optional[Sequence[str]] = None, max_iter: int = 100,
-                    tol: float = DEFAULT_TOL) -> Dict[str, Any]:
+                    tol: float = DEFAULT_TOL, _cv_cache: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Fit a fused ridge (see the module docstring).
 
     ``family`` defaults to ``"binomial"`` for ``thresholds`` and
@@ -223,23 +286,39 @@ def fit_fused_ridge(X, y, *, groups=None, thresholds=None, family: Optional[str]
     args = dict(groups=groups, thresholds=thresholds, family=family, covariates=covariates,
                 lambda1=lambda1, lambda2=lambda2, fusion=fusion, standardize=standardize,
                 top_k=top_k, feature_names=feature_names, max_iter=max_iter, tol=tol)
-    X = np.asarray(X, float); y = np.asarray(y, float).ravel(); n, p = X.shape
-    if y.shape[0] != n:
-        raise ValueError(f"X has {n} rows but y has {y.shape[0]}.")
     if not lambda1 > 0:
         raise ValueError(f"lambda1 must be > 0 (it makes the system positive definite); got {lambda1}.")
     if lambda2 < 0:
         raise ValueError(f"lambda2 must be >= 0; got {lambda2}.")
-    model, names, masks, ys = _tasks(y, n, groups, thresholds)
-    family = family or ("binomial" if model == "thresholds" else "gaussian")
-    if family not in FAMILIES:
-        raise ValueError(f"family must be one of {FAMILIES}; got {family!r}.")
-    if any(m.sum() < 2 for m in masks):
-        raise ValueError("every task needs at least 2 rows.")
-    edges = _edges(len(masks), fusion)
-    Xs, C, center, sd = _prep(X, covariates, n, standardize)
+    if _cv_cache is not None and "prep" in _cv_cache:
+        model, names, masks, ys, family, edges, Xs, C, center, sd, td, n, p, n_per_task, fnames = _cv_cache["prep"]
+    else:
+        X = np.asarray(X, float); y = np.asarray(y, float).ravel(); n, p = X.shape
+        if y.shape[0] != n:
+            raise ValueError(f"X has {n} rows but y has {y.shape[0]}.")
+        model, names, masks, ys = _tasks(y, n, groups, thresholds)
+        family = family or ("binomial" if model == "thresholds" else "gaussian")
+        if family not in FAMILIES:
+            raise ValueError(f"family must be one of {FAMILIES}; got {family!r}.")
+        if any(m.sum() < 2 for m in masks):
+            raise ValueError("every task needs at least 2 rows.")
+        edges = _edges(len(masks), fusion)
+        Xs, C, center, sd = _prep(X, covariates, n, standardize)
+        td = _build_task_data(Xs, C, ys, masks, edges, family)
+        n_per_task = [int(m.sum()) for m in masks]
+        fnames = list(feature_names) if feature_names is not None else [f"x{i}" for i in range(p)]
+        if _cv_cache is not None:
+            _cv_cache["prep"] = (model, names, masks, ys, family, edges, Xs, C, center, sd, td, n, p, n_per_task, fnames)
+            _cv_cache["base_solves"] = {}
     cols = np.arange(p)
-    W, V, f, steps, stop = _solve(Xs, C, ys, masks, family, lambda1, lambda2, edges, max_iter, tol)
+    base_key = (float(lambda1), float(lambda2))
+    if _cv_cache is not None and base_key in _cv_cache["base_solves"]:
+        W, V, f, steps, stop = _cv_cache["base_solves"][base_key]
+        W, V = W.copy(), V.copy()
+    else:
+        W, V, f, steps, stop = _solve(Xs, C, ys, masks, family, lambda1, lambda2, edges, max_iter, tol, _task_data=td)
+        if _cv_cache is not None:
+            _cv_cache["base_solves"][base_key] = (W.copy(), V.copy(), f, steps, stop)
     if top_k is not None:
         k = int(top_k)
         if k <= 0:
@@ -248,26 +327,27 @@ def fit_fused_ridge(X, y, *, groups=None, thresholds=None, family: Optional[str]
         for t in range(W.shape[0]):
             sel.update(np.argsort(-np.abs(W[t]))[:min(k, p)].tolist())
         cols = np.array(sorted(sel))
+        td_sub = _subset_task_data(td, cols, p, C.shape[1])
         Ws, V, f, steps, stop = _solve(Xs[:, cols], C, ys, masks, family, lambda1, lambda2, edges,
-                                       max_iter, tol)
+                                       max_iter, tol, _task_data=td_sub)
         W = np.zeros_like(W); W[:, cols] = Ws
     coef = W / sd[None, :]
     intercept = V[:, -1] - coef @ center
     dev = []
-    for t, m in enumerate(masks):
-        z = Xs[m] @ W[t] + C[m] @ V[t]
-        dev.append(float(_loss(ys[t][m], z, family).mean()))
+    for t in range(len(masks)):
+        th_t = np.concatenate([W[t], V[t]])
+        z = td["Xt"][t] @ th_t
+        dev.append(float(_loss(td["yt"][t], z, family).mean()))
     conv = {"converged": stop in ("converged", "closed_form"), "stop_reason": stop,
             "n_steps": steps, "max_steps": int(max_iter), "tol": float(tol), "final": float(f)}
     warn_if_unconverged(conv, "fused_ridge")
-    fnames = list(feature_names) if feature_names is not None else [f"x{i}" for i in range(p)]
     return {"method": "fused_ridge", "model": model, "family": family, "tasks": names,
             "coef": coef, "coef_std": W, "cov_coef": V, "intercept": intercept,
             "x_center": center, "x_scale": sd, "standardize": bool(standardize),
             "edges": edges, "lambda1": float(lambda1), "lambda2": float(lambda2),
             "top_k": top_k, "selected_features": [int(c) for c in cols],
             "selected_feature_names": [fnames[c] for c in cols], "feature_names": fnames,
-            "n_per_task": [int(m.sum()) for m in masks], "deviance": dev,
+            "n_per_task": n_per_task, "deviance": dev,
             "n_covariates": int(C.shape[1] - 1), "convergence": conv,
             "parameters": {"used": args, "defaults": dict(_DEFAULTS)}}
 
@@ -349,12 +429,17 @@ def fused_ridge_cv(X, y, *, groups=None, thresholds=None, family=None, covariate
             kw["thresholds"] = names
         memb = np.stack([m[te] for m in masks], 1)
         yte = np.stack([yy[te] for yy in ys], 1)
+        X_tr, y_tr = X[tr], y[tr]
+        C_tr = None if C is None else C[tr]
+        X_te = X[te]
+        C_te = None if C is None else C[te]
+        fold_cache: Dict[str, Any] = {}
         for i, l1 in enumerate(lambda1s):
             for j, l2 in enumerate(lambda2s):
                 for k, tk in enumerate(top_ks):
-                    r = fit_fused_ridge(X[tr], y[tr], covariates=None if C is None else C[tr],
-                                        lambda1=l1, lambda2=l2, top_k=tk, **kw)
-                    z = predict_fused_ridge(r, X[te], covariates=None if C is None else C[te])
+                    r = fit_fused_ridge(X_tr, y_tr, covariates=C_tr,
+                                        lambda1=l1, lambda2=l2, top_k=tk, _cv_cache=fold_cache, **kw)
+                    z = predict_fused_ridge(r, X_te, covariates=C_te)
                     loss[i, j, k, fi] = _loss(yte, z, fam)[memb].mean()
     mean = loss.mean(-1)
     se = loss.std(-1, ddof=1) / np.sqrt(len(folds)) if len(folds) > 1 else np.zeros_like(mean)

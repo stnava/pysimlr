@@ -258,7 +258,47 @@ def jzs_bf10_correlation(
         raise ValueError("r must lie in [-1, 1]")
     r_clip = np.clip(r_arr, -0.999999, 0.999999)
     flat = r_clip.reshape(-1)
-    out = np.array([_jzs_bf10_correlation_scalar(float(rv), n, float(rscale)) for rv in flat])
+    rscale_f = float(rscale)
+    if flat.size <= 4:
+        out = np.array([_jzs_bf10_correlation_scalar(float(rv), n, rscale_f) for rv in flat], dtype=np.float64)
+    else:
+        uniq_r2, inv = np.unique(flat * flat, return_inverse=True)
+        if uniq_r2.size <= 4:
+            uniq_out = np.array(
+                [_jzs_bf10_correlation_scalar(math.sqrt(float(r2v)), n, rscale_f) for r2v in uniq_r2],
+                dtype=np.float64,
+            )
+        else:
+            from scipy import integrate
+
+            omr2 = 1.0 - uniq_r2
+            log_pref = _log_prefactor_zs(n, rscale_f)
+            half_n_r2 = 0.5 * n * rscale_f * rscale_f
+            c1 = 0.5 * (n - 2.0)
+            c2 = -0.5 * (n - 1.0)
+            g_probe = np.logspace(-4.0, 8.0, 49)
+            lp = (
+                log_pref
+                + c1 * np.log1p(g_probe)[None, :]
+                + c2 * np.log1p(omr2[:, None] * g_probe[None, :])
+                - 1.5 * np.log(g_probe)[None, :]
+                - half_n_r2 / g_probe[None, :]
+            )
+            shift = np.clip(np.max(lp, axis=1), -600.0, 650.0)
+
+            def _vec_integrand(g: float) -> np.ndarray:
+                gf = float(g)
+                if gf <= 0.0:
+                    return np.zeros_like(uniq_r2)
+                lv = log_pref + c1 * math.log1p(gf) + c2 * np.log1p(omr2 * gf) - 1.5 * math.log(gf) - half_n_r2 / gf
+                return np.where(lv < -700.0, 0.0, np.exp(np.minimum(lv, 700.0) - shift))
+
+            val, _ = integrate.quad_vec(
+                _vec_integrand, 0.0, np.inf, epsabs=1e-12, epsrel=1e-11, norm="max", limit=200
+            )
+            with np.errstate(over="ignore"):
+                uniq_out = np.maximum(val * np.exp(shift), 1e-12)
+        out = uniq_out[inv]
     if r_arr.ndim == 0:
         return float(out[0])
     return out.reshape(r_arr.shape)
@@ -539,11 +579,15 @@ def permutation_correlations(
     p_param = np.where(valid, 2.0 * _sps.t.sf(np.abs(t_obs), df=df), 1.0)
 
     rng = np.random.default_rng(int(seed))
+    chunk = 64
     if paired:
-        r_null = np.empty((n_features, n_perms), dtype=np.float64)
+        perm_all = np.empty((n_perms, n_samples), dtype=np.intp)
         for b in range(n_perms):
-            perm_idx = rng.permutation(n_samples)
-            r_null[:, b] = np.abs(np.sum(x_z * y_z[perm_idx, :], axis=0) * inv_dof)
+            perm_all[b] = rng.permutation(n_samples)
+        r_null = np.empty((n_features, n_perms), dtype=np.float64)
+        for b0 in range(0, n_perms, chunk):
+            b1 = min(b0 + chunk, n_perms)
+            r_null[:, b0:b1] = np.abs(np.einsum("np,bnp->pb", x_z, y_z[perm_all[b0:b1]]) * inv_dof)
     else:
         y_perms = np.empty((n_samples, n_perms), dtype=np.float64)
         for b in range(n_perms):
@@ -560,23 +604,31 @@ def permutation_correlations(
     if n_boot > 0:
         boot_idx = rng.integers(0, n_samples, size=(n_boot, n_samples))
         r_boot = np.empty((n_features, n_boot), dtype=np.float64)
-        for b in range(n_boot):
-            idx_b = boot_idx[b]
-            xb = X[idx_b]
-            xb_c = xb - np.mean(xb, axis=0, keepdims=True)
-            if paired:
-                yb = y[idx_b]
-                yb_c = yb - np.mean(yb, axis=0, keepdims=True)
-                denom = np.sqrt(np.sum(xb_c**2, axis=0) * np.sum(yb_c**2, axis=0))
-                num = np.sum(xb_c * yb_c, axis=0)
-            else:
-                yb = y[idx_b]
-                yb_c = yb - np.mean(yb)
-                denom = np.sqrt(np.sum(xb_c**2, axis=0) * np.sum(yb_c**2))
-                num = xb_c.T @ yb_c
-            r_boot[:, b] = np.where(denom > 1e-12, num / np.where(denom > 1e-12, denom, 1.0), 0.0)
-        ci95_low = np.where(valid, np.percentile(r_boot, 2.5, axis=1), 0.0)
-        ci95_high = np.where(valid, np.percentile(r_boot, 97.5, axis=1), 0.0)
+        if paired:
+            for b0 in range(0, n_boot, chunk):
+                b1 = min(b0 + chunk, n_boot)
+                idx_c = boot_idx[b0:b1]
+                xb = X[idx_c]
+                xb_c = xb - np.mean(xb, axis=1, keepdims=True)
+                yb = y[idx_c]
+                yb_c = yb - np.mean(yb, axis=1, keepdims=True)
+                denom = np.sqrt(np.sum(xb_c * xb_c, axis=1) * np.sum(yb_c * yb_c, axis=1)).T
+                num = np.sum(xb_c * yb_c, axis=1).T
+                r_boot[:, b0:b1] = np.where(denom > 1e-12, num / np.where(denom > 1e-12, denom, 1.0), 0.0)
+        else:
+            yb_all = y[boot_idx]
+            yb_c_all = yb_all - np.mean(yb_all, axis=1, keepdims=True)
+            ss_y_all = np.sum(yb_c_all * yb_c_all, axis=1)
+            for b0 in range(0, n_boot, chunk):
+                b1 = min(b0 + chunk, n_boot)
+                xb = X[boot_idx[b0:b1]]
+                xb_c = xb - np.mean(xb, axis=1, keepdims=True)
+                denom = np.sqrt(np.sum(xb_c * xb_c, axis=1).T * ss_y_all[None, b0:b1])
+                num = np.einsum("bnp,bn->pb", xb_c, yb_c_all[b0:b1])
+                r_boot[:, b0:b1] = np.where(denom > 1e-12, num / np.where(denom > 1e-12, denom, 1.0), 0.0)
+        pct_lo, pct_hi = np.percentile(r_boot, [2.5, 97.5], axis=1)
+        ci95_low = np.where(valid, pct_lo, 0.0)
+        ci95_high = np.where(valid, pct_hi, 0.0)
         pos_frac = np.mean(r_boot > 0.0, axis=1)
         neg_frac = np.mean(r_boot < 0.0, axis=1)
         prob_dir = np.where(valid, np.maximum(pos_frac, neg_frac), 0.5)

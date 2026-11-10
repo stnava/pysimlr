@@ -410,7 +410,7 @@ def fit_anchored_encoder(x: torch.Tensor, target: torch.Tensor, *, energy_type: 
     at most ``BOUND_GAP_TOL``; ``bound_gap`` is recorded either way. With
     ``p >= n`` the bound is trivially 1 and certifies nothing.
     """
-    from .similarity import SIGN_INVARIANT_ENERGIES
+    from .similarity import SIGN_INVARIANT_ENERGIES, resolve_energy_name
     from .simlr import calculate_simlr_energy
     from .sparsification import simlr_sparseness
     from .utils import ConvergenceMonitor
@@ -419,6 +419,7 @@ def fit_anchored_encoder(x: torch.Tensor, target: torch.Tensor, *, energy_type: 
     from .positivity import NONNEG, resolve_positivity
     positivity = resolve_positivity(positivity)
     nonneg = positivity in NONNEG
+    resolved_energy = None if energy_type == "dat" else resolve_energy_name(energy_type, path="linear")
 
     def project(v):
         return simlr_sparseness(v, constraint_type=ctype, positivity=positivity, sparseness=sparseness,
@@ -426,7 +427,7 @@ def fit_anchored_encoder(x: torch.Tensor, target: torch.Tensor, *, energy_type: 
                                 energy_type=energy_type).double()
 
     def energy(v):
-        return float(calculate_simlr_energy(v, x64, t64, energy_type))
+        return float(calculate_simlr_energy(v, x64, t64, energy_type, _resolved_name=resolved_energy))
 
     v = x64.T @ (t64 - t64.mean(0))
     if nonneg and energy_type in SIGN_INVARIANT_ENERGIES:
@@ -448,9 +449,10 @@ def fit_anchored_encoder(x: torch.Tensor, target: torch.Tensor, *, energy_type: 
     stop, steps = "max_iter", 0
     for it in range(int(iterations)):
         steps = it + 1
-        vv = v.clone().requires_grad_(True)
-        calculate_simlr_energy(vv, x64, t64, energy_type).backward()
-        g = vv.grad.detach()
+        vv = v.detach().requires_grad_(True)
+        ev = calculate_simlr_energy(vv, x64, t64, energy_type, _resolved_name=resolved_energy)
+        (g,) = torch.autograd.grad(ev, vv)
+        g = g.detach()
         gn = float(g.norm())
         if not math.isfinite(gn) or gn == 0.0:
             stop = "converged" if gn == 0.0 else "non_finite"; break

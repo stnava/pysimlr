@@ -565,14 +565,34 @@ def loo_mai_calibrated(latents: List[torch.Tensor], metric: str, dofs: Optional[
             continue
         if metric == "max_cc":
             # Permuting u's rows permutes its basis rows: build both bases once,
-            # and each null draw is one k x k singular value.
+            # and evaluate all null draws in one batched k x k svdvals call.
             qz, qu = _orthobasis(norm[i]), _orthobasis(u)
-            raw = ([] if qz.shape[1] == 0 or qu.shape[1] == 0 else
-                   [float(torch.linalg.svdvals(qz.t() @ qu[torch.randperm(n, generator=g)])[0])
-                    for _ in range(int(n_perm))])
+            if qz.shape[1] == 0 or qu.shape[1] == 0:
+                raw = []
+            else:
+                perms = torch.stack([torch.randperm(n, generator=g) for _ in range(int(n_perm))])
+                try:
+                    raw = torch.linalg.svdvals(torch.matmul(qz.t(), qu[perms]))[:, 0].tolist()
+                except torch.linalg.LinAlgError:
+                    raw = [mai_score_or_zero(norm[i], u[p], metric, i) for p in perms]
         else:
-            raw = [mai_score_or_zero(norm[i], u[torch.randperm(n, generator=g)], metric, i)
-                   for _ in range(int(n_perm))]
+            perms = torch.stack([torch.randperm(n, generator=g) for _ in range(int(n_perm))])
+            cross_b = torch.matmul(norm[i].t(), u[perms])
+            try:
+                s_b = torch.linalg.svdvals(cross_b)
+                if metric in ("procrustes_r2", "procrustes_r2_sharp"):
+                    r2_b = s_b.sum(dim=1) ** 2
+                    if metric == "procrustes_r2_sharp":
+                        s_lat = torch.linalg.svdvals(norm[i])
+                        r2_b = r2_b * (s_lat[0] / (s_lat.sum() + 1e-8))
+                    raw = r2_b.tolist()
+                elif metric == "cca":
+                    raw = s_b.mean(dim=1).tolist()
+                else:
+                    den = torch.norm(norm[i].t() @ norm[i], p="fro") * torch.norm(u.t() @ u, p="fro") + 1e-8
+                    raw = ((cross_b * cross_b).sum(dim=(-2, -1)) / den).tolist()
+            except torch.linalg.LinAlgError:
+                raw = [mai_score_or_zero(norm[i], u[p], metric, i) for p in perms]
         null = [mai_dof_adjust(r, metric, n_adj, dofs[i], k) for r in raw]
         null = [x for x in null if np.isfinite(x)]
         floors.append(float(np.quantile(null, quantile)) if null else

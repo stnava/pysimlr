@@ -1111,7 +1111,7 @@ def calculate_simlr_energy(
         alignment = pm @ v
         return -lambda_val * torch.sum(alignment ** 2)
     name = _resolved_name if _resolved_name is not None else resolve_energy_name(energy_type, path="linear")
-    s = (x @ v) if _s is None else _s
+    s = u if (name == "recon_r2" and _s is None) else ((x @ v) if _s is None else _s)
     return similarity_energy(name, s, u, SimilarityContext(x=x, v=v))
 
 
