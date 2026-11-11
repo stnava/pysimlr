@@ -339,7 +339,70 @@ def _ext_latent(result: Dict[str, Any], name: str, x: torch.Tensor) -> torch.Ten
     return xp.float() @ e["v"].float()
 
 
-def predict_views(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
+def _drop_excluded_views(
+    result: Dict[str, Any],
+    views: Any,
+    exclude_views: Sequence[Union[int, str]],
+) -> Any:
+    """Return a copy of ``views`` with ``exclude_views`` masked out (``None`` in lists, omitted in mappings)."""
+    if isinstance(exclude_views, (str, bytes)):
+        raise TypeError("exclude_views must be a sequence of view names or indices, not a bare string.")
+    m = len(result["v"])
+    orig_names = view_names(result)[:m]
+    ext_names = list((result.get("extensions") or {}).keys())
+    all_names = orig_names + ext_names
+
+    excl_orig_idx: set[int] = set()
+    excl_names: set[str] = set()
+    for ev in exclude_views:
+        if isinstance(ev, (int, np.integer)) and not isinstance(ev, bool) and 0 <= int(ev) < m:
+            idx = int(ev)
+            excl_orig_idx.add(idx)
+            excl_names.add(orig_names[idx])
+        elif isinstance(ev, str):
+            if ev in orig_names:
+                idx = orig_names.index(ev)
+                excl_orig_idx.add(idx)
+                excl_names.add(ev)
+            elif ev in ext_names:
+                excl_names.add(ev)
+            elif ev.startswith("view") and ev[4:].isdigit() and int(ev[4:]) < m:
+                idx = int(ev[4:])
+                excl_orig_idx.add(idx)
+                excl_names.add(orig_names[idx])
+            else:
+                raise ValueError(f"unknown view {ev!r} in exclude_views; this result has views {all_names}.")
+        else:
+            raise ValueError(f"unknown view {ev!r} in exclude_views; this result has views {all_names}.")
+
+    if isinstance(views, Mapping):
+        filtered: Dict[Any, Any] = {}
+        for k_raw, val in views.items():
+            if isinstance(k_raw, (int, np.integer)) and not isinstance(k_raw, bool) and int(k_raw) in excl_orig_idx:
+                continue
+            if isinstance(k_raw, str) and (
+                k_raw in excl_names
+                or (k_raw.startswith("view") and k_raw[4:].isdigit() and int(k_raw[4:]) in excl_orig_idx)
+            ):
+                continue
+            filtered[k_raw] = val
+        return filtered
+
+    items = list(views) if isinstance(views, (list, tuple)) else [views]
+    if len(items) != m:
+        raise ValueError(
+            f"expected {m} original views (None for a missing one); got {len(items)}. "
+            f"Pass a dict keyed by view name to include extended views."
+        )
+    return [None if i in excl_orig_idx else x for i, x in enumerate(items)]
+
+
+def predict_views(
+    result: Dict[str, Any],
+    views: Any,
+    *,
+    exclude_views: Optional[Sequence[Union[int, str]]] = None,
+) -> Dict[str, Any]:
     """`pysimlr.predict` for any available subset of original and extended views.
 
     Returns ``u`` (consensus from the available views), ``latents`` (a dict
@@ -347,6 +410,11 @@ def predict_views(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
     ``mse`` / ``reconstructions`` for the original views that were given.
     """
     from .api import predict as _predict
+    if exclude_views is not None:
+        if isinstance(exclude_views, (str, bytes)):
+            raise TypeError("exclude_views must be a sequence of view names or indices, not a bare string.")
+        if len(exclude_views) > 0:
+            views = _drop_excluded_views(result, views, exclude_views)
     orig, ext = split_views(result, views)
     names = view_names(result)
     have = [i for i, t in enumerate(orig) if t is not None]

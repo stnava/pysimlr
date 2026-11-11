@@ -50,7 +50,7 @@ import dataclasses
 import inspect
 import types
 import warnings
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Union
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Union
 
 import numpy as np
 import torch
@@ -596,7 +596,12 @@ def _normalize(out: Dict[str, Any]) -> None:
     out.setdefault("random_state", None)
 
 
-def predict(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
+def predict(
+    result: Dict[str, Any],
+    views: Any,
+    *,
+    exclude_views: Optional[Sequence[Union[int, str]]] = None,
+) -> Dict[str, Any]:
     """Out-of-sample projection with a `fit` result.
 
     Returns ``u`` (an ``(n, k)`` tensor), ``latents``, ``reconstructions``,
@@ -613,9 +618,19 @@ def predict(result: Dict[str, Any], views: Any) -> Dict[str, Any]:
     with ``None`` for a missing view. Then ``u`` is built from the available
     views only (`pysimlr.extension.predict_views`) and ``latents``, ``r2``,
     ``mse`` and ``reconstructions`` are dicts keyed by view name.
+
+    Pass ``exclude_views`` (a sequence of view names or integer indices, e.g.
+    ``exclude_views=["Root"]`` on a `pysimlr.fork_graph` fit) to mask out
+    exogenous root or target views at test time without mutating ``views``.
     """
     if "method" not in result:
         raise ValueError("predict needs a result from pysimlr.fit (it carries 'method').")
+    if exclude_views is not None:
+        if isinstance(exclude_views, (str, bytes)):
+            raise TypeError("exclude_views must be a sequence of view names or indices, not a bare string.")
+        if len(exclude_views) > 0:
+            from .extension import predict_views
+            return predict_views(result, views, exclude_views=exclude_views)
     # A subset of views (a dict, or None for a missing view) or extended views
     # (`pysimlr.extend`): the consensus is built from the views available.
     if isinstance(views, Mapping) or (isinstance(views, (list, tuple)) and any(v is None for v in views)):

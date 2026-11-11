@@ -163,3 +163,54 @@ def test_fork_graph_sem_directed_d_separation() -> None:
     assert bool(e_par.loc[("C1", "C2"), "present"]) is False
     # Conditioning on common parent `Root` substantially attenuates spurious `C1 -> C2` coupling
     assert float(e_par.loc[("C1", "C2"), "pillai"]) < float(e_pair.loc[("C1", "C2"), "pillai"])
+
+
+def test_predict_exclude_views_prevents_root_leakage() -> None:
+    """`pysimlr.predict(..., exclude_views=...)` computes subset consensus strictly without excluded root/target views."""
+    rng = np.random.default_rng(99)
+    n = 70
+    z = rng.normal(size=(n, 1))
+    x_root = z @ np.array([[1.1, 0.9, 1.0]]) + 0.1 * rng.normal(size=(n, 3))
+    x_c1 = 0.85 * z @ np.array([[1.0, 0.8, 0.6, 0.7]]) + 0.35 * rng.normal(size=(n, 4))
+    x_c2 = 0.85 * z @ np.array([[0.9, 0.7, 0.8, 0.5]]) + 0.35 * rng.normal(size=(n, 4))
+    x_ext = 0.80 * z @ np.array([[0.8, 0.9, 0.7]]) + 0.40 * rng.normal(size=(n, 3))
+
+    fg = pysimlr.fork_graph("Root", ["C1", "C2"], exogenous_root=True)
+    tr_map = {"Root": x_root[:45], "C1": x_c1[:45], "C2": x_c2[:45]}
+    fit_res = pysimlr.fit(
+        "simlr",
+        tr_map,
+        k=1,
+        topology="graph",
+        path_graph=fg,
+        dynamic_weights=False,
+        iterations=20,
+        random_state=3,
+    )
+    ext_res = pysimlr.extend(fit_res, tr_map, {"C_ext": x_ext[:45]}, how="anchored", iterations=15, random_state=3, warn=False)
+
+    te_clean = {"Root": x_root[45:], "C1": x_c1[45:], "C2": x_c2[45:], "C_ext": x_ext[45:]}
+    te_corrupt_root = {"Root": x_root[45:] * -1e6 + 999.0, "C1": x_c1[45:], "C2": x_c2[45:], "C_ext": x_ext[45:]}
+
+    pred_clean = pysimlr.predict(ext_res, te_clean, exclude_views=["Root"])
+    pred_corrupt = pysimlr.predict(ext_res, te_corrupt_root, exclude_views=["Root"])
+    assert pred_clean["views_used"] == ["C1", "C2", "C_ext"]
+    assert "Root" not in pred_clean["latents"]
+    np.testing.assert_allclose(pred_clean["u"].numpy(), pred_corrupt["u"].numpy(), atol=1e-12)
+
+    # Positional list input with integer index exclusion matches None-masked list prediction bit-for-bit
+    pred_list_excl = pysimlr.predict(fit_res, [x_root[45:] * 1e5, x_c1[45:], x_c2[45:]], exclude_views=[0])
+    pred_list_none = pysimlr.predict(fit_res, [None, x_c1[45:], x_c2[45:]])
+    np.testing.assert_allclose(pred_list_excl["u"].numpy(), pred_list_none["u"].numpy(), atol=1e-12)
+
+    # Empty exclude_views=() preserves standard full-view list prediction contract
+    pred_full = pysimlr.predict(fit_res, [x_root[45:], x_c1[45:], x_c2[45:]], exclude_views=())
+    assert isinstance(pred_full["latents"], list) and len(pred_full["latents"]) == 3
+
+    with pytest.raises(TypeError, match="sequence"):
+        pysimlr.predict(fit_res, te_clean, exclude_views="Root")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="unknown view"):
+        pysimlr.predict(fit_res, te_clean, exclude_views=["NonExistentView"])
+    with pytest.raises(ValueError, match="no views given"):
+        pysimlr.predict(fit_res, [x_root[45:], x_c1[45:], x_c2[45:]], exclude_views=[0, 1, 2])
+

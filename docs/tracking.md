@@ -1,16 +1,24 @@
 # Tracking Summary
-current phase: `v0.27.0` released (`D47`: uneven-missingness `missing_rows="mask"`, `per_view_params`, named-view `Mapping` `fit`, extension-aware `path_model`, and worker-initialized `_refit_null`; `D46`: rank-bound modes, subsample convergence, missing-view SEM, `select_model`, and `compare_path_models_from_scores`).
+current phase: `v0.28.0` released (`D48`: `fork_graph` causal/SEM fork topology constructor and `predict(..., exclude_views=...)` exogenous-root holdout guard; `D47`: uneven-missingness `missing_rows="mask"`, `per_view_params`, named-view `Mapping` `fit`, and extension-aware `path_model`).
 next WP: docs/plans/2026-11-07_path_model_next_steps.md items 1 (mediation), 6-8.
 blockers: none
 active work: none
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
-last updated: 2026-11-10
+last updated: 2026-11-11
 
 ---
 
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D48 (`fork_graph` causal/SEM fork constructor and `predict(..., exclude_views=...)` exogenous-root holdout guard, 2026-11-11)
+status: done (released in v0.28.0)
+- **Items implemented:**
+  - **`structural.fork_graph` (exported in `pysimlr`):** added `fork_graph(root, children, *, exogenous_root=True, for_sem=False)` constructing common-cause Fork topologies (`Root -> Child_1, ..., Child_M`) for both `simlr(..., topology="graph", path_graph=...)` (`for_sem=False`, `graph[root] = []` when `exogenous_root=True` so child prongs align to `root` without brain-to-root feedback) and `path_model(..., directed=True, conditioning="parents")` (`for_sem=True`, `graph[root] = list(children)` so inter-child d-separation conditions on `root`).
+  - **`api.predict` & `extension.predict_views` (`exclude_views`):** added `exclude_views: Optional[Sequence[Union[int, str]]] = None` to mask out exogenous root or outcome views at test time across `Mapping`, positional `list`/`tuple`, and `extend(..., how="anchored")` inputs without mutating caller matrices, routing directly to `subset_consensus` over the remaining views.
+- **New tests (4 in `tests/test_fork_graph.py`):** `test_fork_graph_validation_and_conventions`, `test_exogenous_fork_root_is_invariant_to_child_perturbation_and_missing_rows`, `test_fork_graph_sem_directed_d_separation`, `test_predict_exclude_views_prevents_root_leakage`.
+- **Files:** `pyproject.toml`, `src/pysimlr/{__init__.py, api.py, extension.py, structural.py}`, `tests/test_fork_graph.py`, `docs/tracking.md`.
 
 ## D47 (Single-call uneven-missingness `missing_rows="mask"`, `per_view_params`, named-view `Mapping` `fit`, extension-aware `path_model`, and worker-initialized `_refit_null`, 2026-11-10)
 status: done (released in v0.27.0)
