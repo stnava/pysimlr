@@ -79,7 +79,8 @@ from .regression import (
     build_nsa_pipeline,
 )
 from .structural import (
-    create_path_graph
+    create_path_graph,
+    fork_graph,
 )
 from .paths import (
     simlr_path,
@@ -277,6 +278,7 @@ __all__ = [
     'apply_simlr_matrices',
     'apply_simlr_matrices_dtfix',
     'create_path_graph',
+    'fork_graph',
     'simlr_path',
     'permutation_test',
     'path_model',
