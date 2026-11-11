@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: `v0.28.0` released (`D48`: `fork_graph` causal/SEM fork topology constructor and `predict(..., exclude_views=...)` exogenous-root holdout guard; `D47`: uneven-missingness `missing_rows="mask"`, `per_view_params`, named-view `Mapping` `fit`, and extension-aware `path_model`).
+current phase: `D49` implemented on `main` (`adaptive_local_linear_curve`, `modality_dose_recruitment`, and `plot_dose_recruitment` for 0-mass-anchored, co-exposure-adjusted adaptive-`N_eff` local linear dose-response and simultaneous `sup-t` multi-view stage recruitment; builds on `v0.28.0` / `D48`).
 next WP: docs/plans/2026-11-07_path_model_next_steps.md items 1 (mediation), 6-8.
 blockers: none
 active work: none
@@ -11,6 +11,14 @@ last updated: 2026-11-11
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D49 (Adaptive-`N_eff` local linear dose-response & multi-view stage recruitment: `adaptive_local_linear_curve`, `modality_dose_recruitment`, `plot_dose_recruitment`, 2026-11-11)
+status: done (pending release instruction)
+- **Items implemented:**
+  - **`stats.adaptive_local_linear_curve` & `stats.modality_dose_recruitment` (lazily exported in `pysimlr`):** pure-NumPy 0-mass-anchored, covariate-adjusted adaptive-`N_eff` Gaussian local linear regression estimator with bisection-solved Kish effective sample size (`target_neff`), explicit `in_support` local-density gating (zero extrapolation outside observed modality dose support), and subject-level bootstrap (refitting mean-preserving partial residuals per replicate) yielding pointwise intervals and studentised maximum-modulus (`sup-t`) simultaneous confidence bands (`onset_pointwise`, `onset_simultaneous`, `c_simultaneous`, `slope`, `sigma`, `neff`). Zero eager `scipy`/`pandas`/`matplotlib` imports (`_normal_two_sided_quantile` solved via `math.erf` bisection).
+  - **`plotting.plot_dose_recruitment` (lazily exported in `pysimlr`):** `theme()`-native 3-row multi-column figure displaying `Dose × View` diverging heatmaps (with cross-hatched unscanned support, hollow-circle pointwise onset, and star simultaneous `sup-t` onset markers), continuous local linear curves with simultaneous/pointwise bands and non-overlapping `2σ span` calipers, local derivative `∂μ/∂x` curves, and adaptive Gaussian span `2·σ(x_0)` diagnostics.
+- **New tests (3 in `tests/test_dose_recruitment.py`):** `test_planted_sequential_recruitment_and_coexposure_adjustment`, `test_adaptive_neff_accuracy_and_unscanned_support_masking`, `test_determinism_validation_and_plot_dose_recruitment`.
+- **Files:** `src/pysimlr/{__init__.py, plotting.py, stats.py}`, `tests/test_dose_recruitment.py`, `docs/{tracking.md, usage_notes.md}`.
 
 ## D48 (`fork_graph` causal/SEM fork constructor and `predict(..., exclude_views=...)` exogenous-root holdout guard, 2026-11-11)
 status: done (released in v0.28.0)

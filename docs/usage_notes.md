@@ -1070,12 +1070,36 @@ a planted four-view study.
 | `plot_edge_null(pm, edges=)` | observed edge statistic against its permutation null distribution | `path_model` |
 | `plot_edge_features(pm, edge, top_n=)` | feature contributions to an edge (structure × beta), one panel per component | `path_model` |
 | `plot_edge_brain_map(pm, edge, ...)` | feature contributions to an edge painted on cortical surfaces / atlases via antsxviz | `path_model` |
+| `plot_dose_recruitment(rec, ...)` | continuous `Dose × View` recruitment heatmap, adaptive-$N_{\text{eff}}$ local linear curves with simultaneous `sup-t` bands, local slopes, and $2\sigma$ bandwidth spans | `modality_dose_recruitment` |
 
 Multi-view plots colour views with the Okabe–Ito palette. A plot of an unconverged fit is
 titled in orange with its stop reason. Stability badges are black at ≥ 0.9, amber at ≥ 0.8 and
 red below; change them with `bars=`.
 
 Nothing plots the encoder `v`. The architecture diagrams are in `pysimlr.diagrams`.
+
+## Continuous dose-response and stage-dependent view recruitment
+
+Discrete quartile or cutpoint bar charts lose within-bin ordering and depend on arbitrary thresholds. `pysimlr.adaptive_local_linear_curve`, `pysimlr.modality_dose_recruitment`, and `pysimlr.plot_dose_recruitment` estimate continuous displacement $\Delta(x_0) = \hat{\mu}(x_0) - \hat{\mu}_0$ and local derivative $\partial\hat{\mu}/\partial x$ across one or more continuous exposure, disease-duration, or biomarker-burden axes:
+
+```python
+rec = pysimlr.modality_dose_recruitment(
+    scores={"Consensus": oof_u, "Perfusion": oof_asl, "Morphometry": oof_t1},
+    doses={"Primary_Dose": raw_counts, "Co_Exposure": secondary_counts},
+    covariates={"Primary_Dose": np.log10(secondary_counts + 1.0), "Co_Exposure": np.log10(raw_counts + 1.0)},
+    standardize_scores=True,
+    target_neff=32.0,
+    min_sigma=0.28,
+    n_boot=1000,
+    seed=42,
+)
+fig = pysimlr.plot_dose_recruitment(rec, dose_units="events")
+```
+
+- **Adaptive-$N_{\text{eff}}$ bandwidths and resolution transparency:** At each evaluation coordinate $x_0$, Gaussian kernel width $\sigma(x_0) \in [\sigma_{\min}, \sigma_{\max}]$ is solved by bisection so Kish effective sample size $(\sum_i w_i)^2 / \sum_i w_i^2$ matches `target_neff` (typically $30\text{–}35$). Always inspect `median_span_2sigma` and Row B/C2's $2\sigma(x_0)$ caliper so smooth kernel interpolation is read at its actual smoothing span rather than mistaken for single-event precision.
+- **0-mass boundary anchoring:** When at least `zero_mass_min` observations sit at `dose == 0`, they enter positive-tail local linear regressions as a single consolidated boundary anchor at $x = 0$ (weight capped at `zero_anchor_cap`), preventing zero-inflation from collapsing bandwidths while keeping $\Delta(0) = 0$ continuous.
+- **Zero extrapolation outside observed support:** Grid coordinates without nearby observations (`in_support == False`) stay `NaN` in `delta` and render cross-hatched in `plot_dose_recruitment`, so cohorts lacking a modality at high or low doses never extrapolate silently.
+- **Pointwise vs simultaneous `sup-t` bands:** `onset_pointwise` marks the first sustained grid crossing where the pointwise interval excludes $0$; `onset_simultaneous` uses the studentised maximum-modulus (`sup-t`) bootstrap critical value $c_{1-\alpha}$ across the entire in-support curve (refitting covariate partial residuals inside every bootstrap replicate).
 
 ## Known limitations (being worked on)
 

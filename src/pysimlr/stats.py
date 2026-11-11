@@ -32,6 +32,10 @@ Contents
     variance weights ``n - 3``) and of directional p-values (Stouffer).
 ``icc_3``
     Shrout-Fleiss ICC(3,1) and ICC(3,k) for an ``(n, k)`` table.
+``adaptive_local_linear_curve``, ``modality_dose_recruitment``
+    0-mass-anchored, covariate-adjusted adaptive-``N_eff`` Gaussian local
+    linear dose-response curve with studentised maximum-modulus (``sup-t``)
+    simultaneous bootstrap bands and multi-view stage-recruitment matrices.
 
 scipy is imported inside the functions that need it so that ``import
 pysimlr`` (which imports ``screening``, which imports `bh_fdr`) stays free
@@ -41,11 +45,13 @@ of scipy; ``tests/test_package_import.py`` enforces that.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 
 __all__ = [
+    "adaptive_local_linear_curve",
     "bh_fdr",
     "freedman_lane_partial_p",
     "holm",
@@ -53,6 +59,7 @@ __all__ = [
     "jzs_bf10_correlation",
     "jzs_bf10_correlation_grid",
     "jzs_bf10_one_sample_t",
+    "modality_dose_recruitment",
     "permutation_correlations",
     "pooled_correlation_fisher_z",
     "stouffer_z",
@@ -918,3 +925,741 @@ def icc_3(Y: np.ndarray) -> tuple[float, float]:
     icc_3_1 = float((ms_b - ms_e) / denom_1) if denom_1 > 1e-12 else float("nan")
     icc_3_k = float((ms_b - ms_e) / ms_b) if ms_b > 1e-12 else float("nan")
     return icc_3_1, icc_3_k
+
+
+# --------------------------------------------------- continuous dose-response recruitment
+def _normal_two_sided_quantile(ci_level: float) -> float:
+    """Two-sided standard normal critical value ``z`` with ``P(|Z| <= z) = ci_level``."""
+    if not (0.0 < ci_level < 1.0):
+        raise ValueError(f"ci_level must lie strictly in (0, 1), got {ci_level}")
+    lo, hi = 0.0, 10.0
+    inv_sqrt2 = 1.0 / math.sqrt(2.0)
+    for _ in range(64):
+        mid = 0.5 * (lo + hi)
+        if math.erf(mid * inv_sqrt2) < ci_level:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def _as_optional_2d_covariates(
+    covariates: Sequence[float] | np.ndarray | None,
+    n_rows: int,
+    name: str = "covariates",
+) -> np.ndarray | None:
+    if covariates is None:
+        return None
+    arr = np.asarray(covariates, dtype=np.float64)
+    if arr.ndim == 1:
+        arr = arr[:, None]
+    elif arr.ndim != 2:
+        raise ValueError(f"{name} must be 1-D or 2-D, got shape {arr.shape}")
+    if arr.shape[0] != n_rows:
+        raise ValueError(f"{name} row count {arr.shape[0]} != dose length {n_rows}")
+    if arr.shape[1] == 0:
+        return None
+    return arr
+
+
+def _partial_out_mean_preserving(
+    y: np.ndarray,
+    cov: np.ndarray | None,
+) -> np.ndarray:
+    """Partial out covariates on complete rows while preserving ``mean(y)``."""
+    if cov is None:
+        return y.copy()
+    valid = np.isfinite(y) & np.all(np.isfinite(cov), axis=1)
+    n_valid = int(np.sum(valid))
+    if n_valid < 10:
+        return y.copy()
+    cov_v = cov[valid]
+    col_sd = np.std(cov_v, axis=0)
+    keep = col_sd > 1e-10
+    if not np.any(keep):
+        return y.copy()
+    cov_centered = cov_v[:, keep] - np.mean(cov_v[:, keep], axis=0, keepdims=True)
+    if n_valid <= cov_centered.shape[1] + 4:
+        return y.copy()
+    design = np.column_stack([np.ones(n_valid, dtype=np.float64), cov_centered])
+    beta, *_ = np.linalg.lstsq(design, y[valid], rcond=None)
+    out = np.full_like(y, np.nan, dtype=np.float64)
+    out[valid] = y[valid] - cov_centered @ beta[1:]
+    return out
+
+
+def _solve_adaptive_gaussian_bandwidths(
+    x_active: np.ndarray,
+    grid: np.ndarray,
+    *,
+    target_neff: float,
+    min_sigma: float,
+    max_sigma: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Solve Gaussian bandwidth ``sigma(x_0)`` per grid coordinate for Kish ``N_eff``."""
+    n_act = int(x_active.size)
+    g_len = int(grid.size)
+    eff_target = min(float(target_neff), max(12.0, 0.60 * n_act))
+
+    dists = np.abs(grid[:, None] - x_active[None, :])
+    lo = np.full(g_len, float(min_sigma), dtype=np.float64)
+    hi = np.full(g_len, float(max_sigma), dtype=np.float64)
+
+    for _ in range(36):
+        mid = 0.5 * (lo + hi)
+        u = dists / mid[:, None]
+        raw_w = np.exp(-0.5 * u * u)
+        sw = np.sum(raw_w, axis=1)
+        sw2 = np.sum(raw_w * raw_w, axis=1)
+        neff = np.where(sw2 > 1e-12, (sw * sw) / np.maximum(sw2, 1e-12), 0.0)
+        need_wider = neff < eff_target
+        lo = np.where(need_wider, mid, lo)
+        hi = np.where(need_wider, hi, mid)
+
+    sigma_grid = 0.5 * (lo + hi)
+    u_fin = dists / sigma_grid[:, None]
+    raw_w = np.exp(-0.5 * u_fin * u_fin)
+    sw = np.sum(raw_w, axis=1)
+    sw2 = np.sum(raw_w * raw_w, axis=1)
+    neff_grid = np.where(sw2 > 1e-12, (sw * sw) / np.maximum(sw2, 1e-12), 0.0)
+    return sigma_grid, raw_w, neff_grid
+
+
+def _eval_anchored_local_linear(
+    x_pos: np.ndarray,
+    y_pos: np.ndarray,
+    grid: np.ndarray,
+    raw_w_pos: np.ndarray,
+    sigma_grid: np.ndarray,
+    *,
+    has_zero_mass: bool,
+    x_anchor: float,
+    mu0: float,
+    zero_anchor_mass: float,
+    ridge: float = 2e-3,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Evaluate weighted local linear fit ``y ~ b0 + b1 * (x - x_0)`` with 0-mass anchor."""
+    if has_zero_mass and zero_anchor_mass > 0.0:
+        w0 = (zero_anchor_mass * np.exp(-0.5 * ((grid - x_anchor) / sigma_grid) ** 2))[:, None]
+        x_all = np.concatenate([[x_anchor], x_pos])
+        y_all = np.concatenate([[mu0], y_pos])
+        w_raw = np.hstack([w0, raw_w_pos])
+    else:
+        x_all = x_pos
+        y_all = y_pos
+        w_raw = raw_w_pos
+
+    w_norm = w_raw / np.maximum(np.sum(w_raw, axis=1, keepdims=True), 1e-12)
+    dx = x_all[None, :] - grid[:, None]
+    s0 = np.sum(w_norm, axis=1)
+    s1 = np.sum(w_norm * dx, axis=1)
+    s2 = np.sum(w_norm * dx * dx, axis=1) + ridge
+    t0 = np.sum(w_norm * y_all[None, :], axis=1)
+    t1 = np.sum(w_norm * dx * y_all[None, :], axis=1)
+    denom = np.maximum(s0 * s2 - s1 * s1, 1e-8)
+    b0 = (s2 * t0 - s1 * t1) / denom
+    b1 = (s0 * t1 - s1 * t0) / denom
+    return b0, b1
+
+
+def adaptive_local_linear_curve(
+    dose: Sequence[float] | np.ndarray,
+    y: Sequence[float] | np.ndarray,
+    *,
+    covariates: Sequence[float] | np.ndarray | None = None,
+    grid: Sequence[float] | np.ndarray | None = None,
+    n_grid: int = 120,
+    log_transform: bool = True,
+    target_neff: float = 32.0,
+    min_sigma: float = 0.28,
+    max_sigma: float = 3.0,
+    zero_mass_min: int = 10,
+    zero_anchor_cap: float = 8.0,
+    min_local_count: int = 5,
+    support_window: float = 0.60,
+    n_boot: int = 1000,
+    ci_level: float = 0.95,
+    seed: int = 42,
+    allow_insufficient: bool = False,
+) -> dict[str, Any]:
+    """Fit a 0-mass-anchored, covariate-adjusted adaptive-``N_eff`` local linear curve.
+
+    Estimates continuous outcome displacement ``Delta(x_0) = mu(x_0) - mu_0`` and
+    local derivative ``d mu / d x`` across an evaluation grid using a Gaussian
+    local linear kernel whose bandwidth ``sigma(x_0)`` adapts at every coordinate
+    to maintain Kish effective sample size ``(sum w_i)^2 / sum w_i^2 = target_neff``
+    within ``[min_sigma, max_sigma]``.
+
+    When at least ``zero_mass_min`` observations lie at ``dose == 0``, those
+    baseline observations are consolidated into a boundary anchor at ``x = 0``
+    (weight capped at ``zero_anchor_cap``) so zero-inflation neither collapses
+    positive-dose bandwidths nor disconnects the curve from the unexposed
+    reference mean ``mu_0``. Grid coordinates outside the observed support are
+    masked to ``NaN`` (``in_support == False``) rather than extrapolated.
+    Uncertainty is quantified by subject-level bootstrap (refitting covariate
+    partial residuals inside every replicate) yielding both pointwise intervals
+    and studentised maximum-modulus (``sup-t``) simultaneous confidence bands.
+
+    Parameters
+    ----------
+    dose : 1-D array-like of shape (n,)
+        Continuous exposure, disease-duration or burden measurements. ``NaN``
+        entries are excluded pairwise with ``y`` and ``covariates``. Must be
+        non-negative on finite entries when ``log_transform=True``.
+    y : 1-D array-like of shape (n,)
+        Outcome or out-of-fold view score per observation.
+    covariates : 1-D or 2-D array-like of shape (n,) or (n, q), optional
+        Co-exposure or nuisance covariates partialled out via mean-preserving
+        OLS both on the full sample and inside every bootstrap replicate.
+    grid : 1-D array-like, optional
+        Explicit strictly increasing evaluation coordinates in the regression
+        domain (``log10(dose + 1)`` when ``log_transform=True``, raw ``dose``
+        otherwise). Built automatically with ``n_grid`` points when ``None``.
+    n_grid : int, default 120
+        Number of grid coordinates when ``grid`` is ``None`` (must be >= 8).
+    log_transform : bool, default True
+        Map ``dose`` to ``x = log10(dose + 1)`` and invert onset coordinates via
+        ``10**x - 1``.
+    target_neff : float, default 32.0
+        Target Kish effective sample size ``N_eff`` per grid point (>= 4.0).
+    min_sigma, max_sigma : float, default (0.28, 3.0)
+        Lower and upper bounds on Gaussian kernel standard deviation ``sigma(x_0)``
+        in regression-domain units.
+    zero_mass_min : int, default 10
+        Minimum count of ``dose <= 0`` observations required to activate
+        explicit 0-mass boundary anchoring.
+    zero_anchor_cap : float, default 8.0
+        Maximum effective mass assigned to the consolidated ``x = 0`` anchor in
+        positive-tail local linear fits.
+    min_local_count : int, default 5
+        Minimum number of observed data points within ``+-support_window`` of
+        ``x_0`` for ``x_0`` to be marked ``in_support``.
+    support_window : float, default 0.60
+        Half-window (in regression-domain units) used to verify local observation
+        density.
+    n_boot : int, default 1000
+        Number of subject-level bootstrap resamples (>= 0).
+    ci_level : float, default 0.95
+        Confidence level in ``(0, 1)`` for pointwise and ``sup-t`` bands.
+    seed : int, default 42
+        Seed for a local ``numpy.random.default_rng`` stream.
+    allow_insufficient : bool, default False
+        When ``True``, return ``{"valid": False, ...}`` with ``NaN`` curves if
+        too few finite observations exist instead of raising ``ValueError``.
+
+    Returns
+    -------
+    dict[str, Any]
+        Curve dictionary containing ``grid``, ``grid_dose``, ``in_support``,
+        ``delta``, ``se``, ``pw_lo``, ``pw_hi``, ``sim_lo``, ``sim_hi``,
+        ``slope``, ``slope_se``, ``sigma``, ``neff``, ``onset_pointwise``,
+        ``onset_simultaneous``, ``c_simultaneous`` and sample diagnostics.
+    """
+    dose_arr = _as_1d_float(dose, "dose")
+    y_arr = _as_1d_float(y, "y")
+    if dose_arr.size != y_arr.size:
+        raise ValueError(f"dose and y must have identical length, got {dose_arr.size} vs {y_arr.size}")
+    if n_grid < 8:
+        raise ValueError(f"n_grid must be >= 8, got {n_grid}")
+    if target_neff < 4.0:
+        raise ValueError(f"target_neff must be >= 4.0, got {target_neff}")
+    if min_sigma <= 0.0 or max_sigma < min_sigma:
+        raise ValueError(f"require 0 < min_sigma <= max_sigma, got ({min_sigma}, {max_sigma})")
+    if n_boot < 0:
+        raise ValueError(f"n_boot must be >= 0, got {n_boot}")
+    z_pw = _normal_two_sided_quantile(ci_level)
+    cov_mat = _as_optional_2d_covariates(covariates, dose_arr.size)
+
+    finite_dose = dose_arr[np.isfinite(dose_arr)]
+    if log_transform and finite_dose.size > 0 and np.any(finite_dose < 0.0):
+        raise ValueError("dose must be non-negative on all finite entries when log_transform=True")
+
+    if grid is not None:
+        grid_arr = _as_1d_float(grid, "grid")
+        if grid_arr.size < 4 or not np.all(np.isfinite(grid_arr)) or np.any(np.diff(grid_arr) <= 0.0):
+            raise ValueError("grid must be finite, strictly increasing, and have length >= 4")
+    else:
+        grid_arr = None
+
+    def _to_dose_scale(g_vals: np.ndarray | float) -> np.ndarray | float:
+        if log_transform:
+            return np.power(10.0, g_vals) - 1.0
+        return g_vals
+
+    def _invalid_payload(n_obs_val: int, g_vec: np.ndarray) -> dict[str, Any]:
+        nan_vec = np.full(g_vec.size, np.nan, dtype=np.float64)
+        return {
+            "valid": False,
+            "n_obs": int(n_obs_val),
+            "n_zero": 0,
+            "has_zero_mass": False,
+            "n_pos": 0,
+            "log_transform": bool(log_transform),
+            "target_neff": float(target_neff),
+            "ci_level": float(ci_level),
+            "mu0": float("nan"),
+            "se0": float("nan"),
+            "z_pointwise": float(z_pw),
+            "c_simultaneous": float("nan"),
+            "median_neff": float("nan"),
+            "median_sigma": float("nan"),
+            "median_span_2sigma": float("nan"),
+            "onset_pointwise": float("nan"),
+            "onset_simultaneous": float("nan"),
+            "onset_pointwise_grid": float("nan"),
+            "onset_simultaneous_grid": float("nan"),
+            "peak_delta": float("nan"),
+            "peak_slope": float("nan"),
+            "peak_slope_dose": float("nan"),
+            "grid": g_vec.copy(),
+            "grid_dose": np.asarray(_to_dose_scale(g_vec), dtype=np.float64),
+            "in_support": np.zeros(g_vec.size, dtype=bool),
+            "delta": nan_vec.copy(),
+            "se": nan_vec.copy(),
+            "pw_lo": nan_vec.copy(),
+            "pw_hi": nan_vec.copy(),
+            "sim_lo": nan_vec.copy(),
+            "sim_hi": nan_vec.copy(),
+            "slope": nan_vec.copy(),
+            "slope_se": nan_vec.copy(),
+            "sigma": nan_vec.copy(),
+            "neff": nan_vec.copy(),
+            "scatter_x": np.empty(0, dtype=np.float64),
+            "scatter_y": np.empty(0, dtype=np.float64),
+        }
+
+    adj_y = _partial_out_mean_preserving(y_arr, cov_mat)
+    valid = np.isfinite(dose_arr) & np.isfinite(adj_y)
+    if cov_mat is not None:
+        valid = valid & np.all(np.isfinite(cov_mat), axis=1)
+
+    n_obs = int(np.sum(valid))
+    fallback_grid = grid_arr if grid_arr is not None else np.linspace(0.3, 4.0, n_grid, dtype=np.float64)
+    if n_obs < 18:
+        if allow_insufficient:
+            return _invalid_payload(n_obs, fallback_grid)
+        raise ValueError(f"at least 18 complete observations are required, got {n_obs}")
+
+    rc = dose_arr[valid]
+    yv = adj_y[valid]
+    raw_orig = y_arr[valid]
+    cov_v = cov_mat[valid] if cov_mat is not None else None
+    xv = np.log10(rc + 1.0) if log_transform else rc.copy()
+
+    zero_mask = rc <= 0.0
+    n_zeros = int(np.sum(zero_mask))
+    has_zero_mass = zero_mass_min > 0 and n_zeros >= zero_mass_min
+
+    if has_zero_mass:
+        mu0 = float(np.mean(yv[zero_mask]))
+        se0 = float(np.std(yv[zero_mask], ddof=1) / math.sqrt(n_zeros)) if n_zeros > 1 else 0.0
+        x_pos = xv[~zero_mask]
+        y_pos = yv[~zero_mask]
+        zero_anchor_mass = float(min(float(n_zeros), float(zero_anchor_cap)))
+        x_anchor = 0.0
+        x_ref = 0.0
+    else:
+        x_pos = xv
+        y_pos = yv
+        zero_anchor_mass = 0.0
+        x_anchor = float(np.min(xv))
+        x_ref = float(np.percentile(xv, 15.0))
+        ref_sub = xv <= np.percentile(xv, 25.0)
+        n_ref = max(1, int(np.sum(ref_sub)))
+        mu0 = float(np.mean(yv[ref_sub]))
+        se0 = float(np.std(yv[ref_sub], ddof=1) / math.sqrt(n_ref)) if n_ref > 1 else 0.0
+
+    if int(x_pos.size) < 12:
+        if allow_insufficient:
+            return _invalid_payload(n_obs, fallback_grid)
+        raise ValueError(f"at least 12 positive/active dose observations are required, got {x_pos.size}")
+
+    if grid_arr is None:
+        g_lo = float(min(0.28, float(np.min(x_pos)))) if (has_zero_mass and log_transform) else float(np.percentile(x_pos, 1.5))
+        g_hi = float(np.percentile(x_pos, 98.5))
+        if g_hi <= g_lo + 1e-6:
+            g_lo = float(np.min(xv))
+            g_hi = float(np.max(xv))
+        if g_hi <= g_lo + 1e-6:
+            if allow_insufficient:
+                return _invalid_payload(n_obs, fallback_grid)
+            raise ValueError("dose has zero spread across observations")
+        grid_arr = np.linspace(g_lo, g_hi, n_grid, dtype=np.float64)
+
+    domain_span = float(grid_arr[-1] - grid_arr[0])
+    tol_lo = 0.015 * domain_span if not log_transform else 0.05
+    tol_hi = 0.010 * domain_span if not log_transform else 0.03
+    x_min_obs = float(np.percentile(x_pos, 2.0)) if not has_zero_mass else float(grid_arr[0])
+    x_max_obs = float(np.percentile(x_pos, 97.5))
+    local_cnt = np.sum(np.abs(grid_arr[:, None] - xv[None, :]) <= float(support_window), axis=1)
+
+    in_support = (
+        (grid_arr >= max(float(grid_arr[0]), x_min_obs - tol_lo))
+        & (grid_arr <= x_max_obs + tol_hi)
+        & (local_cnt >= int(min_local_count))
+    )
+    if int(np.sum(in_support)) < 6:
+        if allow_insufficient:
+            return _invalid_payload(n_obs, grid_arr)
+        raise ValueError(
+            f"fewer than 6 grid coordinates have sufficient local support ({int(np.sum(in_support))})"
+        )
+
+    grid_sub = grid_arr[in_support]
+    sigma_sub, raw_w_pos, neff_sub = _solve_adaptive_gaussian_bandwidths(
+        x_pos,
+        grid_sub,
+        target_neff=target_neff,
+        min_sigma=min_sigma,
+        max_sigma=max_sigma,
+    )
+    b0_sub, b1_sub = _eval_anchored_local_linear(
+        x_pos,
+        y_pos,
+        grid_sub,
+        raw_w_pos,
+        sigma_sub,
+        has_zero_mass=has_zero_mass,
+        x_anchor=x_anchor,
+        mu0=mu0,
+        zero_anchor_mass=zero_anchor_mass,
+    )
+    if not has_zero_mass:
+        ref_idx = int(np.argmin(np.abs(grid_sub - x_ref)))
+        mu0_eff = float(b0_sub[ref_idx])
+    else:
+        mu0_eff = mu0
+    delta_sub = b0_sub - mu0_eff
+
+    rng = np.random.default_rng(seed)
+    boot_deltas = np.full((n_boot, grid_sub.size), np.nan, dtype=np.float64)
+    boot_slopes = np.full((n_boot, grid_sub.size), np.nan, dtype=np.float64)
+    valid_boots = 0
+
+    for _ in range(n_boot):
+        idx = rng.integers(0, n_obs, size=n_obs)
+        rc_b = rc[idx]
+        raw_y_b = raw_orig[idx]
+        cov_b = cov_v[idx] if cov_v is not None else None
+        y_b = _partial_out_mean_preserving(raw_y_b, cov_b)
+        xv_b = np.log10(rc_b + 1.0) if log_transform else rc_b.copy()
+
+        if has_zero_mass:
+            zm_b = rc_b <= 0.0
+            n_zb = int(np.sum(zm_b))
+            if n_zb < 3 or int(np.sum(~zm_b)) < 10:
+                continue
+            mu0_b = float(np.mean(y_b[zm_b]))
+            xp_b = xv_b[~zm_b]
+            yp_b = y_b[~zm_b]
+            zam_b = float(min(float(n_zb), float(zero_anchor_cap)))
+        else:
+            xp_b = xv_b
+            yp_b = y_b
+            mu0_b = 0.0
+            zam_b = 0.0
+
+        dists_b = np.abs(grid_sub[:, None] - xp_b[None, :])
+        rw_b = np.exp(-0.5 * (dists_b / sigma_sub[:, None]) ** 2)
+        b0_b, b1_b = _eval_anchored_local_linear(
+            xp_b,
+            yp_b,
+            grid_sub,
+            rw_b,
+            sigma_sub,
+            has_zero_mass=has_zero_mass,
+            x_anchor=x_anchor,
+            mu0=mu0_b,
+            zero_anchor_mass=zam_b,
+        )
+        if not has_zero_mass:
+            ref_idx = int(np.argmin(np.abs(grid_sub - x_ref)))
+            mu0_b_eff = float(b0_b[ref_idx])
+        else:
+            mu0_b_eff = mu0_b
+
+        boot_deltas[valid_boots] = b0_b - mu0_b_eff
+        boot_slopes[valid_boots] = b1_b
+        valid_boots += 1
+
+    if valid_boots >= 2:
+        boot_deltas = boot_deltas[:valid_boots]
+        boot_slopes = boot_slopes[:valid_boots]
+        se_sub = np.std(boot_deltas, axis=0, ddof=1)
+        se_slope_sub = np.std(boot_slopes, axis=0, ddof=1)
+        y_sd_floor = max(1e-6, 0.045 * float(np.std(yv, ddof=1)))
+        se_floor = np.maximum(se_sub, y_sd_floor)
+        sup_t_vals = np.max(np.abs(boot_deltas - delta_sub[None, :]) / se_floor[None, :], axis=1)
+        c_sim = float(np.percentile(sup_t_vals, 100.0 * ci_level)) if valid_boots >= 20 else float(1.25 * z_pw)
+    else:
+        se_sub = np.full(grid_sub.size, np.nan, dtype=np.float64)
+        se_slope_sub = np.full(grid_sub.size, np.nan, dtype=np.float64)
+        c_sim = float("nan")
+
+    pw_lo_sub = delta_sub - z_pw * se_sub
+    pw_hi_sub = delta_sub + z_pw * se_sub
+    sim_lo_sub = delta_sub - c_sim * se_sub
+    sim_hi_sub = delta_sub + c_sim * se_sub
+
+    min_run = max(2, min(5, grid_sub.size // 20))
+
+    def _first_sustained_crossing(lb_arr: np.ndarray) -> tuple[float, float]:
+        if not np.any(np.isfinite(lb_arr)):
+            return float("nan"), float("nan")
+        above = np.isfinite(lb_arr) & (lb_arr > 0.0)
+        for idx_g in range(above.size):
+            if above[idx_g] and np.all(above[idx_g : min(above.size, idx_g + min_run)]):
+                g_hit = float(grid_sub[idx_g])
+                return float(_to_dose_scale(g_hit)), g_hit
+        return float("nan"), float("nan")
+
+    onset_pw, onset_pw_g = _first_sustained_crossing(pw_lo_sub)
+    onset_sim, onset_sim_g = _first_sustained_crossing(sim_lo_sub)
+
+    def _pad(arr_sub: np.ndarray) -> np.ndarray:
+        full = np.full(grid_arr.size, np.nan, dtype=np.float64)
+        full[in_support] = arr_sub
+        return full
+
+    peak_slope_idx = int(np.argmax(b1_sub))
+    med_sig = float(np.median(sigma_sub))
+    return {
+        "valid": True,
+        "n_obs": n_obs,
+        "n_zero": n_zeros,
+        "has_zero_mass": bool(has_zero_mass),
+        "n_pos": int(x_pos.size),
+        "log_transform": bool(log_transform),
+        "target_neff": float(target_neff),
+        "ci_level": float(ci_level),
+        "mu0": float(mu0_eff),
+        "se0": float(se0),
+        "z_pointwise": float(z_pw),
+        "c_simultaneous": float(c_sim),
+        "median_neff": float(np.median(neff_sub)),
+        "median_sigma": med_sig,
+        "median_span_2sigma": float(2.0 * med_sig),
+        "onset_pointwise": onset_pw,
+        "onset_simultaneous": onset_sim,
+        "onset_pointwise_grid": onset_pw_g,
+        "onset_simultaneous_grid": onset_sim_g,
+        "peak_delta": float(np.max(delta_sub)),
+        "peak_slope": float(b1_sub[peak_slope_idx]),
+        "peak_slope_dose": float(_to_dose_scale(float(grid_sub[peak_slope_idx]))),
+        "grid": grid_arr.copy(),
+        "grid_dose": np.asarray(_to_dose_scale(grid_arr), dtype=np.float64),
+        "in_support": in_support.copy(),
+        "delta": _pad(delta_sub),
+        "se": _pad(se_sub),
+        "pw_lo": _pad(pw_lo_sub),
+        "pw_hi": _pad(pw_hi_sub),
+        "sim_lo": _pad(sim_lo_sub),
+        "sim_hi": _pad(sim_hi_sub),
+        "slope": _pad(b1_sub),
+        "slope_se": _pad(se_slope_sub),
+        "sigma": _pad(sigma_sub),
+        "neff": _pad(neff_sub),
+        "scatter_x": xv.copy(),
+        "scatter_y": (yv - mu0_eff).copy(),
+    }
+
+
+def modality_dose_recruitment(
+    scores: Mapping[str, Sequence[float] | np.ndarray] | np.ndarray,
+    doses: Mapping[str, Sequence[float] | np.ndarray] | np.ndarray,
+    *,
+    covariates: Mapping[str, Sequence[float] | np.ndarray | None] | Sequence[float] | np.ndarray | None = None,
+    grids: Mapping[str, Sequence[float] | np.ndarray] | Sequence[float] | np.ndarray | None = None,
+    view_names: Sequence[str] | None = None,
+    dose_names: Sequence[str] | None = None,
+    standardize_scores: bool = False,
+    target_neff: float = 32.0,
+    min_sigma: float = 0.28,
+    max_sigma: float = 3.0,
+    zero_mass_min: int = 10,
+    zero_anchor_cap: float = 8.0,
+    min_local_count: int = 5,
+    support_window: float = 0.60,
+    n_grid: int = 120,
+    log_transform: bool = True,
+    n_boot: int = 1000,
+    ci_level: float = 0.95,
+    seed: int = 42,
+) -> dict[str, Any]:
+    """Evaluate continuous stage-dependent modality recruitment across exposure axes.
+
+    Runs :func:`adaptive_local_linear_curve` across every ``(dose_name, view_name)``
+    pair while preserving view-specific missingness (unscanned subjects carry
+    ``NaN`` in ``scores`` and have their uncovered dose regions masked via
+    ``in_support == False``) and optional dose-specific co-exposure adjustment.
+
+    Parameters
+    ----------
+    scores : Mapping[str, array-like] or 2-D ndarray of shape (n, M)
+        Per-view outcome or out-of-fold scores.
+    doses : Mapping[str, array-like] or 1-D / 2-D ndarray of shape (n,) or (n, D)
+        One or more continuous exposure, disease-duration or burden axes.
+    covariates : Mapping[str, array-like or None] or array-like, optional
+        Either a single covariate array applied to all ``doses`` or a mapping
+        keyed by ``dose_name`` supplying regime-specific co-exposures.
+    grids : Mapping[str, array-like] or 1-D array-like, optional
+        Optional shared 1-D evaluation grid or per-dose grid mapping.
+    view_names, dose_names : Sequence[str], optional
+        Explicit names (or ordering subset when inputs are mappings).
+    standardize_scores : bool, default False
+        If ``True``, standardise each view score to unit variance (``ddof=1``)
+        across its finite observations prior to curve estimation.
+    target_neff, min_sigma, max_sigma, zero_mass_min, zero_anchor_cap, min_local_count, support_window, n_grid, log_transform, n_boot, ci_level, seed
+        Forwarded to :func:`adaptive_local_linear_curve`.
+
+    Returns
+    -------
+    dict[str, Any]
+        Result object of ``kind="modality_dose_recruitment"`` accepted directly by
+        :func:`pysimlr.plot_dose_recruitment`, containing ``view_names``,
+        ``dose_names``, ``curves`` (``curves[dose_name][view_name]``) and
+        ``summary_rows``.
+    """
+    if isinstance(scores, Mapping):
+        if len(scores) == 0:
+            raise ValueError("scores mapping must not be empty")
+        v_names = tuple(view_names) if view_names is not None else tuple(scores.keys())
+        score_map = {str(k): _as_1d_float(scores[k], f"scores[{k!r}]") for k in v_names}
+    else:
+        s_arr = np.asarray(scores, dtype=np.float64)
+        if s_arr.ndim == 1:
+            s_arr = s_arr[:, None]
+        elif s_arr.ndim != 2 or s_arr.shape[1] == 0:
+            raise ValueError(f"scores array must have shape (n, M) with M >= 1, got {s_arr.shape}")
+        if view_names is not None:
+            if len(view_names) != s_arr.shape[1]:
+                raise ValueError(f"len(view_names)={len(view_names)} != scores.shape[1]={s_arr.shape[1]}")
+            v_names = tuple(str(v) for v in view_names)
+        else:
+            v_names = tuple(f"view_{i}" for i in range(s_arr.shape[1]))
+        score_map = {v_names[i]: s_arr[:, i] for i in range(s_arr.shape[1])}
+
+    n_rows = next(iter(score_map.values())).size
+    for vn, vec in score_map.items():
+        if vec.size != n_rows:
+            raise ValueError(f"scores[{vn!r}] length {vec.size} != {n_rows}")
+        if standardize_scores:
+            fin = np.isfinite(vec)
+            if int(np.sum(fin)) >= 5:
+                sd = float(np.std(vec[fin], ddof=1))
+                if sd > 1e-10:
+                    mu = float(np.mean(vec[fin]))
+                    score_map[vn] = np.where(fin, (vec - mu) / sd, np.nan)
+
+    if isinstance(doses, Mapping):
+        if len(doses) == 0:
+            raise ValueError("doses mapping must not be empty")
+        d_names = tuple(dose_names) if dose_names is not None else tuple(doses.keys())
+        dose_map = {str(k): _as_1d_float(doses[k], f"doses[{k!r}]") for k in d_names}
+    else:
+        d_arr = np.asarray(doses, dtype=np.float64)
+        if d_arr.ndim == 1:
+            d_arr = d_arr[:, None]
+            default_dnames = ("dose",)
+        elif d_arr.ndim == 2 and d_arr.shape[1] >= 1:
+            default_dnames = tuple(f"dose_{i}" for i in range(d_arr.shape[1]))
+        else:
+            raise ValueError(f"doses array must be 1-D or 2-D, got {d_arr.shape}")
+        if dose_names is not None:
+            if len(dose_names) != d_arr.shape[1]:
+                raise ValueError(f"len(dose_names)={len(dose_names)} != doses.shape[1]={d_arr.shape[1]}")
+            d_names = tuple(str(d) for d in dose_names)
+        else:
+            d_names = default_dnames
+        dose_map = {d_names[i]: d_arr[:, i] for i in range(d_arr.shape[1])}
+
+    for dn, dvec in dose_map.items():
+        if dvec.size != n_rows:
+            raise ValueError(f"doses[{dn!r}] length {dvec.size} != {n_rows}")
+
+    curves: dict[str, dict[str, dict[str, Any]]] = {}
+    summary_rows: list[dict[str, Any]] = []
+
+    any_score_finite = np.zeros(n_rows, dtype=bool)
+    for vec in score_map.values():
+        any_score_finite |= np.isfinite(vec)
+
+    for dn in d_names:
+        curves[dn] = {}
+        cov_dn = covariates.get(dn) if isinstance(covariates, Mapping) else covariates
+        grid_dn = grids.get(dn) if isinstance(grids, Mapping) else grids
+        if grid_dn is None:
+            d_raw = dose_map[dn]
+            d_valid = np.isfinite(d_raw) & any_score_finite & ((d_raw >= 0.0) if log_transform else True)
+            if cov_dn is not None:
+                c_tmp = _as_optional_2d_covariates(cov_dn, n_rows)
+                if c_tmp is not None:
+                    d_valid &= np.all(np.isfinite(c_tmp), axis=1)
+            if int(np.sum(d_valid)) >= 4:
+                rc_all = d_raw[d_valid]
+                xv_all = np.log10(rc_all + 1.0) if log_transform else rc_all
+                zm_all = rc_all <= 0.0
+                hz_all = zero_mass_min > 0 and int(np.sum(zm_all)) >= zero_mass_min
+                xp_all = xv_all[~zm_all] if hz_all else xv_all
+                if xp_all.size >= 2:
+                    g_lo = (
+                        float(min(0.28, float(np.min(xp_all))))
+                        if (hz_all and log_transform)
+                        else float(np.percentile(xp_all, 1.5))
+                    )
+                    g_hi = float(np.percentile(xp_all, 98.5))
+                    if g_hi <= g_lo + 1e-6:
+                        g_lo, g_hi = float(np.min(xv_all)), float(np.max(xv_all))
+                    if g_hi > g_lo + 1e-6:
+                        grid_dn = np.linspace(g_lo, g_hi, int(n_grid), dtype=np.float64)
+        for vn in v_names:
+            res = adaptive_local_linear_curve(
+                dose_map[dn],
+                score_map[vn],
+                covariates=cov_dn,
+                grid=grid_dn,
+                n_grid=n_grid,
+                log_transform=log_transform,
+                target_neff=target_neff,
+                min_sigma=min_sigma,
+                max_sigma=max_sigma,
+                zero_mass_min=zero_mass_min,
+                zero_anchor_cap=zero_anchor_cap,
+                min_local_count=min_local_count,
+                support_window=support_window,
+                n_boot=n_boot,
+                ci_level=ci_level,
+                seed=seed,
+                allow_insufficient=True,
+            )
+            curves[dn][vn] = res
+            summary_rows.append(
+                {
+                    "dose": dn,
+                    "view": vn,
+                    "valid": bool(res["valid"]),
+                    "n_obs": int(res["n_obs"]),
+                    "n_zero": int(res["n_zero"]),
+                    "median_neff": float(res["median_neff"]),
+                    "median_sigma": float(res["median_sigma"]),
+                    "median_span_2sigma": float(res["median_span_2sigma"]),
+                    "c_simultaneous": float(res["c_simultaneous"]),
+                    "onset_pointwise": float(res["onset_pointwise"]),
+                    "onset_simultaneous": float(res["onset_simultaneous"]),
+                    "peak_delta": float(res["peak_delta"]),
+                    "peak_slope": float(res["peak_slope"]),
+                    "peak_slope_dose": float(res["peak_slope_dose"]),
+                }
+            )
+
+    return {
+        "kind": "modality_dose_recruitment",
+        "view_names": v_names,
+        "dose_names": d_names,
+        "log_transform": bool(log_transform),
+        "target_neff": float(target_neff),
+        "ci_level": float(ci_level),
+        "curves": curves,
+        "summary_rows": summary_rows,
+    }
+

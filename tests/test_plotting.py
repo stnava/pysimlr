@@ -40,8 +40,16 @@ def fits():
                                     groups={"half": lambda n: "a" if int(n.split(".")[1]) < 6 else "b"})
     att = pysimlr.component_attribution(sig, tr, te, z[:70, 0], z[70:, 0], n_refits=2, n_jobs=1,
                                         variants={"cw0": {"collapse_weight": 0.0}})
+    dose_vec = np.r_[np.zeros(20), np.power(10.0, rng.uniform(0.4, 3.2, size=50)) - 1.0]
+    rec = pysimlr.modality_dose_recruitment(
+        {"v0": z[:70, 0], "v1": z[:70, 1]},
+        {"dose": dose_vec},
+        n_grid=30,
+        n_boot=25,
+        seed=0,
+    )
     return dict(tr=tr, te=te, z=z[:70], sig=sig, pos=pos, short=short, flow=flow, pca=pca, inf=inf,
-                rank=rank, pred=pysimlr.predict(sig, te), bench=bench, splits=splits, rel=rel, att=att)
+                rank=rank, pred=pysimlr.predict(sig, te), bench=bench, splits=splits, rel=rel, att=att, rec=rec)
 
 
 CALLS = {
@@ -68,6 +76,7 @@ CALLS = {
     "plot_predictions": lambda f: (f["z"][:, 0], f["z"][:, 1]),
     "plot_feature_relevance": lambda f: (f["rel"], 0),
     "plot_component_attribution": lambda f: (f["att"],),
+    "plot_dose_recruitment": lambda f: (f["rec"],),
 }
 SINGLE_PANEL = {"plot_convergence", "plot_rank_selection", "plot_view_correlations", "plot_feature_groups",
                 "plot_loadings", "plot_scores", "plot_latent_recovery", "plot_benchmark", "plot_predictions"}

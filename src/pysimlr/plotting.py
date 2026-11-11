@@ -19,6 +19,7 @@ Conventions (every function here follows them, and new plots should too):
   drawn inside ``theme()``; wrap your own figures in it to match.
 """
 import functools
+from collections.abc import Mapping
 from contextlib import contextmanager
 from typing import Any, Dict, Optional, Sequence
 
@@ -46,6 +47,8 @@ __all__ = [
     # score-level path model
     "plot_path_model", "plot_edge_matrix", "plot_path_comparison", "plot_edge_null", "plot_edge_features",
     "plot_edge_brain_map",
+    # continuous dose-response and stage recruitment
+    "plot_dose_recruitment",
 ]
 
 # ----------------------------------------------------------------------------- the visual system
@@ -3627,5 +3630,605 @@ def plot_edge_brain_map(pm: Dict[str, Any], edge: Any, component: int = 0,
     return av.surface_figure(rows, meshes,
                              title=title or f"Edge {disp_edge} · Component {component + 1}: feature contributions",
                              subtitle=sub)
+
+
+# --------------------------------------------------- continuous dose-response recruitment
+def _format_dose_value(val: float, unit: str = "") -> str:
+    if not np.isfinite(val):
+        return "Not crossed"
+    if abs(val) >= 1e5:
+        txt = f"{val / 1e3:,.0f}k"
+    elif abs(val) >= 1e3:
+        txt = f"{val:,.0f}"
+    elif abs(val) >= 10.0:
+        txt = f"{val:.0f}"
+    else:
+        txt = f"{val:.2g}"
+    return f"{txt} {unit}".strip()
+
+
+def _format_log10_ticks(ax, min_g: float, max_g: float) -> None:
+    lo_p = max(0, int(np.ceil(min_g - 1e-9)))
+    hi_p = int(np.floor(max_g + 1e-9))
+    if hi_p >= lo_p:
+        powers = list(range(lo_p, hi_p + 1))
+        labels = ["0" if p == 0 else (f"10^{p}" if p >= 4 else f"{10**p:,}") for p in powers]
+        ax.set_xticks(powers)
+        ax.set_xticklabels(labels, fontsize=8.0, color=_INK2)
+    ax.set_xlim(min_g, max_g)
+
+
+@_themed
+def plot_dose_recruitment(
+    recruitment: Mapping[str, Any],
+    *,
+    doses: Sequence[str] | None = None,
+    dose_labels: Mapping[str, str] | None = None,
+    view_labels: Mapping[str, str] | None = None,
+    dose_units: Mapping[str, str] | str | None = None,
+    overlay_views: Mapping[str, Sequence[str]] | Sequence[str] | None = None,
+    companion_dose: Mapping[str, str] | None = None,
+    include_slopes: bool = True,
+    include_bandwidth: bool = True,
+    clim: tuple[float, float] | None = None,
+    title: str | None = None,
+    subtitle: str | None = None,
+    figsize: tuple[float, float] | None = None,
+):
+    """Plot continuous Dose × Modality Recruitment heatmaps, sup-t curves, slopes, and 2σ spans.
+
+    Parameters
+    ----------
+    recruitment : Mapping[str, Any]
+        Result dictionary returned by :func:`pysimlr.modality_dose_recruitment`.
+    doses : Sequence[str], optional
+        Ordered subset of ``recruitment["dose_names"]`` to display as columns.
+    dose_labels, view_labels : Mapping[str, str], optional
+        Display labels for dose columns and view rows.
+    dose_units : Mapping[str, str] or str, optional
+        Optional unit suffix (e.g. ``"events"``) appended to onset badges.
+    overlay_views : Mapping[str, Sequence[str]] or Sequence[str], optional
+        Views overlaid in Row B for each dose column (defaults to up to two
+        views ranked by earliest pointwise onset, then peak displacement).
+    companion_dose : Mapping[str, str], optional
+        Optional ``{dose_col: reference_dose}`` mapping overlaying the primary
+        view of ``reference_dose`` onto ``dose_col`` in Row B for direct
+        co-exposure contrast.
+    include_slopes : bool, default True
+        Include local derivative panel ``d mu / d x`` in the bottom row.
+    include_bandwidth : bool, default True
+        Include adaptive Gaussian full-span ``2 * sigma(x_0)`` transparency
+        panel in the bottom row.
+    clim : tuple[float, float], optional
+        Symmetric colour limits ``(vmin, vmax)`` for Row A heatmaps.
+    title, subtitle : str, optional
+        Figure header text and one-line reading guide.
+    figsize : tuple[float, float], optional
+        Explicit figure size in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    if not isinstance(recruitment, Mapping) or recruitment.get("kind") != "modality_dose_recruitment":
+        raise ValueError(
+            "recruitment must be a result dict from pysimlr.modality_dose_recruitment "
+            "(expected kind='modality_dose_recruitment')."
+        )
+
+    curves_all = recruitment["curves"]
+    view_list = list(recruitment["view_names"])
+    dose_list = list(doses) if doses is not None else list(recruitment["dose_names"])
+    if len(dose_list) == 0:
+        raise ValueError("at least one dose column is required")
+    for dn in dose_list:
+        if dn not in curves_all:
+            raise ValueError(f"dose {dn!r} not in recruitment['curves']; available: {list(curves_all)}")
+
+    log_tf = bool(recruitment.get("log_transform", True))
+    ci_pct = round(100.0 * float(recruitment.get("ci_level", 0.95)))
+    d_lbls = dict(dose_labels or {})
+    v_lbls = dict(view_labels or {})
+    comp_map = dict(companion_dose or {})
+
+    view_color_map: dict[str, str] = {}
+    color_slot = 0
+    for vn in view_list:
+        low_vn = vn.lower()
+        if "consensus" in low_vn:
+            view_color_map[vn] = _INK
+        else:
+            view_color_map[vn] = _view_color(color_slot)
+            color_slot += 1
+
+    if clim is not None:
+        vmin_h, vmax_h = float(clim[0]), float(clim[1])
+    else:
+        abs_peaks = [
+            abs(float(val))
+            for dn in dose_list
+            for vn in view_list
+            if curves_all[dn][vn].get("valid")
+            for val in np.asarray(curves_all[dn][vn]["delta"], dtype=float)
+            if np.isfinite(val)
+        ]
+        vmax_auto = max(0.50, round(float(np.percentile(abs_peaks, 96.0)) + 0.05, 2)) if abs_peaks else 0.65
+        vmin_h, vmax_h = -vmax_auto, vmax_auto
+
+    has_bottom = bool(include_slopes or include_bandwidth)
+    n_cols = len(dose_list)
+    grid_cols = max(2, n_cols) if (include_slopes and include_bandwidth and n_cols == 1) else n_cols
+    n_rows = 3 if has_bottom else 2
+    height_ratios = [1.10, 1.25, 0.90] if has_bottom else [1.10, 1.25]
+
+    default_w = max(8.2, 4.55 * n_cols + 0.4) if not (n_cols == 1 and grid_cols == 2) else 9.6
+    default_h = (12.6 if has_bottom else 8.8) + max(0.0, 0.14 * (len(view_list) - 6))
+    fig = plt.figure(figsize=figsize or (default_w, default_h), facecolor=_SURFACE)
+    gs = fig.add_gridspec(
+        n_rows,
+        grid_cols,
+        height_ratios=height_ratios,
+        hspace=0.42,
+        wspace=0.28,
+    )
+
+    cmap_heat = _cmap("div")
+    cmap_heat.set_bad(_NEUTRAL)
+
+    def _unit_for(dn: str) -> str:
+        if isinstance(dose_units, Mapping):
+            return str(dose_units.get(dn, ""))
+        if isinstance(dose_units, str):
+            return dose_units
+        return ""
+
+    def _select_overlays(dn: str) -> list[str]:
+        if isinstance(overlay_views, Mapping):
+            cand = list(overlay_views.get(dn, ()))
+        elif overlay_views is not None:
+            cand = list(overlay_views)
+        else:
+            cand = []
+        cand = [v for v in cand if v in curves_all[dn] and curves_all[dn][v].get("valid")]
+        if cand:
+            return cand
+        valid_vs = [v for v in view_list if curves_all[dn][v].get("valid")]
+        valid_vs.sort(
+            key=lambda v: (
+                0 if np.isfinite(curves_all[dn][v]["onset_pointwise"]) else 1,
+                curves_all[dn][v]["onset_pointwise"]
+                if np.isfinite(curves_all[dn][v]["onset_pointwise"])
+                else float("inf"),
+                -curves_all[dn][v]["peak_delta"],
+            )
+        )
+        return valid_vs[:2]
+
+    im_ref = None
+    line_styles = ("-", "--", ":")
+
+    for col_i, dn in enumerate(dose_list):
+        col_slice = slice(None) if (n_cols == 1 and grid_cols == 2) else col_i
+        ax_a = fig.add_subplot(gs[0, col_slice])
+        ax_a.set_facecolor(_NEUTRAL)
+        reg_dict = curves_all[dn]
+        valid_entries = [v for v in reg_dict.values() if v.get("valid")]
+        grid_x = (
+            np.asarray(valid_entries[0]["grid"], dtype=float)
+            if valid_entries
+            else np.asarray(next(iter(reg_dict.values()))["grid"], dtype=float)
+        )
+        min_g, max_g = float(grid_x[0]), float(grid_x[-1])
+
+        heat_mat = np.full((len(view_list), grid_x.size), np.nan, dtype=float)
+        for r_i, vn in enumerate(view_list):
+            m_res = reg_dict[vn]
+            if m_res.get("valid"):
+                heat_mat[r_i] = np.asarray(m_res["delta"], dtype=float)
+
+        extent = [min_g, max_g, len(view_list) - 0.5, -0.5]
+        im_ref = ax_a.imshow(
+            np.ma.masked_invalid(heat_mat),
+            aspect="auto",
+            cmap=cmap_heat,
+            vmin=vmin_h,
+            vmax=vmax_h,
+            extent=extent,
+            interpolation="nearest",
+        )
+
+        dx_step = float(grid_x[1] - grid_x[0]) if grid_x.size > 1 else 0.1
+        for r_i, vn in enumerate(view_list):
+            m_res = reg_dict[vn]
+            if not m_res.get("valid"):
+                ax_a.axhspan(
+                    r_i - 0.48,
+                    r_i + 0.48,
+                    facecolor=_NEUTRAL,
+                    hatch="///",
+                    edgecolor=_AXIS,
+                    linewidth=0.4,
+                )
+                continue
+            sup = np.asarray(m_res["in_support"], dtype=bool)
+            if not np.all(sup):
+                false_idx = np.where(~sup)[0]
+                if false_idx.size > 0:
+                    splits = np.split(false_idx, np.where(np.diff(false_idx) > 1)[0] + 1)
+                    for blk in splits:
+                        x0_b = float(grid_x[blk[0]]) - 0.5 * dx_step
+                        x1_b = float(grid_x[blk[-1]]) + 0.5 * dx_step
+                        ax_a.fill_between(
+                            [x0_b, x1_b],
+                            r_i - 0.48,
+                            r_i + 0.48,
+                            facecolor=_NEUTRAL,
+                            hatch="///",
+                            edgecolor=_AXIS,
+                            linewidth=0.0,
+                        )
+            g_pw = float(m_res.get("onset_pointwise_grid", float("nan")))
+            g_sim = float(m_res.get("onset_simultaneous_grid", float("nan")))
+            if np.isfinite(g_pw):
+                ax_a.plot(
+                    g_pw,
+                    r_i,
+                    marker="o",
+                    markersize=5.2,
+                    color=_SURFACE,
+                    markeredgecolor=_INK,
+                    markeredgewidth=1.1,
+                    zorder=5,
+                )
+            if np.isfinite(g_sim):
+                ax_a.plot(
+                    g_sim,
+                    r_i,
+                    marker="*",
+                    markersize=8.8,
+                    color=_WARN,
+                    markeredgecolor=_INK,
+                    markeredgewidth=0.9,
+                    zorder=6,
+                )
+
+        ax_a.set_yticks(np.arange(len(view_list)))
+        if col_i == 0:
+            ax_a.set_yticklabels([v_lbls.get(v, v) for v in view_list], fontsize=8.4, weight="semibold", color=_INK)
+        else:
+            ax_a.set_yticklabels([])
+
+        if log_tf:
+            _format_log10_ticks(ax_a, min_g, max_g)
+        else:
+            ax_a.set_xlim(min_g, max_g)
+        disp_d = d_lbls.get(dn, dn)
+        ax_a.set_title(f"A{col_i + 1}. {disp_d}", fontsize=9.4, weight="semibold", color=_INK, loc="left", pad=6)
+        for sp in ("top", "right"):
+            ax_a.spines[sp].set_visible(False)
+
+        # ---------------- ROW B: Local Linear Curves + Bands + 2-sigma Span ----------------
+        ax_b = fig.add_subplot(gs[1, col_slice])
+        ax_b.set_facecolor(_SURFACE)
+        ax_b.axhline(0.0, color=_MUTED, lw=1.0, ls=":")
+
+        chosen_vs = _select_overlays(dn)
+        comp_dn = comp_map.get(dn)
+        unit_str = _unit_for(dn)
+
+        if comp_dn is not None and comp_dn in curves_all and chosen_vs:
+            prim_vn = chosen_vs[0]
+            ref_res = curves_all[comp_dn].get(prim_vn, {})
+            cur_res = reg_dict[prim_vn]
+            if ref_res.get("valid") and cur_res.get("valid"):
+                gx_ref = np.asarray(ref_res["grid"], dtype=float)
+                gx_cur = np.asarray(cur_res["grid"], dtype=float)
+                c_ref = _CRITICAL
+                c_cur = VIEW_COLORS[2]
+                ax_b.fill_between(
+                    gx_ref,
+                    np.asarray(ref_res["sim_lo"], dtype=float),
+                    np.asarray(ref_res["sim_hi"], dtype=float),
+                    color=c_ref,
+                    alpha=0.11,
+                )
+                ax_b.fill_between(
+                    gx_ref,
+                    np.asarray(ref_res["pw_lo"], dtype=float),
+                    np.asarray(ref_res["pw_hi"], dtype=float),
+                    color=c_ref,
+                    alpha=0.22,
+                )
+                ax_b.plot(
+                    gx_ref,
+                    np.asarray(ref_res["delta"], dtype=float),
+                    color=c_ref,
+                    lw=2.2,
+                    label=d_lbls.get(comp_dn, comp_dn),
+                )
+                ax_b.fill_between(
+                    gx_cur,
+                    np.asarray(cur_res["pw_lo"], dtype=float),
+                    np.asarray(cur_res["pw_hi"], dtype=float),
+                    color=c_cur,
+                    alpha=0.18,
+                )
+                ax_b.plot(
+                    gx_cur,
+                    np.asarray(cur_res["delta"], dtype=float),
+                    color=c_cur,
+                    lw=2.0,
+                    ls="--",
+                    label=disp_d,
+                )
+                prim_res = ref_res
+                min_gb = min(float(gx_ref[0]), float(gx_cur[0]))
+                max_gb = max(float(gx_ref[-1]), float(gx_cur[-1]))
+            else:
+                prim_res = cur_res
+                min_gb, max_gb = min_g, max_g
+        elif chosen_vs:
+            prim_vn = chosen_vs[0]
+            prim_res = reg_dict[prim_vn]
+            prim_col = view_color_map[prim_vn]
+            gx = np.asarray(prim_res["grid"], dtype=float)
+            sx = np.asarray(prim_res["scatter_x"], dtype=float)
+            sy = np.asarray(prim_res["scatter_y"], dtype=float)
+            if sx.size > 0:
+                ax_b.scatter(sx, sy, s=9, alpha=0.16, color=_MUTED, edgecolors="none", zorder=1)
+            ax_b.fill_between(
+                gx,
+                np.asarray(prim_res["sim_lo"], dtype=float),
+                np.asarray(prim_res["sim_hi"], dtype=float),
+                color=prim_col,
+                alpha=0.11,
+                label=f"Sim {ci_pct}% sup-t",
+                zorder=2,
+            )
+            ax_b.fill_between(
+                gx,
+                np.asarray(prim_res["pw_lo"], dtype=float),
+                np.asarray(prim_res["pw_hi"], dtype=float),
+                color=prim_col,
+                alpha=0.22,
+                label=f"Pointwise {ci_pct}%",
+                zorder=3,
+            )
+            for v_idx, vn in enumerate(chosen_vs[:3]):
+                mr = reg_dict[vn]
+                ls_v = line_styles[v_idx % len(line_styles)]
+                ax_b.plot(
+                    np.asarray(mr["grid"], dtype=float),
+                    np.asarray(mr["delta"], dtype=float),
+                    color=view_color_map[vn],
+                    ls=ls_v,
+                    lw=2.2 if v_idx == 0 else 1.7,
+                    label=f"{v_lbls.get(vn, vn)} (n={mr['n_obs']})",
+                    zorder=5,
+                )
+            min_gb, max_gb = min_g, max_g
+        else:
+            prim_res = None
+            min_gb, max_gb = min_g, max_g
+
+        all_y_vals: list[float] = []
+        if prim_res is not None and prim_res.get("valid"):
+            for k_arr in ("sim_lo", "sim_hi", "pw_lo", "pw_hi", "delta"):
+                arr_v = np.asarray(prim_res[k_arr], dtype=float)
+                all_y_vals.extend(float(x) for x in arr_v[np.isfinite(arr_v)])
+        y_hi = max(1.15, (max(all_y_vals) + 0.25) if all_y_vals else 1.15)
+        y_lo = min(-1.12, (min(all_y_vals) - 0.28) if all_y_vals else -1.12)
+
+        if prim_res is not None and prim_res.get("valid"):
+            g_pw = float(prim_res.get("onset_pointwise_grid", float("nan")))
+            g_sim = float(prim_res.get("onset_simultaneous_grid", float("nan")))
+            if np.isfinite(g_pw):
+                ax_b.axvline(g_pw, color=VIEW_COLORS[0], lw=1.2, ls="--", zorder=4)
+            if np.isfinite(g_sim):
+                ax_b.axvline(g_sim, color=_SERIOUS, lw=1.5, ls="-.", zorder=4)
+
+            sup_idx = np.where(np.asarray(prim_res["in_support"], dtype=bool))[0]
+            if sup_idx.size > 0:
+                mid_i = int(sup_idx[sup_idx.size // 2])
+                sig_mid = float(np.asarray(prim_res["sigma"], dtype=float)[mid_i])
+                neff_mid = float(np.asarray(prim_res["neff"], dtype=float)[mid_i])
+                x_bar_left = min_gb + 0.05 * (max_gb - min_gb)
+                x_bar_right = min(x_bar_left + 2.0 * sig_mid, min_gb + 0.38 * (max_gb - min_gb))
+                y_span = y_hi - y_lo
+                y_bar = y_lo + 0.095 * y_span
+                tick_h = 0.022 * y_span
+                ax_b.plot([x_bar_left, x_bar_right], [y_bar, y_bar], color=_INK2, lw=2.0, zorder=6)
+                ax_b.plot([x_bar_left, x_bar_left], [y_bar - tick_h, y_bar + tick_h], color=_INK2, lw=1.5, zorder=6)
+                ax_b.plot([x_bar_right, x_bar_right], [y_bar - tick_h, y_bar + tick_h], color=_INK2, lw=1.5, zorder=6)
+                ax_b.text(
+                    0.5 * (x_bar_left + x_bar_right),
+                    y_bar + 1.35 * tick_h,
+                    "2σ span",
+                    ha="center",
+                    va="bottom",
+                    fontsize=6.8,
+                    color=_INK2,
+                    weight="semibold",
+                )
+
+                domain_unit = "dec" if log_tf else "units"
+                badge_lines = [
+                    f"PW {ci_pct}% Onset: {_format_dose_value(float(prim_res['onset_pointwise']), unit_str)}",
+                    f"Sim sup-t Onset: {_format_dose_value(float(prim_res['onset_simultaneous']), unit_str)}",
+                    f"Window 2σ={2.0 * sig_mid:.2f} {domain_unit} (N_eff={neff_mid:.0f})",
+                ]
+                ax_b.text(
+                    0.03,
+                    0.96,
+                    "\n".join(badge_lines),
+                    transform=ax_b.transAxes,
+                    va="top",
+                    ha="left",
+                    fontsize=6.9,
+                    color=_INK,
+                    bbox={"boxstyle": "round,pad=0.24", "facecolor": _SURFACE, "edgecolor": _AXIS, "alpha": 0.92},
+                    zorder=7,
+                )
+
+        if log_tf:
+            _format_log10_ticks(ax_b, min_gb, max_gb)
+            ax_b.set_xlabel("log₁₀(Dose + 1)", fontsize=8.3, color=_INK2)
+        else:
+            ax_b.set_xlim(min_gb, max_gb)
+            ax_b.set_xlabel("Dose", fontsize=8.3, color=_INK2)
+
+        ax_b.set_ylim(y_lo, y_hi)
+        if col_i == 0:
+            ax_b.set_ylabel("Δ Score vs Baseline Anchor", fontsize=8.6, color=_INK2)
+        ax_b.set_title(f"B{col_i + 1}. Curves & Bandwidth ({disp_d})", fontsize=9.2, weight="semibold", color=_INK, loc="left", pad=6)
+        handles_b, _ = ax_b.get_legend_handles_labels()
+        if handles_b:
+            ax_b.legend(
+                loc="lower right",
+                fontsize=6.7,
+                frameon=True,
+                facecolor=_SURFACE,
+                edgecolor=_AXIS,
+                framealpha=0.94,
+            )
+        _clean(ax_b, grid="both")
+
+    if im_ref is not None:
+        cbar_top = 0.695 if has_bottom else 0.560
+        cbar_h = 0.205 if has_bottom else 0.330
+        cbar_ax = fig.add_axes([0.924, cbar_top, 0.011, cbar_h])
+        cb = fig.colorbar(im_ref, cax=cbar_ax)
+        cb.outline.set_visible(False)
+        cb.set_label("Local Δ Score vs Baseline Anchor", fontsize=8.2, color=_INK2)
+        cb.ax.tick_params(labelsize=7.5, length=0, labelcolor=_INK2)
+
+    if has_bottom:
+        if include_slopes and include_bandwidth:
+            split_c = max(1, grid_cols // 2)
+            ax_c1 = fig.add_subplot(gs[2, :split_c])
+            ax_c2 = fig.add_subplot(gs[2, split_c:])
+        elif include_slopes:
+            ax_c1 = fig.add_subplot(gs[2, :])
+            ax_c2 = None
+        else:
+            ax_c1 = None
+            ax_c2 = fig.add_subplot(gs[2, :])
+
+        if ax_c1 is not None:
+            ax_c1.axhline(0.0, color=_MUTED, lw=1.0, ls=":")
+            x_mins_c1, x_maxs_c1 = [], []
+            for d_idx, dn in enumerate(dose_list):
+                ov = _select_overlays(dn)
+                if not ov:
+                    continue
+                vn = ov[0]
+                cr = curves_all[dn][vn]
+                gx = np.asarray(cr["grid"], dtype=float)
+                slp = np.asarray(cr["slope"], dtype=float)
+                x_mins_c1.append(float(gx[0]))
+                x_maxs_c1.append(float(gx[-1]))
+                ax_c1.plot(
+                    gx,
+                    slp,
+                    color=_view_color(d_idx),
+                    ls=line_styles[d_idx % len(line_styles)],
+                    lw=2.1,
+                    label=f"{d_lbls.get(dn, dn)} → {v_lbls.get(vn, vn)}",
+                )
+            if x_mins_c1:
+                c1_lo, c1_hi = min(x_mins_c1), max(x_maxs_c1)
+                if log_tf:
+                    _format_log10_ticks(ax_c1, c1_lo, c1_hi)
+                else:
+                    ax_c1.set_xlim(c1_lo, c1_hi)
+            ax_c1.set_xlabel("log₁₀(Dose + 1)" if log_tf else "Dose", fontsize=8.5, color=_INK2)
+            ax_c1.set_ylabel("Local Slope ∂μ / ∂x", fontsize=8.5, color=_INK2)
+            ax_c1.set_title("C1. Local Accumulation Rate Across Dose Domain", fontsize=9.4, weight="semibold", color=_INK, loc="left", pad=6)
+            h1, _ = ax_c1.get_legend_handles_labels()
+            if h1:
+                ax_c1.legend(loc="upper right", fontsize=7.2, frameon=True, facecolor=_SURFACE, edgecolor=_AXIS)
+            _clean(ax_c1, grid="both")
+
+        if ax_c2 is not None:
+            x_mins_c2, x_maxs_c2 = [], []
+            plotted_bw = 0
+            for dn in dose_list:
+                for vn in view_list:
+                    cr = curves_all[dn][vn]
+                    if not cr.get("valid"):
+                        continue
+                    if plotted_bw >= 4:
+                        break
+                    gx = np.asarray(cr["grid"], dtype=float)
+                    span_2s = 2.0 * np.asarray(cr["sigma"], dtype=float)
+                    med_ne = float(cr["median_neff"])
+                    x_mins_c2.append(float(gx[0]))
+                    x_maxs_c2.append(float(gx[-1]))
+                    ax_c2.plot(
+                        gx,
+                        span_2s,
+                        color=_view_color(plotted_bw),
+                        ls=line_styles[plotted_bw % len(line_styles)],
+                        lw=2.0,
+                        label=f"{d_lbls.get(dn, dn)} · {v_lbls.get(vn, vn)} [med N_eff={med_ne:.0f}]",
+                    )
+                    plotted_bw += 1
+                if plotted_bw >= 4:
+                    break
+            if x_mins_c2:
+                c2_lo, c2_hi = min(x_mins_c2), max(x_maxs_c2)
+                if log_tf:
+                    _format_log10_ticks(ax_c2, c2_lo, c2_hi)
+                else:
+                    ax_c2.set_xlim(c2_lo, c2_hi)
+            ax_c2.set_xlabel("log₁₀(Dose + 1)" if log_tf else "Dose", fontsize=8.5, color=_INK2)
+            ax_c2.set_ylabel("Full Kernel Span 2·σ(x₀)", fontsize=8.5, color=_INK2)
+            ax_c2.set_title(
+                f"C2. Adaptive Gaussian Span Required for Target N_eff ≈ {recruitment['target_neff']:.0f}",
+                fontsize=9.4,
+                weight="semibold",
+                color=_INK,
+                loc="left",
+                pad=6,
+            )
+            h2, _ = ax_c2.get_legend_handles_labels()
+            if h2:
+                ax_c2.legend(loc="upper left", fontsize=7.2, frameon=True, facecolor=_SURFACE, edgecolor=_AXIS)
+            _clean(ax_c2, grid="both")
+
+    footer_handles = [
+        Line2D([0], [0], marker="o", color="w", label=f"Row A Circle: Pointwise {ci_pct}% LB > 0 Onset", markerfacecolor=_SURFACE, markeredgecolor=_INK, markersize=6.2, markeredgewidth=1.1),
+        Line2D([0], [0], marker="*", color="w", label=f"Row A Star: Simultaneous {ci_pct}% sup-t LB > 0 Onset", markerfacecolor=_WARN, markeredgecolor=_INK, markersize=9.5),
+        Patch(facecolor=_NEUTRAL, edgecolor=_AXIS, hatch="///", label="Row A Hatched: Outside Observed Support (Zero Extrapolation)"),
+        Line2D([0], [0], color=VIEW_COLORS[0], lw=1.3, ls="--", label=f"Row B Dashed: Pointwise {ci_pct}% Onset"),
+        Line2D([0], [0], color=_SERIOUS, lw=1.5, ls="-.", label=f"Row B Dash-Dot: Simultaneous sup-t {ci_pct}% Onset"),
+    ]
+    fig.legend(
+        handles=footer_handles,
+        loc="lower center",
+        ncol=3,
+        fontsize=7.8,
+        frameon=True,
+        facecolor=_SURFACE,
+        edgecolor=_AXIS,
+        bbox_to_anchor=(0.5, 0.006),
+    )
+
+    hdr_title = title or "Continuous Adaptive-N_eff Dose-Response & Stage-Dependent Modality Recruitment"
+    fig.suptitle(hdr_title, fontsize=12.2, weight="semibold", color=_INK, y=0.986)
+    if subtitle:
+        fig.text(0.5, 0.958, subtitle, ha="center", va="top", fontsize=9.2, color=_INK2)
+    top_adj = 0.916 if subtitle else 0.930
+    fig.subplots_adjust(left=0.115, right=0.908, top=top_adj, bottom=0.095 if has_bottom else 0.125)
+    fig._pysimlr_values = {
+        "doses": dose_list,
+        "views": view_list,
+        "summary_rows": recruitment.get("summary_rows", []),
+    }
+    return fig
 
 

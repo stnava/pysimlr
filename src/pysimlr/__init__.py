@@ -351,6 +351,8 @@ __all__ = [
     'pooled_correlation_fisher_z',
     'stouffer_z',
     'icc_3',
+    'adaptive_local_linear_curve',
+    'modality_dose_recruitment',
     'benchmarks',
     'stats',
     'plot_path_model',
@@ -359,6 +361,7 @@ __all__ = [
     'plot_edge_null',
     'plot_edge_features',
     'plot_edge_brain_map',
+    'plot_dose_recruitment',
 ]
 
 #: Attributes served on first access instead of at import time, because their
@@ -398,6 +401,7 @@ _LAZY_ATTRS = {
     'plot_edge_null': 'plotting',
     'plot_edge_features': 'plotting',
     'plot_edge_brain_map': 'plotting',
+    'plot_dose_recruitment': 'plotting',
     'plot_feature_groups': 'plotting',
     'plot_variance_explained': 'plotting',
     'plot_fit_summary': 'plotting',
@@ -446,6 +450,8 @@ _LAZY_ATTRS = {
     'pooled_correlation_fisher_z': 'stats',
     'stouffer_z': 'stats',
     'icc_3': 'stats',
+    'adaptive_local_linear_curve': 'stats',
+    'modality_dose_recruitment': 'stats',
 }
 
 #: Submodules exposed as attributes but not imported eagerly.
