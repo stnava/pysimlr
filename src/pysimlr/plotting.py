@@ -3906,8 +3906,19 @@ def plot_dose_recruitment(
             _format_log10_ticks(ax_a, min_g, max_g)
         else:
             ax_a.set_xlim(min_g, max_g)
+        import textwrap
+
         disp_d = d_lbls.get(dn, dn)
-        ax_a.set_title(f"A{col_i + 1}. {disp_d}", fontsize=9.4, weight="semibold", color=_INK, loc="left", pad=6)
+        wrap_w = 34 if n_cols >= 4 else (44 if n_cols == 3 else 58)
+        title_a = textwrap.fill(f"A{col_i + 1}. {disp_d}", width=wrap_w)
+        ax_a.set_title(
+            title_a,
+            fontsize=8.7 if n_cols >= 4 else 9.4,
+            weight="semibold",
+            color=_INK,
+            loc="left",
+            pad=6,
+        )
         for sp in ("top", "right"):
             ax_a.spines[sp].set_visible(False)
 
@@ -4084,7 +4095,14 @@ def plot_dose_recruitment(
         ax_b.set_ylim(y_lo, y_hi)
         if col_i == 0:
             ax_b.set_ylabel("Δ Score vs Baseline Anchor", fontsize=8.6, color=_INK2)
-        ax_b.set_title(f"B{col_i + 1}. Curves & Bandwidth ({disp_d})", fontsize=9.2, weight="semibold", color=_INK, loc="left", pad=6)
+        ax_b.set_title(
+            f"B{col_i + 1}. Local Linear Curves & {ci_pct}% Bands",
+            fontsize=8.7 if n_cols >= 4 else 9.2,
+            weight="semibold",
+            color=_INK,
+            loc="left",
+            pad=6,
+        )
         handles_b, _ = ax_b.get_legend_handles_labels()
         if handles_b:
             ax_b.legend(
