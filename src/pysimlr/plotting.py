@@ -19,9 +19,10 @@ Conventions (every function here follows them, and new plots should too):
   drawn inside ``theme()``; wrap your own figures in it to match.
 """
 import functools
+import inspect
 from collections.abc import Mapping
 from contextlib import contextmanager
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence, Union
 
 import numpy as np
 
@@ -1462,7 +1463,9 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
                    feature_names=None, view_names=None, region_names=None, title: Optional[str] = None,
                    subtitle: Optional[str] = None, notes: Optional[Dict[str, str]] = None, meshes=None,
                    density: str = "41k", surface: str = "inflated", tiers: Optional[Dict[str, Any]] = None,
-                   atlas: str = "dkt", scale: str = "minmax", clim=None, **scene_kwargs):
+                   atlas: str = "dkt", scale: str = "minmax", clim=None,
+                   max_k: Optional[int] = None, active: Union[bool, Mapping[str, bool]] = True,
+                   null_bound: Any = None, ranked_twin: bool = False, **scene_kwargs):
     """Feature maps of one component painted on the brain, via antsxviz.
 
     ``atlas`` chooses the anatomy: ``"dkt"`` (default) the fsaverage cortical surface described
@@ -1500,8 +1503,10 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
     if atlas != "dkt":
         if tiers is not None:
             raise ValueError("tiers= is drawn on the DKT surface only; use atlas='dkt'.")
-        if atlas not in ("hoa", "jhu", "tracts", "tract_sheets", "yeo"):
-            raise ValueError(f"atlas must be 'dkt', 'hoa', 'jhu', 'tracts', 'tract_sheets' or 'yeo'; got {atlas!r}")
+        if atlas not in ("hoa", "jhu", "tracts", "tract_sheets", "yeo", "deep", "systems_v2"):
+            raise ValueError(
+                f"atlas must be 'dkt', 'hoa', 'jhu', 'tracts', 'tract_sheets', 'yeo', 'deep', or 'systems_v2'; got {atlas!r}"
+            )
         enc = feature_map_values(res, maps, inf, component, view, kinds, feature_names, view_names)
         rename = dict(region_names or {})
         maps_ = {e["label"]: {rename.get(n, n): v for n, v in zip(e["names"], e["values"])} for e in enc.values()}
@@ -1510,11 +1515,81 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
                       view_color=view, subtitle=subtitle,
                       title=title or f"Component {component + 1} of {vname}: feature maps", **scene_kwargs)
         if atlas == "yeo":
-            common.pop("view_color")
-            return av.yeo_surface_figure(maps_, **common)
+            common.pop("view_color", None)
+            return av.yeo_surface_figure(maps_, max_k=max_k, active=active, null_bound=null_bound,
+                                         ranked_twin=ranked_twin, **common)
         if atlas in ("hoa", "jhu"):
-            return av.region_scene_figure(maps_, atlas, **common)
-        return av.tract_scene_figure(maps_, style="sheets" if atlas == "tract_sheets" else "tubes", **common)
+            return av.region_scene_figure(maps_, atlas, max_k=max_k, active=active, null_bound=null_bound,
+                                          ranked_twin=ranked_twin, **common)
+        if atlas in ("tracts", "tract_sheets"):
+            return av.tract_scene_figure(maps_, style="sheets" if atlas == "tract_sheets" else "tubes",
+                                         max_k=max_k, active=active, null_bound=null_bound,
+                                         ranked_twin=ranked_twin, **common)
+        if atlas == "deep":
+            renderer_override = scene_kwargs.pop("renderer", None)
+            use_multimodal = (renderer_override == "multimodal_deep_figure" or
+                              (renderer_override is None and (len(maps_) > 1 or scene_kwargs.pop("multimodal", False))))
+            deep_fn = (
+                getattr(av, "multimodal_deep_figure", None) or
+                getattr(getattr(av, "deep", None), "multimodal_deep_figure", None)
+                if use_multimodal else
+                getattr(av, "deep_brain_figure", None) or
+                getattr(getattr(av, "deep", None), "deep_brain_figure", None)
+            )
+            if use_multimodal:
+                vc = common.pop("view_color", view)
+                units_dict = common.pop("units", {e["label"]: e["units"] for e in enc.values()})
+                t = common.pop("title", title)
+                sub = common.pop("subtitle", subtitle)
+                s = common.pop("scale", scale)
+                c = common.pop("clim", clim)
+                return deep_fn(
+                    maps_,
+                    active_modalities=active,
+                    null_bounds=null_bound,
+                    max_k=max_k if max_k is not None else 5,
+                    ranked_twin=ranked_twin,
+                    scale=s,
+                    clim=c,
+                    view_colors=[vc] * len(maps_),
+                    units=units_dict,
+                    title=t,
+                    subtitle=sub,
+                    **common,
+                )
+            else:
+                first_k, single_map = next(iter(maps_.items()))
+                is_act = active.get(first_k, True) if isinstance(active, Mapping) else active
+                nb = null_bound.get(first_k) if isinstance(null_bound, Mapping) else null_bound
+                u_map = common.pop("units", {})
+                u_str = u_map.get(first_k, "value") if isinstance(u_map, Mapping) else str(u_map or "value")
+                return deep_fn(
+                    single_map,
+                    max_k=max_k,
+                    active=is_act,
+                    null_bound=nb,
+                    ranked_twin=ranked_twin,
+                    units=u_str,
+                    **common,
+                )
+        if atlas == "systems_v2":
+            sys_fn = (
+                getattr(av, "systems_brain_figure", None) or
+                getattr(getattr(av, "deep", None), "systems_brain_figure", None)
+            )
+            first_k, single_map = next(iter(maps_.items()))
+            is_act = active.get(first_k, True) if isinstance(active, Mapping) else active
+            nb = null_bound.get(first_k) if isinstance(null_bound, Mapping) else null_bound
+            u_map = common.pop("units", {})
+            u_str = u_map.get(first_k, "effect") if isinstance(u_map, Mapping) else str(u_map or "effect")
+            return sys_fn(
+                single_map,
+                max_k=max_k,
+                active=is_act,
+                null_bound=nb,
+                units=u_str,
+                **common,
+            )
     if tiers is not None:
         rows, dropped = _tier_rows(tiers, view, region_names, av)
         if meshes is None:
@@ -1543,8 +1618,18 @@ def plot_brain_map(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, ma
     if dropped:
         sub += (f" Not on cortex ({len(dropped)}): " + ", ".join(map(str, dropped[:6]))
                 + (" ..." if len(dropped) > 6 else "") + ".")
+    extra_surface_kwargs = {}
+    sig_sf = inspect.signature(av.surface_figure).parameters
+    if "max_k" in sig_sf:
+        extra_surface_kwargs["max_k"] = max_k
+    if "active" in sig_sf:
+        extra_surface_kwargs["active"] = active
+    if "null_bound" in sig_sf:
+        extra_surface_kwargs["null_bound"] = null_bound
+    if "ranked_twin" in sig_sf:
+        extra_surface_kwargs["ranked_twin"] = ranked_twin
     return av.surface_figure(rows, meshes, title=title or f"Component {component + 1} of {vname}: feature maps",
-                             subtitle=sub)
+                             subtitle=sub, **extra_surface_kwargs, **scene_kwargs)
 
 
 def plot_connectome(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, maps: Optional[Dict[str, Any]] = None,
@@ -2003,7 +2088,11 @@ def plot_feature_map_comparison(res: Dict[str, Any], maps: Optional[Dict[str, An
 
 @_themed
 def plot_feature_chord(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, components=None,
-                       top_n: int = 6, view_names=None, feature_names=None, figsize=(9.0, 8.4)):
+                       top_n: int = 6, view_names=None, feature_names=None, figsize=(9.0, 8.4),
+                       max_k: Optional[int] = None, active: bool = True, null_bound: Any = None,
+                       target_colors: Optional[Mapping[str, str]] = None, title: Optional[str] = None,
+                       subtitle: Optional[str] = None, adaptive: Optional[bool] = None,
+                       **kwargs):
     """Features to components across all views, as one chord diagram.
 
     Left half: each view's ``top_n`` features (largest |structure| over the
@@ -2015,6 +2104,68 @@ def plot_feature_chord(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None
     stability-selected are drawn. Read it as: which views, and which of their
     features, build each component.
     """
+    use_adaptive = (max_k is not None or adaptive or (not active) or
+                    null_bound is not None or target_colors is not None)
+    if use_adaptive:
+        av = _require_antsxviz()
+        chord_fn = (
+            getattr(av, "contributor_chord_figure", None) or
+            getattr(getattr(av, "contributors", None), "contributor_chord_figure", None)
+        )
+        tab = feature_table(res, inf, view_names, feature_names)
+        k = int(tab.component.max())
+        comps = list(range(1, k + 1)) if components is None else [c + 1 for c in components]
+        M = int(tab.view.max()) + 1
+        vn = _view_names(view_names, M)
+        modality_to_targets: Dict[str, Dict[str, Dict[str, float]]] = {}
+        for m in range(M):
+            vname = vn[m]
+            modality_to_targets[vname] = {}
+            d_m = tab[tab.view == m]
+            if inf is not None:
+                d_m_filt = d_m[d_m.selected | d_m.excludes_zero]
+                if not d_m_filt.empty:
+                    d_m = d_m_filt
+            for c in comps:
+                target_name = f"C{c}"
+                dc = d_m[d_m.component == c]
+                fmap = {str(row.feature_name): float(row.structure) for _, row in dc.iterrows()}
+                modality_to_targets[vname][target_name] = fmap
+
+        active_pairs = None
+        if isinstance(active, Mapping):
+            active_pairs = {}
+            for m_name in modality_to_targets:
+                for t_name in modality_to_targets[m_name]:
+                    active_pairs[(m_name, t_name)] = active.get((m_name, t_name), active.get(m_name, True))
+        elif active is not None and not active:
+            active_pairs = {(m_name, t_name): False for m_name in modality_to_targets for t_name in modality_to_targets[m_name]}
+
+        null_bounds = None
+        if isinstance(null_bound, Mapping):
+            null_bounds = {}
+            for m_name in modality_to_targets:
+                for t_name in modality_to_targets[m_name]:
+                    nb = null_bound.get((m_name, t_name), null_bound.get(m_name, None))
+                    if nb is not None:
+                        null_bounds[(m_name, t_name)] = nb
+        elif null_bound is not None:
+            null_bounds = {(m_name, t_name): null_bound for m_name in modality_to_targets for t_name in modality_to_targets[m_name]}
+
+        t = title or "Features to components, across views"
+        sub = subtitle or "Ribbon width: adaptive contributor share across modalities and components."
+        fig = chord_fn(
+            modality_to_targets,
+            max_k=max_k if max_k is not None else 5,
+            active_pairs=active_pairs,
+            null_bounds=null_bounds,
+            target_colors=target_colors,
+            title=t,
+            subtitle=sub,
+            figsize=figsize,
+            **kwargs,
+        )
+        return fig
     from matplotlib.patches import Wedge
     tab = feature_table(res, inf, view_names, feature_names)
     k = int(tab.component.max()); comps = list(range(1, k + 1)) if components is None else [c + 1 for c in components]
@@ -3474,12 +3625,103 @@ def plot_edge_features(pm: Dict[str, Any], edge: Any, top_n: int = 15,
     return fig
 
 
+def _derive_edge_active(pm: Dict[str, Any], edge: Any, component: int = 0, alpha: float = 0.05) -> bool:
+    nodes = list(pm.get("nodes", []))
+    if isinstance(edge, tuple):
+        a_raw, b_raw = edge
+        a_name = nodes[a_raw] if isinstance(a_raw, int) and a_raw < len(nodes) else str(a_raw)
+        b_name = nodes[b_raw] if isinstance(b_raw, int) and b_raw < len(nodes) else str(b_raw)
+        edge_str = f"{a_name} - {b_name}"
+    elif isinstance(edge, str):
+        edge_str = edge
+        if " - " in edge_str:
+            a_name, b_name = [s.strip() for s in edge_str.split(" - ", 1)]
+        elif "-" in edge_str:
+            a_name, b_name = [s.strip() for s in edge_str.split("-", 1)]
+        else:
+            a_name, b_name = edge_str, ""
+        a_raw, b_raw = a_name, b_name
+    else:
+        a_name, b_name = str(edge), ""
+        edge_str = str(edge)
+        a_raw, b_raw = a_name, b_name
+
+    # 1. edge_stats dict
+    edge_stats = pm.get("edge_stats")
+    if isinstance(edge_stats, Mapping):
+        stat = (edge_stats.get((a_name, b_name))
+                or edge_stats.get((b_name, a_name))
+                or edge_stats.get((a_raw, b_raw))
+                or edge_stats.get((b_raw, a_raw))
+                or edge_stats.get(edge_str))
+        if stat is not None and isinstance(stat, Mapping):
+            beta = float(stat.get("beta", 0.0))
+            q = stat.get("q")
+            if q is None:
+                q = stat.get("q_bh", stat.get("p_maxt", stat.get("p", stat.get("p_perm"))))
+            if q is not None and np.isfinite(float(q)):
+                return bool(abs(beta) > 0.0 and float(q) < alpha)
+            return bool(abs(beta) > 0.0)
+
+    # 2. edge_components DataFrame
+    ec = pm.get("edge_components")
+    if hasattr(ec, "iterrows") and len(ec) > 0:
+        match = ec[((ec["a"] == a_name) & (ec["b"] == b_name)) | ((ec["a"] == b_name) & (ec["b"] == a_name))]
+        if len(match) == 0:
+            match = ec[((ec["a"] == a_raw) & (ec["b"] == b_raw)) | ((ec["a"] == b_raw) & (ec["b"] == a_raw))]
+        if len(match) > 0:
+            match_c = match[match["component"] == component] if "component" in match.columns else match
+            row = match_c.iloc[0] if len(match_c) > 0 else match.iloc[0]
+            beta = float(row.get("beta", 0.0))
+            q = row.get("q_bh")
+            if q is None or (isinstance(q, float) and np.isnan(q)):
+                q = row.get("q")
+            if q is None or (isinstance(q, float) and np.isnan(q)):
+                q = row.get("p_maxt")
+            if q is None or (isinstance(q, float) and np.isnan(q)):
+                q = row.get("p_perm")
+            if q is None or (isinstance(q, float) and np.isnan(q)):
+                q = row.get("p")
+            if q is not None and np.isfinite(float(q)):
+                return bool(abs(beta) > 0.0 and float(q) < alpha)
+            return bool(abs(beta) > 0.0)
+
+    # 3. edges DataFrame
+    edges_df = pm.get("edges")
+    if hasattr(edges_df, "iterrows") and len(edges_df) > 0:
+        match = edges_df[((edges_df["a"] == a_name) & (edges_df["b"] == b_name)) |
+                         ((edges_df["a"] == b_name) & (edges_df["b"] == a_name))]
+        if len(match) == 0:
+            match = edges_df[((edges_df["a"] == a_raw) & (edges_df["b"] == b_raw)) |
+                             ((edges_df["a"] == b_raw) & (edges_df["b"] == a_raw))]
+        if len(match) > 0:
+            row = match.iloc[0]
+            beta = float(row.get("beta", 1.0))
+            q = row.get("q_bh")
+            if q is None or (isinstance(q, float) and np.isnan(q)):
+                q = row.get("q")
+            if q is None or (isinstance(q, float) and np.isnan(q)):
+                q = row.get("p_maxt")
+            if q is None or (isinstance(q, float) and np.isnan(q)):
+                q = row.get("p_perm")
+            if q is None or (isinstance(q, float) and np.isnan(q)):
+                q = row.get("p")
+            if q is not None and np.isfinite(float(q)):
+                return bool(abs(beta) > 0.0 and float(q) < alpha)
+
+    return True
+
+
 @_themed
 def plot_edge_brain_map(pm: Dict[str, Any], edge: Any, component: int = 0,
                         feature_names=None, region_names=None, title: Optional[str] = None,
                         subtitle: Optional[str] = None, meshes=None, density: str = "41k",
                         surface: str = "inflated", atlas: str = "dkt",
-                        scale: str = "symmetric", clim=None, **scene_kwargs) -> Any:
+                        scale: str = "symmetric", clim=None,
+                        max_k: Optional[int] = None, active: Optional[bool] = None,
+                        null_bound: Any = None, ranked_twin: bool = False,
+                        alpha: float = 0.05,
+                        **scene_kwargs) -> Any:
     """Paint path-model edge feature contributions (structure_a * beta_ab) on the brain.
 
     Connects score-level path model feature contributions to `antsxviz` (the ANTsX
@@ -3564,6 +3806,9 @@ def plot_edge_brain_map(pm: Dict[str, Any], edge: Any, component: int = 0,
     disp_edge = f"{node_a} - {node_b}"
     view_idx = nodes.index(node_a) if node_a in nodes else 0
 
+    if active is None:
+        active = _derive_edge_active(pm, edge, component=component, alpha=alpha)
+
     d_c = d_edge[d_edge.component == component].copy()
     if len(d_c) == 0:
         avail_c = sorted(d_edge["component"].unique())
@@ -3600,8 +3845,10 @@ def plot_edge_brain_map(pm: Dict[str, Any], edge: Any, component: int = 0,
     }
 
     if atlas != "dkt":
-        if atlas not in ("hoa", "jhu", "tracts", "tract_sheets", "yeo"):
-            raise ValueError(f"atlas must be 'dkt', 'hoa', 'jhu', 'tracts', 'tract_sheets' or 'yeo'; got {atlas!r}")
+        if atlas not in ("hoa", "jhu", "tracts", "tract_sheets", "yeo", "deep", "systems_v2", "connectome"):
+            raise ValueError(
+                f"atlas must be 'dkt', 'hoa', 'jhu', 'tracts', 'tract_sheets', 'yeo', 'deep', 'systems_v2', or 'connectome'; got {atlas!r}"
+            )
         rename = dict(region_names or {})
         maps_ = {"contribution": {rename.get(n, n): float(v) for n, v in zip(names, c_vals)}}
         common = dict(units={"contribution": "structure × beta"}, scale=scale, clim=clim,
@@ -3609,11 +3856,61 @@ def plot_edge_brain_map(pm: Dict[str, Any], edge: Any, component: int = 0,
                       title=title or f"Edge {disp_edge} · Component {component + 1}: feature contributions",
                       **scene_kwargs)
         if atlas == "yeo":
-            common.pop("view_color")
-            return av.yeo_surface_figure(maps_, **common)
+            common.pop("view_color", None)
+            return av.yeo_surface_figure(maps_, max_k=max_k, active=active, null_bound=null_bound,
+                                         ranked_twin=ranked_twin, **common)
         if atlas in ("hoa", "jhu"):
-            return av.region_scene_figure(maps_, atlas, **common)
-        return av.tract_scene_figure(maps_, style="sheets" if atlas == "tract_sheets" else "tubes", **common)
+            return av.region_scene_figure(maps_, atlas, max_k=max_k, active=active, null_bound=null_bound,
+                                          ranked_twin=ranked_twin, **common)
+        if atlas in ("tracts", "tract_sheets"):
+            return av.tract_scene_figure(maps_, style="sheets" if atlas == "tract_sheets" else "tubes",
+                                         max_k=max_k, active=active, null_bound=null_bound,
+                                         ranked_twin=ranked_twin, **common)
+        if atlas == "deep":
+            deep_fn = (
+                getattr(av, "deep_brain_figure", None) or
+                getattr(getattr(av, "deep", None), "deep_brain_figure", None)
+            )
+            u_map = common.pop("units", {})
+            u_str = u_map.get("contribution", "structure × beta") if isinstance(u_map, Mapping) else str(u_map or "structure × beta")
+            return deep_fn(
+                maps_["contribution"],
+                max_k=max_k,
+                active=active,
+                null_bound=null_bound,
+                ranked_twin=ranked_twin,
+                units=u_str,
+                **common,
+            )
+        if atlas == "systems_v2":
+            sys_fn = (
+                getattr(av, "systems_brain_figure", None) or
+                getattr(getattr(av, "deep", None), "systems_brain_figure", None)
+            )
+            u_map = common.pop("units", {})
+            u_str = u_map.get("contribution", "structure × beta") if isinstance(u_map, Mapping) else str(u_map or "structure × beta")
+            return sys_fn(
+                maps_["contribution"],
+                max_k=max_k,
+                active=active,
+                null_bound=null_bound,
+                units=u_str,
+                **common,
+            )
+        if atlas == "connectome":
+            conn_fn = (
+                getattr(av, "connectome_figure", None) or
+                getattr(getattr(av, "scene", None), "connectome_figure", None)
+            )
+            common.pop("view_color", None)
+            return conn_fn(
+                maps_["contribution"],
+                max_k=max_k,
+                active=active,
+                null_bound=null_bound,
+                adaptive=True,
+                **common,
+            )
 
     rows, dropped = brain_rows(enc, region_names, view=view_idx)
     if not rows or not next(iter(rows.values()))["values"]:
@@ -3627,9 +3924,19 @@ def plot_edge_brain_map(pm: Dict[str, Any], edge: Any, component: int = 0,
     if dropped:
         sub += (f" Not on cortex ({len(dropped)}): " + ", ".join(map(str, dropped[:4]))
                 + (" ..." if len(dropped) > 4 else "") + ".")
+    extra_surface_kwargs = {}
+    sig_sf = inspect.signature(av.surface_figure).parameters
+    if "max_k" in sig_sf:
+        extra_surface_kwargs["max_k"] = max_k
+    if "active" in sig_sf:
+        extra_surface_kwargs["active"] = active
+    if "null_bound" in sig_sf:
+        extra_surface_kwargs["null_bound"] = null_bound
+    if "ranked_twin" in sig_sf:
+        extra_surface_kwargs["ranked_twin"] = ranked_twin
     return av.surface_figure(rows, meshes,
                              title=title or f"Edge {disp_edge} · Component {component + 1}: feature contributions",
-                             subtitle=sub)
+                             subtitle=sub, **extra_surface_kwargs, **scene_kwargs)
 
 
 # --------------------------------------------------- continuous dose-response recruitment

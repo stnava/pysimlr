@@ -1,16 +1,24 @@
 # Tracking Summary
-current phase: v0.29.1 released (`D49` done: `adaptive_local_linear_curve`, `modality_dose_recruitment`, and `plot_dose_recruitment` multi-column title wrapping polish).
+current phase: v0.30.0 released (`D50` done: guarded adaptive contributor passthrough and `"deep"` / `"systems_v2"` / `"connectome"` atlas routing in `pysimlr.plotting` for `antsxviz>=0.5.0`).
 next WP: docs/plans/2026-11-07_path_model_next_steps.md items 1 (mediation), 6-8.
 blockers: none
 active work: none
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
-last updated: 2026-11-11
+last updated: 2026-11-12
 
 ---
 
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D50 (Guarded adaptive contributor passthrough and stereotactic/systems atlas routing in `pysimlr.plotting`, 2026-11-12)
+status: done (released in v0.30.0)
+- **Items implemented:**
+  - **`plotting.plot_brain_map`, `plotting.plot_edge_brain_map`, `plotting.plot_feature_chord`:** added guarded adaptive contributor passthrough (`max_k`, `active`, `null_bound`, `ranked_twin`) delegating contributor selection to `antsxviz>=0.5.0`, plus signature-introspected kwarg forwarding so legacy/mock `surface_figure` callables without `**kwargs` remain 100% compatible.
+  - **Expanded atlas dispatch:** routed `atlas="deep"` to `antsxviz.deep_brain_figure` (single map) or `antsxviz.multimodal_deep_figure` (multi-map zero-averaging slabs), `atlas="systems_v2"` to `antsxviz.systems_brain_figure`, and `atlas="connectome"` in `plot_edge_brain_map` to `antsxviz.connectome_figure`, with automatic `_derive_edge_active` FWER/p-value derivation from SEM `edge_stats` / `edge_components` / `edges` tables and adaptive `contributor_chord_figure` delegation in `plot_feature_chord`.
+- **New tests (`tests/test_plotting_adaptive.py`):** unit coverage for adaptive kwarg forwarding, mock-signature defense, `"deep"`/`"systems_v2"`/`"connectome"` routing, `_derive_edge_active` auto-derivation, and dual legacy/adaptive `plot_feature_chord` behavior.
+- **Files:** `pyproject.toml`, `src/pysimlr/{__init__.py, plotting.py}`, `tests/test_plotting_adaptive.py`, `docs/tracking.md`.
 
 ## D49 (Adaptive-`N_eff` local linear dose-response & multi-view stage recruitment: `adaptive_local_linear_curve`, `modality_dose_recruitment`, `plot_dose_recruitment`, 2026-11-11)
 status: done (released in v0.29.0 / v0.29.1)
