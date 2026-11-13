@@ -254,6 +254,16 @@ regressing it on X would only return the unstable encoder.
 | `global_partial` | `structure` after regressing out the view's PC1, its row mean, or a covariate you pass (`control=`, settable per view) | you know the view has a global size factor |
 | `component_partial` | Haufe et al.'s forward pattern, corr(X, T)·corr(T)⁻¹ | components are correlated (`mixing_algorithm="avg"`); otherwise it equals `structure` |
 
+**Unobserved rows (`missing_rows="mask"`).** Each map is computed on the rows where the view is observed and its
+other-views target exists; the target at a row is the mean of the standardized scores of the other views observed
+there. A row observed in one view only enters no map; a partially observed row enters with a target from fewer
+(noisier) views. Pass `min_rows` (default 10) to set the smallest usable row count: below it, or for a constant
+feature or latent column, the entries are NaN with a `MissingRowsWarning`, never 0. `feature_maps(..., return_info=True)`
+returns the rows behind each view and feature (`n_eff`, `n_eff_feature`) and the reason for any NaN (`reasons`);
+`loading_inference` reports the same under `inf["maps"][kind]`, plus `oos_coupling_n`. Before v0.31.1 this setting
+returned all-zero maps and `oos_coupling == 0.0`; recompute any such output. `feature_relevance` and
+`component_attribution` still need complete rows and now raise on all-NaN rows.
+
 **Use them with inference.** `loading_inference(..., maps=(...), map_options={"rw_shrinkage": "auto"})`
 refits them with the same subsamples and reports intervals, selection frequency, `rw_shrinkage`,
 and each map's own component stability (`inf["maps"][kind]`).
