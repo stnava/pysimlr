@@ -162,6 +162,31 @@ below -1) and aligns linear SiMLR with deep models which sum view terms unweight
 `acc` and `recon` weight each view by 1/(|E0|·M), where E0 is the view's energy at the start of
 the fit, so their relative view weights depend on the initialization.
 
+### View order and sign alignment (`sign_alignment`, default `"spectral"` since v0.31.0)
+
+The averaging mixings (`mixing_algorithm="avg"` and the default `"newton"`) average the views'
+latent columns after putting them on one sign convention, because a latent is defined only up to a
+sign. `sign_alignment` chooses the rule:
+
+- `"spectral"` (default): each column is flipped by the sign of the leading eigenvector of the
+  `M x M` Gram matrix of the views' columns. It is symmetric in the views, so the consensus does not
+  depend on the order of `data_matrices`. It equals the legacy rule whenever the views already agree
+  in sign.
+- `"greedy"` (legacy, v0.30.0 and earlier): the first view is the reference and each next view is
+  flipped to agree with the running sum. With three or more views whose latents disagree in sign
+  (typical at a PCA start with weakly coupled views) the result depends on view order; measured
+  first-sweep consensus differences up to 3.6 (unit-SD `u`).
+
+For two views both rules give each column the same relative sign (they can differ only by the
+global sign of a column of `u`). The option is on `simlr`, `compute_shared_consensus`, and the
+deep and flow entry points (`lend`, `ned`, `ned_shared_private`, `flow_v`, `flow`), and is recorded
+as `result["sign_alignment"]` for `simlr`. The `svd`, `pca` and `ica` mixings ignore it. The
+leave-one-out agreement scores behind `dynamic_weights` always use the spectral rule. Sign alignment
+does not resolve component swaps or rotations between views when `k > 1`, and training order
+effects that come from the optimizer (nonlinear `ned` fits are chaotic) or from random
+initialization drawn in view order (`random`, `perturbed_pca`, deep weight initialization) remain.
+See `docs/view_order_dependence_report.md`.
+
 ### Prediction does not depend on the batch
 
 After fitting, each model freezes its consensus as an affine map, fitted by least squares

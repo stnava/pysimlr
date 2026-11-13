@@ -32,13 +32,28 @@ K = 2
 # the utility, on cases whose answer is known by construction
 # --------------------------------------------------------------------------
 def test_a_negated_copy_is_flipped_back():
+    # The legacy greedy rule keeps the FIRST view's sign; this pins that convention.
     g = torch.Generator().manual_seed(0)
     a = torch.randn(50, K, generator=g)
-    out = align_column_signs([a, -a])
+    out = align_column_signs([a, -a], method="greedy")
     assert torch.allclose(out[0], a)
     assert torch.allclose(out[1], a), "the negated copy was not flipped back"
     mean = torch.stack(out).mean(0)
     assert torch.allclose(mean, a, atol=1e-6), "aligned inputs must not cancel"
+
+
+def test_a_negated_copy_is_flipped_back_spectral_default():
+    # The default (spectral) rule is symmetric in the views, so it cannot keep "the first view's" sign: the
+    # two views are brought into agreement and the pair's global column sign is fixed by the sum over views.
+    # Order-free: the same two matrices in either order give the same aligned set (up to which is which).
+    g = torch.Generator().manual_seed(0)
+    a = torch.randn(50, K, generator=g)
+    out = align_column_signs([a, -a])                       # default method
+    assert torch.allclose(out[0], out[1]), "the negated copy was not flipped back"
+    mean = torch.stack(out).mean(0)
+    assert torch.allclose(mean.abs(), a.abs(), atol=1e-6), "aligned inputs must not cancel"
+    rev = align_column_signs([-a, a])
+    assert torch.allclose(torch.stack(rev).mean(0), mean, atol=1e-6), "result must not depend on the order"
 
 
 def test_per_column_signs_are_independent():
@@ -47,8 +62,13 @@ def test_per_column_signs_are_independent():
     g = torch.Generator().manual_seed(1)
     a = torch.randn(60, 3, generator=g)
     b = a * torch.tensor([[1.0, -1.0, 1.0]])
-    out = align_column_signs([a, b])
+    out = align_column_signs([a, b], method="greedy")          # legacy: the first view is the reference
     assert torch.allclose(out[1], a, atol=1e-6)
+    # default (spectral): the views are brought into agreement column by column; the pair's global sign is
+    # fixed symmetrically, so the check is agreement of the two aligned views, not agreement with `a`
+    out = align_column_signs([a, b])
+    assert torch.allclose(out[0], out[1], atol=1e-6)
+    assert torch.allclose(out[0].abs(), a.abs())
 
 
 def test_alignment_leaves_agreeing_inputs_untouched():

@@ -579,12 +579,31 @@ def test_every_mai_metric_ranks_a_pure_noise_view_last():
     for metric in MAI_METRICS:
         with _quiet():
             torch.manual_seed(0); np.random.seed(0)
+            # Pinned to the legacy sign rule: this is one realization (seed 0) of a 14-epoch nonlinear NED fit whose
+            # weights stay near uniform (0.325/0.35/0.325), i.e. a chaotic draw. Under the default spectral rule
+            # procrustes_r2_sharp ranks the noise view last in 35 of 40 seeds against 37 of 40 for greedy
+            # (procrustes_r2: 38 against 39), so the draw moved, the metric did not;
+            # `test_every_mai_metric_ranks_a_pure_noise_view_last_over_seeds` checks the default rule across seeds.
             w = np.asarray(ned_simr(views, k=K, iterations=14, dynamic_weights=True,
-                                    mai_metric=metric, verbose=False)["modality_weights"],
+                                    mai_metric=metric, verbose=False, sign_alignment="greedy")["modality_weights"],
                            dtype=float)
         assert w.argmin() == 2, (
             f"mai_metric={metric!r} gave the pure-noise view weight "
             f"{w[2]:.3f} out of {np.round(w, 3)}; it is not the smallest")
+
+
+@pytest.mark.parametrize("metric", ["procrustes_r2", "procrustes_r2_sharp"])
+def test_every_mai_metric_ranks_a_pure_noise_view_last_over_seeds(metric):
+    """Default sign rule, ten fit seeds: the pure-noise view gets the smallest weight in at least 7 of 10
+    (measured over 40 seeds: 38 and 35; legacy greedy 39 and 37)."""
+    views = _deep_views()
+    hits = 0
+    for seed in range(10):
+        with _quiet():
+            w = np.asarray(ned_simr(views, k=K, iterations=14, dynamic_weights=True, mai_metric=metric,
+                                    verbose=False, random_state=seed)["modality_weights"], dtype=float)
+        hits += int(w.argmin() == 2)
+    assert hits >= 7, (metric, hits)
 
 
 def test_mai_metrics_are_invariant_to_the_latent_gauge():

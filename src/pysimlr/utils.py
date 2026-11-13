@@ -19,7 +19,7 @@ import re
 import time
 import numpy as np
 from typing import List, Optional, Union, Dict, Any, Tuple
-from .defaults import DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_TOL, check_collapse_threshold
+from .defaults import DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_TOL, DEFAULT_SIGN_ALIGNMENT, SIGN_ALIGNMENTS, check_collapse_threshold
 
 def set_seed_based_on_time() -> int:
     """
@@ -2277,9 +2277,6 @@ class ConvergenceMonitor:
         }
 
 
-SIGN_ALIGNMENTS = ("greedy", "spectral")
-
-
 def _spectral_signs(mats: List[torch.Tensor]) -> List[torch.Tensor]:
     """Per-view, per-column signs from the leading eigenvector of the Gram matrix.
 
@@ -2287,8 +2284,9 @@ def _spectral_signs(mats: List[torch.Tensor]) -> List[torch.Tensor]:
     is symmetric in the views, so its leading eigenvector (and hence the relative
     signs) does not depend on the order of ``mats``. Only the global sign of the
     eigenvector is arbitrary; it is fixed by the majority of views keeping their
-    own sign, then by ``sum_i s_i * sum(m_i[:, c])``, then to +1, all of which are
-    sums over views and so also order free (exact ties aside).
+    own sign; if the views split evenly (for example two views that disagree) the largest-magnitude
+    entry of the aligned sum ``sum_i s_i * m_i[:, c]`` is made positive. Both are functions of the
+    unordered set of views, so also order free (exact ties aside).
     """
     n_views, k = len(mats), mats[0].shape[1]
     signs = torch.ones(n_views, k, dtype=torch.float64)
@@ -2299,7 +2297,11 @@ def _spectral_signs(mats: List[torch.Tensor]) -> List[torch.Tensor]:
         s = torch.where(vecs[:, -1] == 0, torch.ones_like(s), s)
         kept = float((s > 0).sum() - (s < 0).sum())
         if kept == 0.0:
-            kept = float((s * x.sum(dim=0)).sum())
+            # Tie (e.g. two views that disagree): make the largest-magnitude entry of the aligned sum
+            # positive. Order free, and unlike the sum of the entries it does not hinge on the column
+            # means, which are ~0 (rounding noise) for centred latents.
+            aligned_sum = (x * s).sum(dim=1)
+            kept = float(aligned_sum[torch.argmax(aligned_sum.abs())])
         if kept < 0.0:
             s = -s
         signs[:, c] = s
@@ -2308,7 +2310,7 @@ def _spectral_signs(mats: List[torch.Tensor]) -> List[torch.Tensor]:
 
 def align_column_signs(mats: List[torch.Tensor],
                        reference: Optional[torch.Tensor] = None,
-                       method: str = "greedy") -> List[torch.Tensor]:
+                       method: str = DEFAULT_SIGN_ALIGNMENT) -> List[torch.Tensor]:
     r"""Put a set of latent matrices on a common sign convention, column by column.
 
     A latent factorisation is defined only up to a sign per component: if
@@ -2333,10 +2335,29 @@ def align_column_signs(mats: List[torch.Tensor],
     flip is absorbed by the basis they fit. Only estimators that *average*
     across views need this.
 
-    The reference is built greedily -- the first matrix, then each subsequent
-    one flipped to agree with the running sum -- which is exact for two views
-    and stable for more. Signs are detached, so this is a relabelling and
-    does not change the gradient's magnitude.
+    Two rules are available (``method``). ``"greedy"`` (the rule of v0.30.0
+    and earlier) takes the first matrix as the reference and flips each
+    subsequent one to agree with the running sum; it is exact when the views
+    are mutually sign-consistent but depends on the order of ``mats`` when
+    they are not (near-orthogonal latents at initialization), because which
+    views get flipped is decided by who is visited first. ``"spectral"`` (the
+    default since v0.31.0) flips each column by the sign of the leading
+    eigenvector of the ``M x M`` Gram matrix of the views' columns: a
+    function of the unordered set of views, hence permutation-equivariant,
+    and equal to ``"greedy"`` whenever the views agree in sign. For two views
+    the relative sign is the sign of their inner product under both rules;
+    only the global sign of a column (which view keeps its sign) can differ,
+    since ``"spectral"`` fixes it by the majority of views (or, on a tie, by the largest entry of the aligned sum) rather than by
+    position. Signs are detached, so this is a relabelling and does not
+    change the gradient's magnitude.
+
+    Limits. Sign alignment only resolves sign. For ``k > 1`` the views'
+    components can also be swapped or rotated relative to each other (column
+    ``l`` of one view matching column ``l'`` of another); neither rule
+    addresses that, and averaging column ``l`` with column ``l`` of other
+    views is then still order- and labelling-sensitive. ``"spectral"`` is not
+    used with an explicit ``reference`` (that path aligns to the reference,
+    and is greedy against the reference plus earlier views).
 
     Parameters
     ----------
@@ -2344,14 +2365,13 @@ def align_column_signs(mats: List[torch.Tensor],
         Latents of matching shape ``(n, k)``.
     reference : torch.Tensor, optional
         Align to this instead of to the first matrix.
-    method : {"greedy", "spectral"}, default="greedy"
-        ``"greedy"`` is the running-sum rule above. It depends on the order of
-        ``mats`` whenever the views are not mutually consistent in sign (for
-        example near-orthogonal latents at initialization): measured, it
-        flips different views for different orders. ``"spectral"`` uses the
-        leading eigenvector of the per-column Gram matrix, which is
-        permutation-equivariant; it equals ``"greedy"`` when all views agree
-        and is ignored when ``reference`` is given.
+    method : {"spectral", "greedy"}, default="spectral"
+        ``"spectral"`` uses the leading eigenvector of the per-column Gram
+        matrix, which is permutation-equivariant; it equals ``"greedy"`` when
+        all views agree. ``"greedy"`` is the legacy running-sum rule above; it
+        depends on the order of ``mats`` whenever the views are not mutually
+        consistent in sign (measured: flips different views for different
+        orders). ``method`` is ignored when ``reference`` is given.
 
     Returns
     -------

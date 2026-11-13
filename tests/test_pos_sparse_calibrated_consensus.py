@@ -108,7 +108,16 @@ def test_nc_abs_recovers_anticorrelated_positive_view_and_coupling_signs():
     )
 
 
-def test_calibrated_subset_consensus_prevents_high_p_overfitting_takeover():
+@pytest.mark.parametrize("sign_alignment", ["greedy", "spectral"])
+def test_calibrated_subset_consensus_prevents_high_p_overfitting_takeover(sign_alignment):
+    # The ">0.90 uncalibrated share" precondition below was measured with the greedy sign rule, under which
+    # this seed's view 2 is fitted badly (in-sample R^2 0.79 against 0.98 for views 0 and 1) because of an
+    # order-dependent sign choice among its k=3 columns. With the default spectral rule the same seed fits
+    # all three views at R^2 >= 0.99 and the uncalibrated share is 0.38 (seeds 23-28: greedy 0.20-0.96,
+    # spectral 0.25-0.43). The precondition and the margin over the uncalibrated consensus (both need the
+    # takeover) are therefore asserted for "greedy" only, which is the fixture they describe; for both rules
+    # the calibrated high-p share must stay < 0.25 and the held-out recovery >= 0.65.
+
     rng = np.random.default_rng(23)
     n_tr, n_te, k = 80, 140, 3
     n = n_tr + n_te
@@ -132,6 +141,7 @@ def test_calibrated_subset_consensus_prevents_high_p_overfitting_takeover():
     res = pysimlr.fit(
         "simlr", [x0[tr], x1[tr], x2[tr]], k,
         positivity="positive", energy_type="nc", sparseness=0.5, random_state=0,
+        sign_alignment=sign_alignment,
     )
 
     maps = consensus_maps(res)
@@ -140,7 +150,8 @@ def test_calibrated_subset_consensus_prevents_high_p_overfitting_takeover():
     uncal_w = [maps[i]["r2"] / max(1.0 - maps[i]["r2"], 1e-6) for i in range(3)]
     uncal_high_p_share = (uncal_w[0] + uncal_w[1]) / sum(uncal_w)
     cal_high_p_share = (maps[0]["weight"] + maps[1]["weight"]) / sum(m["weight"] for m in maps)
-    assert uncal_high_p_share > 0.90, f"expected p>>n overfitting in uncalibrated R^2, got {uncal_high_p_share:.3f}"
+    if sign_alignment == "greedy":
+        assert uncal_high_p_share > 0.90, f"expected p>>n overfitting in uncalibrated R^2, got {uncal_high_p_share:.3f}"
     assert cal_high_p_share < 0.25, (
         f"calibrated high-p share ({cal_high_p_share:.3f}) did not curb overfitting ({uncal_high_p_share:.3f})"
     )
@@ -154,7 +165,10 @@ def test_calibrated_subset_consensus_prevents_high_p_overfitting_takeover():
     r_uncal = _best_matched_abs_r(u_uncal, z[te])
 
     assert r_cal >= 0.65, f"expected strong held-out consensus recovery, got {r_cal:.3f}"
-    assert r_cal > r_uncal + 0.25, f"calibrated u ({r_cal:.3f}) should decisively beat uncalibrated u ({r_uncal:.3f})"
+    if sign_alignment == "greedy":
+        # Needs the overfitting takeover that only the greedy fit of this seed produces (see above); under
+        # spectral the uncalibrated weights do not take over and r_uncal is high as well.
+        assert r_cal > r_uncal + 0.25, f"calibrated u ({r_cal:.3f}) should decisively beat uncalibrated u ({r_uncal:.3f})"
 
 
 def test_anchored_extend_recovers_anticorrelated_positive_view_and_small_n_oof_weights():

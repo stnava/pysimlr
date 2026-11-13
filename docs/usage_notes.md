@@ -814,6 +814,20 @@ path. Any other string raises `ValueError`.
     most markedly for the deep models.
   - See `docs/tracking.md` D36 for the per-family tables.
 
+## View order and `sign_alignment`
+
+Since v0.31.0 the averaging mixings (`newton`, the default, and `avg`) align the views' latent
+signs with a rule that is symmetric in the views (`sign_alignment="spectral"`), so a fit does not
+depend on the order of the views. Before, the rule was greedy from the first view and, for three or
+more views whose latents disagreed in sign at the start, reordering the views could change the fit
+(first-sweep consensus differences up to 3.6 on weakly coupled synthetic views; the difference is
+often forgotten after convergence, but not always). Results from v0.30.0 and earlier for such fits
+shift when refitted. To reproduce an old result pass `sign_alignment="greedy"` (every entry point
+that has the option, including `pysimlr.fit(..., sign_alignment="greedy")`). Two-view fits are
+unaffected up to the global sign of a `u` column. For `k > 1`, signs are not the whole story:
+components can be swapped or rotated between views, which neither rule addresses. Fits with
+`random`/`perturbed_pca` initialization and nonlinear deep fits keep their own order dependence.
+
 ## View weights (`dynamic_weights=True`, MAI)
 
 Off by default. When on, each view's weight in the consensus follows its modality alignment

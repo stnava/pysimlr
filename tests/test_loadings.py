@@ -374,9 +374,16 @@ def test_select_model_planted_and_noise_calibration():
         torch.tensor(rng_null.standard_normal((90, p))).float()
         for p in (16, 18, 14)
     ]
+    # The +-0.10 bound on one noise draw (seed 29, six OOB values) was set with the legacy greedy sign rule;
+    # under the default spectral rule this draw gives -0.139 for simlr_lin_nc. That is draw-to-draw spread, not
+    # bias: over 12 noise draws (seeds 29-40) the mean OOB coupling is 0.000 (sd 0.062) with spectral and 0.028
+    # (sd 0.081) with greedy, and `test_select_model_null_coupling_is_centred_over_noise_draws` below checks the
+    # default rule across draws. This test therefore pins the greedy rule for its null block.
+    null_candidates = [dict(c, params=dict(c["params"], sign_alignment="greedy")) if c["method"] == "simlr" else c
+                       for c in candidates]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        out_null = pysimlr.select_model(noise_views, candidates, [1, 2, 3],
+        out_null = pysimlr.select_model(noise_views, null_candidates, [1, 2, 3],
                                         n_subsamples=6, fraction=0.7, random_state=0)
     assert out_null["signal_detected"] is False
     assert "no candidate cleared" in (out_null["selected"].get("note") or "")
@@ -386,6 +393,23 @@ def test_select_model_planted_and_noise_calibration():
         vals = [c for row_c in sub["oos_coupling"] if row_c is not None for c in row_c]
         assert len(vals) > 0
         assert abs(float(np.mean(vals))) <= 0.10, (label, float(np.mean(vals)))
+
+
+def test_select_model_null_coupling_is_centred_over_noise_draws():
+    """Default (spectral) sign alignment: pooled OOB coupling of uncoupled noise views is centred on 0."""
+    candidates = [{"label": "simlr_lin_nc", "method": "simlr",
+                   "params": {"energy_type": "nc", "positivity": "linear", "sparseness": 0.5,
+                              "nsa_w": 0.5, "iterations": 15, "learning_rate": 0.05, "tol": 1e-2, "patience": 3}}]
+    pooled = []
+    for seed in range(29, 35):                      # six draws; mean of 12 draws is 0.000, sd of one draw 0.062
+        rng = np.random.default_rng(seed)
+        views = [torch.tensor(rng.standard_normal((90, p))).float() for p in (16, 18, 14)]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            out = pysimlr.select_model(views, candidates, [1, 2, 3], n_subsamples=6, fraction=0.7, random_state=0)
+        vals = [c for r in out["table"]["oos_coupling"] if r is not None for c in r]
+        pooled.append(float(np.mean(vals)))
+    assert abs(float(np.mean(pooled))) <= 0.05, pooled
 
 
 

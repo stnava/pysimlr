@@ -1,16 +1,25 @@
 # Tracking Summary
-current phase: v0.30.0 released (`D50` done: guarded adaptive contributor passthrough and `"deep"` / `"systems_v2"` / `"connectome"` atlas routing in `pysimlr.plotting` for `antsxviz>=0.5.0`).
+current phase: v0.31.0 (`D51` done: order-free `sign_alignment="spectral"` is the default; behavior change for averaged-consensus fits with 3+ views).
 next WP: docs/plans/2026-11-07_path_model_next_steps.md items 1 (mediation), 6-8.
 blockers: none
 active work: none
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
-last updated: 2026-11-12
+last updated: 2026-11-13
 
 ---
 
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D51 (View-order-free sign alignment is the default: `sign_alignment="spectral"`, 2026-11-13)
+status: done (v0.31.0; version bumped because the default changes fitted numbers, as for earlier behavior changes)
+- **Behavior change.** `mixing_algorithm="avg"` and the default `"newton"` align the views' latent signs before averaging. The old rule (`"greedy"`: first view is the reference, running sum) made a fit depend on the order of the views whenever three or more views had latents that disagreed in sign (typical at the PCA start with weakly coupled views). The default is now `"spectral"` (leading eigenvector of the per-column Gram matrix of the views; symmetric in the views; equal to greedy when the views agree in sign). Fits with three or more views whose latents disagree in sign will change when refitted, by up to the size of the old order effect (first-sweep consensus differences up to 3.6, unit-SD `u`; usually forgotten after convergence, not always). **To get the old behavior pass `sign_alignment="greedy"`** (`simlr`, `pysimlr.fit(..., sign_alignment="greedy")`, `compute_shared_consensus`, `align_column_signs(method="greedy")`, `lend_simr`, `ned_simr`, `ned_simr_shared_private`, `flow_simr`, `flow_simr_v`). Two-view fits agree with greedy up to the global sign of a `u` column. `svd`/`pca`/`ica` mixings ignore the option. The leave-one-out MAI scores always use the spectral rule.
+- **Not addressed:** `k > 1` component swaps/rotations between views; optimizer chaos of the nonlinear `ned`/`ned_shared_private` fits; order dependence of `random`/`perturbed_pca` initialization and of deep weight initialization drawn in view order.
+- **Option threaded through** the deep and flow entry points and models (`DEFAULT_SIGN_ALIGNMENT`, `SIGN_ALIGNMENTS` in `defaults.py`); recorded as `result["sign_alignment"]` for `simlr`.
+- **Tests:** `tests/test_view_order_sign_alignment.py` (default fit order free over four orders, first sweep and full fit, greedy not; two-view equivalence), `tests/test_view_order_deep.py` (five deep/flow models). Tests whose arguments or assertions changed because they pinned a greedy realization (each with a comment in the test): `test_sign_alignment::{test_a_negated_copy_is_flipped_back, test_per_column_signs_are_independent}` (greedy keeps the first view's sign; spectral twin asserts agreement and order independence), `test_pos_sparse_calibrated_consensus::test_calibrated_subset_consensus_prevents_high_p_overfitting_takeover` (parametrized; precondition and margin that need the takeover asserted for greedy only), `test_loadings::test_select_model_planted_and_noise_calibration` (null block pinned to greedy; new multi-draw test for the default), `test_sem::test_single_call_uneven_missing_rows_hub_and_spoke_fit_and_refit_path_model` (fit pinned to greedy), `test_parameters_are_live::test_every_mai_metric_ranks_a_pure_noise_view_last` (pinned; new 10-seed test for the default), `test_coarse_to_fine_probe_views::test_coarse_to_fine_beats_unsupervised_screening_under_normative_confounding` (two fits pinned; new 6-seed average test), `test_api_registry` (`sign_alignment` added to EXEMPT). Two failures predate this work and are unchanged.
+- **Found while testing:** the first version of the spectral rule broke ties (two views that disagree) by the sum of the entries, which is rounding noise for centred latents; it made `test_api_registry::test_reconstruction_r2_is_in_one_space_for_every_method` fail for simlr, lend and flow_v (a +20 data shift flipped the global column sign). Ties are now broken by the sign of the largest-magnitude entry of the aligned sum.
+- **Files:** `pyproject.toml`, `src/pysimlr/{__init__.py, defaults.py, utils.py, consensus.py, simlr.py, deep.py, flows.py}`, tests above, `docs/{tracking.md, api_contract.md, usage_notes.md, view_order_dependence_report.md, view_order_dependence/}`.
 
 ## D50 (Guarded adaptive contributor passthrough and stereotactic/systems atlas routing in `pysimlr.plotting`, 2026-11-12)
 status: done (released in v0.30.0)

@@ -100,3 +100,47 @@ So view order is another source of optimizer variability, about two thirds the s
 3. Mixing `svd`/`pca` is already order-free at sweep 1 but gives different models; not evaluated for study quality.
 4. k > 1 needs more than sign alignment (component rotation/swap); not fixed here.
 5. Sequential-seed initializations (`random`, `perturbed_pca`) are order dependent by design; seeding per view by name would change the draws for everyone.
+
+## Resolution (v0.31.0): spectral is the default
+
+Decision of the lead author: `sign_alignment="spectral"` is the default everywhere the option exists
+(`simlr`, `compute_shared_consensus`, `utils.align_column_signs`, `defaults.DEFAULT_SIGN_ALIGNMENT`, and, new in this
+change, `lend_simr`, `ned_simr`, `ned_simr_shared_private`, `flow_simr`, `flow_simr_v`). `"greedy"` stays available as the legacy rule.
+
+Call sites of `align_column_signs`:
+
+| call site | rule now | reason |
+|---|---|---|
+| `consensus.compute_shared_consensus`, averaging mixings | `sign_alignment` (default spectral) | averages across views |
+| `consensus.compute_shared_consensus`, `prune_threshold` probe | `sign_alignment` | same average, same rule as the consensus |
+| `simlr._capture_consensus_stats` | `sign_alignment` | must replay the training-time rule (signs recorded for prediction) |
+| `consensus._loo_unit_consensus` (leave-one-out agreement, behind `dynamic_weights` and `loo_mai_*` for `simlr` and every deep/flow model) | spectral (the function default, not switchable) | averages the other views; a view's score must not depend on the order of the others |
+| `deep.py` | no direct call; all five deep/flow models reach `compute_shared_consensus` through `_ModalityWeightingMixin._training_consensus` and `_aggregate_shared_consensus` and now pass the model's `sign_alignment` | |
+
+No call site was left on greedy. Gradients are not an obstacle: both rules compute the signs from detached values and multiply
+by constants (checked: the gradient of the aligned sum with respect to each view is exactly its sign tensor, in
+`test_spectral_signs_carry_no_gradient_of_their_own`). The `reference=` path of `align_column_signs` is unchanged (aligns to an
+explicit reference; no caller in the package uses it).
+
+Two views: both rules give each column the same relative sign; the pair's global column sign can differ (greedy keeps the first
+view's sign, spectral fixes it by the majority of views, or on a tie by the largest entry of the aligned sum). Checked on 500 random 2-view draws (k=4): relative signs identical in
+all, aligned matrices identical up to a per-column global sign in all (max |diff| 0), bitwise identical in 157 of 500 (the rest
+are draws where the views disagree in sign). `simlr` fits with two views (k=1, 2; 6 seeds each) gave bitwise identical `u` and latents.
+
+Deep and flow models (same data, two view orders, fixed seed, per-view weights made independent of position in the test;
+dropout off, full batch; max |difference| of `u` and of the per-view latents after undoing the permutation; seeds 3, 4, 5, 6):
+
+| method | affected by the greedy rule | first epoch, greedy | first epoch, spectral | 30 epochs, greedy | 30 epochs, spectral |
+|---|---|---|---|---|---|
+| `lend` | yes | up to 3.2 (2 of 4 seeds > 0.01) | <= 1e-6 | up to 3.2 (u), 0.7 (latents) | <= 7e-7 |
+| `flow_v` | yes | up to 3.2 | <= 1e-4 | up to 3.2 | <= 3e-3 |
+| `flow` | yes | up to 3.8 | <= 3e-6 | up to 1.1 (u), 3.8 (latents) | <= 1e-2 (u), 0.12 (latents) |
+| `ned` | sign step: not in this fixture (untrained nonlinear heads give latents whose means dominate, so both rules coincide); tested on the forward pass with centred head outputs, where greedy differs and spectral agrees to 1.5e-6 | 7e-7 both | 7e-7 both | chaotic | chaotic |
+| `ned_shared_private` | as `ned` | 6e-6 both | 6e-6 both | chaotic | chaotic |
+
+`ned` and `ned_shared_private` after 30 epochs differ by up to 3.6 between orders under either rule, and by up to 1.1 (`ned`) and
+2.3 (`ned_shared_private`) when the data are perturbed by 1e-7 with the order unchanged: the nonlinear fits are chaotic, so
+the sign rule is not the limiting factor there. With the networks' initial weights not fixed per view, the weights drawn in view
+order alone move `u` by 2-3 after one epoch (all five models; first-epoch differences of 1e-2 for `lend` and `flow`, 2-3 for
+`ned`). That, the data-order-dependent `random`/`perturbed_pca` initializations, and the multi-start chaos of the deep fits
+remain order dependent by design.

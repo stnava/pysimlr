@@ -214,6 +214,9 @@ EXEMPT = {
     "mai_metric": "read only with dynamic_weights=True on >=3 views; test_mai_metrics",
     "use_rank_mai": "read only with dynamic_weights=True; test_mai_metrics",
     "prune_threshold": "read only by the graph topology's edge pruning; test_latent_pruning",
+    "sign_alignment": "changes the fit only for 3+ views whose latents disagree in sign, which is a property of "
+                      "the data, not a switch to toggle on one fixture; tests/test_view_order_sign_alignment.py "
+                      "(linear) and tests/test_view_order_deep.py (deep and flow)",
     "first_layer_mode": "first-layer projection schedule; test_deep_first_layer_contract",
     "nsa_iterations": "first-layer projection schedule; test_deep_first_layer_contract",
     "use_nsa": "first-layer projection switch; test_deep_first_layer_contract",

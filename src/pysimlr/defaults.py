@@ -46,6 +46,18 @@ def check_nsa_w(nsa_w) -> float:
 #: docs/audit/evidence/default_selection_grid.csv, default_followup_checks.csv).
 DEFAULT_MIXING_ALGORITHM = "newton"
 
+#: Sign convention applied before the averaging mixings ("avg", "newton") and the
+#: leave-one-out agreement scores average the views' latents. "spectral" (leading
+#: eigenvector of the per-column Gram matrix of the views) is symmetric in the
+#: views, so the fit does not depend on the order of ``data_matrices``. "greedy"
+#: is the historical running-sum rule (first view is the reference) and is kept
+#: for reproducing results from v0.30.0 and earlier. They agree whenever the views
+#: already agree in sign; they differ when latents are mutually sign-inconsistent
+#: (typical at a PCA start with weakly coupled views). See
+#: docs/view_order_dependence_report.md.
+SIGN_ALIGNMENTS = ("greedy", "spectral")
+DEFAULT_SIGN_ALIGNMENT = "spectral"
+
 #: Consensus each view is trained against. "loo": view m is scored against the
 #: consensus of the other views only, so its own private variance cannot raise
 #: its own objective. Under "star" the consensus includes the view itself; on a

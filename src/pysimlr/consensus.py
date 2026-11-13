@@ -4,7 +4,7 @@ import warnings
 from typing import List, Optional, Union, Dict, Any, Sequence, Tuple
 from .utils import align_column_signs
 from .utils import newton_schulz_orthogonalize, safe_svd
-from .defaults import DEFAULT_MIXING_ALGORITHM, DEFAULT_TOPOLOGY
+from .defaults import DEFAULT_MIXING_ALGORITHM, DEFAULT_SIGN_ALIGNMENT, DEFAULT_TOPOLOGY
 
 
 def align_anchor_columns(new_anchor: torch.Tensor,
@@ -61,7 +61,7 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                             modality_weights: Optional[torch.Tensor] = None,
                             frozen_map: Optional[Dict[str, Any]] = None,
                             obs_masks: Optional[List[torch.Tensor]] = None,
-                            sign_alignment: str = "greedy") -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
+                            sign_alignment: str = DEFAULT_SIGN_ALIGNMENT) -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
     """
     Combine modality-specific projections into a shared latent consensus (U).
     
@@ -81,6 +81,15 @@ def compute_shared_consensus(projections: List[torch.Tensor],
     frozen_map : dict, optional
         From `capture_consensus_map`. Outside training, the consensus is that
         frozen map applied row by row, so it does not depend on the batch.
+    sign_alignment : {"spectral", "greedy"}, default="spectral"
+        Sign convention applied to the views' latent columns before the
+        averaging mixings ("avg", "newton") take their mean, and before the
+        ``prune_threshold`` probe. "spectral" is symmetric in the views (the
+        consensus does not depend on their order); "greedy" is the legacy
+        running-sum rule anchored at the first view. With two views the two
+        rules differ at most by a global column sign. Neither resolves
+        component swaps or rotations across views for ``k > 1``. Ignored by
+        "svd", "pca" and "ica".
     orthogonalize : bool, default=False
         If True, decorrelate the consensus columns (polar projection) so that
         ``U.T @ U`` is diagonal, before the per-column standardization. Requires
@@ -504,7 +513,8 @@ def _loo_unit_consensus(norm_projs: List[torch.Tensor], i: int) -> Tuple[bool, O
     if not others:
         return False, None
     # Sign-aligned: unaligned views cancel in this average exactly as they
-    # do in the consensus.
+    # do in the consensus. Uses the default (order-free) rule so that a view's
+    # score does not depend on the order of the other views.
     u_loo = torch.mean(torch.stack(align_column_signs(others)), dim=0)
     u_norm = torch.norm(u_loo, p="fro")
     return True, (u_loo / u_norm if u_norm > 1e-8 else None)

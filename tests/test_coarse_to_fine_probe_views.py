@@ -205,7 +205,12 @@ def test_coarse_to_fine_beats_unsupervised_screening_under_normative_confounding
         seed=5, n_train=93, n_test=93,
     )
     # 1. Coarse-to-fine: fit on p=44 node strengths (0 wide views), decode all 946 edges
-    res_c2f = pysimlr.fit("simlr", macro_tr, k=3, iterations=60, random_state=0)
+    # res_c2f and res_wide (used in the last assertion) are pinned to the legacy sign rule: on this seed the
+    # coarse fit's gap is the same under both rules (0.125 / 0.124) but the wide fit's gap moves from 0.200
+    # to 0.112 under the default spectral rule, i.e. this seed's wide fit, not the claim, changed. Over seeds
+    # 5-12 the claim holds for the default rule in 7 of 8 and on average (0.098 against 0.177); see
+    # `test_coarse_to_fine_gap_is_smaller_than_wide_fit_gap_on_average` below.
+    res_c2f = pysimlr.fit("simlr", macro_tr, k=3, iterations=60, random_state=0, sign_alignment="greedy")
     assert res_c2f["wide_views"] == []
     hc_c2f = pysimlr.heldout_coupling(res_c2f, macro_te)
     u_te_c2f = pysimlr.predict(res_c2f, macro_te)["u"].numpy() @ res_c2f["loading_rotation"].numpy()
@@ -235,10 +240,29 @@ def test_coarse_to_fine_beats_unsupervised_screening_under_normative_confounding
 
     # 3. Unscreened wide fit (p=946 directly in fit) overfits training coupling
     with pytest.warns(pysimlr.WideViewWarning):
-        res_wide = pysimlr.fit("simlr", raw_tr, k=3, iterations=60, random_state=0)
+        res_wide = pysimlr.fit("simlr", raw_tr, k=3, iterations=60, random_state=0, sign_alignment="greedy")
     hc_wide = pysimlr.heldout_coupling(res_wide, raw_te)
 
     assert r_focal_c2f > 0.90
     assert auc_c2f > 0.98
     assert auc_scr < 0.65
     assert np.mean(hc_c2f["cross_view_gap"]) < np.mean(hc_wide["cross_view_gap"])
+
+
+def test_coarse_to_fine_gap_is_smaller_than_wide_fit_gap_on_average():
+    """Default sign rule, six planted draws (seeds 5-10): the coarse fit's train-to-held-out coupling gap is
+    below the unscreened wide fit's on average (measured over seeds 5-12: 0.098 against 0.177), and recovers the
+    focal driver (|r| > 0.9) on every draw."""
+    gc, gw = [], []
+    for seed in range(5, 11):
+        macro_tr, macro_te, fine_tr, fine_te, z_tr, z_te, _ = _planted_multiscale(seed=seed, n_train=93, n_test=93)
+        raw_tr = [fine_tr[0], macro_tr[1], macro_tr[2]]
+        raw_te = [fine_te[0], macro_te[1], macro_te[2]]
+        res_c = pysimlr.fit("simlr", macro_tr, k=3, iterations=60, random_state=0)
+        with pytest.warns(pysimlr.WideViewWarning):
+            res_w = pysimlr.fit("simlr", raw_tr, k=3, iterations=60, random_state=0)
+        gc.append(np.mean(pysimlr.heldout_coupling(res_c, macro_te)["cross_view_gap"]))
+        gw.append(np.mean(pysimlr.heldout_coupling(res_w, raw_te)["cross_view_gap"]))
+        u = pysimlr.predict(res_c, macro_te)["u"].numpy() @ res_c["loading_rotation"].numpy()
+        assert max(abs(np.corrcoef(u[:, c], z_te)[0, 1]) for c in range(3)) > 0.90
+    assert np.mean(gc) < np.mean(gw), (gc, gw)

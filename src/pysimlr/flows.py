@@ -4,7 +4,7 @@ import torch.nn as nn
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Any, Union
 from .utils import basis_rank_report
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM, DEFAULT_TOL, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_DEEP_ITERATIONS, check_collapse_threshold, check_nsa_w
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM, DEFAULT_SIGN_ALIGNMENT, DEFAULT_TOL, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_DEEP_ITERATIONS, check_collapse_threshold, check_nsa_w
 
 
 #: MAI similarity metrics. `trace` was removed: tr(Z' u_loo) is the only one
@@ -359,10 +359,11 @@ class FlowSiMRModel(_ModalityWeightingMixin, nn.Module):
     """
     Normalizing Flow SiMR Model.
     """
-    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, hidden_dim: int = 64, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, scale_bound: float = 2.0, topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False, force_fallback: bool = False):
+    def __init__(self, input_dims: List[int], latent_dim: int, num_layers: int = 4, hidden_dim: int = 64, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, scale_bound: float = 2.0, topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2", dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False, force_fallback: bool = False, sign_alignment: str = DEFAULT_SIGN_ALIGNMENT):
         super().__init__()
         self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
-                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai, dynamic_weights_start)
+                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai, dynamic_weights_start,
+                                    sign_alignment=sign_alignment)
         self.input_dims = input_dims
         self.latent_dim = latent_dim
         self.is_flow = True
@@ -680,6 +681,7 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               hidden_dim: int = 64,
               energy_type: str = DEFAULT_ENERGY_TYPE,
               mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
+              sign_alignment: str = DEFAULT_SIGN_ALIGNMENT,
               topology: str = DEFAULT_TOPOLOGY,
               path_graph: Optional[Dict[int, List[int]]] = None,
               prune_threshold: Optional[float] = None,
@@ -709,7 +711,9 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
     Parameters are those of `flow_simr_v` without the first-layer settings.
     ``iterations`` is the budget in epochs; ``random_state`` seeds the whole
-    fit on a private RNG stream (see `lend_simr`).
+    fit on a private RNG stream (see `lend_simr`). ``sign_alignment``
+    (``"spectral"`` default, view-order free; ``"greedy"`` legacy) is as in
+    `simlr`.
     """
     return _fit_flow(
         "flow_simr",
@@ -719,7 +723,7 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             topology=topology, path_graph=path_graph, prune_threshold=prune_threshold,
             dynamic_weights=dynamic_weights, mai_metric=mai_metric,
             dynamic_weights_start=dynamic_weights_start, use_rank_mai=use_rank_mai,
-            force_fallback=force_fallback),
+            force_fallback=force_fallback, sign_alignment=sign_alignment),
         data_matrices, k, iterations=iterations, batch_size=batch_size,
         learning_rate=learning_rate, weight_decay=weight_decay, sim_weight=sim_weight,
         warmup_epochs=warmup_epochs, energy_type=energy_type, optimizer_type=optimizer_type,
@@ -742,10 +746,11 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
                  dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
                  dynamic_weights_start: Optional[int] = None, use_rank_mai: bool = False,
                  first_layer_mode: str = "scheduled", nsa_iterations: int = 1,
-                 force_fallback: bool = False):
+                 force_fallback: bool = False, sign_alignment: str = DEFAULT_SIGN_ALIGNMENT):
         super().__init__()
         self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
-                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai, dynamic_weights_start)
+                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai, dynamic_weights_start,
+                                    sign_alignment=sign_alignment)
         from .positivity import resolve_deep_positivity
         positivity = resolve_deep_positivity(positivity)
         self.input_dims = input_dims
@@ -849,6 +854,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 hidden_dim: int = 64,
                 energy_type: str = DEFAULT_ENERGY_TYPE,
                 mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
+                sign_alignment: str = DEFAULT_SIGN_ALIGNMENT,
                 topology: str = DEFAULT_TOPOLOGY,
                 path_graph: Optional[Dict[int, List[int]]] = None,
                 prune_threshold: Optional[float] = None,
@@ -921,7 +927,8 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     The remaining parameters are the flow architecture (`num_layers`,
     `hidden_dim`, `scale_bound`, `force_fallback`), the loss weights (`beta`
     on the flow NLL, `gamma` on the MSE reconstruction, `sim_weight`), and the
-    consensus settings shared with `simlr`.
+    consensus settings shared with `simlr`, including ``sign_alignment``
+    (``"spectral"`` default, view-order free; ``"greedy"`` legacy).
     """
     return _fit_flow(
         "flow_simr_v",
@@ -934,7 +941,7 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             mai_metric=mai_metric, dynamic_weights_start=dynamic_weights_start,
             use_rank_mai=use_rank_mai, first_layer_mode=first_layer_mode,
             nsa_iterations=nsa_iterations,
-            force_fallback=force_fallback),
+            force_fallback=force_fallback, sign_alignment=sign_alignment),
         data_matrices, k, iterations=iterations, batch_size=batch_size,
         learning_rate=learning_rate, weight_decay=weight_decay, sim_weight=sim_weight,
         warmup_epochs=warmup_epochs, energy_type=energy_type, optimizer_type=optimizer_type,

@@ -5,7 +5,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Sequence, Union, Tuple, Callable
 import contextlib
 import warnings
-from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_DEEP_ITERATIONS, DEFAULT_MIXING_ALGORITHM, DEFAULT_TOL, check_collapse_threshold, check_nsa_w
+from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_COLLAPSE_WEIGHT, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_DEEP_ITERATIONS, DEFAULT_MIXING_ALGORITHM, DEFAULT_SIGN_ALIGNMENT, DEFAULT_TOL, SIGN_ALIGNMENTS, check_collapse_threshold, check_nsa_w
 class larslow(optim.Optimizer):
     """Layer-wise Adaptive Rate Scaling (LARS) optimizer for deep SiMLR."""
     def __init__(self, params, lr, weight_decay=1e-4, momentum=0.9, trust_coefficient=0.001):
@@ -129,6 +129,7 @@ def _aggregate_shared_consensus(model, latents):
         modality_weights=(model.modality_weights
                           if getattr(model, "dynamic_weights", False) else None),
         frozen_map=getattr(model, "aggregate_map", None),
+        sign_alignment=getattr(model, "sign_alignment", DEFAULT_SIGN_ALIGNMENT),
     )
 
 
@@ -350,11 +351,15 @@ class _ModalityWeightingMixin:
     def _init_consensus_state(self, n_views: int, latent_dim: int, mixing_algorithm: str,
                               topology: str, path_graph, prune_threshold, dynamic_weights: bool,
                               mai_metric: str, use_rank_mai: bool,
-                              dynamic_weights_start: Optional[int] = None) -> None:
+                              dynamic_weights_start: Optional[int] = None,
+                              sign_alignment: str = DEFAULT_SIGN_ALIGNMENT) -> None:
         """Consensus settings and the three buffers every multi-view model
         carries: MAI scores, modality weights (both uniform), and the
         consensus anchor."""
+        if sign_alignment not in SIGN_ALIGNMENTS:
+            raise ValueError(f"sign_alignment must be one of {SIGN_ALIGNMENTS}; got {sign_alignment!r}.")
         self.mixing_algorithm = mixing_algorithm
+        self.sign_alignment = sign_alignment
         self.topology = topology
         self.path_graph = path_graph
         self.prune_threshold = prune_threshold
@@ -380,7 +385,8 @@ class _ModalityWeightingMixin:
             anchor=self.consensus_anchor, topology=self.topology, path_graph=self.path_graph,
             prune_threshold=self.prune_threshold,
             modality_weights=self.modality_weights if self.dynamic_weights else None,
-            frozen_map=getattr(self, "consensus_map", None))
+            frozen_map=getattr(self, "consensus_map", None),
+            sign_alignment=self.sign_alignment)
         if not self.training:
             return res_u
         u_shared, new_anchor = res_u
@@ -854,10 +860,12 @@ class LENDSiMRModel(_MultiViewModelMixin, nn.Module):
                  dropout: float = 0.1, nsa_w: float = DEFAULT_NSA_W, positivity: str = "either", 
                  sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
                  topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
-                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False):
+                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
+                 sign_alignment: str = DEFAULT_SIGN_ALIGNMENT):
         super().__init__()
         self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
-                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai)
+                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai,
+                                    sign_alignment=sign_alignment)
         self.encoders = _linear_encoders(input_dims, latent_dim, nsa_w, positivity, sparseness, use_nsa, first_layer_mode, nsa_iterations)
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.latent_dim = latent_dim
@@ -914,10 +922,12 @@ class NEDSiMRModel(_MultiViewModelMixin, nn.Module):
                  dropout: float = 0.1, nsa_w: float = DEFAULT_NSA_W, positivity: str = "either", 
                  sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
                  topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
-                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False):
+                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
+                 sign_alignment: str = DEFAULT_SIGN_ALIGNMENT):
         super().__init__()
         self._init_consensus_state(len(input_dims), latent_dim, mixing_algorithm, topology, path_graph,
-                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai)
+                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai,
+                                    sign_alignment=sign_alignment)
         self.linear_encoders = _linear_encoders(input_dims, latent_dim, nsa_w, positivity, sparseness, use_nsa, first_layer_mode, nsa_iterations)
         self.nonlinear_heads = nn.ModuleList([ModalityDecoder(latent_dim, latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
@@ -972,10 +982,12 @@ class NEDSharedPrivateSiMRModel(_MultiViewModelMixin, nn.Module):
                  hidden_dims: Sequence[int] = (128, 64), dropout: float = 0.1, nsa_w: float = DEFAULT_NSA_W,
                  positivity: str = "either", sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
                  topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None, prune_threshold: Optional[float] = None, dynamic_weights: bool = False, mai_metric: str = "procrustes_r2",
-                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False):
+                 use_nsa: bool = True, first_layer_mode: str = "scheduled", nsa_iterations: int = 1, use_rank_mai: bool = False,
+                 sign_alignment: str = DEFAULT_SIGN_ALIGNMENT):
         super().__init__()
         self._init_consensus_state(len(input_dims), shared_latent_dim, mixing_algorithm, topology, path_graph,
-                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai)
+                                    prune_threshold, dynamic_weights, mai_metric, use_rank_mai,
+                                    sign_alignment=sign_alignment)
         self.linear_encoders = _linear_encoders(input_dims, shared_latent_dim, nsa_w, positivity, sparseness, use_nsa, first_layer_mode, nsa_iterations)
         self.shared_heads = nn.ModuleList([ModalityDecoder(shared_latent_dim, shared_latent_dim, hidden_dims, dropout) for _ in input_dims])
         self.private_encoders = nn.ModuleList([ModalityEncoder(dim, private_latent_dim, hidden_dims, dropout) for dim in input_dims])
@@ -1689,6 +1701,13 @@ _DEEP_COMMON_DOC = """
         NSA-Flow weight (`pysimlr.defaults`).
     energy_type, mixing_algorithm, topology, path_graph, prune_threshold,
     dynamic_weights, mai_metric, use_rank_mai : consensus settings, as in `simlr`.
+    sign_alignment : {"spectral", "greedy"}, default="spectral"
+        Sign convention applied before the averaging mixings (``"avg"``,
+        ``"newton"``) average the views' latents, as in `simlr`. ``"spectral"``
+        is symmetric in the views; ``"greedy"`` is the legacy first-view
+        anchored rule (v0.30.0 and earlier). Signs are constants, so no
+        gradient flows through the choice. Weight initialization draws that
+        are consumed in view order remain order dependent by design.
     device : str, optional
         ``None`` picks CUDA when available, else CPU.
     use_nsa, first_layer_mode, nsa_iterations,
@@ -1726,7 +1745,7 @@ _DEEP_COMMON_DOC = """
 def _fit_first_layer_model(name: str, model_cls, data_matrices, k, hidden_dims, dropout, nsa_w,
                            positivity, sparseness, mixing_algorithm, topology, path_graph,
                            prune_threshold, dynamic_weights, mai_metric, use_nsa, first_layer_mode,
-                           nsa_iterations, use_rank_mai, **fit_kwargs) -> Dict[str, Any]:
+                           nsa_iterations, use_rank_mai, sign_alignment=DEFAULT_SIGN_ALIGNMENT, **fit_kwargs) -> Dict[str, Any]:
     """Shared body of `lend_simr` and `ned_simr`, which take identical
     parameters and differ only in the model class they train."""
     hidden_dims = tuple(DEFAULT_HIDDEN_DIMS if hidden_dims is None else hidden_dims)
@@ -1737,7 +1756,7 @@ def _fit_first_layer_model(name: str, model_cls, data_matrices, k, hidden_dims, 
                                prune_threshold=prune_threshold, dynamic_weights=dynamic_weights,
                                mai_metric=mai_metric, use_nsa=use_nsa,
                                first_layer_mode=first_layer_mode, nsa_iterations=nsa_iterations,
-                               use_rank_mai=use_rank_mai),
+                               use_rank_mai=use_rank_mai, sign_alignment=sign_alignment),
         data_matrices, k, sparseness=sparseness, positivity=positivity, nsa_w=nsa_w,
         **fit_kwargs)
 
@@ -1748,7 +1767,8 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iter
               hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
               sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5,
               positivity: str = "either", nsa_w: float = DEFAULT_NSA_W, energy_type: str = DEFAULT_ENERGY_TYPE,
-              mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, topology: str = DEFAULT_TOPOLOGY,
+              mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, sign_alignment: str = DEFAULT_SIGN_ALIGNMENT,
+              topology: str = DEFAULT_TOPOLOGY,
               path_graph: Optional[Dict[int, List[int]]] = None,
               prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
               mai_metric: str = "procrustes_r2", device: Optional[str] = None,
@@ -1776,7 +1796,8 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, itera
              hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
              sparseness: Optional[Union[float, List[Optional[float]]]] = 0.5,
              positivity: str = "either", nsa_w: float = DEFAULT_NSA_W, energy_type: str = DEFAULT_ENERGY_TYPE,
-             mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, topology: str = DEFAULT_TOPOLOGY,
+             mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM, sign_alignment: str = DEFAULT_SIGN_ALIGNMENT,
+             topology: str = DEFAULT_TOPOLOGY,
              path_graph: Optional[Dict[int, List[int]]] = None,
              prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
              mai_metric: str = "procrustes_r2", device: Optional[str] = None,
@@ -1807,6 +1828,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
                             positivity: str = "either", nsa_w: float = DEFAULT_NSA_W,
                             hidden_dims: Optional[Sequence[int]] = None, dropout: float = 0.1,
                             energy_type: str = DEFAULT_ENERGY_TYPE, mixing_algorithm: str = DEFAULT_MIXING_ALGORITHM,
+                            sign_alignment: str = DEFAULT_SIGN_ALIGNMENT,
                             topology: str = DEFAULT_TOPOLOGY, path_graph: Optional[Dict[int, List[int]]] = None,
                             prune_threshold: Optional[float] = None, dynamic_weights: bool = False,
                             mai_metric: str = "procrustes_r2",
@@ -1834,7 +1856,7 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
             mixing_algorithm, topology=topology, path_graph=path_graph,
             prune_threshold=prune_threshold, dynamic_weights=dynamic_weights,
             mai_metric=mai_metric, use_nsa=use_nsa, first_layer_mode=first_layer_mode,
-            nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai)
+            nsa_iterations=nsa_iterations, use_rank_mai=use_rank_mai, sign_alignment=sign_alignment)
         # Read by `_train_loop`.
         model.private_ortho_w = private_orthogonality_weight
         model.private_var_w = private_variance_weight

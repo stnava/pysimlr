@@ -12,7 +12,7 @@ from .utils import (adjusted_rvcoef, safe_svd, correlation_penalty, stationarity
 from .consensus import compute_shared_consensus
 from .similarity import (SIMILARITY, SimilarityContext, resolve_energy_name,
                          similarity_energy, similarity_is_scale_free)
-from .defaults import (DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER,
+from .defaults import (DEFAULT_SIGN_ALIGNMENT, DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_LINEAR_OPTIMIZER,
                        DEFAULT_COLLAPSE_WEIGHT, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_MIXING_ALGORITHM,
                        DEFAULT_SIMLR_ITERATIONS, DEFAULT_TOL, check_collapse_threshold, check_nsa_w)
 
@@ -1473,7 +1473,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           domain_matrices: Optional[List[Union[torch.Tensor, np.ndarray]]] = None,
           domain_lambdas: Optional[Union[float, List[float]]] = None,
           orthogonalize_u: bool = False,
-          sign_alignment: str = "greedy",
+          sign_alignment: str = DEFAULT_SIGN_ALIGNMENT,
           topology: str = DEFAULT_TOPOLOGY,
           path_graph: Optional[Dict[int, List[int]]] = None,
           scale_list: Optional[List[str]] = None,
@@ -1692,13 +1692,20 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         Matrices to align with for directed domain knowledge.
     domain_lambdas : Union[float, List[float]], optional
         Weight(s) for the domain knowledge alignment objective.
-    sign_alignment : {"greedy", "spectral"}, default="greedy"
+    sign_alignment : {"spectral", "greedy"}, default="spectral"
         How the averaging mixings (``"avg"``, ``"newton"``) put the views'
-        latent columns on one sign convention before averaging. ``"greedy"``
-        (historical) depends on the order of ``data_matrices`` when the views'
-        latents are not mutually sign-consistent (typical at initialization);
-        ``"spectral"`` is permutation-equivariant. See
-        `pysimlr.utils.align_column_signs`. Ignored by ``"svd"``/``"pca"``/``"ica"``.
+        latent columns on one sign convention before averaging.
+        ``"spectral"`` (default since v0.31.0) is symmetric in the views, so
+        the fit does not depend on the order of ``data_matrices``. ``"greedy"``
+        is the historical rule (first view is the reference, then a running
+        sum); it depends on the order whenever the views' latents are not
+        mutually sign-consistent (typical at initialization with weakly
+        coupled views), and is kept to reproduce v0.30.0 and earlier results.
+        The two agree when the views already agree in sign; with two views
+        they differ at most by a global sign of a consensus column. Sign
+        alignment does not resolve component swaps or rotations across views
+        when ``k > 1``. See `pysimlr.utils.align_column_signs`. Ignored by
+        ``"svd"``/``"pca"``/``"ica"``.
     orthogonalize_u : bool, default=False
         Whether to enforce orthogonality on the consensus matrix U.
     topology : str, default=DEFAULT_TOPOLOGY ("loo")
@@ -2681,7 +2688,7 @@ def _capture_consensus_anchor(projections: List[torch.Tensor],
                               topology: str,
                               path_graph: Optional[Dict[int, List[int]]],
                               obs_masks: Optional[List[torch.Tensor]] = None,
-                              sign_alignment: str = "greedy") -> Optional[torch.Tensor]:
+                              sign_alignment: str = DEFAULT_SIGN_ALIGNMENT) -> Optional[torch.Tensor]:
     result = compute_shared_consensus(
         projections, mixing_algorithm=mixing_algorithm, k=k,
         orthogonalize=orthogonalize_u, training=True,
@@ -2698,7 +2705,7 @@ def _capture_consensus_stats(projections: List[torch.Tensor],
                              anchor: Optional[torch.Tensor],
                              topology: str,
                              obs_masks: Optional[List[torch.Tensor]] = None,
-                             sign_alignment: str = "greedy") -> Optional[Dict[str, Any]]:
+                             sign_alignment: str = DEFAULT_SIGN_ALIGNMENT) -> Optional[Dict[str, Any]]:
     """Capture training moments so out-of-sample prediction is batch-size (N=1) invariant."""
     if topology != "star" or isinstance(u_raw, list) or not projections:
         return None
