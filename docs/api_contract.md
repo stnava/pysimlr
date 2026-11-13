@@ -353,6 +353,25 @@ method. All parameters are explicit, so `clone`, `get_params` and `GridSearchCV`
 `SiMLREstimator`, `SiMLR`, `SiMLRTransformer`, `LENDTransformer`, `NEDTransformer` and
 `FlowSiMLRTransformer` were removed in 0.3.0.
 
+## Target attribution (`attribute_target`)
+
+`pysimlr.attribute_target(views, target, *, covariates=None, groups=None, method="structure", reference=None,
+n_null=0, n_bag=0, sparseness=0.8, n_folds=5, bag_fraction=0.8, fdr=0.1, generic_tol=0.1, random_state=0,
+n_jobs=1, fit_options=None)` fits the target as the root view of a one-component target-rooted `simlr` model
+(`pysimlr.target_root_fit_params`) and returns signed per-view `maps` (positive = the feature rises with the target),
+the out-of-fold `score` with a `predictive` flag, a `generic` PC1 diagnostic, optional `uncertainty` and `inference`,
+and `result` / `frame` for reuse as `reference=`. Meaning, evidence and limits: `docs/reliable_attribution.md`.
+Additive; no existing function changed except as below.
+
+Also added: `feature_maps(..., return_target=True)` (the target each view was mapped against, in `extra["target"]`),
+`loading_inference(..., draw_random_state=None)` (seeds only the row draws; `None` keeps `random_state`), and
+`stats.permutation_correlations` drops masked rows (all-NaN features, non-finite outcome) with a `MissingRowsWarning`
+instead of raising.
+
+**Behaviour change.** `loadings(...)["coupling_signs"]` and `view_coupling_signs` now use the positivity and energy
+each view actually used (`per_view_params` overrides); a conical `nc_abs` view fitted through `per_view_params` that
+couples negatively to the consensus now gets `-1` instead of `+1`.
+
 ## Removed since 0.3.0 (in 0.4.0, 0.5.0 or 0.6.0; no aliases; each raises or is gone)
 
 - Method-name aliases (`linear`, `shared_private`, `nedpp`, `flow_simr_v`, `nsaflow`, ...):

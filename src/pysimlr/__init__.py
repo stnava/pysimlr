@@ -126,6 +126,7 @@ from .relevance import feature_relevance
 from .attribution import component_attribution
 from .screening import apply_view_screen, screen_wide_views
 from .orientation import orient_latents
+from .reliable_attribution import attribute_target, target_root_fit_params
 from .loadings import (
     RANK_CRITERIA,
     loadings,
@@ -219,6 +220,8 @@ __all__ = [
     'loadings',
     'loading_inference',
     'orient_latents',
+    'attribute_target',
+    'target_root_fit_params',
     'feature_maps',
     'feature_relevance',
     'component_attribution',
