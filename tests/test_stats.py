@@ -600,8 +600,11 @@ def test_permutation_correlations_rejects_bad_input():
         permutation_correlations(X, y, n_perms=10, n_boot=-1, seed=0)
     with pytest.raises(ValueError):
         permutation_correlations(X, X[:, :2], n_perms=10, seed=0, paired=True)
-    with pytest.raises(ValueError):
+    # a non-finite outcome row is masked: dropped with a warning (it used to raise); nothing left raises
+    with pytest.warns(UserWarning, match="dropped 1 masked"):
         permutation_correlations(X, np.r_[y[:-1], np.nan], n_perms=10, seed=0)
+    with pytest.raises(ValueError):
+        permutation_correlations(X, np.full(10, np.nan), n_perms=10, seed=0)
 
 
 @pytest.mark.parametrize("seed", [2, 8])

@@ -222,10 +222,28 @@ def _result_energy_type(result: Dict[str, Any]) -> str:
     return str(_used(result, "energy_type", "nc"))
 
 
+def _result_view_settings(result: Dict[str, Any], n_views: int) -> Tuple[List[str], List[str]]:
+    """Per-view ``(positivity, energy_type)`` a fit actually used.
+
+    ``per_view_params`` overrides (a mapping view index -> dict, stored by `simlr` as
+    ``result["per_view_params"]``) win over the fit-level values; a view without an override uses
+    them. Reading only the fit-level values mislabelled a view fitted ``positivity="conical"``,
+    ``energy_type="nc_abs"`` through ``per_view_params`` as signed, so its coupling sign stayed ``+1``.
+    """
+    pos0, et0 = _result_positivity(result), _result_energy_type(result)
+    pvp = result.get("per_view_params") or {}
+    pos, et = [], []
+    for m in range(n_views):
+        ov = pvp.get(m) or pvp.get(f"view{m}") or {}
+        pos.append(resolve_positivity(ov["positivity"]) if "positivity" in ov else pos0)
+        et.append(str(ov["energy_type"]) if "energy_type" in ov else et0)
+    return pos, et
+
+
 def view_coupling_signs(structure: Sequence[torch.Tensor],
                         v_mats: Optional[Sequence[torch.Tensor]] = None,
-                        *, positivity: str = "either",
-                        energy_type: str = "nc") -> List[torch.Tensor]:
+                        *, positivity: Any = "either",
+                        energy_type: Any = "nc") -> List[torch.Tensor]:
     """Per-view ``(k,)`` coupling polarity (``+1`` or ``-1``) against ``u @ R``.
 
     Under ``positivity="positive"`` with a column-sign-invariant similarity
@@ -237,13 +255,19 @@ def view_coupling_signs(structure: Sequence[torch.Tensor],
     parcel loadings while recording ``-1.0`` here so the opposing biological
     direction is explicit. Signed objectives (``"nc"``, etc.) and unconstrained
     fits always return ``+1.0``.
+
+    ``positivity`` and ``energy_type`` are one value for all views or one per view (a fit with
+    ``per_view_params`` can mix them; `loadings` passes what each view used).
     """
     from .similarity import SIGN_INVARIANT_ENERGIES
-    allow_flip = (resolve_positivity(positivity) in _NONNEG) and (energy_type in SIGN_INVARIANT_ENERGIES)
+    n_views = len(structure)
+    pos_l = _per_view_arg(positivity, n_views, "positivity")
+    et_l = _per_view_arg(energy_type, n_views, "energy_type")
     signs: List[torch.Tensor] = []
     for m, c in enumerate(structure):
         c64 = torch.as_tensor(c).double()
         k = int(c64.shape[1])
+        allow_flip = (resolve_positivity(pos_l[m]) in _NONNEG) and (et_l[m] in SIGN_INVARIANT_ENERGIES)
         if not allow_flip:
             signs.append(torch.ones(k, dtype=torch.float32))
             continue
@@ -260,10 +284,12 @@ def view_coupling_signs(structure: Sequence[torch.Tensor],
 
 
 def _oriented_olee(c: List[torch.Tensor], v_list: Optional[Sequence[torch.Tensor]],
-                   pos: str, etype: str):
+                   pos: Any, etype: Any, olee_pos: Optional[str] = None):
     csigns = view_coupling_signs(c, v_list, positivity=pos, energy_type=etype)
     c_oriented = [ci * sg.to(ci.dtype).unsqueeze(0) for ci, sg in zip(c, csigns)]
-    load, margin = olee_loadings(c_oriented, pos)
+    if olee_pos is None:
+        olee_pos = pos if isinstance(pos, str) else (pos[0] if len(set(pos)) == 1 else "either")
+    load, margin = olee_loadings(c_oriented, olee_pos)
     return csigns, load, margin
 
 
@@ -312,10 +338,9 @@ def loadings(result: Dict[str, Any], views: Any, u: Optional[torch.Tensor] = Non
     # u @ R" held only approximately.
     u_rot = torch.as_tensor(u).detach().double() @ rot
     c = structure_coefficients(xs, u_rot, obs_masks=obs_masks, **gkw)
-    pos = _result_positivity(result)
-    etype = _result_energy_type(result)
+    pos, etype = _result_view_settings(result, len(c))
     v_list = None if result.get("basis_is_joint") else result.get("v")
-    csigns, load, margin = _oriented_olee(c, v_list, pos, etype)
+    csigns, load, margin = _oriented_olee(c, v_list, pos, etype, olee_pos=_result_positivity(result))
     return {"structure": c, "loadings": load, "loading_margin": margin,
             "loading_rotation": rot.float(), "coupling_signs": csigns,
             "communality": [(ci.double() ** 2).sum(1).float() for ci in c]}
@@ -731,7 +756,7 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
                  probe_views: Optional[Sequence[Any]] = None,
                  min_rows: int = 10, return_info: bool = False, *,
                  groups: Any = None, scale_within_group: bool = False,
-                 exclude_views: Optional[Sequence[Any]] = None):
+                 exclude_views: Optional[Sequence[Any]] = None, return_target: bool = False):
     r"""Alternative feature maps beside `structure`, all in the fit's rotated frame.
 
     `structure` (corr(x_f, u_j)) measures association: a feature that only
@@ -834,6 +859,12 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     ``pysimlr.predict(result, views)["u"]``, so this works for every method and
     for held-out views alike.
 
+    ``return_target=True`` also returns the target each view's maps were computed against: the call then
+    returns ``(maps, extra)`` with ``extra["target"]``, a list with one ``(n, k)`` float array per view
+    (the raw other-views mean or the consensus, in the fit's rotated frame, before z-scoring; NaN on
+    rows that were not used, and everywhere for a view whose maps are NaN). It combines with
+    ``return_shrinkage`` / ``return_info`` (same ``extra`` dict).
+
     Returns ``{kind: [ (p_m, k) tensor per view ]}``.
     """
     from .api import _preprocess_views, as_views, predict
@@ -902,6 +933,7 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     rw_shrinkages = _per_view_arg(rw_shrinkage, len(xs), "rw_shrinkage")
     out: Dict[str, List[torch.Tensor]] = {k_: [] for k_ in kinds}
     lam_used: List[np.ndarray] = []
+    tgt_out: List[np.ndarray] = []
     info: Dict[str, Any] = {"min_rows": min_rows, "n_rows": n_total, "partial": bool(partial),
                             "n_eff": [], "n_eff_feature": [], "n_constant_features": [],
                             "constant_latent_columns": [], "reasons": {k_: [] for k_ in kinds}}
@@ -914,6 +946,7 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
 
     def nan_view(why, p_m, m):
         warnings.warn(f"feature_maps: {why}; its maps are NaN.", MissingRowsWarning, stacklevel=3)
+        tgt_out.append(np.full((n_total, k_lat), np.nan))
         for k_ in kinds:
             out[k_].append(torch.full((p_m, k_lat), float("nan")))
             info["reasons"][k_].append(why)
@@ -958,6 +991,8 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
                 tz = _zscore(sum(z for i, z in enumerate(scores) if i != m and i not in excl))
             else:
                 tz = _zscore(u_rot)
+            tgt_out.append(sum(scores[i] for i in range(len(xs)) if i != m and i not in excl) / max(len(oth), 1)
+                           if target == "other_views" else np.asarray(u_rot, dtype=np.float64))
             info["n_eff"].append(n_total)
             info["n_eff_feature"].append(np.full(p_m, n_total, dtype=int))
             info["n_constant_features"].append(int((x.std(0) <= 0).sum()))
@@ -1021,6 +1056,7 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
                        else f"view {m}: every latent column is constant on the {n_d} usable rows")
         if why_all is not None:
             warnings.warn(f"feature_maps: {why_all}; its maps are NaN.", MissingRowsWarning, stacklevel=2)
+            tgt_out.append(np.full((n_total, k_lat), np.nan))
             for k_ in kinds:
                 out[k_].append(torch.full((p_m, k_lat), float("nan")))
                 info["reasons"][k_].append(why_all)
@@ -1032,6 +1068,9 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
                           f"{int(t_const.sum())} constant latent column(s) on its {n_d} usable rows; "
                           "their map entries are NaN.", MissingRowsWarning, stacklevel=2)
         keep_f, keep_t = ~f_const, ~t_const
+        t_full = np.full((n_total, k_lat), np.nan)
+        t_full[rows] = td
+        tgt_out.append(t_full)
         xz, tz = _zscore(xd[:, keep_f]), _zscore(td[:, keep_t])
         ctrl = controls[m]
         if ctrl is not None and not isinstance(ctrl, str):
@@ -1051,10 +1090,12 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
                 lam_used.append(lam_full)
             info["reasons"][k_].append(why)
             out[k_].append(torch.as_tensor(mp).float())
-    if return_shrinkage or return_info:
+    if return_shrinkage or return_info or return_target:
         extra: Dict[str, Any] = {"relative_weight": [torch.as_tensor(lm).float() for lm in lam_used]}
         if return_info:
             extra.update(info)
+        if return_target:
+            extra["target"] = [np.asarray(t, dtype=np.float64) for t in tgt_out]
         return out, extra
     return out
 
@@ -1256,6 +1297,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                       subsample: str = "half", strata: Any = None,
                       return_refits: Sequence[str] = (), max_refit_bytes: int = 2_000_000_000,
                       _executor: Any = None, _warn_unconverged: bool = True,
+                      draw_random_state: Optional[int] = None,
                       **params: Any) -> Dict[str, Any]:
     r"""Uncertainty and selection for `structure`, by refitting the whole pipeline.
 
@@ -1322,6 +1364,11 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     ``relative_weight`` shares), without the sign for ``relative_weight``. A
     map's stability is its own: precision maps can be far less stable than
     ``structure``.
+
+    Seeds. ``random_state`` seeds the reference fit and every refit's optimiser (and, by default, the
+    row draws). ``draw_random_state`` (default ``None`` = ``random_state``, the historical behaviour)
+    seeds only the row draws and permutations, so the reference fit can be held fixed while the
+    resamples vary, or the reverse.
 
     Speed. ``n_jobs`` runs the refits (and permutation fits) in worker
     processes (``-1``: all cores). All subsample indices are drawn in the parent
@@ -1409,7 +1456,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     s_codes = None if strata is None else group_codes(strata, n, name="strata")
     if map_options and "groups" in map_options:
         raise ValueError("pass groups= to loading_inference, not through map_options.")
-    rng = np.random.default_rng(random_state)
+    rng = np.random.default_rng(random_state if draw_random_state is None else draw_random_state)
     maps = tuple(maps)
     bad = [k_ for k_ in maps if k_ not in FEATURE_MAP_KINDS]
     if bad:

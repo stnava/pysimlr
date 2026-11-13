@@ -539,11 +539,17 @@ def permutation_correlations(
             exactly as the source did, so that ``q_fdr`` over all ``p``
             columns is reproducible.
 
+    Masked rows
+        Rows that are all-NaN in ``X`` or have a non-finite ``y`` (unpaired; all non-finite entries
+        when paired) are dropped before anything is computed, with a ``MissingRowsWarning`` naming the
+        count; ``groups`` is subset the same way. Nothing changes when no such row exists.
+
     Raises
     ------
     ValueError
-        If ``n < 4``, shapes disagree, ``n_perms < 1``, ``n_boot < 0``, or
-        ``y`` is non-finite or (unpaired) has zero variance.
+        If ``n < 4`` (after dropping masked rows), shapes disagree, ``n_perms < 1``, ``n_boot < 0``,
+        ``y`` has a non-finite value in a row that is kept (every row of the call is then masked), or
+        (unpaired) has zero variance.
 
     Provenance
     ----------
@@ -556,6 +562,21 @@ def permutation_correlations(
     y = np.asarray(y, dtype=np.float64)
     if X.ndim != 2:
         raise ValueError(f"X must be (n, p), got shape {X.shape}")
+    # Masked rows (all-NaN in X, or a non-finite outcome) carry no information: drop them with a
+    # warning instead of failing, so the same rows can be passed as to a fit with missing_rows="mask".
+    y_bad = ~np.all(np.isfinite(y.reshape(y.shape[0], -1)), axis=1) if y.ndim in (1, 2) and y.shape[0] == X.shape[0] else None
+    if y_bad is not None:
+        x_bad = np.all(np.isnan(X), axis=1) if X.shape[1] else np.zeros(X.shape[0], dtype=bool)
+        drop = x_bad | (y_bad if not paired else np.all(~np.isfinite(y), axis=1))
+        if drop.any() and not drop.all():
+            import warnings as _w
+            from .utils import MissingRowsWarning
+            _w.warn(f"permutation_correlations: dropped {int(drop.sum())} masked row(s) "
+                    f"(all-NaN features or non-finite outcome); {int((~drop).sum())} remain.", MissingRowsWarning, stacklevel=2)
+            keep_rows = ~drop
+            X, y = X[keep_rows], y[keep_rows]
+            if groups is not None:
+                groups = np.asarray(groups.to_numpy() if hasattr(groups, "to_numpy") else groups)[keep_rows]
     n_samples, n_features = X.shape
     if n_samples < 4:
         raise ValueError(f"at least 4 rows are needed, got {n_samples}")
