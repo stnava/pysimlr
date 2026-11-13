@@ -94,7 +94,7 @@ def test_r2_linear_collapse_contract_and_sanity_residual():
                      optimizer_type="hybrid_adam", mixing_algorithm="newton", random_state=0,
                      collapse_weight=0.0, iterations=0)
 
-    torch_mats, prov, _ = _prepare_fit_inputs(
+    torch_mats, prov, _, _ = _prepare_fit_inputs(
         x, k=2, scale_list=["centerAndScale", "np"], positivity="positive",
         initialization_type="pca", random_state=0, domain_matrices=None,
         sparseness=0.5, varimax=None)

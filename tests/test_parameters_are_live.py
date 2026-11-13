@@ -54,6 +54,8 @@ _DOM = [torch.randn(2, p, generator=torch.Generator().manual_seed(1)) for p in D
 
 #: parameter -> two values that must produce different fits.
 EXERCISED = {
+    "per_view_params": ({"per_view_params": {0: {"sparseness": 0.3}}},
+                        {"per_view_params": {0: {"sparseness": 0.9}}}),
     # Under the deterministic "pca" start `random_state` has nothing to seed,
     # so it is exercised with a random initializer.
     "random_state": ({"initialization_type": "random", "random_state": 1},
@@ -112,6 +114,8 @@ EXERCISED = {
 #: parameter -> why changing it cannot or should not change the fitted basis.
 #: Each entry is a claim someone had to make deliberately.
 EXEMPT = {
+    "missing_rows": "'mask' differs from 'impute' only when a view has all-NaN rows, so the complete-data "
+                    "fixture cannot tell them apart; exercised in test_sem.py and test_missing_rows_maps.py",
     "data_matrices": "the input itself, not a setting",
     "sign_alignment": "changes the fit only when the views' latents are not mutually sign-consistent "
                       "(order-dependent greedy rule); exercised in test_view_order_sign_alignment.py",
