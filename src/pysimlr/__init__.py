@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.31.1"
+__version__ = "0.32.0"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -125,6 +125,7 @@ from .fused_ridge import fit_fused_ridge, predict_fused_ridge, fused_ridge_cv
 from .relevance import feature_relevance
 from .attribution import component_attribution
 from .screening import apply_view_screen, screen_wide_views
+from .orientation import orient_latents
 from .loadings import (
     RANK_CRITERIA,
     loadings,
@@ -217,6 +218,7 @@ __all__ = [
     'predict_simlr',
     'loadings',
     'loading_inference',
+    'orient_latents',
     'feature_maps',
     'feature_relevance',
     'component_attribution',

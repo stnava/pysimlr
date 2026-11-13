@@ -160,8 +160,17 @@ def _block_scores(result: Dict[str, Any], x: Any, m: int, rot: np.ndarray) -> np
 def view_scores(result: Dict[str, Any], views: Any, *, train_views: Any = None,
                 standardize: bool = True, rotate: bool = True,
                 signs: Optional[Sequence[Optional[np.ndarray]]] = None,
-                sign_against: Any = None, _pred: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                sign_against: Any = None, groups: Any = None, scale_within_group: bool = False,
+                _pred: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Per-view scores of ``views`` in the frame of ``result["structure"]``.
+
+    ``groups`` (length-n labels of the rows of ``views``, default ``None``) returns within-group
+    scores: each view's scores and the consensus are centered within group (and, with
+    ``scale_within_group=True``, scaled within group; default scales globally) before the global
+    standardization, and the column signs are chosen on within-group centered scores, so a group mean
+    difference decides neither the scores nor their signs. Rows in a group with fewer than 3 observed
+    rows for a view are NaN there (``MissingRowsWarning``). ``train_scores`` / ``train_consensus`` are
+    not grouped. ``groups=None`` leaves every output unchanged.
 
     ``views`` is a list in the fit's order (``None`` for a missing view) or a dict by view name
     (including views added by `pysimlr.extend`). All-NaN rows on uneven-missingness fits are
@@ -210,6 +219,12 @@ def view_scores(result: Dict[str, Any], views: Any, *, train_views: Any = None,
         z_tr = None if tv is None else [_block_scores(result, tv[m], m, rot) for m in range(m_views)]
         source = "joint_block"
     u_ev = _np(pred["u"]) @ rot
+    g_codes = None
+    if groups is not None:
+        from .utils import group_codes
+        g_codes = group_codes(groups, int(u_ev.shape[0]))
+        z_ev = {m: _group_center_rows(z_ev[m], g_codes, scale_within_group, f"view {m}") for m in avail}
+        u_ev_g = _group_center_rows(u_ev, g_codes, scale_within_group, "the consensus")
     u_tr_c = u_tr - u_tr.mean(0, keepdims=True)
     sgn: List[Optional[np.ndarray]] = [None] * m_views
     if signs is not None and sign_against is not None:
@@ -221,7 +236,8 @@ def view_scores(result: Dict[str, Any], views: Any, *, train_views: Any = None,
         ua = _np(sign_against) @ rot
         if ua.shape != (int(z_ev[avail[0]].shape[0]), k):
             raise ValueError(f"sign_against has shape {ua.shape}; expected ({z_ev[avail[0]].shape[0]}, {k}).")
-        uac = ua - ua.mean(0, keepdims=True)
+        uac = (ua - ua.mean(0, keepdims=True) if g_codes is None
+               else _group_center_rows(ua, g_codes, scale_within_group, "sign_against"))
         for m in avail:
             sgn[m] = _col_signs(z_ev[m], uac)
         sign_rows = "evaluation"
@@ -233,11 +249,11 @@ def view_scores(result: Dict[str, Any], views: Any, *, train_views: Any = None,
                 sgn[m] = np.where(np.asarray(ext_dict[names[m]]["coupling"], float) >= 0.0, 1.0, -1.0)
         sign_rows = "train"
     else:
-        u_ev_c = u_ev - u_ev.mean(0, keepdims=True)
+        u_ev_c = u_ev - u_ev.mean(0, keepdims=True) if g_codes is None else u_ev_g
         for m in avail:
             sgn[m] = _col_signs(z_ev[m], u_ev_c)
         sign_rows = "evaluation"
-    fin = _zscore_obs if standardize else (lambda a: a)
+    fin = (_zscore_obs_or_nan if g_codes is not None else _zscore_obs) if standardize else (lambda a: a)
     out: List[Optional[np.ndarray]] = [None] * m_views
     for m in avail:
         if sgn[m] is None:
@@ -246,10 +262,39 @@ def view_scores(result: Dict[str, Any], views: Any, *, train_views: Any = None,
     train_scores = None
     if z_tr is not None and all(z_m is not None for z_m in z_tr) and all(s is not None for s in sgn):
         train_scores = [fin(z_tr[m] * sgn[m][None, :]) for m in range(m_views)]
-    return {"scores": out, "consensus": _zscore(u_ev) if standardize else u_ev, "signs": sgn,
+    if g_codes is not None:
+        consensus = _zscore_obs_or_nan(u_ev_g) if standardize else u_ev_g
+    else:
+        consensus = _zscore(u_ev) if standardize else u_ev
+    return {"scores": out, "consensus": consensus, "signs": sgn,
             "source": source, "sign_rows": sign_rows, "available": avail,
             "n": int(out[avail[0]].shape[0]), "train_scores": train_scores,
             "train_consensus": _zscore(u_tr) if standardize else u_tr}
+
+
+def _zscore_obs_or_nan(a: np.ndarray) -> np.ndarray:
+    """`_zscore_obs`, or all-NaN when fewer than 3 rows are observed (every group too small to center)."""
+    if int(np.isfinite(a).all(axis=1).sum()) < 3:
+        return np.full(a.shape, np.nan, dtype=float)
+    return _zscore_obs(a)
+
+
+def _group_center_rows(a: np.ndarray, codes: np.ndarray, scale: bool, what: str) -> np.ndarray:
+    """Within-group centering of the finite rows of ``a`` (all-NaN rows stay NaN).
+
+    Rows whose group has fewer than 3 finite rows cannot be centered: they become NaN, with a
+    `MissingRowsWarning` (the same rule as `loadings.feature_maps`)."""
+    from .utils import MissingRowsWarning, center_within_groups
+    fin = np.isfinite(a).all(axis=1)
+    counts = np.bincount(codes[fin], minlength=int(codes.max()) + 1)
+    use = fin & (counts[codes] >= 3)
+    if (fin & ~use).any():
+        warnings.warn(f"view_scores: {int((fin & ~use).sum())} row(s) of {what} are in groups with fewer than 3 "
+                      "observed rows; their scores are NaN.", MissingRowsWarning, stacklevel=3)
+    out = np.full(a.shape, np.nan, dtype=float)
+    if use.any():
+        out[use] = center_within_groups(a[use], codes[use], scale)
+    return out
 
 
 def _col_signs(z: np.ndarray, ref_c: np.ndarray) -> np.ndarray:

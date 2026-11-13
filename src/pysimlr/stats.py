@@ -472,6 +472,7 @@ def permutation_correlations(
     n_boot: int = 0,
     seed: int,
     paired: bool = False,
+    groups: Any = None,
 ) -> dict[str, np.ndarray]:
     """Columnwise Pearson correlations with permutation, FDR, FWER, bootstrap and Bayes-factor inference.
 
@@ -498,6 +499,15 @@ def permutation_correlations(
         match the antsxbrainmapping sources for the same seed.
     paired : bool, optional
         See above.
+    groups : sequence of length n, optional
+        Group labels (site, cohort, scanner). Default ``None`` reproduces the ungrouped result
+        exactly. With groups, ``X`` and ``y`` are centered within group first, so ``r`` is the
+        pooled within-group correlation and a group mean difference cannot produce an association;
+        permutations move a row only within its group (the null keeps the group structure; an
+        unrestricted permutation of data that differ in group means is not a valid null for
+        within-group claims), bootstrap replicates resample within group, and ``p_param`` and
+        ``bf10`` use the effective sample size ``n - G + 1`` (``G`` groups; ``n - G - 1`` degrees of
+        freedom). Groups with fewer than 2 rows carry no within-group information. Requires ``n - G >= 3``.
 
     Returns
     -------
@@ -549,6 +559,15 @@ def permutation_correlations(
     n_samples, n_features = X.shape
     if n_samples < 4:
         raise ValueError(f"at least 4 rows are needed, got {n_samples}")
+    g_codes = None
+    n_eff = n_samples
+    if groups is not None:
+        from .utils import center_within_groups, group_codes, within_group_permutation
+        g_codes = group_codes(groups, n_samples)
+        n_groups = int(g_codes.max()) + 1
+        n_eff = n_samples - n_groups + 1
+        if n_eff < 4:
+            raise ValueError(f"{n_groups} groups for {n_samples} rows leave {n_eff - 1} within-group degrees of freedom; need at least 3.")
     n_perms = int(n_perms)
     n_boot = int(n_boot)
     if n_perms < 1:
@@ -566,6 +585,14 @@ def permutation_correlations(
         if np.std(y, ddof=1) <= 1e-10:
             raise ValueError("y has zero variance")
 
+    if g_codes is not None:
+        if not (np.all(np.isfinite(X)) and np.all(np.isfinite(y))):
+            raise ValueError("groups requires finite X and y.")
+        X = center_within_groups(X, g_codes)
+        y = center_within_groups(y, g_codes)
+        if not paired and np.std(y, ddof=1) <= 1e-10:
+            raise ValueError("y has zero variance within groups")
+
     from scipy import stats as _sps
 
     x_z, valid = _standardise_columns(X)
@@ -581,7 +608,7 @@ def permutation_correlations(
         y_z = y_c / np.std(y_c, ddof=1)
         r_obs = (x_z.T @ y_z) * inv_dof
     r_obs = np.clip(r_obs, -0.9999999, 0.9999999)
-    df = max(1, n_samples - 2)
+    df = max(1, n_eff - 2)
     t_obs = r_obs * np.sqrt(df / np.maximum(1e-12, 1.0 - r_obs**2))
     p_param = np.where(valid, 2.0 * _sps.t.sf(np.abs(t_obs), df=df), 1.0)
 
@@ -590,7 +617,7 @@ def permutation_correlations(
     if paired:
         perm_all = np.empty((n_perms, n_samples), dtype=np.intp)
         for b in range(n_perms):
-            perm_all[b] = rng.permutation(n_samples)
+            perm_all[b] = rng.permutation(n_samples) if g_codes is None else within_group_permutation(rng, g_codes)
         r_null = np.empty((n_features, n_perms), dtype=np.float64)
         for b0 in range(0, n_perms, chunk):
             b1 = min(b0 + chunk, n_perms)
@@ -598,7 +625,8 @@ def permutation_correlations(
     else:
         y_perms = np.empty((n_samples, n_perms), dtype=np.float64)
         for b in range(n_perms):
-            y_perms[:, b] = y_z[rng.permutation(n_samples)]
+            y_perms[:, b] = y_z[rng.permutation(n_samples) if g_codes is None
+                                else within_group_permutation(rng, g_codes)]
         r_null = np.abs((x_z.T @ y_perms) * inv_dof)
     abs_obs = np.abs(r_obs)[:, None]
     n_exceed = np.sum(r_null >= abs_obs, axis=1)
@@ -609,7 +637,13 @@ def permutation_correlations(
     p_fwer = np.where(valid, (1.0 + n_exceed_fwer) / (1.0 + float(n_perms)), 1.0)
 
     if n_boot > 0:
-        boot_idx = rng.integers(0, n_samples, size=(n_boot, n_samples))
+        if g_codes is None:
+            boot_idx = rng.integers(0, n_samples, size=(n_boot, n_samples))
+        else:
+            boot_idx = np.empty((n_boot, n_samples), dtype=np.intp)
+            for g in range(int(g_codes.max()) + 1):
+                rows_g = np.flatnonzero(g_codes == g)
+                boot_idx[:, rows_g] = rows_g[rng.integers(0, rows_g.shape[0], size=(n_boot, rows_g.shape[0]))]
         r_boot = np.empty((n_features, n_boot), dtype=np.float64)
         if paired:
             for b0 in range(0, n_boot, chunk):
@@ -646,7 +680,7 @@ def permutation_correlations(
 
     bf10 = np.ones(n_features, dtype=np.float64)
     if np.any(valid):
-        bf10[valid] = jzs_bf10_correlation(r_obs[valid], n_samples)
+        bf10[valid] = jzs_bf10_correlation(r_obs[valid], n_eff)
 
     return {
         "r": r_obs,

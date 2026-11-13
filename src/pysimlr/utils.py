@@ -2406,3 +2406,58 @@ def align_column_signs(mats: List[torch.Tensor],
         out.append(aligned)
         running = running + aligned.detach()
     return out
+
+
+# ----------------------------------------------------------------------------- within-group helpers
+def group_codes(groups: Any, n: int, name: str = "groups") -> np.ndarray:
+    """Integer codes ``0 .. G-1`` (sorted by label) for a length-``n`` sequence of group labels.
+
+    Labels may be any hashable, mutually sortable values (strings, integers). Missing labels
+    (``None``, NaN) are refused: a row without a group cannot be centered within one.
+    """
+    if hasattr(groups, "to_numpy"):
+        groups = groups.to_numpy()
+    if isinstance(groups, torch.Tensor):
+        groups = groups.detach().cpu().numpy()
+    g = np.asarray(groups)
+    if g.ndim != 1 or g.shape[0] != int(n):
+        raise ValueError(f"{name} must be a 1-D sequence of {int(n)} labels (one per row); got shape {g.shape}.")
+    if g.dtype.kind == "f" and np.isnan(g).any():
+        raise ValueError(f"{name} contains NaN labels.")
+    if g.dtype == object and any(x is None or (isinstance(x, float) and x != x) for x in g.tolist()):
+        raise ValueError(f"{name} contains missing labels.")
+    _, codes = np.unique(g, return_inverse=True)
+    return np.asarray(codes, dtype=np.int64).reshape(-1)
+
+
+def center_within_groups(a: np.ndarray, codes: np.ndarray, scale: bool = False) -> np.ndarray:
+    """``a`` (``(n,)`` or ``(n, p)``) with each group's column means removed.
+
+    ``scale=True`` also divides each group's columns by that group's population SD (a column
+    constant within a group stays 0 there). Rows are assumed finite; ``codes`` has one entry per row.
+    """
+    a = np.array(a, dtype=np.float64, copy=True)
+    codes = np.asarray(codes)
+    for g in np.unique(codes):
+        rows = codes == g
+        sub = a[rows]
+        sub = sub - sub.mean(axis=0)
+        if scale:
+            sd = sub.std(axis=0)
+            sub = np.where(sd > 0, sub / np.where(sd > 0, sd, 1.0), 0.0)
+        a[rows] = sub
+    return a
+
+
+def within_group_permutation(rng: np.random.Generator, codes: np.ndarray) -> np.ndarray:
+    """Index permutation of ``range(len(codes))`` that only moves a row to a position of its own group.
+
+    The single place where within-group permutation draws are made (``permutation_correlations``
+    and ``loading_inference``): groups are visited in code order, one ``rng.permutation`` each.
+    """
+    codes = np.asarray(codes)
+    out = np.arange(codes.shape[0])
+    for g in np.unique(codes):
+        idx = np.flatnonzero(codes == g)
+        out[idx] = idx[rng.permutation(idx.shape[0])]
+    return out

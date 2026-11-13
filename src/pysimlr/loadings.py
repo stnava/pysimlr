@@ -58,17 +58,76 @@ import torch
 
 from .positivity import NONNEG as _NONNEG
 from .positivity import resolve_positivity
-from .utils import MissingRowsWarning
+from .utils import MissingRowsWarning, center_within_groups, group_codes, within_group_permutation
+
+
+def _drop_small_groups(codes: np.ndarray, min_size: int = 3) -> np.ndarray:
+    """Boolean mask of rows whose group has at least ``min_size`` rows among ``codes``."""
+    counts = np.bincount(codes)
+    return counts[codes] >= int(min_size)
+
+
+def _structure_grouped(views, u, obs_masks, groups, scale_within_group) -> List[torch.Tensor]:
+    """`structure_coefficients` with features and latent columns centered within group.
+
+    Per view, on its observed rows with at least 3 rows in their group: the pooled within-group
+    correlation (group means removed, one global scale; ``scale_within_group=True`` also scales each
+    group). Groups with fewer than 3 observed rows for the view are dropped from that view with a
+    `MissingRowsWarning`; fewer than 3 remaining rows is a ``ValueError`` as without groups.
+    """
+    u64 = torch.as_tensor(u).detach().double().cpu().numpy()
+    n = u64.shape[0]
+    codes = group_codes(groups, n)
+    out = []
+    for m_idx, x in enumerate(views):
+        x64 = torch.as_tensor(x).detach().double().cpu().numpy()
+        mask = None if obs_masks is None else obs_masks[m_idx]
+        if mask is not None:
+            rows = np.flatnonzero(torch.as_tensor(mask, dtype=torch.bool).cpu().numpy())
+            if x64.shape[0] == n:
+                x64 = x64[rows]
+            elif x64.shape[0] != rows.shape[0]:
+                raise ValueError(f"view has {x64.shape[0]} rows but mask selects {rows.shape[0]}.")
+        else:
+            if x64.shape[0] != n:
+                raise ValueError(f"view has {x64.shape[0]} rows but u has {n}.")
+            rows = np.arange(n)
+        keep = _drop_small_groups(codes[rows])
+        if not keep.all():
+            warnings.warn(f"structure_coefficients: view {m_idx}: {int((~keep).sum())} row(s) in groups with fewer than "
+                          "3 observed rows were left out.", MissingRowsWarning, stacklevel=3)
+        rows, x64 = rows[keep], x64[keep]
+        if rows.shape[0] < 3:
+            raise ValueError(f"view {m_idx} has {int(rows.shape[0])} usable rows (groups need at least 3 observed rows "
+                             "each); structure coefficients need at least 3.")
+        g = codes[rows]
+        xc = center_within_groups(x64, g, scale_within_group)
+        uc = center_within_groups(u64[rows], g, scale_within_group)
+        nx, nu = np.linalg.norm(xc, axis=0, keepdims=True), np.linalg.norm(uc, axis=0, keepdims=True)
+        xs = np.where(nx > 0, xc / np.where(nx > 0, nx, 1.0), 0.0)
+        us = np.where(nu > 0, uc / np.where(nu > 0, nu, 1.0), 0.0)
+        out.append(torch.as_tensor(xs.T @ us).float())
+    return out
 
 
 def structure_coefficients(views: Sequence[torch.Tensor], u: torch.Tensor,
-                           obs_masks: Optional[Sequence[Optional[torch.Tensor]]] = None) -> List[torch.Tensor]:
+                           obs_masks: Optional[Sequence[Optional[torch.Tensor]]] = None,
+                           groups: Any = None, scale_within_group: bool = False) -> List[torch.Tensor]:
     """Per-view ``(p_m, k)`` correlations between each feature and each latent column.
 
     A constant feature or latent column has no correlation; its entries are 0.
     When ``obs_masks`` gives a boolean row mask for a view, that view's
     correlations are evaluated strictly on its observed rows.
+
+    ``groups`` (length-n labels, default ``None``) makes the correlations within-group: features and
+    latent columns are centered within each group (site, cohort, scanner) before the correlation, so
+    group mean differences cannot produce an association; the result is the pooled within-group
+    correlation. ``scale_within_group=False`` (default) scales globally after centering;
+    ``True`` also divides each group by its own SD. A group with fewer than 3 observed rows for a
+    view is left out of that view (``MissingRowsWarning``). ``groups=None`` is the pooled computation, unchanged.
     """
+    if groups is not None:
+        return _structure_grouped(views, u, obs_masks, groups, scale_within_group)
     u64 = torch.as_tensor(u).detach().double()
     uc_all = u64 - u64.mean(0, keepdim=True)
     nu_all = uc_all.norm(dim=0, keepdim=True)
@@ -208,7 +267,8 @@ def _oriented_olee(c: List[torch.Tensor], v_list: Optional[Sequence[torch.Tensor
     return csigns, load, margin
 
 
-def loadings(result: Dict[str, Any], views: Any, u: Optional[torch.Tensor] = None) -> Dict[str, Any]:
+def loadings(result: Dict[str, Any], views: Any, u: Optional[torch.Tensor] = None, *,
+             groups: Any = None, scale_within_group: bool = False) -> Dict[str, Any]:
     """`structure`, `loadings`, `loading_margin`, `coupling_signs` and per-feature
     `communality` for a `pysimlr.fit` result on ``views``.
 
@@ -216,6 +276,13 @@ def loadings(result: Dict[str, Any], views: Any, u: Optional[torch.Tensor] = Non
     (``scale_list``, ``provenance_list``), so this works for every method. With
     the training views and ``u=None`` it reproduces the keys `pysimlr.fit`
     stored; with held-out views pass ``u=pysimlr.predict(result, views)["u"]``.
+
+    ``groups`` (length-n labels, default ``None``) computes everything within group (see
+    `structure_coefficients`): ``structure``, the varimax ``loading_rotation`` derived from it,
+    ``loadings`` and ``communality`` all describe within-group associations. The returned
+    ``loading_rotation`` then differs from the pooled one; to feed it to `feature_maps`, merge it
+    into the result (``{**result, **loadings(result, views, groups=g)}``). ``scale_within_group``
+    is described in `structure_coefficients`. With ``groups=None`` the output is unchanged.
     """
     from .api import _preprocess_views, as_views
     view_list = as_views(views)
@@ -236,14 +303,15 @@ def loadings(result: Dict[str, Any], views: Any, u: Optional[torch.Tensor] = Non
                 xs.append(v_obs)
     else:
         xs, _ = _preprocess_views(view_list, result["scale_list"], result["provenance_list"])
-    c0 = structure_coefficients(xs, u, obs_masks=obs_masks)
+    gkw = {} if groups is None else {"groups": groups, "scale_within_group": scale_within_group}
+    c0 = structure_coefficients(xs, u, obs_masks=obs_masks, **gkw)
     rot = varimax_rotation(c0)
     # Correlations with the rotated scores themselves, not C0 @ R: the two agree
     # only when u's columns are uncorrelated with equal variance (orthogonal
     # mixings). Under "avg" they differed by up to 0.07, so "structure describes
     # u @ R" held only approximately.
     u_rot = torch.as_tensor(u).detach().double() @ rot
-    c = structure_coefficients(xs, u_rot, obs_masks=obs_masks)
+    c = structure_coefficients(xs, u_rot, obs_masks=obs_masks, **gkw)
     pos = _result_positivity(result)
     etype = _result_energy_type(result)
     v_list = None if result.get("basis_is_joint") else result.get("v")
@@ -635,12 +703,35 @@ def _preprocess_observed(v: torch.Tensor, obs_m: np.ndarray, result: Dict[str, A
     return out
 
 
+def _excluded_view_indices(result: Dict[str, Any], exclude_views: Optional[Sequence[Any]], n_views: int) -> frozenset:
+    """Indices of ``exclude_views`` (ints, view names, or ``"viewN"``) among the fit's views."""
+    if exclude_views is None:
+        return frozenset()
+    if isinstance(exclude_views, (str, bytes)):
+        raise TypeError("exclude_views must be a sequence of view names or indices, not a bare string.")
+    from .extension import view_names
+    names = view_names(result)[:n_views]
+    out = set()
+    for ev in exclude_views:
+        if isinstance(ev, (int, np.integer)) and not isinstance(ev, bool) and 0 <= int(ev) < n_views:
+            out.add(int(ev))
+        elif isinstance(ev, str) and ev in names:
+            out.add(names.index(ev))
+        elif isinstance(ev, str) and ev.startswith("view") and ev[4:].isdigit() and int(ev[4:]) < n_views:
+            out.add(int(ev[4:]))
+        else:
+            raise ValueError(f"unknown view {ev!r} in exclude_views; the fit has views {names}.")
+    return frozenset(out)
+
+
 def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEATURE_MAP_KINDS,
                  u: Optional[torch.Tensor] = None, target: str = "other_views",
                  shrinkage: Any = "ledoit_wolf", control: Any = "pc1",
                  rw_shrinkage: Any = 0.0, return_shrinkage: bool = False,
                  probe_views: Optional[Sequence[Any]] = None,
-                 min_rows: int = 10, return_info: bool = False):
+                 min_rows: int = 10, return_info: bool = False, *,
+                 groups: Any = None, scale_within_group: bool = False,
+                 exclude_views: Optional[Sequence[Any]] = None):
     r"""Alternative feature maps beside `structure`, all in the fit's rotated frame.
 
     `structure` (corr(x_f, u_j)) measures association: a feature that only
@@ -712,6 +803,33 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     ``n_constant_features``, ``constant_latent_columns``, ``reasons[kind][view]`` (``None`` or why the
     map is NaN), ``relative_weight`` (as ``return_shrinkage``), ``min_rows``, ``n_rows`` and ``partial``.
 
+    **Within-group maps** (``groups``, length-n labels, default ``None``). Features, the target and
+    any ``control`` array are centered within each group (site, cohort, scanner) before any
+    correlation or map is computed, so a difference in group means cannot produce an association;
+    every map is then a within-group quantity (pooled within-group correlation for ``structure``).
+    ``scale_within_group=False`` (default) scales globally after centering; ``True`` also divides each
+    group by its own SD (one cohort's larger variance then does not dominate). With
+    ``target="other_views"`` the scores come from ``sem.view_scores(groups=...)``, so the target is
+    centered within group too. A group with fewer than 3 usable rows for a view (rows where the view
+    and its target exist) is left out of that view, with a ``MissingRowsWarning``; if fewer than
+    ``min_rows`` rows remain the view's maps are NaN with a reason (the rules above). It composes with
+    ``missing_rows="mask"``. ``info["groups"]`` (``return_info=True``) records groups used and left out
+    per view. ``groups=None`` leaves every output unchanged. The rotation applied is the result's
+    ``loading_rotation``; for the within-group rotation merge in ``loadings(result, views, groups=g)``.
+
+    **Excluded views** (``exclude_views``: view indices or names, default ``None``; requires
+    ``target="other_views"``). The listed views are left out of the other-views target of *every*
+    view: view ``m``'s target is the mean of the standardized scores of the non-excluded views other
+    than ``m``. Excluded views still receive their own maps (against the target built from the
+    non-excluded views); ignore them if not wanted (no separate ``skip_maps_for`` is needed). A view
+    with no non-excluded other view gets NaN maps with a reason and a ``MissingRowsWarning``. This
+    changes the target only: the fitted consensus ``u`` and every view's encoder were estimated with
+    the excluded view in the model, so the scores of the remaining views still carry information
+    pulled in from it. For a strictly non-circular test (for example when the excluded view is the
+    outcome "root" view), refit without it: ``fit(method, [v for v in views if v is not outcome], k)``,
+    then compute maps on that result with ``exclude_views=None`` and relate the outcome to the
+    refit's latents or maps.
+
     Views are replayed through the fit's own preprocessing and ``u`` defaults to
     ``pysimlr.predict(result, views)["u"]``, so this works for every method and
     for held-out views alike.
@@ -732,6 +850,12 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     min_rows = int(min_rows)
     if min_rows < 3:
         raise ValueError(f"min_rows must be at least 3; got {min_rows}.")
+    excl = _excluded_view_indices(result, exclude_views, len(view_list))
+    if excl and target != "other_views":
+        raise ValueError("exclude_views only changes the other-views target; use target='other_views'.")
+    n_total = int(view_list[0].shape[0])
+    codes = None if groups is None else group_codes(groups, n_total)
+    grouped = codes is not None
     # Uneven missingness: with ``missing_rows="mask"`` a row that is all-NaN in a view is unobserved
     # there. Every quantity is then computed on the rows where its inputs exist (branch below); with
     # no unobserved rows the original complete-data code runs unchanged.
@@ -739,6 +863,9 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     if result.get("missing_rows") == "mask":
         obs = [(~torch.isnan(v.detach().cpu()).all(dim=1)).numpy() for v in view_list]
     partial = obs is not None and any(not o.all() for o in obs)
+    general = partial or grouped          # the row-subset code path; complete ungrouped data takes the original one
+    if general and obs is None:
+        obs = [np.ones(n_total, dtype=bool) for _ in view_list]
     if partial:
         xs = [_preprocess_observed(v, o, result, m) for m, (v, o) in enumerate(zip(view_list, obs))]
     else:
@@ -751,7 +878,8 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     u_rot = np.asarray(torch.as_tensor(u).detach().double()) @ rot
     # Signs learned on these rows against `u` (not on the training rows): the maps describe
     # the columns of `u @ loading_rotation` as given.
-    scores = (view_scores(result, view_list, sign_against=u, _pred=pred)["scores"]
+    gkw = {"groups": groups, "scale_within_group": scale_within_group} if grouped else {}
+    scores = (view_scores(result, view_list, sign_against=u, _pred=pred, **gkw)["scores"]
               if target == "other_views" else None)
     if probe_views is not None:
         if target != "other_views":
@@ -774,11 +902,23 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     rw_shrinkages = _per_view_arg(rw_shrinkage, len(xs), "rw_shrinkage")
     out: Dict[str, List[torch.Tensor]] = {k_: [] for k_ in kinds}
     lam_used: List[np.ndarray] = []
-    n_total = int(xs[0].shape[0])
     info: Dict[str, Any] = {"min_rows": min_rows, "n_rows": n_total, "partial": bool(partial),
                             "n_eff": [], "n_eff_feature": [], "n_constant_features": [],
                             "constant_latent_columns": [], "reasons": {k_: [] for k_ in kinds}}
+    if grouped:
+        info["groups"] = {"scale_within_group": bool(scale_within_group), "n_groups": [], "left_out_groups": []}
+        group_labels = np.unique(np.asarray(groups.to_numpy() if hasattr(groups, "to_numpy") else groups))
+    if excl:
+        info["exclude_views"] = sorted(excl)
     k_lat = int(u_rot.shape[1])
+
+    def nan_view(why, p_m, m):
+        warnings.warn(f"feature_maps: {why}; its maps are NaN.", MissingRowsWarning, stacklevel=3)
+        for k_ in kinds:
+            out[k_].append(torch.full((p_m, k_lat), float("nan")))
+            info["reasons"][k_].append(why)
+        if "relative_weight" in kinds:
+            lam_used.append(np.full(k_lat, np.nan))
 
     def one_map(k_, xz, tz, ctrl, rw_shr, m):
         """(map, lam, reason) of one kind on the rows given; lam is None except for relative_weight."""
@@ -804,10 +944,18 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
 
     for m, x in enumerate(xs):
         p_m = int(x.shape[1])
-        if not partial:
+        oth = [i for i in range(len(xs)) if i != m and i not in excl] if target == "other_views" else None
+        if not general:
+            if target == "other_views" and not oth:
+                info["n_eff"].append(0)
+                info["n_eff_feature"].append(np.zeros(p_m, dtype=int))
+                info["n_constant_features"].append(0)
+                info["constant_latent_columns"].append([])
+                nan_view(f"view {m}: no non-excluded other view to build its other-views target", p_m, m)
+                continue
             xz = _zscore(x)
             if target == "other_views":
-                tz = _zscore(sum(z for i, z in enumerate(scores) if i != m))
+                tz = _zscore(sum(z for i, z in enumerate(scores) if i != m and i not in excl))
             else:
                 tz = _zscore(u_rot)
             info["n_eff"].append(n_total)
@@ -824,8 +972,11 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
         # Rows where view m is observed and its target exists. The other-views target at a row is the
         # mean of the standardized scores of the *other* views observed at that row (undefined where
         # none is); for complete rows it equals the all-views sum up to a constant, which the z-score removes.
-        if target == "other_views":
-            stack = np.stack([s for i, s in enumerate(scores) if i != m])      # (M-1, n, k), NaN rows
+        if target == "other_views" and not oth:
+            t_raw = np.full((n_total, k_lat), np.nan)
+            rows = np.zeros(n_total, dtype=bool)
+        elif target == "other_views":
+            stack = np.stack([scores[i] for i in oth])      # (n_other, n, k), NaN rows
             fin = np.isfinite(stack).all(axis=2)
             cnt = fin.sum(0)
             t_raw = np.where(fin[..., None], stack, 0.0).sum(0) / np.maximum(cnt, 1)[:, None]
@@ -833,8 +984,27 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
         else:
             t_raw = u_rot
             rows = obs[m] & np.isfinite(u_rot).all(axis=1)
+        if grouped:
+            small = ~_drop_small_groups(codes[rows])
+            hit = set(np.unique(codes[rows][small]).tolist())
+            if small.any():
+                drop_full = np.zeros(n_total, dtype=bool)
+                drop_full[np.flatnonzero(rows)[small]] = True
+                rows = rows & ~drop_full
+            # groups with rows observed in this view that lost every usable row (their scores were NaN in the
+            # other views, see sem.view_scores) are reported too
+            hit |= set(np.unique(codes[obs[m]]).tolist()) - set(np.unique(codes[rows]).tolist())
+            lost = sorted(str(x_) for x_ in group_labels[sorted(hit)])
+            if hit:
+                warnings.warn(f"feature_maps: view {m}: group(s) {lost} have fewer than 3 usable rows (rows where the "
+                              "view and its target exist); they were left out.", MissingRowsWarning, stacklevel=2)
+            info["groups"]["left_out_groups"].append(lost)
+            info["groups"]["n_groups"].append(int(np.unique(codes[rows]).shape[0]))
         n_d = int(rows.sum())
         xd, td = x[rows], t_raw[rows]
+        if grouped and n_d:
+            xd = center_within_groups(xd, codes[rows], scale_within_group)
+            td = center_within_groups(td, codes[rows], scale_within_group)
         f_const = ~(xd.std(0) > 0) if n_d else np.ones(p_m, dtype=bool)
         t_const = ~(td.std(0) > 0) if n_d else np.ones(k_lat, dtype=bool)
         info["n_eff"].append(n_d)
@@ -842,7 +1012,9 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
         info["n_constant_features"].append(int(f_const.sum()))
         info["constant_latent_columns"].append([int(j) for j in np.where(t_const)[0]])
         why_all = None
-        if n_d < min_rows:
+        if target == "other_views" and not oth:
+            why_all = f"view {m}: no non-excluded other view to build its other-views target"
+        elif n_d < min_rows:
             why_all = f"only {n_d} rows with view {m} and its {target} target observed (min_rows={min_rows})"
         elif f_const.all() or t_const.all():
             why_all = (f"view {m}: every feature is constant on the {n_d} usable rows" if f_const.all()
@@ -866,6 +1038,8 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
             ctrl = np.asarray(ctrl, dtype=np.float64)
             if ctrl.shape[0] == n_total:
                 ctrl = ctrl[rows]
+                if grouped:
+                    ctrl = center_within_groups(ctrl, codes[rows], scale_within_group)
         for k_ in kinds:
             mp_k, lam_m, why = one_map(k_, xz, tz, ctrl, rw_shrinkages[m], m)
             mp = np.full((p_m, k_lat), np.nan)
@@ -946,7 +1120,8 @@ def _masked_coupling(z_std: Sequence[np.ndarray], min_rows: int = 3) -> Tuple[Li
 
 def _oob_metrics(res: Dict[str, Any], sub_views: Sequence[torch.Tensor],
                  oob_views: Optional[Sequence[torch.Tensor]], return_scores: bool = False,
-                 _info: Optional[Dict[str, Any]] = None):
+                 _info: Optional[Dict[str, Any]] = None, _groups: Any = None,
+                 _scale_within_group: bool = False):
     """Held-out reconstruction R^2 (adjusted for random k-plane self-projection)
     and leave-one-view-out coupling on unused rows. Scores come from `sem.view_scores`
     (rotated, signed on the refit's training rows, standardised on the unused rows);
@@ -965,7 +1140,8 @@ def _oob_metrics(res: Dict[str, Any], sub_views: Sequence[torch.Tensor],
         r2.append(float((float(raw) - d0) / (1.0 - d0)))
     if m_views < 2 or oob_views[0].shape[0] < 3:
         return (r2, None, None) if return_scores else (r2, None)
-    z_std = view_scores(res, list(oob_views), train_views=list(sub_views), _pred=pred)["scores"]
+    gkw = {} if _groups is None else {"groups": _groups, "scale_within_group": _scale_within_group}
+    z_std = view_scores(res, list(oob_views), train_views=list(sub_views), _pred=pred, **gkw)["scores"]
     if all(np.isfinite(z).all() for z in z_std):
         tot = sum(z_std)
         per_view = []
@@ -1026,12 +1202,59 @@ def _nanmedian_cols(rows: Sequence[Sequence[float]]) -> List[float]:
     return [float(x) for x in med]
 
 
+def _nearest_signed_permutation(rot: np.ndarray) -> np.ndarray:
+    """Signed permutation matrix nearest an orthogonal ``rot`` (Hungarian match on ``|rot|``, signs of the matched entries)."""
+    from scipy.optimize import linear_sum_assignment
+    rows_m, cols_m = linear_sum_assignment(-np.abs(rot))
+    perm = np.zeros_like(rot)
+    perm[rows_m, cols_m] = np.sign(rot[rows_m, cols_m])
+    return perm
+
+
+def _proportional_allocation(sizes: np.ndarray, total: int) -> np.ndarray:
+    """Integer draws per stratum summing to ``total``, proportional to ``sizes`` (largest remainder; ties to the
+    earlier stratum), never above a stratum's size."""
+    exact = sizes * (float(total) / float(sizes.sum()))
+    base = np.minimum(np.floor(exact).astype(int), sizes)
+    left = int(total - base.sum())
+    if left > 0:
+        order = np.argsort(-(exact - base), kind="stable")
+        for g in order:
+            if left == 0:
+                break
+            if base[g] < sizes[g]:
+                base[g] += 1
+                left -= 1
+    return base
+
+
+def _draw_subsample(rng: np.random.Generator, n: int, m: int, scheme: str,
+                    strata_codes: Optional[np.ndarray]) -> np.ndarray:
+    """Sorted row indices of one resample. Unstratified without replacement is the historical draw
+    (``rng.choice(n, m, replace=False)``) and must stay bit-identical."""
+    boot = scheme == "bootstrap"
+    if strata_codes is None:
+        return np.sort(rng.choice(n, n if boot else m, replace=boot))
+    rows_by = [np.flatnonzero(strata_codes == g) for g in np.unique(strata_codes)]
+    sizes = np.asarray([len(r) for r in rows_by])
+    take = sizes if boot else _proportional_allocation(sizes, m)
+    parts = [rng.choice(r, int(t), replace=boot) for r, t in zip(rows_by, take) if t > 0]
+    return np.sort(np.concatenate(parts))
+
+
+REFIT_OUTPUTS = ("weights", "maps", "latents", "rows")
+SUBSAMPLE_SCHEMES = ("half", "fraction", "bootstrap")
+
+
 def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 100,
                       fraction: float = 0.5, threshold: float = 0.8,
                       expected_false: float = 1.0,
                       n_permutations: int = 0, exclude_unconverged: bool = False,
                       random_state: int = 0, n_jobs: int = 1,
                       maps: Sequence[str] = (), map_options: Optional[Dict[str, Any]] = None,
+                      groups: Any = None, scale_within_group: bool = False,
+                      subsample: str = "half", strata: Any = None,
+                      return_refits: Sequence[str] = (), max_refit_bytes: int = 2_000_000_000,
                       _executor: Any = None, _warn_unconverged: bool = True,
                       **params: Any) -> Dict[str, Any]:
     r"""Uncertainty and selection for `structure`, by refitting the whole pipeline.
@@ -1069,8 +1292,8 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         Meinshausen & Buhlmann 2010: each refit selects the ``q_m`` features of
         largest communality; ``selected`` is frequency >= ``threshold``),
         ``q`` and ``expected_false_selections`` (the bound
-        :math:`q^2 / ((2\pi - 1) p)`, valid for ``fraction = 0.5`` and
-        ``threshold > 0.5``), and, if ``n_permutations > 0``,
+        :math:`q^2 / ((2\pi - 1) p)`, valid for uniform half-samples, ``fraction = 0.5``,
+        and ``threshold > 0.5``; NaN under any other resampling design, see below), and, if ``n_permutations > 0``,
         ``null_max_abs`` (95th percentile of :math:`\max_{f,j} |C|` with the
         rows of every view but the first permuted independently, i.e. no
         shared signal).
@@ -1107,6 +1330,60 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     measured and rejected: 1.3x faster, but it moved an under-identified
     component's stability by 0.18 (``docs/audit/evidence/select_rank_speed.csv``).
 
+    Within-group inference (``groups``, length-n labels, default ``None``; ``scale_within_group``
+    as in `structure_coefficients`). The reference fit and every refit get within-group
+    ``structure`` / ``loadings`` / ``loading_rotation`` (`loadings(..., groups=)`; ``out["result"]``
+    carries those keys, not the pooled ones), the maps are computed within group
+    (`feature_maps(groups=)`, with the subsample's labels), the out-of-bag ``oos_coupling`` is
+    computed on within-group scores, and the permutation null (``n_permutations``) permutes rows
+    only within group (one `utils.within_group_permutation` draw per view, so ``null_max_abs`` is a
+    null for within-group association). ``oos_r2`` (reconstruction) is not grouped. Resampling is
+    not stratified by ``groups`` unless you also pass ``strata=groups``; with small groups do, so
+    every refit sees every group.
+
+    Resampling scheme (``subsample``, ``fraction``, ``strata``). ``"half"`` (default) draws
+    ``round(fraction * n)`` rows without replacement (at least ``k + 2``); at the default
+    ``fraction=0.5`` these are half-samples and the draws are exactly those of earlier versions
+    (same seed, same rows). ``"fraction"`` is the same draw, the explicit spelling for
+    ``fraction != 0.5`` (``"half"`` with another fraction keeps working for callers that already
+    pass one, such as `select_rank`). ``"bootstrap"`` draws ``n`` rows with replacement
+    (``fraction`` is not used); the out-of-bag rows are the never-drawn rows (about 37%), the refit
+    sees duplicated rows, and the intervals are percentile-bootstrap intervals, not the conservative
+    half-sample ones. ``strata`` (length-n labels) makes every draw proportional within strata
+    (largest-remainder allocation of the total, so stratum shares are kept to rounding; for the
+    bootstrap, each stratum is resampled to its own size). Stratifying by the view-observation pattern
+    under ``missing_rows="mask"`` is not a built-in option; build the labels and pass them:
+    ``strata = [''.join('1' if o else '0' for o in obs) for obs in zip(*[~v.isnan().all(1) for v in views])]``.
+    Guarantees: only uniform half-sampling (``subsample`` in {"half", "fraction"}, ``fraction == 0.5``,
+    ``strata=None``) carries the stability-selection false-selection bound; for every other design
+    ``expected_false_selections`` is NaN per view and ``expected_false_selections_reason`` says why
+    (``None`` when the bound is reported), ``out["resampling"]`` records the design and
+    ``bound_valid``. ``selected`` and ``selection_frequency`` are still computed (as a descriptive
+    stability measure with no error-rate guarantee), and so are intervals and component stability
+    (empirical resampling variability, with no coverage guarantee: a bootstrap or large-fraction
+    subsample understates the variability of the estimator that half-samples would show).
+
+    Per-refit outputs (``return_refits``, default ``()``: nothing is kept). Any of
+    ``"weights"``, ``"maps"`` (needs ``maps=``), ``"latents"``, ``"rows"``. ``out["refits"]`` then
+    holds, for the ``B`` refits kept (unconverged ones are dropped under ``exclude_unconverged``;
+    ``index`` gives their position among the draws): ``structure`` (``(B, sum p, k)`` float32, the
+    aligned structure the summaries use) and ``view_sizes``; ``alignment`` with ``rotation``
+    (``(B, k, k)``: ``u_refit @ rotation[b]`` is the refit's latent in the reference frame; undo with
+    ``@ rotation[b].T``, it is orthogonal), ``procrustes`` (the structure alignment), ``loading_rotation``
+    (the refit's own varimax rotation; ``rotation = loading_rotation @ procrustes``) and
+    ``signed_permutation`` (what the maps are aligned with; its absolute value for
+    ``relative_weight``); ``weights`` (per view, ``(B, p_m, k)``, the encoders ``V_m @ rotation[b]``);
+    ``maps[kind]`` (per view ``(B, p_m, k)``, aligned as the summary maps are); ``latents``
+    (``(B, n, k)``: the consensus latent of every row of the full data in the reference frame; in-bag
+    rows from the refit's own ``u`` (first draw of a duplicated row), out-of-bag rows from
+    `predict`); ``in_bag`` / ``n_draws`` (``(B, n)``, with ``rows`` or ``latents``); ``rows`` and
+    ``oob_rows`` (lists of index arrays, ``rows`` with duplicates under the bootstrap). The reference
+    frame is the one used for the stability summaries (Procrustes onto the full-data fit's structure),
+    chosen from the full-data fit alone and so independent of the order of the draws. Memory: about
+    ``4 B (sum_m p_m k [structure] + sum_m p_m k [weights] + len(maps) sum p_m k [maps] + n k [latents])
+    + 5 B n [rows]`` bytes; the call raises a ``ValueError`` before fitting if that exceeds
+    ``max_refit_bytes`` (default 2e9).
+
     ``q_m``, the number of features each refit selects in view ``m``, is set
     from the tolerated number of false selections (``expected_false``, per
     view) by inverting the bound: ``q_m = floor(sqrt(expected_false *
@@ -1122,11 +1399,23 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         raise ValueError(f"threshold must be in (0.5, 1]; got {threshold}.")
     view_list = as_views(views)
     n = view_list[0].shape[0]
+    if subsample not in SUBSAMPLE_SCHEMES:
+        raise ValueError(f"subsample must be one of {SUBSAMPLE_SCHEMES}; got {subsample!r}.")
+    want = tuple(return_refits)
+    bad_w = [w for w in want if w not in REFIT_OUTPUTS]
+    if bad_w:
+        raise ValueError(f"unknown return_refits entr{'y' if len(bad_w) == 1 else 'ies'} {bad_w}; choose from {REFIT_OUTPUTS}.")
+    g_codes = None if groups is None else group_codes(groups, n)
+    s_codes = None if strata is None else group_codes(strata, n, name="strata")
+    if map_options and "groups" in map_options:
+        raise ValueError("pass groups= to loading_inference, not through map_options.")
     rng = np.random.default_rng(random_state)
     maps = tuple(maps)
     bad = [k_ for k_ in maps if k_ not in FEATURE_MAP_KINDS]
     if bad:
         raise ValueError(f"unknown feature map(s) {bad}; choose from {FEATURE_MAP_KINDS}.")
+    if "maps" in want and not maps:
+        raise ValueError("return_refits includes 'maps' but no map kinds were requested (maps=...).")
     map_opts = dict(map_options or {}, kinds=maps) if maps else None
     probe_tensors = None
     if map_opts and map_opts.get("probe_views") is not None:
@@ -1136,6 +1425,9 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         probe_tensors = [None if pv is None else _to_probe_tensor(pv, n, vi) for vi, pv in enumerate(p_items)]
         map_opts = dict(map_opts, probe_views=probe_tensors)
     ref = fit(method, view_list, k, random_state=random_state, **params)
+    if g_codes is not None:
+        ref = _with_grouped_loadings(ref, view_list, g_codes, scale_within_group)
+        map_opts = None if map_opts is None else dict(map_opts, groups=g_codes, scale_within_group=scale_within_group)
     c_ref = [c.double().numpy() for c in ref["structure"]]
     stacked_ref = np.vstack(c_ref)
     if expected_false <= 0:
@@ -1153,12 +1445,32 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     from .confounds import permute_view_confounds, slice_confounds
     # Draw every index in the parent, in a fixed order, before any refit runs:
     # the result is then the same for every n_jobs.
-    sub_idx = [np.sort(rng.choice(n, m, replace=False)) for _ in range(int(n_subsamples))]
-    perm_idx = [[rng.permutation(n) for _ in view_list[1:]] for _ in range(int(n_permutations))]
+    # The default scheme is the historical draw; the bound below is only reported for it.
+    sub_idx = [_draw_subsample(rng, n, m, subsample, s_codes) for _ in range(int(n_subsamples))]
+    if g_codes is None:
+        perm_idx = [[rng.permutation(n) for _ in view_list[1:]] for _ in range(int(n_permutations))]
+    else:
+        # Within-group permutation null: a row only moves to a position of its own group, so group
+        # structure shared by the views stays in the null (the groups= option of this function).
+        perm_idx = [[within_group_permutation(rng, g_codes) for _ in view_list[1:]]
+                    for _ in range(int(n_permutations))]
     all_rows = np.arange(n)
+    if want:
+        p_widths = [int(x.shape[1]) for x in view_list] if probe_tensors is None else [
+            int((view_list[i] if pt is None else pt).shape[1]) for i, pt in enumerate(probe_tensors)]
+        n_beff = int(n_subsamples)
+        est = 4 * n_beff * (sum(p_widths) * k                                   # aligned structure
+                            + ("weights" in want) * sum(int(x.shape[1]) for x in view_list) * k
+                            + ("maps" in want) * len(maps) * sum(p_widths) * k
+                            + ("latents" in want) * n * k) + (n_beff * n * 5 if want else 0)
+        if est > int(max_refit_bytes):
+            raise ValueError(f"return_refits={want} would hold about {est / 1e6:.0f} MB for {n_beff} refits "
+                             f"(n={n}, k={k}), above max_refit_bytes={int(max_refit_bytes)}; request fewer outputs or "
+                             "refits, or raise max_refit_bytes.")
+    use_extra = g_codes is not None or bool(want)
     tasks, oob_rows = [], []
     for idx in sub_idx:
-        oob = np.setdiff1d(all_rows, idx, assume_unique=True)
+        oob = np.setdiff1d(all_rows, np.unique(idx) if subsample == "bootstrap" else idx, assume_unique=True)
         oob_rows.append(oob)
         t_idx = torch.as_tensor(idx)
         t_oob = torch.as_tensor(oob) if len(oob) >= 2 else None
@@ -1173,7 +1485,14 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
             t_opts = (dict(map_opts, probe_views=[None if pt is None else pt[t_idx]
                                                   for pt in probe_tensors])
                       if probe_tensors is not None else map_opts)
+            if g_codes is not None:
+                t_opts = dict(t_opts, groups=g_codes[idx])
             task = task + (t_opts,)
+        if use_extra:
+            extra = {"groups": None if g_codes is None else g_codes[idx],
+                     "oob_groups": None if g_codes is None or len(oob) < 2 else g_codes[oob],
+                     "scale_within_group": bool(scale_within_group), "want": want}
+            task = task + ((None,) if len(task) == 6 else ()) + (extra,)
         tasks.append(task)
     tasks += [(method,
                ([view_list[0].numpy()] if view_list[0].device.type == "cpu" else [view_list[0]])
@@ -1182,6 +1501,8 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                None, k, random_state,
                refit_params if conf is None else
                dict(refit_params, confounds=permute_view_confounds(conf, [None] + list(pis))))
+              + ((None, {"groups": g_codes, "oob_groups": None, "scale_within_group": bool(scale_within_group),
+                         "want": ()}) if g_codes is not None else ())
               for pis in perm_idx]
     records = _run_fits(tasks, n_jobs, _executor)
     sub_records = records[:len(sub_idx)]
@@ -1205,7 +1526,11 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     kept_oob_scores = []
     coup_n = [rec["oos_coupling_n"] for rec in sub_records if rec.get("oos_coupling_n") is not None]
     map_aligned = {kk: [] for kk in maps}
-    for rows_, rec in zip(oob_rows, sub_records):
+    kept_idx: List[int] = []
+    rf: Dict[str, List[Any]] = {"rotation": [], "procrustes": [], "loading_rotation": [], "signed_permutation": [],
+                                "weights": [], "latents": [], "in_bag": [], "n_draws": [], "rows": [], "oob_rows": [],
+                                "maps": {kk: [] for kk in maps}}
+    for b_i, (rows_, rec) in enumerate(zip(oob_rows, sub_records)):
         keep_rec = (not exclude_unconverged) or bool(rec["converged"])
         st_list = rec["structure"]
         st = np.vstack(st_list)
@@ -1222,13 +1547,38 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
             continue
         rp = _procrustes(st, stacked_ref)
         aligned.append(st @ rp)
+        perm = _nearest_signed_permutation(rp) if (maps or want) else None
         if maps:
-            rows_m, cols_m = linear_sum_assignment(-np.abs(rp))
-            perm = np.zeros_like(rp)
-            perm[rows_m, cols_m] = np.sign(rp[rows_m, cols_m])
             for kk in maps:
                 mk = np.vstack(rec["maps"][kk])
                 map_aligned[kk].append(mk @ (np.abs(perm) if kk == "relative_weight" else perm))
+        if want:
+            kept_idx.append(b_i)
+            a_b = rec["loading_rotation"] @ rp          # raw refit frame -> reference frame
+            rf["rotation"].append(a_b)
+            rf["procrustes"].append(rp)
+            rf["loading_rotation"].append(rec["loading_rotation"])
+            rf["signed_permutation"].append(perm)
+            idx_b = sub_idx[b_i]
+            if "rows" in want or "latents" in want:
+                draws = np.bincount(idx_b, minlength=n)
+                rf["n_draws"].append(draws.astype(np.int32))
+                rf["in_bag"].append(draws > 0)
+            if "rows" in want:
+                rf["rows"].append(idx_b)
+                rf["oob_rows"].append(rows_)
+            if "weights" in want:
+                rf["weights"].append([w @ a_b for w in rec["weights"]])
+            if "latents" in want:
+                lat = np.full((n, k), np.nan)
+                first = np.unique(idx_b, return_index=True)       # first draw of each in-bag row
+                lat[first[0]] = rec["u_train"][first[1]] @ a_b
+                if rec["u_oob"] is not None:
+                    lat[rows_] = rec["u_oob"] @ a_b
+                rf["latents"].append(lat)
+            if "maps" in want:
+                for kk in maps:
+                    rf["maps"][kk].append(map_aligned[kk][-1])
         cosines.append(_principal_cosines(st, stacked_ref))
         eff_ranks.append(rec["effective_rank"])
         if rec["oos_r2"] is not None:
@@ -1258,7 +1608,9 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
            "oos_coupling": (_nanmedian_cols(coups) if coups else None),
            "oos_coupling_n": ([float(x) for x in np.median(coup_n, axis=0)] if coup_n else None),
            "oos_coupling_splits": (coup_splits_all if coups else None),
-           "oos_n": int(n - m), "n_rows": int(n),
+           "oos_n": (int(n - m) if subsample != "bootstrap" and s_codes is None
+                     else int(np.median([len(o) for o in oob_rows])) if oob_rows else 0),
+           "n_rows": int(n),
            "oob_scores": kept_oob_scores,
            "converged_fraction": conv_frac,
            "median_converged_iter": median_conv_iter,
@@ -1267,6 +1619,20 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
            "effective_rank": eff_rk,
            "selection_frequency": [], "selected": [],
            "q": qs, "expected_false_selections": []}
+    # The Meinshausen-Buhlmann bound is derived for subsamples of size n/2 drawn uniformly without replacement.
+    bound_reason = None
+    if subsample == "bootstrap":
+        bound_reason = "bootstrap resampling (with replacement): the half-sampling bound does not apply"
+    elif s_codes is not None:
+        bound_reason = "stratified draws: the half-sampling bound was derived for uniform draws"
+    elif abs(fraction - 0.5) > 1e-12:
+        bound_reason = f"fraction={fraction} (the bound holds for half-samples, fraction=0.5)"
+    elif m != int(round(0.5 * n)):
+        bound_reason = f"subsample size {m} is not n/2: it was raised to k + 2"
+    out["expected_false_selections_reason"] = bound_reason
+    out["resampling"] = {"subsample": subsample, "fraction": float(fraction), "size": int(m) if subsample != "bootstrap" else int(n),
+                         "stratified": s_codes is not None, "bound_valid": bound_reason is None,
+                         "within_group": g_codes is not None}
     for vi, c in enumerate(c_ref):
         a, b = sizes[vi], sizes[vi + 1]
         out["ci_low"].append(torch.as_tensor(lo[a:b]).float())
@@ -1280,7 +1646,8 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         out["component_stability"].append(stab)
         out["selection_frequency"].append(torch.as_tensor(freq).float())
         out["selected"].append(torch.as_tensor(freq >= threshold))
-        out["expected_false_selections"].append(qs[vi] ** 2 / ((2 * threshold - 1) * c.shape[0]))
+        out["expected_false_selections"].append(
+            qs[vi] ** 2 / ((2 * threshold - 1) * c.shape[0]) if bound_reason is None else float("nan"))
     if maps:
         ref_maps, ref_lam = feature_maps(ref, view_list, return_info=True, **map_opts)
         out["maps"] = {}
@@ -1328,10 +1695,52 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
             if kk == "relative_weight":
                 entry["rw_shrinkage"] = ref_lam["relative_weight"]    # lam per target, per view (reference fit)
             out["maps"][kk] = entry
+    if want:
+        refits: Dict[str, Any] = {
+            "index": np.asarray(kept_idx, dtype=int),
+            "structure": (np.asarray(al, dtype=np.float32) if al is not None
+                          else np.zeros((0, stacked_ref.shape[0], int(k)), dtype=np.float32)),
+            "view_sizes": [int(x) for x in np.diff(sizes)],
+            "alignment": {"rotation": np.asarray(rf["rotation"]), "procrustes": np.asarray(rf["procrustes"]),
+                          "loading_rotation": np.asarray(rf["loading_rotation"]),
+                          "signed_permutation": np.asarray(rf["signed_permutation"]),
+                          "doc": "latents_ref_frame = u_refit @ rotation[b]; undo with aligned @ rotation[b].T. "
+                                 "weights use the same rotation; maps use signed_permutation (abs for relative_weight)."},
+        }
+        if "rows" in want or "latents" in want:
+            refits["in_bag"] = np.asarray(rf["in_bag"], dtype=bool).reshape(len(kept_idx), n)
+            refits["n_draws"] = np.asarray(rf["n_draws"], dtype=np.int32).reshape(len(kept_idx), n)
+        if "rows" in want:
+            refits["rows"] = rf["rows"]
+            refits["oob_rows"] = rf["oob_rows"]
+        if "weights" in want:
+            refits["weights"] = [np.asarray([rf["weights"][b][vi] for b in range(len(kept_idx))], dtype=np.float32)
+                                 for vi in range(len(view_list))]
+        if "latents" in want:
+            refits["latents"] = np.asarray(rf["latents"], dtype=np.float32).reshape(len(kept_idx), n, int(k))
+        if "maps" in want:
+            refits["maps"] = {}
+            for kk in maps:
+                arr = np.asarray(rf["maps"][kk], dtype=np.float32)
+                widths = out["maps"][kk]["map"]
+                offs = np.cumsum([0] + [int(t.shape[0]) for t in widths])
+                refits["maps"][kk] = [arr[:, offs[vi]:offs[vi + 1]] if arr.size else arr
+                                      for vi in range(len(view_list))]
+        out["refits"] = refits
     if n_permutations > 0:
         null = [max(float(np.abs(c).max()) for c in rec["structure"])
                 for rec in records[len(sub_idx):]]
         out["null_max_abs"] = float(np.percentile(null, 95))
+    return out
+
+
+def _with_grouped_loadings(res: Dict[str, Any], views: Any, codes: np.ndarray, scale_within_group: bool) -> Dict[str, Any]:
+    """Copy of fit ``res`` whose loadings keys (``structure``, ``loadings``, ``loading_margin``,
+    ``loading_rotation``, ``coupling_signs``) are the within-group versions."""
+    lo = loadings(res, views, groups=codes, scale_within_group=scale_within_group)
+    out = dict(res)
+    for key in ("structure", "loadings", "loading_margin", "loading_rotation", "coupling_signs"):
+        out[key] = lo[key]
     return out
 
 
@@ -1341,17 +1750,37 @@ def _fit_structure(task):
     from .api import fit
     from .extension import _used
     map_opts = None
+    extra: Dict[str, Any] = {}
     if len(task) == 5:
         method, views, k, random_state, params = task
         oob_views = None
     elif len(task) == 6:
         method, views, oob_views, k, random_state, params = task
-    else:
+    elif len(task) == 7:
         method, views, oob_views, k, random_state, params, map_opts = task
+    else:
+        method, views, oob_views, k, random_state, params, map_opts, extra = task
     r = fit(method, views, k, random_state=random_state, **params)
+    if extra.get("groups") is not None:
+        r = _with_grouped_loadings(r, views, extra["groups"], extra["scale_within_group"])
+    want = extra.get("want", ())
     er_key = "joint_effective_rank" if r.get("basis_is_joint") else "effective_rank"
     coup_info: Dict[str, Any] = {}
-    oos_r2, oos_coup, oob_scores = _oob_metrics(r, views, oob_views, return_scores=True, _info=coup_info)
+    oos_r2, oos_coup, oob_scores = _oob_metrics(r, views, oob_views, return_scores=True, _info=coup_info,
+                                                _groups=extra.get("oob_groups"),
+                                                _scale_within_group=extra.get("scale_within_group", False))
+    kept: Dict[str, Any] = {}
+    if want:
+        kept["loading_rotation"] = r["loading_rotation"].detach().double().numpy()
+        if "weights" in want:
+            if "v" not in r:
+                raise ValueError(f"{method} returns no per-view weights; drop 'weights' from return_refits.")
+            kept["weights"] = [v.detach().double().numpy() for v in r["v"]]
+        if "latents" in want:
+            from .api import predict
+            kept["u_train"] = r["u"].detach().double().numpy()
+            kept["u_oob"] = (None if oob_views is None or oob_views[0].shape[0] < 1
+                             else predict(r, oob_views)["u"].detach().double().numpy())
     conv = r.get("convergence") or {}
     used_iter = params.get("iterations")
     if used_iter is None:
@@ -1369,6 +1798,7 @@ def _fit_structure(task):
         "oos_coupling_n": coup_info.get("coupling_n"),
         "maps": ({kk: [t.double().numpy() for t in vv] for kk, vv in feature_maps(r, views, **map_opts).items()}
                  if map_opts else None),
+        **kept,
     }
 
 
