@@ -2277,8 +2277,38 @@ class ConvergenceMonitor:
         }
 
 
+SIGN_ALIGNMENTS = ("greedy", "spectral")
+
+
+def _spectral_signs(mats: List[torch.Tensor]) -> List[torch.Tensor]:
+    """Per-view, per-column signs from the leading eigenvector of the Gram matrix.
+
+    For each column ``c`` the ``M x M`` Gram matrix ``G_ij = <m_i[:, c], m_j[:, c]>``
+    is symmetric in the views, so its leading eigenvector (and hence the relative
+    signs) does not depend on the order of ``mats``. Only the global sign of the
+    eigenvector is arbitrary; it is fixed by the majority of views keeping their
+    own sign, then by ``sum_i s_i * sum(m_i[:, c])``, then to +1, all of which are
+    sums over views and so also order free (exact ties aside).
+    """
+    n_views, k = len(mats), mats[0].shape[1]
+    signs = torch.ones(n_views, k, dtype=torch.float64)
+    for c in range(k):
+        x = torch.stack([m[:, c].detach().double().cpu() for m in mats], dim=1)      # (n, M)
+        _, vecs = torch.linalg.eigh(x.T @ x)
+        s = torch.where(vecs[:, -1] < 0, -1.0, 1.0).to(torch.float64)
+        s = torch.where(vecs[:, -1] == 0, torch.ones_like(s), s)
+        kept = float((s > 0).sum() - (s < 0).sum())
+        if kept == 0.0:
+            kept = float((s * x.sum(dim=0)).sum())
+        if kept < 0.0:
+            s = -s
+        signs[:, c] = s
+    return [signs[i:i + 1].to(device=m.device, dtype=m.dtype) for i, m in enumerate(mats)]
+
+
 def align_column_signs(mats: List[torch.Tensor],
-                       reference: Optional[torch.Tensor] = None) -> List[torch.Tensor]:
+                       reference: Optional[torch.Tensor] = None,
+                       method: str = "greedy") -> List[torch.Tensor]:
     r"""Put a set of latent matrices on a common sign convention, column by column.
 
     A latent factorisation is defined only up to a sign per component: if
@@ -2314,14 +2344,26 @@ def align_column_signs(mats: List[torch.Tensor],
         Latents of matching shape ``(n, k)``.
     reference : torch.Tensor, optional
         Align to this instead of to the first matrix.
+    method : {"greedy", "spectral"}, default="greedy"
+        ``"greedy"`` is the running-sum rule above. It depends on the order of
+        ``mats`` whenever the views are not mutually consistent in sign (for
+        example near-orthogonal latents at initialization): measured, it
+        flips different views for different orders. ``"spectral"`` uses the
+        leading eigenvector of the per-column Gram matrix, which is
+        permutation-equivariant; it equals ``"greedy"`` when all views agree
+        and is ignored when ``reference`` is given.
 
     Returns
     -------
     list of torch.Tensor
         The inputs, each with columns sign-flipped to agree.
     """
+    if method not in SIGN_ALIGNMENTS:
+        raise ValueError(f"sign_alignment must be one of {SIGN_ALIGNMENTS}; got {method!r}.")
     if not mats:
         return mats
+    if method == "spectral" and reference is None and len(mats) > 1:
+        return [m * sg for m, sg in zip(mats, _spectral_signs(mats))]
     if len(mats) == 1 and reference is None:
         return list(mats)
     running = (reference if reference is not None else mats[0]).detach().clone()

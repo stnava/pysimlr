@@ -60,7 +60,8 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                             prune_threshold: Optional[float] = None,
                             modality_weights: Optional[torch.Tensor] = None,
                             frozen_map: Optional[Dict[str, Any]] = None,
-                            obs_masks: Optional[List[torch.Tensor]] = None) -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
+                            obs_masks: Optional[List[torch.Tensor]] = None,
+                            sign_alignment: str = "greedy") -> Union[torch.Tensor, List[torch.Tensor], Tuple[Union[torch.Tensor, List[torch.Tensor]], Optional[torch.Tensor]]]:
     """
     Combine modality-specific projections into a shared latent consensus (U).
     
@@ -201,7 +202,7 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                 local_u = proj_list[0]
                 signs = [torch.ones(k, device=local_u.device, dtype=local_u.dtype)] if need_anchor else None
             else:
-                aligned = align_column_signs(proj_list)
+                aligned = align_column_signs(proj_list, method=sign_alignment)
                 local_u = torch.mean(torch.stack(aligned), dim=0)
                 # The mean is big_p @ A with A = [diag(s_1); ...; diag(s_M)] / M.
                 signs = ([torch.where((a * p).sum(dim=0) < 0, -1.0, 1.0).to(p.dtype)
@@ -305,7 +306,7 @@ def compute_shared_consensus(projections: List[torch.Tensor],
     if prune_threshold is not None and len(norm_projs) > 1:
         # Aligned too: this probe decides which views are pruned, and a
         # cancelled average makes every view look uninformative at once.
-        u_pre = torch.mean(torch.stack(align_column_signs(norm_projs)), dim=0)
+        u_pre = torch.mean(torch.stack(align_column_signs(norm_projs, method=sign_alignment)), dim=0)
         u_pre = u_pre - u_pre.mean(dim=0, keepdim=True)
         u_pre_norm = torch.norm(u_pre, p='fro')
         

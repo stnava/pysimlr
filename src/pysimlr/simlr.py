@@ -1473,6 +1473,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           domain_matrices: Optional[List[Union[torch.Tensor, np.ndarray]]] = None,
           domain_lambdas: Optional[Union[float, List[float]]] = None,
           orthogonalize_u: bool = False,
+          sign_alignment: str = "greedy",
           topology: str = DEFAULT_TOPOLOGY,
           path_graph: Optional[Dict[int, List[int]]] = None,
           scale_list: Optional[List[str]] = None,
@@ -1691,6 +1692,13 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         Matrices to align with for directed domain knowledge.
     domain_lambdas : Union[float, List[float]], optional
         Weight(s) for the domain knowledge alignment objective.
+    sign_alignment : {"greedy", "spectral"}, default="greedy"
+        How the averaging mixings (``"avg"``, ``"newton"``) put the views'
+        latent columns on one sign convention before averaging. ``"greedy"``
+        (historical) depends on the order of ``data_matrices`` when the views'
+        latents are not mutually sign-consistent (typical at initialization);
+        ``"spectral"`` is permutation-equivariant. See
+        `pysimlr.utils.align_column_signs`. Ignored by ``"svd"``/``"pca"``/``"ica"``.
     orthogonalize_u : bool, default=False
         Whether to enforce orthogonality on the consensus matrix U.
     topology : str, default=DEFAULT_TOPOLOGY ("loo")
@@ -2007,7 +2015,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         init_u = compute_shared_consensus(
             init_projections, mixing_algorithm=mixing_algorithm, k=k,
             orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph,
-            obs_masks=obs_masks)
+            obs_masks=obs_masks, sign_alignment=sign_alignment)
         if nonneg_u:
             init_u = _nonneg_consensus(init_u)
         _calibrate_weights(v_mats, init_u)
@@ -2173,7 +2181,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         else:
             projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
             cur_mod_w = _update_simlr_mai(projections, max(0, it), max(1, iterations))
-            u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph, modality_weights=cur_mod_w, obs_masks=obs_masks)
+            u = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph, modality_weights=cur_mod_w, obs_masks=obs_masks, sign_alignment=sign_alignment)
             if nonneg_u:
                 u = _nonneg_consensus(u)
             if _use_s0:
@@ -2341,14 +2349,14 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     projections = [x @ v.to(orig_dtype) for v, x in zip(v_mats, torch_mats)]
     u_per_modality = None
     if topology != "star":
-        u_targets = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph, obs_masks=obs_masks)
+        u_targets = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology=topology, path_graph=path_graph, obs_masks=obs_masks, sign_alignment=sign_alignment)
         u_per_modality = [_nonneg_consensus(t) if nonneg_u else t for t in u_targets]
-    u_raw = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology="star", obs_masks=obs_masks)
+    u_raw = compute_shared_consensus(projections, mixing_algorithm=mixing_algorithm, k=k, orthogonalize=orthogonalize_u, topology="star", obs_masks=obs_masks, sign_alignment=sign_alignment)
     u = _nonneg_consensus(u_raw) if nonneg_u else u_raw
     consensus_anchor = _capture_consensus_anchor(
-        projections, mixing_algorithm, k, orthogonalize_u, "star", None, obs_masks=obs_masks)
+        projections, mixing_algorithm, k, orthogonalize_u, "star", None, obs_masks=obs_masks, sign_alignment=sign_alignment)
     consensus_stats = _capture_consensus_stats(
-        projections, u_raw, mixing_algorithm, consensus_anchor, "star", obs_masks=obs_masks)
+        projections, u_raw, mixing_algorithm, consensus_anchor, "star", obs_masks=obs_masks, sign_alignment=sign_alignment)
     from .consensus import capture_consensus_map
     consensus_map = capture_consensus_map(projections, u_raw, obs_masks=obs_masks)
     
@@ -2410,6 +2418,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "consensus_map": consensus_map,
         "mixing_algorithm": mixing_algorithm,
         "orthogonalize_u": orthogonalize_u,
+        "sign_alignment": sign_alignment,
         "nonneg_u": bool(nonneg_u),
         "topology": topology,
         "path_graph": path_graph,
@@ -2671,11 +2680,12 @@ def _capture_consensus_anchor(projections: List[torch.Tensor],
                               orthogonalize_u: bool,
                               topology: str,
                               path_graph: Optional[Dict[int, List[int]]],
-                              obs_masks: Optional[List[torch.Tensor]] = None) -> Optional[torch.Tensor]:
+                              obs_masks: Optional[List[torch.Tensor]] = None,
+                              sign_alignment: str = "greedy") -> Optional[torch.Tensor]:
     result = compute_shared_consensus(
         projections, mixing_algorithm=mixing_algorithm, k=k,
         orthogonalize=orthogonalize_u, training=True,
-        topology=topology, path_graph=path_graph, obs_masks=obs_masks)
+        topology=topology, path_graph=path_graph, obs_masks=obs_masks, sign_alignment=sign_alignment)
     if not isinstance(result, tuple) or len(result) != 2:
         return None
     anchor = result[1]
@@ -2687,7 +2697,8 @@ def _capture_consensus_stats(projections: List[torch.Tensor],
                              mixing_algorithm: str,
                              anchor: Optional[torch.Tensor],
                              topology: str,
-                             obs_masks: Optional[List[torch.Tensor]] = None) -> Optional[Dict[str, Any]]:
+                             obs_masks: Optional[List[torch.Tensor]] = None,
+                             sign_alignment: str = "greedy") -> Optional[Dict[str, Any]]:
     """Capture training moments so out-of-sample prediction is batch-size (N=1) invariant."""
     if topology != "star" or isinstance(u_raw, list) or not projections:
         return None
@@ -2720,7 +2731,7 @@ def _capture_consensus_stats(projections: List[torch.Tensor],
         u_pre = torch.cat(norm_projs, dim=1) @ anchor.detach().double()
         view_signs = None
     else:
-        aligned = align_column_signs(norm_projs)
+        aligned = align_column_signs(norm_projs, method=sign_alignment)
         view_signs = []
         for p_orig, p_al in zip(norm_projs, aligned):
             dots = torch.sum(p_orig * p_al, dim=0, keepdim=True)

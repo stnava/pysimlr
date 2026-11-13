@@ -113,6 +113,8 @@ EXERCISED = {
 #: Each entry is a claim someone had to make deliberately.
 EXEMPT = {
     "data_matrices": "the input itself, not a setting",
+    "sign_alignment": "changes the fit only when the views' latents are not mutually sign-consistent "
+                      "(order-dependent greedy rule); exercised in test_view_order_sign_alignment.py",
     "k": "changes the output shape, so the bases are not comparable; shape is "
          "asserted in test_auto_returns_a_usable_fit and the runner tests",
     "verbose": "prints; must not change numerics",
