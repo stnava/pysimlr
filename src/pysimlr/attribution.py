@@ -164,6 +164,9 @@ def component_attribution(result: Dict[str, Any], train_views: Sequence[Any], te
     if len(train) != n_views or len(test) != n_views:
         raise ValueError(f"train_views and test_views need {n_views} entries (None for a missing test view); "
                          f"got {len(train)} and {len(test)}.")
+    from .relevance import refuse_unobserved_rows
+    refuse_unobserved_rows([None if x is None else torch.as_tensor(x) for x in train], "component_attribution(train_views)")
+    refuse_unobserved_rows([None if x is None else torch.as_tensor(x) for x in test], "component_attribution(test_views)")
     views = [m for m in (views if views is not None else range(n_views)) if test[m] is not None]
     if not views:
         raise ValueError("no view to attribute: every test view is None.")

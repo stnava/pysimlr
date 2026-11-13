@@ -148,6 +148,7 @@ from .interpretability import (
 )
 from .utils import (
     ConvergenceWarning,
+    MissingRowsWarning,
     WideViewWarning,
     coupling_capacity_report,
     heldout_coupling,
@@ -205,6 +206,7 @@ __all__ = [
     'plot_fused_ridge_cv',
     'plot_predictions',
     'ConvergenceWarning',
+    'MissingRowsWarning',
     'WideViewWarning',
     'coupling_capacity_report',
     'heldout_coupling',

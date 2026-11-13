@@ -546,6 +546,12 @@ def warn_if_unconverged(convergence: dict, method: str) -> None:
                   f"See result['convergence'].", ConvergenceWarning, stacklevel=3)
 
 
+class MissingRowsWarning(UserWarning):
+    """With ``missing_rows="mask"``, a quantity could not be computed on enough observed rows (fewer than
+    ``min_rows``, or a constant feature or latent column on them) and was returned as NaN with the reason
+    recorded (see `pysimlr.feature_maps`, ``return_info=True``)."""
+
+
 class WideViewWarning(UserWarning):
     """A view has at least as many features as samples, so its training coupling can be fitted to noise
     (see `coupling_capacity_report`)."""

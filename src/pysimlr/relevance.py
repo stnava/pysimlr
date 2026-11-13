@@ -97,6 +97,25 @@ def _perm_pvalues(zo, lam2, t, obs, groups: Mapping[str, Sequence[int]], n_perm:
     return (1 + ge) / (n_perm + 1), {g: (1 + c) / (n_perm + 1) for g, c in geg.items()}
 
 
+def refuse_unobserved_rows(blocks, where: str) -> None:
+    """Raise if any view block has all-NaN rows (``missing_rows="mask"`` data).
+
+    `feature_relevance` and `component_attribution` fit and score on complete rows: NaN rows would
+    reach the least-squares and permutation steps and give all-zero shares (or a LinAlgError). Drop the
+    rows that are unobserved in any attributed view before calling.
+    """
+    for m, b in enumerate(blocks):
+        if b is None:
+            continue
+        a = b.detach().cpu().numpy() if hasattr(b, "detach") else np.asarray(b, dtype=float)
+        if a.ndim == 2 and a.size:
+            n_bad = int(np.isnan(a).all(axis=1).sum())
+            if n_bad:
+                raise ValueError(f"{where}: view {m} has {n_bad} unobserved (all-NaN) rows; it needs complete rows. "
+                                 "Subset to the rows observed in every attributed view (use feature_maps / "
+                                 "loading_inference for pairwise-complete maps with missing_rows='mask').")
+
+
 def _as_tensor(x):
     if x is None:
         return None
@@ -303,6 +322,9 @@ def feature_relevance(result: Dict[str, Any], train_views: Sequence[Any], test_v
     n_views = len(result["v"])
     if len(train) != n_views:
         raise ValueError(f"train_views has {len(train)} views; the fit has {n_views}.")
+    refuse_unobserved_rows(train, "feature_relevance(train_views)")
+    if test_views is not None:
+        refuse_unobserved_rows([_as_tensor(v) for v in test_views], "feature_relevance(test_views)")
     if probe_test_views is not None and probe_views is None:
         raise ValueError("probe_test_views requires probe_views.")
     probe_tr = None

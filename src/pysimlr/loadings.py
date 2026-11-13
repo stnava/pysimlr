@@ -58,6 +58,7 @@ import torch
 
 from .positivity import NONNEG as _NONNEG
 from .positivity import resolve_positivity
+from .utils import MissingRowsWarning
 
 
 def structure_coefficients(views: Sequence[torch.Tensor], u: torch.Tensor,
@@ -83,6 +84,8 @@ def structure_coefficients(views: Sequence[torch.Tensor], u: torch.Tensor,
                 x64 = x64[mask_b]
             elif x64.shape[0] != u_m.shape[0]:
                 raise ValueError(f"view has {x64.shape[0]} rows but mask selects {int(mask_b.sum())}.")
+            if int(u_m.shape[0]) < 3:
+                raise ValueError(f"view {m_idx} has {int(u_m.shape[0])} observed rows; structure coefficients need at least 3.")
             uc = u_m - u_m.mean(0, keepdim=True)
             nu = uc.norm(dim=0, keepdim=True)
             us = torch.where(nu > 0, uc / nu.clamp_min(1e-300), torch.zeros_like(uc))
@@ -614,11 +617,30 @@ def _per_view_arg(val: Any, n_views: int, name: str, *, noun: str = "there are")
     return [val] * n_views
 
 
+def _preprocess_observed(v: torch.Tensor, obs_m: np.ndarray, result: Dict[str, Any],
+                         view_idx: Optional[int]) -> np.ndarray:
+    """``(n, p)`` float64 array of ``v`` replayed through the fit's preprocessing on its observed rows
+    (``obs_m``); unobserved rows are NaN. ``view_idx=None`` is a probe matrix (no stored provenance)."""
+    from .utils import preprocess_data
+    scale_list, prov_list = result["scale_list"], result["provenance_list"]
+    v_obs = v.detach().cpu()[torch.as_tensor(obs_m)]
+    if view_idx is None:
+        x = preprocess_data(v_obs, scale_list)[0]
+    elif scale_list and scale_list[0] != "none" and view_idx < len(prov_list):
+        x = preprocess_data(v_obs, scale_list, provenance=prov_list[view_idx])
+    else:
+        x = v_obs
+    out = np.full(tuple(v.shape), np.nan, dtype=np.float64)
+    out[np.asarray(obs_m, dtype=bool)] = x.detach().double().numpy()
+    return out
+
+
 def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEATURE_MAP_KINDS,
                  u: Optional[torch.Tensor] = None, target: str = "other_views",
                  shrinkage: Any = "ledoit_wolf", control: Any = "pc1",
                  rw_shrinkage: Any = 0.0, return_shrinkage: bool = False,
-                 probe_views: Optional[Sequence[Any]] = None):
+                 probe_views: Optional[Sequence[Any]] = None,
+                 min_rows: int = 10, return_info: bool = False):
     r"""Alternative feature maps beside `structure`, all in the fit's rotated frame.
 
     `structure` (corr(x_f, u_j)) measures association: a feature that only
@@ -670,6 +692,26 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     connectome-edge or fixel matrix) is preprocessed with ``result["scale_list"]`` and
     mapped against the *other* views' scores (requires ``target="other_views"``).
 
+    **Unobserved rows** (``result["missing_rows"] == "mask"``, rows that are all-NaN in a view).
+    For view ``m`` every map is computed on the rows where view ``m`` is observed *and* its
+    target exists, pairwise-complete per feature-latent pair (all features of a view share its
+    observed rows, so this is one row set per view). With ``target="other_views"`` the target at
+    a row is the mean of the standardized scores of the other views observed at that row, and is
+    undefined (the row is dropped) where no other view is observed; a row observed in only one
+    view therefore enters no map (its own view has no target there, and the other views are
+    unobserved there). With no missing rows the result is exactly the complete-data result.
+    It equals the complete-case computation (the same call on the rows observed everywhere) when
+    the views share their observed rows (including any two views); with three or more views whose
+    observed rows differ, each view's score is standardized on its own observed rows before
+    averaging, so the target is a slightly different weighting. Partially observed rows enter with a target built from fewer
+    views (noisier, same expected signal); pass complete rows only if that matters. A view with
+    fewer than ``min_rows`` (default 10, at least 3) usable rows, a constant feature, or a constant
+    latent column gives NaN (never 0) for the affected map entries, with a ``MissingRowsWarning``.
+    ``return_info=True`` returns ``(maps, info)`` where ``info`` holds ``n_eff`` (usable rows per
+    view), ``n_eff_feature`` (per view, rows behind each feature; 0 where the feature is constant),
+    ``n_constant_features``, ``constant_latent_columns``, ``reasons[kind][view]`` (``None`` or why the
+    map is NaN), ``relative_weight`` (as ``return_shrinkage``), ``min_rows``, ``n_rows`` and ``partial``.
+
     Views are replayed through the fit's own preprocessing and ``u`` defaults to
     ``pysimlr.predict(result, views)["u"]``, so this works for every method and
     for held-out views alike.
@@ -687,8 +729,21 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
     view_list = as_views(views)
     if target == "other_views" and len(view_list) < 2:
         raise ValueError("target='other_views' needs at least two views.")
-    xs_t, _ = _preprocess_views(view_list, result["scale_list"], result["provenance_list"])
-    xs = [x.detach().double().numpy() for x in xs_t]
+    min_rows = int(min_rows)
+    if min_rows < 3:
+        raise ValueError(f"min_rows must be at least 3; got {min_rows}.")
+    # Uneven missingness: with ``missing_rows="mask"`` a row that is all-NaN in a view is unobserved
+    # there. Every quantity is then computed on the rows where its inputs exist (branch below); with
+    # no unobserved rows the original complete-data code runs unchanged.
+    obs: Optional[List[np.ndarray]] = None
+    if result.get("missing_rows") == "mask":
+        obs = [(~torch.isnan(v.detach().cpu()).all(dim=1)).numpy() for v in view_list]
+    partial = obs is not None and any(not o.all() for o in obs)
+    if partial:
+        xs = [_preprocess_observed(v, o, result, m) for m, (v, o) in enumerate(zip(view_list, obs))]
+    else:
+        xs_t, _ = _preprocess_views(view_list, result["scale_list"], result["provenance_list"])
+        xs = [x.detach().double().numpy() for x in xs_t]
     rot = result["loading_rotation"].detach().double().numpy()
     pred = predict(result, view_list) if (u is None or target == "other_views") else None
     if u is None:
@@ -710,44 +765,123 @@ def feature_maps(result: Dict[str, Any], views: Any, kinds: Sequence[str] = FEAT
         for m, pv in enumerate(p_items):
             if pv is not None:
                 pt = _to_probe_tensor(pv, n_rows, m)
-                xp, _ = preprocess_data(pt, result["scale_list"])
-                xs[m] = xp.detach().double().numpy()
+                if partial:
+                    xs[m] = _preprocess_observed(pt, obs[m], result, None)
+                else:
+                    xp, _ = preprocess_data(pt, result["scale_list"])
+                    xs[m] = xp.detach().double().numpy()
     controls = _per_view_arg(control, len(xs), "control")
     rw_shrinkages = _per_view_arg(rw_shrinkage, len(xs), "rw_shrinkage")
     out: Dict[str, List[torch.Tensor]] = {k_: [] for k_ in kinds}
     lam_used: List[np.ndarray] = []
+    n_total = int(xs[0].shape[0])
+    info: Dict[str, Any] = {"min_rows": min_rows, "n_rows": n_total, "partial": bool(partial),
+                            "n_eff": [], "n_eff_feature": [], "n_constant_features": [],
+                            "constant_latent_columns": [], "reasons": {k_: [] for k_ in kinds}}
+    k_lat = int(u_rot.shape[1])
+
+    def one_map(k_, xz, tz, ctrl, rw_shr, m):
+        """(map, lam, reason) of one kind on the rows given; lam is None except for relative_weight."""
+        if k_ == "structure":
+            return _corr_map(xz, tz), None, None
+        if k_ == "partial":
+            return _partial_map(xz, tz, shrinkage), None, None
+        if k_ == "global_partial":
+            if ctrl is None:
+                return np.full((xz.shape[1], tz.shape[1]), np.nan), None, "control=None for this view"
+            return _global_partial_map(xz, tz, ctrl), None, None
+        if k_ == "component_partial":
+            return _component_partial_map(xz, tz), None, None
+        try:
+            mp, lam_m = _relative_weight_map_lam(xz, tz, rw_shr)
+            return mp, lam_m, None
+        except ValueError as err:
+            if not ("fewer features than rows" in str(err) or "full-rank view" in str(err)):
+                raise
+            # Not defined on this view (p >= n or collinear at rw_shrinkage=0): NaN, named, not a substitute map.
+            warnings.warn(f"relative_weight is NaN for view {m}: {err}", RuntimeWarning, stacklevel=4)
+            return (np.full((xz.shape[1], tz.shape[1]), np.nan), np.full(tz.shape[1], np.nan), str(err))
+
     for m, x in enumerate(xs):
-        xz = _zscore(x)
-        if target == "other_views":
-            tz = _zscore(sum(z for i, z in enumerate(scores) if i != m))
-        else:
-            tz = _zscore(u_rot)
-        for k_ in kinds:
-            if k_ == "structure":
-                mp = _corr_map(xz, tz)
-            elif k_ == "partial":
-                mp = _partial_map(xz, tz, shrinkage)
-            elif k_ == "global_partial":
-                if controls[m] is None:
-                    mp = np.full((x.shape[1], tz.shape[1]), np.nan)
-                else:
-                    mp = _global_partial_map(xz, tz, controls[m])
-            elif k_ == "component_partial":
-                mp = _component_partial_map(xz, tz)
+        p_m = int(x.shape[1])
+        if not partial:
+            xz = _zscore(x)
+            if target == "other_views":
+                tz = _zscore(sum(z for i, z in enumerate(scores) if i != m))
             else:
-                try:
-                    mp, lam_m = _relative_weight_map_lam(xz, tz, rw_shrinkages[m])
-                except ValueError as err:
-                    if not ("fewer features than rows" in str(err) or "full-rank view" in str(err)):
-                        raise
-                    # Not defined on this view (p >= n or collinear at rw_shrinkage=0): NaN, named, not a substitute map.
-                    warnings.warn(f"relative_weight is NaN for view {m}: {err}", RuntimeWarning, stacklevel=2)
-                    mp = np.full((x.shape[1], tz.shape[1]), np.nan)
-                    lam_m = np.full(tz.shape[1], np.nan)
-                lam_used.append(lam_m)
+                tz = _zscore(u_rot)
+            info["n_eff"].append(n_total)
+            info["n_eff_feature"].append(np.full(p_m, n_total, dtype=int))
+            info["n_constant_features"].append(int((x.std(0) <= 0).sum()))
+            info["constant_latent_columns"].append([])
+            for k_ in kinds:
+                mp, lam_m, why = one_map(k_, xz, tz, controls[m], rw_shrinkages[m], m)
+                if k_ == "relative_weight":
+                    lam_used.append(lam_m)
+                info["reasons"][k_].append(why)
+                out[k_].append(torch.as_tensor(mp).float())
+            continue
+        # Rows where view m is observed and its target exists. The other-views target at a row is the
+        # mean of the standardized scores of the *other* views observed at that row (undefined where
+        # none is); for complete rows it equals the all-views sum up to a constant, which the z-score removes.
+        if target == "other_views":
+            stack = np.stack([s for i, s in enumerate(scores) if i != m])      # (M-1, n, k), NaN rows
+            fin = np.isfinite(stack).all(axis=2)
+            cnt = fin.sum(0)
+            t_raw = np.where(fin[..., None], stack, 0.0).sum(0) / np.maximum(cnt, 1)[:, None]
+            rows = obs[m] & (cnt > 0)
+        else:
+            t_raw = u_rot
+            rows = obs[m] & np.isfinite(u_rot).all(axis=1)
+        n_d = int(rows.sum())
+        xd, td = x[rows], t_raw[rows]
+        f_const = ~(xd.std(0) > 0) if n_d else np.ones(p_m, dtype=bool)
+        t_const = ~(td.std(0) > 0) if n_d else np.ones(k_lat, dtype=bool)
+        info["n_eff"].append(n_d)
+        info["n_eff_feature"].append(np.where(f_const, 0, n_d).astype(int))
+        info["n_constant_features"].append(int(f_const.sum()))
+        info["constant_latent_columns"].append([int(j) for j in np.where(t_const)[0]])
+        why_all = None
+        if n_d < min_rows:
+            why_all = f"only {n_d} rows with view {m} and its {target} target observed (min_rows={min_rows})"
+        elif f_const.all() or t_const.all():
+            why_all = (f"view {m}: every feature is constant on the {n_d} usable rows" if f_const.all()
+                       else f"view {m}: every latent column is constant on the {n_d} usable rows")
+        if why_all is not None:
+            warnings.warn(f"feature_maps: {why_all}; its maps are NaN.", MissingRowsWarning, stacklevel=2)
+            for k_ in kinds:
+                out[k_].append(torch.full((p_m, k_lat), float("nan")))
+                info["reasons"][k_].append(why_all)
+            if "relative_weight" in kinds:
+                lam_used.append(np.full(k_lat, np.nan))
+            continue
+        if f_const.any() or t_const.any():
+            warnings.warn(f"feature_maps: view {m} has {int(f_const.sum())} constant feature(s) and "
+                          f"{int(t_const.sum())} constant latent column(s) on its {n_d} usable rows; "
+                          "their map entries are NaN.", MissingRowsWarning, stacklevel=2)
+        keep_f, keep_t = ~f_const, ~t_const
+        xz, tz = _zscore(xd[:, keep_f]), _zscore(td[:, keep_t])
+        ctrl = controls[m]
+        if ctrl is not None and not isinstance(ctrl, str):
+            ctrl = np.asarray(ctrl, dtype=np.float64)
+            if ctrl.shape[0] == n_total:
+                ctrl = ctrl[rows]
+        for k_ in kinds:
+            mp_k, lam_m, why = one_map(k_, xz, tz, ctrl, rw_shrinkages[m], m)
+            mp = np.full((p_m, k_lat), np.nan)
+            mp[np.ix_(keep_f, keep_t)] = mp_k
+            if k_ == "relative_weight":
+                lam_full = np.full(k_lat, np.nan)
+                if lam_m is not None:
+                    lam_full[keep_t] = lam_m
+                lam_used.append(lam_full)
+            info["reasons"][k_].append(why)
             out[k_].append(torch.as_tensor(mp).float())
-    if return_shrinkage:
-        return out, {"relative_weight": [torch.as_tensor(lm).float() for lm in lam_used]}
+    if return_shrinkage or return_info:
+        extra: Dict[str, Any] = {"relative_weight": [torch.as_tensor(lm).float() for lm in lam_used]}
+        if return_info:
+            extra.update(info)
+        return out, extra
     return out
 
 
@@ -777,8 +911,42 @@ def _principal_cosines(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return out
 
 
+def _masked_coupling(z_std: Sequence[np.ndarray], min_rows: int = 3) -> Tuple[List[float], List[int]]:
+    """Leave-one-view-out coupling when views have unobserved (NaN) rows.
+
+    For view ``m`` the other-views score at a row is the mean of the other views' scores observed at that
+    row; the correlation with ``z_m`` is taken on the rows where both exist (centered on those rows). A
+    view with fewer than ``min_rows`` such rows, or a constant score, gives NaN for that component and is
+    left out of the mean over views; if no view is left the component is NaN. Returns the per-component
+    coupling and the number of rows used per view.
+    """
+    k = z_std[0].shape[1]
+    per_view, n_used = [], []
+    for m, zm in enumerate(z_std):
+        oth = np.stack([z for i, z in enumerate(z_std) if i != m])        # (M-1, n, k)
+        fin = np.isfinite(oth).all(axis=2)
+        cnt = fin.sum(0)
+        other = np.where(fin[..., None], oth, 0.0).sum(0) / np.maximum(cnt, 1)[:, None]
+        rows = np.isfinite(zm).all(axis=1) & (cnt > 0)
+        n_d = int(rows.sum())
+        n_used.append(n_d)
+        if n_d < min_rows:
+            per_view.append(np.full(k, np.nan))
+            continue
+        a, b = zm[rows], other[rows]
+        a, b = a - a.mean(0), b - b.mean(0)
+        den = np.sqrt((a ** 2).sum(0) * (b ** 2).sum(0))
+        per_view.append(np.where(den > 0, (a * b).sum(0) / np.where(den > 0, den, 1.0), np.nan))
+    pv = np.asarray(per_view)
+    ok = np.isfinite(pv)
+    cnt_ok = ok.sum(0)
+    coup = np.where(cnt_ok > 0, np.where(ok, pv, 0.0).sum(0) / np.maximum(cnt_ok, 1), np.nan)
+    return [float(x) for x in coup], n_used
+
+
 def _oob_metrics(res: Dict[str, Any], sub_views: Sequence[torch.Tensor],
-                 oob_views: Optional[Sequence[torch.Tensor]], return_scores: bool = False):
+                 oob_views: Optional[Sequence[torch.Tensor]], return_scores: bool = False,
+                 _info: Optional[Dict[str, Any]] = None):
     """Held-out reconstruction R^2 (adjusted for random k-plane self-projection)
     and leave-one-view-out coupling on unused rows. Scores come from `sem.view_scores`
     (rotated, signed on the refit's training rows, standardised on the unused rows);
@@ -798,13 +966,19 @@ def _oob_metrics(res: Dict[str, Any], sub_views: Sequence[torch.Tensor],
     if m_views < 2 or oob_views[0].shape[0] < 3:
         return (r2, None, None) if return_scores else (r2, None)
     z_std = view_scores(res, list(oob_views), train_views=list(sub_views), _pred=pred)["scores"]
-    tot = sum(z_std)
-    per_view = []
-    for zm in z_std:
-        other = tot - zm
-        den = np.sqrt((zm ** 2).sum(0) * (other ** 2).sum(0))
-        per_view.append(np.where(den > 0, (zm * other).sum(0) / np.where(den > 0, den, 1.0), 0.0))
-    coup = [float(x) for x in np.mean(per_view, axis=0)]
+    if all(np.isfinite(z).all() for z in z_std):
+        tot = sum(z_std)
+        per_view = []
+        for zm in z_std:
+            other = tot - zm
+            den = np.sqrt((zm ** 2).sum(0) * (other ** 2).sum(0))
+            per_view.append(np.where(den > 0, (zm * other).sum(0) / np.where(den > 0, den, 1.0), 0.0))
+        coup = [float(x) for x in np.mean(per_view, axis=0)]
+        n_used = [int(zm.shape[0]) for zm in z_std]
+    else:
+        coup, n_used = _masked_coupling(z_std)
+    if _info is not None:
+        _info["coupling_n"] = n_used
     if return_scores:
         return r2, coup, [z.astype(np.float32) for z in z_std]
     return r2, coup
@@ -841,6 +1015,15 @@ def _col_corr_stability(al_slice: np.ndarray, ref_mat: np.ndarray, *, nan_safe: 
                       and y_[ok].std() > 0 else np.nan)
         stab.append(float(np.nanmedian(rs)) if np.isfinite(rs).any() else float("nan"))
     return stab
+
+
+def _nanmedian_cols(rows: Sequence[Sequence[float]]) -> List[float]:
+    """Column medians ignoring NaN; a column that is NaN in every row is NaN (no warning)."""
+    a = np.asarray(rows, dtype=float)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        med = np.nanmedian(a, axis=0)
+    return [float(x) for x in med]
 
 
 def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 100,
@@ -891,6 +1074,14 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         ``null_max_abs`` (95th percentile of :math:`\max_{f,j} |C|` with the
         rows of every view but the first permuted independently, i.e. no
         shared signal).
+
+    Unobserved rows (``missing_rows="mask"`` passed to the fit). Subsamples keep the NaN rows.
+    ``oos_coupling`` is computed per held-out split on the rows where the needed views are observed
+    (view ``m`` against the mean of the other views observed at that row; at least 3 such rows, else NaN
+    for that view and left out of the mean); a component that cannot be computed in any split is NaN, never
+    0. ``oos_coupling_n`` is the median over splits of the rows used per view, and every ``maps[kind]``
+    entry carries ``n_eff`` / ``n_eff_feature`` / ``reasons`` from `feature_maps(return_info=True)` (pass
+    ``min_rows`` through ``map_options``).
 
     Alternative feature maps. ``maps`` (kinds from `feature_maps`, with
     ``map_options`` passed to it: ``target``, ``shrinkage``, ``control``,
@@ -1012,6 +1203,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     cosines, r2_splits, coups, eff_ranks = [], [], [], []
     coup_splits_all: List[Optional[List[float]]] = []
     kept_oob_scores = []
+    coup_n = [rec["oos_coupling_n"] for rec in sub_records if rec.get("oos_coupling_n") is not None]
     map_aligned = {kk: [] for kk in maps}
     for rows_, rec in zip(oob_rows, sub_records):
         keep_rec = (not exclude_unconverged) or bool(rec["converged"])
@@ -1063,7 +1255,8 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
            "component_stability": [], "subspace_stability": sub_stab,
            "oos_r2": ([float(x) for x in np.nanmean(r2_arr, axis=0)] if r2_arr is not None else None),
            "oos_r2_splits": ([float(x) for x in np.nanmean(r2_arr, axis=1)] if r2_arr is not None else None),
-           "oos_coupling": ([float(x) for x in np.nanmedian(coups, axis=0)] if coups else None),
+           "oos_coupling": (_nanmedian_cols(coups) if coups else None),
+           "oos_coupling_n": ([float(x) for x in np.median(coup_n, axis=0)] if coup_n else None),
            "oos_coupling_splits": (coup_splits_all if coups else None),
            "oos_n": int(n - m), "n_rows": int(n),
            "oob_scores": kept_oob_scores,
@@ -1089,7 +1282,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         out["selected"].append(torch.as_tensor(freq >= threshold))
         out["expected_false_selections"].append(qs[vi] ** 2 / ((2 * threshold - 1) * c.shape[0]))
     if maps:
-        ref_maps, ref_lam = feature_maps(ref, view_list, return_shrinkage=True, **map_opts)
+        ref_maps, ref_lam = feature_maps(ref, view_list, return_info=True, **map_opts)
         out["maps"] = {}
         for kk in maps:
             m_widths = [int(rm.shape[0]) for rm in ref_maps[kk]]
@@ -1128,6 +1321,10 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                 else:
                     entry["component_stability"].append([float("nan")] * int(k))
                     entry["selection_frequency"].append(torch.zeros(b - a, dtype=torch.float32))
+            # Rows behind each view's reference map and why any map is NaN (see `feature_maps(return_info=True)`).
+            entry["n_eff"] = list(ref_lam["n_eff"])
+            entry["n_eff_feature"] = [np.asarray(a) for a in ref_lam["n_eff_feature"]]
+            entry["reasons"] = list(ref_lam["reasons"][kk])
             if kk == "relative_weight":
                 entry["rw_shrinkage"] = ref_lam["relative_weight"]    # lam per target, per view (reference fit)
             out["maps"][kk] = entry
@@ -1153,7 +1350,8 @@ def _fit_structure(task):
         method, views, oob_views, k, random_state, params, map_opts = task
     r = fit(method, views, k, random_state=random_state, **params)
     er_key = "joint_effective_rank" if r.get("basis_is_joint") else "effective_rank"
-    oos_r2, oos_coup, oob_scores = _oob_metrics(r, views, oob_views, return_scores=True)
+    coup_info: Dict[str, Any] = {}
+    oos_r2, oos_coup, oob_scores = _oob_metrics(r, views, oob_views, return_scores=True, _info=coup_info)
     conv = r.get("convergence") or {}
     used_iter = params.get("iterations")
     if used_iter is None:
@@ -1168,6 +1366,7 @@ def _fit_structure(task):
         "effective_rank": [float(x) for x in r[er_key]],
         "oos_r2": oos_r2,
         "oos_coupling": oos_coup,
+        "oos_coupling_n": coup_info.get("coupling_n"),
         "maps": ({kk: [t.double().numpy() for t in vv] for kk, vv in feature_maps(r, views, **map_opts).items()}
                  if map_opts else None),
     }
