@@ -31,6 +31,8 @@ import torch
 from .utils import MissingRowsWarning, center_within_groups, group_codes, within_group_permutation
 
 METHODS = ("structure", "univariate")
+#: Registered models that accept the target as a root view (all go through `pysimlr.fit` and `pysimlr.predict`).
+MODELS = ("simlr", "lend", "ned", "ned_shared_private", "flow_v")
 _Z975 = 1.959963984540054
 _GENERIC_MIN_ALIGN = 0.5   # a map is only called generic when it is at least this aligned with the view's PC1
 
@@ -135,18 +137,34 @@ class _Frame:
 
 
 # ----------------------------------------------------------------------------------------- fit pieces
-def target_root_fit_params(n_views: int, sparseness: float = 0.8, iterations: int = 300) -> Dict[str, Any]:
-    """The `pysimlr.fit("simlr", ...)` keyword arguments that make the last view (index ``n_views``) the
+def target_root_fit_params(n_views: int, sparseness: float = 0.8, iterations: Optional[int] = None,
+                           model: str = "simlr") -> Dict[str, Any]:
+    """The `pysimlr.fit(model, ...)` keyword arguments that make the last view (index ``n_views``) the
     root: every feature view is coupled to the target and to nothing else (``topology="graph"``), conical
-    weights, ``nc_abs``, PCA initialisation, whole-row missingness masked. The target view has no sparseness.
+    weights, ``nc_abs``, PCA initialisation. The target view has no sparseness.
+
+    ``"simlr"`` sets these per view (``per_view_params``; the target view gets ``sparseness=None``), 300
+    iterations by default, and masks whole-row missingness (``missing_rows="mask"``). The deep and flow models
+    (``lend``, ``ned``, ``ned_shared_private``, ``flow_v``) take them fit-wide (they have no per-view
+    settings; the single-feature target view is unaffected by the quantile sparseness), their own default
+    budget unless ``iterations`` is given, and no missing rows.
     """
     root = int(n_views)
-    pvp = {i: {"positivity": "conical", "sparseness": float(sparseness), "energy_type": "nc_abs"} for i in range(root)}
-    pvp[root] = {"positivity": "conical", "sparseness": None, "energy_type": "nc_abs"}
     graph = {i: [root] for i in range(root)}
     graph[root] = list(range(root))
-    return {"topology": "graph", "path_graph": graph, "per_view_params": pvp, "initialization_type": "pca",
-            "iterations": int(iterations), "missing_rows": "mask", "dynamic_weights": False}
+    if model == "simlr":
+        pvp = {i: {"positivity": "conical", "sparseness": float(sparseness), "energy_type": "nc_abs"} for i in range(root)}
+        pvp[root] = {"positivity": "conical", "sparseness": None, "energy_type": "nc_abs"}
+        return {"topology": "graph", "path_graph": graph, "per_view_params": pvp, "initialization_type": "pca",
+                "iterations": 300 if iterations is None else int(iterations), "missing_rows": "mask",
+                "dynamic_weights": False}
+    if model not in MODELS:
+        raise ValueError(f"model must be one of {MODELS}; got {model!r}.")
+    out = {"topology": "graph", "path_graph": graph, "positivity": "positive", "energy_type": "nc_abs",
+           "sparseness": float(sparseness), "dynamic_weights": False}
+    if iterations is not None:
+        out["iterations"] = int(iterations)
+    return out
 
 
 def _corr(a: np.ndarray, b: np.ndarray) -> float:
@@ -171,22 +189,22 @@ def _col_corr(x: np.ndarray, t: np.ndarray) -> np.ndarray:
 
 
 def _fit_root(zs: Sequence[np.ndarray], yz: np.ndarray, *, sparseness: float, seed: int,
-              fit_options: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+              fit_options: Optional[Dict[str, Any]], model: str = "simlr") -> Dict[str, Any]:
     from .api import fit
     t = [torch.as_tensor(z, dtype=torch.float32) for z in zs] + [torch.as_tensor(yz[:, None], dtype=torch.float32)]
-    params = target_root_fit_params(len(zs), sparseness)
+    params = target_root_fit_params(len(zs), sparseness, model=model)
     params.update(fit_options or {})
-    return fit("simlr", t, 1, random_state=int(seed), **params)
+    return fit(model, t, 1, random_state=int(seed), **params)
 
 
-def _signed_fit(zs, yz, *, sparseness, seed, fit_options):
+def _signed_fit(zs, yz, *, sparseness, seed, fit_options, model="simlr"):
     """Fit; return ``(result, u (n,), target_sign, per-view maps, per-view signed weights)``.
 
     ``target_sign`` makes the latent correlate positively with the target. The per-view weight sign is the
     sign of that view's own coupling to the latent (``corr(X_m v_m, u)``): conical weights are non-negative,
     yet a view can couple negatively to the consensus, and its raw weights then describe the opposite
     direction."""
-    res = _fit_root(zs, yz, sparseness=sparseness, seed=seed, fit_options=fit_options)
+    res = _fit_root(zs, yz, sparseness=sparseness, seed=seed, fit_options=fit_options, model=model)
     u = res["u"].detach().cpu().double().numpy()[:, 0]
     c = _corr(u, yz)
     s = -1.0 if (np.isfinite(c) and c < 0) else 1.0
@@ -245,10 +263,10 @@ def _generic_report(zs, maps, u, null_maps, null_us, tol) -> Dict[str, Any]:
 
 
 # ------------------------------------------------------------------------------------ cross-validation
-def _fit_core(method: str, zs, yz, *, sparseness, seed, fit_options):
+def _fit_core(method: str, zs, yz, *, sparseness, seed, fit_options, model="simlr"):
     """``(maps, u, target_sign, weights, result)`` of one fit on prepared rows."""
     if method == "structure":
-        res, u, s, maps, weights = _signed_fit(zs, yz, sparseness=sparseness, seed=seed, fit_options=fit_options)
+        res, u, s, maps, weights = _signed_fit(zs, yz, sparseness=sparseness, seed=seed, fit_options=fit_options, model=model)
         return maps, u, s, weights, res
     maps = [_col_corr(z, yz) for z in zs]
     u = sum(np.nan_to_num(z) @ mp for z, mp in zip(zs, maps))
@@ -265,7 +283,7 @@ def _score_new(method: str, core, zs_new) -> np.ndarray:
     return sum(np.nan_to_num(z) @ mp for z, mp in zip(zs_new, maps))
 
 
-def _oof_score(method, arrs, y, cov, codes, rows, n_folds, seed, sparseness, fit_options) -> np.ndarray:
+def _oof_score(method, arrs, y, cov, codes, rows, n_folds, seed, sparseness, fit_options, model="simlr") -> np.ndarray:
     idx = np.flatnonzero(rows)
     n_folds = int(max(2, min(n_folds, len(idx))))
     folds = np.array_split(np.random.default_rng(seed + 1).permutation(idx), n_folds)
@@ -275,24 +293,24 @@ def _oof_score(method, arrs, y, cov, codes, rows, n_folds, seed, sparseness, fit
         tr = np.setdiff1d(idx, f)
         fr = _Frame()
         zs_tr, yz_tr = fr.fit_transform([a[tr] for a in arrs], y[tr], sub(cov, tr), sub(codes, tr))
-        core = _fit_core(method, zs_tr, yz_tr, sparseness=sparseness, seed=seed, fit_options=fit_options)
+        core = _fit_core(method, zs_tr, yz_tr, sparseness=sparseness, seed=seed, fit_options=fit_options, model=model)
         zs_te, _ = fr.transform([a[f] for a in arrs], None, sub(cov, f), sub(codes, f))
         pred[f] = _score_new(method, core, zs_te)
     return pred
 
 
 # ------------------------------------------------------------------------------------- bagged uncertainty
-def _bag_maps(zs, yz, strata, *, n_bag, fraction, seed, sparseness, fit_options, n_jobs):
+def _bag_maps(zs, yz, strata, *, n_bag, fraction, seed, sparseness, fit_options, n_jobs, model="simlr"):
     """``(F (B, p_total) oriented refit structure maps, converged_fraction, m, n)`` from `loading_inference`
     refits on ``fraction`` of the rows (stratified by ``strata``), the target as root view."""
     from .loadings import loading_inference
     t = [torch.as_tensor(z, dtype=torch.float32) for z in zs] + [torch.as_tensor(yz[:, None], dtype=torch.float32)]
-    params = target_root_fit_params(len(zs), sparseness)
+    params = target_root_fit_params(len(zs), sparseness, model=model)
     params.update(fit_options or {})
     n = int(yz.shape[0])
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)   # the unconverged-fraction warning is reported in the output
-        li = loading_inference("simlr", t, 1, n_subsamples=int(n_bag), fraction=float(fraction), subsample="fraction",
+        li = loading_inference(model, t, 1, n_subsamples=int(n_bag), fraction=float(fraction), subsample="fraction",
                                strata=strata, return_refits=("rows",), random_state=int(seed),
                                draw_random_state=int(seed) + 101, n_jobs=int(n_jobs), **params)
     s_all = np.asarray(li["refits"]["structure"], dtype=np.float64)[:, :, 0]          # (B, p_total + 1)
@@ -347,10 +365,9 @@ def _reference_parts(reference: Any):
             raise ValueError("reference must come from attribute_target(method='structure').")
         return reference["result"], reference["frame"], float(reference["target_sign"])
     if isinstance(reference, dict) and "v" in reference and "u" in reference:
-        u = reference["u"].detach().cpu().double().numpy()[:, 0]
-        root = reference["latents"][-1].detach().cpu().double().numpy()[:, 0]
-        c = _corr(u, root)
-        return reference, None, -1.0 if (np.isfinite(c) and c < 0) else 1.0
+        # A raw fit result does not record which way its latent points (the deep models' root latent can be
+        # sign-flipped relative to the target): the orientation is chosen on the sample being projected.
+        return reference, None, None
     raise TypeError("reference must be an attribute_target() result or a pysimlr.fit result (target as last view).")
 
 
@@ -358,7 +375,7 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
                      method: str = "structure", reference: Any = None, n_null: int = 0, n_bag: int = 0,
                      sparseness: float = 0.8, n_folds: int = 5, bag_fraction: float = 0.8, fdr: float = 0.1,
                      generic_tol: float = 0.1, random_state: int = 0, n_jobs: int = 1,
-                     fit_options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                     fit_options: Optional[Dict[str, Any]] = None, model: str = "simlr") -> Dict[str, Any]:
     r"""Attribute ``target`` to the features of ``views``: signed per-view maps and the checks to read them.
 
     Parameters
@@ -373,9 +390,18 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
     groups : length-n labels, optional
         Site, cohort, scanner. Features, target and covariates are centered within group, the latent
         correlation is therefore within group, and every permutation moves rows only within their group.
+    model : {"simlr", "lend", "ned", "ned_shared_private", "flow_v"}
+        The registered `pysimlr.fit` method that builds the latent (``method="structure"`` only). Every one of
+        them takes the target as the root view of a graph (`target_root_fit_params`), returns ``u`` for the
+        training rows and projects new rows (target view absent) through `pysimlr.predict`, so the
+        out-of-fold score, the frozen reference and the bagging work for all of them. Differences: only
+        ``"simlr"`` accepts all-NaN (unobserved) rows and per-view settings; the others raise on missing rows
+        and take positivity / energy fit-wide. ``"pca"`` and ``"nsa_pipeline"`` (joint bases, no root view)
+        are refused. The benchmark evidence in ``docs/reliable_attribution.md`` covers ``"simlr"`` only.
+        With ``reference=`` the reference's own model is used and this argument is ignored.
     method : {"structure", "univariate"}
         ``"structure"`` (default): fit the target as the root view of a one-component target-rooted
-        `simlr` model (`target_root_fit_params`) and map each feature by its correlation with the latent
+        model (`target_root_fit_params`) and map each feature by its correlation with the latent
         (`structure_coefficients`). ``"univariate"``: the covariate-adjusted correlation of each feature with
         the target (a t-map in disguise; cheap, no latent; with ``n_null > 0`` also permutation p-values and
         FDR q-values per view from `stats.permutation_correlations`, ``n_null`` then being the number of
@@ -415,7 +441,7 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
     ``latent_pc1_absr`` and, with ``n_null``, their permuted-target means, ``map_excess``, ``generic``);
     ``uncertainty`` (``None`` or ``map``/``se``/``ci_low``/``ci_high``/``ratio``, ``selected``,
     ``n_selected``, ``expected_false_selections``); ``inference`` (univariate with ``n_null``);
-    ``result`` and ``frame`` (the fit and the preprocessing; pass the whole dict as ``reference=`` later);
+    ``model`` and ``root_mode`` (``"target_root"``: the target was a root view of the fit; ``"frozen_projection"``: a reference was projected), ``result`` and ``frame`` (the fit and the preprocessing; pass the whole dict as ``reference=`` later);
     ``rows_used``, ``mode``, ``method``, ``settings``.
 
     The map is the association of each feature with the cross-validated latent, not a causal effect and
@@ -424,12 +450,18 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
     """
     if method not in METHODS:
         raise ValueError(f"method must be one of {METHODS}; got {method!r}.")
+    if model not in MODELS:
+        raise ValueError(f"model must be one of {MODELS} (registered methods that take a root view); got {model!r}. "
+                         "'pca' and 'nsa_pipeline' fit one joint basis with no per-view encoder or root view.")
     n_null, n_bag = int(n_null), int(n_bag)
     if n_null < 0 or n_bag < 0:
         raise ValueError("n_null and n_bag must be >= 0.")
     if n_bag and not 0.5 <= float(bag_fraction) < 1.0:
         raise ValueError(f"bag_fraction must be in [0.5, 1); got {bag_fraction}.")
     arrs, names = _to_arrays(views)
+    if model != "simlr" and reference is None and any(np.isnan(a).any() for a in arrs):
+        raise ValueError(f"model={model!r} cannot fit with unobserved (all-NaN) rows (no missing_rows='mask'); drop or "
+                         "impute them, or use model='simlr'.")
     n = arrs[0].shape[0]
     y = _target_array(target, n)
     cov = _cov_array(covariates, n)
@@ -456,7 +488,8 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
     settings = {"sparseness": float(sparseness), "n_folds": int(n_folds), "n_null": n_null, "n_bag": n_bag,
                 "bag_fraction": float(bag_fraction), "fdr": float(fdr), "random_state": int(random_state),
                 "covariates": cov is not None, "groups": codes is not None,
-                "fit_params": None if method != "structure" else target_root_fit_params(len(a_r), sparseness)}
+                "model": model,
+                "fit_params": None if method != "structure" else target_root_fit_params(len(a_r), sparseness, model=model)}
     out["settings"] = settings
 
     def full(v):                        # a length-n_r vector on all n rows
@@ -474,6 +507,10 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
         if n_null:
             warnings.warn("n_null is ignored with reference=: the frozen score does not depend on the target.", UserWarning, stacklevel=2)
         ref_res, frame, sgn = _reference_parts(reference)
+        model = str(ref_res.get("method", model))
+        out["settings"]["model"] = model
+        if model != "simlr" and any(np.isnan(a).any() for a in a_r):
+            raise ValueError(f"the reference model {model!r} cannot project unobserved (all-NaN) rows.")
         if frame is None:
             if cov is not None:
                 raise ValueError("a raw fit result carries no covariate model; pass covariates=None (pre-adjust the data) "
@@ -485,16 +522,22 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
         else:
             zs, yz = frame.transform(a_r, y_r, c_r, g_r)
         from .api import predict
-        z = sgn * predict(ref_res, [torch.as_tensor(v, dtype=torch.float32) for v in zs] + [None])["u"].detach().cpu().double().numpy()[:, 0]
+        z = predict(ref_res, [torch.as_tensor(v, dtype=torch.float32) for v in zs] + [None])["u"].detach().cpu().double().numpy()[:, 0]
+        orientation = "reference"
+        if sgn is None:
+            c0 = _corr(z, yz)
+            sgn = -1.0 if (np.isfinite(c0) and c0 < 0) else 1.0
+            orientation = "small_sample"
+        z = sgn * z
         maps = [_col_corr(v, z) for v in zs]
         r = _corr(z, yz)
         se = 1.0 / np.sqrt(max(n_eff - 3, 1))
         zc = [np.arctanh(np.clip(m, -0.999999, 0.999999)) for m in maps]
         out["uncertainty"] = {"kind": "fisher_z_95", "ci_low": [np.tanh(c - _Z975 * se) for c in zc],
                               "ci_high": [np.tanh(c + _Z975 * se) for c in zc], "n_eff": int(n_eff)}
-        out.update(mode="reference", maps=maps, map=np.concatenate(maps), weights=None, view_signs=None, target_sign=sgn,
+        out.update(mode="reference", model=model, root_mode="frozen_projection", maps=maps, map=np.concatenate(maps), weights=None, view_signs=None, target_sign=sgn,
                    result=ref_res, frame=frame)
-        out["score"] = {"r": r, "kind": "frozen_reference", "bar": bar, "predictive": bool(np.isfinite(r) and r > bar),
+        out["score"] = {"r": r, "kind": "frozen_reference", "orientation": orientation, "bar": bar, "predictive": bool(np.isfinite(r) and r > bar),
                         "oof_scores": full(z)}
         out["generic"] = _generic_report(zs, maps, z, None, None, generic_tol)
         if not out["score"]["predictive"]:
@@ -505,15 +548,15 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
     # ------------------------------------------------------------------------------------------ fit
     frame = _Frame()
     zs, yz = frame.fit_transform(a_r, y_r, c_r, g_r)
-    core = _fit_core(method, zs, yz, sparseness=sparseness, seed=random_state, fit_options=fit_options)
+    core = _fit_core(method, zs, yz, sparseness=sparseness, seed=random_state, fit_options=fit_options, model=model)
     maps, u, sgn, weights, res = core
     view_signs = None
     if res is not None:
         view_signs = [float(np.sign(w @ res["v"][m].detach().cpu().double().numpy()[:, 0]) or 1.0) * sgn
                       for m, w in enumerate(weights)]
-    oof = _oof_score(method, a_r, y_r, c_r, g_r, np.ones(n_r, dtype=bool), n_folds, random_state, sparseness, fit_options)
+    oof = _oof_score(method, a_r, y_r, c_r, g_r, np.ones(n_r, dtype=bool), n_folds, random_state, sparseness, fit_options, model)
     r = _corr(oof, yz)
-    out.update(mode="fit", maps=maps, map=np.concatenate(maps), weights=weights, view_signs=view_signs, target_sign=sgn,
+    out.update(mode="fit", model=model, root_mode="target_root" if method == "structure" else "none", maps=maps, map=np.concatenate(maps), weights=weights, view_signs=view_signs, target_sign=sgn,
                result=res, frame=frame)
     out["score"] = {"r": r, "kind": "out_of_fold", "bar": bar, "predictive": bool(np.isfinite(r) and r > bar),
                     "oof_scores": full(oof), "n_folds": int(n_folds)}
@@ -523,7 +566,7 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
     null_maps, null_us = [], []
     for j in range(n_null):
         yp = yz[_permute(rng, n_r, g_r)]
-        nm, nu, _, _, _ = _fit_core(method, zs, yp, sparseness=sparseness, seed=int(random_state) + 1 + j, fit_options=fit_options)
+        nm, nu, _, _, _ = _fit_core(method, zs, yp, sparseness=sparseness, seed=int(random_state) + 1 + j, fit_options=fit_options, model=model)
         null_maps.append(nm)
         null_us.append(nu)
     out["generic"] = _generic_report(zs, maps, u, null_maps, null_us, generic_tol)
@@ -535,13 +578,13 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
         if method != "structure":
             raise ValueError("n_bag needs method='structure' (the univariate map has no refits to bag).")
         out["uncertainty"] = _uncertainty(zs, yz, g_r, sizes, n_bag, n_null, bag_fraction, fdr, sparseness, random_state,
-                                          fit_options, n_jobs, rng)
+                                          fit_options, n_jobs, rng, model)
     return out
 
 
-def _uncertainty(zs, yz, g_r, sizes, n_bag, n_null, fraction, fdr, sparseness, seed, fit_options, n_jobs, rng):
+def _uncertainty(zs, yz, g_r, sizes, n_bag, n_null, fraction, fdr, sparseness, seed, fit_options, n_jobs, rng, model="simlr"):
     f, conv, m, n = _bag_maps(zs, yz, g_r, n_bag=n_bag, fraction=fraction, seed=seed, sparseness=sparseness,
-                              fit_options=fit_options, n_jobs=n_jobs)
+                              fit_options=fit_options, n_jobs=n_jobs, model=model)
     s = _delete_d_summary(f, m, n)
     un: Dict[str, Any] = {"kind": "delete_d_rescaled", "n_bag": int(n_bag), "subsample_rows": int(m), "delete_d": int(n - m),
                           "converged_fraction": conv, "selected": None, "n_selected": None,
@@ -553,7 +596,7 @@ def _uncertainty(zs, yz, g_r, sizes, n_bag, n_null, fraction, fdr, sparseness, s
         for j in range(n_null):
             yp = yz[_permute(rng, len(yz), g_r)]
             fn, _, _, _ = _bag_maps(zs, yp, g_r, n_bag=n_bag, fraction=fraction, seed=int(seed) + 1000 + j,
-                                    sparseness=sparseness, fit_options=fit_options, n_jobs=n_jobs)
+                                    sparseness=sparseness, fit_options=fit_options, n_jobs=n_jobs, model=model)
             nulls.append(_delete_d_summary(fn, m, n)["ratio"])
         sel = _calibrated_selection(s["ratio"], np.array(nulls), fdr)
         un["selected"] = _split(sel["selected"], sizes)

@@ -298,3 +298,96 @@ def test_permutation_correlations_drops_masked_rows_with_warning():
         permutation_correlations(x, y, n_perms=10, seed=1)       # no masked rows: no warning
     with pytest.raises(ValueError):
         permutation_correlations(x, np.full(40, np.nan), n_perms=10, seed=1)
+
+
+# ------------------------------------------------------------------------------------ every model family
+MODELS = ["simlr", "lend", "ned", "ned_shared_private", "flow_v"]
+_FAST = {"iterations": 30}
+
+
+@pytest.fixture(scope="module")
+def model_data():
+    return _planted(n=100, seed=21)
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_model_recovers_planted_effect_with_correct_sign(model, model_data):
+    views, y = model_data
+    out = pysimlr.attribute_target(views, y, model=model, fit_options=_FAST, n_folds=3, random_state=0)
+    assert out["model"] == model and out["mode"] == "fit" and out["root_mode"] == "target_root"
+    m1, m2 = out["maps"][1], out["maps"][2]
+    assert (m1[:4] > 0.25).all() and (m2[:3] < -0.25).all()
+    assert np.abs(m1[4:]).max() < np.abs(m1[:4]).min() + 0.05
+    assert out["score"]["predictive"] and out["score"]["kind"] == "out_of_fold"
+    assert out["settings"]["fit_params"]["path_graph"][3] == [0, 1, 2]
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_model_null_target_flagged_not_predictive(model, model_data):
+    views, _ = model_data
+    y = np.random.default_rng(31).standard_normal(len(views[0]))
+    with pytest.warns(UserWarning, match="does not predict"):
+        out = pysimlr.attribute_target(views, y, model=model, fit_options=_FAST, n_folds=3, random_state=0)
+    assert not out["score"]["predictive"]
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_model_frozen_reference_projects_small_sample(model, model_data):
+    views, y = model_data
+    ref = pysimlr.attribute_target(views, y, model=model, fit_options=_FAST, n_folds=2, random_state=0)
+    small = slice(0, 30)
+    out = pysimlr.attribute_target([v[small] for v in views], y[small], reference=ref)
+    assert out["mode"] == "reference" and out["model"] == model and out["root_mode"] == "frozen_projection"
+    assert out["score"]["predictive"]
+    assert (out["maps"][1][:4] > 0.2).all() and (out["maps"][2][:3] < -0.2).all()
+    # a raw fit result (fitted by the caller on the unprepared views, target last) is accepted too
+    t = [torch.tensor(v, dtype=torch.float32) for v in views] + [torch.tensor(y[:, None], dtype=torch.float32)]
+    res = pysimlr.fit(model, t, 1, random_state=0, **pysimlr.target_root_fit_params(3, 0.8, 80, model=model))
+    raw = pysimlr.attribute_target([v[small] for v in views], y[small], reference=res)
+    assert raw["model"] == model and raw["mode"] == "reference" and raw["score"]["predictive"]
+    assert (raw["maps"][1][:4] > 0.2).all() and (raw["maps"][2][:3] < -0.2).all()
+
+
+@pytest.mark.parametrize("model", MODELS[1:])
+def test_non_simlr_models_refuse_unobserved_rows_clearly(model, model_data):
+    views, y = model_data
+    holes = [v.copy() for v in views]
+    holes[0][5:12] = np.nan
+    with pytest.raises(ValueError, match="all-NaN"):
+        pysimlr.attribute_target(holes, y, model=model, fit_options=_FAST)
+    ref = pysimlr.attribute_target(views, y, model=model, fit_options=_FAST, n_folds=2)
+    with pytest.raises(ValueError, match="cannot project"):
+        pysimlr.attribute_target([v[:30] for v in holes], y[:30], reference=ref)
+
+
+def test_unregistered_and_joint_models_are_refused(model_data):
+    views, y = model_data
+    for bad in ("pca", "nsa_pipeline", "flow", "flow_simr"):
+        with pytest.raises(ValueError, match="model must be one of"):
+            pysimlr.attribute_target(views, y, model=bad)
+
+
+def test_deep_target_root_params_are_fit_wide():
+    p = pysimlr.target_root_fit_params(3, 0.5, model="ned")
+    assert "per_view_params" not in p and "missing_rows" not in p and p["positivity"] == "positive"
+    assert "iterations" not in p and pysimlr.target_root_fit_params(3, 0.5, 20, model="ned")["iterations"] == 20
+    assert pysimlr.target_root_fit_params(3)["per_view_params"][3]["sparseness"] is None
+
+
+@pytest.mark.parametrize("model", MODELS[1:])
+def test_deep_and_flow_negative_coupling_sign_has_no_per_view_defect(model):
+    """Analogue of the per_view_params defect: deep/flow models take positivity and energy fit-wide (no
+    per_view_params), so the fit-level values `view_coupling_signs` reads are the ones used."""
+    v = _two_view_negative()
+    res = pysimlr.fit(model, v, 1, random_state=0, positivity="conical", energy_type="nc_abs", sparseness=0.8, iterations=30)
+    u = res["u"].double()[:, 0].numpy()
+    coup = []
+    for m in range(2):
+        x = v[m].double()
+        s = ((x - x.mean(0)) / x.std(0)) @ res["v"][m].double()
+        coup.append(np.corrcoef(s[:, 0].numpy(), u)[0, 1])
+    assert coup[0] * coup[1] < 0
+    signs = [float(s) for s in pysimlr.loadings(res, v)["coupling_signs"]]
+    assert signs[0] * signs[1] == -1.0 and signs[2] == 1.0
+    pos, et = _result_view_settings(res, 3)
+    assert set(pos) == {"positive"} and set(et) == {"nc_abs"}
