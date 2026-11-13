@@ -1,5 +1,5 @@
 # Tracking Summary
-current phase: v0.32.0 (`D53` done: opt-in `groups=`, `exclude_views=`, `return_refits=`, `subsample=` / `strata=` and `orient_latents` for the interpretation tools; defaults unchanged). v0.31.1: `D52` (`feature_maps` / `loading_inference` returned all-zero maps and `oos_coupling == 0.0` with `missing_rows="mask"` and unobserved rows; fixed). v0.31.0: `D51` (order-free `sign_alignment="spectral"` default).
+current phase: v0.33.0 (`D54` done: `attribute_target` for simlr, lend, ned, ned_shared_private and flow_v with out-of-fold and generic-variance checks, frozen-reference mode, opt-in bagged intervals and calibrated selection; per-view coupling-sign fix, a behaviour change for fits that set positivity or energy through `per_view_params`). Before it: v0.32.0 (`D53` done: opt-in `groups=`, `exclude_views=`, `return_refits=`, `subsample=` / `strata=` and `orient_latents` for the interpretation tools; defaults unchanged). v0.31.1: `D52` (`feature_maps` / `loading_inference` returned all-zero maps and `oos_coupling == 0.0` with `missing_rows="mask"` and unobserved rows; fixed). v0.31.0: `D51` (order-free `sign_alignment="spectral"` default).
 next WP: docs/plans/2026-11-07_path_model_next_steps.md items 1 (mediation), 6-8.
 blockers: none
 active work: none
