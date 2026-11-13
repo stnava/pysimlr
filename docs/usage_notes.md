@@ -534,16 +534,118 @@ raises a `RuntimeWarning`, and the dict is returned as `sel["bottleneck"]`.
   refit then shares more rows with the full-data fit. So the numbers become more optimistic, not
   more informative. Keep the default unless you have a reason, and report the fraction with the
   results.
-- **Stability selection needs `fraction=0.5`.** The `selected` features and
+- **Stability selection needs uniform half-samples.** The `selected` features and
   `expected_false_selections` rely on the Meinshausen–Bühlmann bound, which holds only for
-  half-samples (and `threshold > 0.5`). With any other fraction, treat `selected` as a ranking
-  without error control.
+  half-samples (and `threshold > 0.5`). Since v0.32.0 the bound is NaN, with
+  `expected_false_selections_reason`, for any other design (`fraction != 0.5`, `subsample="bootstrap"`,
+  `strata=`); treat `selected` there as a ranking without error control.
 - **Signed displays.** Show only features whose interval excludes 0, and name features from
   `selected`.
 - **`select_rank` can return `None`.** No candidate k met the requested criterion. Inspect
   `sel["table"]` and `sel["criteria"]`:
   - try a smaller k, or a lower `min_stability` if the setting is low-power (state it);
   - or try `positivity="positive"`.
+
+## Grouped analyses, excluded views, per-refit outputs, resampling schemes, orientation (v0.32.0)
+
+Everything here is opt-in; with the new arguments left at their defaults every output is unchanged
+(tested against values generated on v0.31.1).
+
+**Within-group analysis (`groups=`).** Sites, cohorts and scanners shift feature means, and a latent that
+separates the groups then correlates with every feature that shifts. Pass `groups=` (length-n labels) to
+`structure_coefficients`, `loadings`, `sem.view_scores`, `feature_maps` and `loading_inference`: features,
+latent columns and the other-views target are centered within group before any correlation or map, so the
+result is a pooled within-group association and a group mean difference cannot produce one.
+`scale_within_group=False` (default) scales globally after centering; `True` also divides each group by its
+own SD (use when the groups differ in variance and one should not dominate). A group with fewer than 3
+usable rows for a view is left out of that view with a `MissingRowsWarning`; below `min_rows` the maps are NaN
+with a reason (the D52 rules), and it composes with `missing_rows="mask"`. `loadings(..., groups=g)` also
+derives the varimax rotation within group; `feature_maps` uses the result's `loading_rotation`, so for
+consistent within-group maps pass `{**res, **loadings(res, views, groups=g)}` (`loading_inference` does
+this for the reference and every refit, and its `out["result"]` then holds the within-group keys).
+`stats.permutation_correlations(..., groups=g)` centers within group, permutes rows only within group (the
+unrestricted permutation of data that differ in group means is not a valid null for a within-group claim:
+in the tests it called a pure group shift significant 90+% of the time), bootstraps within group, and uses
+the effective sample size `n - G + 1`. In `loading_inference` the permutation null permutes within group
+whenever `groups` is given (no separate switch: grouped structure with an ungrouped null would not be a
+null for the same statistic). Resampling is not stratified by `groups` unless you also pass
+`strata=groups`; with small groups do. The out-of-bag `oos_coupling` is computed on within-group scores;
+`oos_r2` (reconstruction) is not grouped.
+
+**Excluded views (`feature_maps(..., exclude_views=[...])`).** The listed views (indices or names) are left
+out of the `target="other_views"` target of every view. They still receive maps, against the target built from
+the non-excluded views; ignore them if unwanted (a separate `skip_maps_for` would only save time). Forward it
+through `loading_inference(map_options={"exclude_views": [...]})`. **This changes the target only.** The
+fitted consensus and each view's encoder were estimated with the excluded view in the model, so the other
+views' scores still carry information pulled from it. For a strictly non-circular test when the excluded
+view is the outcome ("root"), refit without it, `fit(method, [v for v in views if v is not root], k)`, take
+latents and maps from that fit, and relate the root to them (`pysimlr.extend` can add it afterwards). Use
+`exclude_views` as a screen (which features track the latent that the other views support) and the refit for
+the claim.
+
+**Per-refit outputs (`loading_inference(..., return_refits=(...))`).** Default: nothing is kept. Request any of
+`"weights"`, `"maps"`, `"latents"`, `"rows"` to receive `out["refits"]` with, for each kept refit, the aligned
+structure, per-view weights, maps, the consensus latent of every row (in-bag from the refit, out-of-bag
+predicted, flagged by `in_bag`) and the row indices, all in the reference frame of the stability summaries,
+plus `alignment["rotation"]` so a caller can undo it (`u_refit = latent @ rotation[b].T`). Stability
+recomputed from the returned arrays reproduces `component_stability` (tested). Memory is about
+`4 B (structure + weights + maps + n k)` bytes for `B` refits; a `ValueError` is raised before fitting when it
+would exceed `max_refit_bytes` (default 2e9). Use it for refit-level questions the summaries do not answer:
+which subjects drive the latent, how an outcome relates to the out-of-bag latent per refit, or a bespoke
+stability measure.
+
+**Resampling schemes (`subsample=`, `fraction=`, `strata=`).** `"half"` (default; `round(fraction n)` rows
+without replacement, half-samples at the default fraction; draws identical to earlier versions),
+`"fraction"` (same draw, explicit for `fraction != 0.5`) and `"bootstrap"` (`n` rows with replacement,
+out-of-bag = never drawn, about 37%; refits see duplicated rows). `strata=` (length-n labels) makes the draws
+proportional within strata (for the bootstrap, each stratum to its own size). To stratify by the
+view-observation pattern under `missing_rows="mask"` build labels from it and pass them as `strata`; it is not
+automatic. Guarantees: only uniform half-sampling carries the stability-selection bound; elsewhere
+`expected_false_selections` is NaN with `expected_false_selections_reason` and `out["resampling"]["bound_valid"]`
+is False. Intervals, component stability and selection frequency remain descriptive resampling summaries without a
+coverage or error-rate guarantee (bootstrap intervals are percentile intervals; large fractions understate
+variability). Stratified draws are for balance (every refit sees every site), not for a stronger guarantee.
+
+**Orientation across fits (`pysimlr.orient_latents`).** Latents, weights and maps of separate fits agree only up to
+signs, component order (and rotation). `orient_latents(latents, weights=, maps=, mode="sign" | "signed_permutation" |
+"procrustes")` puts a list of fits in one frame by a rule that does not depend on their order: the reference
+starts at the medoid (largest summed pairwise absolute-cosine agreement), is replaced by the mean of the oriented
+fits until the transforms stop changing, and the final frame orders components by mean column norm and gives
+each a non-negative sum of cubes. Permuting the input list permutes the outputs and changes nothing else
+(tested for all three modes). It returns the transforms, so weights and maps are carried along (use `abs` of a
+transform for share-valued maps). `loading_inference(return_refits=...)` does not call it: its refits are already
+aligned to the full-data fit, which is order-free by construction. `orient=` was not added to `fit` or
+`view_scores`: a single fit has no peers to orient to, and its own convention (varimax columns with non-negative sum
+of cubes) is unchanged.
+
+**Worked example: multi-site data, root outcome view, missing rows.**
+
+```python
+import warnings, numpy as np, torch, pysimlr
+rng = np.random.default_rng(0)
+site = np.repeat([0, 1, 2], 50)                      # three sites, n = 150
+z = rng.standard_normal((150, 1))                    # shared latent
+shift = np.array([0.0, 2.0, -2.0])[site][:, None]    # site offsets in every view
+def view(p, load):
+    w = np.zeros((1, p)); w[0, :load] = 1.0
+    return torch.tensor(z @ w * 1.5 + rng.standard_normal((150, p)) + shift, dtype=torch.float32)
+views = [view(12, 4), view(10, 3), view(8, 3), view(3, 3)]     # the last view is the outcome "root"
+views[1][:10] = float("nan"); views[2][100:110] = float("nan") # rows missing in views 1 and 2
+
+res = pysimlr.fit("simlr", views, 1, missing_rows="mask", random_state=0, iterations=100)
+res_w = {**res, **pysimlr.loadings(res, views, groups=site)}   # within-site structure and rotation
+maps, info = pysimlr.feature_maps(res_w, views, kinds=["structure"], groups=site,
+                                  exclude_views=[3], return_info=True)
+# info["n_eff"] == [150, 140, 140, 150]; view 0's planted features have map values ~0.8 within site.
+
+inf = pysimlr.loading_inference(
+    "simlr", views, 1, missing_rows="mask", iterations=100, n_subsamples=100, n_permutations=100,
+    groups=site, strata=site, maps=("structure",), map_options={"exclude_views": [3]},
+    return_refits=("latents", "rows"))
+# inf["null_max_abs"]: within-site permutation null; inf["expected_false_selections"] is NaN (stratified draws),
+# inf["refits"]["latents"]: (100, 150, 1) latents in the reference frame, inf["refits"]["in_bag"] flags the rows.
+# For the non-circular claim about the root: refit on views[:3], then relate views[3] to that fit's latents.
+```
 
 ## New samples
 
