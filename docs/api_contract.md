@@ -191,6 +191,20 @@ effects that come from the optimizer (nonlinear `ned` fits are chaotic) or from 
 initialization drawn in view order (`random`, `perturbed_pca`, deep weight initialization) remain.
 See `docs/view_order_dependence_report.md`.
 
+### ICA mixing on a rank-deficient neighbourhood (D55)
+
+`mixing_algorithm="ica"` fits as many ICA components as the neighbourhood's centred columns
+support: `r = min(k, numerical rank)` (singular values above `1e-4` of the largest). A neighbourhood
+of rank `r < k` (a one-column root view projects to an `n x k` matrix of rank 1; any view narrower
+than `k` has rank at most its width) gets `r` standardized ICA columns and `k - r` all-zero consensus
+columns with all-zero anchor columns, which is the `svd` / `pca` result for the same input. Before
+D55 the `k`-component FastICA divided by near-zero eigenvalues and raised `ValueError: slice 0 has
+a NaN entry` (60-70% of target-rooted `topology="graph"` fits), or returned values from a
+non-converging fit (about 20x slower per step). A non-finite ICA result now raises a `ValueError`
+that names the neighbourhood shape, rank and `k`. Full-rank neighbourhoods are unchanged to the
+bit. Under `topology="graph"` / `"loo"` views with the same neighbourhood share one consensus
+per call (exactly equal results, fewer ICA fits).
+
 ### Prediction does not depend on the batch
 
 After fitting, each model freezes its consensus as an affine map, fitted by least squares

@@ -7,6 +7,19 @@ from .utils import newton_schulz_orthogonalize, safe_svd
 from .defaults import DEFAULT_MIXING_ALGORITHM, DEFAULT_SIGN_ALIGNMENT, DEFAULT_TOPOLOGY
 
 
+def _numerical_rank(x: np.ndarray, k: int, rtol: float = 1e-4) -> int:
+    """Number of ICA components a centred matrix supports: singular values
+    above ``rtol * s_max`` of the mean-centred ``x``, capped at ``k``."""
+    if x.shape[0] < 2:
+        return k  # one sample: not a rank question; FastICA raises its own clear error
+    if x.shape[1] == 0:
+        return 0
+    sv = np.linalg.svd(x.astype(np.float64) - x.astype(np.float64).mean(axis=0), compute_uv=False)
+    if sv.size == 0 or not np.isfinite(sv).all() or sv[0] <= 0:
+        return 0
+    return int(min(k, np.sum(sv > rtol * sv[0])))
+
+
 def align_anchor_columns(new_anchor: torch.Tensor,
                          reference: Optional[torch.Tensor],
                          eps: float = 1e-8) -> torch.Tensor:
@@ -252,9 +265,36 @@ def compute_shared_consensus(projections: List[torch.Tensor],
                     # returned NaN on them. Those columns get zero anchor rows,
                     # so big_p @ anchor is unchanged.
                     keep = np.ptp(avg_p, axis=0) > 0
-                    u_np = ica.fit_transform(avg_p[:, keep])
-                    comp = np.zeros((avg_p.shape[1], ica.components_.shape[0]), dtype=ica.components_.dtype)
-                    comp[keep] = ica.components_.T
+                    # Rank-adaptive. A neighbourhood whose centred columns span
+                    # fewer than k directions (a one-column root view projects
+                    # to an n x k matrix of rank 1; a view narrower than k has
+                    # rank <= its width) has no k-component ICA: whitening
+                    # divides by the ~0 eigenvalues and FastICA's pinv fails
+                    # with "slice 0 has a NaN entry". ICA is fit with r =
+                    # rank components and the remaining k - r consensus
+                    # columns and anchor columns are zero, which is what the
+                    # svd/pca mixings give for the same input (their extra
+                    # singular directions carry ~0 variance).
+                    x_keep = avg_p[:, keep]
+                    n_comp = _numerical_rank(x_keep, k)
+                    if n_comp == k:
+                        # Full rank: exactly the original computation.
+                        u_np = ica.fit_transform(x_keep)
+                        comp = np.zeros((avg_p.shape[1], ica.components_.shape[0]), dtype=ica.components_.dtype)
+                        comp[keep] = ica.components_.T
+                    else:
+                        u_np = np.zeros((avg_p.shape[0], k), dtype=avg_p.dtype)
+                        comp = np.zeros((avg_p.shape[1], k), dtype=avg_p.dtype)
+                        if n_comp > 0:
+                            ica_r = FastICA(n_components=n_comp, random_state=42, max_iter=2000, tol=1e-2)
+                            u_np[:, :n_comp] = ica_r.fit_transform(x_keep)
+                            comp[keep, :n_comp] = ica_r.components_.T
+                            ica = ica_r
+                    if not (np.isfinite(u_np).all() and np.isfinite(comp).all()):
+                        raise ValueError(
+                            f"ICA mixing returned non-finite values for a neighbourhood of shape "
+                            f"{tuple(x_keep.shape)} with numerical rank {n_comp} and k={k}; "
+                            f"use mixing_algorithm='svd' or 'pca' for this fit.")
                     local_anchor = torch.from_numpy(comp).to(local_big_p.device).to(local_big_p.dtype)
                 else:
                     u_np = avg_p[:, :k]
@@ -380,6 +420,11 @@ def compute_shared_consensus(projections: List[torch.Tensor],
         if topology == "graph" and path_graph is None:
             raise ValueError("path_graph must be provided for topology='graph'")
         u_list = []
+        # Views with the same neighbourhood share one consensus (a target-rooted
+        # graph gives every feature view the neighbourhood [target]); computing it
+        # once is exact because `_get_u` is a deterministic function of the
+        # neighbourhood (FastICA is seeded) within this call.
+        nb_cache: Dict[Tuple[int, ...], torch.Tensor] = {}
         for i in range(len(orig_norm_projs)):
             candidates = (range(len(orig_norm_projs)) if topology == "loo"
                           else path_graph.get(i, []))
@@ -388,7 +433,10 @@ def compute_shared_consensus(projections: List[torch.Tensor],
             if len(nb_projs) == 0:
                 u_list.append(orig_norm_projs[i])
             else:
-                u_list.append(_get_u(nb_projs, return_anchor=False))
+                key = tuple(nb_idx)
+                if key not in nb_cache:
+                    nb_cache[key] = _get_u(nb_projs, return_anchor=False)
+                u_list.append(nb_cache[key].clone())
         if training:
             with torch.no_grad():
                 star_for_anchor = (_apply_obs_row_scale([p.detach() for p in norm_projs], sorted(valid_indices), False)
