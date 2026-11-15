@@ -1,16 +1,22 @@
 # Tracking Summary
-current phase: v0.33.1 (`D55`: rank-aware ICA mixing, so a target-rooted fit with k > 1 no longer fails or stalls). Before it: v0.33.0 + unreleased `D55` (ICA mixing on a rank-deficient neighbourhood; branch `fix/ica-root-view`). v0.33.0 (`D54` done: `attribute_target` for simlr, lend, ned, ned_shared_private and flow_v with out-of-fold and generic-variance checks, frozen-reference mode, opt-in bagged intervals and calibrated selection; per-view coupling-sign fix, a behaviour change for fits that set positivity or energy through `per_view_params`). Before it: v0.32.0 (`D53` done: opt-in `groups=`, `exclude_views=`, `return_refits=`, `subsample=` / `strata=` and `orient_latents` for the interpretation tools; defaults unchanged). v0.31.1: `D52` (`feature_maps` / `loading_inference` returned all-zero maps and `oos_coupling == 0.0` with `missing_rows="mask"` and unobserved rows; fixed). v0.31.0: `D51` (order-free `sign_alignment="spectral"` default).
+current phase: v0.34.0 (`D56`: `recon_r2` and `nc_ridge` similarity energies on `lend` / `flow_v`; `missing_rows="mask"` across all deep and normalizing-flow models `lend`, `ned`, `ned_shared_private`, `flow_v`, `flow_simr`, and `attribute_target`). Before it: v0.33.1 (`D55`: rank-aware ICA mixing, so a target-rooted fit with k > 1 no longer fails or stalls). v0.33.0 (`D54` done: `attribute_target` for simlr, lend, ned, ned_shared_private and flow_v with out-of-fold and generic-variance checks, frozen-reference mode, opt-in bagged intervals and calibrated selection; per-view coupling-sign fix, a behaviour change for fits that set positivity or energy through `per_view_params`). Before it: v0.32.0 (`D53` done: opt-in `groups=`, `exclude_views=`, `return_refits=`, `subsample=` / `strata=` and `orient_latents` for the interpretation tools; defaults unchanged). v0.31.1: `D52` (`feature_maps` / `loading_inference` returned all-zero maps and `oos_coupling == 0.0` with `missing_rows="mask"` and unobserved rows; fixed). v0.31.0: `D51` (order-free `sign_alignment="spectral"` default).
 next WP: docs/plans/2026-11-07_path_model_next_steps.md items 1 (mediation), 6-8.
 blockers: none
 active work: none
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
-last updated: 2026-11-13
+last updated: 2026-11-15
 
 ---
 
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D56 (Data/basis similarity energies on `lend`/`flow_v` and `missing_rows="mask"` across deep and flow models, 2026-11-15)
+status: done (v0.34.0, minor release; additive, every default is unchanged)
+- **Data/basis similarity energies (`"recon_r2"`, `"nc_ridge"`):** added `path="deep_linear_first_layer"` to `similarity.resolve_energy_name` / `check_fit_energy` and wired per-batch `SimilarityContext(x=batch_x_m, v=v_m)` through `deep.calculate_sim_loss`, `deep._train_loop` (`LENDSiMRModel`), `flows._train_flow_loop` (`FlowSiMRVModel`), and `api._basis_grad_map`. Nonlinear-encoder models (`ned`, `ned_shared_private`, `flow_simr`) and unprofiled `"recon"` continue to raise architectural `ValueError` messages.
+- **Whole-row missingness (`missing_rows="mask"`):** extended `simlr`'s exact row-masking contract to `lend_simr`, `ned_simr`, `ned_simr_shared_private`, `flow_simr_v`, and `flow_simr` (`_prepare_deep_inputs`, observed-row standardization and encoder initialization, masked reconstruction MSE / flow NLL / similarity / consensus mixing / frozen consensus maps, `result["missing_rows"]`, `result["obs_mask"]`, `NaN`-marked unobserved `latents`, `predict` / `predict_views` / `loadings` / `feature_maps` / `confounds`, and `attribute_target` across all `MODELS`). Default `missing_rows="impute"` is bit-identical.
+- **Tests:** `tests/test_recon_r2_deep_flow.py` (25), `tests/test_missing_rows_deep_flow.py` (16), plus updates in `tests/test_nc_ridge.py`, `tests/test_parameters_are_live.py`, `tests/test_similarity_registry.py`, `tests/test_reliable_attribution.py`, `tests/test_api_registry.py`. Full suite: 2239 passed, 1 skipped, 2 xfailed, 0 failed.
 
 ## D55 (ICA mixing on a rank-deficient neighbourhood: NaN failures and 20x cost for a one-column root view, 2026-11-13)
 status: implemented on branch `fix/ica-root-view` (not released, not pushed; review pending)

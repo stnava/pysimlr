@@ -333,13 +333,15 @@ _SPECS = [
     MethodSpec("simlr", "linear", simlr, _predict_linear, "iterations",
                "Linear SiMLR: one sparse, NSA-Flow-constrained basis per view.", extra_params=_frozen(_simlr_extra())),
     MethodSpec("lend", "deep", lend_simr, _predict_deep, "epochs",
-               "LEND: linear first layer, nonlinear decoders."),
+               "LEND: linear first layer V, nonlinear decoders; accepts data/basis energies "
+               "(recon_r2, nc_ridge) scaled by sim_weight alongside decoder MSE."),
     MethodSpec("ned", "deep", ned_simr, _predict_deep, "epochs",
                "NED: linear first layer, nonlinear heads and decoders."),
     MethodSpec("ned_shared_private", "deep", ned_simr_shared_private, _predict_deep, "epochs",
                "NED++: NED with per-view private latents."),
     MethodSpec("flow_v", "flow", flow_simr_v, _predict_deep, "epochs",
-               "Flow-SiMR-V: linear first layer, RealNVP flow per view."),
+               "Flow-SiMR-V: linear first layer V, RealNVP flow per view; accepts data/basis "
+               "energies (recon_r2, nc_ridge) scaled by sim_weight alongside beta*NLL + gamma*MSE."),
     MethodSpec("pca", "baseline", pca_joint, _predict_joint, "none",
                "PCA of the concatenated standardized views (joint basis)."),
     MethodSpec("nsa_pipeline", "baseline", nsa_pipeline, _predict_joint, "none",
@@ -565,7 +567,8 @@ def _basis_grad_map(res: Dict[str, Any], views: List[torch.Tensor]) -> Optional[
     """
     from .extension import _used
     from .utils import stationarity_residual
-    from .similarity import SimilarityContext, resolve_energy_name, similarity_gradient
+    from .similarity import (SimilarityContext, resolve_energy_name,
+                             similarity_gradient, similarity_needs_data)
     vs, u = res.get("v"), res.get("u")
     if not vs or u is None:
         return None
@@ -573,16 +576,40 @@ def _basis_grad_map(res: Dict[str, Any], views: List[torch.Tensor]) -> Optional[
     positivity = _used(res, "positivity", "either")
     from .positivity import is_nonneg
     nonneg = is_nonneg(positivity)
-    name = resolve_energy_name(energy_type, path="deep")
-    xs, _ = _preprocess_views(views, res["scale_list"], res["provenance_list"])
+    path = "deep_linear_first_layer" if res.get("method") in ("lend", "flow_v") else "deep"
+    name = resolve_energy_name(energy_type, path=path)
+    needs_data = similarity_needs_data(name)
     u_t = torch.as_tensor(u).detach().float()
     terms = []
+    if res.get("missing_rows") == "mask":
+        from .utils import preprocess_data
+        scale_list = res["scale_list"]
+        prov_list = res["provenance_list"]
+        for m_idx, (raw_v, v) in enumerate(zip(views, vs)):
+            om = ~torch.isnan(raw_v).all(dim=1)
+            v = torch.as_tensor(v).detach().float()
+            x = preprocess_data(raw_v[om], scale_list, prov_list[m_idx]).detach().float()
+            u_m = u_t[om]
+            if x.shape[0] < 3 or x.shape[0] != u_m.shape[0] or v.shape[1] != u_m.shape[1] or x.shape[1] != v.shape[0]:
+                continue
+            ctx = SimilarityContext(x=x, v=v)
+            if needs_data:
+                g = similarity_gradient(name, x @ v, u_m, ctx, wrt="v")
+            else:
+                g = x.t() @ similarity_gradient(name, x @ v, u_m, ctx, wrt="s")
+            terms.append(stationarity_residual(v, g, nonneg=nonneg)[0])
+        return max(terms) if terms else None
+    xs, _ = _preprocess_views(views, res["scale_list"], res["provenance_list"])
     for x, v in zip(xs, vs):
         v = torch.as_tensor(v).detach().float()
         x = torch.as_tensor(x).detach().float()
         if x.shape[0] != u_t.shape[0] or v.shape[1] != u_t.shape[1] or x.shape[1] != v.shape[0]:
             continue
-        g = x.t() @ similarity_gradient(name, x @ v, u_t, SimilarityContext(x=x, v=v), wrt="s")
+        ctx = SimilarityContext(x=x, v=v)
+        if needs_data:
+            g = similarity_gradient(name, x @ v, u_t, ctx, wrt="v")
+        else:
+            g = x.t() @ similarity_gradient(name, x @ v, u_t, ctx, wrt="s")
         terms.append(stationarity_residual(v, g, nonneg=nonneg)[0])
     return max(terms) if terms else None
 

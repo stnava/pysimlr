@@ -389,14 +389,18 @@ def test_deep_models_respond_to_their_initialisation(fn):
 # incompatible combinations must refuse, not quietly do something else
 # --------------------------------------------------------------------------
 def test_a_data_term_is_refused_on_the_deep_path():
-    """`recon` and `recon_r2` need X and V; the deep path carries neither into
-    the similarity. Silently substituting another term would make
-    `energy_type` mean different objectives on different models -- which is
-    the bug the shared registry was built to end."""
+    """`recon`, `recon_r2` and `nc_ridge` need X and V; nonlinear-encoder models
+    (`path="deep"`) have no linear first layer into the shared space and refuse
+    them, whereas linear-first-layer models (`path="deep_linear_first_layer"`)
+    accept `recon_r2` and `nc_ridge` while still refusing degenerate `recon`."""
     from pysimlr.similarity import resolve_energy_name
-    for name in ("recon", "recon_r2"):
-        with pytest.raises(ValueError, match="does not carry"):
+    for name in ("recon", "recon_r2", "nc_ridge"):
+        with pytest.raises(ValueError, match="no linear first layer"):
             resolve_energy_name(name, path="deep")
+    with pytest.raises(ValueError, match="recon_r2"):
+        resolve_energy_name("recon", path="deep_linear_first_layer")
+    for name in ("recon_r2", "nc_ridge"):
+        assert resolve_energy_name(name, path="deep_linear_first_layer") == name
 
 
 def test_a_removed_energy_name_is_refused():

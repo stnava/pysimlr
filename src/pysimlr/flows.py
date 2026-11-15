@@ -374,9 +374,25 @@ class FlowSiMRModel(_ModalityWeightingMixin, nn.Module):
         self.decoders = nn.ModuleList([FlowDecoderWrapper(flow, latent_dim) for flow in self.flows])
         
         
-    def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
-        latents = [enc(x) for enc, x in zip(self.encoders, x_list)]
-        u_shared = self._training_consensus(latents, self.latent_dim)
+    def forward(self, x_list: List[torch.Tensor],
+                obs_masks: Optional[List[torch.Tensor]] = None) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
+        if obs_masks is None:
+            latents = [enc(x) for enc, x in zip(self.encoders, x_list)]
+            u_shared = self._training_consensus(latents, self.latent_dim)
+        else:
+            latents = []
+            for enc, x, om in zip(self.encoders, x_list, obs_masks):
+                n_obs = int(om.sum().item())
+                if n_obs == 0 or (self.training and n_obs < 2):
+                    enc.last_z = None
+                    enc.last_log_det = None
+                    latents.append(torch.zeros(x.shape[0], self.latent_dim, device=x.device, dtype=x.dtype))
+                else:
+                    z_obs = enc(x[om])
+                    z_full = torch.zeros(x.shape[0], self.latent_dim, device=x.device, dtype=z_obs.dtype)
+                    z_full[om] = z_obs
+                    latents.append(z_full)
+            u_shared = self._training_consensus(latents, self.latent_dim, obs_masks=obs_masks)
             
         reconstructions = [dec(u_shared[i] if isinstance(u_shared, list) else u_shared) for i, dec in enumerate(self.decoders)]
         return latents, reconstructions, u_shared
@@ -440,6 +456,8 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
     from .deep import (LENDNSAEncoder, calculate_sim_loss, _resolve_stabilization_schedule,
                        _update_first_layer_schedule, orthogonality_defect,
                        resolve_warmup_epochs)
+    from .similarity import (SimilarityContext, resolve_energy_name,
+                             similarity_needs_data)
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     mse_loss = nn.MSELoss()
     if hasattr(dataloader, "bind_device"):
@@ -448,6 +466,9 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         enc for enc in getattr(model, "linear_encoders", ())
         if isinstance(enc, LENDNSAEncoder)
     ]
+    _energy_path = "deep_linear_first_layer" if first_layer_encs else "deep"
+    _sim_name = resolve_energy_name(energy_type, path=_energy_path)
+    _needs_ctx = similarity_needs_data(_sim_name)
     
     stabilization_start_epoch, stabilization_ramp_epochs = _resolve_stabilization_schedule(
         epochs,
@@ -477,24 +498,47 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         pre_staged = getattr(dataloader, "_device", None) == device
         for batch in dataloader:
             batch_mats = batch if pre_staged else [b.to(device) for b in batch]
+            raw_bmasks = getattr(dataloader, "last_batch_masks", None)
+            batch_masks = (None if raw_bmasks is None
+                           else (raw_bmasks if pre_staged else [bm.to(device) for bm in raw_bmasks]))
             optimizer.zero_grad()
             try:
                 for enc in first_layer_encs:
                     enc._step_v_cache = enc.v
-                latents, reconstructions, u_shared = model(batch_mats)
+                latents, reconstructions, u_shared = (
+                    model(batch_mats, obs_masks=batch_masks)
+                    if batch_masks is not None else model(batch_mats)
+                )
                 
-                recon_loss = 0.0
+                recon_loss = torch.tensor(0.0, device=device)
                 for enc in model.encoders:
                     z = enc.last_z
                     log_det = enc.last_log_det
+                    if z is None or z.shape[0] == 0:
+                        continue
                     log_prior = -0.5 * torch.sum(z ** 2, dim=1) - 0.5 * z.shape[1] * np.log(2 * np.pi)
                     nll = -torch.mean(log_prior + log_det)
-                    recon_loss += nll
+                    recon_loss = recon_loss + nll
 
-                sim_loss_total, diagnostics = calculate_sim_loss(latents, u_shared, energy_type, weights=penalty_weights, compute_diagnostics=False, collapse_threshold=collapse_threshold)
+                sim_contexts = (
+                    [SimilarityContext(x=x_m, v=enc.v_raw + (enc.v - enc.v_raw).detach())
+                     for x_m, enc in zip(batch_mats, first_layer_encs)]
+                    if _needs_ctx else None
+                )
+                sim_loss_total, diagnostics = calculate_sim_loss(
+                    latents, u_shared, energy_type, weights=penalty_weights,
+                    compute_diagnostics=False, collapse_threshold=collapse_threshold,
+                    contexts=sim_contexts, obs_masks=batch_masks,
+                )
 
                 # Hybrid zero-padded MSE reconstruction loss
-                mse_recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
+                if batch_masks is not None:
+                    obs_mse_terms = [mse_loss(r[om], x[om])
+                                     for r, x, om in zip(reconstructions, batch_mats, batch_masks)
+                                     if bool(om.any())]
+                    mse_recon_loss = sum(obs_mse_terms) if obs_mse_terms else torch.tensor(0.0, device=device)
+                else:
+                    mse_recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
 
                 total_loss = beta * recon_loss + sim_loss_total + gamma * mse_recon_loss
                 
@@ -580,38 +624,45 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
               stabilization_ramp_epochs: Optional[int], random_state: Optional[int],
               tol: float, patience: int, positivity: str = "either", nsa_w: float = DEFAULT_NSA_W,
               sparseness=None, init_kwargs: Optional[Dict[str, Any]] = None,
-              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
+              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
+              missing_rows: str = "impute") -> Dict[str, Any]:
     """Shared body of `flow_simr` and `flow_simr_v`.
 
     ``init_kwargs`` is given only for the models with a linear first layer
     (`flow_simr_v`); it is passed to ``model.initialize_weights``.
     """
-    from .deep import (DEEP_OPTIMIZER_TYPES, _standardize_deep, _get_optimizer,
+    from .deep import (DEEP_OPTIMIZER_TYPES, _prepare_deep_inputs, _get_optimizer,
                        resolve_warmup_epochs, _aggregate_shared_consensus, _plateau_scheduler,
                        _finalize_bases, _recon_errors, _resolve_device, _resolve_seed, _seeded_rng,
                        _shuffled_loader, _init_generator, _freeze_consensus)
     nsa_w = check_nsa_w(nsa_w)
     collapse_threshold = check_collapse_threshold(collapse_threshold)
+    has_linear = init_kwargs is not None
     from .similarity import check_fit_energy
-    check_fit_energy(energy_type, path="deep", positivity=positivity)
+    check_fit_energy(energy_type,
+                     path="deep_linear_first_layer" if has_linear else "deep",
+                     positivity=positivity)
     if optimizer_type not in DEEP_OPTIMIZER_TYPES:
         raise ValueError(f"optimizer_type={optimizer_type!r} is not a flow-path optimizer; "
                          f"choose one of {DEEP_OPTIMIZER_TYPES}.")
     iterations = int(iterations)
     device = _resolve_device(device)
     seed = _resolve_seed(random_state)
-    has_linear = init_kwargs is not None
     with _seeded_rng(seed, device):
-        torch_mats, provenance_list = _standardize_deep(data_matrices)
+        torch_mats, provenance_list, init_mats, obs_masks = _prepare_deep_inputs(
+            data_matrices, k, missing_rows=missing_rows
+        )
         input_dims = [m.shape[1] for m in torch_mats]
         model = build_model(input_dims).to(device)
         if has_linear:
             init_type = init_kwargs.get("initialization_type", "pca")
-            model.initialize_weights(torch_mats, generator=_init_generator(init_type, seed),
+            mats_for_init = (torch_mats if (obs_masks is not None and init_type in ("gcca", "best_of_n"))
+                             else init_mats)
+            model.initialize_weights(mats_for_init, generator=_init_generator(init_type, seed),
                                      **init_kwargs)
         optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
         scheduler = _plateau_scheduler(optimizer)
-        dataloader = _shuffled_loader(torch_mats, batch_size, seed)
+        dataloader = _shuffled_loader(torch_mats, batch_size, seed, obs_masks=obs_masks)
         warmup_epochs = resolve_warmup_epochs(warmup_epochs, iterations)
         loss_h, recon_h, sim_h, conv_report = _train_flow_loop(
             model, dataloader, optimizer, scheduler, iterations, sim_weight, energy_type,
@@ -630,19 +681,40 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
                 v_mats, retraction_diagnostics = _finalize_bases(
                     v_mats, positivity, nsa_w, energy_type, encoders=model.linear_encoders)
             eval_mats = [m.to(device) for m in torch_mats]
-            final_latents, recons, u_final = model(eval_mats)
-            u_aggregate = (_aggregate_shared_consensus(model, final_latents)
+            dev_obs_masks = ([om.to(device) for om in obs_masks]
+                             if obs_masks is not None else None)
+            final_latents, recons, u_final = (
+                model(eval_mats, obs_masks=dev_obs_masks) if dev_obs_masks is not None else model(eval_mats)
+            )
+            u_aggregate = (_aggregate_shared_consensus(model, final_latents, obs_masks=dev_obs_masks)
                            if isinstance(u_final, list) else u_final)
-            consensus_residual = _freeze_consensus(model, final_latents, u_final, u_aggregate)
+            consensus_residual = _freeze_consensus(model, final_latents, u_final, u_aggregate,
+                                                   obs_masks=obs_masks)
         cond_inference = FlowConditionalInference(len(input_dims), k)
         cond_inference.fit(final_latents)
+
+    clean_latents = [l.cpu() for l in final_latents]
+    if obs_masks is not None:
+        masked_latents = []
+        for z_c, om in zip(clean_latents, obs_masks):
+            if not bool(om.all()):
+                zm = z_c.clone()
+                zm[~om.cpu()] = float("nan")
+                masked_latents.append(zm)
+            else:
+                masked_latents.append(z_c)
+        out_latents = masked_latents
+    else:
+        out_latents = clean_latents
 
     result = {
         "model": model.cpu(),
         "model_type": model_type,
         "u": u_aggregate.cpu(),
         "u_per_modality": ([ui.cpu() for ui in u_final] if isinstance(u_final, list) else None),
-        "latents": [l.cpu() for l in final_latents],
+        "latents": out_latents,
+        "missing_rows": missing_rows,
+        "obs_mask": None if obs_masks is None else [m.detach().cpu().tolist() for m in obs_masks],
         "reconstructions": [r.cpu() for r in recons],
         "loss_history": loss_h,
         "recon_history": recon_h,
@@ -665,7 +737,18 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
         result["initialization_type"] = init_kwargs.get("initialization_type", "pca")
         # How many components actually came back; see `utils.basis_rank_report`.
         result.update(basis_rank_report(v_mats, k))
-    result["errors"] = _recon_errors(torch_mats, recons)
+    if obs_masks is not None:
+        err_mats = []
+        for m_sc, om in zip(torch_mats, obs_masks):
+            if not bool(om.all()):
+                mc = m_sc.clone()
+                mc[~om] = float("nan")
+                err_mats.append(mc)
+            else:
+                err_mats.append(m_sc)
+        result["errors"] = _recon_errors(err_mats, recons)
+    else:
+        result["errors"] = _recon_errors(torch_mats, recons)
     return result
 
 
@@ -699,7 +782,8 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
               random_state: Optional[int] = None,
               tol: float = DEFAULT_TOL,
               patience: int = 10,
-              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
+              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
+              missing_rows: str = "impute") -> Dict[str, Any]:
     """
     Flow-based Similarity-driven Multi-view Representation (Flow-SiMR).
 
@@ -730,7 +814,7 @@ def flow_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         device=device, verbose=verbose, beta=beta, gamma=gamma,
         dynamic_weights_start=dynamic_weights_start, stabilization_start_epoch=None,
         stabilization_ramp_epochs=None, random_state=random_state, tol=tol, patience=patience,
-        collapse_threshold=collapse_threshold)
+        collapse_threshold=collapse_threshold, missing_rows=missing_rows)
 
 
 class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
@@ -808,24 +892,44 @@ class FlowSiMRVModel(_MultiViewModelMixin, nn.Module):
                 elif nsa is not None and hasattr(nsa, 'weight'):
                     nsa.weight.data.copy_(target_v.t())
 
-    def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
+    def forward(self, x_list: List[torch.Tensor],
+                obs_masks: Optional[List[torch.Tensor]] = None) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         # 1. Linear projection layer
         projected_zs = [enc(x) for enc, x in zip(self.linear_encoders, x_list)]
         
         # 2. Flow encoders wrapper on projected zs
-        latents = [enc(z) for enc, z in zip(self.encoders, projected_zs)]
-        if self.training:
-            # Evaluate the flow NLL term on detached first-layer projections so
-            # that the Gaussian prior + log|det J_flow| regularizes the flow
-            # bijection without driving unit-column V_m (which has no log|det|
-            # term) into low-variance noise directions.
-            for enc, z in zip(self.encoders, projected_zs):
-                z_det, ld_det = enc.flow(z.detach())
-                enc.last_z = z_det
-                enc.last_log_det = ld_det
-        
-        # 3. Consensus mixing
-        u_shared = self._training_consensus(latents, self.latent_dim)
+        if obs_masks is None:
+            latents = [enc(z) for enc, z in zip(self.encoders, projected_zs)]
+            if self.training:
+                # Evaluate the flow NLL term on detached first-layer projections so
+                # that the Gaussian prior + log|det J_flow| regularizes the flow
+                # bijection without driving unit-column V_m (which has no log|det|
+                # term) into low-variance noise directions.
+                for enc, z in zip(self.encoders, projected_zs):
+                    z_det, ld_det = enc.flow(z.detach())
+                    enc.last_z = z_det
+                    enc.last_log_det = ld_det
+            # 3. Consensus mixing
+            u_shared = self._training_consensus(latents, self.latent_dim)
+        else:
+            latents = []
+            for enc, z, om in zip(self.encoders, projected_zs, obs_masks):
+                n_obs = int(om.sum().item())
+                if n_obs == 0 or (self.training and n_obs < 2):
+                    enc.last_z = None
+                    enc.last_log_det = None
+                    latents.append(torch.zeros(z.shape[0], self.latent_dim, device=z.device, dtype=z.dtype))
+                else:
+                    z_obs = enc(z[om])
+                    z_full = torch.zeros(z.shape[0], self.latent_dim, device=z.device, dtype=z_obs.dtype)
+                    z_full[om] = z_obs
+                    latents.append(z_full)
+                    if self.training:
+                        z_det, ld_det = enc.flow(z[om].detach())
+                        enc.last_z = z_det
+                        enc.last_log_det = ld_det
+            # 3. Consensus mixing
+            u_shared = self._training_consensus(latents, self.latent_dim, obs_masks=obs_masks)
             
         # 4. Decoders: invert normalizing flows, then project back using V_m.t()
         reconstructions = []
@@ -885,7 +989,8 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 varimax: Optional[bool] = None,
                 tol: float = DEFAULT_TOL,
                 patience: int = 10,
-              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
+                collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
+                missing_rows: str = "impute") -> Dict[str, Any]:
     """
     Flow-SiMR-V: a linear, NSA-Flow-projected first layer ``V_m`` per view
     followed by a RealNVP flow.
@@ -923,12 +1028,23 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         and are not O(k)-equivariant.
     tol, patience : early-stopping rule (`utils.ConvergenceMonitor`). Both
         were previously accepted and ignored here.
+    missing_rows : {"impute", "mask"}, default="impute"
+        Row-level missingness policy, matching `simlr`: ``"impute"`` replaces
+        missing values by column means during standardization; ``"mask"``
+        treats any row that is all-NaN in view ``m`` as unobserved in that view
+        (standardizing, scoring similarity/NLL/MSE losses, and building
+        consensus exclusively on observed rows).
 
     The remaining parameters are the flow architecture (`num_layers`,
     `hidden_dim`, `scale_bound`, `force_fallback`), the loss weights (`beta`
     on the flow NLL, `gamma` on the MSE reconstruction, `sim_weight`), and the
     consensus settings shared with `simlr`, including ``sign_alignment``
-    (``"spectral"`` default, view-order free; ``"greedy"`` legacy).
+    (``"spectral"`` default, view-order free; ``"greedy"`` legacy). Because
+    each view exposes a linear first-layer basis ``V_m``, ``energy_type`` also
+    accepts data/basis-dependent energies (``"recon_r2"`` and ``"nc_ridge"``,
+    evaluated on the preprocessed batch ``X_m`` and projected ``V_m`` and
+    scaled by ``sim_weight`` alongside ``beta * NLL + gamma * MSE``);
+    `flow_simr` has no linear first layer and accepts latent-only energies.
     """
     return _fit_flow(
         "flow_simr_v",
@@ -953,4 +1069,4 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         init_kwargs=dict(initialization_type=initialization_type,
                          domain_matrices=domain_matrices, n_candidates=n_candidates,
                          perturbation_scale=perturbation_scale, varimax=varimax),
-        collapse_threshold=collapse_threshold)
+        collapse_threshold=collapse_threshold, missing_rows=missing_rows)

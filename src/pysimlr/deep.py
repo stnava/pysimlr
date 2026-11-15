@@ -89,7 +89,7 @@ from .interpretability import build_first_layer_contract, build_interpretability
 
 from .nsa_backend import load_nsa_backend
 
-def _aggregate_shared_consensus(model, latents):
+def _aggregate_shared_consensus(model, latents, obs_masks: Optional[List[torch.Tensor]] = None):
     """
     Single (n, k) shared embedding for a model whose topology yields one
     consensus per modality.
@@ -129,6 +129,7 @@ def _aggregate_shared_consensus(model, latents):
         modality_weights=(model.modality_weights
                           if getattr(model, "dynamic_weights", False) else None),
         frozen_map=getattr(model, "aggregate_map", None),
+        obs_masks=obs_masks,
         sign_alignment=getattr(model, "sign_alignment", DEFAULT_SIGN_ALIGNMENT),
     )
 
@@ -187,6 +188,59 @@ def _standardize_deep(data_matrices, scale_list=("centerAndScale",)):
         scaled_mats.append(m_scaled)
         provenance_list.append(prov)
     return scaled_mats, provenance_list
+
+
+def _prepare_deep_inputs(data_matrices, k: int, scale_list=("centerAndScale",), *,
+                         missing_rows: str = "impute"):
+    """Validate and standardize views for deep/flow fits, returning
+    ``(torch_mats, provenance_list, init_mats, obs_masks)``.
+
+    Under ``missing_rows="impute"`` (default), delegates directly to
+    `_standardize_deep` so RNG consumption and outputs are bit-for-bit
+    identical. Under ``missing_rows="mask"``, rows that are all-NaN in a view
+    are treated as unobserved in that view (standardizing on observed rows and
+    filling unobserved slots with zeros while tracking ``obs_masks``), matching
+    `simlr._prepare_fit_inputs`.
+    """
+    if not isinstance(k, (int, np.integer)) or k <= 0:
+        raise ValueError(f"k must be a positive integer, got k={k}.")
+    if missing_rows not in ("impute", "mask"):
+        raise ValueError(f"missing_rows must be 'impute' or 'mask'; got {missing_rows!r}.")
+    if missing_rows == "impute":
+        scaled_mats, provenance_list = _standardize_deep(data_matrices, scale_list=scale_list)
+        return scaled_mats, provenance_list, scaled_mats, None
+
+    from .simlr import _check_views
+    torch_mats = _check_views(data_matrices, fitting=True)
+    min_obs = max(int(k) + 2, 6)
+    obs_masks: List[torch.Tensor] = []
+    for idx, m in enumerate(torch_mats):
+        om = ~torch.isnan(m).all(dim=1)
+        n_om = int(om.sum().item())
+        if n_om < min_obs:
+            raise ValueError(
+                f"View {idx} has only {n_om} observed (non-all-NaN) rows; "
+                f"missing_rows='mask' requires at least {min_obs}."
+            )
+        obs_masks.append(om)
+    if not bool(torch.stack(obs_masks, dim=1).any(dim=1).all()):
+        raise ValueError("missing_rows='mask': every row must be observed in at least one view.")
+
+    provenance_list = []
+    scaled_mats = []
+    init_mats = []
+    sl = list(scale_list)
+    for idx, (m, om) in enumerate(zip(torch_mats, obs_masks)):
+        m_obs = m[om]
+        m_obs_sc, prov = preprocess_data(m_obs, sl)
+        if torch.any(torch.std(m_obs_sc, dim=0) < 1e-6):
+            m_obs_sc = m_obs_sc + torch.randn_like(m_obs_sc) * 1e-6
+        provenance_list.append(prov)
+        m_full = torch.zeros_like(m_obs_sc[:1]).repeat(m.shape[0], 1)
+        m_full[om] = m_obs_sc
+        scaled_mats.append(m_full)
+        init_mats.append(m_obs_sc)
+    return scaled_mats, provenance_list, init_mats, obs_masks
 
 
 def nonneg_orthogonal_assignment(v: torch.Tensor, iters: int = 10,
@@ -373,7 +427,8 @@ class _ModalityWeightingMixin:
         self.register_buffer("modality_weights", torch.ones(n_views) / n_views)
         self.register_buffer("consensus_anchor", torch.zeros(n_views * latent_dim, latent_dim))
 
-    def _training_consensus(self, latents: List[torch.Tensor], k: int):
+    def _training_consensus(self, latents: List[torch.Tensor], k: int,
+                            obs_masks: Optional[List[torch.Tensor]] = None):
         """Shared latent for a forward pass under the model's consensus settings.
 
         In training mode the consensus anchor follows the batch anchor by an
@@ -386,6 +441,7 @@ class _ModalityWeightingMixin:
             prune_threshold=self.prune_threshold,
             modality_weights=self.modality_weights if self.dynamic_weights else None,
             frozen_map=getattr(self, "consensus_map", None),
+            obs_masks=obs_masks,
             sign_alignment=self.sign_alignment)
         if not self.training:
             return res_u
@@ -453,7 +509,8 @@ class _MultiViewModelMixin(_ModalityWeightingMixin):
         return [enc.encode_first_layer(x, use_projected=use_projected)
                 for enc, x in zip(self._first_layer_encoders(), x_list)]
 
-    def transform(self, x_list: List[torch.Tensor]) -> torch.Tensor:
+    def transform(self, x_list: List[torch.Tensor],
+                  obs_masks: Optional[List[torch.Tensor]] = None) -> torch.Tensor:
         """Return the shared consensus U as an ``(n_samples, k)`` tensor.
 
         ``forward`` yields one consensus per modality under the ``"loo"`` and
@@ -462,10 +519,10 @@ class _MultiViewModelMixin(_ModalityWeightingMixin):
         """
         self.eval()
         with torch.no_grad():
-            out = self.forward(x_list)
+            out = self.forward(x_list, obs_masks=obs_masks)
             latents, u = out[0], out[2]
             if isinstance(u, list):
-                return _aggregate_shared_consensus(self, latents)
+                return _aggregate_shared_consensus(self, latents, obs_masks=obs_masks)
             return u
 
     def initialize_v(self, data_matrices: List[torch.Tensor], k: int, **init_kwargs):
@@ -873,9 +930,12 @@ class LENDSiMRModel(_MultiViewModelMixin, nn.Module):
     def _first_layer_encoders(self):
         return self.encoders
 
-    def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
+    def forward(self, x_list: List[torch.Tensor],
+                obs_masks: Optional[List[torch.Tensor]] = None) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         latents = self.encode_first_layer(x_list)
-        u_shared = self._training_consensus(latents, self.latent_dim)
+        if obs_masks is not None:
+            latents = [torch.where(om[:, None], z, torch.zeros_like(z)) for z, om in zip(latents, obs_masks)]
+        u_shared = self._training_consensus(latents, self.latent_dim, obs_masks=obs_masks)
         return latents, [dec(u_shared[i] if isinstance(u_shared, list) else u_shared) for i, dec in enumerate(self.decoders)], u_shared
 
     def get_projectors(self) -> List[Callable[[torch.Tensor], torch.Tensor]]:
@@ -933,10 +993,13 @@ class NEDSiMRModel(_MultiViewModelMixin, nn.Module):
         self.decoders = nn.ModuleList([ModalityDecoder(latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.latent_dim = latent_dim
 
-    def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
+    def forward(self, x_list: List[torch.Tensor],
+                obs_masks: Optional[List[torch.Tensor]] = None) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor]:
         first_layer_scores = self.encode_first_layer(x_list)
         latents = [head(z0) for head, z0 in zip(self.nonlinear_heads, first_layer_scores)]
-        u_shared = self._training_consensus(latents, self.latent_dim)
+        if obs_masks is not None:
+            latents = [torch.where(om[:, None], z, torch.zeros_like(z)) for z, om in zip(latents, obs_masks)]
+        u_shared = self._training_consensus(latents, self.latent_dim, obs_masks=obs_masks)
         return latents, [dec(u_shared[i] if isinstance(u_shared, list) else u_shared) for i, dec in enumerate(self.decoders)], u_shared
 
 class NEDSharedPrivateSiMRModel(_MultiViewModelMixin, nn.Module):
@@ -994,11 +1057,15 @@ class NEDSharedPrivateSiMRModel(_MultiViewModelMixin, nn.Module):
         self.decoders = nn.ModuleList([ModalityDecoder(shared_latent_dim + private_latent_dim, dim, hidden_dims, dropout) for dim in input_dims])
         self.shared_dim = shared_latent_dim
 
-    def forward(self, x_list: List[torch.Tensor]) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
+    def forward(self, x_list: List[torch.Tensor],
+                obs_masks: Optional[List[torch.Tensor]] = None) -> Tuple[List[torch.Tensor], List[torch.Tensor], torch.Tensor, List[torch.Tensor]]:
         first_layer_scores = self.encode_first_layer(x_list)
         shared_l = [head(z0) for head, z0 in zip(self.shared_heads, first_layer_scores)]
         private_l = [p_enc(x) for p_enc, x in zip(self.private_encoders, x_list)]
-        u_shared = self._training_consensus(shared_l, self.shared_dim)
+        if obs_masks is not None:
+            shared_l = [torch.where(om[:, None], z, torch.zeros_like(z)) for z, om in zip(shared_l, obs_masks)]
+            private_l = [torch.where(om[:, None], p, torch.zeros_like(p)) for p, om in zip(private_l, obs_masks)]
+        u_shared = self._training_consensus(shared_l, self.shared_dim, obs_masks=obs_masks)
         recons = [dec(torch.cat([u_shared[i] if isinstance(u_shared, list) else u_shared, p], dim=1)) for i, (dec, p) in enumerate(zip(self.decoders, private_l))]
         return shared_l, recons, u_shared, private_l
 
@@ -1069,7 +1136,9 @@ def calculate_sim_loss(latents: List[torch.Tensor],
                        energy_type: str = DEFAULT_ENERGY_TYPE,
                        weights: Optional[Dict[str, float]] = None,
                        compute_diagnostics: bool = True,
-                       collapse_threshold: Optional[float] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
+                       collapse_threshold: Optional[float] = None,
+                       contexts: Optional[Sequence[Optional[Any]]] = None,
+                       obs_masks: Optional[Sequence[Optional[torch.Tensor]]] = None) -> Tuple[torch.Tensor, Dict[str, float]]:
     """
     Calculate similarity and regularization losses for deep SiMLR models.
 
@@ -1084,10 +1153,11 @@ def calculate_sim_loss(latents: List[torch.Tensor],
     u_shared : torch.Tensor
         The shared consensus latent basis (U).
     energy_type : str, optional
-        The type of similarity loss:
-        Any key of `pysimlr.similarity.SIMILARITY` that does not need the data
-        (e.g. "align", "acc", "nc", "procrustes", "logcosh"). Default
-        `defaults.DEFAULT_ENERGY_TYPE`.
+        The type of similarity loss: any latent-only key of
+        `pysimlr.similarity.SIMILARITY` (e.g. ``"align"``, ``"acc"``, ``"nc"``,
+        ``"procrustes"``, ``"logcosh"``), or -- when per-view ``contexts``
+        carrying ``(x, v)`` are supplied for a linear-first-layer model --
+        ``"recon_r2"`` or ``"nc_ridge"``. Default `defaults.DEFAULT_ENERGY_TYPE`.
     weights : Dict[str, float], optional
         Weights for the different loss components:
         - "sim": Similarity loss weight.
@@ -1095,6 +1165,15 @@ def calculate_sim_loss(latents: List[torch.Tensor],
         - "collapse": Weight of the latent correlation penalty
           (`utils.correlation_penalty`) against dimensional collapse.
         - "u_var": Variance penalty for the shared consensus U.
+    contexts : Sequence[Optional[SimilarityContext]], optional
+        Per-modality `SimilarityContext(x=batch_x_m, v=v_m)` on models whose
+        first layer maps ``X_m`` linearly into the shared space (`lend`,
+        `flow_v`). When ``None`` (the default), ``energy_type`` is validated
+        under ``path="deep"``.
+    obs_masks : Sequence[Optional[torch.Tensor]], optional
+        Per-modality boolean row masks (``missing_rows="mask"``). When given,
+        each modality's gauge, variance penalty, collapse penalty and similarity
+        energy are evaluated exclusively on its observed rows.
 
     Returns
     -------
@@ -1112,6 +1191,14 @@ def calculate_sim_loss(latents: List[torch.Tensor],
     device = u_shared[0].device if is_loo else u_shared.device
     n = u_shared[0].shape[0] if is_loo else u_shared.shape[0]
     sim_loss = torch.tensor(0.0, device=device)
+    if contexts is not None and len(contexts) != len(latents):
+        raise ValueError(
+            f"contexts must have one entry per modality (got {len(contexts)} for {len(latents)} latents)."
+        )
+    if obs_masks is not None and len(obs_masks) != len(latents):
+        raise ValueError(
+            f"obs_masks must have one entry per modality (got {len(obs_masks)} for {len(latents)} latents)."
+        )
     
     # Fix the gauge before anything is scored, as the linear path does.
     #
@@ -1139,47 +1226,61 @@ def calculate_sim_loss(latents: List[torch.Tensor],
     #
     # A no-op for the scale-invariant terms -- `align`, `nc` and the ICA
     # contrasts standardise internally -- so it is applied only where the
-    # energy is documented as needing a gauge.
+    # energy is documented as needing a gauge. For `nc_ridge`, the energy
+    # balances `(1 - lam)||s_c||^2` against `lam * (||x||_F^2 / p) * ||v||^2`
+    # and requires the unstandardized `s = X @ V` while variance/collapse
+    # penalties still see standardized latents.
     # Decided from the *resolved* registry name, never the raw argument: the
     # deep path's 'regression' is the registry's 'align', and keying the gauge
     # off the alias gauged one and not the other -- the same energy behaving
     # two ways depending on which name the caller typed.
-    from .similarity import (SimilarityContext, resolve_energy_name,
-                             similarity_energy)
+    from .similarity import (MIN_ROWS_FOR_MOMENT, SimilarityContext,
+                             resolve_energy_name, similarity_energy)
     from .sparsification import energy_needs_unit_columns
-    sim_name = resolve_energy_name(energy_type, path="deep")
-    if energy_needs_unit_columns(sim_name):
-        latents = [(z - z.mean(dim=0, keepdim=True))
-                   / (z.std(dim=0, keepdim=True) + 1e-6) for z in latents]
+    sim_name = resolve_energy_name(
+        energy_type,
+        path="deep_linear_first_layer" if contexts is not None else "deep",
+    )
+    need_gauge = energy_needs_unit_columns(sim_name)
+    default_ctx = SimilarityContext()
 
-    var_penalty = sum(_variance_penalty(z) for z in latents)
-    
-    # Similarity terms come from `pysimlr.similarity`, which is the single
-    # definition of each energy. This block previously reimplemented them, and
-    # the two copies had drifted: "regression" meant ||X - uV'||^2 in the linear
-    # path and standardised latent MSE here, and "nc" meant two different
-    # formulas. A benchmark that held energy_type fixed while varying the model
-    # was therefore varying the objective at the same time.
-    #
-    # `latents` are already the representation entering the comparison -- the
-    # warp output for a flow model, the linear projection otherwise -- so this
-    # is exactly the registry's ``s``.
-    ctx = SimilarityContext()
+    if obs_masks is None:
+        raw_latents = latents
+        if need_gauge:
+            latents = [(z - z.mean(dim=0, keepdim=True))
+                       / (z.std(dim=0, keepdim=True) + 1e-6) for z in latents]
 
-    for i, z in enumerate(latents):
-        u_target = u_shared[i].detach() if is_loo else u_shared.detach()
-        sim_loss = sim_loss + similarity_energy(sim_name, z, u_target, ctx)
+        var_penalty = sum(_variance_penalty(z) for z in latents)
+        sim_inputs = raw_latents if sim_name == "nc_ridge" else latents
 
-    # Dimensional collapse is penalised on the latents themselves
-    # (`utils.correlation_penalty`). It was measured on the mixed consensus
-    # `u`, which `newton` (and `svd`) mixing orthogonalise, so it read ~0 while
-    # the latents had collapsed. Without any collapse penalty NED still
-    # collapses: 6 of 20 (data seed, start seed) pairs on the
-    # tests/test_collapse_penalty fixture (|r| 0.76-0.98), against 0/20 with
-    # this one. (An earlier 0/5 without it used one start per data seed and
-    # was not representative.)
-    collapse_loss = torch.stack([correlation_penalty(z, threshold=collapse_threshold)
-                                 for z in latents]).mean()
+        for i, z in enumerate(sim_inputs):
+            u_target = u_shared[i].detach() if is_loo else u_shared.detach()
+            ctx_i = contexts[i] if (contexts is not None and contexts[i] is not None) else default_ctx
+            sim_loss = sim_loss + similarity_energy(sim_name, z, u_target, ctx_i)
+
+        collapse_loss = torch.stack([correlation_penalty(z, threshold=collapse_threshold)
+                                     for z in latents]).mean()
+    else:
+        var_penalty = torch.tensor(0.0, device=device)
+        collapse_terms: List[torch.Tensor] = []
+        for i, z_full in enumerate(latents):
+            om = obs_masks[i]
+            z_raw = z_full if om is None else z_full[om]
+            if z_raw.shape[0] < MIN_ROWS_FOR_MOMENT:
+                continue
+            z_gauged = ((z_raw - z_raw.mean(dim=0, keepdim=True))
+                        / (z_raw.std(dim=0, keepdim=True) + 1e-6)) if need_gauge else z_raw
+            var_penalty = var_penalty + _variance_penalty(z_gauged)
+            collapse_terms.append(correlation_penalty(z_gauged, threshold=collapse_threshold))
+            u_t = (u_shared[i].detach() if is_loo else u_shared.detach())
+            u_obs = u_t if om is None else u_t[om]
+            ctx_i = contexts[i] if (contexts is not None and contexts[i] is not None) else default_ctx
+            if om is not None and ctx_i.x is not None:
+                ctx_i = SimilarityContext(x=ctx_i.x[om], v=ctx_i.v)
+            z_sim = z_raw if sim_name == "nc_ridge" else z_gauged
+            sim_loss = sim_loss + similarity_energy(sim_name, z_sim, u_obs, ctx_i)
+        collapse_loss = (torch.stack(collapse_terms).mean()
+                         if collapse_terms else torch.tensor(0.0, device=device))
     if is_loo:
         u_var_penalty = torch.tensor(0.0, device=device)
         for u in u_shared:
@@ -1295,6 +1396,11 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     raw_encs = getattr(model, "linear_encoders", None) or getattr(model, "encoders", ())
     first_layer_encs = [enc for enc in raw_encs if isinstance(enc, LENDNSAEncoder)]
     all_params = list(model.parameters())
+    from .similarity import (SimilarityContext, resolve_energy_name,
+                             similarity_needs_data)
+    _energy_path = "deep_linear_first_layer" if isinstance(model, LENDSiMRModel) else "deep"
+    _sim_name = resolve_energy_name(energy_type, path=_energy_path)
+    _needs_ctx = similarity_needs_data(_sim_name)
     
     for epoch in range(epochs):
         model.train(); step_loss, step_recon, step_sim = [], [], []
@@ -1324,25 +1430,56 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
         pre_staged = getattr(dataloader, "_device", None) == device
         for batch in dataloader:
             batch_mats = batch if pre_staged else [b.to(device) for b in batch]
+            raw_bmasks = getattr(dataloader, "last_batch_masks", None)
+            batch_masks = (
+                (raw_bmasks if pre_staged else [bm.to(device) for bm in raw_bmasks])
+                if raw_bmasks is not None else None
+            )
             optimizer.zero_grad()
             try:
                 for enc in first_layer_encs:
                     enc._step_v_cache = enc.v
-                res = model(batch_mats)
+                res = model(batch_mats, obs_masks=batch_masks) if batch_masks is not None else model(batch_mats)
                 shared_latents, reconstructions, u_shared = res[0], res[1], res[2]
                 
-                recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
-                sim_loss_total, diagnostics = calculate_sim_loss(shared_latents, u_shared, energy_type, weights=penalty_weights, compute_diagnostics=False, collapse_threshold=collapse_threshold)
+                if batch_masks is None:
+                    recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
+                else:
+                    recon_terms = [mse_loss(r[om], x[om])
+                                   for r, x, om in zip(reconstructions, batch_mats, batch_masks)
+                                   if bool(om.any())]
+                    recon_loss = sum(recon_terms) if recon_terms else torch.tensor(0.0, device=device)
+                sim_contexts = (
+                    [SimilarityContext(x=x_m, v=enc.v_raw + (enc.v - enc.v_raw).detach())
+                     for x_m, enc in zip(batch_mats, first_layer_encs)]
+                    if _needs_ctx else None
+                )
+                sim_loss_total, diagnostics = calculate_sim_loss(
+                    shared_latents, u_shared, energy_type, weights=penalty_weights,
+                    compute_diagnostics=False, collapse_threshold=collapse_threshold,
+                    contexts=sim_contexts, obs_masks=batch_masks,
+                )
                 
                 total_loss = recon_loss + sim_loss_total
                 
                 if model.__class__.__name__ == "NEDSharedPrivateSiMRModel":
                     private_l = res[3]
-                    if isinstance(u_shared, list):
-                        cross_cov_loss = sum(_cross_covariance_penalty(u_shared[i], p) for i, p in enumerate(private_l))
+                    if batch_masks is None:
+                        if isinstance(u_shared, list):
+                            cross_cov_loss = sum(_cross_covariance_penalty(u_shared[i], p) for i, p in enumerate(private_l))
+                        else:
+                            cross_cov_loss = sum(_cross_covariance_penalty(u_shared, p) for p in private_l)
+                        p_var_loss = sum(_variance_penalty(p) for p in private_l)
                     else:
-                        cross_cov_loss = sum(_cross_covariance_penalty(u_shared, p) for p in private_l)
-                    p_var_loss = sum(_variance_penalty(p) for p in private_l)
+                        cc_terms, pv_terms = [], []
+                        for i, (p, om) in enumerate(zip(private_l, batch_masks)):
+                            if int(om.sum().item()) < 2:
+                                continue
+                            ui = u_shared[i] if isinstance(u_shared, list) else u_shared
+                            cc_terms.append(_cross_covariance_penalty(ui[om], p[om]))
+                            pv_terms.append(_variance_penalty(p[om]))
+                        cross_cov_loss = sum(cc_terms) if cc_terms else torch.tensor(0.0, device=device)
+                        p_var_loss = sum(pv_terms) if pv_terms else torch.tensor(0.0, device=device)
                     # These attributes are typically set during the ned_simr_shared_private call
                     # We default to 0 if not provided by opt loop structure
                     total_loss += getattr(model, 'private_ortho_w', 0.05) * cross_cov_loss
@@ -1514,8 +1651,11 @@ class _ShuffledTensorBatches:
     """In-memory batch slicer matching DataLoader(TensorDataset, shuffle=True)
     exact RNG draw sequence without per-row Python collation overhead."""
 
-    def __init__(self, torch_mats: List[torch.Tensor], batch_size: int, seed: int):
+    def __init__(self, torch_mats: List[torch.Tensor], batch_size: int, seed: int,
+                 obs_masks: Optional[List[torch.Tensor]] = None):
         self.mats = torch_mats
+        self.obs_masks = obs_masks
+        self.last_batch_masks: Optional[List[torch.Tensor]] = None
         self.n = int(torch_mats[0].shape[0])
         self.batch_size = max(1, int(batch_size))
         self.drop_last = _drop_last(torch_mats[0], self.batch_size)
@@ -1526,6 +1666,7 @@ class _ShuffledTensorBatches:
             self._len = (self.n + self.batch_size - 1) // self.batch_size
         self._device: Optional[torch.device] = None
         self._dev_mats: Optional[List[torch.Tensor]] = None
+        self._dev_masks: Optional[List[torch.Tensor]] = None
 
     def __len__(self) -> int:
         return self._len
@@ -1533,6 +1674,8 @@ class _ShuffledTensorBatches:
     def bind_device(self, device: torch.device) -> None:
         if self._device != device:
             self._dev_mats = [m.to(device) for m in self.mats]
+            if self.obs_masks is not None:
+                self._dev_masks = [om.to(device) for om in self.obs_masks]
             self._device = device
 
     def __iter__(self):
@@ -1541,16 +1684,20 @@ class _ShuffledTensorBatches:
         perm = torch.randperm(n, generator=self.generator)
         torch.randperm(n, generator=self.generator)
         mats = self._dev_mats if self._dev_mats is not None else self.mats
+        masks = self._dev_masks if self._dev_masks is not None else self.obs_masks
         if self._device is not None and self._device.type != "cpu":
             perm = perm.to(self._device)
         limit = (n // bs) * bs if self.drop_last else n
         for s in range(0, limit, bs):
             idx = perm[s:s + bs]
+            self.last_batch_masks = ([om.index_select(0, idx) for om in masks]
+                                     if masks is not None else None)
             yield [m.index_select(0, idx) for m in mats]
 
 
-def _shuffled_loader(torch_mats: List[torch.Tensor], batch_size: int, seed: int):
-    return _ShuffledTensorBatches(torch_mats, batch_size, seed)
+def _shuffled_loader(torch_mats: List[torch.Tensor], batch_size: int, seed: int,
+                     obs_masks: Optional[List[torch.Tensor]] = None):
+    return _ShuffledTensorBatches(torch_mats, batch_size, seed, obs_masks=obs_masks)
 
 
 def _init_generator(initialization_type: str, seed: int) -> torch.Generator:
@@ -1560,15 +1707,16 @@ def _init_generator(initialization_type: str, seed: int) -> torch.Generator:
     return torch.Generator().manual_seed(int(seed))
 
 
-def _freeze_consensus(model: nn.Module, latents, u_final, u_aggregate) -> float:
+def _freeze_consensus(model: nn.Module, latents, u_final, u_aggregate,
+                      obs_masks: Optional[List[torch.Tensor]] = None) -> float:
     """Freeze the trained model's consensus as the training batch's affine map
     (`consensus.capture_consensus_map`), so prediction does not depend on which
     rows share a batch. Returns the largest absolute residual of the fit."""
     from .consensus import capture_consensus_map
-    model.consensus_map = capture_consensus_map(latents, u_final)
+    model.consensus_map = capture_consensus_map(latents, u_final, obs_masks=obs_masks)
     resid = model.consensus_map["max_residual"]
     if isinstance(u_final, list):
-        model.aggregate_map = capture_consensus_map(latents, u_aggregate)
+        model.aggregate_map = capture_consensus_map(latents, u_aggregate, obs_masks=obs_masks)
         resid = max(resid, model.aggregate_map["max_residual"])
     return float(resid)
 
@@ -1593,12 +1741,14 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
               domain_matrices, n_candidates: int, perturbation_scale: float,
               varimax: Optional[bool], tol: float, patience: int,
               freeze_private_epochs: int = 0,
-              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
+              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
+              missing_rows: str = "impute") -> Dict[str, Any]:
     """Shared body of `lend_simr`, `ned_simr` and `ned_simr_shared_private`."""
     nsa_w = check_nsa_w(nsa_w)
     collapse_threshold = check_collapse_threshold(collapse_threshold)
     from .similarity import check_fit_energy
-    check_fit_energy(energy_type, path="deep", positivity=positivity)
+    energy_path = "deep_linear_first_layer" if model_type == "lend_simr" else "deep"
+    check_fit_energy(energy_type, path=energy_path, positivity=positivity)
     if optimizer_type not in DEEP_OPTIMIZER_TYPES:
         raise ValueError(f"optimizer_type={optimizer_type!r} is not a deep-path optimizer; "
                          f"choose one of {DEEP_OPTIMIZER_TYPES}.")
@@ -1607,16 +1757,20 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
     seed = _resolve_seed(random_state)
     shared_private = model_type == "ned_shared_private"
     with _seeded_rng(seed, device):
-        torch_mats, provenance_list = _standardize_deep(data_matrices)
+        torch_mats, provenance_list, init_mats, obs_masks = _prepare_deep_inputs(
+            data_matrices, k, missing_rows=missing_rows
+        )
         model = build_model([m.shape[1] for m in torch_mats]).to(device)
         encoders = model.encoders if hasattr(model, "encoders") else model.linear_encoders
-        model.initialize_v(torch_mats, k, initialization_type=initialization_type,
+        mats_for_init = (torch_mats if (obs_masks is not None and initialization_type in ("gcca", "best_of_n"))
+                         else init_mats)
+        model.initialize_v(mats_for_init, k, initialization_type=initialization_type,
                            generator=_init_generator(initialization_type, seed),
                            domain_matrices=domain_matrices, n_candidates=n_candidates,
                            perturbation_scale=perturbation_scale, varimax=varimax)
         optimizer = _get_optimizer(model, optimizer_type, learning_rate, weight_decay)
         scheduler = _plateau_scheduler(optimizer)
-        dataloader = _shuffled_loader(torch_mats, batch_size, seed)
+        dataloader = _shuffled_loader(torch_mats, batch_size, seed, obs_masks=obs_masks)
         warmup_epochs = resolve_warmup_epochs(warmup_epochs, iterations)
         loss_h, recon_h, sim_h, conv_ep, first_layer_training, conv_report = _train_loop(
             model, dataloader, optimizer, scheduler, nn.MSELoss(), iterations, sim_weight,
@@ -1629,20 +1783,24 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
         model.eval()
         with torch.no_grad():
             eval_mats = [m.to(device) for m in torch_mats]
+            dev_obs_masks = ([om.to(device) for om in obs_masks]
+                             if obs_masks is not None else None)
             v_mats = [_clean(enc.v.detach()) for enc in encoders]
             v_mats, retraction_diagnostics = _finalize_bases(v_mats, positivity, nsa_w, energy_type,
                                                              encoders=encoders)
-            out = model(eval_mats)
+            out = model(eval_mats, obs_masks=dev_obs_masks) if dev_obs_masks is not None else model(eval_mats)
             if shared_private:
                 final_latents, recons, u_final, final_private = out
             else:
                 final_latents, recons, u_final = out
-            u_aggregate = (_aggregate_shared_consensus(model, final_latents)
+            u_aggregate = (_aggregate_shared_consensus(model, final_latents, obs_masks=dev_obs_masks)
                            if isinstance(u_final, list) else u_final)
-            consensus_residual = _freeze_consensus(model, final_latents, u_final, u_aggregate)
+            consensus_residual = _freeze_consensus(model, final_latents, u_final, u_aggregate,
+                                                   obs_masks=obs_masks)
             first_layer_scores = [_clean((m_.cpu().to(v_.dtype) @ v_).detach())
                                   for m_, v_ in zip(eval_mats, v_mats)]
             first_layer = build_first_layer_contract(v_mats, first_layer_scores)
+    clean_latents = [_clean(l) for l in final_latents]
     result = {
         "model": model.cpu(), "model_type": model_type,
         "retraction_diagnostics": retraction_diagnostics,
@@ -1650,7 +1808,9 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
         "u_per_modality": ([_clean(ux) for ux in u_final] if isinstance(u_final, list) else None),
         "v": v_mats, "first_layer_scores": first_layer_scores, "first_layer": first_layer,
         "first_layer_training": first_layer_training,
-        "latents": [_clean(l) for l in final_latents],
+        "latents": clean_latents,
+        "missing_rows": missing_rows,
+        "obs_mask": None if obs_masks is None else [m.detach().cpu().tolist() for m in obs_masks],
         "loss_history": loss_h, "recon_history": recon_h, "sim_history": sim_h,
         "converged_iter": conv_ep, "convergence": conv_report,
         "scale_list": ["centerAndScale"], "provenance_list": provenance_list,
@@ -1661,9 +1821,30 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
     }
     if shared_private:
         result["private_latents"] = [_clean(p) for p in final_private]
-    result["errors"] = _recon_errors(torch_mats, recons)
+    if obs_masks is not None:
+        err_mats = []
+        for m_sc, om in zip(torch_mats, obs_masks):
+            if not bool(om.all()):
+                mc = m_sc.clone()
+                mc[~om] = float("nan")
+                err_mats.append(mc)
+            else:
+                err_mats.append(m_sc)
+        result["errors"] = _recon_errors(err_mats, recons)
+    else:
+        result["errors"] = _recon_errors(torch_mats, recons)
     result["interpretability"] = build_interpretability_report(result)
     result["deep_layer"] = {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
+    if obs_masks is not None:
+        masked_latents = []
+        for z_c, om in zip(clean_latents, obs_masks):
+            if not bool(om.all()):
+                zm = z_c.clone()
+                zm[~om.cpu()] = float("nan")
+                masked_latents.append(zm)
+            else:
+                masked_latents.append(z_c)
+        result["latents"] = masked_latents
     if getattr(model, "dynamic_weights", False):
         result["modality_weights"] = model.modality_weights.detach().cpu().numpy()
         result["mai"] = model.mai.detach().cpu().numpy()
@@ -1701,6 +1882,13 @@ _DEEP_COMMON_DOC = """
         NSA-Flow weight (`pysimlr.defaults`).
     energy_type, mixing_algorithm, topology, path_graph, prune_threshold,
     dynamic_weights, mai_metric, use_rank_mai : consensus settings, as in `simlr`.
+        `lend_simr` maps each view through its linear basis ``V_m`` directly
+        into the shared space and therefore also accepts data/basis-dependent
+        energies (``"recon_r2"`` and ``"nc_ridge"``, evaluated on the
+        preprocessed batch ``X_m`` and projected ``V_m`` and scaled by
+        ``sim_weight`` alongside the decoder MSE reconstruction loss);
+        `ned_simr` and `ned_simr_shared_private` interpose nonlinear encoder
+        heads before consensus and accept latent-only energies.
     sign_alignment : {"spectral", "greedy"}, default="spectral"
         Sign convention applied before the averaging mixings (``"avg"``,
         ``"newton"``) average the views' latents, as in `simlr`. ``"spectral"``
@@ -1733,6 +1921,12 @@ _DEEP_COMMON_DOC = """
     tol : float, default=DEFAULT_TOL (1e-4)
     patience : int, default=10
         Early-stopping rule (`utils.ConvergenceMonitor`).
+    missing_rows : {"impute", "mask"}, default="impute"
+        Row-level missingness policy, matching `simlr`: ``"impute"`` replaces
+        missing values by column means during standardization; ``"mask"``
+        treats any row that is all-NaN in view ``m`` as unobserved in that view
+        (standardizing, scoring similarity/reconstruction losses, and building
+        consensus exclusively on observed rows).
 
     Returns
     -------
@@ -1781,7 +1975,8 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iter
               n_candidates: int = 5, perturbation_scale: float = 0.05,
               varimax: Optional[bool] = None,
               tol: float = DEFAULT_TOL, patience: int = 10,
-              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
+              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
+              missing_rows: str = "impute") -> Dict[str, Any]:
     return _fit_first_layer_model("lend_simr", LENDSiMRModel, **locals())
 
 
@@ -1810,7 +2005,8 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, itera
              n_candidates: int = 5, perturbation_scale: float = 0.05,
              varimax: Optional[bool] = None,
              tol: float = DEFAULT_TOL, patience: int = 10,
-             collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
+             collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
+             missing_rows: str = "impute") -> Dict[str, Any]:
     return _fit_first_layer_model("ned_simr", NEDSiMRModel, **locals())
 
 
@@ -1845,7 +2041,8 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
                             domain_matrices: Optional[List[Optional[torch.Tensor]]] = None,
                             n_candidates: int = 5, perturbation_scale: float = 0.05,
                             varimax: Optional[bool] = None,
-                            collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD) -> Dict[str, Any]:
+                            collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
+                            missing_rows: str = "impute") -> Dict[str, Any]:
     hidden_dims = tuple(DEFAULT_HIDDEN_DIMS if hidden_dims is None else hidden_dims)
     if private_k is None:
         private_k = max(1, k // 2)
@@ -1872,7 +2069,8 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         initialization_type=initialization_type, random_state=random_state,
         domain_matrices=domain_matrices, n_candidates=n_candidates,
         perturbation_scale=perturbation_scale, varimax=varimax, tol=tol, patience=patience,
-        freeze_private_epochs=shared_warmup_epochs, collapse_threshold=collapse_threshold)
+        freeze_private_epochs=shared_warmup_epochs, collapse_threshold=collapse_threshold,
+        missing_rows=missing_rows)
 
 
 ned_simr_shared_private.__doc__ = (
@@ -1893,10 +2091,17 @@ def _predict_deep_impl(
     model = model_res["model"]; model_type = model_res.get("model_type", "lend_simr")
     if device is None: device = "cuda" if torch.cuda.is_available() else ("cpu")
     device = torch.device(device); model.to(device).eval()
-    torch_mats = [preprocess_data(torch.as_tensor(m).float().contiguous(), model_res["scale_list"], prov) for m, prov in zip(data_matrices, model_res["provenance_list"])]
+    raw_mats = [torch.as_tensor(m).float().contiguous() for m in data_matrices]
+    obs_te: Optional[List[torch.Tensor]] = None
+    if model_res.get("missing_rows") == "mask":
+        obs_te = [~torch.isnan(m).all(dim=1) for m in raw_mats]
+    torch_mats = [preprocess_data(m, model_res["scale_list"], prov) for m, prov in zip(raw_mats, model_res["provenance_list"])]
+    if obs_te is not None:
+        torch_mats = [torch.where(om[:, None], m, torch.zeros_like(m)) for m, om in zip(torch_mats, obs_te)]
     dev_mats = torch_mats if device.type == "cpu" else [m.to(device) for m in torch_mats]
+    dev_obs_te = (obs_te if device.type == "cpu" else [om.to(device) for om in obs_te]) if obs_te is not None else None
     with torch.no_grad():
-        res = model(dev_mats)
+        res = model(dev_mats, obs_masks=dev_obs_te) if dev_obs_te is not None else model(dev_mats)
         latents, recons, u = res[0], res[1], res[2]
         latents_cpu = [l.cpu() for l in latents]
         if type(model) is LENDSiMRModel:
@@ -1928,7 +2133,7 @@ def _predict_deep_impl(
                 }
             else:
                 first_layer = build_first_layer_contract(v_list, first_layer_scores)
-        u_agg = _aggregate_shared_consensus(model, latents) if isinstance(u, list) else u
+        u_agg = _aggregate_shared_consensus(model, latents, obs_masks=dev_obs_te) if isinstance(u, list) else u
         result = {
             "u": u_agg.cpu(),
             "u_per_modality": ([ui.cpu() for ui in u] if isinstance(u, list) else None),
@@ -1942,14 +2147,31 @@ def _predict_deep_impl(
             result["private_latents"] = [p.cpu() for p in res[3]]
         result["interpretability"] = build_interpretability_report(result) if first_layer is not None else None
         result["deep_layer"] = None if result["interpretability"] is None else {"alignment_to_first_layer": result["interpretability"]["deep_layer_alignment"]}
+        eval_mats = []
+        if obs_te is not None:
+            masked_latents = []
+            for idx_m, (zm, xm, om) in enumerate(zip(latents_cpu, torch_mats, obs_te)):
+                if not bool(om.all()):
+                    zm_out = zm.clone()
+                    zm_out[~om] = float("nan")
+                    xm_eval = xm.clone()
+                    xm_eval[~om] = float("nan")
+                else:
+                    zm_out = zm
+                    xm_eval = xm
+                masked_latents.append(zm_out)
+                eval_mats.append(xm_eval)
+            result["latents"] = masked_latents
+        else:
+            eval_mats = torch_mats
         if return_preprocessed:
             from .utils import _recon_metrics
             result["errors"], result["_r2_mse"] = _recon_metrics(
-                torch_mats, result["reconstructions"], include_r2_mse=True
+                eval_mats, result["reconstructions"], include_r2_mse=True
             )
-            result["_preprocessed_views"] = torch_mats
+            result["_preprocessed_views"] = eval_mats
         else:
-            result["errors"] = _recon_errors(torch_mats, result["reconstructions"])
+            result["errors"] = _recon_errors(eval_mats, result["reconstructions"])
         if getattr(model, "dynamic_weights", False):
             result["modality_weights"] = model.modality_weights.detach().cpu().numpy()
             result["mai"] = model.mai.detach().cpu().numpy()

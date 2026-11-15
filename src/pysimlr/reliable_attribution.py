@@ -147,7 +147,7 @@ def target_root_fit_params(n_views: int, sparseness: float = 0.8, iterations: Op
     iterations by default, and masks whole-row missingness (``missing_rows="mask"``). The deep and flow models
     (``lend``, ``ned``, ``ned_shared_private``, ``flow_v``) take them fit-wide (they have no per-view
     settings; the single-feature target view is unaffected by the quantile sparseness), their own default
-    budget unless ``iterations`` is given, and no missing rows.
+    budget unless ``iterations`` is given, and also mask whole-row missingness (``missing_rows="mask"``).
     """
     root = int(n_views)
     graph = {i: [root] for i in range(root)}
@@ -161,7 +161,7 @@ def target_root_fit_params(n_views: int, sparseness: float = 0.8, iterations: Op
     if model not in MODELS:
         raise ValueError(f"model must be one of {MODELS}; got {model!r}.")
     out = {"topology": "graph", "path_graph": graph, "positivity": "positive", "energy_type": "nc_abs",
-           "sparseness": float(sparseness), "dynamic_weights": False}
+           "sparseness": float(sparseness), "missing_rows": "mask", "dynamic_weights": False}
     if iterations is not None:
         out["iterations"] = int(iterations)
     return out
@@ -392,13 +392,13 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
         correlation is therefore within group, and every permutation moves rows only within their group.
     model : {"simlr", "lend", "ned", "ned_shared_private", "flow_v"}
         The registered `pysimlr.fit` method that builds the latent (``method="structure"`` only). Every one of
-        them takes the target as the root view of a graph (`target_root_fit_params`), returns ``u`` for the
-        training rows and projects new rows (target view absent) through `pysimlr.predict`, so the
-        out-of-fold score, the frozen reference and the bagging work for all of them. Differences: only
-        ``"simlr"`` accepts all-NaN (unobserved) rows and per-view settings; the others raise on missing rows
-        and take positivity / energy fit-wide. ``"pca"`` and ``"nsa_pipeline"`` (joint bases, no root view)
-        are refused. The benchmark evidence in ``docs/reliable_attribution.md`` covers ``"simlr"`` only.
-        With ``reference=`` the reference's own model is used and this argument is ignored.
+        them takes the target as the root view of a graph (`target_root_fit_params`), masks whole-row
+        missingness (``missing_rows="mask"``), returns ``u`` for the training rows and projects new rows
+        (target view absent) through `pysimlr.predict`, so the out-of-fold score, the frozen reference and
+        the bagging work for all of them. Differences: ``"simlr"`` takes per-view settings while the deep
+        and flow models take positivity / energy fit-wide. ``"pca"`` and ``"nsa_pipeline"`` (joint bases,
+        no root view) are refused. The benchmark evidence in ``docs/reliable_attribution.md`` covers
+        ``"simlr"`` only. With ``reference=`` the reference's own model is used and this argument is ignored.
     method : {"structure", "univariate"}
         ``"structure"`` (default): fit the target as the root view of a one-component target-rooted
         model (`target_root_fit_params`) and map each feature by its correlation with the latent
@@ -459,9 +459,6 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
     if n_bag and not 0.5 <= float(bag_fraction) < 1.0:
         raise ValueError(f"bag_fraction must be in [0.5, 1); got {bag_fraction}.")
     arrs, names = _to_arrays(views)
-    if model != "simlr" and reference is None and any(np.isnan(a).any() for a in arrs):
-        raise ValueError(f"model={model!r} cannot fit with unobserved (all-NaN) rows (no missing_rows='mask'); drop or "
-                         "impute them, or use model='simlr'.")
     n = arrs[0].shape[0]
     y = _target_array(target, n)
     cov = _cov_array(covariates, n)
@@ -509,8 +506,10 @@ def attribute_target(views: Any, target: Any, *, covariates: Any = None, groups:
         ref_res, frame, sgn = _reference_parts(reference)
         model = str(ref_res.get("method", model))
         out["settings"]["model"] = model
-        if model != "simlr" and any(np.isnan(a).any() for a in a_r):
-            raise ValueError(f"the reference model {model!r} cannot project unobserved (all-NaN) rows.")
+        if ref_res.get("missing_rows") != "mask" and any(np.isnan(a).any() for a in a_r):
+            raise ValueError(
+                f"the reference model {model!r} was not fit with missing_rows='mask' and cannot project unobserved (all-NaN) rows."
+            )
         if frame is None:
             if cov is not None:
                 raise ValueError("a raw fit result carries no covariate model; pass covariates=None (pre-adjust the data) "

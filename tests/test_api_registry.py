@@ -217,6 +217,9 @@ EXEMPT = {
     "sign_alignment": "changes the fit only for 3+ views whose latents disagree in sign, which is a property of "
                       "the data, not a switch to toggle on one fixture; tests/test_view_order_sign_alignment.py "
                       "(linear) and tests/test_view_order_deep.py (deep and flow)",
+    "missing_rows": "'mask' differs from 'impute' only when a view has all-NaN rows, so the complete-data "
+                    "fixture cannot tell them apart; exercised in tests/test_missing_rows_maps.py (linear) "
+                    "and tests/test_missing_rows_deep_flow.py (deep and flow)",
     "first_layer_mode": "first-layer projection schedule; test_deep_first_layer_contract",
     "nsa_iterations": "first-layer projection schedule; test_deep_first_layer_contract",
     "use_nsa": "first-layer projection switch; test_deep_first_layer_contract",

@@ -717,11 +717,24 @@ def initialize_deep_encoders(encoders, data_matrices: List[torch.Tensor], k: int
     """
     positivity = encoders[0].positivity
     enc_sparseness = [getattr(enc, "sparseness", DEFAULT_SPARSENESS) for enc in encoders]
-    v_mats = initialize_simlr(data_matrices, k, initialization_type=initialization_type,
-                              positivity=positivity, generator=generator,
-                              domain_matrices=domain_matrices, n_candidates=n_candidates,
-                              perturbation_scale=perturbation_scale,
-                              sparseness=enc_sparseness, varimax=varimax)
+    unequal_rows = len({int(x.shape[0]) for x in data_matrices}) > 1
+    if unequal_rows and initialization_type not in ("gcca", "best_of_n"):
+        v_mats = [
+            initialize_simlr(
+                [data_matrices[idx]], k, initialization_type=initialization_type,
+                positivity=positivity, generator=generator,
+                domain_matrices=([domain_matrices[idx]] if (domain_matrices is not None and idx < len(domain_matrices)) else None),
+                n_candidates=n_candidates, perturbation_scale=perturbation_scale,
+                sparseness=enc_sparseness[idx], varimax=varimax,
+            )[0]
+            for idx in range(len(data_matrices))
+        ]
+    else:
+        v_mats = initialize_simlr(data_matrices, k, initialization_type=initialization_type,
+                                  positivity=positivity, generator=generator,
+                                  domain_matrices=domain_matrices, n_candidates=n_candidates,
+                                  perturbation_scale=perturbation_scale,
+                                  sparseness=enc_sparseness, varimax=varimax)
     with torch.no_grad():
         for enc, x, v in zip(encoders, data_matrices, v_mats):
             enc.v_raw.copy_(v.to(x.dtype))

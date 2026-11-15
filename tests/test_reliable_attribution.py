@@ -349,15 +349,31 @@ def test_model_frozen_reference_projects_small_sample(model, model_data):
 
 
 @pytest.mark.parametrize("model", MODELS[1:])
-def test_non_simlr_models_refuse_unobserved_rows_clearly(model, model_data):
+def test_non_simlr_models_support_unobserved_rows_and_refuse_unmasked_reference(model, model_data):
     views, y = model_data
     holes = [v.copy() for v in views]
     holes[0][5:12] = np.nan
-    with pytest.raises(ValueError, match="all-NaN"):
-        pysimlr.attribute_target(holes, y, model=model, fit_options=_FAST)
-    ref = pysimlr.attribute_target(views, y, model=model, fit_options=_FAST, n_folds=2)
+    holes[2][18:24] = np.nan
+    out = pysimlr.attribute_target(holes, y, model=model, fit_options=_FAST, n_folds=2, random_state=0)
+    assert out["score"]["predictive"] and np.isfinite(out["map"]).all()
+    assert (out["maps"][1][:4] > 0.2).all() and (out["maps"][2][:3] < -0.2).all()
+
+    ref = pysimlr.attribute_target(views, y, model=model, fit_options=_FAST, n_folds=2, random_state=0)
+    proj = pysimlr.attribute_target([v[:30] for v in holes], y[:30], reference=ref)
+    assert proj["mode"] == "reference" and np.isfinite(proj["map"]).all()
+
+    # Partial-row NaNs remain refused across all models
+    partial = [v.copy() for v in views]
+    partial[0][0, 0] = np.nan
+    with pytest.raises(ValueError, match="partially missing rows"):
+        pysimlr.attribute_target(partial, y, model=model, fit_options=_FAST)
+
+    # A raw reference fitted with missing_rows='impute' refuses unobserved rows
+    t = [torch.tensor(v, dtype=torch.float32) for v in views] + [torch.tensor(y[:, None], dtype=torch.float32)]
+    kw = dict(pysimlr.target_root_fit_params(3, 0.8, 10, model=model), missing_rows="impute")
+    raw_impute = pysimlr.fit(model, t, 1, random_state=0, **kw)
     with pytest.raises(ValueError, match="cannot project"):
-        pysimlr.attribute_target([v[:30] for v in holes], y[:30], reference=ref)
+        pysimlr.attribute_target([v[:30] for v in holes], y[:30], reference=raw_impute)
 
 
 def test_unregistered_and_joint_models_are_refused(model_data):
@@ -369,7 +385,7 @@ def test_unregistered_and_joint_models_are_refused(model_data):
 
 def test_deep_target_root_params_are_fit_wide():
     p = pysimlr.target_root_fit_params(3, 0.5, model="ned")
-    assert "per_view_params" not in p and "missing_rows" not in p and p["positivity"] == "positive"
+    assert "per_view_params" not in p and p["missing_rows"] == "mask" and p["positivity"] == "positive"
     assert "iterations" not in p and pysimlr.target_root_fit_params(3, 0.5, 20, model="ned")["iterations"] == 20
     assert pysimlr.target_root_fit_params(3)["per_view_params"][3]["sparseness"] is None
 

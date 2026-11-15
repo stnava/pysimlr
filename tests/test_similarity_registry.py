@@ -128,11 +128,12 @@ def test_recon_matches_the_linear_definition():
 def test_removed_energy_names_raise_with_the_replacement():
     from pysimlr.similarity import REJECTED_ENERGY_NAMES
     for name in REJECTED_ENERGY_NAMES:
-        for path in (None, "linear", "deep"):
+        for path in (None, "linear", "deep", "deep_linear_first_layer"):
             with pytest.raises(ValueError, match="not available"):
                 resolve_energy_name(name, path=path)
-    with pytest.raises(ValueError, match="recon_r2"):
-        resolve_energy_name("recon", path="linear")
+    for path in ("linear", "deep_linear_first_layer"):
+        with pytest.raises(ValueError, match="recon_r2"):
+            resolve_energy_name("recon", path=path)
 
 
 # --------------------------------------------------------------------------

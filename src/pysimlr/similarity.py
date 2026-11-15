@@ -553,10 +553,13 @@ def resolve_energy_name(name: str, path: Optional[str] = None) -> str:
     ----------
     name : str
         A key of `SIMILARITY`.
-    path : {"linear", "deep"}, optional
-        The deep path refuses terms that need the data and loading matrix; the
-        linear path refuses ``recon``, which is minimised by shrinking ``V`` to
-        zero (use ``recon_r2``).
+    path : {"linear", "deep", "deep_linear_first_layer"}, optional
+        ``"deep"`` refuses terms that need the data and loading matrix (for
+        nonlinear-encoder models that have no linear first layer mapping
+        directly into the shared space); ``"linear"`` and
+        ``"deep_linear_first_layer"`` accept data-dependent terms such as
+        ``recon_r2`` and ``nc_ridge`` while refusing ``recon``, which is
+        minimised by shrinking ``V`` to zero (use ``recon_r2``).
     """
     if name in REJECTED_ENERGY_NAMES:
         raise ValueError(f"energy_type={name!r} is not available: {REJECTED_ENERGY_NAMES[name]}.")
@@ -565,13 +568,15 @@ def resolve_energy_name(name: str, path: Optional[str] = None) -> str:
     if path == "deep" and SIMILARITY[name][1]:
         raise ValueError(
             f"similarity {name!r} is a function of the data and the loading "
-            f"matrix, and the deep path does not carry either into the "
-            f"similarity term -- its reconstruction is a separate decoder "
-            f"loss. Use 'align' for latent agreement on a deep model."
+            f"matrix V, and this model has no linear first layer mapping "
+            f"directly into the shared space (e.g. 'ned', "
+            f"'ned_shared_private' or 'flow_simr'). Use 'simlr', 'lend' or "
+            f"'flow_v', or pass 'align' for latent agreement on a nonlinear "
+            f"encoder."
         )
-    if path == "linear" and name == "recon":
+    if path in ("linear", "deep_linear_first_layer") and name == "recon":
         raise ValueError(
-            "energy_type='recon' is degenerate as a linear objective: it is minimised "
+            "energy_type='recon' is degenerate as a fit objective: it is minimised "
             "by driving V to zero. Pass 'recon_r2', the same residual with the "
             "column scale profiled out.")
     return name
