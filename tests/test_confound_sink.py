@@ -403,3 +403,55 @@ def test_confound_decorrelation_mapping_partial_views(data):
     assert dec_map == dec_list == dec_pv_map == dec_pv_list
     assert confound_decorrelation(res, xte, cte) == full_before
 
+
+def test_scale_list_none_supports_confounds_and_replays_sink_everywhere(data):
+    """`scale_list=['none']` still creates per-view provenance dicts so the confound sink
+    attaches cleanly and replays across predict, loadings, feature_maps, extend, and sklearn."""
+    xtr, xte, _, zte, ctr, cte = data
+    with _quiet():
+        plain = fit("simlr", xtr, 2, scale_list=["none"], random_state=0, iterations=30)
+        sink = fit("simlr", xtr, 2, scale_list=["none"], confounds=ctr, random_state=0, iterations=30)
+    assert sink["scale_list"] == ["none"]
+    assert len(sink["provenance_list"]) == len(xtr)
+    assert all("confound_sink" in pv and "nan_fill" in pv for pv in sink["provenance_list"])
+
+    # Held-out decorrelation & biological recovery without test confounds
+    before = confound_decorrelation(plain, xte, cte)["max"]
+    after = confound_decorrelation(sink, xte, cte)["max"]
+    assert before > 0.6 and after < 0.25
+    pred_tr = predict(sink, xtr)
+    assert torch.allclose(pred_tr["u"], sink["u"], atol=1e-4)
+    assert sink["confound_sink"]["u_predict_max_abs_diff"] < 1e-4
+
+    u_te = predict(sink, xte)["u"].double().numpy()
+    design = np.column_stack([np.ones(len(u_te)), u_te])
+    r = [np.corrcoef(design @ np.linalg.lstsq(design, zte[:, j], rcond=None)[0], zte[:, j])[0, 1]
+         for j in range(2)]
+    assert min(r) > 0.8
+
+    # Downstream loadings, feature_maps, heldout_coupling, decompose_energy, and missing_rows='mask'
+    holes_tr = [v.clone() for v in xtr]
+    holes_tr[0][:8] = float("nan")
+    holes_tr[2][10:18] = float("nan")
+    with _quiet():
+        sink_mask = fit("simlr", holes_tr, 2, scale_list=["none"], missing_rows="mask",
+                        confounds=ctr, random_state=0, iterations=30)
+    ld = pysimlr.loadings(sink_mask, holes_tr)
+    assert all(bool(torch.isfinite(s).all()) for s in ld["structure"])
+    fmap = pysimlr.feature_maps(sink_mask, holes_tr, target="other_views")
+    assert all(bool(torch.isfinite(torch.as_tensor(fm)).all()) for fm in fmap["structure"])
+    hc = heldout_coupling(sink, xte)
+    assert len(hc["cross_view_heldout"]) == 2
+    dec = pysimlr.decompose_energy(xtr, sink, energy_type="acc")
+    assert len(dec["modality_energies"]) == len(xtr)
+
+    # sklearn MultiViewSiMR(scale=False) uses scale_list=['none']
+    from pysimlr.sklearn import MultiViewSiMR
+    with _quiet():
+        est = MultiViewSiMR(method="simlr", n_components=2, scale=False, iterations=10,
+                            random_state=0, extra_params={"confounds": ctr}).fit(xtr)
+    z_est = est.transform(xte)
+    x_rec = est.inverse_transform(z_est)
+    assert z_est.shape == (xte[0].shape[0], 2) and len(x_rec) == len(xte)
+
+

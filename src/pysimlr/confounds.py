@@ -440,8 +440,7 @@ def attach_sink(result: dict[str, Any], record: dict[str, Any]) -> None:
         raise ValueError(
             f"confounds need per-view preprocessing provenance to replay the sink at prediction; "
             f"method {result.get('method')!r} returned scale_list={result.get('scale_list')!r} with "
-            f"{0 if not isinstance(prov, list) else len(prov)} provenance entries for {n_views} views. "
-            f"Use a scale_list other than ['none'].")
+            f"{0 if not isinstance(prov, list) else len(prov)} provenance entries for {n_views} views.")
     for p, s in zip(prov, record["views"]):
         if s is not None:
             p["confound_sink"] = s

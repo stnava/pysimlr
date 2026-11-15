@@ -1276,8 +1276,12 @@ def _check_views(data_matrices, n_views: Optional[int] = None,
 def _scale_like_training(torch_mats: List[torch.Tensor], simlr_result: Dict[str, Any]) -> List[torch.Tensor]:
     """Apply the fit's `scale_list` with its recorded per-view provenance
     (training means and scales), so new data land in the training space."""
-    scale_list = simlr_result.get('scale_list', [])
-    provenance_list = simlr_result.get('provenance_list', [])
+    scale_list = simlr_result.get('scale_list') or []
+    provenance_list = simlr_result.get('provenance_list') or []
+    if len(provenance_list) == len(torch_mats):
+        eff_scale = list(scale_list) if scale_list else ["none"]
+        return [preprocess_data(m, eff_scale, provenance=pv)
+                for m, pv in zip(torch_mats, provenance_list)]
     if not scale_list or scale_list[0] == "none":
         return torch_mats
     return [preprocess_data(m, scale_list, provenance=provenance_list[i] if i < len(provenance_list) else None)
@@ -1398,28 +1402,22 @@ def _prepare_fit_inputs(data_matrices, k, scale_list, positivity, initialization
             raise ValueError("missing_rows='mask': every row must be observed in at least one view.")
 
     provenance_list = []
-    do_scale = (scale_list is not None and len(scale_list) > 0 and scale_list[0] != "none")
+    eff_scale_list = list(scale_list) if scale_list else ["none"]
     init_mats = []
     scaled = []
     for idx, m in enumerate(torch_mats):
         if obs_masks is not None:
             om = obs_masks[idx]
             m_obs = m[om]
-            if do_scale:
-                m_obs_sc, prov = preprocess_data(m_obs, scale_list)
-                provenance_list.append(prov)
-            else:
-                m_obs_sc = torch.nan_to_num(m_obs, nan=0.0)
+            m_obs_sc, prov = preprocess_data(m_obs, eff_scale_list)
+            provenance_list.append(prov)
             m_full = torch.zeros_like(m_obs_sc[:1]).repeat(m.shape[0], 1)
             m_full[om] = m_obs_sc
             scaled.append(m_full)
             init_mats.append(m_obs_sc)
         else:
-            if do_scale:
-                m_sc, prov = preprocess_data(m, scale_list)
-                provenance_list.append(prov)
-            else:
-                m_sc = m
+            m_sc, prov = preprocess_data(m, eff_scale_list)
+            provenance_list.append(prov)
             scaled.append(m_sc)
             init_mats.append(m_sc)
     torch_mats = scaled
@@ -2443,7 +2441,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "topology": topology,
         "path_graph": path_graph,
         "energy_type": energy_type,
-        "scale_list": scale_list,
+        "scale_list": list(scale_list) if scale_list else ["none"],
         "provenance_list": provenance_list,
         "consolidated": consolidate,
         "sparseness": sparseness,
@@ -2520,9 +2518,9 @@ def _fit_and_score_simlr_perm(
     # The basis V is learned on preprocessed data, so the similarity must be
     # evaluated on preprocessed data too. Scoring raw matrices against a V
     # fitted on centered/scaled ones mixes two different feature scalings.
-    scale_list = fit.get('scale_list') or []
+    scale_list = fit.get('scale_list') or ["none"]
     prov_list = fit.get('provenance_list') or []
-    if scale_list and scale_list[0] != "none" and len(prov_list) == len(mats):
+    if len(prov_list) == len(mats):
         scored = [preprocess_data(m, scale_list, provenance=pv)
                   for m, pv in zip(mats, prov_list)]
     else:
@@ -3072,9 +3070,9 @@ def decompose_energy(data_matrices: List[Union[torch.Tensor, np.ndarray]], simlr
     # V and U were fitted on preprocessed data, so the energy has to be
     # evaluated on preprocessed data too. Skipping this made the returned
     # decomposition inconsistent with the model's own energies.
-    scale_list = simlr_result.get('scale_list') or []
+    scale_list = simlr_result.get('scale_list') or ["none"]
     prov_list = simlr_result.get('provenance_list') or []
-    if scale_list and scale_list[0] != "none" and len(prov_list) == len(torch_mats):
+    if len(prov_list) == len(torch_mats):
         torch_mats = [preprocess_data(m, scale_list, provenance=pv)
                       for m, pv in zip(torch_mats, prov_list)]
 

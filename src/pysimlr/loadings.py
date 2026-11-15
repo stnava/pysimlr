@@ -318,12 +318,12 @@ def loadings(result: Dict[str, Any], views: Any, u: Optional[torch.Tensor] = Non
     if result.get("missing_rows") == "mask":
         from .utils import preprocess_data
         obs_masks = [~torch.isnan(v).all(dim=1) for v in view_list]
-        scale_list = result["scale_list"]
+        scale_list = result["scale_list"] or ["none"]
         prov_list = result["provenance_list"]
         xs = []
         for m_idx, (v, obs_m) in enumerate(zip(view_list, obs_masks)):
             v_obs = v[obs_m]
-            if scale_list and scale_list[0] != "none" and m_idx < len(prov_list):
+            if m_idx < len(prov_list):
                 xs.append(preprocess_data(v_obs, scale_list, provenance=prov_list[m_idx]))
             else:
                 xs.append(v_obs)
@@ -715,11 +715,12 @@ def _preprocess_observed(v: torch.Tensor, obs_m: np.ndarray, result: Dict[str, A
     """``(n, p)`` float64 array of ``v`` replayed through the fit's preprocessing on its observed rows
     (``obs_m``); unobserved rows are NaN. ``view_idx=None`` is a probe matrix (no stored provenance)."""
     from .utils import preprocess_data
-    scale_list, prov_list = result["scale_list"], result["provenance_list"]
+    scale_list = result["scale_list"] or ["none"]
+    prov_list = result["provenance_list"]
     v_obs = v.detach().cpu()[torch.as_tensor(obs_m)]
     if view_idx is None:
         x = preprocess_data(v_obs, scale_list)[0]
-    elif scale_list and scale_list[0] != "none" and view_idx < len(prov_list):
+    elif view_idx < len(prov_list):
         x = preprocess_data(v_obs, scale_list, provenance=prov_list[view_idx])
     else:
         x = v_obs
