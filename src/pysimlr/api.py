@@ -8,10 +8,31 @@ loop with no per-method branch::
 
     import pysimlr
     for name in pysimlr.method_names():
+        etype = pysimlr.matched_energy(name)
+        kw = {"energy_type": etype} if etype is not None else {}
         res = pysimlr.fit(name, views, k=3, iterations=50, random_state=0,
-                          energy_type="acc", nsa_w=0.5)
+                          nsa_w=0.5, **kw)
         pred = pysimlr.predict(res, test_views)
         print(name, res["parameters"]["ignored"], pred["u"].shape)
+
+Matched energy pairing
+----------------------
+Holding ``energy_type`` constant across linear and deep/flow families does not
+compare matched objectives:
+
+* **Linear** (``"simlr"``): ``energy_type="recon_r2"`` reconstructs each view
+  directly from the shared consensus (`similarity.energy_recon_r2`). Passing
+  ``"align"`` to ``"simlr"`` aligns view projections without a reconstruction
+  term and emits a one-time `UserWarning`.
+* **Deep / Flow** (``"lend"``, ``"ned"``, ``"ned_shared_private"``,
+  ``"flow_v"``): reconstruction is handled by the decoder / normalizing-flow
+  loss, so the matched similarity term is ``energy_type="align"`` (and
+  data-dependent linear terms such as ``"recon_r2"`` are refused).
+* **Baselines** (``"pca"``, ``"nsa_pipeline"``): take no ``energy_type``
+  (`matched_energy` returns ``None``).
+
+Use `pysimlr.matched_energy(method)` (also reported in
+``describe_method(method)["matched_energy"]``) when comparing across families.
 
 Parameters
 ----------
@@ -331,21 +352,25 @@ def _frozen(d: Mapping[str, Any]) -> Mapping[str, Any]:
 
 _SPECS = [
     MethodSpec("simlr", "linear", simlr, _predict_linear, "iterations",
-               "Linear SiMLR: one sparse, NSA-Flow-constrained basis per view.", extra_params=_frozen(_simlr_extra())),
+               "Linear SiMLR: one sparse, NSA-Flow-constrained basis per view "
+               "(matched energy: 'recon_r2'; counterpart to deep/flow 'align').",
+               extra_params=_frozen(_simlr_extra())),
     MethodSpec("lend", "deep", lend_simr, _predict_deep, "epochs",
-               "LEND: linear first layer V, nonlinear decoders; accepts data/basis energies "
-               "(recon_r2, nc_ridge) scaled by sim_weight alongside decoder MSE."),
+               "LEND: linear first layer V, nonlinear decoders "
+               "(matched energy: 'align'; counterpart to linear 'recon_r2')."),
     MethodSpec("ned", "deep", ned_simr, _predict_deep, "epochs",
-               "NED: linear first layer, nonlinear heads and decoders."),
+               "NED: linear first layer, nonlinear heads and decoders "
+               "(matched energy: 'align'; counterpart to linear 'recon_r2')."),
     MethodSpec("ned_shared_private", "deep", ned_simr_shared_private, _predict_deep, "epochs",
-               "NED++: NED with per-view private latents."),
+               "NED++: NED with per-view private latents "
+               "(matched energy: 'align'; counterpart to linear 'recon_r2')."),
     MethodSpec("flow_v", "flow", flow_simr_v, _predict_deep, "epochs",
-               "Flow-SiMR-V: linear first layer V, RealNVP flow per view; accepts data/basis "
-               "energies (recon_r2, nc_ridge) scaled by sim_weight alongside beta*NLL + gamma*MSE."),
+               "Flow-SiMR-V: linear first layer V, RealNVP flow per view "
+               "(matched energy: 'align'; counterpart to linear 'recon_r2')."),
     MethodSpec("pca", "baseline", pca_joint, _predict_joint, "none",
-               "PCA of the concatenated standardized views (joint basis)."),
+               "PCA of the concatenated standardized views (joint basis; matched_energy: None)."),
     MethodSpec("nsa_pipeline", "baseline", nsa_pipeline, _predict_joint, "none",
-               "NSA-Flow on the concatenated standardized views (joint basis)."),
+               "NSA-Flow on the concatenated standardized views (joint basis; matched_energy: None)."),
 ]
 
 #: name -> spec. The single source of truth for what a method is called,
@@ -381,10 +406,29 @@ def resolve_method(name: str) -> MethodSpec:
     return METHODS[name]
 
 
+def matched_energy(name: str) -> Optional[str]:
+    """Return the matched cross-family ``energy_type`` for registered method ``name``.
+
+    Returns ``"recon_r2"`` for ``"simlr"`` (linear path, where the similarity
+    term itself reconstructs each view from the consensus), ``"align"`` for
+    deep and flow models (``"lend"``, ``"ned"``, ``"ned_shared_private"``,
+    ``"flow_v"``, where reconstruction is the decoder/flow loss and the
+    similarity term aligns latents), and ``None`` for joint baselines
+    (``"pca"``, ``"nsa_pipeline"``) that take no ``energy_type``.
+    """
+    spec = resolve_method(name)
+    if spec.family == "linear":
+        return "recon_r2"
+    if spec.family in ("deep", "flow"):
+        return "align"
+    return None
+
+
 def describe_method(name: str) -> Dict[str, Any]:
-    """Family, budget unit, presets and every accepted parameter with its default."""
+    """Family, budget unit, matched energy, presets and every accepted parameter with its default."""
     s = resolve_method(name)
     return {"name": s.name, "family": s.family, "budget_unit": s.budget_unit,
+            "matched_energy": matched_energy(s.name),
             "description": s.description,
             "presets": dict(s.presets),
             "parameters": {kk: vv for kk, vv in sorted({**s.defaults, **SINK_PARAMS}.items())
@@ -442,8 +486,11 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
     spec = resolve_method(method)
     sink_req = {kk: params.pop(kk) for kk in list(params) if kk in SINK_PARAMS}
     if sink_req.get("confounds") is None and any(
-            kk in sink_req and sink_req[kk] != SINK_PARAMS[kk] for kk in ("confound_strength", "confound_rank")):
-        raise ValueError("confound_strength / confound_rank were set but confounds is None.")
+            kk in sink_req and sink_req[kk] != SINK_PARAMS[kk]
+            for kk in ("confound_strength", "confound_rank", "confound_rescale")):
+        raise ValueError(
+            "confound_strength / confound_rank / confound_rescale were set but confounds is None."
+        )
     unknown = sorted(set(params) - _ALL_PARAMS)
     if unknown:
         raise TypeError(f"no pysimlr method has parameter(s) {unknown}; "
@@ -492,34 +539,39 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
             _resolve_fit_view_idx(kv, n_views, fit_view_names): dict(vv)
             for kv, vv in call["per_view_params"].items()
         }
+    if call.get("system_matrices") is not None and isinstance(call["system_matrices"], Mapping):
+        from .system_prior import normalize_system_matrices_arg
+        call["system_matrices"] = normalize_system_matrices_arg(
+            call["system_matrices"], n_views, view_names=fit_view_names
+        )
     if sink_req.get("confounds") is not None and isinstance(sink_req["confounds"], Mapping):
         sink_req["confounds"] = {
             _resolve_fit_view_idx(kv, n_views, fit_view_names): vv
             for kv, vv in sink_req["confounds"].items()
         }
-    sink = None
+    plan = None
     if sink_req.get("confounds") is not None:
-        from .confounds import fit_confound_sink
-        fit_views, sink = fit_confound_sink(
+        from .confounds import confound_fit_context, finalize_confound_plan, prepare_confound_plan
+        plan = prepare_confound_plan(
             view_list, **sink_req,
             missing_rows=str(call.get("missing_rows", "impute")),
             view_names=fit_view_names,
         )
+        with confound_fit_context(plan):
+            res = spec.fit(view_list, int(k), **call)
     else:
-        fit_views = view_list
-    res = spec.fit(fit_views, int(k), **call)
+        res = spec.fit(view_list, int(k), **call)
     _normalize(res)
     if fit_view_names is not None:
         res["view_names"] = fit_view_names
     res["method"] = spec.name
     res["family"] = spec.family
     res["confound_sink"] = None
-    if sink is not None:
+    if plan is not None:
         # From here on every replay of the training preprocessing (predict,
-        # loadings, the grad-map certificate) cleans the raw views itself.
-        from .confounds import attach_sink
-        attach_sink(res, sink)
-    sink_used = {kk: sink_req.get(kk, SINK_PARAMS[kk]) for kk in SINK_PARAMS} if sink is not None else {}
+        # loadings, the grad-map certificate) runs `scale -> confound_projection -> rescale`.
+        finalize_confound_plan(res, plan)
+    sink_used = {kk: sink_req.get(kk, SINK_PARAMS[kk]) for kk in SINK_PARAMS} if plan is not None else {}
     res["parameters"] = {
         "requested": {**params, **sink_req},
         "used": {**call, **sink_used},
@@ -542,7 +594,7 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
     res["loading_margin"], res["loading_rotation"] = lo["loading_margin"], lo["loading_rotation"]
     res["coupling_signs"] = lo["coupling_signs"]
     validate_result(res, n=view_list[0].shape[0], k=int(k), n_views=len(view_list))
-    if sink is not None:
+    if plan is not None:
         # Decorrelation of the deployed estimator on the training rows: the
         # predict path, not a projection of `u` (which would be exact by
         # construction and say nothing about new subjects).
@@ -576,8 +628,7 @@ def _basis_grad_map(res: Dict[str, Any], views: List[torch.Tensor]) -> Optional[
     positivity = _used(res, "positivity", "either")
     from .positivity import is_nonneg
     nonneg = is_nonneg(positivity)
-    path = "deep_linear_first_layer" if res.get("method") in ("lend", "flow_v") else "deep"
-    name = resolve_energy_name(energy_type, path=path)
+    name = resolve_energy_name(energy_type, path="deep")
     needs_data = similarity_needs_data(name)
     u_t = torch.as_tensor(u).detach().float()
     terms = []
@@ -745,5 +796,5 @@ def parameter_summary(result: Dict[str, Any]) -> Dict[str, Any]:
 
 
 __all__ = ["FAMILIES", "CONTRACT_KEYS", "METHODS", "MethodSpec", "as_views", "describe_method",
-           "fit", "method_names", "nsa_pipeline", "parameter_summary", "pca_joint", "predict",
-           "resolve_method", "validate_result"]
+           "fit", "matched_energy", "method_names", "nsa_pipeline", "parameter_summary", "pca_joint",
+           "predict", "resolve_method", "validate_result"]

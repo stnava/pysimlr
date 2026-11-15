@@ -1,7 +1,7 @@
 
 import torch
 import numpy as np
-from typing import List, Optional, Union, Dict, Any, Tuple, Mapping
+from typing import List, Optional, Sequence, Union, Dict, Any, Tuple, Mapping
 from .svd import ba_svd, top_right_singular_vectors
 from .utils import basis_rank_report
 from .optimizers import create_optimizer, SIMLR_OPTIMIZER_DEFAULTS
@@ -1483,6 +1483,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           smoothing_matrices: Optional[List[torch.Tensor]] = None,
           domain_matrices: Optional[List[Union[torch.Tensor, np.ndarray]]] = None,
           domain_lambdas: Optional[Union[float, List[float]]] = None,
+          system_matrices: Optional[Sequence[Optional[Union[torch.Tensor, np.ndarray]]]] = None,
+          system_lambda: Optional[float] = None,
+          system_penalty: str = "l2",
           orthogonalize_u: bool = False,
           sign_alignment: str = DEFAULT_SIGN_ALIGNMENT,
           topology: str = DEFAULT_TOPOLOGY,
@@ -1700,9 +1703,21 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     smoothing_matrices : List[torch.Tensor], optional
         Spatial/prior smoothing operators for each modality.
     domain_matrices : List[Union[torch.Tensor, np.ndarray]], optional
-        Matrices to align with for directed domain knowledge.
+        Matrices to align with for directed domain knowledge (per view only).
     domain_lambdas : Union[float, List[float]], optional
         Weight(s) for the domain knowledge alignment objective.
+    system_matrices : sequence or dict of (S, p_i) matrices, optional
+        Cross-view system membership matrices sharing a common system row index
+        ``0 .. S - 1`` (`pysimlr.system_prior`). Non-zero rows are normalised
+        to unit L2 norm; all-zero rows (or ``None`` entries) mark systems
+        absent from a view and are skipped.
+    system_lambda : float, optional
+        Weight on the cross-view system coupling penalty (defaults to ``1.0``
+        when ``system_matrices`` is supplied).
+    system_penalty : {"l2", "group_l2"}, default="l2"
+        ``"l2"`` penalises pairwise differences ``||P_i V_i - P_j V_j||_F^2``
+        across active views; ``"group_l2"`` applies a group-L2,1 penalty across
+        views per system so systems are selected or dropped together.
     sign_alignment : {"spectral", "greedy"}, default="spectral"
         How the averaging mixings (``"avg"``, ``"newton"``) put the views'
         latent columns on one sign convention before averaging.
@@ -1862,6 +1877,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             data_matrices, k, scale_list, positivity, initialization_type,
             random_state, domain_matrices, sparseness, varimax,
             missing_rows=missing_rows, pos_list=_pos_list, sp_list=_sp_list, varimax_list=_vx_list)
+        from .system_prior import prepare_system_prior as _prep_sys_check
+        _prep_sys_check(
+            system_matrices, system_lambda, system_penalty,
+            view_dims=[int(m.shape[1]) for m in _prep_mats], dtype=torch.float64,
+        )
         _prep_mats_64 = [x.double() for x in _prep_mats]
         _s0_cache: Dict[str, Any] = {}
         from .optimizers import tune_learning_rate
@@ -1921,6 +1941,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             )
     if torch_domains is not None and domain_lambdas is None:
         domain_lambdas = [1.0] * n_modalities
+    from .system_prior import prepare_system_prior, system_total_energy, system_view_context, system_view_energy
+    sys_prior = prepare_system_prior(
+        system_matrices, system_lambda, system_penalty,
+        view_dims=[int(m.shape[1]) for m in torch_mats], dtype=torch.float64,
+    )
     
     from .positivity import NONNEG as _NONNEG
     _want_nonneg = positivity in _NONNEG
@@ -1981,6 +2006,17 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
 
     _obs_mats = ([m[om] for m, om in zip(torch_mats, obs_masks)]
                  if obs_masks is not None else torch_mats)
+    _gauge_list = [
+        energy_needs_unit_columns(et_i) and p_i != "convex"
+        for et_i, p_i in zip(_etype_list, _pos_list)
+    ]
+
+    def _gauged_w64_list(curr_v_mats):
+        out_w = []
+        for v_m, g_m in zip(curr_v_mats, _gauge_list):
+            vd = v_m.detach().double()
+            out_w.append(vd / vd.norm(dim=0, keepdim=True).clamp_min(1e-300) if g_m else vd)
+        return out_w
 
     def _calibrate_weights(curr_v_mats, curr_u):
         for idx_m in range(n_modalities):
@@ -2025,6 +2061,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             ).item() * normalizing_weights[idx_m]
             if collapse_weight != 0.0:
                 tot += collapse_weight * float(correlation_penalty(s_m, threshold=collapse_threshold))
+        if sys_prior is not None:
+            tot += float(system_total_energy(_gauged_w64_list(curr_v_mats), sys_prior).item())
         return tot
 
     init_total_energy = 0.0
@@ -2088,10 +2126,6 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         ]
         if torch_domains is not None else None
     )
-    _gauge_list = [
-        energy_needs_unit_columns(et_i) and p_i != "convex"
-        for et_i, p_i in zip(_etype_list, _pos_list)
-    ]
 
     def _view_oracles(i, u_i, _loop_sp):
         """Objective, exact gradient and projection for view `i`."""
@@ -2106,8 +2140,12 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         ct_i = _ctype_list[i]
         cw_i = _nsa_w_list[i]
         gauge_i = _gauge_list[i]
+        sys_ctx_i = (
+            system_view_context(i, _gauged_w64_list(v_mats), sys_prior)
+            if sys_prior is not None else None
+        )
         _proj_cache: list = []
-        _use_s_grad = (_s_only_grad_list[i] and dom64 is None)
+        _use_s_grad = (_s_only_grad_list[i] and dom64 is None and sys_ctx_i is None)
 
         def _energy_from_s(s64, w64):
             e = calculate_simlr_energy(
@@ -2116,6 +2154,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             if dom64 is not None:
                 e = e + calculate_simlr_energy(w64, x64, u64, "dat", lambda_val=domain_lambdas[i],
                                                prior_matrix=dom64) * domain_weights[i]
+            if sys_ctx_i is not None:
+                e = e + system_view_energy(w64, sys_ctx_i)
             if negentropy_weight != 0.0:
                 e = e + (calculate_simlr_energy(w64, x64, u64, "negentropy", _s=s64, _resolved_name="negentropy")
                          * negentropy_weight * neg_weights[i])
@@ -2192,7 +2232,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         # toward the certificate.
         zero_step_views = 0
         sweep_grad_map = []
-        _use_s0 = (_sweep0_cache is not None and raw_it == 0 and not dynamic_weights)
+        _use_s0 = (_sweep0_cache is not None and raw_it == 0 and not dynamic_weights and sys_prior is None)
         if _use_s0 and "u" in _sweep0_cache:
             _u_cached = _sweep0_cache["u"]
             u = [ui.clone() for ui in _u_cached] if isinstance(_u_cached, list) else _u_cached.clone()

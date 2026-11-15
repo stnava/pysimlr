@@ -455,3 +455,65 @@ def test_scale_list_none_supports_confounds_and_replays_sink_everywhere(data):
     assert z_est.shape == (xte[0].shape[0], 2) and len(x_rec) == len(xte)
 
 
+def test_pipeline_order_and_confound_rescale_guarantee_variance_invariance():
+    """Addendum A: `scale -> confound_projection -> rescale` ensures that pre-standardized
+    views with `scale_list=['none']` agree with `scale_list=['centerAndScale']` under
+    `energy_type='recon_r2'`, whereas `confound_rescale='none'` diverges when confound
+    projection removes substantial uneven feature variance and emits a `UserWarning`."""
+    rng = np.random.default_rng(77)
+    n = 180
+    u_true = rng.standard_normal((n, 1))
+    c_raw = rng.standard_normal((n, 1))
+    # Orthogonalize c against u_true so the sample-space confound is pure nuisance.
+    c = c_raw - u_true @ ((u_true.T @ c_raw) / (u_true.T @ u_true))
+
+    # View 0 has 12 features: all 12 carry equal shared biology, while features 0..5 also carry an
+    # alternating confound direction orthogonal to the biological loading vector.
+    w_bio_0 = np.full((1, 12), 0.8)
+    w_conf_0 = np.array([[3.5, -3.5, 3.5, -3.5, 3.5, -3.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]])
+    x0 = u_true @ w_bio_0 + c @ w_conf_0 + 0.35 * rng.standard_normal((n, 12))
+
+    # View 1 carries the shared biology with no confound (confounds passed on view 0 via dict or list).
+    w_bio_1 = rng.uniform(0.6, 1.0, size=(1, 10))
+    x1 = u_true @ w_bio_1 + 0.35 * rng.standard_normal((n, 10))
+
+    # Pre-standardize each column externally (caller passes z-scored views with scale_list=['none']).
+    z0 = (x0 - x0.mean(0, keepdims=True)) / x0.std(0, keepdims=True)
+    z1 = (x1 - x1.mean(0, keepdims=True)) / x1.std(0, keepdims=True)
+    z_views = [torch.tensor(z0).float(), torch.tensor(z1).float()]
+
+    res_none = fit("simlr", z_views, 1, energy_type="recon_r2", confounds=[c, None],
+                   scale_list=["none"], iterations=40, random_state=0)
+    res_cas = fit("simlr", z_views, 1, energy_type="recon_r2", confounds=[c, None],
+                  scale_list=["centerAndScale"], iterations=40, random_state=0)
+
+    assert res_none["confound_sink"]["pipeline_order"] == ("scale", "confound_projection", "rescale")
+    assert res_none["confound_sink"]["confound_rescale"] == "unit_variance"
+    assert res_none["provenance_list"][0]["pipeline_order"] == ("scale", "confound_projection", "rescale")
+    vr = res_none["confound_sink"]["variance_removed"]
+    assert len(vr) == 2 and vr[0] > 0.35 and vr[1] is None
+
+    # With default post-projection unit_variance rescale, scale_list=['none'] and ['centerAndScale'] agree!
+    v0_none = res_none["v"][0][:, 0].double().numpy()
+    v0_cas = res_cas["v"][0][:, 0].double().numpy()
+    corr_loadings = abs(float(np.corrcoef(v0_none, v0_cas)[0, 1]))
+    assert corr_loadings > 0.995, f"expected post-rescale agreement, got |r|={corr_loadings:.4f}"
+
+    # Opting out of post-projection rescaling warns (>30% variance removed) and shifts the recon_r2 loading!
+    with pytest.warns(UserWarning, match="confound_rescale='none'"):
+        res_unscaled = fit("simlr", z_views, 1, energy_type="recon_r2", confounds=[c, None],
+                           scale_list=["none"], confound_rescale="none", iterations=40, random_state=0)
+    v0_unscaled = res_unscaled["v"][0][:, 0].double().numpy()
+    corr_unscaled = abs(float(np.corrcoef(v0_none, v0_unscaled)[0, 1]))
+    assert corr_unscaled < 0.97, f"expected confound_rescale='none' to shift recon_r2 loadings, got {corr_unscaled:.4f}"
+    # Replay on training data still matches fit latents under confound_rescale='none'
+    assert torch.allclose(predict(res_unscaled, z_views)["u"], res_unscaled["u"], atol=1e-4)
+
+    # Validation checks for confound_rescale
+    with pytest.raises(ValueError, match="confound_rescale"):
+        fit("simlr", z_views, 1, confounds=c, confound_rescale="bogus", iterations=2)
+    with pytest.raises(ValueError, match="confounds is None"):
+        fit("simlr", z_views, 1, confound_rescale="none", iterations=2)
+
+
+

@@ -96,8 +96,8 @@ def test_deep_flow_missing_rows_mask_contract_and_downstream(method):
 
 
 @pytest.mark.parametrize("method", ("lend", "flow_v"))
-@pytest.mark.parametrize("energy_type", ("recon_r2", "nc_ridge"))
-def test_recon_r2_and_nc_ridge_compose_with_missing_rows_mask_and_loo(method, energy_type):
+@pytest.mark.parametrize("energy_type", ("align", "nc"))
+def test_align_and_nc_compose_with_missing_rows_mask_and_loo(method, energy_type):
     _, masked_views, _ = _planted_missing_views(n=64, seed=19)
     res = pysimlr.fit(
         method,

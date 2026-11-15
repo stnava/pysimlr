@@ -322,7 +322,12 @@ def _new_view_confounds(result: Dict[str, Any], confounds: Any, n: int) -> Optio
     c = _to_numpy(confounds, "confounds")
     if c.shape[0] != n:
         raise ValueError(f"confounds has {c.shape[0]} rows; the views have {n}.")
-    return {"c": c, "gamma": float(rec["confound_strength"]), "rank": _used(result, "confound_rank")}
+    return {
+        "c": c,
+        "gamma": float(rec["confound_strength"]),
+        "rank": _used(result, "confound_rank"),
+        "rescale": str(rec.get("confound_rescale", _used(result, "confound_rescale", "unit_variance"))),
+    }
 
 
 def _ext_latent(result: Dict[str, Any], name: str, x: torch.Tensor) -> torch.Tensor:
@@ -606,14 +611,12 @@ def _anchored_holdout(x: torch.Tensor, target: torch.Tensor, R: torch.Tensor,
 
     def preprocess_data(xm, sl, prov=None, _rows=None):
         # With a confound sink, the new view's sink is refitted on each split's
-        # training rows and replayed on its held-out rows (no leakage).
+        # training rows (`scale -> confound_projection -> rescale`) and replayed
+        # on its held-out rows (no leakage).
         if sink_fit is None:
             return _prep(xm, sl) if prov is None else _prep(xm, sl, prov)
         if prov is None:
-            s_tr = sink_fit(_rows)
-            xp_, pv = _prep(_apply_sink(xm, s_tr), sl)
-            pv["confound_sink"] = s_tr
-            return xp_, pv
+            return sink_fit(xm, sl, _rows)
         return _prep(xm, sl, prov)
 
     from .positivity import is_nonneg
@@ -717,18 +720,17 @@ def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, 
             raise ValueError(f"new view {nm!r} has only {n_fit} observed rows; need at least {max(int(k) + 2, 6)}.")
         sink_fit = None
         if c_new is not None:
-            from .confounds import fit_view_sink
-            gamma, rank = c_new["gamma"], c_new["rank"]
+            from .confounds import preprocess_with_view_sink
+            gamma, rank, rescale_mode = c_new["gamma"], c_new["rank"], c_new["rescale"]
             c_fit = c_new["c"][obs.detach().cpu().numpy()] if has_row_mask else c_new["c"]
 
-            def sink_fit(rows, _x=x_fit, _c=c_fit, _g=gamma, _r=rank):
-                rows = np.arange(_x.shape[0]) if rows is None else np.asarray(rows)
-                return fit_view_sink(_x[torch.as_tensor(rows)], _c[rows], _g, _r)
-            s_all = sink_fit(None)
-            if has_row_mask:
-                s_all["preserve_row_nans"] = True
-            xp, prov = preprocess_data(_apply_sink(x_fit, s_all), scale_list)
-            prov["confound_sink"] = s_all
+            def sink_fit(xm_tr, sl_tr, rows, _c=c_fit, _g=gamma, _r=rank, _rs=rescale_mode):
+                rows_arr = np.arange(_c.shape[0]) if rows is None else np.asarray(rows)
+                return preprocess_with_view_sink(xm_tr, sl_tr, _c[rows_arr], _g, _r, _rs)
+
+            xp, prov = preprocess_with_view_sink(
+                x_fit, scale_list, c_fit, gamma, rank, rescale_mode, preserve_row_nans=has_row_mask
+            )
         else:
             xp, prov = preprocess_data(x_fit, scale_list)
         settings = dict(energy_type=e_used, positivity=pos, sparseness=sp, nsa_w=w, iterations=iterations)

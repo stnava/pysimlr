@@ -12,50 +12,40 @@ every method family, with no per-method code.
 
 The operator, per view ``m`` (training rows only)
 -------------------------------------------------
+`pysimlr.fit` executes an explicit three-stage preprocessing order recorded in
+``provenance["pipeline_order"] == ("scale", "confound_projection", "rescale")``:
+
+0. **Scale**: apply the view's ``scale_list`` (e.g. ``centerAndScale`` or
+   ``none``) to obtain ``X_scaled``.
 1. ``C_m`` (shared or per-view confounds) is standardised column-wise
    (finite-entry mean and SD; non-finite entries set to the column mean;
    constant columns dropped, all recorded) and reduced to an orthonormal,
    zero-mean basis ``Q_m`` (``n x k_c``) by SVD, keeping the numerical rank,
    capped at ``confound_rank`` or ``n // 4`` (a cap that binds warns and is
    recorded).
-2. The view's columns are filled at their training means ``mu_m`` where
-   missing and centred: ``X_c = X_m - mu_m``.
+2. The scaled view's columns are filled at their training means ``mu_m`` where
+   missing and centred: ``X_c = X_scaled - mu_m``.
 3. ``H_m`` (``p_m x r``) is an orthonormal basis of the feature-space
    confound covariance ``X_c^T Q_m``: the feature directions along which the
    view covaries with the confounds (``r <= k_c``, numerical rank).
-4. The cleaned view is ``X_m - gamma (X_m - mu_m) H_m H_m^T``: those ``r``
-   directions are projected out of the features (``gamma`` =
-   ``confound_strength`` in ``[0, 1]`` damps the projection).
-
-With ``gamma = 1`` every linear score ``X_clean w`` has exactly zero sample
-covariance with every confound column on the training rows, and the
-confound's feature pattern is removed from any row, so held-out decorrelation
-needs no ``C_test`` -- it is limited only by how well ``X_c^T Q_m`` estimates
-the population pattern. What is lost is the biology that lies in those ``r``
-feature directions (all of it at ``gamma = 1``; biology that covaries with a
-confound is partly kept at ``gamma < 1``). Nonlinear heads (deep and flow
-models) see only the cleaned first-layer input but can still form nonlinear
-functions of it that correlate with a confound; measure, do not assume.
-
-The sink scores (``predict(...)["latents_sink"]``, ``u_sink``) are
-``(X_m - mu_m) H_m M_m``, with ``M_m`` the least-squares map from the removed
-directions to ``Q_m`` on the training rows: an image-derived estimate of the
-confounds, averaged over the available views when the confounds are shared.
-
-The same affine map is applied to the training rows and to new rows, so
-``result["u"]`` equals ``predict(result, training_views)["u"]`` up to the
-method's own prediction error, and a single subject (``N = 1``) is cleaned
-exactly as in a batch. The training decorrelation is reported from the predict
-path in ``result["confound_sink"]["train_max_abs_corr"]``; measure held-out
-decorrelation with `confound_decorrelation` on rows that have confounds.
-
-Row permutations commute with the operator (``clean(X[p], C[p]) =
-clean(X, C)[p]``), which is what the permutation nulls rely on: each view is
-permuted together with its own confound rows, so a null refit cleans each
-view exactly as the observed fit does.
+4. **Confound projection**: ``X_clean = X_scaled - gamma (X_scaled - mu_m) H_m H_m^T``,
+   with the fraction of variance removed recorded in
+   ``result["confound_sink"]["variance_removed"]``.
+5. **Rescale**: controlled by ``confound_rescale`` (``"unit_variance"`` by
+   default, independent of ``scale_list``, or ``"none"``). ``"unit_variance"``
+   re-centres and divides each cleaned feature by its post-projection training
+   SD so features whose variance was shrunk by confound removal do not drop out
+   of within-view objectives (`recon_r2`, `pca`). Because ``Q_m`` is zero-mean
+   and rescaling acts column by column, ``gamma = 1`` still yields exact zero
+   sample covariance between every linear score and every confound column.
+   When ``confound_rescale="none"`` and any view loses more than 30% of its
+   variance, a `UserWarning` is emitted.
 """
 from __future__ import annotations
 
+import contextlib
+from dataclasses import dataclass, field
+import threading
 import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -63,8 +53,31 @@ from typing import Any
 import numpy as np
 import torch
 
+#: Explicit preprocessing stage names recorded in provenance and sink records.
+PIPELINE_ORDER: tuple[str, str, str] = ("scale", "confound_projection", "rescale")
+#: Post-projection feature rescaling modes.
+CONFOUND_RESCALE_MODES: tuple[str, str] = ("unit_variance", "none")
+#: Warn when `confound_rescale == "none"` and a view loses more than this fraction of variance.
+CONFOUND_VARIANCE_WARN_THRESHOLD: float = 0.30
+
 #: Parameters `pysimlr.fit` handles for every method.
-SINK_PARAMS: dict[str, Any] = {"confounds": None, "confound_strength": 1.0, "confound_rank": None}
+SINK_PARAMS: dict[str, Any] = {
+    "confounds": None,
+    "confound_strength": 1.0,
+    "confound_rank": None,
+    "confound_rescale": "unit_variance",
+}
+
+_CONFOUND_STATE = threading.local()
+
+
+def validate_confound_rescale(confound_rescale: Any) -> str:
+    """Validate `confound_rescale` in `('unit_variance', 'none')`."""
+    if not isinstance(confound_rescale, str) or confound_rescale not in CONFOUND_RESCALE_MODES:
+        raise ValueError(
+            f"confound_rescale must be one of {CONFOUND_RESCALE_MODES}; got {confound_rescale!r}."
+        )
+    return confound_rescale
 
 
 
@@ -273,12 +286,17 @@ def fit_view_sink(x: Any, c_raw: np.ndarray, gamma: float, confound_rank: int | 
                          f"(rank {r}); cleaning would remove the whole view. Lower confound_rank or drop the view.")
     h = u_b[:, :r]
     z = xc @ h
+    ss_before = float(np.sum(xc * xc))
+    xc_clean = xc - float(gamma) * (z @ h.T)
+    ss_after = float(np.sum(xc_clean * xc_clean))
+    var_removed = float(np.clip(1.0 - ss_after / ss_before, 0.0, 1.0)) if ss_before > 0.0 else 0.0
     m_map = np.linalg.lstsq(z, q, rcond=None)[0]
     q_hat = z @ m_map
     fit_r = [float(np.corrcoef(q_hat[:, j], q[:, j])[0, 1]) if q_hat[:, j].std() > 0 else 0.0
              for j in range(q.shape[1])]
     return {"mean": mu, "H": h, "M": m_map, "gamma": float(gamma), "basis": q,
             "info": {**binfo, "removed_directions": r, "n_missing_filled": n_missing,
+                     "variance_removed": var_removed,
                      "train_confound_fit_r": fit_r}}
 
 
@@ -303,11 +321,197 @@ def apply_view_sink(x: Any, sink: dict[str, Any]) -> tuple[torch.Tensor, torch.T
 
 
 # ----------------------------------------------------------------------------- all views
+def _unit_variance_stats(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    mean = torch.mean(x, dim=0)
+    if x.shape[0] > 1:
+        std = torch.std(x, dim=0)
+        std = torch.where(torch.isnan(std) | (std < 1e-10), torch.ones_like(std), std)
+    else:
+        std = torch.ones_like(mean)
+    return mean, std
+
+
+def _warn_if_unrescaled_variance_loss(variance_removed: Sequence[float | None],
+                                      rescale: str, *, stacklevel: int = 3) -> None:
+    if rescale != "none":
+        return
+    heavy = [(i, v) for i, v in enumerate(variance_removed)
+             if v is not None and v > CONFOUND_VARIANCE_WARN_THRESHOLD]
+    if not heavy:
+        return
+    desc = ", ".join(f"view {i} ({100.0 * v:.1f}%)" for i, v in heavy)
+    warnings.warn(
+        f"confounds removed more than {int(100 * CONFOUND_VARIANCE_WARN_THRESHOLD)}% of variance "
+        f"in {desc} with confound_rescale='none'; reduced-variance features contribute less to "
+        f"within-view objectives such as 'recon_r2' and PCA. Pass confound_rescale='unit_variance' "
+        f"(the default) to re-standardize cleaned features.",
+        UserWarning,
+        stacklevel=stacklevel,
+    )
+
+
+@dataclass
+class ConfoundFitPlan:
+    """Per-fit state consumed by `utils.preprocess_data` in `scale -> confound_projection -> rescale` order."""
+
+    per_view: list[np.ndarray | None]
+    shared: bool
+    gamma: float
+    rank: int | None
+    rescale: str
+    missing_rows: str
+    obs_masks_np: list[np.ndarray] | None
+    sinks: list[dict[str, Any] | None] = field(default_factory=list)
+    cursor: int = 0
+
+
+def active_confound_plan() -> ConfoundFitPlan | None:
+    """Return the active thread-local `ConfoundFitPlan`, if any."""
+    return getattr(_CONFOUND_STATE, "plan", None)
+
+
+@contextlib.contextmanager
+def confound_fit_context(plan: ConfoundFitPlan | None):
+    """Install `plan` for `utils.preprocess_data` during a `pysimlr.fit` call."""
+    prev = getattr(_CONFOUND_STATE, "plan", None)
+    _CONFOUND_STATE.plan = plan
+    try:
+        yield
+    finally:
+        _CONFOUND_STATE.plan = prev
+
+
+def prepare_confound_plan(
+    views: Sequence[torch.Tensor],
+    confounds: Any,
+    confound_strength: Any = 1.0,
+    confound_rank: Any = None,
+    confound_rescale: Any = "unit_variance",
+    *,
+    missing_rows: str = "impute",
+    view_names: Sequence[str] | None = None,
+) -> ConfoundFitPlan:
+    """Validate confound settings and build the `ConfoundFitPlan` for `pysimlr.fit`."""
+    gamma, rank = validate_confound_params(confound_strength, confound_rank)
+    rescale = validate_confound_rescale(confound_rescale)
+    n = int(views[0].shape[0])
+    per_view, shared = per_view_confounds(confounds, n, len(views), view_names=view_names)
+    obs_np: list[np.ndarray] | None = None
+    if missing_rows == "mask":
+        obs_np = [(~torch.isnan(x).all(dim=1)).detach().cpu().numpy() for x in views]
+    return ConfoundFitPlan(
+        per_view=per_view,
+        shared=bool(shared),
+        gamma=gamma,
+        rank=rank,
+        rescale=rescale,
+        missing_rows=missing_rows,
+        obs_masks_np=obs_np,
+    )
+
+
+def apply_plan_step(
+    x_scaled: torch.Tensor,
+    scale_list: Sequence[str],
+    pre_provenance: dict[str, Any],
+    plan: ConfoundFitPlan,
+) -> tuple[torch.Tensor, dict[str, Any]]:
+    """Run ``confound_projection -> rescale`` on one already-scaled training view."""
+    idx = plan.cursor
+    if idx >= len(plan.per_view):
+        raise RuntimeError(
+            f"confound_fit_context received more preprocess_data calls ({idx + 1}) "
+            f"than views ({len(plan.per_view)})."
+        )
+    plan.cursor += 1
+    prov = dict(pre_provenance)
+    prov["pipeline_order"] = PIPELINE_ORDER
+    prov["confound_rescale"] = plan.rescale
+    c_m = plan.per_view[idx]
+    if c_m is None:
+        plan.sinks.append(None)
+        return x_scaled, prov
+    c_rows = c_m[plan.obs_masks_np[idx]] if plan.obs_masks_np is not None else c_m
+    s = fit_view_sink(x_scaled, c_rows, plan.gamma, plan.rank)
+    if plan.obs_masks_np is not None:
+        s["preserve_row_nans"] = True
+    s["pre_scale"] = {"scale_list": list(scale_list), "provenance": dict(pre_provenance)}
+    plan.sinks.append(s)
+    prov["confound_sink"] = s
+    x_clean = apply_view_sink(x_scaled, s)[0].to(dtype=x_scaled.dtype, device=x_scaled.device)
+    if plan.rescale == "unit_variance":
+        rmean, rstd = _unit_variance_stats(x_clean)
+        prov["confound_rescale_mean"] = rmean
+        prov["confound_rescale_std"] = rstd
+        x_clean = (x_clean - rmean) / rstd
+    return x_clean, prov
+
+
+def finalize_confound_plan(result: dict[str, Any], plan: ConfoundFitPlan) -> None:
+    """Attach the completed `ConfoundFitPlan` record to `result` and warn if needed."""
+    n_views = len(plan.per_view)
+    if plan.cursor != n_views:
+        raise RuntimeError(
+            f"confound_fit_context processed {plan.cursor} of {n_views} views for "
+            f"method {result.get('method')!r}."
+        )
+    c_all = [c for c in plan.per_view if c is not None]
+    var_rem = [None if s is None else float(s["info"]["variance_removed"]) for s in plan.sinks]
+    record = {
+        "views": list(plan.sinks),
+        "shared": bool(plan.shared),
+        "confound_strength": plan.gamma,
+        "confound_rank": [None if s is None else int(s["basis"].shape[1]) for s in plan.sinks],
+        "confound_rescale": plan.rescale,
+        "pipeline_order": PIPELINE_ORDER,
+        "variance_removed": var_rem,
+        "info": [None if s is None else s["info"] for s in plan.sinks],
+        "_c_std": _standardise_for_report(np.column_stack(c_all) if not plan.shared else c_all[0]),
+    }
+    attach_sink(result, record)
+    _warn_if_unrescaled_variance_loss(var_rem, plan.rescale, stacklevel=4)
+
+
+def preprocess_with_view_sink(
+    x: torch.Tensor,
+    scale_list: Sequence[str],
+    c_raw: np.ndarray,
+    gamma: float,
+    confound_rank: int | None,
+    confound_rescale: str = "unit_variance",
+    *,
+    preserve_row_nans: bool = False,
+) -> tuple[torch.Tensor, dict[str, Any]]:
+    """Run ``scale -> confound_projection -> rescale`` for a single view (used by `extension`)."""
+    from .utils import preprocess_data
+    rescale = validate_confound_rescale(confound_rescale)
+    sl = list(scale_list)
+    with confound_fit_context(None):
+        x_scaled, pre_prov = preprocess_data(x, sl)
+    s = fit_view_sink(x_scaled, c_raw, gamma, confound_rank)
+    if preserve_row_nans:
+        s["preserve_row_nans"] = True
+    s["pre_scale"] = {"scale_list": sl, "provenance": dict(pre_prov)}
+    prov = dict(pre_prov)
+    prov["pipeline_order"] = PIPELINE_ORDER
+    prov["confound_rescale"] = rescale
+    prov["confound_sink"] = s
+    x_clean = apply_view_sink(x_scaled, s)[0].to(dtype=x_scaled.dtype, device=x_scaled.device)
+    if rescale == "unit_variance":
+        rmean, rstd = _unit_variance_stats(x_clean)
+        prov["confound_rescale_mean"] = rmean
+        prov["confound_rescale_std"] = rstd
+        x_clean = (x_clean - rmean) / rstd
+    return x_clean, prov
+
+
 def fit_confound_sink(views: Sequence[torch.Tensor], confounds: Any, confound_strength: Any = 1.0,
-                      confound_rank: Any = None, *, missing_rows: str = "impute",
+                      confound_rank: Any = None, *, confound_rescale: str = "none",
+                      missing_rows: str = "impute",
                       view_names: Sequence[str] | None = None) -> tuple[list[torch.Tensor], dict[str, Any]]:
     """Fit every view's operator on the training rows; return the cleaned views and the record."""
     gamma, rank = validate_confound_params(confound_strength, confound_rank)
+    rescale = validate_confound_rescale(confound_rescale)
     n = int(views[0].shape[0])
     per_view, shared = per_view_confounds(confounds, n, len(views), view_names=view_names)
     sinks: list[dict[str, Any] | None] = []
@@ -326,13 +530,26 @@ def fit_confound_sink(views: Sequence[torch.Tensor], confounds: Any, confound_st
         else:
             s = fit_view_sink(x, c, gamma, rank)
         sinks.append(s)
-        cleaned.append(apply_view_sink(x, s)[0])
+        xc = apply_view_sink(x, s)[0]
+        if rescale == "unit_variance":
+            if mask_mode:
+                obs_t = ~torch.isnan(xc).all(dim=1)
+                rmean, rstd = _unit_variance_stats(xc[obs_t])
+                xc = xc.clone()
+                xc[obs_t] = (xc[obs_t] - rmean) / rstd
+            else:
+                rmean, rstd = _unit_variance_stats(xc)
+                xc = (xc - rmean) / rstd
+        cleaned.append(xc)
     c_all = [c for c in per_view if c is not None]
+    var_rem = [None if s is None else float(s["info"]["variance_removed"]) for s in sinks]
     record = {
         "views": sinks,
         "shared": bool(shared),
         "confound_strength": gamma,
         "confound_rank": [None if s is None else int(s["basis"].shape[1]) for s in sinks],
+        "confound_rescale": rescale,
+        "variance_removed": var_rem,
         "info": [None if s is None else s["info"] for s in sinks],
         "_c_std": _standardise_for_report(np.column_stack(c_all) if not shared else c_all[0]),
     }
@@ -420,11 +637,22 @@ def confound_decorrelation(result: dict[str, Any], views: Any, confounds: Any) -
 
 def sink_scores(record: dict[str, Any], views: Sequence[torch.Tensor | None]) -> dict[str, Any]:
     """Per-view estimated confound scores, and their average over the given views when shared."""
+    from .utils import preprocess_data
     lat: dict[int, torch.Tensor] = {}
     for i, (x, s) in enumerate(zip(views, record["views"])):
         if x is None or s is None:
             continue
-        lat[i] = apply_view_sink(x, s)[1]
+        pre = s.get("pre_scale")
+        if pre is not None:
+            xt = torch.as_tensor(x).float()
+            row_nan = torch.isnan(xt).all(dim=1) if s.get("preserve_row_nans") else None
+            x_in = preprocess_data(xt, pre["scale_list"], pre["provenance"])
+            if row_nan is not None and bool(row_nan.any()):
+                x_in = x_in.clone()
+                x_in[row_nan] = float("nan")
+            lat[i] = apply_view_sink(x_in, s)[1]
+        else:
+            lat[i] = apply_view_sink(x, s)[1]
     u_sink = None
     if record["shared"] and lat:
         stacked = torch.stack(list(lat.values()), dim=0)
@@ -455,14 +683,26 @@ def replay_sink(x: torch.Tensor, provenance: dict[str, Any] | None) -> torch.Ten
 
 
 def clean_raw_views(result: dict[str, Any], views: Sequence[Any | None]) -> list[Any | None]:
-    """Apply a fit's operators to raw views (no other preprocessing); identity without a sink."""
+    """Apply a fit's cleaning pipeline to raw views; identity without a sink."""
     rec = result.get("confound_sink")
     if rec is None:
         return list(views)
+    prov_list = result.get("provenance_list")
+    scale_list = result.get("scale_list")
+    use_pipeline = (
+        rec.get("pipeline_order") == PIPELINE_ORDER
+        and isinstance(prov_list, list)
+        and len(prov_list) == len(rec["views"])
+        and scale_list is not None
+    )
+    from .utils import preprocess_data
     out = []
-    for x, s in zip(views, rec["views"]):
+    for idx, (x, s) in enumerate(zip(views, rec["views"])):
         if x is None or s is None:
             out.append(x)
+        elif use_pipeline:
+            cleaned = preprocess_data(torch.as_tensor(x).float(), scale_list, prov_list[idx])
+            out.append(cleaned.double().numpy() if isinstance(x, np.ndarray) else cleaned)
         else:
             out.append(apply_view_sink(x, s)[0].double().numpy() if isinstance(x, np.ndarray)
                        else apply_view_sink(x, s)[0])

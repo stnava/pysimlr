@@ -51,6 +51,7 @@ def _views(seed=0, n=N):
 
 _SM = [torch.eye(p) * 0.5 + 0.5 / p for p in DIMS]
 _DOM = [torch.randn(2, p, generator=torch.Generator().manual_seed(1)) for p in DIMS]
+_SYS = [torch.randn(2, p, generator=torch.Generator().manual_seed(2 + i)) for i, p in enumerate(DIMS)]
 
 #: parameter -> two values that must produce different fits.
 EXERCISED = {
@@ -94,6 +95,8 @@ EXERCISED = {
     "smoothing_matrices": (None, _SM),
     "domain_matrices": ({"domain_matrices": None},
                         {"domain_matrices": _DOM, "domain_lambdas": 1.0}),
+    "system_matrices": ({"system_matrices": None},
+                        {"system_matrices": _SYS, "system_lambda": 2.0}),
     "topology": ({"topology": "star"}, {"topology": "loo"}),
     # `iterations` needs a fit with somewhere to go. From the default PCA
     # start on this fixture the *first* iterate is already the best, so
@@ -123,6 +126,8 @@ EXEMPT = {
          "asserted in test_auto_returns_a_usable_fit and the runner tests",
     "verbose": "prints; must not change numerics",
     "domain_lambdas": "only meaningful with domain_matrices, exercised there",
+    "system_lambda": "only meaningful with system_matrices, exercised there and in test_matched_energy_and_system_prior.py",
+    "system_penalty": "only meaningful with system_matrices, exercised in test_matched_energy_and_system_prior.py",
     "learning_rate": "arrives via **opt_params, covered in "
                      "test_learning_rate_tuning.py and test_knobs_are_live.py",
     "tol": "gates early stopping, so it acts on `stop_reason` rather than on "
@@ -389,18 +394,15 @@ def test_deep_models_respond_to_their_initialisation(fn):
 # incompatible combinations must refuse, not quietly do something else
 # --------------------------------------------------------------------------
 def test_a_data_term_is_refused_on_the_deep_path():
-    """`recon`, `recon_r2` and `nc_ridge` need X and V; nonlinear-encoder models
-    (`path="deep"`) have no linear first layer into the shared space and refuse
-    them, whereas linear-first-layer models (`path="deep_linear_first_layer"`)
-    accept `recon_r2` and `nc_ridge` while still refusing degenerate `recon`."""
+    """`recon`, `recon_r2` and `nc_ridge` need X and V; the deep path does not
+    carry either into the similarity term and refuses all three, naming the
+    linear counterpart of `'align'` (`'recon_r2'`)."""
     from pysimlr.similarity import resolve_energy_name
     for name in ("recon", "recon_r2", "nc_ridge"):
-        with pytest.raises(ValueError, match="no linear first layer"):
+        with pytest.raises(ValueError, match="data and the loading matrix"):
             resolve_energy_name(name, path="deep")
-    with pytest.raises(ValueError, match="recon_r2"):
-        resolve_energy_name("recon", path="deep_linear_first_layer")
-    for name in ("recon_r2", "nc_ridge"):
-        assert resolve_energy_name(name, path="deep_linear_first_layer") == name
+    with pytest.raises(ValueError, match="linear counterpart of 'align' is 'recon_r2'"):
+        resolve_energy_name("recon_r2", path="deep")
 
 
 def test_a_removed_energy_name_is_refused():

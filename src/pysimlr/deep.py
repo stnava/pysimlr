@@ -1237,10 +1237,7 @@ def calculate_sim_loss(latents: List[torch.Tensor],
     from .similarity import (MIN_ROWS_FOR_MOMENT, SimilarityContext,
                              resolve_energy_name, similarity_energy)
     from .sparsification import energy_needs_unit_columns
-    sim_name = resolve_energy_name(
-        energy_type,
-        path="deep_linear_first_layer" if contexts is not None else "deep",
-    )
+    sim_name = resolve_energy_name(energy_type, path="deep")
     need_gauge = energy_needs_unit_columns(sim_name)
     default_ctx = SimilarityContext()
 
@@ -1352,7 +1349,7 @@ def _update_first_layer_schedule(model, epoch: int, epochs: int, stabilization_s
     return {"basis_drift": 0.0, "projection_alpha": 1.0}
 
 
-def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=DEFAULT_TOL, patience=10, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, freeze_private_epochs: int = 0, collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD):
+def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_weight, energy_type, warmup_epochs, verbose, device, tol=DEFAULT_TOL, patience=10, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None, freeze_private_epochs: int = 0, collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD, system_prior=None):
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     model._n_fit = getattr(dataloader, "n", None)       # rows the bases are fitted on (MAI dof)
     loss_history, recon_history, sim_history = [], [], []
@@ -1396,11 +1393,9 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
     raw_encs = getattr(model, "linear_encoders", None) or getattr(model, "encoders", ())
     first_layer_encs = [enc for enc in raw_encs if isinstance(enc, LENDNSAEncoder)]
     all_params = list(model.parameters())
-    from .similarity import (SimilarityContext, resolve_energy_name,
-                             similarity_needs_data)
-    _energy_path = "deep_linear_first_layer" if isinstance(model, LENDSiMRModel) else "deep"
-    _sim_name = resolve_energy_name(energy_type, path=_energy_path)
-    _needs_ctx = similarity_needs_data(_sim_name)
+    from .similarity import resolve_energy_name
+    resolve_energy_name(energy_type, path="deep")
+    from .system_prior import system_total_energy
     
     for epoch in range(epochs):
         model.train(); step_loss, step_recon, step_sim = [], [], []
@@ -1449,18 +1444,16 @@ def _train_loop(model, dataloader, optimizer, scheduler, mse_loss, epochs, sim_w
                                    for r, x, om in zip(reconstructions, batch_mats, batch_masks)
                                    if bool(om.any())]
                     recon_loss = sum(recon_terms) if recon_terms else torch.tensor(0.0, device=device)
-                sim_contexts = (
-                    [SimilarityContext(x=x_m, v=enc.v_raw + (enc.v - enc.v_raw).detach())
-                     for x_m, enc in zip(batch_mats, first_layer_encs)]
-                    if _needs_ctx else None
-                )
                 sim_loss_total, diagnostics = calculate_sim_loss(
                     shared_latents, u_shared, energy_type, weights=penalty_weights,
                     compute_diagnostics=False, collapse_threshold=collapse_threshold,
-                    contexts=sim_contexts, obs_masks=batch_masks,
+                    obs_masks=batch_masks,
                 )
                 
                 total_loss = recon_loss + sim_loss_total
+                if system_prior is not None and first_layer_encs:
+                    ste_bases = [enc.v_raw + (enc.v - enc.v_raw).detach() for enc in first_layer_encs]
+                    total_loss = total_loss + system_total_energy(ste_bases, system_prior)
                 
                 if model.__class__.__name__ == "NEDSharedPrivateSiMRModel":
                     private_l = res[3]
@@ -1742,13 +1735,15 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
               varimax: Optional[bool], tol: float, patience: int,
               freeze_private_epochs: int = 0,
               collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
-              missing_rows: str = "impute") -> Dict[str, Any]:
+              missing_rows: str = "impute",
+              system_matrices=None,
+              system_lambda: Optional[float] = None,
+              system_penalty: str = "l2") -> Dict[str, Any]:
     """Shared body of `lend_simr`, `ned_simr` and `ned_simr_shared_private`."""
     nsa_w = check_nsa_w(nsa_w)
     collapse_threshold = check_collapse_threshold(collapse_threshold)
     from .similarity import check_fit_energy
-    energy_path = "deep_linear_first_layer" if model_type == "lend_simr" else "deep"
-    check_fit_energy(energy_type, path=energy_path, positivity=positivity)
+    check_fit_energy(energy_type, path="deep", positivity=positivity)
     if optimizer_type not in DEEP_OPTIMIZER_TYPES:
         raise ValueError(f"optimizer_type={optimizer_type!r} is not a deep-path optimizer; "
                          f"choose one of {DEEP_OPTIMIZER_TYPES}.")
@@ -1759,6 +1754,12 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
     with _seeded_rng(seed, device):
         torch_mats, provenance_list, init_mats, obs_masks = _prepare_deep_inputs(
             data_matrices, k, missing_rows=missing_rows
+        )
+        from .system_prior import prepare_system_prior
+        sys_prior = prepare_system_prior(
+            system_matrices, system_lambda, system_penalty,
+            view_dims=[int(m.shape[1]) for m in torch_mats],
+            dtype=torch.float32, device=device,
         )
         model = build_model([m.shape[1] for m in torch_mats]).to(device)
         encoders = model.encoders if hasattr(model, "encoders") else model.linear_encoders
@@ -1777,7 +1778,8 @@ def _fit_deep(model_type: str, build_model: Callable[[List[int]], nn.Module],
             energy_type, warmup_epochs, verbose, device, tol=tol, patience=patience,
             stabilization_start_epoch=stabilization_start_epoch,
             stabilization_ramp_epochs=stabilization_ramp_epochs,
-            freeze_private_epochs=freeze_private_epochs, collapse_threshold=collapse_threshold)
+            freeze_private_epochs=freeze_private_epochs, collapse_threshold=collapse_threshold,
+            system_prior=sys_prior)
         from .utils import warn_if_unconverged
         warn_if_unconverged(conv_report, model_type)
         model.eval()
@@ -1882,13 +1884,12 @@ _DEEP_COMMON_DOC = """
         NSA-Flow weight (`pysimlr.defaults`).
     energy_type, mixing_algorithm, topology, path_graph, prune_threshold,
     dynamic_weights, mai_metric, use_rank_mai : consensus settings, as in `simlr`.
-        `lend_simr` maps each view through its linear basis ``V_m`` directly
-        into the shared space and therefore also accepts data/basis-dependent
-        energies (``"recon_r2"`` and ``"nc_ridge"``, evaluated on the
-        preprocessed batch ``X_m`` and projected ``V_m`` and scaled by
-        ``sim_weight`` alongside the decoder MSE reconstruction loss);
-        `ned_simr` and `ned_simr_shared_private` interpose nonlinear encoder
-        heads before consensus and accept latent-only energies.
+        Deep models reconstruct views through their decoders and use latent-only
+        similarity energies; ``"align"`` is the deep-path counterpart of linear
+        `simlr`'s ``"recon_r2"`` (`pysimlr.matched_energy`).
+    system_matrices, system_lambda, system_penalty :
+        Optional cross-view coupling on system-level first-layer loadings
+        ``P_i V_i`` (`pysimlr.system_prior`), as in `simlr`.
     sign_alignment : {"spectral", "greedy"}, default="spectral"
         Sign convention applied before the averaging mixings (``"avg"``,
         ``"newton"``) average the views' latents, as in `simlr`. ``"spectral"``
@@ -1976,7 +1977,10 @@ def lend_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, iter
               varimax: Optional[bool] = None,
               tol: float = DEFAULT_TOL, patience: int = 10,
               collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
-              missing_rows: str = "impute") -> Dict[str, Any]:
+              missing_rows: str = "impute",
+              system_matrices: Optional[Sequence[Optional[Union[torch.Tensor, np.ndarray]]]] = None,
+              system_lambda: Optional[float] = None,
+              system_penalty: str = "l2") -> Dict[str, Any]:
     return _fit_first_layer_model("lend_simr", LENDSiMRModel, **locals())
 
 
@@ -2006,7 +2010,10 @@ def ned_simr(data_matrices: List[Union[torch.Tensor, np.ndarray]], k: int, itera
              varimax: Optional[bool] = None,
              tol: float = DEFAULT_TOL, patience: int = 10,
              collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
-             missing_rows: str = "impute") -> Dict[str, Any]:
+             missing_rows: str = "impute",
+             system_matrices: Optional[Sequence[Optional[Union[torch.Tensor, np.ndarray]]]] = None,
+             system_lambda: Optional[float] = None,
+             system_penalty: str = "l2") -> Dict[str, Any]:
     return _fit_first_layer_model("ned_simr", NEDSiMRModel, **locals())
 
 
@@ -2042,7 +2049,10 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
                             n_candidates: int = 5, perturbation_scale: float = 0.05,
                             varimax: Optional[bool] = None,
                             collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
-                            missing_rows: str = "impute") -> Dict[str, Any]:
+                            missing_rows: str = "impute",
+                            system_matrices: Optional[Sequence[Optional[Union[torch.Tensor, np.ndarray]]]] = None,
+                            system_lambda: Optional[float] = None,
+                            system_penalty: str = "l2") -> Dict[str, Any]:
     hidden_dims = tuple(DEFAULT_HIDDEN_DIMS if hidden_dims is None else hidden_dims)
     if private_k is None:
         private_k = max(1, k // 2)
@@ -2070,7 +2080,8 @@ def ned_simr_shared_private(data_matrices: List[Union[torch.Tensor, np.ndarray]]
         domain_matrices=domain_matrices, n_candidates=n_candidates,
         perturbation_scale=perturbation_scale, varimax=varimax, tol=tol, patience=patience,
         freeze_private_epochs=shared_warmup_epochs, collapse_threshold=collapse_threshold,
-        missing_rows=missing_rows)
+        missing_rows=missing_rows, system_matrices=system_matrices,
+        system_lambda=system_lambda, system_penalty=system_penalty)
 
 
 ned_simr_shared_private.__doc__ = (

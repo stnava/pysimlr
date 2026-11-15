@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.34.1"
+__version__ = "0.35.0"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -114,6 +114,7 @@ from .consensus import (
 from .api import (
     fit,
     predict,
+    matched_energy,
     method_names,
     describe_method,
     resolve_method,
@@ -315,6 +316,7 @@ __all__ = [
     'compute_shared_consensus',
     'fit',
     'predict',
+    'matched_energy',
     'method_names',
     'describe_method',
     'resolve_method',

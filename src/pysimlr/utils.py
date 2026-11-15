@@ -1287,10 +1287,12 @@ def preprocess_data(x: torch.Tensor, scale_list: List[str], provenance: Optional
             )
         return provenance[key]
 
-    # A confound sink fitted by `pysimlr.fit(..., confounds=...)` is part of
-    # the view's preprocessing: it is replayed first, on the raw features,
-    # exactly as it was applied to the training rows (`pysimlr.confounds`).
-    if replay and "confound_sink" in provenance:
+    # Legacy provenance dicts (written before explicit `pipeline_order`) replay
+    # their confound sink before `scale_list`; current fits record
+    # `provenance["pipeline_order"] == ("scale", "confound_projection", "rescale")`
+    # and run the projection + optional unit-variance rescale after `scale_list`.
+    post_scale_sink = bool(replay and provenance.get("pipeline_order") == ("scale", "confound_projection", "rescale"))
+    if replay and not post_scale_sink and "confound_sink" in provenance:
         from .confounds import replay_sink
         x_out = replay_sink(x_out, provenance)
 
@@ -1379,16 +1381,29 @@ def preprocess_data(x: torch.Tensor, scale_list: List[str], provenance: Optional
             
 
     if replay:
+        if post_scale_sink:
+            if "confound_sink" in provenance:
+                from .confounds import replay_sink
+                x_out = replay_sink(x_out, provenance)
+                if provenance.get("confound_rescale") == "unit_variance":
+                    rmean = _need("confound_rescale_mean")
+                    rstd = _need("confound_rescale_std")
+                    x_out = (x_out - rmean) / rstd
         return x_out
+    from .confounds import active_confound_plan, apply_plan_step
+    plan = active_confound_plan()
+    if plan is not None:
+        return apply_plan_step(x_out, scale_list, new_provenance, plan)
     return x_out, new_provenance
 
 def invert_preprocessing(x: torch.Tensor, scale_list: List[str],
                          provenance: Dict[str, Any]) -> torch.Tensor:
     """Map data from the space `preprocess_data` produced back to input units.
 
-    Applies the inverse of each step in ``scale_list``, last step first, with
-    the statistics recorded in ``provenance``. NaN filling is not inverted
-    (the original positions of missing values are not recorded).
+    Applies the inverse of any post-confound rescaling first, followed by the
+    inverse of each step in ``scale_list``, last step first, with the
+    statistics recorded in ``provenance``. NaN filling and rank-deficient
+    confound projections are not inverted.
 
     Raises
     ------
@@ -1405,6 +1420,10 @@ def invert_preprocessing(x: torch.Tensor, scale_list: List[str],
         return base if step == first_step[method] else f"{base}@{step}"
 
     out = x
+    if provenance.get("confound_rescale") == "unit_variance" and "confound_rescale_std" in provenance:
+        rmean = torch.as_tensor(provenance["confound_rescale_mean"], dtype=out.dtype, device=out.device)
+        rstd = torch.as_tensor(provenance["confound_rescale_std"], dtype=out.dtype, device=out.device)
+        out = out * rstd + rmean
     for step in range(len(scale_list) - 1, -1, -1):
         method = scale_list[step]
         if method == "none":

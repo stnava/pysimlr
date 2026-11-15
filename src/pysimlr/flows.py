@@ -2,7 +2,7 @@ import warnings
 import torch
 import torch.nn as nn
 import numpy as np
-from typing import List, Tuple, Optional, Dict, Any, Union
+from typing import List, Tuple, Optional, Dict, Any, Union, Sequence
 from .utils import basis_rank_report
 from .defaults import DEFAULT_ENERGY_TYPE, DEFAULT_NSA_W, DEFAULT_TOPOLOGY, DEFAULT_MIXING_ALGORITHM, DEFAULT_SIGN_ALIGNMENT, DEFAULT_TOL, DEFAULT_COLLAPSE_THRESHOLD, DEFAULT_DEEP_ITERATIONS, check_collapse_threshold, check_nsa_w
 
@@ -440,7 +440,8 @@ class FlowConditionalInference:
 
 def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epochs: int, sim_weight: float, energy_type: str, warmup_epochs: int, verbose: bool, device: torch.device, beta: float = 0.05, gamma: float = 2.0, dynamic_weights_start: Optional[int] = None, stabilization_start_epoch: Optional[int] = None, stabilization_ramp_epochs: Optional[int] = None,
                      tol: float = DEFAULT_TOL, patience: int = 10,
-                     collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD):
+                     collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
+                     system_prior=None):
     loss_history, recon_history, sim_history = [], [], []
     model._n_fit = getattr(dataloader, "n", None)       # rows the bases are fitted on (MAI dof)
     nonfinite_grad_steps = 0
@@ -456,8 +457,8 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
     from .deep import (LENDNSAEncoder, calculate_sim_loss, _resolve_stabilization_schedule,
                        _update_first_layer_schedule, orthogonality_defect,
                        resolve_warmup_epochs)
-    from .similarity import (SimilarityContext, resolve_energy_name,
-                             similarity_needs_data)
+    from .similarity import resolve_energy_name
+    from .system_prior import system_total_energy
     warmup_epochs = resolve_warmup_epochs(warmup_epochs, epochs)
     mse_loss = nn.MSELoss()
     if hasattr(dataloader, "bind_device"):
@@ -466,9 +467,7 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
         enc for enc in getattr(model, "linear_encoders", ())
         if isinstance(enc, LENDNSAEncoder)
     ]
-    _energy_path = "deep_linear_first_layer" if first_layer_encs else "deep"
-    _sim_name = resolve_energy_name(energy_type, path=_energy_path)
-    _needs_ctx = similarity_needs_data(_sim_name)
+    resolve_energy_name(energy_type, path="deep")
     
     stabilization_start_epoch, stabilization_ramp_epochs = _resolve_stabilization_schedule(
         epochs,
@@ -520,15 +519,10 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
                     nll = -torch.mean(log_prior + log_det)
                     recon_loss = recon_loss + nll
 
-                sim_contexts = (
-                    [SimilarityContext(x=x_m, v=enc.v_raw + (enc.v - enc.v_raw).detach())
-                     for x_m, enc in zip(batch_mats, first_layer_encs)]
-                    if _needs_ctx else None
-                )
                 sim_loss_total, diagnostics = calculate_sim_loss(
                     latents, u_shared, energy_type, weights=penalty_weights,
                     compute_diagnostics=False, collapse_threshold=collapse_threshold,
-                    contexts=sim_contexts, obs_masks=batch_masks,
+                    obs_masks=batch_masks,
                 )
 
                 # Hybrid zero-padded MSE reconstruction loss
@@ -541,6 +535,9 @@ def _train_flow_loop(model: FlowSiMRModel, dataloader, optimizer, scheduler, epo
                     mse_recon_loss = sum(mse_loss(r, x) for r, x in zip(reconstructions, batch_mats))
 
                 total_loss = beta * recon_loss + sim_loss_total + gamma * mse_recon_loss
+                if system_prior is not None and first_layer_encs:
+                    ste_bases = [enc.v_raw + (enc.v - enc.v_raw).detach() for enc in first_layer_encs]
+                    total_loss = total_loss + system_total_energy(ste_bases, system_prior)
                 
                 # Orthogonality penalty on the activated basis enc.v and the raw weights
                 # enc.v_raw (a regulariser; see the same term in deep._train_loop).
@@ -625,7 +622,10 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
               tol: float, patience: int, positivity: str = "either", nsa_w: float = DEFAULT_NSA_W,
               sparseness=None, init_kwargs: Optional[Dict[str, Any]] = None,
               collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
-              missing_rows: str = "impute") -> Dict[str, Any]:
+              missing_rows: str = "impute",
+              system_matrices=None,
+              system_lambda: Optional[float] = None,
+              system_penalty: str = "l2") -> Dict[str, Any]:
     """Shared body of `flow_simr` and `flow_simr_v`.
 
     ``init_kwargs`` is given only for the models with a linear first layer
@@ -639,9 +639,7 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
     collapse_threshold = check_collapse_threshold(collapse_threshold)
     has_linear = init_kwargs is not None
     from .similarity import check_fit_energy
-    check_fit_energy(energy_type,
-                     path="deep_linear_first_layer" if has_linear else "deep",
-                     positivity=positivity)
+    check_fit_energy(energy_type, path="deep", positivity=positivity)
     if optimizer_type not in DEEP_OPTIMIZER_TYPES:
         raise ValueError(f"optimizer_type={optimizer_type!r} is not a flow-path optimizer; "
                          f"choose one of {DEEP_OPTIMIZER_TYPES}.")
@@ -653,6 +651,11 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
             data_matrices, k, missing_rows=missing_rows
         )
         input_dims = [m.shape[1] for m in torch_mats]
+        from .system_prior import prepare_system_prior
+        sys_prior = prepare_system_prior(
+            system_matrices, system_lambda, system_penalty,
+            view_dims=input_dims, dtype=torch.float32, device=device,
+        )
         model = build_model(input_dims).to(device)
         if has_linear:
             init_type = init_kwargs.get("initialization_type", "pca")
@@ -670,7 +673,7 @@ def _fit_flow(model_type: str, build_model, data_matrices, k: int, *, iterations
             dynamic_weights_start=dynamic_weights_start,
             stabilization_start_epoch=stabilization_start_epoch,
             stabilization_ramp_epochs=stabilization_ramp_epochs, tol=tol, patience=patience,
-            collapse_threshold=collapse_threshold)
+            collapse_threshold=collapse_threshold, system_prior=sys_prior)
         from .utils import warn_if_unconverged
         warn_if_unconverged(conv_report, model_type)
         model.eval()
@@ -990,7 +993,10 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 tol: float = DEFAULT_TOL,
                 patience: int = 10,
                 collapse_threshold: float = DEFAULT_COLLAPSE_THRESHOLD,
-                missing_rows: str = "impute") -> Dict[str, Any]:
+                missing_rows: str = "impute",
+                system_matrices: Optional[Sequence[Optional[Union[torch.Tensor, np.ndarray]]]] = None,
+                system_lambda: Optional[float] = None,
+                system_penalty: str = "l2") -> Dict[str, Any]:
     """
     Flow-SiMR-V: a linear, NSA-Flow-projected first layer ``V_m`` per view
     followed by a RealNVP flow.
@@ -1034,17 +1040,18 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         treats any row that is all-NaN in view ``m`` as unobserved in that view
         (standardizing, scoring similarity/NLL/MSE losses, and building
         consensus exclusively on observed rows).
+    system_matrices, system_lambda, system_penalty :
+        Optional cross-view coupling on system-level first-layer loadings
+        ``P_i V_i`` (`pysimlr.system_prior`), as in `simlr`.
 
     The remaining parameters are the flow architecture (`num_layers`,
     `hidden_dim`, `scale_bound`, `force_fallback`), the loss weights (`beta`
     on the flow NLL, `gamma` on the MSE reconstruction, `sim_weight`), and the
     consensus settings shared with `simlr`, including ``sign_alignment``
-    (``"spectral"`` default, view-order free; ``"greedy"`` legacy). Because
-    each view exposes a linear first-layer basis ``V_m``, ``energy_type`` also
-    accepts data/basis-dependent energies (``"recon_r2"`` and ``"nc_ridge"``,
-    evaluated on the preprocessed batch ``X_m`` and projected ``V_m`` and
-    scaled by ``sim_weight`` alongside ``beta * NLL + gamma * MSE``);
-    `flow_simr` has no linear first layer and accepts latent-only energies.
+    (``"spectral"`` default, view-order free; ``"greedy"`` legacy). Flow and
+    deep models reconstruct views via ``beta * NLL + gamma * MSE`` and use
+    latent-only similarity energies; ``"align"`` is the counterpart of linear
+    `simlr`'s ``"recon_r2"`` (`pysimlr.matched_energy`).
     """
     return _fit_flow(
         "flow_simr_v",
@@ -1069,4 +1076,6 @@ def flow_simr_v(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         init_kwargs=dict(initialization_type=initialization_type,
                          domain_matrices=domain_matrices, n_candidates=n_candidates,
                          perturbation_scale=perturbation_scale, varimax=varimax),
-        collapse_threshold=collapse_threshold, missing_rows=missing_rows)
+        collapse_threshold=collapse_threshold, missing_rows=missing_rows,
+        system_matrices=system_matrices, system_lambda=system_lambda,
+        system_penalty=system_penalty)

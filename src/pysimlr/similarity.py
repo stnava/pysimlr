@@ -64,7 +64,7 @@ __all__ = [
     "similarity_energy", "similarity_gradient", "describe_similarity",
     "REJECTED_ENERGY_NAMES", "resolve_energy_name", "check_fit_energy", "AUXILIARY_ENERGIES",
     "SIGN_INVARIANT_ENERGIES", "similarity_is_sign_invariant",
-    "warn_if_signed_nc_with_positive",
+    "warn_if_signed_nc_with_positive", "warn_if_linear_align",
     "energy_nc_abs", "energy_nc_ridge",
 ]
 
@@ -221,6 +221,19 @@ def energy_recon_r2(s: torch.Tensor, u: torch.Tensor,
     untouched. Note ``d`` is not sign-constrained here -- see
     `recon_r2_scales` -- so under ``positivity='positive'`` a negative
     :math:`d_j` would reconstruct from a negatively-loaded component.
+
+    Per-view vs per-feature scale
+    -----------------------------
+    ``recon_r2`` is scale-free *per view* (it divides by :math:`\lVert X\rVert_F^2`,
+    so multiplying an entire view ``X`` by a positive scalar leaves the value
+    and gradient unchanged), **not** *per feature*: unequal feature variances
+    inside a view weight high-variance columns more heavily in both
+    :math:`\lVert X - uDV^\top\rVert_F^2` and :math:`\lVert X\rVert_F^2` and
+    therefore change the solution. In particular, projecting out confounds
+    shrinks the variance of confounded features relative to unconfounded ones;
+    `pysimlr.fit` defaults to ``confound_rescale="unit_variance"`` after
+    confound projection so every feature re-enters on an equal footing unless
+    ``confound_rescale="none"`` is requested explicitly.
     """
     c = _require(ctx, "x", "v", name="recon_r2")
     x, v = c.x, c.v
@@ -553,13 +566,12 @@ def resolve_energy_name(name: str, path: Optional[str] = None) -> str:
     ----------
     name : str
         A key of `SIMILARITY`.
-    path : {"linear", "deep", "deep_linear_first_layer"}, optional
-        ``"deep"`` refuses terms that need the data and loading matrix (for
-        nonlinear-encoder models that have no linear first layer mapping
-        directly into the shared space); ``"linear"`` and
-        ``"deep_linear_first_layer"`` accept data-dependent terms such as
-        ``recon_r2`` and ``nc_ridge`` while refusing ``recon``, which is
-        minimised by shrinking ``V`` to zero (use ``recon_r2``).
+    path : {"linear", "deep"}, optional
+        ``"deep"`` refuses terms that need the data and loading matrix (the
+        deep and flow models carry reconstruction in their decoder/flow loss
+        and use ``'align'`` as the matched latent agreement term); ``"linear"``
+        refuses ``recon``, which is minimised by shrinking ``V`` to zero (use
+        ``recon_r2``).
     """
     if name in REJECTED_ENERGY_NAMES:
         raise ValueError(f"energy_type={name!r} is not available: {REJECTED_ENERGY_NAMES[name]}.")
@@ -568,13 +580,12 @@ def resolve_energy_name(name: str, path: Optional[str] = None) -> str:
     if path == "deep" and SIMILARITY[name][1]:
         raise ValueError(
             f"similarity {name!r} is a function of the data and the loading "
-            f"matrix V, and this model has no linear first layer mapping "
-            f"directly into the shared space (e.g. 'ned', "
-            f"'ned_shared_private' or 'flow_simr'). Use 'simlr', 'lend' or "
-            f"'flow_v', or pass 'align' for latent agreement on a nonlinear "
-            f"encoder."
+            f"matrix, and the deep path does not carry either into the "
+            f"similarity term -- its reconstruction is a separate decoder "
+            f"loss. Use 'align' for latent agreement on a deep model "
+            f"(the linear counterpart of 'align' is 'recon_r2')."
         )
-    if path in ("linear", "deep_linear_first_layer") and name == "recon":
+    if path == "linear" and name == "recon":
         raise ValueError(
             "energy_type='recon' is degenerate as a fit objective: it is minimised "
             "by driving V to zero. Pass 'recon_r2', the same residual with the "
@@ -583,11 +594,17 @@ def resolve_energy_name(name: str, path: Optional[str] = None) -> str:
 
 
 _WARNED_NC_POSITIVE: list = []
+_WARNED_LINEAR_ALIGN: list = []
 
 
 def _reset_nc_positive_warning() -> None:
     """Reset the one-time ``("nc", non-negative positivity)`` warning gate (for tests)."""
     _WARNED_NC_POSITIVE.clear()
+
+
+def _reset_linear_align_warning() -> None:
+    """Reset the one-time ``(path='linear', energy_type='align')`` warning gate (for tests)."""
+    _WARNED_LINEAR_ALIGN.clear()
 
 
 def warn_if_signed_nc_with_positive(energy_type: str, positivity: Optional[str],
@@ -610,6 +627,20 @@ def warn_if_signed_nc_with_positive(energy_type: str, positivity: Optional[str],
     )
 
 
+def warn_if_linear_align(energy_type: str, path: Optional[str],
+                         *, stacklevel: int = 3) -> None:
+    """Emit a one-time warning when ``energy_type='align'`` is used on the linear path."""
+    if path != "linear" or energy_type != "align" or _WARNED_LINEAR_ALIGN:
+        return
+    _WARNED_LINEAR_ALIGN.append(True)
+    warnings.warn(
+        "energy_type='align': on the linear path 'align' is latent agreement "
+        "without a reconstruction term; the matched linear objective is 'recon_r2'.",
+        UserWarning,
+        stacklevel=stacklevel,
+    )
+
+
 def check_fit_energy(name: str, path: Optional[str] = None,
                      *, positivity: Optional[str] = None) -> str:
     """`resolve_energy_name`, plus refusal of `AUXILIARY_ENERGIES` as a fit's
@@ -619,6 +650,7 @@ def check_fit_energy(name: str, path: Optional[str] = None,
         raise ValueError(f"energy_type={key!r} is not a fit objective: {AUXILIARY_ENERGIES[key]}.")
     if positivity is not None:
         warn_if_signed_nc_with_positive(key, positivity, stacklevel=5)
+        warn_if_linear_align(key, path, stacklevel=5)
     return key
 
 
@@ -628,9 +660,10 @@ def similarity_names() -> list:
 
 
 #: Terms already expressed on a common, absolute per-view scale (degree-0
-#: homogeneous or bounded standardized quantities). For these terms, `simlr`
-#: assigns equal weight 1/M across the M modalities, avoiding arbitrary
-#: initialization-dependent weight spreads (previously up to 279x).
+#: homogeneous or bounded standardized quantities; note ``recon_r2`` is
+#: invariant to rescaling an entire view, not individual features within it).
+#: For these terms, `simlr` assigns equal weight 1/M across the M modalities,
+#: avoiding arbitrary initialization-dependent weight spreads (previously up to 279x).
 SCALE_FREE_ENERGIES = frozenset({
     "align",
     "exp",

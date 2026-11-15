@@ -47,9 +47,14 @@ def _quiet_fit(name, views, **kw):
 # registry
 # --------------------------------------------------------------------------
 def test_the_package_exports_the_interface():
-    for name in ("fit", "predict", "method_names", "describe_method", "validate_result"):
+    for name in ("fit", "predict", "method_names", "describe_method", "matched_energy", "validate_result"):
         assert callable(getattr(pysimlr, name))
     assert pysimlr.method_names() == list(api.METHODS)
+    assert pysimlr.matched_energy("simlr") == "recon_r2"
+    for deep_name in ("lend", "ned", "ned_shared_private", "flow_v"):
+        assert pysimlr.matched_energy(deep_name) == "align"
+    for base_name in ("pca", "nsa_pipeline"):
+        assert pysimlr.matched_energy(base_name) is None
 
 
 def test_families_partition_the_methods():
@@ -87,6 +92,9 @@ def test_only_registered_names_resolve_and_unknown_names_list_the_registry():
 def test_describe_method_reports_defaults_and_budget_unit():
     d = pysimlr.describe_method("lend")
     assert d["family"] == "deep" and d["budget_unit"] == "epochs"
+    assert d["matched_energy"] == "align"
+    assert pysimlr.describe_method("simlr")["matched_energy"] == "recon_r2"
+    assert pysimlr.describe_method("pca")["matched_energy"] is None
     from pysimlr.defaults import DEFAULT_DEEP_ITERATIONS
     assert d["parameters"]["iterations"] == DEFAULT_DEEP_ITERATIONS == 300
     assert "random_state" in d["parameters"]
@@ -175,6 +183,11 @@ def test_random_state_does_not_change_the_linear_initializer():
 # --------------------------------------------------------------------------
 # the shared vocabulary is live
 # --------------------------------------------------------------------------
+_SYS_VOCAB = [
+    torch.randn(3, p, generator=torch.Generator().manual_seed(10 + i))
+    for i, p in enumerate((10, 8, 6))
+]
+
 #: param -> {family: (a, b)}: two values that must produce different fits.
 #: Each family is tested on one representative method.
 EXERCISED = {
@@ -198,6 +211,7 @@ EXERCISED = {
     "consolidate": {"baseline": (False, True)},
     # 0 charges any non-zero score correlation; 0.9 charges almost none.
     "collapse_threshold": {f: (0.0, 0.9) for f in ("linear", "deep", "flow")},
+    "system_matrices": {f: (None, _SYS_VOCAB) for f in ("linear", "deep", "flow")},
 }
 
 #: param -> reason it is not in EXERCISED for some or all families.
@@ -208,6 +222,8 @@ EXEMPT = {
            "test_parameters_are_live::test_tol_controls_early_stopping",
     "patience": "acts on when training stops, with tol",
     "domain_matrices": "read only by initialization_type='domain'; test_alternative_initializations",
+    "system_lambda": "read only when system_matrices is provided; test_matched_energy_and_system_prior",
+    "system_penalty": "read only when system_matrices is provided; test_matched_energy_and_system_prior",
     "n_candidates": "read only by initialization_type='best_of_n'; test_alternative_initializations",
     "perturbation_scale": "read only by initialization_type='perturbed_pca'; test_alternative_initializations",
     "path_graph": "read only by topology='graph'; test_consensus_graph and test_flow_mai",

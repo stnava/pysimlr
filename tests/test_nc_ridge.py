@@ -57,40 +57,27 @@ def test_nc_ridge_autograd_gradcheck():
 
 
 def test_nonlinear_encoder_paths_reject_nc_ridge_while_linear_first_layer_accepts():
-    """Nonlinear-encoder paths reject nc_ridge; lend and flow_v accept it via (X_m, V_m) contexts."""
+    """Deep and flow paths reject nc_ridge with a message naming the linear/deep contract."""
     assert SIMILARITY["nc_ridge"][1] is True, "nc_ridge must have needs_data=True"
 
-    # resolve_energy_name with path='deep' vs 'deep_linear_first_layer'
-    with pytest.raises(ValueError, match="no linear first layer"):
+    with pytest.raises(ValueError, match="data and the loading matrix"):
         resolve_energy_name("nc_ridge", path="deep")
-    assert resolve_energy_name("nc_ridge", path="deep_linear_first_layer") == "nc_ridge"
+    with pytest.raises(ValueError, match="linear counterpart of 'align' is 'recon_r2'"):
+        resolve_energy_name("nc_ridge", path="deep")
 
-    # calculate_sim_loss without contexts refuses nc_ridge; with contexts accepts it
     from pysimlr.deep import calculate_sim_loss
     x0, x1 = torch.randn(20, 6), torch.randn(20, 8)
     v0 = torch.randn(6, 2, requires_grad=True)
     v1 = torch.randn(8, 2, requires_grad=True)
     z_list = [x0 @ v0, x1 @ v1]
     u_shared = torch.randn(20, 2)
-    with pytest.raises(ValueError, match="no linear first layer"):
+    with pytest.raises(ValueError, match="data and the loading matrix"):
         calculate_sim_loss(z_list, u_shared, energy_type="nc_ridge")
 
-    ctxs = [SimilarityContext(x=x0, v=v0), SimilarityContext(x=x1, v=v1)]
-    loss, _ = calculate_sim_loss(z_list, u_shared, energy_type="nc_ridge", contexts=ctxs)
-    loss.backward()
-    assert torch.isfinite(loss)
-    assert v0.grad is not None and float(v0.grad.norm()) > 0
-
-    # Nonlinear-encoder entrypoints reject nc_ridge; linear-first-layer lend & flow_v accept it
     views = [torch.randn(30, 6), torch.randn(30, 8)]
-    for method in ("ned", "ned_shared_private"):
-        with pytest.raises(ValueError, match="no linear first layer"):
+    for method in ("lend", "ned", "ned_shared_private", "flow_v"):
+        with pytest.raises(ValueError, match="linear counterpart of 'align' is 'recon_r2'"):
             fit(method, views, k=2, energy_type="nc_ridge", iterations=1)
-    import math
-    for method in ("lend", "flow_v"):
-        res = fit(method, views, k=2, energy_type="nc_ridge", iterations=2, random_state=0)
-        assert res["parameters"]["used"]["energy_type"] == "nc_ridge"
-        assert math.isfinite(res["convergence"]["grad_map"])
 
 
 def test_linear_path_runs_with_nc_ridge():
