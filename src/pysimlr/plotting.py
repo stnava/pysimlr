@@ -2835,7 +2835,7 @@ def plot_path_model(pm: Dict[str, Any], component: Optional[int] = None, alpha: 
     fit = pm.get("fit") or {}
     status = None
     if fit.get("rejected"):
-        max_abs_p = fit.get("max_abs_p")
+        max_abs_p = fit.get("max_absent_p") if fit.get("max_absent_p") is not None else fit.get("max_abs_p")
         p_str = _format_p(max_abs_p) if max_abs_p is not None else f"< {alpha}"
         status = f"Graph-fit test rejected: absent edges carry significant association (max absent p = {p_str})"
 

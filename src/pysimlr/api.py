@@ -425,7 +425,19 @@ def matched_energy(name: str) -> Optional[str]:
 
 
 def describe_method(name: str) -> Dict[str, Any]:
-    """Family, budget unit, matched energy, presets and every accepted parameter with its default."""
+    """Family, budget unit, matched energy, presets and every accepted parameter with its default.
+
+    Notes
+    -----
+    When testing an exogenous block (e.g. an exposure) against multi-view scores
+    (`pysimlr.path_model` / `pysimlr.path_model_from_scores`), three designs
+    answer distinct questions: (1) fit without the exposure and test on the
+    exposure-free scores via `path_model_from_scores` (`null="fixed"`),
+    (2) include the exposure as an exogenous root via
+    ``topology="graph", path_graph=fork_graph(..., exogenous_root=True)``, or
+    (3) include all blocks symmetrically in `fit`, which shares the consensus
+    across every block and requires ``null="refit"`` on training rows.
+    """
     s = resolve_method(name)
     return {"name": s.name, "family": s.family, "budget_unit": s.budget_unit,
             "matched_energy": matched_energy(s.name),

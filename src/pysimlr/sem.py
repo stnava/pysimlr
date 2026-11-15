@@ -57,7 +57,27 @@ Graph fit (``conditioning="parents"``): ``present_pass`` is the fraction of hypo
 with ``p_holm < alpha``; ``absent_pass`` the fraction of absent edges with ``p_perm >= alpha``
 (unadjusted: the claim is independence, and correction would make it easier to pass);
 ``max_absent_pillai`` with its max-T p over the absent edges is the permutation analogue of the
-SEM chi-square test (the graph is rejected when that p is below alpha).
+SEM chi-square test (the graph is rejected when that p is below alpha). When ``directed=True``,
+a node pair is absent only when neither orientation is in ``graph``; each unordered absent pair
+is tested once conditional on the parents of both nodes, while present edges keep their directed
+orientations.
+
+Choosing how an exogenous block (e.g. exposure or clinical root) enters
+-----------------------------------------------------------------------
+Three designs answer distinct questions:
+
+1. **Exposure left out of `fit`, tested via `path_model_from_scores` (or ``outcome=``)**:
+   keeps the multi-view brain/biological scores strictly exposure-free and tests edges against
+   those fixed scores with the Freedman-Lane ``null="fixed"`` permutation null (resolution
+   ``1 / (n_permutations + 1)``).
+2. **Exogenous fork root (`fork_graph(root, children, exogenous_root=True)`)**:
+   includes the exposure in `fit` with ``topology="graph", path_graph=fork_graph(...)`` so child
+   views align to root-coupled signal without pulling the root's own score; test on held-out rows
+   (``null="fixed"``) or training rows (``null="refit"``) with ``fork_graph(..., for_sem=True)``.
+3. **Symmetric all-views `fit` + ``path_model(..., rows="train")``**:
+   treats every block symmetrically in one shared consensus (shifting view scores toward the
+   exposure) and requires ``null="refit"`` on training rows (resolution floor
+   ``1 / (n_refits + 1)`` before Holm adjustment).
 
 What the test cannot say
 ------------------------
@@ -434,10 +454,28 @@ def _parents(adj: Dict[str, List[str]], node: str, directed: bool) -> List[str]:
     return [a for a, bs in adj.items() if node in bs]
 
 
-def _all_pairs(nodes: List[str], directed: bool):
-    if directed:
+def _all_pairs(
+    nodes: List[str],
+    directed: bool,
+    adj: Optional[Dict[str, List[str]]] = None,
+) -> List[Tuple[str, str]]:
+    if not directed:
+        return [(a, b) for i, a in enumerate(nodes) for b in nodes[i + 1:]]
+    if adj is None:
         return [(a, b) for a in nodes for b in nodes if a != b]
-    return [(a, b) for i, a in enumerate(nodes) for b in nodes[i + 1:]]
+    out: List[Tuple[str, str]] = []
+    for i, a in enumerate(nodes):
+        for b in nodes[i + 1:]:
+            ab = b in adj[a]
+            ba = a in adj[b]
+            if ab or ba:
+                if ab:
+                    out.append((a, b))
+                if ba:
+                    out.append((b, a))
+            else:
+                out.append((a, b))
+    return out
 
 
 def _conditioning_nodes(adj, a: str, b: str, directed: bool, conditioning: str) -> List[str]:
@@ -803,6 +841,12 @@ def path_model(result: Dict[str, Any], views: Any, *, rows: str = "heldout", gra
     Fixed-model p-values on ``rows="train"`` are reported only with ``allow_train_fixed=True``
     (the null ignores that the model was fitted to these rows); the refit null is the default
     there. `path_model_from_scores` runs the same inference on score blocks from any source.
+    For an exogenous exposure block, choose between: (1) leaving the exposure out of `pysimlr.fit`
+    and testing it against exposure-free scores with `path_model_from_scores` (``null="fixed"``),
+    (2) fitting with ``topology="graph", path_graph=fork_graph(root, children, exogenous_root=True)``
+    and testing ``graph=fork_graph(..., for_sem=True), directed=True``, or (3) a symmetric
+    all-views fit where the consensus pools every block and ``rows="train"`` requires ``null="refit"``
+    (floor ``1 / (n_refits + 1)``).
 
     ``train_views`` gives a joint-basis fit its training-row signs. ``inference`` (a
     `loading_inference` result on the training views) adds ``ci_refit_low`` / ``ci_refit_high``
@@ -1053,7 +1097,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
 
     N, nuis_names, dummies = _nuisance(n, covariates, groups)
     adj = _node_graph(graph, nodes, directed)
-    pairs = _all_pairs(nodes, directed)
+    pairs = _all_pairs(nodes, directed, adj)
     present = {(a, b): (b in adj[a]) for a, b in pairs}
     diagnostic = {e: ("consensus" in e) for e in pairs}
     tested = [e for e in pairs if not diagnostic[e]]
@@ -1368,6 +1412,7 @@ def _path_model_core(result, vlist, sc, names, *, rows, graph, directed, covaria
                      evidence=evidence_label)
 
     families = {"edges": {"n_tests": len(tested), "statistic": "pillai"},
+                "absent": {"n_tests": len(absent), "statistic": "pillai"},
                 "edge_components": {"n_tests": int((~edge_components["diagnostic"].to_numpy(bool)).sum())
                                     if len(edge_components) else 0, "statistic": "|r|"},
                 "moderation": {"n_tests": len(mods), "statistic": "sum over components of F"},
@@ -1417,6 +1462,7 @@ def _graph_fit(edges, tested, absent, present, obs, conditioning, report_p, have
     """Plan 3.5 from the fixed-model null when it was reported, else from the refit null (no
     max-T: each refit null permutes one node, so ``max_absent_p`` is None)."""
     fit: Dict[str, Any] = {"conditioning": conditioning, "null": None, "evidence": evidence,
+                           "absent": list(absent),
                            "present_pass": None, "absent_pass": None,
                            "absent_p": None, "max_absent_pillai": None, "max_absent_p": None,
                            "rejected": None, "reason": None}

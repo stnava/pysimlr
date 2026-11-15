@@ -986,6 +986,81 @@ def test_extend_into_path_model_with_partial_rows():
     assert "Hub - PET_Ext" in set(fc["edge"])
 
 
+def test_directed_graph_fit_excludes_reversed_present_edges_from_absent():
+    """Addendum C regression guard: under `directed=True, conditioning='parents'`, a node pair
+    is absent only when neither orientation is in `graph`. Reversed orientations of present edges
+    must not enter `edges`, `absent`, `absent_pass`, `absent_p`, `max_absent_pillai`, or the
+    `'absent'` max-T family."""
+    rng = np.random.default_rng(42)
+    n = 220
+    a = rng.standard_normal((n, 2))
+    b = 0.85 * a + 0.45 * rng.standard_normal((n, 2))
+    c = 0.85 * b + 0.45 * rng.standard_normal((n, 2))
+    sc = {"A": a, "B": b, "C": c}
+
+    pm = pysimlr.path_model_from_scores(
+        sc,
+        rows="heldout",
+        graph=[("A", "B"), ("B", "C")],
+        directed=True,
+        conditioning="parents",
+        n_permutations=1999,
+        n_bootstrap=0,
+        random_state=0,
+    )
+
+    # Reversed present pairs ("B", "A") and ("C", "B") are NOT in edges or absent
+    assert pm["edges"].query("a == 'B' and b == 'A'").empty
+    assert pm["edges"].query("a == 'C' and b == 'B'").empty
+    absent_rows = [(r.a, r.b) for r in pm["edges"][~pm["edges"]["present"]].itertuples()]
+    assert absent_rows == [("A", "C")]
+    assert pm["fit"]["absent"] == [("A", "C")]
+    assert list(pm["fit"]["absent_p"]) == ["A - C"]
+    assert pm["families"]["absent"]["n_tests"] == 1
+
+    # max_absent_pillai is the conditional A - C | B Pillai, NOT the present A -> B Pillai
+    pil_ab = float(_edge(pm, "A", "B")["pillai"])
+    pil_ac = float(_edge(pm, "A", "C")["pillai"])
+    assert pil_ac < 0.05 < 0.50 < pil_ab
+    assert pm["fit"]["max_absent_pillai"] == pytest.approx(pil_ac)
+    assert pm["fit"]["present_pass"] == 1.0
+    assert pm["fit"]["absent_pass"] == 1.0
+    assert pm["fit"]["rejected"] is False
+
+    # Conversely, if a true direct A -> C edge is omitted from the graph (misspecified A -> B, B -> C
+    # when C also depends directly on A), the directed graph-fit test rejects as intended.
+    c_direct = 0.75 * a + 0.75 * b + 0.35 * rng.standard_normal((n, 2))
+    pm_bad = pysimlr.path_model_from_scores(
+        {"A": a, "B": b, "C": c_direct},
+        rows="heldout",
+        graph=[("A", "B"), ("B", "C")],
+        directed=True,
+        conditioning="parents",
+        n_permutations=999,
+        n_bootstrap=0,
+        random_state=0,
+    )
+    assert pm_bad["fit"]["absent"] == [("A", "C")]
+    assert pm_bad["fit"]["rejected"] is True
+    assert pm_bad["fit"]["absent_pass"] == 0.0
+
+    # End-to-end check on a fitted measurement model with edges oriented opposite node list order (C -> B -> A)
+    case = build_path_graph_case([(2, 1), (1, 0)], 420, 2, (14, 14, 14), 0.25, random_state=7)
+    tr, te = _split(case, 260)
+    res = _fit("simlr", tr, 2, iterations=40)
+    pm_rev = _pm(
+        res, te, rows="heldout", graph=[("view2", "view1"), ("view1", "view0")],
+        directed=True, conditioning="parents", n_permutations=999, n_bootstrap=0, random_state=1,
+    )
+    pres_pairs = [(r.a, r.b) for r in pm_rev["edges"][pm_rev["edges"]["present"]].itertuples()]
+    abs_pairs = [(r.a, r.b) for r in pm_rev["edges"][~pm_rev["edges"]["present"]].itertuples()]
+    assert set(pres_pairs) == {("view2", "view1"), ("view1", "view0")}
+    assert abs_pairs == [("view0", "view2")]
+    assert pm_rev["fit"]["absent"] == [("view0", "view2")]
+    assert pm_rev["fit"]["rejected"] is False
+
+
+
 
 
 
