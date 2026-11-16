@@ -111,6 +111,10 @@ from pysimlr import summarize_basis_matrix
 summary_v1 = summarize_basis_matrix(res_lin["v"][0])
 ```
 
+### 4b. Bagged estimator: `bagged_fit`
+
+`pysimlr.bagged_fit(method, views, k, aggregate="select" | "average", ...)` refits any registered method on row subsamples (without replacement) and aggregates. The default, `aggregate="select"`, keeps the features selected in at least `threshold` of the subsamples (the `loading_inference` selection frequency) and refits once on them; `pysimlr.predict` and `sem.view_scores` accept views with all original features and subset them by `result["feature_mask"]`. `aggregate="average"` keeps the subsample fits: scores are the mean of the fits' scores aligned to a reference fit (`pysimlr.predict` / `pysimlr.bagged_predict` give the ensemble prediction; linear methods also return averaged weights). Both modes return out-of-bag scores, `effective_features`, stability summaries and `provenance`. See the `bagged_fit` docstring and `scripts/bagged_fit_demo.py`.
+
 ### 5. Edges between views: score-level path models
 
 `pysimlr.path_model` evaluates directed or undirected dependency graphs over view scores and clinical outcomes using Freedman–Lane permutation sweeps with joint max-$T$ multiplicity control, omnibus tests, bootstrap effect-size intervals, and refit calibration. `pysimlr.compare_path_models` selects among competing graph topologies (chains, stars, complete graphs) using held-out Gaussian log-likelihood, paired bootstrap differences against the top model, and a strict parsimony rule. Missing views are reconstructed across significant path edges with `pysimlr.predict_path`. `pysimlr.path_model_from_scores` runs the same inference on score blocks from any source. See `docs/usage_notes.md` for practical guidelines and what permutation tests cannot say.

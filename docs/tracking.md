@@ -1,16 +1,22 @@
 # Tracking Summary
-current phase: v0.34.1 (`D57`: populate `provenance_list` unconditionally for `scale_list=["none"]` in `simlr` so `confounds` attach and replay across all downstream entry points). Before it: v0.34.0 (`D56`: `recon_r2` and `nc_ridge` similarity energies on `lend` / `flow_v`; `missing_rows="mask"` across all deep and normalizing-flow models `lend`, `ned`, `ned_shared_private`, `flow_v`, `flow_simr`, and `attribute_target`). Before it: v0.33.1 (`D55`: rank-aware ICA mixing, so a target-rooted fit with k > 1 no longer fails or stalls). v0.33.0 (`D54` done: `attribute_target` for simlr, lend, ned, ned_shared_private and flow_v with out-of-fold and generic-variance checks, frozen-reference mode, opt-in bagged intervals and calibrated selection; per-view coupling-sign fix, a behaviour change for fits that set positivity or energy through `per_view_params`). Before it: v0.32.0 (`D53` done: opt-in `groups=`, `exclude_views=`, `return_refits=`, `subsample=` / `strata=` and `orient_latents` for the interpretation tools; defaults unchanged). v0.31.1: `D52` (`feature_maps` / `loading_inference` returned all-zero maps and `oos_coupling == 0.0` with `missing_rows="mask"` and unobserved rows; fixed). v0.31.0: `D51` (order-free `sign_alignment="spectral"` default).
+current phase: v0.36.0 (`D58`: `bagged_fit` / `bagged_predict`, select and average modes for every registered method). Before it: v0.34.1 (`D57`: populate `provenance_list` unconditionally for `scale_list=["none"]` in `simlr` so `confounds` attach and replay across all downstream entry points). Before it: v0.34.0 (`D56`: `recon_r2` and `nc_ridge` similarity energies on `lend` / `flow_v`; `missing_rows="mask"` across all deep and normalizing-flow models `lend`, `ned`, `ned_shared_private`, `flow_v`, `flow_simr`, and `attribute_target`). Before it: v0.33.1 (`D55`: rank-aware ICA mixing, so a target-rooted fit with k > 1 no longer fails or stalls). v0.33.0 (`D54` done: `attribute_target` for simlr, lend, ned, ned_shared_private and flow_v with out-of-fold and generic-variance checks, frozen-reference mode, opt-in bagged intervals and calibrated selection; per-view coupling-sign fix, a behaviour change for fits that set positivity or energy through `per_view_params`). Before it: v0.32.0 (`D53` done: opt-in `groups=`, `exclude_views=`, `return_refits=`, `subsample=` / `strata=` and `orient_latents` for the interpretation tools; defaults unchanged). v0.31.1: `D52` (`feature_maps` / `loading_inference` returned all-zero maps and `oos_coupling == 0.0` with `missing_rows="mask"` and unobserved rows; fixed). v0.31.0: `D51` (order-free `sign_alignment="spectral"` default).
 next WP: docs/plans/2026-11-07_path_model_next_steps.md items 1 (mediation), 6-8.
 blockers: none
 active work: none
 device: Apple Silicon (macOS arm64), CPU for fits (MPS runs the deep models but is 1.5-5x slower at the measured sizes)
-last updated: 2026-11-15
+last updated: 2026-11-16
 
 ---
 
 Entries are newest first. `D<n>` are implementer deliverables; `R<n>` is reserved for reviewer notes.
 This file was created at v0.2.19; earlier history lives in git (`git log --oneline`) and in the
 release commit bodies.
+
+## D58 (`bagged_fit`: bagged estimator for any registered method, 2026-11-16)
+status: implemented on branch `feat/bagged-fit` (v0.36.0, not pushed, not merged)
+- **Added.** `pysimlr.bagged_fit` / `bagged_predict` (`src/pysimlr/bagging.py`). `aggregate="select"` (default): stability selection through `loading_inference` (`selection_frequency >= threshold`), one refit on the kept features, `feature_mask` honoured by `predict` and `sem.view_scores` (full-width or already-subset views). `aggregate="average"`: subsample fits kept, scores averaged after the `loading_inference` alignment, out-of-bag scores, averaged weights for linear methods (exact affine equivalence checked in tests), scores only for deep and flow methods. Subsampling without replacement. `loading_inference(return_refits=...)` gained `"models"`.
+- **Design notes.** The per-refit selection size `q_m` follows `loading_inference` (`expected_false`); `bagged_fit` defaults it so the median-width view selects a quarter of its features per refit, because with the stability-selection default (`expected_false=1`) at most `q / threshold` features can pass and with a large `q` persistent noise features (80% overlapping subsamples rank noise alike) pass every threshold. The error bound holds only at `fraction=0.5`. Select-mode out-of-bag scores come from the full-feature subsample fits (selection used all rows; not a nested evaluation).
+- **Tests:** `tests/test_bagging.py`. Demo: `scripts/bagged_fit_demo.py [--smoke]`.
 
 ## D57 (Support `scale_list=["none"]` with `confounds` and populate `provenance_list` unconditionally in `simlr`, 2026-11-15)
 status: done (v0.34.1, patch release)
