@@ -302,6 +302,10 @@ __all__ = [
     'compare_path_models_from_scores',
     'predict_path',
     'path_model_from_scores',
+    'observed_path_model',
+    'compare_observed_path_models',
+    'covariance_equivalence',
+    'path_effect',
     'view_scores',
     'lend_simr',
     'ned_simr',
@@ -456,6 +460,11 @@ _LAZY_ATTRS = {
     'predict_path': 'sem',
     'path_model_from_scores': 'sem',
     'view_scores': 'sem',
+    # classical observed-variable path models with fit indices (scipy only).
+    'observed_path_model': 'observed_sem',
+    'compare_observed_path_models': 'observed_sem',
+    'covariance_equivalence': 'observed_sem',
+    'path_effect': 'observed_sem',
     # scipy inside the functions only; served lazily so the name table stays in one place.
     'bh_fdr': 'stats',
     'holm': 'stats',
