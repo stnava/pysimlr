@@ -119,6 +119,8 @@ summary_v1 = summarize_basis_matrix(res_lin["v"][0])
 
 `pysimlr.path_model` evaluates directed or undirected dependency graphs over view scores and clinical outcomes using Freedman–Lane permutation sweeps with joint max-$T$ multiplicity control, omnibus tests, bootstrap effect-size intervals, and refit calibration. `pysimlr.compare_path_models` selects among competing graph topologies (chains, stars, complete graphs) using held-out Gaussian log-likelihood, paired bootstrap differences against the top model, and a strict parsimony rule. Missing views are reconstructed across significant path edges with `pysimlr.predict_path`. `pysimlr.path_model_from_scores` runs the same inference on score blocks from any source. See `docs/usage_notes.md` for practical guidelines and what permutation tests cannot say.
 
+`pysimlr.observed_path_model`, `pysimlr.compare_observed_path_models` and `pysimlr.covariance_equivalence` are the classical complement for single observed variables: recursive Gaussian path models with chi-square, RMSEA (with interval), CFI, SRMR, AIC/BIC, Akaike and Schwarz weights, indirect effects, stratified bootstrap intervals and a numerical covariance-equivalence check. Use `path_model` for multi-column score blocks (permutation tests, no fit indices) and `observed_path_model` for one-column nodes. See `pysimlr.observed_sem` and `scripts/observed_sem_demo.py`.
+
 ---
 
 ## Architecture & Operating-Point Reference
