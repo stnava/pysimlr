@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.35.1"
+__version__ = "0.36.0"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -140,6 +140,7 @@ from .loadings import (
     structure_coefficients,
     olee_loadings,
 )
+from .bagging import bagged_fit, bagged_predict
 from .interpretability import (
     summarize_basis_matrix,
     build_first_layer_contract,
@@ -220,6 +221,8 @@ __all__ = [
     'predict_simlr',
     'loadings',
     'loading_inference',
+    'bagged_fit',
+    'bagged_predict',
     'orient_latents',
     'attribute_target',
     'target_root_fit_params',

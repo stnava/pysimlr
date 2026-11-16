@@ -198,9 +198,16 @@ def view_scores(result: Dict[str, Any], views: Any, *, train_views: Any = None,
     """
     from .api import predict
     from .extension import view_names as _names
+    if result.get("aggregate") == "average":
+        raise NotImplementedError(
+            "view_scores does not support an average-mode bagged_fit result (its scores are a mean over fits); "
+            "use result['scores'] (training rows), result['oob_scores'] or bagged_predict(result, views)['latents'].")
     m_orig = len(result["v"])
     ext_dict = result.get("extensions") or {}
     vlist = _view_list(result, views)
+    if result.get("feature_mask") is not None:       # select-mode bagged_fit: full-width views -> kept features
+        from .bagging import mask_views
+        vlist = mask_views(result, vlist)
     m_views = len(vlist)
     avail = [m for m, x in enumerate(vlist) if x is not None]
     if not avail:
@@ -234,6 +241,8 @@ def view_scores(result: Dict[str, Any], views: Any, *, train_views: Any = None,
             raise ValueError(f"{result.get('method')} has a joint basis; extended views are not supported.")
         z_ev = {m: _block_scores(result, vlist[m], m, rot) for m in avail}
         tv = None if train_views is None else _view_list(result, train_views)
+        if tv is not None and result.get("feature_mask") is not None:
+            tv = mask_views(result, tv)
         if tv is not None and any(t is None for t in tv):
             raise ValueError("train_views must contain every view.")
         z_tr = None if tv is None else [_block_scores(result, tv[m], m, rot) for m in range(m_views)]

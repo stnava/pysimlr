@@ -1284,7 +1284,7 @@ def _draw_subsample(rng: np.random.Generator, n: int, m: int, scheme: str,
     return np.sort(np.concatenate(parts))
 
 
-REFIT_OUTPUTS = ("weights", "maps", "latents", "rows")
+REFIT_OUTPUTS = ("weights", "maps", "latents", "rows", "models")
 SUBSAMPLE_SCHEMES = ("half", "fraction", "bootstrap")
 
 
@@ -1425,7 +1425,10 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     (``(B, n, k)``: the consensus latent of every row of the full data in the reference frame; in-bag
     rows from the refit's own ``u`` (first draw of a duplicated row), out-of-bag rows from
     `predict`); ``in_bag`` / ``n_draws`` (``(B, n)``, with ``rows`` or ``latents``); ``rows`` and
-    ``oob_rows`` (lists of index arrays, ``rows`` with duplicates under the bootstrap). The reference
+    ``oob_rows`` (lists of index arrays, ``rows`` with duplicates under the bootstrap); ``models`` (a list of
+    the ``B`` full `pysimlr.fit` results of the kept refits, for ensemble prediction by `pysimlr.bagged_fit`;
+    their size is not counted against ``max_refit_bytes``, and with ``n_jobs > 1`` they are pickled back from the
+    workers). The reference
     frame is the one used for the stability summaries (Procrustes onto the full-data fit's structure),
     chosen from the full-data fit alone and so independent of the order of the draws. Memory: about
     ``4 B (sum_m p_m k [structure] + sum_m p_m k [weights] + len(maps) sum p_m k [maps] + n k [latents])
@@ -1576,7 +1579,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     map_aligned = {kk: [] for kk in maps}
     kept_idx: List[int] = []
     rf: Dict[str, List[Any]] = {"rotation": [], "procrustes": [], "loading_rotation": [], "signed_permutation": [],
-                                "weights": [], "latents": [], "in_bag": [], "n_draws": [], "rows": [], "oob_rows": [],
+                                "weights": [], "models": [], "latents": [], "in_bag": [], "n_draws": [], "rows": [], "oob_rows": [],
                                 "maps": {kk: [] for kk in maps}}
     for b_i, (rows_, rec) in enumerate(zip(oob_rows, sub_records)):
         keep_rec = (not exclude_unconverged) or bool(rec["converged"])
@@ -1615,6 +1618,8 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
             if "rows" in want:
                 rf["rows"].append(idx_b)
                 rf["oob_rows"].append(rows_)
+            if "models" in want:
+                rf["models"].append(rec["model"])
             if "weights" in want:
                 rf["weights"].append([w @ a_b for w in rec["weights"]])
             if "latents" in want:
@@ -1761,6 +1766,8 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         if "rows" in want:
             refits["rows"] = rf["rows"]
             refits["oob_rows"] = rf["oob_rows"]
+        if "models" in want:
+            refits["models"] = rf["models"]
         if "weights" in want:
             refits["weights"] = [np.asarray([rf["weights"][b][vi] for b in range(len(kept_idx))], dtype=np.float32)
                                  for vi in range(len(view_list))]
@@ -1820,6 +1827,8 @@ def _fit_structure(task):
     kept: Dict[str, Any] = {}
     if want:
         kept["loading_rotation"] = r["loading_rotation"].detach().double().numpy()
+        if "models" in want:
+            kept["model"] = r
         if "weights" in want:
             if "v" not in r:
                 raise ValueError(f"{method} returns no per-view weights; drop 'weights' from return_refits.")

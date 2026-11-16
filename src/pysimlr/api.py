@@ -715,6 +715,15 @@ def predict(
     """
     if "method" not in result:
         raise ValueError("predict needs a result from pysimlr.fit (it carries 'method').")
+    if result.get("feature_mask") is not None:
+        # select-mode `bagged_fit`: the model was fitted on the kept features; subset full-width views to them.
+        from .bagging import mask_views
+        views = mask_views(result, views)
+    if result.get("aggregate") == "average":
+        if exclude_views:
+            raise NotImplementedError("exclude_views is not supported for an average-mode bagged_fit result.")
+        from .bagging import bagged_predict
+        return bagged_predict(result, views)
     if exclude_views is not None:
         if isinstance(exclude_views, (str, bytes)):
             raise TypeError("exclude_views must be a sequence of view names or indices, not a bare string.")
