@@ -683,7 +683,18 @@ def _anchored(result: Dict[str, Any], views: Any, new_views: Dict[str, Any], *, 
     target = predict_views(result, views)["u"]
     n, k = target.shape
     c_new = _new_view_confounds(result, confounds, int(n))
-    pos = positivity or _used(result, "positivity", "either")
+    if positivity is not None:
+        from .positivity import resolve_positivity
+        pos = resolve_positivity(positivity)
+    else:
+        from .loadings import _result_view_settings
+        orig_pos, _ = _result_view_settings(result, len(result["v"]))
+        if len(set(orig_pos)) > 1:
+            raise ValueError(
+                f"this fit used mixed per-view positivity {orig_pos}; "
+                "pass an explicit positivity=... for the new view in extend()."
+            )
+        pos = orig_pos[0] if orig_pos else "either"
     e_used = energy_type or _used(result, "energy_type", "nc")
     try:
         e_used = check_fit_energy(e_used, path="linear", positivity=pos if warn else None)

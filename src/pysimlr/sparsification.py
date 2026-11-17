@@ -540,7 +540,29 @@ def _convexify(v: torch.Tensor) -> torch.Tensor:
     return project_columns_to_simplex(torch.clamp(v, min=0.0), support_only=True)
 
 
-def apply_positivity(v: torch.Tensor, positivity: str) -> torch.Tensor:
+def _apply_masked_nonnegative(v: torch.Tensor, mask_bool: np.ndarray, fallback_reflect: bool) -> torch.Tensor:
+    """Enforce non-negativity on ``mask_bool`` rows while leaving ``~mask_bool`` rows unconstrained in sign."""
+    mt = torch.as_tensor(mask_bool, dtype=torch.bool, device=v.device)
+    v_m = v[mt]
+    pos_mass = torch.sum(torch.clamp(v_m, min=0.0), dim=0, keepdim=True)
+    neg_mass = torch.sum(torch.clamp(-v_m, min=0.0), dim=0, keepdim=True)
+    v_oriented = torch.where(neg_mass > pos_mass, -v, v)
+    mt2 = mt.unsqueeze(1)
+    projected = torch.where(mt2, torch.clamp(v_oriented, min=0.0), v_oriented)
+    if not fallback_reflect:
+        return projected
+    if bool((projected.abs().sum(dim=0) == 0).any()):
+        return torch.where(mt2, torch.abs(v_oriented), v_oriented)
+    if v.shape[1] > 1:
+        proj_rank = int(torch.linalg.matrix_rank(projected.float()))
+        max_possible_rank = min(v.shape[0], v.shape[1])
+        if proj_rank < max_possible_rank or not bool(torch.isfinite(v).all()):
+            if proj_rank < int(torch.linalg.matrix_rank(v.float())):
+                return torch.where(mt2, torch.abs(v_oriented), v_oriented)
+    return projected
+
+
+def apply_positivity(v: torch.Tensor, positivity: str, nonneg_mask: Optional[Any] = None) -> torch.Tensor:
     """
     Constrain the sign of `v` under one of two distinct semantics.
 
@@ -629,8 +651,15 @@ def apply_positivity(v: torch.Tensor, positivity: str) -> torch.Tensor:
             [2., 0.],
             [3., 0.]])
     """
-    from .positivity import resolve_positivity
+    from .positivity import resolve_positivity, validate_nonneg_mask
     positivity = resolve_positivity(positivity)   # unknown values raise
+    if nonneg_mask is not None:
+        m_arr = validate_nonneg_mask(nonneg_mask, int(v.shape[0]), positivity=positivity)
+        if not bool(m_arr.all()):
+            if not bool(m_arr.any()):
+                return v
+            fallback = positivity in ('positive', 'hard', 'softplus')
+            return _apply_masked_nonnegative(v, m_arr, fallback_reflect=fallback)
     if positivity in ('positive', 'hard', 'convex'):
         return _project_nonnegative(v, sign=1.0)
     if positivity == 'negative':
@@ -1416,7 +1445,8 @@ def simlr_sparseness(v: torch.Tensor,
                      energy_type: Optional[str] = None,
                      modality_index: Optional[int] = None,
                      unit_columns: Optional[bool] = None,
-                     retraction_diagnostics: Optional[dict] = None) -> torch.Tensor:
+                     retraction_diagnostics: Optional[dict] = None,
+                     nonneg_mask: Optional[Any] = None) -> torch.Tensor:
     """
     Project a basis onto the NSA-Flow feasible set with optional column-wise quantile sparsification.
 
@@ -1441,9 +1471,20 @@ def simlr_sparseness(v: torch.Tensor,
 
     q_val = _resolve_quantile(sparseness, modality_index=modality_index)
 
-    from .positivity import NONNEG, resolve_positivity
+    from .positivity import NONNEG, resolve_positivity, validate_nonneg_mask
     positivity = resolve_positivity(positivity)
-    nonneg = positivity in NONNEG
+    partial_mask: Optional[np.ndarray] = None
+    if nonneg_mask is not None:
+        m_arr = validate_nonneg_mask(
+            nonneg_mask, int(v_out.shape[0]), positivity=positivity,
+            view_label="view" if modality_index is None else f"view {modality_index}",
+        )
+        if not bool(m_arr.all()):
+            if not bool(m_arr.any()):
+                positivity = 'either'
+            else:
+                partial_mask = m_arr
+    nonneg = (positivity in NONNEG) and (partial_mask is None)
     convex = (positivity == 'convex')
     negative = (positivity == 'negative')
 
@@ -1456,7 +1497,7 @@ def simlr_sparseness(v: torch.Tensor,
     if constraint_type == "none" or (w is not None and float(w) <= 0.0):
         # The sign constraint is part of the feasible set whether or not the
         # orthogonality projection runs, so it is applied on this path too.
-        out_none = apply_positivity(v_out, positivity)
+        out_none = apply_positivity(v_out, positivity, nonneg_mask=partial_mask)
         if q_val is not None:
             if negative:
                 out_none = -_apply_quantile_sparseness(-out_none, q_val, nonneg=True, alg=sparseness_alg)
@@ -1479,8 +1520,11 @@ def simlr_sparseness(v: torch.Tensor,
 
     v_out = enforce_column_floor(v_out)
 
-    candidate = (_resolve_column_sign_gauge(v_out) if nonneg
-                 else apply_positivity(v_out.clone(), positivity))
+    if partial_mask is not None:
+        candidate = apply_positivity(v_out.clone(), positivity, nonneg_mask=partial_mask)
+    else:
+        candidate = (_resolve_column_sign_gauge(v_out) if nonneg
+                     else apply_positivity(v_out.clone(), positivity))
 
     projected = _nsa_retract(candidate, w=w, nonneg=nonneg,
                              sparseness=q_val,
@@ -1500,6 +1544,9 @@ def simlr_sparseness(v: torch.Tensor,
             f"different feasible set. Inspect retraction_diagnostics, or pass "
             f"constraint_type='none'."
         )
+
+    if partial_mask is not None:
+        projected = apply_positivity(projected, positivity, nonneg_mask=partial_mask)
 
     if q_val is not None:
         # Ensure exact quantile sparsity >= q_val (a no-op when nsa_flow's

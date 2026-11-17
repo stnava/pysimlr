@@ -729,7 +729,8 @@ def correlation_penalty(z: torch.Tensor, threshold: Optional[float] = None,
 
 
 def stationarity_residual(v: torch.Tensor, grad: torch.Tensor,
-                          nonneg: bool = False) -> Tuple[float, float]:
+                          nonneg: bool = False,
+                          nonneg_mask: Optional[Any] = None) -> Tuple[float, float]:
     r"""First-order stationarity of a sparse basis on its current face.
 
     Returns ``(on_face, off_support)``:
@@ -765,11 +766,24 @@ def stationarity_residual(v: torch.Tensor, grad: torch.Tensor,
     t = float(vn) ** 2
     mask = (v.abs() > 1e-12).to(v.dtype)
     z = (v - t * g) * mask
-    if nonneg:
-        z = z.clamp_min(0.0)
-    on_face = float((z - v).norm() / vn)
     step = -t * g
-    admissible = step.clamp_min(0.0) if nonneg else step.abs()
+    if nonneg and nonneg_mask is not None:
+        nm = torch.as_tensor(nonneg_mask, dtype=torch.bool, device=z.device)
+        if bool(nm.all()):
+            z = z.clamp_min(0.0)
+            admissible = step.clamp_min(0.0)
+        elif not bool(nm.any()):
+            admissible = step.abs()
+        else:
+            nm2 = nm.unsqueeze(1)
+            z = torch.where(nm2, z.clamp_min(0.0), z)
+            admissible = torch.where(nm2, step.clamp_min(0.0), step.abs())
+    elif nonneg:
+        z = z.clamp_min(0.0)
+        admissible = step.clamp_min(0.0)
+    else:
+        admissible = step.abs()
+    on_face = float((z - v).norm() / vn)
     off = 0.0
     for j in range(v.shape[1]):
         keep = mask[:, j] > 0

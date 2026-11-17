@@ -159,17 +159,23 @@ def structure_coefficients(views: Sequence[torch.Tensor], u: torch.Tensor,
     return out
 
 
-def olee_loadings(structure: Sequence[torch.Tensor], positivity: str = "either"):
+def olee_loadings(structure: Sequence[torch.Tensor], positivity: Any = "either",
+                  nonneg_masks: Optional[Sequence[Optional[Any]]] = None):
     """The OLEE summary of `structure_coefficients` (see the module docstring).
 
-    Returns ``(loadings, margins)``; ``margins`` is ``None`` unless the
-    positivity is non-negative.
+    ``positivity`` may be one constraint string or a sequence of per-view
+    constraints. Returns ``(loadings, margins)``; ``margins`` is ``None`` when
+    no view is purely non-negative, or a per-view list holding a margin tensor
+    for purely non-negative views and ``None`` for signed/partially masked views.
     """
     loads, margins = [], []
-    nonneg = resolve_positivity(positivity) in _NONNEG
-    for c in structure:
+    pos_l = _per_view_arg(positivity, len(structure), "positivity")
+    for m_idx, c in enumerate(structure):
         c64 = torch.as_tensor(c).double()
         p, k = c64.shape
+        nm_m = nonneg_masks[m_idx] if (nonneg_masks is not None and m_idx < len(nonneg_masks)) else None
+        has_partial_mask = nm_m is not None and not bool(np.asarray(nm_m, dtype=bool).all())
+        nonneg = (resolve_positivity(pos_l[m_idx]) in _NONNEG) and not has_partial_mask
         if nonneg:
             cp = c64.clamp_min(0.0)
             top, arg = cp.max(dim=1)
@@ -183,7 +189,7 @@ def olee_loadings(structure: Sequence[torch.Tensor], positivity: str = "either")
             uu, _, vh = torch.linalg.svd(c64, full_matrices=False)
             loads.append(((uu @ vh) * c64.norm(dim=0, keepdim=True)).float())
             margins.append(None)
-    return loads, (margins if nonneg else None)
+    return loads, (margins if any(mg is not None for mg in margins) else None)
 
 
 def varimax_rotation(structure: Sequence[torch.Tensor], max_iter: int = 500,
@@ -214,7 +220,19 @@ def varimax_rotation(structure: Sequence[torch.Tensor], max_iter: int = 500,
 
 def _result_positivity(result: Dict[str, Any]) -> str:
     from .extension import _used
-    return resolve_positivity(_used(result, "positivity", "either"))
+    pbv = result.get("positivity_by_view") or (result.get("parameters") or {}).get("positivity_by_view")
+    if pbv:
+        vals = [resolve_positivity(v) for v in pbv if v is not None]
+        if vals:
+            return vals[0] if len(set(vals)) == 1 else "either"
+    raw = _used(result, "positivity", "either")
+    if isinstance(raw, (list, tuple)):
+        vals = [resolve_positivity(v) for v in raw]
+        return vals[0] if (vals and len(set(vals)) == 1) else "either"
+    if isinstance(raw, Mapping):
+        vals = [resolve_positivity(v) for v in raw.values()]
+        return vals[0] if (vals and len(set(vals)) == 1) else "either"
+    return resolve_positivity(raw)
 
 
 def _result_energy_type(result: Dict[str, Any]) -> str:
@@ -226,16 +244,33 @@ def _result_view_settings(result: Dict[str, Any], n_views: int) -> Tuple[List[st
     """Per-view ``(positivity, energy_type)`` a fit actually used.
 
     ``per_view_params`` overrides (a mapping view index -> dict, stored by `simlr` as
-    ``result["per_view_params"]``) win over the fit-level values; a view without an override uses
-    them. Reading only the fit-level values mislabelled a view fitted ``positivity="conical"``,
-    ``energy_type="nc_abs"`` through ``per_view_params`` as signed, so its coupling sign stayed ``+1``.
+    ``result["per_view_params"]``) and ``positivity_by_view`` win over fit-level values; a view
+    without an override uses them. Reading only the fit-level values mislabelled a view fitted
+    ``positivity="conical"``, ``energy_type="nc_abs"`` through ``per_view_params`` as signed, so its
+    coupling sign stayed ``+1``.
     """
-    pos0, et0 = _result_positivity(result), _result_energy_type(result)
+    from .extension import _used
+    pbv = result.get("positivity_by_view") or (result.get("parameters") or {}).get("positivity_by_view")
+    raw_pos = _used(result, "positivity", "either")
+    et0 = _result_energy_type(result)
     pvp = result.get("per_view_params") or {}
+    vnames = result.get("view_names") or []
     pos, et = [], []
     for m in range(n_views):
-        ov = pvp.get(m) or pvp.get(f"view{m}") or {}
-        pos.append(resolve_positivity(ov["positivity"]) if "positivity" in ov else pos0)
+        nm_key = vnames[m] if m < len(vnames) else None
+        ov = pvp.get(m) or pvp.get(f"view{m}") or (pvp.get(nm_key) if nm_key is not None else None) or {}
+        if pbv is not None and m < len(pbv) and pbv[m] is not None:
+            p_m = resolve_positivity(pbv[m])
+        elif "positivity" in ov:
+            p_m = resolve_positivity(ov["positivity"])
+        elif isinstance(raw_pos, (list, tuple)) and m < len(raw_pos):
+            p_m = resolve_positivity(raw_pos[m])
+        elif isinstance(raw_pos, Mapping):
+            val_m = raw_pos.get(m, raw_pos.get(f"view{m}", raw_pos.get(nm_key, "either") if nm_key is not None else "either"))
+            p_m = resolve_positivity(val_m)
+        else:
+            p_m = resolve_positivity(raw_pos)
+        pos.append(p_m)
         et.append(str(ov["energy_type"]) if "energy_type" in ov else et0)
     return pos, et
 
@@ -284,12 +319,21 @@ def view_coupling_signs(structure: Sequence[torch.Tensor],
 
 
 def _oriented_olee(c: List[torch.Tensor], v_list: Optional[Sequence[torch.Tensor]],
-                   pos: Any, etype: Any, olee_pos: Optional[str] = None):
-    csigns = view_coupling_signs(c, v_list, positivity=pos, energy_type=etype)
+                   pos: Any, etype: Any, olee_pos: Optional[Any] = None,
+                   nonneg_masks: Optional[Sequence[Optional[Any]]] = None):
+    eff_pos = pos
+    if nonneg_masks is not None:
+        pos_l = _per_view_arg(pos, len(c), "positivity")
+        eff_pos = [
+            "either" if (nonneg_masks[m] is not None and not bool(np.asarray(nonneg_masks[m], dtype=bool).all()))
+            else pos_l[m]
+            for m in range(len(c))
+        ]
+    csigns = view_coupling_signs(c, v_list, positivity=eff_pos, energy_type=etype)
     c_oriented = [ci * sg.to(ci.dtype).unsqueeze(0) for ci, sg in zip(c, csigns)]
     if olee_pos is None:
-        olee_pos = pos if isinstance(pos, str) else (pos[0] if len(set(pos)) == 1 else "either")
-    load, margin = olee_loadings(c_oriented, olee_pos)
+        olee_pos = eff_pos
+    load, margin = olee_loadings(c_oriented, olee_pos, nonneg_masks=nonneg_masks)
     return csigns, load, margin
 
 
@@ -339,8 +383,14 @@ def loadings(result: Dict[str, Any], views: Any, u: Optional[torch.Tensor] = Non
     u_rot = torch.as_tensor(u).detach().double() @ rot
     c = structure_coefficients(xs, u_rot, obs_masks=obs_masks, **gkw)
     pos, etype = _result_view_settings(result, len(c))
+    pvp = result.get("per_view_params") or {}
+    vnames = result.get("view_names") or []
+    nm_list = [
+        (pvp.get(m) or pvp.get(f"view{m}") or (pvp.get(vnames[m]) if m < len(vnames) else None) or {}).get("nonneg_mask")
+        for m in range(len(c))
+    ]
     v_list = None if result.get("basis_is_joint") else result.get("v")
-    csigns, load, margin = _oriented_olee(c, v_list, pos, etype, olee_pos=_result_positivity(result))
+    csigns, load, margin = _oriented_olee(c, v_list, pos, etype, nonneg_masks=nm_list)
     return {"structure": c, "loadings": load, "loading_margin": margin,
             "loading_rotation": rot.float(), "coupling_signs": csigns,
             "communality": [(ci.double() ** 2).sum(1).float() for ci in c]}
@@ -1475,7 +1525,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
             raise ValueError(f"probe_views has {len(p_items)} entries; there are {len(view_list)} views.")
         probe_tensors = [None if pv is None else _to_probe_tensor(pv, n, vi) for vi, pv in enumerate(p_items)]
         map_opts = dict(map_opts, probe_views=probe_tensors)
-    ref = fit(method, view_list, k, random_state=random_state, **params)
+    ref = fit(method, views, k, random_state=random_state, **params)
     if g_codes is not None:
         ref = _with_grouped_loadings(ref, view_list, g_codes, scale_within_group)
         map_opts = None if map_opts is None else dict(map_opts, groups=g_codes, scale_within_group=scale_within_group)
@@ -1488,6 +1538,18 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     aligned, chosen = [], [[] for _ in c_ref]
     m = max(k + 2, int(round(fraction * n)))
     refit_params = dict(params)
+    if isinstance(views, Mapping):
+        from .api import _resolve_fit_view_idx
+        vnames_in = [str(nm) for nm in views.keys()]
+        used_rec = (ref.get("parameters") or {}).get("used") or {}
+        for nk in ("per_view_params", "positivity", "path_graph", "system_matrices"):
+            if nk in refit_params and nk in used_rec:
+                refit_params[nk] = used_rec[nk]
+        if isinstance(refit_params.get("confounds"), Mapping):
+            refit_params["confounds"] = {
+                _resolve_fit_view_idx(kv, len(view_list), vnames_in): vv
+                for kv, vv in refit_params["confounds"].items()
+            }
     # Confounds follow their rows: a subsample refit gets the subsample's
     # confound rows, and a permutation refit permutes each view together with
     # its own confound rows, so every view of a null refit is cleaned exactly

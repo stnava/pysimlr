@@ -324,14 +324,24 @@ def test_stress_permutation_test_empty_permutations():
 def test_stress_contract_simlr_invalid_input_types_and_shapes():
     """Verify simlr raises descriptive ValueError or TypeError on invalid container types and shapes."""
     # 1. Empty data_matrices
-    for empty_container in [[], ()]:
-        with pytest.raises(ValueError, match=r"non-empty list or tuple"):
+    for empty_container in [[], (), {}]:
+        with pytest.raises(ValueError, match=r"non-empty list, tuple or mapping|non-empty list or tuple"):
             simlr(empty_container, k=2)
 
     # 2. Non-container types
-    for non_container in [None, "string_view", 42, {"a": torch.randn(10, 2)}]:
-        with pytest.raises(ValueError, match=r"non-empty list or tuple"):
+    for non_container in [None, "string_view", 42]:
+        with pytest.raises(ValueError, match=r"non-empty list, tuple or mapping|non-empty list or tuple"):
             simlr(non_container, k=2)
+
+    # 2b. Dictionary of views works and records view_names
+    res_dict = simlr(
+        {"a": torch.randn(10, 4), "b": torch.randn(10, 5)},
+        k=2,
+        iterations=2,
+        random_state=0,
+    )
+    assert res_dict["view_names"] == ["a", "b"]
+    assert len(res_dict["v"]) == 2
 
     # 3. Elements not tensors/ndarrays
     with pytest.raises(TypeError, match=r"must be a torch.Tensor or np.ndarray"):

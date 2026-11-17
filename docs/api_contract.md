@@ -82,6 +82,23 @@ constraint, sparsity still applied). The remaining differences, from
 
 `parameters["defaults"]` records the value each fit used.
 
+### Per-view overrides and partial feature sign masks (`per_view_params`, `positivity`)
+
+On `method="simlr"` (`pysimlr.fit("simlr", ...)` and `pysimlr.simlr(...)`), constraints can vary by view or by feature subset inside a view:
+
+- **`per_view_params`**: mapping `{view: {...}}` keyed by integer index `0..M-1`, `"view0".."view{M-1}"`, or the view's own name when `views` is passed as a mapping (`{"thickness": X0, "volume": X1}`). Allowed per-view keys (`simlr._PER_VIEW_PARAM_KEYS`): `positivity`, `energy_type`, `sparseness`, `nsa_w`, `varimax`, and `nonneg_mask`. Unknown or duplicate view keys raise `ValueError`.
+- **Per-view `positivity` shorthand**: `positivity` on `"simlr"` also accepts a per-view list/tuple (`positivity=["convex", "either", "convex"]`) or a mapping by view name/index (`positivity={"volume": "convex", "thickness": "either"}`), translated into `per_view_params` (raising `ValueError` if both give the same view a `positivity` constraint; a list of identical entries reproduces the single-string fit identically). Passing a list/mapping to a method without `per_view_params` raises `ValueError` pointing to `per_view_params`.
+- **When mixed sign constraints are wanted**: a view of *relative* features (each participant's values expressed against their own mean) has no meaningful one-sided orientation, so a non-negative constraint forces a two-sided contrast to be read one-sidedly:
+  ```python
+  res = pysimlr.fit(
+      "simlr", {"volume": X_vol, "rel_thickness": X_thk, "dti": X_dti}, k=1,
+      positivity="convex", energy_type="recon_r2",
+      per_view_params={"rel_thickness": {"positivity": "either"}},
+  )
+  ```
+- **Feature-subset non-negativity (`nonneg_mask`)**: when a view combines signed relative features (e.g. 62 relative parcels) with oriented absolute features (e.g. 1 mean thickness column), pass a 1-D boolean mask `per_view_params={0: {"positivity": "positive", "nonneg_mask": mask}}`. Masked features (`True`) stay non-negative while unmasked features (`False`) are unconstrained in sign; an all-`True` mask reproduces the plain fit identically. Combining `positivity="convex"` with a partial `nonneg_mask` raises `ValueError` (the unit-sum simplex gauge is undefined when unmasked weights are signed; use `"positive"` / `"conical"`).
+- **Reporting in `result["parameters"]`**: `parameters["positivity_by_view"]` is always present (list of resolved canonical values per view, or `[None, ...]` for methods without `positivity`), and `parameters["positivity_resolved"]` is that shared string when all views agree or `"mixed"` when views differ. `loadings(...)` and `olee_loadings(...)` apply non-negative hard assignment only on purely non-negative views and keep signed SVD polar loadings on `"either"` or partially masked views; `extend(..., how="anchored")` requires an explicit `positivity=` when extending a `"mixed"` fit.
+
 ### Interpretation and inference
 
 `structure` and `loadings` are point estimates. `u` was fitted on the same rows, which inflates
@@ -129,7 +146,7 @@ Every `fit` result has the following keys, checked by `validate_result`:
 | key | content |
 |---|---|
 | `method`, `family` | registered name and family |
-| `parameters` | `requested`, `used`, `ignored` (name -> reason), `defaults`, `random_state`, `budget_unit`, `preset` |
+| `parameters` | `requested`, `used`, `ignored` (name -> reason), `defaults`, `positivity_by_view` (resolved constraint per view), `positivity_resolved` (shared value, `"mixed"` when views differ, or `None`), `random_state`, `budget_unit`, `preset` |
 | `u` | `(n, k)` tensor. For `simlr` it is the star consensus of the fitted views under every topology; the per-view targets of `loo`/`graph` are in `u_per_modality`. |
 | `v` | one `(p_m, k)` block per view: the encoder (`u ~ X v`) that scores new subjects. Weakly identified in each view's low-variance directions, so not the object to read feature by feature. |
 | `structure` | one `(p_m, k)` block per view: `corr(x_f, u_j)` in the varimax basis of all views stacked, column signs set so dominant loadings are positive (`pysimlr.loadings`). Association, not unique contribution. |

@@ -139,8 +139,10 @@ def _resolve_fit_view_idx(key: Any, n_views: int, view_names: Optional[List[str]
         return int(view_names.index(key))
     if isinstance(key, str) and key.startswith("view") and key[4:].isdigit() and int(key[4:]) < n_views:
         return int(key[4:])
-    names_hint = f" or one of {view_names}" if view_names is not None else ""
-    raise ValueError(f"unknown view key {key!r}; expected 0..{n_views - 1}{names_hint}.")
+    names_hint = f", or one of {view_names}" if view_names is not None else ""
+    raise ValueError(
+        f"unknown view key {key!r}; expected 0..{n_views - 1} or 'view0'..'view{n_views - 1}'{names_hint}."
+    )
 
 
 def _normalize_fit_path_graph(path_graph: Any, n_views: int,
@@ -485,15 +487,32 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
         `predict` without confound values (`pysimlr.confounds`). The record
         is ``result["confound_sink"]`` (``None`` without confounds).
 
+        Per-view overrides (``method="simlr"``): pass ``per_view_params`` as a
+        mapping ``{view: {...}}`` keyed by integer index ``0..M-1``,
+        ``"view0".."view{M-1}"``, or the view's own name when ``views`` is a
+        mapping. Allowed keys per view are ``positivity``, ``energy_type``,
+        ``sparseness``, ``nsa_w``, ``varimax``, and ``nonneg_mask`` (a 1-D
+        boolean mask of features constrained to be non-negative under
+        ``positivity="positive"``/``"conical"``, leaving unmasked features
+        signed; ``positivity="convex"`` refuses a partial mask). ``positivity``
+        itself may also be passed as a per-view list or mapping on ``"simlr"``,
+        for example ``pysimlr.fit("simlr", views, k=1, positivity="convex",
+        per_view_params={1: {"positivity": "either"}})``. This is useful when
+        a view holds relative features (each subject's values expressed against
+        their own mean), which have no meaningful one-sided orientation and
+        should be fitted signed while absolute views stay non-negative/convex.
+
     Returns
     -------
     dict
         The native result plus the contract keys (module docstring) and
         ``parameters``: ``requested`` (as passed), ``used`` (what reached the
         method, presets included), ``ignored`` (name -> reason), ``defaults``
-        (accepted parameters left at their default), ``random_state`` (the
-        seed actually used, ``None`` for deterministic fits), ``budget_unit``
-        and ``preset``.
+        (accepted parameters left at their default), ``positivity_by_view``
+        (resolved constraint per view, or ``[None, ...]`` when not applicable),
+        ``positivity_resolved`` (that shared string, or ``"mixed"`` when views
+        differ), ``random_state`` (the seed actually used, ``None`` for
+        deterministic fits), ``budget_unit`` and ``preset``.
     """
     spec = resolve_method(method)
     sink_req = {kk: params.pop(kk) for kk in list(params) if kk in SINK_PARAMS}
@@ -512,10 +531,28 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
     from .positivity import resolve_positivity
     positivity_resolved = None
     if "positivity" in params:
-        positivity_resolved = resolve_positivity(params["positivity"])   # unknown values raise
-        if positivity_resolved == "convex" and "positivity" not in spec.accepts:
-            raise ValueError(f"{spec.name} has no basis constraint, so positivity='convex' "
-                             "cannot be applied; use a linear, deep or flow method.")
+        raw_pos = params["positivity"]
+        if isinstance(raw_pos, (list, tuple, Mapping)):
+            pos_vals = list(raw_pos.values()) if isinstance(raw_pos, Mapping) else list(raw_pos)
+            resolved_vals = [resolve_positivity(v) for v in pos_vals]
+            if "convex" in resolved_vals and "positivity" not in spec.accepts:
+                raise ValueError(f"{spec.name} has no basis constraint, so positivity='convex' "
+                                 "cannot be applied; use a linear, deep or flow method.")
+            if "positivity" in spec.accepts and "per_view_params" not in spec.accepts:
+                raise ValueError(
+                    f"{spec.name} takes one positivity constraint across views (got {type(raw_pos).__name__}); "
+                    "for a different constraint per view use method='simlr' with positivity=[...] or "
+                    "per_view_params={i: {'positivity': ...}}."
+                )
+            if "positivity" in spec.accepts:
+                positivity_resolved = (
+                    resolved_vals[0] if (resolved_vals and len(set(resolved_vals)) == 1) else "mixed"
+                )
+        else:
+            positivity_resolved = resolve_positivity(raw_pos)   # unknown values raise
+            if positivity_resolved == "convex" and "positivity" not in spec.accepts:
+                raise ValueError(f"{spec.name} has no basis constraint, so positivity='convex' "
+                                 "cannot be applied; use a linear, deep or flow method.")
     elif "positivity" in spec.accepts:
         positivity_resolved = resolve_positivity(spec.defaults.get("positivity", "either"))
     for name, value in params.items():
@@ -547,10 +584,23 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
     if call.get("path_graph") is not None:
         call["path_graph"] = _normalize_fit_path_graph(call["path_graph"], n_views, fit_view_names)
     if call.get("per_view_params") is not None and isinstance(call["per_view_params"], Mapping):
-        call["per_view_params"] = {
-            _resolve_fit_view_idx(kv, n_views, fit_view_names): dict(vv)
-            for kv, vv in call["per_view_params"].items()
-        }
+        norm_pvp: Dict[int, Dict[str, Any]] = {}
+        for kv, vv in call["per_view_params"].items():
+            idx_v = _resolve_fit_view_idx(kv, n_views, fit_view_names)
+            if idx_v in norm_pvp:
+                raise ValueError(f"per_view_params gives view {idx_v} twice.")
+            if not isinstance(vv, Mapping):
+                raise TypeError(f"per_view_params[{kv!r}] must be a dict; got {type(vv).__name__}.")
+            norm_pvp[idx_v] = dict(vv)
+        call["per_view_params"] = norm_pvp
+    if isinstance(call.get("positivity"), Mapping):
+        norm_pos: Dict[int, Any] = {}
+        for kv, vv in call["positivity"].items():
+            idx_v = _resolve_fit_view_idx(kv, n_views, fit_view_names)
+            if idx_v in norm_pos:
+                raise ValueError(f"positivity gives view {idx_v} twice.")
+            norm_pos[idx_v] = vv
+        call["positivity"] = norm_pos
     if call.get("system_matrices") is not None and isinstance(call["system_matrices"], Mapping):
         from .system_prior import normalize_system_matrices_arg
         call["system_matrices"] = normalize_system_matrices_arg(
@@ -594,9 +644,19 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
         "budget_unit": spec.budget_unit,
         "preset": dict(spec.presets),
     }
-    # `used` keeps the caller's spelling (refits replay it); this is the
-    # canonical value every method resolved it to ("linear" -> "either",
-    # "conical" -> "positive"). None for a method without the parameter.
+    # `used` keeps the caller's spelling (refits replay it); `positivity_by_view`
+    # records the canonical value every view actually used, and
+    # `positivity_resolved` is that shared value or `"mixed"` when views differ
+    # (`None` / `[None, ...]` for a method without the parameter).
+    if res.get("positivity_by_view") is not None:
+        pos_by_view: List[Optional[str]] = [str(p) for p in res["positivity_by_view"]]
+        positivity_resolved = pos_by_view[0] if len(set(pos_by_view)) == 1 else "mixed"
+    elif "positivity" in spec.accepts:
+        pos_by_view = [positivity_resolved] * n_views
+    else:
+        pos_by_view = [None] * n_views
+        positivity_resolved = None
+    res["parameters"]["positivity_by_view"] = pos_by_view
     res["parameters"]["positivity_resolved"] = positivity_resolved
     if spec.family in ("deep", "flow"):
         res["convergence"]["grad_map"] = _basis_grad_map(res, view_list)
@@ -629,19 +689,16 @@ def _basis_grad_map(res: Dict[str, Any], views: List[torch.Tensor]) -> Optional[
     certifies the basis, not the decoder weights. Largest over views; ``None``
     only when the result has no per-view basis of matching shape.
     """
-    from .extension import _used
+    from .loadings import _result_view_settings
+    from .positivity import is_nonneg
     from .utils import stationarity_residual
     from .similarity import (SimilarityContext, resolve_energy_name,
                              similarity_gradient, similarity_needs_data)
     vs, u = res.get("v"), res.get("u")
     if not vs or u is None:
         return None
-    energy_type = _used(res, "energy_type")
-    positivity = _used(res, "positivity", "either")
-    from .positivity import is_nonneg
-    nonneg = is_nonneg(positivity)
-    name = resolve_energy_name(energy_type, path="deep")
-    needs_data = similarity_needs_data(name)
+    pos_list, et_list = _result_view_settings(res, len(vs))
+    pvp = res.get("per_view_params") or {}
     u_t = torch.as_tensor(u).detach().float()
     terms = []
     if res.get("missing_rows") == "mask":
@@ -655,25 +712,33 @@ def _basis_grad_map(res: Dict[str, Any], views: List[torch.Tensor]) -> Optional[
             u_m = u_t[om]
             if x.shape[0] < 3 or x.shape[0] != u_m.shape[0] or v.shape[1] != u_m.shape[1] or x.shape[1] != v.shape[0]:
                 continue
+            name = resolve_energy_name(et_list[m_idx], path="deep")
+            needs_data = similarity_needs_data(name)
+            nonneg_m = is_nonneg(pos_list[m_idx])
+            nm_m = (pvp.get(m_idx) or pvp.get(f"view{m_idx}") or {}).get("nonneg_mask")
             ctx = SimilarityContext(x=x, v=v)
             if needs_data:
                 g = similarity_gradient(name, x @ v, u_m, ctx, wrt="v")
             else:
                 g = x.t() @ similarity_gradient(name, x @ v, u_m, ctx, wrt="s")
-            terms.append(stationarity_residual(v, g, nonneg=nonneg)[0])
+            terms.append(stationarity_residual(v, g, nonneg=nonneg_m, nonneg_mask=nm_m)[0])
         return max(terms) if terms else None
     xs, _ = _preprocess_views(views, res["scale_list"], res["provenance_list"])
-    for x, v in zip(xs, vs):
+    for m_idx, (x, v) in enumerate(zip(xs, vs)):
         v = torch.as_tensor(v).detach().float()
         x = torch.as_tensor(x).detach().float()
         if x.shape[0] != u_t.shape[0] or v.shape[1] != u_t.shape[1] or x.shape[1] != v.shape[0]:
             continue
+        name = resolve_energy_name(et_list[m_idx], path="deep")
+        needs_data = similarity_needs_data(name)
+        nonneg_m = is_nonneg(pos_list[m_idx])
+        nm_m = (pvp.get(m_idx) or pvp.get(f"view{m_idx}") or {}).get("nonneg_mask")
         ctx = SimilarityContext(x=x, v=v)
         if needs_data:
             g = similarity_gradient(name, x @ v, u_t, ctx, wrt="v")
         else:
             g = x.t() @ similarity_gradient(name, x @ v, u_t, ctx, wrt="s")
-        terms.append(stationarity_residual(v, g, nonneg=nonneg)[0])
+        terms.append(stationarity_residual(v, g, nonneg=nonneg_m, nonneg_mask=nm_m)[0])
     return max(terms) if terms else None
 
 

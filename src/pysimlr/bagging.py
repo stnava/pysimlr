@@ -267,7 +267,9 @@ def bagged_fit(method: str, views: Any, k: int, *, aggregate: str = "select", n_
     overlap by 80% rank noise features alike) and pass any threshold. At most ``q_m / threshold`` features of a view can
     reach the threshold. This default is a heuristic with no error-rate guarantee.
 
-    ``missing_rows="mask"`` and the other fit options pass through ``params``, as in `loading_inference`.
+    ``missing_rows="mask"``, ``per_view_params`` (including view-name keys and ``nonneg_mask``, which
+    ``aggregate="select"`` subsets automatically onto each view's kept features), and the other fit options
+    pass through ``params``, as in `loading_inference`.
     """
     from .api import as_views, fit, resolve_method
     from .loadings import _procrustes, loading_inference
@@ -295,7 +297,7 @@ def bagged_fit(method: str, views: Any, k: int, *, aggregate: str = "select", n_
     }
     want = ("latents",) if aggregate == "select" else ("latents", "models")
     inf = loading_inference(
-        method, view_list, k, n_subsamples=n_subsamples, fraction=fraction, threshold=threshold,
+        method, views, k, n_subsamples=n_subsamples, fraction=fraction, threshold=threshold,
         expected_false=expected_false, subsample="fraction", strata=strata, return_refits=want,
         random_state=random_state, draw_random_state=draw_random_state, n_jobs=n_jobs, groups=groups,
         **params)
@@ -333,7 +335,27 @@ def bagged_fit(method: str, views: Any, k: int, *, aggregate: str = "select", n_
                              f"{list(inf['q'])}) or use aggregate='average'.")
         sub = [x[:, torch.as_tensor(mk)] for x, mk in zip(view_list, mask)]
         fit_views = dict(zip(names, sub)) if isinstance(views, Mapping) else sub
-        res = fit(method, fit_views, k, random_state=random_state, **params)
+        select_params = dict(params)
+        if isinstance(select_params.get("per_view_params"), Mapping):
+            sub_pvp = {}
+            for kv, ov in select_params["per_view_params"].items():
+                ov_copy = dict(ov)
+                if ov_copy.get("nonneg_mask") is not None:
+                    if isinstance(kv, (int, np.integer)) and not isinstance(kv, bool) and 0 <= int(kv) < len(mask):
+                        v_idx = int(kv)
+                    elif isinstance(kv, str) and kv in names:
+                        v_idx = names.index(kv)
+                    elif isinstance(kv, str) and kv.startswith("view") and kv[4:].isdigit() and int(kv[4:]) < len(mask):
+                        v_idx = int(kv[4:])
+                    else:
+                        v_idx = None
+                    if v_idx is not None:
+                        nm_arr = np.asarray(ov_copy["nonneg_mask"], dtype=bool)
+                        if nm_arr.shape == mask[v_idx].shape:
+                            ov_copy["nonneg_mask"] = nm_arr[mask[v_idx]]
+                sub_pvp[kv] = ov_copy
+            select_params["per_view_params"] = sub_pvp
+        res = fit(method, fit_views, k, random_state=random_state, **select_params)
         rot = res["loading_rotation"].detach().double().numpy()
         scores = res["u"].detach().double().numpy() @ rot
         # Rotate the subsample fits' consensus scores into the final fit's frame (no sign or order is shared).

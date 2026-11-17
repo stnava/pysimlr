@@ -154,7 +154,9 @@ Following gradient polish, `sparseness=q` zeros out weights below the $q$-th qua
 | `"conical"` | `"positive"`, `True` | `v ≥ 0` |
 | `"convex"` | — | `v ≥ 0`, `sum(v) = 1`: each latent is a weighted average of features |
 
-`"convex"` is enforced inside the optimisation of every family with a basis (linear, LEND, NED, NEDPP, flows, anchored extension). The probability simplex replaces the unit-length column scaling, so it is not a rescaled `"conical"` fit. Unknown values raise. Details and measured behaviour: `docs/usage_notes.md` ("Constraining the basis") and `docs/tracking.md` D36.
+`"convex"` is enforced inside the optimisation of every family with a basis (linear, LEND, NED, NEDPP, flows, anchored extension). The probability simplex replaces the unit-length column scaling, so it is not a rescaled `"conical"` fit. Unknown values raise.
+
+**Per-view and per-feature sign constraints (`simlr`)**: On `method="simlr"`, pass `per_view_params={view: {...}}` (keyed by integer index `0..M-1`, `"view0".."view{M-1}"`, or the view's name when `views` is a dict; allowed keys: `positivity`, `energy_type`, `sparseness`, `nsa_w`, `varimax`, `nonneg_mask`) or pass a per-view list/dict directly to `positivity` (e.g. `positivity="convex", per_view_params={1: {"positivity": "either"}}` or `positivity=["convex", "either", "convex"]`). A view of *relative* features (each participant's values expressed against their own mean) has no meaningful one-sided orientation, so fitting it signed (`"either"`) avoids forcing a two-sided contrast to be read one-sidedly; when a view mixes signed relative features with oriented absolute features, `per_view_params={0: {"positivity": "positive", "nonneg_mask": mask}}` constrains only the masked features to be non-negative (`parameters["positivity_by_view"]` reports every view's resolved constraint, and `positivity_resolved` is `"mixed"` when views differ). Details and measured behaviour: `docs/api_contract.md`, `docs/usage_notes.md` ("Constraining the basis") and `docs/tracking.md` D36.
 
 ---
 

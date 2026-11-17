@@ -255,7 +255,10 @@ def prepare_views(views: Any, *, fit_rows: Any = None, signs: Any = None, nuisan
         (at least one finite value) count.
     signs : None, mapping or list
         Per view an array of +1 / -1 per feature, multiplied into the columns first (views without an entry are
-        not oriented). A mapping is keyed by view name or index.
+        not oriented). A mapping is keyed by view name or index. Views of relative features (each row expressed
+        against the subject's own mean) have no meaningful one-sided orientation; leave ``signs`` unset on those
+        columns and fit that view signed via ``per_view_params`` (or ``nonneg_mask`` when an absolute mean column
+        sits beside relative columns).
     nuisance : None, mapping or list
         Per view an ``(n, q)`` array (or ``(n,)``). The view is cleaned with
         ``pysimlr.confounds.fit_view_sink(x, c, 1.0, None)`` fitted on the fit rows with the view and
