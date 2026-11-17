@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.39.0"
+__version__ = "0.40.0"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -154,6 +154,7 @@ from .interpretability import (
 )
 from .utils import (
     ConvergenceWarning,
+    DataSafetyWarning,
     MissingRowsWarning,
     WideViewWarning,
     coupling_capacity_report,
@@ -212,6 +213,7 @@ __all__ = [
     'plot_fused_ridge_cv',
     'plot_predictions',
     'ConvergenceWarning',
+    'DataSafetyWarning',
     'MissingRowsWarning',
     'WideViewWarning',
     'coupling_capacity_report',
@@ -227,6 +229,7 @@ __all__ = [
     'bagged_predict',
     'prepare_views',
     'apply_prepared',
+    'data_safety',
     'multistart_fit',
     'orient_latents',
     'attribute_target',
@@ -478,6 +481,7 @@ _LAZY_ATTRS = {
     'icc_3': 'stats',
     'adaptive_local_linear_curve': 'stats',
     'modality_dose_recruitment': 'stats',
+    'data_safety': 'safety',
 }
 
 #: Submodules exposed as attributes but not imported eagerly.

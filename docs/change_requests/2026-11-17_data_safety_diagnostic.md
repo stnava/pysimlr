@@ -1,6 +1,6 @@
 # TODO (pinned by the package author, 17 November 2026): a "data safety" diagnostic for views
 
-Status: not started. Standard methods only; use existing packages (numpy, scipy, scikit-learn). No new estimator.
+Status: implemented (`src/pysimlr/safety.py`, `prepare_views(..., safety=...)`, `fit(..., safety=...)`, `tests/test_data_safety.py`). Standard methods only; use existing packages (numpy, scipy, scikit-learn). No new estimator.
 
 ## Why
 

@@ -557,6 +557,10 @@ class WideViewWarning(UserWarning):
     (see `coupling_capacity_report`)."""
 
 
+class DataSafetyWarning(RuntimeWarning):
+    """A view contains one or more gross row outliers on row scale (see `pysimlr.data_safety`)."""
+
+
 def coupling_capacity_report(latents: List[torch.Tensor], u: torch.Tensor, widths: List[int],
                              n: int) -> Dict[str, Any]:
     r"""Training coupling and whether it can be trusted.

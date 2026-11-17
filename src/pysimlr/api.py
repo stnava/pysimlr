@@ -465,7 +465,7 @@ def _same(a: Any, b: Any) -> bool:
     return isinstance(a, scalar) and isinstance(b, scalar) and a == b
 
 
-def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any) -> Dict[str, Any]:
+def fit(method: str, views: Any, k: int, *, strict: bool = False, safety: str = "off", **params: Any) -> Dict[str, Any]:
     """Fit a registered method with the shared vocabulary.
 
     Parameters
@@ -479,6 +479,13 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
     strict : bool, default=False
         Raise `TypeError` instead of recording and warning when a parameter
         does not apply to this method.
+    safety : {"off", "warn", "raise"}, default="off"
+        Optional `pysimlr.data_safety` check before fitting (``"off"`` by
+        default because `prepare_views` already checks with ``safety="warn"``
+        and internal CV / LOO loops call `fit` repeatedly). When ``"warn"`` or
+        ``"raise"``, attaches ``result["data_safety"]`` and emits one
+        `DataSafetyWarning` per view with a gross row outlier (or raises
+        `ValueError` when ``"raise"``).
     **params
         Any parameter of any registered method (see `describe_method`).
         ``confounds``, ``confound_strength`` and ``confound_rank`` apply to
@@ -514,6 +521,8 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
         differ), ``random_state`` (the seed actually used, ``None`` for
         deterministic fits), ``budget_unit`` and ``preset``.
     """
+    from .safety import validate_safety_mode
+    safety_mode = validate_safety_mode(safety)
     spec = resolve_method(method)
     sink_req = {kk: params.pop(kk) for kk in list(params) if kk in SINK_PARAMS}
     if sink_req.get("confounds") is None and any(
@@ -611,6 +620,12 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
             _resolve_fit_view_idx(kv, n_views, fit_view_names): vv
             for kv, vv in sink_req["confounds"].items()
         }
+    if safety_mode == "off":
+        safety_report = None
+    else:
+        from .safety import apply_safety_policy, data_safety
+        safety_report = data_safety(views)
+        apply_safety_policy(safety_report, safety_mode, caller="pysimlr.fit", stacklevel=3)
     plan = None
     if sink_req.get("confounds") is not None:
         from .confounds import confound_fit_context, finalize_confound_plan, prepare_confound_plan
@@ -629,6 +644,7 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, **params: Any)
     res["method"] = spec.name
     res["family"] = spec.family
     res["confound_sink"] = None
+    res["data_safety"] = safety_report
     if plan is not None:
         # From here on every replay of the training preprocessing (predict,
         # loadings, the grad-map certificate) runs `scale -> confound_projection -> rescale`.

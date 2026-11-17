@@ -193,7 +193,8 @@ def _prepare_one(x: np.ndarray, name: str, fit: np.ndarray, sign: Any, c: Any, m
     n_const = int((sd <= SD_FLOOR).sum())
     vp: Dict[str, Any] = {
         "name": name, "n_features_in": p, "signs": signs, "feature_mask": keep, "median": median,
-        "mean": mean, "scale": _sd_scale(sd), "sink": None, "mean2": None, "scale2": None, "restandardize": False,
+        "mean": mean, "scale": _sd_scale(sd), "raw_sd": sd.copy(), "missing_fraction": miss_frac[keep].copy(),
+        "sink": None, "mean2": None, "scale2": None, "restandardize": False,
     }
     rec.append(f"{name}: standardized {int(keep.sum())} columns on {int(fit_obs.sum())} fit rows (SD with ddof=0"
                + (f"; {n_const} constant column(s) centered and left unscaled" if n_const else "") + ")")
@@ -238,7 +239,8 @@ def _pack(names: List[str], values: List[Any], form: str) -> Any:
 
 
 def prepare_views(views: Any, *, fit_rows: Any = None, signs: Any = None, nuisance: Any = None,
-                  max_missing: Any = None, restandardize: Optional[bool] = None) -> Dict[str, Any]:
+                  max_missing: Any = None, restandardize: Optional[bool] = None,
+                  safety: str = "warn") -> Dict[str, Any]:
     """Prepare views in the fixed order orient, fill, standardize, remove nuisance, standardize again.
 
     Every estimated quantity (column median, mean, SD, the nuisance operator) comes from ``fit_rows`` only and is
@@ -273,6 +275,12 @@ def prepare_views(views: Any, *, fit_rows: Any = None, signs: Any = None, nuisan
         Step 5. ``None`` (default): standardize again whenever the nuisance step ran for the view; ``False``
         skips it (reproduces the order effect: nuisance-heavy views keep SD below 1); ``True`` is the same as
         ``None`` (a view without a nuisance step is already standardized).
+    safety : {"warn", "raise", "off"}, default="warn"
+        Run `pysimlr.data_safety` on the prepared views (`fit_rows` only) and store the report under
+        ``result["data_safety"]`` (``None`` when ``"off"``). ``"warn"`` emits one
+        `DataSafetyWarning` (a `RuntimeWarning`) per view that has a gross row outlier on row scale
+        (Rule 1 ``robust_z > 5.0``); ``"raise"`` raises `ValueError` instead. Input and prepared data are
+        never dropped or altered.
 
     Standard deviation convention. Population SD (``ddof=0``) on the fit rows with the view. A column whose SD is
     not above ``1e-12`` is constant: it is centered and not scaled, so it becomes all zeros (it stays in the
@@ -285,11 +293,15 @@ def prepare_views(views: Any, *, fit_rows: Any = None, signs: Any = None, nuisan
         NaN), ``feature_mask`` (per view, boolean over the input columns, False for columns dropped by
         ``max_missing``), ``variance_removed`` (per view, share of the fit-row variance the nuisance step removed,
         ``0.0`` when there was no nuisance step), ``params`` (everything `apply_prepared` needs), ``record``
-        (list of strings, one per step and view), ``view_names`` and ``fit_rows`` (boolean mask).
+        (list of strings, one per step and view), ``view_names``, ``fit_rows`` (boolean mask) and
+        ``data_safety`` (the `pysimlr.data_safety` dict, or ``None`` when ``safety="off"``).
 
     Pass ``views["views"]`` to ``pysimlr.fit`` with ``scale_list=["none"]``, no ``confounds``, and
     ``missing_rows="mask"`` if any row lacks a whole view.
     """
+    from .safety import _data_safety_impl, apply_safety_policy, validate_safety_mode
+
+    mode = validate_safety_mode(safety)
     names, arrays, form = _split_views(views)
     n = arrays[0].shape[0]
     fit = _fit_mask(fit_rows, n)
@@ -307,9 +319,20 @@ def prepare_views(views: Any, *, fit_rows: Any = None, signs: Any = None, nuisan
         vps.append(vp)
         record.extend(rec)
     params = {"order": list(ORDER), "form": form, "view_names": names, "views": vps}
-    return {"views": _pack(names, out_views, form), "feature_mask": _pack(names, masks, form),
+    packed_views = _pack(names, out_views, form)
+    if mode == "off":
+        safety_report = None
+    else:
+        safety_report = _data_safety_impl(
+            packed_views,
+            fit_rows=fit,
+            pre_miss_list=[vp["missing_fraction"] for vp in vps],
+            pre_sd_list=[vp["raw_sd"] for vp in vps],
+        )
+        apply_safety_policy(safety_report, mode, caller="prepare_views", stacklevel=3)
+    return {"views": packed_views, "feature_mask": _pack(names, masks, form),
             "variance_removed": _pack(names, removed, form), "params": params, "record": record,
-            "view_names": names, "fit_rows": fit}
+            "view_names": names, "fit_rows": fit, "data_safety": safety_report}
 
 
 def apply_prepared(params: Dict[str, Any], views: Any, nuisance: Any = None) -> Any:
