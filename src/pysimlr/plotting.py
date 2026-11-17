@@ -60,8 +60,6 @@ __all__ = [
 #: three clear it for all pairs. Aqua, yellow and magenta sit below 3:1 contrast,
 #: so views are always direct-labelled as well as coloured.
 VIEW_COLORS = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948")
-#: Stability reference bars: conservative and low-power (see docs/usage_notes.md).
-STABILITY_BARS = (0.9, 0.8)
 
 _INK = "#0b0b0b"          # primary text
 _INK2 = "#52514e"         # secondary text
@@ -326,10 +324,39 @@ def _view_names(view_names, m):
     return list(view_names) if view_names is not None else [f"view {i + 1}" for i in range(m)]
 
 
-def _stability_color(s, bars=STABILITY_BARS):
-    if s is None or not np.isfinite(s):
-        return _INK
-    return _INK if s >= bars[0] else (_SERIOUS if s >= bars[1] else _CRITICAL)
+def _comp_metric(val, component: int) -> Optional[float]:
+    if val is None:
+        return None
+    arr = np.asarray(val, float).ravel()
+    if component >= len(arr):
+        return None
+    v = float(arr[component])
+    return v if np.isfinite(v) else None
+
+
+def _inf_summary_phrase(inf: Optional[Dict[str, Any]], component: int, view: Optional[int] = None,
+                        kind: str = "structure") -> str:
+    if inf is None:
+        return ""
+    parts = []
+    lr = _comp_metric(inf.get("latent_reliability"), component)
+    lrg = _comp_metric(inf.get("latent_reliability_gain"), component)
+    if lr is not None:
+        parts.append(f"latent reliability {lr:.2f}" + (f" (gain {lrg:+.2f})" if lrg is not None else ""))
+    cvc = _comp_metric(inf.get("cross_view_coupling"), component)
+    if cvc is not None:
+        parts.append(f"cross-view coupling {cvc:.2f}")
+    if view is not None:
+        if kind == "structure":
+            fabv = inf.get("feature_agreement_by_view")
+        else:
+            e = (inf.get("maps") or {}).get(kind)
+            fabv = e.get("feature_agreement_by_view") if isinstance(e, Mapping) else None
+        if fabv is not None and view < len(fabv):
+            fa = _comp_metric(fabv[view], component)
+            if fa is not None:
+                parts.append(f"feature agreement {fa:.2f}")
+    return ", ".join(parts)
 
 
 def _correlate_columns(a, b):
@@ -382,13 +409,13 @@ def feature_table(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None,
     Columns: ``view``, ``view_name``, ``feature``, ``feature_name``,
     ``component`` (1-based), ``structure`` (corr(x, u R)), ``loading``, and,
     with a `pysimlr.loading_inference` result ``inf``: ``ci_low``, ``ci_high``,
-    ``excludes_zero``, ``selected`` (stability selection), ``selection_frequency``
-    and ``component_stability``. Alternative feature maps (``maps``, from
+    ``excludes_zero``, ``selected`` (selected in >= threshold of refits), and
+    ``selection_frequency``. Alternative feature maps (``maps``, from
     `pysimlr.feature_maps`, and any in ``inf["maps"]`` from
     ``loading_inference(maps=...)``) add a column named by kind and, with
-    inference, ``<kind>_ci_low``, ``<kind>_ci_high``,
-    ``<kind>_selection_frequency`` and ``<kind>_stability``. Sort, filter or
-    group it however the study needs; every feature plot here draws from it.
+    inference, ``<kind>_ci_low``, ``<kind>_ci_high``, and
+    ``<kind>_selection_frequency``. Sort, filter or group it however the study
+    needs; every feature plot here draws from it.
     """
     import pandas as pd
     F = _aligned_frame(res)
@@ -411,8 +438,7 @@ def feature_table(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None,
                     lo = _np(inf["ci_low"][m])[:, j].astype(float); hi = _np(inf["ci_high"][m])[:, j].astype(float)
                     d.update(ci_low=lo, ci_high=hi, excludes_zero=(lo > 0) | (hi < 0),
                              selected=_np(inf["selected"][m]).astype(bool),
-                             selection_frequency=_np(inf["selection_frequency"][m]).astype(float),
-                             component_stability=float(inf["component_stability"][m][j]))
+                             selection_frequency=_np(inf["selection_frequency"][m]).astype(float))
                 for kk, (mv, e) in extra.items():
                     if kk == "structure" and "structure" in d:
                         kk = "structure_other_views"
@@ -421,7 +447,6 @@ def feature_table(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None,
                         d[f"{kk}_ci_low"] = _np(e["ci_low"][m])[:, j].astype(float)
                         d[f"{kk}_ci_high"] = _np(e["ci_high"][m])[:, j].astype(float)
                         d[f"{kk}_selection_frequency"] = _np(e["selection_frequency"][m]).astype(float)
-                        d[f"{kk}_stability"] = float(e["component_stability"][m][j])
                 rows.append(pd.DataFrame(d))
         else:
             names = _view_feature_names(feature_names, m, probe_p)
@@ -436,15 +461,13 @@ def feature_table(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None,
                         lo = _np(e["ci_low"][m])[:, j].astype(float)
                         hi = _np(e["ci_high"][m])[:, j].astype(float)
                         freq = _np(e["selection_frequency"][m]).astype(float)
-                        stab = float(e["component_stability"][m][j])
                         if kk == "structure":
                             d.update(ci_low=lo, ci_high=hi, excludes_zero=(lo > 0) | (hi < 0),
-                                     selected=freq >= 0.8, selection_frequency=freq, component_stability=stab)
+                                     selected=freq >= 0.8, selection_frequency=freq)
                         else:
                             d[f"{kk}_ci_low"] = lo
                             d[f"{kk}_ci_high"] = hi
                             d[f"{kk}_selection_frequency"] = freq
-                            d[f"{kk}_stability"] = stab
                 if "structure" not in d:
                     d["structure"] = np.full(probe_p, np.nan)
                 rows.append(pd.DataFrame(d))
@@ -591,25 +614,43 @@ def plot_basis_diagnostics(res: Dict[str, Any], view_names=None, figsize=None):
 
 
 @_themed
-def plot_rank_selection(rank_result: Dict[str, Any], ax=None, bars: Sequence[float] = STABILITY_BARS,
+def plot_rank_selection(rank_result: Dict[str, Any], ax=None, bars: Optional[Sequence[float]] = None,
                         criterion: Optional[str] = None):
     """Rank-selection diagnostic for any `pysimlr.select_rank` criterion.
 
-    ``criterion`` defaults to ``rank_result["criterion"]`` (``"component"`` if
-    absent): component stability, Grassmannian subspace cosines
-    (``"subspace"``), out-of-bag held-out R^2 +- SE (``"oos_r2"``,
-    ``"oos_r2_1se"``), or out-of-bag cross-view coupling (``"oos_coupling"``).
-    Candidates with ``basis_degenerate=True`` have their tick in the critical colour.
+    ``criterion`` defaults to ``rank_result["criterion"]``
+    (``"latent_reliability"`` if absent): per-component and multivariate latent
+    reliability gain over permuted baseline (``"latent_reliability"``),
+    out-of-bag cross-view coupling (``"cross_view_coupling"``), held-out
+    cross-view coupling (``"heldout_coupling"``), or out-of-bag held-out R^2
+    +- SE (``"oos_r2"``, ``"oos_r2_1se"``). Candidates with
+    ``basis_degenerate=True`` have their tick in the critical colour.
     """
     from .loadings import RANK_CRITERIA
-    crit = criterion or rank_result.get("criterion", "component")
+    del bars  # deprecated in 0.41.0; kept for signature compatibility
+    crit = criterion or rank_result.get("criterion", "latent_reliability")
+    removed = {
+        "component": "latent_reliability",
+        "subspace": "latent_reliability",
+        "subspace_corrected": "latent_reliability",
+        "oos_coupling": "cross_view_coupling",
+    }
+    if crit in removed:
+        raise ValueError(
+            f"criterion {crit!r} was removed in 0.41.0; use {removed[crit]!r} "
+            f"(RANK_CRITERIA={RANK_CRITERIA})."
+        )
     if crit not in RANK_CRITERIA:
         raise ValueError(f"criterion must be one of {RANK_CRITERIA}; got {crit!r}.")
     table = rank_result["table"]
     chosen = (rank_result.get("criteria") or {}).get(crit, rank_result.get("k") if criterion is None else None)
-    names = {"oos_r2": "held-out reconstruction R²", "oos_r2_1se": "held-out R², one-SE rule",
-             "oos_coupling": "held-out view coupling", "subspace": "subspace stability",
-             "component": "component stability"}
+    names = {
+        "latent_reliability": "latent reliability",
+        "cross_view_coupling": "cross-view coupling",
+        "heldout_coupling": "held-out cross-view coupling",
+        "oos_r2": "held-out reconstruction R²",
+        "oos_r2_1se": "held-out R², one-SE rule",
+    }
     fig, ax = _figure(ax, (6.4, 4.6), f"Rank selection by {names.get(crit, crit)}",
                       f"Selected k = {chosen}." if chosen is not None else
                       "No candidate k passes this criterion; read the spread before choosing.")
@@ -620,19 +661,22 @@ def plot_rank_selection(rank_result: Dict[str, Any], ax=None, bars: Sequence[flo
         for i, (k, s) in enumerate(zip(ks, vals_per_k)):
             if s is None:
                 mins.append(np.nan); meds.append(np.nan); continue
-            s = np.asarray(s, float)
-            mins.append(s.min()); meds.append(np.median(s))
-            ax.vlines(k, s.min(), s.max(), color=_GRID, lw=7, zorder=1)
+            s = np.atleast_1d(np.asarray(s, float))
+            if s.size == 0 or not np.isfinite(s).any():
+                mins.append(np.nan); meds.append(np.nan); continue
+            mins.append(float(np.nanmin(s))); meds.append(float(np.nanmedian(s)))
+            ax.vlines(k, float(np.nanmin(s)), float(np.nanmax(s)), color=_GRID, lw=7, zorder=1)
             cols = colors[i] if colors is not None else [VIEW_COLORS[0]] * len(s)
             ax.scatter(np.full(len(s), k), s, s=30, c=cols, edgecolor=_SURFACE, linewidth=1.0, zorder=3)
-        return np.asarray(mins), np.asarray(meds)
+        return np.asarray(mins, float), np.asarray(meds, float)
 
     def mark(yv):
         if chosen is not None and chosen in ks:
             yy = yv[ks.index(chosen)]
-            ax.scatter([chosen], [yy], s=260, facecolor="none", edgecolor=_INK, linewidth=1.6, zorder=5)
-            ax.annotate(f"k = {chosen}", (chosen, yy), xytext=(12, 10), textcoords="offset points",
-                        fontsize=9, weight="semibold", color=_INK)
+            if np.isfinite(yy):
+                ax.scatter([chosen], [yy], s=260, facecolor="none", edgecolor=_INK, linewidth=1.6, zorder=5)
+                ax.annotate(f"k = {chosen}", (chosen, yy), xytext=(12, 10), textcoords="offset points",
+                            fontsize=9, weight="semibold", color=_INK)
 
     if crit in ("oos_r2", "oos_r2_1se"):
         ys = np.asarray([np.nan if r.get("oos_r2") is None else r["oos_r2"] for r in table], float)
@@ -646,34 +690,59 @@ def plot_rank_selection(rank_result: Dict[str, Any], ax=None, bars: Sequence[flo
                 ax.axhline(ys[bi] - se[bi], color=_INK2, lw=1)
                 ax.text(ks[0], ys[bi] - se[bi], " peak − 1 SE", va="bottom", fontsize=8, color=_INK2)
         mark(ys); ax.set_ylabel("held-out reconstruction R²")
-    elif crit == "oos_coupling":
-        mins, meds = spread([r.get("oos_coupling") for r in table])
+    elif crit in ("cross_view_coupling", "heldout_coupling"):
+        val_key = "heldout_coupling" if crit == "heldout_coupling" else "cross_view_coupling"
+        thr_key = "heldout_coupling_threshold" if crit == "heldout_coupling" else "cross_view_coupling_threshold"
+        mins, meds = spread([r.get(val_key) for r in table])
         ax.plot(ks, mins, color=_INK, lw=1.8, zorder=2, label="weakest component")
         ax.plot(ks, meds, color=_MUTED, lw=1.2, zorder=2, label="median")
-        thr = next((r.get("oos_coupling_threshold") for r in table if r.get("oos_coupling_threshold") is not None), None)
+        thr = next((r.get(thr_key) for r in table if r.get(thr_key) is not None), None)
         ax.axhline(0.0, color=_AXIS, lw=0.8)
         if thr is not None:
             ax.axhspan(-1, thr, color=_GRID, alpha=0.5, lw=0, zorder=0)
             ax.text(ks[-1], thr, f"null bar {thr:.2f} ", ha="right", va="bottom", fontsize=8, color=_INK2)
-        mark(mins); ax.set_ylabel("held-out view coupling (r)")
+        mark(mins)
+        ax.set_ylabel("held-out cross-view coupling (r)" if crit == "heldout_coupling" else "cross-view coupling (r)")
         ax.set_ylim(min(0, np.nanmin(mins) - 0.05) if np.isfinite(mins).any() else 0, 1.02)
         ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=3)
-    else:
-        key = "subspace_stability" if crit == "subspace" else "component_stability"
-        vals = [r[key] for r in table]
-        mins, meds = spread(vals, [[_stability_color(v, bars) if v < bars[0] else VIEW_COLORS[0] for v in s]
-                                   for s in vals])
-        ax.plot(ks, mins, color=_INK, lw=1.8, zorder=2,
-                label="min principal cosine" if crit == "subspace" else "weakest component")
+    else:  # "latent_reliability"
+        margin = float(rank_result.get("margin", (rank_result.get("parameters") or {}).get("margin", 0.2)))
+        has_gain = any(r.get("latent_reliability_gain") is not None for r in table)
+        vals = [
+            r.get("latent_reliability_gain") if r.get("latent_reliability_gain") is not None else r.get("latent_reliability")
+            for r in table
+        ]
+        dot_colors = [
+            [VIEW_COLORS[0] if (np.isfinite(v) and (not has_gain or v >= margin)) else _CRITICAL
+             for v in np.atleast_1d(np.asarray(s, float))]
+            if s is not None else []
+            for s in vals
+        ]
+        mins, meds = spread(vals, dot_colors)
+        ax.plot(ks, mins, color=_INK, lw=1.8, zorder=2, label="weakest component")
         ax.plot(ks, meds, color=_MUTED, lw=1.2, zorder=2, label="median")
-        if crit == "component" and all("min_subspace_stability" in r for r in table):
-            ax.plot(ks, [r["min_subspace_stability"] for r in table], color=VIEW_COLORS[6], lw=1.2,
-                    marker="s", ms=4, label="subspace min cosine")
-        for b in bars:
-            ax.axhline(b, color=_INK2 if b == bars[0] else _MUTED, lw=0.9, zorder=0)
-            ax.text(ks[-1] + 0.35, b, f"{b:g}", va="center", fontsize=8, color=_INK2)
-        mark(mins); ax.set_ylim(0, 1.04)
-        ax.set_ylabel("subspace principal cosine" if crit == "subspace" else "component stability")
+        mv_pts = []
+        for r in table:
+            if r["k"] > 1:
+                mv = (r.get("latent_reliability_multivariate_gain")
+                      if r.get("latent_reliability_gain") is not None
+                      else r.get("latent_reliability_multivariate"))
+                if mv is not None and np.isfinite(float(mv)):
+                    mv_pts.append((r["k"], float(mv)))
+        if mv_pts:
+            mv_ks, mv_ys = zip(*mv_pts)
+            ax.plot(mv_ks, mv_ys, color=VIEW_COLORS[6], lw=1.2, marker="s", ms=4,
+                    label="multivariate gain" if has_gain else "multivariate")
+        ax.axhline(0.0, color=_AXIS, lw=0.8)
+        ax.axhline(margin, color=_INK2, ls="--", lw=1.0, zorder=0)
+        ax.text(ks[-1], margin, f" margin {margin:g} ", ha="right", va="bottom", fontsize=8, color=_INK2)
+        mark(mins)
+        all_finite = [float(v) for s in vals if s is not None for v in np.atleast_1d(np.asarray(s, float)) if np.isfinite(v)]
+        all_finite.extend(y for _, y in mv_pts)
+        ymin = min(-0.05, min(all_finite) - 0.05) if all_finite else -0.05
+        ymax = max(1.02, max(all_finite) + 0.05) if all_finite else 1.02
+        ax.set_ylim(ymin, ymax)
+        ax.set_ylabel("latent reliability gain (ICC(1) − baseline)" if has_gain else "latent reliability (ICC(1))")
         ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=3)
     _clean(ax, grid="y")
     ax.set_xticks(ks); ax.set_xlabel("k (number of components)"); ax.set_xlim(min(ks) - 0.5, max(ks) + 0.6)
@@ -1075,7 +1144,7 @@ def plot_view_correlations(views, names: Optional[Sequence[str]] = None, ax=None
 
 
 # ----------------------------------------------------------------------------- interpretable features
-def _draw_top_features(ax, tab, m, component, kind, top_n, rank_by, null, bars, color):
+def _draw_top_features(ax, tab, m, component, kind, top_n, rank_by, null, color, inf=None):
     d = tab[(tab.view == m) & (tab.component == component + 1)].copy()
     is_struct = kind == "structure"
     lo_c, hi_c = ("ci_low", "ci_high") if is_struct else (f"{kind}_ci_low", f"{kind}_ci_high")
@@ -1089,7 +1158,6 @@ def _draw_top_features(ax, tab, m, component, kind, top_n, rank_by, null, bars, 
                 d[c_] = d[c_] * scale
     val = d[kind].to_numpy()
     freq_c = "selection_frequency" if is_struct else f"{kind}_selection_frequency"
-    stab_c = "component_stability" if is_struct else f"{kind}_stability"
     if rank_by == "selection" and freq_c in d:
         order = np.lexsort((-np.abs(val), -d[freq_c].to_numpy()))[:top_n]
     else:
@@ -1109,7 +1177,7 @@ def _draw_top_features(ax, tab, m, component, kind, top_n, rank_by, null, bars, 
     if has_ci:
         if kind == "relative_weight":
             # Non-negative shares: an interval "excluding 0" says nothing, so mark
-            # stability selection (selected in >= 80% of refits) instead.
+            # selection in >= 80% of refits instead.
             strong = (d[freq_c] >= 0.8).to_numpy() if freq_c in d else np.zeros(len(d), bool)
         else:
             exc = ((d[lo_c] > 0) | (d[hi_c] < 0)).to_numpy()
@@ -1129,10 +1197,20 @@ def _draw_top_features(ax, tab, m, component, kind, top_n, rank_by, null, bars, 
     nonneg = kind == "relative_weight"
     ax.set_xlim(0 if nonneg else -lim, lim); ax.set_ylim(-0.7, len(d) - 0.3)
     title = f"{d.view_name.iloc[0]}"
-    tcolor = _INK
-    if stab_c in d and np.isfinite(d[stab_c].iloc[0]):
-        st = float(d[stab_c].iloc[0]); title += f"  ·  stability {st:.2f}"; tcolor = _stability_color(st, bars)
-    ax.set_title(title, fontsize=10.5, color=tcolor)
+    if inf is not None:
+        if is_struct:
+            fabv = inf.get("feature_agreement_by_view")
+        else:
+            e = (inf.get("maps") or {}).get(kind)
+            fabv = e.get("feature_agreement_by_view") if isinstance(e, Mapping) else None
+        fa = _comp_metric(fabv[m], component) if fabv is not None and m < len(fabv) else None
+        if fa is not None:
+            title += f"  ·  feature agreement {fa:.2f}"
+        elif is_struct:
+            lr = _comp_metric(inf.get("latent_reliability"), component)
+            if lr is not None:
+                title += f"  ·  latent reliability {lr:.2f}"
+    ax.set_title(title, fontsize=10.5, color=_INK)
     if r2_total is not None:
         ax.set_xlabel(f"% of the variance this view explains (R² = {r2_total:.2f})")
     else:
@@ -1144,22 +1222,23 @@ def _draw_top_features(ax, tab, m, component, kind, top_n, rank_by, null, bars, 
 def plot_top_features(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None, component: int = 0,
                       kind: str = "structure", views: Optional[Sequence[int]] = None, view_names=None,
                       feature_names=None, top_n: int = 15, rank_by: str = "magnitude",
-                      bars: Sequence[float] = STABILITY_BARS, figsize=None,
+                      bars: Optional[Sequence[float]] = None, figsize=None,
                       maps: Optional[Dict[str, Any]] = None):
     """The features that define one component, one panel per view.
 
     ``kind="structure"`` (default; defined for every method), ``"loadings"``, or
     an alternative map from `pysimlr.feature_maps` (``"partial"``,
     ``"global_partial"``, ``"component_partial"``, ``"relative_weight"``),
-    taken from ``maps=`` or from ``inf["maps"]`` (then with its own intervals and
-    stability; filled dots mark intervals that exclude 0).
+    taken from ``maps=`` or from ``inf["maps"]`` (then with its own intervals;
+    filled dots mark intervals that exclude 0).
     With ``inf = pysimlr.loading_inference(...)``: 95% subsample intervals,
-    filled dots for stability-selected features or intervals excluding 0
-    (selected names in bold), the permutation null as a grey band
-    (+-``null_max_abs``), and the component's stability in each title, in
-    primary ink / serious / critical against ``bars``. ``rank_by="selection"``
-    ranks by selection frequency instead of magnitude.
+    filled dots for selected features or intervals excluding 0 (selected names
+    in bold), the permutation null as a grey band (+-``null_max_abs``),
+    latent reliability and cross-view coupling in the subtitle, and per-view
+    feature agreement in each panel title. ``rank_by="selection"`` ranks by
+    selection frequency instead of magnitude. ``bars`` is ignored since 0.41.0.
     """
+    del bars  # deprecated in 0.41.0; kept for signature compatibility
     tab = feature_table(res, inf, view_names, feature_names, maps=maps)
     kind = "loading" if kind in ("loading", "loadings") else kind
     if kind not in tab.columns or kind in ("view", "feature", "component"):
@@ -1178,12 +1257,16 @@ def plot_top_features(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None,
         if f"{kind}_ci_low" in tab.columns:
             sub += (" Filled: selected in ≥ 80% of refits; bars: 95% half-sample interval."
                     if kind == "relative_weight" else " Filled: 95% interval excludes 0.")
+    if inf is not None:
+        phrase = _inf_summary_phrase(inf, component)
+        if phrase:
+            sub += f" ({phrase}.)"
     fig = _new(figsize or (3.9 * len(vs) + 0.6, 0.27 * top_n + 2.2), f"What defines component {component + 1}",
                sub, _status_line(res))
     axes = np.atleast_1d(fig.subplots(1, len(vs)))
     null = inf.get("null_max_abs") if inf is not None else None
     for ax, m in zip(axes, vs):
-        _draw_top_features(ax, tab, m, component, kind, top_n, rank_by, null, bars, _view_color(m))
+        _draw_top_features(ax, tab, m, component, kind, top_n, rank_by, null, _view_color(m), inf=inf)
     return fig
 
 
@@ -1192,17 +1275,12 @@ def _sel_freq(d, kind):
     return d[c].to_numpy(float) if c in d else None
 
 
-def _map_stability(d, kind):
-    c = "component_stability" if kind == "structure" else f"{kind}_stability"
-    return float(d[c].iloc[0]) if c in d and np.isfinite(d[c].iloc[0]) else None
-
-
 @_themed
 def plot_feature_map_shift(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = None,
                            inf: Optional[Dict[str, Any]] = None, component: int = 0, view: int = 0,
                            from_kind: str = "structure", to_kind: str = "relative_weight", top_n: int = 12,
                            min_shift: int = 3, view_names=None, feature_names=None,
-                           bars: Sequence[float] = STABILITY_BARS, figsize=None):
+                           bars: Optional[Sequence[float]] = None, figsize=None):
     """How the feature ranking of one component changes between two maps.
 
     Each line joins a feature's rank by ``|from_kind|`` (left) to its rank by
@@ -1210,11 +1288,12 @@ def plot_feature_map_shift(res: Dict[str, Any], maps: Optional[Dict[str, Any]] =
     "lower" row. Lines that climb at least ``min_shift`` places are drawn in the
     view's colour, lines that fall in grey. With ``inf =
     loading_inference(..., maps=...)``, a filled end dot means the feature is
-    selected in >= 80% of refits under that map, and each header carries the
-    map's component stability. The default question it answers: which features
-    gain once each feature's unique share of the prediction (relative weight)
-    replaces plain association with the component (structure)?
+    selected in >= 80% of refits under that map. The default question it
+    answers: which features gain once each feature's unique share of the
+    prediction (relative weight) replaces plain association with the component
+    (structure)? ``bars`` is ignored since 0.41.0.
     """
+    del bars  # deprecated in 0.41.0; kept for signature compatibility
     tab = feature_table(res, inf, view_names, feature_names, maps=maps)
     for k_ in (from_kind, to_kind):
         if k_ not in tab.columns:
@@ -1266,10 +1345,8 @@ def plot_feature_map_shift(res: Dict[str, Any], maps: Optional[Dict[str, Any]] =
     if n_low_b:
         ax.text(1.05, low, f"lower ({n_low_b})", ha="left", va="center", fontsize=8, color=_MUTED, style="italic")
     for x, k_ in ((0, from_kind), (1, to_kind)):
-        st = _map_stability(d, k_)
-        head = label.get(k_, k_) + (f"\nstability {st:.2f}" if st is not None else "")
-        ax.text(x, 0.0, head, ha="center", va="bottom", fontsize=9.4, weight="semibold",
-                color=_stability_color(st, bars) if st is not None else _INK)
+        head = label.get(k_, k_)
+        ax.text(x, 0.0, head, ha="center", va="bottom", fontsize=9.4, weight="semibold", color=_INK)
     ax.set_xlim(-0.95, 1.95); ax.set_ylim(low + 0.7, -0.9)
     ax.axis("off")
     return fig
@@ -1297,7 +1374,8 @@ def feature_map_values(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = Non
     Per kind: ``values`` (per feature, display units: |map|, or for
     ``relative_weight`` percent of the variance the view explains), ``vmax``
     (scale 0..vmax), ``selected`` (selection frequency >= 0.8, or None without
-    inference), ``stability`` (or None), ``units``, ``label`` and ``names``.
+    inference), ``stability`` (always None since 0.41.0), ``units``, ``label``
+    and ``names``.
     """
     tab = feature_table(res, inf, view_names, feature_names, maps=maps)
     d = tab[(tab.view == view) & (tab.component == component + 1)].reset_index(drop=True)
@@ -1313,7 +1391,7 @@ def feature_map_values(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = Non
             units = "% of explained variance"
         f = _sel_freq(d, k_)
         out[k_] = {"values": v, "vmax": float(np.nanmax(v)) if np.isfinite(v).any() else 1.0,
-                   "selected": (f >= 0.8) if f is not None else None, "stability": _map_stability(d, k_),
+                   "selected": (f >= 0.8) if f is not None else None, "stability": None,
                    "units": units, "label": _MAP_SHORT.get(k_, k_), "names": d.feature_name.tolist(),
                    "view_name": d.view_name.iloc[0]}
     return out
@@ -1998,16 +2076,17 @@ def plot_component_attribution(att: Dict[str, Any], *, spectrum_view: Optional[i
 def plot_feature_map_comparison(res: Dict[str, Any], maps: Optional[Dict[str, Any]] = None,
                                 inf: Optional[Dict[str, Any]] = None, component: int = 0, view: int = 0,
                                 kinds: Optional[Sequence[str]] = None, top_n: int = 8, view_names=None,
-                                feature_names=None, bars: Sequence[float] = STABILITY_BARS, figsize=None):
+                                feature_names=None, bars: Optional[Sequence[float]] = None, figsize=None):
     """One component of one view read through several feature maps side by side.
 
     Rows are the union of each map's ``top_n`` features; columns are maps. Dot
     size and shade are |map| / max |map| within that map, and the numbers are each
-    map's ranks (top 10). With ``inf = loading_inference(..., maps=...)`` each
-    column header carries that map's component stability, coloured against
-    ``bars``. ``structure`` is the fit's own column; the alternatives come from
-    ``maps`` (`pysimlr.feature_maps`) or ``inf["maps"]``.
+    map's ranks (top 10). ``structure`` is the fit's own column; the alternatives
+    come from ``maps`` (`pysimlr.feature_maps`) or ``inf["maps"]``. With ``inf``,
+    the subtitle reports ``latent_reliability``, ``cross_view_coupling``, and
+    ``feature_agreement_by_view``; ``bars`` is ignored since 0.41.0.
     """
+    del bars  # deprecated in 0.41.0; kept for signature compatibility
     tab = feature_table(res, inf, view_names, feature_names, maps=maps)
     avail = _maps_of(inf, maps)
     dropped = []
@@ -2038,13 +2117,15 @@ def plot_feature_map_comparison(res: Dict[str, Any], maps: Optional[Dict[str, An
                 rows.append(int(i))
     rows.sort(key=lambda i: np.mean([ranks[k_][i] for k_ in kinds]))
     color = _view_color(view)
+    phrase = _inf_summary_phrase(inf, component, view=view)
+    sub = ("Dot size: |map| / max |map| within that map; number: rank (top 10)"
+           + ("; fill: selected in ≥ 80% of refits (pale: ≥ 50%, ring: below)" if inf is not None else "")
+           + "."
+           + (f" {phrase}." if phrase else "")
+           + (f" Not shown: {', '.join(dropped)} (equals structure here)." if dropped else ""))
     fig = _new(figsize or (1.45 * len(kinds) + 3.6, 0.36 * len(rows) + 2.4),
                f"Component {component + 1} of {d.view_name.iloc[0]}, read through {len(kinds)} feature maps",
-               "Dot size: |map| / max |map| within that map; number: rank (top 10)"
-               + ("; fill: selected in ≥ 80% of refits (pale: ≥ 50%, ring: below)" if inf is not None else "")
-               + ". Header colour: stability ≥ 0.9 ink, ≥ 0.8 amber, below red."
-               + (f" Not shown: {', '.join(dropped)} (equals structure here)." if dropped else ""),
-               _status_line(res))
+               sub, _status_line(res))
     ax = fig.subplots(1, 1)
     for x, k_ in enumerate(kinds):
         top = mags[k_].max() or 1.0
@@ -2064,20 +2145,13 @@ def plot_feature_map_comparison(res: Dict[str, Any], maps: Optional[Dict[str, An
             if ranks[k_][i] < 10:
                 ax.text(x, y, str(ranks[k_][i] + 1), ha="center", va="center", fontsize=7.2, zorder=3,
                         color=_SURFACE if dark else _INK2)
-    heads = []
-    for k_ in kinds:
-        h = {"structure": "structure", "structure_other_views": "structure\n(other views)",
-             "partial": "partial\n(inverse corr.)", "global_partial": "global-\npartial",
-             "component_partial": "component-\npartial", "relative_weight": "relative\nweight"}.get(k_, k_)
-        sc = "component_stability" if k_ == "structure" else f"{k_}_stability"
-        if sc in d and np.isfinite(d[sc].iloc[0]):
-            h += f"\nstab. {float(d[sc].iloc[0]):.2f}"
-        heads.append(h)
+    heads = [
+        {"structure": "structure", "structure_other_views": "structure\n(other views)",
+         "partial": "partial\n(inverse corr.)", "global_partial": "global-\npartial",
+         "component_partial": "component-\npartial", "relative_weight": "relative\nweight"}.get(k_, k_)
+        for k_ in kinds
+    ]
     ax.set_xticks(range(len(kinds))); ax.set_xticklabels(heads, fontsize=8.4); ax.xaxis.tick_top()
-    for lbl, k_ in zip(ax.get_xticklabels(), kinds):
-        sc = "component_stability" if k_ == "structure" else f"{k_}_stability"
-        if sc in d and np.isfinite(d[sc].iloc[0]):
-            lbl.set_color(_stability_color(float(d[sc].iloc[0]), bars))
     ax.set_yticks(range(len(rows))); ax.set_yticklabels(d.feature_name.iloc[rows], fontsize=8.4)
     ax.set_ylim(len(rows) - 0.4, -0.7); ax.set_xlim(-0.6, len(kinds) - 0.4)
     _clean(ax, grid=None)
@@ -2473,19 +2547,26 @@ def plot_fit_summary(res: Dict[str, Any], views=None, pred: Optional[Dict[str, A
     intervals when ``inf`` is given). Saved to ``save_path`` if given.
     """
     F = _aligned_frame(res); vn = _view_names(view_names, len(F["structure"]))
-    fig = _new(figsize, f"{res.get('method', 'fit')} summary",
-               "Optimisation, basis, coupling and the features of the most strongly coupled component.",
-               _status_line(res))
+    if F["joint"]:
+        tr = te = None
+        j_top = 0
+    else:
+        tr = _coupling(res); te = _coupling(res, pred) if pred is not None else None
+        j_top = int(np.nanargmax(np.nanmean(tr, 0)))
+    sub = "Optimisation, basis, coupling and the features of the most strongly coupled component."
+    if inf is not None:
+        phrase = _inf_summary_phrase(inf, j_top)
+        if phrase:
+            sub += f" ({phrase}.)"
+    fig = _new(figsize, f"{res.get('method', 'fit')} summary", sub, _status_line(res))
     gs = fig.add_gridspec(2, 3, height_ratios=(1, 1.15))
     _draw_convergence(res, fig.add_subplot(gs[0, 0]))
     if res.get("effective_rank") is not None:
         _draw_effective_rank(res, fig.add_subplot(gs[0, 1]), view_names)
     ax = fig.add_subplot(gs[0, 2])
     if F["joint"]:
-        ax.axis("off"); ax.text(0, 0.5, "joint latent: no per-view coupling", color=_INK2); j_top = 0
+        ax.axis("off"); ax.text(0, 0.5, "joint latent: no per-view coupling", color=_INK2)
     else:
-        tr = _coupling(res); te = _coupling(res, pred) if pred is not None else None
-        j_top = int(np.nanargmax(np.nanmean(tr, 0)))
         show = te if te is not None else tr; M, k = show.shape
         for m in range(M):
             for c in range(k):
@@ -2508,7 +2589,7 @@ def plot_fit_summary(res: Dict[str, Any], views=None, pred: Optional[Dict[str, A
     null = inf.get("null_max_abs") if inf is not None else None
     for c_i, m in enumerate(range(min(2, len(F["structure"])))):
         _draw_top_features(fig.add_subplot(bottom[1 + c_i]), tab, m, j_top, "structure", top_n, "magnitude",
-                           null, STABILITY_BARS, _view_color(m))
+                           null, _view_color(m), inf=inf)
     if save_path is not None:
         fig.savefig(save_path, dpi=200, bbox_inches="tight")
     return fig

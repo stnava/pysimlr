@@ -212,9 +212,9 @@ def test_loading_inference_with_missing_rows_on_signal_and_on_noise():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         sig = pysimlr.loading_inference("simlr", vm, 1, **kw)
-    assert sig["oos_coupling"] is not None and np.isfinite(sig["oos_coupling"]).all()
-    assert sig["oos_coupling"][0] > 0.4
-    assert len(sig["oos_coupling_n"]) == 4 and min(sig["oos_coupling_n"]) >= 3
+    assert sig["cross_view_coupling"] is not None and np.isfinite(sig["cross_view_coupling"]).all()
+    assert sig["cross_view_coupling"][0] > 0.4
+    assert len(sig["cross_view_coupling_n"]) == 4 and min(sig["cross_view_coupling_n"]) >= 3
     for kind in ("structure", "partial"):
         e = sig["maps"][kind]
         assert e["n_eff"] == [120, 90, 119, 120]
@@ -227,8 +227,8 @@ def test_loading_inference_with_missing_rows_on_signal_and_on_noise():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         nul = pysimlr.loading_inference("simlr", noise, 1, **kw)
-    assert np.isfinite(nul["oos_coupling"]).all()
-    assert abs(nul["oos_coupling"][0]) < 0.25 < sig["oos_coupling"][0]
+    assert np.isfinite(nul["cross_view_coupling"]).all()
+    assert abs(nul["cross_view_coupling"][0]) < 0.25 < sig["cross_view_coupling"][0]
 
 
 @pytest.mark.parametrize("fn", ["feature_relevance", "component_attribution"])
@@ -261,8 +261,8 @@ def _reference_quantities():
         warnings.simplefilter("ignore")
         inf = pysimlr.loading_inference("simlr", vs, 2, n_subsamples=4, random_state=0, iterations=40,
                                         maps=("structure", "partial"), n_jobs=1)
-    out["inf/oos_coupling"] = np.asarray(inf["oos_coupling"], float)
-    out["inf/oos_coupling_splits"] = np.asarray(inf["oos_coupling_splits"], float)
+    out["inf/oos_coupling"] = np.asarray(inf["cross_view_coupling"], float)
+    out["inf/oos_coupling_splits"] = np.asarray(inf["cross_view_coupling_splits"], float)
     out["inf/oos_r2"] = np.asarray(inf["oos_r2"], float)
     for kind in ("structure", "partial"):
         for m, t in enumerate(inf["maps"][kind]["map"]):

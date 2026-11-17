@@ -65,7 +65,8 @@ def _abs_corr(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def multistart_fit(method: str, views: Any, k: int, *, n_starts: int = 10, include_default: bool = True,
-                   random_state: int = 0, n_jobs: int = 1, **params: Any) -> Dict[str, Any]:
+                   random_state: int = 0, n_jobs: int = 1,
+                   tune_learning_rate: str = "per_refit", **params: Any) -> Dict[str, Any]:
     """Fit ``method`` from the default start and ``n_starts`` random starts; return the lowest-energy fit.
 
     Parameters
@@ -84,6 +85,11 @@ def multistart_fit(method: str, views: Any, k: int, *, n_starts: int = 10, inclu
     n_jobs : int, default=1
         Worker processes for the starts (``-1``: all cores); the result does not depend on it beyond
         floating-point differences from the thread count inside a worker.
+    tune_learning_rate : {"per_refit"}, default="per_refit"
+        Each start tunes its own learning rate (``"per_refit"``). Reusing a
+        ``"pca"``/``"gcca"`` reference learning rate (``"reference"``) is
+        refused with ``ValueError`` because ``multistart_fit`` mixes structured
+        and ``"random"`` starts whose initial gradient scales differ sharply.
 
     Supported methods. A start can be varied when the method accepts ``initialization_type`` and
     ``random_state``, and starts are comparable when the result has ``best_energy`` (read from the first fit).
@@ -102,14 +108,25 @@ def multistart_fit(method: str, views: Any, k: int, *, n_starts: int = 10, inclu
         (label of the chosen start), ``chosen_index`` (its position in ``starts``), ``n_distinct_solutions``
         (number of groups of starts linked by ``|corr| >= 0.95``, linking through chains), ``energy_gap`` (the
         lowest energy minus the lowest energy among the other distinct solutions: zero or negative, ``None``
-        with a single solution) and ``multistart`` (the settings). Lower energy is better; ties go to the
+        with a single solution), ``refit_learning_rates`` (list of resolved numeric learning rates per start,
+        or ``None``), and ``multistart`` (the settings). Lower energy is better; ties go to the
         earlier start. A start with a non-finite energy is excluded from the choice with a ``RuntimeWarning``;
         all non-finite raises ``RuntimeError``.
     """
     from .api import METHODS, resolve_method
-    from .loadings import _n_workers, _pool
+    from .loadings import _extract_learning_rate_used, _n_workers, _pool
 
     spec = resolve_method(method)
+    if tune_learning_rate == "reference":
+        raise ValueError(
+            "multistart_fit does not support tune_learning_rate='reference': "
+            "multistart_fit mixes structured ('pca'/'gcca') and 'random' starts whose "
+            "initial gradient scales differ sharply; use tune_learning_rate='per_refit'."
+        )
+    if tune_learning_rate != "per_refit":
+        raise ValueError(
+            f"tune_learning_rate must be 'per_refit' for multistart_fit; got {tune_learning_rate!r}."
+        )
     if int(n_starts) < 0 or int(n_starts) != n_starts:
         raise ValueError(f"n_starts must be a non-negative integer; got {n_starts}.")
     n_starts = int(n_starts)
@@ -171,8 +188,10 @@ def multistart_fit(method: str, views: Any, k: int, *, n_starts: int = 10, inclu
     gap = float(best_by_group[0] - best_by_group[1]) if len(best_by_group) > 1 else None
 
     starts = []
+    refit_lrs: List[Optional[float]] = []
     for i, f in enumerate(fits):
         conv = f.get("convergence", {})
+        refit_lrs.append(_extract_learning_rate_used(f))
         starts.append({
             "label": labels[i], "seed": seeds[i], "energy": energies[i],
             "converged": conv.get("converged"), "n_steps": conv.get("n_steps"),
@@ -182,11 +201,44 @@ def multistart_fit(method: str, views: Any, k: int, *, n_starts: int = 10, inclu
     out.update({
         "starts": starts, "chosen": labels[chosen_i], "chosen_index": chosen_i,
         "n_distinct_solutions": len(groups), "energy_gap": gap,
+        "refit_learning_rates": refit_lrs,
         "multistart": {"method": method, "n_starts": n_starts, "include_default": bool(include_default),
                        "random_state": int(random_state), "n_jobs": n_jobs,
+                       "tune_learning_rate": tune_learning_rate,
                        "same_solution_corr": SAME_SOLUTION_CORR},
     })
     return out
 
 
-__all__ = ["multistart_fit"]
+def solution_uniqueness(method: str, views: Any, k: int, *, n_starts: int = 5,
+                        include_default: bool = True, random_state: int = 0,
+                        n_jobs: int = 1, tune_learning_rate: str = "per_refit",
+                        **params: Any) -> Dict[str, Any]:
+    """One-call diagnostic checking whether ``method`` reaches a unique solution from multiple starts.
+
+    Wraps `multistart_fit` and returns ``n_distinct_solutions``, ``unique``
+    (``n_distinct_solutions == 1``), ``energy_gap``, ``best_energy``, ``chosen``,
+    ``converged_fraction``, ``starts``, ``refit_learning_rates``, and ``result``
+    (the full `multistart_fit` dictionary).
+    """
+    ms = multistart_fit(
+        method, views, k, n_starts=n_starts, include_default=include_default,
+        random_state=random_state, n_jobs=n_jobs,
+        tune_learning_rate=tune_learning_rate, **params,
+    )
+    conv_flags = [bool(s.get("converged", False)) for s in ms["starts"]]
+    conv_frac = float(np.mean(conv_flags)) if conv_flags else 1.0
+    return {
+        "n_distinct_solutions": int(ms["n_distinct_solutions"]),
+        "unique": bool(int(ms["n_distinct_solutions"]) == 1),
+        "energy_gap": ms["energy_gap"],
+        "best_energy": float(ms["best_energy"]),
+        "chosen": ms["chosen"],
+        "converged_fraction": conv_frac,
+        "starts": ms["starts"],
+        "refit_learning_rates": ms["refit_learning_rates"],
+        "result": ms,
+    }
+
+
+__all__ = ["multistart_fit", "solution_uniqueness"]

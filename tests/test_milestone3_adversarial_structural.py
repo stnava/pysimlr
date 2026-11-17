@@ -89,9 +89,12 @@ def test_compare_path_models_large_graph_10_modalities():
                               fit_params=_LEND, n_permutations=19)
     sp = out["splits"]
     assert list(sp.graph) == ["chain_10", "star_10"] and (sp.topology == "graph").all()
-    assert np.isfinite(sp[["heldout_loglik_own", "heldout_loglik_complete", "oos_coupling", "oos_r2"]]
+    assert np.isfinite(sp[["heldout_loglik_own", "heldout_loglik_complete", "cross_view_coupling", "oos_r2"]]
                        .to_numpy(float)).all()
-    assert set(out["best"]) == {"heldout_loglik_own", "heldout_loglik_complete", "oos_coupling", "oos_r2"}
+    assert set(out["best"]) == {"heldout_loglik_own", "heldout_loglik_complete", "cross_view_coupling", "oos_r2"}
+    with pytest.raises(ValueError, match="cross_view_coupling"):
+        compare_path_models(method="lend", k=k, views=views, graphs=graphs, n_splits=1,
+                            fit_params=_LEND, n_permutations=19, criterion="oos_coupling")
 
 
 def test_compare_path_models_complete_graph():

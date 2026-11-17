@@ -25,6 +25,7 @@ SIMLR_OPTIMIZER_DEFAULTS: Dict[str, Any] = {
     'reparameterize': True, # Quadratic reparameterization for non-negativity
     'positivity': 'either', # Positivity constraint type
     'nonneg': None,         # Explicit nonneg flag for bound-constrained solvers
+    'first_step_cap': 1.0,  # First-sweep trust-region multiplier for hybrid_adam_trust
 }
 
 class SimlrOptimizer(ABC):
@@ -373,6 +374,89 @@ class HybridAdam(SimlrOptimizer):
             optimal_step_size = self.params['learning_rate']
         state['last_step_size'] = torch.tensor(optimal_step_size * 1.5 if optimal_step_size > 1e-9 else float(self.params['learning_rate']))
         return v_current + optimal_step_size * search_direction
+
+
+class _HybridAdamVariant(HybridAdam):
+    """Shared bias-corrected HybridAdam base for Section 6.3 Phase 1A candidates."""
+
+    _first_step_trust_cap: bool = False
+    _normalize_direction: bool = False
+
+    def step(self, i: int, v_current: torch.Tensor, descent_gradient: torch.Tensor,
+             full_energy_function: Optional[Callable] = None) -> torch.Tensor:
+        state = self.state[i]
+        state['iter'] += 1
+        beta1 = self.params['beta1']
+        beta2 = self.params['beta2']
+        epsilon = self.params['epsilon']
+        state['m'] = beta1 * state['m'] + (1 - beta1) * descent_gradient
+        state['v'] = beta2 * state['v'] + (1 - beta2) * (descent_gradient ** 2)
+        m_hat = state['m'] / (1.0 - beta1 ** state['iter'])
+        if self.params.get('amsgrad', False):
+            state['v_max'] = torch.maximum(state['v_max'], state['v'])
+            denom_sq = state['v_max']
+        else:
+            denom_sq = state['v']
+        v_hat = denom_sq / (1.0 - beta2 ** state['iter'])
+        raw_dir = m_hat / (torch.sqrt(v_hat) + epsilon)
+        grad_norm = torch.norm(descent_gradient)
+        if grad_norm > epsilon and torch.sum(-descent_gradient * raw_dir) >= 0:
+            state['m'] = descent_gradient.clone()
+            raw_dir = state['m'] / (torch.sqrt(v_hat) + epsilon)
+
+        if self._normalize_direction:
+            v_scale = torch.linalg.norm(v_current).clamp_min(epsilon)
+            dir_norm = torch.linalg.norm(raw_dir).clamp_min(epsilon)
+            search_direction = raw_dir * (v_scale / dir_norm)
+        else:
+            search_direction = raw_dir
+
+        initial_step = (
+            state['last_step_size'].item()
+            if full_energy_function is not None
+            else float(self.params['learning_rate'])
+        )
+        if self._first_step_trust_cap and state['iter'] == 1:
+            cap = float(self.params.get('first_step_cap', 1.0))
+            if cap <= 0.0:
+                raise ValueError(f"first_step_cap must be positive; got {cap}.")
+            v_scale = float(torch.linalg.norm(v_current).clamp_min(epsilon).item())
+            dir_norm = float(torch.linalg.norm(search_direction).item())
+            if dir_norm > epsilon:
+                initial_step = min(initial_step, (cap * v_scale) / dir_norm)
+
+        if full_energy_function is not None:
+            optimal_step_size = backtracking_linesearch(
+                v_current=v_current,
+                descent_direction=search_direction,
+                ascent_gradient=-descent_gradient,
+                energy_function=full_energy_function,
+                initial_step_size=initial_step,
+            )
+        else:
+            optimal_step_size = initial_step
+        state['last_step_size'] = torch.tensor(
+            optimal_step_size * 1.5
+            if optimal_step_size > 1e-9
+            else float(self.params['learning_rate'])
+        )
+        return v_current + optimal_step_size * search_direction
+
+
+class HybridAdamBC(_HybridAdamVariant):
+    """HybridAdam with standard Adam bias correction on ``m`` and ``v``."""
+
+
+class HybridAdamTrust(_HybridAdamVariant):
+    """HybridAdam with standard bias correction and a first-sweep trust-region cap."""
+
+    _first_step_trust_cap = True
+
+
+class HybridAdamNorm(_HybridAdamVariant):
+    """HybridAdam with standard bias correction and ``||v_current||`` direction normalization."""
+
+    _normalize_direction = True
 
 class Adam(SimlrOptimizer):
     """
@@ -786,6 +870,10 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
     optimizer_type : str
         The name of the optimizer to create. Supported values include:
         - 'hybrid_adam': `HybridAdam` (`simlr()`'s default, `defaults.DEFAULT_LINEAR_OPTIMIZER`)
+        - 'hybrid_adam_legacy': explicit alias for the legacy `HybridAdam` rule
+        - 'hybrid_adam_bc': `HybridAdamBC` (bias-corrected moments)
+        - 'hybrid_adam_trust': `HybridAdamTrust` (bias-corrected + first-sweep trust-region cap)
+        - 'hybrid_adam_norm': `HybridAdamNorm` (bias-corrected + ``||v_current||`` normalization)
         - 'adam': `Adam`
         - 'nadam': `Nadam`
         - 'rmsprop': `RMSProp`
@@ -815,6 +903,10 @@ def create_optimizer(optimizer_type: str, v_mats: List[torch.Tensor], **params) 
     """
     mapping = {
         "hybrid_adam": HybridAdam,
+        "hybrid_adam_legacy": HybridAdam,
+        "hybrid_adam_bc": HybridAdamBC,
+        "hybrid_adam_trust": HybridAdamTrust,
+        "hybrid_adam_norm": HybridAdamNorm,
         "adam": Adam,
         "nadam": Nadam,
         "rmsprop": RMSProp,

@@ -1158,7 +1158,44 @@ def _procrustes(a: np.ndarray, ref: np.ndarray) -> np.ndarray:
 
 
 #: Rank selection rules exposed by `select_rank`.
-RANK_CRITERIA = ("component", "subspace", "oos_r2", "oos_r2_1se", "oos_coupling", "heldout_coupling")
+RANK_CRITERIA = ("latent_reliability", "cross_view_coupling", "heldout_coupling", "oos_r2", "oos_r2_1se")
+
+REMOVED_RANK_CRITERIA: Dict[str, str] = {
+    "component": "latent_reliability",
+    "subspace": "latent_reliability",
+    "subspace_corrected": "latent_reliability",
+    "oos_coupling": "cross_view_coupling",
+}
+
+TUNE_LEARNING_RATE_MODES = ("per_refit", "reference")
+
+
+def _validate_tune_learning_rate(tune_learning_rate: Any, method: str) -> str:
+    if not isinstance(tune_learning_rate, str) or tune_learning_rate not in TUNE_LEARNING_RATE_MODES:
+        raise ValueError(
+            f"tune_learning_rate must be one of {TUNE_LEARNING_RATE_MODES}; got {tune_learning_rate!r}."
+        )
+    if tune_learning_rate == "reference":
+        from .api import resolve_method
+        spec = resolve_method(method)
+        if "learning_rate" not in spec.accepts:
+            raise ValueError(
+                f"tune_learning_rate='reference' is not supported for method {method!r}: "
+                f"it has no 'learning_rate' parameter."
+            )
+    return tune_learning_rate
+
+
+def _extract_learning_rate_used(res: Mapping[str, Any]) -> Optional[float]:
+    val = res.get("learning_rate_used")
+    if val is None or isinstance(val, str):
+        val = res.get("learning_rate")
+    if val is None or isinstance(val, str):
+        val = ((res.get("parameters") or {}).get("used") or {}).get("learning_rate")
+    if isinstance(val, (int, float, np.integer, np.floating)) and not isinstance(val, bool):
+        fval = float(val)
+        return fval if np.isfinite(fval) else None
+    return None
 
 _FISHER_Z_001 = 2.3263478740408408
 
@@ -1285,6 +1322,23 @@ def _col_corr_stability(al_slice: np.ndarray, ref_mat: np.ndarray, *, nan_safe: 
     return stab
 
 
+def _col_cosine_stability(al_slice: np.ndarray, ref_mat: np.ndarray) -> np.ndarray:
+    """Per-column median cosine similarity between aligned refits ``(B, p, k)`` and reference ``(p, k)``."""
+    k = ref_mat.shape[1]
+    if al_slice.shape[0] == 0:
+        return np.full(k, np.nan, dtype=float)
+    num = (al_slice * ref_mat[None, :, :]).sum(axis=1)
+    a_norm = np.linalg.norm(al_slice, axis=1)
+    r_norm = np.linalg.norm(ref_mat, axis=0)[None, :]
+    den = a_norm * r_norm
+    with np.errstate(divide="ignore", invalid="ignore"):
+        cos_mat = np.where((den > 0.0) & np.isfinite(num) & np.isfinite(den), num / den, np.nan)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        med = np.nanmedian(cos_mat, axis=0)
+    return np.asarray(med, dtype=float)
+
+
 def _nanmedian_cols(rows: Sequence[Sequence[float]]) -> List[float]:
     """Column medians ignoring NaN; a column that is NaN in every row is NaN (no warning)."""
     a = np.asarray(rows, dtype=float)
@@ -1349,156 +1403,49 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                       return_refits: Sequence[str] = (), max_refit_bytes: int = 2_000_000_000,
                       _executor: Any = None, _warn_unconverged: bool = True,
                       draw_random_state: Optional[int] = None,
+                      tune_learning_rate: str = "per_refit",
+                      baseline: bool = False,
+                      n_baseline: int = 3,
                       **params: Any) -> Dict[str, Any]:
-    r"""Uncertainty and selection for `structure`, by refitting the whole pipeline.
+    r"""Uncertainty, stability, and feature selection by refitting the whole pipeline.
 
     Each of ``n_subsamples`` refits uses a random ``fraction`` of the rows
-    (without replacement). Its structure coefficients are rotated onto the
-    reference fit's (orthogonal Procrustes on all views stacked), since the
-    latent space fixes components only up to rotation. Every subsample refit
-    also evaluates `pysimlr.predict` on its unused (out-of-bag) complement at
-    no extra fit cost. With ``exclude_unconverged=True``, subsample refits with
-    ``converged=False`` are omitted from stability, interval, selection and
-    out-of-bag aggregates, and ``n_effective_refits`` records how many remained.
-    A ``RuntimeWarning`` is emitted when ``converged_fraction < 0.5``.
-
-    Returns
-    -------
-    dict
-        ``result`` (the reference `pysimlr.fit` on all rows),
-        ``subspace_stability`` (length ``k``: median over refits of the
-        principal cosines between the refit and reference stacked structure
-        subspaces, rotation-invariant), ``oos_r2`` (per-view mean held-out
-        reconstruction :math:`R^2` across out-of-bag splits, or ``None``),
-        ``oos_r2_splits`` (length ``n_subsamples`` view-averaged held-out
-        :math:`R^2` per split, or ``None``), ``oos_coupling`` (length ``k``
-        median held-out leave-one-view-out score correlation per component, or
-        ``None``), ``oob_scores`` (per subsample refit: ``rows``, the out-of-bag row
-        indices, and ``scores``, its float32 `sem.view_scores` on them; read by
-        `sem.path_model(inference=...)`), ``n_rows``, ``converged_fraction`` and ``effective_rank`` (median over
-        refits), and per view: ``structure`` (reference), ``ci_low`` /
-        ``ci_high`` (2.5/97.5% percentiles of the aligned refits; subsamples of
-        half the rows make these conservative), ``component_stability`` (length
-        ``k``: median over refits of the correlation between the aligned and
-        reference column; per-component claims need this high, e.g. >= 0.9),
-        ``selection_frequency`` and ``selected`` (stability selection,
-        Meinshausen & Buhlmann 2010: each refit selects the ``q_m`` features of
-        largest communality; ``selected`` is frequency >= ``threshold``),
-        ``q`` and ``expected_false_selections`` (the bound
-        :math:`q^2 / ((2\pi - 1) p)`, valid for uniform half-samples, ``fraction = 0.5``,
-        and ``threshold > 0.5``; NaN under any other resampling design, see below), and, if ``n_permutations > 0``,
-        ``null_max_abs`` (95th percentile of :math:`\max_{f,j} |C|` with the
-        rows of every view but the first permuted independently, i.e. no
-        shared signal).
-
-    Unobserved rows (``missing_rows="mask"`` passed to the fit). Subsamples keep the NaN rows.
-    ``oos_coupling`` is computed per held-out split on the rows where the needed views are observed
-    (view ``m`` against the mean of the other views observed at that row; at least 3 such rows, else NaN
-    for that view and left out of the mean); a component that cannot be computed in any split is NaN, never
-    0. ``oos_coupling_n`` is the median over splits of the rows used per view, and every ``maps[kind]``
-    entry carries ``n_eff`` / ``n_eff_feature`` / ``reasons`` from `feature_maps(return_info=True)` (pass
-    ``min_rows`` through ``map_options``).
-
-    Alternative feature maps. ``maps`` (kinds from `feature_maps`, with
-    ``map_options`` passed to it: ``target``, ``shrinkage``, ``control``,
-    ``rw_shrinkage``, ``probe_views``) are computed on the reference fit and on
-    every subsample refit at no extra fits, and reported under
-    ``out["maps"][kind]`` with per view ``map`` (reference), ``ci_low`` /
-    ``ci_high``, ``component_stability`` and ``selection_frequency`` (the same
-    ``q_m`` rule, ranking features by the sum over components of the squared
-    map). With ``map_options={"probe_views": ...}``, each subsample refit fits
-    on the well-conditioned ``views`` and evaluates ``maps`` on the matching
-    subsample rows of ``probe_views`` against the other views' scores. Each
-    refit's columns are matched to the reference by the signed permutation
-    nearest its structure Procrustes rotation (the varimax frames are canonical
-    up to order and sign; a full rotation would mix the squared
-    ``relative_weight`` shares), without the sign for ``relative_weight``. A
-    map's stability is its own: precision maps can be far less stable than
-    ``structure``.
-
-    Seeds. ``random_state`` seeds the reference fit and every refit's optimiser (and, by default, the
-    row draws). ``draw_random_state`` (default ``None`` = ``random_state``, the historical behaviour)
-    seeds only the row draws and permutations, so the reference fit can be held fixed while the
-    resamples vary, or the reverse.
-
-    Speed. ``n_jobs`` runs the refits (and permutation fits) in worker
-    processes (``-1``: all cores). All subsample indices are drawn in the parent
-    in a fixed order, so the result does not depend on ``n_jobs``. Each refit
-    tunes its own learning rate; reusing the reference fit's instead was
-    measured and rejected: 1.3x faster, but it moved an under-identified
-    component's stability by 0.18 (``docs/audit/evidence/select_rank_speed.csv``).
-
-    Within-group inference (``groups``, length-n labels, default ``None``; ``scale_within_group``
-    as in `structure_coefficients`). The reference fit and every refit get within-group
-    ``structure`` / ``loadings`` / ``loading_rotation`` (`loadings(..., groups=)`; ``out["result"]``
-    carries those keys, not the pooled ones), the maps are computed within group
-    (`feature_maps(groups=)`, with the subsample's labels), the out-of-bag ``oos_coupling`` is
-    computed on within-group scores, and the permutation null (``n_permutations``) permutes rows
-    only within group (one `utils.within_group_permutation` draw per view, so ``null_max_abs`` is a
-    null for within-group association). ``oos_r2`` (reconstruction) is not grouped. Resampling is
-    not stratified by ``groups`` unless you also pass ``strata=groups``; with small groups do, so
-    every refit sees every group.
-
-    Resampling scheme (``subsample``, ``fraction``, ``strata``). ``"half"`` (default) draws
-    ``round(fraction * n)`` rows without replacement (at least ``k + 2``); at the default
-    ``fraction=0.5`` these are half-samples and the draws are exactly those of earlier versions
-    (same seed, same rows). ``"fraction"`` is the same draw, the explicit spelling for
-    ``fraction != 0.5`` (``"half"`` with another fraction keeps working for callers that already
-    pass one, such as `select_rank`). ``"bootstrap"`` draws ``n`` rows with replacement
-    (``fraction`` is not used); the out-of-bag rows are the never-drawn rows (about 37%), the refit
-    sees duplicated rows, and the intervals are percentile-bootstrap intervals, not the conservative
-    half-sample ones. ``strata`` (length-n labels) makes every draw proportional within strata
-    (largest-remainder allocation of the total, so stratum shares are kept to rounding; for the
-    bootstrap, each stratum is resampled to its own size). Stratifying by the view-observation pattern
-    under ``missing_rows="mask"`` is not a built-in option; build the labels and pass them:
-    ``strata = [''.join('1' if o else '0' for o in obs) for obs in zip(*[~v.isnan().all(1) for v in views])]``.
-    Guarantees: only uniform half-sampling (``subsample`` in {"half", "fraction"}, ``fraction == 0.5``,
-    ``strata=None``) carries the stability-selection false-selection bound; for every other design
-    ``expected_false_selections`` is NaN per view and ``expected_false_selections_reason`` says why
-    (``None`` when the bound is reported), ``out["resampling"]`` records the design and
-    ``bound_valid``. ``selected`` and ``selection_frequency`` are still computed (as a descriptive
-    stability measure with no error-rate guarantee), and so are intervals and component stability
-    (empirical resampling variability, with no coverage guarantee: a bootstrap or large-fraction
-    subsample understates the variability of the estimator that half-samples would show).
-
-    Per-refit outputs (``return_refits``, default ``()``: nothing is kept). Any of
-    ``"weights"``, ``"maps"`` (needs ``maps=``), ``"latents"``, ``"rows"``. ``out["refits"]`` then
-    holds, for the ``B`` refits kept (unconverged ones are dropped under ``exclude_unconverged``;
-    ``index`` gives their position among the draws): ``structure`` (``(B, sum p, k)`` float32, the
-    aligned structure the summaries use) and ``view_sizes``; ``alignment`` with ``rotation``
-    (``(B, k, k)``: ``u_refit @ rotation[b]`` is the refit's latent in the reference frame; undo with
-    ``@ rotation[b].T``, it is orthogonal), ``procrustes`` (the structure alignment), ``loading_rotation``
-    (the refit's own varimax rotation; ``rotation = loading_rotation @ procrustes``) and
-    ``signed_permutation`` (what the maps are aligned with; its absolute value for
-    ``relative_weight``); ``weights`` (per view, ``(B, p_m, k)``, the encoders ``V_m @ rotation[b]``);
-    ``maps[kind]`` (per view ``(B, p_m, k)``, aligned as the summary maps are); ``latents``
-    (``(B, n, k)``: the consensus latent of every row of the full data in the reference frame; in-bag
-    rows from the refit's own ``u`` (first draw of a duplicated row), out-of-bag rows from
-    `predict`); ``in_bag`` / ``n_draws`` (``(B, n)``, with ``rows`` or ``latents``); ``rows`` and
-    ``oob_rows`` (lists of index arrays, ``rows`` with duplicates under the bootstrap); ``models`` (a list of
-    the ``B`` full `pysimlr.fit` results of the kept refits, for ensemble prediction by `pysimlr.bagged_fit`;
-    their size is not counted against ``max_refit_bytes``, and with ``n_jobs > 1`` they are pickled back from the
-    workers). The reference
-    frame is the one used for the stability summaries (Procrustes onto the full-data fit's structure),
-    chosen from the full-data fit alone and so independent of the order of the draws. Memory: about
-    ``4 B (sum_m p_m k [structure] + sum_m p_m k [weights] + len(maps) sum p_m k [maps] + n k [latents])
-    + 5 B n [rows]`` bytes; the call raises a ``ValueError`` before fitting if that exceeds
-    ``max_refit_bytes`` (default 2e9).
-
-    ``q_m``, the number of features each refit selects in view ``m``, is set
-    from the tolerated number of false selections (``expected_false``, per
-    view) by inverting the bound: ``q_m = floor(sqrt(expected_false *
-    (2 threshold - 1) p_m))``. Tying ``q`` to the fit's sparsity instead (half
-    of the features) made the bound vacuous: on ADNI-MCI it promised ~165
-    expected false selections among ~170 selected.
+    (without replacement under ``"half"``/``"fraction"``). Stability is reported
+    via the `latent_stability` contract: out-of-bag ``latent_reliability``
+    (unclamped unbalanced one-way ``ICC(1)``), ``latent_reliability_averaged``
+    (``ICC(1, k0)``), ``latent_reliability_multivariate`` (rotation-invariant
+    trace ``ICC(1)``), out-of-bag ``cross_view_coupling``, and pairwise refit
+    ``feature_agreement`` (plus ``feature_agreement_by_view``). ``baseline=False``
+    by default to keep cost low; ``baseline=True`` adds ``n_baseline``
+    independent row-permutation baseline families and computes ``_baseline``
+    and ``_gain`` fields. Results are wrapped so looking up keys removed in
+    0.41.0 (``component_stability``, ``subspace_stability``, ``weight_stability``,
+    ``oos_coupling``, and their variants) raises a ``KeyError`` naming the
+    replacement.
     """
+    import contextlib
+    import pysimlr
     from scipy.optimize import linear_sum_assignment
     from .api import as_views, fit
+    from .latent_stability import (
+        _RemovedKeysDict,
+        _attach_baseline_and_gains,
+        _compute_stability_from_refits,
+        _flat,
+        _normalize_fit_params_for_refits,
+        _run_baseline_families,
+        pairwise_cosine_agreement,
+    )
+
+    _validate_tune_learning_rate(tune_learning_rate, method)
     if not 0.0 < fraction < 1.0:
         raise ValueError(f"fraction must be in (0, 1); got {fraction}.")
     if not 0.5 < threshold <= 1.0:
         raise ValueError(f"threshold must be in (0.5, 1]; got {threshold}.")
+    if baseline and int(n_baseline) < 1:
+        raise ValueError(f"n_baseline must be >= 1 when baseline=True; got {n_baseline}.")
     view_list = as_views(views)
+    n_views = len(view_list)
     n = view_list[0].shape[0]
     if subsample not in SUBSAMPLE_SCHEMES:
         raise ValueError(f"subsample must be one of {SUBSAMPLE_SCHEMES}; got {subsample!r}.")
@@ -1510,7 +1457,8 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     s_codes = None if strata is None else group_codes(strata, n, name="strata")
     if map_options and "groups" in map_options:
         raise ValueError("pass groups= to loading_inference, not through map_options.")
-    rng = np.random.default_rng(random_state if draw_random_state is None else draw_random_state)
+    draw_seed = random_state if draw_random_state is None else draw_random_state
+    rng = np.random.default_rng(draw_seed)
     maps = tuple(maps)
     bad = [k_ for k_ in maps if k_ not in FEATURE_MAP_KINDS]
     if bad:
@@ -1521,8 +1469,8 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     probe_tensors = None
     if map_opts and map_opts.get("probe_views") is not None:
         p_items = list(map_opts["probe_views"])
-        if len(p_items) != len(view_list):
-            raise ValueError(f"probe_views has {len(p_items)} entries; there are {len(view_list)} views.")
+        if len(p_items) != n_views:
+            raise ValueError(f"probe_views has {len(p_items)} entries; there are {n_views} views.")
         probe_tensors = [None if pv is None else _to_probe_tensor(pv, n, vi) for vi, pv in enumerate(p_items)]
         map_opts = dict(map_opts, probe_views=probe_tensors)
     ref = fit(method, views, k, random_state=random_state, **params)
@@ -1537,34 +1485,18 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     sizes = np.cumsum([0] + [c.shape[0] for c in c_ref])
     aligned, chosen = [], [[] for _ in c_ref]
     m = max(k + 2, int(round(fraction * n)))
-    refit_params = dict(params)
-    if isinstance(views, Mapping):
-        from .api import _resolve_fit_view_idx
-        vnames_in = [str(nm) for nm in views.keys()]
-        used_rec = (ref.get("parameters") or {}).get("used") or {}
-        for nk in ("per_view_params", "positivity", "path_graph", "system_matrices"):
-            if nk in refit_params and nk in used_rec:
-                refit_params[nk] = used_rec[nk]
-        if isinstance(refit_params.get("confounds"), Mapping):
-            refit_params["confounds"] = {
-                _resolve_fit_view_idx(kv, len(view_list), vnames_in): vv
-                for kv, vv in refit_params["confounds"].items()
-            }
-    # Confounds follow their rows: a subsample refit gets the subsample's
-    # confound rows, and a permutation refit permutes each view together with
-    # its own confound rows, so every view of a null refit is cleaned exactly
-    # as in the observed fit (`pysimlr.confounds.permute_view_confounds`).
+    base_params = _normalize_fit_params_for_refits(views, view_list, ref, params)
+    refit_params = dict(base_params)
+    if tune_learning_rate == "reference":
+        lr_ref = _extract_learning_rate_used(ref)
+        if lr_ref is not None:
+            refit_params["learning_rate"] = lr_ref
     conf = refit_params.get("confounds")
     from .confounds import permute_view_confounds, slice_confounds
-    # Draw every index in the parent, in a fixed order, before any refit runs:
-    # the result is then the same for every n_jobs.
-    # The default scheme is the historical draw; the bound below is only reported for it.
     sub_idx = [_draw_subsample(rng, n, m, subsample, s_codes) for _ in range(int(n_subsamples))]
     if g_codes is None:
         perm_idx = [[rng.permutation(n) for _ in view_list[1:]] for _ in range(int(n_permutations))]
     else:
-        # Within-group permutation null: a row only moves to a position of its own group, so group
-        # structure shared by the views stays in the null (the groups= option of this function).
         perm_idx = [[within_group_permutation(rng, g_codes) for _ in view_list[1:]]
                     for _ in range(int(n_permutations))]
     all_rows = np.arange(n)
@@ -1572,7 +1504,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         p_widths = [int(x.shape[1]) for x in view_list] if probe_tensors is None else [
             int((view_list[i] if pt is None else pt).shape[1]) for i, pt in enumerate(probe_tensors)]
         n_beff = int(n_subsamples)
-        est = 4 * n_beff * (sum(p_widths) * k                                   # aligned structure
+        est = 4 * n_beff * (sum(p_widths) * k
                             + ("weights" in want) * sum(int(x.shape[1]) for x in view_list) * k
                             + ("maps" in want) * len(maps) * sum(p_widths) * k
                             + ("latents" in want) * n * k) + (n_beff * n * 5 if want else 0)
@@ -1586,7 +1518,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         oob = np.setdiff1d(all_rows, np.unique(idx) if subsample == "bootstrap" else idx, assume_unique=True)
         oob_rows.append(oob)
         t_idx = torch.as_tensor(idx)
-        t_oob = torch.as_tensor(oob) if len(oob) >= 2 else None
+        t_oob = torch.as_tensor(oob) if len(oob) >= 1 else None
         sub_v = [x[t_idx].numpy() if x.device.type == "cpu" else x[t_idx] for x in view_list]
         oob_v = (
             [x[t_oob].numpy() if x.device.type == "cpu" else x[t_oob] for x in view_list]
@@ -1617,8 +1549,34 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
               + ((None, {"groups": g_codes, "oob_groups": None, "scale_within_group": bool(scale_within_group),
                          "want": ()}) if g_codes is not None else ())
               for pis in perm_idx]
-    records = _run_fits(tasks, n_jobs, _executor)
-    sub_records = records[:len(sub_idx)]
+    perm_end = len(sub_idx) + len(perm_idx)
+
+    workers = _n_workers(n_jobs)
+    own_pool = (_executor is None) and (workers > 1)
+    with (_pool(workers) if own_pool else contextlib.nullcontext()) as ex:
+        pool_ex = ex if own_pool else _executor
+        records = _run_fits(tasks, n_jobs, pool_ex)
+        sub_records = records[:len(sub_idx)]
+        real_stab = _compute_stability_from_refits(
+            ref, view_list, sub_idx, sub_records,
+            oob_rows=oob_rows, exclude_unconverged=exclude_unconverged,
+        )
+        base_list: Optional[List[Dict[str, Any]]] = None
+        base_ref_lrs: Optional[List[Optional[float]]] = None
+        if baseline and n_views >= 2:
+            base_list, base_ref_lrs = _run_baseline_families(
+                method, view_list, k, base_params,
+                n_baseline=int(n_baseline), n_subsamples=int(n_subsamples),
+                m=m, scheme=subsample, s_codes=s_codes, g_codes=g_codes,
+                scale_within_group=scale_within_group, random_state=random_state,
+                draw_seed=draw_seed, parent_rng=rng,
+                tune_learning_rate=tune_learning_rate,
+                n_jobs=n_jobs, executor=pool_ex,
+                exclude_unconverged=exclude_unconverged,
+            )
+
+    stab_out = _attach_baseline_and_gains(real_stab, base_list, int(k), n_views, select_mode=False)
+    refit_lrs = [rec.get("learning_rate_used") for rec in sub_records]
     conv_flags = [bool(rec["converged"]) for rec in sub_records]
     conv_steps = [int(rec["n_steps"]) for rec in sub_records
                   if rec["converged"] and rec.get("n_steps") is not None]
@@ -1634,10 +1592,8 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
             f"converged; raise iterations; this run used {used_iter}.",
             RuntimeWarning, stacklevel=2,
         )
-    cosines, r2_splits, coups, eff_ranks = [], [], [], []
-    coup_splits_all: List[Optional[List[float]]] = []
+    r2_splits, eff_ranks = [], []
     kept_oob_scores = []
-    coup_n = [rec["oos_coupling_n"] for rec in sub_records if rec.get("oos_coupling_n") is not None]
     map_aligned = {kk: [] for kk in maps}
     kept_idx: List[int] = []
     rf: Dict[str, List[Any]] = {"rotation": [], "procrustes": [], "loading_rotation": [], "signed_permutation": [],
@@ -1645,19 +1601,10 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                                 "maps": {kk: [] for kk in maps}}
     for b_i, (rows_, rec) in enumerate(zip(oob_rows, sub_records)):
         keep_rec = (not exclude_unconverged) or bool(rec["converged"])
-        st_list = rec["structure"]
-        st = np.vstack(st_list)
-        if keep_rec and rec["oos_coupling"] is not None:
-            _, col_ind = linear_sum_assignment(-np.abs(st.T @ stacked_ref))
-            inv = np.empty_like(col_ind)
-            inv[col_ind] = np.arange(k)
-            c_aligned = np.asarray(rec["oos_coupling"], float)[inv]
-            coups.append(c_aligned)
-            coup_splits_all.append([float(x) for x in c_aligned])
-        else:
-            coup_splits_all.append(None)
         if not keep_rec:
             continue
+        st_list = rec["structure"]
+        st = np.vstack(st_list)
         rp = _procrustes(st, stacked_ref)
         aligned.append(st @ rp)
         perm = _nearest_signed_permutation(rp) if (maps or want) else None
@@ -1667,7 +1614,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                 map_aligned[kk].append(mk @ (np.abs(perm) if kk == "relative_weight" else perm))
         if want:
             kept_idx.append(b_i)
-            a_b = rec["loading_rotation"] @ rp          # raw refit frame -> reference frame
+            a_b = rec["loading_rotation"] @ rp
             rf["rotation"].append(a_b)
             rf["procrustes"].append(rp)
             rf["loading_rotation"].append(rec["loading_rotation"])
@@ -1686,7 +1633,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                 rf["weights"].append([w @ a_b for w in rec["weights"]])
             if "latents" in want:
                 lat = np.full((n, k), np.nan)
-                first = np.unique(idx_b, return_index=True)       # first draw of each in-bag row
+                first = np.unique(idx_b, return_index=True)
                 lat[first[0]] = rec["u_train"][first[1]] @ a_b
                 if rec["u_oob"] is not None:
                     lat[rows_] = rec["u_oob"] @ a_b
@@ -1694,7 +1641,6 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
             if "maps" in want:
                 for kk in maps:
                     rf["maps"][kk].append(map_aligned[kk][-1])
-        cosines.append(_principal_cosines(st, stacked_ref))
         eff_ranks.append(rec["effective_rank"])
         if rec["oos_r2"] is not None:
             r2_splits.append(rec["oos_r2"])
@@ -1705,36 +1651,39 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     n_eff = len(aligned)
     er_ref_key = "joint_effective_rank" if ref.get("basis_is_joint") else "effective_rank"
     if n_eff > 0:
-        al = np.stack(aligned)                      # (B_eff, p_total, k)
+        al = np.stack(aligned)
         lo, hi = np.percentile(al, (2.5, 97.5), axis=0)
         r2_arr = np.asarray(r2_splits, float) if r2_splits else None
-        sub_stab = [float(x) for x in np.nanmedian(cosines, axis=0)]
         eff_rk = [float(x) for x in np.nanmedian(eff_ranks, axis=0)]
     else:
         al = None
         lo = hi = np.full(stacked_ref.shape, np.nan, dtype=float)
         r2_arr = None
-        sub_stab = [float("nan")] * int(k)
         eff_rk = [float("nan")] * len(ref[er_ref_key])
-    out = {"result": ref, "structure": ref["structure"], "ci_low": [], "ci_high": [],
-           "component_stability": [], "subspace_stability": sub_stab,
-           "oos_r2": ([float(x) for x in np.nanmean(r2_arr, axis=0)] if r2_arr is not None else None),
-           "oos_r2_splits": ([float(x) for x in np.nanmean(r2_arr, axis=1)] if r2_arr is not None else None),
-           "oos_coupling": (_nanmedian_cols(coups) if coups else None),
-           "oos_coupling_n": ([float(x) for x in np.median(coup_n, axis=0)] if coup_n else None),
-           "oos_coupling_splits": (coup_splits_all if coups else None),
-           "oos_n": (int(n - m) if subsample != "bootstrap" and s_codes is None
-                     else int(np.median([len(o) for o in oob_rows])) if oob_rows else 0),
-           "n_rows": int(n),
-           "oob_scores": kept_oob_scores,
-           "converged_fraction": conv_frac,
-           "median_converged_iter": median_conv_iter,
-           "n_effective_refits": int(n_eff),
-           "used_iterations": used_iter,
-           "effective_rank": eff_rk,
-           "selection_frequency": [], "selected": [],
-           "q": qs, "expected_false_selections": []}
-    # The Meinshausen-Buhlmann bound is derived for subsamples of size n/2 drawn uniformly without replacement.
+
+    out: Dict[str, Any] = {
+        "result": ref,
+        "structure": ref["structure"],
+        "ci_low": [],
+        "ci_high": [],
+        "oos_r2": ([float(x) for x in np.nanmean(r2_arr, axis=0)] if r2_arr is not None else None),
+        "oos_r2_splits": ([float(x) for x in np.nanmean(r2_arr, axis=1)] if r2_arr is not None else None),
+        "oos_n": (int(n - m) if subsample != "bootstrap" and s_codes is None
+                  else int(np.median([len(o) for o in oob_rows])) if oob_rows else 0),
+        "n_rows": int(n),
+        "oob_scores": kept_oob_scores,
+        "converged_fraction": conv_frac,
+        "median_converged_iter": median_conv_iter,
+        "n_effective_refits": int(n_eff),
+        "used_iterations": used_iter,
+        "refit_learning_rates": refit_lrs,
+        "effective_rank": eff_rk,
+        "selection_frequency": [],
+        "selected": [],
+        "q": qs,
+        "expected_false_selections": [],
+    }
+    out.update(stab_out)
     bound_reason = None
     if subsample == "bootstrap":
         bound_reason = "bootstrap resampling (with replacement): the half-sampling bound does not apply"
@@ -1748,17 +1697,36 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
     out["resampling"] = {"subsample": subsample, "fraction": float(fraction), "size": int(m) if subsample != "bootstrap" else int(n),
                          "stratified": s_codes is not None, "bound_valid": bound_reason is None,
                          "within_group": g_codes is not None}
+    out["provenance"] = {
+        "method": method,
+        "k": int(k),
+        "n_subsamples": int(n_subsamples),
+        "fraction": float(fraction),
+        "subsample_size": int(m) if subsample != "bootstrap" else int(n),
+        "subsample": "with replacement" if subsample == "bootstrap" else "without replacement",
+        "resampling_scheme": subsample,
+        "strata": _flat(strata),
+        "groups": _flat(groups),
+        "baseline": bool(baseline),
+        "n_baseline": int(n_baseline) if (baseline and n_views >= 2) else 0,
+        "random_state": random_state,
+        "draw_random_state": draw_random_state,
+        "n_jobs": int(n_jobs),
+        "tune_learning_rate": tune_learning_rate,
+        "baseline_learning_rates": base_ref_lrs,
+        "params": {kk: _flat(vv) for kk, vv in params.items()},
+        "n_rows": int(n),
+        "view_widths": [int(x.shape[1]) for x in view_list],
+        "pysimlr_version": pysimlr.__version__,
+    }
     for vi, c in enumerate(c_ref):
         a, b = sizes[vi], sizes[vi + 1]
         out["ci_low"].append(torch.as_tensor(lo[a:b]).float())
         out["ci_high"].append(torch.as_tensor(hi[a:b]).float())
         if al is not None:
-            stab = _col_corr_stability(al[:, a:b], c)
             freq = np.mean(chosen[vi], axis=0)
         else:
-            stab = [float("nan")] * int(k)
             freq = np.zeros(c.shape[0], dtype=float)
-        out["component_stability"].append(stab)
         out["selection_frequency"].append(torch.as_tensor(freq).float())
         out["selected"].append(torch.as_tensor(freq >= threshold))
         out["expected_false_selections"].append(
@@ -1773,8 +1741,10 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
             mal = np.stack(map_aligned[kk]) if map_aligned[kk] else None
             if mal is None:
                 mlo = mhi = np.full((m_sizes[-1], k), np.nan)
+                fa_map = np.full(int(k), np.nan, dtype=float)
             elif not np.isnan(mal).any():
                 mlo, mhi = np.percentile(mal, (2.5, 97.5), axis=0)
+                fa_map = pairwise_cosine_agreement(mal)
             else:
                 mlo = np.empty((m_sizes[-1], k), dtype=float)
                 mhi = np.empty((m_sizes[-1], k), dtype=float)
@@ -1784,31 +1754,36 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                     mlo[ok_cols], mhi[ok_cols] = np.percentile(mal[:, ok_cols], (2.5, 97.5), axis=0)
                 if nan_cols.any():
                     mlo[nan_cols], mhi[nan_cols] = np.nanpercentile(mal[:, nan_cols], (2.5, 97.5), axis=0)
-            entry = {"map": ref_maps[kk], "ci_low": [], "ci_high": [], "component_stability": [],
-                     "selection_frequency": []}
+                fa_map = pairwise_cosine_agreement(mal)
+            entry = _RemovedKeysDict({
+                "map": ref_maps[kk],
+                "ci_low": [],
+                "ci_high": [],
+                "feature_agreement": fa_map,
+                "feature_agreement_by_view": [],
+                "selection_frequency": [],
+            })
             for vi in range(len(c_ref)):
                 a, b = m_sizes[vi], m_sizes[vi + 1]
-                rm = ref_maps[kk][vi].double().numpy()
                 entry["ci_low"].append(torch.as_tensor(mlo[a:b]).float())
                 entry["ci_high"].append(torch.as_tensor(mhi[a:b]).float())
                 if mal is not None:
                     mal_v = mal[:, a:b]
-                    stab = _col_corr_stability(mal_v, rm, nan_safe=True)
+                    fa_v = pairwise_cosine_agreement(mal_v)
                     mal_sq = mal_v * mal_v
                     sel = [(_top_q_mask(np.nansum(mal_sq[t], axis=1), m_qs[vi])
                             if np.isfinite(mal_v[t]).any() else np.zeros(b - a, bool))
                            for t in range(mal.shape[0])]
-                    entry["component_stability"].append(stab)
+                    entry["feature_agreement_by_view"].append(fa_v)
                     entry["selection_frequency"].append(torch.as_tensor(np.mean(sel, axis=0)).float())
                 else:
-                    entry["component_stability"].append([float("nan")] * int(k))
+                    entry["feature_agreement_by_view"].append(np.full(int(k), np.nan, dtype=float))
                     entry["selection_frequency"].append(torch.zeros(b - a, dtype=torch.float32))
-            # Rows behind each view's reference map and why any map is NaN (see `feature_maps(return_info=True)`).
             entry["n_eff"] = list(ref_lam["n_eff"])
             entry["n_eff_feature"] = [np.asarray(a) for a in ref_lam["n_eff_feature"]]
             entry["reasons"] = list(ref_lam["reasons"][kk])
             if kk == "relative_weight":
-                entry["rw_shrinkage"] = ref_lam["relative_weight"]    # lam per target, per view (reference fit)
+                entry["rw_shrinkage"] = ref_lam["relative_weight"]
             out["maps"][kk] = entry
     if want:
         refits: Dict[str, Any] = {
@@ -1846,9 +1821,9 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         out["refits"] = refits
     if n_permutations > 0:
         null = [max(float(np.abs(c).max()) for c in rec["structure"])
-                for rec in records[len(sub_idx):]]
+                for rec in records[len(sub_idx):perm_end]]
         out["null_max_abs"] = float(np.percentile(null, 95))
-    return out
+    return _RemovedKeysDict(out)
 
 
 def _with_grouped_loadings(res: Dict[str, Any], views: Any, codes: np.ndarray, scale_within_group: bool) -> Dict[str, Any]:
@@ -1864,8 +1839,14 @@ def _with_grouped_loadings(res: Dict[str, Any], views: Any, codes: np.ndarray, s
 def _fit_structure(task):
     """One refit, returning structure coefficients and out-of-bag diagnostics as
     plain NumPy/Python objects. Module level so worker processes can import it."""
-    from .api import fit
+    from .api import as_views, fit, predict
     from .extension import _used
+    from .latent_stability import (
+        _consensus_sign_flips,
+        _inspect_constraint_regime,
+        _replay_preprocessed_views,
+        _verify_nonneg_gauge,
+    )
     map_opts = None
     extra: Dict[str, Any] = {}
     if len(task) == 5:
@@ -1886,20 +1867,50 @@ def _fit_structure(task):
     oos_r2, oos_coup, oob_scores = _oob_metrics(r, views, oob_views, return_scores=True, _info=coup_info,
                                                 _groups=extra.get("oob_groups"),
                                                 _scale_within_group=extra.get("scale_within_group", False))
+    views_t = as_views(views)
+    all_nonneg, pos_by_view, nm_list = _inspect_constraint_regime(r, len(views_t))
+    nonneg_gauge_error = None
+    if all_nonneg:
+        try:
+            _verify_nonneg_gauge(r, pos_by_view, nm_list)
+        except ValueError as exc:
+            nonneg_gauge_error = str(exc)
+    u_train = r["u"].detach().double().cpu().numpy()
+    u_oob = (
+        None
+        if oob_views is None or oob_views[0].shape[0] < 1
+        else predict(r, oob_views)["u"].detach().double().cpu().numpy()
+    )
+    consensus_flips = _consensus_sign_flips(r, views_t, u_train) if all_nonneg else None
+    use_weights = (r.get("family") == "linear") and (not r.get("basis_is_joint")) and bool(r.get("v"))
+    weights_raw = [v.detach().double().cpu().numpy() for v in r["v"]] if use_weights else None
+    if use_weights:
+        structure_u = None
+    else:
+        xs_b, obs_masks_b = _replay_preprocessed_views(r, views_t)
+        structure_u = [
+            c.double().cpu().numpy()
+            for c in structure_coefficients(
+                xs_b,
+                torch.as_tensor(u_train),
+                obs_masks=obs_masks_b,
+                groups=extra.get("groups"),
+                scale_within_group=extra.get("scale_within_group", False),
+            )
+        ]
+
+    has_pv_weights = (not r.get("basis_is_joint")) and ("v" in r) and bool(r["v"])
     kept: Dict[str, Any] = {}
-    if want:
+    if want or has_pv_weights:
         kept["loading_rotation"] = r["loading_rotation"].detach().double().numpy()
-        if "models" in want:
-            kept["model"] = r
-        if "weights" in want:
-            if "v" not in r:
-                raise ValueError(f"{method} returns no per-view weights; drop 'weights' from return_refits.")
-            kept["weights"] = [v.detach().double().numpy() for v in r["v"]]
-        if "latents" in want:
-            from .api import predict
-            kept["u_train"] = r["u"].detach().double().numpy()
-            kept["u_oob"] = (None if oob_views is None or oob_views[0].shape[0] < 1
-                             else predict(r, oob_views)["u"].detach().double().numpy())
+    if has_pv_weights:
+        kept["weights"] = [v.detach().double().numpy() for v in r["v"]]
+    elif "weights" in want:
+        if "v" not in r:
+            raise ValueError(f"{method} returns no per-view weights; drop 'weights' from return_refits.")
+        kept["weights"] = [v.detach().double().numpy() for v in r["v"]]
+    if want and "models" in want:
+        kept["model"] = r
     conv = r.get("convergence") or {}
     used_iter = params.get("iterations")
     if used_iter is None:
@@ -1907,10 +1918,20 @@ def _fit_structure(task):
     return {
         "oob_scores": oob_scores,
         "structure": [c.double().numpy() for c in r["structure"]],
+        "u_train": u_train,
+        "u_oob": u_oob,
+        "consensus_flips": consensus_flips,
+        "all_nonneg": all_nonneg,
+        "pos_by_view": pos_by_view,
+        "use_weights": use_weights,
+        "weights_raw": weights_raw,
+        "structure_u": structure_u,
+        "nonneg_gauge_error": nonneg_gauge_error,
         "converged": bool(conv.get("converged", True)),
         "stop_reason": str(conv.get("stop_reason", "converged")),
         "n_steps": (None if conv.get("n_steps") is None else int(conv["n_steps"])),
         "used_iterations": used_iter,
+        "learning_rate_used": _extract_learning_rate_used(r),
         "effective_rank": [float(x) for x in r[er_key]],
         "oos_r2": oos_r2,
         "oos_coupling": oos_coup,
@@ -2203,12 +2224,17 @@ def bottleneck_rank(views: Any, *, confounds: Any = None, mode: str = "cross",
 
 
 def select_rank(method: str, views: Any, ks: Any, *,
-                criterion: str = "component", bound: str = "max",
+                criterion: str = "latent_reliability", bound: str = "max",
                 n_subsamples: int = 20,
-                fraction: float = 0.5, min_stability: float = 0.9,
-                min_oos_coupling: Optional[float] = None,
+                fraction: float = 0.5,
+                margin: float = 0.2,
+                n_baseline: int = 3,
+                baseline: Optional[bool] = None,
+                min_cross_view_coupling: Optional[float] = None,
                 heldout_views: Any = None,
                 exclude_unconverged: bool = False,
+                n_permutations: int = 0,
+                tune_learning_rate: str = "per_refit",
                 random_state: int = 0, n_jobs: int = 1,
                 _executor: Any = None, _bottleneck: Any = None,
                 _warn_bottleneck: bool = True,
@@ -2222,44 +2248,53 @@ def select_rank(method: str, views: Any, ks: Any, *,
     summaries and ``n_effective_refits`` is recorded per row. ``bound`` (default
     ``"max"``; also ``"min"`` or ``"stacked"``) controls the `bottleneck_rank`
     summary used for ``ks="auto"`` and over-rank warnings. One pass produces
-    six rank rules
-    (all reported in ``criteria``; ``criterion`` picks which one sets ``k``):
+    five rank rules (all reported in ``criteria``; ``criterion`` picks which
+    one sets ``k``):
 
-    ``"component"`` (default)
-        Largest ``k`` whose every individual varimax-rotated component has
-        median structure correlation >= ``min_stability`` (Ben-Hur et al. 2002;
-        Lange et al. 2004). Appropriate when naming individual components.
-    ``"subspace"``
-        Largest ``k`` whose smallest Grassmannian principal cosine between
-        refit and reference stacked structure subspaces is >= ``min_stability``.
-        Rotation-invariant: stays high when components share near-equal singular
-        values and rotate within a stable ``k``-dimensional span.
+    ``"latent_reliability"`` (default)
+        Largest ``k`` whose every component ``0..k-1`` has
+        ``latent_reliability_gain >= margin`` (default ``0.2``) and whose
+        ``latent_reliability_multivariate_gain`` does not fall below the
+        previous candidate ``k``'s ``latent_reliability_multivariate_gain``
+        (``None`` if no ``k`` passes). Requires ``baseline=True`` (default when
+        ``len(views) >= 2``) with ``n_baseline`` independent permutation draws.
+    ``"cross_view_coupling"``
+        Largest ``k`` whose every component has median out-of-bag
+        leave-one-view-out score correlation >= ``min_cross_view_coupling``
+        (default: one-sided ``alpha = 0.01`` Fisher-z null threshold for the
+        out-of-bag sample size).
+    ``"heldout_coupling"``
+        When ``heldout_views`` is given, largest ``k`` whose every component has
+        mean pairwise held-out cross-view correlation (`heldout_coupling`'s
+        ``cross_view_heldout``) >= ``min_cross_view_coupling`` (default:
+        one-sided ``alpha = 0.01`` Fisher-z null threshold for ``n_heldout``);
+        ``None`` when ``heldout_views`` is omitted.
     ``"oos_r2"``
         Candidate ``k`` maximising mean out-of-bag held-out reconstruction
         :math:`R^2` (provided the peak is > 0).
     ``"oos_r2_1se"``
         Smallest ``k`` within one split standard error of the peak out-of-bag
         held-out :math:`R^2` (and > 0): parsimonious predictive subspace rank.
-    ``"oos_coupling"``
-        Largest ``k`` whose every component has median out-of-bag
-        leave-one-view-out score correlation >= ``min_oos_coupling`` (default:
-        one-sided ``alpha = 0.01`` Fisher-z null threshold for the out-of-bag
-        sample size).
-    ``"heldout_coupling"``
-        When ``heldout_views`` is given, largest ``k`` whose every component has
-        mean pairwise held-out cross-view correlation (`heldout_coupling`'s
-        ``cross_view_heldout``) >= ``min_oos_coupling`` (default: one-sided
-        ``alpha = 0.01`` Fisher-z null threshold for ``n_heldout``); ``None``
-        when ``heldout_views`` is omitted.
 
-    Each row in ``table`` also reports ``converged_fraction``,
-    ``min_effective_rank`` and ``basis_degenerate`` (``min_effective_rank < k -
-    0.5``, which indicates merged basis columns — raise ``nsa_w`` when True).
+    Passing a criterion removed in 0.41.0 (``"component"``, ``"subspace"``,
+    ``"subspace_corrected"``, or ``"oos_coupling"``) raises ``ValueError``
+    naming its replacement.
     """
     import contextlib
+    if criterion in REMOVED_RANK_CRITERIA:
+        raise ValueError(
+            f"criterion {criterion!r} was removed in 0.41.0; use {REMOVED_RANK_CRITERIA[criterion]!r}."
+        )
     if criterion not in RANK_CRITERIA:
         raise ValueError(f"criterion must be one of {RANK_CRITERIA}; got {criterion!r}.")
-    n_views = len(views) if isinstance(views, (list, tuple)) else 1
+    _validate_tune_learning_rate(tune_learning_rate, method)
+    n_views = len(views) if isinstance(views, (list, tuple, Mapping)) else 1
+    use_baseline = (n_views >= 2) if baseline is None else bool(baseline)
+    if criterion == "latent_reliability" and n_views >= 2 and not use_baseline:
+        raise ValueError("criterion='latent_reliability' requires baseline=True.")
+    if use_baseline and int(n_baseline) < 1:
+        raise ValueError(f"n_baseline must be >= 1 when baseline=True; got {n_baseline}.")
+
     bott = (_bottleneck if _bottleneck is not None
             else (bottleneck_rank(views, confounds=params.get("confounds"), bound=bound) if n_views >= 2 else None))
     if isinstance(ks, str):
@@ -2292,12 +2327,15 @@ def select_rank(method: str, views: Any, ks: Any, *,
     with (_pool(workers) if own_pool else contextlib.nullcontext()) as ex:
         pool_ex = ex if own_pool else _executor
         for k in ks_sorted:
-            rows.append(_rank_row(method, views, k, n_subsamples, fraction, min_stability,
-                                  min_oos_coupling, heldout_views, exclude_unconverged,
-                                  random_state, n_jobs, pool_ex, params))
-    criteria = _select_by_criteria(rows)
-    return {"k": criteria[criterion], "criterion": criterion, "criteria": criteria, "table": rows,
-            "bottleneck": bott}
+            rows.append(_rank_row(method, views, k, n_subsamples, fraction,
+                                  min_cross_view_coupling, heldout_views, exclude_unconverged,
+                                  random_state, n_jobs, pool_ex, params,
+                                  n_permutations=int(n_permutations),
+                                  tune_learning_rate=tune_learning_rate,
+                                  baseline=use_baseline, n_baseline=int(n_baseline)))
+    criteria = _select_by_criteria(rows, margin=float(margin))
+    return {"k": criteria[criterion], "criterion": criterion, "margin": float(margin),
+            "criteria": criteria, "table": rows, "bottleneck": bott}
 
 
 def _normalize_ks(ks: Any) -> List[int]:
@@ -2319,7 +2357,7 @@ def _warn_if_above_bottleneck(ks_sorted: Sequence[int], bott: Optional[Dict[str,
 def _eval_coupling_gate(
     coup_vals: Any,
     n_eval: int,
-    min_oos_coupling: Optional[float],
+    min_cross_view_coupling: Optional[float],
     require_all_finite: bool = False,
 ) -> Tuple[Optional[List[float]], Optional[float], Optional[float], bool]:
     if coup_vals is None:
@@ -2329,13 +2367,26 @@ def _eval_coupling_gate(
         return None, None, None, False
     min_c = float(np.min(cp))
     from .extension import _null_bar
-    thr = float(min_oos_coupling) if min_oos_coupling is not None else _null_bar(int(n_eval))
+    thr = float(min_cross_view_coupling) if min_cross_view_coupling is not None else _null_bar(int(n_eval))
     return [float(x) for x in cp], min_c, thr, bool(np.isfinite(min_c) and min_c >= thr)
 
 
-def _select_by_criteria(rows: List[Dict[str, Any]]) -> Dict[str, Optional[int]]:
-    comp = [r["k"] for r in rows if r["all_stable"]]
-    sub = [r["k"] for r in rows if r["subspace_stable"]]
+def _select_by_criteria(rows: List[Dict[str, Any]], *, margin: float = 0.2) -> Dict[str, Optional[int]]:
+    lr_pass: List[int] = []
+    for i, r in enumerate(rows):
+        gain = r.get("latent_reliability_gain")
+        mv_gain = r.get("latent_reliability_multivariate_gain")
+        prev_mv = rows[i - 1].get("latent_reliability_multivariate_gain") if i > 0 else None
+        gain_ok = (gain is not None) and len(gain) > 0 and all(np.isfinite(g) and g >= margin for g in gain)
+        mv_ok = (
+            (mv_gain is not None)
+            and np.isfinite(mv_gain)
+            and (prev_mv is None or not np.isfinite(prev_mv) or float(mv_gain) >= float(prev_mv) - 1e-12)
+        )
+        passed = bool(gain_ok and mv_ok)
+        r["latent_reliability_passed"] = passed
+        if passed:
+            lr_pass.append(r["k"])
     coup = [r["k"] for r in rows if r["all_coupled"]]
     hcoup = [r["k"] for r in rows if r["heldout_all_coupled"]]
     r2_rows = [r for r in rows if r["oos_r2"] is not None and np.isfinite(r["oos_r2"])]
@@ -2349,90 +2400,73 @@ def _select_by_criteria(rows: List[Dict[str, Any]]) -> Dict[str, Optional[int]]:
             cand_1se = [r["k"] for r in r2_rows if r["oos_r2"] > 0.0 and r["oos_r2"] >= floor]
             k_r2_1se = min(cand_1se) if cand_1se else best["k"]
     return {
-        "component": max(comp) if comp else None,
-        "subspace": max(sub) if sub else None,
+        "latent_reliability": max(lr_pass) if lr_pass else None,
+        "cross_view_coupling": max(coup) if coup else None,
+        "heldout_coupling": max(hcoup) if hcoup else None,
         "oos_r2": k_r2,
         "oos_r2_1se": k_r2_1se,
-        "oos_coupling": max(coup) if coup else None,
-        "heldout_coupling": max(hcoup) if hcoup else None,
     }
 
 
 def _summarize_cell_records(
-    c_ref: List[np.ndarray],
-    n_er_blocks: int,
-    used_iter: Any,
+    ref_rec: Mapping[str, Any],
+    view_list: Sequence[torch.Tensor],
+    sub_idx: Sequence[np.ndarray],
+    oob_rows: Sequence[np.ndarray],
     sub_records: Sequence[Dict[str, Any]],
     k: int,
     n: int,
     m: int,
     exclude_unconverged: bool,
 ) -> Dict[str, Any]:
-    """Reduce a reference structure list + subsample `_fit_structure` records into `_rank_row` summary keys."""
-    from scipy.optimize import linear_sum_assignment
+    """Reduce a reference `_fit_structure` record + subsample records into `_rank_row_from_summary` keys."""
+    from .latent_stability import _compute_stability_from_refits
 
-    conv_flags = [bool(rec["converged"]) for rec in sub_records]
+    stab = _compute_stability_from_refits(
+        ref_rec, view_list, sub_idx, sub_records,
+        oob_rows=oob_rows, exclude_unconverged=exclude_unconverged,
+    )
     conv_steps = [
         int(rec["n_steps"])
         for rec in sub_records
         if rec["converged"] and rec.get("n_steps") is not None
     ]
     median_conv_iter = float(np.median(conv_steps)) if conv_steps else None
-    conv_frac = float(np.mean(conv_flags)) if conv_flags else 1.0
-    stacked_ref = np.vstack(c_ref)
-    sizes = np.cumsum([0] + [c.shape[0] for c in c_ref])
-    aligned, cosines, r2_splits, coups, eff_ranks = [], [], [], [], []
-    coup_splits_all: List[Optional[List[float]]] = []
+
+    r2_splits, eff_ranks = [], []
     for rec in sub_records:
-        keep_rec = (not exclude_unconverged) or bool(rec["converged"])
-        st_list = rec["structure"]
-        st = np.vstack(st_list)
-        if keep_rec and rec["oos_coupling"] is not None:
-            _, col_ind = linear_sum_assignment(-np.abs(st.T @ stacked_ref))
-            inv = np.empty_like(col_ind)
-            inv[col_ind] = np.arange(k)
-            c_aligned = np.asarray(rec["oos_coupling"], float)[inv]
-            coups.append(c_aligned)
-            coup_splits_all.append([float(x) for x in c_aligned])
-        else:
-            coup_splits_all.append(None)
-        if not keep_rec:
+        if exclude_unconverged and not bool(rec["converged"]):
             continue
-        rp = _procrustes(st, stacked_ref)
-        aligned.append(st @ rp)
-        cosines.append(_principal_cosines(st, stacked_ref))
         eff_ranks.append(rec["effective_rank"])
         if rec["oos_r2"] is not None:
             r2_splits.append(rec["oos_r2"])
 
-    n_eff = len(aligned)
+    n_eff = int(stab["n_refits_used"])
     if n_eff > 0:
-        al = np.stack(aligned)
         r2_arr = np.asarray(r2_splits, float) if r2_splits else None
-        sub_stab = [float(x) for x in np.nanmedian(cosines, axis=0)]
         eff_rk = [float(x) for x in np.nanmedian(eff_ranks, axis=0)]
-        comp_stab = [
-            _col_corr_stability(al[:, sizes[vi]:sizes[vi + 1]], c)
-            for vi, c in enumerate(c_ref)
-        ]
     else:
         r2_arr = None
-        sub_stab = [float("nan")] * int(k)
-        eff_rk = [float("nan")] * int(n_er_blocks)
-        comp_stab = [[float("nan")] * int(k) for _ in c_ref]
+        eff_rk = [float("nan")] * len(ref_rec["effective_rank"])
 
     return {
-        "component_stability": comp_stab,
-        "subspace_stability": sub_stab,
+        **stab,
+        "latent_reliability_baseline": None,
+        "latent_reliability_gain": None,
+        "latent_reliability_averaged_baseline": None,
+        "latent_reliability_averaged_gain": None,
+        "latent_reliability_multivariate_baseline": None,
+        "latent_reliability_multivariate_gain": None,
+        "cross_view_coupling_baseline": None,
+        "cross_view_coupling_gain": None,
+        "feature_agreement_baseline": None,
+        "feature_agreement_gain": None,
         "oos_r2": ([float(x) for x in np.nanmean(r2_arr, axis=0)] if r2_arr is not None else None),
         "oos_r2_splits": ([float(x) for x in np.nanmean(r2_arr, axis=1)] if r2_arr is not None else None),
-        "oos_coupling": ([float(x) for x in np.nanmedian(coups, axis=0)] if coups else None),
-        "oos_coupling_splits": (coup_splits_all if coups else None),
         "oos_n": int(n - m),
-        "converged_fraction": conv_frac,
         "median_converged_iter": median_conv_iter,
-        "n_effective_refits": int(n_eff),
-        "used_iterations": used_iter,
+        "n_effective_refits": n_eff,
+        "used_iterations": ref_rec["used_iterations"],
         "effective_rank": eff_rk,
     }
 
@@ -2440,8 +2474,7 @@ def _summarize_cell_records(
 def _rank_row_from_summary(
     inf: Dict[str, Any],
     k: int,
-    min_stability: float,
-    min_oos_coupling: Optional[float],
+    min_cross_view_coupling: Optional[float],
     heldout_views: Any = None,
     views: Any = None,
 ) -> Dict[str, Any]:
@@ -2452,11 +2485,18 @@ def _rank_row_from_summary(
             f"raise iterations; this run used {inf['used_iterations']}.",
             RuntimeWarning, stacklevel=3,
         )
-    cs_mat = np.asarray(inf["component_stability"], float)
-    cs = np.nanmedian(cs_mat, axis=0) if np.isfinite(cs_mat).any() else np.full(k, np.nan)
-    ss = np.asarray(inf["subspace_stability"], float)
-    cs_ok = bool(cs.size > 0 and np.all(np.isfinite(cs)))
-    ss_ok = bool(ss.size > 0 and np.all(np.isfinite(ss)))
+    lr = np.asarray(inf["latent_reliability"], float)
+    lr_ok = bool(lr.size > 0 and np.all(np.isfinite(lr)))
+    lr_b = inf.get("latent_reliability_baseline")
+    lr_g = inf.get("latent_reliability_gain")
+    lrg_arr = np.asarray(lr_g, float) if lr_g is not None else None
+    lrg_ok = bool(lrg_arr is not None and lrg_arr.size > 0 and np.all(np.isfinite(lrg_arr)))
+    lra = np.asarray(inf["latent_reliability_averaged"], float)
+    mv = float(inf["latent_reliability_multivariate"])
+    mv_b = inf.get("latent_reliability_multivariate_baseline")
+    mv_g = inf.get("latent_reliability_multivariate_gain")
+    fa = np.asarray(inf["feature_agreement"], float)
+
     splits = inf["oos_r2_splits"]
     if splits is not None and len(splits) > 0:
         sp = np.asarray(splits, float)
@@ -2464,8 +2504,8 @@ def _rank_row_from_summary(
         oos_r2_se = float(np.nanstd(sp, ddof=1) / np.sqrt(len(sp))) if len(sp) > 1 else 0.0
     else:
         oos_r2 = oos_r2_se = None
-    coup = inf["oos_coupling"]
-    _, min_coup, thr, all_coupled = _eval_coupling_gate(coup, inf["oos_n"], min_oos_coupling)
+    coup = inf["cross_view_coupling"]
+    coup_list, min_coup, thr, all_coupled = _eval_coupling_gate(coup, inf["oos_n"], min_cross_view_coupling)
     er_arr = np.asarray(inf["effective_rank"], float)
     er_ok = bool(er_arr.size > 0 and np.all(np.isfinite(er_arr)))
     min_er = float(np.min(er_arr)) if er_ok else None
@@ -2476,26 +2516,31 @@ def _rank_row_from_summary(
         te_vl = _view_list(inf["result"], heldout_views)
         hc = _heldout_coupling(inf["result"], te_vl, train_views=tr_vl)
         h_coup, h_min, h_thr, h_all = _eval_coupling_gate(
-            hc["cross_view_heldout"], hc["n_heldout"], min_oos_coupling, require_all_finite=True
+            hc["cross_view_heldout"], hc["n_heldout"], min_cross_view_coupling, require_all_finite=True
         )
     else:
         h_coup = h_min = h_thr = None
         h_all = False
+
     return {
-        "k": k,
-        "component_stability": [float(x) for x in cs],
-        "min_stability": (float(np.min(cs)) if cs_ok else None),
-        "all_stable": (bool(np.all(cs >= min_stability)) if cs_ok else False),
-        "subspace_stability": [float(x) for x in ss],
-        "min_subspace_stability": (float(np.min(ss)) if ss_ok else None),
-        "subspace_stable": (bool(np.min(ss) >= min_stability) if ss_ok else False),
+        "k": int(k),
+        "latent_reliability": [float(x) for x in lr],
+        "latent_reliability_baseline": ([float(x) for x in lr_b] if lr_b is not None else None),
+        "latent_reliability_gain": ([float(x) for x in lr_g] if lr_g is not None else None),
+        "latent_reliability_averaged": [float(x) for x in lra],
+        "latent_reliability_multivariate": mv,
+        "latent_reliability_multivariate_baseline": (float(mv_b) if mv_b is not None else None),
+        "latent_reliability_multivariate_gain": (float(mv_g) if mv_g is not None else None),
+        "min_latent_reliability": (float(np.min(lr)) if lr_ok else None),
+        "min_latent_reliability_gain": (float(np.min(lrg_arr)) if lrg_ok else None),
+        "feature_agreement": [float(x) for x in fa],
         "oos_r2": oos_r2,
         "oos_r2_se": oos_r2_se,
         "oos_r2_per_view": inf["oos_r2"],
-        "oos_coupling": coup,
-        "oos_coupling_splits": inf["oos_coupling_splits"],
-        "min_oos_coupling": min_coup,
-        "oos_coupling_threshold": thr,
+        "cross_view_coupling": coup_list,
+        "cross_view_coupling_splits": inf["cross_view_coupling_splits"],
+        "min_cross_view_coupling": min_coup,
+        "cross_view_coupling_threshold": thr,
         "all_coupled": all_coupled,
         "heldout_coupling": h_coup,
         "heldout_min_coupling": h_min,
@@ -2509,20 +2554,24 @@ def _rank_row_from_summary(
     }
 
 
-def _rank_row(method, views, k, n_subsamples, fraction, min_stability, min_oos_coupling,
-              heldout_views, exclude_unconverged, random_state, n_jobs, executor, params):
+def _rank_row(method, views, k, n_subsamples, fraction, min_cross_view_coupling,
+              heldout_views, exclude_unconverged, random_state, n_jobs, executor, params,
+              *, n_permutations: int = 0, tune_learning_rate: str = "per_refit",
+              baseline: bool = False, n_baseline: int = 3):
     """One `select_rank` table row at rank ``k``."""
     inf = loading_inference(method, views, k, n_subsamples=n_subsamples, fraction=fraction,
-                            exclude_unconverged=exclude_unconverged, random_state=random_state,
-                            n_jobs=n_jobs, _executor=executor, _warn_unconverged=False,
-                            **params)
-    return _rank_row_from_summary(inf, k, min_stability, min_oos_coupling, heldout_views, views)
+                            exclude_unconverged=exclude_unconverged, n_permutations=n_permutations,
+                            tune_learning_rate=tune_learning_rate,
+                            baseline=baseline, n_baseline=n_baseline,
+                            random_state=random_state, n_jobs=n_jobs, _executor=executor,
+                            _warn_unconverged=False, **params)
+    return _rank_row_from_summary(inf, k, min_cross_view_coupling, heldout_views, views)
 
 
 def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *,
                  confounds: Any = None, confound_strength: float = 1.0,
                  n_subsamples: int = 20, fraction: float = 0.7,
-                 min_stability: float = 0.5, exclude_unconverged: bool = True,
+                 exclude_unconverged: bool = True,
                  min_converged_fraction: float = 0.5, random_state: int = 0,
                  n_jobs: int = 1, **shared_params: Any) -> Dict[str, Any]:
     """Choose ``(candidate, k)`` across pre-specified models on one paired out-of-bag design.
@@ -2535,13 +2584,13 @@ def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *
     1. **Health gate**: ``converged_fraction >= min_converged_fraction`` and
        ``not basis_degenerate``.
     2. **Signal gate**: every component's median out-of-bag leave-one-view-out
-       coupling >= ``oos_coupling_threshold`` (the calibrated Fisher-z ``alpha = 0.01``
-       bar for the out-of-bag ``n``, i.e. ``all_coupled == True``).
+       coupling >= ``cross_view_coupling_threshold`` (the calibrated Fisher-z
+       ``alpha = 0.01`` bar for the out-of-bag ``n``, i.e. ``all_coupled == True``).
     3. **1-SE parsimony rule**: among signal-bearing, health-passing cells, compute
        ``S = sum_j max(median_coupling_j, 0)^2``; admit cells whose paired per-split
        difference to the highest-``S`` cell has ``mean >= -SE``; select by
-       ``(complexity_tier, k, -sparseness, -min_subspace_stability)`` with tiers
-       ``0`` (``pca``, ``nsa_pipeline``), ``1`` (``simlr``), ``2`` (other methods).
+       ``(complexity_tier, k, -sparseness, -latent_reliability_multivariate)`` with
+       tiers ``0`` (``pca``, ``nsa_pipeline``), ``1`` (``simlr``), ``2`` (other methods).
 
     If no cell is signal-bearing, ``signal_detected`` is ``False`` and ``selected``
     is the ``k = 1`` health-passing cell with the highest median coupling (with
@@ -2571,7 +2620,7 @@ def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *
         cand_list.append({"label": lbl, "method": str(c["method"]), "params": dict(c.get("params") or {})})
 
     _n_workers(n_jobs)
-    n_views = len(views) if isinstance(views, (list, tuple)) else 1
+    n_views = len(views) if isinstance(views, (list, tuple, Mapping)) else 1
     bott = bottleneck_rank(views, confounds=confounds, bound="max") if n_views >= 2 else None
     _warn_if_above_bottleneck(ks_sorted, bott)
 
@@ -2581,23 +2630,24 @@ def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *
     all_rows = np.arange(n)
     n_sub = int(n_subsamples)
 
-    split_cache: Dict[int, Tuple[List[np.ndarray], List[Any], List[Any]]] = {}
+    split_cache: Dict[int, Tuple[List[np.ndarray], List[np.ndarray], List[Any], List[Any]]] = {}
 
-    def _get_splits(m_val: int) -> Tuple[List[np.ndarray], List[Any], List[Any]]:
+    def _get_splits(m_val: int) -> Tuple[List[np.ndarray], List[np.ndarray], List[Any], List[Any]]:
         if m_val not in split_cache:
             rng_m = np.random.default_rng(random_state)
             sub_idx_m = [np.sort(rng_m.choice(n, m_val, replace=False)) for _ in range(n_sub)]
-            sub_v_list, oob_v_list = [], []
+            oob_rows_m, sub_v_list, oob_v_list = [], [], []
             for idx in sub_idx_m:
                 oob = np.setdiff1d(all_rows, idx, assume_unique=True)
+                oob_rows_m.append(oob)
                 t_idx = torch.as_tensor(idx)
-                t_oob = torch.as_tensor(oob) if len(oob) >= 2 else None
+                t_oob = torch.as_tensor(oob) if len(oob) >= 1 else None
                 sub_v_list.append([x[t_idx].numpy() if x.device.type == "cpu" else x[t_idx] for x in view_list])
                 oob_v_list.append(
                     [x[t_oob].numpy() if x.device.type == "cpu" else x[t_oob] for x in view_list]
                     if t_oob is not None else None
                 )
-            split_cache[m_val] = (sub_idx_m, sub_v_list, oob_v_list)
+            split_cache[m_val] = (sub_idx_m, oob_rows_m, sub_v_list, oob_v_list)
         return split_cache[m_val]
 
     sink_keys = frozenset(SINK_PARAMS)
@@ -2614,7 +2664,7 @@ def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *
             if sk in accepted or sk not in all_known:
                 call_params[sk] = sv
         call_params.update(cand["params"])
-        min_oos_c = call_params.pop("min_oos_coupling", None)
+        min_cv_c = call_params.pop("min_cross_view_coupling", call_params.pop("min_oos_coupling", None))
         if confounds is not None:
             call_params["confounds"] = confounds
             call_params["confound_strength"] = confound_strength
@@ -2632,38 +2682,40 @@ def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *
         conf_c = call_params.get("confounds")
         for k in ks_sorted:
             m = max(k + 2, int(round(fraction * n)))
-            sub_idx_m, sub_v_list, oob_v_list = _get_splits(m)
+            sub_idx_m, _, sub_v_list, oob_v_list = _get_splits(m)
             offset = len(all_tasks)
             all_tasks.append((method, views_np, k, random_state, call_params))
             for idx, sub_v, oob_v in zip(sub_idx_m, sub_v_list, oob_v_list):
                 sub_p = call_params if conf_c is None else dict(call_params, confounds=slice_confounds(conf_c, idx))
                 all_tasks.append((method, sub_v, oob_v, k, random_state, sub_p))
-            cell_specs.append((cand, method, tier, sp_scalar, k, m, min_oos_c, offset))
+            cell_specs.append((cand, method, tier, sp_scalar, k, m, min_cv_c, offset))
 
     all_records = _run_fits(all_tasks, n_jobs)
 
     cells: List[Dict[str, Any]] = []
-    for cand, method, tier, sp_scalar, k, m, min_oos_c, offset in cell_specs:
+    for cand, method, tier, sp_scalar, k, m, min_cv_c, offset in cell_specs:
         ref_rec = all_records[offset]
         sub_records = all_records[offset + 1 : offset + 1 + n_sub]
+        sub_idx_m, oob_rows_m, _, _ = _get_splits(m)
         summary = _summarize_cell_records(
-            ref_rec["structure"],
-            len(ref_rec["effective_rank"]),
-            ref_rec["used_iterations"],
+            ref_rec,
+            view_list,
+            sub_idx_m,
+            oob_rows_m,
             sub_records,
             k,
             n,
             m,
             exclude_unconverged,
         )
-        r = _rank_row_from_summary(summary, k, min_stability, min_oos_c)
+        r = _rank_row_from_summary(summary, k, min_cv_c)
         health_ok = bool(r["converged_fraction"] >= min_converged_fraction and not r["basis_degenerate"])
         signal_bearing = bool(health_ok and r["all_coupled"])
-        oc = r["oos_coupling"]
+        oc = r["cross_view_coupling"]
         score_s = float(sum(max(float(v), 0.0) ** 2 for v in oc)) if oc is not None else 0.0
         split_s = [
             (float(sum(max(float(v), 0.0) ** 2 for v in sp_c)) if sp_c is not None else None)
-            for sp_c in (r["oos_coupling_splits"] or [])
+            for sp_c in (r["cross_view_coupling_splits"] or [])
         ]
         cell = {
             "label": cand["label"],
@@ -2718,7 +2770,7 @@ def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *
                 c["complexity_tier"],
                 c["k"],
                 -c["sparseness"],
-                -(c["min_subspace_stability"] if c["min_subspace_stability"] is not None else -1.0),
+                -(c["latent_reliability_multivariate"] if np.isfinite(c["latent_reliability_multivariate"]) else -1.0),
                 -c["score_S"],
             ),
         )
@@ -2730,7 +2782,7 @@ def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *
         pool_fb = [c for c in pool_fb if c["k"] == min_k_fb]
 
         def _med_coup(c: Dict[str, Any]) -> float:
-            oc_v = c["oos_coupling"]
+            oc_v = c["cross_view_coupling"]
             return float(np.mean(oc_v)) if oc_v is not None and len(oc_v) else float("-inf")
 
         winner = max(pool_fb, key=lambda c: (_med_coup(c), -c["complexity_tier"], c["sparseness"]))

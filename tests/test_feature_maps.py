@@ -161,7 +161,10 @@ def test_loading_inference_reports_alternative_maps():
     for kind in ("partial", "relative_weight"):
         e = inf["maps"][kind]
         assert [tuple(m.shape) for m in e["map"]] == [(x.shape[1], 2) for x in xs]
-        assert len(e["component_stability"]) == len(xs) and len(e["component_stability"][0]) == 2
+        assert e["feature_agreement"].shape == (2,)
+        assert len(e["feature_agreement_by_view"]) == len(xs) and len(e["feature_agreement_by_view"][0]) == 2
+        with pytest.raises(KeyError, match="removed in 0.41.0"):
+            _ = e["component_stability"]
         assert all((lo <= hi + 1e-6).all() for lo, hi in zip(e["ci_low"], e["ci_high"]))
         assert all(((f >= 0) & (f <= 1)).all() for f in e["selection_frequency"])
     # relative weights stay non-negative after alignment (signs are not applied to them)
@@ -179,10 +182,10 @@ def test_feature_table_and_plots_take_alternative_maps():
     res = inf["result"]
     extra = pysimlr.feature_maps(res, xs, kinds=("relative_weight", "global_partial"))
     tab = pysimlr.feature_table(res, inf, maps=extra)
-    for col in ("partial", "partial_ci_low", "partial_stability", "relative_weight", "global_partial"):
+    for col in ("partial", "partial_ci_low", "partial_selection_frequency", "relative_weight", "global_partial"):
         assert col in tab.columns, col
     fig = pysimlr.plot_top_features(res, inf, kind="partial")
-    assert "stability" in fig.axes[0].get_title(loc="left")
+    assert "feature agreement" in fig.axes[0].get_title(loc="left")
     plt.close(fig)
     fig = pysimlr.plot_top_features(res, maps=extra, kind="relative_weight")
     assert fig.axes[0].get_xlim()[0] == 0

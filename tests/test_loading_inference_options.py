@@ -84,15 +84,13 @@ def _reference_quantities():
         for key in ("structure", "ci_low", "ci_high", "selection_frequency"):
             out[f"inf/{key}/{m}"] = np.asarray(inf[key][m], float)
         out[f"inf/selected/{m}"] = np.asarray(inf["selected"][m], float)
-        out[f"inf/component_stability/{m}"] = np.asarray(inf["component_stability"][m], float)
         for kind in ("structure", "partial"):
             out[f"inf/maps/{kind}/ci_high/{m}"] = inf["maps"][kind]["ci_high"][m].numpy()
             out[f"inf/maps/{kind}/selection_frequency/{m}"] = inf["maps"][kind]["selection_frequency"][m].numpy()
     out["inf/expected_false"] = np.asarray(inf["expected_false_selections"], float)
     out["inf/q"] = np.asarray(inf["q"], float)
     out["inf/null_max_abs"] = np.asarray(inf["null_max_abs"], float)
-    out["inf/subspace_stability"] = np.asarray(inf["subspace_stability"], float)
-    out["inf/oos_coupling"] = np.asarray(inf["oos_coupling"], float)
+    out["inf/oos_coupling"] = np.asarray(inf["cross_view_coupling"], float)
     out["inf/oos_r2"] = np.asarray(inf["oos_r2"], float)
     out["inf/oos_n"] = np.asarray(inf["oos_n"], float)
     out["inf/oob_rows"] = np.concatenate([np.asarray(o["rows"]) for o in inf["oob_scores"]])
@@ -110,8 +108,10 @@ def _reference_quantities():
 def test_defaults_equal_values_computed_on_main():
     ref = np.load(REF_FILE)
     now = _reference_quantities()
-    assert set(ref.files) == set(now)
-    for key in ref.files:
+    removed_ref = {f"inf/component_stability/{m}" for m in range(3)} | {"inf/subspace_stability"}
+    expected_keys = set(ref.files) - removed_ref
+    assert expected_keys == set(now)
+    for key in sorted(expected_keys):
         np.testing.assert_allclose(now[key], ref[key], atol=1e-6, rtol=1e-5, err_msg=key)
 
 
@@ -426,22 +426,16 @@ def test_return_refits_in_bag_flags_and_latent_marking():
 
 
 def test_return_refits_alignment_round_trips_and_matches_the_summary():
+    from pysimlr.latent_stability import pairwise_cosine_agreement
     out, vs = _inference(return_refits=("weights", "latents", "maps"))
     rf = out["refits"]
     ref = out["result"]
-    # structure: stability recomputed from the returned refits equals the summary
-    stacked_ref = np.vstack([c.numpy() for c in ref["structure"]])
-    sizes = np.cumsum([0] + rf["view_sizes"])
+    # maps: pairwise cosine agreement recomputed from returned refits equals the summary
     for vi in range(3):
-        sl = rf["structure"][:, sizes[vi]:sizes[vi + 1]].astype(float)
-        from pysimlr.loadings import _col_corr_stability
-        mine = _col_corr_stability(sl, ref["structure"][vi].double().numpy())
-        np.testing.assert_allclose(mine, out["component_stability"][vi], atol=2e-4)
-        # maps likewise
         for kind in ("structure", "partial"):
             arr = rf["maps"][kind][vi].astype(float)
-            mine = _col_corr_stability(arr, out["maps"][kind]["map"][vi].double().numpy(), nan_safe=True)
-            np.testing.assert_allclose(mine, out["maps"][kind]["component_stability"][vi], atol=2e-4)
+            mine = pairwise_cosine_agreement(arr)
+            np.testing.assert_allclose(mine, out["maps"][kind]["feature_agreement_by_view"][vi], atol=1e-6)
     # the aligned structure of a refit is the refit's structure times the Procrustes rotation; weights/latents use
     # rotation = loading_rotation @ procrustes, so (X V) @ A is the refit's rotated, aligned latent
     a = rf["alignment"]

@@ -2088,7 +2088,8 @@ def compare_path_models(result: Optional[Dict[str, Any]] = None, views_train: An
                         directed: bool = False, view_names: Optional[Sequence[str]] = None,
                         covariates_train=None, covariates_test=None, groups_train=None, groups_test=None,
                         outcome_train=None, outcome_test=None, n_bootstrap: int = 2000,
-                        n_permutations: int = 2000, alpha: float = 0.05, random_state: int = 0) -> Dict[str, Any]:
+                        n_permutations: int = 2000, alpha: float = 0.05, random_state: int = 0,
+                        criterion: Optional[str] = None) -> Dict[str, Any]:
     """Compare graphs over views (and an optional outcome node).
 
     **Structural comparison, measurement model fixed** (plan 4.1): pass ``result`` (a `pysimlr.fit`
@@ -2113,13 +2114,17 @@ def compare_path_models(result: Optional[Dict[str, Any]] = None, views_train: An
     on the same training rows and evaluated on the same held-out rows: ``heldout_loglik_own`` and
     ``heldout_loglik_complete`` (the 4.1 structural log-likelihood of that fit's scores under its
     own graph and under the complete graph), the graph-fit pass rates under its own graph,
-    ``oos_coupling`` (mean held-out leave-one-view-out coupling, `loadings._oob_metrics`),
+    ``cross_view_coupling`` (mean held-out leave-one-view-out coupling, `loadings._oob_metrics`),
     ``oos_r2`` (mean adjusted held-out reconstruction R^2) and, with an outcome, ``outcome_r2``
     (held-out R^2 of a least-squares fit of the outcome on the training consensus). The training
     loss is not reported: it is in-sample and graph-conditional. ``splits`` holds one row per
     (split, graph); ``summary`` the mean per graph and the mean paired difference against the
     graph with the highest mean of each criterion; ``best`` the top graph per criterion.
     """
+    if criterion == "oos_coupling":
+        raise ValueError("'oos_coupling' was removed in 0.41.0; use 'cross_view_coupling'")
+    if criterion is not None and criterion not in _TOPOLOGY_CRITERIA:
+        raise ValueError(f"criterion must be one of {_TOPOLOGY_CRITERIA}; got {criterion!r}.")
     if not graphs:
         raise ValueError("graphs is required: a non-empty {name: graph}.")
     if result is not None and method is not None:
@@ -2236,7 +2241,7 @@ def compare_path_models_from_scores(
     )
 
 
-_TOPOLOGY_CRITERIA = ("heldout_loglik_own", "heldout_loglik_complete", "oos_coupling", "oos_r2", "outcome_r2")
+_TOPOLOGY_CRITERIA = ("heldout_loglik_own", "heldout_loglik_complete", "cross_view_coupling", "oos_r2", "outcome_r2")
 
 
 def _compare_training_topologies(method, k, views, graphs, *, n_splits, train_fraction, fit_params, covariates,
@@ -2328,7 +2333,7 @@ def _compare_training_topologies(method, k, views, graphs, *, n_splits, train_fr
                    "n_test": len(te), "heldout_loglik_own": float(ll_own.sum()),
                    "heldout_loglik_complete": float(ll_cmp.sum()),
                    "present_pass": pm["fit"]["present_pass"], "absent_pass": pm["fit"]["absent_pass"],
-                   "oos_coupling": None if coup is None else float(np.mean(coup)),
+                   "cross_view_coupling": None if coup is None else float(np.mean(coup)),
                    "oos_r2": None if r2 is None else float(np.mean(r2)), "outcome_r2": out_r2}
             rows.append(row)
     splits = pd.DataFrame(rows)

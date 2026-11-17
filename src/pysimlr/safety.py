@@ -413,9 +413,10 @@ def _aligned_score_corr(u_loo: np.ndarray, u_ref: np.ndarray) -> float:
     return float(min(corrs))
 
 
-def _loo_worker(task: Any) -> Tuple[float, bool]:
+def _loo_worker(task: Any) -> Tuple[float, bool, Optional[float]]:
     """Single leave-one-row-out refit worker (module-level for multiprocessing)."""
     from .api import fit
+    from .loadings import _extract_learning_rate_used
 
     method, sub_views, k_int, params_i, u_ref_keep = task
     with warnings.catch_warnings():
@@ -423,7 +424,7 @@ def _loo_worker(task: Any) -> Tuple[float, bool]:
         res = fit(method, sub_views, k_int, safety="off", **params_i)
     u_i = res["u"].detach().cpu().double().numpy()
     conv = bool((res.get("convergence") or {}).get("converged", False))
-    return _aligned_score_corr(u_i, u_ref_keep), conv
+    return _aligned_score_corr(u_i, u_ref_keep), conv, _extract_learning_rate_used(res)
 
 
 def _slice_views_container(names: List[str], arrays: List[np.ndarray], form: str, idx: np.ndarray) -> Any:
@@ -440,12 +441,14 @@ def _loo_influence(
     method: str,
     k: int,
     n_jobs: int,
+    tune_learning_rate: str,
     fit_params: Dict[str, Any],
-) -> Tuple[np.ndarray, int, np.ndarray, float, List[str]]:
+) -> Tuple[np.ndarray, int, np.ndarray, float, List[Optional[float]], List[str]]:
     from .api import fit as run_fit, resolve_method
     from .confounds import slice_confounds
-    from .loadings import _n_workers, _pool
+    from .loadings import _extract_learning_rate_used, _n_workers, _pool, _validate_tune_learning_rate
 
+    _validate_tune_learning_rate(tune_learning_rate, method)
     n = arrays[0].shape[0]
     fit_idx = np.flatnonzero(fit)
     n_fit = int(fit_idx.size)
@@ -470,6 +473,10 @@ def _loo_influence(
         warnings.simplefilter("ignore", ConvergenceWarning)
         ref_res = run_fit(method, views_fit, k_int, safety="off", **ref_params)
     u_ref = ref_res["u"].detach().cpu().double().numpy()
+    if tune_learning_rate == "reference":
+        lr_ref = _extract_learning_rate_used(ref_res)
+        if lr_ref is not None:
+            base_params["learning_rate"] = lr_ref
 
     tasks = []
     for pos in range(n_fit):
@@ -488,8 +495,9 @@ def _loo_influence(
         with _pool(workers) as ex:
             outcomes = list(ex.map(_loo_worker, tasks))
 
-    corrs = np.asarray([c for c, _ in outcomes], dtype=np.float64)
-    convs = np.asarray([cv for _, cv in outcomes], dtype=bool)
+    corrs = np.asarray([c for c, _, _ in outcomes], dtype=np.float64)
+    convs = np.asarray([cv for _, cv, _ in outcomes], dtype=bool)
+    refit_lrs: List[Optional[float]] = [lr for _, _, lr in outcomes]
     loo_corr_full = np.full(n, np.nan, dtype=np.float64)
     loo_corr_full[fit_idx] = corrs
 
@@ -505,7 +513,7 @@ def _loo_influence(
             f"influence: {n_other} of {n_fit} leave-one-out refits landed on a different solution "
             f"(score correlation < {SAME_SOLUTION_CORR:g} with the full fit; min r={min_r:.3f})."
         )
-    return loo_corr_full, n_other, other_rows, conv_frac, notes
+    return loo_corr_full, n_other, other_rows, conv_frac, refit_lrs, notes
 
 
 def _data_safety_impl(
@@ -521,10 +529,19 @@ def _data_safety_impl(
     method: str = "simlr",
     k: int = 1,
     n_jobs: int = 1,
+    tune_learning_rate: str = "per_refit",
     fit_params: Optional[Dict[str, Any]] = None,
     pre_miss_list: Optional[Sequence[Optional[np.ndarray]]] = None,
     pre_sd_list: Optional[Sequence[Optional[np.ndarray]]] = None,
 ) -> Dict[str, Any]:
+    from .loadings import TUNE_LEARNING_RATE_MODES, _validate_tune_learning_rate
+
+    if not isinstance(tune_learning_rate, str) or tune_learning_rate not in TUNE_LEARNING_RATE_MODES:
+        raise ValueError(
+            f"tune_learning_rate must be one of {TUNE_LEARNING_RATE_MODES}; got {tune_learning_rate!r}."
+        )
+    if influence:
+        _validate_tune_learning_rate(tune_learning_rate, method)
     n_pc_i, rz_f, lr_f, mq_f = _validate_thresholds(n_pc, robust_z, leverage_ratio, md_quantile)
 
     if _is_prepared_result(views):
@@ -617,7 +634,7 @@ def _data_safety_impl(
     }
 
     if influence:
-        loo_corr, n_other, other_rows, conv_frac, loo_notes = _loo_influence(
+        loo_corr, n_other, other_rows, conv_frac, refit_lrs, loo_notes = _loo_influence(
             names,
             arrays,
             form,
@@ -625,6 +642,7 @@ def _data_safety_impl(
             method=method,
             k=k,
             n_jobs=n_jobs,
+            tune_learning_rate=tune_learning_rate,
             fit_params=dict(fit_params or {}),
         )
         all_warnings.extend(loo_notes)
@@ -632,6 +650,7 @@ def _data_safety_impl(
         out["n_other_solution"] = n_other
         out["other_solution_rows"] = other_rows
         out["loo_converged_fraction"] = conv_frac
+        out["refit_learning_rates"] = refit_lrs
 
     return out
 
@@ -689,6 +708,7 @@ def data_safety(
     method: str = "simlr",
     k: int = 1,
     n_jobs: int = 1,
+    tune_learning_rate: str = "per_refit",
     **fit_params: Any,
 ) -> Dict[str, Any]:
     """Standard row, column, group, and optional LOO sensitivity diagnostics for views.
@@ -746,7 +766,8 @@ def data_safety(
         ``n_flagged_by_group`` (dict ``label -> count`` when ``groups`` is given,
         else ``None``), ``group_concentration``, ``columns``, ``warnings`` (list
         of plain sentences), and when ``influence=True``, ``loo_score_correlation``,
-        ``n_other_solution``, ``other_solution_rows``, and ``loo_converged_fraction``.
+        ``n_other_solution``, ``other_solution_rows``, ``loo_converged_fraction``, and
+        ``refit_learning_rates``.
     """
     return _data_safety_impl(
         views,
@@ -760,6 +781,7 @@ def data_safety(
         method=method,
         k=k,
         n_jobs=n_jobs,
+        tune_learning_rate=tune_learning_rate,
         fit_params=fit_params,
     )
 

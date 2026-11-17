@@ -1435,6 +1435,51 @@ def _apply_quantile_sparseness(
     return out
 
 
+def _apply_soft_threshold_sparseness(
+    v: torch.Tensor,
+    q: Optional[float],
+    positivity: str,
+    partial_mask: Optional[np.ndarray] = None,
+) -> torch.Tensor:
+    """Apply continuous soft-thresholding shrinkage at quantile ``s`` per column.
+
+    First enforces sign feasibility on constrained coordinates (clamping
+    negative entries on non-negative / ``nonneg_mask`` coordinates after
+    resolving the column sign gauge), then computes per-column threshold
+    ``tau = 0.5 * quantile(|v_feasible|, s)`` (``0`` if the column maximum is
+    zero) and applies ``sign(v_feasible) * max(|v_feasible| - tau, 0)``.
+
+    Unlike hard top-``(1 - s)`` truncation, this shrinkage is continuous in the
+    input entries so correlated features above ``tau`` share weight smoothly
+    rather than jumping when ranks swap. Under ``positivity="convex"``
+    (where ``||v||_1 == 1`` is constant on the simplex so an L1 penalty has
+    zero gradient on the simplex), applying this shrinkage prior to simplex
+    normalization still concentrates mass smoothly without rank-swap cliffs.
+    """
+    from .positivity import NONNEG, resolve_positivity
+
+    pos_can = resolve_positivity(positivity)
+    nonneg = (pos_can in NONNEG) and (partial_mask is None)
+    if partial_mask is not None:
+        v_feas = apply_positivity(v, pos_can, nonneg_mask=partial_mask)
+    elif nonneg:
+        v_feas = _resolve_column_sign_gauge(v).clamp_min(0.0)
+    else:
+        v_feas = v
+
+    if q is None or q <= 0.0 or v_feas.numel() == 0:
+        return v_feas
+
+    mag = v_feas.abs()
+    max_mag = mag.detach().amax(dim=0)
+    if bool((max_mag <= 0.0).all()):
+        return torch.zeros_like(v_feas)
+
+    tau = 0.5 * torch.quantile(mag.detach().double(), float(q), dim=0).to(mag.dtype)
+    tau = torch.where(max_mag > 0.0, tau, torch.zeros_like(tau))
+    return torch.sign(v_feas) * torch.clamp(mag - tau.unsqueeze(0), min=0.0)
+
+
 def simlr_sparseness(v: torch.Tensor,
                      constraint_type: str = "none",
                      smoothing_matrix: Optional[torch.Tensor] = None,
@@ -1442,22 +1487,38 @@ def simlr_sparseness(v: torch.Tensor,
                      sparseness: Optional[Union[float, List[Optional[float]]]] = None,
                      constraint_weight: Optional[float] = None,
                      sparseness_alg: str = 'soft',
+                     sparseness_type: str = 'hard',
                      energy_type: Optional[str] = None,
                      modality_index: Optional[int] = None,
                      unit_columns: Optional[bool] = None,
                      retraction_diagnostics: Optional[dict] = None,
                      nonneg_mask: Optional[Any] = None) -> torch.Tensor:
     """
-    Project a basis onto the NSA-Flow feasible set with optional column-wise quantile sparsification.
+    Project a basis onto the NSA-Flow feasible set with optional column-wise sparsification.
 
     When ``sparseness`` is ``None`` (the default), sparsity is governed
-    solely by the NSA-Flow weight ``w`` and sign constraint. When
-    ``sparseness`` is set to a quantile ``q in (0, 1)`` (or a per-view
-    list of quantiles, as in R ``ANTsR::simlr``), column-wise quantile
-    soft-thresholding strips the diffuse background off each column before
-    NSA-Flow retraction and re-optimises the NSA-Flow energy restricted to the
-    selected quantile support mask.
+    solely by the NSA-Flow weight ``w`` and sign constraint.
+
+    Under ``sparseness_type="hard"`` (the ``v0.40.0`` default), when
+    ``sparseness`` is a quantile ``q in (0, 1)``, column-wise top-``(1 - q)``
+    quantile thresholding strips the diffuse background off each column before
+    and after NSA-Flow retraction.
+
+    Under ``sparseness_type="soft"`` (continuous soft-thresholding prototype),
+    discontinuous top-``(1 - q)`` rank truncation is replaced by continuous
+    soft-thresholding ``sign(v) * max(|v| - tau, 0)`` with
+    ``tau = 0.5 * quantile(|v_feasible|, q)`` per column (after clamping
+    infeasible negative entries on non-negative / ``nonneg_mask`` coordinates),
+    followed by exact manifold projection (NSA-Flow / polar orthogonalization
+    for ``"linear"`` and ``"conical"``, and simplex normalization
+    ``v / v.sum(0)`` for ``"convex"``). Note mathematically that on
+    ``"convex"`` (``v >= 0, 1^T v = 1``), ``||v||_1 == 1`` is constant so an
+    L1 penalty has zero gradient on the simplex; pre-projection shrinkage
+    followed by simplex renormalization therefore supplies the smooth
+    feature-sharing shrinkage.
     """
+    if not isinstance(sparseness_type, str) or sparseness_type not in ("hard", "soft"):
+        raise ValueError(f"sparseness_type must be 'hard' or 'soft'; got {sparseness_type!r}.")
     orig_dtype = v.dtype
     v_out = v.clone()
     if torch.isnan(v_out).any():
@@ -1497,6 +1558,18 @@ def simlr_sparseness(v: torch.Tensor,
     if constraint_type == "none" or (w is not None and float(w) <= 0.0):
         # The sign constraint is part of the feasible set whether or not the
         # orthogonality projection runs, so it is applied on this path too.
+        if sparseness_type == "soft":
+            if negative:
+                out_none = -_apply_soft_threshold_sparseness(-v_out, q_val, "positive", partial_mask=None)
+            else:
+                out_none = _apply_soft_threshold_sparseness(v_out, q_val, positivity, partial_mask=partial_mask)
+            if unit_columns is None:
+                unit_columns = energy_needs_unit_columns(energy_type)
+            if unit_columns and not convex:
+                out_none = _unit_normalize_columns(out_none)
+            if convex:
+                out_none = _convexify(out_none)
+            return out_none.to(orig_dtype)
         out_none = apply_positivity(v_out, positivity, nonneg_mask=partial_mask)
         if q_val is not None:
             if negative:
@@ -1515,19 +1588,28 @@ def simlr_sparseness(v: torch.Tensor,
         # The solver only knows V >= 0; solve the reflected problem.
         v_out = -v_out
         nonneg = True
+        pos_eff = "positive"
+    else:
+        pos_eff = positivity
 
     w = NSA_DEFAULT_W if w is None else float(w)
 
     v_out = enforce_column_floor(v_out)
 
-    if partial_mask is not None:
-        candidate = apply_positivity(v_out.clone(), positivity, nonneg_mask=partial_mask)
+    if sparseness_type == "soft":
+        candidate = _apply_soft_threshold_sparseness(v_out, q_val, pos_eff, partial_mask=partial_mask)
+        candidate = enforce_column_floor(candidate)
+        retract_sp = None
     else:
-        candidate = (_resolve_column_sign_gauge(v_out) if nonneg
-                     else apply_positivity(v_out.clone(), positivity))
+        if partial_mask is not None:
+            candidate = apply_positivity(v_out.clone(), positivity, nonneg_mask=partial_mask)
+        else:
+            candidate = (_resolve_column_sign_gauge(v_out) if nonneg
+                         else apply_positivity(v_out.clone(), positivity))
+        retract_sp = q_val
 
     projected = _nsa_retract(candidate, w=w, nonneg=nonneg,
-                             sparseness=q_val,
+                             sparseness=retract_sp,
                              diagnostics=retraction_diagnostics)
     if projected is None and load_nsa_flow() is None:
         raise ImportError(
@@ -1548,7 +1630,7 @@ def simlr_sparseness(v: torch.Tensor,
     if partial_mask is not None:
         projected = apply_positivity(projected, positivity, nonneg_mask=partial_mask)
 
-    if q_val is not None:
+    if sparseness_type == "hard" and q_val is not None:
         # Ensure exact quantile sparsity >= q_val (a no-op when nsa_flow's
         # support-masked polish already satisfied the quantile target).
         projected = _apply_quantile_sparseness(

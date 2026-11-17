@@ -155,10 +155,12 @@ def test_loading_inference_reports_intervals_stability_and_selection():
     views = _small(n=100)
     out = pysimlr.loading_inference("simlr", views, 2, n_subsamples=4, n_permutations=2,
                                     iterations=5, random_state=0)
+    assert out["latent_reliability"].shape == (2,)
+    assert out["feature_agreement"].shape == (2,)
     for vi, x in enumerate(views):
         p = x.shape[1]
         assert out["ci_low"][vi].shape == (p, 2) and (out["ci_low"][vi] <= out["ci_high"][vi]).all()
-        assert len(out["component_stability"][vi]) == 2
+        assert out["feature_agreement_by_view"][vi].shape == (2,)
         f = out["selection_frequency"][vi]
         assert ((f >= 0) & (f <= 1)).all() and out["selected"][vi].dtype == torch.bool
         q = out["q"][vi]
@@ -177,16 +179,13 @@ def test_select_rank_reports_per_component_stability():
     out = pysimlr.select_rank("simlr", _small(n=80), [1, 2], n_subsamples=3, iterations=5, random_state=0)
     assert [r["k"] for r in out["table"]] == [1, 2]
     for r in out["table"]:
-        assert len(r["component_stability"]) == r["k"]
-        assert r["all_stable"] == (r["min_stability"] >= 0.9)
+        assert len(r["latent_reliability"]) == r["k"]
+        assert len(r["latent_reliability_gain"]) == r["k"]
     assert out["k"] in (None, 1, 2)
 
 
 @pytest.mark.slow
 def test_select_rank_recovers_a_planted_rank():
-    """Planted linear case with k = 3 (seed 0): measured component stability
-    k=2 [0.996, 0.891], k=3 [0.998, 0.997, 0.997], k=4 [.., 0.66, ..],
-    k=5 [.., 0.717, .., 0.347] with 10 half-sample refits."""
     views, k_true = _planted(0)
     out = pysimlr.select_rank("simlr", views, [2, 3, 4], n_subsamples=10, random_state=0)
     assert k_true == 3 and out["k"] == 3
@@ -200,7 +199,8 @@ def test_loading_inference_does_not_depend_on_n_jobs():
     for key in ("ci_low", "ci_high", "selection_frequency", "selected"):
         for x, y in zip(a[key], b[key]):
             assert torch.equal(x, y), key
-    assert a["component_stability"] == b["component_stability"]
+    np.testing.assert_array_equal(a["latent_reliability"], b["latent_reliability"])
+    np.testing.assert_array_equal(a["feature_agreement"], b["feature_agreement"])
     assert a["null_max_abs"] == b["null_max_abs"]
     with pytest.raises(ValueError, match="n_jobs"):
         pysimlr.loading_inference("simlr", views, 2, n_jobs=0, **kw)
@@ -230,21 +230,22 @@ def test_select_rank_reports_all_criteria_and_diagnostics():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         out = pysimlr.select_rank("simlr", views, [2, 1, 2], n_subsamples=4, iterations=8, random_state=0)
-    assert out["criterion"] == "component"
+    assert out["criterion"] == "latent_reliability"
     assert set(out["criteria"]) == set(pysimlr.RANK_CRITERIA)
-    assert out["k"] == out["criteria"]["component"]
+    assert out["k"] == out["criteria"]["latent_reliability"]
     assert [r["k"] for r in out["table"]] == [1, 2]
     for r in out["table"]:
         k = r["k"]
-        assert len(r["subspace_stability"]) == k
-        assert np.all(np.diff(r["subspace_stability"]) <= 1e-12)
-        assert r["min_subspace_stability"] == pytest.approx(r["subspace_stability"][-1])
-        assert r["subspace_stable"] == (r["min_subspace_stability"] >= 0.9)
+        assert len(r["latent_reliability"]) == k
+        assert len(r["latent_reliability_gain"]) == k
+        assert np.isfinite(r["latent_reliability_multivariate"])
+        assert np.isfinite(r["latent_reliability_multivariate_gain"])
+        assert len(r["feature_agreement"]) == k
         assert r["oos_r2"] is not None and r["oos_r2_se"] >= 0.0
         assert len(r["oos_r2_per_view"]) == len(views)
-        assert len(r["oos_coupling"]) == k
-        assert r["min_oos_coupling"] == pytest.approx(min(r["oos_coupling"]))
-        assert r["all_coupled"] == (r["min_oos_coupling"] >= r["oos_coupling_threshold"])
+        assert len(r["cross_view_coupling"]) == k
+        assert r["min_cross_view_coupling"] == pytest.approx(min(r["cross_view_coupling"]))
+        assert r["all_coupled"] == (r["min_cross_view_coupling"] >= r["cross_view_coupling_threshold"])
         assert 0.0 <= r["converged_fraction"] <= 1.0
         assert r["basis_degenerate"] == (r["min_effective_rank"] < k - 0.5)
     for crit in pysimlr.RANK_CRITERIA:
@@ -272,21 +273,27 @@ def test_select_rank_recovers_isotropic_subspace_and_rejects_pure_noise():
                      + 0.35 * rng.standard_normal((n, p))).float()
         for p in (28, 24, 20)
     ]
-    sel = pysimlr.select_rank("pca", iso_views, [2, 4, 5], criterion="oos_coupling",
+    sel = pysimlr.select_rank("pca", iso_views, [2, 4, 5], criterion="cross_view_coupling",
                               n_subsamples=10, random_state=0)
     assert sel["k"] == 4
-    assert sel["criteria"]["subspace"] == 4
     assert sel["criteria"]["oos_r2_1se"] == 4
+    assert sel["table"][1]["latent_reliability_multivariate_gain"] > sel["table"][2]["latent_reliability_multivariate_gain"]
+    assert pysimlr.select_rank("pca", iso_views, [2, 4, 5], criterion="latent_reliability",
+                               margin=0.1, n_subsamples=10, random_state=0)["k"] == 4
 
 
 def test_select_rank_single_view_and_argument_validation():
     v1 = [_small(n=60)[0]]
     out = pysimlr.select_rank("pca", v1, [1, 2], criterion="oos_r2_1se", n_subsamples=4, random_state=0)
-    assert out["criteria"]["oos_coupling"] is None
-    assert out["table"][0]["oos_coupling"] is None
+    assert out["criteria"]["cross_view_coupling"] is None
+    assert out["table"][0]["cross_view_coupling"] is None
     assert out["table"][0]["oos_r2"] is not None
     with pytest.raises(ValueError, match="criterion"):
         pysimlr.select_rank("pca", v1, [1, 2], criterion="unknown")
+    for removed, rep in (("component", "latent_reliability"), ("subspace", "latent_reliability"),
+                         ("subspace_corrected", "latent_reliability"), ("oos_coupling", "cross_view_coupling")):
+        with pytest.raises(ValueError, match=rep):
+            pysimlr.select_rank("pca", v1, [1, 2], criterion=removed)
     with pytest.raises(ValueError, match="ks"):
         pysimlr.select_rank("pca", v1, [])
     with pytest.raises(ValueError, match="ks"):
@@ -303,7 +310,7 @@ def test_unconverged_subsample_warning_and_exclusion():
                                         iterations=5, learning_rate=0.05, random_state=0)
     assert inf["converged_fraction"] < 0.5
     assert inf["n_effective_refits"] == 4
-    assert len(inf["oos_coupling_splits"]) == 4
+    assert len(inf["cross_view_coupling_splits"]) == 4
 
     with pytest.warns(RuntimeWarning, match="raise iterations; this run used 5"):
         sel = pysimlr.select_rank("simlr", views, [1, 2], n_subsamples=4, fraction=0.5,
@@ -312,8 +319,8 @@ def test_unconverged_subsample_warning_and_exclusion():
     for row in sel["table"]:
         assert 0 <= row["n_effective_refits"] <= 4
         if row["n_effective_refits"] == 0:
-            assert row["all_stable"] is False and row["subspace_stable"] is False
-            assert row["oos_r2"] is None and row["oos_coupling"] is None
+            assert row["latent_reliability_passed"] is False
+            assert row["oos_r2"] is None and row["cross_view_coupling"] is None
 
     pca_sel = pysimlr.select_rank("pca", views, [1, 2], n_subsamples=4, fraction=0.5,
                                   exclude_unconverged=True, random_state=0)
@@ -390,7 +397,7 @@ def test_select_model_planted_and_noise_calibration():
     tbl = out_null["table"]
     for label in ("pca", "simlr_lin_nc", "simlr_cvx_ncabs"):
         sub = tbl[tbl["label"] == label]
-        vals = [c for row_c in sub["oos_coupling"] if row_c is not None for c in row_c]
+        vals = [c for row_c in sub["cross_view_coupling"] if row_c is not None for c in row_c]
         assert len(vals) > 0
         assert abs(float(np.mean(vals))) <= 0.10, (label, float(np.mean(vals)))
 
@@ -407,7 +414,7 @@ def test_select_model_null_coupling_is_centred_over_noise_draws():
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             out = pysimlr.select_model(views, candidates, [1, 2, 3], n_subsamples=6, fraction=0.7, random_state=0)
-        vals = [c for r in out["table"]["oos_coupling"] if r is not None for c in r]
+        vals = [c for r in out["table"]["cross_view_coupling"] if r is not None for c in r]
         pooled.append(float(np.mean(vals)))
     assert abs(float(np.mean(pooled))) <= 0.05, pooled
 

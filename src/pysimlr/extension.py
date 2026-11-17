@@ -482,7 +482,7 @@ def _corr_cols(a: torch.Tensor, b: torch.Tensor) -> np.ndarray:
 
 
 def _null_bar(n: int, alpha: float = 0.01) -> float:
-    """One-sided Fisher-z critical r for ``n`` rows (the `select_rank` oos_coupling bar)."""
+    """One-sided Fisher-z critical r for ``n`` rows (the `select_rank` cross_view_coupling bar)."""
     if alpha == 0.01:
         from .loadings import _FISHER_Z_001
         z = _FISHER_Z_001

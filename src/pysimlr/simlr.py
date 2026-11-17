@@ -51,7 +51,7 @@ SIMLR_RENAMED_PARAMETERS = {
 
 #: Every strategy `initialize_simlr` implements. Kept as one tuple so the
 #: error message and the dispatcher can't drift apart.
-INITIALIZATION_TYPES = ("pca", "varimax", "random", "gcca", "nndsvd", "perturbed_pca",
+INITIALIZATION_TYPES = ("pca", "pca_legacy", "pca_feasible", "varimax", "random", "gcca", "spectral", "nndsvd", "perturbed_pca",
                         "domain", "best_of_n", "ica")
 
 
@@ -67,7 +67,12 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
                      sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
                      varimax: Optional[bool] = None,
                      pos_list: Optional[Sequence[str]] = None,
-                     nonneg_masks: Optional[Sequence[Optional[Any]]] = None) -> List[torch.Tensor]:
+                     nonneg_masks: Optional[Sequence[Optional[Any]]] = None,
+                     sp_list: Optional[Sequence[Optional[float]]] = None,
+                     sparseness_type: str = "hard",
+                     sp_type_list: Optional[Sequence[str]] = None,
+                     align_initial_views: Optional[bool] = None,
+                     obs_masks: Optional[List[torch.Tensor]] = None) -> List[torch.Tensor]:
     """
     Initialize the basis matrices (V) for SiMLR.
 
@@ -117,16 +122,15 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
         regime where per-view private structure dominates the shared signal,
         PCA's own consensus starts at Procrustes R^2 0.033 while `"gcca"`
         starts at 0.992 -- confirming the failure mode this is meant for is
-        real and that this fixes it *at initialization*. But `simlr`'s own
-        15-sweep fit then erodes most of that advantage (0.992 -> 0.846),
-        while starting from PCA the fit only reaches 0.054 -- so `"gcca"`
-        still wins after fitting, just by much less than its head start would
-        suggest, and the sweep is actively working against a good start here,
-        not merely failing to improve on a bad one. In the well-conditioned
-        "easy" regime (PCA already near the optimum) every strategy tested
-        starts and finishes within noise of 0.99, so `"gcca"` is not worse
-        there either. Only two regimes, only these generators -- this is
-        evidence the direction is worth pursuing, not a general benchmark.
+        real and that this fixes it *at initialization*. Under the legacy
+        un-normalized `HybridAdam` (`"hybrid_adam_legacy"`), `simlr`'s 15-sweep
+        fit eroded part of that advantage (0.992 -> 0.846) because step 0
+        overwrote the start; with bias-corrected/normalized `HybridAdamNorm`
+        (`"hybrid_adam_norm"`), the `"gcca"` / `"spectral"` head start is
+        preserved (0.916 -> 0.921 over 5 seeds on N=120, K=3 buried views). In
+        the well-conditioned "easy" regime (PCA already near the optimum) every
+        strategy tested starts and finishes within noise of 0.99, so `"gcca"`
+        is not worse there either.
 
         ``"nndsvd"`` -- Boutsidis & Gallopoulos (2008) non-negative double SVD.
         For the non-negative case, an alternative to `initial_basis_for_view`'s
@@ -323,9 +327,34 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
             "initialization_type='pca' with varimax=False for unrotated PCA "
             "loadings, or leave varimax at its default."
         )
+    from .positivity import resolve_positivity as _resolve_pos
     varimax_flag = resolve_varimax(varimax, positivity)
     def _nm(idx_m: int):
         return nonneg_masks[idx_m] if (nonneg_masks is not None and idx_m < len(nonneg_masks)) else None
+    def _pos_m(idx_m: int) -> str:
+        return pos_list[idx_m] if (pos_list is not None and idx_m < len(pos_list)) else positivity
+    def _sp_m(idx_m: int):
+        if sp_list is not None and idx_m < len(sp_list):
+            return sp_list[idx_m]
+        if isinstance(sparseness, (list, tuple, np.ndarray)) and idx_m < len(sparseness):
+            return sparseness[idx_m]
+        return sparseness
+    def _st_m(idx_m: int) -> str:
+        return sp_type_list[idx_m] if (sp_type_list is not None and idx_m < len(sp_type_list)) else sparseness_type
+
+    def _maybe_align(v_list: List[torch.Tensor], default_align: bool) -> List[torch.Tensor]:
+        if len(v_list) <= 1:
+            return v_list
+        do_align = default_align if align_initial_views is None else bool(align_initial_views)
+        if not do_align:
+            return v_list
+        return _align_multiview_basis_columns(
+            data_matrices, v_list,
+            nonneg=(_resolve_pos(positivity) not in ("either", "project") and not (nonneg_masks and any(m is not None for m in nonneg_masks))),
+            pos_list=pos_list,
+            nonneg_masks=nonneg_masks,
+            obs_masks=obs_masks,
+        )
 
     if initialization_type == "domain":
         if domain_matrices is None:
@@ -333,69 +362,87 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
                 "initialization_type='domain' needs `domain_matrices`, one "
                 "entry per view."
             )
-        return _domain_informed_basis(data_matrices, domain_matrices, k, positivity,
-                                      sparseness=sparseness, varimax=varimax_flag,
-                                      nonneg_masks=nonneg_masks)
-    if initialization_type == "gcca":
-        return _gcca_basis(data_matrices, k, positivity, sparseness=sparseness,
-                           varimax=varimax_flag, pos_list=pos_list,
-                           nonneg_masks=nonneg_masks)
+        return _maybe_align(
+            _domain_informed_basis(data_matrices, domain_matrices, k, positivity,
+                                   sparseness=sparseness, varimax=varimax_flag,
+                                   nonneg_masks=nonneg_masks),
+            default_align=False,
+        )
+    if initialization_type in ("gcca", "spectral"):
+        v_mats = _gcca_basis(data_matrices, k, positivity, sparseness=sparseness,
+                             varimax=varimax_flag, pos_list=pos_list,
+                             nonneg_masks=nonneg_masks, sp_list=sp_list,
+                             sparseness_type=sparseness_type, sp_type_list=sp_type_list)
+        return _maybe_align(v_mats, default_align=(initialization_type == "spectral"))
     if initialization_type == "nndsvd":
-        return [
+        v_mats = [
             simlr_sparseness(_nndsvd_basis_for_view(x, k), constraint_type="ortho",
-                             positivity=positivity, sparseness=sparseness,
-                             modality_index=idx_m, nonneg_mask=_nm(idx_m)).to(x.dtype)
-            if sparseness is not None and x.shape[1] > k
+                             positivity=_pos_m(idx_m), sparseness=_sp_m(idx_m),
+                             modality_index=idx_m,
+                             unit_columns=(_resolve_pos(_pos_m(idx_m)) != "convex"),
+                             nonneg_mask=_nm(idx_m),
+                             sparseness_type=_st_m(idx_m)).to(x.dtype)
+            if _sp_m(idx_m) is not None and x.shape[1] > k
             else (
-                apply_positivity(_nndsvd_basis_for_view(x, k), positivity, nonneg_mask=_nm(idx_m)).to(x.dtype)
+                apply_positivity(_nndsvd_basis_for_view(x, k), _pos_m(idx_m), nonneg_mask=_nm(idx_m)).to(x.dtype)
                 if _nm(idx_m) is not None else _nndsvd_basis_for_view(x, k)
             )
             for idx_m, x in enumerate(data_matrices)
         ]
+        return _maybe_align(v_mats, default_align=False)
     if initialization_type == "ica":
-        return [_ica_basis_for_view(x, k, positivity=positivity, sparseness=sparseness,
-                                    modality_index=idx_m, nonneg_mask=_nm(idx_m))
-                for idx_m, x in enumerate(data_matrices)]
+        v_mats = [_ica_basis_for_view(x, k, positivity=_pos_m(idx_m), sparseness=_sp_m(idx_m),
+                                      modality_index=idx_m, nonneg_mask=_nm(idx_m),
+                                      sparseness_type=_st_m(idx_m))
+                  for idx_m, x in enumerate(data_matrices)]
+        return _maybe_align(v_mats, default_align=False)
     if initialization_type == "perturbed_pca":
-        base = [initial_basis_for_view(x, k, positivity=positivity,
+        base = [initial_basis_for_view(x, k, positivity=_pos_m(idx_m),
                                        initialization_type="pca",
-                                       sparseness=sparseness,
+                                       sparseness=_sp_m(idx_m),
                                        modality_index=idx_m,
                                        varimax=varimax_flag,
-                                       nonneg_mask=_nm(idx_m))
+                                       nonneg_mask=_nm(idx_m),
+                                       sparseness_type=_st_m(idx_m))
                 for idx_m, x in enumerate(data_matrices)]
         if varimax_flag and len(base) > 1 and k > 1:
             base = _align_multiview_basis_columns(
                 data_matrices, base,
                 nonneg=(_wants_nonneg(positivity) and not (nonneg_masks and any(m is not None for m in nonneg_masks))),
+                pos_list=pos_list,
+                nonneg_masks=nonneg_masks,
+                obs_masks=obs_masks,
             )
         out = []
         for idx_m, v in enumerate(base):
+            p_m = _pos_m(idx_m)
             noise = torch.randn(v.shape, generator=generator, dtype=v.dtype)
             raw = v + perturbation_scale * v.norm() * noise / (noise.norm() + 1e-12)
-            out.append(simlr_sparseness(raw, constraint_type="ortho", positivity=positivity,
-                                        sparseness=sparseness, modality_index=idx_m,
-                                        nonneg_mask=_nm(idx_m)))
-        return out
+            out.append(simlr_sparseness(raw, constraint_type="ortho", positivity=p_m,
+                                        sparseness=_sp_m(idx_m), modality_index=idx_m,
+                                        unit_columns=(_resolve_pos(p_m) != "convex"),
+                                        nonneg_mask=_nm(idx_m),
+                                        sparseness_type=_st_m(idx_m)))
+        return _maybe_align(out, default_align=False)
     if initialization_type == "best_of_n":
-        return _best_of_n_basis(data_matrices, k, positivity, generator, n_candidates,
-                                sparseness=sparseness, varimax=varimax_flag,
-                                nonneg_masks=nonneg_masks)
-    v_mats = [initial_basis_for_view(x, k, positivity=positivity,
+        return _maybe_align(
+            _best_of_n_basis(data_matrices, k, positivity, generator, n_candidates,
+                             sparseness=sparseness, varimax=varimax_flag,
+                             nonneg_masks=nonneg_masks),
+            default_align=False,
+        )
+    v_mats = [initial_basis_for_view(x, k, positivity=_pos_m(idx_m),
                                      initialization_type=initialization_type,
                                      generator=generator,
-                                     sparseness=sparseness,
+                                     sparseness=_sp_m(idx_m),
                                      modality_index=idx_m,
                                      varimax=varimax_flag,
-                                     nonneg_mask=_nm(idx_m))
+                                     nonneg_mask=_nm(idx_m),
+                                     sparseness_type=_st_m(idx_m))
               for idx_m, x in enumerate(data_matrices)]
-    rotated = initialization_type == "varimax" or (varimax_flag and initialization_type == "pca")
-    if len(v_mats) > 1 and k > 1 and rotated:
-        v_mats = _align_multiview_basis_columns(
-            data_matrices, v_mats,
-            nonneg=(_wants_nonneg(positivity) and not (nonneg_masks and any(m is not None for m in nonneg_masks))),
-        )
-    return v_mats
+    rotated = initialization_type == "varimax" or (varimax_flag and initialization_type in ("pca", "pca_legacy", "pca_feasible"))
+    default_align = (initialization_type == "pca_feasible") or (k > 1 and rotated)
+    return _maybe_align(v_mats, default_align=default_align)
 
 
 def _wants_nonneg(positivity: str) -> bool:
@@ -426,30 +473,72 @@ def resolve_varimax(varimax: Optional[bool], positivity: str) -> bool:
 
 def _align_multiview_basis_columns(data_matrices: List[torch.Tensor],
                                    v_mats: List[torch.Tensor],
-                                   nonneg: bool = False) -> List[torch.Tensor]:
-    """Align column permutations across views to view 0 in sample space.
+                                   nonneg: bool = False,
+                                   pos_list: Optional[Sequence[str]] = None,
+                                   nonneg_masks: Optional[Sequence[Optional[Any]]] = None,
+                                   obs_masks: Optional[List[torch.Tensor]] = None) -> List[torch.Tensor]:
+    """Align column permutations and signs across views to view 0 in sample space.
 
     Per-view Varimax (and per-view ``nsa_flow_data``) solves an O(k)-invariant
     objective independently per modality, so component columns are unordered
-    across views. Matching view m's sample projections ``X_m V_m`` to view 0's
-    ``X_0 V_0`` via linear assignment puts corresponding localized factors in
-    the same column slot before sweep 0 computes the shared consensus ``U``.
+    across views. Similarly, at ``k = 1`` per-view SVD bases have arbitrary
+    signs across views. Matching view m's sample projections ``X_m V_m`` to
+    view 0's ``X_0 V_0`` via linear assignment (and sign alignment when the
+    view's positivity constraint allows negation) puts corresponding factors in
+    the same column slot and sign orientation before sweep 0 computes ``U``.
+
+    When ``obs_masks`` is supplied (``missing_rows="mask"``), view ``m`` is
+    matched against view ``0`` on their mutually observed rows
+    ``obs_masks[0] & obs_masks[m]`` (leaving view ``m`` unpermuted if fewer
+    than ``max(k + 1, 3)`` shared rows are observed).
     """
     from scipy.optimize import linear_sum_assignment
-    p0 = (data_matrices[0].detach().double() @ v_mats[0].detach().double())
-    p0_c = p0 - p0.mean(dim=0, keepdim=True)
-    p0_n = p0_c / torch.linalg.vector_norm(p0_c, dim=0, keepdim=True).clamp_min(1e-12)
+    from .positivity import is_nonneg, resolve_positivity
+
+    if obs_masks is None:
+        p0 = (data_matrices[0].detach().double() @ v_mats[0].detach().double())
+        p0_c = p0 - p0.mean(dim=0, keepdim=True)
+        p0_n = p0_c / torch.linalg.vector_norm(p0_c, dim=0, keepdim=True).clamp_min(1e-12)
+    else:
+        p0_n = None
     aligned = [v_mats[0]]
+    k_cols = int(v_mats[0].shape[1])
     for m in range(1, len(v_mats)):
-        pm = (data_matrices[m].detach().double() @ v_mats[m].detach().double())
+        if pos_list is not None and m < len(pos_list):
+            pos_m = resolve_positivity(pos_list[m])
+            can_flip = (not is_nonneg(pos_m)) and (pos_m in ("either", "project"))
+        else:
+            can_flip = not nonneg
+        if nonneg_masks is not None and m < len(nonneg_masks) and nonneg_masks[m] is not None:
+            if bool(np.asarray(nonneg_masks[m], dtype=bool).any()):
+                can_flip = False
+
+        if obs_masks is not None:
+            om_shared = obs_masks[0] & obs_masks[m]
+            if int(om_shared.sum().item()) < max(k_cols + 1, 3):
+                aligned.append(v_mats[m])
+                continue
+            p0_s = (data_matrices[0][om_shared].detach().double() @ v_mats[0].detach().double())
+            p0_sc = p0_s - p0_s.mean(dim=0, keepdim=True)
+            p0_ref = p0_sc / torch.linalg.vector_norm(p0_sc, dim=0, keepdim=True).clamp_min(1e-12)
+            pm = (data_matrices[m][om_shared].detach().double() @ v_mats[m].detach().double())
+        else:
+            p0_ref = p0_n
+            pm = (data_matrices[m].detach().double() @ v_mats[m].detach().double())
         pm_c = pm - pm.mean(dim=0, keepdim=True)
         pm_n = pm_c / torch.linalg.vector_norm(pm_c, dim=0, keepdim=True).clamp_min(1e-12)
-        cross = (p0_n.t() @ pm_n).cpu().numpy()
-        score = cross if nonneg else np.abs(cross)
+        cross = np.nan_to_num((p0_ref.t() @ pm_n).cpu().numpy(), nan=0.0)
+        if k_cols == 1:
+            v_m = v_mats[m]
+            if can_flip and float(cross[0, 0]) < 0.0:
+                v_m = -v_m
+            aligned.append(v_m)
+            continue
+        score = np.abs(cross) if can_flip else cross
         _, col_ind = linear_sum_assignment(-score)
         perm = torch.as_tensor(col_ind, dtype=torch.long, device=v_mats[m].device)
         v_m = v_mats[m][:, perm]
-        if not nonneg:
+        if can_flip:
             signs = [1.0 if cross[j, col_ind[j]] >= 0.0 else -1.0 for j in range(len(col_ind))]
             sign_t = torch.tensor(signs, dtype=v_m.dtype, device=v_m.device).unsqueeze(0)
             v_m = v_m * sign_t
@@ -460,7 +549,8 @@ def _align_multiview_basis_columns(data_matrices: List[torch.Tensor],
 def _ica_basis_for_view(x: torch.Tensor, k: int, positivity: str = "either",
                         sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
                         modality_index: Optional[int] = None,
-                        nonneg_mask: Optional[Any] = None) -> torch.Tensor:
+                        nonneg_mask: Optional[Any] = None,
+                        sparseness_type: str = "hard") -> torch.Tensor:
     """Deterministic spatial ICA initialization on the top-``k`` singular vectors.
 
     Rotates the leading ``k`` right singular vectors of ``x`` via FastICA
@@ -522,10 +612,13 @@ def _ica_basis_for_view(x: torch.Tensor, k: int, positivity: str = "either",
         pad = 1e-4 * np.ones((x.shape[1], k - k_eff), dtype=np.float64)
         v_ica = np.hstack([v_ica, pad])
 
+    from .positivity import resolve_positivity as _resolve_pos
     v_t = torch.tensor(v_ica, dtype=x.dtype, device=x.device)
     return simlr_sparseness(v_t, constraint_type="ortho", positivity=positivity,
                             sparseness=sparseness, modality_index=modality_index,
-                            nonneg_mask=nonneg_mask)
+                            unit_columns=(_resolve_pos(positivity) != "convex"),
+                            nonneg_mask=nonneg_mask,
+                            sparseness_type=sparseness_type)
 
 
 def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
@@ -533,7 +626,10 @@ def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
                 sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
                 varimax: bool = True,
                 pos_list: Optional[Sequence[str]] = None,
-                nonneg_masks: Optional[Sequence[Optional[Any]]] = None) -> List[torch.Tensor]:
+                nonneg_masks: Optional[Sequence[Optional[Any]]] = None,
+                sp_list: Optional[Sequence[Optional[float]]] = None,
+                sparseness_type: str = "hard",
+                sp_type_list: Optional[Sequence[str]] = None) -> List[torch.Tensor]:
     """Joint (generalized-CCA, MAXVAR) initialization.
 
     Finds the top-``k`` eigenvectors of ``sum_i P_i``, where ``P_i`` projects
@@ -550,6 +646,7 @@ def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
     every view regresses onto the same rotated columns, column ``j`` means
     the same shared direction in every view.
     """
+    from .positivity import resolve_positivity as _resolve_pos
     n = data_matrices[0].shape[0]
     joint = torch.zeros(n, n, dtype=torch.float64)
     for x in data_matrices:
@@ -577,24 +674,17 @@ def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
         # rather than a magnitude the retraction's fixed weight only partly
         # corrects.
         v = v / (v.norm(dim=0, keepdim=True) + 1e-12)
-        p_m = pos_list[idx_m] if (pos_list is not None and idx_m < len(pos_list)) else positivity
+        p_m = _resolve_pos(pos_list[idx_m] if (pos_list is not None and idx_m < len(pos_list)) else positivity)
         nm_m = nonneg_masks[idx_m] if (nonneg_masks is not None and idx_m < len(nonneg_masks)) else None
-        if p_m == "convex":
-            v_sp = simlr_sparseness(v.to(x.dtype), constraint_type="ortho",
-                                    positivity="positive",
-                                    sparseness=sparseness,
+        sp_m = sp_list[idx_m] if (sp_list is not None and idx_m < len(sp_list)) else sparseness
+        st_m = sp_type_list[idx_m] if (sp_type_list is not None and idx_m < len(sp_type_list)) else sparseness_type
+        out.append(simlr_sparseness(v.to(x.dtype), constraint_type="ortho",
+                                    positivity=p_m,
+                                    sparseness=sp_m,
                                     modality_index=idx_m,
-                                    nonneg_mask=nm_m)
-            s_col = v_sp.sum(dim=0, keepdim=True)
-            if not bool((s_col > 0).all()):
-                raise ValueError("convex initialization: a conical start column is zero")
-            out.append(v_sp / s_col)
-        else:
-            out.append(simlr_sparseness(v.to(x.dtype), constraint_type="ortho",
-                                        positivity=p_m,
-                                        sparseness=sparseness,
-                                        modality_index=idx_m,
-                                        nonneg_mask=nm_m))
+                                    unit_columns=(p_m != "convex"),
+                                    nonneg_mask=nm_m,
+                                    sparseness_type=st_m))
     return out
 
 
@@ -768,7 +858,7 @@ def initialize_deep_encoders(encoders, data_matrices: List[torch.Tensor], k: int
     positivity = encoders[0].positivity
     enc_sparseness = [getattr(enc, "sparseness", DEFAULT_SPARSENESS) for enc in encoders]
     unequal_rows = len({int(x.shape[0]) for x in data_matrices}) > 1
-    if unequal_rows and initialization_type not in ("gcca", "best_of_n"):
+    if unequal_rows and initialization_type not in ("gcca", "spectral", "best_of_n"):
         v_mats = [
             initialize_simlr(
                 [data_matrices[idx]], k, initialization_type=initialization_type,
@@ -797,7 +887,8 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
                            sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
                            modality_index: Optional[int] = None,
                            varimax: Optional[bool] = None,
-                           nonneg_mask: Optional[Any] = None) -> torch.Tensor:
+                           nonneg_mask: Optional[Any] = None,
+                           sparseness_type: str = "hard") -> torch.Tensor:
     """
     Build the initial ``(features, k)`` basis for one view.
 
@@ -837,7 +928,7 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
         Basis of shape (features, k) in `x`'s dtype.
     """
     from .nsa_backend import load_nsa_flow_data
-    from .positivity import validate_nonneg_mask
+    from .positivity import resolve_positivity as _resolve_pos, validate_nonneg_mask
     from .sparsification import NSA_DEFAULT_W, _resolve_quantile, _usable_retraction, apply_positivity, simlr_sparseness
 
     partial_mask: Optional[np.ndarray] = None
@@ -852,6 +943,7 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
             else:
                 partial_mask = m_arr
 
+    pos_can = _resolve_pos(positivity)
     want_nonneg = _wants_nonneg(positivity) and (partial_mask is None)
     varimax = resolve_varimax(varimax, positivity if partial_mask is None else "either")
     q_init = _resolve_quantile(sparseness, modality_index=modality_index)
@@ -869,7 +961,10 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
         return simlr_sparseness(raw, constraint_type="ortho",
                                 positivity=positivity,
                                 sparseness=q_init,
-                                nonneg_mask=partial_mask).to(x.dtype)
+                                unit_columns=(pos_can != "convex"),
+                                nonneg_mask=partial_mask,
+                                sparseness_type=sparseness_type).to(x.dtype)
+    v: Optional[torch.Tensor] = None
     if want_nonneg and x.shape[1] > k:
         fit_from_data = load_nsa_flow_data()
         if fit_from_data is not None:
@@ -883,25 +978,38 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
                     from .sparsification import _apply_quantile_sparseness
                     fitted = _apply_quantile_sparseness(
                         fitted, q_data, nonneg=True, only_if_denser=True)
-                return fitted.to(x.dtype)
+                if initialization_type != "pca_feasible":
+                    return fitted.to(x.dtype)
+                v = fitted.to(x.dtype)
 
-    v = top_right_singular_vectors(x, k)
-    if v.shape[1] < k:
-        padding = torch.randn(v.shape[0], k - v.shape[1],
-                              dtype=v.dtype, device=v.device) * 1e-4
-        v = torch.cat([v, padding], dim=1)
-    if (varimax or initialization_type == "varimax") and v.shape[0] > k and k > 1:
-        from .svd import varimax as _varimax
-        v = _varimax(v)
-    if partial_mask is not None:
-        v = apply_positivity(v, positivity, nonneg_mask=partial_mask)
-    elif want_nonneg:
-        # Resolve each column's sign so downstream rectification removes as
-        # little as possible. This is a sign flip, not a rectification, so the
-        # basis stays exactly as orthogonal as PCA/Varimax made it.
-        for j in range(v.shape[1]):
-            if v[:, j].sum() < 0:
-                v[:, j] *= -1
+    if v is None:
+        v = top_right_singular_vectors(x, k)
+        if v.shape[1] < k:
+            padding = torch.randn(v.shape[0], k - v.shape[1],
+                                  dtype=v.dtype, device=v.device) * 1e-4
+            v = torch.cat([v, padding], dim=1)
+        if (varimax or initialization_type == "varimax") and v.shape[0] > k and k > 1:
+            from .svd import varimax as _varimax
+            v = _varimax(v)
+        if partial_mask is not None:
+            v = apply_positivity(v, positivity, nonneg_mask=partial_mask)
+        elif want_nonneg:
+            # Resolve each column's sign so downstream rectification removes as
+            # little as possible. This is a sign flip, not a rectification, so the
+            # basis stays exactly as orthogonal as PCA/Varimax made it.
+            for j in range(v.shape[1]):
+                if v[:, j].sum() < 0:
+                    v[:, j] *= -1
+    if initialization_type == "pca_feasible":
+        v = simlr_sparseness(
+            v, constraint_type="ortho",
+            positivity=positivity,
+            sparseness=q_init,
+            modality_index=modality_index,
+            unit_columns=(pos_can != "convex"),
+            nonneg_mask=partial_mask,
+            sparseness_type=sparseness_type,
+        )
     return v.to(x.dtype)
 
 
@@ -1364,7 +1472,13 @@ def _scale_like_training(torch_mats: List[torch.Tensor], simlr_result: Dict[str,
 _INTERNAL_PROBE_TOKEN = object()
 
 
-_PER_VIEW_PARAM_KEYS = frozenset({"positivity", "energy_type", "sparseness", "nsa_w", "varimax", "nonneg_mask"})
+_PER_VIEW_PARAM_KEYS = frozenset({"positivity", "energy_type", "sparseness", "sparseness_type", "nsa_w", "varimax", "nonneg_mask"})
+
+
+def _validate_sparseness_type(sparseness_type: Any) -> str:
+    if not isinstance(sparseness_type, str) or sparseness_type not in ("hard", "soft"):
+        raise ValueError(f"sparseness_type must be 'hard' or 'soft'; got {sparseness_type!r}.")
+    return sparseness_type
 
 
 def _resolve_simlr_view_key(
@@ -1455,9 +1569,11 @@ def _resolve_per_view_simlr_params(
     check_energy: bool,
     view_names: Optional[Sequence[str]] = None,
     view_widths: Optional[Sequence[int]] = None,
+    sparseness_type: str = "hard",
 ):
     from .positivity import NONNEG as _NONNEG, resolve_positivity, validate_nonneg_mask
     from .similarity import check_fit_energy
+    sparseness_type = _validate_sparseness_type(sparseness_type)
     overrides: List[Dict[str, Any]] = [{} for _ in range(n_views)]
     resolved_map: Optional[Dict[int, Dict[str, Any]]] = None
     if per_view_params is not None:
@@ -1479,6 +1595,7 @@ def _resolve_per_view_simlr_params(
     pos_list: List[str] = []
     etype_list: List[str] = []
     sp_list: List[Optional[float]] = []
+    sp_type_list: List[str] = []
     nsa_w_list: List[float] = []
     varimax_list: List[Optional[bool]] = []
     nonneg_mask_list: List[Optional[np.ndarray]] = []
@@ -1509,16 +1626,109 @@ def _resolve_per_view_simlr_params(
             sp_i = sparseness[i]
         else:
             sp_i = sparseness
+        st_i = _validate_sparseness_type(ov.get("sparseness_type", sparseness_type))
         w_i = check_nsa_w(ov.get("nsa_w", nsa_w))
         vx_i = ov.get("varimax", varimax)
         pos_list.append(p_i)
         etype_list.append(e_i)
         sp_list.append(sp_i)
+        sp_type_list.append(st_i)
         nsa_w_list.append(w_i)
         varimax_list.append(vx_i)
         nonneg_mask_list.append(nm_i)
     want_nonneg_list = [p_i in _NONNEG for p_i in pos_list]
-    return pos_list, etype_list, sp_list, nsa_w_list, varimax_list, want_nonneg_list, nonneg_mask_list, resolved_map
+    return pos_list, etype_list, sp_list, nsa_w_list, varimax_list, want_nonneg_list, nonneg_mask_list, resolved_map, sp_type_list
+
+
+def _validate_initial_v(initial_v: Any, torch_mats: List[torch.Tensor], k: int) -> List[torch.Tensor]:
+    """Validate and convert an explicit sequence of ``M`` ``(p_m, k)`` initial basis matrices."""
+    if isinstance(initial_v, (str, bytes, torch.Tensor, np.ndarray)) or not isinstance(initial_v, Sequence):
+        raise ValueError(
+            f"initial_v must be a sequence of {len(torch_mats)} 2-D matrices; got {type(initial_v).__name__}."
+        )
+    if len(initial_v) != len(torch_mats):
+        raise ValueError(
+            f"initial_v has {len(initial_v)} entries for {len(torch_mats)} views."
+        )
+    out: List[torch.Tensor] = []
+    for idx_m, (raw_v, x_m) in enumerate(zip(initial_v, torch_mats)):
+        if raw_v is None:
+            raise ValueError(f"initial_v[{idx_m}] is None; expected a 2-D matrix of shape ({x_m.shape[1]}, {k}).")
+        v_t = (
+            raw_v.detach().clone()
+            if isinstance(raw_v, torch.Tensor)
+            else torch.as_tensor(raw_v.to_numpy() if hasattr(raw_v, "to_numpy") else raw_v)
+        )
+        if v_t.ndim != 2:
+            raise ValueError(f"initial_v[{idx_m}] must be 2-D; got {v_t.ndim}-D.")
+        expected = (int(x_m.shape[1]), int(k))
+        if tuple(v_t.shape) != expected:
+            raise ValueError(
+                f"initial_v[{idx_m}] has shape {tuple(v_t.shape)}, expected {expected}."
+            )
+        v_t = v_t.to(dtype=x_m.dtype, device=x_m.device).contiguous()
+        if not bool(torch.isfinite(v_t).all()):
+            raise ValueError(f"initial_v[{idx_m}] contains non-finite entries.")
+        out.append(v_t)
+    return out
+
+
+def _resolve_sparseness_schedule(sparseness_schedule: Any,
+                                target_sparseness: Any) -> List[Any]:
+    """Validate ``sparseness_schedule`` and resolve per-stage sparseness values."""
+    if isinstance(sparseness_schedule, bool):
+        raise ValueError(
+            "sparseness_schedule cannot be a bool; pass None, an int >= 2, or a sequence of floats in [0.0, 1.0]."
+        )
+    if isinstance(sparseness_schedule, (int, np.integer)):
+        n_stages = int(sparseness_schedule)
+        if n_stages < 2:
+            raise ValueError(f"sparseness_schedule as an integer must be >= 2; got {n_stages}.")
+        if isinstance(target_sparseness, (list, tuple, np.ndarray)):
+            vals = [None if x is None else float(x) for x in target_sparseness]
+            has_active = any(v is not None and np.isfinite(v) and v > 0.0 for v in vals)
+            base_list = vals
+        else:
+            has_active = (
+                target_sparseness is not None
+                and np.isfinite(float(target_sparseness))
+                and float(target_sparseness) > 0.0
+            )
+            base_list = None
+        if not has_active:
+            raise ValueError(
+                "sparseness_schedule as a stage count requires an active target `sparseness` (> 0)."
+            )
+        factors = np.linspace(0.0, 1.0, n_stages).tolist()
+        stages: List[Any] = []
+        for f in factors:
+            if f <= 0.0:
+                stages.append(None)
+            elif base_list is not None:
+                stages.append([None if (v is None or v <= 0.0) else float(f * v) for v in base_list])
+            else:
+                stages.append(float(f * float(target_sparseness)))
+        return stages
+    if isinstance(sparseness_schedule, Sequence) and not isinstance(sparseness_schedule, (str, bytes)):
+        if len(sparseness_schedule) == 0:
+            raise ValueError("sparseness_schedule sequence must be non-empty.")
+        stages = []
+        for idx, raw_s in enumerate(sparseness_schedule):
+            if isinstance(raw_s, bool) or raw_s is None:
+                raise ValueError(
+                    f"sparseness_schedule[{idx}] must be a finite float in [0.0, 1.0]; got {raw_s!r}."
+                )
+            val = float(raw_s)
+            if not np.isfinite(val) or not (0.0 <= val <= 1.0):
+                raise ValueError(
+                    f"sparseness_schedule[{idx}] must be a finite float in [0.0, 1.0]; got {raw_s!r}."
+                )
+            stages.append(None if val == 0.0 else val)
+        return stages
+    raise ValueError(
+        f"sparseness_schedule must be None, an int >= 2, or a sequence of floats in [0.0, 1.0]; "
+        f"got {type(sparseness_schedule).__name__}."
+    )
 
 
 def _prepare_fit_inputs(data_matrices, k, scale_list, positivity, initialization_type,
@@ -1527,7 +1737,11 @@ def _prepare_fit_inputs(data_matrices, k, scale_list, positivity, initialization
                         pos_list: Optional[List[str]] = None,
                         sp_list: Optional[List[Optional[float]]] = None,
                         varimax_list: Optional[List[Optional[bool]]] = None,
-                        nonneg_mask_list: Optional[List[Optional[np.ndarray]]] = None):
+                        nonneg_mask_list: Optional[List[Optional[np.ndarray]]] = None,
+                        initial_v: Optional[Sequence[Any]] = None,
+                        sparseness_type: str = "hard",
+                        sp_type_list: Optional[List[str]] = None,
+                        align_initial_views: Optional[bool] = None):
     """Validate and scale the views and draw the starting basis for `simlr`.
 
     Returns ``(torch_mats, provenance_list, v0, obs_masks)``. Every initializer
@@ -1539,6 +1753,7 @@ def _prepare_fit_inputs(data_matrices, k, scale_list, positivity, initialization
         raise ValueError(f"k must be a positive integer, got k={k}.")
     if missing_rows not in ("impute", "mask"):
         raise ValueError(f"missing_rows must be 'impute' or 'mask'; got {missing_rows!r}.")
+    sparseness_type = _validate_sparseness_type(sparseness_type)
     torch_mats = _check_views(data_matrices, fitting=True)
     n_views = len(torch_mats)
     obs_masks: Optional[List[torch.Tensor]] = None
@@ -1578,6 +1793,9 @@ def _prepare_fit_inputs(data_matrices, k, scale_list, positivity, initialization
             init_mats.append(m_sc)
     torch_mats = scaled
 
+    if initial_v is not None:
+        v0 = _validate_initial_v(initial_v, torch_mats, k)
+        return torch_mats, provenance_list, v0, obs_masks
     init_gen = torch.Generator()
     init_gen.manual_seed(random_state)
     has_partial_mask = nonneg_mask_list is not None and any(m is not None for m in nonneg_mask_list)
@@ -1587,8 +1805,9 @@ def _prepare_fit_inputs(data_matrices, k, scale_list, positivity, initialization
         or (pos_list is not None and len(set(pos_list)) > 1)
         or (varimax_list is not None and len({vx for vx in varimax_list}) > 1)
         or (sp_list is not None and sp_list != ([sparseness] * n_views if not isinstance(sparseness, (list, tuple)) else list(sparseness)))
+        or (sp_type_list is not None and len(set(sp_type_list)) > 1)
     )
-    if hetero and initialization_type != "gcca":
+    if hetero and initialization_type not in ("gcca", "spectral"):
         v0 = []
         for idx in range(n_views):
             p_i = pos_list[idx] if pos_list is not None else positivity
@@ -1598,6 +1817,7 @@ def _prepare_fit_inputs(data_matrices, k, scale_list, positivity, initialization
             vx_i = varimax_list[idx] if varimax_list is not None else varimax
             dm_i = [domain_matrices[idx]] if (domain_matrices is not None and idx < len(domain_matrices)) else None
             nm_i = nonneg_mask_list[idx] if (nonneg_mask_list is not None and idx < len(nonneg_mask_list)) else None
+            st_i = sp_type_list[idx] if sp_type_list is not None else sparseness_type
             v0.append(
                 initialize_simlr(
                     [init_mats[idx]], k, positivity=p_i,
@@ -1605,17 +1825,40 @@ def _prepare_fit_inputs(data_matrices, k, scale_list, positivity, initialization
                     generator=init_gen, domain_matrices=dm_i,
                     sparseness=sp_i, varimax=vx_i,
                     nonneg_masks=[nm_i] if nm_i is not None else None,
+                    sparseness_type=st_i,
+                    align_initial_views=False,
                 )[0]
             )
+        should_hetero_align = (
+            n_views > 1
+            and (
+                (align_initial_views is True)
+                or (align_initial_views is None and initialization_type == "pca_feasible")
+            )
+        )
+        if should_hetero_align:
+            from .positivity import resolve_positivity as _resolve_pos
+            v0 = _align_multiview_basis_columns(
+                torch_mats, v0,
+                nonneg=(_resolve_pos(positivity) not in ("either", "project") and not has_partial_mask),
+                pos_list=pos_list,
+                nonneg_masks=nonneg_mask_list,
+                obs_masks=obs_masks,
+            )
     else:
-        mats_for_init = torch_mats if initialization_type == "gcca" else init_mats
+        mats_for_init = torch_mats if initialization_type in ("gcca", "spectral") else init_mats
         pos_init = pos_list[0] if pos_list else positivity
         v0 = initialize_simlr(mats_for_init, k, positivity=pos_init,
                               initialization_type=initialization_type,
                               generator=init_gen, domain_matrices=domain_matrices,
                               sparseness=sparseness, varimax=varimax,
                               pos_list=pos_list,
-                              nonneg_masks=nonneg_mask_list)
+                              nonneg_masks=nonneg_mask_list,
+                              sp_list=sp_list,
+                              sparseness_type=sparseness_type,
+                              sp_type_list=sp_type_list,
+                              align_initial_views=align_initial_views,
+                              obs_masks=obs_masks)
     return torch_mats, provenance_list, v0, obs_masks
 
 
@@ -1657,6 +1900,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           consolidate: bool = False,
           nsa_w: float = DEFAULT_NSA_W,
           sparseness: Optional[Union[float, List[Optional[float]]]] = DEFAULT_SPARSENESS,
+          sparseness_type: str = "hard",
           varimax: Optional[bool] = None,
           dynamic_weights: bool = False,
           mai_metric: str = "procrustes_r2",
@@ -1665,6 +1909,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
           patience: Optional[int] = None,
           missing_rows: str = "impute",
           per_view_params: Optional[Mapping[Union[int, str], Dict[str, Any]]] = None,
+          initial_v: Optional[Sequence[Any]] = None,
+          sparseness_schedule: Optional[Any] = None,
+          align_initial_views: Optional[bool] = None,
           verbose: bool = False,
           **opt_params) -> Dict[str, Any]:
     """
@@ -1916,6 +2163,35 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     patience : int, optional
         Iterations without relative improvement above `tol` before stopping.
         ``None`` means `utils.CONVERGENCE_PATIENCE`.
+    sparseness_type : {"hard", "soft"}, default="hard"
+        Sparsification operator applied per sweep and initialization.
+        ``"hard"`` (the ``v0.40.0`` default) keeps the top-``(1 - q)`` entries
+        per column via quantile masking and NSA-Flow retraction.
+        ``"soft"`` applies continuous soft-thresholding shrinkage
+        ``sign(v) * max(|v| - tau, 0)`` with
+        ``tau = 0.5 * quantile(|v_feasible|, q)`` per column before exact
+        manifold projection (NSA-Flow / polar orthogonalization for
+        ``"linear"`` and ``"conical"``, and simplex normalization
+        ``v / v.sum(0)`` for ``"convex"``) so correlated features share weight
+        smoothly. Note mathematically that on ``"convex"``
+        (``v >= 0, 1^T v = 1``), ``||v||_1 == 1`` is constant so an L1 penalty
+        has zero gradient on the simplex; pre-projection soft-thresholding
+        followed by simplex normalization supplies smooth shrinkage there.
+    initial_v : sequence of 2-D arrays/tensors, optional
+        Explicit warm-start basis matrices ``[V_0, ..., V_{M-1}]``, bypassing
+        ``initialization_type``.
+    sparseness_schedule : int or sequence of float, optional
+        Graduated sparseness schedule (e.g. ``3`` or ``[0.0, 0.4, 0.8]``),
+        fitting stages from looser to tighter sparseness and warm-starting
+        each stage from the previous stage's ``"v"`` via ``initial_v``.
+    align_initial_views : bool or None, default=None
+        Controls cross-view column/sign alignment at initialization.
+        ``None`` preserves ``v0.40.0`` legacy behavior for ``"pca"`` /
+        ``"pca_legacy"`` / ``"varimax"`` while aligning ``"pca_feasible"`` and
+        ``"spectral"`` across all constraints (including under
+        ``missing_rows="mask"`` on mutually observed rows and mixed
+        ``per_view_params``). ``True`` forces cross-view alignment on any
+        initializer; ``False`` disables it.
     verbose : bool, default=False
         Whether to print convergence details.
     **opt_params : dict
@@ -2010,6 +2286,11 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     from .similarity import check_fit_energy
     if missing_rows not in ("impute", "mask"):
         raise ValueError(f"missing_rows must be 'impute' or 'mask'; got {missing_rows!r}.")
+    sparseness_type = _validate_sparseness_type(sparseness_type)
+    if align_initial_views is not None and not isinstance(align_initial_views, (bool, np.bool_)):
+        raise TypeError(f"align_initial_views must be None or bool; got {type(align_initial_views).__name__}.")
+    if align_initial_views is not None:
+        align_initial_views = bool(align_initial_views)
     _simlr_view_names: Optional[List[str]] = None
     if isinstance(data_matrices, Mapping):
         if len(data_matrices) == 0:
@@ -2031,15 +2312,79 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         raise ValueError("consolidate=True rebuilds unit-L2 columns and is not defined for positivity='convex'.")
     if per_view_params is None:
         check_fit_energy(energy_type, path="linear", positivity=positivity if _internal is None else None)
-    _pos_list, _etype_list, _sp_list, _nsa_w_list, _vx_list, _want_nonneg_list, _nonneg_mask_list, _resolved_pvp = (
+    _pos_list, _etype_list, _sp_list, _nsa_w_list, _vx_list, _want_nonneg_list, _nonneg_mask_list, _resolved_pvp, _sp_type_list = (
         _resolve_per_view_simlr_params(
             per_view_params, max(_n_views_in, 1), positivity, energy_type,
             sparseness, nsa_w, varimax, consolidate, check_energy=(_internal is None),
             view_names=_simlr_view_names, view_widths=_in_widths,
+            sparseness_type=sparseness_type,
         )
-        if _n_views_in > 0 else ([positivity], [energy_type], [sparseness], [check_nsa_w(nsa_w)], [varimax], [False], [None], None)
+        if _n_views_in > 0 else ([positivity], [energy_type], [sparseness], [check_nsa_w(nsa_w)], [varimax], [False], [None], None, [sparseness_type])
     )
     opt_params.setdefault("learning_rate", "auto")
+    if sparseness_schedule is not None:
+        _stages = _resolve_sparseness_schedule(sparseness_schedule, sparseness)
+        import inspect as _inspect
+        _names = {kk for kk, vv in _inspect.signature(simlr).parameters.items()
+                  if vv.kind is not vv.VAR_KEYWORD}
+        _frame = locals()
+        _stage_kw = {kk: _frame[kk] for kk in _names if kk in _frame}
+        _stage_kw.pop("sparseness_schedule", None)
+        _stage_kw.pop("data_matrices", None)
+        _stage_kw.pop("k", None)
+        _stage_kw.pop("iterations", None)
+        _stage_kw.pop("sparseness", None)
+        _stage_kw.pop("initial_v", None)
+        _stage_kw.pop("per_view_params", None)
+        _raw_pvp = per_view_params
+        _cur_init_v = initial_v
+        _n_stages = len(_stages)
+        _inter_iters = max(15, int(iterations) // _n_stages) if int(iterations) > 0 else 0
+        _is_int_sched = isinstance(sparseness_schedule, (int, np.integer)) and not isinstance(sparseness_schedule, bool)
+        _factors = np.linspace(0.0, 1.0, _n_stages).tolist() if _is_int_sched else None
+        _stage_res = None
+        for _s_idx, _s_sp in enumerate(_stages):
+            _s_iters = int(iterations) if _s_idx == _n_stages - 1 else _inter_iters
+            _s_pvp = _raw_pvp
+            if _raw_pvp is not None:
+                _s_pvp = {}
+                for _pk, _pv in _raw_pvp.items():
+                    _pv_copy = dict(_pv)
+                    if "sparseness" in _pv_copy:
+                        if _is_int_sched:
+                            _f_s = _factors[_s_idx]
+                            _orig_sp = _pv_copy["sparseness"]
+                            _pv_copy["sparseness"] = None if (_f_s <= 0.0 or _orig_sp is None or float(_orig_sp) <= 0.0) else float(_f_s * float(_orig_sp))
+                        else:
+                            _pv_copy["sparseness"] = _s_sp
+                    _s_pvp[_pk] = _pv_copy
+            if _s_idx < _n_stages - 1:
+                import warnings as _warnings
+                from .utils import ConvergenceWarning as _ConvergenceWarning
+                with _warnings.catch_warnings():
+                    _warnings.simplefilter("ignore", _ConvergenceWarning)
+                    _stage_res = simlr(
+                        data_matrices, k, iterations=_s_iters, sparseness=_s_sp,
+                        initial_v=_cur_init_v, sparseness_schedule=None,
+                        per_view_params=_s_pvp, **_stage_kw, **opt_params,
+                    )
+            else:
+                _stage_res = simlr(
+                    data_matrices, k, iterations=_s_iters, sparseness=_s_sp,
+                    initial_v=_cur_init_v, sparseness_schedule=None,
+                    per_view_params=_s_pvp, **_stage_kw, **opt_params,
+                )
+            _cur_init_v = [v.detach().clone() for v in _stage_res["v"]]
+        _stage_res["sparseness_schedule"] = list(_stages)
+        _stage_res["sparseness_type"] = sparseness_type
+        if initial_v is not None:
+            _stage_res["initialization_type"] = "initial_v"
+        else:
+            _stage_res["initialization_type"] = initialization_type
+        if _simlr_view_names is not None:
+            _stage_res["view_names"] = _simlr_view_names
+        return _stage_res
+
     if isinstance(opt_params.get("learning_rate", None), str):
         if opt_params["learning_rate"] != "auto":
             raise ValueError(
@@ -2055,7 +2400,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             data_matrices, k, scale_list, positivity, initialization_type,
             random_state, domain_matrices, sparseness, varimax,
             missing_rows=missing_rows, pos_list=_pos_list, sp_list=_sp_list,
-            varimax_list=_vx_list, nonneg_mask_list=_nonneg_mask_list)
+            varimax_list=_vx_list, nonneg_mask_list=_nonneg_mask_list,
+            initial_v=initial_v, sparseness_type=sparseness_type,
+            sp_type_list=_sp_type_list, align_initial_views=align_initial_views)
         from .system_prior import prepare_system_prior as _prep_sys_check
         _prep_sys_check(
             system_matrices, system_lambda, system_penalty,
@@ -2081,6 +2428,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             _internal_probe=(_INTERNAL_PROBE_TOKEN, _prep_mats, _prep_prov, _prep_v, False, _prep_mats_64, _s0_cache, _prep_obs),
         )
         _out["learning_rate"] = _lr
+        _out["learning_rate_used"] = float(_lr)
         _out["learning_rate_scores"] = _scores
         if _simlr_view_names is not None:
             _out["view_names"] = _simlr_view_names
@@ -2095,7 +2443,9 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
             data_matrices, k, scale_list, positivity, initialization_type,
             random_state, domain_matrices, sparseness, varimax,
             missing_rows=missing_rows, pos_list=_pos_list, sp_list=_sp_list,
-            varimax_list=_vx_list, nonneg_mask_list=_nonneg_mask_list)
+            varimax_list=_vx_list, nonneg_mask_list=_nonneg_mask_list,
+            initial_v=initial_v, sparseness_type=sparseness_type,
+            sp_type_list=_sp_type_list, align_initial_views=align_initial_views)
     n_modalities = len(torch_mats)
     orig_dtype = torch_mats[0].dtype
     # One orthogonality weight (or per-view override from `per_view_params`).
@@ -2176,7 +2526,8 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     _loop_sp_list = [
         None
         if (
-            _want_nonneg_list[i]
+            _sp_type_list[i] == "hard"
+            and _want_nonneg_list[i]
             and _nonneg_mask_list[i] is None
             and k > 1
             and (_q_m := _resolve_quantile(_sp_list[i], modality_index=i)) is not None
@@ -2326,6 +2677,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         re_i = _resolved_energy_list[i]
         pos_i = _pos_list[i]
         nm_i = _nonneg_mask_list[i]
+        st_i = _sp_type_list[i]
         ct_i = _ctype_list[i]
         cw_i = _nsa_w_list[i]
         gauge_i = _gauge_list[i]
@@ -2366,6 +2718,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 smoothing_matrix=sm_i,
                 positivity=pos_i, sparseness=_loop_sp,
                 constraint_weight=cw_i,
+                sparseness_type=st_i,
                 energy_type=et_i, modality_index=i,
                 retraction_diagnostics=d,
                 nonneg_mask=nm_i)
@@ -2475,7 +2828,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
                 v_mats[i] = matched_proj[0].clone()
             else:
                 retraction_diags[i] = {}
-                v_mats[i] = simlr_sparseness(v_updated, constraint_type=_ctype_list[i], smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=_pos_list[i], sparseness=_loop_sp, constraint_weight=_nsa_w_list[i], energy_type=_etype_list[i], modality_index=i, retraction_diagnostics=None if _probe_only else retraction_diags[i], nonneg_mask=_nonneg_mask_list[i])
+                v_mats[i] = simlr_sparseness(v_updated, constraint_type=_ctype_list[i], smoothing_matrix=smoothing_matrices[i] if smoothing_matrices else None, positivity=_pos_list[i], sparseness=_loop_sp, constraint_weight=_nsa_w_list[i], sparseness_type=_sp_type_list[i], energy_type=_etype_list[i], modality_index=i, retraction_diagnostics=None if _probe_only else retraction_diags[i], nonneg_mask=_nonneg_mask_list[i])
             resid = float(torch.linalg.norm(v_mats[i] - v_before)
                           / torch.linalg.norm(v_before).clamp_min(1e-300))
             retraction_diags[i]["fixed_point_residual"] = resid
@@ -2559,7 +2912,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         from .sparsification import _apply_quantile_sparseness, _resolve_quantile, _unit_normalize_columns
         for idx_m in range(n_modalities):
             q_m = _resolve_quantile(_sp_list[idx_m], modality_index=idx_m)
-            if q_m is not None and _want_nonneg_list[idx_m] and _nonneg_mask_list[idx_m] is None and k > 1 and q_m < 1.0 - 1.0 / k:
+            if _sp_type_list[idx_m] == "hard" and q_m is not None and _want_nonneg_list[idx_m] and _nonneg_mask_list[idx_m] is None and k > 1 and q_m < 1.0 - 1.0 / k:
                 v_sp = _apply_quantile_sparseness(v_mats[idx_m], q_m, nonneg=True, only_if_denser=True)
                 if _pos_list[idx_m] == "convex":
                     from .sparsification import _convexify
@@ -2680,12 +3033,20 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "provenance_list": provenance_list,
         "consolidated": consolidate,
         "sparseness": sparseness,
+        "sparseness_type": sparseness_type,
+        "sparseness_schedule": None,
         "random_state": random_state,
         # The rate the fit started from (the "auto" branch overwrites it with
         # the probe's choice); `convergence["learning_rate_final"]` is the
         # rate after any no-descent reductions.
         "learning_rate": opt_params.get("learning_rate"),
-        "initialization_type": initialization_type,
+        "learning_rate_used": (
+            float(opt_params["learning_rate"])
+            if opt_params.get("learning_rate") is not None
+            else None
+        ),
+        "optimizer_type": optimizer_type,
+        "initialization_type": "initial_v" if initial_v is not None else initialization_type,
         "modality_weights": mai_mod_weights.detach().cpu().numpy(),
         "mai": mai_ema.detach().cpu().numpy(),
         **basis_rank_report(v_mats, k),

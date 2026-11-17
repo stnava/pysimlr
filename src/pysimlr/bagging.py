@@ -1,11 +1,11 @@
 """Bagged estimators for any registered method: ``bagged_fit`` and ``bagged_predict``.
 
-`pysimlr.loading_inference` refits a method on row subsamples and summarises the refits (stability
-selection, subspace and component stability, out-of-bag scores). `bagged_fit` turns the same refits into an
-estimator with two modes:
+`pysimlr.loading_inference` refits a method on row subsamples and summarises the refits
+(feature selection frequency, calibrated out-of-bag latent stability, out-of-bag scores).
+`bagged_fit` turns the same refits into an estimator with two modes:
 
-* ``aggregate="select"`` (sparse): keep the features selected in at least ``threshold`` of the subsamples and
-  refit the method once on them.
+* ``aggregate="select"`` (sparse): keep the features with ``selection_frequency >= threshold``
+  and refit the method once on them.
 * ``aggregate="average"`` (smooth ensemble): keep the subsample fits; scores are the mean of their aligned
   scores.
 
@@ -206,7 +206,9 @@ def _effective_features(w: np.ndarray) -> float:
 def bagged_fit(method: str, views: Any, k: int, *, aggregate: str = "select", n_subsamples: int = 50,
                fraction: float = 0.8, threshold: float = 0.6, strata: Any = None, random_state: int = 0,
                draw_random_state: Optional[int] = None, n_jobs: int = 1, groups: Any = None,
-               expected_false: Optional[float] = None, **params: Any) -> Dict[str, Any]:
+               expected_false: Optional[float] = None, n_permutations: int = 0,
+               baseline: bool = False, n_baseline: int = 3,
+               tune_learning_rate: str = "per_refit", **params: Any) -> Dict[str, Any]:
     r"""Bagged estimator for any registered method (`pysimlr.method_names()`), in one of two modes.
     The default is ``aggregate="select"``; ``"average"`` is the opt-in alternative and any other value raises
     a ``ValueError`` listing the two valid modes.
@@ -216,91 +218,76 @@ def bagged_fit(method: str, views: Any, k: int, *, aggregate: str = "select", n_
     each (``random_state`` seeds every fit, ``draw_random_state`` the row draws; default ``random_state``).
 
     ``aggregate="select"`` (sparse). The per-view ``selection_frequency`` of `loading_inference` (each refit selects
-    the ``q_m`` features of largest communality) is computed; features with frequency ``>= threshold`` are kept
-    (``feature_mask``), and ``method`` is fitted ONCE on the kept features of each view with the same ``params``.
-    A view that keeps no feature raises a ``ValueError`` naming the view, its maximum frequency and the
-    threshold (no fallback). The returned dict is that final `pysimlr.fit` result plus the keys below.
-    Prediction on full-width views: `pysimlr.predict` and `pysimlr.sem.view_scores` subset the columns by
-    ``result["feature_mask"]`` (this is correct for every method, including those with nonlinear encoders, which
-    zero-padded weights would not be); views that already have only the kept columns are also accepted; any other
-    width raises a ``ValueError``. Other functions (`loadings`, `feature_maps`, ...) take the kept-feature views.
+    the ``q_m`` features of largest communality; this is a feature-selection frequency, not a stability number) is
+    computed; features with frequency ``>= threshold`` are kept (``feature_mask``), and ``method`` is fitted ONCE
+    on the kept features of each view with the same ``params``. A view that keeps no feature raises a ``ValueError``
+    naming the view, its maximum frequency and the threshold (no fallback). The returned dict is that final
+    `pysimlr.fit` result plus the keys below. Prediction on full-width views: `pysimlr.predict` and
+    `pysimlr.sem.view_scores` subset the columns by ``result["feature_mask"]``; views that already have only the
+    kept columns are also accepted; any other width raises a ``ValueError``.
 
-    ``aggregate="average"`` (smooth ensemble). The subsample fits are kept (``result["ensemble_models"]``). The score of
-    any rows is the mean over fits of ``predict(fit_b, rows)["u"] @ R_b``, where ``R_b`` is the fit's alignment to the
-    reference fit (``loading_inference``'s: the fit's varimax rotation times the Procrustes rotation of its structure
-    coefficients onto the reference fit's; for ``k = 1`` a sign), so ``scores`` live in the reference fit's loading frame
-    (``reference u @ loading_rotation``). `pysimlr.predict` (or `bagged_predict`) returns this ensemble prediction for new rows;
-    it has no reconstructions, ``r2`` or ``errors``, and `view_scores` raises ``NotImplementedError`` for it. The base
-    of the returned dict is the reference fit on all rows (``u``, ``v``, ``structure``, ... in its own frame). For
-    methods with linear per-view encoders (``simlr``, ``pca``, ``nsa_pipeline``), ``averaged_weights[m]`` is the mean
-    over fits of ``V_bm @ R_b / s_bm`` (``s_bm``: the fit's ``latent_scale`` of a per-view encoder, 1 for a joint
-    basis) in each fit's own standardised feature space, and ``weights_raw[m]`` / ``intercepts[m]`` are the same mean with
-    each fit's affine standardisation (training mean and scale) folded in. What is averaged is the per-view score
-    ``latents[m]`` returned by `bagged_predict` (no per-view sign correction, no standardisation):
-    ``X_m @ weights_raw[m] + intercepts[m]`` equals the mean over fits of the aligned per-view scores of raw ``X_m``
-    exactly (to float precision), because each member's score is affine in ``X_m``. Scoring with ``averaged_weights``
-    on one common standardisation (e.g. the reference fit's) is only approximately equal, since each fit standardised
-    with its own subsample mean and scale. The consensus ``u`` is a mean of consensus scores and is not a single product
-    with averaged weights in general. Deep and flow methods (``lend``, ``ned``, ``ned_shared_private``, ``flow_v``)
-    have nonlinear encoders (or a nonlinear consensus): ``weights_averaged`` is ``False``, ``weights_note`` says why,
-    and only scores are averaged. Memory: the models of all fits are held.
+    ``aggregate="average"`` (smooth ensemble). The subsample fits are kept (``result["ensemble_models"]``). The score
+    of any rows is the mean over fits of ``predict(fit_b, rows)["u"] @ R_b``, where ``R_b`` is the fit's alignment to
+    the reference fit. `pysimlr.predict` (or `bagged_predict`) returns this ensemble prediction for new rows.
 
     Returns (both modes), in addition to the fit result: ``aggregate``, ``method``, ``k``, ``n_subsamples``,
-    ``fraction``, ``threshold``, ``selection_frequency`` (per view, array), ``feature_mask`` (per view boolean
-    array; all True in average mode), ``effective_features`` (per view; for linear-weight methods
-    :math:`(\sum |w|)^2 / \sum w^2` of the first component's final (select) or averaged (average) weights; otherwise
-    the number of selected features in select mode and ``None`` in average mode), ``scores`` (``(n, k)`` training-row
-    scores in the frame of ``structure``: the final fit's ``u @ loading_rotation``, or the ensemble mean),
-    ``oob_scores`` (``(n, k)``, NaN where a row was in every fit; the mean over the fits that did not contain the row.
-    Select mode: from the full-feature subsample fits, rotated onto ``scores``; selection used all rows, so this is not
-    a nested evaluation of select-then-fit), ``subspace_stability`` and ``component_stability`` (as in
-    `loading_inference`, of the full-feature subsample fits; in select mode low ``component_stability`` means the
-    component can still be unstable after selection), ``converged_fraction``, ``expected_false_selections`` (per view,
-    as returned by `loading_inference`: the Meinshausen-Buhlmann bound holds only at ``fraction = 0.5``
-    with uniform draws and ``threshold > 0.5``, else NaN; ``expected_false_selections_reason``), ``selection_q``,
-    ``between_run_note`` and ``provenance`` (all arguments). In average mode also ``weights_averaged``, ``weights_note``,
-    ``ensemble_models``, ``ensemble_rotations`` and, when averaged, ``averaged_weights``, ``weights_raw``, ``intercepts``.
-
-    ``expected_false`` sets how many features each refit selects, ``q_m = floor(sqrt(expected_false * (2 threshold - 1)
-    p_m))`` (`loading_inference`'s rule). Default ``None``: the value for which the median-width view selects a quarter of
-    its features per refit; with a larger ``q`` persistent noise features are selected in every subsample (subsamples that
-    overlap by 80% rank noise features alike) and pass any threshold. At most ``q_m / threshold`` features of a view can
-    reach the threshold. This default is a heuristic with no error-rate guarantee.
-
-    ``missing_rows="mask"``, ``per_view_params`` (including view-name keys and ``nonneg_mask``, which
-    ``aggregate="select"`` subsets automatically onto each view's kept features), and the other fit options
-    pass through ``params``, as in `loading_inference`.
+    ``fraction``, ``threshold``, ``selection_frequency`` (per view, array; not a stability metric),
+    ``feature_mask`` (per view boolean array; all True in average mode), ``effective_features`` (per view),
+    ``scores`` (``(n, k)`` training-row scores), ``oob_scores`` (``(n, k)``), ``latent_reliability`` (+
+    ``_baseline``, ``_gain`` when ``baseline=True``), ``latent_reliability_averaged``,
+    ``latent_reliability_multivariate``, ``cross_view_coupling``, ``feature_agreement``,
+    ``feature_agreement_by_view``, ``n_oob_per_row``, ``n_refits_used``, ``alignment``, ``interpretation``,
+    ``oos_r2``, ``diagnostics_scope`` (``"pre_selection_subsamples"`` in select mode, ``"ensemble_subsamples"`` in
+    average mode), ``refit_learning_rates``, ``converged_fraction``, ``expected_false_selections``,
+    ``expected_false_selections_reason``, ``selection_q``, ``between_run_note`` and ``provenance``. Under
+    ``aggregate="select"``, all returned stability diagnostics describe the pre-selection all-feature subsample
+    refits rather than nested select-then-fit reliability of ``result["v"]`` (stated in ``interpretation`` and
+    ``provenance``). Results are wrapped so reading keys removed in 0.41.0 raises an informative ``KeyError``.
     """
     from .api import as_views, fit, resolve_method
-    from .loadings import _procrustes, loading_inference
+    from .latent_stability import _RemovedKeysDict, _build_stability_interpretation
+    from .loadings import _procrustes, _validate_tune_learning_rate, loading_inference
     import pysimlr
     if aggregate not in AGGREGATES:
         raise ValueError(f"aggregate must be one of {AGGREGATES}; got {aggregate!r}.")
     resolve_method(method)
+    _validate_tune_learning_rate(tune_learning_rate, method)
     if not 0.0 < fraction < 1.0:
         raise ValueError(f"fraction must be in (0, 1); got {fraction}.")
     if not 0.5 < threshold <= 1.0:
         raise ValueError(f"threshold must be in (0.5, 1]; got {threshold}.")
+    if baseline and int(n_baseline) < 1:
+        raise ValueError(f"n_baseline must be >= 1 when baseline=True; got {n_baseline}.")
     view_list = as_views(views)
+    n_views = len(view_list)
     n = int(view_list[0].shape[0])
     widths = [int(x.shape[1]) for x in view_list]
-    names = list(views.keys()) if isinstance(views, Mapping) else [f"view{i}" for i in range(len(view_list))]
+    names = list(views.keys()) if isinstance(views, Mapping) else [f"view{i}" for i in range(n_views)]
     if expected_false is None:
         expected_false = float(max(1.0, np.median(widths) / (16.0 * (2.0 * threshold - 1.0))))
+    stability_scope = (
+        "pre_selection_all_feature_refits (not nested select-then-fit reliability of result['v'])"
+        if aggregate == "select" else "ensemble_subsamples"
+    )
     provenance = {
         "method": method, "k": int(k), "aggregate": aggregate, "n_subsamples": int(n_subsamples),
         "fraction": float(fraction), "threshold": float(threshold), "strata": _flat(strata),
         "random_state": random_state, "draw_random_state": draw_random_state, "n_jobs": n_jobs,
         "groups": _flat(groups), "expected_false": float(expected_false),
+        "n_permutations": int(n_permutations), "baseline": bool(baseline),
+        "n_baseline": int(n_baseline) if (baseline and n_views >= 2) else 0,
+        "tune_learning_rate": tune_learning_rate,
+        "stability_scope": stability_scope,
         "params": {kk: _flat(vv) for kk, vv in params.items()}, "n_rows": n, "view_widths": widths,
         "subsample": "without replacement", "pysimlr_version": pysimlr.__version__,
     }
     want = ("latents",) if aggregate == "select" else ("latents", "models")
     inf = loading_inference(
         method, views, k, n_subsamples=n_subsamples, fraction=fraction, threshold=threshold,
-        expected_false=expected_false, subsample="fraction", strata=strata, return_refits=want,
-        random_state=random_state, draw_random_state=draw_random_state, n_jobs=n_jobs, groups=groups,
-        **params)
+        expected_false=expected_false, n_permutations=n_permutations, subsample="fraction",
+        strata=strata, return_refits=want, random_state=random_state,
+        draw_random_state=draw_random_state, n_jobs=n_jobs, groups=groups,
+        tune_learning_rate=tune_learning_rate, baseline=baseline, n_baseline=n_baseline, **params)
     refits = inf["refits"]
     if int(refits["structure"].shape[0]) == 0:
         raise RuntimeError("no subsample refit was kept; cannot aggregate.")
@@ -313,11 +300,39 @@ def bagged_fit(method: str, views: Any, k: int, *, aggregate: str = "select", n_
         warnings.simplefilter("ignore", RuntimeWarning)
         oob = np.nanmean(lat, axis=0)                                        # (n, k)
 
+    has_base = bool(baseline and n_views >= 2)
+    interp = _build_stability_interpretation(inf, baseline=has_base, select_mode=(aggregate == "select"))
     common = {
         "aggregate": aggregate, "method": method, "k": int(k), "n_subsamples": int(n_subsamples),
         "fraction": float(fraction), "threshold": float(threshold),
-        "selection_frequency": freq, "subspace_stability": list(inf["subspace_stability"]),
-        "component_stability": [list(c) for c in inf["component_stability"]],
+        "selection_frequency": freq,
+        "diagnostics_scope": ("pre_selection_subsamples" if aggregate == "select" else "ensemble_subsamples"),
+        "latent_reliability": inf["latent_reliability"],
+        "latent_reliability_baseline": inf["latent_reliability_baseline"],
+        "latent_reliability_gain": inf["latent_reliability_gain"],
+        "latent_reliability_averaged": inf["latent_reliability_averaged"],
+        "latent_reliability_averaged_baseline": inf["latent_reliability_averaged_baseline"],
+        "latent_reliability_averaged_gain": inf["latent_reliability_averaged_gain"],
+        "latent_reliability_multivariate": inf["latent_reliability_multivariate"],
+        "latent_reliability_multivariate_baseline": inf["latent_reliability_multivariate_baseline"],
+        "latent_reliability_multivariate_gain": inf["latent_reliability_multivariate_gain"],
+        "cross_view_coupling": inf["cross_view_coupling"],
+        "cross_view_coupling_baseline": inf["cross_view_coupling_baseline"],
+        "cross_view_coupling_gain": inf["cross_view_coupling_gain"],
+        "cross_view_coupling_n": inf["cross_view_coupling_n"],
+        "cross_view_coupling_splits": inf["cross_view_coupling_splits"],
+        "feature_agreement": inf["feature_agreement"],
+        "feature_agreement_baseline": inf["feature_agreement_baseline"],
+        "feature_agreement_gain": inf["feature_agreement_gain"],
+        "feature_agreement_by_view": inf["feature_agreement_by_view"],
+        "feature_agreement_by_view_baseline": inf["feature_agreement_by_view_baseline"],
+        "feature_agreement_by_view_gain": inf["feature_agreement_by_view_gain"],
+        "n_oob_per_row": inf["n_oob_per_row"],
+        "n_refits_used": inf["n_refits_used"],
+        "alignment": inf["alignment"],
+        "interpretation": interp,
+        "oos_r2": (list(inf["oos_r2"]) if inf["oos_r2"] is not None else None),
+        "refit_learning_rates": inf["refit_learning_rates"],
         "converged_fraction": float(inf["converged_fraction"]),
         "expected_false_selections": list(inf["expected_false_selections"]),
         "expected_false_selections_reason": inf["expected_false_selections_reason"],
@@ -370,7 +385,7 @@ def bagged_fit(method: str, views: Any, k: int, *, aggregate: str = "select", n_
             eff = [int(mk.sum()) for mk in mask]
         res.update(common)
         res.update({"feature_mask": mask, "effective_features": eff, "scores": scores, "oob_scores": oob_al})
-        return res
+        return _RemovedKeysDict(res)
 
     # average
     ref = dict(inf["result"])
@@ -392,7 +407,7 @@ def bagged_fit(method: str, views: Any, k: int, *, aggregate: str = "select", n_
     })
     if averaged:
         ref.update({"averaged_weights": ew, "weights_raw": raw_w, "intercepts": icpt})
-    return ref
+    return _RemovedKeysDict(ref)
 
 
 __all__ = ["bagged_fit", "bagged_predict", "mask_views", "AGGREGATES"]

@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.40.0"
+__version__ = "0.41.0"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -140,9 +140,10 @@ from .loadings import (
     structure_coefficients,
     olee_loadings,
 )
+from .latent_stability import latent_stability
 from .bagging import bagged_fit, bagged_predict
 from .prepare import prepare_views, apply_prepared
-from .multistart import multistart_fit
+from .multistart import multistart_fit, solution_uniqueness
 from .interpretability import (
     summarize_basis_matrix,
     build_first_layer_contract,
@@ -225,12 +226,14 @@ __all__ = [
     'predict_simlr',
     'loadings',
     'loading_inference',
+    'latent_stability',
     'bagged_fit',
     'bagged_predict',
     'prepare_views',
     'apply_prepared',
     'data_safety',
     'multistart_fit',
+    'solution_uniqueness',
     'orient_latents',
     'attribute_target',
     'target_root_fit_params',

@@ -109,3 +109,63 @@ def test_reserved_and_unknown_arguments():
         multistart_fit("simlr", toy(), 1, n_starts=1, initialization_type="pca")
     with pytest.raises(ValueError, match="unknown method"):
         multistart_fit("nope", toy(), 1)
+    with pytest.raises(ValueError, match="tune_learning_rate"):
+        multistart_fit("simlr", toy(), 1, n_starts=1, tune_learning_rate="bogus")
+
+
+def test_solution_uniqueness_and_reference_lr_rejection():
+    v = toy()
+    with pytest.raises(ValueError, match="tune_learning_rate='reference'"):
+        multistart_fit("simlr", v, 1, n_starts=2, iterations=10, tune_learning_rate="reference")
+    with pytest.raises(ValueError, match="tune_learning_rate='reference'"):
+        pysimlr.solution_uniqueness("simlr", v, 1, n_starts=2, iterations=10, tune_learning_rate="reference")
+
+    su = pysimlr.solution_uniqueness("simlr", v, 1, n_starts=4, iterations=40)
+    assert set(su) >= {"n_distinct_solutions", "unique", "energy_gap", "best_energy", "chosen", "converged_fraction", "starts", "refit_learning_rates", "result"}
+    assert su["unique"] is (su["n_distinct_solutions"] == 1)
+    assert 0.0 <= su["converged_fraction"] <= 1.0
+    lrs = su["refit_learning_rates"]
+    assert len(lrs) == 5 and all(isinstance(x, float) and np.isfinite(x) for x in lrs)
+    assert su["result"]["multistart"]["tune_learning_rate"] == "per_refit"
+
+
+@pytest.mark.parametrize(
+    "label,kw",
+    [
+        ("linear", {"positivity": "linear"}),
+        ("conical", {"positivity": "conical"}),
+        ("convex", {"positivity": "convex"}),
+        (
+            "mixed",
+            {
+                "per_view_params": {
+                    0: {"positivity": "linear"},
+                    1: {"positivity": "conical"},
+                    2: {"positivity": "convex"},
+                }
+            },
+        ),
+    ],
+)
+def test_solution_uniqueness_all_constraints_and_mixed(label, kw):
+    v = toy(n=90, seed=3)
+    su = pysimlr.solution_uniqueness(
+        "simlr", v, 1, n_starts=3, iterations=35, random_state=0, **kw
+    )
+    assert su["n_distinct_solutions"] >= 1
+    assert su["unique"] is (su["n_distinct_solutions"] == 1)
+    assert np.isfinite(su["best_energy"])
+    assert len(su["starts"]) == 4
+    assert len(su["refit_learning_rates"]) == 4
+    res = su["result"]
+    if label == "conical":
+        for vm in res["v"]:
+            assert (vm >= -1e-6).all()
+    elif label == "convex":
+        for vm in res["v"]:
+            assert (vm >= -1e-6).all()
+            assert np.allclose(vm.sum(dim=0).numpy(), 1.0, atol=1e-5)
+    elif label == "mixed":
+        assert (res["v"][1] >= -1e-6).all()
+        assert (res["v"][2] >= -1e-6).all()
+        assert np.allclose(res["v"][2].sum(dim=0).numpy(), 1.0, atol=1e-5)

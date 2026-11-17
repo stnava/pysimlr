@@ -519,7 +519,15 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, safety: str = 
         (resolved constraint per view, or ``[None, ...]`` when not applicable),
         ``positivity_resolved`` (that shared string, or ``"mixed"`` when views
         differ), ``random_state`` (the seed actually used, ``None`` for
-        deterministic fits), ``budget_unit`` and ``preset``.
+        deterministic fits), ``budget_unit``, ``preset``, ``optimizer_variant``,
+        ``initialization_variant``, ``learning_rate_rule``,
+        ``learning_rate_used``, ``sparseness_schedule``, and
+        ``sparseness_type``.
+
+    See Also
+    --------
+    pysimlr.solution_uniqueness : Multi-start diagnostic checking whether
+        independent starts reach one or several distinct energy basins.
     """
     from .safety import validate_safety_mode
     safety_mode = validate_safety_mode(safety)
@@ -565,6 +573,11 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, safety: str = 
     elif "positivity" in spec.accepts:
         positivity_resolved = resolve_positivity(spec.defaults.get("positivity", "either"))
     for name, value in params.items():
+        if name in ("initial_v", "sparseness_schedule") and name not in spec.accepts and value is not None:
+            raise ValueError(
+                f"{spec.name} does not support {name!r}; {name!r} is only supported by "
+                f"methods that accept it (such as 'simlr')."
+            )
         if name in spec.presets:
             if _same(value, spec.presets[name]):
                 continue
@@ -650,6 +663,32 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, safety: str = 
         # loadings, the grad-map certificate) runs `scale -> confound_projection -> rescale`.
         finalize_confound_plan(res, plan)
     sink_used = {kk: sink_req.get(kk, SINK_PARAMS[kk]) for kk in SINK_PARAMS} if plan is not None else {}
+    _opt_variant = (
+        call.get("optimizer_type", spec.defaults.get("optimizer_type"))
+        if ("optimizer_type" in spec.accepts or "optimizer_type" in spec.defaults)
+        else None
+    )
+    if call.get("initial_v") is not None:
+        _init_variant = "initial_v"
+    elif "initialization_type" in spec.accepts or "initialization_type" in spec.defaults:
+        _init_variant = call.get("initialization_type", spec.defaults.get("initialization_type"))
+    else:
+        _init_variant = None
+    if "learning_rate" in spec.accepts or "learning_rate" in spec.defaults:
+        _lr_req = call.get("learning_rate", spec.defaults.get("learning_rate"))
+        _lr_rule: Optional[str] = "auto" if _lr_req == "auto" else "fixed"
+    else:
+        _lr_req = None
+        _lr_rule = None
+    _lr_used_val = res.get("learning_rate_used")
+    if _lr_used_val is None and isinstance(_lr_req, (int, float)) and not isinstance(_lr_req, bool):
+        _lr_used_val = float(_lr_req)
+    _sp_sched = res.get("sparseness_schedule")
+    _sp_type = (
+        call.get("sparseness_type", spec.defaults.get("sparseness_type"))
+        if ("sparseness_type" in spec.accepts or "sparseness_type" in spec.defaults)
+        else None
+    )
     res["parameters"] = {
         "requested": {**params, **sink_req},
         "used": {**call, **sink_used},
@@ -659,6 +698,12 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, safety: str = 
         "random_state": res.get("random_state"),
         "budget_unit": spec.budget_unit,
         "preset": dict(spec.presets),
+        "optimizer_variant": _opt_variant,
+        "initialization_variant": _init_variant,
+        "learning_rate_rule": _lr_rule,
+        "learning_rate_used": float(_lr_used_val) if _lr_used_val is not None else None,
+        "sparseness_schedule": _sp_sched,
+        "sparseness_type": _sp_type,
     }
     # `used` keeps the caller's spelling (refits replay it); `positivity_by_view`
     # records the canonical value every view actually used, and

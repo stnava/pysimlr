@@ -102,6 +102,13 @@ _MEDIUM_FILES = {
     "test_feature_maps.py",
     "test_stats.py",
     "test_confound_sink.py",
+    "test_latent_stability.py",
+    "test_simlr_optimizers.py",
+    "test_bagging.py",
+    "test_data_safety.py",
+    "test_multistart.py",
+    "test_loading_inference_options.py",
+    "test_observed_sem.py",
 }
 
 

@@ -112,7 +112,8 @@ def test_feature_table_is_the_rotated_structure_with_inference(fits):
             d = tab[(tab.view == m) & (tab.component == j + 1)]
             assert np.allclose(d.structure, C[:, j].numpy(), atol=1e-6)
             assert np.array_equal(d.excludes_zero, (d.ci_low > 0) | (d.ci_high < 0))
-    assert {"selected", "selection_frequency", "component_stability"} <= set(tab.columns)
+    assert {"selected", "selection_frequency"} <= set(tab.columns)
+    assert "component_stability" not in tab.columns
 
 
 def test_latent_coupling_is_corr_of_rotated_view_and_consensus_scores(fits):
@@ -142,9 +143,13 @@ def test_convergence_cards_and_flags(fits):
         plt.close(fig)
 
 
-def test_top_features_mark_selection_and_stability(fits):
+def test_top_features_mark_selection_and_reliability(fits):
     fig = pysimlr.plot_top_features(fits["sig"], inf=fits["inf"], top_n=5)
-    assert len(fig.axes) == 2 and "stability" in fig.axes[0].get_title("left")
+    assert len(fig.axes) == 2
+    title0 = fig.axes[0].get_title("left")
+    assert "feature agreement" in title0 or "latent reliability" in title0
+    fig_texts = " ".join(t.get_text() for t in fig.texts)
+    assert "latent reliability" in fig_texts
     assert any(abs(l.get_xdata()[0]) == pytest.approx(fits["inf"]["null_max_abs"])
                for l in fig.axes[0].get_lines() if l.get_linestyle() == "--")
     plt.close(fig)
@@ -181,6 +186,59 @@ def test_rank_selection_plots_every_criterion(fits):
         plt.close(fig)
     with pytest.raises(ValueError, match="criterion"):
         pysimlr.plot_rank_selection(fits["rank"], criterion="nope")
+    for old, repl in (("component", "latent_reliability"), ("subspace", "latent_reliability"),
+                      ("subspace_corrected", "latent_reliability"), ("oos_coupling", "cross_view_coupling")):
+        with pytest.raises(ValueError, match=repl):
+            pysimlr.plot_rank_selection(fits["rank"], criterion=old)
+
+
+def test_new_schema_plotting_unit(fits):
+    """Unit-check new 0.41.0 schema dicts without reading any removed keys."""
+    res = fits["sig"]
+    syn_inf = {
+        "ci_low": [np.zeros_like(c.numpy()) for c in res["structure"]],
+        "ci_high": [np.ones_like(c.numpy()) for c in res["structure"]],
+        "selected": [np.zeros(c.shape[0], dtype=bool) for c in res["structure"]],
+        "selection_frequency": [np.linspace(0.0, 1.0, c.shape[0]) for c in res["structure"]],
+        "latent_reliability": np.array([0.85, 0.42]),
+        "latent_reliability_gain": np.array([0.45, 0.12]),
+        "cross_view_coupling": np.array([0.71, 0.25]),
+        "feature_agreement_by_view": [np.array([0.62, 0.30]), np.array([0.58, 0.28])],
+        "null_max_abs": 0.2,
+    }
+    tab = pysimlr.feature_table(res, syn_inf)
+    assert {"selected", "selection_frequency"} <= set(tab.columns)
+    assert "component_stability" not in tab.columns
+    fig_top = pysimlr.plot_top_features(res, inf=syn_inf, top_n=5)
+    assert "feature agreement" in fig_top.axes[0].get_title("left")
+    assert "latent reliability" in " ".join(t.get_text() for t in fig_top.texts)
+    plt.close(fig_top)
+    fig_sum = pysimlr.plot_fit_summary(res, fits["tr"], inf=syn_inf)
+    assert "latent reliability" in " ".join(t.get_text() for t in fig_sum.texts)
+    plt.close(fig_sum)
+    syn_rank = {
+        "k": 1,
+        "criterion": "latent_reliability",
+        "margin": 0.2,
+        "criteria": {"latent_reliability": 1, "cross_view_coupling": 1, "heldout_coupling": None,
+                     "oos_r2": 1, "oos_r2_1se": 1},
+        "table": [
+            {"k": 1, "latent_reliability": [0.85], "latent_reliability_gain": [0.45],
+             "latent_reliability_multivariate": 0.85, "latent_reliability_multivariate_gain": 0.45,
+             "cross_view_coupling": [0.71], "cross_view_coupling_threshold": 0.30,
+             "heldout_coupling": [0.65], "heldout_coupling_threshold": 0.30,
+             "oos_r2": 0.25, "oos_r2_se": 0.03, "basis_degenerate": False},
+            {"k": 2, "latent_reliability": [0.80, 0.30], "latent_reliability_gain": [0.40, -0.05],
+             "latent_reliability_multivariate": 0.55, "latent_reliability_multivariate_gain": 0.18,
+             "cross_view_coupling": [0.68, 0.12], "cross_view_coupling_threshold": 0.30,
+             "heldout_coupling": [0.60, 0.10], "heldout_coupling_threshold": 0.30,
+             "oos_r2": 0.23, "oos_r2_se": 0.04, "basis_degenerate": True},
+        ],
+    }
+    for crit in ("latent_reliability", "cross_view_coupling", "heldout_coupling", "oos_r2", "oos_r2_1se"):
+        fig_r = plotting.plot_rank_selection(syn_rank, criterion=crit)
+        assert isinstance(fig_r, matplotlib.figure.Figure)
+        plt.close(fig_r)
 
 
 def test_old_plotting_modules_are_gone():

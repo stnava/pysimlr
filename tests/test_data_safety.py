@@ -280,3 +280,19 @@ def test_fit_safety_modes_and_validation():
         pysimlr.prepare_views([v0, v1], safety="invalid")
     with pytest.raises(ValueError, match="safety must be one of"):
         pysimlr.fit("pca", [v0, v1], k=1, safety="invalid")
+
+
+def test_data_safety_influence_tune_learning_rate_reference():
+    rng = np.random.default_rng(11)
+    z = rng.standard_normal((24, 1))
+    v0 = z @ rng.standard_normal((1, 8)) + 0.3 * rng.standard_normal((24, 8))
+    v1 = z @ rng.standard_normal((1, 8)) + 0.3 * rng.standard_normal((24, 8))
+    rep = pysimlr.data_safety(
+        [v0, v1], influence=True, method="simlr", k=1,
+        iterations=15, tune_learning_rate="reference",
+    )
+    lrs = rep["refit_learning_rates"]
+    assert len(lrs) == 24 and all(isinstance(x, float) and np.isfinite(x) for x in lrs)
+    assert len(set(lrs)) == 1
+    with pytest.raises(ValueError, match="pca"):
+        pysimlr.data_safety([v0, v1], influence=True, method="pca", k=1, tune_learning_rate="reference")

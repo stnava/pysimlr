@@ -55,6 +55,20 @@ def test_select_recovers_planted_features_and_score(data, sel):
     assert [int(m.sum()) for m in sel["feature_mask"]] == [fm.sum() for fm in sel["feature_mask"]]
     assert all(1.0 <= e <= m.sum() + 1e-9 for e, m in zip(sel["effective_features"], sel["feature_mask"]))
     assert sel["aggregate"] == "select" and len(sel["selection_frequency"]) == 3
+    assert sel["cross_view_coupling"] is not None and len(sel["cross_view_coupling"]) == 1 and sel["cross_view_coupling"][0] > 0.7
+    assert sel["oos_r2"] is not None and len(sel["oos_r2"]) == 3
+    assert isinstance(sel["latent_reliability"], np.ndarray) and sel["latent_reliability"].shape == (1,)
+    assert np.isfinite(sel["latent_reliability"]).all()
+    assert isinstance(sel["feature_agreement"], np.ndarray) and sel["feature_agreement"].shape == (1,)
+    assert np.isfinite(sel["feature_agreement"]).all()
+    assert len(sel["feature_agreement_by_view"]) == 3
+    assert sel["diagnostics_scope"] == "pre_selection_subsamples"
+    assert "pre-selection" in sel["interpretation"]
+    assert "pre_selection" in sel["provenance"]["stability_scope"]
+    assert sel["latent_reliability_baseline"] is None and sel["latent_reliability_gain"] is None
+    assert len(sel["refit_learning_rates"]) == 16 and all(isinstance(x, float) for x in sel["refit_learning_rates"])
+    with pytest.raises(KeyError, match="removed in 0.41.0"):
+        _ = sel["component_stability"]
 
 
 def test_select_accepts_subset_views_and_rejects_other_widths(data, sel):
@@ -131,6 +145,17 @@ def test_both_modes_end_to_end(method, kw, aggregate):
     assert np.asarray(r["scores"]).shape == (60, 1) and np.asarray(r["oob_scores"]).shape == (60, 1)
     assert len(r["selection_frequency"]) == 3 and len(r["feature_mask"]) == 3
     assert 0.0 <= r["converged_fraction"] <= 1.0 and "provenance" in r and "between_run_note" in r
+    assert r["cross_view_coupling"] is not None and len(r["cross_view_coupling"]) == 1
+    assert r["oos_r2"] is not None and len(r["oos_r2"]) == 3
+    assert r["diagnostics_scope"] == ("pre_selection_subsamples" if aggregate == "select" else "ensemble_subsamples")
+    assert len(r["refit_learning_rates"]) == 4
+    assert isinstance(r["feature_agreement"], np.ndarray) and r["feature_agreement"].shape == (1,)
+    assert len(r["feature_agreement_by_view"]) == 3
+    if method == "pca":
+        assert r["alignment"]["feature_space"] == "structure"
+        assert r["refit_learning_rates"] == [None] * 4
+    else:
+        assert r["alignment"]["feature_space"] == ("weights" if method == "simlr" else "structure")
     if aggregate == "select":
         vs = view_scores(r, v2)
         assert len(vs["scores"]) == 3 and vs["scores"][0].shape == (30, 1)
@@ -225,3 +250,16 @@ def test_bound_reported_only_at_half_fraction(data):
     r5 = pysimlr.bagged_fit("pca", v, 1, n_subsamples=4, fraction=0.5)
     assert all(np.isfinite(x) for x in r5["expected_false_selections"])
     assert r5["provenance"]["subsample"] == "without replacement"
+
+
+def test_bagged_fit_null_baselines_and_tune_learning_rate_validation(data):
+    _, (_, v) = data
+    r_base = pysimlr.bagged_fit("pca", v, 1, aggregate="average", n_subsamples=4, baseline=True, n_baseline=2)
+    assert r_base["latent_reliability_baseline"] is not None and len(r_base["latent_reliability_baseline"]) == 1
+    assert r_base["latent_reliability_gain"] is not None
+    assert r_base["cross_view_coupling_baseline"] is not None
+    assert r_base["cross_view_coupling_gain"] is not None
+    r_lr = pysimlr.bagged_fit("simlr", v, 1, aggregate="average", n_subsamples=4, iterations=15, tune_learning_rate="reference")
+    assert len(set(r_lr["refit_learning_rates"])) == 1
+    with pytest.raises(ValueError, match="pca"):
+        pysimlr.bagged_fit("pca", v, 1, n_subsamples=2, tune_learning_rate="reference")

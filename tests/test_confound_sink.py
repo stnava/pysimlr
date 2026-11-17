@@ -358,7 +358,7 @@ def test_downstream_tools_carry_confounds_with_their_rows(data):
                                 random_state=0, confounds=ctr)
         assert inf["result"]["confound_sink"] is not None and np.isfinite(inf["null_max_abs"])
         sr = select_rank("pca", xtr, [1, 2], n_subsamples=2, confounds=ctr)
-        assert set(sr["criteria"]) >= {"component", "oos_coupling"}
+        assert set(sr["criteria"]) >= {"latent_reliability", "cross_view_coupling"}
         res = fit("simlr", xtr, 2, random_state=0, confounds=ctr, iterations=20)
         hc = heldout_coupling(res, xte)
         assert len(hc["cross_view_heldout"]) == 2

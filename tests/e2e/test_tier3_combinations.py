@@ -102,7 +102,7 @@ def test_combo_ned_with_structural_models(synthetic_three_views):
                                           "hidden_dims": [32, 16], "verbose": False},
                               n_permutations=19)
     assert len(out["splits"]) == 4 and set(out["summary"].graph) == set(graphs)
-    for col in ("heldout_loglik_own", "heldout_loglik_complete", "oos_coupling", "oos_r2"):
+    for col in ("heldout_loglik_own", "heldout_loglik_complete", "cross_view_coupling", "oos_r2"):
         assert out["splits"][col].notna().all()
 
 

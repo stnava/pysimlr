@@ -260,13 +260,13 @@ there. A row observed in one view only enters no map; a partially observed row e
 (noisier) views. Pass `min_rows` (default 10) to set the smallest usable row count: below it, or for a constant
 feature or latent column, the entries are NaN with a `MissingRowsWarning`, never 0. `feature_maps(..., return_info=True)`
 returns the rows behind each view and feature (`n_eff`, `n_eff_feature`) and the reason for any NaN (`reasons`);
-`loading_inference` reports the same under `inf["maps"][kind]`, plus `oos_coupling_n`. Before v0.31.1 this setting
-returned all-zero maps and `oos_coupling == 0.0`; recompute any such output. `feature_relevance` and
+`loading_inference` reports the same under `inf["maps"][kind]`, plus `cross_view_coupling_n`. Before v0.31.1 this setting
+returned all-zero maps and `cross_view_coupling == 0.0` (then `oos_coupling`); recompute any such output. `feature_relevance` and
 `component_attribution` still need complete rows and now raise on all-NaN rows.
 
 **Use them with inference.** `loading_inference(..., maps=(...), map_options={"rw_shrinkage": "auto"})`
-refits them with the same subsamples and reports intervals, selection frequency, `rw_shrinkage`,
-and each map's own component stability (`inf["maps"][kind]`).
+refits them with the same subsamples and reports intervals, selection frequency, and `rw_shrinkage`
+(`inf["maps"][kind]`).
 
 **Displays.** All of them read one shared encoding, `feature_map_values`:
 - **Values:** |map|, or for `relative_weight`, percent of the variance the view explains.
@@ -461,46 +461,50 @@ regression fitted on the training rows. Every component gets its held-out R² al
 labels and titles. On the Figure 3.9 fit the function reproduces the pre-refactor script exactly
 (every number and all 40 refits, difference 0.0).
 
-## Uncertainty and the choice of k
+## Uncertainty, latent stability, and the choice of k
 
 ```python
+st = pysimlr.latent_stability("simlr", views, 3, n_subsamples=50, random_state=0)
+st["latent_reliability"], st["latent_reliability_gain"]   # per-component OOB ICC(1) and baseline-calibrated gain
+st["cross_view_coupling"], st["cross_view_coupling_gain"] # OOB leave-one-view-out score coupling and gain
+st["feature_agreement"], st["feature_agreement_by_view"]  # secondary aligned weight/structure cosine across refits
+
 inf = pysimlr.loading_inference("simlr", views, 3, n_subsamples=100, random_state=0)
-inf["component_stability"]   # per view: one value per component
+inf["latent_reliability"]       # out-of-bag ICC(1) per component from the same refits
 inf["ci_low"], inf["ci_high"]   # 95% percentile intervals per view
-inf["selected"]              # stability-selected features (threshold 0.8, expected_false 1)
+inf["selected"]                 # stability-selected features (threshold 0.8, expected_false 1)
 
 sel = pysimlr.select_rank("simlr", views, [2, 3, 4], n_subsamples=20, random_state=0)
-sel["k"]          # selected k under criterion (default "component"), or None
-sel["criteria"]   # all five rules from the same refits: component, subspace, oos_r2, oos_r2_1se, oos_coupling
-sel["table"]      # per-k stability, subspace cosines, out-of-bag R^2 and coupling, effective rank
+sel["k"]          # selected k under criterion (default "latent_reliability"), or None
+sel["criteria"]   # all five rules from the same refits: latent_reliability, cross_view_coupling, heldout_coupling, oos_r2, oos_r2_1se
+sel["table"]      # per-k latent reliability & gain, out-of-bag R^2 and cross-view coupling, effective rank
 ```
 
 - **How the refits work.**
-  - `loading_inference` refits the whole pipeline on random subsamples (`fraction=0.5` by
-    default), aligns each refit by Procrustes, and reports percentile intervals.
-  - Its per-component stability is the median correlation between each aligned refit component
-    and the full-data component.
+  - `latent_stability` refits the whole pipeline on random 80% subsamples (`fraction=0.8` by
+    default), aligns each refit on shared training rows only, and computes one-way unbalanced
+    intraclass correlation `ICC(1)` across out-of-bag row scores alongside `n_baseline=3`
+    row-permuted baselines (`*_baseline` and `*_gain`).
+  - `loading_inference` refits on random subsamples (`fraction=0.5` by default), aligns each
+    refit on training rows, and reports percentile intervals alongside the same `latent_stability`
+    keys (`baseline=False` by default there; pass `baseline=True` to add baseline draws).
   - Every subsample refit also evaluates `predict` on its unused `1 - fraction` rows (zero extra
     fits), giving held-out reconstruction `oos_r2` and held-out leave-one-view-out score
-    correlation `oos_coupling`.
+    correlation `cross_view_coupling`.
   - The default of 100 refits is costly on large data; `select_rank` uses 20 refits per
-    candidate k.
+    candidate k (`fraction=0.8` with `baseline=True` when `criterion="latent_reliability"`).
   - Pass `n_jobs=-1` (all cores) or `n_jobs=4` to run the refits in parallel. Results are
     identical to serial. On ADNI-MCI, `select_rank` over k ∈ {2, 3} took 17 s instead of 98 s.
-  - Subsample refits warn (`RuntimeWarning`) when `converged_fraction < 0.5` naming the iteration budget, record `median_converged_iter`, `oos_coupling_splits` and `n_effective_refits`, and omit unconverged refits when `exclude_unconverged=True` (closed-form `pca` stays included).
-- **Which `criterion` to read.** One `select_rank` call populates `sel["criteria"]` with all six:
-  - `"component"` (default): every varimax-rotated axis has stability ≥ `min_stability`. Use this
-    when naming and interpreting individual components `C1..Ck`.
-  - `"subspace"`: the smallest Grassmannian principal cosine of the stacked structure span is
-    ≥ `min_stability`. Stays high when real components share near-equal singular values and rotate
-    within a stable `k`-dimensional subspace.
+  - Subsample refits warn (`RuntimeWarning`) when `converged_fraction < 0.5` naming the iteration budget, record `median_converged_iter`, `cross_view_coupling_splits` and `n_effective_refits`, and omit unconverged refits when `exclude_unconverged=True` (closed-form `pca` stays included).
+- **Which `criterion` to read.** One `select_rank` call populates `sel["criteria"]` with all five:
+  - `"latent_reliability"` (default): largest `k` whose every component has `latent_reliability_gain >= margin` (default `0.2`) and for which `latent_reliability_multivariate_gain` does not fall.
+  - `"cross_view_coupling"`: largest `k` whose every component generalizes across views out of sample
+    above `min_cross_view_coupling` (default: one-sided α = 0.01 Fisher-z null bar).
+  - `"heldout_coupling"`: when `heldout_views=` is passed as a diagnostic, largest `k` whose every component clears the Fisher-z 0.01 bar on `heldout_coupling`'s `cross_view_heldout` (`None` when omitted).
   - `"oos_r2_1se"` and `"oos_r2"`: smallest `k` within 1 SE of the peak out-of-bag held-out
     reconstruction R² (and the peak itself, when > 0). Use these when choosing a subspace rank for
     downstream prediction (for example ridge or `fused_ridge` on `u @ R`).
-  - `"oos_coupling"`: largest `k` whose every component generalizes across views out of sample
-    above `min_oos_coupling` (default: one-sided α = 0.01 Fisher-z null bar).
-  - `"heldout_coupling"`: when `heldout_views=` is passed as a diagnostic, largest `k` whose every component clears the Fisher-z 0.01 bar on `heldout_coupling`'s `cross_view_heldout` (`None` when omitted).
-  - `pysimlr.select_model(views, candidates, ks, ...)` wraps `select_rank` over `(candidate, k)` cells on one paired out-of-bag split design, gates by health (`converged_fraction >= min_converged_fraction` and not `basis_degenerate`) and the Fisher-z `oos_coupling_threshold`, and selects the most parsimonious `(complexity_tier, k, -sparseness, -min_subspace_stability)` cell within 1 paired SE of the highest `S = sum_j max(median_coupling_j, 0)^2`.
+  - `pysimlr.select_model(views, candidates, ks, ...)` wraps `select_rank` over `(candidate, k)` cells on one paired out-of-bag split design, gates by health (`converged_fraction >= min_converged_fraction` and not `basis_degenerate`) and the Fisher-z `cross_view_coupling_threshold`, and selects the most parsimonious `(complexity_tier, k, -sparseness, -min_latent_reliability)` cell within 1 paired SE of the highest `S = sum_j max(median_coupling_j, 0)^2`.
   - Check `basis_degenerate` (`min_effective_rank < k - 0.5`) in `sel["table"]`: when `True` at
     larger `k`, basis columns are merging and `nsa_w` should be raised (for example `0.75`).
 
@@ -569,7 +573,7 @@ in the tests it called a pure group shift significant 90+% of the time), bootstr
 the effective sample size `n - G + 1`. In `loading_inference` the permutation null permutes within group
 whenever `groups` is given (no separate switch: grouped structure with an ungrouped null would not be a
 null for the same statistic). Resampling is not stratified by `groups` unless you also pass
-`strata=groups`; with small groups do. The out-of-bag `oos_coupling` is computed on within-group scores;
+`strata=groups`; with small groups do. The out-of-bag `cross_view_coupling` is computed on within-group scores;
 `oos_r2` (reconstruction) is not grouped.
 
 **Excluded views (`feature_maps(..., exclude_views=[...])`).** The listed views (indices or names) are left
@@ -587,8 +591,8 @@ the claim.
 `"weights"`, `"maps"`, `"latents"`, `"rows"` to receive `out["refits"]` with, for each kept refit, the aligned
 structure, per-view weights, maps, the consensus latent of every row (in-bag from the refit, out-of-bag
 predicted, flagged by `in_bag`) and the row indices, all in the reference frame of the stability summaries,
-plus `alignment["rotation"]` so a caller can undo it (`u_refit = latent @ rotation[b].T`). Stability
-recomputed from the returned arrays reproduces `component_stability` (tested). Memory is about
+plus `alignment["rotation"]` so a caller can undo it (`u_refit = latent @ rotation[b].T`). Out-of-bag
+`ICC(1)` recomputed from the returned `latents` and `in_bag` flags reproduces `latent_reliability`. Memory is about
 `4 B (structure + weights + maps + n k)` bytes for `B` refits; a `ValueError` is raised before fitting when it
 would exceed `max_refit_bytes` (default 2e9). Use it for refit-level questions the summaries do not answer:
 which subjects drive the latent, how an outcome relates to the out-of-bag latent per refit, or a bespoke
