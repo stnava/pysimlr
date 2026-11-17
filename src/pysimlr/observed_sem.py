@@ -412,7 +412,10 @@ def path_effect(B, nodes: Sequence[str], source: str, target: str, through: str 
     if through is None:
         return float(tot)
     B2 = np.array(B, dtype=float)
-    B2[:, idx[through]] = 0.0
+    j = idx[through]
+    if not np.any(B2[:, j]):
+        return 0.0
+    B2[:, j] = 0.0
     return float(tot - np.linalg.inv(I - B2)[idx[target], idx[source]])
 
 
@@ -432,6 +435,91 @@ def _norm_models(models: Mapping[str, Mapping[str, Any]]):
     return out
 
 
+def _resolve_through(
+    through: Sequence[tuple[str, str, str]] | str | None,
+    nodes: list[str],
+    exog: list[str],
+    checked: Mapping[str, Mapping[str, Any]],
+) -> list[tuple[str, str, str]] | None:
+    """Validate and resolve ``through`` into unique ``(source, target, node)`` triples or ``None``."""
+    if through is None:
+        return None
+    if isinstance(through, str):
+        if through != "all_mediators":
+            raise ValueError(
+                f"unknown through specification {through!r}; expected 'all_mediators' or a sequence of (source, target, node) triples"
+            )
+        has_out = {a for sp in checked.values() for a, _ in sp["edges"]}
+        has_in = {b for sp in checked.values() for _, b in sp["edges"]}
+        sources = list(exog) if exog else [n for n in nodes if n in has_out and n not in has_in]
+        source_set = set(sources)
+        sinks = [n for n in nodes if n not in source_set and n in has_in and n not in has_out]
+        sink_set = set(sinks)
+        intermediates = [n for n in nodes if n not in source_set and n not in sink_set and n in has_in and n in has_out]
+        return [(s, t, m) for s in sources for t in sinks for m in intermediates]
+    if isinstance(through, (bytes, Mapping)) or not hasattr(through, "__iter__"):
+        raise ValueError("through must be None, 'all_mediators', or a sequence of (source, target, node) triples")
+    known = set(nodes)
+    triples: list[tuple[str, str, str]] = []
+    for item in through:
+        if isinstance(item, (str, bytes)) or not isinstance(item, Sequence) or len(item) != 3:
+            raise ValueError(f"invalid through triple {item!r}; expected a 3-tuple (source, target, node)")
+        s, t, m = (str(item[0]), str(item[1]), str(item[2]))
+        triple = (s, t, m)
+        if s not in known or t not in known or m not in known:
+            raise ValueError(f"through triple {triple} uses an unknown variable; variables are {nodes}")
+        if s == m or t == m or s == t:
+            raise ValueError(f"through triple {triple} must have distinct source, target, and node")
+        triples.append(triple)
+    return list(dict.fromkeys(triples))
+
+
+def _reachable_from(succ: Mapping[str, Sequence[str]], start: str) -> set[str]:
+    """Nodes reachable from ``start`` along one or more directed edges."""
+    seen = set(succ[start])
+    frontier = set(seen)
+    while frontier:
+        frontier = {c for b in frontier for c in succ[b]} - seen
+        seen |= frontier
+    return seen
+
+
+def _active_through_triples(
+    nodes: Sequence[str],
+    edges: Sequence[Edge],
+    triples: Sequence[tuple[str, str, str]],
+) -> set[tuple[str, str, str]]:
+    """Subset of ``triples`` for which ``edges`` contains a directed path ``source ->+ node ->+ target``."""
+    succ: dict[str, list[str]] = {n: [] for n in nodes}
+    for a, b in edges:
+        succ[a].append(b)
+    reach_cache: dict[str, set[str]] = {}
+
+    def reaches(u: str) -> set[str]:
+        if u not in reach_cache:
+            reach_cache[u] = _reachable_from(succ, u)
+        return reach_cache[u]
+
+    active: set[tuple[str, str, str]] = set()
+    for s, t, m in triples:
+        if succ[m] and m in reaches(s) and t in reaches(m):
+            active.add((s, t, m))
+    return active
+
+
+def _through_stat_map(
+    B: np.ndarray,
+    nodes: Sequence[str],
+    triples: Sequence[tuple[str, str, str]],
+    active_triples: set[tuple[str, str, str]],
+) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for s, t, m in triples:
+        key = f"through:{s}>{t}|{m}"
+        out[key] = path_effect(B, nodes, s, t, through=m) if (s, t, m) in active_triples else 0.0
+    return out
+
+
 def _stat_vector(res: dict) -> dict[str, float]:
     d = {f"{c['from']}>{c['to']}": c["estimate"] for c in res["coefficients"]}
     for r in res["residual_covariances"]:
@@ -439,11 +527,13 @@ def _stat_vector(res: dict) -> dict[str, float]:
     for r in res["indirect"]:
         d[f"indirect:{r['from']}>{r['to']}"] = r["indirect"]
         d[f"total:{r['from']}>{r['to']}"] = r["total"]
+    for r in res.get("through", ()):
+        d[f"through:{r['from']}>{r['to']}|{r['through']}"] = r["estimate"]
     return d
 
 
 def _boot_chunk(args):
-    Z, idx_list, nodes, exog, specs, standardize = args
+    Z, idx_list, nodes, exog, specs, standardize, triples, active_by_model = args
     out = []
     for ix in idx_list:
         try:
@@ -456,7 +546,10 @@ def _boot_chunk(args):
                 warnings.simplefilter("ignore", RuntimeWarning)  # counted through the converged flag below
                 for name, sp in specs.items():
                     r = _result(S, len(ix), nodes, exog, sp["edges"], sp["residual_covariances"])
-                    row[name] = (r["aic"], r["bic"], r["converged"], _stat_vector(r))
+                    sv = _stat_vector(r)
+                    if triples:
+                        sv.update(_through_stat_map(r["B"], nodes, triples, active_by_model[name]))
+                    row[name] = (r["aic"], r["bic"], r["converged"], sv)
             out.append(row)
         except np.linalg.LinAlgError:
             out.append(None)  # singular resample; counted and reported as n_boot_failed
@@ -476,7 +569,9 @@ def _resample_indices(n, strata, n_boot, random_state):
 
 
 def compare_observed_path_models(data, models, *, exogenous=(), n_boot=0, strata=None, random_state=0, n_jobs=1,
-                                 standardize=True, names=None, dropna=False, ci=0.95) -> dict:
+                                 standardize=True, names=None, dropna=False, ci=0.95,
+                                 through: Sequence[tuple[str, str, str]] | str | None = None,
+                                 return_draws: bool = False) -> dict:
     """Fit several recursive path models to the SAME complete rows and compare them.
 
     Parameters
@@ -495,6 +590,20 @@ def compare_observed_path_models(data, models, *, exogenous=(), n_boot=0, strata
         results do not depend on ``n_jobs``.
     n_jobs : int
         Processes for the bootstrap (1 runs inline).
+    through : sequence of (source, target, node) triples or "all_mediators", optional
+        Specific-mediator effects to track across every model via ``path_effect(..., through=node)``.
+        Unlike ``indirect:source>target`` (the sum over all directed paths of length >= 2 between
+        ``source`` and ``target``), ``through:source>target|node`` isolates only the directed paths
+        that pass through ``node`` (they agree only when every indirect path passes through ``node``).
+        Passing ``"all_mediators"`` expands to every ``(source, target, node)`` triple with ``source``
+        in ``exogenous`` (or graph roots with outgoing and no incoming edges across the models when
+        ``exogenous`` is empty), ``target`` a sink across all models (not a source and with no outgoing
+        edge), and ``node`` an intermediate node. Models without a directed path
+        ``source ->+ node ->+ target`` get exact ``0.0`` (and ``lo = hi = 0.0``).
+    return_draws : bool
+        When True and ``n_boot > 0``, also return ``bootstrap_draws`` mapping
+        ``model -> {key: 1-D float ndarray of valid resample draws}``. Raises ``ValueError`` when
+        ``return_draws=True`` and ``n_boot <= 0``.
 
     Returns
     -------
@@ -507,10 +616,15 @@ def compare_observed_path_models(data, models, *, exogenous=(), n_boot=0, strata
         ``df == 0``) and, with ``n_boot > 0``, ``best_share_aic`` / ``best_share_bic`` (fraction of used
         resamples in which the model has the smallest AIC / BIC; ties go to the first model);
         ``best_by_aic``, ``best_by_bic``: model names (saturated model included if supplied);
-        ``fits``: name -> full :func:`observed_path_model` result;
+        ``fits``: name -> full :func:`observed_path_model` result (plus ``through`` when ``through`` is given,
+        a list of ``{"from", "to", "through", "estimate"}`` dicts);
         ``bootstrap`` (only when ``n_boot > 0``): name -> {key: {"estimate","lo","hi"}} with keys
-        ``"a>b"`` (coefficient), ``"a~~b"`` (residual correlation), ``"indirect:a>b"`` and ``"total:a>b"``.
+        ``"a>b"`` (coefficient), ``"a~~b"`` (residual correlation), ``"indirect:a>b"``, ``"total:a>b"``,
+        and ``"through:a>b|node"`` (when ``through`` is given);
+        ``bootstrap_draws`` (only when ``n_boot > 0`` and ``return_draws=True``): name -> {key: 1-D ndarray}.
     """
+    if return_draws and int(n_boot) <= 0:
+        raise ValueError("return_draws=True requires n_boot > 0")
     Z, nodes, st = _prepare(data, names, dropna, strata)
     specs = _norm_models(models)
     exog = [str(e) for e in exogenous]
@@ -518,9 +632,21 @@ def compare_observed_path_models(data, models, *, exogenous=(), n_boot=0, strata
     for name, sp in specs.items():
         e, r, _ = _validate_spec(nodes, exog, sp["edges"], sp["residual_covariances"])
         checked[name] = {"edges": e, "residual_covariances": r, "text": sp["text"]}
+    triples = _resolve_through(through, nodes, exog, checked)
+    active_by_model = (
+        {name: _active_through_triples(nodes, sp["edges"], triples) for name, sp in checked.items()}
+        if triples else {}
+    )
     n = Z.shape[0]
     S = _moment_matrix(Z, standardize)
     fits = {name: _result(S, n, nodes, exog, sp["edges"], sp["residual_covariances"]) for name, sp in checked.items()}
+    if triples is not None:
+        for name, f in fits.items():
+            tmap = _through_stat_map(f["B"], nodes, triples, active_by_model[name]) if triples else {}
+            f["through"] = [
+                {"from": s, "to": t, "through": m, "estimate": tmap[f"through:{s}>{t}|{m}"]}
+                for s, t, m in triples
+            ]
     rows = []
     for name, f in fits.items():
         rows.append({"model": name, "text": checked[name]["text"], **{k: f[k] for k in (
@@ -541,12 +667,15 @@ def compare_observed_path_models(data, models, *, exogenous=(), n_boot=0, strata
         if n_jobs > 1:
             chunks = [idx_list[i::n_jobs] for i in range(n_jobs)]
             with ProcessPoolExecutor(max_workers=n_jobs) as pool:
-                parts = list(pool.map(_boot_chunk, [(Z, c, nodes, exog, checked, standardize) for c in chunks]))
+                parts = list(pool.map(
+                    _boot_chunk,
+                    [(Z, c, nodes, exog, checked, standardize, triples, active_by_model) for c in chunks],
+                ))
             res = [None] * len(idx_list)
             for i, part in enumerate(parts):
                 res[i::n_jobs] = part
         else:
-            res = _boot_chunk((Z, idx_list, nodes, exog, checked, standardize))
+            res = _boot_chunk((Z, idx_list, nodes, exog, checked, standardize, triples, active_by_model))
         used = [r for r in res if r is not None]
         out["n_boot_failed"] = len(res) - len(used)
         if not used:
@@ -554,12 +683,25 @@ def compare_observed_path_models(data, models, *, exogenous=(), n_boot=0, strata
         mnames = list(checked)
         lo_q, hi_q = 100 * (1 - ci) / 2, 100 * (1 + ci) / 2
         boot = {}
+        draws = {} if return_draws else None
         for m in mnames:
+            est_map = _stat_vector(fits[m])
             keys = list(used[0][m][3])
-            boot[m] = {k: {"estimate": _stat_vector(fits[m])[k],
-                           "lo": float(np.percentile([r[m][3][k] for r in used], lo_q)),
-                           "hi": float(np.percentile([r[m][3][k] for r in used], hi_q))} for k in keys}
+            boot[m] = {}
+            if draws is not None:
+                draws[m] = {}
+            for k in keys:
+                arr = np.array([r[m][3][k] for r in used], dtype=float)
+                boot[m][k] = {
+                    "estimate": est_map[k],
+                    "lo": float(np.percentile(arr, lo_q)),
+                    "hi": float(np.percentile(arr, hi_q)),
+                }
+                if draws is not None:
+                    draws[m][k] = arr
         out["bootstrap"] = boot
+        if draws is not None:
+            out["bootstrap_draws"] = draws
         for crit, j in (("aic", 0), ("bic", 1)):
             wins = np.zeros(len(mnames))
             for r in used:

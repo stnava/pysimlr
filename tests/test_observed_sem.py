@@ -235,3 +235,174 @@ def test_optional_semopy_crosscheck():
     # semopy's chi2 uses N-1 or N depending on version; allow either
     chi = float(stat["chi2"].iloc[0])
     assert min(abs(chi - mine["chi2"]), abs(chi - mine["chi2"] * 1000 / 999)) < 1e-2
+
+
+def _parallel_mediators_data(n=800, seed=17):
+    r = np.random.default_rng(seed)
+    X = r.standard_normal(n)
+    B = 0.5 * X + np.sqrt(1.0 - 0.25) * r.standard_normal(n)
+    C = 0.4 * X + np.sqrt(1.0 - 0.16) * r.standard_normal(n)
+    # Var(0.4*B + 0.35*C + 0.25*X):
+    # = 0.16 + 0.1225 + 0.0625 + 2*(0.4*0.35*0.2 + 0.4*0.25*0.5 + 0.35*0.25*0.4) = 0.571
+    M = 0.4 * B + 0.35 * C + 0.25 * X + np.sqrt(1.0 - 0.571) * r.standard_normal(n)
+    return {"X": X, "B": B, "C": C, "M": M}
+
+
+def test_through_chain_zero_edge_parallel_mediators_and_invariance():
+    # 1) Planted chain X -> B -> M with direct X -> M: through == (X>B)*(B>M), total == direct + through, CI covers planted
+    r = np.random.default_rng(21)
+    n = 800
+    X = r.standard_normal(n)
+    B = 0.5 * X + np.sqrt(1.0 - 0.25) * r.standard_normal(n)
+    M = 0.4 * B + 0.3 * X + np.sqrt(1.0 - 0.37) * r.standard_normal(n)
+    d = {"X": X, "B": B, "M": M}
+    models = {
+        "med": {"edges": [("X", "B"), ("B", "M"), ("X", "M")]},
+        "no_out": {"edges": [("X", "B"), ("X", "M")]},  # B has no outgoing edge
+    }
+
+    base = compare_observed_path_models(d, models, exogenous=["X"], n_boot=120, random_state=5)
+    with_t = compare_observed_path_models(
+        d, models, exogenous=["X"], n_boot=120, random_state=5, through=[("X", "M", "B")],
+    )
+
+    # Zero drift on existing keys and table
+    assert "through" not in base["fits"]["med"]
+    for row_a, row_b in zip(base["table"], with_t["table"]):
+        assert set(row_a) == set(row_b)
+        for k in row_a:
+            va, vb = row_a[k], row_b[k]
+            assert va == vb or (isinstance(va, float) and np.isnan(va) and np.isnan(vb))
+    assert base["n_boot_failed"] == with_t["n_boot_failed"] == 0
+    for mname in models:
+        for k, v in base["bootstrap"][mname].items():
+            assert with_t["bootstrap"][mname][k] == v
+
+    # Chain identity and CI coverage
+    med_b = with_t["bootstrap"]["med"]
+    assert med_b["through:X>M|B"]["estimate"] == pytest.approx(
+        med_b["X>B"]["estimate"] * med_b["B>M"]["estimate"], abs=1e-12,
+    )
+    assert med_b["total:X>M"]["estimate"] == pytest.approx(
+        med_b["X>M"]["estimate"] + med_b["through:X>M|B"]["estimate"], abs=1e-12,
+    )
+    assert med_b["through:X>M|B"]["lo"] <= 0.20 <= med_b["through:X>M|B"]["hi"]
+    assert with_t["fits"]["med"]["through"] == [
+        {"from": "X", "to": "M", "through": "B", "estimate": med_b["through:X>M|B"]["estimate"]}
+    ]
+
+    # Model where B has no outgoing edge: exact 0.0 and zero-width interval
+    no_out_b = with_t["bootstrap"]["no_out"]
+    assert no_out_b["through:X>M|B"] == {"estimate": 0.0, "lo": 0.0, "hi": 0.0}
+    assert with_t["fits"]["no_out"]["through"] == [
+        {"from": "X", "to": "M", "through": "B", "estimate": 0.0}
+    ]
+
+    # 2) Two parallel mediators: through B + through C == indirect:X>M; also test disconnected path via B
+    dp = _parallel_mediators_data(n=500, seed=18)
+    pmodels = {
+        "dual": {"edges": [("X", "B"), ("B", "M"), ("X", "C"), ("C", "M"), ("X", "M")]},
+        "b_unreachable": {"edges": [("X", "C"), ("C", "M"), ("B", "M"), ("X", "M")]},  # B->M exists, X->+B does not
+    }
+    pcmp = compare_observed_path_models(
+        dp, pmodels, exogenous=["X"], n_boot=0, through=[("X", "M", "B"), ("X", "M", "C")],
+    )
+    assert "bootstrap" not in pcmp and "bootstrap_draws" not in pcmp
+    est_by_m = {row["through"]: row["estimate"] for row in pcmp["fits"]["dual"]["through"]}
+    ind = next(row for row in pcmp["fits"]["dual"]["indirect"] if row["from"] == "X" and row["to"] == "M")
+    assert est_by_m["B"] + est_by_m["C"] == pytest.approx(ind["indirect"], abs=1e-12)
+    b_unreach = {row["through"]: row["estimate"] for row in pcmp["fits"]["b_unreachable"]["through"]}
+    assert b_unreach["B"] == 0.0
+
+
+def test_through_matches_manual_resample_loop_jobs_determinism_draws_and_all_mediators():
+    dp = _parallel_mediators_data(n=240, seed=31)
+    strata = np.repeat(["s0", "s1", "s2"], [60, 90, 90])
+    models = {
+        "dual": {"edges": [("X", "B"), ("B", "M"), ("X", "C"), ("C", "M"), ("X", "M")]},
+        "only_b": {"edges": [("X", "B"), ("B", "M"), ("X", "M")], "residual_covariances": [("B", "C")]},
+    }
+    triples = [("X", "M", "B"), ("X", "M", "C")]
+
+    res1 = compare_observed_path_models(
+        dp, models, exogenous=["X"], n_boot=12, strata=strata, random_state=11,
+        n_jobs=1, through=triples, return_draws=True,
+    )
+    res2 = compare_observed_path_models(
+        dp, models, exogenous=["X"], n_boot=12, strata=strata, random_state=11,
+        n_jobs=2, through=triples, return_draws=True,
+    )
+    res_nodraws = compare_observed_path_models(
+        dp, models, exogenous=["X"], n_boot=12, strata=strata, random_state=11,
+        n_jobs=1, through=triples,
+    )
+    assert "bootstrap_draws" not in res_nodraws
+    assert _same(res1, res2)
+    for mname in models:
+        for k, arr in res1["bootstrap_draws"][mname].items():
+            assert isinstance(arr, np.ndarray) and arr.ndim == 1 and arr.dtype == float
+            assert np.array_equal(arr, res2["bootstrap_draws"][mname][k])
+
+    # Manual loop over the exact same _resample_indices
+    Z, nodes, st = osem._prepare(dp, None, False, strata)
+    idx_list = osem._resample_indices(len(Z), st, 12, 11)
+    for mname, spec in models.items():
+        manual_draws = {m: [] for _, _, m in triples}
+        for ix in idx_list:
+            fit = observed_path_model(
+                Z[ix], spec["edges"], exogenous=["X"],
+                residual_covariances=spec.get("residual_covariances", ()), names=nodes,
+            )
+            for _, _, m in triples:
+                manual_draws[m].append(osem.path_effect(fit["B"], nodes, "X", "M", through=m))
+        for _, _, m in triples:
+            key = f"through:X>M|{m}"
+            arr = np.asarray(manual_draws[m], dtype=float)
+            assert np.max(np.abs(res1["bootstrap_draws"][mname][key] - arr)) <= 1e-12
+            assert res1["bootstrap"][mname][key]["lo"] == pytest.approx(float(np.percentile(arr, 2.5)), abs=1e-12)
+            assert res1["bootstrap"][mname][key]["hi"] == pytest.approx(float(np.percentile(arr, 97.5)), abs=1e-12)
+
+    # Different random_state moves intervals
+    res_other = compare_observed_path_models(
+        dp, models, exogenous=["X"], n_boot=12, strata=strata, random_state=12, through=triples,
+    )
+    assert not _same(res1, res_other)
+
+    # "all_mediators" matches explicit triples (both with exogenous and when exogenous is omitted)
+    res_auto = compare_observed_path_models(
+        dp, models, exogenous=["X"], n_boot=12, strata=strata, random_state=11, through="all_mediators",
+    )
+    assert _same(res_nodraws, res_auto)
+    res_noexog_exp = compare_observed_path_models(
+        dp, models, n_boot=0, through=triples,
+    )
+    res_noexog_auto = compare_observed_path_models(
+        dp, models, n_boot=0, through="all_mediators",
+    )
+    assert res_noexog_auto["fits"]["dual"]["through"] == res_noexog_exp["fits"]["dual"]["through"]
+    assert res_noexog_auto["fits"]["only_b"]["through"] == res_noexog_exp["fits"]["only_b"]["through"]
+
+
+def test_through_validation_errors():
+    d = chain_data(120, seed=7)
+    models = {"chain": {"edges": CHAIN}}
+    with pytest.raises(ValueError, match=r"\('A', 'C', 'Z'\)"):
+        compare_observed_path_models(d, models, through=[("A", "C", "Z")])
+    with pytest.raises(ValueError, match=r"\('Z', 'C', 'B'\)"):
+        compare_observed_path_models(d, models, through=[("Z", "C", "B")])
+    with pytest.raises(ValueError, match=r"\('A', 'C', 'A'\)"):
+        compare_observed_path_models(d, models, through=[("A", "C", "A")])
+    with pytest.raises(ValueError, match=r"\('A', 'C', 'C'\)"):
+        compare_observed_path_models(d, models, through=[("A", "C", "C")])
+    with pytest.raises(ValueError, match=r"\('A', 'A', 'B'\)"):
+        compare_observed_path_models(d, models, through=[("A", "A", "B")])
+    with pytest.raises(ValueError):
+        compare_observed_path_models(d, models, through="not_a_mode")
+    with pytest.raises(ValueError):
+        compare_observed_path_models(d, models, through=("A", "C", "B"))
+    with pytest.raises(ValueError):
+        compare_observed_path_models(d, models, through=[("A", "C")])
+    with pytest.raises(ValueError, match="n_boot > 0"):
+        compare_observed_path_models(d, models, n_boot=0, return_draws=True)
+    with pytest.raises(ValueError, match="n_boot > 0"):
+        compare_observed_path_models(d, models, n_boot=-1, return_draws=True)
