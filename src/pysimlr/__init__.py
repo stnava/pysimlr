@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.41.0"
+__version__ = "0.42.0"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -128,6 +128,13 @@ from .attribution import component_attribution
 from .screening import apply_view_screen, screen_wide_views
 from .orientation import orient_latents
 from .reliable_attribution import attribute_target, target_root_fit_params
+from .uniform_shrinkage import (
+    UniformShrinkageOperator,
+    auto_uniform_alpha,
+    create_uniform_smoother,
+    project_uniform_shrunk,
+    uniform_shrinkage_params,
+)
 from .loadings import (
     RANK_CRITERIA,
     loadings,
@@ -237,6 +244,11 @@ __all__ = [
     'orient_latents',
     'attribute_target',
     'target_root_fit_params',
+    'UniformShrinkageOperator',
+    'auto_uniform_alpha',
+    'create_uniform_smoother',
+    'uniform_shrinkage_params',
+    'project_uniform_shrunk',
     'feature_maps',
     'feature_relevance',
     'component_attribution',
