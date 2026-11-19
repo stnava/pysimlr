@@ -7,7 +7,8 @@ import pysimlr
 prep = pysimlr.prepare_views(raw_views, fit_rows=train_mask, signs=signs, nuisance=nuis)
 
 # 2. Fit directional uniform-shrunk (k=1) or two-stage support-restricted (k>=1, sparse or k>1)
-#    Defaults: positivity="convex" (radial simplex), energy_type="auto" ("nc" for k=1, "acc" for k>1),
+#    Defaults: positivity="auto" ("conical" for k=1, radial "convex" for k>1),
+#    energy_type="auto" ("nc" for k=1, "acc" for k>1),
 #    mixing_algorithm="auto" ("pca"), alpha_mode="ric".
 fit_k1 = pysimlr.fit_uniform_shrunk(prep["views"], k=1, random_state=0)
 fit_k2 = pysimlr.fit_uniform_shrunk(prep["views"], k=2, sparseness=0.3, random_state=0)
@@ -56,7 +57,7 @@ where $n_{\text{obs},m}$ is the count of rows in view $m$ with at least one fini
 
 **Automatic directional defaults (`resolve_directional_defaults`):**
 
-* `positivity="convex"` (radial simplex $v_+ / \mathbf{1}^\top v_+$).
+* `positivity="auto"` resolves to `"conical"` (unit-$\ell_2$ cone) for $k = 1$ under degree-0 `nc` energy and `"convex"` (radial simplex $v_+ / \mathbf{1}^\top v_+$) for $k > 1$ under degree-1 `acc` energy.
 * `energy_type="auto"` resolves to `"nc"` (signed normalized correlation) for $k = 1$ and `"acc"` for $k > 1$.
 * `mixing_algorithm="auto"` resolves to `"pca"`.
 
@@ -87,7 +88,7 @@ No. It stays opt-in via `fit_uniform_shrunk` / `uniform_shrinkage_params`. It re
 
 | Regime | Feature polarity | $k$ | $n/p_{\max}$ | Recommendation |
 | :-- | :-- | :-: | :-: | :-- |
-| Oriented views (dense) | aligned | 1 | $n \lesssim 2.5\,p_{\max}$ | `fit_uniform_shrunk(views, k=1)` (defaults: radial `convex`, `nc`, `pca`) |
-| Oriented views (sparse) | aligned | 1 | $n \lesssim 2.5\,p_{\max}$ | `fit_uniform_shrunk(views, k=1, sparseness=0.3)` (two-stage RIC) |
-| Multi-component oriented | aligned | $\ge 2$ | any | `fit_uniform_shrunk(views, k=k)` (two-stage disjoint RIC; defaults: `acc`, `pca`) |
+| Oriented views (dense) | aligned | 1 | $n \lesssim 2.5\,p_{\max}$ | `fit_uniform_shrunk(views, k=1)` (defaults: `conical`, `nc`, `pca`) |
+| Oriented views (sparse) | aligned | 1 | $n \lesssim 2.5\,p_{\max}$ | `fit_uniform_shrunk(views, k=1, sparseness=0.3)` (two-stage RIC; defaults: `conical`, `nc`, `pca`) |
+| Multi-component oriented | aligned | $\ge 2$ | any | `fit_uniform_shrunk(views, k=k)` (two-stage disjoint RIC; defaults: radial `convex`, `acc`, `pca`) |
 | Unknown or mixed signs | mixed | any | any | keep off (`positivity="either"`, or `SparseGraphResolvent` over a graph) |

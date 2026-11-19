@@ -110,20 +110,23 @@ def effective_support_dof(n_active: int, n_features: int, *, mode: str = "ric") 
 def resolve_directional_defaults(
     k: int,
     *,
+    positivity: str = "auto",
     energy_type: str = "auto",
     mixing_algorithm: str = "auto",
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     """Resolve automatic directional shrinkage defaults for rank ``k``.
 
+    - ``positivity="auto"`` -> ``"conical"`` for ``k == 1``, ``"convex"`` for ``k > 1``.
     - ``energy_type="auto"`` -> ``"nc"`` for ``k == 1``, ``"acc"`` for ``k > 1``.
     - ``mixing_algorithm="auto"`` -> ``"pca"``.
     """
     k_i = int(k)
     if k_i < 1:
         raise ValueError(f"k must be >= 1; got {k}.")
+    resolved_pos = ("conical" if k_i == 1 else "convex") if str(positivity).lower() == "auto" else str(positivity)
     resolved_energy = ("nc" if k_i == 1 else "acc") if str(energy_type).lower() == "auto" else str(energy_type)
     resolved_mix = "pca" if str(mixing_algorithm).lower() == "auto" else str(mixing_algorithm)
-    return resolved_energy, resolved_mix
+    return resolved_pos, resolved_energy, resolved_mix
 
 
 def auto_uniform_alpha(
@@ -533,7 +536,7 @@ def uniform_shrinkage_params(
     alpha_mode: str = "ric",
     prior_scale: float = 1.0,
     clip: tuple[float, float] = (0.05, 0.85),
-    positivity: str = "convex",
+    positivity: str = "auto",
     sparseness: float | Sequence[float | None] | None = None,
     sparseness_type: str = "hard",
     nsa_w: float | str = "auto",
@@ -549,7 +552,8 @@ def uniform_shrinkage_params(
 
     Defaults (echoed in ``result.provenance``):
 
-    * ``positivity="convex"`` (radial simplex normalization ``v_+ / 1^T v_+``),
+    * ``positivity="auto"`` -> ``"conical"`` for ``k == 1`` (unit-L2 cone), ``"convex"`` for
+      ``k > 1`` (radial simplex normalization ``v_+ / 1^T v_+``),
       ``sparseness=None``, ``sparseness_type="hard"``, ``alpha_mode="ric"``.
     * ``energy_type="auto"`` -> ``"nc"`` for ``k == 1``, ``"acc"`` for ``k > 1``;
       ``mixing_algorithm="auto"`` -> ``"pca"``.
@@ -566,13 +570,13 @@ def uniform_shrinkage_params(
     k_i = int(k)
     if k_i < 1:
         raise ValueError(f"k must be >= 1; got {k}.")
-    if positivity not in ("conical", "convex"):
-        raise ValueError(
-            f"uniform_shrinkage_params requires non-negative positivity ('conical' or 'convex'); got {positivity!r}."
-        )
-    resolved_energy, resolved_mix = resolve_directional_defaults(
-        k_i, energy_type=energy_type, mixing_algorithm=mixing_algorithm
+    resolved_pos, resolved_energy, resolved_mix = resolve_directional_defaults(
+        k_i, positivity=positivity, energy_type=energy_type, mixing_algorithm=mixing_algorithm
     )
+    if resolved_pos not in ("conical", "convex"):
+        raise ValueError(
+            f"uniform_shrinkage_params requires non-negative positivity ('conical', 'convex', or 'auto'); got {positivity!r}."
+        )
     mats = _extract_view_list(views)
     m_cnt = len(mats)
 
@@ -641,7 +645,7 @@ def uniform_shrinkage_params(
 
             v0 = np.zeros((p_m, k_i), dtype=np.float64)
             for c_idx, cs in enumerate(clean_s):
-                col_scale = (1.0 / float(cs.size)) if positivity == "convex" else (1.0 / np.sqrt(float(cs.size)))
+                col_scale = (1.0 / float(cs.size)) if resolved_pos == "convex" else (1.0 / np.sqrt(float(cs.size)))
                 v0[cs, c_idx] = col_scale
             init_v.append(v0)
         else:
@@ -659,7 +663,7 @@ def uniform_shrinkage_params(
                         positive_part=positive_part,
                     )
                 )
-            scale = (1.0 / float(p_m)) if positivity == "convex" else (1.0 / np.sqrt(float(p_m)))
+            scale = (1.0 / float(p_m)) if resolved_pos == "convex" else (1.0 / np.sqrt(float(p_m)))
             if k_i == 1:
                 v0 = np.full((p_m, 1), scale, dtype=np.float64)
             else:
@@ -668,7 +672,7 @@ def uniform_shrinkage_params(
                 for c_idx in range(1, k_i):
                     wave = 0.5 * (1.0 + np.cos(float(c_idx) * grid))
                     col = np.maximum(wave, 1e-3)
-                    v0[:, c_idx] = col / (np.sum(col) if positivity == "convex" else np.linalg.norm(col))
+                    v0[:, c_idx] = col / (np.sum(col) if resolved_pos == "convex" else np.linalg.norm(col))
             init_v.append(v0)
 
     if k_i > 1:
@@ -699,7 +703,7 @@ def uniform_shrinkage_params(
         scale_list=list(scale_list),
         energy_type=resolved_energy,
         mixing_algorithm=resolved_mix,
-        positivity=positivity,
+        positivity=resolved_pos,
         nsa_w=eff_nsa_w,
         sparseness=sparseness,
         sparseness_type=eff_sp_type,
@@ -729,7 +733,8 @@ def uniform_shrinkage_params(
         "energy_type_requested": energy_type,
         "mixing_algorithm": resolved_mix,
         "mixing_algorithm_requested": mixing_algorithm,
-        "positivity": positivity,
+        "positivity": resolved_pos,
+        "positivity_requested": positivity,
         "nsa_w": eff_nsa_w,
         "nsa_w_requested": nsa_w,
         "sparseness": sparseness,
@@ -771,7 +776,7 @@ def fit_uniform_shrunk(
     alpha_mode: str = "ric",
     prior_scale: float = 1.0,
     clip: tuple[float, float] = (0.05, 0.85),
-    positivity: str = "convex",
+    positivity: str = "auto",
     sparseness: float | Sequence[float | None] | None = None,
     energy_type: str = "auto",
     mixing_algorithm: str = "auto",
@@ -786,6 +791,9 @@ def fit_uniform_shrunk(
 ) -> dict[str, Any]:
     r"""Fit directional uniform-shrunk or two-stage support-restricted ``simlr``.
 
+    - Defaults via :func:`resolve_directional_defaults`: ``positivity="auto"`` resolves
+      to ``"conical"`` (unit-:math:`\ell_2` cone) at :math:`k=1` under degree-0 ``"nc"``
+      and ``"convex"`` (radial simplex) at :math:`k>1` under degree-1 ``"acc"``.
     - When ``k == 1`` and ``sparseness`` is ``None`` (or ``0.0``): runs a single-stage
       dense uniform-shrunk fit via :func:`uniform_shrinkage_params`.
     - Whenever ``k > 1`` or any view has ``sparseness > 0``: runs **Two-Stage
@@ -809,15 +817,15 @@ def fit_uniform_shrunk(
     k_i = int(k)
     if k_i < 1:
         raise ValueError(f"k must be >= 1; got {k}.")
-    if positivity not in ("conical", "convex"):
+    resolved_pos, resolved_energy, resolved_mix = resolve_directional_defaults(
+        k_i, positivity=positivity, energy_type=energy_type, mixing_algorithm=mixing_algorithm
+    )
+    if resolved_pos not in ("conical", "convex"):
         raise ValueError(
-            f"fit_uniform_shrunk requires non-negative positivity ('conical' or 'convex'); got {positivity!r}."
+            f"fit_uniform_shrunk requires non-negative positivity ('conical', 'convex', or 'auto'); got {positivity!r}."
         )
     mats = _extract_view_list(views)
     m_cnt = len(mats)
-    resolved_energy, resolved_mix = resolve_directional_defaults(
-        k_i, energy_type=energy_type, mixing_algorithm=mixing_algorithm
-    )
 
     if isinstance(sparseness, (list, tuple)):
         if len(sparseness) != m_cnt:
@@ -845,7 +853,7 @@ def fit_uniform_shrunk(
             alpha_mode=alpha_mode,
             prior_scale=prior_scale,
             clip=clip,
-            positivity=positivity,
+            positivity=resolved_pos,
             sparseness=None,
             sparseness_type="hard",
             nsa_w=0.0,
@@ -859,7 +867,8 @@ def fit_uniform_shrunk(
         res["uniform_shrinkage_provenance"] = {
             "stage_mode": "single_stage_dense",
             "k": 1,
-            "positivity": positivity,
+            "positivity": resolved_pos,
+            "positivity_requested": positivity,
             "alpha_mode": str(alpha_mode),
             "sparseness": sparseness,
             "resolved_energy_type": resolved_energy,
@@ -882,7 +891,7 @@ def fit_uniform_shrunk(
             alpha_mode=alpha_mode,
             prior_scale=prior_scale,
             clip=clip,
-            positivity=positivity,
+            positivity=resolved_pos,
             sparseness=None,
             sparseness_type="hard",
             nsa_w=0.0,
@@ -897,7 +906,7 @@ def fit_uniform_shrunk(
         stage1_init_used = str(stage1_init)
         s1_common: dict[str, Any] = {
             "scale_list": list(scale_list),
-            "positivity": positivity,
+            "positivity": resolved_pos,
             "sparseness": None,
             "sparseness_type": "hard",
             "nsa_w": float(stage1_nsa_w),
@@ -929,7 +938,7 @@ def fit_uniform_shrunk(
     for m_idx, v1_m in enumerate(v1_mats):
         supps_m = extract_disjoint_supports(v1_m, sparseness=q_list[m_idx], min_per_col=2 if k_i > 1 else 1)
         supports_by_view.append(supps_m)
-        init_v2.append(_stage2_initial_basis(v1_m, supps_m, positivity))
+        init_v2.append(_stage2_initial_basis(v1_m, supps_m, resolved_pos))
 
     s2_kw = uniform_shrinkage_params(
         views,
@@ -938,7 +947,7 @@ def fit_uniform_shrunk(
         alpha_mode=alpha_mode,
         prior_scale=prior_scale,
         clip=clip,
-        positivity=positivity,
+        positivity=resolved_pos,
         sparseness=None,
         sparseness_type="hard",
         nsa_w=0.0,
@@ -954,7 +963,8 @@ def fit_uniform_shrunk(
     stage2_res["uniform_shrinkage_provenance"] = {
         "stage_mode": "two_stage_support_restricted",
         "k": k_i,
-        "positivity": positivity,
+        "positivity": resolved_pos,
+        "positivity_requested": positivity,
         "alpha_mode": str(alpha_mode),
         "sparseness": sparseness,
         "resolved_energy_type": resolved_energy,

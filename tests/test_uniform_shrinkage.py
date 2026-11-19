@@ -1,4 +1,4 @@
-"""Mathematical contract and integration tests for `pysimlr.uniform_shrinkage` (v0.43.0)."""
+"""Mathematical contract and integration tests for `pysimlr.uniform_shrinkage` (v0.43.1)."""
 from __future__ import annotations
 
 import warnings
@@ -178,9 +178,12 @@ def test_effective_support_dof_and_directional_defaults() -> None:
     assert np.isclose(pysimlr.effective_support_dof(50, 50, mode="ric"), 50.0)
     assert np.isclose(pysimlr.effective_support_dof(20, 50, mode="plugin"), 20.0)
     assert pysimlr.effective_support_dof(20, 50, mode="ric") > 20.0
-    assert pysimlr.resolve_directional_defaults(1) == ("nc", "pca")
-    assert pysimlr.resolve_directional_defaults(2) == ("acc", "pca")
-    assert pysimlr.resolve_directional_defaults(1, energy_type="recon_r2", mixing_algorithm="svd") == ("recon_r2", "svd")
+    assert pysimlr.resolve_directional_defaults(1) == ("conical", "nc", "pca")
+    assert pysimlr.resolve_directional_defaults(2) == ("convex", "acc", "pca")
+    assert pysimlr.resolve_directional_defaults(
+        1, positivity="convex", energy_type="recon_r2", mixing_algorithm="svd"
+    ) == ("convex", "recon_r2", "svd")
+    assert pysimlr.resolve_directional_defaults(2, positivity="conical") == ("conical", "acc", "pca")
 
 
 def test_input_validation() -> None:
@@ -230,7 +233,7 @@ def test_resolved_defaults_are_echoed_in_provenance() -> None:
     v_tr, _, _ = _planted(0, 30, (20, 25))
     kw = pysimlr.uniform_shrinkage_params(v_tr)
     prov = kw.provenance
-    assert prov["positivity"] == "convex"
+    assert prov["positivity"] == "conical" and prov["positivity_requested"] == "auto"
     assert prov["sparseness"] is None
     assert prov["sparseness_type"] == "hard"
     assert prov["scale_list"] == ["none"] and prov["energy_type"] == "nc" and prov["mixing_algorithm"] == "pca"
@@ -239,6 +242,11 @@ def test_resolved_defaults_are_echoed_in_provenance() -> None:
     assert prov["n_obs"] == [30, 30] and prov["n_features"] == [20, 25]
     assert np.allclose(prov["alpha"], [20 / 50, 25 / 55])
     assert "provenance" not in kw
+    kw_cx = pysimlr.uniform_shrinkage_params(v_tr, positivity="convex")
+    assert kw_cx.provenance["positivity"] == "convex" and kw_cx["positivity"] == "convex"
+    supps = [[np.arange(0, 10), np.arange(10, 20)], [np.arange(0, 12), np.arange(12, 25)]]
+    kw_k2 = pysimlr.uniform_shrinkage_params(v_tr, k=2, supports=supps)
+    assert kw_k2.provenance["positivity"] == "convex" and kw_k2["positivity"] == "convex"
     kw2 = pysimlr.uniform_shrinkage_params(v_tr, nsa_w=0.5, energy_type="reconorm", sparseness=0.3)
     assert kw2["nsa_w"] == 0.5 and kw2["energy_type"] == "reconorm" and kw2.provenance["energy_type"] == "reconorm"
     assert pysimlr.uniform_shrinkage_params(v_tr, sparseness=0.3)["nsa_w"] == 0.2
@@ -268,6 +276,7 @@ def test_fit_uniform_shrunk_k1_dense_sparse_and_k2_disjoint() -> None:
     res_d = pysimlr.fit_uniform_shrunk(v_tr, k=1, random_state=0, iterations=25)
     prov_d = res_d["uniform_shrinkage_provenance"]
     assert prov_d["stage_mode"] == "single_stage_dense"
+    assert prov_d["positivity"] == "conical" and prov_d["positivity_requested"] == "auto"
     assert prov_d["resolved_energy_type"] == "nc" and prov_d["resolved_mixing_algorithm"] == "pca"
     proj_d = pysimlr.project_uniform_shrunk(res_d, v_te, train_views=v_tr)
     assert _score(res_d, v_te, z_te) > 0.70 and np.isfinite(proj_d["u"]).all()
@@ -276,6 +285,7 @@ def test_fit_uniform_shrunk_k1_dense_sparse_and_k2_disjoint() -> None:
     res_s = pysimlr.fit_uniform_shrunk(v_tr, k=1, sparseness=0.4, random_state=0, iterations=20)
     prov_s = res_s["uniform_shrinkage_provenance"]
     assert prov_s["stage_mode"] == "two_stage_support_restricted"
+    assert prov_s["positivity"] == "conical" and prov_s["positivity_requested"] == "auto"
     proj_s = pysimlr.project_uniform_shrunk(res_s, v_te, train_views=v_tr, post_shrink="auto")
     for m_i, (v_t, w_m, supps_m) in enumerate(zip(res_s["v"], proj_s["weights"], prov_s["supports"])):
         v_np = v_t.detach().cpu().double().numpy()
@@ -286,14 +296,15 @@ def test_fit_uniform_shrunk_k1_dense_sparse_and_k2_disjoint() -> None:
         assert np.all(w_m[off_mask, 0] == 0.0), f"view {m_i} projection leaked outside support"
         assert np.isclose(w_m[:, 0].sum(), 1.0)
 
-    # k=2 disjoint two-stage (conical & convex): exact orthogonality + uncollapsed components
+    # k=2 disjoint two-stage (default positivity="auto" -> "convex", plus explicit "conical" & "convex")
     v2_tr, v2_te, _z2_te = _planted_k2(11, 60, (48, 56, 40), n_te=120)
-    for pos in ("conical", "convex"):
+    for pos_req, pos_exp in (("auto", "convex"), ("conical", "conical"), ("convex", "convex")):
         res_k2 = pysimlr.fit_uniform_shrunk(
-            v2_tr, k=2, sparseness=0.3, positivity=pos, random_state=0, iterations=25
+            v2_tr, k=2, sparseness=0.3, positivity=pos_req, random_state=0, iterations=25
         )
         prov_k2 = res_k2["uniform_shrinkage_provenance"]
         assert prov_k2["stage_mode"] == "two_stage_support_restricted"
+        assert prov_k2["positivity"] == pos_exp and prov_k2["positivity_requested"] == pos_req
         assert prov_k2["resolved_energy_type"] == "acc" and prov_k2["resolved_mixing_algorithm"] == "pca"
         proj_k2 = pysimlr.project_uniform_shrunk(res_k2, v2_te, train_views=v2_tr, post_shrink="auto")
         u_te = proj_k2["u"]
