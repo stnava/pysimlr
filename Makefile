@@ -1,8 +1,13 @@
 # Makefile for pysimlr
 
-# Configuration - Default to 'python' to pick up active venv
-PYTHON ?= python
-PIP ?= pip
+# Configuration - Prefer active VIRTUAL_ENV when set; fall back to PATH
+ifdef VIRTUAL_ENV
+    VENV_BIN := $(VIRTUAL_ENV)/bin
+    PYTHON ?= $(VENV_BIN)/python
+else
+    PYTHON ?= python
+endif
+PIP ?= $(PYTHON) -m pip
 SRC_DIR := src
 TEST_DIR := tests
 DOCS_DIR := docs
@@ -68,7 +73,8 @@ clean:
 
 .PHONY: install
 install:
-	$(PIP) install -e .[dev]
+	@echo "Installing package in editable mode using: $(PYTHON)"
+	$(PIP) install -e ".[dev]"
 
 .PHONY: venv
 venv:
