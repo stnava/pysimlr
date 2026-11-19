@@ -281,7 +281,7 @@ def nnh_update_residuals(mat: torch.Tensor,
     residuals = mat_np - reg.predict(cov_vals)
     return torch.as_tensor(residuals).float()
 
-def nnh_embed(blaster: pd.DataFrame,
+def nnh_embed(df: pd.DataFrame,
               select_training_boolean: Optional[np.ndarray] = None,
               connect_cog: Optional[List[str]] = None,
               energy: str = DEFAULT_ENERGY_TYPE,
@@ -303,7 +303,7 @@ def nnh_embed(blaster: pd.DataFrame,
 
     Parameters
     ----------
-    blaster : pd.DataFrame
+    df : pd.DataFrame
         The input DataFrame containing subjects and multimodal features.
     select_training_boolean : Optional[np.ndarray], default=None
         Boolean mask to select training samples.
@@ -347,7 +347,7 @@ def nnh_embed(blaster: pd.DataFrame,
     if verbose:
         print("Step 1: Selecting and filtering features...")
         
-    idps = antspymm_predictors(blaster)
+    idps = antspymm_predictors(df)
     
     # Filter nuisance and specific patterns
     exclude_patterns = ["cleanup", "snseg", "_deep_", "peraf", "alff", "LRAVGcit168", "_l_", "_r_"]
@@ -375,19 +375,19 @@ def nnh_embed(blaster: pd.DataFrame,
         print(f"Assembled {len(idplist)} feature modalities: {list(idplist.keys())}")
 
     # Step 2: Quality Control
-    if "T1Hier_resnetGrade" in blaster.columns:
-        qc_mask = blaster["T1Hier_resnetGrade"] >= resnet_grade_thresh
+    if "T1Hier_resnetGrade" in df.columns:
+        qc_mask = df["T1Hier_resnetGrade"] >= resnet_grade_thresh
     else:
-        qc_mask = pd.Series([True] * len(blaster))
+        qc_mask = pd.Series([True] * len(df))
         
     if select_training_boolean is not None:
         final_mask = qc_mask & pd.Series(select_training_boolean)
     else:
         final_mask = qc_mask
         
-    blaster_sub = blaster[final_mask]
+    df_sub = df[final_mask]
     
-    if len(blaster_sub) < 5:
+    if len(df_sub) < 5:
         raise ValueError("Too few rows after quality control filtering.")
 
     # Step 3: Matrix Assembly and Imputation
@@ -396,7 +396,7 @@ def nnh_embed(blaster: pd.DataFrame,
     imputer = SimpleImputer(strategy='mean')
     
     for name, cols in idplist.items():
-        data = blaster_sub[cols].values
+        data = df_sub[cols].values
         # Impute missing values
         data_imputed = imputer.fit_transform(data)
         mats[name] = torch.as_tensor(data_imputed).float()
@@ -406,7 +406,7 @@ def nnh_embed(blaster: pd.DataFrame,
         if verbose:
             print(f"Adjusting modalities by covariates: {covariates}")
         for name in mats:
-            mats[name] = nnh_update_residuals(mats[name], blaster_sub, covariates)
+            mats[name] = nnh_update_residuals(mats[name], df_sub, covariates)
             
     # Step 5: Run SIMLR or Flow-SiMR through the central interface.
     from .api import fit as _fit

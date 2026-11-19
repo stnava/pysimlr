@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.42.0"
+__version__ = "0.42.1"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -130,6 +130,7 @@ from .orientation import orient_latents
 from .reliable_attribution import attribute_target, target_root_fit_params
 from .uniform_shrinkage import (
     UniformShrinkageOperator,
+    UniformShrinkageParams,
     auto_uniform_alpha,
     create_uniform_smoother,
     project_uniform_shrunk,
@@ -245,6 +246,7 @@ __all__ = [
     'attribute_target',
     'target_root_fit_params',
     'UniformShrinkageOperator',
+    'UniformShrinkageParams',
     'auto_uniform_alpha',
     'create_uniform_smoother',
     'uniform_shrinkage_params',

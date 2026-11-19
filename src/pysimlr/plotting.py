@@ -613,6 +613,16 @@ def plot_basis_diagnostics(res: Dict[str, Any], view_names=None, figsize=None):
     return fig
 
 
+def _reject_removed_bars(bars: Any) -> None:
+    """``bars=`` (the 0.9 / 0.8 stability reference bars) was removed in 0.41.0 with the numbers it was drawn against."""
+    if bars is not None:
+        raise ValueError(
+            "`bars` was removed in 0.41.0: the 0.9 / 0.8 reference bars belonged to the removed "
+            "component_stability / subspace_stability. Read latent_reliability_gain and "
+            "cross_view_coupling_gain (see pysimlr.latent_stability) instead."
+        )
+
+
 @_themed
 def plot_rank_selection(rank_result: Dict[str, Any], ax=None, bars: Optional[Sequence[float]] = None,
                         criterion: Optional[str] = None):
@@ -627,7 +637,7 @@ def plot_rank_selection(rank_result: Dict[str, Any], ax=None, bars: Optional[Seq
     ``basis_degenerate=True`` have their tick in the critical colour.
     """
     from .loadings import RANK_CRITERIA
-    del bars  # deprecated in 0.41.0; kept for signature compatibility
+    _reject_removed_bars(bars)
     crit = criterion or rank_result.get("criterion", "latent_reliability")
     removed = {
         "component": "latent_reliability",
@@ -1236,9 +1246,9 @@ def plot_top_features(res: Dict[str, Any], inf: Optional[Dict[str, Any]] = None,
     in bold), the permutation null as a grey band (+-``null_max_abs``),
     latent reliability and cross-view coupling in the subtitle, and per-view
     feature agreement in each panel title. ``rank_by="selection"`` ranks by
-    selection frequency instead of magnitude. ``bars`` is ignored since 0.41.0.
+    selection frequency instead of magnitude. Passing ``bars`` raises ``ValueError`` (removed in 0.41.0).
     """
-    del bars  # deprecated in 0.41.0; kept for signature compatibility
+    _reject_removed_bars(bars)
     tab = feature_table(res, inf, view_names, feature_names, maps=maps)
     kind = "loading" if kind in ("loading", "loadings") else kind
     if kind not in tab.columns or kind in ("view", "feature", "component"):
@@ -1291,9 +1301,9 @@ def plot_feature_map_shift(res: Dict[str, Any], maps: Optional[Dict[str, Any]] =
     selected in >= 80% of refits under that map. The default question it
     answers: which features gain once each feature's unique share of the
     prediction (relative weight) replaces plain association with the component
-    (structure)? ``bars`` is ignored since 0.41.0.
+    (structure)? Passing ``bars`` raises ``ValueError`` (removed in 0.41.0).
     """
-    del bars  # deprecated in 0.41.0; kept for signature compatibility
+    _reject_removed_bars(bars)
     tab = feature_table(res, inf, view_names, feature_names, maps=maps)
     for k_ in (from_kind, to_kind):
         if k_ not in tab.columns:
@@ -2084,9 +2094,9 @@ def plot_feature_map_comparison(res: Dict[str, Any], maps: Optional[Dict[str, An
     map's ranks (top 10). ``structure`` is the fit's own column; the alternatives
     come from ``maps`` (`pysimlr.feature_maps`) or ``inf["maps"]``. With ``inf``,
     the subtitle reports ``latent_reliability``, ``cross_view_coupling``, and
-    ``feature_agreement_by_view``; ``bars`` is ignored since 0.41.0.
+    ``feature_agreement_by_view``; passing ``bars`` raises ``ValueError`` (removed in 0.41.0).
     """
-    del bars  # deprecated in 0.41.0; kept for signature compatibility
+    _reject_removed_bars(bars)
     tab = feature_table(res, inf, view_names, feature_names, maps=maps)
     avail = _maps_of(inf, maps)
     dropped = []

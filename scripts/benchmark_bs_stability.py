@@ -24,8 +24,12 @@ Candidates (10):
   B_combined, C1_graduated, C2_spectral_small, C3_soft_sparseness.
 
 All stability measurements use `pysimlr.latent_stability(...)` exclusively
-(no removed v2 keys anywhere). Supports `--smoke` (<15s) and full mode writing
+(no removed v2 keys anywhere). Supports `--smoke` (<10 s; every stage, every constraint, every candidate
+family, with all counts set to 2) and full mode writing
 `reports/bs_stability_benchmark.json` and `reports/bs_stability_benchmark_report.html`.
+Scale flags: `--n-sub` (subsample refits per stability call), `--n-base` (baseline draws),
+`--n-starts` (multistart starts), `--n-seeds` (same-start energy seeds), `--n-jobs` (worker
+processes). `--smoke` sets every count to 2 and runs every stage; the provenance carries `"smoke": true`.
 """
 
 from __future__ import annotations
@@ -641,13 +645,17 @@ def _worker_init() -> None:
     torch.set_num_threads(1)
 
 
-def _task_first_step(args: Tuple[str, str, float, Sequence[int]]) -> Dict[str, Any]:
-    cand_name, constraint, sp, widths = args
+def _task_first_step(args: Tuple[str, str, float, Sequence[int], bool]) -> Dict[str, Any]:
+    cand_name, constraint, sp, widths, smoke = args
     _, _, views = make_problem2_planted_shared(seed=101, n=93, widths=widths)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         s_lr1 = _measure_first_step_rel(views, cand_name, constraint, sp, learning_rate=1.0, seed=42)
-        s_auto = _measure_first_step_rel(views, cand_name, constraint, sp, learning_rate="auto", seed=42)
+        s_auto = (
+            None
+            if smoke
+            else _measure_first_step_rel(views, cand_name, constraint, sp, learning_rate="auto", seed=42)
+        )
         s_feas_lr1 = _measure_first_step_rel(
             views, cand_name, constraint, sp, learning_rate=1.0, seed=42, force_feasible_start=True
         )
@@ -658,14 +666,14 @@ def _task_first_step(args: Tuple[str, str, float, Sequence[int]]) -> Dict[str, A
         "pre_max_rel_lr1": s_lr1["pre_max_rel"],
         "post_max_rel_lr1": s_lr1["post_max_rel"],
         "post_max_rel_feas_lr1": s_feas_lr1["post_max_rel"],
-        "post_med_rel_auto": s_auto["post_med_rel"],
-        "pre_med_rel_auto": s_auto["pre_med_rel"],
-        "lr_used_auto": s_auto["lr_used"],
+        "post_med_rel_auto": None if s_auto is None else s_auto["post_med_rel"],
+        "pre_med_rel_auto": None if s_auto is None else s_auto["pre_med_rel"],
+        "lr_used_auto": None if s_auto is None else s_auto["lr_used"],
     }
 
 
-def _task_same_v0_energy(args: Tuple[str, float, int, int, int, Sequence[int]]) -> List[Dict[str, Any]]:
-    constraint, sp, k, seed, iterations, widths = args
+def _task_same_v0_energy(args: Tuple[str, float, int, int, int, Sequence[int], bool]) -> List[Dict[str, Any]]:
+    constraint, sp, k, seed, iterations, widths, smoke = args
     _, _, views = make_problem2_planted_shared(seed=1000 + seed, n=93, widths=widths)
     n_views = len(views)
     ckw = constraint_kwargs(constraint, n_views)
@@ -694,7 +702,8 @@ def _task_same_v0_energy(args: Tuple[str, float, int, int, int, Sequence[int]]) 
         )
         e_base = float(r_base["best_energy"])
         lr_base = r_base.get("learning_rate_used")
-        same_v0_cands = ["B1_bc", "B1_trust", "B1_norm", "B_combined", "C1_graduated", "C3_soft_sparseness"]
+        same_v0_cands = (["B_combined"] if smoke
+                         else ["B1_bc", "B1_trust", "B1_norm", "B_combined", "C1_graduated", "C3_soft_sparseness"])
         for cname in same_v0_cands:
             cfg = CANDIDATE_MAP[cname]
             kw: Dict[str, Any] = {
@@ -1889,10 +1898,11 @@ def render_html_report(data: Dict[str, Any]) -> str:
 # Main Runner
 # ---------------------------------------------------------------------------
 
-def _run_real_data_check(smoke: bool = False) -> List[Dict[str, Any]]:
-    """Run outcome-free real-data latent_stability check on bundled 3-view neuroimaging (n=193)."""
+def _task_real_data(args) -> List[Dict[str, Any]]:
+    """Outcome-free real-data latent_stability check for one constraint (bundled 3-view neuroimaging, n=193)."""
     import pandas as pd
 
+    pos, cname, smoke, n_sub, n_base = args
     csv_path = _REPO_ROOT / "data/adni/adni_t1_dti_biomarker_merged.csv"
     if not csv_path.exists():
         return []
@@ -1900,100 +1910,123 @@ def _run_real_data_check(smoke: bool = False) -> List[Dict[str, Any]]:
     v0 = df[[c for c in df.columns if c.startswith("T1Hier__T1Hier_vol_")]].values.astype(np.float64)
     v1 = df[[c for c in df.columns if c.startswith("T1Hier__T1Hier_thk_")]].values.astype(np.float64)
     v2 = df[[c for c in df.columns if c.startswith("DTI_fa__")]].values.astype(np.float64)
-    views = [v0[:60, :30], v1[:60, :30], v2[:60, :20]] if smoke else [v0, v1, v2]
-    n_sub = 2 if smoke else 20
-    n_base = 1 if smoke else 3
-    iters = 4 if smoke else 25
-    real_cands = ["baseline_0.40.0", "B_combined", "C1_graduated", "C3_soft_sparseness"]
+    views = [v0[:24, :8], v1[:24, :8], v2[:24, :8]] if smoke else [v0, v1, v2]
+    iters = 2 if smoke else 25
     rows: List[Dict[str, Any]] = []
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        for pos in CONSTRAINTS:
-            ckw = (
-                {
-                    "per_view_params": {
-                        0: {"positivity": "convex", "sparseness": 0.8},
-                        1: {"positivity": "conical", "sparseness": 0.8},
-                        2: {"positivity": "linear", "sparseness": 0.8},
-                    }
+        ckw = (
+            {
+                "per_view_params": {
+                    0: {"positivity": "convex", "sparseness": 0.8},
+                    1: {"positivity": "conical", "sparseness": 0.8},
+                    2: {"positivity": "linear", "sparseness": 0.8},
                 }
-                if pos == "mixed"
-                else {"positivity": pos, "sparseness": 0.8}
+            }
+            if pos == "mixed"
+            else {"positivity": pos, "sparseness": 0.8}
+        )
+        for cname in (cname,):
+            cfg = {
+                kk: vv
+                for kk, vv in CANDIDATE_MAP[cname].items()
+                if kk not in ("phase", "addresses")
+            }
+            st = latent_stability(
+                "simlr",
+                views,
+                1,
+                n_subsamples=int(n_sub),
+                fraction=0.8,
+                baseline=True,
+                n_baseline=int(n_base),
+                random_state=0,
+                iterations=iters,
+                **ckw,
+                **cfg,
             )
-            for cname in real_cands:
-                cfg = {
-                    kk: vv
-                    for kk, vv in CANDIDATE_MAP[cname].items()
-                    if kk not in ("phase", "addresses")
+            rows.append(
+                {
+                    "constraint": pos,
+                    "candidate": cname,
+                    "latent_reliability": float(st["latent_reliability"][0]),
+                    "latent_reliability_baseline": float(st["latent_reliability_baseline"][0]),
+                    "latent_reliability_gain": float(st["latent_reliability_gain"][0]),
+                    "latent_reliability_averaged": float(st["latent_reliability_averaged"][0]),
+                    "cross_view_coupling": float(st["cross_view_coupling"][0]),
+                    "cross_view_coupling_gain": float(st["cross_view_coupling_gain"][0]),
+                    "feature_agreement": float(st["feature_agreement"][0]),
+                    "feature_agreement_gain": float(st["feature_agreement_gain"][0]),
                 }
-                st = latent_stability(
-                    "simlr",
-                    views,
-                    1,
-                    n_subsamples=n_sub,
-                    fraction=0.8,
-                    baseline=True,
-                    n_baseline=n_base,
-                    random_state=0,
-                    iterations=iters,
-                    **ckw,
-                    **cfg,
-                )
-                rows.append(
-                    {
-                        "constraint": pos,
-                        "candidate": cname,
-                        "latent_reliability": float(st["latent_reliability"][0]),
-                        "latent_reliability_baseline": float(st["latent_reliability_baseline"][0]),
-                        "latent_reliability_gain": float(st["latent_reliability_gain"][0]),
-                        "latent_reliability_averaged": float(st["latent_reliability_averaged"][0]),
-                        "cross_view_coupling": float(st["cross_view_coupling"][0]),
-                        "cross_view_coupling_gain": float(st["cross_view_coupling_gain"][0]),
-                        "feature_agreement": float(st["feature_agreement"][0]),
-                        "feature_agreement_gain": float(st["feature_agreement_gain"][0]),
-                    }
-                )
+            )
     return rows
+
+
+def _task_solution_uniqueness(args) -> Tuple[str, Dict[str, Any]]:
+    """Direct `solution_uniqueness` API check for one constraint on the two-factor problem."""
+    pos, n_starts, iterations, widths = args
+    _, v3_demo = make_problem3_two_factors(seed=202, n=93, widths=widths)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        su_res = solution_uniqueness(
+            "simlr",
+            v3_demo,
+            1,
+            n_starts=int(n_starts),
+            sparseness=0.8,
+            iterations=iterations,
+            optimizer_type="hybrid_adam_trust",
+            align_initial_views=True,
+            tune_learning_rate="per_refit",
+            **constraint_kwargs(pos, len(v3_demo)),
+        )
+    return pos, {
+        "unique": bool(su_res["unique"]),
+        "n_distinct_solutions": int(su_res["n_distinct_solutions"]),
+        "energy_gap": _safe_float(su_res["energy_gap"]),
+    }
 
 
 def run_benchmark(
     smoke: bool = False,
     out_json: Optional[str] = None,
     out_html: Optional[str] = None,
-    workers: Optional[int] = None,
+    n_jobs: Optional[int] = None,
+    n_sub: Optional[int] = None,
+    n_base: Optional[int] = None,
+    n_starts: Optional[int] = None,
+    n_seeds: Optional[int] = None,
 ) -> Dict[str, Any]:
+    workers = n_jobs
     t_start = time.perf_counter()
     if smoke:
-        widths = [14, 16, 12]
+        widths = [10, 12, 8]
         sparseness_values = [0.8]
         k_values = [1, 2]
-        iterations = 5
-        sv_iterations = 5
-        n_subsamples = 4
-        n_baseline = 1
-        n_starts_p3_hi = 3
+        iterations = 2
+        sv_iterations = 2
+        n_subsamples = 2
+        n_baseline = 2
+        n_starts_p3_hi = 2
         n_starts_p3_lo = 2
-        same_v0_seeds = [0]
+        same_v0_seeds = [0, 1]
         p2_curve_ns = [60]
-        max_workers = workers or min(8, os.cpu_count() or 1)
+        max_workers = workers or max(2, min(8, os.cpu_count() or 1))
 
         fs_cands = CANDIDATE_NAMES
-        p1_stab_cands_k1 = ["baseline_0.40.0", "B_combined"]
-        p1_stab_cands_k2 = ["B_combined"]
-        p2_stab_cands_main = ["baseline_0.40.0", "B_combined", "C3_soft_sparseness"]
+        p1_stab_cands_k1 = ["B_combined"]  # baseline_0.40.0 stability runs in the p2 stage
+        p1_stab_cands_k2: List[str] = []
+        p2_stab_cands_main = ["B_combined"]
         p2_stab_cands_sp05: List[str] = []
         p2_stab_cands_k2: List[str] = []
-        p2_stab_cands_curve = ["B_combined"]
+        p2_stab_cands_curve: List[str] = []
         p2_stab_cands_alpha = ["B_combined"]
         p3_stab_cands = ["B_combined"]
-        p3_ms_cands_hi = ["baseline_0.40.0", "B_combined", "C1_graduated", "C2_spectral_small"]
+        p3_ms_cands_hi = ["baseline_0.40.0", "B_combined"]
         p3_ms_cands_lo: List[str] = []
-        p4_stab_cands_k1 = ["baseline_0.40.0", "B_combined"]
+        p4_stab_cands_k1 = ["B_combined"]
         p4_stab_cands_k2: List[str] = []
-        full_grid_fit_cands = [
-            "baseline_0.40.0", "B1_trust", "B_combined",
-            "C1_graduated", "C2_spectral_small", "C3_soft_sparseness",
-        ]
+        full_grid_fit_cands = ["baseline_0.40.0", "B_combined"]  # the others run in same-v0, multistart and real-data stages
         smoke_fit_cands_p14 = ["baseline_0.40.0", "B_combined"]
     else:
         widths = list(WIDTHS)
@@ -2025,9 +2058,29 @@ def run_benchmark(
         full_grid_fit_cands = CANDIDATE_NAMES
         smoke_fit_cands_p14 = CANDIDATE_NAMES
 
+    if n_sub is not None:
+        n_subsamples = int(n_sub)
+    if n_base is not None:
+        n_baseline = int(n_base)
+    if n_starts is not None:
+        n_starts_p3_hi = n_starts_p3_lo = int(n_starts)
+    if n_seeds is not None:
+        same_v0_seeds = list(range(int(n_seeds)))
+    for _name, _val in (("n_sub", n_subsamples), ("n_base", n_baseline), ("n_starts", n_starts_p3_hi),
+                        ("n_seeds", len(same_v0_seeds)), ("n_jobs", max_workers)):
+        if int(_val) < 2 and smoke:
+            raise ValueError(f"--smoke needs {_name} >= 2 (never 1); got {_val}.")
+
+    n_su_starts = 2 if smoke else 5
+    # Smoke keeps the soft-sparseness candidate here; the other stages cover the hard-sparseness candidates.
+    real_cands = ("C3_soft_sparseness",) if smoke else (
+        "baseline_0.40.0", "B_combined", "C1_graduated", "C3_soft_sparseness")
+    real_n_sub = n_subsamples if (smoke or n_sub is not None) else 20
+    real_n_base = n_baseline if (smoke or n_base is not None) else 3
+
     # 1. Criterion 5: First-step pre/post-projection tasks
     fs_tasks = [
-        (cname, pos, sp, widths)
+        (cname, pos, sp, widths, smoke)
         for pos in CONSTRAINTS
         for sp in sparseness_values
         for cname in fs_cands
@@ -2035,14 +2088,14 @@ def run_benchmark(
 
     # 2. Criterion 1: Same-v0 energy tasks
     sv_tasks = [
-        (pos, sp, kv, seed, sv_iterations, widths)
+        (pos, sp, kv, seed, sv_iterations, widths, smoke)
         for pos in CONSTRAINTS
         for sp in sparseness_values
         for kv in k_values
         for seed in same_v0_seeds
     ]
 
-    smoke_stab_pos = ("linear", "mixed") if smoke else tuple(CONSTRAINTS)
+    smoke_stab_pos = tuple(CONSTRAINTS)  # stability runs on every constraint (linear, conical, convex, mixed) in smoke too
 
     # 3. P1 Pure Noise: stability on selected candidates + single-fit across full grid
     p1_tasks = []
@@ -2063,7 +2116,7 @@ def run_benchmark(
         for sp in sparseness_values:
             for kv in k_values:
                 for cname in full_grid_fit_cands:
-                    if smoke and kv == 2 and cname not in ("baseline_0.40.0", "B_combined"):
+                    if smoke and kv == 2:
                         continue
                     run_stab = (
                         (kv == 1 and abs(sp - 0.8) < 1e-6 and cname in p2_stab_cands_main)
@@ -2074,7 +2127,7 @@ def run_benchmark(
     for nv in p2_curve_ns:
         for pos in smoke_stab_pos:
             for cname in ["baseline_0.40.0", "B_combined", "C1_graduated", "C2_spectral_small"]:
-                if smoke and cname in ("C1_graduated", "C2_spectral_small"):
+                if smoke and cname != "B_combined":
                     continue
                 run_stab = cname in p2_stab_cands_curve
                 p2_tasks.append((cname, pos, 0.8, 1, nv, 1.0, iterations, n_subsamples, n_baseline, widths, run_stab))
@@ -2126,6 +2179,9 @@ def run_benchmark(
         f_p3s = [ex.submit(_task_p3_stability, t) for t in p3_stab_tasks]
         f_p3m = [ex.submit(_task_p3_multistart, t) for t in p3_ms_tasks]
         f_p4 = [ex.submit(_task_p4, t) for t in p4_tasks]
+        f_real = [ex.submit(_task_real_data, (pos, cname, smoke, real_n_sub, real_n_base))
+                  for pos in CONSTRAINTS for cname in real_cands]
+        f_su = [ex.submit(_task_solution_uniqueness, (pos, n_su_starts, iterations, widths)) for pos in CONSTRAINTS]
 
         first_step_rows = [f.result() for f in f_fs]
         same_v0_rows = [row for f in f_sv for row in f.result()]
@@ -2134,36 +2190,17 @@ def run_benchmark(
         p3_stab_rows = [f.result() for f in f_p3s]
         p3_ms_rows = [f.result() for f in f_p3m]
         p4_rows = [f.result() for f in f_p4]
+        real_rows_by_pos = [f.result() for f in f_real]
+        su_pairs = [f.result() for f in f_su]
 
-    # Direct solution_uniqueness API verification across all 4 constraints
-    _, v3_demo = make_problem3_two_factors(seed=202, n=93, widths=widths)
-    su_demo: Dict[str, Dict[str, Any]] = {}
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        for pos in CONSTRAINTS:
-            su_res = solution_uniqueness(
-                "simlr",
-                v3_demo,
-                1,
-                n_starts=3 if smoke else 5,
-                sparseness=0.8,
-                iterations=iterations,
-                optimizer_type="hybrid_adam_trust",
-                align_initial_views=True,
-                tune_learning_rate="per_refit",
-                **constraint_kwargs(pos, len(v3_demo)),
-            )
-            su_demo[pos] = {
-                "unique": bool(su_res["unique"]),
-                "n_distinct_solutions": int(su_res["n_distinct_solutions"]),
-                "energy_gap": _safe_float(su_res["energy_gap"]),
-            }
-
-    real_data_rows = _run_real_data_check(smoke=smoke)
+    real_data_rows = [row for rows in real_rows_by_pos for row in rows]
+    su_demo: Dict[str, Dict[str, Any]] = dict(su_pairs)
     total_wall = time.perf_counter() - t_start
     payload: Dict[str, Any] = {
         "meta": {
             "mode": "smoke" if smoke else "full",
+            "smoke": bool(smoke),
+            "n_seeds": len(same_v0_seeds),
             "widths": list(widths),
             "constraints": list(CONSTRAINTS),
             "sparseness_values": sparseness_values,
@@ -2201,10 +2238,15 @@ def run_benchmark(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Section 5 SiMLR calibrated stability & Part B/C benchmark")
-    parser.add_argument("--smoke", action="store_true", help="Run fast reduced benchmark (<15s)")
+    parser.add_argument("--smoke", action="store_true",
+                        help="Run every stage on every constraint with all counts set to 2 (<10 s)")
+    parser.add_argument("--n-sub", type=int, default=None, help="Subsample refits per stability call (full 12, smoke 2)")
+    parser.add_argument("--n-base", type=int, default=None, help="Baseline draws per stability call (full 2, smoke 2)")
+    parser.add_argument("--n-starts", type=int, default=None, help="Multistart starts per problem-3 cell (full 20/8, smoke 2)")
+    parser.add_argument("--n-seeds", type=int, default=None, help="Same-start energy seeds (full 3, smoke 2)")
     parser.add_argument("--out-json", default=None, help="Output JSON report path")
     parser.add_argument("--out-html", default=None, help="Output HTML report path")
-    parser.add_argument("--workers", type=int, default=None, help="Parallel worker processes")
+    parser.add_argument("--n-jobs", type=int, default=None, help="Parallel worker processes")
     args = parser.parse_args()
 
     default_json = (
@@ -2224,7 +2266,11 @@ def main() -> int:
         smoke=args.smoke,
         out_json=out_json,
         out_html=out_html,
-        workers=args.workers,
+        n_jobs=args.n_jobs,
+        n_sub=args.n_sub,
+        n_base=args.n_base,
+        n_starts=args.n_starts,
+        n_seeds=args.n_seeds,
     )
     print(f"[{res['meta']['mode']}] Finished in {res['meta']['total_wall_s']:.2f}s -> JSON: {out_json} | HTML: {out_html}")
     for r in res["summary"]["candidate_summary"]:

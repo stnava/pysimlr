@@ -1,6 +1,6 @@
 # pysimlr: correctness review and one central method interface
 
-Repo: `/Users/stnava/data/repos/pysimlr` (v0.2.19, main). Baseline before any change:
+Repo: `pysimlr` (v0.2.19, main). Baseline before any change:
 `pytest` (fast suite) 1405 passed, 6 xfailed, 0 failed, 167 s. Working tree carries
 uncommitted paper/manuscript edits (22 files) that this work does not touch.
 
@@ -183,7 +183,7 @@ runner pre-step applied to every method before `api.fit`, not a baseline-only ar
 - `random_state` no longer flips `initialization_type` (A8); when the initializer is
   deterministic the parameter record says `used` with `effect: "none (deterministic initialization)"`.
 
-Blast radius: 413 occurrences of `init_seed|sparseness_quantile|epochs=` across tests, scripts,
+Impact radius: 413 occurrences of `init_seed|sparseness_quantile|epochs=` across tests, scripts,
 docs qmd and paper qmd. Migration is mechanical (sed with word boundaries, then the suite);
 occurrences inside `_train_loop` internals (`epochs` as a local) are untouched.
 Callers that pass keys through the deleted `**kwargs` and must be edited by hand (they would

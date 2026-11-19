@@ -244,9 +244,12 @@ def test_b3_start_feasibility_across_constraints_and_sparseness(init_t, constrai
             assert torch.isfinite(vm).all()
             if p_m in ("conical", "convex"):
                 assert (vm >= -1e-6).all()
-            if init_t == "varimax":
-                # Legacy 0.40.0 "varimax" is intentionally an unsparsified Varimax rotation
-                # (pinned by test_varimax_consistency.py and test_nonnegative_initialization.py).
+            if init_t not in ("pca_feasible", "spectral"):
+                # Legacy v0.40.0 initializers (gcca, ica, random, perturbed_pca, varimax)
+                # preserve bit-exact v0.40.0 starting bases (pinned by
+                # tests/test_legacy_starts_golden.py) rather than enforcing Part B3
+                # unit-column feasibility; only pca_feasible (plus varimax=True below)
+                # and spectral enforce Part B3 unit-column feasibility across constraints.
                 continue
             p_hard = simlr_sparseness(
                 vm, constraint_type="none", positivity=p_m, sparseness=sp,

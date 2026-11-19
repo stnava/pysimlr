@@ -1,86 +1,46 @@
 r"""Uniform and block-uniform shrinkage priors for directional multi-view `SiMLR`.
 
-When all features within each view share a common directional polarity (for
-example after :func:`pysimlr.prepare_views` with ``signs=...`` so higher values
-denote greater pathology), the unweighted view mean
-:math:`\bar{z}_{im} = p_m^{-1} \sum_{j=1}^{p_m} Z_{imj}` has **zero estimation
-variance**, whereas an unregularized multi-view weight vector
-:math:`\mathbf{v}_m \in \mathbb{R}_{\ge 0}^{p_m}` has estimation variance scaling
-as :math:`O(p_m / n_m)`. Whenever :math:`n_m \lesssim p_m` (or calibrated
-out-of-bag ``ICC(1)`` in :func:`pysimlr.latent_stability` is low), unregularized
-`SiMLR` overfits within-view noise and can trail naive unweighted averaging out
-of fold, whereas naive averaging sacrifices all regional, tract, and network
-specificity.
+When all features within each view share a common directional polarity (the
+caller orients the signs, for example with :func:`pysimlr.prepare_views`), the
+unweighted view mean has zero estimation variance, whereas an unregularized
+non-negative weight vector :math:`\mathbf{v}_m` has estimation variance of order
+:math:`p_m / n_m`. When :math:`n_m \lesssim p_m` the unregularized fit can
+trail the plain mean out of sample, while the plain mean gives up all
+feature-level specificity. This module interpolates between the two.
 
-This module bridges both regimes smoothly through two matched primitives:
-
-1. :class:`UniformShrinkageOperator` (and factory :func:`create_uniform_smoother`):
-   an :math:`O(p_m k)`-time, :math:`O(1)`-memory matrix-free Green's resolvent
-   of the mean-degree-normalized complete-graph (or block-complete) Laplacian
-   :math:`\mathbf{L}_m = \mathbf{I}_{p_m} - \mathbf{\Pi}_m`,
+Primitives
+----------
+1. :class:`UniformShrinkageOperator` (factory :func:`create_uniform_smoother`):
+   a stateless, matrix-free :math:`O(p_m k)` operator
 
    .. math::
 
-      \mathbf{S}_m(\alpha_m)
-      = (\mathbf{I}_{p_m} + \lambda_m \mathbf{L}_m)^{-1}
-      = (1 - \alpha_m)\mathbf{I}_{p_m} + \alpha_m \mathbf{\Pi}_m,
-      \qquad \alpha_m = \frac{\lambda_m}{1 + \lambda_m} \in [0, 1],
+      S_m(\alpha) = (1 - \alpha) I + \alpha \Pi_m, \qquad
+      \alpha = \lambda / (1 + \lambda),
 
-   where :math:`\mathbf{\Pi}_m = p_m^{-1}\mathbf{1}_{p_m}\mathbf{1}_{p_m}^\top`
-   (or block-wise group means when ``groups`` is supplied). Passed in
-   ``smoothing_matrices``, it shrinks each solver iterate toward the uniform
-   direction while allowing data-supported cross-view focal drivers to rise
-   above the background.
+   with :math:`\Pi_m` the (group-wise) mean projector. It equals
+   :math:`(I + \lambda (I - \Pi_m))^{-1}`: the resolvent of the complete-graph
+   (block-diagonal complete graph with ``groups=``) Laplacian, i.e. a closed-form
+   special case of :class:`pysimlr.sparse.SparseGraphResolvent`. ``alpha`` and
+   ``lambda_val`` are two parametrizations of the same knob. One call applies
+   one shrinkage step; it is **not** idempotent (:math:`S^2 \ne S` unless
+   :math:`\alpha \in \{0, 1\}`). The solver is responsible for applying it
+   once per step (see :func:`pysimlr.sparsification._apply_smoothing`).
+2. :func:`uniform_shrinkage_params`: builds the keyword arguments for
+   ``pysimlr.fit("simlr", ...)``; :func:`project_uniform_shrunk`: simplex-weight
+   projection used to score new rows.
 
-2. :func:`uniform_shrinkage_params` and :func:`project_uniform_shrunk`:
-   a parameter builder (mirroring :func:`pysimlr.target_root_fit_params`) and
-   simplex-normalized natural-amplitude projector. On the simplex
-   (:math:`\mathbf{w}_m \ge 0, \mathbf{1}^\top \mathbf{w}_m = 1`),
-   :math:`\mathbf{Z}_m \mathbf{w}_m` preserves each view's natural within-view
-   coherence amplitude rather than inflating noisy or mean-cancelled views to
-   unit variance, and converges **identically** to the naive unweighted average
-   as shrinkage approaches ``1``.
-
-Should this be default ON in ``pysimlr.simlr``?
------------------------------------------------
-**No — it must remain opt-in (`default OFF` in generic `simlr`), and turned ON
-specifically for sign-oriented directional single-axis (`k = 1`) studies when
-`n` is comparable to or smaller than `p_m`.**
-
-* *Why not default ON globally:* Shrinking toward :math:`+p_m^{-1}\mathbf{1}`
-  assumes that ``+1`` means the same thing on every coordinate of a view. On
-  raw arbitrary-sign tabular, genomic, or multi-component (:math:`k \ge 2`,
-  where higher components must carry mixed signs or disjoint supports to remain
-  orthogonal) inputs, uniform shrinkage biases weights toward an arbitrary
-  coordinate-sum axis.
-* *When to turn it ON:* Whenever views have been sign-oriented to a shared
-  polarity (e.g. pathology-oriented neuroimaging views from ``prepare_views``)
-  and :math:`n_{\text{train}} \lesssim 2 p_{\max}` (or single-bag out-of-bag
-  ``ICC(1) < 0.85``). With ``alpha="auto"``, :func:`auto_uniform_alpha` sets
-  :math:`\alpha_m = \operatorname{clip}(p_m / (n_{\text{obs}, m} + p_m), 0.05, 0.85)`,
-  shrinking wide small-sample views strongly while automatically vanishing
-  (:math:`\alpha_m \to 0`) as :math:`n_{\text{obs}, m} / p_m \to \infty`.
-
-See ``docs/uniform_shrinkage.md`` for empirical benchmarks and equations.
+Scope: sign-oriented directional views with :math:`k = 1`. Orientation is a
+user contract; nothing checks it (a view with flipped signs yields a negated
+score). It stays opt-in. See ``docs/uniform_shrinkage.md``.
 """
 from __future__ import annotations
 
-from collections import OrderedDict
 from collections.abc import Mapping, Sequence
-import hashlib
 from typing import Any
 
 import numpy as np
 import torch
-
-
-def _fingerprint(arr: np.ndarray) -> tuple[Any, ...]:
-    contig = np.ascontiguousarray(arr)
-    return (
-        contig.shape,
-        str(contig.dtype),
-        hashlib.blake2b(contig.tobytes(), digest_size=16).digest(),
-    )
 
 
 def _extract_view_list(views: Any) -> list[np.ndarray]:
@@ -112,6 +72,11 @@ def _extract_view_list(views: Any) -> list[np.ndarray]:
             raise ValueError(f"view {idx} has {arr.shape[0]} rows; view 0 has {n_rows}.")
         out.append(arr)
     return out
+
+
+def _n_observed_rows(arr: np.ndarray) -> int:
+    """Rows of a view with at least one finite feature (the rows ``missing_rows='mask'`` keeps)."""
+    return max(1, int(np.isfinite(arr).any(axis=1).sum()))
 
 
 def auto_uniform_alpha(
@@ -151,24 +116,23 @@ def auto_uniform_alpha(
 
 
 class UniformShrinkageOperator:
-    r"""Matrix-free :math:`O(PK)` uniform or block-uniform Green's resolvent smoother.
+    r"""Stateless matrix-free :math:`O(PK)` uniform or block-uniform shrinkage step.
 
-    Implements the closed-form resolvent of the mean-degree-normalized
-    complete-graph Laplacian :math:`\mathbf{L} = \mathbf{I}_P - \mathbf{\Pi}`:
+    For each column ``c`` of the input, with ``c+ = max(c, 0)`` (or ``max(-c, 0)``
+    when the column has no positive entry; only if ``positive_part=True``),
 
     .. math::
 
-       \mathbf{S}(\alpha)\,\mathbf{V}
-       = (\mathbf{I}_P + \lambda \mathbf{L})^{-1}\mathbf{V}
-       = (1 - \alpha)\,\tilde{\mathbf{V}} + \alpha\,\mathbf{\Pi}\tilde{\mathbf{V}},
-       \qquad \alpha = \frac{\lambda}{1 + \lambda} \in [0, 1],
+       S(\alpha)\,c = (1 - \alpha)\,c_+ + \alpha\,\operatorname{mean}(c_+),
 
-    where :math:`\mathbf{\Pi}\tilde{\mathbf{V}}` replaces each entry by its
-    column mean (or within-group column mean when ``groups`` is provided).
+    with the mean taken within each group when ``groups`` is given (entries with
+    group label ``-1``/``None``/NaN are left unchanged). With
+    ``positive_part=False`` this is exactly the dense resolvent
+    :math:`(I + \lambda L)^{-1}`, :math:`L = I - \Pi`, :math:`\lambda =
+    \alpha / (1 - \alpha)`.
 
-    Like :class:`pysimlr.sparse.SparseGraphResolvent`, ``self @ v`` is
-    idempotent on its own image so repeated calls inside ``simlr``'s feasibility
-    retraction and post-step projection never apply shrinkage twice in one sweep.
+    The operator is applied once per call; it keeps no state, and
+    :math:`S(Sv) = (1-\alpha)^2 v + (1 - (1-\alpha)^2)\,\Pi v` (``positive_part=False``).
     """
 
     def __init__(
@@ -215,9 +179,6 @@ class UniformShrinkageOperator:
                 buckets.setdefault(g_val, []).append(idx)
             self._group_indices = [np.asarray(ix, dtype=np.int64) for ix in buckets.values() if len(ix) > 0]
 
-        self._idempotent_outputs: OrderedDict[tuple[Any, ...], bool] = OrderedDict()
-        self._cache_maxsize = 256
-
     def __repr__(self) -> str:
         n_grp = 1 if self._group_indices is None else len(self._group_indices)
         return (
@@ -258,27 +219,13 @@ class UniformShrinkageOperator:
             )
 
         orig_1d = v_np.ndim == 1
-        in_raw = v.detach().cpu().numpy() if is_torch else np.asarray(v)
-        if _fingerprint(in_raw) in self._idempotent_outputs:
-            return v
-
         mat_2d = v_np[:, None] if orig_1d else v_np
         smoothed = self._smooth_2d(mat_2d)
         out_np = smoothed[:, 0] if orig_1d else smoothed
-
         if is_torch:
-            res_t = torch.as_tensor(out_np, dtype=v.dtype, device=v.device)
-            fp_out = _fingerprint(res_t.detach().cpu().numpy())
-            self._idempotent_outputs[fp_out] = True
-            if len(self._idempotent_outputs) > self._cache_maxsize:
-                self._idempotent_outputs.popitem(last=False)
-            return res_t
-
-        cast_out = out_np.astype(in_raw.dtype if np.issubdtype(in_raw.dtype, np.floating) else np.float64, copy=False)
-        self._idempotent_outputs[_fingerprint(cast_out)] = True
-        if len(self._idempotent_outputs) > self._cache_maxsize:
-            self._idempotent_outputs.popitem(last=False)
-        return cast_out
+            return torch.as_tensor(out_np, dtype=v.dtype, device=v.device)
+        in_dtype = np.asarray(v).dtype
+        return out_np.astype(in_dtype if np.issubdtype(in_dtype, np.floating) else np.float64, copy=False)
 
 
 def create_uniform_smoother(
@@ -306,7 +253,7 @@ def create_uniform_smoother(
     arr = source.detach().cpu().double().numpy() if torch.is_tensor(source) else np.asarray(source, dtype=np.float64)
     if arr.ndim != 2:
         raise ValueError(f"Expected integer feature count P or 2-D view matrix (n, P); got shape {arr.shape}.")
-    n_obs = max(1, int(np.isfinite(arr).all(axis=1).sum()))
+    n_obs = _n_observed_rows(arr)
     p = int(arr.shape[1])
     if lambda_val is not None:
         return UniformShrinkageOperator(p, lambda_val=lambda_val, groups=groups, positive_part=positive_part)
@@ -319,6 +266,20 @@ def create_uniform_smoother(
     return UniformShrinkageOperator(p, alpha=eff_a, groups=groups, positive_part=positive_part)
 
 
+class UniformShrinkageParams(dict):
+    """Keyword arguments for ``pysimlr.fit("simlr", ...)`` plus a ``provenance`` attribute.
+
+    Only the dict items are passed on by ``**params``; ``provenance`` records the
+    resolved values (per-view ``n_obs``, ``p``, ``alpha``, ``nsa_w``, ...).
+    """
+
+    provenance: dict[str, Any]
+
+
+MAX_ALPHA_MULTI_COMPONENT = 0.15
+"""Largest per-view alpha allowed for ``k > 1`` (and only together with ``groups=``)."""
+
+
 def uniform_shrinkage_params(
     views: Any,
     *,
@@ -329,20 +290,29 @@ def uniform_shrinkage_params(
     positivity: str = "conical",
     sparseness: float | Sequence[float | None] | None = 0.3,
     sparseness_type: str = "soft",
-    nsa_w: float | None = None,
+    nsa_w: float | str = "auto",
     energy_type: str = "recon_r2",
     mixing_algorithm: str = "svd",
     scale_list: Sequence[str] = ("none",),
     missing_rows: str = "mask",
     groups: Sequence[Sequence[Any] | np.ndarray | None] | None = None,
     positive_part: bool = True,
-) -> dict[str, Any]:
+) -> UniformShrinkageParams:
     """Build keyword arguments for uniform-shrunk directional `pysimlr.fit("simlr", ...)`.
 
-    Designed for sign-oriented multi-view datasets (e.g. views prepared with
-    :func:`pysimlr.prepare_views` so higher values share a consistent directional
-    meaning) when :math:`k = 1` and sample size :math:`n` is comparable to or
-    smaller than view width :math:`p_m`.
+    For sign-oriented views, ``k = 1``, and :math:`n` comparable to or smaller
+    than the view widths. Defaults that differ from ``pysimlr.simlr`` are listed
+    here and echoed in ``result.provenance``:
+
+    * ``scale_list=("none",)``, ``energy_type="recon_r2"``, ``mixing_algorithm="svd"``,
+      ``missing_rows="mask"``, ``sparseness=0.3``, ``sparseness_type="soft"``.
+    * ``nsa_w="auto"``: 0.2 when sparseness is requested, else 0.0 (and then
+      ``sparseness_type`` is reported as ``"hard"``). Pass a float to override.
+
+    ``k > 1`` raises ``ValueError`` unless ``groups=`` is given for every view
+    that has a smoother and each such view has ``alpha <= 0.15``
+    (:data:`MAX_ALPHA_MULTI_COMPONENT`): pulling several columns toward the same
+    uniform vector makes the components collapse.
     """
     if int(k) < 1:
         raise ValueError(f"k must be >= 1; got {k}.")
@@ -398,24 +368,61 @@ def uniform_shrinkage_params(
                 v0[:, c_idx] = col / (np.sum(col) if positivity == "convex" else np.linalg.norm(col))
         init_v.append(v0)
 
+    if int(k) > 1:
+        for idx, op in enumerate(smoothers):
+            if op is None:
+                continue
+            if grp_list[idx] is None or op.alpha > MAX_ALPHA_MULTI_COMPONENT:
+                raise ValueError(
+                    f"k={k} > 1 collapses the components under uniform shrinkage: view {idx} needs "
+                    f"groups= and alpha <= {MAX_ALPHA_MULTI_COMPONENT} (got groups="
+                    f"{'given' if grp_list[idx] is not None else None}, alpha={op.alpha:.3f}). "
+                    "Use k=1, or pass groups= with a small alpha."
+                )
+
     has_sparse = sparseness is not None and (
         isinstance(sparseness, (list, tuple)) or float(sparseness) > 0.0
     )
-    eff_nsa_w = (0.20 if has_sparse else 0.0) if nsa_w is None else float(nsa_w)
+    if isinstance(nsa_w, str):
+        if nsa_w != "auto":
+            raise ValueError(f"nsa_w must be 'auto' or a float; got {nsa_w!r}.")
+        eff_nsa_w = 0.20 if has_sparse else 0.0
+    else:
+        eff_nsa_w = float(nsa_w)
     eff_sp_type = sparseness_type if has_sparse else "hard"
 
-    return {
+    out = UniformShrinkageParams(
+        scale_list=list(scale_list),
+        energy_type=energy_type,
+        mixing_algorithm=mixing_algorithm,
+        positivity=positivity,
+        nsa_w=eff_nsa_w,
+        sparseness=sparseness,
+        sparseness_type=eff_sp_type,
+        smoothing_matrices=smoothers,
+        initial_v=init_v,
+        missing_rows=missing_rows,
+    )
+    out.provenance = {
+        "k": int(k),
+        "n_obs": [_n_observed_rows(m) for m in mats],
+        "n_features": [int(m.shape[1]) for m in mats],
+        "alpha": [None if op is None else op.alpha for op in smoothers],
+        "grouped": [g is not None for g in grp_list],
+        "positive_part": bool(positive_part),
+        "prior_scale": float(prior_scale),
+        "clip": tuple(clip),
         "scale_list": list(scale_list),
         "energy_type": energy_type,
         "mixing_algorithm": mixing_algorithm,
         "positivity": positivity,
         "nsa_w": eff_nsa_w,
+        "nsa_w_requested": nsa_w,
         "sparseness": sparseness,
         "sparseness_type": eff_sp_type,
-        "smoothing_matrices": smoothers,
-        "initial_v": init_v,
         "missing_rows": missing_rows,
     }
+    return out
 
 
 def project_uniform_shrunk(
@@ -469,7 +476,7 @@ def project_uniform_shrunk(
     if isinstance(post_shrink, str):
         if post_shrink != "auto":
             raise ValueError(f"post_shrink must be 'auto' or a float in [0, 1]; got {post_shrink!r}.")
-        n_tr_eff = max(int(np.isfinite(m).all(axis=1).sum()) for m in tr_mats)
+        n_tr_eff = max(_n_observed_rows(m) for m in tr_mats)
         p_max = max(int(m.shape[1]) for m in tr_mats)
         gamma = float(np.clip(1.0 - float(n_tr_eff) / (1.5 * float(p_max)), 0.0, 0.60))
     else:
@@ -533,6 +540,7 @@ def project_uniform_shrunk(
 
 __all__ = [
     "UniformShrinkageOperator",
+    "UniformShrinkageParams",
     "auto_uniform_alpha",
     "create_uniform_smoother",
     "project_uniform_shrunk",

@@ -60,7 +60,7 @@ Code in commit `d0d35bd`:
 2. **Backward-compatible return signature for `permutation_test`:**
    Preserved all 5 legacy dictionary keys (`observed_similarity`, `null_similarities`, `p_value`, `n_permutations`, `n_exceeding`) while attaching new rich outputs (`edges`, `omnibus`, `result`).
 3. **Multiprocessing macOS sandbox compatibility:**
-   Full test suites require `BypassSandbox=True` due to PyTorch IPC shared memory restrictions (`torch.storage._share_filename_cpu_`) and external checkout access (`/Users/stnava/Documents/code/ANTsPy`).
+   Full test suites require `BypassSandbox=True` due to PyTorch IPC shared memory restrictions (`torch.storage._share_filename_cpu_`) and external checkout access (external ANTsPy checkout).
 
 ## Open items and WP3 carry-over
 

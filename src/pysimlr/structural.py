@@ -39,7 +39,7 @@ def fork_graph(
     Parameters
     ----------
     root : int or str
-        Index or view name of the root node (e.g., ``"Blast_Root"`` or ``0``).
+        Index or view name of the root node (e.g., ``"Root"`` or ``0``).
     children : sequence of int or str
         Distinct child/prong node keys branching directly off ``root``.
     exogenous_root : bool, default=True

@@ -385,7 +385,7 @@ def bagged_fit(method: str, views: Any, k: int, *, aggregate: str = "select", n_
             eff = [int(mk.sum()) for mk in mask]
         res.update(common)
         res.update({"feature_mask": mask, "effective_features": eff, "scores": scores, "oob_scores": oob_al})
-        return _RemovedKeysDict(res)
+        return _RemovedKeysDict(res, carry_table=True)
 
     # average
     ref = dict(inf["result"])
@@ -407,7 +407,7 @@ def bagged_fit(method: str, views: Any, k: int, *, aggregate: str = "select", n_
     })
     if averaged:
         ref.update({"averaged_weights": ew, "weights_raw": raw_w, "intercepts": icpt})
-    return _RemovedKeysDict(ref)
+    return _RemovedKeysDict(ref, carry_table=True)
 
 
 __all__ = ["bagged_fit", "bagged_predict", "mask_views", "AGGREGATES"]

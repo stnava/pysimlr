@@ -3,7 +3,7 @@
 **Certification Date:** 2026-09-07T16:25:00Z  
 **Certification Status:** CERTIFIED READY (100% Pass Rate: 69 passed, 0 failed, 2 warnings in 13.70s)  
 **Test Suite Directory:** `tests/e2e/`  
-**Test Runner:** `/Users/stnava/venvs/ants/bin/pytest`  
+**Test Runner:** `pytest`  
 **Interactive Visual HTML Report:** `reports/e2e_test_report.html`
 
 ---
@@ -53,13 +53,13 @@ All tests conform strictly to the specification in `.agents/TEST_INFRA.md` and `
 
 ```bash
 # Execute the entire E2E suite
-/Users/stnava/venvs/ants/bin/pytest -v tests/e2e/
+pytest -v tests/e2e/
 
 # Execute individual tiers
-/Users/stnava/venvs/ants/bin/pytest -v tests/e2e/test_tier1_features.py
-/Users/stnava/venvs/ants/bin/pytest -v tests/e2e/test_tier2_boundaries.py
-/Users/stnava/venvs/ants/bin/pytest -v tests/e2e/test_tier3_combinations.py
-/Users/stnava/venvs/ants/bin/pytest -v tests/e2e/test_tier4_scenarios.py
+pytest -v tests/e2e/test_tier1_features.py
+pytest -v tests/e2e/test_tier2_boundaries.py
+pytest -v tests/e2e/test_tier3_combinations.py
+pytest -v tests/e2e/test_tier4_scenarios.py
 ```
 
 ---

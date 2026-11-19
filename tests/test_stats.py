@@ -33,7 +33,6 @@ from pysimlr.stats import (
 )
 
 OCTOBER_ROOT_ENV = "ANTSXBRAINMAPPING_OCTOBER_ROOT"
-OCTOBER_ROOT_DEFAULT = "/Users/stnava/data/processed/antsxbrainmapping/october_2026_run/scratch"
 
 
 # ------------------------------------------------------------------------------ oracles
@@ -740,10 +739,7 @@ def test_icc_3_rejects_bad_input():
 
 # --------------------------------------------------------------------------- golden
 def _october_root() -> str | None:
-    root = os.environ.get(OCTOBER_ROOT_ENV)
-    if root is None:
-        return None
-    return root or OCTOBER_ROOT_DEFAULT
+    return os.environ.get(OCTOBER_ROOT_ENV) or None
 
 
 def _ledgers() -> list[str]:

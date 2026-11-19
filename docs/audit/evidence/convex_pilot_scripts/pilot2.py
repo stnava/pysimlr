@@ -23,7 +23,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SP = {"adni": 0.85, "nhanes": 0.5}
-ADNI_CSV = "/Users/stnava/data/repos/pysimlr/data/adni/adni_mci_cognitive_merged.csv"  # main checkout, read-only
+ADNI_CSV = os.path.abspath(os.path.join(HERE, "../../../../data/adni/adni_mci_cognitive_merged.csv"))  # main checkout, read-only
 
 
 def std_tr(a, b):

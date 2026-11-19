@@ -31,7 +31,7 @@ CORTEX = (["sup frontal", "mid frontal", "inf frontal", "orbitofrontal", "precen
           ["lat occipital", "cuneus", "lingual", "pericalcarine", "calcarine", "occipital pole"],
           ["rostral ACC", "caudal ACC", "posterior cing", "isthmus cing", "cingulate gyrus", "subcallosal"])
 LOBES = ["frontal", "parietal", "temporal", "occipital", "cingulate"]
-TRACTS = ["SLF L", "SLF R", "ILF L", "ILF R", "IFOF L", "IFOF R", "uncinate L", "uncinate R",
+TRACTS = ["sup longitudinal fasc L", "sup longitudinal fasc R", "ILF L", "ILF R", "IFOF L", "IFOF R", "uncinate L", "uncinate R",
           "CST L", "CST R", "ant thal rad L", "ant thal rad R", "sup thal rad L", "sup thal rad R",
           "post thal rad L", "post thal rad R", "forceps major", "forceps minor", "CC body", "CC genu",
           "CC splenium", "tapetum", "fornix", "cingulum hipp"]

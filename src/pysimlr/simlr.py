@@ -290,7 +290,9 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
                               generator=generator, domain_matrices=domain_matrices,
                               n_candidates=n_candidates, perturbation_scale=perturbation_scale,
                               sparseness=sparseness, varimax=varimax,
-                              nonneg_masks=nonneg_masks)
+                              nonneg_masks=nonneg_masks, sp_list=sp_list,
+                              sparseness_type=sparseness_type, sp_type_list=sp_type_list,
+                              align_initial_views=align_initial_views, obs_masks=obs_masks)
         out = []
         for v in v0:
             s = v.sum(dim=0, keepdim=True)
@@ -372,14 +374,14 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
         v_mats = _gcca_basis(data_matrices, k, positivity, sparseness=sparseness,
                              varimax=varimax_flag, pos_list=pos_list,
                              nonneg_masks=nonneg_masks, sp_list=sp_list,
-                             sparseness_type=sparseness_type, sp_type_list=sp_type_list)
+                             sparseness_type=sparseness_type, sp_type_list=sp_type_list,
+                             feasible=(initialization_type == "spectral"))
         return _maybe_align(v_mats, default_align=(initialization_type == "spectral"))
     if initialization_type == "nndsvd":
         v_mats = [
             simlr_sparseness(_nndsvd_basis_for_view(x, k), constraint_type="ortho",
                              positivity=_pos_m(idx_m), sparseness=_sp_m(idx_m),
                              modality_index=idx_m,
-                             unit_columns=(_resolve_pos(_pos_m(idx_m)) != "convex"),
                              nonneg_mask=_nm(idx_m),
                              sparseness_type=_st_m(idx_m)).to(x.dtype)
             if _sp_m(idx_m) is not None and x.shape[1] > k
@@ -420,7 +422,6 @@ def initialize_simlr(data_matrices: List[torch.Tensor],
             raw = v + perturbation_scale * v.norm() * noise / (noise.norm() + 1e-12)
             out.append(simlr_sparseness(raw, constraint_type="ortho", positivity=p_m,
                                         sparseness=_sp_m(idx_m), modality_index=idx_m,
-                                        unit_columns=(_resolve_pos(p_m) != "convex"),
                                         nonneg_mask=_nm(idx_m),
                                         sparseness_type=_st_m(idx_m)))
         return _maybe_align(out, default_align=False)
@@ -612,11 +613,9 @@ def _ica_basis_for_view(x: torch.Tensor, k: int, positivity: str = "either",
         pad = 1e-4 * np.ones((x.shape[1], k - k_eff), dtype=np.float64)
         v_ica = np.hstack([v_ica, pad])
 
-    from .positivity import resolve_positivity as _resolve_pos
     v_t = torch.tensor(v_ica, dtype=x.dtype, device=x.device)
     return simlr_sparseness(v_t, constraint_type="ortho", positivity=positivity,
                             sparseness=sparseness, modality_index=modality_index,
-                            unit_columns=(_resolve_pos(positivity) != "convex"),
                             nonneg_mask=nonneg_mask,
                             sparseness_type=sparseness_type)
 
@@ -629,8 +628,15 @@ def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
                 nonneg_masks: Optional[Sequence[Optional[Any]]] = None,
                 sp_list: Optional[Sequence[Optional[float]]] = None,
                 sparseness_type: str = "hard",
-                sp_type_list: Optional[Sequence[str]] = None) -> List[torch.Tensor]:
+                sp_type_list: Optional[Sequence[str]] = None,
+                feasible: bool = False) -> List[torch.Tensor]:
     """Joint (generalized-CCA, MAXVAR) initialization.
+
+    ``feasible=False`` (``initialization_type="gcca"``) is the ``v0.40.0``
+    start, bit-identical: no forced unit columns, and ``"convex"`` columns come
+    from a conical solve rescaled to unit sum. ``feasible=True`` (the
+    ``"spectral"`` start) projects directly onto each view's constraint with
+    unit columns for every non-convex view.
 
     Finds the top-``k`` eigenvectors of ``sum_i P_i``, where ``P_i`` projects
     onto view ``i``'s column space -- the sample-space subspace best agreed on
@@ -678,11 +684,23 @@ def _gcca_basis(data_matrices: List[torch.Tensor], k: int,
         nm_m = nonneg_masks[idx_m] if (nonneg_masks is not None and idx_m < len(nonneg_masks)) else None
         sp_m = sp_list[idx_m] if (sp_list is not None and idx_m < len(sp_list)) else sparseness
         st_m = sp_type_list[idx_m] if (sp_type_list is not None and idx_m < len(sp_type_list)) else sparseness_type
+        if not feasible and p_m == "convex":
+            v_sp = simlr_sparseness(v.to(x.dtype), constraint_type="ortho",
+                                    positivity="positive",
+                                    sparseness=sp_m,
+                                    modality_index=idx_m,
+                                    nonneg_mask=nm_m,
+                                    sparseness_type=st_m)
+            s_col = v_sp.sum(dim=0, keepdim=True)
+            if not bool((s_col > 0).all()):
+                raise ValueError("convex initialization: a conical start column is zero")
+            out.append(v_sp / s_col)
+            continue
         out.append(simlr_sparseness(v.to(x.dtype), constraint_type="ortho",
                                     positivity=p_m,
                                     sparseness=sp_m,
                                     modality_index=idx_m,
-                                    unit_columns=(p_m != "convex"),
+                                    unit_columns=((p_m != "convex") if feasible else None),
                                     nonneg_mask=nm_m,
                                     sparseness_type=st_m))
     return out
@@ -961,7 +979,6 @@ def initial_basis_for_view(x: torch.Tensor, k: int,
         return simlr_sparseness(raw, constraint_type="ortho",
                                 positivity=positivity,
                                 sparseness=q_init,
-                                unit_columns=(pos_can != "convex"),
                                 nonneg_mask=partial_mask,
                                 sparseness_type=sparseness_type).to(x.dtype)
     v: Optional[torch.Tensor] = None

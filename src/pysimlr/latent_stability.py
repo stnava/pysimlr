@@ -37,14 +37,60 @@ REMOVED_STABILITY_KEYS: Dict[str, str] = {
 }
 
 
+def removed_key_message(key: str) -> str:
+    """The migration message for a key removed in 0.41.0."""
+    return f"{key!r} was removed in 0.41.0; use {REMOVED_STABILITY_KEYS[key]} (see latent_stability)"
+
+
 class _RemovedKeysDict(dict):
-    """Result dict raising an informative ``KeyError`` when a 0.41.0-removed key is read."""
+    """Result dict that raises the migration message when a 0.41.0-removed key is read.
+
+    ``res[key]`` and ``res.get(key)`` raise ``KeyError`` with the message for every
+    key in ``REMOVED_STABILITY_KEYS`` (a plain ``dict.get`` would silently return
+    ``None``). ``copy()``, ``copy.copy``, ``copy.deepcopy``, pickling and ``|`` keep
+    the class. ``dict(res)`` and ``{**res}`` cannot return a subclass; with
+    ``carry_table=True`` (the top-level results of ``latent_stability``,
+    ``loading_inference`` and ``bagged_fit``) the dict therefore also holds a
+    ``removed_keys`` entry, ``{old_name: message}``, which survives those
+    conversions so a caller can still look the message up.
+    """
+
+    def __init__(self, *args: Any, carry_table: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if carry_table and "removed_keys" not in self:
+            dict.__setitem__(self, "removed_keys", {k: removed_key_message(k) for k in REMOVED_STABILITY_KEYS})
 
     def __getitem__(self, key: Any) -> Any:
         if key in REMOVED_STABILITY_KEYS and not super().__contains__(key):
-            rep = REMOVED_STABILITY_KEYS[key]
-            raise KeyError(f"{key!r} was removed in 0.41.0; use {rep} (see latent_stability)")
+            raise KeyError(removed_key_message(key))
         return super().__getitem__(key)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        if key in REMOVED_STABILITY_KEYS and not super().__contains__(key):
+            raise KeyError(removed_key_message(key))
+        return super().get(key, default)
+
+    def copy(self) -> "_RemovedKeysDict":
+        return type(self)(dict(self))
+
+    __copy__ = copy
+
+    def __deepcopy__(self, memo: Any) -> "_RemovedKeysDict":
+        import copy as _copy
+        return type(self)({k: _copy.deepcopy(v, memo) for k, v in dict.items(self)})
+
+    def __reduce__(self) -> Any:
+        return (type(self), (dict(self),))
+
+    def __or__(self, other: Any) -> Any:
+        if not isinstance(other, dict):
+            return NotImplemented
+        return type(self)({**dict(self), **dict(other)})
+
+    def __ror__(self, other: Any) -> Any:
+        if not isinstance(other, dict):
+            return NotImplemented
+        return type(self)({**dict(other), **dict(self)})
 
 
 def _flat(v: Any) -> Any:
@@ -434,7 +480,8 @@ def _build_stability_interpretation(
             f"Out-of-bag latent reliability is {_fmt_vec(lr)} "
             f"(baseline {_fmt_vec(lr_b)}, gain {_fmt_gain(lr_g)}; "
             f"multivariate {mv:.3f}, baseline {mv_b:.3f}, gain {mv_g:+.3f}), "
-            f"and {cv_part}."
+            f"and {cv_part}; read the reliability gain together with the cross-view coupling gain, "
+            "because a dominant direction private to one view is reproducible without being shared."
         )
         s2_tail = (
             f"Pairwise feature agreement in {fspace} space is {_fmt_vec(fa)} "
@@ -448,7 +495,11 @@ def _build_stability_interpretation(
             if cv is not None
             else "cross-view coupling is unavailable (fewer than 2 views or 3 OOB rows)"
         )
-        s1 = f"Out-of-bag latent reliability is {_fmt_vec(lr)} (multivariate {mv:.3f}), and {cv_part}."
+        s1 = (
+            f"Out-of-bag latent reliability is {_fmt_vec(lr)} (multivariate {mv:.3f}), and {cv_part}; "
+            "reliability must be read together with cross-view coupling, because a dominant direction "
+            "private to one view is reproducible without being shared."
+        )
         no_base = "no permutation baseline was run (baseline=False)"
         s2_tail = (
             f"Pairwise feature agreement in {fspace} space is {_fmt_vec(fa)} across {n_ref} refits "
@@ -519,15 +570,15 @@ def _compute_stability_from_refits(
     for b_i, (idx_b, oob_b, rec) in enumerate(zip(sub_idx, oob_rows, sub_records)):
         keep_rec = (not exclude_unconverged) or bool(rec["converged"])
         st = np.vstack(rec["structure"])
-        if keep_rec and rec.get("oos_coupling") is not None:
+        if keep_rec and rec.get("cross_view_coupling") is not None:
             _, col_ind = linear_sum_assignment(-np.abs(st.T @ stacked_ref))
             inv = np.empty_like(col_ind)
             inv[col_ind] = np.arange(k)
-            c_aligned = np.asarray(rec["oos_coupling"], dtype=float)[inv]
+            c_aligned = np.asarray(rec["cross_view_coupling"], dtype=float)[inv]
             coups.append(c_aligned)
             coup_splits_all.append([float(x) for x in c_aligned])
-            if rec.get("oos_coupling_n") is not None:
-                coup_n.append(list(rec["oos_coupling_n"]))
+            if rec.get("cross_view_coupling_n") is not None:
+                coup_n.append(list(rec["cross_view_coupling_n"]))
         else:
             coup_splits_all.append(None)
 
@@ -759,7 +810,7 @@ def _build_subsample_tasks(
         oob = np.setdiff1d(all_rows, np.unique(idx), assume_unique=True)
         oob_rows.append(oob)
         t_idx = torch.as_tensor(idx)
-        t_oob = torch.as_tensor(oob) if len(oob) >= 1 else None
+        t_oob = torch.as_tensor(oob) if len(oob) >= 2 else None  # one row has no variance to score on
         sub_v = [x[t_idx].numpy() if x.device.type == "cpu" else x[t_idx] for x in view_list]
         oob_v = (
             [x[t_oob].numpy() if x.device.type == "cpu" else x[t_oob] for x in view_list]
@@ -812,7 +863,15 @@ def _prepare_baseline_draw(
     g_codes: Optional[np.ndarray],
     n_subsamples: int,
 ) -> Tuple[List[torch.Tensor], Dict[str, Any], List[np.ndarray]]:
-    """Permute views ``1..M-1`` independently once for one baseline draw and draw its subsamples."""
+    """Permute views ``1..M-1`` independently once for one baseline draw and draw its subsamples.
+
+    View 0 stays in place on purpose (see the request, section 2.1): a dominant
+    direction inside one view keeps its true reproducibility in the baseline.
+    Rotating which view stays fixed was measured on all-private data (after 0.42.0)
+    and did not reduce the per-draw spread of ``latent_reliability_gain``
+    (sd 0.159 -> 0.161 linear, 0.212 -> 0.201 conical, 0.239 -> 0.204 convex;
+    20 seeds, n=60, B=20), so it was not adopted.
+    """
     from .confounds import permute_view_confounds
     from .loadings import _draw_subsample
 
@@ -1030,7 +1089,7 @@ def latent_stability(
         "view_widths": [int(x.shape[1]) for x in view_list],
         "pysimlr_version": pysimlr.__version__,
     }
-    return _RemovedKeysDict(out)
+    return _RemovedKeysDict(out, carry_table=True)
 
 
 __all__ = [

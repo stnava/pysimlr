@@ -17,24 +17,24 @@ def test_fork_graph_validation_and_conventions() -> None:
     with pytest.raises(ValueError, match="distinct"):
         pysimlr.fork_graph(0, [1, 1])
 
-    fg_exog = pysimlr.fork_graph("Blast_Root", ["T1", "DTI", "ASL"], exogenous_root=True, for_sem=False)
+    fg_exog = pysimlr.fork_graph("Root", ["T1", "DTI", "ASL"], exogenous_root=True, for_sem=False)
     assert fg_exog == {
-        "Blast_Root": [],
-        "T1": ["Blast_Root"],
-        "DTI": ["Blast_Root"],
-        "ASL": ["Blast_Root"],
+        "Root": [],
+        "T1": ["Root"],
+        "DTI": ["Root"],
+        "ASL": ["Root"],
     }
 
-    fg_bidir = pysimlr.fork_graph("Blast_Root", ["T1", "DTI"], exogenous_root=False, for_sem=False)
+    fg_bidir = pysimlr.fork_graph("Root", ["T1", "DTI"], exogenous_root=False, for_sem=False)
     assert fg_bidir == {
-        "Blast_Root": ["T1", "DTI"],
-        "T1": ["Blast_Root"],
-        "DTI": ["Blast_Root"],
+        "Root": ["T1", "DTI"],
+        "T1": ["Root"],
+        "DTI": ["Root"],
     }
 
-    sem_g = pysimlr.fork_graph("Blast_Root", ["T1", "DTI", "ASL"], for_sem=True)
+    sem_g = pysimlr.fork_graph("Root", ["T1", "DTI", "ASL"], for_sem=True)
     assert sem_g == {
-        "Blast_Root": ["T1", "DTI", "ASL"],
+        "Root": ["T1", "DTI", "ASL"],
         "T1": [],
         "DTI": [],
         "ASL": [],

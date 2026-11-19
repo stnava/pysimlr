@@ -29,9 +29,14 @@ import pandas as pd
 
 from adni_loader import _clean_columns
 
-SOURCE = ("/Users/stnava/Library/Mobile Documents/com~apple~CloudDocs/"
-         "code/multidisorder/data/ppmi_pym_data/"
-         "ADNIMERGE_10Feb2024_antspymm_v1.4.0.csv")
+SOURCE = os.environ.get(
+    "PYSIMLR_ADNIMERGE_SOURCE",
+    os.path.expanduser(
+        "~/Library/Mobile Documents/com~apple~CloudDocs/"
+        "code/multidisorder/data/ppmi_pym_data/"
+        "ADNIMERGE_10Feb2024_antspymm_v1.4.0.csv"
+    ),
+)
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "adni")
 OUT_PATH = os.path.join(OUT_DIR, "adni_t1_dti_biomarker_merged.csv")
 

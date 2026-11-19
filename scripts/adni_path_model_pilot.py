@@ -913,7 +913,7 @@ def generate_html_report(
         refits_rows_html += (
             f"<tr><td>{row['method'].upper()}</td><td><strong>{row['graph']}</strong></td>"
             f"<td>{row['topology']}</td><td>{int(row['n_edges'])}</td>"
-            f"<td>{row['heldout_loglik_own']:.2f}</td><td>{row['oos_coupling']:.4f}</td>"
+            f"<td>{row['heldout_loglik_own']:.2f}</td><td>{row['cross_view_coupling']:.4f}</td>"
             f"<td>{row['oos_r2']:.4f}</td><td>{row['outcome_r2']:.4f}</td></tr>\n"
         )
 

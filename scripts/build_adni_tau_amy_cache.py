@@ -3,7 +3,7 @@
 Merges two sources that don't otherwise overlap in this repo's pipeline:
   - The ANTsPyMM multi-modal imaging export (`adni_loader.SOURCE`):
     T1Hier/DTI/rsfMRI views, subject IDs in ADNI's `SITE_S_SUBJECT` format.
-  - `~/Documents/writing/nick/Papers/CrossLong/Data/adni_elecsys_csf_nfl.csv`
+  - ``$PYSIMLR_CSF_SOURCE`` (``adni_elecsys_csf_nfl.csv``)
     (ADNIMERGE-derived, confirmed genuine ADNI via its `PTID` format): CSF
     `amy` (amyloid-beta42, Elecsys assay) and `tau`, longitudinal (1213
     unique subjects, multiple visits each).
@@ -31,8 +31,10 @@ import pandas as pd
 
 from adni_loader import SOURCE, _view_matrix
 
-CSF_SOURCE = ("/Users/stnava/Documents/writing/nick/Papers/CrossLong/Data/"
-             "adni_elecsys_csf_nfl.csv")
+CSF_SOURCE = os.environ.get(
+    "PYSIMLR_CSF_SOURCE",
+    os.path.expanduser("~/data/adni/adni_elecsys_csf_nfl.csv"),
+)
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "adni")
 OUT_PATH = os.path.join(OUT_DIR, "adni_tau_amy_merged.csv")
 

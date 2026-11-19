@@ -128,7 +128,7 @@ only on which side the observed statistic falls — which is exactly what the
 calibration sweep showed (every replicate returning 0.050, or every replicate
 returning 1.000, depending on data shape).
 
-The blast radius is wider than the p-values: `simlr_perm`,
+The scope of impact is wider than the p-values: `simlr_perm`,
 `paths.permutation_test` and `estimate_rank` all draw their nulls with
 `torch.randperm`, and any downstream train/test split, bootstrap or
 augmentation performed after a fit was equally frozen. Nothing failed; the

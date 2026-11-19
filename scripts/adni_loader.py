@@ -30,8 +30,10 @@ import numpy as np
 import pandas as pd
 import torch
 
-SOURCE = ("/Users/stnava/Library/Mobile Documents/com~apple~CloudDocs/"
-         "code/multidisorder/data/ppmiadni_filtered.csv")
+SOURCE = os.environ.get(
+    "PYSIMLR_ADNI_SOURCE",
+    os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/code/multidisorder/data/ppmiadni_filtered.csv"),
+)
 
 VIEWS = ["T1Hier", "DTI", "rsfMRI"]
 

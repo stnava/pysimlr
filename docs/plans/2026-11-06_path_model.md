@@ -1,7 +1,7 @@
 # pysimlr: score-level path model (edge-wise inference, omnibus tests, topology comparison, prediction)
 
-Repo: `/Users/stnava/data/repos/pysimlr` (v0.22.2, `main`; untracked at hand-off: `src/pysimlr/sem.py`, `scripts/path_model_demo.py`, `docs/audit/evidence/path_model/`, this plan).
-Plan author: Claude Fable 5.1 (supervisor). Executor: the implementing agent. Owner: stnava.
+Repo: `pysimlr` (v0.22.2, `main`; untracked at hand-off: `src/pysimlr/sem.py`, `scripts/path_model_demo.py`, `docs/audit/evidence/path_model/`, this plan).
+Plan author: Claude Fable 5.1 (supervisor). Executor: the implementing agent.
 Date: 2026-11-06. Target release: v0.23.0 (minor: new public API, one behaviour change in
 `permutation_test`, one function retired).
 

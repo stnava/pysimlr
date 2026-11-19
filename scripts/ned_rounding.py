@@ -34,8 +34,6 @@ import pandas as pd
 import torch
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if not os.path.exists(os.path.join(REPO, "src")):
-    REPO = "/Users/stnava/data/repos/pysimlr"
 sys.path.insert(0, os.path.join(REPO, "src"))
 
 import pysimlr

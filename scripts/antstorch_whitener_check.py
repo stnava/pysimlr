@@ -7,9 +7,11 @@ identity by 3.2 due to L^T triangular solve) is fixed in commit ed39d99.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 from pathlib import Path
 
+import antstorch
 import numpy as np
 import pandas as pd
 import torch
@@ -20,7 +22,8 @@ from antstorch.lamnr_flows.lamnr_flows_whitener import lamnr_flows_whitener
 
 def run_whitener_check(seed: int = 42, n: int = 2000, p: int = 8, cond: float = 50.0,
                        out_csv: str | None = "docs/audit/evidence/antstorch_whitener_check.csv") -> dict[str, float | str | bool]:
-    antstorch_repo = Path("/Users/stnava/data/repos/ANTsTorch")
+    env_repo = os.environ.get("ANTSTORCH_REPO")
+    antstorch_repo = Path(env_repo) if env_repo else Path(antstorch.__file__).resolve().parents[1]
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=antstorch_repo).decode().strip()
 
     rng = np.random.default_rng(seed)

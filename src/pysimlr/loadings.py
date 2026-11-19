@@ -1491,12 +1491,21 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         lr_ref = _extract_learning_rate_used(ref)
         if lr_ref is not None:
             refit_params["learning_rate"] = lr_ref
+    # Confounds follow their rows: a subsample refit gets the subsample's
+    # confound rows, and a permutation refit permutes each view together with
+    # its own confound rows, so every view of a null refit is cleaned exactly
+    # as in the observed fit (`pysimlr.confounds.permute_view_confounds`).
     conf = refit_params.get("confounds")
     from .confounds import permute_view_confounds, slice_confounds
+    # Draw every index in the parent, in a fixed order, before any refit runs:
+    # the result is then the same for every n_jobs.
+    # The default scheme is the historical draw; the bound below is only reported for it.
     sub_idx = [_draw_subsample(rng, n, m, subsample, s_codes) for _ in range(int(n_subsamples))]
     if g_codes is None:
         perm_idx = [[rng.permutation(n) for _ in view_list[1:]] for _ in range(int(n_permutations))]
     else:
+        # Within-group permutation null: a row only moves to a position of its own group, so group
+        # structure shared by the views stays in the null (the groups= option of this function).
         perm_idx = [[within_group_permutation(rng, g_codes) for _ in view_list[1:]]
                     for _ in range(int(n_permutations))]
     all_rows = np.arange(n)
@@ -1504,7 +1513,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         p_widths = [int(x.shape[1]) for x in view_list] if probe_tensors is None else [
             int((view_list[i] if pt is None else pt).shape[1]) for i, pt in enumerate(probe_tensors)]
         n_beff = int(n_subsamples)
-        est = 4 * n_beff * (sum(p_widths) * k
+        est = 4 * n_beff * (sum(p_widths) * k                                   # aligned structure
                             + ("weights" in want) * sum(int(x.shape[1]) for x in view_list) * k
                             + ("maps" in want) * len(maps) * sum(p_widths) * k
                             + ("latents" in want) * n * k) + (n_beff * n * 5 if want else 0)
@@ -1518,7 +1527,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         oob = np.setdiff1d(all_rows, np.unique(idx) if subsample == "bootstrap" else idx, assume_unique=True)
         oob_rows.append(oob)
         t_idx = torch.as_tensor(idx)
-        t_oob = torch.as_tensor(oob) if len(oob) >= 1 else None
+        t_oob = torch.as_tensor(oob) if len(oob) >= 2 else None  # one row has no variance to score on
         sub_v = [x[t_idx].numpy() if x.device.type == "cpu" else x[t_idx] for x in view_list]
         oob_v = (
             [x[t_oob].numpy() if x.device.type == "cpu" else x[t_oob] for x in view_list]
@@ -1684,6 +1693,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         "expected_false_selections": [],
     }
     out.update(stab_out)
+    # The Meinshausen-Buhlmann bound is derived for subsamples of size n/2 drawn uniformly without replacement.
     bound_reason = None
     if subsample == "bootstrap":
         bound_reason = "bootstrap resampling (with replacement): the half-sampling bound does not apply"
@@ -1779,11 +1789,12 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
                 else:
                     entry["feature_agreement_by_view"].append(np.full(int(k), np.nan, dtype=float))
                     entry["selection_frequency"].append(torch.zeros(b - a, dtype=torch.float32))
+            # Rows behind each view's reference map and why any map is NaN (see `feature_maps(return_info=True)`).
             entry["n_eff"] = list(ref_lam["n_eff"])
             entry["n_eff_feature"] = [np.asarray(a) for a in ref_lam["n_eff_feature"]]
             entry["reasons"] = list(ref_lam["reasons"][kk])
             if kk == "relative_weight":
-                entry["rw_shrinkage"] = ref_lam["relative_weight"]
+                entry["rw_shrinkage"] = ref_lam["relative_weight"]    # lam per target, per view (reference fit)
             out["maps"][kk] = entry
     if want:
         refits: Dict[str, Any] = {
@@ -1823,7 +1834,7 @@ def loading_inference(method: str, views: Any, k: int, *, n_subsamples: int = 10
         null = [max(float(np.abs(c).max()) for c in rec["structure"])
                 for rec in records[len(sub_idx):perm_end]]
         out["null_max_abs"] = float(np.percentile(null, 95))
-    return _RemovedKeysDict(out)
+    return _RemovedKeysDict(out, carry_table=True)
 
 
 def _with_grouped_loadings(res: Dict[str, Any], views: Any, codes: np.ndarray, scale_within_group: bool) -> Dict[str, Any]:
@@ -1934,8 +1945,8 @@ def _fit_structure(task):
         "learning_rate_used": _extract_learning_rate_used(r),
         "effective_rank": [float(x) for x in r[er_key]],
         "oos_r2": oos_r2,
-        "oos_coupling": oos_coup,
-        "oos_coupling_n": coup_info.get("coupling_n"),
+        "cross_view_coupling": oos_coup,
+        "cross_view_coupling_n": coup_info.get("coupling_n"),
         "maps": ({kk: [t.double().numpy() for t in vv] for kk, vv in feature_maps(r, views, **map_opts).items()}
                  if map_opts else None),
         **kept,
@@ -2641,7 +2652,7 @@ def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *
                 oob = np.setdiff1d(all_rows, idx, assume_unique=True)
                 oob_rows_m.append(oob)
                 t_idx = torch.as_tensor(idx)
-                t_oob = torch.as_tensor(oob) if len(oob) >= 1 else None
+                t_oob = torch.as_tensor(oob) if len(oob) >= 2 else None  # one row has no variance to score on
                 sub_v_list.append([x[t_idx].numpy() if x.device.type == "cpu" else x[t_idx] for x in view_list])
                 oob_v_list.append(
                     [x[t_oob].numpy() if x.device.type == "cpu" else x[t_oob] for x in view_list]
@@ -2664,7 +2675,12 @@ def select_model(views: Any, candidates: Sequence[Mapping[str, Any]], ks: Any, *
             if sk in accepted or sk not in all_known:
                 call_params[sk] = sv
         call_params.update(cand["params"])
-        min_cv_c = call_params.pop("min_cross_view_coupling", call_params.pop("min_oos_coupling", None))
+        if "min_oos_coupling" in call_params:
+            raise ValueError(
+                "'min_oos_coupling' was removed in 0.41.0; use 'min_cross_view_coupling' "
+                "(same meaning, the out-of-bag cross_view_coupling threshold)."
+            )
+        min_cv_c = call_params.pop("min_cross_view_coupling", None)
         if confounds is not None:
             call_params["confounds"] = confounds
             call_params["confound_strength"] = confound_strength

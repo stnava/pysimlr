@@ -469,6 +469,10 @@ st["latent_reliability"], st["latent_reliability_gain"]   # per-component OOB IC
 st["cross_view_coupling"], st["cross_view_coupling_gain"] # OOB leave-one-view-out score coupling and gain
 st["feature_agreement"], st["feature_agreement_by_view"]  # secondary aligned weight/structure cosine across refits
 
+# Read latent_reliability_gain TOGETHER with cross_view_coupling_gain: a dominant direction private to one view
+# is reproducible without being shared, so its reliability gain wanders from draw to draw (sd about 0.2 at
+# n = 60, B = 10..20, three independent views each with a strong private direction) while the coupling gain stays near 0.
+
 inf = pysimlr.loading_inference("simlr", views, 3, n_subsamples=100, random_state=0)
 inf["latent_reliability"]       # out-of-bag ICC(1) per component from the same refits
 inf["ci_low"], inf["ci_high"]   # 95% percentile intervals per view
@@ -1203,8 +1207,9 @@ a planted four-view study.
 | `plot_dose_recruitment(rec, ...)` | continuous `Dose × View` recruitment heatmap, adaptive-$N_{\text{eff}}$ local linear curves with simultaneous `sup-t` bands, local slopes, and $2\sigma$ bandwidth spans | `modality_dose_recruitment` |
 
 Multi-view plots colour views with the Okabe–Ito palette. A plot of an unconverged fit is
-titled in orange with its stop reason. Stability badges are black at ≥ 0.9, amber at ≥ 0.8 and
-red below; change them with `bars=`.
+titled in orange with its stop reason. The 0.9 / 0.8 stability badges and the `bars=` argument that
+set them were removed in 0.41.0 with the numbers they were drawn against; passing `bars=` raises
+`ValueError`.
 
 Nothing plots the encoder `v`. The architecture diagrams are in `pysimlr.diagrams`.
 

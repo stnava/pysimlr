@@ -4,7 +4,7 @@ One home for the small inferential routines that had been re-implemented,
 privately and slightly differently, in ``antsxbrainmapping``
 (``discovery_transport``, ``multiview_simlr``, ``triangulation_variance``,
 ``cognitive_networks``, ``scripts/run_four_hypothesis_triangulation.py``),
-``antsxbrainmappingprivate`` and pysimlr itself (``screening._bh_qvalues``,
+downstream packages and pysimlr itself (``screening._bh_qvalues``,
 ``benchmarks.deep_ranking.holm_adjust``). Every function takes and returns
 numpy objects, is deterministic given its ``seed`` and raises on inputs it
 cannot interpret instead of returning a neutral value.

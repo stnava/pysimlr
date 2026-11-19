@@ -50,5 +50,5 @@ Behaviour: never drop or change data. `prepare_views(..., safety="warn" | "raise
 
 ## Reference
 
-A study-level version of rules 1 to 3 exists in the private blast-cohorts code
-(`paper_data.view_outliers`) and can be generalized.
+A study-level version of rules 1 to 3 exists in downstream study code
+and can be generalized.

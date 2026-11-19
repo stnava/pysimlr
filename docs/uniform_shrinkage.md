@@ -3,85 +3,68 @@
 ```python
 import pysimlr
 
-# 1. Orient views to a shared directional convention (e.g. higher = worse pathology)
-prep = pysimlr.prepare_views(raw_views, fit_rows=train_mask, signs=pathology_signs, nuisance=nuis)
+# 1. Orient views so that higher means the same thing on every feature of a view (your responsibility)
+prep = pysimlr.prepare_views(raw_views, fit_rows=train_mask, signs=signs, nuisance=nuis)
 
-# 2. Build dimension-adaptive uniform-shrinkage parameters (alpha_m = p_m / (n_obs + p_m))
-params = pysimlr.uniform_shrinkage_params(prep["views"], alpha="auto", sparseness=0.3)
+# 2. Build fit keyword arguments; alpha_m = clip(p_m / (n_m + p_m), 0.05, 0.85)
+params = pysimlr.uniform_shrinkage_params(prep["views"], alpha="auto", sparseness=None)
+print(params.provenance)           # resolved alpha, n_obs, nsa_w, scale_list, energy_type, ...
 
-# 3. Fit exposure-free SiMLR and project on the natural simplex scale
+# 3. Fit and score
 fit_res = pysimlr.fit("simlr", prep["views"], k=1, random_state=0, **params)
 proj = pysimlr.project_uniform_shrunk(fit_res, test_views)
-u_scores = proj["u"]               # (n, 1) natural-amplitude consensus score
-view_scores = proj["view_scores"]  # (n, M) per-view scores on the simplex scale
+u_scores, view_scores = proj["u"], proj["view_scores"]
 ```
 
-## Why This Strategy Exists (Bias–Variance Geometry at $n \lesssim p_m$)
+## Idea
 
-Once every feature within view $m \in \{1, \dots, M\}$ is oriented to share a common directional meaning (for instance, cortical thinning, parenchymal atrophy, tract fixel loss, within-network hypoconnectivity, and relative hypoperfusion via `pysimlr.prepare_views(..., signs=...)`), two extreme estimators bound the bias–variance spectrum:
+If every feature of view $m$ is oriented to a shared direction, the plain view mean $p_m^{-1}\mathbf{1}^\top z$ has zero estimation variance but no feature specificity. An unregularized non-negative weight vector $\mathbf{v}_m$ has estimation variance of order $p_m/n_m$. When $n_m \lesssim p_m$ the fit can trail the plain mean out of sample. The shrinkage step pulls each solver iterate toward the uniform direction by an amount $\alpha_m$.
 
-1. **Unweighted View Plain Mean ($\mathbf{w}_m^{(0)} = p_m^{-1}\mathbf{1}_{p_m}$):** Zero free parameters and **zero estimation variance**, capturing any diffuse global or high-coherence shift across a view, but assigning identical weight $1/p_m$ to uncoupled noise features and providing zero anatomical or network localization.
-2. **Unregularized Sparse `SiMLR` ($\hat{\mathbf{v}}_m \in \mathcal{S}_{\ge 0}^{p_m - 1}$):** Isolates cross-modally coupled focal features, but estimates $p_m$ coordinates from $n_m$ observations (`O(p_m / n_m)` estimation variance). When $n_{\text{train}} \lesssim p_m$ (e.g. $n_{\text{train}} = 73$ against $p_m = 100$ regions), non-convex optimization admits distinct local optima (`multistart_fit`), single-bag out-of-bag reliability `ICC(1)` drops, and out-of-fold $\Delta R^2$ can trail the naive plain mean.
+## What the code does
 
-`pysimlr.uniform_shrinkage` connects these two endpoints continuously inside `simlr`'s native `smoothing_matrices` framework.
+**Fit step.** For view $m$ and a column $v$ of the current iterate, let $c = \max(v, 0)$ (or $c = \max(-v, 0)$ if $v$ has no positive entry; only with `positive_part=True`). The operator returns
 
-## Mathematical Formulation
+$$S'_m(v) = (1-\alpha_m)\,c + \alpha_m\,\operatorname{mean}(c),$$
 
-### 1. Closed-Form Complete-Graph Green's Resolvent (`UniformShrinkageOperator`)
+with the mean taken per group when `groups=` is given (labels `-1`, `None`, NaN are left unchanged). With `positive_part=False` it is the linear map $\mathbf{S}_m(\alpha_m) = (1-\alpha_m)\mathbf{I} + \alpha_m\mathbf{\Pi}_m$, $\mathbf{\Pi}_m = p_m^{-1}\mathbf{1}\mathbf{1}^\top$ (block-wise for groups).
 
-Let $\mathbf{L}_m = \mathbf{I}_{p_m} - \mathbf{\Pi}_m$ denote the mean-degree-normalized combinatorial Laplacian of the complete graph $K_{p_m}$ (where $\mathbf{\Pi}_m = p_m^{-1}\mathbf{1}_{p_m}\mathbf{1}_{p_m}^\top$ is the orthogonal projector onto the uniform direction, or block-mean projector when `groups=` partitions features into anatomical/functional systems). Because $\mathbf{\Pi}_m^2 = \mathbf{\Pi}_m$, its Green's resolvent has an exact Sherman–Morrison closed form requiring **$O(p_m k)$ time and $O(1)$ memory** (no $p_m \times p_m$ matrix is ever allocated):
+**Schedule.** $\alpha_m = \operatorname{clip}\bigl(c\,p_m/(n_m + c\,p_m),\ 0.05,\ 0.85\bigr)$ with `prior_scale` $c = 1$ by default. $n_m$ is the number of rows of view $m$ with at least one finite feature, which is the set of rows `missing_rows="mask"` keeps (rows that are entirely NaN do not count; scattered NaNs do not reduce $n_m$).
 
-$$\mathbf{S}_m(\alpha_m) = \bigl(\mathbf{I}_{p_m} + \lambda_m \mathbf{L}_m\bigr)^{-1} = (1 - \alpha_m)\mathbf{I}_{p_m} + \alpha_m \mathbf{\Pi}_m, \qquad \alpha_m = \frac{\lambda_m}{1 + \lambda_m} \in [0, 1].$$
+**Projection (`project_uniform_shrunk`).** For each column of the fitted basis, $w = (1-\gamma)\,\operatorname{simplex}(\max(v,0)) + \gamma/p_m$ (flipped to $\max(-v,0)$ when $\sum v < 0$; uniform if the positive part is zero). The view score is $Z_m w_m$ (`view_scaling="natural"`); the consensus is $u = \operatorname{nanmean}_m (Z_m w_m)$. With `post_shrink="auto"`, $\gamma = \operatorname{clip}(1 - n_{\text{tr}}/(1.5\,p_{\max}),\ 0,\ 0.6)$, where $n_{\text{tr}}$ is the largest per-view count of rows with a finite feature and $p_{\max}$ the widest view. Rows with any NaN in a view get a NaN score for that view.
 
-* At $\alpha_m = 0$ ($\lambda_m = 0$): $\mathbf{S}_m(0) = \mathbf{I}_{p_m}$ (standard unshrunk `SiMLR`).
-* At $\alpha_m \in (0, 1)$: Empirical-Bayes shrinkage pulling noisy coordinates toward the uniform background while allowing strongly cross-coupled focal features to rise multiple times above $1/p_m$.
-* At $\alpha_m = 1$ ($\lambda_m \to \infty$): $\mathbf{S}_m(1) = \mathbf{\Pi}_m$ (exact uniform projector).
+### Relation to the rest of pysimlr
 
-Like `SparseGraphResolvent`, `UniformShrinkageOperator` is idempotent on its own image so repeated calls inside `to_feasible` and post-step retraction never double-smooth a step, and `positive_part=True` protects signed iterates from cancelling before orthant projection.
+* $\mathbf{S}_m(\alpha) = (\mathbf{I} + \lambda\mathbf{L})^{-1}$ with $\mathbf{L} = \mathbf{I} - \mathbf{\Pi}$ the Laplacian of the complete graph (block-diagonal complete graph with `groups=`), $\lambda = \alpha/(1-\alpha)$. It is the closed-form special case of `SparseGraphResolvent`, in $O(p_m k)$ time without forming a matrix. `alpha` and `lambda_val` are two parametrizations of one knob: $\alpha = \lambda/(1+\lambda)$.
+* **One step, not a projector.** $\mathbf{S}$ is not idempotent: $\mathbf{S}(\mathbf{S}v) = (1-\alpha)^2 v + (1-(1-\alpha)^2)\mathbf{\Pi}v$. The operator is stateless. The solver applies it once per step: `pysimlr.sparsification._apply_smoothing` recognises the solver's own projected output (registered as its own image) and does not smooth it again. Removing the operator's former internal cache left fitted weights and out-of-sample correlations unchanged (max abs difference 0.0 on a planted $n < p$ example, `alpha="auto"` and `alpha=0.5`).
+* **Limits.** $\alpha = 1$: the fitted direction is uniform and the score equals the plain view mean (true by construction; tested). $\alpha = 0$: the smoother is the identity, but the result does **not** reduce exactly to a plain `simlr` fit: `uniform_shrinkage_params` uses a different `initial_v`, `nsa_w` defaults to 0.2 when sparseness is requested, and `positive_part` clips the iterate. Fitted weights have cosine about 0.99 with the plain fit in the tested example (test threshold 0.95).
+* **Sign orientation is a user contract.** Shrinking toward $+p_m^{-1}\mathbf{1}$ assumes $+1$ means the same on every feature. If a view's signs are flipped its score is negated; nothing checks this.
+* **$k > 1$.** `uniform_shrinkage_params(k>1)` raises `ValueError` unless `groups=` is given for every smoothed view and each such $\alpha \le 0.15$ (`MAX_ALPHA_MULTI_COMPONENT`). Pulling several columns toward the same uniform vector made the two components of a $k=2$ fit nearly identical (correlation 0.84 in an unrestricted run).
+* **Explicit defaults.** `uniform_shrinkage_params` exposes `scale_list=("none",)`, `energy_type="recon_r2"`, `mixing_algorithm="svd"`, `sparseness=0.3`, `sparseness_type="soft"`, `missing_rows="mask"` and `nsa_w="auto"` (0.2 if sparseness is requested, otherwise 0.0; pass a float to override). The returned dict carries the resolved values in its `.provenance` attribute (a dict subclass; `**params` passes only fit arguments).
 
-### 2. Dimension-Adaptive Schedule (`auto_uniform_alpha`)
+## Synthetic benchmark
 
-When `alpha="auto"` (default in `uniform_shrinkage_params`), each view receives shrinkage matched to its effective aspect ratio:
+Planted model: one latent $z$; every feature loads positively (background 0.10, first fifth of each view 0.20), unit Gaussian noise, features standardized on the training rows, three views. Score: absolute correlation between the consensus score and the planted $z$ on 400 held-out rows, mean over 20 seeds. Both fitted arms use the same sparseness and `project_uniform_shrunk(post_shrink=0)`, so the only difference is the smoother; differences are paired by seed with a percentile bootstrap (2,000 resamples) over seeds. Produced by `python scripts/uniform_shrinkage_benchmark.py --n-seeds 20 --n-boot 2000` (about 30 s; `--smoke` runs every stage with counts of 2).
 
-$$\alpha_m = \operatorname{clip}\!\left(\frac{p_m}{n_{\text{obs}, m} + p_m},\; 0.05,\; 0.85\right).$$
+| regime | n_train | widths | sparseness | plain mean | unshrunk | shrunk | shrunk - unshrunk [95% CI] | frac seeds better | shrunk - plain mean [95% CI] |
+| :-- | --: | :-- | :-- | --: | --: | --: | :-- | --: | :-- |
+| `n_lt_p` | 40 | [100, 120, 100] | None | 0.901 | 0.848 | 0.899 | +0.051 [+0.046, +0.055] | 1.00 | -0.003 [-0.004, -0.001] |
+| `n_lt_p_sparse0.3` | 40 | [100, 120, 100] | 0.3 | 0.901 | 0.849 | 0.842 | -0.006 [-0.011, -0.002] | 0.20 | -0.059 [-0.065, -0.053] |
+| `n_gg_p` | 600 | [20, 25, 15] | None | 0.666 | 0.644 | 0.646 | +0.002 [-0.000, +0.004] | 0.70 | -0.020 [-0.027, -0.014] |
 
-Narrower views (e.g. $p_m = 36$ white-matter bundles at $n = 93 \implies \alpha_m = 0.28$) retain sharper focal contrast automatically, wider views ($p_m = 100$ at $n = 73 \implies \alpha_m = 0.58$) receive stronger variance reduction, and $\alpha_m \to 0.05$ automatically in large cohorts ($n \gg p_m$).
+Reading the table:
 
-### 3. Natural Simplex Projection (`project_uniform_shrunk`)
+* With $n < p$ and no sparseness, shrinkage recovers most of the gap between the unshrunk fit and the plain mean (+0.051), in every seed, and ends within 0.003 of the plain mean (which is close to optimal here because every feature carries signal).
+* With `sparseness=0.3` the smoother gives no gain at $n < p$ (slightly worse, -0.006) and both fits trail the plain mean by about 0.06. The sparsity penalty already controls the variance, and shrinkage then adds bias. Prefer `sparseness=None` with this module, or accept no benefit.
+* With $n \gg p$ ($\alpha$ near 0.05) the difference is within noise (+0.002, CI includes 0).
+* These are one planted model with positive loadings on every feature. They show where the operator can help, not that it helps on any given dataset; check held-out performance against the plain mean.
 
-Standard `predict_simlr` unit-standardizes every view projection ($\operatorname{SD}(\mathbf{Z}_m\hat{\mathbf{v}}_m) = 1$), which artificially inflates views whose global mean was regressed out or cancelled by construction. Mapping each encoder column onto the probability simplex $\hat{\mathbf{w}}_m = \hat{\mathbf{v}}_m / (\mathbf{1}^\top \hat{\mathbf{v}}_m)$ and evaluating $\mathbf{Z}_m \hat{\mathbf{w}}_m$ directly (`view_scaling="natural"`) preserves each view's intrinsic within-modality coherence amplitude and guarantees **exact numerical identity** with the unweighted plain mean at $\alpha_m = 1$ (or `post_shrink=1.0`).
+## Should it be default ON in `pysimlr.simlr`?
 
----
+No. It stays opt-in. It needs shared coordinate polarity (see the contract above), it is restricted to $k=1$ (or small-$\alpha$ grouped $k>1$), and it adds nothing when $n \gg p$. On unoriented features the shrinkage destroys the signal (`tests/test_uniform_shrinkage.py::test_mixed_sign_planted_signal_shows_why_default_is_off`).
 
-## Should Uniform Shrinkage Be Default ON in `pysimlr.simlr`?
-
-**No. It must remain opt-in (`default OFF` in `pysimlr.simlr` and `pysimlr.fit`), and enabled explicitly via `uniform_shrinkage_params` when its structural assumptions hold.**
-
-### Why Not Default ON Globally
-
-1. **Requires Shared Coordinate Polarity:** Shrinking toward $+p_m^{-1}\mathbf{1}_{p_m}$ assumes $+1$ carries a consistent directional meaning across all features of view $m$. On unoriented raw features (where half of true loadings are $+0.6$ and half are $-0.6$; see `tests/test_uniform_shrinkage.py::test_mixed_sign_planted_signal_shows_why_default_is_off`), unshrunk `simlr(..., positivity="either")` recovers the latent at $|r| > 0.90$, whereas uniform nonnegative shrinkage drops recovery by $> 0.20$.
-2. **Multi-Component Orthogonality ($k \ge 2$):** Higher-order components ($\mathbf{v}_{m,2}, \dots, \mathbf{v}_{m,k}$) must be mutually orthogonal or support-disjoint (`nsa_flow`). Pulling multiple columns simultaneously toward the same rank-1 vector $\mathbf{1}_{p_m}$ opposes column separation and increases dimensional collapse.
-3. **Unnecessary Dilution When $n \gg p_m$:** In large biobank panels ($n \ge 5\, p_{\max}$, out-of-bag `ICC(1) > 0.90`), focal weights are already well-determined without leaking mass into uncoupled background features.
-
-### Decision Matrix: When to Use `uniform_shrinkage_params`
-
-| Study Regime | Feature Polarity | Rank $k$ | Sample-to-Width ($n / p_{\max}$) or Raw OOB `ICC(1)` | Recommendation |
-| :--- | :--- | :---: | :---: | :--- |
-| Directional disease / injury burden (e.g. `prepare_views` with pathology `signs`) | **Aligned** (`higher = worse`) | $k = 1$ | $n \lesssim 2.5\, p_{\max}$ or `ICC(1) < 0.85` | **Turn ON** (`uniform_shrinkage_params(..., alpha="auto")` + `project_uniform_shrunk`) |
-| Directional disease / injury burden, large cohort | **Aligned** (`higher = worse`) | $k = 1$ | $n > 5\, p_{\max}$ and `ICC(1) >= 0.90` | Optional (`alpha="auto"` gently applies $\alpha_m \le 0.15$, or leave OFF for maximum sparsity) |
-| Arbitrary-sign tabular, omics, or raw unoriented MRI | Mixed / unknown | Any $k$ | Any $n / p$ | **Keep OFF** (use `positivity="either"`, screen wide views or use `SparseGraphResolvent` over a spatial/network graph) |
-| Multi-axis subspace discovery | Either | $k \ge 2$ | Any $n / p$ | **Keep OFF** (or restrict shrinkage to `groups=` anatomical modules with small `alpha <= 0.15`) |
-
-## Measured Effect on Five-View Neuroimaging (`brain_systems@3`, $p = 63, 100, 36, 98, 99$)
-
-Measured on 5-view pathology-oriented MRI (`Cortical thickness`, `Regional volume`, `White-matter bundles`, `Resting-state connectivity`, `Perfusion`; age-stratified Freedman–Lane partial $R^2$ and `5×5` fold-refitted out-of-fold $\Delta R^2$, `2,000` permutations):
-
-| Estimator & Fit Regime | Single-Bag OOB `ICC(1)` (Gain) | Heavy-Weapon Rate $R^2$ ($p$) | Artillery `BEC 3` Rate $R^2$ ($p$) | `BEC 1` NegCtrl $p$ | `5×5` Fold-Refitted OOF $\Delta R^2$ ($p$) |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| Unweighted `plain_mean_5view` ($n=93$, 0 focal contrast) | — | `0.096` (`0.0050`) | `0.038` (`0.0812`) | `0.901` | `+0.071` (`0.0025`) |
-| Unshrunk `conical k=1, sp=0.5` ($n=93$ single-cohort) | `0.226` (`-0.262`) | `0.040` (`0.0665`) | `0.014` (`0.2794`) | `0.985` | `+0.001` (`0.1359`) |
-| **Uniform-shrunk (`n=93` single-cohort, `post_shrink="auto"`)** | — | **`0.049–0.072`** (**`0.0155–0.0440`**) | `0.029–0.040` (`0.076–0.120`) | `0.701–0.856` | **`+0.025 to +0.050`** (**`0.0100–0.0330`**) |
-| Unshrunk `conical k=1, sp=0.5` ($n=186$ same-scanner basis) | `0.945` (`+0.537`) | `0.061` (`0.0222`) | `0.054` (`0.0334`) | `0.246` | — |
-| **Uniform-shrunk (`n=186` basis, `alpha="auto", sp=0.3`, `post_shrink=0`)** | **`0.959` (`+0.533`)** | **`0.103` (`0.0030`)** | **`0.061` (`0.0210`)** | **`0.306`** | — |
-
-On the $n = 186$ same-scanner basis (`post_shrink="auto"` resolves to `0.0` automatically since $n > 1.5\, p_{\max}$), `uniform_shrinkage_params(alpha="auto", sparseness=0.3)` + `project_uniform_shrunk` **surpasses `plain_mean_5view` on heavy-weapon rate (`10.3%, p = 0.0030` vs. `9.6%, p = 0.0050`) while beating `plain_mean_5view` by `+61%` on focal artillery `BEC 3` (`6.1%, p = 0.0210` vs. `3.8%, p = 0.0812`)** and maintaining `3.85×` focal tract contrast (`SLF`/`ILF` fixel density + salience connectivity). On $n = 93$ alone ($n_{\text{train}} = 73 < 100$), `post_shrink="auto"` activates sub-critical damping automatically and lifts `5×5` fold-refitted out-of-fold $\Delta R^2$ from `+0.001` ($p = 0.136$) to `+0.025–0.050` ($p = 0.010–0.033$).
+| Regime | Feature polarity | $k$ | $n/p_{\max}$ | Recommendation |
+| :-- | :-- | :-: | :-: | :-- |
+| Oriented views | aligned | 1 | $n \lesssim 2.5\,p_{\max}$ | try it, `sparseness=None`, compare with the plain mean on held-out rows |
+| Oriented views | aligned | 1 | $n > 5\,p_{\max}$ | optional ($\alpha \le 0.15$, little effect) |
+| Unknown or mixed signs | mixed | any | any | keep off (`positivity="either"`, or `SparseGraphResolvent` over a graph) |
+| Multi-component | either | $\ge 2$ | any | off, or `groups=` with $\alpha \le 0.15$ |

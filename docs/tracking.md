@@ -278,7 +278,7 @@ status: done (released in v0.23.0)
   from `pearson_r`, `n_subjects` and the per-family permutation p: all 48 rows reproduce to 1e-9 / 1e-12.
   Full suite: 1974 passed, 2 xfailed (baseline on main: 1902 passed, 2 xfailed). `ruff check` clean on the new and edited lines (repo-wide count unchanged
   except for the removed duplicates).
-- **Not done:** antsxbrainmapping / antsxbrainmappingprivate still carry their private copies (external repos,
+- **Not done:** antsxbrainmapping / downstream repositories still carry their local copies (external repos,
   not edited here); `triangulation_variance._univariate_perm_boot_stats` (scalar r / rho / directional p) has no
   pysimlr counterpart yet.
 
@@ -487,7 +487,7 @@ status: done (released in v0.20.0). Supersedes the `simlr`-only sink of `f29c18c
     `max |r(u, C)| < 1e-5` was true by construction.
   - Four silent paths: a zero-norm ridge fallback, a largest-lambda fallback, a skip on a
     row-count mismatch, and an unpermuted return on a length mismatch.
-  - The `+72%` BLAST claim was 0.187 ± 0.142 vs 0.108 ± 0.105 over 5 splits, and the data are not
+  - The `+72%` external-cohort claim was 0.187 ± 0.142 vs 0.108 ± 0.105 over 5 splits, and the data are not
     on this machine.
 - **Design.** One feature-space operator per view, fitted by `pysimlr.fit` on the training rows:
   `X - gamma (X - mu) H H^T`. `H` is an orthonormal basis of `X_c^T Q` and `Q` is the
@@ -563,7 +563,7 @@ status: done (released in v0.21.0)
   `scale`/`clim`, so the surface and its table twin keep identical limits and colours (`_apply_scale`).
 - **Tests:** `tests/test_brain_maps.py` (dispatch to region/tract scenes with renaming, scale and pass-through
   kwargs; connectome dispatch; DKT row limits under minmax, zero_max and explicit clim). 54 plotting tests pass.
-- **Gallery** (antsxviz `reports/brainmap_gallery_2026-11-05/`): every display on sub-BLAST058 real FA/MD in MNI and
+- **Gallery** (antsxviz `reports/brainmap_gallery_2026-11-05/`): every display on real FA/MD in MNI and
   in its own space, simulated Yeo connectivity.
 
 ## D33 (component_attribution: paper Fig. 3.9 as reusable code, 2026-11-05)
@@ -921,7 +921,7 @@ status: done on branch `fix/pos-sparse-calibrated-consensus`
 - **DOF/OOF-calibrated per-component `subset_consensus` & pole-oriented anchored extension (`extension.py`):**
   - Replaced raw OLS and uncalibrated scalar `R^2 / (1 - R^2)` weights in `_affine_map` / `subset_consensus` with GCV-stabilized ridge maps `_gcv_ridge_solve` and default per-component `(k,)` precision weights driven by `consensus.mai_dof_adjust` (with smooth `(n - 1) / (n - 1 + dof)` shrinkage when `dof` approaches or exceeds `n - 1`) or extension fold `oof_r2`.
   - Updated `fit_anchored_encoder` step-0 initialization under non-negative `positivity` + `SIGN_INVARIANT_ENERGIES` to select the higher-variance `(X^T t)_+` vs `(-X^T t)_+` pole, and added stratified 5-fold OOF (`oof_r2`, `coupling`) in `_anchored_holdout` when `15 <= n < 60`.
-- **Verification:** `tests/test_pos_sparse_calibrated_consensus.py` (4 tests) + `tests/test_similarity_registry.py` (`nc_abs` + sign-invariance registry check) + `tests/test_extend.py` + `tests/test_olee_contract.py` + `tests/test_implementation_standards.py`; `antsxqc.lint src tests` 0 findings; 4-cohort blast benchmark confirmed `ExpArt` `ASL_Perfusion` consensus share rose `1.0% -> ~48%` (`DTI + rsfMRI_Conn` `98.4% -> <40%`) and zero-shot `Career Breachers (N=31)` `Consensus U` AUC rose to `0.78-0.80` (`U + Z_m` up to `0.874`).
+- **Verification:** `tests/test_pos_sparse_calibrated_consensus.py` (4 tests) + `tests/test_similarity_registry.py` (`nc_abs` + sign-invariance registry check) + `tests/test_extend.py` + `tests/test_olee_contract.py` + `tests/test_implementation_standards.py`; `antsxqc.lint src tests` 0 findings; multi-cohort benchmark confirmed perfusion consensus share rose `1.0% -> ~48%` (`DTI + rsfMRI_Conn` `98.4% -> <40%`) and zero-shot held-out cohort (`N=31`) `Consensus U` AUC rose to `0.78-0.80` (`U + Z_m` up to `0.874`).
 - Renumbered D20 -> D22 on merge into `main` (D20/D21 were taken by v0.13.0 work).
 
 ## D21 (alternative feature maps: partial / inverse correlation, relative weights, 2026-11-04)
@@ -1787,7 +1787,7 @@ build output). Audit report: reports/paper_audit_2026-11-01.html. Headline resul
   0.0804; the paper's best linear config (Lookahead, nc, ica) 0.187 vs 0.2407. v0.3.0 matches
   HEAD. Regenerated v0.3.0 sweep: 1214/1214 configurations ok; best CogPC1 NED 0.262, LEND 0.261,
   Flow 0.246, NEDPP 0.235, SiMLR 0.209, PCA 0.178 (single seed).
-- scripts/run_adni_mci_grid_sweep.py hard-codes /Users/stnava/data/repos/pysimlr/src on sys.path.
+- scripts/run_adni_mci_grid_sweep.py hard-codes <repo>/src on sys.path.
 - Appendix Wilcoxon tests use 36 dataset-seed pairs as independent with no Holm correction; at
   the 12-block level only SiMLR-LBFGS/LBFGSB stay below 0.05 vs PCA.
 - Regenerated with v0.3.0 into the scratchpad (not committed): Friedman linear chi2 30.5
