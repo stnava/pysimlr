@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.42.1"
+__version__ = "0.43.0"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -129,11 +129,16 @@ from .screening import apply_view_screen, screen_wide_views
 from .orientation import orient_latents
 from .reliable_attribution import attribute_target, target_root_fit_params
 from .uniform_shrinkage import (
+    ColumnSupportShrinkageOperator,
     UniformShrinkageOperator,
     UniformShrinkageParams,
     auto_uniform_alpha,
     create_uniform_smoother,
+    effective_support_dof,
+    extract_disjoint_supports,
+    fit_uniform_shrunk,
     project_uniform_shrunk,
+    resolve_directional_defaults,
     uniform_shrinkage_params,
 )
 from .loadings import (
@@ -245,10 +250,15 @@ __all__ = [
     'orient_latents',
     'attribute_target',
     'target_root_fit_params',
+    'ColumnSupportShrinkageOperator',
     'UniformShrinkageOperator',
     'UniformShrinkageParams',
     'auto_uniform_alpha',
     'create_uniform_smoother',
+    'effective_support_dof',
+    'extract_disjoint_supports',
+    'fit_uniform_shrunk',
+    'resolve_directional_defaults',
     'uniform_shrinkage_params',
     'project_uniform_shrunk',
     'feature_maps',

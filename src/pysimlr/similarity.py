@@ -608,9 +608,16 @@ def _reset_linear_align_warning() -> None:
 
 
 def warn_if_signed_nc_with_positive(energy_type: str, positivity: Optional[str],
-                                    *, stacklevel: int = 3) -> None:
-    """Emit a one-time warning when signed ``"nc"`` is combined with non-negative ``positivity``."""
+                                    *, k: Optional[int] = None, stacklevel: int = 3) -> None:
+    """Emit a one-time warning when signed ``"nc"`` is combined with non-negative ``positivity`` and ``k > 1``.
+
+    At ``k == 1`` on sign-oriented directional views, signed ``"nc"`` is the smooth
+    directional objective; when ``k > 1`` (or ``k`` is unspecified), anti-aligned
+    multi-component views may prefer ``"nc_abs"`` or ``"acc"``.
+    """
     if energy_type != "nc" or _WARNED_NC_POSITIVE:
+        return
+    if k is not None and int(k) <= 1:
         return
     from .positivity import resolve_positivity
     if resolve_positivity(positivity) not in _NONNEG_POSITIVITY:
@@ -642,14 +649,14 @@ def warn_if_linear_align(energy_type: str, path: Optional[str],
 
 
 def check_fit_energy(name: str, path: Optional[str] = None,
-                     *, positivity: Optional[str] = None) -> str:
+                     *, positivity: Optional[str] = None, k: Optional[int] = None) -> str:
     """`resolve_energy_name`, plus refusal of `AUXILIARY_ENERGIES` as a fit's
     ``energy_type``. Called at every fit entry point."""
     key = resolve_energy_name(name, path)
     if key in AUXILIARY_ENERGIES:
         raise ValueError(f"energy_type={key!r} is not a fit objective: {AUXILIARY_ENERGIES[key]}.")
     if positivity is not None:
-        warn_if_signed_nc_with_positive(key, positivity, stacklevel=5)
+        warn_if_signed_nc_with_positive(key, positivity, k=k, stacklevel=5)
         warn_if_linear_align(key, path, stacklevel=5)
     return key
 

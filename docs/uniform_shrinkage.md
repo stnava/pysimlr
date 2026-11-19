@@ -1,70 +1,93 @@
-# Uniform Shrinkage for Directional Multi-View SiMLR (`pysimlr.uniform_shrinkage`)
+# Uniform and Support-Restricted Shrinkage (`pysimlr.uniform_shrinkage`)
 
 ```python
 import pysimlr
 
-# 1. Orient views so that higher means the same thing on every feature of a view (your responsibility)
+# 1. Orient views so higher means the same direction on every feature (user contract)
 prep = pysimlr.prepare_views(raw_views, fit_rows=train_mask, signs=signs, nuisance=nuis)
 
-# 2. Build fit keyword arguments; alpha_m = clip(p_m / (n_m + p_m), 0.05, 0.85)
-params = pysimlr.uniform_shrinkage_params(prep["views"], alpha="auto", sparseness=None)
-print(params.provenance)           # resolved alpha, n_obs, nsa_w, scale_list, energy_type, ...
+# 2. Fit directional uniform-shrunk (k=1) or two-stage support-restricted (k>=1, sparse or k>1)
+#    Defaults: positivity="convex" (radial simplex), energy_type="auto" ("nc" for k=1, "acc" for k>1),
+#    mixing_algorithm="auto" ("pca"), alpha_mode="ric".
+fit_k1 = pysimlr.fit_uniform_shrunk(prep["views"], k=1, random_state=0)
+fit_k2 = pysimlr.fit_uniform_shrunk(prep["views"], k=2, sparseness=0.3, random_state=0)
 
-# 3. Fit and score
-fit_res = pysimlr.fit("simlr", prep["views"], k=1, random_state=0, **params)
-proj = pysimlr.project_uniform_shrunk(fit_res, test_views)
+# 3. Project new rows with support-restricted simplex blending (exact zeros preserved)
+proj = pysimlr.project_uniform_shrunk(fit_k2, test_views, train_views=prep["views"])
 u_scores, view_scores = proj["u"], proj["view_scores"]
 ```
 
 ## Idea
 
-If every feature of view $m$ is oriented to a shared direction, the plain view mean $p_m^{-1}\mathbf{1}^\top z$ has zero estimation variance but no feature specificity. An unregularized non-negative weight vector $\mathbf{v}_m$ has estimation variance of order $p_m/n_m$. When $n_m \lesssim p_m$ the fit can trail the plain mean out of sample. The shrinkage step pulls each solver iterate toward the uniform direction by an amount $\alpha_m$.
+If every feature of view $m$ is oriented to a shared direction, the plain view mean $p_m^{-1}\mathbf{1}^\top z$ has zero estimation variance but no feature specificity. An unregularized non-negative weight vector $\mathbf{v}_m$ has estimation variance of order $p_m/n_m$. When $n_m \lesssim p_m$ the unregularized fit can trail the plain mean out of sample.
 
-## What the code does
+Combining global shrinkage with subtractive sparsity or multi-component orthogonality introduces three structural conflicts:
 
-**Fit step.** For view $m$ and a column $v$ of the current iterate, let $c = \max(v, 0)$ (or $c = \max(-v, 0)$ if $v$ has no positive entry; only with `positive_part=True`). The operator returns
+1. **Order-statistic soft-thresholding cancels global shrinkage.** If $\tilde{v} = (1-\alpha)v + \alpha\bar{v}\mathbf{1}$ is soft-thresholded at $\tau = \tilde{v}_{(m+1)} = (1-\alpha)v_{(m+1)} + \alpha\bar{v}$, the uniform floor cancels identically: $(\tilde{v} - \tau)_+ / \|(\tilde{v} - \tau)_+\|_2 = (v - v_{(m+1)})_+ / \|(v - v_{(m+1)})_+\|_2$ for all $\alpha \in [0, 1)$.
+2. **Non-subtractive support restriction and radial simplex normalization.** The exact Euclidean and cosine projection of $y \in \mathbb{R}^p$ onto $\mathcal{C}_m = \{u \ge 0 : \|u\|_0 \le m, \|u\|_2 = 1\}$ is non-subtractive top-$m$ restriction $(y_+)_{S^*} / \|(y_+)_{S^*}\|_2$. Likewise, `positivity="convex"` applies radial simplex normalization $v_+ / \mathbf{1}^\top v_+$, preserving every positive coordinate rather than subtracting a Euclidean simplex threshold $\theta > 0$.
+3. **Global shrinkage breaks $k \ge 2$ orthogonality.** For $V \in \mathbb{R}_+^{p \times k}$, $V^\top V = I_k$ holds if and only if the columns have unit $\ell_2$ norm and pairwise-disjoint supports $S_c \cap S_{c'} = \emptyset$. Pulling all columns toward a single global vector $\mathbf{1}_p$ forces them to collapse as $\alpha \to 1$.
 
-$$S'_m(v) = (1-\alpha_m)\,c + \alpha_m\,\operatorname{mean}(c),$$
+## Two-Stage Support-Restricted RIC Estimator (`fit_uniform_shrunk`)
 
-with the mean taken per group when `groups=` is given (labels `-1`, `None`, NaN are left unchanged). With `positive_part=False` it is the linear map $\mathbf{S}_m(\alpha_m) = (1-\alpha_m)\mathbf{I} + \alpha_m\mathbf{\Pi}_m$, $\mathbf{\Pi}_m = p_m^{-1}\mathbf{1}\mathbf{1}^\top$ (block-wise for groups).
+**Column-wise support-restricted smoother (`ColumnSupportShrinkageOperator`).** Given active supports $S_{m,1}, \dots, S_{m,k} \subseteq \{0, \dots, p_m - 1\}$ and shrinkage weights $\alpha_{m,1}, \dots, \alpha_{m,k} \in [0, 1]$, each call zeroes column $c$ outside $S_{m,c}$, takes the positive part on $S_{m,c}$, and applies
 
-**Schedule.** $\alpha_m = \operatorname{clip}\bigl(c\,p_m/(n_m + c\,p_m),\ 0.05,\ 0.85\bigr)$ with `prior_scale` $c = 1$ by default. $n_m$ is the number of rows of view $m$ with at least one finite feature, which is the set of rows `missing_rows="mask"` keeps (rows that are entirely NaN do not count; scattered NaNs do not reduce $n_m$).
+$$(S_{S_{m,c}} v_{m,c})_{S_{m,c}} = (1 - \alpha_{m,c})\,(v_{m,c})_{S_{m,c}} + \alpha_{m,c}\,\bar{v}_{S_{m,c}}\mathbf{1}_{S_{m,c}}.$$
 
-**Projection (`project_uniform_shrunk`).** For each column of the fitted basis, $w = (1-\gamma)\,\operatorname{simplex}(\max(v,0)) + \gamma/p_m$ (flipped to $\max(-v,0)$ when $\sum v < 0$; uniform if the positive part is zero). The view score is $Z_m w_m$ (`view_scaling="natural"`); the consensus is $u = \operatorname{nanmean}_m (Z_m w_m)$. With `post_shrink="auto"`, $\gamma = \operatorname{clip}(1 - n_{\text{tr}}/(1.5\,p_{\max}),\ 0,\ 0.6)$, where $n_{\text{tr}}$ is the largest per-view count of rows with a finite feature and $p_{\max}$ the widest view. Rows with any NaN in a view get a NaN score for that view.
+Whenever $S_{m,1}, \dots, S_{m,k}$ are pairwise disjoint, $(S_{S_{m,c}} v_{m,c})^\top (S_{S_{m,c'}} v_{m,c'}) = 0$ identically for all $c \ne c'$ and every $\alpha_{m,c} \in [0, 1]$.
+
+**Post-selection RIC degrees of freedom (`effective_support_dof`).** For support size $m_c = |S_{m,c}| \in [1, p_m]$:
+
+* `alpha_mode="ric"` (default, Donoho–Johnstone / Birgé–Massart $\ell_0$ selection complexity): $d_{\text{eff}}(m_c, p_m) = m_c\bigl(1 + 2\log(p_m / m_c)\bigr)$, which equals $p_m$ identically when $m_c = p_m$.
+* `alpha_mode="plugin"`: $d_{\text{eff}}(m_c, p_m) = m_c$.
+
+The shrinkage schedule sets
+
+$$\alpha_{m,c} = \operatorname{clip}\!\left(\frac{c\,d_{\text{eff}}(m_c, p_m)}{n_{\text{obs},m} + c\,d_{\text{eff}}(m_c, p_m)},\ 0.05,\ 0.85\right),$$
+
+where $n_{\text{obs},m}$ is the count of rows in view $m$ with at least one finite feature.
+
+**Stages:**
+
+* **Single-stage dense ($k = 1$, `sparseness=None`):** fits `simlr` directly with `UniformShrinkageOperator` on all $p_m$ features and `nsa_w=0.0`.
+* **Two-stage support-restricted ($k > 1$ or `sparseness > 0`):**
+  1. *Stage 1 (basin & lobe discovery):* dense shrunk fit for $k = 1$; NSA-Flow fit (`nsa_w=stage1_nsa_w`, `initialization_type="nndsvd"`, falling back with a logged warning to `"pca"` on rank-deficient inputs) for $k > 1$.
+  2. *Support extraction (`extract_disjoint_supports`):* for $k = 1$, keeps top $\max(1, \operatorname{round}((1-q)p_m))$; for $k \ge 2$, assigns each feature to $\arg\max_c (V^{(1)}_{m,i,c})_+$ (preserving $\ge 2$ features per column) and keeps top $\max(2, \operatorname{round}((1-q)|B_{m,c}|))$ per lobe (`sparseness=None` or `0.0` gives a full disjoint $k$-lobe partition).
+  3. *Stage 2 (support-restricted polish):* initializes $V^{(2,0)}$ on $S_{m,c}$ and runs `simlr` with `ColumnSupportShrinkageOperator`, `nsa_w=0.0`, and `sparseness=None`.
+
+**Automatic directional defaults (`resolve_directional_defaults`):**
+
+* `positivity="convex"` (radial simplex $v_+ / \mathbf{1}^\top v_+$).
+* `energy_type="auto"` resolves to `"nc"` (signed normalized correlation) for $k = 1$ and `"acc"` for $k > 1$.
+* `mixing_algorithm="auto"` resolves to `"pca"`.
+
+**Support-restricted projection (`project_uniform_shrunk`).** For each view $m$ and column $c$, let $S_{m,c} = \{i : \hat{v}_{m,i,c} > 0\}$. The fitted column is normalized strictly on $S_{m,c}$ and blended with $|S_{m,c}|^{-1}\mathbf{1}_{S_{m,c}}$ (preserving exact zeros outside $S_{m,c}$):
+
+$$w_{m,c}(\gamma_{m,c}) = (1 - \gamma_{m,c})\,\hat{w}_{m,c} + \gamma_{m,c}\,\frac{1}{|S_{m,c}|}\mathbf{1}_{S_{m,c}}, \qquad \gamma_{m,c} = \operatorname{clip}\!\left(1 - \frac{n_{\text{tr},m}}{1.5\,d_{\text{eff}}(|S_{m,c}|, p_m)},\ 0.0,\ 0.60\right).$$
+
+View scores are $Z_m w_{m,c}(\gamma_{m,c})$ (`view_scaling="natural"`); consensus is $u_c = \operatorname{nanmean}_m (Z_m w_{m,c})$.
 
 ### Relation to the rest of pysimlr
 
-* $\mathbf{S}_m(\alpha) = (\mathbf{I} + \lambda\mathbf{L})^{-1}$ with $\mathbf{L} = \mathbf{I} - \mathbf{\Pi}$ the Laplacian of the complete graph (block-diagonal complete graph with `groups=`), $\lambda = \alpha/(1-\alpha)$. It is the closed-form special case of `SparseGraphResolvent`, in $O(p_m k)$ time without forming a matrix. `alpha` and `lambda_val` are two parametrizations of one knob: $\alpha = \lambda/(1+\lambda)$.
-* **One step, not a projector.** $\mathbf{S}$ is not idempotent: $\mathbf{S}(\mathbf{S}v) = (1-\alpha)^2 v + (1-(1-\alpha)^2)\mathbf{\Pi}v$. The operator is stateless. The solver applies it once per step: `pysimlr.sparsification._apply_smoothing` recognises the solver's own projected output (registered as its own image) and does not smooth it again. Removing the operator's former internal cache left fitted weights and out-of-sample correlations unchanged (max abs difference 0.0 on a planted $n < p$ example, `alpha="auto"` and `alpha=0.5`).
-* **Limits.** $\alpha = 1$: the fitted direction is uniform and the score equals the plain view mean (true by construction; tested). $\alpha = 0$: the smoother is the identity, but the result does **not** reduce exactly to a plain `simlr` fit: `uniform_shrinkage_params` uses a different `initial_v`, `nsa_w` defaults to 0.2 when sparseness is requested, and `positive_part` clips the iterate. Fitted weights have cosine about 0.99 with the plain fit in the tested example (test threshold 0.95).
-* **Sign orientation is a user contract.** Shrinking toward $+p_m^{-1}\mathbf{1}$ assumes $+1$ means the same on every feature. If a view's signs are flipped its score is negated; nothing checks this.
-* **$k > 1$.** `uniform_shrinkage_params(k>1)` raises `ValueError` unless `groups=` is given for every smoothed view and each such $\alpha \le 0.15$ (`MAX_ALPHA_MULTI_COMPONENT`). Pulling several columns toward the same uniform vector made the two components of a $k=2$ fit nearly identical (correlation 0.84 in an unrestricted run).
-* **Explicit defaults.** `uniform_shrinkage_params` exposes `scale_list=("none",)`, `energy_type="recon_r2"`, `mixing_algorithm="svd"`, `sparseness=0.3`, `sparseness_type="soft"`, `missing_rows="mask"` and `nsa_w="auto"` (0.2 if sparseness is requested, otherwise 0.0; pass a float to override). The returned dict carries the resolved values in its `.provenance` attribute (a dict subclass; `**params` passes only fit arguments).
+* `UniformShrinkageOperator` is the closed-form $O(p_m k)$ resolvent $(\mathbf{I} + \lambda \mathbf{L})^{-1}$ of the complete-graph Laplacian $\mathbf{L} = \mathbf{I} - \mathbf{\Pi}$, $\lambda = \alpha / (1 - \alpha)$. It is stateless and not idempotent; `pysimlr.sparsification._apply_smoothing` caches each step's projected image so each iterate is smoothed once.
+* **Sign orientation is a user contract.** Shrinking toward uniform positive weights assumes $+1$ has consistent polarity within each view; flipping a view negates its score.
+* **`uniform_shrinkage_params(k > 1)`.** Accepts arbitrary $\alpha \in [0, 1]$ whenever pairwise-disjoint `supports=` are supplied; without `supports=` (or `groups=` with $\alpha \le 0.15$), `uniform_shrinkage_params(k > 1)` raises `ValueError` and directs callers to `fit_uniform_shrunk(..., k=k)`.
 
 ## Synthetic benchmark
 
-Planted model: one latent $z$; every feature loads positively (background 0.10, first fifth of each view 0.20), unit Gaussian noise, features standardized on the training rows, three views. Score: absolute correlation between the consensus score and the planted $z$ on 400 held-out rows, mean over 20 seeds. Both fitted arms use the same sparseness and `project_uniform_shrunk(post_shrink=0)`, so the only difference is the smoother; differences are paired by seed with a percentile bootstrap (2,000 resamples) over seeds. Produced by `python scripts/uniform_shrinkage_benchmark.py --n-seeds 20 --n-boot 2000` (about 30 s; `--smoke` runs every stage with counts of 2).
+Run `python scripts/uniform_shrinkage_benchmark.py --n-seeds 20 --n-boot 2000` (or `--smoke` with counts of 2 in `< 10 s`) to evaluate:
 
-| regime | n_train | widths | sparseness | plain mean | unshrunk | shrunk | shrunk - unshrunk [95% CI] | frac seeds better | shrunk - plain mean [95% CI] |
-| :-- | --: | :-- | :-- | --: | --: | --: | :-- | --: | :-- |
-| `n_lt_p` | 40 | [100, 120, 100] | None | 0.901 | 0.848 | 0.899 | +0.051 [+0.046, +0.055] | 1.00 | -0.003 [-0.004, -0.001] |
-| `n_lt_p_sparse0.3` | 40 | [100, 120, 100] | 0.3 | 0.901 | 0.849 | 0.842 | -0.006 [-0.011, -0.002] | 0.20 | -0.059 [-0.065, -0.053] |
-| `n_gg_p` | 600 | [20, 25, 15] | None | 0.666 | 0.644 | 0.646 | +0.002 [-0.000, +0.004] | 0.70 | -0.020 [-0.027, -0.014] |
-
-Reading the table:
-
-* With $n < p$ and no sparseness, shrinkage recovers most of the gap between the unshrunk fit and the plain mean (+0.051), in every seed, and ends within 0.003 of the plain mean (which is close to optimal here because every feature carries signal).
-* With `sparseness=0.3` the smoother gives no gain at $n < p$ (slightly worse, -0.006) and both fits trail the plain mean by about 0.06. The sparsity penalty already controls the variance, and shrinkage then adds bias. Prefer `sparseness=None` with this module, or accept no benefit.
-* With $n \gg p$ ($\alpha$ near 0.05) the difference is within noise (+0.002, CI includes 0).
-* These are one planted model with positive loadings on every feature. They show where the operator can help, not that it helps on any given dataset; check held-out performance against the plain mean.
+* `n_lt_p` ($k = 1$, $n = 40$, widths `[100, 120, 100]`, `sparseness=None`): dense uniform shrinkage vs unshrunk fit and plain mean.
+* `n_lt_p_sparse0.3` ($k = 1$, $n = 40$, widths `[100, 120, 100]`, `sparseness=0.3`): two-stage support-restricted RIC shrinkage vs unshrunk fit.
+* `n_gg_p` ($k = 1$, $n = 600$, widths `[20, 25, 15]`, `sparseness=None`): large-$n$ regime showing no loss when $\alpha \to 0.05$.
+* `k2_disjoint` ($k = 2$, $n = 60$, widths `[80, 100, 60]`, two disjoint non-negative modes): two-stage disjoint support-restricted RIC shrinkage vs unshrunk NSA-Flow $k = 2$ on held-out mean $R^2$ and exact basis orthogonality ($\|V^\top V - I_2\|_F$).
 
 ## Should it be default ON in `pysimlr.simlr`?
 
-No. It stays opt-in. It needs shared coordinate polarity (see the contract above), it is restricted to $k=1$ (or small-$\alpha$ grouped $k>1$), and it adds nothing when $n \gg p$. On unoriented features the shrinkage destroys the signal (`tests/test_uniform_shrinkage.py::test_mixed_sign_planted_signal_shows_why_default_is_off`).
+No. It stays opt-in via `fit_uniform_shrunk` / `uniform_shrinkage_params`. It requires shared coordinate polarity within each view and adds little when $n \gg p$. On unoriented mixed-sign features, uniform shrinkage cancels the signal (`tests/test_uniform_shrinkage.py::test_mixed_sign_planted_signal_shows_why_default_is_off`).
 
 | Regime | Feature polarity | $k$ | $n/p_{\max}$ | Recommendation |
 | :-- | :-- | :-: | :-: | :-- |
-| Oriented views | aligned | 1 | $n \lesssim 2.5\,p_{\max}$ | try it, `sparseness=None`, compare with the plain mean on held-out rows |
-| Oriented views | aligned | 1 | $n > 5\,p_{\max}$ | optional ($\alpha \le 0.15$, little effect) |
+| Oriented views (dense) | aligned | 1 | $n \lesssim 2.5\,p_{\max}$ | `fit_uniform_shrunk(views, k=1)` (defaults: radial `convex`, `nc`, `pca`) |
+| Oriented views (sparse) | aligned | 1 | $n \lesssim 2.5\,p_{\max}$ | `fit_uniform_shrunk(views, k=1, sparseness=0.3)` (two-stage RIC) |
+| Multi-component oriented | aligned | $\ge 2$ | any | `fit_uniform_shrunk(views, k=k)` (two-stage disjoint RIC; defaults: `acc`, `pca`) |
 | Unknown or mixed signs | mixed | any | any | keep off (`positivity="either"`, or `SparseGraphResolvent` over a graph) |
-| Multi-component | either | $\ge 2$ | any | off, or `groups=` with $\alpha \le 0.15$ |

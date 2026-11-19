@@ -1587,6 +1587,7 @@ def _resolve_per_view_simlr_params(
     view_names: Optional[Sequence[str]] = None,
     view_widths: Optional[Sequence[int]] = None,
     sparseness_type: str = "hard",
+    k: Optional[int] = None,
 ):
     from .positivity import NONNEG as _NONNEG, resolve_positivity, validate_nonneg_mask
     from .similarity import check_fit_energy
@@ -1634,7 +1635,7 @@ def _resolve_per_view_simlr_params(
                 else:
                     nm_i = m_arr
         e_i = ov.get("energy_type", energy_type)
-        check_fit_energy(e_i, path="linear", positivity=p_i if check_energy else None)
+        check_fit_energy(e_i, path="linear", positivity=p_i if check_energy else None, k=k)
         if "sparseness" in ov:
             sp_i = ov["sparseness"]
         elif isinstance(sparseness, (list, tuple)):
@@ -2102,9 +2103,10 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         ``sum(v) = 1`` (also ``"negative"``, ``"nonnegative"``, ``"softplus"``;
         ``True`` / ``False`` mean ``"positive"`` / ``"either"``). Unknown
         values raise `ValueError`. Under ``"convex"`` every step ends with
-        the Euclidean projection onto the simplex restricted to the column's
-        support, and the simplex replaces the unit-L2 column gauge in the
-        energy: each latent is a weighted average of features, and its scale
+        radial simplex normalization ``v_+ / 1^T v_+`` on each column's
+        positive support (preserving support without Euclidean subtraction),
+        and the simplex replaces the unit-L2 column gauge in the energy:
+        each latent is a weighted average of features, and its scale
         enters every energy not invariant column by column, so ``"convex"``
         is not a rescaled ``"conical"`` fit. ``consolidate=True`` is refused.
     sparseness : float or List[float] or None, default=0.5
@@ -2328,13 +2330,13 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     if positivity == "convex" and consolidate and per_view_params is None:
         raise ValueError("consolidate=True rebuilds unit-L2 columns and is not defined for positivity='convex'.")
     if per_view_params is None:
-        check_fit_energy(energy_type, path="linear", positivity=positivity if _internal is None else None)
+        check_fit_energy(energy_type, path="linear", positivity=positivity if _internal is None else None, k=k)
     _pos_list, _etype_list, _sp_list, _nsa_w_list, _vx_list, _want_nonneg_list, _nonneg_mask_list, _resolved_pvp, _sp_type_list = (
         _resolve_per_view_simlr_params(
             per_view_params, max(_n_views_in, 1), positivity, energy_type,
             sparseness, nsa_w, varimax, consolidate, check_energy=(_internal is None),
             view_names=_simlr_view_names, view_widths=_in_widths,
-            sparseness_type=sparseness_type,
+            sparseness_type=sparseness_type, k=k,
         )
         if _n_views_in > 0 else ([positivity], [energy_type], [sparseness], [check_nsa_w(nsa_w)], [varimax], [False], [None], None, [sparseness_type])
     )

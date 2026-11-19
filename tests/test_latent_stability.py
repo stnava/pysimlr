@@ -189,7 +189,7 @@ def test_pure_noise_calibrated_and_unclamped(constraint):
             views = _noise_views(seed=seed, n=120, widths=(20, 18, 16))
             res1 = pysimlr.latent_stability(
                 "simlr", views, 1, n_subsamples=10, fraction=0.8,
-                baseline=True, n_baseline=3, random_state=0, iterations=12, **kw,
+                baseline=True, n_baseline=3, random_state=seed, iterations=12, **kw,
             )
             assert res1["latent_reliability_multivariate"] == pytest.approx(
                 float(res1["latent_reliability"][0]), abs=1e-12
@@ -199,12 +199,12 @@ def test_pure_noise_calibrated_and_unclamped(constraint):
             if seed < 6:
                 res2 = pysimlr.latent_stability(
                     "simlr", views, 2, n_subsamples=10, fraction=0.8,
-                    baseline=True, n_baseline=3, random_state=0, iterations=12, **kw,
+                    baseline=True, n_baseline=3, random_state=seed, iterations=12, **kw,
                 )
                 mv_gains_k2.append(res2["latent_reliability_multivariate_gain"])
                 coups_k2.append(res2["cross_view_coupling"])
-    assert np.all(np.abs(np.mean(gains_k1[:6], axis=0)) <= 0.10)
-    assert np.all(np.abs(np.mean(coups_k1[:6], axis=0)) <= 0.15)
+    assert np.all(np.abs(np.mean(gains_k1, axis=0)) <= 0.10)
+    assert np.all(np.abs(np.mean(coups_k1, axis=0)) <= 0.15)
     assert abs(float(np.mean(mv_gains_k2))) <= 0.10
     assert np.all(np.abs(np.mean(coups_k2, axis=0)) <= 0.15)
     # Per-draw behaviour (a mean over seeds hides it). Measured over seeds 0-11 at this configuration:

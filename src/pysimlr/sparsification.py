@@ -537,7 +537,20 @@ def project_columns_to_simplex(v: torch.Tensor, support_only: bool = True) -> to
 
 
 def _convexify(v: torch.Tensor) -> torch.Tensor:
-    return project_columns_to_simplex(torch.clamp(v, min=0.0), support_only=True)
+    """Radial simplex normalization ``v_+ / 1^T v_+`` on each column's positive support.
+
+    Unlike Euclidean simplex projection ``(v - theta)_+``, radial normalization
+    preserves every positive entry and never silently zeroes features when
+    ``1^T v_+ > 1`` (for example unit-L2 columns under ``sparseness=None``).
+    """
+    if v.ndim != 2:
+        raise ValueError("convex projection expects a 2-D basis")
+    pos = torch.clamp(v, min=0.0)
+    sums = pos.sum(dim=0, keepdim=True)
+    if not bool((sums > 0.0).all()):
+        bad = torch.nonzero((sums <= 0.0).squeeze(0)).flatten().tolist()
+        raise ValueError(f"convex projection: column(s) {bad} have no positive entry")
+    return pos / sums
 
 
 def _apply_masked_nonnegative(v: torch.Tensor, mask_bool: np.ndarray, fallback_reflect: bool) -> torch.Tensor:
@@ -1361,16 +1374,18 @@ def _apply_quantile_sparseness(
     v: torch.Tensor,
     q: Optional[float],
     nonneg: bool = False,
-    alg: str = "soft",
+    alg: str = "hard",
     only_if_denser: bool = False,
 ) -> torch.Tensor:
-    """Apply R-style column-wise quantile soft (or hard) thresholding to a basis matrix.
+    """Apply column-wise quantile hard (default, non-subtractive top-m) or soft thresholding.
 
     For each column ``j`` of ``v`` (shape ``[p, k]``), retains at most the top
-    ``n_keep = max(1, round(p * (1 - q)))`` entries by magnitude and shrinks
-    surviving entries by the ``(1 - q)`` order-statistic threshold ``tau_q``
-    when ``alg == 'soft'``. Guarantees at least fraction ``q`` of exact zeros
-    in every column while keeping every column non-trivial.
+    ``n_keep = max(1, round(p * (1 - q)))`` entries by magnitude. Under the
+    default ``alg == 'hard'``, surviving entries are kept without order-statistic
+    subtraction (exact Euclidean/cosine projection onto the ``n_keep``-sparse cone).
+    Pass ``alg == 'soft'`` explicitly to subtract the ``(1 - q)`` order-statistic
+    threshold ``tau_q``. Guarantees at least fraction ``q`` of exact zeros in
+    every column while keeping every column non-trivial.
     """
     if nonneg and v.numel() > 0 and v.ndim == 2:
         v = _resolve_column_sign_gauge(v).clamp_min(0.0)
@@ -1486,7 +1501,7 @@ def simlr_sparseness(v: torch.Tensor,
                      positivity: str = 'either',
                      sparseness: Optional[Union[float, List[Optional[float]]]] = None,
                      constraint_weight: Optional[float] = None,
-                     sparseness_alg: str = 'soft',
+                     sparseness_alg: str = 'hard',
                      sparseness_type: str = 'hard',
                      energy_type: Optional[str] = None,
                      modality_index: Optional[int] = None,
@@ -1576,10 +1591,10 @@ def simlr_sparseness(v: torch.Tensor,
                 out_none = -_apply_quantile_sparseness(-out_none, q_val, nonneg=True, alg=sparseness_alg)
             else:
                 out_none = _apply_quantile_sparseness(out_none, q_val, nonneg=nonneg, alg=sparseness_alg)
-            if unit_columns is None:
-                unit_columns = energy_needs_unit_columns(energy_type)
-            if unit_columns and not convex:
-                out_none = _unit_normalize_columns(out_none)
+        if unit_columns is None:
+            unit_columns = energy_needs_unit_columns(energy_type)
+        if unit_columns and not convex:
+            out_none = _unit_normalize_columns(out_none)
         if convex:
             out_none = _convexify(out_none)
         return out_none.to(orig_dtype)
