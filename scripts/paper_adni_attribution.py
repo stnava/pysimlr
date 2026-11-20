@@ -13,14 +13,16 @@ Writes paper/results_cache/adni_attribution.json with two things:
   `halves`, ...). They are unchanged from the pre-refactor script, and `component_attribution`
   reproduces them exactly.
 
-Usage: python scripts/paper_adni_attribution.py [--out paper/results_cache/adni_attribution.json]
+Usage: python scripts/paper_adni_attribution.py [--out paper/results_cache/adni_attribution.json] [--smoke]
 """
 import argparse
 import datetime
 import json
 import os
+import platform
 import subprocess
 import sys
+import tempfile
 import warnings
 
 import numpy as np
@@ -30,21 +32,27 @@ sys.path[:0] = [os.path.join(REPO, "src"), os.path.join(REPO, "scripts")]
 VIEWS = ["volume", "vol_area", "direct_thickness"]
 
 
-def run():
+def run(smoke: bool = False):
     import paper_adni_ablations as A
 
     import pysimlr
     col = A.protocol_b(42)
-    res, _ = A.fit_adni(col, "simlr", positivity="positive", sparseness=0.85, random_state=42)
+    fit_kw = dict(positivity="positive", sparseness=0.85, random_state=42)
+    if smoke:
+        fit_kw["iterations"] = 5
+    res, _ = A.fit_adni(col, "simlr", **fit_kw)
     n = col["x_tr"][0].shape[0]
-    rows = [np.random.default_rng(1000 + s).choice(n, n // 2, replace=False) for s in range(20)]
+    n_halves = 2 if smoke else 20
+    rows = [np.random.default_rng(1000 + s).choice(n, n // 2, replace=False) for s in range(n_halves)]
     # The same refits with the collapse penalty off: on DiReCT thickness (58% one global factor)
     # any two non-negative region sums correlate above the 0.3 threshold, so the penalty forces
     # single-region columns (docs/audit/evidence/adni_global_factor_check.csv).
     return pysimlr.component_attribution(
         res, list(col["x_tr"]) + [col["y_tr"]], list(col["x_te"]) + [None], col["pc1_tr"], col["pc1_te"],
         views=(0, 1, 2), view_names=VIEWS + ["cognition"], feature_names=list(col["names"]) + [None],
-        refit_rows=rows, variants={"collapse_weight=0": {"collapse_weight": 0.0}})
+        refit_rows=rows, variants={"collapse_weight=0": {"collapse_weight": 0.0}},
+        refit_params=({"iterations": 5} if smoke else None),
+        n_jobs=(1 if smoke else 8))
 
 
 def legacy(att):
@@ -63,20 +71,30 @@ def legacy(att):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=os.path.join(REPO, "paper", "results_cache", "adni_attribution.json"))
+    ap.add_argument("--out", default=None, help="Output JSON path (defaults to paper/results_cache/adni_attribution.json, or temp path under --smoke)")
+    ap.add_argument("--smoke", action="store_true", help="Fast <10s smoke check (n_halves=2, iterations=5, non-destructive default out)")
     args = ap.parse_args()
-    warnings.simplefilter("ignore")
-    import pysimlr
-    att = run()
+    out_path = args.out or (
+        os.path.join(tempfile.gettempdir(), "pysimlr_smoke_adni_attribution.json")
+        if args.smoke else os.path.join(REPO, "paper", "results_cache", "adni_attribution.json")
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import pysimlr
+        att = run(smoke=bool(args.smoke))
     out = dict(legacy(att), attribution=att)
     try:
         commit = subprocess.run(["git", "-C", REPO, "rev-parse", "--short", "HEAD"], capture_output=True,
                                 text=True, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         commit = None
-    out["provenance"] = {"cli": " ".join(sys.argv), "pysimlr": pysimlr.__version__, "git_commit": commit,
-                         "written_utc": datetime.datetime.now(datetime.timezone.utc).isoformat()}
-    with open(args.out, "w") as fh:
+    cli_rel = " ".join([os.path.relpath(os.path.abspath(sys.argv[0]), REPO)] + sys.argv[1:])
+    out["provenance"] = {"cli": cli_rel, "pysimlr": pysimlr.__version__, "git_commit": commit,
+                         "platform": f"{platform.system()} {platform.machine()}",
+                         "smoke": bool(args.smoke),
+                         "written_utc": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")}
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    with open(out_path, "w") as fh:
         json.dump(out, fh)
     print("full R2", round(att["full_r2"], 3), "| half-sample predictive R2 (DKT):",
-          np.round([h["2"]["r2"] for h in att["refits"]["default"]], 3))
+          np.round([h["2"]["r2"] for h in att["refits"]["default"]], 3), f"| out={out_path}")

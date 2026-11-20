@@ -42,10 +42,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-DEFAULT_CACHE = Path(
-    "/Users/stnava/Library/Mobile Documents/com~apple~CloudDocs/code/pysimlr/"
-    "paper/results_cache"
-)
+DEFAULT_CACHE = Path(__file__).resolve().parents[1] / "results_cache"
 
 #: LEND is a Linear Encoder with a Nonlinear Decoder, so it belongs in the Deep
 #: group; `calc_stats.py` had it as Linear. Flow-SiMLR-V was absent from that

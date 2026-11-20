@@ -1,6 +1,4 @@
----
-title: "Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V)"
----
+# Normalizing Flow SiMR with Linear Encoder Bottleneck (Flow-SiMR-V) {#sec-app-flow}
 
 ```{python}
 #| echo: false
@@ -10,7 +8,7 @@ from paper_numbers import N, RAW
 
 ## Model Formulation
 
-`Flow-SiMR-V` prepends a linear entrypoint projection matrix $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ to each view's volume-preserving Normalizing Flow [@dinh2016density; @rezende2015variational; @kingma2018; @papamakarios2021; @kobyzev2020]. This architecture provides a linear bottleneck at the input boundary while retaining bijective density mapping, conditional cross-view inference, and latent trajectory interpolation on the $k$-dimensional subspace. The normalizing flows are implemented in PyTorch [@paszke2019], adapting coupling structures from the Latent-Aligned Multiview Normalizing Flows (`LAMNrFlows`) framework ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)).
+`Flow-SiMR-V` prepends a linear entrypoint projection matrix $\mathbf{V}_m \in \mathbb{R}^{p_m \times k}$ to each view's invertible Real-valued Non-Volume Preserving (`RealNVP`) normalizing flow [@dinh2016density; @rezende2015variational; @kingma2018; @papamakarios2021; @kobyzev2020]. This architecture provides a linear bottleneck at the input boundary while retaining bijective density mapping, conditional cross-view inference, and latent trajectory interpolation on the $k$-dimensional subspace. The normalizing flows are implemented in PyTorch [@paszke2019], adapting coupling structures from the Latent-Aligned Multiview Normalizing Flows (`LAMNrFlows`) framework ([ntustison/LAMNrFlows](https://github.com/ntustison/LAMNrFlows)).
 
 ### Mathematical Formulation
 
@@ -52,7 +50,7 @@ To prevent rectangular prior collapse, `Flow-SiMR-V` detaches $\mathbf{Z}_{m,\te
 1. **OLEE basis update ($\mathbf{V}_m$):** Updated exclusively by the cross-view alignment energy $\mathcal{L}_{\text{align}}$ and within-view relative reconstruction loss $\mathcal{L}_{\text{recon}}$, while detaching $\mathbf{Z}_{m,\text{lin}}$ in the prior term ($\operatorname{sg}(\mathbf{Z}_{m,\text{lin}}) = \mathbf{Z}_{m,\text{lin}}.\text{detach}()$).
 2. **Bijective flow update ($f_{\text{flow},m}$):** Trained via $\mathcal{L}_{\text{NLL}}(f_{\text{flow},m}(\operatorname{sg}(\mathbf{Z}_{m,\text{lin}}))) + \mathcal{L}_{\text{align}} + \mathcal{L}_{\text{recon}}$, initialized with zero scale and translation weights ($s_\ell = 0, t_\ell = 0$) at epoch $0$ so $f_{\text{flow},m}^{(0)}(\mathbf{Z}_{m,\text{lin}}) = \mathbf{Z}_{m,\text{lin}}$.
 
-In the `ADNI-MCI` hyperparameter sweep ($N = 1,084$, $k = 3$, `Protocol B`, `{python} N.sweep_n` configurations), the best `Flow-SiMR-V` configuration reaches an out-of-sample `CogPC1` $R^2$ of `{python} N.sweep_flow_best`; across the 3-seed benchmark its linear score on `ADNI-MCI` is `{python} N.adni_Flow_SiMR_V`, and its mean Friedman rank on the linear probe over all 12 datasets is `{python} N.rank_lin_Flow_SiMR_V`.
+In the `ADNI-MCI` hyperparameter sweep ($N = 1,084$, $k = 3$, `Protocol B`, `{python} N.sweep_n` configurations), the best `Flow-SiMR-V` configuration reaches an out-of-sample `CogPC1` $R^2$ of `{python} N.sweep_flow_best`; across the `{python} N.n_seeds`-seed benchmark its linear score on `ADNI-MCI` is `{python} N.adni_Flow_SiMR_V`, and its mean Friedman rank on the linear probe over all `{python} N.n_blocks` datasets is `{python} N.rank_lin_Flow_SiMR_V`.
 
 ---
 
@@ -66,7 +64,7 @@ Because `Flow-SiMR-V` preserves invertibility on the $k$-dimensional bottleneck 
 #| warning: false
 #| message: false
 #| label: fig-flow-imputation
-#| fig-cap: 'Conditional cross-view imputation (`pysimlr.plot_predictions`) from systemic vitals to blood serum triglyceride levels (`s5`) for $N_{\text{test}} = 133$ held-out test patients in the Diabetes cohort (70/30 train/test split, $k = 2$), decoded through the `Flow-SiMR-V` Schur complement solver.'
+#| fig-cap: 'Flow-SiMR-V conditional Schur-complement decoding imputes held-out serum triglycerides (`s5`) from systemic vitals alone (`pysimlr.plot_predictions`). Points show observed versus imputed standardized `s5` on the 30% held-out Diabetes test split ($k = 2$), with the solid line marking identity and the header reporting test correlation and error.'
 #| out-width: 72%
 #| echo: false
 import matplotlib.pyplot as plt
@@ -115,7 +113,7 @@ To audit how the downstream normalizing flow transforms the linear first-layer p
 #| warning: false
 #| message: false
 #| label: fig-flow-warping
-#| fig-cap: 'First-layer linear projection $(\mathbf{X}_m \mathbf{V}_m \mathbf{R})_j$ against the post-flow latent $(\mathbf{Z}_m \mathbf{R})_j$ (`pysimlr.plot_flow_warping`) on the two-view Diabetes cohort (`flow_v`, $k = 2$). Monotone binned median traces and Spearman rank correlations in each panel header confirm that downstream coupling layers preserve the directional sign reading of the linear entrypoint.'
+#| fig-cap: 'Downstream normalizing flow coupling layers preserve the directional sign ordering of the linear entrypoint on the two-view Diabetes cohort (`pysimlr.plot_flow_warping`, `flow_v`, $k = 2$). Scatter plots compare the first-layer linear projection $(\mathbf{X}_m \mathbf{V}_m \mathbf{R})_j$ (horizontal) against the post-flow latent coordinate $(\mathbf{Z}_m \mathbf{R})_j$ (vertical), with monotone binned median traces and Spearman rank correlations in each panel header.'
 #| out-width: 82%
 #| echo: false
 import matplotlib.pyplot as plt
@@ -132,7 +130,7 @@ plt.show()
 #| warning: false
 #| message: false
 #| label: fig-flow-convergence
-#| fig-cap: 'Stacked three-panel optimization diagnostic (`pysimlr.plot_convergence`) for `Flow-SiMR-V`, separating total objective loss, similarity alignment, and relative reconstruction onto independent vertical scales.'
+#| fig-cap: 'Flow-SiMR-V optimization converges smoothly across total loss, cross-view similarity alignment, and relative reconstruction (`pysimlr.plot_convergence`, stacked three-panel diagnostic separating terms onto independent vertical scales).'
 #| out-width: 100%
 #| echo: false
 import matplotlib.pyplot as plt
@@ -149,13 +147,22 @@ plt.show()
 #| warning: false
 #| message: false
 #| label: fig-flow-weights
-#| fig-cap: 'Dynamic view weights against the uniform $1/M$ baseline and epoch-wise MAI trajectories (`pysimlr.plot_modality_weights`) for `Flow-SiMR-V` with `dynamic_weights=True`.'
+#| fig-cap: 'Dynamic MAI view weighting departs from the uniform $1/M$ baseline over training epochs (`pysimlr.plot_modality_weights`, `Flow-SiMR-V` with `dynamic_weights=True`). Curves compare systemic vitals against blood serum weights relative to uniform weighting.'
 #| out-width: 100%
 #| echo: false
 import matplotlib.pyplot as plt
 import pysimlr
 
 fig = pysimlr.plot_modality_weights(res_fv, view_names=["Systemic Vitals", "Blood Serums"])
+a2 = fig.axes[1]
+y0, y1 = a2.get_ylim()
+span = y1 - y0
+a2.set_ylim(y0, max(y1, 0.5 + 0.15 * span))
+x0, x1 = a2.get_xlim()
+a2.set_xlim(x0, max(x1, len(res_fv["weight_history"]) * 1.30))
+if len(a2.texts) == 2:
+    a2.texts[0].set_y(0.5 + 0.07 * span)
+    a2.texts[1].set_y(0.5 - 0.07 * span)
 plt.show()
 ```
 :::
@@ -169,7 +176,7 @@ Prepending $\mathbf{V}_m$ preserves direct feature-level interpretability across
 #| warning: false
 #| message: false
 #| label: fig-flow-attribution
-#| fig-cap: 'Per-view input-boundary feature structure (`pysimlr.plot_top_features`) learned by `Flow-SiMR-V` across the three cardiovascular views of the Heart Disease cohort ($N = 297$, $k = 2$).'
+#| fig-cap: 'Flow-SiMR-V preserves feature-level input-boundary attributions across the three cardiovascular views of the Heart Disease cohort (`pysimlr.plot_top_features`, $k = 2$). Horizontal bars display structure coefficients per clinical view for the leading latent component.'
 #| out-width: 100%
 #| echo: false
 import os
@@ -249,7 +256,7 @@ with theme():
     ax.plot(alphas, bmi_curve, 'o-', color=VIEW_COLORS[0], markeredgecolor="#fcfcfb", markeredgewidth=1.1, lw=2.0, label='BMI')
     ax.plot(alphas, bp_curve, 's-', color=VIEW_COLORS[1], markeredgecolor="#fcfcfb", markeredgewidth=1.1, lw=2.0, label='Blood Pressure')
     ax.plot(alphas, age_curve, '^-', color=VIEW_COLORS[2], markeredgecolor="#fcfcfb", markeredgewidth=1.1, lw=2.0, label='Age')
-    ax.set_xlabel('Latent trajectory coordinate α (low-risk → high-risk)')
+    ax.set_xlabel(r'Latent trajectory coordinate $\alpha$ (low-risk $\to$ high-risk)')
     ax.set_ylabel('Decoded standardized feature level')
     ax.set_title('Latent trajectory interpolation (Flow-SiMR-V)')
     ax.yaxis.grid(True)
@@ -262,13 +269,13 @@ with theme():
 
 ## Orthogonality, Coherence, and Support Overlap Diagnostics Across Real-World Cohorts
 
-@tbl-flow-orth-diagnostics reports the per-view Stiefel Frame Defect $D(\mathbf{V}_m)$, OLEE Loading Column Coherence $\text{Coh}(\mathbf{L}_m)$, Support Overlap for the encoder ($\text{Overlap}(\mathbf{V}_m)$) and loadings ($\text{Overlap}(\mathbf{L}_m)$), and Strictly Linear Probe Accuracy ($\mathbf{X}_m \mathbf{V}_m$) across the six real-world cohorts from `paper/results_cache/deep_ranking_benchmark.csv`.
+@tbl-flow-orth-diagnostics reports the per-view Stiefel Frame Defect $D(\mathbf{V}_m)$, OLEE Loading Column Coherence $\text{Coh}(\mathbf{L}_m)$, Support Overlap for the encoder ($\text{Overlap}(\mathbf{V}_m)$) and loadings ($\text{Overlap}(\mathbf{L}_m)$), and Strictly Linear Probe Accuracy ($\mathbf{X}_m \mathbf{V}_m$) averaged across `{python} N.n_seeds` seeds on the six real-world cohorts from `paper/results_cache/deep_ranking_benchmark.csv`. Across all six cohorts, `Coherence (L) = 0.0000` confirms exact OLEE column orthogonality of $\mathbf{L}_m$, while out-of-sample reliability and bagging for `SiMLR` versus `Flow-SiMR-V` are characterized via @sec-stability-bagging-sem.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: tbl-flow-orth-diagnostics
-#| tbl-cap: 'Empirical Orthogonality Defect ($D(\mathbf{V}_m)$), Column Coherence ($\text{Coh}(\mathbf{L}_m)$), Support Overlap ($\text{Overlap}(\mathbf{V}_m)$ and $\text{Overlap}(\mathbf{L}_m)$), and Linear OLEE Basis Performance across the Real-World Biomedical Cohorts (3 seeds) computed from `deep_ranking_benchmark.csv`.'
+#| tbl-cap: 'Empirical Orthogonality Defect ($D(\mathbf{V}_m)$), Column Coherence ($\text{Coh}(\mathbf{L}_m)$), Support Overlap ($\text{Overlap}(\mathbf{V}_m)$ and $\text{Overlap}(\mathbf{L}_m)$), and Linear OLEE Basis Performance across the six real-world biomedical cohorts (mean across 3 seeds, computed from `deep_ranking_benchmark.csv`).'
 #| echo: false
 #| output: asis
 import os
@@ -306,9 +313,9 @@ for ds in real_dsets:
             f"{coh_l:.4f}",
             f"{ov_v:.4f}",
             f"{ov_l:.4f}",
-            f"{sp_m:.1f}%"
+            f"{sp_m:.1f}"
         ])
 
-headers = ["Cohort", "Architecture", "Linear OLEE Probe (XV)", "Frame Defect D", "Coherence (L)", "Overlap (V)", "Overlap (L)", "Sparsity"]
-print(tabulate(rows, headers=headers, tablefmt="pipe"))
+headers = ["Cohort", "Model", "OLEE (XV) ↑", "D(V) ↓", "Coh(L) ↓", "Ov(V) ↓", "Ov(L) ↓", "Spar % ↑"]
+print(tabulate(rows, headers=headers, tablefmt="pipe", disable_numparse=True, colalign=("left", "left", "right", "right", "right", "right", "right", "right")))
 ```

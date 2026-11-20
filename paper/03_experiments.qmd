@@ -3,12 +3,31 @@
 ```{python}
 #| echo: false
 #| output: false
-from paper_numbers import N, RAW
+import json, os
+from IPython.display import Markdown
+from paper_numbers import N, RAW, CACHE
+with open(os.path.join(CACHE, "nsa_v_loadings.json")) as fh:
+    _nsav_meta = json.load(fh)
+with open(os.path.join(CACHE, "brca_er_loadings.json")) as fh:
+    _brca_meta = json.load(fh)
+n_brca_obs = Markdown(str(_brca_meta["n"]))
+n_heart_obs = Markdown(str(_nsav_meta["provenance"]["n"]["Heart"]))
+n_diab_obs = Markdown(str(_nsav_meta["provenance"]["n"]["Diabetes"]))
+heart_rel_c1 = Markdown(f"{_nsav_meta['plot_bundles']['Heart']['inf']['latent_reliability'][0]:.2f}")
+heart_rel_c2 = Markdown(f"{_nsav_meta['plot_bundles']['Heart']['inf']['latent_reliability'][1]:.2f}")
+diab_rel_c1 = Markdown(f"{_nsav_meta['plot_bundles']['Diabetes']['inf']['latent_reliability'][0]:.2f}")
+diab_rel_c2 = Markdown(f"{_nsav_meta['plot_bundles']['Diabetes']['inf']['latent_reliability'][1]:.2f}")
+n_non_pca = Markdown(str(int(RAW["n_models"]) - 1))
+wilcoxon_sig_phrase = Markdown(f"non-PCA models ({N.wilcoxon_sig.data})" if int(RAW["wilcoxon_n_sig"]) > 0 else "non-PCA models")
+_pos_m = RAW["part_a_summary"][
+    (RAW["part_a_summary"]["Positivity"] == "positive") & (RAW["part_a_summary"]["Cached_Metric"].notna())
+]
+v043_min_pos_delta = Markdown(f"{float(_pos_m['Delta_Metric'].min()):+.3f}")
 ```
 
 ## Study Design, Biomedical Cohorts, and Synthetic Ground-Truth Regimes
 
-We evaluate the `{python} N.n_models_word` benchmarked architectures defined in Chapter 2 across twelve multi-view benchmarks: six real biomedical and clinical cohorts (`ADNI-MCI`, `MultiOmics` [TCGA-BRCA], `TCGA-KIRC`, `Heart`, `Diabetes`, and `mfeat`) and six synthetic generative regimes with known ground-truth latent coordinates $\mathbf{U}^*$ and feature supports $\mathbf{V}_m^*$ (@tbl-benchmark-cohorts). Every model is evaluated across three independent 70/30 stratified or random train/test splits (seeds $42, 43, 44$) across three `nsa_flow` quantile sparsity levels ($q \in \{\text{None}, 0.5, 0.8\}$, `{python} N.n_default_fits` train/test fits), plus `{python} N.n_positive_reruns` paired reruns with non-negative loadings on the three high-dimensional cohorts and a `{python} N.sweep_n`-configuration hyperparameter sweep on `ADNI-MCI` ($N = 1,084$, one seed). To prevent data leakage, all feature standardization (`StandardScaler`), column completeness filtering ($\ge 98\%$), and demographic covariate adjustments (Frisch–Waugh–Lovell residualization [@frisch1933partial; @lovell1963seasonal] of age, biological sex, and education inside `ADNI-MCI`) are fitted strictly within each training split and applied out-of-sample to the held-out test split.
+We evaluate the `{python} N.n_models_word` benchmarked architectures defined in Chapter 2 across `{python} N.n_blocks` multi-view benchmarks: six real biomedical and clinical cohorts (`ADNI-MCI`, `MultiOmics` [TCGA-BRCA], `TCGA-KIRC`, `Heart`, `Diabetes`, and `mfeat`) and six synthetic generative regimes with known ground-truth latent coordinates $\mathbf{U}^*$ and feature supports $\mathbf{V}_m^*$ (@tbl-benchmark-cohorts). Every model is evaluated across `{python} N.n_seeds` independent 70/30 stratified or random train/test splits (seeds $42, 43, 44$) across three `nsa_flow` quantile sparsity levels ($q \in \{\text{None}, 0.5, 0.8\}$, `{python} N.n_default_fits` train/test fits), plus `{python} N.n_positive_reruns` paired reruns with non-negative loadings on the three high-dimensional cohorts and a `{python} N.sweep_n`-configuration hyperparameter sweep on `ADNI-MCI` ($N = 1,084$, one seed). To prevent data leakage, all feature standardization (`StandardScaler`), column completeness filtering ($\ge 98\%$), and demographic covariate adjustments (Frisch–Waugh–Lovell residualization [@frisch1933partial; @lovell1963seasonal] of age, biological sex, and education inside `ADNI-MCI`) are fitted strictly within each training split and applied out-of-sample to the held-out test split.
 
 ```{python}
 #| warning: false
@@ -66,14 +85,14 @@ for ds_label, domain, n_subj, views_str, task_str in cohort_meta:
     ])
 
 headers = ["Cohort", "Domain / Modality Structure", "N", "Views [p_m]", "Clinical / Task Target", "Best Linear XV vs PCA"]
-print(tabulate(rows, headers=headers, tablefmt="pipe"))
+print(tabulate(rows, headers=headers, tablefmt="pipe", disable_numparse=True, colalign=("left", "left", "right", "left", "left", "left")))
 ```
 
-In `ADNI-MCI` ($N = 1,084$) [@mueller2005; @jack2008alzheimer; @ADNI], Views 0–2 capture $382$ regional structural MRI features from the ANTsPyT1w/ANTsPyMM pipelines: the volumes of 160 hierarchical segmentation labels (View 0: cortical, subcortical, ventricular, white-matter and cerebellar labels), the volume-to-surface-area ratio of the same 160 labels (View 1; for a cortical label it tracks thickness, otherwise it is a shape index), and DiReCT cortical thickness averaged in each of 62 Desikan–Killiany–Tourville (DKT) cortical regions (View 2) [@avants2008symmetric; @avants2011reproducible; @tustison2014large; @desikan2006automated; @klein2012mindboggle; @stone2020longitudinal; @stone2024blast; @Marek2011; @smith2013functional], while View 3 comprises eleven neuropsychological scales (`ADAS11`, `ADAS13`, `ADASQ4` [@rosen1984new], `MMSE` [@folstein1975mini], `CDRSB` [@morris1993clinical], `TRABSCOR` [@reitan1958validity], `FAQ` [@pfeffer1982measurement], and four Rey Auditory Verbal Learning Test sub-scores `RAVLT_immediate`, `RAVLT_learning`, `RAVLT_forgetting`, `RAVLT_perc_forgetting` [@rey1964examen]). Following `Protocol B`, the three MRI views align with the cognitive battery during training, but test-set predictions are generated exclusively from structural MRI. In `MultiOmics` (`TCGA-BRCA`, $N = 822$) [@tcga2012breast] and `TCGA-KIRC` ($N = 467$) [@tcga2013kirc], mRNA expression ($p_1 = 200$), somatic copy-number variation ($p_2 = 150$), and RPPA proteomics ($p_3 = 150$) predict clinical Estrogen Receptor status and pathologic tumor stage, respectively.
+In `ADNI-MCI` ($N = 1,084$) [@mueller2005; @jack2008alzheimer; @ADNI], Views 0–2 capture $382$ regional structural MRI features from the ANTsPyT1w/ANTsPyMM pipelines: the volumes of 160 hierarchical segmentation labels (View 0: cortical, subcortical, ventricular, white-matter and cerebellar labels), the volume-to-surface-area ratio of the same 160 labels (View 1; for a cortical label it tracks thickness, otherwise it is a shape index), and DiReCT cortical thickness averaged in each of 62 Desikan–Killiany–Tourville (DKT) cortical regions (View 2) [@avants2008symmetric; @avants2011reproducible; @tustison2014large; @desikan2006automated; @klein2012mindboggle; @stone2020longitudinal; @stone2024blast; @Marek2011; @smith2013functional], while View 3 comprises eleven neuropsychological scales (`ADAS11`, `ADAS13`, `ADASQ4` [@rosen1984new], `MMSE` [@folstein1975mini], `CDRSB` [@morris1993clinical], `TRABSCOR` [@reitan1958validity], `FAQ` [@pfeffer1982measurement], and four Rey Auditory Verbal Learning Test sub-scores `RAVLT_immediate`, `RAVLT_learning`, `RAVLT_forgetting`, `RAVLT_perc_forgetting` [@rey1964examen]). Following `Protocol B`, the three MRI views align with the cognitive battery during training, but test-set predictions are generated exclusively from structural MRI. In `MultiOmics` (`TCGA-BRCA`, $N =$ `{python} n_brca_obs`) [@tcga2012breast] and `TCGA-KIRC` ($N = 467$) [@tcga2013kirc], mRNA expression ($p_1 = 200$), somatic copy-number variation ($p_2 = 150$), and RPPA proteomics ($p_3 = 150$) predict clinical Estrogen Receptor status and pathologic tumor stage, respectively.
 
 ## Global 12-Dataset Benchmark: Subspace Capacity vs. Single-Axis Interpretability
 
-Across the $B = 12$ dataset blocks and `{python} N.n_models_word` architectures, block-averaged non-parametric Friedman [@friedman1937use] and Iman–Davenport [@Iman1980] omnibus tests differentiate the `{python} N.n_models_word` models on both the linear subspace probe ($\chi_F^2 =$ `{python} N.fr_lin_chi2`, $p =$ `{python} N.fr_lin_p`; $F_F =$ `{python} N.fr_lin_F`, $p =$ `{python} N.fr_lin_pF`) and the multi-modal consensus probe ($\chi_F^2 =$ `{python} N.fr_u_chi2`, $p =$ `{python} N.fr_u_p`; $F_F =$ `{python} N.fr_u_F`, $p =$ `{python} N.fr_u_pF`; Nemenyi Critical Difference $CD =$ `{python} N.cd` at $\alpha = 0.05$ [@Demsar2006; @Nemenyi1963; @benavoli2016should]). @tbl-global-leaderboard summarizes the global metrics across all `{python} N.n_models_word` models, accompanied by the Demšar Critical Difference diagram (@fig-cd-diagram), the multi-objective speed–accuracy and support–consensus Pareto frontiers (@fig-pareto-frontier), and the three-probe performance profile (@fig-three-probes).
+Across the $B =$ `{python} N.n_blocks` dataset blocks and `{python} N.n_models_word` architectures, block-averaged non-parametric Friedman [@friedman1937use] and Iman–Davenport [@Iman1980] omnibus tests differentiate the `{python} N.n_models_word` models on both the linear subspace probe ($\chi_F^2 =$ `{python} N.fr_lin_chi2`, $p =$ `{python} N.fr_lin_p`; $F_F =$ `{python} N.fr_lin_F`, $p =$ `{python} N.fr_lin_pF`) and the multi-modal consensus probe ($\chi_F^2 =$ `{python} N.fr_u_chi2`, $p =$ `{python} N.fr_u_p`; $F_F =$ `{python} N.fr_u_F`, $p =$ `{python} N.fr_u_pF`; Nemenyi Critical Difference $CD =$ `{python} N.cd` at $\alpha = 0.05$ [@Demsar2006; @Nemenyi1963; @benavoli2016should]). @tbl-global-leaderboard summarizes the global metrics across all `{python} N.n_models_word` models, accompanied by the Demšar Critical Difference diagram (@fig-cd-diagram), the multi-objective speed–accuracy and support–consensus Pareto frontiers (@fig-pareto-frontier), and the three-probe performance profile (@fig-three-probes).
 
 ```{python}
 #| warning: false
@@ -137,21 +156,21 @@ for m in order:
         f"{u_v:.3f}",
         f"{syn_cmc[m]:.3f}",
         f"{syn_f1[m]:.3f}",
-        f"{agg05.loc[m, 'Sparsity_Ratio']*100:.1f}%"
+        f"{agg05.loc[m, 'Sparsity_Ratio']*100:.1f}"
     ])
 
 headers = [
     "Architecture", "Friedman Rank ↓", "Linear XV ↑", "RF Axis XV (Drop) ↑",
     "Consensus U ↑", "Latent CMC ↑", "Support F1 ↑", "Sparsity % ↑"
 ]
-print(tabulate(rows, headers=headers, tablefmt="pipe"))
+print(tabulate(rows, headers=headers, tablefmt="pipe", disable_numparse=True, colalign=("left", "right", "right", "right", "right", "right", "right", "right")))
 ```
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-cd-diagram
-#| fig-cap: "Demšar (2006) Critical Difference diagram across the $B = 12$ benchmark dataset blocks (seeds averaged within each dataset) for the linear entrypoint probe ($\\mathbf{X}\\mathbf{V}$; Friedman and Iman–Davenport statistics in the text). Horizontal axis plots mean rank (lower is better, $1 =$ best). Bold horizontal bars connect cliques of architectures whose rank differences are smaller than the Nemenyi Critical Difference ($\\alpha = 0.05$). Green stars (`*`) indicate models on the 5-objective non-dominated Pareto frontier."
+#| fig-cap: "Aligned multi-view SiMR architectures rank ahead of single-matrix PCA on the linear entrypoint probe across 12 benchmark dataset blocks (Demšar 2006 Critical Difference diagram, $\\mathbf{X}\\mathbf{V}$, seeds averaged within dataset). The horizontal axis plots mean Friedman rank (lower is better, $1 =$ best), horizontal bars connect cliques within the Nemenyi Critical Difference ($\\alpha = 0.05$), and green stars (`*`) mark architectures on the 5-objective non-dominated Pareto frontier."
 #| out-width: 100%
 #| echo: false
 import os
@@ -267,7 +286,7 @@ with theme():
 #| warning: false
 #| message: false
 #| label: fig-pareto-frontier
-#| fig-cap: "Multi-objective Pareto trade-off envelopes across the benchmarked architectures. (A) Out-of-sample multi-modal consensus performance ($\\mathbf{U}$) versus wall-clock execution time (`Fit_Seconds`, log scale), with the 2D speed–accuracy Pareto frontier as a green dashed envelope. (B) Ground-truth feature support recovery on $\\mathbf{V}_m$ (`Jaccard F1`) versus latent manifold recovery on $\\mathbf{U}$ (`CMC`) across the six synthetic ground-truth regimes. Green stars denote architectures that are non-dominated across the full 5-objective vector."
+#| fig-cap: "SiMR architectures define the non-dominated Pareto frontier across both speed–accuracy and support–manifold recovery trade-offs. (A) Out-of-sample multi-modal consensus score ($\\mathbf{U}$) against mean wall-clock fit time (`Fit_Seconds`, log scale), with the 2D speed–accuracy frontier as a green dashed envelope. (B) Ground-truth feature support recovery on $\\mathbf{V}_m$ (`Jaccard F1`) against latent manifold recovery on $\\mathbf{U}$ (`CMC`) across the six synthetic regimes; green stars denote 5-objective Pareto-optimal architectures."
 #| out-width: 100%
 #| echo: false
 import os
@@ -314,13 +333,13 @@ with theme():
         ax1.scatter(row["Fit_Seconds"], row["Predictive_Metric"], marker=marker, s=sz, color=col, edgecolor="#fcfcfb", lw=1.2, zorder=4)
 
     offsets_a = {
-        "PCA": (-28, -3),
-        "NSAFlow-PCA": (8, 5),
-        "SiMLR": (8, -4),
-        "LEND": (-14, 9),
-        "NED": (-28, -10),
-        "NEDPP": (8, 4),
-        "Flow-SiMR-V": (-62, -14),
+        "PCA": (-10, -14),
+        "NSAFlow-PCA": (9, 4),
+        "SiMLR": (-42, -2),
+        "LEND": (-18, 9),
+        "NED": (-34, -4),
+        "NEDPP": (-44, -3),
+        "Flow-SiMR-V": (-34, 9),
     }
     for m, row in p_df.iterrows():
         dx, dy = offsets_a.get(m, (6, 4))
@@ -333,8 +352,8 @@ with theme():
     ax1.set_xscale("log")
     ax1.set_xlim(0.005, 35.0)
     ax1.set_ylim(0.61, 0.765)
-    ax1.set_xlabel("Mean Fit Time in Seconds (Log Scale, ↓ Faster)")
-    ax1.set_ylabel("Out-of-Sample Consensus Score (U ↑)")
+    ax1.set_xlabel(r"Mean Fit Time in Seconds (Log Scale, $\downarrow$ Faster)")
+    ax1.set_ylabel(r"Out-of-Sample Consensus Score (U $\uparrow$)")
     ax1.set_title("A. Consensus Accuracy vs. Fit Time")
     ax1.grid(True)
     ax1.legend(loc="lower left")
@@ -348,13 +367,13 @@ with theme():
         ax2.scatter(syn_sub.loc[m, "CMC_Latent_U"], syn_sub.loc[m, "Support_Recovery_V"], marker=marker, s=sz, color=col, edgecolor="#fcfcfb", lw=1.2, zorder=4)
 
     offsets_b = {
-        "SiMLR": (8, -2),
-        "NSAFlow-PCA": (-48, -15),
-        "LEND": (8, 6),
-        "NED": (-30, -3),
-        "NEDPP": (7, 4),
-        "Flow-SiMR-V": (8, -6),
-        "PCA": (8, 4),
+        "PCA": (9, -3),
+        "NSAFlow-PCA": (-80, 5),
+        "NEDPP": (-44, -12),
+        "NED": (7, -12),
+        "LEND": (-38, 6),
+        "Flow-SiMR-V": (-26, 10),
+        "SiMLR": (-36, -15),
     }
     for m in syn_sub.index:
         dx, dy = offsets_b.get(m, (6, 4))
@@ -363,8 +382,8 @@ with theme():
 
     ax2.set_xlim(0.32, 0.95)
     ax2.set_ylim(-0.04, 0.74)
-    ax2.set_xlabel("Latent Manifold Recovery on U (CMC ↑)")
-    ax2.set_ylabel("Pathway Support Recovery on V (Jaccard F1 ↑)")
+    ax2.set_xlabel(r"Latent Manifold Recovery on U (CMC $\uparrow$)")
+    ax2.set_ylabel(r"Pathway Support Recovery on V (Jaccard F1 $\uparrow$)")
     ax2.set_title("B. Sparse Support Recovery vs. Latent Manifold CMC")
     ax2.grid(True)
 
@@ -375,7 +394,7 @@ with theme():
 #| warning: false
 #| message: false
 #| label: fig-benchmark-uncertainty
-#| fig-cap: "Out-of-sample linear entrypoint comparison across the 12 benchmark dataset blocks with uncertainty (`pysimlr.plot_benchmark_uncertainty`, seeds averaged per dataset block, 2,000 bootstrap resamples). Left: mean linear entrypoint score ($\\mathbf{X}\\mathbf{V}$) with 95% bootstrap interval and per-cohort dots. Right: paired difference (`method − PCA`) across the 12 cohorts; solid colored intervals exclude zero."
+#| fig-cap: "Multi-view alignment outperforms single-matrix PCA on the out-of-sample linear entrypoint across the 12 benchmark dataset blocks (`pysimlr.plot_benchmark_uncertainty`, seeds averaged per dataset block, 2,000 bootstrap resamples). Left: mean linear entrypoint score ($\\mathbf{X}\\mathbf{V}$) with 95% bootstrap interval and per-cohort points. Right: paired difference (`method − PCA`) across the 12 cohorts, where solid colored intervals exclude zero."
 #| out-width: 100%
 #| echo: false
 import os
@@ -410,7 +429,7 @@ plt.show()
 #| warning: false
 #| message: false
 #| label: fig-three-probes
-#| fig-cap: "Global 12-dataset comparison (`pysimlr.plot_benchmark`, mean $\\pm$ SE over cohort blocks) across the three complementary evaluation probes at the discovery operating point ($q = 0.5$): Subspace Fidelity (`Ridge(XV)`, blue), Single-Axis Interpretability (`RandomForest(XV)`, orange), and Shared Patient Consensus (`Ridge(U)`, green)."
+#| fig-cap: "Coordinate-aligned SiMR models preserve single-axis Random Forest accuracy while dense PCA drops sharply due to coordinate mixing (`pysimlr.plot_benchmark`, mean $\\pm$ SE over cohort blocks at $q = 0.5$). Grouped bars compare Subspace Fidelity (`Ridge(XV)`, blue), Single-Axis Interpretability (`RandomForest(XV)`, orange), and Shared Patient Consensus (`Ridge(U)`, green)."
 #| out-width: 100%
 #| echo: false
 import pandas as pd
@@ -443,7 +462,7 @@ long_probes["Model"] = long_probes["Model"].astype(str)
 fig, ax1 = plt.subplots(figsize=(10.8, 4.0), dpi=200, layout="constrained")
 pysimlr.plot_benchmark(long_probes, x="Model", y="Score", by="Probe", kind="bar", ax=ax1)
 ax1.set_xlabel("")
-ax1.set_ylabel("Mean out-of-sample score (↑)")
+ax1.set_ylabel(r"Mean out-of-sample score ($\uparrow$)")
 ax1.set_title("Three-probe performance profile across 12 benchmarks (q = 0.5)")
 ax1.set_ylim(0.50, 0.84)
 
@@ -463,15 +482,15 @@ plt.show()
 
 Three empirical principles emerge from @tbl-global-leaderboard and Figures [-@fig-cd-diagram]–[-@fig-three-probes]:
 
-1. **Multi-View Alignment Against Single-Matrix Factorization**: The leading mean Friedman ranks on the linear entrypoint probe are `{python} N.rank_lin_top4`, against `PCA` (`{python} N.rank_lin_PCA`) and `NSAFlow-PCA` (`{python} N.rank_lin_NSAFlow_PCA`) (@fig-benchmark-uncertainty). On heterogeneous cohorts such as `mfeat` ($p = [76, 64, 6, 47]$) and `Shared+Private` ($p = [160, 60, 30]$), concatenated `PCA` reaches a linear score of `{python} N.mfeat_pca` (`mfeat` accuracy) and `{python} N.sp_pca` (`Shared+Private` $R^2$), against `{python} N.mfeat_best` (`{python} N.mfeat_best_model`) and `{python} N.sp_best` (`{python} N.sp_best_model`) for the best multi-view model. Over the 12 datasets (seeds averaged, Wilcoxon signed-rank against `PCA` with Holm adjustment, Appendix B), the linear score differs from `PCA` at $p < 0.05$ for `{python} N.wilcoxon_n_sig` of 6 models (`{python} N.wilcoxon_sig`).
-2. **Coordinate Alignment and the Random Forest Axis Drop**: As established in @eq-subspace-invariance, ridge regression on $\mathbf{X}_m \mathbf{V}_m$ is insensitive to orthogonal or oblique column mixing $\mathbf{V}_m \mathbf{M}$, hiding the fact that dense `PCA` mixes distinct mechanisms across columns. With coordinate-splitting decision trees (`RandomForest`), `PCA` loses `{python} N.drop_pca` on average across the 12 cohorts (Random Forest minus linear score), falling from `{python} N.npw_pca` to `{python} N.npw_pca_rf` on the weak sparse factors of `NonnegPartsWeak` and from `{python} N.adni_pca` to `{python} N.adni_pca_rf` on `ADNI-MCI` (`{python} N.adni_pca_rf_drop_pct` lower). The smallest drops are `{python} N.drop_best_models`.
+1. **Multi-View Alignment Against Single-Matrix Factorization**: The leading mean Friedman ranks on the linear entrypoint probe are `{python} N.rank_lin_top4`, against `PCA` (`{python} N.rank_lin_PCA`) and `NSAFlow-PCA` (`{python} N.rank_lin_NSAFlow_PCA`) (@fig-benchmark-uncertainty). On heterogeneous cohorts such as `mfeat` ($p = [76, 64, 6, 47]$) and `Shared+Private` ($p = [160, 60, 30]$), concatenated `PCA` reaches a linear score of `{python} N.mfeat_pca` (`mfeat` accuracy) and `{python} N.sp_pca` (`Shared+Private` $R^2$), against `{python} N.mfeat_best` (`{python} N.mfeat_best_model`) and `{python} N.sp_best` (`{python} N.sp_best_model`) for the best multi-view model. Over the `{python} N.n_blocks` datasets (seeds averaged, Wilcoxon signed-rank against `PCA` with Holm adjustment, @sec-app-operational), the linear score differs from `PCA` at $p < 0.05$ for `{python} N.wilcoxon_n_sig` of `{python} n_non_pca` `{python} wilcoxon_sig_phrase`.
+2. **Coordinate Alignment and the Random Forest Axis Drop**: As established in @eq-subspace-invariance, ridge regression on $\mathbf{X}_m \mathbf{V}_m$ is insensitive to orthogonal or oblique column mixing $\mathbf{V}_m \mathbf{M}$, hiding the fact that dense `PCA` mixes distinct mechanisms across columns. With coordinate-splitting decision trees (`RandomForest`), `PCA` loses `{python} N.drop_pca` on average across the `{python} N.n_blocks` cohorts (Random Forest minus linear score), falling from `{python} N.npw_pca` to `{python} N.npw_pca_rf` on the weak sparse factors of `NonnegPartsWeak` and from `{python} N.adni_pca` to `{python} N.adni_pca_rf` on `ADNI-MCI` (`{python} N.adni_pca_rf_drop_pct` lower). The smallest drops are `{python} N.drop_best_models`.
 3. **Operating Points and Feature Density ($q = 0.5$ vs. $q = 0.8$)**: @fig-operating-point-and-support shows the quantile threshold $q$ as a lens on feature support recovery without conflating scales on secondary axes. Across the `{python} N.n_default_fits` default-positivity fits, the mean linear score is `{python} N.op_lin_None`, `{python} N.op_lin_05` and `{python} N.op_lin_08` at $q = \text{None}$, $0.5$ and $0.8$, and the mean Random Forest axis score is `{python} N.op_rf_None`, `{python} N.op_rf_05` and `{python} N.op_rf_08`; at $q = 0.8$, `{python} N.op_sparsity_08` of loadings are zero while `{python} N.op_retained_08` of the best linear score is retained. At $q = 0.5$, support recovery on the $50\%$-sparse `Linear` regime ranges from $F_1 =$ `{python} N.f1_linear_q05_min` (`{python} N.f1_linear_q05_min_model`) to `{python} N.f1_linear_q05_max` (`{python} N.f1_linear_q05_max_model`), and reaches `{python} N.f1_np_q05_best` on `NonnegParts` (`{python} N.f1_np_q05_best_model`). On the focal $20\%$-active modules, the best $F_1$ at $q = 0.8$ is `{python} N.f1_npw_q08_best` on `NonnegPartsWeak` (`{python} N.f1_npw_q08_best_model`) and `{python} N.f1_sp_q08_best` on `Shared+Private` (`{python} N.f1_sp_q08_best_model`).
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-operating-point-and-support
-#| fig-cap: "Operating-point trade-off (`pysimlr.plot_benchmark`, mean $\\pm$ SE with direct line-end labels, no secondary axes) across the default-positivity fits at unthresholded (`q = None`), moderate (`q = 0.5`), and focal (`q = 0.8`) quantile sparsity. (A) Out-of-sample linear subspace (`Ridge(XV)`) and single-axis (`RandomForest(XV)`) scores across the 12 cohort blocks. (B) Ground-truth feature support recovery ($F_1$) on the sparse synthetic regimes across $q$."
+#| fig-cap: "Focal quantile sparsification ($q = 0.8$) sharpens ground-truth support recovery while preserving nearly all linear subspace fidelity (`pysimlr.plot_benchmark`, mean $\\pm$ SE with direct line-end labels across default-positivity fits at `q = None`, `q = 0.5`, and `q = 0.8`). (A) Out-of-sample linear (`Ridge(XV)`) and single-axis (`RandomForest(XV)`) scores across the 12 cohort blocks. (B) Ground-truth feature support recovery ($F_1$) across the sparse synthetic regimes."
 #| out-width: 100%
 #| echo: false
 import pandas as pd
@@ -513,15 +532,325 @@ syn_q["Operating point"] = syn_q["Operating point"].astype(object)
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.6, 4.2), dpi=200, layout="constrained")
 pysimlr.plot_benchmark(long_q, x="Operating point", y="Score", by="Probe", kind="line", ax=ax1)
 ax1.set_xlim(-0.15, 2.75)
-ax1.set_ylabel("Out-of-sample score (↑)")
+ax1.set_ylabel(r"Out-of-sample score ($\uparrow$)")
 ax1.set_title("A. Predictive fidelity across operating points")
 
 pysimlr.plot_benchmark(syn_q, x="Operating point", y="Support_Recovery_V", by="Dataset", kind="line", ax=ax2)
 ax2.set_xlim(-0.15, 3.05)
-ax2.set_ylabel("Pathway support recovery F1 (↑)")
+ax2.set_ylabel(r"Pathway support recovery F1 ($\uparrow$)")
 ax2.set_title("B. Ground-truth support recovery across q")
 plt.show()
 ```
+
+## Non-Subtractive Sparsification and Two-Stage Uniform Shrinkage: Synthetic Verification (Propositions 1–3) {#sec-exp-synthetic-v043}
+
+Numerical checks and 20-seed synthetic benchmarks verify Propositions 1–3 and two-stage support-restricted uniform shrinkage (`results_cache/v043_synthetic_theorems.json` from `scripts/benchmark_synthetic_theorems.py`; @sec-non-subtractive-sparsification; @sec-uniform-shrinkage; @donoho1994ideal).
+
+```{python}
+#| echo: false
+#| output: false
+import json, os, re
+from IPython.display import Markdown
+from paper_numbers import CACHE
+
+with open(os.path.join(CACHE, "v043_synthetic_theorems.json")) as fh:
+    _syn_meta = json.load(fh)
+
+_mp1 = _syn_meta["propositions"]["prop1"]
+_mp2 = _syn_meta["propositions"]["prop2"]
+_mp3 = _syn_meta["propositions"]["prop3"]
+_mda = _syn_meta["design_a_rank1_sparse"]["description"]
+_mdb = _syn_meta["design_b_rank2_disjoint"]["description"]
+
+_m_rho = re.search(r"rho=([0-9.]+)", _mda)
+_m_act_a = re.search(r"(\d+%)\s+active", _mda)
+_m_act_b = re.search(r"\((\d+%)\s*\+\s*(\d+%)\s+active", _mdb)
+if _m_rho is None or _m_act_a is None or _m_act_b is None:
+    raise ValueError("Unexpected description format in v043_synthetic_theorems.json")
+
+syn_p1_p = Markdown(f"$p = {_mp1['p']}$")
+syn_p1_q = Markdown(f"$q = {_mp1['q']:.2f}$")
+syn_p1_pq = Markdown(f"$p = {_mp1['p']}, q = {_mp1['q']:.2f}$")
+syn_p1_alpha_range = Markdown(f"$\\alpha \\in [{_mp1['alphas_tested'][0]:g}, {_mp1['alphas_tested'][-1]:.2f}]$")
+syn_p1_alpha_last = Markdown(f"$\\alpha = {_mp1['soft_threshold_floor_erosion'][-1]['alpha']:.2f}$")
+syn_p2_pm = Markdown(f"$p = {_mp2['p']}, m = {_mp2['m']}$")
+syn_p2_cvx_p = Markdown(f"$p = {_mp2['convexify_defect_p']}$")
+syn_p3_k = Markdown(f"$k = {len(_mp3['support_sizes'])}$")
+syn_p3_sizes = Markdown(str(_mp3["support_sizes"]))
+syn_p3_alpha_range = Markdown(f"$\\alpha \\in [{_mp3['alpha_sweep'][0]['alpha']:g}, {_mp3['alpha_sweep'][-1]['alpha']:g}]$")
+syn_m_views = Markdown(f"$M = {len(_syn_meta['provenance']['view_dims'])}$")
+syn_rho = Markdown(f"$\\rho = {_m_rho.group(1)}$")
+syn_a_active_pct = Markdown(_m_act_a.group(1))
+syn_b_mode_pct = Markdown(f"{_m_act_b.group(1)}/{_m_act_b.group(2)}")
+```
+
+1. **Proposition 1 (Subtractive Shrinkage Cancellation, @eq-prop1-cancellation):** Across shrinkage levels `{python} syn_p1_alpha_range` on `{python} syn_p1_p` coordinates at `{python} syn_p1_q`, order-statistic quantile soft-thresholding (`sparseness_alg="soft"`) yields maximum $\ell_\infty$ deviation `{python} N.syn_prop1_max_linf` from the $\alpha = 0$ support and weights, confirming exact $\alpha$-cancellation. Under uniform-shrunk coordinate floors, continuous pre-retraction soft-thresholding (`sparseness_type="soft"`, `_apply_soft_threshold_sparseness`) suffers floor erosion: at `{python} syn_p1_alpha_last`, the uniform floor reaches `{python} N.syn_prop1_soft_floor_a099` above the threshold $\tau =$ `{python} N.syn_prop1_soft_tau_a099`, pulling cosine similarity with $\alpha = 0$ down to `{python} N.syn_prop1_soft_cos_a099` (@fig-v043-propositions A).
+2. **Proposition 2 (Exact Top-$m$ Cardinality and Radial Simplex Normalization, @eq-prop2-radial-simplex):** On `{python} syn_p2_pm`, exact cardinality-constrained projection preserves the Cauchy–Schwarz variance bound with absolute error `{python} N.syn_prop2_cs_err` and achieves lower Euclidean squared error (`{python} N.syn_prop2_euclid_exact` vs. `{python} N.syn_prop2_euclid_soft`) and higher cosine similarity (`{python} N.syn_prop2_cos_exact` vs. `{python} N.syn_prop2_cos_soft`) than shifted soft-thresholding. At `sparseness=None` (`{python} syn_p2_cvx_p`), legacy Euclidean simplex projection subtracts $\theta =$ `{python} N.syn_prop2_legacy_theta`, zeros `{python} N.syn_prop2_legacy_zeroed_pct` of active coordinates, and lowers cosine similarity with the input direction to `{python} N.syn_prop2_legacy_cos`, whereas radial simplex normalization retains cosine `{python} N.syn_prop2_radial_cos` with zero dropped coordinates (@fig-v043-propositions B).
+3. **Proposition 3 (Column-Support Uniform Shrinkage Orthogonality, @eq-prop3-support-shrinkage):** On `{python} syn_p3_k` disjoint column supports of size `{python} syn_p3_sizes`, `ColumnSupportShrinkageOperator` maintains exact orthogonality across `{python} syn_p3_alpha_range` with maximum Gram Frobenius error `{python} N.syn_prop3_max_fro`, whereas global `UniformShrinkageOperator` mixes the supports until Frobenius error reaches `{python} N.syn_prop3_global_fro_a1` and column cosine reaches `{python} N.syn_prop3_global_cos_a1` at $\alpha = 1$ (@fig-v043-propositions C).
+
+::: {#fig-v043-propositions}
+
+```{python}
+#| warning: false
+#| message: false
+#| out-width: 100%
+#| echo: false
+import json, os
+import numpy as np
+import matplotlib.pyplot as plt
+from paper_numbers import CACHE
+from pysimlr.plotting import theme, VIEW_COLORS
+
+with open(os.path.join(CACHE, "v043_synthetic_theorems.json")) as fh:
+    _syn = json.load(fh)
+_p1 = _syn["propositions"]["prop1"]
+_p2 = _syn["propositions"]["prop2"]
+_p3 = _syn["propositions"]["prop3"]
+
+with theme():
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(13.2, 4.0), dpi=200, constrained_layout=True)
+
+    # Panel A: Prop 1 floor erosion
+    _fe = _p1["soft_threshold_floor_erosion"]
+    _a1 = [r["alpha"] for r in _fe]
+    ax1.plot(_a1, [r["cos_with_alpha0_quantile_soft"] for r in _fe], "o-", color=VIEW_COLORS[0], lw=2.0, label="Quantile soft (Prop 1)")
+    ax1.plot(_a1, [r["cos_with_alpha0_soft_thresh"] for r in _fe], "s--", color=VIEW_COLORS[1], lw=2.0, label="Shifted soft-thresh")
+    ax1.set_xlabel("Uniform shrinkage alpha")
+    ax1.set_ylabel(r"Cosine with alpha = 0 ($\uparrow$)")
+    ax1.set_title("A. Prop 1: alpha-cancellation")
+    ax1.set_ylim(0.55, 1.04)
+    ax1.grid(True)
+    ax1.legend(loc="lower left", fontsize=8.0)
+
+    # Panel B: Prop 2 radial vs legacy convexify and exact top-m
+    _lbls = ["Exact top-m\ncosine", "Soft-thresh\ncosine", "Radial _convexify\ncosine", "Legacy _convexify\ncosine"]
+    _vals = [
+        _p2["cos_sim_exact_topk"],
+        _p2["cos_sim_soft_thresh"],
+        _p2["radial_convexify_cos_with_input"],
+        _p2["legacy_convexify_cos_with_input"],
+    ]
+    _cols = [VIEW_COLORS[0], VIEW_COLORS[1], VIEW_COLORS[2], "#d03b3b"]
+    _xb = np.arange(len(_lbls))
+    _bars = ax2.bar(_xb, _vals, color=_cols, width=0.58)
+    for _b in _bars:
+        _h = _b.get_height()
+        ax2.text(_b.get_x() + _b.get_width() / 2, _h + 0.015, f"{_h:.3f}", ha="center", va="bottom", fontsize=7.8, color="#0b0b0b")
+    ax2.set_xticks(_xb)
+    ax2.set_xticklabels(_lbls, fontsize=7.8)
+    ax2.set_ylim(0.0, 1.14)
+    ax2.set_ylabel(r"Directional cosine similarity ($\uparrow$)")
+    ax2.set_title("B. Prop 2: radial simplex & top-m")
+    ax2.grid(True, axis="y")
+
+    # Panel C: Prop 3 Frobenius error & cosine across alpha
+    _sw = _p3["alpha_sweep"]
+    _a3 = [r["alpha"] for r in _sw]
+    ax3.plot(_a3, [r["col_support_fro_err"] for r in _sw], "o-", color=VIEW_COLORS[0], lw=2.0, label="Col-support Fro err")
+    ax3.plot(_a3, [r["global_smoother_fro_err"] for r in _sw], "s--", color="#d03b3b", lw=2.0, label="Global Fro err")
+    ax3.plot(_a3, [r["global_smoother_cos"] for r in _sw], "^:", color=VIEW_COLORS[1], lw=1.8, label="Global col cosine")
+    ax3.set_xlabel("Uniform shrinkage alpha")
+    ax3.set_ylabel(r"Orthogonality error / cosine ($\downarrow$)")
+    ax3.set_title("C. Prop 3: disjoint support orthog.")
+    ax3.set_ylim(-0.08, 1.55)
+    ax3.grid(True)
+    ax3.legend(loc="upper left", fontsize=7.8)
+
+    plt.show()
+```
+
+Numerical verification of Propositions 1–3 on `pysimlr v0.43.1` (`v043_synthetic_theorems.json`). (A) Cosine similarity with the $\alpha = 0$ weight vector across `{python} syn_p1_alpha_range` (`{python} syn_p1_pq`): order-statistic quantile soft-thresholding (`sparseness_alg="soft"`) cancels $\alpha$ exactly while continuous pre-retraction soft-thresholding (`sparseness_type="soft"`) degrades under the uniform shrinkage floor. (B) Comparison of exact top-$m$ vs. soft-threshold cosine (`{python} syn_p2_pm`) and legacy Euclidean vs. radial `_convexify` cosine/zeroing at `sparseness=None` (`{python} syn_p2_cvx_p`). (C) Gram orthogonality Frobenius error $\|\mathbf{V}^\top \mathbf{V} - \mathbf{I}_2\|_F$ and inter-column cosine across `{python} syn_p3_alpha_range` on disjoint `{python} syn_p3_sizes` supports: `ColumnSupportShrinkageOperator` holds exact zero error while global uniform shrinkage collapses to collinearity.
+:::
+
+We next evaluate two-stage support-restricted uniform shrinkage (`fit_uniform_shrunk`, Donoho–Johnstone Risk Inflation Criterion `ric` @eq-ric-dof vs. `plugin` shrinkage) across `{python} N.syn_n_seeds` seeds in a four-view generative setting (`{python} syn_m_views`, view dimensions `{python} N.syn_view_dims`, $N_{\text{train}} =$ `{python} N.syn_n_train`, $N_{\text{test}} =$ `{python} N.syn_n_test`, block-correlated noise `{python} syn_rho` in blocks of size $5$). Design A tests rank $k = 1$ with `{python} syn_a_active_pct` active positive signal per view (@tbl-v043-design-a); Design B tests rank $k = 2$ with disjoint `{python} syn_b_mode_pct` active supports per view (@tbl-v043-design-b; @fig-v043-design-ab).
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-v043-design-a
+#| tbl-cap: "20-seed Design A ($k = 1$ sparse positive signal, $N_{\\text{train}} = 60$, $N_{\\text{test}} = 200$) comparing two-stage support-restricted uniform shrinkage against global shrinkage and legacy sparsification (`v043_synthetic_theorems.json`), ordered by mean test $R^2$."
+#| echo: false
+#| output: asis
+import json, os
+from tabulate import tabulate
+from paper_numbers import CACHE
+
+with open(os.path.join(CACHE, "v043_synthetic_theorems.json")) as fh:
+    _syn = json.load(fh)
+_sum_a = _syn["design_a_rank1_sparse"]["summary"]
+_labels_a = {
+    "legacy_hard_0p5": "Legacy hard (q=0.5)",
+    "legacy_soft_0p3": "Legacy soft (q=0.3)",
+    "legacy_euclidean_convex_0p3": "Legacy Euclidean convex (q=0.3)",
+    "global_shrunk_conical": "Global uniform shrunk (conical)",
+    "global_shrunk_radial_convex": "Global uniform shrunk (radial convex)",
+    "twostage_conical_q0p0_ric": "Two-stage conical (q=0.0, RIC)",
+    "twostage_conical_q0p3_ric": "Two-stage conical (q=0.3, RIC)",
+    "twostage_conical_q0p3_plugin": "Two-stage conical (q=0.3, plugin)",
+    "twostage_conical_q0p5_ric": "Two-stage conical (q=0.5, RIC)",
+    "twostage_conical_q0p5_plugin": "Two-stage conical (q=0.5, plugin)",
+    "twostage_radial_convex_q0p3_ric": "Two-stage radial convex (q=0.3, RIC)",
+    "twostage_radial_convex_q0p5_ric": "Two-stage radial convex (q=0.5, RIC)",
+    "twostage_radial_convex_q0p5_plugin": "Two-stage radial convex (q=0.5, plugin)",
+}
+_order_a = sorted(_sum_a.keys(), key=lambda k: _sum_a[k]["test_r2"]["mean"], reverse=True)
+_rows_a = []
+for _k in _order_a:
+    _d = _sum_a[_k]
+    _rows_a.append([
+        _labels_a.get(_k, _k),
+        f"{_d['test_r2']['mean']:.3f} ± {_d['test_r2']['sd']:.3f}",
+        f"{_d['support_f1']['mean']:.3f} ± {_d['support_f1']['sd']:.3f}",
+        f"{_d['weight_cos']['mean']:.3f}",
+        f"{_d['active_frac']['mean']:.3f}",
+    ])
+print(tabulate(
+    _rows_a,
+    headers=["Solver Arm (Design A, k = 1)", "Test R2 ↑", "Support F1 ↑", "Weight Cos ↑", "Active Frac"],
+    tablefmt="pipe",
+    disable_numparse=True,
+    colalign=("left", "right", "right", "right", "right"),
+))
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-v043-design-b
+#| tbl-cap: "20-seed Design B ($k = 2$ disjoint sparse signal, $N_{\\text{train}} = 60$, $N_{\\text{test}} = 200$) comparing two-stage column-support uniform shrinkage against global shrinkage and legacy sparsification (`v043_synthetic_theorems.json`), ordered by mean test $R^2$."
+#| echo: false
+#| output: asis
+import json, os
+from tabulate import tabulate
+from paper_numbers import CACHE
+
+with open(os.path.join(CACHE, "v043_synthetic_theorems.json")) as fh:
+    _syn = json.load(fh)
+_sum_b = _syn["design_b_rank2_disjoint"]["summary"]
+_labels_b = {
+    "legacy_conical_hard_0p5": "Legacy conical hard (q=0.5)",
+    "legacy_conical_soft_0p3": "Legacy conical soft (q=0.3)",
+    "legacy_global_shrunk_k2": "Global uniform shrunk (k=2)",
+    "legacy_euclidean_convex_0p5": "Legacy Euclidean convex (q=0.5)",
+    "twostage_conical_q0p0_ric": "Two-stage conical (q=0.0, RIC)",
+    "twostage_conical_q0p3_ric": "Two-stage conical (q=0.3, RIC)",
+    "twostage_conical_q0p3_plugin": "Two-stage conical (q=0.3, plugin)",
+    "twostage_conical_q0p5_ric": "Two-stage conical (q=0.5, RIC)",
+    "twostage_conical_q0p5_plugin": "Two-stage conical (q=0.5, plugin)",
+    "twostage_radial_convex_q0p0_ric": "Two-stage radial convex (q=0.0, RIC)",
+    "twostage_radial_convex_q0p3_ric": "Two-stage radial convex (q=0.3, RIC)",
+    "twostage_radial_convex_q0p5_ric": "Two-stage radial convex (q=0.5, RIC)",
+}
+_order_b = sorted(_sum_b.keys(), key=lambda k: _sum_b[k]["test_r2_mean"]["mean"], reverse=True)
+_rows_b = []
+for _k in _order_b:
+    _d = _sum_b[_k]
+    _rows_b.append([
+        _labels_b.get(_k, _k),
+        f"{_d['test_r2_mean']['mean']:.3f} ± {_d['test_r2_mean']['sd']:.3f}",
+        f"{_d['support_f1']['mean']:.3f} ± {_d['support_f1']['sd']:.3f}",
+        f"{_d['max_orth_fro_err']['mean']:.4f}",
+        f"{_d['max_col_cos']['mean']:.4f}",
+        f"{_d['abs_corr_u1_u2']['mean']:.3f}",
+    ])
+print(tabulate(
+    _rows_b,
+    headers=["Solver Arm (Design B, k = 2)", "Mean Test R2 ↑", "Support F1 ↑", "Max Orth Err ↓", "Max Col Cos ↓", "Abs corr(u1, u2) ↓"],
+    tablefmt="pipe",
+    disable_numparse=True,
+    colalign=("left", "right", "right", "right", "right", "right"),
+))
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-v043-design-ab
+#| fig-cap: "Two-stage support-restricted uniform shrinkage improves both out-of-sample $R^2$ and ground-truth support $F_1$ while enforcing exact column-support orthogonality across 20 seeds (`v043_synthetic_theorems.json`). (A) Design A ($k = 1$ sparse, $N_{\\text{train}} = 60, N_{\\text{test}} = 200$): two-stage conical and radial convex arms outperform global shrinkage and legacy soft thresholding. (B) Design B ($k = 2$ disjoint): two-stage arms achieve zero Gram orthogonality error (`fro = 0.0000`) alongside higher $R^2$ and $F_1$ than legacy global or Euclidean convex baselines."
+#| out-width: 100%
+#| echo: false
+import json, os
+import matplotlib.pyplot as plt
+from paper_numbers import CACHE
+from pysimlr.plotting import theme, VIEW_COLORS
+
+with open(os.path.join(CACHE, "v043_synthetic_theorems.json")) as fh:
+    _syn = json.load(fh)
+_sa = _syn["design_a_rank1_sparse"]["summary"]
+_sb = _syn["design_b_rank2_disjoint"]["summary"]
+
+_arms_a = [
+    ("global_shrunk_conical", "Global conical", VIEW_COLORS[3], "o"),
+    ("legacy_soft_0p3", "Legacy soft 0.3", "#898781", "s"),
+    ("legacy_euclidean_convex_0p3", "Legacy e-cvx 0.3", VIEW_COLORS[1], "^"),
+    ("legacy_hard_0p5", "Legacy hard 0.5", "#0b0b0b", "D"),
+    ("twostage_conical_q0p5_ric", "2-stage con RIC", VIEW_COLORS[0], "P"),
+    ("twostage_conical_q0p5_plugin", "2-stage con plug", VIEW_COLORS[0], "*"),
+    ("twostage_radial_convex_q0p5_plugin", "2-stage rcvx plug", VIEW_COLORS[2], "*"),
+]
+_arms_b = [
+    ("legacy_global_shrunk_k2", f"Global k=2 (fro {_sb['legacy_global_shrunk_k2']['max_orth_fro_err']['mean']:.2f})", VIEW_COLORS[3], "o"),
+    ("legacy_conical_soft_0p3", f"Legacy soft (fro {_sb['legacy_conical_soft_0p3']['max_orth_fro_err']['mean']:.2f})", "#898781", "s"),
+    ("legacy_conical_hard_0p5", f"Legacy hard (fro {_sb['legacy_conical_hard_0p5']['max_orth_fro_err']['mean']:.2f})", "#0b0b0b", "D"),
+    ("legacy_euclidean_convex_0p5", f"Legacy e-cvx (fro {_sb['legacy_euclidean_convex_0p5']['max_orth_fro_err']['mean']:.2f})", VIEW_COLORS[1], "^"),
+    ("twostage_conical_q0p5_ric", f"2-stage con RIC (fro {_sb['twostage_conical_q0p5_ric']['max_orth_fro_err']['mean']:.2f})", VIEW_COLORS[0], "P"),
+    ("twostage_conical_q0p5_plugin", f"2-stage con plug (fro {_sb['twostage_conical_q0p5_plugin']['max_orth_fro_err']['mean']:.2f})", VIEW_COLORS[0], "*"),
+    ("twostage_radial_convex_q0p5_ric", f"2-stage rcvx RIC (fro {_sb['twostage_radial_convex_q0p5_ric']['max_orth_fro_err']['mean']:.2f})", VIEW_COLORS[2], "*"),
+]
+_off_a = {
+    "global_shrunk_conical": (8, 4, "left"),
+    "legacy_soft_0p3": (8, 4, "left"),
+    "legacy_hard_0p5": (-8, 2, "right"),
+    "twostage_radial_convex_q0p5_plugin": (-8, 4, "right"),
+    "twostage_conical_q0p5_plugin": (8, 0, "left"),
+    "legacy_euclidean_convex_0p3": (-8, -4, "right"),
+    "twostage_conical_q0p5_ric": (-8, -4, "right"),
+}
+_off_b = {
+    "legacy_global_shrunk_k2": (8, 4, "left"),
+    "legacy_conical_soft_0p3": (8, -8, "left"),
+    "legacy_conical_hard_0p5": (8, 0, "left"),
+    "legacy_euclidean_convex_0p5": (-8, 4, "right"),
+    "twostage_radial_convex_q0p5_ric": (-8, 3, "right"),
+    "twostage_conical_q0p5_plugin": (-8, 2, "right"),
+    "twostage_conical_q0p5_ric": (-8, -9, "right"),
+}
+
+with theme():
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.6, 4.3), dpi=200, constrained_layout=True)
+
+    for _k, _lbl, _col, _mk in _arms_a:
+        _x = _sa[_k]["support_f1"]["mean"]
+        _y = _sa[_k]["test_r2"]["mean"]
+        ax1.scatter(_x, _y, color=_col, marker=_mk, s=110 if _mk == "*" else 65, edgecolor="#fcfcfb", lw=1.0, zorder=4)
+        _dx, _dy, _ha = _off_a[_k]
+        ax1.annotate(_lbl, (_x, _y), xytext=(_dx, _dy), textcoords="offset points", ha=_ha, va="center", fontsize=7.8, color=_col)
+    ax1.set_xlabel(r"Support recovery F1 ($\uparrow$)")
+    ax1.set_ylabel(r"Out-of-sample $R^2$ ($\uparrow$)")
+    ax1.set_title("A. Design A (k = 1 sparse, 20 seeds)")
+    ax1.set_xlim(0.42, 0.87)
+    ax1.set_ylim(0.815, 0.925)
+    ax1.grid(True)
+
+    for _k, _lbl, _col, _mk in _arms_b:
+        _x = _sb[_k]["support_f1"]["mean"]
+        _y = _sb[_k]["test_r2_mean"]["mean"]
+        ax2.scatter(_x, _y, color=_col, marker=_mk, s=110 if _mk == "*" else 65, edgecolor="#fcfcfb", lw=1.0, zorder=4)
+        _dx, _dy, _ha = _off_b[_k]
+        ax2.annotate(_lbl, (_x, _y), xytext=(_dx, _dy), textcoords="offset points", ha=_ha, va="center", fontsize=7.6, color=_col)
+    ax2.set_xlabel(r"Support recovery F1 ($\uparrow$)")
+    ax2.set_ylabel(r"Mean out-of-sample $R^2$ ($\uparrow$)")
+    ax2.set_title("B. Design B (k = 2 disjoint, 20 seeds)")
+    ax2.set_xlim(0.48, 0.87)
+    ax2.set_ylim(0.82, 0.90)
+    ax2.grid(True)
+
+    plt.show()
+```
+
+Across the `{python} N.syn_n_seeds` seeds in Design A ($k = 1$, two-sided Wilcoxon signed-rank tests), two-stage conical shrinkage at $q = 0.5$ with plugin $\alpha$ achieves $R^2 =$ `{python} N.ts_a_q05_conical_plug_r2_pm` and $F_1 =$ `{python} N.ts_a_q05_conical_plug_f1_pm` against global uniform shrinkage (`{python} N.ts_a_global_conical_r2_pm`, $F_1 =$ `{python} N.ts_a_global_conical_f1_pm`; $\Delta R^2 =$ `{python} N.ts_a_delta_con_plug_vs_global_r2`, $p =$ `{python} N.ts_a_p_con_plug_vs_global_r2`; $\Delta F_1 =$ `{python} N.ts_a_delta_con_plug_vs_global_f1`, $p =$ `{python} N.ts_a_p_con_plug_vs_global_f1`) and exceeds legacy soft-thresholding (`{python} N.ts_a_legacy_soft_r2_pm`; $\Delta R^2 =$ `{python} N.ts_a_delta_con_plug_vs_soft_r2`, $p =$ `{python} N.ts_a_p_con_plug_vs_soft_r2`). Under theoretical RIC shrinkage at $q = 0.5$, two-stage conical attains $R^2 =$ `{python} N.ts_a_q05_conical_ric_r2_pm` and $F_1 =$ `{python} N.ts_a_q05_conical_ric_f1_pm` ($\Delta R^2 =$ `{python} N.ts_a_delta_con_ric_vs_global_r2`, $p =$ `{python} N.ts_a_p_con_ric_vs_global_r2`; $\Delta F_1 =$ `{python} N.ts_a_delta_con_ric_vs_global_f1`, $p =$ `{python} N.ts_a_p_con_ric_vs_global_f1`). Two-stage radial convex ($q = 0.5$, plugin) reaches $R^2 =$ `{python} N.ts_a_q05_rcvx_plug_r2_pm` and $F_1 =$ `{python} N.ts_a_q05_rcvx_plug_f1_pm` against legacy Euclidean convex (`{python} N.ts_a_legacy_ecvx_r2_pm`, $F_1 =$ `{python} N.ts_a_legacy_ecvx_f1_pm`; $\Delta R^2 =$ `{python} N.ts_a_delta_rcvx_plug_vs_ecvx_r2`, $p =$ `{python} N.ts_a_p_rcvx_plug_vs_ecvx_r2`; $\Delta F_1 =$ `{python} N.ts_a_delta_rcvx_plug_vs_ecvx_f1`, $p =$ `{python} N.ts_a_p_rcvx_plug_vs_ecvx_f1`).
+
+In Design B ($k = 2$ disjoint supports), two-stage conical shrinkage ($q = 0.5$, RIC) achieves mean $R^2 =$ `{python} N.ts_b_q05_conical_ric_r2_pm` and $F_1 =$ `{python} N.ts_b_q05_conical_ric_f1_pm` with exact orthogonality (`fro =` `{python} N.ts_b_q05_conical_ric_fro`, `cos =` `{python} N.ts_b_q05_conical_ric_cos`), outperforming global uniform shrinkage (`{python} N.ts_b_legacy_global_r2_pm`, $F_1 =$ `{python} N.ts_b_legacy_global_f1_pm`, `fro =` `{python} N.ts_b_legacy_global_fro`; $\Delta R^2 =$ `{python} N.ts_b_delta_con_ric_vs_global_r2`, $p =$ `{python} N.ts_b_p_con_ric_vs_global_r2`; $\Delta F_1 =$ `{python} N.ts_b_delta_con_ric_vs_global_f1`, $p =$ `{python} N.ts_b_p_con_ric_vs_global_f1`; $\Delta \text{Fro} =$ `{python} N.ts_b_delta_con_ric_vs_global_fro`, $p =$ `{python} N.ts_b_p_con_ric_vs_global_fro`) and legacy conical hard thresholding (`{python} N.ts_b_legacy_hard_r2_pm`, $F_1 =$ `{python} N.ts_b_legacy_hard_f1_pm`, `fro =` `{python} N.ts_b_legacy_hard_fro`; $\Delta R^2 =$ `{python} N.ts_b_delta_con_ric_vs_hard_r2`, $p =$ `{python} N.ts_b_p_con_ric_vs_hard_r2`; $\Delta F_1 =$ `{python} N.ts_b_delta_con_ric_vs_hard_f1`, $p =$ `{python} N.ts_b_p_con_ric_vs_hard_f1`). Two-stage radial convex ($q = 0.5$, RIC) attains $R^2 =$ `{python} N.ts_b_q05_rcvx_ric_r2_pm` and $F_1 =$ `{python} N.ts_b_q05_rcvx_ric_f1_pm` (`fro =` `{python} N.ts_b_q05_rcvx_ric_fro`), improving over legacy Euclidean convex (`{python} N.ts_b_legacy_ecvx_r2_pm`, $F_1 =$ `{python} N.ts_b_legacy_ecvx_f1_pm`, `fro =` `{python} N.ts_b_legacy_ecvx_fro`; $\Delta R^2 =$ `{python} N.ts_b_delta_rcvx_ric_vs_ecvx_r2`, $p =$ `{python} N.ts_b_p_rcvx_ric_vs_ecvx_r2`; $\Delta F_1 =$ `{python} N.ts_b_delta_rcvx_ric_vs_ecvx_f1`, $p =$ `{python} N.ts_b_p_rcvx_ric_vs_ecvx_f1`).
 
 ## Clinical Neuroimaging in `ADNI-MCI` ($N = 1,084$): Predicting Cognition from MRI Alone and Attributing the Prediction
 
@@ -580,29 +909,29 @@ for m in order:
         f"{u_m:.3f}",
         f"{sw_r2:.3f}",
         f"{sw_11:.3f}",
-        f"{sp_m:.1f}%"
+        f"{sp_m:.1f}"
     ])
 
 headers = [
     "Architecture", "3-Seed MRI Linear R2 ↑", "MRI RF Axis R2 ↑",
     "MRI Consensus R2 ↑", "Sweep Peak CogPC1 R2 ↑", "11-Scale Mean R2 ↑", "MRI Sparsity % ↑"
 ]
-print(tabulate(rows, headers=headers, tablefmt="pipe"))
+print(tabulate(rows, headers=headers, tablefmt="pipe", disable_numparse=True, colalign=("left", "right", "right", "right", "right", "right", "right")))
 ```
 
 Comparing the unsupervised anatomical baselines against cognitive-aligned SiMR models in @tbl-adni-mci-summary and Figures [-@fig-adni-view-chord]–[-@fig-adni-scores] yields four findings:
 
 1. **Supervising MRI Factor Discovery with Cognitive Batteries Improves Out-of-Sample MRI Prediction**: Unsupervised `PCA` on the $382$ structural MRI features explains $R^2 =$ `{python} N.adni_pca` $\pm$ `{python} N.adni_pca_sd` of out-of-sample cognitive variance (`CogPC1`) on the linear probe and `{python} N.adni_pca_rf` on the single-axis Random Forest probe. Aligning the MRI projections with the 11-scale cognitive battery during training gives, for the four leading models (3-seed means $\pm$ SD), `{python} N.adni_ranked`; the best is `{python} N.adni_gain_pct` over `PCA`. The best single-axis Random Forest score is `{python} N.adni_rf_best` (`{python} N.adni_rf_best_model`), `{python} N.adni_rf_ratio` times that of `PCA`. In the single-seed sweep the best configuration reaches `{python} N.sweep_best_r2` (`{python} N.sweep_best_model`) and the best linear-family configuration `{python} N.sweep_linear_best_r2` (`{python} N.sweep_linear_best_model`), against `{python} N.sweep_pca_r2` for `PCA`; mean prediction across all eleven scales reaches `{python} N.sweep_m11_best` (`{python} N.sweep_m11_best_model`) against `{python} N.sweep_m11_pca` for `PCA` (`{python} N.sweep_m11_gain`). These sweep peaks are maxima over many configurations on one split and are optimistic.
 2. **Which MRI Features Carry the Prediction**: @fig-adni-neuroanatomy-flagship attributes the held-out `CogPC1` prediction of the non-negative $q = 0.85$ fit (all nine MRI columns, $R^2 =$ `{python} N.attr_full_r2`). One column per MRI view carries it. Alone, the predictive column gives $R^2 =$ `{python} N.attr_vol_best_r2` in volume (component `{python} N.attr_vol_best_c`), `{python} N.attr_va_best_r2` in vol/area (component `{python} N.attr_va_best_c`) and `{python} N.attr_dkt_best_r2` in DiReCT thickness (component `{python} N.attr_dkt_best_c`, `{python} N.attr_dkt_best_n` region), against at most `{python} N.attr_other_max_r2` for any other column, and only the vol/area column is not redundant with the rest (unique $R^2$ `{python} N.attr_va_best_unique`). Component numbers are not identifiable across fits, so the refits below follow each view's predictive column rather than a fixed index. Across `{python} N.attr_n_halves` half-sample refits, the predictive vol/area basis selects these features in at least half of them (fraction of refits): `{python} N.attr_cur_va_top`. These are mostly entorhinal, temporal-lobe and inferior parietal measures, the regions where atrophy is expected in prodromal Alzheimer's disease [@dickerson2009cortical; @jack2018nia]. DiReCT thickness tells the same story less clearly. Its first principal component explains `{python} N.attr_dkt_pc1` of the variance across the 62 regions (mean inter-region correlation `{python} N.attr_dkt_mean_corr`), and consensus component `{python} N.attr_global_c` correlates `{python} N.attr_global_r` with subject-mean thickness, so hard-assigning each region to its largest structure coefficient places `{python} N.attr_hard_counts` regions on components 1 / 2 / 3: a display of the global factor, not of localisation (Panel B). The thickness basis itself is unstable under the default collapse penalty: it keeps two or fewer regions in `{python} N.attr_cur_dkt_degenerate` of `{python} N.attr_n_halves` refits (median held-out $R^2$ `{python} N.attr_cur_dkt_med_r2`). Non-negative region sums on positively correlated features typically correlate above the penalty's threshold of 0.3, so the penalty pushes those columns towards one or two regions. With `collapse_weight = 0` the predictive thickness basis keeps a median of `{python} N.attr_nc_dkt_med_n` regions (two or fewer in `{python} N.attr_nc_dkt_degenerate` refit), its median $R^2$ rises to `{python} N.attr_nc_dkt_med_r2`, and its most frequent regions are (fraction of refits) `{python} N.attr_nc_dkt_top` (Panel D). No single thickness region replicates in more than `{python} N.attr_nc_dkt_top_max` of refits, so the thickness map is a pattern, not a list of identified regions (`docs/audit/evidence/adni_global_factor_check.csv`). For reference, unthresholded non-negative fits are `{python} N.fl_col_pca_simr_sp` sparse on the DKT view without rotation and `{python} N.fl_varimax_simr_sp` with Varimax, against `{python} N.fl_pca_sp` for dense `PCA`.
-3. **Support-Shuffled and PCA-Rotated Score Controls**: To separate coordinate-level axis alignment and anatomical support localization from subspace capacity, two negative controls are evaluated across 3 seeds on `ADNI-MCI` (`adni_mci_axis_alignment_controls.csv`, `axis_alignment_control_metrics`): (i) a **PCA-Rotated Score Control** rotates the learned scores $\mathbf{Z} = [\mathbf{X}_m \mathbf{V}_m]$ by their in-fold principal-component eigenvectors, which leaves the linear probe unchanged (largest difference `{python} N.ctl_linear_invariance`) and lowers the single-axis Random Forest score for `{python} N.ctl_rot_n_lower` of `{python} N.ctl_n_models` models; (ii) a **Support-Shuffled Basis Control** permutes the rows of each $\mathbf{V}_m$ within its view, preserving sparsity, weight magnitudes and $\mathbf{V}_m^\top \mathbf{V}_m$, and lowers the Random Forest `CogPC1` $R^2$ for `{python} N.ctl_shuffle_n_lower` of `{python} N.ctl_n_models` models: `{python} N.ctl_shuffle_lowers`. Unshuffled Random Forest scores are `{python} N.ctl_rf_ratio_min`–`{python} N.ctl_rf_ratio_max` times that of `PCA`.
-4. **Rank Selection, Component Identifiability, and Display Policy**: Evaluating latent rank selection via `select_rank` across 20 half-sample refits (`adni_rank_selection.csv`) reveals that component identifiability depends critically on rank $k$ and non-negativity. At $k = 3$ under non-negativity, component stabilities are `{python} N.adni_k3_pos_stab_c1` ($0.975$), `{python} N.adni_k3_pos_stab_c2` ($0.803$), and `{python} N.adni_k3_pos_stab_c3` ($0.996$). Component 2 is unstable ($0.803 < 0.90$) and therefore classified as **not identified** (`all_stable=False`). In contrast, at $k = 2$ under positivity, both components achieve full stability and identifiability (`all_stable=True`, stabilities `{python} N.adni_k2_pos_stab_c1` [$0.961$] and `{python} N.adni_k2_pos_stab_c2` [$0.997$]). Under signed estimation (`positivity="either"`), stabilities at $k = 3$ drop to `{python} N.adni_k3_either_stab_c1` ($0.993$), `{python} N.adni_k3_either_stab_c2` ($0.568$), and `{python} N.adni_k3_either_stab_c3` ($0.792$), failing identification on components 2 and 3.
+3. **Support-Shuffled and PCA-Rotated Score Controls**: To separate coordinate-level axis alignment and anatomical support localization from subspace capacity, two negative controls are evaluated across `{python} N.n_seeds` seeds on `ADNI-MCI` (`adni_mci_axis_alignment_controls.csv`, `axis_alignment_control_metrics`): (i) a PCA-rotated score control rotates the learned scores $\mathbf{Z} = [\mathbf{X}_m \mathbf{V}_m]$ by their in-fold principal-component eigenvectors, which leaves the linear probe unchanged (largest difference `{python} N.ctl_linear_invariance`) and lowers the single-axis Random Forest score for `{python} N.ctl_rot_n_lower` of `{python} N.ctl_n_models` models; (ii) a support-shuffled basis control permutes the rows of each $\mathbf{V}_m$ within its view, preserving sparsity, weight magnitudes and $\mathbf{V}_m^\top \mathbf{V}_m$, and lowers the Random Forest `CogPC1` $R^2$ for `{python} N.ctl_shuffle_n_lower` of `{python} N.ctl_n_models` models: `{python} N.ctl_shuffle_lowers`. Unshuffled Random Forest scores are `{python} N.ctl_rf_ratio_min` to `{python} N.ctl_rf_ratio_max` times that of `PCA`.
+4. **Rank Selection, Component Identifiability, and Display Policy**: Evaluating latent rank selection via `select_rank(..., criterion="latent_reliability")` (@sec-stability-bagging-sem; @eq-oob-icc1) across 20 half-sample refits (`docs/audit/evidence/adni_rank_selection.csv`, selection margin `{python} N.adni_rank_margin`) selects $k =$ `{python} N.adni_pos_selected_k` under non-negative estimation (`positivity="positive"`) and $k =$ `{python} N.adni_either_selected_k` under signed estimation (`positivity="either"`). At $k = 2$ under non-negativity, out-of-bag univariate latent reliabilities are `{python} N.adni_k2_pos_rel_c1` and `{python} N.adni_k2_pos_rel_c2` (gains `{python} N.adni_k2_pos_gain_c1` and `{python} N.adni_k2_pos_gain_c2`), multivariate reliability is `{python} N.adni_k2_pos_mv_rel` (gain `{python} N.adni_k2_pos_mv_gain`), and `all_coupled =` `{python} N.adni_k2_pos_all_coupled` (`passed =` `{python} N.adni_k2_pos_passed`). At $k = 3$ under non-negativity, univariate reliabilities are `{python} N.adni_k3_pos_rel_c1`, `{python} N.adni_k3_pos_rel_c2`, and `{python} N.adni_k3_pos_rel_c3` (gains `{python} N.adni_k3_pos_gain_c1`, `{python} N.adni_k3_pos_gain_c2`, and `{python} N.adni_k3_pos_gain_c3`): Component 2 drops to minimum reliability `{python} N.adni_k3_pos_min_rel` (gain `{python} N.adni_k3_pos_min_gain`), multivariate reliability drops to `{python} N.adni_k3_pos_mv_rel` (gain declines from `{python} N.adni_k2_pos_mv_gain` at $k = 2$ to `{python} N.adni_k3_pos_mv_gain`, failing multivariate monotonicity), and `all_coupled =` `{python} N.adni_k3_pos_all_coupled` (`passed =` `{python} N.adni_k3_pos_passed`), so the fixed $k = 3$ diagnostic fits below isolate Components 1 and 3 as the two high-reliability axes. Under signed estimation (`positivity="either"`), $k = 2$ achieves reliabilities `{python} N.adni_k2_either_rel_c1` and `{python} N.adni_k2_either_rel_c2` (multivariate gain `{python} N.adni_k2_either_mv_gain`, `passed =` `{python} N.adni_k2_either_passed`), whereas at $k = 3$ reliabilities drop to `{python} N.adni_k3_either_rel_c1`, `{python} N.adni_k3_either_rel_c2`, and `{python} N.adni_k3_either_rel_c3` (minimum gain `{python} N.adni_k3_either_min_gain`, multivariate gain `{python} N.adni_k3_either_mv_gain`, `passed =` `{python} N.adni_k3_either_passed`).
    * **Signed Displays Protocol**: Across all displays in this manuscript: (i) feature maps display only features whose 95% bootstrap confidence interval (from whole-pipeline refits in `loading_inference`) strictly excludes zero; (ii) named biomarker panels report features selected via Meinshausen–Bühlmann stability selection at threshold $\pi_{\text{thr}} = 0.80$ with expected false selections $E[\text{false}] \le 1.0$; and (iii) non-negative displays present hard-assignment OLEE loadings accompanied by the `loading_margin` certainty metric.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-adni-view-chord
-#| fig-cap: "Held-out multi-view component coupling on `ADNI-MCI` (`pysimlr.plot_view_chord`, $N_{\\text{test}} = 326$, `Protocol B`, `SiMLR`, $k = 3$, $q = 0.85$). Each view (`Volume`, `Vol/area` = volume-to-surface-area ratio, `DiReCT thickness`, `Cognition`) occupies a fixed arc with one slot per partner view; ribbons fill their slots in proportion to held-out Pearson $r$ between view scores, so selective coupling appears as empty arc rather than stretched ribbons."
+#| fig-cap: "Non-negative `ADNI-MCI` alignment learns selective cross-view couplings rather than collapsing all views onto one dense factor (`pysimlr.plot_view_chord`, $N_{\\text{test}} = 326$, `Protocol B`, `SiMLR`, $k = 3$, $q = 0.85$). Each view (`Volume`, `Vol/area` = volume-to-surface-area ratio, `DiReCT thickness`, `Cognition`) occupies a fixed arc with one slot per partner view, and ribbons fill slots in proportion to held-out Pearson $r$."
 #| out-width: 100%
 #| echo: false
 import os, sys
@@ -630,7 +959,7 @@ plt.show()
 #| warning: false
 #| message: false
 #| label: fig-adni-latent-coupling
-#| fig-cap: "Training (hollow rings) versus held-out (filled dots) view-to-consensus coupling dumbbells and the held-out view-by-view correlation matrix (`pysimlr.plot_latent_coupling`) on `ADNI-MCI` (`Protocol B`)."
+#| fig-cap: "Training and held-out view-to-consensus couplings remain aligned across `ADNI-MCI` modalities (`pysimlr.plot_latent_coupling`, `Protocol B`). Hollow rings denote training coupling, filled dots mark held-out coupling, and the right panel displays the held-out view-by-view correlation matrix."
 #| out-width: 100%
 #| echo: false
 import matplotlib.pyplot as plt
@@ -647,7 +976,7 @@ plt.show()
 #| warning: false
 #| message: false
 #| label: fig-adni-component-radar
-#| fig-cap: "Held-out component coupling profile of each `ADNI-MCI` view (`pysimlr.plot_component_radar`); the grey polygon marks the mean over views."
+#| fig-cap: "Held-out component coupling profiles separate view-specific contributions across the three `ADNI-MCI` axes (`pysimlr.plot_component_radar`). Colored polygons trace individual modalities and the grey polygon marks the mean over views."
 #| out-width: 100%
 #| echo: false
 import matplotlib.pyplot as plt
@@ -663,7 +992,7 @@ plt.show()
 #| warning: false
 #| message: false
 #| label: fig-adni-neuroanatomy-flagship
-#| fig-cap: "Which MRI features carry the held-out cognitive prediction on `ADNI-MCI` (`Protocol B`, `SiMLR`, $k = 3$, non-negative, $q = 0.85$, $w = 0.50$; $N_{\\text{train}} = 758$, $N_{\\text{test}} = 326$; `paper_adni_attribution.py`). (A) Held-out `CogPC1` $R^2$ of each MRI component alone; *unique* is the loss in $R^2$ when that column is dropped from all nine. (B) Variance spectrum of DiReCT thickness over the 62 DKT regions: one global factor, which one consensus component tracks (identified in the text); hard-assigning each region to its largest structure coefficient therefore puts almost every region on that component. (C) Vol/area: fraction of 20 half-sample refits whose predictive basis selects each feature (coloured: $\\ge 0.5$; dot: selected in the full fit). (D) DiReCT thickness: the same frequency under the default collapse penalty (hollow) and with `collapse_weight = 0` (filled)."
+#| fig-cap: "One component per MRI view carries the held-out cognitive prediction while `collapse_weight = 0` is required to recover the DiReCT cortical-thickness pattern (`ADNI-MCI`, `Protocol B`, `SiMLR`, $k = 3$, non-negative, $q = 0.85$, $w = 0.50$; $N_{\\text{train}} = 758$, $N_{\\text{test}} = 326$; `paper_adni_attribution.py`). (A) Held-out `CogPC1` $R^2$ of each MRI component alone and unique $R^2$ loss when dropped from all nine. (B) Variance spectrum of DiReCT thickness over the 62 DKT regions showing one global factor tracked by one consensus component. (C) Vol/area selection frequency across 20 half-sample refits (colored $\\ge 0.5$; dot = full fit). (D) DiReCT thickness selection frequency under the default collapse penalty (hollow) and `collapse_weight = 0` (filled)."
 #| out-width: 100%
 #| echo: false
 import os
@@ -699,7 +1028,7 @@ with theme():
 #| warning: false
 #| message: false
 #| label: fig-adni-lobes
-#| fig-cap: "Lobe-level summary (`pysimlr.plot_feature_groups`, mean $|\\text{structure}|$) across the 62 DKT cortical parcels grouped into Temporal, Parietal, Frontal, Cingulate, Occipital, and Insula lobes on `ADNI-MCI` (`Protocol B`)."
+#| fig-cap: "Temporal and parietal cortices carry the strongest structure coefficients on the `ADNI-MCI` cognitive-aligned thickness basis (`pysimlr.plot_feature_groups`, `Protocol B`). Bars report mean $|\\text{structure}|$ across the 62 DKT cortical parcels grouped into Temporal, Parietal, Frontal, Cingulate, Occipital, and Insula lobes."
 #| out-width: 100%
 #| echo: false
 import matplotlib.pyplot as plt
@@ -739,7 +1068,7 @@ plt.show()
 #| warning: false
 #| message: false
 #| label: fig-adni-scores
-#| fig-cap: "Subject scores in the rotated frame $\\mathbf{u}\\mathbf{R}$ (`pysimlr.plot_scores`, identified Components 1 and 3) shaded by `CogPC1` impairment severity, with marginal KDE densities and ringed held-out MCI participants ($N_{\\text{test}} = 326$)."
+#| fig-cap: "Out-of-sample `ADNI-MCI` participants align along the cognitive severity gradient in the rotated score plane of Components 1 and 3, the two high-reliability axes at $k = 3$ (`pysimlr.plot_scores`, $\\mathbf{u}\\mathbf{R}$). Points are shaded by `CogPC1` severity, with marginal KDE densities and ringed held-out MCI participants ($N_{\\text{test}} = 326$)."
 #| out-width: 100%
 #| echo: false
 import matplotlib.pyplot as plt
@@ -765,7 +1094,7 @@ To verify that the same architectural principles generalize beyond neuroimaging 
 #| warning: false
 #| message: false
 #| label: tbl-real-cohorts-summary
-#| tbl-cap: "Out-of-sample linear entrypoint performance (`XV`, top) and multi-modal consensus performance (`U`, bottom) across all six real biomedical cohorts (3-seed mean from `deep_ranking_benchmark.csv`, higher is better ↑)."
+#| tbl-cap: "Out-of-sample linear entrypoint performance (`XV`) with multi-modal consensus performance (`U`) in parentheses across all six real biomedical cohorts (3-seed mean from `deep_ranking_benchmark.csv`, higher is better ↑)."
 #| echo: false
 #| output: asis
 import os
@@ -796,14 +1125,14 @@ headers = [
     "Architecture", "ADNI-MCI R2 ↑", "TCGA-BRCA Acc ↑", "TCGA-KIRC Acc ↑",
     "Diabetes R2 ↑", "Heart Acc ↑", "mfeat Acc ↑"
 ]
-print(tabulate(rows, headers=headers, tablefmt="pipe"))
+print(tabulate(rows, headers=headers, tablefmt="pipe", disable_numparse=True, colalign=("left", "right", "right", "right", "right", "right", "right")))
 ```
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-multiomics-and-patient-attribution
-#| fig-cap: "**Multi-Cohort Linear Entrypoint Performance (`pysimlr.plot_benchmark`).** Out-of-sample linear entrypoint scores across the six real biomedical cohorts (`ADNI-MCI`, `TCGA-BRCA`, `TCGA-KIRC`, `Diabetes`, `Heart`, `mfeat`) comparing top SiMR architectures (`LEND`, `Flow-SiMR-V`, `SiMLR`) against dense `PCA` (3-seed means and error bars from `deep_ranking_benchmark.csv`)."
+#| fig-cap: "Aligned multi-view SiMR architectures outperform dense PCA on the linear entrypoint across all six real biomedical cohorts (`pysimlr.plot_benchmark`, 3-seed mean $\\pm$ SE from `deep_ranking_benchmark.csv`). Grouped bars compare `LEND`, `Flow-SiMR-V`, `SiMLR`, and `PCA` across `ADNI-MCI`, `TCGA-BRCA`, `TCGA-KIRC`, `Diabetes`, `Heart`, and `mfeat`."
 #| out-width: 100%
 #| echo: false
 import os
@@ -837,7 +1166,7 @@ with theme():
     fig, ax1 = plt.subplots(figsize=(10.2, 4.3), dpi=300, layout="constrained")
     pysimlr.plot_benchmark(sub_r, x="Cohort", y="Strictly_Linear_Metric", by="Model", kind="bar", ax=ax1)
     ax1.set_xlabel("")
-    ax1.set_ylabel("Out-of-sample linear probe score (↑)")
+    ax1.set_ylabel(r"Out-of-sample linear probe score ($\uparrow$)")
     ax1.set_title("")
     _header(fig, "Multi-cohort out-of-sample linear entrypoint scores",
             "3-seed mean ± SE across six real cohorts · higher is better")
@@ -848,7 +1177,7 @@ with theme():
 #| warning: false
 #| message: false
 #| label: fig-diabetes-top-features
-#| fig-cap: "**Diabetes Multi-View Feature Structure and Stability (`pysimlr.plot_top_features`).** Top features per view (`Systemic Vitals` and `Serum Biomarkers`) on Component 1 of `LEND`, plotting feature-to-score structure correlations $r(\\mathbf{x}_{mj}, (\\mathbf{U}\\mathbf{R})_1)$ with 95% subsample intervals ($n_{\\text{sub}} = 50$), permutation null floor ($n_{\\text{perm}} = 20$), and stability-selected features highlighted in bold (`results_cache/nsa_v_loadings.json`)."
+#| fig-cap: "Subsample-stable `LEND` structure correlations isolate metabolic and glycemic drivers across systemic vitals and serum biomarkers in Diabetes (`pysimlr.plot_top_features`, `results_cache/nsa_v_loadings.json`). Bars plot $r(\\mathbf{x}_{mj}, (\\mathbf{U}\\mathbf{R})_1)$ with 95% subsample intervals ($n_{\\text{sub}} = 50$), the shaded permutation null band ($n_{\\text{perm}} = 20$), and stability-selected features in bold."
 #| out-width: 100%
 #| echo: false
 import json, os
@@ -856,7 +1185,8 @@ import matplotlib.pyplot as plt
 import pysimlr
 from paper_numbers import CACHE
 
-_nsav = json.load(open(os.path.join(CACHE, "nsa_v_loadings.json")))
+with open(os.path.join(CACHE, "nsa_v_loadings.json")) as fh:
+    _nsav = json.load(fh)
 _db_b = _nsav["plot_bundles"]["Diabetes"]
 fig = pysimlr.plot_top_features(
     _db_b["res"], inf=_db_b["inf"], component=0,
@@ -873,13 +1203,14 @@ plt.show()
 #| label: fig-heart-audit
 #| echo: false
 #| out-width: 100%
-#| fig-cap: "**Cardiology Multi-View Feature-to-Component Chord (`pysimlr.plot_feature_chord`, `Heart` Cohort).** Ribbons link clinical vitals (`cp` chest pain, `sex`, `age`, `restecg`) and cardiophysiological stress indicators (`thal` thallium defect, `ca` fluoroscopy vessels, `exang` exercise angina, `oldpeak`, `thalach`) to components `C1` and `C2`, filtered by subsample stability selection (`results_cache/nsa_v_loadings.json`)."
+#| fig-cap: "Cardiology vitals and exercise stress indicators map selectively onto Components `C1` and `C2` (`pysimlr.plot_feature_chord`, `Heart` cohort, `results_cache/nsa_v_loadings.json`). Ribbons link clinical vitals (`cp` chest pain, `sex`, `age`, `restecg`) and stress markers (`thal`, `ca`, `exang`, `oldpeak`, `thalach`) filtered by subsample stability selection."
 import json, os
 import matplotlib.pyplot as plt
 import pysimlr
 from paper_numbers import CACHE
 
-_nsav = json.load(open(os.path.join(CACHE, "nsa_v_loadings.json")))
+with open(os.path.join(CACHE, "nsa_v_loadings.json")) as fh:
+    _nsav = json.load(fh)
 _hb = _nsav["plot_bundles"]["Heart"]
 fig = pysimlr.plot_feature_chord(
     _hb["res"], inf=_hb["inf"],
@@ -895,14 +1226,15 @@ plt.show()
 #| label: fig-nsa-v-interpretability
 #| echo: false
 #| out-width: 100%
-#| fig-cap: "**Hierarchical Sparse Basis Localization (`nsa_flow`).** `LEND` OLEE loadings $\\mathbf{L}_m$ of each `Heart` and `Diabetes` view (`results_cache/nsa_v_loadings.json`); G is the Gini coefficient of each component and average loading margins are reported."
+#| fig-cap: "Sparse `LEND` OLEE loadings $\\mathbf{L}_m$ separate clinical feature blocks across `Heart` and `Diabetes` views with high Gini sparsity (`results_cache/nsa_v_loadings.json`). Heatmaps plot per-view loading matrices sorted by component assignment, reporting per-column Gini sparsity $G$ and mean winner-vs-runner-up loading margins."
 import json, os
 import numpy as np
 import matplotlib.pyplot as plt
 from paper_numbers import CACHE
 from pysimlr.plotting import theme, _cmap, _matrix, _header
 
-NSAV = json.load(open(os.path.join(CACHE, "nsa_v_loadings.json")))
+with open(os.path.join(CACHE, "nsa_v_loadings.json")) as fh:
+    NSAV = json.load(fh)
 
 def _gini(x):
     x = np.sort(np.abs(np.asarray(x, float)))
@@ -928,4 +1260,172 @@ with theme():
 :::
 ::::
 
-In `MultiOmics` (`TCGA-BRCA`, $N = 822$), out-of-sample Estrogen Receptor classification accuracy on the linear entrypoint is `{python} N.brca_Flow_SiMR_V_pm` (`Flow-SiMR-V`), `{python} N.brca_LEND_pm` (`LEND`) and `{python} N.brca_NEDPP_pm` (`NEDPP`), against `{python} N.brca_PCA_pm` for `PCA` (3-seed means $\pm$ SD); the sparse non-negative dictionaries $\mathbf{V}_m$, tri-modal feature chord, and view-level quality radar are examined in Appendix A. In `TCGA-KIRC` ($N = 467$), pathologic stage classification on the consensus embedding $\mathbf{U}$ is `{python} N.kirc_LEND_u_pm` for `LEND` against `{python} N.kirc_PCA_u_pm` for `PCA`. On compact clinical cohorts, `Diabetes` reaches $R^2 =$ `{python} N.diab_SiMLR` for `SiMLR` against `{python} N.diab_pca` for `PCA`, and `Heart` reaches accuracy `{python} N.heart_NSAFlow_PCA` for `NSAFlow-PCA` and `{python} N.heart_SiMLR` for `SiMLR`. @fig-diabetes-top-features, @fig-heart-audit, and @fig-nsa-v-interpretability show the stability-selected structure correlations, multi-view feature-to-component chord, and OLEE loadings $\mathbf{L}_m$ across `Heart` and `Diabetes`; while the linear entrypoint $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ maps individual observations into the latent consensus space, the OLEE loadings $\mathbf{L}_m$ decompose individual patient profiles into exact additive risk attributions $c_{m,i,j,l} = x_{m,i,j} l_{m,j,l}$ without post-hoc Monte Carlo approximations [@Wachter_2017; @karimi2021algorithmic; @pearl2009causality]. Complete parameter sensitivity ablations—the $w \in [0.01, 0.95]$ trade-off curve, basis diagnostics, stability rank selection across $k$, and synthetic noise recovery—are in Appendix B.
+In `MultiOmics` (`TCGA-BRCA`, $N =$ `{python} n_brca_obs`), out-of-sample Estrogen Receptor classification accuracy on the linear entrypoint is `{python} N.brca_Flow_SiMR_V_pm` (`Flow-SiMR-V`), `{python} N.brca_LEND_pm` (`LEND`) and `{python} N.brca_NEDPP_pm` (`NEDPP`), against `{python} N.brca_PCA_pm` for `PCA` (3-seed means $\pm$ SD); the sparse non-negative dictionaries $\mathbf{V}_m$, tri-modal feature chord, and view-level quality radar are examined in @sec-app-brca. In `TCGA-KIRC` ($N = 467$), pathologic stage classification on the consensus embedding $\mathbf{U}$ is `{python} N.kirc_LEND_u_pm` for `LEND` against `{python} N.kirc_PCA_u_pm` for `PCA`. On compact clinical cohorts, `Diabetes` ($N =$ `{python} n_diab_obs`) reaches $R^2 =$ `{python} N.diab_SiMLR` for `SiMLR` against `{python} N.diab_pca` for `PCA`, and `Heart` ($N =$ `{python} n_heart_obs`) reaches accuracy `{python} N.heart_NSAFlow_PCA` for `NSAFlow-PCA` and `{python} N.heart_SiMLR` for `SiMLR`. @fig-diabetes-top-features, @fig-heart-audit, and @fig-nsa-v-interpretability show the stability-selected structure correlations, multi-view feature-to-component chord, and OLEE loadings $\mathbf{L}_m$ across `Heart` (out-of-bag `latent_reliability` `{python} heart_rel_c1` and `{python} heart_rel_c2`) and `Diabetes` (`latent_reliability` `{python} diab_rel_c1` and `{python} diab_rel_c2`); while the linear entrypoint $\mathbf{Z}_{m,\text{lin}} = \mathbf{X}_m \mathbf{V}_m$ maps individual observations into the latent consensus space, the OLEE loadings $\mathbf{L}_m$ decompose individual patient profiles into exact additive risk attributions $c_{m,i,j,l} = x_{m,i,j} l_{m,j,l}$ without post-hoc Monte Carlo approximations [@Wachter_2017; @karimi2021algorithmic; @pearl2009causality]. Complete parameter sensitivity ablations (the $w \in [0.01, 0.95]$ trade-off curve, basis diagnostics, stability rank selection across $k$, and synthetic noise recovery) are in @sec-app-operational.
+
+## Re-Benchmarking on Six Biomedical Cohorts (v0.43.1): Non-Subtractive Sparsification, Radial Simplex, and Uniform Shrinkage {#sec-exp-v043-revisit}
+
+To measure the empirical impact of Propositions 1–3 on real biomedical cohorts (`pysimlr v0.43.1`, `scripts/run_real_data_v043.py`), we re-benchmark standard `simlr` (`Part A`) and evaluate two-stage uniform shrinkage `fit_uniform_shrunk` (`Part B`) across all six real cohorts (`ADNI-MCI`, `MultiOmics` [`TCGA-BRCA`], `TCGA-KIRC`, `Heart`, `Diabetes`, `mfeat`) over three random seeds (`42, 43, 44`).
+
+In Part A (`part_a_comparison_summary.csv`, @tbl-v043-part-a), `{python} N.v043_n_conv` of `{python} N.v043_n_fits` `simlr` fits (`{python} N.v043_conv_pct`) converge; the single non-convergent run is `TCGA-KIRC` under `positivity="either"`, `sparseness=None`, seed `44` (`Stop_Reason = "max_iter"`). Across the `{python} N.v043_n_matched` matched fits (`{python} N.v043_n_matched_cells` cohort-by-positivity-by-sparseness cells $\times$ `{python} N.n_seeds` seeds) comparing `v0.43.1` against the pre-`v0.43` cache, signed `positivity="either"` improves mean consensus metric by `{python} N.v043_mean_either_delta` (`{python} N.v043_either_q05_mean_delta` at $q = 0.5$ and `{python} N.v043_either_q08_mean_delta` at $q = 0.8$), while non-negative `positivity="positive"` ranges from `{python} v043_min_pos_delta` to `{python} N.v043_max_pos_delta` ($\max |\Delta| =$ `{python} N.v043_pos_max_abs_delta`). Under radial simplex normalization (`positivity="convex"`) on the three high-dimensional biomedical cohorts, `MultiOmics` (`TCGA-BRCA`) reaches peak consensus accuracy `{python} N.v043_brca_cvx_best_u` and mean linear accuracy `{python} N.v043_brca_cvx_mean_lin` (mean consensus `{python} N.v043_brca_cvx_mean_u`), ahead of `positivity="positive"` (peak consensus `{python} N.v043_brca_pos_best_u`, mean linear `{python} N.v043_brca_pos_mean_lin`) and `positivity="either"` (peak consensus `{python} N.v043_brca_either_best_u`, mean linear `{python} N.v043_brca_either_mean_lin`).
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-v043-part-a
+#| tbl-cap: "Part A real-data revisit across the six biomedical cohorts (`part_a_comparison_summary.csv`, 3-seed means per positivity and quantile sparseness target $q$, comparing `v0.43.1` consensus metric against pre-`v0.43` cache where matched)."
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+csv_pa = "results_cache/part_a_comparison_summary.csv"
+if not os.path.exists(csv_pa):
+    csv_pa = "paper/results_cache/part_a_comparison_summary.csv"
+
+df_pa = pd.read_csv(csv_pa)
+rows_pa = []
+for _, r in df_pa.iterrows():
+    sp_k = "None" if pd.isna(r["Sparseness_Key"]) else f"{float(r['Sparseness_Key']):.1f}"
+    cached_s = "--" if pd.isna(r["Cached_Metric"]) else f"{r['Cached_Metric']:.3f}"
+    delta_s = "--" if pd.isna(r["Delta_Metric"]) else f"{r['Delta_Metric']:+.3f}"
+    rows_pa.append([
+        r["Dataset"],
+        r["Positivity"],
+        sp_k,
+        f"{r['V043_Metric']:.3f}",
+        f"{r['V043_Sparsity']*100:.1f}",
+        f"{r['V043_Defect']:.4f}",
+        f"{r['V043_Conv']:.2f}",
+        cached_s,
+        delta_s,
+    ])
+print(tabulate(
+    rows_pa,
+    headers=["Cohort", "Positivity", "q", "v0.43.1 U ↑", "Sparsity % ↑", "D(V) ↓", "Conv", "Pre-v0.43 U", "Δ U"],
+    tablefmt="pipe",
+    disable_numparse=True,
+    colalign=("left", "left", "right", "right", "right", "right", "right", "right", "right"),
+))
+```
+
+In Part B (`part_b_uniform_shrunk_summary.csv`, @tbl-v043-part-b; @fig-v043-real-revisit), we evaluate `{python} N.us_n_fits` `fit_uniform_shrunk` runs across all six cohorts and ranks $k \in \{1, 2, 3\}$ (capped at $k \in \{1, 2\}$ for `Heart` and `Diabetes`). Under `positivity="conical"`, `{python} N.us_n_conical_conv` of `{python} N.us_n_conical_fits` fits converge with maximum Gram defect $D(\mathbf{V}_m) \le$ `{python} N.us_conical_max_defect` and maximum inter-column cosine `{python} N.us_conical_max_cos`. Under radial simplex `positivity="convex"`, `{python} N.us_n_convex_conv` of `{python} N.us_n_convex_fits` fits converge with maximum inter-column cosine `{python} N.us_convex_max_cos` and maximum Gram defect `{python} N.us_convex_max_defect` (non-zero defect arises because radial $\ell_1$-simplex columns have unequal $\ell_2$ norms when disjoint support sizes differ). The three non-converged `convex` fits are all on `Diabetes` ($p = [5, 5]$) at $k = 2$ (`Stop_Reason = "no_descent"` across seeds `42, 43, 44`, consensus `{python} N.us_diab_cvx_u`, linear `{python} N.us_diab_cvx_lin`), whereas `positivity="conical"` converges in all $3/3$ splits with consensus `{python} N.us_diab_con_u`, linear `{python} N.us_diab_con_lin`, and Gram defect `{python} N.us_diab_con_defect`. Pooled across cohorts for `conical`, mean consensus score rises from `{python} N.us_con_k1_u` ($k = 1$, linear `{python} N.us_con_k1_lin`) to `{python} N.us_con_k2_u` ($k = 2$, linear `{python} N.us_con_k2_lin`) and `{python} N.us_con_k3_u` ($k = 3$, linear `{python} N.us_con_k3_lin`). At each cohort's target rank ($k = 2$ for `Heart` and `Diabetes`, $k = 3$ for `ADNI-MCI`, `MultiOmics`, `TCGA-KIRC`, and `mfeat`), `fit_uniform_shrunk` (`conical`) reaches linear scores of `{python} N.us_brca_con_lin` (`MultiOmics`), `{python} N.us_mfeat_con_lin` (`mfeat`), `{python} N.us_heart_con_lin` (`Heart`), `{python} N.us_kirc_con_lin` (`TCGA-KIRC`), `{python} N.us_diab_con_lin` (`Diabetes`), and `{python} N.us_adni_con_lin` (`ADNI-MCI`).
+
+```{python}
+#| warning: false
+#| message: false
+#| label: tbl-v043-part-b
+#| tbl-cap: "Part B real-data uniform shrinkage (`fit_uniform_shrunk`) benchmark across six biomedical cohorts and ranks $k \\in \\{1, 2, 3\\}$ (`part_b_uniform_shrunk_summary.csv`, 3-seed means)."
+#| echo: false
+#| output: asis
+import os
+import pandas as pd
+from tabulate import tabulate
+
+csv_pb = "results_cache/part_b_uniform_shrunk_summary.csv"
+if not os.path.exists(csv_pb):
+    csv_pb = "paper/results_cache/part_b_uniform_shrunk_summary.csv"
+
+df_pb = pd.read_csv(csv_pb)
+rows_pb = []
+for _, r in df_pb.iterrows():
+    rows_pb.append([
+        r["Dataset"],
+        r["Positivity"],
+        str(int(r["k"])),
+        f"{r['US_Metric']:.3f}",
+        f"{r['US_Lin']:.3f}",
+        f"{r['US_Sparsity']*100:.1f}",
+        f"{r['US_Defect']:.2e}" if r["Positivity"] == "conical" else f"{r['US_Defect']:.3f}",
+        f"{r['US_MaxCos']:.3f}",
+        f"{r['US_Alpha']:.3f}",
+        f"{r['US_Conv']:.2f}",
+    ])
+print(tabulate(
+    rows_pb,
+    headers=["Cohort", "Positivity", "k", "U ↑", "XV ↑", "Spar % ↑", "D(V) ↓", "Max Cos ↓", "Alpha", "Conv"],
+    tablefmt="pipe",
+    disable_numparse=True,
+    colalign=("left", "left", "right", "right", "right", "right", "right", "right", "right", "right"),
+))
+```
+
+```{python}
+#| warning: false
+#| message: false
+#| label: fig-v043-real-revisit
+#| fig-cap: "Two-stage `fit_uniform_shrunk` matches or approaches standard `SiMLR` linear probe performance while reducing inter-column cosine overlap to `0.000` across all six biomedical cohorts (`part_a_comparison_summary.csv`, `part_b_uniform_shrunk_summary.csv`). (A) Target-rank out-of-sample linear probe (`XV`, bars) and consensus (`U`, open circles) scores across cohorts (`k = 2` for `Heart` and `Diabetes`, `k = 3` otherwise) comparing Part A best `simlr` against Part B `conical` and `convex`. (B) Normalized Gram defect $D(\\mathbf{V}_m)$ on a log scale across cohorts (maximum inter-column cosine `0.000` for both Part B regimes is reported in the panel title and @tbl-v043-part-b)."
+#| out-width: 100%
+#| echo: false
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from pysimlr.plotting import theme, VIEW_COLORS
+
+csv_pa_raw = "results_cache/part_a_simlr_v043_raw.csv"
+if not os.path.exists(csv_pa_raw):
+    csv_pa_raw = "paper/results_cache/part_a_simlr_v043_raw.csv"
+csv_pb = "results_cache/part_b_uniform_shrunk_summary.csv"
+if not os.path.exists(csv_pb):
+    csv_pb = "paper/results_cache/part_b_uniform_shrunk_summary.csv"
+
+df_pa_raw = pd.read_csv(csv_pa_raw)
+df_pb = pd.read_csv(csv_pb)
+
+cohorts = ["ADNI-MCI", "MultiOmics", "TCGA-KIRC", "Heart", "Diabetes", "mfeat"]
+target_k = {"ADNI-MCI": 3, "MultiOmics": 3, "TCGA-KIRC": 3, "Heart": 2, "Diabetes": 2, "mfeat": 3}
+
+pa_lin, pa_u, pa_def = [], [], []
+con_lin, con_u, con_def = [], [], []
+cvx_lin, cvx_u, cvx_def = [], [], []
+for ds in cohorts:
+    sub_a = df_pa_raw[df_pa_raw["Dataset"] == ds].groupby(["Positivity", "Sparseness_Target"], dropna=False)[["Strictly_Linear_Metric", "Predictive_Metric", "Frame_Defect_D"]].mean()
+    best_idx = sub_a["Strictly_Linear_Metric"].idxmax()
+    pa_lin.append(float(sub_a.loc[best_idx, "Strictly_Linear_Metric"]))
+    pa_u.append(float(sub_a.loc[best_idx, "Predictive_Metric"]))
+    pa_def.append(float(sub_a.loc[best_idx, "Frame_Defect_D"]))
+
+    tk = target_k[ds]
+    rc = df_pb[(df_pb["Dataset"] == ds) & (df_pb["Positivity"] == "conical") & (df_pb["k"] == tk)].iloc[0]
+    rv = df_pb[(df_pb["Dataset"] == ds) & (df_pb["Positivity"] == "convex") & (df_pb["k"] == tk)].iloc[0]
+    con_lin.append(float(rc["US_Lin"]))
+    con_u.append(float(rc["US_Metric"]))
+    con_def.append(max(float(rc["US_Defect"]), 1e-16))
+    cvx_lin.append(float(rv["US_Lin"]))
+    cvx_u.append(float(rv["US_Metric"]))
+    cvx_def.append(max(float(rv["US_Defect"]), 1e-16))
+
+with theme():
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.0, 4.2), dpi=200, constrained_layout=True)
+    x = np.arange(len(cohorts))
+    w = 0.25
+
+    ax1.bar(x - w, pa_lin, w, color=VIEW_COLORS[0], label="Part A best simlr (XV)")
+    ax1.bar(x, con_lin, w, color=VIEW_COLORS[1], label="Part B conical (XV)")
+    ax1.bar(x + w, cvx_lin, w, color=VIEW_COLORS[2], label="Part B convex (XV)")
+    ax1.scatter(x - w, pa_u, facecolor="#fcfcfb", edgecolor=VIEW_COLORS[0], s=32, lw=1.4, zorder=4, label="Consensus U (open)")
+    ax1.scatter(x, con_u, facecolor="#fcfcfb", edgecolor=VIEW_COLORS[1], s=32, lw=1.4, zorder=4)
+    ax1.scatter(x + w, cvx_u, facecolor="#fcfcfb", edgecolor=VIEW_COLORS[2], s=32, lw=1.4, zorder=4)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(cohorts, fontsize=8.2)
+    ax1.set_ylim(0.0, 1.05)
+    ax1.set_ylabel(r"Out-of-sample score ($\uparrow$)")
+    ax1.set_title("A. Target-rank linear XV and consensus U")
+    ax1.grid(True, axis="y")
+    ax1.legend(loc="upper left", fontsize=7.6, ncol=2)
+
+    ax2.bar(x - w, pa_def, w, color=VIEW_COLORS[0], label="Part A best simlr D(V)")
+    ax2.bar(x, con_def, w, color=VIEW_COLORS[1], label="Part B conical D(V)")
+    ax2.bar(x + w, cvx_def, w, color=VIEW_COLORS[2], label="Part B convex D(V)")
+    ax2.set_yscale("log")
+    ax2.set_ylim(1e-16, 40.0)
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(cohorts, fontsize=8.2)
+    ax2.set_ylabel(r"Gram defect D(V) (log scale, $\downarrow$)")
+    ax2.set_title("B. Orthogonality defect across cohorts (max cos = 0.000)")
+    ax2.grid(True, axis="y")
+    ax2.legend(loc="upper center", ncol=3, fontsize=7.2)
+
+    plt.show()
+```

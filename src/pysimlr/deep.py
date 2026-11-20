@@ -815,7 +815,8 @@ class LENDNSAEncoder(nn.Module):
         if self.first_layer_mode == "raw":
             return self.v_raw
         if self.first_layer_mode == "projected":
-            return self.v
+            projected = self.v
+            return self.v_raw + (projected - self.v_raw).detach()
         alpha = float(self.projection_alpha)
         if alpha <= 0.0:
             return self.v_raw

@@ -1,0 +1,11 @@
+{
+  "cli": "scripts/run_deep_benchmark.py --suite --workers 8",
+  "utc": "2026-11-19T20:11:28.829899Z",
+  "platform": "Darwin arm64",
+  "smoke": false,
+  "git_commit": "a0985c1",
+  "pysimlr": "0.43.1",
+  "torch": "2.13.0",
+  "n_seeds": 3,
+  "elapsed_seconds": 674.11
+}

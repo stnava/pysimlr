@@ -2327,6 +2327,35 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
     positivity, per_view_params = _normalize_simlr_positivity_and_pvp(
         positivity, per_view_params, max(_n_views_in, 1), view_names=_simlr_view_names,
     )
+    _auto_sp_requested = (
+        sparseness == "auto"
+        or (isinstance(sparseness, (list, tuple)) and any(x == "auto" for x in sparseness))
+        or (
+            per_view_params is not None
+            and any(isinstance(v, Mapping) and v.get("sparseness") == "auto" for v in per_view_params.values())
+        )
+    )
+    if _auto_sp_requested and _n_views_in > 0:
+        from .presets import resolve_auto_sparseness as _resolve_auto_sparseness
+        _auto_q = _resolve_auto_sparseness(
+            data_matrices, int(k), positivity=positivity, path_graph=path_graph
+        )
+        if sparseness == "auto":
+            sparseness = _auto_q
+        elif isinstance(sparseness, (list, tuple)):
+            sparseness = [
+                (_auto_q[idx] if idx < len(_auto_q) else None) if sq == "auto" else sq
+                for idx, sq in enumerate(sparseness)
+            ]
+        if per_view_params is not None:
+            _new_pvp: Dict[Any, Dict[str, Any]] = {}
+            for _pk, _pv in per_view_params.items():
+                _pvc = dict(_pv)
+                if _pvc.get("sparseness") == "auto":
+                    _v_idx = int(_pk) if isinstance(_pk, (int, np.integer)) else 0
+                    _pvc["sparseness"] = _auto_q[_v_idx] if _v_idx < len(_auto_q) else None
+                _new_pvp[_pk] = _pvc
+            per_view_params = _new_pvp
     if positivity == "convex" and consolidate and per_view_params is None:
         raise ValueError("consolidate=True rebuilds unit-L2 columns and is not defined for positivity='convex'.")
     if per_view_params is None:
@@ -3052,6 +3081,7 @@ def simlr(data_matrices: List[Union[torch.Tensor, np.ndarray]],
         "provenance_list": provenance_list,
         "consolidated": consolidate,
         "sparseness": sparseness,
+        "sparseness_resolved": list(_sp_list),
         "sparseness_type": sparseness_type,
         "sparseness_schedule": None,
         "random_state": random_state,

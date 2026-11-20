@@ -2,7 +2,7 @@
  "cli": "scripts/run_adni_mci_grid_sweep.py",
  "seconds": 1941.5,
  "end_utc": "2026-11-05T20:01:00.312845Z",
- "host": "d-172-18-66-70.vpn.net.virginia.edu",
+ "platform": "macOS arm64",
  "pysimlr": "0.20.0",
  "torch": "2.13.0",
  "n_configurations": 1025,

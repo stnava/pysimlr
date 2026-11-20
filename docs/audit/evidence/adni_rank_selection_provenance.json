@@ -1,0 +1,23 @@
+{
+  "cli": "scripts/adni_rank_selection.py --n-jobs 8",
+  "utc": "2026-11-19T20:00:13.336963Z",
+  "platform": "Darwin arm64",
+  "smoke": false,
+  "git_commit": "a0985c1",
+  "pysimlr": "0.43.1",
+  "torch": "2.13.0",
+  "ks": [
+    2,
+    3,
+    4,
+    5
+  ],
+  "n_subsamples": 20,
+  "n_baseline": 3,
+  "iterations": null,
+  "bottleneck_k_max": 160,
+  "selected_k": {
+    "either": 2,
+    "positive": 2
+  }
+}

@@ -1,4 +1,4 @@
-# Extended Parameter Ablations and Operational Details
+# Extended Parameter Ablations and Operational Details {#sec-app-operational}
 
 ```{python}
 #| echo: false
@@ -6,11 +6,11 @@
 from paper_numbers import N, RAW
 ```
 
-This appendix provides the complete empirical ablation tables referenced in Chapters 2–4—covering the `nsa_flow` trade-off weight $w \in [0.01, 0.95]$, in-fold subject row-mean removal and deterministic ICA initialization, fine-grained quantile sparsity $q \in [\text{None}, 0.90]$, the `{python} N.sweep_n`-configuration `ADNI-MCI` grid sweep, synthetic per-regime breakdowns, and Wilcoxon signed-rank tests against `PCA`—followed by computational complexity bounds.
+This appendix provides the complete empirical ablation tables referenced in the main text, covering the `nsa_flow` trade-off weight $w \in [0.01, 0.95]$, in-fold subject row-mean removal and deterministic ICA initialization, fine-grained quantile sparsity $q \in [\text{None}, 0.90]$, the `{python} N.sweep_n`-configuration `ADNI-MCI` grid sweep, synthetic per-regime breakdowns, and Wilcoxon signed-rank tests against `PCA`, followed by computational complexity bounds.
 
 ## Effect of the Approximate Stiefel Weight $w \in [0.01, 0.95]$
 
-@tbl-app-w-sweep and @fig-w-sweep evaluate `SiMLR` ($\mathbf{V}_m \ge 0, k = 3$) across ten values of $w \in [0.01, 0.95]$ on synthetic `NonnegParts` and clinical `ADNI-MCI` (`Protocol B`).
+@tbl-app-w-sweep and @fig-w-sweep evaluate `SiMLR` ($\mathbf{V}_m \ge 0, k = 3$) across ten values of $w \in [0.01, 0.95]$ on synthetic `NonnegParts` and clinical `ADNI-MCI` (`Protocol B`). Across $w \in [0.20, 0.85]$, `ADNI-MCI` `CogPC1` $R^2$ spans `{python} N.w_plateau_min` to `{python} N.w_plateau_max` (`{python} N.w_r2_001` at $w = 0.01$, `{python} N.w_r2_050` at $w = 0.50$, and `{python} N.w_r2_095` at $w = 0.95$), while effective rank reaches `{python} N.w_effrank_001` at $w = 0.01$.
 
 ```{python}
 #| warning: false
@@ -35,26 +35,26 @@ for _, r in df_w.iterrows():
         w_str,
         f"{r['Synth_Support_F1']:.3f}",
         f"{r['Synth_Defect_D']:.5f}",
-        f"{r['Synth_Sparsity']*100:.1f}%",
+        f"{r['Synth_Sparsity']*100:.1f}",
         f"{r['ADNI_Defect_D']:.5f}",
         f"{r['ADNI_EffRank']:.2f}",
-        f"{r['ADNI_Sparsity_All']*100:.1f}%",
+        f"{r['ADNI_Sparsity_All']*100:.1f}",
         f"{r['ADNI_CogPC1_R2']:.4f}",
         f"{r['ADNI_Fit_Sec']:.2f}s",
     ])
 
 headers = [
-    "w", "Synth F1 ↑", "Synth D(V) ↓", "Synth Sparsity ↑",
-    "ADNI D(V) ↓", "ADNI EffRank ↑", "ADNI Sparsity ↑", "ADNI CogPC1 R2 ↑", "ADNI Time ↓"
+    "w", "Synth F1 ↑", "Synth D(V) ↓", "Synth Sparsity (%) ↑",
+    "ADNI D(V) ↓", "ADNI EffRank ↑", "ADNI Sparsity (%) ↑", "ADNI CogPC1 R2 ↑", "ADNI Time ↓"
 ]
-print(tabulate(rows, headers=headers, tablefmt="pipe"))
+print(tabulate(rows, headers=headers, tablefmt="pipe", disable_numparse=True, colalign=("left", "right", "right", "right", "right", "right", "right", "right", "right")))
 ```
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-w-sweep
-#| fig-cap: "Continuous trade-off between cross-view fidelity ($1 - w$) and Stiefel orthogonality ($w$) across $w \\in [0.01, 0.95]$ (`ablation_w_sweep.csv`), plotted on separate single-metric panels without secondary axes. (A) Synthetic `NonnegParts` ground-truth support recovery ($F_1$). (B) Normalized Gram orthogonality defect $D(V)$ (log scale) for both `NonnegParts` and `ADNI-MCI`. (C) `ADNI-MCI` basis effective rank ($\\text{EffRank} \\in [1, 3]$). (D) `ADNI-MCI` out-of-sample `CogPC1` $R^2$, showing a broad plateau across $w \\in [0.20, 0.85]$ centered at the default $w = 0.50$."
+#| fig-cap: "Out-of-sample `ADNI-MCI` prediction remains on a broad plateau across $w \\in [0.20, 0.85]$ while orthogonality defect drops by orders of magnitude (`ablation_w_sweep.csv`). Four single-metric panels plot against $w \\in [0.01, 0.95]$ (vertical dotted line at $w = 0.50$): (A) synthetic `NonnegParts` support recovery ($F_1$), (B) normalized Gram defect $D(V)$ on a log scale, (C) `ADNI-MCI` effective rank ($k = 3$), and (D) `ADNI-MCI` held-out `CogPC1` $R^2$."
 #| out-width: 100%
 #| echo: false
 import os
@@ -114,13 +114,13 @@ with theme():
 
 ### Basis Health and Rank-Selection Stability Diagnostics on `ADNI-MCI`
 
-To verify optimization conditioning and component identifiability directly on the four-view `ADNI-MCI` cohort (`Protocol B`), @fig-adni-basis-diagnostics applies `pysimlr.plot_basis_diagnostics` ($k = 3$, $q = 0.85$), reporting per-view effective rank against $k$, maximum column cosine overlap, $\log_{10}$ condition number, and achieved sparsity alongside the median `loading_margin`. @fig-adni-rank-selection applies `pysimlr.plot_rank_selection` to the 20-subsample `select_rank` evidence (`docs/audit/evidence/adni_rank_selection.csv`), contrasting non-negative estimation (`positivity="positive"`, where $k = 2$ clears the $0.90$ identification bar on all components while $k = 3$ exposes an under-identified Component 2 at $0.803$) against unconstrained signed estimation (`positivity="either"`, where no candidate $k \in \{2, 3, 4, 5\}$ clears $0.90$).
+To verify optimization conditioning and component identifiability directly on the four-view `ADNI-MCI` cohort (`Protocol B`), @fig-adni-basis-diagnostics applies `pysimlr.plot_basis_diagnostics` ($k = 3$, $q = 0.85$), reporting per-view effective rank against $k$, maximum column cosine overlap, $\log_{10}$ condition number, and achieved sparsity alongside the median `loading_margin`. @fig-adni-rank-selection applies `pysimlr.plot_rank_selection` (`criterion="latent_reliability"`, @sec-stability-bagging-sem and @eq-oob-icc1) to the 20-subsample `select_rank` evidence (`docs/audit/evidence/adni_rank_selection.csv`), requiring every component's out-of-bag `latent_reliability_gain` ($\mathrm{ICC}(1) - \text{baseline}$) to clear `{python} N.adni_rank_margin`, non-decreasing multivariate reliability gain, and `all_coupled = True`. Under `positivity="positive"`, `select_rank` selects $k =$ `{python} N.adni_pos_selected_k`: at $k = 2$, component reliabilities are `{python} N.adni_k2_pos_rel_c1` and `{python} N.adni_k2_pos_rel_c2` (gains `{python} N.adni_k2_pos_gain_c1` and `{python} N.adni_k2_pos_gain_c2`, multivariate reliability `{python} N.adni_k2_pos_mv_rel`, gain `{python} N.adni_k2_pos_mv_gain`, `all_coupled =` `{python} N.adni_k2_pos_all_coupled`); at $k = 3$, Component 2 drops to `{python} N.adni_k3_pos_rel_c2` (gain `{python} N.adni_k3_pos_gain_c2`), multivariate gain falls to `{python} N.adni_k3_pos_mv_gain` (failing multivariate monotonicity), and `all_coupled =` `{python} N.adni_k3_pos_all_coupled` (`passed =` `{python} N.adni_k3_pos_passed`). Under signed estimation (`positivity="either"`), `select_rank` also selects $k =$ `{python} N.adni_either_selected_k`: at $k = 2$, component reliabilities are `{python} N.adni_k2_either_rel_c1` and `{python} N.adni_k2_either_rel_c2` (gains `{python} N.adni_k2_either_gain_c1` and `{python} N.adni_k2_either_gain_c2`, multivariate reliability `{python} N.adni_k2_either_mv_rel`, gain `{python} N.adni_k2_either_mv_gain`, `all_coupled =` `{python} N.adni_k2_either_all_coupled`), whereas at $k = 3$ Component 3 drops to `{python} N.adni_k3_either_rel_c3` (gain `{python} N.adni_k3_either_gain_c3`, `passed =` `{python} N.adni_k3_either_passed`).
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-adni-basis-diagnostics
-#| fig-cap: "Per-view basis health (`pysimlr.plot_basis_diagnostics`) on `ADNI-MCI` (`Protocol B`, `SiMLR`, $k = 3$, `positivity='positive'`, $q = 0.85$): effective and numerical rank against $k = 3$, maximum column overlap, $\\log_{10}$ condition number, and achieved sparsity against the requested $0.85$ level with median OLEE loading margins."
+#| fig-cap: "Non-negative sparse `ADNI-MCI` bases achieve full effective rank, low column overlap, well-conditioned Gram spectra, and target sparsity across all four modalities (`pysimlr.plot_basis_diagnostics`, `Protocol B`, `SiMLR`, $k = 3$, `positivity='positive'`, $q = 0.85$). Panels plot per-view effective and numerical rank against $k = 3$, maximum column overlap, $\\log_{10}$ condition number, achieved sparsity against $0.85$, and median OLEE loading margins."
 #| out-width: 100%
 #| echo: false
 import os, re, sys
@@ -144,7 +144,7 @@ plt.show()
 #| warning: false
 #| message: false
 #| label: fig-adni-rank-selection
-#| fig-cap: "Component stability across candidate ranks $k \\in \\{2, 3, 4, 5\\}$ (`pysimlr.plot_rank_selection`, 20 half-sample refits on `ADNI-MCI` from `docs/audit/evidence/adni_rank_selection.csv`). (A) Under non-negative estimation (`positivity='positive'`), $k = 2$ clears the $0.90$ identification bar across all components ($0.961, 0.997$), whereas at $k = 3$ the weakest component drops to $0.803$. (B) Under signed estimation (`positivity='either'`), no candidate $k$ clears $0.90$ across all components."
+#| fig-cap: "Out-of-bag latent reliability rank selection identifies $k = 2$ for both non-negative and signed `ADNI-MCI` fits (`pysimlr.plot_rank_selection`, `criterion='latent_reliability'`, 20 half-sample refits from `docs/audit/evidence/adni_rank_selection.csv`). Vertical range stems and per-component dots plot `latent_reliability_gain` ($\\text{ICC}(1) - \\text{baseline}$) with weakest-component and median traces, dashed lines mark the `0.2` selection margin, and square markers plot multivariate reliability gain across $k \\in \\{2, 3, 4, 5\\}$; non-negative estimation achieves higher multivariate reliability at $k = 2$, at $k = 3$ `positive` clears the `0.2` gain threshold (minimum gain `0.2191`) while failing multivariate monotonicity and cross-view coupling whereas `either` fails both gain and monotonicity, and both regimes fail both the `0.2` gain and monotonicity gates for $k \\ge 4$."
 #| out-width: 100%
 #| echo: false
 import os
@@ -161,27 +161,44 @@ _ars = pd.read_csv(_ars_p)
 def _to_rank_res(pos_kind):
     sub = _ars[_ars["pos"] == pos_kind].sort_values("k")
     tbl = []
-    chosen = None
+    sel_vals = sub["selected_k"].dropna()
+    chosen = int(sel_vals.iloc[0]) if len(sel_vals) else None
+    margin = float(sub["margin"].iloc[0]) if "margin" in sub.columns and not sub["margin"].isna().all() else 0.2
     for _, r in sub.iterrows():
-        st = [float(v) for v in str(r["component_stability"]).split()]
-        ok = bool(r["all_stable"])
-        if ok:
-            chosen = int(r["k"])
-        tbl.append({"k": int(r["k"]), "component_stability": st, "basis_degenerate": False})
-    return {"criterion": "component", "k": chosen, "criteria": {"component": chosen}, "table": tbl}
+        tbl.append({
+            "k": int(r["k"]),
+            "latent_reliability": [float(v) for v in str(r["latent_reliability"]).split()],
+            "latent_reliability_gain": [float(v) for v in str(r["latent_reliability_gain"]).split()],
+            "latent_reliability_multivariate": float(r["latent_reliability_multivariate"]),
+            "latent_reliability_multivariate_gain": float(r["latent_reliability_multivariate_gain"]),
+            "basis_degenerate": bool(r["basis_degenerate"]),
+        })
+    return {
+        "criterion": "latent_reliability",
+        "k": chosen,
+        "margin": margin,
+        "criteria": {"latent_reliability": chosen},
+        "table": tbl,
+    }
 
 with theme():
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.6, 4.4), dpi=200, constrained_layout=True)
-    pysimlr.plot_rank_selection(_to_rank_res("positive"), ax=ax1)
-    ax1.set_title("A. Non-negative (positivity='positive'): k = 2 identified")
-    pysimlr.plot_rank_selection(_to_rank_res("either"), ax=ax2)
-    ax2.set_title("B. Signed (positivity='either'): no k passes 0.90")
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.6, 4.6), dpi=200, constrained_layout=True)
+    pysimlr.plot_rank_selection(_to_rank_res("positive"), ax=ax1, criterion="latent_reliability")
+    ax1.set_title(f"A. Non-negative (positivity='positive'): k = {N.adni_pos_selected_k.data}")
+    pysimlr.plot_rank_selection(_to_rank_res("either"), ax=ax2, criterion="latent_reliability")
+    ax2.set_title(f"B. Signed (positivity='either'): k = {N.adni_either_selected_k.data}")
+    for _ax in (ax1, ax2):
+        for _t in _ax.texts:
+            if _t.get_text().strip().startswith("margin"):
+                _t.set_position((1.55, 0.205))
+                _t.set_ha("left")
+                _t.set_va("bottom")
     plt.show()
 ```
 
 ## Preprocessing Controls: Subject Row-Mean Removal, ICA Initialization, and Orthogonal Varimax Rotation
 
-On neuroimaging cohorts where cortical regions share a positive global correlation floor, @tbl-app-rowmean-ica and @fig-rowmean-k-ablation compare column centering with in-fold subject row-mean centering, PCA with deterministic FastICA [@hyvarinen2000independent] initialization, signed with non-negative bases, and the initializer alone with the fitted model (`SiMLR`, $k = 3$, $w = 0.50$, no Varimax, no quantile threshold; `scripts/paper_adni_ablations.py`). Row-mean centering applies to the three MRI views only; the eleven cognitive scales are on different units, and subtracting each subject's mean across them would remove overall severity from the outcome. With non-negative bases, row-mean centering changes cortical sparsity from `{python} N.rm_col_pca_pos_sp` to `{python} N.rm_row_pca_pos_sp` and `CogPC1` $R^2$ from `{python} N.rm_col_pca_pos_r2` to `{python} N.rm_row_pca_pos_r2`. Varimax rotation on column-centered data gives `{python} N.fl_varimax_simr_sp` sparsity on the 62 DKT regions with `{python} N.fl_varimax_simr_active` active regions per component, against `{python} N.fl_col_pca_simr_sp` and `{python} N.fl_col_pca_simr_active` without rotation.
+On neuroimaging cohorts where cortical regions share a positive global correlation floor, @tbl-app-rowmean-ica and @fig-rowmean-k-ablation compare column centering with in-fold subject row-mean centering, PCA with deterministic FastICA [@hyvarinen2000independent] initialization, signed with non-negative bases, and the initializer alone with the fitted model (`SiMLR`, $k = 3$, $w = 0.50$, no Varimax, no quantile threshold; `scripts/paper_adni_ablations.py`). Row-mean centering applies to the three MRI views only; the eleven cognitive scales are on different units, and subtracting each subject's mean across them would remove overall severity from the outcome. With non-negative bases, row-mean centering changes structural MRI sparsity from `{python} N.rm_col_pca_pos_sp` to `{python} N.rm_row_pca_pos_sp` and `CogPC1` $R^2$ from `{python} N.rm_col_pca_pos_r2` to `{python} N.rm_row_pca_pos_r2` with PCA initialization (and to `{python} N.rm_row_ica_pos_sp` sparsity and `{python} N.rm_row_ica_pos_r2` `CogPC1` $R^2$ with ICA initialization). Varimax rotation on column-centered data gives `{python} N.fl_varimax_simr_sp` sparsity on the 62 DKT regions with `{python} N.fl_varimax_simr_active` active regions per component, against `{python} N.fl_col_pca_simr_sp` and `{python} N.fl_col_pca_simr_active` without rotation.
 
 ```{python}
 #| warning: false
@@ -203,30 +220,30 @@ rows = []
 for _, r in df_abl.iterrows():
     prep_short = "Col" if r["Preprocessing"].startswith("Col") else "Row+Col"
     pos_short = "Signed" if r["Positivity"].startswith("Signed") else "V>=0"
-    stage_short = "Init" if r["Stage"].startswith("Init") else "SiMR"
+    stage_short = "Init" if r["Stage"].startswith("Init") else "SiMLR"
     rows.append([
         prep_short,
         r["Init"],
         pos_short,
         stage_short,
         f"{r['defect_D']:.5f}",
-        f"{r['sparsity_all']*100:.1f}% ({r['sparsity_v1']*100:.1f}%)",
+        f"{r['sparsity_all']*100:.1f} ({r['sparsity_v1']*100:.1f})",
         f"{r['CogPC1_R2_XV']:.4f} ({r['CogPC1_R2_WithRowMean']:.4f})",
         f"{r['Mean11_Ridge_R2']:.4f}",
     ])
 
 headers = [
     "Prep", "Init", "Sign", "Stage", "D(V) ↓",
-    "Sparsity All (v1) ↑", "CogPC1 R2 (+RowMean) ↑", "11-Scale R2 ↑"
+    "Sparsity All (v1) (%) ↑", "CogPC1 R2 (+RowMean) ↑", "11-Scale R2 ↑"
 ]
-print(tabulate(rows, headers=headers, tablefmt="pipe"))
+print(tabulate(rows, headers=headers, tablefmt="pipe", disable_numparse=True, colalign=("left", "left", "left", "left", "right", "right", "right", "right")))
 ```
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-rowmean-k-ablation
-#| fig-cap: "Component sparsity under column vs. row-mean centering, Varimax rotation and quantile thresholding, and natural non-negative sparsity against latent rank $k$ (`ablation_rowmean_ica_positivity.csv`, `adni_mci_feature_loadings.json` and `ablation_k_sparsity_sweep.csv`). (A) Fraction of zero loadings in Component 1 ($v_1$, blue) and Components $2..k$ ($v_2..v_k$, teal) on the 62 DKT cortical-thickness regions for five regimes. (B) Unthresholded non-negative sparsity across $k \\in \\{2, 3, 5, 8, 11\\}$ ($k$ capped at the narrowest view, the eleven cognitive scales), against the disjoint-support limit $1 - 1/k$."
+#| fig-cap: "Subject row-mean centering, Varimax rotation, and higher rank $k$ reduce Component 1 dominance without external quantile thresholding (`ablation_rowmean_ica_positivity.csv`, `adni_mci_feature_loadings.json`, and `ablation_k_sparsity_sweep.csv`). (A) Fraction of zero loadings in Component 1 ($v_1$, blue) and Components $2..k$ ($v_2..v_k$, teal) across five regimes, evaluated on the 62 DKT cortical-thickness regions for `Col + PCA`, `Col + Varimax`, and `Row + ICA` and across all three MRI views for `Row + PCA` and `Col, q = 0.80`. (B) Unthresholded non-negative sparsity across $k \\in \\{2, 3, 5, 8, 11\\}$ ($k$ capped at the eleven cognitive scales)."
 #| out-width: 100%
 #| echo: false
 import os
@@ -245,7 +262,8 @@ import json
 _fl_path = "results_cache/adni_mci_feature_loadings.json"
 if not os.path.exists(_fl_path):
     _fl_path = "paper/results_cache/adni_mci_feature_loadings.json"
-_fl = json.load(open(_fl_path))
+with open(_fl_path) as _fh:
+    _fl = json.load(_fh)
 _mats = [np.asarray(_fl["view2_col_pca_simr"]), np.asarray(_fl["view2_varimax_simr"]), None,
          np.asarray(_fl["view2_row_ica_simr"]), None]
 _rm_csv = "results_cache/ablation_rowmean_ica_positivity.csv"
@@ -288,7 +306,6 @@ with theme():
 
     ax1.set_xticks(x)
     ax1.set_xticklabels(regimes, fontsize=8.3)
-    ax1.set_ylim(0, 105)
     ax1.set_ylabel("Cortical Basis Sparsity % ($\\uparrow$)")
     ax1.set_title("A. Component 1 vs. Components 2..k Sparsity")
     ax1.grid(True, axis="y")
@@ -342,7 +359,7 @@ for _, r in df_q.iterrows():
         r["positivity"],
         str(r["sparseness"]).replace(" (NSA-Flow only)", ""),
         f"{r['defect_D']:.5f}",
-        f"{r['sparsity_all']*100:.1f}% ({r['sparsity_v1']*100:.1f}%)",
+        f"{r['sparsity_all']*100:.1f} ({r['sparsity_v1']*100:.1f})",
         dkt_str,
         f"{r['cog_pc1_r2']:.4f}",
         f"{r['mean_11scale_r2']:.4f}",
@@ -350,10 +367,10 @@ for _, r in df_q.iterrows():
     ])
 
 headers = [
-    "Sign", "Quantile q", "ADNI D(V) ↓", "ADNI Sparsity (v1) ↑",
+    "Sign", "Quantile q", "ADNI D(V) ↓", "ADNI Sparsity (v1) (%) ↑",
     "Active DKT (/62)", "CogPC1 R2 ↑", "11-Scale R2 ↑", "Synth F1 ↑"
 ]
-print(tabulate(rows, headers=headers, tablefmt="pipe"))
+print(tabulate(rows, headers=headers, tablefmt="pipe", disable_numparse=True, colalign=("left", "left", "right", "right", "right", "right", "right", "right")))
 ```
 
 ```{python}
@@ -397,12 +414,12 @@ for _, r in best_per_model.iterrows():
     ])
 
 headers = ["Family", "Model", "Runs", "Peak CogPC1 R2 ↑", "11-Scale R2 ↑", "Sweep Mean ± SD ↑", "Time ↓"]
-print(tabulate(rows, headers=headers, tablefmt="pipe"))
+print(tabulate(rows, headers=headers, tablefmt="pipe", disable_numparse=True, colalign=("left", "left", "right", "right", "right", "right", "right")))
 ```
 
 ## Synthetic Per-Regime Breakdown and Pairwise Wilcoxon Tests
 
-@tbl-app-synthetic-breakdown and @fig-cmc-recovery report the 3-seed performance across each of the six synthetic ground-truth regimes, and @tbl-app-wilcoxon reports Wilcoxon signed-rank tests of each model against `PCA` over the 12 datasets, with seeds averaged within each dataset and Holm adjustment across models.
+@tbl-app-synthetic-breakdown and @fig-cmc-recovery report the `{python} N.n_seeds`-seed performance across each of the six synthetic ground-truth regimes, and @tbl-app-wilcoxon reports Wilcoxon signed-rank tests of each model against `PCA` over the `{python} N.n_blocks` datasets, with seeds averaged within each dataset and Holm adjustment across models.
 
 ```{python}
 #| warning: false
@@ -440,14 +457,14 @@ for m in models:
     rows.append(row)
 
 headers = ["Model", "Linear", "Polynomial", "Sine", "Shared+Priv", "NonnegParts", "NonnegWeak"]
-print(tabulate(rows, headers=headers, tablefmt="pipe"))
+print(tabulate(rows, headers=headers, tablefmt="pipe", disable_numparse=True, colalign=("left", "right", "right", "right", "right", "right", "right")))
 ```
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: fig-cmc-recovery
-#| fig-cap: "Latent manifold recovery (`CMC_Latent_U`, mean $\\pm$ SE across seeds via `pysimlr.plot_benchmark`) across the six synthetic ground-truth generative regimes (`Linear`, `Polynomial`, `Sine`, `Shared+Private`, `NonnegParts`, and `NonnegPartsWeak`) computed from `deep_ranking_benchmark.csv`."
+#| fig-cap: "Aligned multi-view models recover ground-truth latent coordinates across linear, warped, and non-negative sparse regimes while dense `PCA` degrades under non-linear warps (`pysimlr.plot_benchmark`, `CMC_Latent_U`, mean $\\pm$ SE across seeds from `deep_ranking_benchmark.csv`). Grouped bars compare `SiMLR`, `LEND`, `Flow-SiMR-V`, and `PCA` across all six synthetic regimes."
 #| out-width: 100%
 #| echo: false
 import os
@@ -471,7 +488,7 @@ sub_syn["Regime"] = sub_syn["Regime"].astype(str)
 
 fig, ax = plt.subplots(figsize=(10.5, 3.8), dpi=200, layout="constrained")
 pysimlr.plot_benchmark(sub_syn, x="Regime", y="CMC_Latent_U", by="Model", kind="bar", ax=ax)
-ax.set_ylabel("Latent manifold CMC (↑)")
+ax.set_ylabel(r"Latent manifold CMC ($\uparrow$)")
 ax.set_title("Ground-truth latent coordinate recovery across six synthetic regimes")
 ax.set_ylim(0.0, 1.08)
 plt.show()
@@ -481,7 +498,7 @@ plt.show()
 #| warning: false
 #| message: false
 #| label: tbl-app-wilcoxon
-#| tbl-cap: "Each model against single-matrix `PCA` over the 12 datasets (`deep_ranking_benchmark.csv`, $q = 0.5$). Seeds are averaged within a dataset before testing, so each dataset is one paired block. Wins/ties/losses count datasets; $p$ is the two-sided Wilcoxon signed-rank test, Holm-adjusted across the six models of each column (`deep_ranking.wilcoxon_vs_reference`)."
+#| tbl-cap: "Each model against single-matrix `PCA` over the 12 datasets (`deep_ranking_benchmark.csv`, $q = 0.5$). Seeds are averaged within a dataset before testing, so each dataset is one paired block. Wins/ties/losses count datasets; $p$ is the two-sided Wilcoxon signed-rank test, Holm-adjusted across the six models of each column (`deep_ranking.wilcoxon_vs_reference`), ordered by descending linear entrypoint effect size (XV Mean Δ)."
 #| echo: false
 #| output: asis
 import os
@@ -495,26 +512,27 @@ if not os.path.exists(csv_path):
 
 df = pd.read_csv(csv_path)
 df["Model"] = df["Model"].replace({"Flow-SiMLR-V": "Flow-SiMR-V", "Flow-SiMLR": "Flow-SiMR"})
-models = ["LEND", "NEDPP", "Flow-SiMR-V", "NED", "SiMLR", "NSAFlow-PCA"]
+models = ["Flow-SiMR-V", "SiMLR", "NED", "LEND", "NEDPP", "NSAFlow-PCA"]
 xv = wilcoxon_vs_reference(df, "Strictly_Linear_Metric", "PCA", models=models).set_index("Model")
 u = wilcoxon_vs_reference(df, "Predictive_Metric", "PCA", models=models).set_index("Model")
+order = xv.sort_values("Mean_Diff", ascending=False).index.tolist()
 
 rows = []
-for m in models:
+for m in order:
     a, b = xv.loc[m], u.loc[m]
-    rows.append([m, f"{a.Wins} / {a.Ties} / {a.Losses}", f"{a.Mean_Diff:+.4f}", f"{a.P_Holm:.3f}",
-                 f"{b.Wins} / {b.Ties} / {b.Losses}", f"{b.Mean_Diff:+.4f}", f"{b.P_Holm:.3f}"])
+    rows.append([m, f"{int(a.Wins)} / {int(a.Ties)} / {int(a.Losses)}", f"{a.Mean_Diff:+.4f}", f"{a.P_Holm:.3f}",
+                 f"{int(b.Wins)} / {int(b.Ties)} / {int(b.Losses)}", f"{b.Mean_Diff:+.4f}", f"{b.P_Holm:.3f}"])
 headers = ["Model vs PCA", "XV W/T/L (of 12)", "XV Mean Δ ↑", "XV p (Holm)",
            "U W/T/L (of 12)", "U Mean Δ ↑", "U p (Holm)"]
-print(tabulate(rows, headers=headers, tablefmt="pipe"))
+print(tabulate(rows, headers=headers, tablefmt="pipe", disable_numparse=True, colalign=("left", "right", "right", "right", "right", "right", "right")))
 ```
 
 ## Computational Complexity Summary
 
 | Operation | Complexity per Iteration | Memory Footprint | Inner-Loop Factorization Required? |
 |:---|:---|:---|:---|
-| **`nsa_flow` Retraction Step** | $\mathcal{O}(p_m k^2)$ | $\mathcal{O}(p_m k + k^2)$ | None (1 Gram product + 2 $[p_m,k]\times[k,k]$ products) |
-| **Polar Consensus Update ($\mathbf{U}$)** | $\mathcal{O}(N k^2 + k^3)$ | $\mathcal{O}(N k)$ | $k \times k$ Sylvester polar factor ($k \ll N$) |
-| **Forward / Backward Pass** | $\mathcal{O}(N p_m k)$ | $\mathcal{O}(N k + p_m k)$ | None |
+| `nsa_flow` Retraction Step | $\mathcal{O}(p_m k^2)$ | $\mathcal{O}(p_m k + k^2)$ | None (1 Gram product + 2 $[p_m,k]\times[k,k]$ products) |
+| Polar Consensus Update ($\mathbf{U}$) | $\mathcal{O}(N k^2 + k^3)$ | $\mathcal{O}(N k)$ | $k \times k$ Sylvester polar factor ($k \ll N$) |
+| Forward / Backward Pass | $\mathcal{O}(N p_m k)$ | $\mathcal{O}(N k + p_m k)$ | None |
 
 : Computational and memory complexity of the `SiMR` and `nsa_flow` primitives. {#tbl-app-complexity}

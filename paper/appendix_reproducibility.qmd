@@ -1,4 +1,4 @@
-# Reproducibility and Statistical Methodology {#sec-reproducibility}
+# Reproducibility and Statistical Methodology {#sec-app-repro}
 
 ```{python}
 #| echo: false
@@ -6,11 +6,11 @@
 from paper_numbers import N, RAW
 ```
 
-This appendix documents the computational environment, replication structure, and non-parametric statistical testing procedures used to generate all tables, figures, and hypothesis tests in the manuscript.
+This appendix documents the computational environment, replication structure, and non-parametric statistical testing procedures used to generate all tables, figures, and hypothesis tests in the manuscript (`pysimlr v0.43.1`).
 
 ## Building the Manuscript
 
-The manuscript is written in Quarto and compiles to HTML and PDF formats. All benchmark result caches are stored in `paper/results_cache/`, each written by a committed script (`scripts/run_deep_benchmark.py`, `scripts/run_adni_mci_grid_sweep.py`, `scripts/paper_adni_ablations.py`, `scripts/paper_brca_loadings.py`) and accompanied by a provenance file. Every number in the text is computed from these caches at build time (`paper/paper_numbers.py`), so the manuscript is rebuilt deterministically from them:
+The manuscript is written in Quarto and compiles to HTML and PDF formats. All benchmark result caches are stored in `paper/results_cache/` and `docs/audit/evidence/`, each written by a committed script under `scripts/` and accompanied by provenance metadata. Every number in the text is computed from these caches at build time (`paper/paper_numbers.py`), so the manuscript is rebuilt deterministically from them:
 
 ```bash
 git clone https://github.com/stnava/pysimlr.git
@@ -19,29 +19,42 @@ pip install -e ".[dev]"
 quarto render paper
 ```
 
+All eight `v0.43.1` compute scripts expose a `--smoke` flag (`counts=2`, `< 10` s wall-clock runtime, non-destructive temporary output paths when `--out` / `--output` / `--out-dir` is omitted, and `"smoke": true` recorded in the provenance JSON):
+
+* `scripts/run_deep_benchmark.py` (`--seeds 3`, `--workers 8`, `--iterations N`, `--epochs N`, `--suite`, `--consistency`, `--out CSV`, `--out-dir DIR`, `--smoke`): writes `deep_ranking_benchmark.csv` and its sparsity splits (`deep_ranking_benchmark_q_none.csv`, `deep_ranking_benchmark_q05.csv`, and `deep_ranking_benchmark_q08.csv`), along with `operating_points_05_08_benchmark.csv`, `provenance_deep_benchmark.json`, and `deep_default_consistency.csv` in `paper/results_cache/`.
+* `scripts/run_real_data_v043.py` (`--out DIR`, `--workers 8`, `--n-seeds 3`, `--iters N`, `--reuse-existing`, `--skip-part-c`, `--part-b-only`, `--smoke`): writes `part_a_simlr_v043_raw.csv` and `part_a_comparison_summary.csv`, along with `part_b_uniform_shrunk_raw.csv`, `part_b_uniform_shrunk_summary.csv`, and the provenance metadata `provenance_v043_real_data.json` in `paper/results_cache/`.
+* `scripts/benchmark_synthetic_theorems.py` (`--n-seeds 20`, `--n-jobs 8`, `--output JSON`, `--smoke`): writes `v043_synthetic_theorems.json` in `paper/results_cache/`.
+* `scripts/paper_adni_ablations.py` (`--out DIR`, `--only {controls, k, loadings, quantile, rowmean, w}`, `--workers 8`, `--smoke`): writes the ablation tables `ablation_w_sweep.csv` and `ablation_k_sparsity_sweep.csv`, plus the quantile table `ablation_quantile_sparseness.csv` and the row-mean table `ablation_rowmean_ica_positivity.csv`, as well as `adni_mci_axis_alignment_controls.csv`, `adni_mci_feature_loadings.json`, and `provenance_adni_ablations.json` in `paper/results_cache/`.
+* `scripts/paper_adni_attribution.py` (`--out JSON`, `--smoke`): writes `adni_attribution.json` in `paper/results_cache/`.
+* `scripts/adni_rank_selection.py` (`--out CSV`, `--ks 2 3 4 5`, `--n-subsamples 20`, `--n-baseline 3`, `--iterations N`, `--n-jobs 8`, `--smoke`) produces `docs/audit/evidence/adni_rank_selection.csv` and `adni_rank_selection_provenance.json`.
+* `scripts/paper_brca_loadings.py` (`--out DIR`, `--n-subsamples 100`, `--n-permutations 20`, `--iterations N`, `--n-jobs 8`, `--smoke`) produces `brca_er_loadings.json`.
+* `scripts/paper_nsa_v_loadings.py` (`--out DIR`, `--n-subsamples 50`, `--n-permutations 20`, `--iterations N`, `--n-jobs 8`, `--smoke`) produces `nsa_v_loadings.json`.
+
+The single-seed `ADNI-MCI` hyperparameter sweep (`scripts/run_adni_mci_grid_sweep.py`) is preserved unchanged (`adni_mci_1214_grid_sweep.csv`, `{python} N.sweep_ok` of `{python} N.sweep_n` configurations completed; provenance recorded in `provenance_adni_mci_grid_sweep.json`).
+
 ## Non-Parametric Benchmark Engine and Optimization Stack
 
 All statistical hypothesis tests, ranking matrices, and permutation null distributions are computed by `src/pysimlr/benchmarks/deep_ranking.py`:
 
 * Non-parametric Friedman omnibus test [@friedman1937use] and Iman–Davenport $F$-distribution extension [@Demsar2006; @Iman1980].
-* Two-tailed Nemenyi Critical Difference ($CD =$ `{python} N.cd` at $\alpha = 0.05$ for $k =$ `{python} N.n_models`, $B = 12$) [@Nemenyi1963; @Demsar2006].
+* Two-tailed Nemenyi Critical Difference ($CD =$ `{python} N.cd` at $\alpha = 0.05$ for $k =$ `{python} N.n_models`, $B =$ `{python} N.n_blocks`) [@Nemenyi1963; @Demsar2006].
 * Pairwise Wilcoxon signed-rank tests [@Wilcoxon1945] with Holm–Bonferroni step-down adjustments [@Holm1979].
 * Adaptive first-order (`Adam`, `AdamW` [@kingma2014adam; @loshchilov2019]) and Riemannian manifold solvers implemented on top of PyTorch [@paszke2019], NumPy [@harris2020], SciPy [@virtanen2020], and Scikit-Learn [@pedregosa2011].
 * Benchmark cohorts span clinical cardiology (`Heart` [@detrano1989international]), metabolic progression (`Diabetes` [@efron2004least]), handwritten pattern descriptors (`mfeat` [@vanbreukelen2006]), transcriptomic/multi-omic cancer benchmarks [@golub1999molecular; @tcga2012breast; @tcga2013kirc; @wang2014; @tenenhaus2011; @tenenhaus2014; @zhao2017; @abdi2013], and Alzheimer's neuroimaging (`ADNI-MCI` [@mueller2005; @jack2008alzheimer; @ADNI]).
 
-The test suite `tests/test_deep_ranking_stats.py` verifies the statistical calculations:
+The test suites `tests/test_deep_ranking_stats.py` and `tests/test_implementation_standards.py` verify the statistical calculations and package standards:
 
 ```bash
-pytest tests/test_deep_ranking_stats.py -v
+pytest tests/test_deep_ranking_stats.py tests/test_implementation_standards.py -v
 ```
 
 ## Replication Structure and the Permutation Resolution Floor
 
-The deep ranking benchmark evaluates `{python} N.n_models_word` architectures across 12 multi-view datasets across $N_{\text{seeds}} = 3$ independent random seeds (`{python} N.n_main_fits` fits at $q = 0.5$, `{python} N.n_default_fits` across the three sparsity levels, and `{python} N.n_positive_reruns` paired non-negative reruns on three cohorts):
+The deep ranking benchmark evaluates `{python} N.n_models_word` architectures across `{python} N.n_blocks` multi-view datasets and $N_{\text{seeds}} =$ `{python} N.n_seeds` independent random seeds (`{python} N.n_main_fits` fits at $q = 0.5$, `{python} N.n_default_fits` across the three sparsity levels, and `{python} N.n_positive_reruns` paired non-negative reruns on three cohorts):
 
 ```{python}
 #| label: tbl-replication-design
-#| tbl-cap: "Replication structure of the 12-dataset benchmark (`deep_ranking_benchmark.csv`). Each block corresponds to an independent dataset evaluated across three random seeds controlling train/test partitioning and parameter initialization."
+#| tbl-cap: "Replication structure of the multi-dataset benchmark (`deep_ranking_benchmark.csv`). Each block corresponds to an independent dataset evaluated across three random seeds controlling train/test partitioning and parameter initialization."
 #| echo: false
 #| output: asis
 import os
@@ -72,16 +85,22 @@ for dataset, grp in df.groupby("Dataset"):
     })
 
 df_summary = pd.DataFrame(summary_rows)
-print(tabulate(df_summary, headers="keys", tablefmt="pipe", showindex=False))
+print(tabulate(df_summary, headers="keys", tablefmt="pipe", showindex=False, disable_numparse=True, colalign=("left", "left", "right", "right", "right", "right")))
 ```
 
 ### Block-Level Sign-Flip Permutation Floor
 
-In paired comparisons across $B = 12$ independent dataset blocks (where each block cell is the mean across $N_{\text{seeds}} = 3$ replicates [@Demsar2006]), the exact distribution-free sign-flip null distribution across the $B = 12$ blocks consists of $2^B = 4,096$ sign assignments:
+In paired comparisons across $B =$ `{python} N.n_blocks` independent dataset blocks (where each block cell is the mean across $N_{\text{seeds}} =$ `{python} N.n_seeds` replicates [@Demsar2006]), the exact distribution-free sign-flip null distribution across the $B =$ `{python} N.n_blocks` blocks consists of $2^B = 4,096$ sign assignments:
 
 $$
 p_{\text{perm}} = \frac{1}{2^B} \sum_{\mathbf{s} \in \{-1, +1\}^B} \mathbb{I}\left(\left|\frac{1}{B} \sum_{i=1}^B s_i \Delta_i\right| \ge |\bar{\Delta}|\right), \qquad p_{\min, B=12} = \frac{2}{2^{12}} = \frac{2}{4096} \approx 0.000488
 $$
+
+### `v0.43.1` Replication Designs and Provenance Ledger
+
+* **Synthetic Propositions and Design A/B Benchmark (`v043_synthetic_theorems.json`):** `scripts/benchmark_synthetic_theorems.py` evaluates `{python} N.syn_n_seeds` random seeds ($N_{\text{train}} =$ `{python} N.syn_n_train`, $N_{\text{test}} =$ `{python} N.syn_n_test`, view dimensions `{python} N.syn_view_dims`) with paired two-sided Wilcoxon signed-rank tests across arms.
+* **Six-Cohort Real-Data Revisit (`part_a_*`, `part_b_*`):** `scripts/run_real_data_v043.py` evaluates Part A (`{python} N.v043_n_fits` `simlr` fits across 6 real cohorts $\times$ `{python} N.n_seeds` seeds, yielding `{python} N.v043_n_matched` matched comparisons across `{python} N.v043_n_matched_cells` pre-`v0.43` cells in `part_a_simlr_v043_raw.csv` and `part_a_comparison_summary.csv`) and Part B (`{python} N.us_n_fits` `fit_uniform_shrunk` fits: `{python} N.us_n_conical_fits` conical and `{python} N.us_n_convex_fits` radial-convex across 6 cohorts $\times k \in \{1, 2, 3\} \times$ `{python} N.n_seeds` seeds in `part_b_uniform_shrunk_raw.csv` and `part_b_uniform_shrunk_summary.csv`).
+* **Audit Evidence and Provenance Ledger (`docs/audit/evidence/`):** Supporting design evidence tables record 20-subsample rank selection (`adni_rank_selection.csv`), two-stage default selection (`default_selection_stage1.csv`, `{python} N.default_stage1_n` fits; `default_selection_stage2.csv`, `{python} N.default_stage2_n` fits across `{python} N.default_stage2_ncells` cells), scale-free view weighting (`view_weighting_acc.csv`), collapse threshold selection (`collapse_threshold_selection.csv`), unpenalized deep collapse (`deep_collapse_diagnosis.csv`), and deep convergence consistency (`deep_default_consistency.csv`, `{python} N.deep_cons_n_per_family` runs per family). All `v0.43.1` benchmark and audit caches were generated on `2026-11-19` (`Darwin arm64`, `torch 2.13.0`, `smoke=false`), while the `{python} N.sweep_n`-configuration `ADNI-MCI` grid sweep (`adni_mci_1214_grid_sweep.csv`) is preserved from `2026-11-05` (`pysimlr 0.20.0`, `provenance_adni_mci_grid_sweep.json`, `n_failed=0`).
 
 ## Software Environment {.unnumbered}
 
@@ -91,6 +110,7 @@ $$
 #| echo: false
 #| output: asis
 import sys
+import pysimlr
 import torch
 import numpy
 import scipy
@@ -100,6 +120,7 @@ import tabulate
 import matplotlib
 
 env_info = [
+    {"Component": "PySiMLR", "Version": pysimlr.__version__},
     {"Component": "Python", "Version": sys.version.split()[0]},
     {"Component": "PyTorch", "Version": torch.__version__},
     {"Component": "NumPy", "Version": numpy.__version__},
@@ -109,5 +130,5 @@ env_info = [
     {"Component": "Matplotlib", "Version": matplotlib.__version__},
 ]
 
-print(tabulate.tabulate(pd.DataFrame(env_info), headers="keys", tablefmt="pipe", showindex=False))
+print(tabulate.tabulate(pd.DataFrame(env_info), headers="keys", tablefmt="pipe", showindex=False, disable_numparse=True))
 ```

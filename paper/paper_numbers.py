@@ -1,4 +1,4 @@
-"""Every number the manuscript cites, computed from ``paper/results_cache``.
+"""Every number the manuscript cites, computed from ``paper/results_cache`` and ``docs/audit/evidence``.
 
 The chapters reference these values inline (`` `{python} N.adni_best_r2` ``)
 instead of typing them, so the prose cannot drift from the data: before
@@ -9,13 +9,14 @@ chapter can phrase a comparison conditionally.
 
 Grouping conventions (one place, used everywhere):
   * "main" = ``deep_ranking_benchmark.csv``: q = 0.5, default positivity,
-    12 datasets x 9 models x 3 seeds; every per-model figure averages the 12
+    12 datasets x 7 models x 3 seeds; every per-model figure averages the 12
     datasets with equal weight.
   * "operating points" = the three default-positivity files
-    ``deep_ranking_benchmark_q{_none,05,08}.csv`` (972 fits). The 243 paired
+    ``deep_ranking_benchmark_q{_none,05,08}.csv`` (756 fits). The 189 paired
     positivity="positive" reruns in ``operating_points_05_08_benchmark.csv``
     are excluded from pooled means, which they would double-weight.
-  * mean +/- SD across seeds is the SD of the 3 per-seed values.
+  * mean +/- SD across seeds is the SD of the 3 per-seed values (or 20 seeds
+    for ``v043_synthetic_theorems.json``).
 """
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(HERE, "results_cache")
@@ -72,10 +74,10 @@ def _seed_stats(d, dataset, model, col):
 
 
 def op_default():
-    """The 972 default-positivity operating-point fits (q = None, 0.5, 0.8),
+    """The 756 default-positivity operating-point fits (q = None, 0.5, 0.8),
     with ``Sparseness_Target`` = "None" for the unthresholded fits. Use this,
     not ``operating_points_05_08_benchmark.csv``, for pooled means: that file
-    also holds 243 paired positivity="positive" reruns of three cohorts."""
+    also holds 189 paired positivity="positive" reruns of three cohorts."""
     frames = []
     for f in ("deep_ranking_benchmark_q_none.csv", "deep_ranking_benchmark_q05.csv",
               "deep_ranking_benchmark_q08.csv"):
@@ -300,33 +302,29 @@ def build():
     put("rm_row_pca_pos_sp", rcell("Row", "PCA", "Non", "sparsity_all"), lambda x: pct(x, 0))
     put("rm_row_ica_pos_sp", rcell("Row", "ICA", "Non", "sparsity_all"), lambda x: pct(x, 0))
 
-    # ---- ADNI rank selection stabilities (docs/audit/evidence/adni_rank_selection.csv)
+    # ---- ADNI rank selection latent reliability (docs/audit/evidence/adni_rank_selection.csv)
     ars_path = os.path.join(HERE, "..", "docs", "audit", "evidence", "adni_rank_selection.csv")
-    if os.path.exists(ars_path):
-        ars = pd.read_csv(ars_path)
-        k3_pos = ars[(ars.pos == "positive") & (ars.k == 3)].iloc[0]
-        k3_stabs = [float(x) for x in k3_pos["component_stability"].split()]
-        put("adni_k3_pos_stab_c1", k3_stabs[0], f3)
-        put("adni_k3_pos_stab_c2", k3_stabs[1], f3)
-        put("adni_k3_pos_stab_c3", k3_stabs[2], f3)
-        k2_pos = ars[(ars.pos == "positive") & (ars.k == 2)].iloc[0]
-        k2_stabs = [float(x) for x in k2_pos["component_stability"].split()]
-        put("adni_k2_pos_stab_c1", k2_stabs[0], f3)
-        put("adni_k2_pos_stab_c2", k2_stabs[1], f3)
-        k3_eith = ars[(ars.pos == "either") & (ars.k == 3)].iloc[0]
-        k3_eith_stabs = [float(x) for x in k3_eith["component_stability"].split()]
-        put("adni_k3_either_stab_c1", k3_eith_stabs[0], f3)
-        put("adni_k3_either_stab_c2", k3_eith_stabs[1], f3)
-        put("adni_k3_either_stab_c3", k3_eith_stabs[2], f3)
-    else:
-        put("adni_k3_pos_stab_c1", 0.975, f3)
-        put("adni_k3_pos_stab_c2", 0.803, f3)
-        put("adni_k3_pos_stab_c3", 0.996, f3)
-        put("adni_k2_pos_stab_c1", 0.961, f3)
-        put("adni_k2_pos_stab_c2", 0.997, f3)
-        put("adni_k3_either_stab_c1", 0.993, f3)
-        put("adni_k3_either_stab_c2", 0.568, f3)
-        put("adni_k3_either_stab_c3", 0.792, f3)
+    if not os.path.exists(ars_path):
+        raise FileNotFoundError(f"Required rank-selection evidence missing: {ars_path}")
+    ars = pd.read_csv(ars_path)
+    put("adni_rank_margin", float(ars["margin"].iloc[0]), lambda x: f"{x:g}")
+    for pos_name, ptag in (("positive", "pos"), ("either", "either")):
+        sub_p = ars[ars.pos == pos_name]
+        sel_vals = sub_p["selected_k"].dropna()
+        put(f"adni_{ptag}_selected_k", int(sel_vals.iloc[0]) if len(sel_vals) else "None", str)
+        for k_val in (2, 3):
+            row = sub_p[sub_p.k == k_val].iloc[0]
+            rels = [float(x) for x in str(row["latent_reliability"]).split()]
+            gains = [float(x) for x in str(row["latent_reliability_gain"]).split()]
+            for idx, (rv, gv) in enumerate(zip(rels, gains), 1):
+                put(f"adni_k{k_val}_{ptag}_rel_c{idx}", rv, f3)
+                put(f"adni_k{k_val}_{ptag}_gain_c{idx}", gv, f3)
+            put(f"adni_k{k_val}_{ptag}_min_rel", float(row["min_latent_reliability"]), f3)
+            put(f"adni_k{k_val}_{ptag}_min_gain", float(row["min_latent_reliability_gain"]), f3)
+            put(f"adni_k{k_val}_{ptag}_mv_rel", float(row["latent_reliability_multivariate"]), f3)
+            put(f"adni_k{k_val}_{ptag}_mv_gain", float(row["latent_reliability_multivariate_gain"]), f3)
+            put(f"adni_k{k_val}_{ptag}_passed", bool(row["latent_reliability_passed"]), str)
+            put(f"adni_k{k_val}_{ptag}_all_coupled", bool(row["all_coupled"]), str)
 
     ks = _csv("ablation_k_sparsity_sweep.csv")
     raw["k_sweep"] = ks
@@ -354,7 +352,7 @@ def build():
     put("fl_sensorimotor_max", max(sm), lambda x: f"{x:.3f}")
     for j, comp in enumerate(q85["components"], 1):
         top = comp["regions"][:5]
-        put(f"fl_q85_c{j}_top", ", ".join(f"`{r}` ({v:+.3f})" for r, v in top), str)
+        put(f"fl_q85_c{j}_top", ", ".join(f"`{r}` ({v:+.3f})" for r, v in top) or "none", str)
         put(f"fl_q85_c{j}_n", comp["active_regions"], str)
 
     # Feature attribution (scripts/paper_adni_attribution.py): which component carries the held-out
@@ -426,6 +424,278 @@ def build():
     ratios = (eith.rf_axis_aligned.drop("PCA") / pca_rf)
     put("ctl_rf_ratio_min", float(ratios.min()), lambda x: f"{x:.1f}")
     put("ctl_rf_ratio_max", float(ratios.max()), lambda x: f"{x:.1f}")
+
+    # ---- v0.43.1 Synthetic Theorems (Propositions 1-3 + 20-seed Design A & B)
+    def _pm(mu, sd, fn=f3):
+        return f"{fn(mu)} $\\pm$ {fn(sd)}"
+
+    def _delta3(x):
+        return f"{x:+.3f}"
+
+    with open(os.path.join(CACHE, "v043_synthetic_theorems.json")) as fh:
+        syn = json.load(fh)
+    raw["v043_synthetic_theorems"] = syn
+    sprov = syn["provenance"]
+    put("syn_n_seeds", int(sprov["n_seeds"]), str)
+    put("syn_n_train", int(sprov["n_train"]), str)
+    put("syn_n_test", int(sprov["n_test"]), str)
+    put("syn_view_dims", "(" + ", ".join(str(x) for x in sprov["view_dims"]) + ")", str)
+
+    p1 = syn["propositions"]["prop1"]
+    put("syn_prop1_max_linf", float(p1["max_linf_diff_quantile_soft_vs_alpha0"]), sci)
+    p1_last = p1["soft_threshold_floor_erosion"][-1]
+    put("syn_prop1_soft_cos_a099", float(p1_last["cos_with_alpha0_soft_thresh"]), f3)
+    put("syn_prop1_soft_floor_a099", float(p1_last["uniform_floor"]), f4)
+    put("syn_prop1_soft_tau_a099", float(p1_last["soft_tau"]), f4)
+
+    p2 = syn["propositions"]["prop2"]
+    put("syn_prop2_cs_err", float(p2["cauchy_schwarz_abs_error"]), sci)
+    put("syn_prop2_euclid_exact", float(p2["euclid_sq_err_exact_topk"]), lambda x: f"{x:.2f}")
+    put("syn_prop2_euclid_soft", float(p2["euclid_sq_err_soft_thresh"]), lambda x: f"{x:.2f}")
+    put("syn_prop2_cos_exact", float(p2["cos_sim_exact_topk"]), f3)
+    put("syn_prop2_cos_soft", float(p2["cos_sim_soft_thresh"]), f3)
+    put("syn_prop2_legacy_theta", float(p2["legacy_convexify_theta_subtracted"]), f4)
+    put("syn_prop2_legacy_zeroed_pct", float(p2["legacy_convexify_fraction_zeroed_at_sparseness_none"]),
+        lambda x: pct(x, 0))
+    put("syn_prop2_legacy_cos", float(p2["legacy_convexify_cos_with_input"]), f3)
+    put("syn_prop2_radial_cos", float(p2["radial_convexify_cos_with_input"]), f3)
+
+    p3 = syn["propositions"]["prop3"]
+    put("syn_prop3_max_fro", float(p3["max_col_support_fro_error"]), sci)
+    p3_last = p3["alpha_sweep"][-1]
+    put("syn_prop3_global_fro_a1", float(p3_last["global_smoother_fro_err"]), f3)
+    put("syn_prop3_global_cos_a1", float(p3_last["global_smoother_cos"]), f3)
+
+    def _paired_wilcoxon(runs, arm_a, arm_b, metric):
+        va = np.asarray([r[arm_a][metric] for r in runs], dtype=float)
+        vb = np.asarray([r[arm_b][metric] for r in runs], dtype=float)
+        diff = va - vb
+        _, pval = stats.wilcoxon(va, vb, zero_method="wilcox", alternative="two-sided")
+        return float(np.mean(diff)), float(pval)
+
+    da = syn["design_a_rank1_sparse"]
+    da_sum, da_runs = da["summary"], da["per_seed"]
+    da_arm_tags = (
+        ("legacy_hard_0p5", "legacy_hard"),
+        ("legacy_soft_0p3", "legacy_soft"),
+        ("legacy_euclidean_convex_0p3", "legacy_ecvx"),
+        ("global_shrunk_conical", "global_conical"),
+        ("global_shrunk_radial_convex", "global_rcvx"),
+        ("twostage_conical_q0p0_ric", "q00_conical_ric"),
+        ("twostage_conical_q0p3_ric", "q03_conical_ric"),
+        ("twostage_conical_q0p3_plugin", "q03_conical_plug"),
+        ("twostage_conical_q0p5_ric", "q05_conical_ric"),
+        ("twostage_conical_q0p5_plugin", "q05_conical_plug"),
+        ("twostage_radial_convex_q0p3_ric", "q03_rcvx_ric"),
+        ("twostage_radial_convex_q0p5_ric", "q05_rcvx_ric"),
+        ("twostage_radial_convex_q0p5_plugin", "q05_rcvx_plug"),
+    )
+    for arm, tag in da_arm_tags:
+        s_a = da_sum[arm]
+        put(f"ts_a_{tag}_r2", float(s_a["test_r2"]["mean"]), f3)
+        put(f"ts_a_{tag}_r2_pm", _pm(s_a["test_r2"]["mean"], s_a["test_r2"]["sd"]), str)
+        put(f"ts_a_{tag}_f1", float(s_a["support_f1"]["mean"]), f3)
+        put(f"ts_a_{tag}_f1_pm", _pm(s_a["support_f1"]["mean"], s_a["support_f1"]["sd"]), str)
+        put(f"ts_a_{tag}_cos", float(s_a["weight_cos"]["mean"]), f3)
+        put(f"ts_a_{tag}_act", float(s_a["active_frac"]["mean"]), f3)
+
+    for cname, arm_a, arm_b, metric in (
+        ("con_ric_vs_global_r2", "twostage_conical_q0p5_ric", "global_shrunk_conical", "test_r2"),
+        ("con_ric_vs_global_f1", "twostage_conical_q0p5_ric", "global_shrunk_conical", "support_f1"),
+        ("con_plug_vs_global_r2", "twostage_conical_q0p5_plugin", "global_shrunk_conical", "test_r2"),
+        ("con_plug_vs_global_f1", "twostage_conical_q0p5_plugin", "global_shrunk_conical", "support_f1"),
+        ("con_plug_vs_soft_r2", "twostage_conical_q0p5_plugin", "legacy_soft_0p3", "test_r2"),
+        ("rcvx_ric_vs_global_r2", "twostage_radial_convex_q0p5_ric", "global_shrunk_radial_convex", "test_r2"),
+        ("rcvx_ric_vs_global_f1", "twostage_radial_convex_q0p5_ric", "global_shrunk_radial_convex", "support_f1"),
+        ("rcvx_plug_vs_ecvx_r2", "twostage_radial_convex_q0p5_plugin", "legacy_euclidean_convex_0p3", "test_r2"),
+        ("rcvx_plug_vs_ecvx_f1", "twostage_radial_convex_q0p5_plugin", "legacy_euclidean_convex_0p3", "support_f1"),
+    ):
+        d_mu, p_val = _paired_wilcoxon(da_runs, arm_a, arm_b, metric)
+        put(f"ts_a_delta_{cname}", d_mu, _delta3)
+        put(f"ts_a_p_{cname}", p_val, sci)
+
+    db = syn["design_b_rank2_disjoint"]
+    db_sum, db_runs = db["summary"], db["per_seed"]
+    db_arm_tags = (
+        ("legacy_conical_hard_0p5", "legacy_hard"),
+        ("legacy_conical_soft_0p3", "legacy_soft"),
+        ("legacy_global_shrunk_k2", "legacy_global"),
+        ("legacy_euclidean_convex_0p5", "legacy_ecvx"),
+        ("twostage_conical_q0p0_ric", "q00_conical_ric"),
+        ("twostage_conical_q0p3_ric", "q03_conical_ric"),
+        ("twostage_conical_q0p3_plugin", "q03_conical_plug"),
+        ("twostage_conical_q0p5_ric", "q05_conical_ric"),
+        ("twostage_conical_q0p5_plugin", "q05_conical_plug"),
+        ("twostage_radial_convex_q0p0_ric", "q00_rcvx_ric"),
+        ("twostage_radial_convex_q0p3_ric", "q03_rcvx_ric"),
+        ("twostage_radial_convex_q0p5_ric", "q05_rcvx_ric"),
+    )
+    for arm, tag in db_arm_tags:
+        s_b = db_sum[arm]
+        put(f"ts_b_{tag}_r2", float(s_b["test_r2_mean"]["mean"]), f3)
+        put(f"ts_b_{tag}_r2_pm", _pm(s_b["test_r2_mean"]["mean"], s_b["test_r2_mean"]["sd"]), str)
+        put(f"ts_b_{tag}_f1", float(s_b["support_f1"]["mean"]), f3)
+        put(f"ts_b_{tag}_f1_pm", _pm(s_b["support_f1"]["mean"], s_b["support_f1"]["sd"]), str)
+        put(f"ts_b_{tag}_fro", float(s_b["max_orth_fro_err"]["mean"]), f4)
+        put(f"ts_b_{tag}_cos", float(s_b["max_col_cos"]["mean"]), f4)
+        put(f"ts_b_{tag}_ucorr", float(s_b["abs_corr_u1_u2"]["mean"]), f3)
+
+    for cname, arm_a, arm_b, metric in (
+        ("con_ric_vs_global_r2", "twostage_conical_q0p5_ric", "legacy_global_shrunk_k2", "test_r2_mean"),
+        ("con_ric_vs_global_f1", "twostage_conical_q0p5_ric", "legacy_global_shrunk_k2", "support_f1"),
+        ("con_ric_vs_global_fro", "twostage_conical_q0p5_ric", "legacy_global_shrunk_k2", "max_orth_fro_err"),
+        ("con_ric_vs_hard_r2", "twostage_conical_q0p5_ric", "legacy_conical_hard_0p5", "test_r2_mean"),
+        ("con_ric_vs_hard_f1", "twostage_conical_q0p5_ric", "legacy_conical_hard_0p5", "support_f1"),
+        ("rcvx_ric_vs_ecvx_r2", "twostage_radial_convex_q0p5_ric", "legacy_euclidean_convex_0p5", "test_r2_mean"),
+        ("rcvx_ric_vs_ecvx_f1", "twostage_radial_convex_q0p5_ric", "legacy_euclidean_convex_0p5", "support_f1"),
+    ):
+        d_mu, p_val = _paired_wilcoxon(db_runs, arm_a, arm_b, metric)
+        put(f"ts_b_delta_{cname}", d_mu, _delta3)
+        put(f"ts_b_p_{cname}", p_val, sci)
+
+    # ---- v0.43.1 Real-data revisit Part A & Part B
+    pa_raw = _csv("part_a_simlr_v043_raw.csv")
+    pa_cmp = _csv("part_a_comparison_summary.csv")
+    pa_cmp["Sparseness_Key"] = pa_cmp["Sparseness_Key"].map(
+        lambda v: "None" if pd.isna(v) else f"{float(v):.1f}"
+    )
+    raw["part_a_raw"] = pa_raw
+    raw["part_a_summary"] = pa_cmp
+
+    put("v043_n_fits", len(pa_raw), str)
+    n_conv_a = int(pa_raw["Solver_Converged"].sum())
+    put("v043_n_conv", n_conv_a, str)
+    put("v043_conv_pct", float(n_conv_a / len(pa_raw)), pct)
+    matched_a = pa_cmp[pa_cmp["Cached_Metric"].notna()]
+    put("v043_n_matched_cells", len(matched_a), str)
+    put("v043_n_matched", len(matched_a) * int(pa_raw["Seed"].nunique()), str)
+
+    eith_m = matched_a[matched_a["Positivity"] == "either"]
+    pos_m = matched_a[matched_a["Positivity"] == "positive"]
+    put("v043_mean_either_delta", float(eith_m["Delta_Metric"].mean()), _delta3)
+    put("v043_either_q05_mean_delta", float(eith_m[eith_m["Sparseness_Key"] == "0.5"]["Delta_Metric"].mean()), _delta3)
+    put("v043_either_q08_mean_delta", float(eith_m[eith_m["Sparseness_Key"] == "0.8"]["Delta_Metric"].mean()), _delta3)
+    put("v043_max_pos_delta", float(pos_m["Delta_Metric"].max()), _delta3)
+    put("v043_pos_max_abs_delta", float(pos_m["Delta_Metric"].abs().max()), f3)
+
+    ds_tags = (("ADNI-MCI", "adni"), ("MultiOmics", "brca"), ("TCGA-KIRC", "kirc"),
+               ("Heart", "heart"), ("Diabetes", "diab"), ("mfeat", "mfeat"))
+    pos_tags = (("either", "either"), ("positive", "pos"), ("convex", "cvx"))
+    for ds_full, ds_key in ds_tags:
+        for pos_full, ptag in pos_tags:
+            sub_raw = pa_raw[(pa_raw["Dataset"] == ds_full) & (pa_raw["Positivity"] == pos_full)]
+            if sub_raw.empty:
+                continue
+            put(f"v043_{ds_key}_{ptag}_mean_u", float(sub_raw["Predictive_Metric"].mean()), f3)
+            put(f"v043_{ds_key}_{ptag}_mean_lin", float(sub_raw["Strictly_Linear_Metric"].mean()), f3)
+            sub_cmp = pa_cmp[(pa_cmp["Dataset"] == ds_full) & (pa_cmp["Positivity"] == pos_full)]
+            put(f"v043_{ds_key}_{ptag}_best_u", float(sub_cmp["V043_Metric"].max()), f3)
+            for sp_str, sp_key, sp_raw in (("0.5", "q05", 0.5), ("0.8", "q08", 0.8), ("None", "qnone", None)):
+                row_c = sub_cmp[sub_cmp["Sparseness_Key"] == sp_str]
+                if not row_c.empty:
+                    rc = row_c.iloc[0]
+                    put(f"v043_{ds_key}_{ptag}_{sp_key}_u", float(rc["V043_Metric"]), f3)
+                    put(f"v043_{ds_key}_{ptag}_{sp_key}_sp", float(rc["V043_Sparsity"]), pct)
+                    put(f"v043_{ds_key}_{ptag}_{sp_key}_D", float(rc["V043_Defect"]), f4)
+                    if pd.notna(rc["Delta_Metric"]):
+                        put(f"v043_{ds_key}_{ptag}_{sp_key}_cached", float(rc["Cached_Metric"]), f3)
+                        put(f"v043_{ds_key}_{ptag}_{sp_key}_delta", float(rc["Delta_Metric"]), _delta3)
+                sub_sp = sub_raw[sub_raw["Sparseness_Target"].isna()] if sp_raw is None else sub_raw[np.isclose(sub_raw["Sparseness_Target"].fillna(-1.0), sp_raw)]
+                if not sub_sp.empty:
+                    put(f"v043_{ds_key}_{ptag}_{sp_key}_lin", float(sub_sp["Strictly_Linear_Metric"].mean()), f3)
+
+    pb_raw = _csv("part_b_uniform_shrunk_raw.csv")
+    pb_sum = _csv("part_b_uniform_shrunk_summary.csv")
+    raw["part_b_raw"] = pb_raw
+    raw["part_b_summary"] = pb_sum
+
+    put("us_n_fits", len(pb_raw), str)
+    pb_con = pb_raw[pb_raw["Positivity"] == "conical"]
+    pb_cvx = pb_raw[pb_raw["Positivity"] == "convex"]
+    put("us_n_conical_fits", len(pb_con), str)
+    put("us_n_conical_conv", int(pb_con["Solver_Converged"].sum()), str)
+    put("us_n_convex_fits", len(pb_cvx), str)
+    put("us_n_convex_conv", int(pb_cvx["Solver_Converged"].sum()), str)
+    put("us_conical_max_defect", float(pb_con["Frame_Defect_D"].max()), sci)
+    put("us_conical_max_cos", float(pb_con["Max_Col_Cosine"].max()), f3)
+    put("us_convex_max_cos", float(pb_cvx["Max_Col_Cosine"].max()), f3)
+    put("us_convex_max_defect", float(pb_cvx["Frame_Defect_D"].max()), f3)
+
+    for pos_full, ptag in (("conical", "con"), ("convex", "cvx")):
+        for k_val in (1, 2, 3):
+            sub_k = pb_sum[(pb_sum["Positivity"] == pos_full) & (pb_sum["k"] == k_val)]
+            if not sub_k.empty:
+                put(f"us_{ptag}_k{k_val}_u", float(sub_k["US_Metric"].mean()), f3)
+                put(f"us_{ptag}_k{k_val}_lin", float(sub_k["US_Lin"].mean()), f3)
+                put(f"us_{ptag}_k{k_val}_defect", float(sub_k["US_Defect"].mean()), sci if pos_full == "conical" else f3)
+                put(f"us_{ptag}_k{k_val}_alpha", float(sub_k["US_Alpha"].mean()), f3)
+
+    target_k = {"Heart": 2, "Diabetes": 2, "ADNI-MCI": 3, "MultiOmics": 3, "TCGA-KIRC": 3, "mfeat": 3}
+    for ds_full, ds_key in ds_tags:
+        for pos_full, ptag in (("conical", "con"), ("convex", "cvx")):
+            sub_dp = pb_sum[(pb_sum["Dataset"] == ds_full) & (pb_sum["Positivity"] == pos_full)]
+            for _, r in sub_dp.iterrows():
+                kv = int(r["k"])
+                put(f"us_{ds_key}_{ptag}_k{kv}_u", float(r["US_Metric"]), f3)
+                put(f"us_{ds_key}_{ptag}_k{kv}_lin", float(r["US_Lin"]), f3)
+                put(f"us_{ds_key}_{ptag}_k{kv}_defect", float(r["US_Defect"]), sci if pos_full == "conical" else f3)
+                put(f"us_{ds_key}_{ptag}_k{kv}_cos", float(r["US_MaxCos"]), f3)
+                put(f"us_{ds_key}_{ptag}_k{kv}_alpha", float(r["US_Alpha"]), f3)
+                if kv == target_k[ds_full]:
+                    put(f"us_{ds_key}_{ptag}_u", float(r["US_Metric"]), f3)
+                    put(f"us_{ds_key}_{ptag}_lin", float(r["US_Lin"]), f3)
+                    put(f"us_{ds_key}_{ptag}_defect", float(r["US_Defect"]), sci if pos_full == "conical" else f3)
+                    put(f"us_{ds_key}_{ptag}_cos", float(r["US_MaxCos"]), f3)
+                    put(f"us_{ds_key}_{ptag}_alpha", float(r["US_Alpha"]), f3)
+
+    # ---- Audit evidence tables (docs/audit/evidence/*.csv)
+    ev_dir = os.path.join(HERE, "..", "docs", "audit", "evidence")
+    s1 = pd.read_csv(os.path.join(ev_dir, "default_selection_stage1.csv"))
+    s2 = pd.read_csv(os.path.join(ev_dir, "default_selection_stage2.csv"))
+    s2_win = s2[(s2.energy == "nc") & (s2.optimizer == "hybrid_adam") & (s2.mixing == "newton")]
+    put("default_stage1_n", f"{len(s1):,}", str)
+    put("default_stage2_n", f"{len(s2):,}", str)
+    put("default_stage2_ncells", len(s2_win), str)
+    put("default_stage2_conv_n", int(s2_win.converged.sum()), str)
+    put("default_stage2_conv_rate", float(s2_win.converged.mean()), f3)
+    put("default_stage2_latent_r2", float(s2_win.latent_r2.mean()), f4)
+    put("default_stage2_worst_r2", float(s2_win.latent_r2.min()), f4)
+    put("default_stage2_support", float(s2_win.loadings_support.mean()), f4)
+
+    vw = pd.read_csv(os.path.join(ev_dir, "view_weighting_acc.csv"))
+    vw_dc = vw[vw.group == "default_cells"]
+    put("view_weighting_acc_max_latent_loss", float(-vw_dc[vw_dc.metric == "latent_r2"]["difference"].min()), f4)
+    put("view_weighting_acc_max_support_loss", float(-vw_dc[vw_dc.metric == "loadings_support_f1"]["difference"].min()), f4)
+
+    ct = pd.read_csv(os.path.join(ev_dir, "collapse_threshold_selection.csv"))
+    put("collapse_t07_narrow_corr", float(ct[(ct.group == "narrow_fixture") & (ct.threshold == 0.7)]["score_corr"].abs().max()),
+        lambda x: f"{x:.2f}")
+    r15_07 = ct[(ct.group == "r15_evaluation") & (ct.case_id == "r15_non_inf_narrow_0.7")].iloc[0]
+    r15_diff = float(r15_07["difference"])
+    r15_val = float(r15_07["outcome_r2"])
+    put("collapse_t07_narrow_r2_drop", r15_diff, lambda x: f"{x:.2f}")
+    put("collapse_t07_narrow_r2_val", r15_val, f4)
+    put("collapse_t07_narrow_r2_base", r15_val - r15_diff, f4)
+    put("collapse_t03_avg_rho05", float(ct[(ct.group == "corr_case_avg") & (ct.threshold == 0.3) & (ct.rho == 0.5)]["score_corr"].max()), f3)
+    put("collapse_t03_avg_rho07", float(ct[(ct.group == "corr_case_avg") & (ct.threshold == 0.3) & (ct.rho == 0.7)]["score_corr"].max()), f3)
+    put("collapse_t03_newton_max", float(ct[(ct.group == "corr_case_newton") & (ct.threshold == 0.3)]["score_corr"].max()), f3)
+
+    dc = pd.read_csv(os.path.join(ev_dir, "deep_collapse_diagnosis.csv"))
+    dc_s3 = dc[(dc.group == "step3_energy") & (dc.penalty == "none")]
+    dc_c = dc_s3[dc_s3.collapsed == True]  # noqa: E712
+    dc_ok = dc_s3[dc_s3.collapsed == False]  # noqa: E712
+    put("deep_collapse_n_collapsed", len(dc_c), str)
+    put("deep_collapse_loss_collapsed", float(dc_c["sim_loss"].mean()), lambda x: f"{x:.2f}")
+    put("deep_collapse_n_ok", len(dc_ok), str)
+    put("deep_collapse_loss_ok", float(dc_ok["sim_loss"].mean()), lambda x: f"{x:.2f}")
+
+    dcons = pd.read_csv(os.path.join(ev_dir, "deep_default_consistency.csv"))
+    put("deep_cons_n_per_family", int(dcons.groupby("Method")["converged"].count().iloc[0]), str)
+    for m_id, m_tag in (("flow_v", "flow_v"), ("lend", "lend"), ("ned", "ned"), ("ned_shared_private", "nedpp")):
+        sub_m = dcons[dcons.Method == m_id]
+        if not sub_m.empty:
+            put(f"deep_cons_conv_{m_tag}", float(sub_m["converged"].mean()), f3)
+
     return SimpleNamespace(**n), raw
 
 

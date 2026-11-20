@@ -36,10 +36,11 @@ $$(S_{S_{m,c}} v_{m,c})_{S_{m,c}} = (1 - \alpha_{m,c})\,(v_{m,c})_{S_{m,c}} + \a
 
 Whenever $S_{m,1}, \dots, S_{m,k}$ are pairwise disjoint, $(S_{S_{m,c}} v_{m,c})^\top (S_{S_{m,c'}} v_{m,c'}) = 0$ identically for all $c \ne c'$ and every $\alpha_{m,c} \in [0, 1]$.
 
-**Post-selection RIC degrees of freedom (`effective_support_dof`).** For support size $m_c = |S_{m,c}| \in [1, p_m]$:
+**Post-selection RIC and Jackknife James–Stein shrinkage (`alpha_mode`).** For support size $m_c = |S_{m,c}| \in [1, p_m]$:
 
 * `alpha_mode="ric"` (default, Donoho–Johnstone / Birgé–Massart $\ell_0$ selection complexity): $d_{\text{eff}}(m_c, p_m) = m_c\bigl(1 + 2\log(p_m / m_c)\bigr)$, which equals $p_m$ identically when $m_c = p_m$.
 * `alpha_mode="plugin"`: $d_{\text{eff}}(m_c, p_m) = m_c$.
+* `alpha_mode="auto"` (or `"jk_js"`, parameter-free Delete-1 Jackknife Positive-Part James–Stein via `jackknife_js_alpha`): computes $\alpha_{m,c} = \min\bigl(1, \hat{\sigma}_{\text{JK}}^2 / \max(D^2, 10^{-14})\bigr) \in [0, 1]$ from leave-one-row-out non-negative marginal vectors without heuristic clip constants, and sets `post_shrink=0.0` automatically in `project_uniform_shrunk(..., post_shrink="auto")`. `sparseness="auto"` is also accepted on `fit_uniform_shrunk`.
 
 The shrinkage schedule sets
 

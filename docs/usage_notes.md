@@ -35,6 +35,14 @@ Leave `iterations` and `tol` unset unless you have a reason. A short budget (for
 stops most fits before convergence. Results compared at such a budget compare optimizer
 trajectories, not solutions.
 
+### Automated collection analysis and presets (`recommend_presets`, `fit_preset`)
+
+When starting on a new multi-view collection without prior tuning, `pysimlr.recommend_presets(views, k=None)` profiles view widths, missing-row blocks, directional coherence, Wachter GCCA rank, delete-1 LOO linear skill, and QR-PRESS nonlinearity in milliseconds and returns a rank-ordered menu (`print(report["summary_text"])`).
+
+- Pass `preset="<name>"` to `pysimlr.fit_preset(views, k, preset=...)` to run a chosen preset from the menu.
+- Leave `preset="auto"` (the default of `fit_preset`) to execute the Rank #1 recommended preset automatically when no human selection is provided.
+- Pass `preset=None` to skip profiling and run the general natural linear configuration (`simlr` with per-view paired-1SE `sparseness="auto"`, `energy_type="recon_r2"`, and `mixing_algorithm="pca"`).
+
 ## Always check convergence
 
 `res["convergence"]["converged"]` and `res["stop_reason"]` tell you how the fit ended. The stop

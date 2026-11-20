@@ -52,6 +52,7 @@ import os
 import platform
 import re
 import sys
+import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor
 
@@ -85,7 +86,13 @@ PATH_GRAPH = {0: [3], 1: [3], 2: [3], 3: [0, 1, 2]}
 # ---------------------------------------------------------------------------
 # Protocol B data
 # ---------------------------------------------------------------------------
+_PROTOCOL_B_CACHE: dict[tuple[int, bool], dict] = {}
+
+
 def protocol_b(seed: int = 42, row_center: bool = False) -> dict:
+    key = (int(seed), bool(row_center))
+    if key in _PROTOCOL_B_CACHE:
+        return _PROTOCOL_B_CACHE[key]
     df = pd.read_csv(ADNI_CSV)
     prefixes = ("T1Hier_vol__", "T1Hier_thk__", "T1w__")
     cols = [[c for c in df.columns if c.startswith(p)] for p in prefixes]
@@ -126,10 +133,12 @@ def protocol_b(seed: int = 42, row_center: bool = False) -> dict:
     # and subtracting each subject's mean across them removes overall severity.
     y_tr, y_te = prep(df[cog_cols].values, False)
     pca_y = SkPCA(n_components=1).fit(y_tr)
-    return {"x_tr": x_tr, "x_te": x_te, "y_tr": y_tr, "y_te": y_te,
-            "pc1_tr": pca_y.transform(y_tr).ravel(), "pc1_te": pca_y.transform(y_te).ravel(),
-            "rowmean_tr": np.column_stack(rowmean_tr), "rowmean_te": np.column_stack(rowmean_te),
-            "names": names, "cov_tr": cov[tr], "cov_te": cov[te]}
+    res_dict = {"x_tr": x_tr, "x_te": x_te, "y_tr": y_tr, "y_te": y_te,
+                "pc1_tr": pca_y.transform(y_tr).ravel(), "pc1_te": pca_y.transform(y_te).ravel(),
+                "rowmean_tr": np.column_stack(rowmean_tr), "rowmean_te": np.column_stack(rowmean_te),
+                "names": names, "cov_tr": cov[tr], "cov_te": cov[te]}
+    _PROTOCOL_B_CACHE[key] = res_dict
+    return res_dict
 
 
 def fit_views(data: dict) -> list:
@@ -225,11 +234,12 @@ def synthetic_f1(**params) -> dict:
 # ---------------------------------------------------------------------------
 # experiments
 # ---------------------------------------------------------------------------
-def w_sweep() -> pd.DataFrame:
+def w_sweep(smoke: bool = False) -> pd.DataFrame:
     """`simlr`, V >= 0, k = 3, no quantile threshold: w alone sets sparsity."""
     data = protocol_b(42)
     rows = []
-    for w in (0.01, 0.05, 0.10, 0.20, 0.35, 0.50, 0.65, 0.80, 0.90, 0.95):
+    ws = (0.01, 0.50) if smoke else (0.01, 0.05, 0.10, 0.20, 0.35, 0.50, 0.65, 0.80, 0.90, 0.95)
+    for w in ws:
         s = synthetic_f1(nsa_w=w, positivity="positive", sparseness=None)
         res, secs = fit_adni(data, "simlr", nsa_w=w, positivity="positive", sparseness=None,
                              random_state=42)
@@ -251,14 +261,18 @@ def w_sweep() -> pd.DataFrame:
 K_SWEEP = (2, 3, 5, 8, 11)
 
 
-def k_sweep() -> pd.DataFrame:
+def k_sweep(smoke: bool = False) -> pd.DataFrame:
     """Unthresholded non-negative `simlr` (w = 0.5) at k in `K_SWEEP` (capped at the narrowest view, 11):
     column-centred with a PCA start (varimax off) vs row-centred with an ICA start."""
     rows = []
-    for regime, row_center, init in (("Col-Centered (PCA Init)", False, "pca"),
-                                     ("Row-Centered (ICA Init)", True, "ica")):
+    regimes = (("Col-Centered (PCA Init)", False, "pca"),) if smoke else (
+        ("Col-Centered (PCA Init)", False, "pca"),
+        ("Row-Centered (ICA Init)", True, "ica"),
+    )
+    ks = (2, 3) if smoke else K_SWEEP
+    for regime, row_center, init in regimes:
         data = protocol_b(42, row_center=row_center)
-        for k in K_SWEEP:
+        for k in ks:
             res, secs = fit_adni(data, "simlr", k=k, positivity="positive", sparseness=None,
                                  initialization_type=init, varimax=False, random_state=42)
             vs = mri_basis(res); ev = evaluate(data, vs); b = basis_summary(vs)
@@ -276,12 +290,14 @@ def k_sweep() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def quantile_sweep() -> pd.DataFrame:
+def quantile_sweep(smoke: bool = False) -> pd.DataFrame:
     """`simlr` (w = 0.5, k = 3, default varimax) across quantile sparseness."""
     data = protocol_b(42)
     rows = []
-    for pos in ("positive", "either"):
-        for q in (None, 0.50, 0.70, 0.80, 0.85, 0.90):
+    pos_list = ("positive",) if smoke else ("positive", "either")
+    q_list = (None, 0.50) if smoke else (None, 0.50, 0.70, 0.80, 0.85, 0.90)
+    for pos in pos_list:
+        for q in q_list:
             t0 = time.perf_counter()
             res, _ = fit_adni(data, "simlr", positivity=pos, sparseness=q, random_state=42)
             secs = time.perf_counter() - t0
@@ -301,16 +317,24 @@ def quantile_sweep() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def rowmean_factorial() -> pd.DataFrame:
+def rowmean_factorial(smoke: bool = False) -> pd.DataFrame:
     """2 x 2 x 2 x 2: column vs row+column centring, PCA vs ICA start, signed vs
     V >= 0, the initializer alone vs the fitted `simlr` (w = 0.5, k = 3,
     varimax off, no quantile threshold)."""
     rows = []
-    for prep_lbl, row_center in (("Col-Centered (Standard)", False),
-                                 ("Row+Col Centered (Row-Mean Controlled)", True)):
+    preps = (("Col-Centered (Standard)", False),) if smoke else (
+        ("Col-Centered (Standard)", False),
+        ("Row+Col Centered (Row-Mean Controlled)", True),
+    )
+    inits = ("pca",) if smoke else ("pca", "ica")
+    poses = (("Non-Negative (V >= 0)", "positive"),) if smoke else (
+        ("Signed (Unconstrained)", "either"),
+        ("Non-Negative (V >= 0)", "positive"),
+    )
+    for prep_lbl, row_center in preps:
         data = protocol_b(42, row_center=row_center)
-        for init in ("pca", "ica"):
-            for pos_lbl, pos in (("Signed (Unconstrained)", "either"), ("Non-Negative (V >= 0)", "positive")):
+        for init in inits:
+            for pos_lbl, pos in poses:
                 for stage in ("Init-Only (Single-View)", "Bipartite SiMR (Fitted)"):
                     t0 = time.perf_counter()
                     if stage.startswith("Init"):
@@ -343,11 +367,13 @@ CONTROL_MODELS = (("Flow-SiMR-V", "flow_v"), ("LEND", "lend"), ("NEDPP", "ned_sh
 
 
 def _control_task(task):
-    label, method, pos, seed = task
+    label, method, pos, seed, linear_iters = task
     torch.set_num_threads(1)
     data = protocol_b(seed)
     params = {} if pysimlr.resolve_method(method).family == "baseline" else \
         {"positivity": pos, "sparseness": 0.5, "random_state": seed}
+    if linear_iters is not None and pysimlr.describe_method(method)["budget_unit"] == "iterations":
+        params["iterations"] = linear_iters
     res, _ = fit_adni(data, method, **params)
     joint = bool(res.get("basis_is_joint"))
     m = axis_alignment_control_metrics(
@@ -363,25 +389,30 @@ def _control_task(task):
     }
 
 
-def axis_controls(workers: int) -> pd.DataFrame:
+def axis_controls(workers: int, smoke: bool = False) -> pd.DataFrame:
     """Benchmark sparsity (q = 0.5) per model, both positivities (baselines
     have none), seeds 42-44; `benchmarks.metrics.axis_alignment_control_metrics`
     against CogPC1."""
+    models = (("SiMLR", "simlr"),) if smoke else CONTROL_MODELS
+    seeds = (42, 43) if smoke else (42, 43, 44)
     tasks = []
-    for label, method in CONTROL_MODELS:
+    for label, method in models:
         for pos in (("either",) if pysimlr.resolve_method(method).family == "baseline" else ("either", "positive")):
-            for seed in (42, 43, 44):
-                tasks.append((label, method, pos, seed))
-    with ProcessPoolExecutor(max_workers=workers) as ex:
-        rows = list(ex.map(_control_task, tasks))
+            for seed in seeds:
+                tasks.append((label, method, pos, seed, LINEAR_ITERS))
+    if smoke or workers <= 1:
+        rows = [_control_task(t) for t in tasks]
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            rows = list(ex.map(_control_task, tasks))
     return pd.DataFrame(rows)
 
 
-def feature_loadings() -> dict:
+def feature_loadings(smoke: bool = False) -> dict:
     """Bases of the MRI views for the figure: joint PCA blocks, unrotated and
     varimax-rotated non-negative `simlr` (q = None), the row-centred ICA
     start, and non-negative q in {0.80, 0.85, 0.90} (seed 42)."""
-    col = protocol_b(42); row = protocol_b(42, row_center=True)
+    col = protocol_b(42)
     out = {f"view{i}_names": col["names"][i] for i in (0, 1, 2)}
 
     def store(key, data, res_or_vs, extra=False):
@@ -397,18 +428,27 @@ def feature_loadings() -> dict:
 
     res_pca, _ = fit_adni(col, "pca")
     store("pca", col, res_pca)
-    res_col, _ = fit_adni(col, "simlr", positivity="positive", sparseness=None,
-                          varimax=False, random_state=42)
-    store("col_pca_simr", col, res_col)
-    res_vmx, _ = fit_adni(col, "simlr", positivity="positive", sparseness=None,
-                          varimax=True, random_state=42)
-    store("varimax_simr", col, res_vmx)
-    res_ica, _ = fit_adni(row, "simlr", positivity="positive", sparseness=None,
-                          initialization_type="ica", varimax=False, random_state=42)
-    store("row_ica_simr", row, res_ica)
+    extra_entries = [("pca", col, res_pca)]
+    if not smoke:
+        row = protocol_b(42, row_center=True)
+        res_col, _ = fit_adni(col, "simlr", positivity="positive", sparseness=None,
+                              varimax=False, random_state=42)
+        store("col_pca_simr", col, res_col)
+        res_vmx, _ = fit_adni(col, "simlr", positivity="positive", sparseness=None,
+                              varimax=True, random_state=42)
+        store("varimax_simr", col, res_vmx)
+        res_ica, _ = fit_adni(row, "simlr", positivity="positive", sparseness=None,
+                              initialization_type="ica", varimax=False, random_state=42)
+        store("row_ica_simr", row, res_ica)
+        extra_entries.extend([
+            ("col_pca_simr", col, res_col),
+            ("varimax_simr", col, res_vmx),
+            ("row_ica_simr", row, res_ica),
+        ])
 
     res_q85 = None
-    for q in (0.80, 0.85, 0.90):
+    qs = (0.85,) if smoke else (0.80, 0.85, 0.90)
+    for q in qs:
         res, _ = fit_adni(col, "simlr", positivity="positive", sparseness=q, random_state=42)
         vs = [np.asarray(l.detach().cpu() if hasattr(l, "detach") else l, dtype=np.float64) for l in res["loadings"][:3]]
         ev = evaluate(col, mri_basis(res)); b = basis_summary(vs)
@@ -434,17 +474,13 @@ def feature_loadings() -> dict:
             "converged": conv.get("converged", True),
             "components": comps}
     summaries = {}
-    for key, data in (("pca", col), ("col_pca_simr", col), ("varimax_simr", col), ("row_ica_simr", row),
-                      ("col_pca_q85_simr", col)):
-        vs = [np.asarray(out[f"view{i}_{key}"]) if i in (0, 2) else None for i in (0, 1, 2)]
+    summary_keys = [k for k, _, _ in extra_entries] + ["col_pca_q85_simr"]
+    for key in summary_keys:
         dkt = np.asarray(out[f"view2_{key}"])
         summaries[key] = {"dkt_sparsity": float((np.abs(dkt) < TOL).mean()),
                           "dkt_active_regions": [int((np.abs(dkt[:, j]) >= TOL).sum()) for j in range(dkt.shape[1])]}
     out["summaries"] = summaries
-    for key, data, res_obj in (("pca", col, res_pca),
-                               ("col_pca_simr", col, res_col),
-                               ("varimax_simr", col, res_vmx),
-                               ("row_ica_simr", row, res_ica)):
+    for key, data, res_obj in extra_entries:
         summaries[key]["cog_pc1_r2"] = evaluate(data, mri_basis(res_obj))["cog_pc1_r2"]
         conv = res_obj.get("convergence", {})
         summaries[key]["stop_reason"] = conv.get("stop_reason", "converged" if conv.get("converged", True) else "max_iter")
@@ -468,44 +504,57 @@ EXPERIMENTS = {
 
 
 def main():
+    global LINEAR_ITERS
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--out", default=os.path.join(REPO, "paper", "results_cache"))
+    ap.add_argument("--out", default=None, help="Output directory (defaults to paper/results_cache, or temp dir under --smoke)")
     ap.add_argument("--only", nargs="*", choices=sorted(EXPERIMENTS), default=sorted(EXPERIMENTS))
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--smoke", action="store_true", help="Fast <10s smoke check across all stages (counts=2, non-destructive default out)")
     a = ap.parse_args()
-    os.makedirs(a.out, exist_ok=True)
+    if a.smoke:
+        LINEAR_ITERS = 2
+    out_dir = a.out or (
+        os.path.join(tempfile.gettempdir(), "pysimlr_smoke_adni_ablations")
+        if a.smoke else os.path.join(REPO, "paper", "results_cache")
+    )
+    os.makedirs(out_dir, exist_ok=True)
     torch.set_num_threads(1)
-    start = datetime.datetime.utcnow().isoformat() + "Z"
+    start = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
     import subprocess
     try:
         commit = subprocess.run(["git", "-C", REPO, "rev-parse", "--short", "HEAD"], capture_output=True,
                                 text=True, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         commit = None
+    cli_rel = " ".join([os.path.relpath(os.path.abspath(sys.argv[0]), REPO)] + sys.argv[1:])
     timings = {}
     for name in a.only:
         fname, fn = EXPERIMENTS[name]
         print(f"[{name}] -> {fname}", flush=True)
         t0 = time.perf_counter()
-        result = axis_controls(a.workers) if name == "controls" else fn()
-        path = os.path.join(a.out, fname)
+        result = axis_controls(a.workers, smoke=bool(a.smoke)) if name == "controls" else fn(smoke=bool(a.smoke))
+        path = os.path.join(out_dir, fname)
         if fname.endswith(".json"):
-            result = {**result, "provenance": {"cli": " ".join(sys.argv), "pysimlr": pysimlr.__version__,
+            result = {**result, "provenance": {"cli": cli_rel, "pysimlr": pysimlr.__version__,
                                                "git_commit": commit, "torch": torch.__version__,
-                                               "written_utc": datetime.datetime.utcnow().isoformat() + "Z"}}
+                                               "platform": f"{platform.system()} {platform.machine()}",
+                                               "smoke": bool(a.smoke),
+                                               "written_utc": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")}}
             with open(path, "w") as f:
                 json.dump(result, f)
         else:
             result.to_csv(path, index=False)
         timings[name] = time.perf_counter() - t0
-    run = {"cli": " ".join(sys.argv), "start_utc": start,
-           "end_utc": datetime.datetime.utcnow().isoformat() + "Z", "host": platform.node(),
+    run = {"cli": cli_rel, "start_utc": start,
+           "end_utc": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+           "platform": f"{platform.system()} {platform.machine()}",
+           "smoke": bool(a.smoke),
            "python": sys.version.split()[0], "torch": torch.__version__, "pysimlr": pysimlr.__version__,
            "git_commit": commit, "device": "cpu"}
     # One record per experiment: a partial run (--only) updates its own experiments and keeps the rest.
-    prov_path = os.path.join(a.out, "provenance_adni_ablations.json")
+    prov_path = os.path.join(out_dir, "provenance_adni_ablations.json")
     prov = {"experiments": {}}
-    if os.path.isfile(prov_path):
+    if os.path.isfile(prov_path) and not a.smoke:
         with open(prov_path) as f:
             old = json.load(f)
         prov = old if isinstance(old.get("experiments"), dict) else {"experiments": {
@@ -515,7 +564,7 @@ def main():
         prov["experiments"][name] = {**run, "seconds": timings[name], "output": EXPERIMENTS[name][0]}
     with open(prov_path, "w") as f:
         json.dump(prov, f, indent=2)
-    print("DONE", flush=True)
+    print(f"DONE (out={out_dir}, smoke={bool(a.smoke)})", flush=True)
 
 
 if __name__ == "__main__":

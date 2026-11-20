@@ -100,8 +100,10 @@ def analyze_dataset(df, dataset_col, metric, title):
     
     return res_df.to_markdown(index=False)
 
-synth_df = pd.read_csv('/Users/stnava/Library/Mobile Documents/com~apple~CloudDocs/code/pysimlr/paper/results_cache/unified_synthetic_v21.csv')
-real_df = pd.read_csv('/Users/stnava/Library/Mobile Documents/com~apple~CloudDocs/code/pysimlr/paper/results_cache/unified_real_v21.csv')
+from pathlib import Path
+_CACHE_DIR = Path(__file__).resolve().parents[1] / "results_cache"
+synth_df = pd.read_csv(_CACHE_DIR / "unified_synthetic_v21.csv")
+real_df = pd.read_csv(_CACHE_DIR / "unified_real_v21.csv")
 
 print("### Synthetic Results (Predictive Accuracy)\n")
 print(analyze_dataset(synth_df, 'Regime', 'Predictive Accuracy (Y)', 'Synthetic Benchmark'))

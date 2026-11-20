@@ -311,6 +311,8 @@ def compute_shared_consensus(projections: List[torch.Tensor],
             if local_anchor.shape[1] < k:
                 padding = torch.zeros(local_anchor.shape[0], k - local_anchor.shape[1], device=local_anchor.device, dtype=local_anchor.dtype)
                 local_anchor = torch.cat([local_anchor, padding], dim=1)
+            if k == 1 and local_anchor.shape[0] >= 1 and float(local_anchor[:, 0].sum().item()) < 0.0:
+                local_anchor = -local_anchor
             local_u = local_big_p @ local_anchor
             
         # Decorrelate the consensus columns when asked. Applied before the

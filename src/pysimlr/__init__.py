@@ -13,7 +13,7 @@ import os
 import sys
 from typing import Any
 
-__version__ = "0.43.1"
+__version__ = "0.44.0"
 
 
 def _configure_matplotlib_backend() -> None:
@@ -140,6 +140,19 @@ from .uniform_shrinkage import (
     project_uniform_shrunk,
     resolve_directional_defaults,
     uniform_shrinkage_params,
+)
+from .presets import (
+    PRESET_BY_NAME,
+    PRESET_CATALOG,
+    PresetTemplate,
+    analyze_views,
+    fit_preset,
+    format_preset_menu,
+    get_preset,
+    jackknife_js_alpha,
+    list_presets,
+    recommend_presets,
+    resolve_auto_sparseness,
 )
 from .loadings import (
     RANK_CRITERIA,
@@ -413,6 +426,17 @@ __all__ = [
     'plot_edge_features',
     'plot_edge_brain_map',
     'plot_dose_recruitment',
+    'PRESET_BY_NAME',
+    'PRESET_CATALOG',
+    'PresetTemplate',
+    'analyze_views',
+    'fit_preset',
+    'format_preset_menu',
+    'get_preset',
+    'jackknife_js_alpha',
+    'list_presets',
+    'recommend_presets',
+    'resolve_auto_sparseness',
 ]
 
 #: Attributes served on first access instead of at import time, because their

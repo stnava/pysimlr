@@ -33,6 +33,29 @@ pred = pysimlr.predict(res, new_views)
 
 `views` is one matrix or a list of matrices (tensor, ndarray or DataFrame) with matched rows.
 
+### Automated presets and 3-tier natural selection (`pysimlr.presets`)
+
+For automated view profiling, rank-ordered preset recommendations with statistical rationales, and zero-threshold parameter selection:
+
+```python
+# Inspect rank-ordered presets and statistical rationales (< 50 ms, strictly unsupervised)
+report = pysimlr.recommend_presets(views, k=None)
+print(report["summary_text"])
+
+# Tier 1 (explicit human choice from the menu)
+res_named = pysimlr.fit_preset(views, k=2, preset="dense_consensus")
+
+# Tier 2 (default when no human choice is supplied: executes Rank #1 automatically)
+res_auto = pysimlr.fit_preset(views, k=None, preset="auto")
+
+# Tier 3 (view profiling skipped: executes static general natural settings directly)
+res_natural = pysimlr.fit_preset(views, k=2, preset=None)
+```
+
+- **`pysimlr.analyze_views(views, *, k=None, fit_rows=None, path_graph=None, directional=None) -> dict`**: profiles row/feature geometry, missingness (`missing_rows="mask"` vs `"impute"`), effective ranks, positive-manifold coherence, marginal non-Gaussianity, uncoupled private variance fraction, Wachter/Marchenko–Pastur GCCA rank (`recommended_k`), sign-honest delete-1 LOO linear geometry skill (`loo_r2`), and QR hat-matrix PRESS nonlinearity gains (`nonlinearity`).
+- **`pysimlr.list_presets()` / `pysimlr.get_preset(name)`**: catalog of 9 general presets (`general_sparse`, `dense_consensus`, `sparse_focal`, `directional_shrunk`, `directional_parts`, `nonlinear_lend`, `nonlinear_ned`, `nonlinear_shared_private`, `nonlinear_flow`).
+- **`sparseness="auto"`**: accepted on `pysimlr.fit`, `pysimlr.simlr`, and `pysimlr.fit_uniform_shrunk` (as `"auto"` or per-view list entries); resolves per-view quantile sparseness via Paired Delete-1 Jackknife 1-SE parsimony (`resolve_auto_sparseness`) and records `result["sparseness_resolved"]`.
+
 ### Parameters
 
 A method accepts exactly the named parameters of its native fit. The registry derives them

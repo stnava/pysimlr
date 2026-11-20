@@ -23,10 +23,15 @@ Saves consolidated results to paper/results_cache/deep_ranking_benchmark.csv.
 
 from __future__ import annotations
 
-import os
-import sys
-import time
 import argparse
+import datetime
+import json
+import os
+import platform
+import subprocess
+import sys
+import tempfile
+import time
 from typing import Optional
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
@@ -491,12 +496,18 @@ def run_deep_benchmark(
     epochs: Optional[int] = None,
     sparsity: Optional[float] = 0.5,
     out_filename: str = "deep_ranking_benchmark.csv",
+    out_dir: Optional[str] = None,
+    synthetic_regimes: Optional[list] = None,
+    real_regimes: Optional[list] = None,
+    model_configs: Optional[list] = None,
 ) -> pd.DataFrame:
-    synthetic_regimes = ["Linear", "Polynomial", "Sine", "Shared+Private",
-                         "NonnegParts", "NonnegPartsWeak"]
-    real_regimes = ["Heart", "Diabetes", "MultiOmics", "TCGA-KIRC", "ADNI-MCI", "mfeat"]
-
-    model_configs = list(MODEL_LABELS.items())
+    if synthetic_regimes is None:
+        synthetic_regimes = ["Linear", "Polynomial", "Sine", "Shared+Private",
+                             "NonnegParts", "NonnegPartsWeak"]
+    if real_regimes is None:
+        real_regimes = ["Heart", "Diabetes", "MultiOmics", "TCGA-KIRC", "ADNI-MCI", "mfeat"]
+    if model_configs is None:
+        model_configs = list(MODEL_LABELS.items())
 
     tasks = []
     for reg in synthetic_regimes:
@@ -510,7 +521,8 @@ def run_deep_benchmark(
                 tasks.append((dset, "real", model_type, model_label, seed, iterations, epochs, sparsity, "default"))
 
     df = _execute_tasks(tasks, workers=workers, label=f"Deep Benchmark (sparseness={sparsity})")
-    out_dir = os.path.join(os.path.dirname(__file__), "..", "paper", "results_cache")
+    if out_dir is None:
+        out_dir = os.path.join(os.path.dirname(__file__), "..", "paper", "results_cache")
     os.makedirs(out_dir, exist_ok=True)
     out_csv = os.path.join(out_dir, out_filename)
     df.to_csv(out_csv, index=False)
@@ -523,24 +535,26 @@ def run_operating_point_suite(
     workers: int = 8,
     iterations: Optional[int] = None,
     epochs: Optional[int] = None,
+    out_dir: Optional[str] = None,
 ) -> pd.DataFrame:
     """Run all three operating points (None, 0.5, 0.8) across all 12 cohorts
     plus paired positivity='positive' vs 'either' on real biomedical cohorts."""
-    out_dir = os.path.join(os.path.dirname(__file__), "..", "paper", "results_cache")
+    if out_dir is None:
+        out_dir = os.path.join(os.path.dirname(__file__), "..", "paper", "results_cache")
     os.makedirs(out_dir, exist_ok=True)
 
     df_none = run_deep_benchmark(
         n_seeds=n_seeds, workers=workers, iterations=iterations, epochs=epochs,
-        sparsity=None, out_filename="deep_ranking_benchmark_q_none.csv",
+        sparsity=None, out_filename="deep_ranking_benchmark_q_none.csv", out_dir=out_dir,
     )
     df_05 = run_deep_benchmark(
         n_seeds=n_seeds, workers=workers, iterations=iterations, epochs=epochs,
-        sparsity=0.5, out_filename="deep_ranking_benchmark.csv",
+        sparsity=0.5, out_filename="deep_ranking_benchmark.csv", out_dir=out_dir,
     )
     df_05.to_csv(os.path.join(out_dir, "deep_ranking_benchmark_q05.csv"), index=False)
     df_08 = run_deep_benchmark(
         n_seeds=n_seeds, workers=workers, iterations=iterations, epochs=epochs,
-        sparsity=0.8, out_filename="deep_ranking_benchmark_q08.csv",
+        sparsity=0.8, out_filename="deep_ranking_benchmark_q08.csv", out_dir=out_dir,
     )
 
     # Paired positivity="positive" evaluation on high-dimensional real biomedical cohorts
@@ -621,10 +635,39 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=None, help="Deep epochs (default: None, package default)")
     parser.add_argument("--suite", action="store_true", help="Run full operating-point (None, 0.5, 0.8) and positivity suite")
     parser.add_argument("--consistency", action="store_true", help="Run B3 deep consistency evaluation (R13)")
-    parser.add_argument("--out", default="docs/audit/evidence/deep_default_consistency.csv", help="Output CSV path")
+    parser.add_argument("--out", default="docs/audit/evidence/deep_default_consistency.csv", help="Output CSV path (for --consistency)")
+    parser.add_argument("--out-dir", default=None, help="Output directory (defaults to paper/results_cache, or temp dir under --smoke)")
+    parser.add_argument("--smoke", action="store_true", help="Fast <10s smoke check (counts=2, non-destructive default out)")
     args = parser.parse_args()
 
-    if args.consistency:
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if args.smoke:
+        smoke_dir = args.out_dir or os.path.join(tempfile.gettempdir(), "pysimlr_smoke_deep_benchmark")
+        t0 = time.perf_counter()
+        run_deep_benchmark(
+            n_seeds=2,
+            workers=min(2, args.workers),
+            iterations=2,
+            sparsity=0.5,
+            out_filename="deep_ranking_benchmark.csv",
+            out_dir=smoke_dir,
+            synthetic_regimes=["Linear"],
+            real_regimes=["Heart"],
+            model_configs=[("simlr", "SiMLR"), ("pca", "PCA")],
+        )
+        import pysimlr
+        cli_rel = " ".join([os.path.relpath(os.path.abspath(sys.argv[0]), repo_root)] + sys.argv[1:])
+        prov = {
+            "cli": cli_rel,
+            "utc": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "platform": f"{platform.system()} {platform.machine()}",
+            "smoke": True,
+            "pysimlr": pysimlr.__version__,
+            "elapsed_seconds": round(time.perf_counter() - t0, 2),
+        }
+        with open(os.path.join(smoke_dir, "provenance_deep_benchmark.json"), "w") as fh:
+            json.dump(prov, fh, indent=2)
+    elif args.consistency:
         run_deep_consistency(
             n_seeds=args.seeds,
             workers=args.workers,
@@ -632,16 +675,40 @@ if __name__ == "__main__":
             out_csv=args.out,
         )
     elif args.suite:
+        t0 = time.perf_counter()
+        out_dir = args.out_dir or os.path.join(repo_root, "paper", "results_cache")
         run_operating_point_suite(
             n_seeds=args.seeds,
             workers=args.workers,
             iterations=args.iterations,
             epochs=args.epochs,
+            out_dir=out_dir,
         )
+        import pysimlr
+        try:
+            commit = subprocess.run(["git", "-C", repo_root, "rev-parse", "--short", "HEAD"],
+                                    capture_output=True, text=True, check=True).stdout.strip()
+        except (OSError, subprocess.CalledProcessError):
+            commit = None
+        cli_rel = " ".join([os.path.relpath(os.path.abspath(sys.argv[0]), repo_root)] + sys.argv[1:])
+        prov = {
+            "cli": cli_rel,
+            "utc": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "platform": f"{platform.system()} {platform.machine()}",
+            "smoke": False,
+            "git_commit": commit,
+            "pysimlr": pysimlr.__version__,
+            "torch": torch.__version__,
+            "n_seeds": args.seeds,
+            "elapsed_seconds": round(time.perf_counter() - t0, 2),
+        }
+        with open(os.path.join(out_dir, "provenance_deep_benchmark.json"), "w") as fh:
+            json.dump(prov, fh, indent=2)
     else:
         run_deep_benchmark(
             n_seeds=args.seeds,
             workers=args.workers,
             iterations=args.iterations,
             epochs=args.epochs,
+            out_dir=args.out_dir,
         )

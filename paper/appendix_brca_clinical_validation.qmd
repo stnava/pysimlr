@@ -1,6 +1,4 @@
----
-title: "Multi-Omics Clinical Validation (TCGA-BRCA)"
----
+# Multi-Omics Clinical Validation (TCGA-BRCA) {#sec-app-brca}
 
 ```{python}
 #| echo: false
@@ -11,7 +9,8 @@ from paper_numbers import N
 _p = "results_cache/brca_er_loadings.json"
 if not os.path.exists(_p):
     _p = "paper/results_cache/brca_er_loadings.json"
-BRCA = json.load(open(_p))
+with open(_p) as _fh:
+    BRCA = json.load(_fh)
 def brca_top(view, n=6):
     v = BRCA["views"][view]
     return Markdown(", ".join(f"`{item[0]}` ({float(item[1]):.3f})" for item in v["top"][:n]))
@@ -24,28 +23,41 @@ def brca_selected(view):
 def brca_view(view, key):
     v = BRCA["views"][view]
     return Markdown(f"{v[key]:.2f}" if isinstance(v[key], float) else str(v[key]))
+brca_n = Markdown(str(BRCA["n"]))
+brca_p_total = Markdown(str(sum(BRCA["views"][t]["p"] for t in ("rna", "cnv", "rppa"))))
+brca_er_comp = Markdown(str(BRCA["er_component"]))
+brca_er_r = Markdown(f"{BRCA['er_abs_corr']:.2f}")
+brca_er_rel = Markdown(f"{BRCA['latent_reliability'][BRCA['er_component'] - 1]:.2f}")
+brca_mv_rel = Markdown(f"{BRCA['latent_reliability_multivariate']:.2f}")
+brca_er_coup = Markdown(f"{BRCA['cross_view_coupling'][BRCA['er_component'] - 1]:.2f}")
+brca_er_agr = Markdown(f"{BRCA['feature_agreement'][BRCA['er_component'] - 1]:.2f}")
+brca_null_max = Markdown(f"{BRCA['null_max_abs']:.2f}")
+def brca_feat_agr(view):
+    return Markdown(f"{BRCA['views'][view]['feature_agreement'][BRCA['er_component'] - 1]:.2f}")
+def brca_efs(view):
+    return Markdown(f"{BRCA['views'][view]['expected_false_selections']:.2f}")
 er_pct = Markdown(f"{100 * BRCA['er_positive_fraction']:.1f}%")
 ```
 
 ## Multi-Omic Integration Strategy
 
-We evaluate the `{python} N.n_models_word` benchmark architectures on the three-view `TCGA-BRCA` breast invasive carcinoma cohort ($N = 822$ primary tumors with complete multi-omic profiles and clinical receptor status) [@tcga2012breast; @perou2000; @parker2009supervised; @curtis2012; @weinstein2013]. The dataset integrates three molecular assay platforms filtered at $\ge 98\%$ completeness:
+We evaluate the `{python} N.n_models_word` benchmark architectures on the three-view `TCGA-BRCA` breast invasive carcinoma cohort ($N =$ `{python} brca_n` primary tumors with complete multi-omic profiles and clinical receptor status) [@tcga2012breast; @perou2000; @parker2009supervised; @curtis2012; @weinstein2013]. The dataset integrates three molecular assay platforms filtered at $\ge 98\%$ completeness:
 
-* **RNA-Seq (`rna`):** $p_1 = 200$ top-variance mRNA sequencing gene expression transcripts (Illumina HiSeqV2).
-* **Copy Number Variation (`cnv`):** $p_2 = 150$ somatic GISTIC2 gene-level copy-number scores.
-* **Proteomics (`rppa`):** $p_3 = 150$ Reverse Phase Protein Array targeted proteomic and phosphoproteomic markers.
+* **RNA-Seq (`rna`):** $p_1 =$ `{python} brca_view('rna', 'p')` top-variance mRNA sequencing gene expression transcripts (Illumina HiSeqV2).
+* **Copy Number Variation (`cnv`):** $p_2 =$ `{python} brca_view('cnv', 'p')` somatic GISTIC2 gene-level copy-number scores.
+* **Proteomics (`rppa`):** $p_3 =$ `{python} brca_view('rppa', 'p')` Reverse Phase Protein Array targeted proteomic and phosphoproteomic markers.
 
-The downstream clinical target is binary Estrogen Receptor (ER) status (Positive vs. Negative, `{python} er_pct` ER+ prevalence), evaluated across three independent $70/30$ stratified train/test splits (`Seeds 42, 43, 44`, standardized strictly inside each training fold).
+The downstream clinical target is binary Estrogen Receptor (ER) status (Positive vs. Negative, `{python} er_pct` ER+ prevalence), evaluated across `{python} N.n_seeds` independent $70/30$ stratified train/test splits (`Seeds 42, 43, 44`, standardized strictly inside each training fold).
 
 ## Performance Results
 
-@tbl-brca-appendix-results reports out-of-sample ER status classification accuracy across both primary evaluation probes: global consensus coordinates ($\mathbf{U}$) and the linear entrypoint projection ($\mathbf{X}_m \mathbf{V}_m$), alongside Stiefel frame defect $D(\mathbf{V}_m)$, sparsity, and execution runtime computed directly from `paper/results_cache/deep_ranking_benchmark.csv`.
+@tbl-brca-appendix-results reports out-of-sample ER status classification accuracy across both primary evaluation probes: global consensus coordinates ($\mathbf{U}$) and the linear entrypoint projection ($\mathbf{X}_m \mathbf{V}_m$), alongside Stiefel frame defect $D(\mathbf{V}_m)$, sparsity, and execution runtime computed directly from `paper/results_cache/deep_ranking_benchmark.csv`. On the linear entrypoint probe, `{python} N.brca_best_model` reaches `{python} N.brca_best` against `{python} N.brca_pca` for `PCA` (consensus `{python} N.brca_pca_u`), while `Flow-SiMR-V` reaches `{python} N.brca_Flow_SiMR_V_pm`, `LEND` reaches `{python} N.brca_LEND_pm`, and `SiMLR` reaches `{python} N.brca_SiMLR`.
 
 ```{python}
 #| warning: false
 #| message: false
 #| label: tbl-brca-appendix-results
-#| tbl-cap: "TCGA-BRCA 3-view multi-omics classification benchmark ($N = 822$, $p = [200, 150, 150]$, 3 seeds) computed from `deep_ranking_benchmark.csv`."
+#| tbl-cap: "TCGA-BRCA 3-view multi-omics classification benchmark across 70/30 stratified splits (seeds 42–44, binary ER status) computed from `deep_ranking_benchmark.csv`, ordered by linear entrypoint accuracy."
 #| echo: false
 #| output: asis
 import os
@@ -68,7 +80,7 @@ agg = sub.groupby("Model").agg({
     "Fit_Seconds": "mean"
 })
 
-order = ["NSAFlow-PCA", "LEND", "PCA", "NEDPP", "NED", "SiMLR", "Flow-SiMR-V"]
+order = agg.sort_values(("Strictly_Linear_Metric", "mean"), ascending=False).index.tolist()
 rows = []
 for m in order:
     if m not in agg.index:
@@ -83,21 +95,21 @@ for m in order:
         f"{pm:.3f} ± {ps:.3f}",
         f"{lm:.3f} ± {ls:.3f}",
         f"{fd:.4f}",
-        f"{sp:.1f}%",
+        f"{sp:.1f}",
         f"{ft:.3f}s"
     ])
 
-headers = ["Model", "Consensus Acc (U) ↑", "Linear Probe (XV) ↑", "Frame Defect D ↓", "Sparsity ↑", "Fit Time ↓"]
-print(tabulate(rows, headers=headers, tablefmt="pipe"))
+headers = ["Model", "Consensus Acc (U) ↑", "Linear Probe (XV) ↑", "Frame Defect D ↓", "Sparsity (%) ↑", "Fit Time ↓"]
+print(tabulate(rows, headers=headers, tablefmt="pipe", disable_numparse=True, colalign=("left", "right", "right", "right", "right", "right")))
 ```
 
 ## Tri-Modal Molecular Driver Recovery and Multi-View Fingerprints
 
-The linear entrypoint maps the 500 multi-omic features directly onto the low-dimensional latent coordinates, while `pysimlr.loading_inference` refits the full pipeline across 100 half-sample splits and 20 cross-view permutations to separate reproducible drivers from in-sample selection noise. @fig-brca-trimodal-waterfall displays `pysimlr.plot_top_features` on the ER-aligned component learned by `LEND` across the three molecular modalities (`brca_er_loadings.json` from `scripts/paper_brca_loadings.py`), @fig-brca-feature-chord maps the stability-selected and interval-significant biomarkers across all three views onto components `C1–C3` via `pysimlr.plot_feature_chord`, and @fig-brca-view-radar summarizes each assay's training and held-out coupling, held-out reconstruction $R^2$, normalized effective rank, and sparsity via `pysimlr.plot_view_radar`.
+The linear entrypoint maps the `{python} brca_p_total` multi-omic features directly onto the low-dimensional latent coordinates, while `pysimlr.loading_inference` refits the full pipeline across 100 half-sample splits and 20 cross-view permutations to separate reproducible drivers from in-sample selection noise. On the ER-aligned component C`{python} brca_er_comp` ($|r| =$ `{python} brca_er_r` with ER status), out-of-bag `latent_reliability` is `{python} brca_er_rel` (multivariate reliability `{python} brca_mv_rel`), held-out `cross_view_coupling` is `{python} brca_er_coup`, and overall `feature_agreement` is `{python} brca_er_agr` (against a feature-structure permutation null maximum $|r| \le$ `{python} brca_null_max`). @fig-brca-trimodal-waterfall displays `pysimlr.plot_top_features` on component C`{python} brca_er_comp` learned by `LEND` across the three molecular modalities (`brca_er_loadings.json` from `scripts/paper_brca_loadings.py`), @fig-brca-feature-chord maps the stability-selected and interval-significant biomarkers across all three views onto components `C1–C3` via `pysimlr.plot_feature_chord`, and @fig-brca-view-radar summarizes each assay's training and held-out coupling, held-out reconstruction $R^2$, normalized effective rank, and sparsity via `pysimlr.plot_view_radar`.
 
 ```{python}
 #| label: fig-brca-trimodal-waterfall
-#| fig-cap: "Top 15 structure coefficients (`pysimlr.plot_top_features`) with 95% subsample intervals and the cross-view permutation null band on the ER-aligned `LEND` component of each `TCGA-BRCA` view ($N = 822$, `loading_inference` with 100 half-sample refits and 20 permutations; `brca_er_loadings.json` from `scripts/paper_brca_loadings.py`). Filled dots mark stability-selected features or 95% intervals excluding zero; hollow rings include zero; bold labels mark Meinshausen–Bühlmann stability-selected drivers (threshold = 0.80, expected false selections $\\le 1.0$)."
+#| fig-cap: "Tri-modal structure coefficients on the ER-aligned `LEND` component isolate hormone-receptor drivers across mRNA, copy number, and RPPA proteomics (`pysimlr.plot_top_features`, 100 half-sample refits and 20 cross-view permutations; `brca_er_loadings.json`). Horizontal bars plot the top 15 feature-to-score correlations per view with 95% subsample intervals and the shaded permutation null band; filled dots mark stability-selected features or intervals excluding zero, hollow rings include zero, and bold labels denote Meinshausen–Bühlmann selected drivers (threshold 0.80, expected false selections <= 1.0)."
 #| echo: false
 #| out-width: 100%
 import matplotlib.pyplot as plt
@@ -121,7 +133,7 @@ plt.show()
 ::: {.column width="54%"}
 ```{python}
 #| label: fig-brca-feature-chord
-#| fig-cap: "Tri-modal feature-to-component chord diagram (`pysimlr.plot_feature_chord`) across `TCGA-BRCA` mRNA, copy number, and RPPA proteomics. Only biomarkers whose 95% subsample interval excludes zero or that pass stability selection are drawn; ribbon width tracks $|\\text{structure}|$ and lower opacity indicates negative correlation."
+#| fig-cap: "Stability-selected and interval-significant biomarkers couple mRNA, copy number, and RPPA proteomics into shared latent axes (`pysimlr.plot_feature_chord`, `top_n = 6` per view across `C1–C3`). Ribbon width tracks $|\\text{structure}|$ and lower opacity indicates negative correlation, restricted to features whose 95% subsample interval excludes zero or that pass stability selection."
 #| echo: false
 #| out-width: 100%
 import matplotlib.pyplot as plt
@@ -143,7 +155,7 @@ plt.show()
 ::: {.column width="42%"}
 ```{python}
 #| label: fig-brca-view-radar
-#| fig-cap: "Overlaid three-view quality fingerprint (`pysimlr.plot_view_radar`) on a stratified 70/30 `TCGA-BRCA` split (`Seed 42`), comparing training and held-out consensus coupling, held-out reconstruction $R^2$, normalized basis rank ($\\text{rank}/k$), and encoder sparsity across mRNA, copy number, and RPPA proteomics."
+#| fig-cap: "Assay-level quality fingerprints confirm high held-out coupling and low-dimensional alignment across all three `TCGA-BRCA` modalities (`pysimlr.plot_view_radar`, stratified 70/30 split, `Seed 42`). Five [0, 1] spokes compare training and held-out consensus coupling, held-out reconstruction $R^2$, normalized basis rank ($\\text{rank}/k$), and encoder sparsity for mRNA, copy number, and RPPA proteomics."
 #| echo: false
 #| out-width: 100%
 import matplotlib.pyplot as plt
@@ -160,6 +172,6 @@ plt.show()
 :::
 ::::
 
-1. **Proteomics (`rppa`):** the largest structure coefficients on component `{python} brca_view('rppa', 'component')` ($|r|$ with ER `{python} brca_view('rppa', 'abs_corr_with_er')`) are `{python} brca_top('rppa')`, with stability-selected features: `{python} brca_selected('rppa')`.
-2. **Transcriptomics (`rna`):** the largest structure coefficients on component `{python} brca_view('rna', 'component')` ($|r|$ with ER `{python} brca_view('rna', 'abs_corr_with_er')`) are `{python} brca_top('rna')`, with stability-selected features: `{python} brca_selected('rna')`.
-3. **Copy Number Variation (`cnv`):** the largest structure coefficients on component `{python} brca_view('cnv', 'component')` ($|r|$ with ER `{python} brca_view('cnv', 'abs_corr_with_er')`) are `{python} brca_top('cnv')`, with stability-selected features: `{python} brca_selected('cnv')`.
+1. **Proteomics (`rppa`):** the largest structure coefficients on component `{python} brca_view('rppa', 'component')` ($|r|$ with ER `{python} brca_view('rppa', 'abs_corr_with_er')`, per-view `feature_agreement` `{python} brca_feat_agr('rppa')`, expected false selections `{python} brca_efs('rppa')`) are `{python} brca_top('rppa')`, with stability-selected features: `{python} brca_selected('rppa')`.
+2. **Transcriptomics (`rna`):** the largest structure coefficients on component `{python} brca_view('rna', 'component')` ($|r|$ with ER `{python} brca_view('rna', 'abs_corr_with_er')`, per-view `feature_agreement` `{python} brca_feat_agr('rna')`, expected false selections `{python} brca_efs('rna')`) are `{python} brca_top('rna')`, with stability-selected features: `{python} brca_selected('rna')`.
+3. **Copy Number Variation (`cnv`):** the largest structure coefficients on component `{python} brca_view('cnv', 'component')` ($|r|$ with ER `{python} brca_view('cnv', 'abs_corr_with_er')`, per-view `feature_agreement` `{python} brca_feat_agr('cnv')`, expected false selections `{python} brca_efs('cnv')`) are `{python} brca_top('cnv')`, with stability-selected features: `{python} brca_selected('cnv')`.

@@ -1,0 +1,16 @@
+{
+  "cli": "scripts/run_real_data_v043.py --part-b-only --workers 8 --n-seeds 3 --out paper/results_cache",
+  "start_utc": "2026-11-19T20:27:12.709524Z",
+  "end_utc": "2026-11-19T20:27:28.976823Z",
+  "elapsed_seconds": 16.27,
+  "platform": "Darwin arm64",
+  "python": "3.13.2",
+  "torch": "2.13.0",
+  "pysimlr": "0.43.1",
+  "git_commit": "a0985c1",
+  "device": "cpu",
+  "smoke": false,
+  "part_b_only": true,
+  "n_tasks_part_a": 0,
+  "n_tasks_part_b": 96
+}

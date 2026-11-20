@@ -826,8 +826,29 @@ def fit_uniform_shrunk(
         )
     mats = _extract_view_list(views)
     m_cnt = len(mats)
+    mode_key = str(alpha_mode).lower().strip()
+    is_jk_mode = mode_key in ("auto", "jk_js")
+    if not is_jk_mode and mode_key not in ("ric", "plugin"):
+        raise ValueError(f"alpha_mode must be 'ric', 'plugin', 'auto', or 'jk_js'; got {alpha_mode!r}.")
+    allow_flip = resolved_energy == "nc_abs" or k_i > 1
 
-    if isinstance(sparseness, (list, tuple)):
+    if sparseness == "auto" or (
+        isinstance(sparseness, (list, tuple)) and any(x == "auto" for x in sparseness)
+    ):
+        from .presets import resolve_auto_sparseness
+        q_auto = resolve_auto_sparseness(
+            views, k_i, positivity=resolved_pos, path_graph=fit_kwargs.get("path_graph")
+        )
+        if sparseness == "auto":
+            q_list = list(q_auto)
+        else:
+            if len(sparseness) != m_cnt:  # type: ignore[arg-type]
+                raise ValueError(f"sparseness sequence has {len(sparseness)} entries for {m_cnt} views.")  # type: ignore[arg-type]
+            q_list = [
+                q_auto[i] if sq == "auto" else (None if sq is None else float(sq))
+                for i, sq in enumerate(sparseness)  # type: ignore[arg-type]
+            ]
+    elif isinstance(sparseness, (list, tuple)):
         if len(sparseness) != m_cnt:
             raise ValueError(f"sparseness sequence has {len(sparseness)} entries for {m_cnt} views.")
         q_list = [None if q is None else float(q) for q in sparseness]
@@ -846,13 +867,45 @@ def fit_uniform_shrunk(
 
     # ----------------------------------------------------------------- Single-stage dense k == 1
     if k_i == 1 and not has_sparse:
+        eff_alpha = alpha
+        eff_clip = clip
+        if is_jk_mode and alpha == "auto":
+            from .presets import _thin_subspace, jackknife_js_alpha
+            n_rows = mats[0].shape[0]
+            sub_u: list[np.ndarray] = []
+            for mat in mats:
+                om = np.isfinite(mat).any(axis=1)
+                u_f = np.full(n_rows, np.nan, dtype=np.float64)
+                if int(om.sum()) >= 4 and mat.shape[1] >= 1:
+                    sub = np.nan_to_num(mat[om], nan=0.0)
+                    sd = np.std(sub, axis=0, keepdims=True)
+                    sc = np.where(sd > 1e-12, (sub - np.mean(sub, axis=0, keepdims=True)) / np.maximum(sd, 1e-12), 0.0)
+                    ur, _, vr = _thin_subspace(sc, max_r=1)
+                    if ur.shape[1] > 0:
+                        sgn_v = 1.0 if float(np.sum(vr[:, 0])) >= 0.0 else -1.0
+                        u_f[om] = ur[:, 0] * sgn_v
+                sub_u.append(u_f)
+            eff_alpha = [
+                jackknife_js_alpha(
+                    mat,
+                    (
+                        np.nanmean(np.column_stack([sub_u[j] for j in range(m_cnt) if j != m_idx]), axis=1)
+                        if m_cnt > 1
+                        else sub_u[m_idx]
+                    ),
+                    allow_sign_flip=allow_flip,
+                )
+                for m_idx, mat in enumerate(mats)
+            ]
+            eff_clip = (0.0, 1.0)
+
         kw = uniform_shrinkage_params(
             views,
             k=1,
-            alpha=alpha,
-            alpha_mode=alpha_mode,
+            alpha=eff_alpha,
+            alpha_mode="ric" if is_jk_mode else alpha_mode,
             prior_scale=prior_scale,
-            clip=clip,
+            clip=eff_clip,
             positivity=resolved_pos,
             sparseness=None,
             sparseness_type="hard",
@@ -871,6 +924,7 @@ def fit_uniform_shrunk(
             "positivity_requested": positivity,
             "alpha_mode": str(alpha_mode),
             "sparseness": sparseness,
+            "sparseness_resolved": q_list,
             "resolved_energy_type": resolved_energy,
             "resolved_mixing_algorithm": resolved_mix,
             "n_obs": kw.provenance["n_obs"],
@@ -888,7 +942,7 @@ def fit_uniform_shrunk(
             views,
             k=1,
             alpha=alpha,
-            alpha_mode=alpha_mode,
+            alpha_mode="ric" if is_jk_mode else alpha_mode,
             prior_scale=prior_scale,
             clip=clip,
             positivity=resolved_pos,
@@ -940,13 +994,31 @@ def fit_uniform_shrunk(
         supports_by_view.append(supps_m)
         init_v2.append(_stage2_initial_basis(v1_m, supps_m, resolved_pos))
 
+    eff_s2_alpha: Any = alpha
+    eff_s2_clip = clip
+    if is_jk_mode and alpha == "auto":
+        from .presets import jackknife_js_alpha
+        u_s1 = (
+            stage1_res["u"].detach().cpu().double().numpy()
+            if torch.is_tensor(stage1_res["u"])
+            else np.asarray(stage1_res["u"], dtype=np.float64)
+        )
+        eff_s2_alpha = [
+            [
+                jackknife_js_alpha(mat[:, s_c], u_s1[:, c_i], allow_sign_flip=allow_flip)
+                for c_i, s_c in enumerate(supps_m)
+            ]
+            for mat, supps_m in zip(mats, supports_by_view)
+        ]
+        eff_s2_clip = (0.0, 1.0)
+
     s2_kw = uniform_shrinkage_params(
         views,
         k=k_i,
-        alpha=alpha,
-        alpha_mode=alpha_mode,
+        alpha=eff_s2_alpha,
+        alpha_mode="ric" if is_jk_mode else alpha_mode,
         prior_scale=prior_scale,
-        clip=clip,
+        clip=eff_s2_clip,
         positivity=resolved_pos,
         sparseness=None,
         sparseness_type="hard",
@@ -967,6 +1039,7 @@ def fit_uniform_shrunk(
         "positivity_requested": positivity,
         "alpha_mode": str(alpha_mode),
         "sparseness": sparseness,
+        "sparseness_resolved": q_list,
         "resolved_energy_type": resolved_energy,
         "resolved_mixing_algorithm": resolved_mix,
         "stage1_nsa_w": float(stage1_nsa_w) if k_i > 1 else 0.0,
@@ -1080,8 +1153,11 @@ def project_uniform_shrunk(
                 w_fit_sub = pos[supp] / float(np.sum(pos[supp]))
 
             if auto_gamma:
-                d_eff = effective_support_dof(int(supp.size), p_m, mode=eff_alpha_mode)
-                gamma_mc = float(np.clip(1.0 - float(n_tr_m) / (1.5 * d_eff), 0.0, 0.60))
+                if eff_alpha_mode.lower().strip() in ("auto", "jk_js"):
+                    gamma_mc = 0.0
+                else:
+                    d_eff = effective_support_dof(int(supp.size), p_m, mode=eff_alpha_mode)
+                    gamma_mc = float(np.clip(1.0 - float(n_tr_m) / (1.5 * d_eff), 0.0, 0.60))
             else:
                 gamma_mc = fixed_gamma
 

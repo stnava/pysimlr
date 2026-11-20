@@ -623,6 +623,25 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, safety: str = 
                 raise ValueError(f"positivity gives view {idx_v} twice.")
             norm_pos[idx_v] = vv
         call["positivity"] = norm_pos
+    _resolved_auto_sp: Optional[List[Optional[float]]] = None
+    if call.get("sparseness") == "auto" or (
+        isinstance(call.get("sparseness"), (list, tuple))
+        and any(x == "auto" for x in call["sparseness"])
+    ):
+        from .presets import resolve_auto_sparseness
+        _pos_hint = call.get("positivity", "either")
+        _pos_str = _pos_hint if isinstance(_pos_hint, str) else "either"
+        _auto_q = resolve_auto_sparseness(
+            view_list, int(k), positivity=_pos_str, path_graph=call.get("path_graph")
+        )
+        if call["sparseness"] == "auto":
+            call["sparseness"] = _auto_q
+        else:
+            call["sparseness"] = [
+                (_auto_q[i] if i < len(_auto_q) else None) if sq == "auto" else sq
+                for i, sq in enumerate(call["sparseness"])
+            ]
+        _resolved_auto_sp = list(call["sparseness"])
     if call.get("system_matrices") is not None and isinstance(call["system_matrices"], Mapping):
         from .system_prior import normalize_system_matrices_arg
         call["system_matrices"] = normalize_system_matrices_arg(
@@ -652,6 +671,8 @@ def fit(method: str, views: Any, k: int, *, strict: bool = False, safety: str = 
     else:
         res = spec.fit(view_list, int(k), **call)
     _normalize(res)
+    if _resolved_auto_sp is not None:
+        res["sparseness_resolved"] = _resolved_auto_sp
     if fit_view_names is not None:
         res["view_names"] = fit_view_names
     res["method"] = spec.name
